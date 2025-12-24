@@ -76,7 +76,9 @@ describe("awk math functions", () => {
 
     it("srand() can be called with a seed", async () => {
       const env = new BashEnv();
-      const result = await env.exec("echo '' | awk '{ srand(42); print rand() }'");
+      const result = await env.exec(
+        "echo '' | awk '{ srand(42); print rand() }'",
+      );
       const value = parseFloat(result.stdout.trim());
       expect(value).toBeGreaterThanOrEqual(0);
       expect(value).toBeLessThan(1);

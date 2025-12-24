@@ -388,9 +388,7 @@ fifth line`,
     it("should convert single imports to barrel export", async () => {
       const env = createAdvancedEnv();
       // Transform import to export (simpler pattern)
-      const result = await env.exec(
-        "sed 's/import/export/' /code/imports.ts",
-      );
+      const result = await env.exec("sed 's/import/export/' /code/imports.ts");
       expect(result.stdout).toContain("export { foo }");
       expect(result.stdout).toContain("export { bar }");
       expect(result.exitCode).toBe(0);
@@ -399,9 +397,7 @@ fifth line`,
     it("should find functions that need documentation", async () => {
       const env = createAdvancedEnv();
       // Find function declarations that could use JSDoc
-      const result = await env.exec(
-        "grep -n '^function' /code/deprecated.ts",
-      );
+      const result = await env.exec("grep -n '^function' /code/deprecated.ts");
       expect(result.stdout).toContain("function oldFunc");
       expect(result.stdout).toContain("function activeFunc");
       expect(result.exitCode).toBe(0);

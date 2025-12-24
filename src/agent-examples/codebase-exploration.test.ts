@@ -185,21 +185,45 @@ describe("Agent Scenario: Disk Usage Analysis with ls -h and du -h", () => {
       files: {
         // Small config files
         "/project/package.json": { content: '{"name": "app"}', mode: 0o644 },
-        "/project/tsconfig.json": { content: '{"target": "es2020"}', mode: 0o644 },
+        "/project/tsconfig.json": {
+          content: '{"target": "es2020"}',
+          mode: 0o644,
+        },
         // Source files of varying sizes
         "/project/src/index.ts": { content: "a".repeat(500), mode: 0o644 },
         "/project/src/utils.ts": { content: "b".repeat(2 * 1024), mode: 0o644 }, // 2K
         "/project/src/api.ts": { content: "c".repeat(5 * 1024), mode: 0o644 }, // 5K
         // Large build artifacts
-        "/project/dist/bundle.js": { content: "d".repeat(150 * 1024), mode: 0o644 }, // 150K
-        "/project/dist/bundle.js.map": { content: "e".repeat(300 * 1024), mode: 0o644 }, // 300K
+        "/project/dist/bundle.js": {
+          content: "d".repeat(150 * 1024),
+          mode: 0o644,
+        }, // 150K
+        "/project/dist/bundle.js.map": {
+          content: "e".repeat(300 * 1024),
+          mode: 0o644,
+        }, // 300K
         // Node modules simulation
-        "/project/node_modules/lodash/index.js": { content: "f".repeat(500 * 1024), mode: 0o644 }, // 500K
-        "/project/node_modules/lodash/package.json": { content: '{"name": "lodash"}', mode: 0o644 },
-        "/project/node_modules/express/index.js": { content: "g".repeat(200 * 1024), mode: 0o644 }, // 200K
+        "/project/node_modules/lodash/index.js": {
+          content: "f".repeat(500 * 1024),
+          mode: 0o644,
+        }, // 500K
+        "/project/node_modules/lodash/package.json": {
+          content: '{"name": "lodash"}',
+          mode: 0o644,
+        },
+        "/project/node_modules/express/index.js": {
+          content: "g".repeat(200 * 1024),
+          mode: 0o644,
+        }, // 200K
         // Log files
-        "/project/logs/app.log": { content: "h".repeat(1024 * 1024), mode: 0o644 }, // 1M
-        "/project/logs/error.log": { content: "i".repeat(50 * 1024), mode: 0o644 }, // 50K
+        "/project/logs/app.log": {
+          content: "h".repeat(1024 * 1024),
+          mode: 0o644,
+        }, // 1M
+        "/project/logs/error.log": {
+          content: "i".repeat(50 * 1024),
+          mode: 0o644,
+        }, // 50K
       },
       cwd: "/project",
     });

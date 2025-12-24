@@ -2,24 +2,24 @@ import { createLazyCommands } from "./commands/registry.js";
 import { type IFileSystem, VirtualFs } from "./fs.js";
 import type { InitialFiles } from "./fs-interface.js";
 import {
-  executeIfStatement,
-  executeForLoop,
-  executeWhileLoop,
-  executeUntilLoop,
-  executeCaseStatement,
+  type BuiltinContext,
   evaluateTopLevelTest,
+  executeCaseStatement,
+  executeForLoop,
+  executeIfStatement,
+  executeUntilLoop,
+  executeWhileLoop,
   executeWithHereDoc,
   expandVariablesAsync,
-  handleCd,
-  handleExport,
-  handleUnset,
-  handleLocal,
-  handleExit,
-  handleVariableAssignment,
-  handleTestExpression,
-  type InterpreterContext,
   type HereDocContext,
-  type BuiltinContext,
+  handleCd,
+  handleExit,
+  handleExport,
+  handleLocal,
+  handleTestExpression,
+  handleUnset,
+  handleVariableAssignment,
+  type InterpreterContext,
 } from "./interpreter/index.js";
 import {
   GlobExpander,
@@ -743,7 +743,10 @@ export class BashEnv {
 
     // Handle [[ ]] test expressions
     if (expandedCommand === "[[") {
-      return await handleTestExpression(expandedArgs, this.getInterpreterContext());
+      return await handleTestExpression(
+        expandedArgs,
+        this.getInterpreterContext(),
+      );
     }
 
     // Handle variable assignment: VAR=value (no args, command contains =)

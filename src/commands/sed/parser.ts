@@ -162,29 +162,34 @@ export function parseSedScript(script: string): ParseResult {
       // Transliterate command: y/source/dest/
       return parseTransliterate(cmd, range);
 
-    case "b":
+    case "b": {
       // Branch command: b [label]
-      {
-        const label = cmd.slice(1).trim();
-        return { command: { type: "branch", address: range, label: label || undefined } };
-      }
+      const label = cmd.slice(1).trim();
+      return {
+        command: { type: "branch", address: range, label: label || undefined },
+      };
+    }
 
-    case "t":
+    case "t": {
       // Branch on substitution: t [label]
-      {
-        const label = cmd.slice(1).trim();
-        return { command: { type: "branchOnSubst", address: range, label: label || undefined } };
-      }
+      const label = cmd.slice(1).trim();
+      return {
+        command: {
+          type: "branchOnSubst",
+          address: range,
+          label: label || undefined,
+        },
+      };
+    }
 
-    case ":":
+    case ":": {
       // Label definition: :name
-      {
-        const name = cmd.slice(1).trim();
-        if (!name) {
-          return { command: null, error: "missing label name" };
-        }
-        return { command: { type: "label", name } };
+      const name = cmd.slice(1).trim();
+      if (!name) {
+        return { command: null, error: "missing label name" };
       }
+      return { command: { type: "label", name } };
+    }
 
     case "a":
       // Append command: a\ or a text
@@ -278,7 +283,10 @@ function parseTransliterate(cmd: string, range?: AddressRange): ParseResult {
   }
 
   if (source.length !== dest.length) {
-    return { command: null, error: "transliteration sets must have same length" };
+    return {
+      command: null,
+      error: "transliteration sets must have same length",
+    };
   }
 
   return {

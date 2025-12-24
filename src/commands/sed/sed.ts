@@ -1,6 +1,10 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
-import { createInitialState, executeCommands, ExecuteContext } from "./executor.js";
+import {
+  createInitialState,
+  type ExecuteContext,
+  executeCommands,
+} from "./executor.js";
 import { parseMultipleScripts } from "./parser.js";
 import type { SedCommand, SedState } from "./types.js";
 
@@ -167,7 +171,14 @@ export const sedCommand: Command = {
         return unknownOption("sed", arg);
       } else if (arg.startsWith("-") && arg.length > 1) {
         for (const c of arg.slice(1)) {
-          if (c !== "n" && c !== "e" && c !== "f" && c !== "i" && c !== "E" && c !== "r") {
+          if (
+            c !== "n" &&
+            c !== "e" &&
+            c !== "f" &&
+            c !== "i" &&
+            c !== "E" &&
+            c !== "r"
+          ) {
             return unknownOption("sed", `-${c}`);
           }
         }
@@ -184,7 +195,11 @@ export const sedCommand: Command = {
             scriptFiles.push(args[++i]);
           }
         }
-      } else if (!arg.startsWith("-") && scripts.length === 0 && scriptFiles.length === 0) {
+      } else if (
+        !arg.startsWith("-") &&
+        scripts.length === 0 &&
+        scriptFiles.length === 0
+      ) {
         scripts.push(arg);
       } else if (!arg.startsWith("-")) {
         files.push(arg);

@@ -48,7 +48,9 @@ export function parseAwkProgram(program: string): ParsedProgram {
       }
     } else {
       // Pattern range { action }: /start/,/end/ { action }
-      const rangeAction = remaining.match(/^\/([^/]*)\/\s*,\s*\/([^/]*)\/\s*\{/);
+      const rangeAction = remaining.match(
+        /^\/([^/]*)\/\s*,\s*\/([^/]*)\/\s*\{/,
+      );
       if (rangeAction) {
         const actionStart = remaining.indexOf("{");
         const endBrace = findMatchingBrace(remaining, actionStart);
@@ -97,7 +99,10 @@ export function parseAwkProgram(program: string): ParsedProgram {
               }
             } else {
               // Condition only (no action) or just a print expression
-              if (remaining.startsWith("print") || remaining.startsWith("printf")) {
+              if (
+                remaining.startsWith("print") ||
+                remaining.startsWith("printf")
+              ) {
                 result.main.push({ pattern: null, action: remaining });
               } else {
                 // It's a condition without action - default to print

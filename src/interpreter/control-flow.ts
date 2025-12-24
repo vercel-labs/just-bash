@@ -108,7 +108,7 @@ export function parseIfStatement(input: string): {
         pos++;
 
         // Check if this line starts with the delimiter
-        const lineStart = pos;
+        const _lineStart = pos;
         let lineContent = "";
         while (pos < rest.length && rest[pos] !== "\n") {
           lineContent += rest[pos];
@@ -303,7 +303,9 @@ function parseForLoop(input: string): {
     // Check for nested loops (for/while/until ... do)
     if (isAtLineStart && slice.match(/^(for|while|until)\s/)) {
       // Find 'do' to confirm it's a loop
-      const loopMatch = slice.match(/^(for|while|until)\s.*?(?:\s*[;\n]\s*|\s+)do(?:\s*[;\n]|\s+)/s);
+      const loopMatch = slice.match(
+        /^(for|while|until)\s.*?(?:\s*[;\n]\s*|\s+)do(?:\s*[;\n]|\s+)/s,
+      );
       if (loopMatch) {
         depth++;
         pos += loopMatch[0].length;
@@ -352,7 +354,7 @@ export async function executeForLoop(
 
   // If there's content after done (like | sort), pipe the output
   const trimmedRest = rest?.trim();
-  if (trimmedRest && trimmedRest.startsWith("|")) {
+  if (trimmedRest?.startsWith("|")) {
     const pipeCommand = trimmedRest.slice(1).trim();
     if (pipeCommand) {
       // Execute the piped command with loop output as stdin
@@ -360,7 +362,9 @@ export async function executeForLoop(
       const escapedOutput = loopResult.stdout
         .replace(/\\/g, "\\\\")
         .replace(/'/g, "'\"'\"'");
-      const pipeResult = await ctx.exec(`printf '%s' '${escapedOutput}' | ${pipeCommand}`);
+      const pipeResult = await ctx.exec(
+        `printf '%s' '${escapedOutput}' | ${pipeCommand}`,
+      );
       return {
         stdout: pipeResult.stdout,
         stderr: loopResult.stderr + pipeResult.stderr,
@@ -388,9 +392,7 @@ async function executeForLoopBody(
 ): Promise<ExecResult> {
   // Expand the list (could contain command substitution, variables, or literals)
   const expandedList = await ctx.expandVariables(listStr.trim());
-  const items = expandedList
-    .split(/\s+/)
-    .filter((s) => s.length > 0);
+  const items = expandedList.split(/\s+/).filter((s) => s.length > 0);
 
   let stdout = "";
   let stderr = "";

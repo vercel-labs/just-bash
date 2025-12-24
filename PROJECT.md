@@ -205,7 +205,6 @@ Woohoo
 
 ## Implementation phase 13
 
-- Block `return await` with biome
 - Do we handle stop of execution in multi-line script for non-zero return values?
 
 ## Implementation phase 14
@@ -214,3 +213,7 @@ Woohoo
   - Search the web for official grammars and use an existing npm package for parsing the grammer and the input
 - Further extend composition tests
 - Start by writing `real-parser.md` and then confirm further work.
+
+## Implementation phase 15
+
+- Implement set -e

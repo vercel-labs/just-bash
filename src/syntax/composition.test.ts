@@ -470,7 +470,9 @@ EOF
           export N=$((N + 1))
         done
       `);
-      expect(result.stdout).toBe("1 squared is 1\n2 squared is 4\n3 squared is 9\n");
+      expect(result.stdout).toBe(
+        "1 squared is 1\n2 squared is 4\n3 squared is 9\n",
+      );
     });
   });
 

@@ -70,9 +70,12 @@ export function evaluateExpression(
       case "srand": {
         // In real awk, srand() seeds the random number generator
         // We'll just return a value and the random will work with Math.random()
-        const seed = args.length > 0 ? Number(evaluateExpression(args[0], ctx)) : Date.now();
+        const seed =
+          args.length > 0
+            ? Number(evaluateExpression(args[0], ctx))
+            : Date.now();
         // Store seed for reference (doesn't actually change behavior)
-        ctx.vars["_srand_seed"] = seed;
+        ctx.vars._srand_seed = seed;
         return seed;
       }
     }

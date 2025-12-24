@@ -274,12 +274,27 @@ describe("Agent Scenario: File Permission Audit with find -perm", () => {
   const createPermEnv = () =>
     new BashEnv({
       files: {
-        "/server/bin/start.sh": { content: "#!/bin/bash\nnode app.js", mode: 0o755 },
-        "/server/bin/deploy.sh": { content: "#!/bin/bash\n# deploy script", mode: 0o755 },
-        "/server/bin/backup.sh": { content: "#!/bin/bash\n# backup", mode: 0o700 },
+        "/server/bin/start.sh": {
+          content: "#!/bin/bash\nnode app.js",
+          mode: 0o755,
+        },
+        "/server/bin/deploy.sh": {
+          content: "#!/bin/bash\n# deploy script",
+          mode: 0o755,
+        },
+        "/server/bin/backup.sh": {
+          content: "#!/bin/bash\n# backup",
+          mode: 0o700,
+        },
         "/server/config/app.json": { content: '{"port": 3000}', mode: 0o644 },
-        "/server/config/secrets.json": { content: '{"key": "secret"}', mode: 0o600 },
-        "/server/config/db.json": { content: '{"host": "localhost"}', mode: 0o644 },
+        "/server/config/secrets.json": {
+          content: '{"key": "secret"}',
+          mode: 0o600,
+        },
+        "/server/config/db.json": {
+          content: '{"host": "localhost"}',
+          mode: 0o644,
+        },
         "/server/logs/app.log": { content: "log data", mode: 0o644 },
         "/server/logs/error.log": { content: "errors", mode: 0o644 },
         "/server/data/users.db": { content: "user data", mode: 0o600 },

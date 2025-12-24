@@ -34,9 +34,7 @@ describe("tr -c (complement)", () => {
 
     it("uses --complement long option", async () => {
       const env = new BashEnv();
-      const result = await env.exec(
-        "echo 'abc123' | tr --complement -d '0-9'",
-      );
+      const result = await env.exec("echo 'abc123' | tr --complement -d '0-9'");
       expect(result.stdout).toBe("123");
     });
   });

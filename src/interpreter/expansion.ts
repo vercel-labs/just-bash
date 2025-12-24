@@ -255,8 +255,7 @@ export function evaluateArithmetic(
   expanded = expanded.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (match) => {
     // Check if it's a number or operator
     if (/^[0-9]+$/.test(match)) return match;
-    if (["true", "false"].includes(match))
-      return match === "true" ? "1" : "0";
+    if (["true", "false"].includes(match)) return match === "true" ? "1" : "0";
     // It's a variable name - look it up
     const value = env[match];
     return value !== undefined ? value : "0";
@@ -470,7 +469,7 @@ export function evalArithmeticExpr(expr: string): number {
     if (peek() === "**") {
       consume();
       const right = parsePower(); // right-associative
-      return Math.pow(left, right);
+      return left ** right;
     }
     return left;
   };

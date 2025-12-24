@@ -576,7 +576,9 @@ function handleGetline(stmt: string, ctx: AwkContext): string {
   if (stmt === "getline") {
     // Read into $0
     ctx.line = nextLine;
-    ctx.fields = ctx.fieldSep ? nextLine.split(ctx.fieldSep) : nextLine.split(/\s+/);
+    ctx.fields = ctx.fieldSep
+      ? nextLine.split(ctx.fieldSep)
+      : nextLine.split(/\s+/);
     ctx.NF = ctx.fields.length;
     ctx.NR++;
     ctx.lineIndex = nextLineIndex;

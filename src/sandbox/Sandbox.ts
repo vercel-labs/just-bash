@@ -1,7 +1,7 @@
 import { BashEnv } from "../BashEnv.js";
 import type { IFileSystem } from "../fs-interface.js";
-import { Command } from "./Command.js";
 import type { CommandFinished } from "./Command.js";
+import { Command } from "./Command.js";
 
 export interface SandboxOptions {
   cwd?: string;

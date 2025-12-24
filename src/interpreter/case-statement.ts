@@ -188,7 +188,7 @@ export function parseCaseStatement(input: string): {
     while (pos < rest.length && /[\s\n]/.test(rest[pos])) pos++;
 
     // Parse body until ;; or esac
-    let bodyStart = pos;
+    const bodyStart = pos;
     let caseDepth = 0;
 
     while (pos < rest.length) {
@@ -202,19 +202,13 @@ export function parseCaseStatement(input: string): {
       })();
 
       // Check for nested case - must be at start of line (case WORD in)
-      if (
-        isAtLineStart &&
-        rest.slice(pos).match(/^case\s+\S+\s+in(\s|$)/)
-      ) {
+      if (isAtLineStart && rest.slice(pos).match(/^case\s+\S+\s+in(\s|$)/)) {
         caseDepth++;
         pos += 4;
         continue;
       }
       // Check for esac - must be at start of line
-      if (
-        isAtLineStart &&
-        rest.slice(pos).match(/^esac(\s|;|$)/)
-      ) {
+      if (isAtLineStart && rest.slice(pos).match(/^esac(\s|;|$)/)) {
         if (caseDepth > 0) {
           caseDepth--;
           pos += 4;
@@ -272,7 +266,7 @@ export function matchCasePattern(word: string, pattern: string): boolean {
         regex += "\\[";
       }
     } else if (/[.+^${}()|\\]/.test(char)) {
-      regex += "\\" + char;
+      regex += `\\${char}`;
     } else {
       regex += char;
     }

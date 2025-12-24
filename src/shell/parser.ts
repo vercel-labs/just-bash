@@ -364,81 +364,6 @@ export class ShellParser {
   }
 
   /**
-   * Expand a variable starting at position i
-   */
-  private expandVariable(
-    str: string,
-    startIndex: number,
-  ): { value: string; endIndex: number } {
-    let i = startIndex + 1; // Skip the $
-
-    if (i >= str.length) {
-      return { value: "$", endIndex: i };
-    }
-
-    // Handle ${VAR} and ${VAR:-default}
-    if (str[i] === "{") {
-      const closeIndex = str.indexOf("}", i);
-      if (closeIndex === -1) {
-        return { value: "${", endIndex: i + 1 };
-      }
-      const content = str.slice(i + 1, closeIndex);
-
-      // Handle ${VAR:-default}
-      const defaultMatch = content.match(/^([^:]+):-(.*)$/);
-      if (defaultMatch) {
-        const [, varName, defaultValue] = defaultMatch;
-        return {
-          value: this.env[varName] ?? defaultValue,
-          endIndex: closeIndex + 1,
-        };
-      }
-      return {
-        value: this.env[content] ?? "",
-        endIndex: closeIndex + 1,
-      };
-    }
-
-    // Handle special variables: $@, $#, $$, $?, $!, $*
-    if ("@#$?!*".includes(str[i])) {
-      return {
-        value: this.env[str[i]] ?? "",
-        endIndex: i + 1,
-      };
-    }
-
-    // Handle positional parameters: $0, $1, $2, ...
-    if (/[0-9]/.test(str[i])) {
-      return {
-        value: this.env[str[i]] ?? "",
-        endIndex: i + 1,
-      };
-    }
-
-    // Handle $VAR - must start with letter or underscore
-    let varName = "";
-    // First char must be letter or underscore
-    if (/[A-Za-z_]/.test(str[i])) {
-      varName += str[i];
-      i++;
-      // Subsequent chars can include digits
-      while (i < str.length && /[A-Za-z0-9_]/.test(str[i])) {
-        varName += str[i];
-        i++;
-      }
-    }
-
-    if (!varName) {
-      return { value: "$", endIndex: startIndex + 1 };
-    }
-
-    return {
-      value: this.env[varName] ?? "",
-      endIndex: i,
-    };
-  }
-
-  /**
    * Find matching ) for $(...), handling nesting
    */
   private findMatchingParen(str: string, start: number): number {
@@ -596,7 +521,11 @@ export class ShellParser {
   private buildPipelines(tokens: Token[]): Pipeline[] {
     const pipelines: Pipeline[] = [];
     let currentPipeline: Pipeline = { commands: [] };
-    let currentArgs: { value: string; quoted: boolean; singleQuoted?: boolean }[] = [];
+    let currentArgs: {
+      value: string;
+      quoted: boolean;
+      singleQuoted?: boolean;
+    }[] = [];
     let currentRedirections: Redirection[] = [];
     let lastOperator: "" | "&&" | "||" | ";" = "";
     let negationCount = 0; // Count of ! operators for current pipeline segment

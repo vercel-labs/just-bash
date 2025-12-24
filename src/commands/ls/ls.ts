@@ -252,9 +252,7 @@ async function listGlob(
           : String(size).padStart(5);
         const mtime = stat.mtime ?? new Date(0);
         const dateStr = formatDate(mtime);
-        lines.push(
-          `${mode} 1 user user ${sizeStr} ${dateStr} ${match}${type}`,
-        );
+        lines.push(`${mode} 1 user user ${sizeStr} ${dateStr} ${match}${type}`);
       } catch {
         lines.push(`-rw-r--r-- 1 user user     0 Jan  1 00:00 ${match}`);
       }

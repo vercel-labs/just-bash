@@ -93,10 +93,7 @@ export function handleUnset(
 /**
  * Handle the local builtin command (for function-scoped variables)
  */
-export function handleLocal(
-  args: string[],
-  ctx: BuiltinContext,
-): ExecResult {
+export function handleLocal(args: string[], ctx: BuiltinContext): ExecResult {
   // 'local' is only valid inside a function
   if (ctx.localScopes.length === 0) {
     return {

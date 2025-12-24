@@ -72,12 +72,12 @@ export async function executeWithHereDoc(
   // Find the body and end delimiter
   const lines = bodyStart.split("\n");
 
-  let bodyLines: string[] = [];
+  const bodyLines: string[] = [];
   let foundEnd = false;
   let endIndex = 0;
 
   for (let i = 0; i < lines.length; i++) {
-    let line = lines[i];
+    const line = lines[i];
     const lineToCheck = stripTabs ? line.replace(/^\t+/, "") : line;
 
     // Check if this line is the end delimiter
@@ -135,12 +135,18 @@ export async function executeWithHereDoc(
       try {
         if (isAppend) {
           const fileExists = await ctx.fs.exists(resolvedPath);
-          const existing = fileExists ? await ctx.fs.readFile(resolvedPath) : "";
+          const existing = fileExists
+            ? await ctx.fs.readFile(resolvedPath)
+            : "";
           await ctx.fs.writeFile(resolvedPath, existing + cmdResult.stdout);
         } else {
           await ctx.fs.writeFile(resolvedPath, cmdResult.stdout);
         }
-        result = { stdout: "", stderr: cmdResult.stderr, exitCode: cmdResult.exitCode };
+        result = {
+          stdout: "",
+          stderr: cmdResult.stderr,
+          exitCode: cmdResult.exitCode,
+        };
       } catch (e) {
         result = {
           stdout: "",
@@ -160,7 +166,10 @@ export async function executeWithHereDoc(
   }
 
   // If there's content after the end delimiter, execute it too
-  const remaining = lines.slice(endIndex + 1).join("\n").trim();
+  const remaining = lines
+    .slice(endIndex + 1)
+    .join("\n")
+    .trim();
   if (remaining) {
     const restResult = await ctx.exec(remaining);
     return {

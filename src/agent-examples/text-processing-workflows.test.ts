@@ -698,7 +698,7 @@ END_RECORD`,
         "awk '/ERROR BLOCK START/,/ERROR BLOCK END/ { count++ } END { print count }' /logs/server.log",
       );
       // Two blocks, 5 lines each (START + error + stack + 2 traces + END)
-      expect(parseInt(result.stdout.trim())).toBeGreaterThan(8);
+      expect(parseInt(result.stdout.trim(), 10)).toBeGreaterThan(8);
       expect(result.exitCode).toBe(0);
     });
   });
@@ -718,9 +718,7 @@ END_RECORD`,
 
     it("should extract cache settings", async () => {
       const env = createLogEnv();
-      const result = await env.exec(
-        "grep -A3 '\\[cache\\]' /logs/config.ini",
-      );
+      const result = await env.exec("grep -A3 '\\[cache\\]' /logs/config.ini");
       expect(result.stdout).toContain("[cache]");
       expect(result.stdout).toContain("enabled=true");
       expect(result.stdout).toContain("ttl=3600");
@@ -732,9 +730,11 @@ END_RECORD`,
     it("should combine record fields using getline", async () => {
       const env = createLogEnv();
       const result = await env.exec(
-        "awk '/^RECORD:/ { id=$2; getline; split($0,a,\": \"); name=a[2]; getline; split($0,b,\": \"); email=b[2]; print id, name, email }' /data/records.txt",
+        'awk \'/^RECORD:/ { id=$2; getline; split($0,a,": "); name=a[2]; getline; split($0,b,": "); email=b[2]; print id, name, email }\' /data/records.txt',
       );
-      expect(result.stdout).toContain("user001 Alice Johnson alice@example.com");
+      expect(result.stdout).toContain(
+        "user001 Alice Johnson alice@example.com",
+      );
       expect(result.stdout).toContain("user002 Bob Smith bob@example.com");
       expect(result.exitCode).toBe(0);
     });
@@ -895,7 +895,7 @@ Stack trace follows...`,
     it("should sanitize for SQL safety (remove quotes)", async () => {
       const env = createSanitizeEnv();
       const result = await env.exec(
-        "echo \"user'; DROP TABLE users;--\" | tr -d \"';\"",
+        'echo "user\'; DROP TABLE users;--" | tr -d "\';"',
       );
       expect(result.stdout).not.toContain("'");
       expect(result.stdout).not.toContain(";");

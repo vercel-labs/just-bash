@@ -57,15 +57,23 @@ EOF`,
 
   it("should expand variables in here document", async () => {
     const env = await setupFiles(testDir, {});
-    await compareOutputs(env, testDir, `NAME=World; cat <<EOF
+    await compareOutputs(
+      env,
+      testDir,
+      `NAME=World; cat <<EOF
 Hello, $NAME!
-EOF`);
+EOF`,
+    );
   });
 
   it("should NOT expand variables when delimiter is quoted", async () => {
     const env = await setupFiles(testDir, {});
-    await compareOutputs(env, testDir, `NAME=World; cat <<'EOF'
+    await compareOutputs(
+      env,
+      testDir,
+      `NAME=World; cat <<'EOF'
 Hello, $NAME!
-EOF`);
+EOF`,
+    );
   });
 });

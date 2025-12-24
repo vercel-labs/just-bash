@@ -103,7 +103,7 @@ export interface IFileSystem {
    */
   readFile(
     path: string,
-    options?: ReadFileOptions | BufferEncoding
+    options?: ReadFileOptions | BufferEncoding,
   ): Promise<string>;
 
   /**
@@ -118,7 +118,7 @@ export interface IFileSystem {
   writeFile(
     path: string,
     content: FileContent,
-    options?: WriteFileOptions | BufferEncoding
+    options?: WriteFileOptions | BufferEncoding,
   ): Promise<void>;
 
   /**
@@ -127,7 +127,7 @@ export interface IFileSystem {
   appendFile(
     path: string,
     content: FileContent,
-    options?: WriteFileOptions | BufferEncoding
+    options?: WriteFileOptions | BufferEncoding,
   ): Promise<void>;
 
   /**

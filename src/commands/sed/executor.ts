@@ -321,9 +321,17 @@ export function executeCommands(
     // Handle N command specially - it needs to append next line inline
     if (cmd.type === "nextAppend") {
       if (
-        isInRange(cmd.address, state.lineNumber, state.totalLines, state.patternSpace)
+        isInRange(
+          cmd.address,
+          state.lineNumber,
+          state.totalLines,
+          state.patternSpace,
+        )
       ) {
-        if (ctx && ctx.currentLineIndex + linesConsumed + 1 < ctx.lines.length) {
+        if (
+          ctx &&
+          ctx.currentLineIndex + linesConsumed + 1 < ctx.lines.length
+        ) {
           linesConsumed++;
           const nextLine = ctx.lines[ctx.currentLineIndex + linesConsumed];
           state.patternSpace += `\n${nextLine}`;
@@ -339,7 +347,14 @@ export function executeCommands(
     if (cmd.type === "branch") {
       const branchCmd = cmd as BranchCommand;
       // Check if address matches
-      if (isInRange(branchCmd.address, state.lineNumber, state.totalLines, state.patternSpace)) {
+      if (
+        isInRange(
+          branchCmd.address,
+          state.lineNumber,
+          state.totalLines,
+          state.patternSpace,
+        )
+      ) {
         if (branchCmd.label) {
           const target = labelIndex.get(branchCmd.label);
           if (target !== undefined) {
@@ -357,7 +372,14 @@ export function executeCommands(
     if (cmd.type === "branchOnSubst") {
       const branchCmd = cmd as BranchOnSubstCommand;
       // Check if address matches
-      if (isInRange(branchCmd.address, state.lineNumber, state.totalLines, state.patternSpace)) {
+      if (
+        isInRange(
+          branchCmd.address,
+          state.lineNumber,
+          state.totalLines,
+          state.patternSpace,
+        )
+      ) {
         if (state.substitutionMade) {
           state.substitutionMade = false; // Reset flag
           if (branchCmd.label) {
