@@ -27,15 +27,21 @@ import type { IFileSystem } from "../fs-interface.js";
 import type { CommandContext, CommandRegistry, ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import {
+  handleBreak,
   handleCd,
+  handleContinue,
   handleExit,
   handleExport,
   handleLocal,
+  handleRead,
   handleSet,
+  handleSource,
   handleUnset,
-} from "./builtins.js";
+} from "./builtins/index.js";
 import { evaluateConditional, evaluateTestArgs } from "./conditionals.js";
 import {
+  BreakError,
+  ContinueError,
   executeCase,
   executeCStyleFor,
   executeFor,
@@ -153,6 +159,10 @@ export class Interpreter {
       exitCode = result.exitCode;
       lastExecutedIndex = i;
       lastPipelineNegated = pipeline.negated;
+
+      // Update $? after each pipeline so it's available for subsequent commands
+      this.ctx.state.lastExitCode = exitCode;
+      this.ctx.state.env["?"] = String(exitCode);
     }
 
     // Check errexit (set -e): exit if command failed
@@ -176,12 +186,18 @@ export class Interpreter {
   private async executePipeline(node: PipelineNode): Promise<ExecResult> {
     let stdin = "";
     let lastResult: ExecResult = { stdout: "", stderr: "", exitCode: 0 };
+    let pipefailExitCode = 0; // Track rightmost failing command
 
     for (let i = 0; i < node.commands.length; i++) {
       const command = node.commands[i];
       const isLast = i === node.commands.length - 1;
 
       const result = await this.executeCommand(command, stdin);
+
+      // Track the exit code of failing commands for pipefail
+      if (result.exitCode !== 0) {
+        pipefailExitCode = result.exitCode;
+      }
 
       if (!isLast) {
         stdin = result.stdout;
@@ -193,6 +209,14 @@ export class Interpreter {
       } else {
         lastResult = result;
       }
+    }
+
+    // If pipefail is enabled, use the rightmost failing exit code
+    if (this.ctx.state.options.pipefail && pipefailExitCode !== 0) {
+      lastResult = {
+        ...lastResult,
+        exitCode: pipefailExitCode,
+      };
     }
 
     if (node.negated) {
@@ -350,6 +374,18 @@ export class Interpreter {
     if (commandName === "set") {
       return handleSet(this.ctx, args);
     }
+    if (commandName === "break") {
+      return handleBreak(this.ctx, args);
+    }
+    if (commandName === "continue") {
+      return handleContinue(this.ctx, args);
+    }
+    if (commandName === "source" || commandName === ".") {
+      return handleSource(this.ctx, args);
+    }
+    if (commandName === "read") {
+      return handleRead(this.ctx, args, stdin);
+    }
 
     // Test commands
     if (commandName === "[[") {
@@ -431,6 +467,11 @@ export class Interpreter {
     } catch (error) {
       this.ctx.state.env = savedEnv;
       this.ctx.state.cwd = savedCwd;
+      if (error instanceof BreakError || error instanceof ContinueError) {
+        error.stdout = stdout + error.stdout;
+        error.stderr = stderr + error.stderr;
+        throw error;
+      }
       if (error instanceof ErrexitError) {
         error.stdout = stdout + error.stdout;
         error.stderr = stderr + error.stderr;
@@ -459,6 +500,11 @@ export class Interpreter {
         exitCode = result.exitCode;
       }
     } catch (error) {
+      if (error instanceof BreakError || error instanceof ContinueError) {
+        error.stdout = stdout + error.stdout;
+        error.stderr = stderr + error.stderr;
+        throw error;
+      }
       if (error instanceof ErrexitError) {
         error.stdout = stdout + error.stdout;
         error.stderr = stderr + error.stderr;

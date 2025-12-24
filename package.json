@@ -41,6 +41,7 @@
     "vitest": "^4.0.16"
   },
   "dependencies": {
+    "diff": "^8.0.2",
     "minimatch": "^10.1.1",
     "sprintf-js": "^1.1.3"
   }

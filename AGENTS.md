@@ -8,6 +8,16 @@ Usage: pnpm dev:exec '<bash script>'
        cat script.sh | pnpm dev:exec
 ```
 
+**Important**: When using `pnpm dev:exec` with command-line arguments, pnpm converts single quotes to double quotes, which causes shell variables like `$?` to be expanded by the host shell before reaching BashEnv. To test scripts containing `$?` or other shell variables, use stdin instead:
+
+```bash
+# WRONG - $? gets expanded by host shell to 0:
+pnpm dev:exec 'false; echo $?'
+
+# CORRECT - use stdin to avoid shell expansion:
+echo 'false; echo $?' | pnpm dev:exec
+```
+
 - Install packages via pnpm rather than editing package.json directly
 - Bias towards making new test files that are roughly logically grouped rather than letting test files gets too large. Try to stay below 300 lines. Prefer making a new file when you want to add a `describe()`
 - Prefer asserting the full STDOUT/STDERR output rather than using to.contain or to.not.contain
@@ -24,3 +34,11 @@ Usage: pnpm dev:exec '<bash script>'
 - Always make sure to build before using dist
 - Biome rules often have the same name as eslint rules (if you are lookinf for one)
 - Error / show usage on unknown flags in commands and built-ins (unless real bash also ignores)
+- Dependencies that use wasm are not allowed. Binary npm packages are fine
+
+## Commands
+
+- Must have usage statement
+- Must error on unknown options (unless bash ignores them)
+- Must have extensive unit tests collocated with the command
+- Should have comparison tests if there is doubt about behavior

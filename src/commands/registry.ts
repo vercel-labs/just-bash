@@ -197,6 +197,24 @@ const commandLoaders: LazyCommandDef[] = [
     name: "sh",
     load: async () => (await import("./bash/bash.js")).shCommand,
   },
+
+  // Data processing
+  {
+    name: "jq",
+    load: async () => (await import("./jq/jq.js")).jqCommand,
+  },
+  {
+    name: "base64",
+    load: async () => (await import("./base64/base64.js")).base64Command,
+  },
+  {
+    name: "diff",
+    load: async () => (await import("./diff/diff.js")).diffCommand,
+  },
+  {
+    name: "date",
+    load: async () => (await import("./date/date.js")).dateCommand,
+  },
 ];
 
 // Cache for loaded commands

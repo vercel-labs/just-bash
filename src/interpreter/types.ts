@@ -14,6 +14,8 @@ import type { CommandRegistry, ExecResult } from "../types.js";
 export interface ShellOptions {
   /** set -e: Exit immediately if a command exits with non-zero status */
   errexit: boolean;
+  /** set -o pipefail: Return the exit status of the last (rightmost) command in a pipeline that fails */
+  pipefail: boolean;
 }
 
 export interface InterpreterState {
@@ -29,6 +31,8 @@ export interface InterpreterState {
   options: ShellOptions;
   /** True when executing condition for if/while/until (errexit doesn't apply) */
   inCondition: boolean;
+  /** Current loop nesting depth (for break/continue) */
+  loopDepth: number;
 }
 
 export interface InterpreterContext {
