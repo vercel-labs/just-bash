@@ -74,23 +74,31 @@ export const headCommand: Command = {
       };
     }
 
-    // Helper to get head of content
+    // Helper to get head of content - optimized to avoid splitting entire file
     const getHead = (content: string): string => {
       if (bytes !== null) {
         return content.slice(0, bytes);
       }
-      let inputLines = content.split("\n");
-      const hadTrailingNewline = content.endsWith("\n");
-      if (
-        hadTrailingNewline &&
-        inputLines.length > 0 &&
-        inputLines[inputLines.length - 1] === ""
-      ) {
-        inputLines = inputLines.slice(0, -1);
+
+      // Fast path: find the Nth newline without splitting entire content
+      if (lines === 0) return "";
+
+      let pos = 0;
+      let lineCount = 0;
+      const len = content.length;
+
+      while (pos < len && lineCount < lines) {
+        const nextNewline = content.indexOf("\n", pos);
+        if (nextNewline === -1) {
+          // No more newlines, rest of content is last line
+          return content + "\n";
+        }
+        lineCount++;
+        pos = nextNewline + 1;
       }
-      const selected = inputLines.slice(0, lines);
-      const output = selected.join("\n");
-      return output + (output ? "\n" : "");
+
+      // Return content up to pos (includes trailing newline)
+      return pos > 0 ? content.slice(0, pos) : "";
     };
 
     // If no files, read from stdin

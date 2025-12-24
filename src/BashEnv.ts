@@ -888,34 +888,63 @@ export class BashEnv {
   // ===========================================================================
 
   private async expandWord(word: WordNode): Promise<string> {
+    const wordParts = word.parts;
+    const len = wordParts.length;
+
+    // Fast path: single part (very common)
+    if (len === 1) {
+      return this.expandPart(wordParts[0]);
+    }
+
+    // Multiple parts: build array
     const parts: string[] = [];
-    for (const part of word.parts) {
-      parts.push(await this.expandPart(part));
+    for (let i = 0; i < len; i++) {
+      parts.push(await this.expandPart(wordParts[i]));
     }
     return parts.join("");
   }
 
   private async expandWordWithGlob(word: WordNode): Promise<{ values: string[]; quoted: boolean }> {
+    const wordParts = word.parts;
+    const len = wordParts.length;
     let hasQuoted = false;
     let hasCommandSub = false;
     let hasArrayVar = false;
-    const parts: string[] = [];
+    let value: string;
 
-    for (const part of word.parts) {
-      if (part.type === "SingleQuoted" || part.type === "DoubleQuoted") {
+    // Fast path: single part (very common)
+    if (len === 1) {
+      const part = wordParts[0];
+      const partType = part.type;
+      if (partType === "SingleQuoted" || partType === "DoubleQuoted") {
         hasQuoted = true;
       }
-      if (part.type === "CommandSubstitution") {
+      if (partType === "CommandSubstitution") {
         hasCommandSub = true;
       }
-      // Track unquoted $@ or $* which should be word-split
-      if (part.type === "ParameterExpansion" && (part.parameter === "@" || part.parameter === "*")) {
+      if (partType === "ParameterExpansion" && ((part as any).parameter === "@" || (part as any).parameter === "*")) {
         hasArrayVar = true;
       }
-      parts.push(await this.expandPart(part));
+      value = await this.expandPart(part);
+    } else {
+      // Multiple parts: build array
+      const parts: string[] = [];
+      for (let i = 0; i < len; i++) {
+        const part = wordParts[i];
+        const partType = part.type;
+        if (partType === "SingleQuoted" || partType === "DoubleQuoted") {
+          hasQuoted = true;
+        }
+        if (partType === "CommandSubstitution") {
+          hasCommandSub = true;
+        }
+        if (partType === "ParameterExpansion" && ((part as any).parameter === "@" || (part as any).parameter === "*")) {
+          hasArrayVar = true;
+        }
+        parts.push(await this.expandPart(part));
+      }
+      value = parts.join("");
     }
-
-    const value = parts.join("");
 
     // Word splitting for unquoted command substitution or $@/$* results
     if (!hasQuoted && (hasCommandSub || hasArrayVar) && value.includes(" ")) {

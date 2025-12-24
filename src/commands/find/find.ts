@@ -157,16 +157,16 @@ export const findCommand: Command = {
             ? `./${currentPath.slice(basePath.length + 1)}`
             : searchPath + currentPath.slice(basePath.length);
 
-      // Determine if entry is empty
-      let isEmpty = false;
-      if (stat.isFile) {
-        // File is empty if size is 0
-        isEmpty = stat.size === 0;
-      } else if (stat.isDirectory) {
-        // Directory is empty if it has no entries
-        const entries = await ctx.fs.readdir(currentPath);
-        isEmpty = entries.length === 0;
+      // For directories, get entries once and reuse for both isEmpty check and recursion
+      let entries: string[] | null = null;
+      if (stat.isDirectory) {
+        entries = await ctx.fs.readdir(currentPath);
       }
+
+      // Determine if entry is empty
+      const isEmpty = stat.isFile
+        ? stat.size === 0
+        : entries !== null && entries.length === 0;
 
       // Check if this entry matches our criteria
       // Only apply tests if we're at or beyond mindepth
@@ -192,9 +192,8 @@ export const findCommand: Command = {
         results.push(relativePath);
       }
 
-      // Recurse into directories
-      if (stat.isDirectory) {
-        const entries = await ctx.fs.readdir(currentPath);
+      // Recurse into directories (reuse entries from above)
+      if (entries !== null) {
         for (const entry of entries) {
           const childPath =
             currentPath === "/" ? `/${entry}` : `${currentPath}/${entry}`;

@@ -49,6 +49,35 @@ import {
 } from "../ast/types.js";
 import { Lexer, type Token, TokenType } from "./lexer.js";
 
+// Pre-computed Sets for fast redirection token lookup (avoids array allocation per call)
+const REDIRECTION_TOKENS = new Set([
+  TokenType.LESS,
+  TokenType.GREAT,
+  TokenType.DLESS,
+  TokenType.DGREAT,
+  TokenType.LESSAND,
+  TokenType.GREATAND,
+  TokenType.LESSGREAT,
+  TokenType.DLESSDASH,
+  TokenType.CLOBBER,
+  TokenType.TLESS,
+  TokenType.AND_GREAT,
+  TokenType.AND_DGREAT,
+]);
+
+const REDIRECTION_AFTER_NUMBER = new Set([
+  TokenType.LESS,
+  TokenType.GREAT,
+  TokenType.DLESS,
+  TokenType.DGREAT,
+  TokenType.LESSAND,
+  TokenType.GREATAND,
+  TokenType.LESSGREAT,
+  TokenType.DLESSDASH,
+  TokenType.CLOBBER,
+  TokenType.TLESS,
+]);
+
 export interface ParseError {
   message: string;
   line: number;
@@ -124,12 +153,28 @@ export class Parser {
     return token;
   }
 
-  private check(...types: TokenType[]): boolean {
-    return types.includes(this.current().type);
+  /**
+   * Check if current token matches any of the given types.
+   * Optimized to avoid array allocation for common cases (1-4 args).
+   */
+  private check(
+    t1: TokenType,
+    t2?: TokenType,
+    t3?: TokenType,
+    t4?: TokenType,
+    ...rest: TokenType[]
+  ): boolean {
+    const type = this.tokens[this.pos]?.type;
+    if (type === t1) return true;
+    if (t2 !== undefined && type === t2) return true;
+    if (t3 !== undefined && type === t3) return true;
+    if (t4 !== undefined && type === t4) return true;
+    if (rest.length > 0) return rest.includes(type);
+    return false;
   }
 
   private match(...types: TokenType[]): boolean {
-    if (this.check(...types)) {
+    if ((this.check as (...t: TokenType[]) => boolean)(...types)) {
       this.advance();
       return true;
     }
@@ -1357,48 +1402,22 @@ export class Parser {
   // ===========================================================================
 
   private isRedirection(): boolean {
-    const t = this.current().type;
+    const currentToken = this.tokens[this.pos];
+    const t = currentToken.type;
 
     // Check for number followed by redirection operator
     // Only treat as fd redirection if the number is immediately adjacent to the operator
     // e.g., "2>" is a redirection but "2 >" (with space) is an argument followed by redirection
     if (t === TokenType.NUMBER) {
-      const currentToken = this.current();
-      const nextToken = this.peek(1);
-      const next = nextToken.type;
+      const nextToken = this.tokens[this.pos + 1];
       // Check if tokens are adjacent (no space between them)
-      const isAdjacent = currentToken.end === nextToken.start;
-      if (!isAdjacent) {
+      if (currentToken.end !== nextToken.start) {
         return false;
       }
-      return [
-        TokenType.LESS,
-        TokenType.GREAT,
-        TokenType.DLESS,
-        TokenType.DGREAT,
-        TokenType.LESSAND,
-        TokenType.GREATAND,
-        TokenType.LESSGREAT,
-        TokenType.DLESSDASH,
-        TokenType.CLOBBER,
-        TokenType.TLESS,
-      ].includes(next);
+      return REDIRECTION_AFTER_NUMBER.has(nextToken.type);
     }
 
-    return [
-      TokenType.LESS,
-      TokenType.GREAT,
-      TokenType.DLESS,
-      TokenType.DGREAT,
-      TokenType.LESSAND,
-      TokenType.GREATAND,
-      TokenType.LESSGREAT,
-      TokenType.DLESSDASH,
-      TokenType.CLOBBER,
-      TokenType.TLESS,
-      TokenType.AND_GREAT,
-      TokenType.AND_DGREAT,
-    ].includes(t);
+    return REDIRECTION_TOKENS.has(t);
   }
 
   private parseRedirection(): RedirectionNode {

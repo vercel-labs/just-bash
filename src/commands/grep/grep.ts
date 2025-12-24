@@ -407,33 +407,69 @@ function grepContent(
   beforeContext: number = 0,
   afterContext: number = 0,
 ): { output: string; matched: boolean } {
-  let lines = content.split("\n");
-  // Remove trailing empty line from split if content ended with newline
-  if (lines.length > 0 && lines[lines.length - 1] === "") {
-    lines = lines.slice(0, -1);
+  const lines = content.split("\n");
+  const lineCount = lines.length;
+  // Handle trailing empty line from split if content ended with newline
+  const lastIdx = lineCount > 0 && lines[lineCount - 1] === "" ? lineCount - 1 : lineCount;
+
+  // Fast path: count only mode
+  if (countOnly) {
+    let matchCount = 0;
+    for (let i = 0; i < lastIdx; i++) {
+      regex.lastIndex = 0;
+      if (regex.test(lines[i]) !== invertMatch) {
+        matchCount++;
+      }
+    }
+    const countStr = filename ? `${filename}:${matchCount}` : String(matchCount);
+    return { output: `${countStr}\n`, matched: matchCount > 0 };
   }
+
+  // Fast path: no context needed (most common case)
+  if (beforeContext === 0 && afterContext === 0) {
+    const outputLines: string[] = [];
+    let hasMatch = false;
+
+    for (let i = 0; i < lastIdx; i++) {
+      const line = lines[i];
+      regex.lastIndex = 0;
+      const matches = regex.test(line);
+
+      if (matches !== invertMatch) {
+        hasMatch = true;
+        if (onlyMatching) {
+          regex.lastIndex = 0;
+          for (let match = regex.exec(line); match !== null; match = regex.exec(line)) {
+            outputLines.push(filename ? `${filename}:${match[0]}` : match[0]);
+            if (match[0].length === 0) regex.lastIndex++;
+          }
+        } else if (showLineNumbers) {
+          outputLines.push(filename ? `${filename}:${i + 1}:${line}` : `${i + 1}:${line}`);
+        } else {
+          outputLines.push(filename ? `${filename}:${line}` : line);
+        }
+      }
+    }
+
+    return {
+      output: outputLines.length > 0 ? `${outputLines.join("\n")}\n` : "",
+      matched: hasMatch,
+    };
+  }
+
+  // Slow path: context lines needed
   const outputLines: string[] = [];
   let matchCount = 0;
   const printedLines = new Set<number>();
 
   // First pass: find all matching lines
   const matchingLineNumbers: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (let i = 0; i < lastIdx; i++) {
     regex.lastIndex = 0;
-    const matches = regex.test(line);
-
-    if (matches !== invertMatch) {
+    if (regex.test(lines[i]) !== invertMatch) {
       matchingLineNumbers.push(i);
       matchCount++;
     }
-  }
-
-  if (countOnly) {
-    const countStr = filename
-      ? `${filename}:${matchCount}`
-      : String(matchCount);
-    return { output: `${countStr}\n`, matched: matchCount > 0 };
   }
 
   // Second pass: output with context
@@ -443,12 +479,8 @@ function grepContent(
       if (!printedLines.has(i)) {
         printedLines.add(i);
         let outputLine = lines[i];
-        if (showLineNumbers) {
-          outputLine = `${i + 1}-${outputLine}`;
-        }
-        if (filename) {
-          outputLine = `${filename}-${outputLine}`;
-        }
+        if (showLineNumbers) outputLine = `${i + 1}-${outputLine}`;
+        if (filename) outputLine = `${filename}-${outputLine}`;
         outputLines.push(outputLine);
       }
     }
@@ -459,50 +491,27 @@ function grepContent(
       const line = lines[lineNum];
 
       if (onlyMatching) {
-        // Output only the matched parts
         regex.lastIndex = 0;
-        for (
-          let match = regex.exec(line);
-          match !== null;
-          match = regex.exec(line)
-        ) {
-          let outputLine = match[0];
-          if (filename) {
-            outputLine = `${filename}:${outputLine}`;
-          }
-          outputLines.push(outputLine);
-          // Avoid infinite loop for zero-length matches
-          if (match[0].length === 0) {
-            regex.lastIndex++;
-          }
+        for (let match = regex.exec(line); match !== null; match = regex.exec(line)) {
+          outputLines.push(filename ? `${filename}:${match[0]}` : match[0]);
+          if (match[0].length === 0) regex.lastIndex++;
         }
       } else {
         let outputLine = line;
-        if (showLineNumbers) {
-          outputLine = `${lineNum + 1}:${outputLine}`;
-        }
-        if (filename) {
-          outputLine = `${filename}:${outputLine}`;
-        }
+        if (showLineNumbers) outputLine = `${lineNum + 1}:${outputLine}`;
+        if (filename) outputLine = `${filename}:${outputLine}`;
         outputLines.push(outputLine);
       }
     }
 
     // After context
-    for (
-      let i = lineNum + 1;
-      i <= Math.min(lines.length - 1, lineNum + afterContext);
-      i++
-    ) {
+    const maxAfter = Math.min(lastIdx - 1, lineNum + afterContext);
+    for (let i = lineNum + 1; i <= maxAfter; i++) {
       if (!printedLines.has(i)) {
         printedLines.add(i);
         let outputLine = lines[i];
-        if (showLineNumbers) {
-          outputLine = `${i + 1}-${outputLine}`;
-        }
-        if (filename) {
-          outputLine = `${filename}-${outputLine}`;
-        }
+        if (showLineNumbers) outputLine = `${i + 1}-${outputLine}`;
+        if (filename) outputLine = `${filename}-${outputLine}`;
         outputLines.push(outputLine);
       }
     }

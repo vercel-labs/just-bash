@@ -156,16 +156,21 @@ export class Lexer {
    * Tokenize the entire input
    */
   tokenize(): Token[] {
-    while (this.pos < this.input.length) {
+    const input = this.input;
+    const len = input.length;
+    const tokens = this.tokens;
+    const pendingHeredocs = this.pendingHeredocs;
+
+    while (this.pos < len) {
       this.skipWhitespace();
 
-      if (this.pos >= this.input.length) break;
+      if (this.pos >= len) break;
 
       // Check for pending here-documents after newline
       if (
-        this.pendingHeredocs.length > 0 &&
-        this.tokens.length > 0 &&
-        this.tokens[this.tokens.length - 1].type === TokenType.NEWLINE
+        pendingHeredocs.length > 0 &&
+        tokens.length > 0 &&
+        tokens[tokens.length - 1].type === TokenType.NEWLINE
       ) {
         this.readHeredocContent();
         continue;
@@ -173,12 +178,12 @@ export class Lexer {
 
       const token = this.nextToken();
       if (token) {
-        this.tokens.push(token);
+        tokens.push(token);
       }
     }
 
     // Add EOF token
-    this.tokens.push({
+    tokens.push({
       type: TokenType.EOF,
       value: "",
       start: this.pos,
@@ -187,413 +192,246 @@ export class Lexer {
       column: this.column,
     });
 
-    return this.tokens;
+    return tokens;
   }
 
   private skipWhitespace(): void {
-    while (this.pos < this.input.length) {
-      const char = this.input[this.pos];
+    const input = this.input;
+    const len = input.length;
+    let pos = this.pos;
+    let col = this.column;
+    let ln = this.line;
+
+    while (pos < len) {
+      const char = input[pos];
       if (char === " " || char === "\t") {
-        this.pos++;
-        this.column++;
-      } else if (char === "\\" && this.input[this.pos + 1] === "\n") {
+        pos++;
+        col++;
+      } else if (char === "\\" && input[pos + 1] === "\n") {
         // Line continuation
-        this.pos += 2;
-        this.line++;
-        this.column = 1;
+        pos += 2;
+        ln++;
+        col = 1;
       } else {
         break;
       }
     }
+
+    this.pos = pos;
+    this.column = col;
+    this.line = ln;
   }
 
   private nextToken(): Token | null {
-    const start = this.pos;
+    const input = this.input;
+    const pos = this.pos;
     const startLine = this.line;
     const startColumn = this.column;
-    const char = this.input[this.pos];
+    const c0 = input[pos];
+    const c1 = input[pos + 1];
+    const c2 = input[pos + 2];
 
     // Comments
-    if (char === "#") {
-      return this.readComment(start, startLine, startColumn);
+    if (c0 === "#") {
+      return this.readComment(pos, startLine, startColumn);
     }
 
     // Newline
-    if (char === "\n") {
-      this.pos++;
+    if (c0 === "\n") {
+      this.pos = pos + 1;
       this.line++;
       this.column = 1;
       return {
         type: TokenType.NEWLINE,
         value: "\n",
-        start,
-        end: this.pos,
+        start: pos,
+        end: pos + 1,
         line: startLine,
         column: startColumn,
       };
     }
 
-    // Multi-character operators (check longer ones first)
-    const twoChar = this.input.slice(this.pos, this.pos + 2);
-    const threeChar = this.input.slice(this.pos, this.pos + 3);
-
-    // Three-character operators
-    if (threeChar === ";;&") {
-      this.pos += 3;
-      this.column += 3;
-      return this.makeToken(
-        TokenType.SEMI_SEMI_AND,
-        threeChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    // Three-character operators (check longer ones first)
+    if (c0 === ";" && c1 === ";" && c2 === "&") {
+      this.pos = pos + 3;
+      this.column = startColumn + 3;
+      return this.makeToken(TokenType.SEMI_SEMI_AND, ";;&", pos, startLine, startColumn);
     }
-    if (threeChar === "<<<") {
-      this.pos += 3;
-      this.column += 3;
-      return this.makeToken(
-        TokenType.TLESS,
-        threeChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === "<" && c1 === "<" && c2 === "<") {
+      this.pos = pos + 3;
+      this.column = startColumn + 3;
+      return this.makeToken(TokenType.TLESS, "<<<", pos, startLine, startColumn);
     }
-    if (threeChar === "&>>") {
-      this.pos += 3;
-      this.column += 3;
-      return this.makeToken(
-        TokenType.AND_DGREAT,
-        threeChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === "&" && c1 === ">" && c2 === ">") {
+      this.pos = pos + 3;
+      this.column = startColumn + 3;
+      return this.makeToken(TokenType.AND_DGREAT, "&>>", pos, startLine, startColumn);
     }
-    if (threeChar === "<<-") {
-      this.pos += 3;
-      this.column += 3;
-      // Look ahead for here-doc delimiter and register it
+    if (c0 === "<" && c1 === "<" && c2 === "-") {
+      this.pos = pos + 3;
+      this.column = startColumn + 3;
       this.registerHeredocFromLookahead(true);
-      return this.makeToken(
-        TokenType.DLESSDASH,
-        threeChar,
-        start,
-        startLine,
-        startColumn,
-      );
+      return this.makeToken(TokenType.DLESSDASH, "<<-", pos, startLine, startColumn);
     }
 
     // Two-character operators
-    if (twoChar === "[[") {
-      this.pos += 2;
-      this.column += 2;
-      return this.makeToken(
-        TokenType.DBRACK_START,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === "[" && c1 === "[") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(TokenType.DBRACK_START, "[[", pos, startLine, startColumn);
     }
-    if (twoChar === "]]") {
-      this.pos += 2;
-      this.column += 2;
-      return this.makeToken(
-        TokenType.DBRACK_END,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === "]" && c1 === "]") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(TokenType.DBRACK_END, "]]", pos, startLine, startColumn);
     }
-    if (twoChar === "((") {
-      this.pos += 2;
-      this.column += 2;
-      return this.makeToken(
-        TokenType.DPAREN_START,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === "(" && c1 === "(") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(TokenType.DPAREN_START, "((", pos, startLine, startColumn);
     }
-    if (twoChar === "))") {
-      this.pos += 2;
-      this.column += 2;
-      return this.makeToken(
-        TokenType.DPAREN_END,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === ")" && c1 === ")") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(TokenType.DPAREN_END, "))", pos, startLine, startColumn);
     }
-    if (twoChar === "&&") {
-      this.pos += 2;
-      this.column += 2;
-      return this.makeToken(
-        TokenType.AND_AND,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === "&" && c1 === "&") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(TokenType.AND_AND, "&&", pos, startLine, startColumn);
     }
-    if (twoChar === "||") {
-      this.pos += 2;
-      this.column += 2;
-      return this.makeToken(
-        TokenType.OR_OR,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === "|" && c1 === "|") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(TokenType.OR_OR, "||", pos, startLine, startColumn);
     }
-    if (twoChar === ";;") {
-      this.pos += 2;
-      this.column += 2;
-      return this.makeToken(
-        TokenType.DSEMI,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === ";" && c1 === ";") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(TokenType.DSEMI, ";;", pos, startLine, startColumn);
     }
-    if (twoChar === ";&") {
-      this.pos += 2;
-      this.column += 2;
-      return this.makeToken(
-        TokenType.SEMI_AND,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === ";" && c1 === "&") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(TokenType.SEMI_AND, ";&", pos, startLine, startColumn);
     }
-    if (twoChar === "|&") {
-      this.pos += 2;
-      this.column += 2;
-      return this.makeToken(
-        TokenType.PIPE_AMP,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === "|" && c1 === "&") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(TokenType.PIPE_AMP, "|&", pos, startLine, startColumn);
     }
-    if (twoChar === "<<") {
-      this.pos += 2;
-      this.column += 2;
-      // Look ahead for here-doc delimiter and register it
+    if (c0 === "<" && c1 === "<") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
       this.registerHeredocFromLookahead(false);
-      return this.makeToken(
-        TokenType.DLESS,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+      return this.makeToken(TokenType.DLESS, "<<", pos, startLine, startColumn);
     }
-    if (twoChar === ">>") {
-      this.pos += 2;
-      this.column += 2;
-      return this.makeToken(
-        TokenType.DGREAT,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === ">" && c1 === ">") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(TokenType.DGREAT, ">>", pos, startLine, startColumn);
     }
-    if (twoChar === "<&") {
-      this.pos += 2;
-      this.column += 2;
-      return this.makeToken(
-        TokenType.LESSAND,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === "<" && c1 === "&") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(TokenType.LESSAND, "<&", pos, startLine, startColumn);
     }
-    if (twoChar === ">&") {
-      this.pos += 2;
-      this.column += 2;
-      return this.makeToken(
-        TokenType.GREATAND,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === ">" && c1 === "&") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(TokenType.GREATAND, ">&", pos, startLine, startColumn);
     }
-    if (twoChar === "<>") {
-      this.pos += 2;
-      this.column += 2;
-      return this.makeToken(
-        TokenType.LESSGREAT,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === "<" && c1 === ">") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(TokenType.LESSGREAT, "<>", pos, startLine, startColumn);
     }
-    if (twoChar === ">|") {
-      this.pos += 2;
-      this.column += 2;
-      return this.makeToken(
-        TokenType.CLOBBER,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === ">" && c1 === "|") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(TokenType.CLOBBER, ">|", pos, startLine, startColumn);
     }
-    if (twoChar === "&>") {
-      this.pos += 2;
-      this.column += 2;
-      return this.makeToken(
-        TokenType.AND_GREAT,
-        twoChar,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === "&" && c1 === ">") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(TokenType.AND_GREAT, "&>", pos, startLine, startColumn);
     }
 
     // Single-character operators
-    if (char === "|") {
-      this.pos++;
-      this.column++;
-      return this.makeToken(
-        TokenType.PIPE,
-        char,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === "|") {
+      this.pos = pos + 1;
+      this.column = startColumn + 1;
+      return this.makeToken(TokenType.PIPE, "|", pos, startLine, startColumn);
     }
-    if (char === "&") {
-      this.pos++;
-      this.column++;
-      return this.makeToken(TokenType.AMP, char, start, startLine, startColumn);
+    if (c0 === "&") {
+      this.pos = pos + 1;
+      this.column = startColumn + 1;
+      return this.makeToken(TokenType.AMP, "&", pos, startLine, startColumn);
     }
-    if (char === ";") {
-      this.pos++;
-      this.column++;
-      return this.makeToken(
-        TokenType.SEMICOLON,
-        char,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === ";") {
+      this.pos = pos + 1;
+      this.column = startColumn + 1;
+      return this.makeToken(TokenType.SEMICOLON, ";", pos, startLine, startColumn);
     }
-    if (char === "(") {
-      this.pos++;
-      this.column++;
-      return this.makeToken(
-        TokenType.LPAREN,
-        char,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === "(") {
+      this.pos = pos + 1;
+      this.column = startColumn + 1;
+      return this.makeToken(TokenType.LPAREN, "(", pos, startLine, startColumn);
     }
-    if (char === ")") {
-      this.pos++;
-      this.column++;
-      return this.makeToken(
-        TokenType.RPAREN,
-        char,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === ")") {
+      this.pos = pos + 1;
+      this.column = startColumn + 1;
+      return this.makeToken(TokenType.RPAREN, ")", pos, startLine, startColumn);
     }
-    if (char === "{") {
+    if (c0 === "{") {
       // Check for {} as a word (used in find -exec)
-      if (this.input[this.pos + 1] === "}") {
-        this.pos += 2;
-        this.column += 2;
+      if (c1 === "}") {
+        this.pos = pos + 2;
+        this.column = startColumn + 2;
         return {
           type: TokenType.WORD,
           value: "{}",
-          start,
-          end: this.pos,
+          start: pos,
+          end: pos + 2,
           line: startLine,
           column: startColumn,
           quoted: false,
           singleQuoted: false,
         };
       }
-      this.pos++;
-      this.column++;
-      return this.makeToken(
-        TokenType.LBRACE,
-        char,
-        start,
-        startLine,
-        startColumn,
-      );
+      this.pos = pos + 1;
+      this.column = startColumn + 1;
+      return this.makeToken(TokenType.LBRACE, "{", pos, startLine, startColumn);
     }
-    if (char === "}") {
-      this.pos++;
-      this.column++;
-      return this.makeToken(
-        TokenType.RBRACE,
-        char,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === "}") {
+      this.pos = pos + 1;
+      this.column = startColumn + 1;
+      return this.makeToken(TokenType.RBRACE, "}", pos, startLine, startColumn);
     }
-    if (char === "<") {
-      this.pos++;
-      this.column++;
-      return this.makeToken(
-        TokenType.LESS,
-        char,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === "<") {
+      this.pos = pos + 1;
+      this.column = startColumn + 1;
+      return this.makeToken(TokenType.LESS, "<", pos, startLine, startColumn);
     }
-    if (char === ">") {
-      this.pos++;
-      this.column++;
-      return this.makeToken(
-        TokenType.GREAT,
-        char,
-        start,
-        startLine,
-        startColumn,
-      );
+    if (c0 === ">") {
+      this.pos = pos + 1;
+      this.column = startColumn + 1;
+      return this.makeToken(TokenType.GREAT, ">", pos, startLine, startColumn);
     }
-    if (char === "!") {
+    if (c0 === "!") {
       // Check for != operator (used in [[ ]] tests)
-      if (this.input[this.pos + 1] === "=") {
-        this.pos += 2;
-        this.column += 2;
-        return this.makeToken(TokenType.WORD, "!=", start, startLine, startColumn);
+      if (c1 === "=") {
+        this.pos = pos + 2;
+        this.column = startColumn + 2;
+        return this.makeToken(TokenType.WORD, "!=", pos, startLine, startColumn);
       }
-      this.pos++;
-      this.column++;
-      return this.makeToken(
-        TokenType.BANG,
-        char,
-        start,
-        startLine,
-        startColumn,
-      );
+      this.pos = pos + 1;
+      this.column = startColumn + 1;
+      return this.makeToken(TokenType.BANG, "!", pos, startLine, startColumn);
     }
 
     // Words
-    return this.readWord(start, startLine, startColumn);
+    return this.readWord(pos, startLine, startColumn);
   }
 
   private makeToken(
@@ -614,31 +452,140 @@ export class Lexer {
   }
 
   private readComment(start: number, line: number, column: number): Token {
-    let value = "";
-    while (this.pos < this.input.length && this.input[this.pos] !== "\n") {
-      value += this.input[this.pos];
-      this.pos++;
-      this.column++;
+    const input = this.input;
+    const len = input.length;
+    let pos = this.pos;
+
+    // Find end of comment (newline or EOF)
+    while (pos < len && input[pos] !== "\n") {
+      pos++;
     }
+
+    const value = input.slice(start, pos);
+    this.pos = pos;
+    this.column = column + (pos - start);
+
     return {
       type: TokenType.COMMENT,
       value,
       start,
-      end: this.pos,
+      end: pos,
       line,
       column,
     };
   }
 
   private readWord(start: number, line: number, column: number): Token {
+    // Cache instance properties in locals for faster access in tight loop
+    const input = this.input;
+    const len = input.length;
+    let pos = this.pos;
+
+    // Fast path: scan for simple word (no quotes, escapes, or expansions)
+    // This handles the majority of tokens like command names, filenames, options
+    const fastStart = pos;
+    while (pos < len) {
+      const c = input[pos];
+      // Break on any special character
+      if (c === " " || c === "\t" || c === "\n" || c === ";" ||
+          c === "&" || c === "|" || c === "(" || c === ")" ||
+          c === "<" || c === ">" || c === "#" || c === "'" ||
+          c === '"' || c === "\\" || c === "$" || c === "`" ||
+          c === "{" || c === "}" || c === "~" || c === "*" ||
+          c === "?" || c === "[") {
+        break;
+      }
+      pos++;
+    }
+
+    // If we consumed characters and hit a word boundary (not a special char needing processing)
+    if (pos > fastStart) {
+      const c = input[pos];
+      // If we hit end or a simple delimiter, we can use the fast path result
+      if (pos >= len || c === " " || c === "\t" || c === "\n" || c === ";" ||
+          c === "&" || c === "|" || c === "(" || c === ")" ||
+          c === "<" || c === ">" || c === "#") {
+        const value = input.slice(fastStart, pos);
+        this.pos = pos;
+        this.column = column + (pos - fastStart);
+
+        // Check for reserved words
+        if (RESERVED_WORDS[value]) {
+          return {
+            type: RESERVED_WORDS[value],
+            value,
+            start,
+            end: pos,
+            line,
+            column,
+          };
+        }
+
+        // Check for assignment
+        const eqIdx = value.indexOf("=");
+        if (eqIdx > 0 && /^[a-zA-Z_][a-zA-Z0-9_]*\+?$/.test(value.slice(0, eqIdx))) {
+          return {
+            type: TokenType.ASSIGNMENT_WORD,
+            value,
+            start,
+            end: pos,
+            line,
+            column,
+          };
+        }
+
+        // Check for number
+        if (/^[0-9]+$/.test(value)) {
+          return {
+            type: TokenType.NUMBER,
+            value,
+            start,
+            end: pos,
+            line,
+            column,
+          };
+        }
+
+        // Check for valid name
+        if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
+          return {
+            type: TokenType.NAME,
+            value,
+            start,
+            end: pos,
+            line,
+            column,
+            quoted: false,
+            singleQuoted: false,
+          };
+        }
+
+        return {
+          type: TokenType.WORD,
+          value,
+          start,
+          end: pos,
+          line,
+          column,
+          quoted: false,
+          singleQuoted: false,
+        };
+      }
+    }
+
+    // Slow path: handle complex words with quotes, escapes, expansions
+    pos = this.pos; // Reset position
+    let col = this.column;
+    let ln = this.line;
+
     let value = "";
     let quoted = false;
     let singleQuoted = false;
     let inSingleQuote = false;
     let inDoubleQuote = false;
 
-    while (this.pos < this.input.length) {
-      const char = this.input[this.pos];
+    while (pos < len) {
+      const char = input[pos];
 
       // Check for word boundaries
       if (!inSingleQuote && !inDoubleQuote) {
@@ -668,8 +615,8 @@ export class Lexer {
           singleQuoted = true;
           quoted = true;
         }
-        this.pos++;
-        this.column++;
+        pos++;
+        col++;
         continue;
       }
 
@@ -680,102 +627,117 @@ export class Lexer {
           inDoubleQuote = true;
           quoted = true;
         }
-        this.pos++;
-        this.column++;
+        pos++;
+        col++;
         continue;
       }
 
       // Handle escapes
-      if (char === "\\" && !inSingleQuote && this.pos + 1 < this.input.length) {
-        const nextChar = this.input[this.pos + 1];
+      if (char === "\\" && !inSingleQuote && pos + 1 < len) {
+        const nextChar = input[pos + 1];
         if (nextChar === "\n") {
           // Line continuation
-          this.pos += 2;
-          this.line++;
-          this.column = 1;
+          pos += 2;
+          ln++;
+          col = 1;
           continue;
         }
         if (inDoubleQuote) {
           // In double quotes, only certain escapes are special
-          if ('"\\$`\n'.includes(nextChar)) {
+          if (
+            nextChar === '"' ||
+            nextChar === "\\" ||
+            nextChar === "$" ||
+            nextChar === "`" ||
+            nextChar === "\n"
+          ) {
             // For $ and ` keep the backslash so parser knows not to expand
             if (nextChar === "$" || nextChar === "`") {
               value += char + nextChar; // Keep backslash + char
             } else {
               value += nextChar;
             }
-            this.pos += 2;
-            this.column += 2;
+            pos += 2;
+            col += 2;
             continue;
           }
         } else {
           // Outside quotes, backslash escapes next character
           value += nextChar;
-          this.pos += 2;
-          this.column += 2;
+          pos += 2;
+          col += 2;
           continue;
         }
       }
 
       // Handle $(...) command substitution - consume the entire construct
-      if (char === "$" && this.pos + 1 < this.input.length && this.input[this.pos + 1] === "(") {
+      if (char === "$" && pos + 1 < len && input[pos + 1] === "(") {
         value += char;
-        this.pos++;
-        this.column++;
+        pos++;
+        col++;
         // Now consume the $(...)
-        value += this.input[this.pos]; // Add the (
-        this.pos++;
-        this.column++;
+        value += input[pos]; // Add the (
+        pos++;
+        col++;
         // Track parenthesis depth
         let depth = 1;
-        while (depth > 0 && this.pos < this.input.length) {
-          const c = this.input[this.pos];
+        while (depth > 0 && pos < len) {
+          const c = input[pos];
           value += c;
           if (c === "(") depth++;
           else if (c === ")") depth--;
           else if (c === "\n") {
-            this.line++;
-            this.column = 0;
+            ln++;
+            col = 0;
           }
-          this.pos++;
-          this.column++;
+          pos++;
+          col++;
         }
         continue;
       }
 
       // Handle ${...} parameter expansion - consume the entire construct
-      if (char === "$" && this.pos + 1 < this.input.length && this.input[this.pos + 1] === "{") {
+      if (char === "$" && pos + 1 < len && input[pos + 1] === "{") {
         value += char;
-        this.pos++;
-        this.column++;
+        pos++;
+        col++;
         // Now consume the ${...}
-        value += this.input[this.pos]; // Add the {
-        this.pos++;
-        this.column++;
+        value += input[pos]; // Add the {
+        pos++;
+        col++;
         // Track brace depth
         let depth = 1;
-        while (depth > 0 && this.pos < this.input.length) {
-          const c = this.input[this.pos];
+        while (depth > 0 && pos < len) {
+          const c = input[pos];
           value += c;
           if (c === "{") depth++;
           else if (c === "}") depth--;
           else if (c === "\n") {
-            this.line++;
-            this.column = 0;
+            ln++;
+            col = 0;
           }
-          this.pos++;
-          this.column++;
+          pos++;
+          col++;
         }
         continue;
       }
 
       // Handle special variables $#, $?, $$, $!, $0-$9, $@, $*
-      if (char === "$" && this.pos + 1 < this.input.length) {
-        const next = this.input[this.pos + 1];
-        if ("#?$!@*-".includes(next) || (next >= "0" && next <= "9")) {
+      if (char === "$" && pos + 1 < len) {
+        const next = input[pos + 1];
+        if (
+          next === "#" ||
+          next === "?" ||
+          next === "$" ||
+          next === "!" ||
+          next === "@" ||
+          next === "*" ||
+          next === "-" ||
+          (next >= "0" && next <= "9")
+        ) {
           value += char + next;
-          this.pos += 2;
-          this.column += 2;
+          pos += 2;
+          col += 2;
           continue;
         }
       }
@@ -783,49 +745,54 @@ export class Lexer {
       // Handle backtick command substitution - consume the entire construct
       if (char === "`") {
         value += char;
-        this.pos++;
-        this.column++;
+        pos++;
+        col++;
         // Find the matching backtick
-        while (this.pos < this.input.length && this.input[this.pos] !== "`") {
-          const c = this.input[this.pos];
+        while (pos < len && input[pos] !== "`") {
+          const c = input[pos];
           value += c;
-          if (c === "\\" && this.pos + 1 < this.input.length) {
-            value += this.input[this.pos + 1];
-            this.pos++;
-            this.column++;
+          if (c === "\\" && pos + 1 < len) {
+            value += input[pos + 1];
+            pos++;
+            col++;
           }
           if (c === "\n") {
-            this.line++;
-            this.column = 0;
+            ln++;
+            col = 0;
           }
-          this.pos++;
-          this.column++;
+          pos++;
+          col++;
         }
-        if (this.pos < this.input.length) {
-          value += this.input[this.pos]; // closing backtick
-          this.pos++;
-          this.column++;
+        if (pos < len) {
+          value += input[pos]; // closing backtick
+          pos++;
+          col++;
         }
         continue;
       }
 
       // Regular character
       value += char;
-      this.pos++;
+      pos++;
       if (char === "\n") {
-        this.line++;
-        this.column = 1;
+        ln++;
+        col = 1;
       } else {
-        this.column++;
+        col++;
       }
     }
+
+    // Write back to instance
+    this.pos = pos;
+    this.column = col;
+    this.line = ln;
 
     if (value === "") {
       return {
         type: TokenType.WORD,
         value: "",
         start,
-        end: this.pos,
+        end: pos,
         line,
         column,
         quoted,
@@ -839,7 +806,7 @@ export class Lexer {
         type: RESERVED_WORDS[value],
         value,
         start,
-        end: this.pos,
+        end: pos,
         line,
         column,
       };
@@ -853,7 +820,7 @@ export class Lexer {
           type: TokenType.ASSIGNMENT_WORD,
           value,
           start,
-          end: this.pos,
+          end: pos,
           line,
           column,
         };
@@ -866,7 +833,7 @@ export class Lexer {
         type: TokenType.NUMBER,
         value,
         start,
-        end: this.pos,
+        end: pos,
         line,
         column,
       };
@@ -878,7 +845,7 @@ export class Lexer {
         type: TokenType.NAME,
         value,
         start,
-        end: this.pos,
+        end: pos,
         line,
         column,
         quoted,
@@ -890,7 +857,7 @@ export class Lexer {
       type: TokenType.WORD,
       value,
       start,
-      end: this.pos,
+      end: pos,
       line,
       column,
       quoted,

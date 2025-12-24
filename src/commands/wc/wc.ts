@@ -108,13 +108,36 @@ function countStats(content: string): {
   words: number;
   chars: number;
 } {
-  // wc counts newline characters, not lines of text
-  // empty file = 0 lines, "hello" (no \n) = 0 lines, "hello\n" = 1 line
-  const lines = content.split("\n").length - 1;
-  const words = content.split(/\s+/).filter((w) => w.length > 0).length;
-  const chars = content.length;
+  const len = content.length;
+  let lines = 0;
+  let words = 0;
+  let inWord = false;
 
-  return { lines, words, chars };
+  // Single pass through content to count lines and words
+  for (let i = 0; i < len; i++) {
+    const c = content[i];
+    if (c === "\n") {
+      lines++;
+      if (inWord) {
+        words++;
+        inWord = false;
+      }
+    } else if (c === " " || c === "\t" || c === "\r") {
+      if (inWord) {
+        words++;
+        inWord = false;
+      }
+    } else {
+      inWord = true;
+    }
+  }
+
+  // Count final word if content doesn't end with whitespace
+  if (inWord) {
+    words++;
+  }
+
+  return { lines, words, chars: len };
 }
 
 function formatStats(

@@ -85,23 +85,52 @@ export const tailCommand: Command = {
       };
     }
 
-    // Helper to get tail of content
+    // Helper to get tail of content - optimized to avoid splitting entire file
     const getTail = (content: string): string => {
       if (bytes !== null) {
         return content.slice(-bytes);
       }
-      const contentLines = content.split("\n");
-      const effective =
-        contentLines[contentLines.length - 1] === ""
-          ? contentLines.slice(0, -1)
-          : contentLines;
-      let selected: string[];
+
+      const len = content.length;
+      if (len === 0) return "";
+
+      // For fromLine (+n), we still need to count from start
       if (fromLine) {
-        selected = effective.slice(lines - 1);
-      } else {
-        selected = effective.slice(-lines);
+        let pos = 0;
+        let lineCount = 1;
+        while (pos < len && lineCount < lines) {
+          const nextNewline = content.indexOf("\n", pos);
+          if (nextNewline === -1) break;
+          lineCount++;
+          pos = nextNewline + 1;
+        }
+        const result = content.slice(pos);
+        return result.endsWith("\n") ? result : result + "\n";
       }
-      return `${selected.join("\n")}\n`;
+
+      // Fast path: scan backwards to find last N newlines
+      if (lines === 0) return "";
+
+      // Start from end, skip trailing newline if present
+      let pos = len - 1;
+      if (content[pos] === "\n") pos--;
+
+      let lineCount = 0;
+      while (pos >= 0 && lineCount < lines) {
+        if (content[pos] === "\n") {
+          lineCount++;
+          if (lineCount === lines) {
+            pos++; // Move past this newline
+            break;
+          }
+        }
+        pos--;
+      }
+
+      if (pos < 0) pos = 0;
+      const result = content.slice(pos);
+      // Check if content ends with newline using direct char access (faster than endsWith)
+      return content[len - 1] === "\n" ? result : result + "\n";
     };
 
     // If no files, read from stdin
