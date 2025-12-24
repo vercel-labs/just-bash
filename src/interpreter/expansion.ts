@@ -1,0 +1,339 @@
+/**
+ * Word Expansion
+ *
+ * Handles shell word expansion including:
+ * - Variable expansion ($VAR, ${VAR})
+ * - Command substitution $(...)
+ * - Arithmetic expansion $((...))
+ * - Tilde expansion (~)
+ * - Brace expansion {a,b,c}
+ * - Glob expansion (*, ?, [...])
+ */
+
+import type { WordNode, WordPart } from "../ast/types.js";
+import { GlobExpander } from "../shell/glob.js";
+import { evaluateArithmetic } from "./arithmetic.js";
+import type { InterpreterContext } from "./types.js";
+
+export async function expandWord(
+  ctx: InterpreterContext,
+  word: WordNode,
+): Promise<string> {
+  const wordParts = word.parts;
+  const len = wordParts.length;
+
+  if (len === 1) {
+    return expandPart(ctx, wordParts[0]);
+  }
+
+  const parts: string[] = [];
+  for (let i = 0; i < len; i++) {
+    parts.push(await expandPart(ctx, wordParts[i]));
+  }
+  return parts.join("");
+}
+
+export async function expandWordWithGlob(
+  ctx: InterpreterContext,
+  word: WordNode,
+): Promise<{ values: string[]; quoted: boolean }> {
+  const wordParts = word.parts;
+  const len = wordParts.length;
+  let hasQuoted = false;
+  let hasCommandSub = false;
+  let hasArrayVar = false;
+  let value: string;
+
+  if (len === 1) {
+    const part = wordParts[0];
+    const partType = part.type;
+    if (partType === "SingleQuoted" || partType === "DoubleQuoted") {
+      hasQuoted = true;
+    }
+    if (partType === "CommandSubstitution") {
+      hasCommandSub = true;
+    }
+    if (
+      partType === "ParameterExpansion" &&
+      ((part as any).parameter === "@" || (part as any).parameter === "*")
+    ) {
+      hasArrayVar = true;
+    }
+    value = await expandPart(ctx, part);
+  } else {
+    const parts: string[] = [];
+    for (let i = 0; i < len; i++) {
+      const part = wordParts[i];
+      const partType = part.type;
+      if (partType === "SingleQuoted" || partType === "DoubleQuoted") {
+        hasQuoted = true;
+      }
+      if (partType === "CommandSubstitution") {
+        hasCommandSub = true;
+      }
+      if (
+        partType === "ParameterExpansion" &&
+        ((part as any).parameter === "@" || (part as any).parameter === "*")
+      ) {
+        hasArrayVar = true;
+      }
+      parts.push(await expandPart(ctx, part));
+    }
+    value = parts.join("");
+  }
+
+  if (!hasQuoted && (hasCommandSub || hasArrayVar) && value.includes(" ")) {
+    const splitValues = value.split(/\s+/).filter((v) => v !== "");
+    if (splitValues.length > 1) {
+      return { values: splitValues, quoted: false };
+    }
+  }
+
+  if (!hasQuoted && /[*?[]/.test(value)) {
+    const globExpander = new GlobExpander(ctx.fs, ctx.state.cwd);
+    const matches = await globExpander.expand(value);
+    if (matches.length > 0) {
+      return { values: matches, quoted: false };
+    }
+  }
+
+  return { values: [value], quoted: hasQuoted };
+}
+
+async function expandPart(
+  ctx: InterpreterContext,
+  part: WordPart,
+): Promise<string> {
+  switch (part.type) {
+    case "Literal":
+      return part.value;
+
+    case "SingleQuoted":
+      return part.value;
+
+    case "DoubleQuoted": {
+      const parts: string[] = [];
+      for (const p of part.parts) {
+        parts.push(await expandPart(ctx, p));
+      }
+      return parts.join("");
+    }
+
+    case "Escaped":
+      return part.value;
+
+    case "ParameterExpansion":
+      return expandParameter(ctx, part);
+
+    case "CommandSubstitution": {
+      const result = await ctx.executeScript(part.body);
+      return result.stdout.replace(/\n+$/, "");
+    }
+
+    case "ArithmeticExpansion": {
+      const value = evaluateArithmetic(ctx, part.expression.expression);
+      return String(value);
+    }
+
+    case "TildeExpansion":
+      if (part.user === null) {
+        return ctx.state.env.HOME || "/home/user";
+      }
+      return `/home/${part.user}`;
+
+    case "BraceExpansion": {
+      const results: string[] = [];
+      for (const item of part.items) {
+        if (item.type === "Range") {
+          const start = item.start;
+          const end = item.end;
+          if (typeof start === "number" && typeof end === "number") {
+            const step = item.step || 1;
+            if (start <= end) {
+              for (let i = start; i <= end; i += step) results.push(String(i));
+            } else {
+              for (let i = start; i >= end; i -= step) results.push(String(i));
+            }
+          } else if (typeof start === "string" && typeof end === "string") {
+            const startCode = start.charCodeAt(0);
+            const endCode = end.charCodeAt(0);
+            if (startCode <= endCode) {
+              for (let i = startCode; i <= endCode; i++)
+                results.push(String.fromCharCode(i));
+            } else {
+              for (let i = startCode; i >= endCode; i--)
+                results.push(String.fromCharCode(i));
+            }
+          }
+        } else {
+          results.push(await expandWord(ctx, item.word));
+        }
+      }
+      return results.join(" ");
+    }
+
+    case "Glob":
+      return part.pattern;
+
+    default:
+      return "";
+  }
+}
+
+function expandParameter(
+  ctx: InterpreterContext,
+  part: {
+    type: "ParameterExpansion";
+    parameter: string;
+    operation: any;
+  },
+): string {
+  const { parameter, operation } = part;
+  const value = getVariable(ctx, parameter);
+
+  if (!operation) {
+    return value;
+  }
+
+  const isUnset = !(parameter in ctx.state.env);
+  const isEmpty = value === "";
+
+  switch (operation.type) {
+    case "DefaultValue": {
+      const useDefault = isUnset || (operation.checkEmpty && isEmpty);
+      if (useDefault && operation.word) {
+        return operation.word.parts.map((p: any) => p.value || "").join("");
+      }
+      return value;
+    }
+
+    case "AssignDefault": {
+      const useDefault = isUnset || (operation.checkEmpty && isEmpty);
+      if (useDefault && operation.word) {
+        const defaultValue = operation.word.parts
+          .map((p: any) => p.value || "")
+          .join("");
+        ctx.state.env[parameter] = defaultValue;
+        return defaultValue;
+      }
+      return value;
+    }
+
+    case "ErrorIfUnset": {
+      const shouldError = isUnset || (operation.checkEmpty && isEmpty);
+      if (shouldError) {
+        const message = operation.word
+          ? operation.word.parts.map((p: any) => p.value || "").join("")
+          : `${parameter}: parameter null or not set`;
+        throw new Error(message);
+      }
+      return value;
+    }
+
+    case "UseAlternative": {
+      const useAlternative = !(isUnset || (operation.checkEmpty && isEmpty));
+      if (useAlternative && operation.word) {
+        return operation.word.parts.map((p: any) => p.value || "").join("");
+      }
+      return "";
+    }
+
+    case "Length":
+      return String(value.length);
+
+    case "Substring": {
+      const offset = operation.offset?.expression?.value ?? 0;
+      const length = operation.length?.expression?.value;
+      let start = offset;
+      if (start < 0) start = Math.max(0, value.length + start);
+      if (length !== undefined) {
+        if (length < 0) {
+          return value.slice(start, Math.max(start, value.length + length));
+        }
+        return value.slice(start, start + length);
+      }
+      return value.slice(start);
+    }
+
+    case "PatternRemoval": {
+      const pattern =
+        operation.pattern?.parts.map((p: any) => p.value || "").join("") || "";
+      const regex = patternToRegex(pattern, operation.greedy);
+      if (operation.side === "prefix") {
+        return value.replace(new RegExp(`^${regex}`), "");
+      }
+      return value.replace(new RegExp(`${regex}$`), "");
+    }
+
+    case "PatternReplacement": {
+      const pattern =
+        operation.pattern?.parts.map((p: any) => p.value || "").join("") || "";
+      const replacement =
+        operation.replacement?.parts.map((p: any) => p.value || "").join("") ||
+        "";
+      const regex = patternToRegex(pattern, true);
+      const flags = operation.all ? "g" : "";
+      return value.replace(new RegExp(regex, flags), replacement);
+    }
+
+    case "CaseModification": {
+      if (operation.direction === "upper") {
+        return operation.all
+          ? value.toUpperCase()
+          : value.charAt(0).toUpperCase() + value.slice(1);
+      }
+      return operation.all
+        ? value.toLowerCase()
+        : value.charAt(0).toLowerCase() + value.slice(1);
+    }
+
+    case "Indirection": {
+      return getVariable(ctx, value);
+    }
+
+    default:
+      return value;
+  }
+}
+
+export function getVariable(ctx: InterpreterContext, name: string): string {
+  switch (name) {
+    case "?":
+      return String(ctx.state.lastExitCode);
+    case "$":
+      return String(process.pid);
+    case "#":
+      return ctx.state.env["#"] || "0";
+    case "@":
+    case "*":
+      return ctx.state.env["@"] || "";
+    case "0":
+      return ctx.state.env["0"] || "bash";
+    case "PWD":
+      return ctx.state.cwd;
+    case "OLDPWD":
+      return ctx.state.previousDir;
+  }
+
+  if (/^[1-9][0-9]*$/.test(name)) {
+    return ctx.state.env[name] || "";
+  }
+
+  return ctx.state.env[name] || "";
+}
+
+export function patternToRegex(pattern: string, greedy: boolean): string {
+  let regex = "";
+  for (const char of pattern) {
+    if (char === "*") {
+      regex += greedy ? ".*" : ".*?";
+    } else if (char === "?") {
+      regex += ".";
+    } else if (/[\\^$.|+(){}[\]]/.test(char)) {
+      regex += `\\${char}`;
+    } else {
+      regex += char;
+    }
+  }
+  return regex;
+}
