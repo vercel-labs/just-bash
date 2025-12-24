@@ -9,7 +9,10 @@
  */
 
 import type { FunctionDefNode } from "./ast/types.js";
-import { createLazyCommands } from "./commands/registry.js";
+import {
+  createLazyCommands,
+  createNetworkCommands,
+} from "./commands/registry.js";
 import { type IFileSystem, VirtualFs } from "./fs.js";
 import type { InitialFiles } from "./fs-interface.js";
 import {
@@ -17,6 +20,11 @@ import {
   type InterpreterOptions,
   type InterpreterState,
 } from "./interpreter/index.js";
+import {
+  createSecureFetch,
+  type NetworkConfig,
+  type SecureFetch,
+} from "./network/index.js";
 import { type ParseException, parse } from "./parser/parser.js";
 import type { Command, CommandRegistry, ExecResult } from "./types.js";
 
@@ -33,6 +41,11 @@ export interface BashEnvOptions {
   maxCallDepth?: number;
   maxCommandCount?: number;
   maxLoopIterations?: number;
+  /**
+   * Network configuration for commands like curl.
+   * Network access is disabled by default - you must explicitly configure allowed URLs.
+   */
+  network?: NetworkConfig;
 }
 
 export class BashEnv {
@@ -42,6 +55,7 @@ export class BashEnv {
   private maxCallDepth: number;
   private maxCommandCount: number;
   private maxLoopIterations: number;
+  private secureFetch?: SecureFetch;
 
   // Interpreter state (shared with interpreter instances)
   private state: InterpreterState;
@@ -63,6 +77,11 @@ export class BashEnv {
     this.maxCommandCount = options.maxCommandCount ?? DEFAULT_MAX_COMMAND_COUNT;
     this.maxLoopIterations =
       options.maxLoopIterations ?? DEFAULT_MAX_LOOP_ITERATIONS;
+
+    // Create secure fetch if network is configured
+    if (options.network) {
+      this.secureFetch = createSecureFetch(options.network);
+    }
 
     // Initialize interpreter state
     this.state = {
@@ -104,6 +123,13 @@ export class BashEnv {
 
     for (const cmd of createLazyCommands()) {
       this.registerCommand(cmd);
+    }
+
+    // Register network commands only when network is configured
+    if (options.network) {
+      for (const cmd of createNetworkCommands()) {
+        this.registerCommand(cmd);
+      }
     }
   }
 
@@ -156,6 +182,7 @@ export class BashEnv {
         maxCommandCount: this.maxCommandCount,
         maxLoopIterations: this.maxLoopIterations,
         exec: this.exec.bind(this),
+        fetch: this.secureFetch,
       };
 
       const interpreter = new Interpreter(interpreterOptions, this.state);

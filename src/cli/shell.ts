@@ -29,6 +29,7 @@ interface ShellOptions {
   cwd?: string;
   files?: Record<string, string>;
   env?: Record<string, string>;
+  network?: boolean;
 }
 
 class VirtualShell {
@@ -57,6 +58,11 @@ class VirtualShell {
         TERM: "xterm-256color",
         ...options.env,
       },
+      // Enable network access if requested (default: enabled for interactive shell)
+      network:
+        options.network !== false
+          ? { dangerouslyAllowFullInternetAccess: true }
+          : undefined,
     });
 
     // Check if stdin is a TTY (interactive mode)
@@ -172,6 +178,10 @@ ${colors.bold}Navigation & environment:${colors.reset}
 ${colors.bold}Utilities:${colors.reset}
   find, tee, basename, dirname, chmod, clear, history, alias, unalias
 
+${colors.bold}Network commands:${colors.reset}
+  curl              Fetch data from URLs (with full internet access)
+  html-to-markdown  Convert HTML to Markdown (use with curl)
+
 ${colors.bold}Supported features:${colors.reset}
   - Pipes: cmd1 | cmd2
   - Redirections: >, >>, 2>, 2>&1, <
@@ -189,6 +199,7 @@ ${colors.bold}Example commands:${colors.reset}
   find . -name "*.txt"
   ln -s target.txt link.txt
   awk '{print $1}' file.txt
+  curl -s https://example.com | html-to-markdown
 `);
   }
 
@@ -242,7 +253,7 @@ All operations run on a virtual in-memory filesystem.
 // CLI argument parsing
 function parseArgs(): ShellOptions {
   const args = process.argv.slice(2);
-  const options: ShellOptions = {};
+  const options: ShellOptions = { network: true }; // Network enabled by default
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--cwd" && args[i + 1]) {
@@ -256,6 +267,8 @@ function parseArgs(): ShellOptions {
         console.error(`Error reading files from ${filePath}:`, error);
         process.exit(1);
       }
+    } else if (args[i] === "--no-network") {
+      options.network = false;
     } else if (args[i] === "--help" || args[i] === "-h") {
       console.log(`
 Usage: npx tsx src/cli/shell.ts [options]
@@ -263,10 +276,17 @@ Usage: npx tsx src/cli/shell.ts [options]
 Options:
   --cwd <dir>         Set initial working directory (default: /home/user)
   --files <json>      Load initial files from JSON file
+  --no-network        Disable network access (curl commands disabled)
   --help, -h          Show this help message
+
+Network Access:
+  By default, the interactive shell has full internet access enabled,
+  allowing curl commands to fetch data from any URL. Use --no-network
+  to disable this for sandboxed execution.
 
 Example:
   npx tsx src/cli/shell.ts --cwd /app --files ./my-files.json
+  pnpm shell --no-network
 `);
       process.exit(0);
     }

@@ -215,6 +215,22 @@ const commandLoaders: LazyCommandDef[] = [
     name: "date",
     load: async () => (await import("./date/date.js")).dateCommand,
   },
+
+  // HTML processing
+  {
+    name: "html-to-markdown",
+    load: async () =>
+      (await import("./html-to-markdown/html-to-markdown.js"))
+        .htmlToMarkdownCommand,
+  },
+];
+
+// Network commands - only registered when network is configured
+const networkCommandLoaders: LazyCommandDef[] = [
+  {
+    name: "curl",
+    load: async () => (await import("./curl/curl.js")).curlCommand,
+  },
 ];
 
 // Cache for loaded commands
@@ -240,10 +256,18 @@ function createLazyCommand(def: LazyCommandDef): Command {
 }
 
 /**
- * Creates all lazy commands for registration
+ * Creates all lazy commands for registration (excludes network commands)
  */
 export function createLazyCommands(): Command[] {
   return commandLoaders.map(createLazyCommand);
+}
+
+/**
+ * Creates network commands for registration (curl, etc.)
+ * These are only registered when network is explicitly configured.
+ */
+export function createNetworkCommands(): Command[] {
+  return networkCommandLoaders.map(createLazyCommand);
 }
 
 /**

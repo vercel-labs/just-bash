@@ -1,5 +1,6 @@
 import { BashEnv } from "../BashEnv.js";
 import type { IFileSystem } from "../fs-interface.js";
+import type { NetworkConfig } from "../network/index.js";
 import type { CommandFinished } from "./Command.js";
 import { Command } from "./Command.js";
 
@@ -12,6 +13,11 @@ export interface SandboxOptions {
   maxCallDepth?: number;
   maxCommandCount?: number;
   maxLoopIterations?: number;
+  /**
+   * Network configuration for commands like curl.
+   * Network access is disabled by default - you must explicitly configure allowed URLs.
+   */
+  network?: NetworkConfig;
 }
 
 export interface WriteFilesInput {
@@ -34,6 +40,7 @@ export class Sandbox {
       maxCallDepth: opts?.maxCallDepth,
       maxCommandCount: opts?.maxCommandCount,
       maxLoopIterations: opts?.maxLoopIterations,
+      network: opts?.network,
     });
     return new Sandbox(bashEnv);
   }

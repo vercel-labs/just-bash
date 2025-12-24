@@ -103,6 +103,12 @@ console.log(finished.exitCode); // 0
 pnpm shell
 ```
 
+The interactive shell has full internet access enabled by default, allowing you to use `curl` to fetch data from any URL. Use `--no-network` to disable this:
+
+```bash
+pnpm shell --no-network
+```
+
 ## Supported Commands
 
 ### File Operations
@@ -120,6 +126,10 @@ pnpm shell
 ### Shell Utilities
 
 `alias`, `bash`, `chmod`, `clear`, `false`, `history`, `sh`, `true`, `unalias`
+
+### Network Commands
+
+`curl`, `html-to-markdown`
 
 All commands support `--help` for usage information.
 
@@ -148,6 +158,74 @@ When created without options, BashEnv provides a Unix-like directory structure:
 - `/tmp` - Temporary files directory
 
 Commands can be invoked by path (e.g., `/bin/ls`) or by name.
+
+## Network Access
+
+Network access (and the `curl` command) is disabled by default for security. To enable it, configure the `network` option:
+
+```typescript
+// Allow specific URLs with GET/HEAD only (safest)
+const env = new BashEnv({
+  network: {
+    allowedUrlPrefixes: [
+      "https://api.github.com/repos/myorg/",
+      "https://api.example.com",
+    ],
+  },
+});
+
+// Allow specific URLs with additional methods
+const env = new BashEnv({
+  network: {
+    allowedUrlPrefixes: ["https://api.example.com"],
+    allowedMethods: ["GET", "HEAD", "POST"], // Default: ["GET", "HEAD"]
+  },
+});
+
+// Allow all URLs and methods (use with extreme caution)
+const env = new BashEnv({
+  network: { dangerouslyAllowFullInternetAccess: true },
+});
+```
+
+**Note:** The `curl` command only exists when network is configured. Without network configuration, `curl` returns "command not found".
+
+### Allow-List Security
+
+The allow-list enforces:
+- **Origin matching**: URLs must match the exact origin (scheme + host + port)
+- **Path prefix**: Only paths starting with the specified prefix are allowed
+- **HTTP method restrictions**: Only GET and HEAD by default (configure `allowedMethods` for more)
+- **Redirect protection**: Redirects to non-allowed URLs are blocked
+
+```typescript
+// Only allow GitHub repos in myorg
+const env = new BashEnv({
+  network: { allowedUrlPrefixes: ["https://api.github.com/repos/myorg/"] },
+});
+
+// These work:
+// curl https://api.github.com/repos/myorg/repo1/issues
+// curl https://api.github.com/repos/myorg/repo2/pulls
+
+// These are blocked:
+// curl https://api.github.com/repos/otherorg/repo
+// curl https://api.github.com/users/user
+```
+
+### Using curl
+
+```bash
+# Fetch and process data
+curl -s https://api.example.com/data | grep pattern
+
+# Download and convert HTML to Markdown
+curl -s https://example.com | html-to-markdown
+
+# POST JSON data
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"key":"value"}' https://api.example.com/endpoint
+```
 
 ## Execution Protection
 

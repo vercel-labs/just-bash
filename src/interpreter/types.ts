@@ -9,6 +9,7 @@ import type {
   StatementNode,
 } from "../ast/types.js";
 import type { IFileSystem } from "../fs-interface.js";
+import type { SecureFetch } from "../network/index.js";
 import type { CommandRegistry, ExecResult } from "../types.js";
 
 export interface ShellOptions {
@@ -46,4 +47,6 @@ export interface InterpreterContext {
   executeScript: (node: ScriptNode) => Promise<ExecResult>;
   executeStatement: (node: StatementNode) => Promise<ExecResult>;
   executeCommand: (node: CommandNode, stdin: string) => Promise<ExecResult>;
+  /** Optional secure fetch function for network-enabled commands */
+  fetch?: SecureFetch;
 }

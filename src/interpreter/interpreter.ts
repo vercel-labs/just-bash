@@ -24,6 +24,7 @@ import type {
   WordNode,
 } from "../ast/types.js";
 import type { IFileSystem } from "../fs-interface.js";
+import type { SecureFetch } from "../network/index.js";
 import type { CommandContext, CommandRegistry, ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import {
@@ -77,6 +78,8 @@ export interface InterpreterOptions {
   maxCommandCount: number;
   maxLoopIterations: number;
   exec: (script: string) => Promise<ExecResult>;
+  /** Optional secure fetch function for network-enabled commands */
+  fetch?: SecureFetch;
 }
 
 export class Interpreter {
@@ -94,6 +97,7 @@ export class Interpreter {
       executeScript: this.executeScript.bind(this),
       executeStatement: this.executeStatement.bind(this),
       executeCommand: this.executeCommand.bind(this),
+      fetch: options.fetch,
     };
   }
 
@@ -431,6 +435,7 @@ export class Interpreter {
       env: this.ctx.state.env,
       stdin,
       exec: this.ctx.execFn,
+      fetch: this.ctx.fetch,
     };
 
     try {

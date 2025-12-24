@@ -217,3 +217,25 @@ xargs — build argument lists
 ## All before this is done
 
 Woohoo
+
+## Implementation phase 16: curl
+
+- make a new non-standard command called html-to-markdown which uses turndown service (npm package) to turns HTML on STDIN to markdown
+- Lets implement curl as a wrapper around `fetch`
+- Start with the most common options: method, headers, etc.
+- `curl` should not be available by default. It should require explicit opt-in via argument to BashEnv or Sandbox.create
+- The optin requires an allow-list of allowed origin + oath (optional) prefixes. Only those must be accessible via `fetch`
+  - Must also be checked on redirects, so implement redirects in user land rather that relying on following
+  - This allow-list must be enforced at the fetch layer, not subject to parsing
+  - Implement extensive unit tests for the allow-list matching specifically
+  - add `dangerouslyAllowFullInternetAccess` option to bypass allow-list
+
+## Implementation phase 16.1: curl part 2
+
+- Make the usage statement for html-to-markdown more docs-like since the caller will not be aware of this
+- Write more adversarial tests against the allow-list enforcement
+- Write tests that check the allow-list is enforced e2e (via bash execution)
+- Make sure the tests have a really good mock of the underlying fetch and never actually go to the network
+- allow `pnpm shell` to access the internet and document it
+
+## Implementation phase 17: AI SDK Tool

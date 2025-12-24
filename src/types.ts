@@ -1,4 +1,5 @@
 import type { IFileSystem } from "./fs-interface.js";
+import type { SecureFetch } from "./network/index.js";
 
 export interface ExecResult {
   stdout: string;
@@ -13,6 +14,11 @@ export interface CommandContext {
   stdin: string;
   /** Optional exec function for commands that need to run subcommands (like xargs) */
   exec?: (command: string) => Promise<ExecResult>;
+  /**
+   * Optional secure fetch function for network-enabled commands (like curl).
+   * Only available when network access is explicitly configured.
+   */
+  fetch?: SecureFetch;
 }
 
 export interface Command {

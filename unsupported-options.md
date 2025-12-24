@@ -85,14 +85,13 @@ Currently `-e` (errexit) and `-o pipefail` are supported. Missing:
 | `gzip`/`gunzip` | `gzip file` | Compression |
 | `zip`/`unzip` | `unzip file.zip` | ZIP archives |
 
-### Network (Likely Out of Scope)
+### Network
 
 | Command | Notes |
 |---------|-------|
-| `curl` | HTTP requests - may need special handling |
-| `wget` | HTTP downloads |
-| `ssh`/`scp` | Remote access |
-| `nc` (netcat) | Network connections |
+| `wget` | HTTP downloads (use `curl -O` instead) |
+| `ssh`/`scp` | Remote access - out of scope |
+| `nc` (netcat) | Network connections - out of scope |
 
 ---
 
@@ -137,6 +136,40 @@ Currently `-e` (errexit) and `-o pipefail` are supported. Missing:
 - `-user`, `-group` - Owner matching
 - `-atime`, `-ctime` - Access/change time filtering
 - `-prune` - Skip directories
+
+### curl
+
+**curl** - Missing options:
+
+| Option | Long Form | Why It Matters |
+|--------|-----------|----------------|
+| `-u` | `--user USER:PASS` | HTTP basic authentication |
+| `-A` | `--user-agent STRING` | Set User-Agent header |
+| `-b` | `--cookie DATA` | Send cookies |
+| `-c` | `--cookie-jar FILE` | Save cookies to file |
+| `-e` | `--referer URL` | Set Referer header |
+| `-F` | `--form NAME=VALUE` | Multipart form data upload |
+| | `--data-urlencode` | URL-encode POST data |
+| | `--data-binary` | Send binary data exactly |
+| `-T` | `--upload-file FILE` | Upload file (PUT) |
+| `-C` | `--continue-at OFFSET` | Resume transfer |
+| | `--connect-timeout SECS` | Connection timeout |
+| `-m` | `--max-time SECS` | Maximum time for request |
+| `-r` | `--range RANGE` | Request byte range |
+| | `--retry NUM` | Retry on failure |
+| `-x` | `--proxy URL` | Use proxy server |
+| `-k` | `--insecure` | Allow insecure SSL |
+| | `--cert FILE` | Client certificate |
+| | `--compressed` | Request compressed response |
+| `-4` | `--ipv4` | Resolve to IPv4 only |
+| `-6` | `--ipv6` | Resolve to IPv6 only |
+| `-g` | `--globoff` | Disable URL globbing |
+| | `--resolve HOST:PORT:ADDR` | Resolve host to IP |
+| | Multiple URLs | Process multiple URLs |
+| `-Z` | `--parallel` | Parallel transfers |
+
+**curl** - Partial implementations:
+- `-w, --write-out` - Only supports: `%{http_code}`, `%{content_type}`, `%{url_effective}`, `%{size_download}`
 
 ### Other Commands
 
@@ -204,7 +237,7 @@ All Tier 1 features have been implemented:
 
 ### Not Planned
 
-- **Network commands** (`curl`, `wget`, `ssh`, `nc`) - No network access planned
+- **Network commands** (`wget`, `ssh`, `nc`) - Out of scope (use `curl` with allow-list)
 - **Interactive features** (`select` loops, interactive prompts)
 - **Real process management** (`wait`, `kill`, background jobs)
 
@@ -256,6 +289,8 @@ All Tier 1 features have been implemented:
 - **diff**: `-u`, `-q`, `-s`, `-i` (unified diff format, uses `diff` npm package)
 - **date**: `+FORMAT`, `-d`, `-u`, `-I`, `-R` (format specifiers: `%Y`, `%m`, `%d`, `%H`, `%M`, `%S`, etc.)
 - **base64**: `-d`, `-w` (encode/decode)
+- **curl**: `-X`, `-H`, `-d`, `--data-raw`, `-o`, `-O`, `-I`, `-i`, `-s`, `-S`, `-f`, `-L`, `--max-redirs`, `-w`, `-v` (requires `network.allowedUrlPrefixes` config; URL allow-list enforced)
+- **html-to-markdown**: `-b`, `-c`, `-r`, `--heading-style` (non-standard, uses turndown npm package)
 
 ### All Implemented Commands
-`alias`, `awk`, `base64`, `basename`, `bash`, `cat`, `chmod`, `clear`, `cp`, `cut`, `date`, `diff`, `dirname`, `du`, `echo`, `env`, `false`, `find`, `grep`, `head`, `history`, `jq`, `ln`, `ls`, `mkdir`, `mv`, `printf`, `pwd`, `readlink`, `rm`, `sed`, `sort`, `stat`, `tail`, `tee`, `touch`, `tr`, `tree`, `true`, `uniq`, `wc`, `xargs`
+`alias`, `awk`, `base64`, `basename`, `bash`, `cat`, `chmod`, `clear`, `cp`, `curl`, `cut`, `date`, `diff`, `dirname`, `du`, `echo`, `env`, `false`, `find`, `grep`, `head`, `history`, `html-to-markdown`, `jq`, `ln`, `ls`, `mkdir`, `mv`, `printf`, `pwd`, `readlink`, `rm`, `sed`, `sort`, `stat`, `tail`, `tee`, `touch`, `tr`, `tree`, `true`, `uniq`, `wc`, `xargs`

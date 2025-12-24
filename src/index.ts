@@ -16,6 +16,12 @@ export type {
   RmOptions,
   SymlinkEntry,
 } from "./fs-interface.js";
+export type { NetworkConfig } from "./network/index.js";
+export {
+  NetworkAccessDeniedError,
+  RedirectNotAllowedError,
+  TooManyRedirectsError,
+} from "./network/index.js";
 export type {
   CommandFinished as SandboxCommandFinished,
   OutputMessage,
