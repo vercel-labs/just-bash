@@ -5,13 +5,16 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import { BashEnv } from "../BashEnv.js";
 
-export const execAsync = promisify(exec);
+export const execAsync: (
+  command: string,
+  options?: { cwd?: string; shell?: string },
+) => Promise<{ stdout: string; stderr: string }> = promisify(exec);
 
 /**
  * Returns true if running on Linux (for platform-specific tests)
  * Some behaviors differ between macOS/BSD and Linux/GNU coreutils
  */
-export const isLinux = os.platform() === "linux";
+export const isLinux: boolean = os.platform() === "linux";
 
 /**
  * Creates a unique temp directory for testing

@@ -33,7 +33,7 @@ export type FindAction =
   | { type: "delete" };
 
 // Known predicates that take arguments
-export const PREDICATES_WITH_ARGS = new Set([
+export const PREDICATES_WITH_ARGS: Set<string> = new Set([
   "-name",
   "-iname",
   "-path",

@@ -22,3 +22,4 @@ Usage: pnpm dev:exec '<bash script>'
 - Don't use `cat > test-direct.ts << 'SCRIPT'` style test scripts because they constantly require 1-off approval.
 - Instead use `pnpm dev:exec ""`
 - Always make sure to build before using dist
+- Biome rules often have the same name as eslint rules (if you are lookinf for one)

@@ -93,7 +93,7 @@ export class ParseException extends Error {
     message: string,
     public line: number,
     public column: number,
-    public token?: Token,
+    public token: Token | undefined = undefined,
   ) {
     super(`Parse error at ${line}:${column}: ${message}`);
     this.name = "ParseException";
