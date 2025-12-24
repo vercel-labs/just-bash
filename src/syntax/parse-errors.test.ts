@@ -84,12 +84,12 @@ describe("Bash Syntax - Parse Errors", () => {
       expect(result.stderr).toContain("syntax error");
     });
 
-    it("should treat while without space as command", async () => {
+    it("should error on while followed by semicolon", async () => {
       const env = new BashEnv();
-      // 'while;' without space is parsed as a command named 'while;'
+      // 'while;' is parsed as 'while' followed by semicolon, which is a syntax error
       const result = await env.exec("while; do echo loop; done");
-      expect(result.exitCode).toBe(127);
-      expect(result.stderr).toContain("command not found");
+      expect(result.exitCode).toBe(2); // Syntax error
+      expect(result.stderr).toContain("syntax error");
     });
   });
 
@@ -110,16 +110,18 @@ describe("Bash Syntax - Parse Errors", () => {
   });
 
   describe("function definition errors", () => {
-    it("should error on function with invalid name", async () => {
+    it("should accept function with numeric-starting name", async () => {
       const env = new BashEnv();
+      // Bash actually allows function names starting with digits
       const result = await env.exec("123func() { echo hello; }");
-      expect(result.exitCode).toBe(127); // Not parsed as function, treated as command
+      expect(result.exitCode).toBe(0);
     });
 
     it("should error on unclosed function body", async () => {
       const env = new BashEnv();
       const result = await env.exec("myfunc() { echo hello");
-      expect(result.exitCode).toBe(127); // Not recognized as valid function
+      expect(result.exitCode).toBe(2); // Syntax error (unclosed brace)
+      expect(result.stderr).toContain("syntax error");
     });
   });
 

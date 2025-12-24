@@ -1,32 +1,46 @@
+/**
+ * BashEnv - Bash Shell Environment
+ *
+ * A complete bash-like shell environment using a proper AST-based architecture:
+ *   Input → Parser → AST → Executor → Output
+ *
+ * This implementation uses:
+ * - Recursive descent parser producing typed AST nodes
+ * - Tree-walking executor with visitor pattern
+ * - Proper word expansion (brace, tilde, parameter, command, arithmetic)
+ */
+
 import { createLazyCommands } from "./commands/registry.js";
 import { type IFileSystem, VirtualFs } from "./fs.js";
 import type { InitialFiles } from "./fs-interface.js";
-import {
-  type BuiltinContext,
-  evaluateTopLevelTest,
-  executeCaseStatement,
-  executeForLoop,
-  executeIfStatement,
-  executeUntilLoop,
-  executeWhileLoop,
-  executeWithHereDoc,
-  expandVariablesAsync,
-  type HereDocContext,
-  handleCd,
-  handleExit,
-  handleExport,
-  handleLocal,
-  handleTestExpression,
-  handleUnset,
-  handleVariableAssignment,
-  type InterpreterContext,
-} from "./interpreter/index.js";
-import {
-  GlobExpander,
-  type Pipeline,
-  type Redirection,
-  ShellParser,
-} from "./shell/index.js";
+import { GlobExpander } from "./shell/glob.js";
+import { parse, type ParseException } from "./parser2/parser.js";
+import type {
+  ScriptNode,
+  StatementNode,
+  PipelineNode,
+  CommandNode,
+  SimpleCommandNode,
+  WordNode,
+  WordPart,
+  AssignmentNode,
+  RedirectionNode,
+  HereDocNode,
+  IfNode,
+  ForNode,
+  CStyleForNode,
+  WhileNode,
+  UntilNode,
+  CaseNode,
+  SubshellNode,
+  GroupNode,
+  FunctionDefNode,
+  ArithmeticCommandNode,
+  ConditionalCommandNode,
+  ArithExpr,
+  ConditionalExpressionNode,
+  CompoundCommandNode,
+} from "./ast/types.js";
 import type {
   Command,
   CommandContext,
@@ -36,46 +50,16 @@ import type {
 
 // Default protection limits
 const DEFAULT_MAX_CALL_DEPTH = 100;
-const DEFAULT_MAX_COMMAND_COUNT = 10000;
+const DEFAULT_MAX_COMMAND_COUNT = 100000; // Higher than loop iterations to let loop limit trigger first
 const DEFAULT_MAX_LOOP_ITERATIONS = 10000;
 
 export interface BashEnvOptions {
-  /**
-   * Initial files to populate the virtual filesystem.
-   * Can be simple content strings/Uint8Arrays, or FileInit objects with metadata.
-   * Only used when fs is not provided.
-   * @example
-   * // Simple content
-   * files: { "/file.txt": "content" }
-   * // With metadata
-   * files: { "/file.txt": { content: "data", mode: 0o755, mtime: new Date("2024-01-01") } }
-   */
   files?: InitialFiles;
-  /**
-   * Environment variables
-   */
   env?: Record<string, string>;
-  /**
-   * Initial working directory
-   */
   cwd?: string;
-  /**
-   * Custom filesystem implementation.
-   * If provided, 'files' option is ignored.
-   * Defaults to VirtualFs if not provided.
-   */
   fs?: IFileSystem;
-  /**
-   * Maximum function call/recursion depth. Default: 100
-   */
   maxCallDepth?: number;
-  /**
-   * Maximum number of commands per exec call. Default: 10000
-   */
   maxCommandCount?: number;
-  /**
-   * Maximum iterations per loop (for/while/until). Default: 10000
-   */
   maxLoopIterations?: number;
 }
 
@@ -84,40 +68,33 @@ export class BashEnv {
   private cwd: string;
   private env: Record<string, string>;
   private commands: CommandRegistry = new Map();
-  private functions: Map<string, string> = new Map();
+  private functions: Map<string, FunctionDefNode> = new Map();
   private previousDir: string = "/home/user";
-  private parser: ShellParser;
   private useDefaultLayout: boolean = false;
-  // Stack of local variable scopes for function calls
   private localScopes: Map<string, string | undefined>[] = [];
-  // Protection against endless execution
   private callDepth: number = 0;
   private commandCount: number = 0;
-  // Configurable limits
   private maxCallDepth: number;
   private maxCommandCount: number;
   private maxLoopIterations: number;
+  private lastExitCode: number = 0;
 
   constructor(options: BashEnvOptions = {}) {
-    // Use provided filesystem or create a new VirtualFs
     const fs = options.fs ?? new VirtualFs(options.files);
     this.fs = fs;
 
-    // Use /home/user as default cwd only if no cwd specified
     this.useDefaultLayout = !options.cwd && !options.files;
     this.cwd = options.cwd || (this.useDefaultLayout ? "/home/user" : "/");
     this.env = {
       HOME: this.useDefaultLayout ? "/home/user" : "/",
       PATH: "/bin:/usr/bin",
+      IFS: " \t\n",
       ...options.env,
     };
-    this.parser = new ShellParser(this.env);
 
-    // Initialize protection limits
     this.maxCallDepth = options.maxCallDepth ?? DEFAULT_MAX_CALL_DEPTH;
     this.maxCommandCount = options.maxCommandCount ?? DEFAULT_MAX_COMMAND_COUNT;
-    this.maxLoopIterations =
-      options.maxLoopIterations ?? DEFAULT_MAX_LOOP_ITERATIONS;
+    this.maxLoopIterations = options.maxLoopIterations ?? DEFAULT_MAX_LOOP_ITERATIONS;
 
     // Create essential directories for VirtualFs (only for default layout)
     if (fs instanceof VirtualFs && this.useDefaultLayout) {
@@ -131,17 +108,14 @@ export class BashEnv {
       }
     }
 
-    // Ensure cwd exists in the virtual filesystem
     if (this.cwd !== "/" && fs instanceof VirtualFs) {
       try {
         fs.mkdirSync(this.cwd, { recursive: true });
       } catch {
-        // Ignore errors - the directory may already exist
+        // Ignore errors
       }
     }
 
-    // Register built-in commands with lazy loading
-    // Commands are registered eagerly but implementations load on first use
     for (const cmd of createLazyCommands()) {
       this.registerCommand(cmd);
     }
@@ -149,10 +123,8 @@ export class BashEnv {
 
   registerCommand(command: Command): void {
     this.commands.set(command.name, command);
-    // Create executable stub in /bin for VirtualFs (only for default layout)
     if (this.fs instanceof VirtualFs && this.useDefaultLayout) {
       try {
-        // Create a stub executable file in /bin
         this.fs.writeFileSync(
           `/bin/${command.name}`,
           `#!/bin/bash\n# Built-in command: ${command.name}\n`,
@@ -164,12 +136,10 @@ export class BashEnv {
   }
 
   async exec(commandLine: string): Promise<ExecResult> {
-    // Reset command count for top-level calls
     if (this.callDepth === 0) {
       this.commandCount = 0;
     }
 
-    // Protection against too many commands
     this.commandCount++;
     if (this.commandCount > this.maxCommandCount) {
       return {
@@ -179,604 +149,314 @@ export class BashEnv {
       };
     }
 
-    // Handle empty command
     if (!commandLine.trim()) {
       return { stdout: "", stderr: "", exitCode: 0 };
     }
 
-    // Normalize: strip leading whitespace from each line
-    // This handles indented multi-line scripts like template literals
+    // Normalize indented multi-line scripts
     const normalizedLines = commandLine
       .split("\n")
       .map((line) => line.trimStart());
     const normalized = normalizedLines.join("\n");
 
-    // Split into statements and execute sequentially
-    // This allows control structures to appear in multi-line scripts
-    const statements = this.splitIntoStatements(normalized);
-    if (statements.length > 1) {
-      let stdout = "";
-      let stderr = "";
-      let exitCode = 0;
-      for (const statement of statements) {
-        const result = await this.exec(statement);
-        stdout += result.stdout;
-        stderr += result.stderr;
-        exitCode = result.exitCode;
+    try {
+      const ast = parse(normalized);
+      return await this.executeScript(ast);
+    } catch (error) {
+      if ((error as ParseException).name === "ParseException") {
+        return {
+          stdout: "",
+          stderr: `bash: syntax error: ${(error as Error).message}\n`,
+          exitCode: 2,
+        };
       }
-      return { stdout, stderr, exitCode };
+      throw error;
+    }
+  }
+
+  // ===========================================================================
+  // AST EXECUTION
+  // ===========================================================================
+
+  private async executeScript(node: ScriptNode): Promise<ExecResult> {
+    let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
+
+    for (const statement of node.statements) {
+      const result = await this.executeStatement(statement);
+      stdout += result.stdout;
+      stderr += result.stderr;
+      exitCode = result.exitCode;
+      this.lastExitCode = exitCode;
+      this.env["?"] = String(exitCode);
     }
 
-    // Check for if statements
-    const trimmed = normalized.trim();
-    if (
-      trimmed.startsWith("if ") ||
-      trimmed.startsWith("if;") ||
-      trimmed === "if"
-    ) {
-      return executeIfStatement(trimmed, this.getInterpreterContext());
+    return { stdout, stderr, exitCode };
+  }
+
+  private async executeStatement(node: StatementNode): Promise<ExecResult> {
+    // Check command count limit to prevent infinite loops - hard crash
+    this.commandCount++;
+    if (this.commandCount > this.maxCommandCount) {
+      const err = new Error(`bash: too many commands executed (>${this.maxCommandCount}), increase maxCommandCount`);
+      console.error(err.message);
+      throw err;
     }
 
-    // Check for for loops
-    if (trimmed.startsWith("for ")) {
-      return executeForLoop(trimmed, this.getInterpreterContext());
+    let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
+
+    for (let i = 0; i < node.pipelines.length; i++) {
+      const pipeline = node.pipelines[i];
+      const operator = i > 0 ? node.operators[i - 1] : null;
+
+      // Short-circuit evaluation
+      if (operator === "&&" && exitCode !== 0) continue;
+      if (operator === "||" && exitCode === 0) continue;
+
+      const result = await this.executePipeline(pipeline);
+      stdout += result.stdout;
+      stderr += result.stderr;
+      exitCode = result.exitCode;
     }
 
-    // Check for while loops
-    if (trimmed.startsWith("while ")) {
-      return executeWhileLoop(trimmed, this.getInterpreterContext());
+    // Handle background execution (simplified - just execute normally)
+    if (node.background) {
+      // In a real shell, this would fork to background
     }
 
-    // Check for until loops
-    if (trimmed.startsWith("until ")) {
-      return executeUntilLoop(trimmed, this.getInterpreterContext());
-    }
+    return { stdout, stderr, exitCode };
+  }
 
-    // Check for case statements
-    if (trimmed.startsWith("case ")) {
-      return executeCaseStatement(trimmed, this.getInterpreterContext());
-    }
-
-    // Check for [[ ]] test expressions at top level
-    if (trimmed.startsWith("[[ ")) {
-      return evaluateTopLevelTest(trimmed, this.getInterpreterContext());
-    }
-
-    // Check for function definitions BEFORE here documents
-    // (function bodies may contain here documents)
-    const funcDef = this.extractFunctionDefinition(trimmed);
-    if (funcDef) {
-      this.functions.set(funcDef.name, funcDef.body);
-      // If there's code after the function definition, execute it
-      if (funcDef.rest) {
-        return this.exec(funcDef.rest);
-      }
-      return { stdout: "", stderr: "", exitCode: 0 };
-    }
-
-    // Check for here documents
-    if (trimmed.includes("<<")) {
-      // Find where << appears (not inside quotes)
-      const hereDocIndex = this.findHereDocIndex(trimmed);
-      if (hereDocIndex !== -1) {
-        // Check if there are commands before the here document (separated by semicolon)
-        const beforeHereDoc = trimmed.slice(0, hereDocIndex);
-        const lastSemicolon = beforeHereDoc.lastIndexOf(";");
-        if (lastSemicolon !== -1) {
-          // Execute commands before the here doc first
-          const preCommands = trimmed.slice(0, lastSemicolon).trim();
-          const hereDocPart = trimmed.slice(lastSemicolon + 1).trim();
-          const preResult = await this.exec(preCommands);
-          const hereDocResult = await executeWithHereDoc(
-            hereDocPart,
-            this.getHereDocContext(),
-          );
-          return {
-            stdout: preResult.stdout + hereDocResult.stdout,
-            stderr: preResult.stderr + hereDocResult.stderr,
-            exitCode: hereDocResult.exitCode,
-          };
-        }
-        return executeWithHereDoc(trimmed, this.getHereDocContext());
-      }
-    }
-
-    // Update parser with current environment
-    this.parser.setEnv(this.env);
-
-    // Parse the command line into pipelines
-    const pipelines = this.parser.parse(commandLine);
-
+  private async executePipeline(node: PipelineNode): Promise<ExecResult> {
     let stdin = "";
     let lastResult: ExecResult = { stdout: "", stderr: "", exitCode: 0 };
 
-    // Execute each pipeline
-    for (const pipeline of pipelines) {
-      const result = await this.executePipeline(pipeline, stdin);
-      stdin = result.stdout;
-      lastResult = result;
+    for (let i = 0; i < node.commands.length; i++) {
+      const command = node.commands[i];
+      const isLast = i === node.commands.length - 1;
+
+      const result = await this.executeCommand(command, stdin);
+
+      if (!isLast) {
+        // Pipe stdout to next command's stdin
+        stdin = result.stdout;
+        lastResult = { stdout: "", stderr: result.stderr, exitCode: result.exitCode };
+      } else {
+        lastResult = result;
+      }
+    }
+
+    // Apply negation
+    if (node.negated) {
+      lastResult = {
+        ...lastResult,
+        exitCode: lastResult.exitCode === 0 ? 1 : 0,
+      };
     }
 
     return lastResult;
   }
 
-  /**
-   * Get interpreter context for control flow and other modules
-   */
-  private getInterpreterContext(): InterpreterContext {
-    return {
-      fs: this.fs,
-      cwd: this.cwd,
-      env: this.env,
-      exec: this.exec.bind(this),
-      expandVariables: (str: string) =>
-        expandVariablesAsync(str, {
-          env: this.env,
-          exec: this.exec.bind(this),
-        }),
-      resolvePath: this.resolvePath.bind(this),
-      maxLoopIterations: this.maxLoopIterations,
-    };
+  private async executeCommand(node: CommandNode, stdin: string): Promise<ExecResult> {
+    switch (node.type) {
+      case "SimpleCommand":
+        return this.executeSimpleCommand(node, stdin);
+      case "If":
+        return this.executeIf(node);
+      case "For":
+        return this.executeFor(node);
+      case "CStyleFor":
+        return this.executeCStyleFor(node);
+      case "While":
+        return this.executeWhile(node);
+      case "Until":
+        return this.executeUntil(node);
+      case "Case":
+        return this.executeCase(node);
+      case "Subshell":
+        return this.executeSubshell(node);
+      case "Group":
+        return this.executeGroup(node);
+      case "FunctionDef":
+        return this.executeFunctionDef(node);
+      case "ArithmeticCommand":
+        return this.executeArithmeticCommand(node);
+      case "ConditionalCommand":
+        return this.executeConditionalCommand(node);
+      default:
+        return { stdout: "", stderr: "", exitCode: 0 };
+    }
   }
 
-  /**
-   * Get here document context
-   */
-  private getHereDocContext(): HereDocContext {
-    return {
-      ...this.getInterpreterContext(),
-      parse: (cmd: string) => {
-        this.parser.setEnv(this.env);
-        return this.parser.parse(cmd);
-      },
-      executePipeline: this.executePipeline.bind(this),
-    };
-  }
+  // ===========================================================================
+  // SIMPLE COMMAND EXECUTION
+  // ===========================================================================
 
-  /**
-   * Get builtin command context
-   */
-  private getBuiltinContext(): BuiltinContext {
-    return {
-      fs: this.fs,
-      cwd: this.cwd,
-      setCwd: (cwd: string) => {
-        this.cwd = cwd;
-      },
-      previousDir: this.previousDir,
-      setPreviousDir: (dir: string) => {
-        this.previousDir = dir;
-      },
-      env: this.env,
-      localScopes: this.localScopes,
-      resolvePath: this.resolvePath.bind(this),
-    };
-  }
-
-  /**
-   * Split input into separate statements, keeping control structures intact
-   * Handles: case...esac, if...fi, for/while/until...done, functions, here documents
-   */
-  private splitIntoStatements(input: string): string[] {
-    const statements: string[] = [];
-    const lines = input.split("\n");
-    let current: string[] = [];
-    let depth = 0;
-    let inControlStructure: "case" | "if" | "loop" | "function" | null = null;
-    let hereDocDelimiter: string | null = null;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) {
-        if (current.length > 0) {
-          current.push("");
-        }
-        continue;
-      }
-
-      // If we're inside a here document, check for the end delimiter
-      if (hereDocDelimiter) {
-        current.push(line);
-        if (line === hereDocDelimiter) {
-          // End of here document - save it
-          statements.push(current.join("\n"));
-          current = [];
-          hereDocDelimiter = null;
-        }
-        continue;
-      }
-
-      // Check for here document start (but only if not in a control structure)
-      const hereDocMatch = line.match(/<<(-?)(['"]?)(\w+)\2/);
-      if (hereDocMatch && depth === 0) {
-        // If there are pending lines that don't contain << , flush them first
-        if (current.length > 0) {
-          const lastLine = current[current.length - 1];
-          if (!lastLine.includes("<<")) {
-            // Flush all previous lines as a statement
-            statements.push(current.join("\n"));
-            current = [];
-          }
-        }
-        hereDocDelimiter = hereDocMatch[3];
-        current.push(line);
-        continue;
-      }
-
-      // Check for start of control structures
-      let justStartedStructure = false;
-      if (depth === 0) {
-        if (line.startsWith("case ") && line.includes(" in")) {
-          inControlStructure = "case";
-          depth = 1;
-          justStartedStructure = true;
-        } else if (
-          line.startsWith("if ") ||
-          line.startsWith("if;") ||
-          line === "if"
-        ) {
-          inControlStructure = "if";
-          depth = 1;
-          justStartedStructure = true;
-        } else if (
-          line.startsWith("for ") ||
-          line.startsWith("while ") ||
-          line.startsWith("until ")
-        ) {
-          inControlStructure = "loop";
-          depth = 1;
-          justStartedStructure = true;
-        } else if (line.match(/^(function\s+\w+|\w+\s*\(\s*\))\s*\{/)) {
-          inControlStructure = "function";
-          depth = 1;
-          justStartedStructure = true;
-        }
-
-        // If we started a control structure, flush any pending current lines first
-        if (inControlStructure && current.length > 0) {
-          statements.push(current.join("\n"));
-          current = [];
-        }
-      }
-
-      // Track nested structures (but not for the line that just started one)
-      if (depth > 0 && !justStartedStructure) {
-        // Check for nested structures
-        if (line.startsWith("case ") && line.includes(" in")) {
-          depth++;
-        } else if (
-          line.startsWith("if ") ||
-          line.startsWith("if;") ||
-          line === "if"
-        ) {
-          depth++;
-        } else if (
-          line.startsWith("for ") ||
-          line.startsWith("while ") ||
-          line.startsWith("until ")
-        ) {
-          depth++;
-        }
-
-        // Check for end markers
-        if (
-          line === "esac" ||
-          line.startsWith("esac;") ||
-          line.startsWith("esac ") ||
-          line.match(/^esac(\s|;|$)/)
-        ) {
-          depth--;
-        } else if (
-          line === "fi" ||
-          line.startsWith("fi;") ||
-          line.startsWith("fi ") ||
-          line.match(/^fi(\s|;|$)/)
-        ) {
-          depth--;
-        } else if (
-          line === "done" ||
-          line.startsWith("done;") ||
-          line.startsWith("done ") ||
-          line.match(/^done(\s|;|$)/)
-        ) {
-          depth--;
-        } else if (line === "}" || line.startsWith("};")) {
-          if (inControlStructure === "function") {
-            depth--;
-          }
-        }
-      }
-
-      current.push(line);
-
-      // If we've finished a control structure, save it
-      if (depth === 0 && inControlStructure) {
-        statements.push(current.join("\n"));
-        current = [];
-        inControlStructure = null;
-      }
-    }
-
-    // Add any remaining lines
-    if (current.length > 0) {
-      const remaining = current.join("\n").trim();
-      if (remaining) {
-        statements.push(remaining);
-      }
-    }
-
-    return statements;
-  }
-
-  /**
-   * Find the index of << in the string, ignoring quoted occurrences
-   */
-  private findHereDocIndex(input: string): number {
-    let inSingleQuote = false;
-    let inDoubleQuote = false;
-    for (let i = 0; i < input.length - 1; i++) {
-      const char = input[i];
-      if (char === "'" && !inDoubleQuote) {
-        inSingleQuote = !inSingleQuote;
-      } else if (char === '"' && !inSingleQuote) {
-        inDoubleQuote = !inDoubleQuote;
-      } else if (
-        char === "<" &&
-        input[i + 1] === "<" &&
-        !inSingleQuote &&
-        !inDoubleQuote
-      ) {
-        return i;
-      }
-    }
-    return -1;
-  }
-
-  /**
-   * Parse and extract function definitions from input
-   * Returns the function (if found) and any remaining code after it
-   * Syntax: function name { commands; } or name() { commands; }
-   */
-  private extractFunctionDefinition(
-    input: string,
-  ): { name: string; body: string; rest: string } | null {
-    // Match: function name { or name() {
-    const funcStart = input.match(
-      /^(function\s+([a-zA-Z_][a-zA-Z0-9_]*)|([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*\))\s*\{/,
-    );
-    if (!funcStart) {
-      return null;
-    }
-
-    const name = funcStart[2] || funcStart[3];
-    const braceStart = input.indexOf("{", funcStart[0].length - 1);
-
-    // Find the matching closing brace
-    let depth = 1;
-    let i = braceStart + 1;
-    while (i < input.length && depth > 0) {
-      if (input[i] === "{") {
-        depth++;
-      } else if (input[i] === "}") {
-        depth--;
-      } else if (input[i] === "'" || input[i] === '"') {
-        // Skip quoted strings
-        const quote = input[i];
-        i++;
-        while (i < input.length && input[i] !== quote) {
-          if (input[i] === "\\" && i + 1 < input.length) {
-            i += 2;
-          } else {
-            i++;
-          }
-        }
-      }
-      i++;
-    }
-
-    if (depth !== 0) {
-      return null; // Unbalanced braces
-    }
-
-    const body = input.slice(braceStart + 1, i - 1).trim();
-    const rest = input.slice(i).trim();
-
-    return { name, body, rest };
-  }
-
-  private async executePipeline(
-    pipeline: Pipeline,
-    initialStdin: string,
-  ): Promise<ExecResult> {
-    let stdin = initialStdin;
-    let lastResult: ExecResult = { stdout: "", stderr: "", exitCode: 0 };
-    let accumulatedStdout = "";
-    let accumulatedStderr = "";
-
-    // Track negation for current pipeline segment
-    let currentNegationCount = 0;
-
-    for (let i = 0; i < pipeline.commands.length; i++) {
-      const { parsed, operator, negationCount } = pipeline.commands[i];
-      const nextCommand = pipeline.commands[i + 1];
-      const nextOperator = nextCommand?.operator || "";
-
-      // At the start of a new pipeline segment, capture the negation count
-      if (operator !== "" || i === 0) {
-        // This is the first command of a pipeline segment
-        currentNegationCount = negationCount || 0;
-      }
-
-      // Check if we should run based on previous result (for &&, ||, ;)
-      // Note: lastResult here is from the previous pipeline segment (already negated if needed)
-      if (operator === "&&" && lastResult.exitCode !== 0) continue;
-      if (operator === "||" && lastResult.exitCode === 0) continue;
-      // For ';', always run
-
-      // Determine if previous command was a pipe (empty operator means pipe)
-      const isPipedInput = operator === "";
-      // Determine if next command is a pipe
-      const isPipedOutput = nextOperator === "";
-
-      // Execute the command
-      const commandStdin = isPipedInput && i > 0 ? stdin : initialStdin;
-      let result = await this.executeCommand(
-        parsed.command,
-        parsed.args,
-        parsed.quotedArgs,
-        parsed.singleQuotedArgs,
-        parsed.redirections,
-        commandStdin,
-      );
-
-      // Handle stdout based on whether this is piped to next command
-      if (isPipedOutput && i < pipeline.commands.length - 1) {
-        // This command's stdout goes to next command's stdin
-        stdin = result.stdout;
-      } else {
-        // End of pipeline segment - apply negation if odd count
-        if (currentNegationCount % 2 === 1) {
-          result = {
-            ...result,
-            exitCode: result.exitCode === 0 ? 1 : 0,
-          };
-        }
-        // Accumulate stdout for final output
-        accumulatedStdout += result.stdout;
-      }
-
-      // Always accumulate stderr
-      accumulatedStderr += result.stderr;
-
-      // Update last result for operator checks
-      lastResult = result;
-    }
-
-    return {
-      stdout: accumulatedStdout,
-      stderr: accumulatedStderr,
-      exitCode: lastResult.exitCode,
-    };
-  }
-
-  private async executeCommand(
-    command: string,
-    args: string[],
-    quotedArgs: boolean[],
-    singleQuotedArgs: boolean[],
-    redirections: Redirection[],
+  private async executeSimpleCommand(
+    node: SimpleCommandNode,
     stdin: string,
   ): Promise<ExecResult> {
-    if (!command) {
+    // Handle prefix assignments
+    const tempAssignments: Record<string, string | undefined> = {};
+
+    for (const assignment of node.assignments) {
+      const name = assignment.name;
+      const value = assignment.value ? await this.expandWord(assignment.value) : "";
+
+      if (node.name) {
+        // Temporary assignment for command
+        tempAssignments[name] = this.env[name];
+        this.env[name] = value;
+      } else {
+        // Permanent assignment (no command)
+        this.env[name] = value;
+      }
+    }
+
+    // If no command, just assignments
+    if (!node.name) {
       return { stdout: "", stderr: "", exitCode: 0 };
     }
 
-    // Handle stdin redirection (<) - must be processed BEFORE command execution
-    for (const redir of redirections) {
-      if (redir.type === "stdin" && redir.target) {
+    // Handle stdin redirection first
+    for (const redir of node.redirections) {
+      // Handle here-documents
+      if (
+        (redir.operator === "<<" || redir.operator === "<<-") &&
+        redir.target.type === "HereDoc"
+      ) {
+        const hereDoc = redir.target as HereDocNode;
+        if (hereDoc.quoted) {
+          // No expansion - use content literally
+          stdin = await this.expandWord(hereDoc.content);
+        } else {
+          // Expand variables in here-doc content
+          stdin = await this.expandWord(hereDoc.content);
+        }
+        continue;
+      }
+
+      // Handle here-strings
+      if (redir.operator === "<<<" && redir.target.type === "Word") {
+        stdin = (await this.expandWord(redir.target as WordNode)) + "\n";
+        continue;
+      }
+
+      // Handle input redirection from file
+      if (redir.operator === "<" && redir.target.type === "Word") {
         try {
-          const filePath = this.resolvePath(redir.target);
+          const target = await this.expandWord(redir.target as WordNode);
+          const filePath = this.resolvePath(target);
           stdin = await this.fs.readFile(filePath);
         } catch {
+          const target = await this.expandWord(redir.target as WordNode);
+          // Restore temp assignments
+          for (const [name, value] of Object.entries(tempAssignments)) {
+            if (value === undefined) delete this.env[name];
+            else this.env[name] = value;
+          }
           return {
             stdout: "",
-            stderr: `bash: ${redir.target}: No such file or directory\n`,
+            stderr: `bash: ${target}: No such file or directory\n`,
             exitCode: 1,
           };
         }
       }
     }
 
-    // Check for compound commands (if statements collected by parser)
-    if (command.startsWith("if ") || command.startsWith("if;")) {
-      return executeIfStatement(command, this.getInterpreterContext());
-    }
+    // Expand command name and args
+    const commandName = await this.expandWord(node.name);
+    const args: string[] = [];
+    const quotedArgs: boolean[] = [];
 
-    // Expand variables in command and args at execution time
-    // Use async expansion to support command substitution $(...)
-    // Note: quotedArgs flag is used for glob expansion only
-    // singleQuotedArgs flag determines variable expansion (single-quoted = literal)
-    const expandedCommand = await expandVariablesAsync(command, {
-      env: this.env,
-      exec: this.exec.bind(this),
-    });
-    const varExpandedArgs: string[] = [];
-    for (let i = 0; i < args.length; i++) {
-      if (singleQuotedArgs[i]) {
-        // Single-quoted args are literal - no expansion
-        varExpandedArgs.push(args[i]);
-      } else {
-        varExpandedArgs.push(
-          await expandVariablesAsync(args[i], {
-            env: this.env,
-            exec: this.exec.bind(this),
-          }),
-        );
+    for (const arg of node.args) {
+      const expanded = await this.expandWordWithGlob(arg);
+      for (const value of expanded.values) {
+        args.push(value);
+        quotedArgs.push(expanded.quoted);
       }
     }
 
-    // Create glob expander for this execution
-    const globExpander = new GlobExpander(this.fs, this.cwd);
+    // Execute the command
+    let result = await this.runCommand(commandName, args, quotedArgs, stdin);
 
-    // Expand glob patterns in arguments (skip quoted args)
-    const expandedArgs = await globExpander.expandArgs(
-      varExpandedArgs,
-      quotedArgs,
-    );
+    // Apply output redirections
+    result = await this.applyRedirections(result, node.redirections);
 
+    // Restore temp assignments
+    for (const [name, value] of Object.entries(tempAssignments)) {
+      if (value === undefined) delete this.env[name];
+      else this.env[name] = value;
+    }
+
+    return result;
+  }
+
+  private async runCommand(
+    commandName: string,
+    args: string[],
+    quotedArgs: boolean[],
+    stdin: string,
+  ): Promise<ExecResult> {
     // Handle built-in commands that modify shell state
-    if (expandedCommand === "cd") {
-      return handleCd(expandedArgs, this.getBuiltinContext());
+    if (commandName === "cd") {
+      return await this.handleCd(args);
     }
-    if (expandedCommand === "export") {
-      return handleExport(expandedArgs, this.env);
+    if (commandName === "export") {
+      return this.handleExport(args);
     }
-    if (expandedCommand === "unset") {
-      return handleUnset(expandedArgs, this.env);
+    if (commandName === "unset") {
+      return this.handleUnset(args);
     }
-    if (expandedCommand === "exit") {
-      return handleExit(expandedArgs);
+    if (commandName === "exit") {
+      return this.handleExit(args);
     }
-    if (expandedCommand === "local") {
-      return handleLocal(expandedArgs, this.getBuiltinContext());
+    if (commandName === "local") {
+      return this.handleLocal(args);
     }
-
-    // Handle [[ ]] test expressions
-    if (expandedCommand === "[[") {
-      return await handleTestExpression(
-        expandedArgs,
-        this.getInterpreterContext(),
-      );
+    if (commandName === "[[") {
+      // Test expression - find matching ]]
+      const endIdx = args.lastIndexOf("]]");
+      if (endIdx !== -1) {
+        const testArgs = args.slice(0, endIdx);
+        return this.evaluateTestArgs(testArgs);
+      }
+      return { stdout: "", stderr: "bash: [[: missing `]]'\n", exitCode: 2 };
     }
-
-    // Handle variable assignment: VAR=value (no args, command contains =)
-    if (expandedArgs.length === 0) {
-      const assignResult = handleVariableAssignment(expandedCommand, this.env);
-      if (assignResult) return assignResult;
-    }
-
-    // Check for user-defined functions first
-    const funcBody = this.functions.get(expandedCommand);
-    if (funcBody) {
-      return this.executeFunction(expandedCommand, funcBody, expandedArgs);
+    if (commandName === "[" || commandName === "test") {
+      // POSIX test
+      let testArgs = args;
+      if (commandName === "[" && args[args.length - 1] === "]") {
+        testArgs = args.slice(0, -1);
+      }
+      return this.evaluateTestArgs(testArgs);
     }
 
-    // Look up command - handle paths like /bin/ls
-    let commandName = expandedCommand;
-    if (expandedCommand.includes("/")) {
-      // Extract the command name from the path
-      commandName = expandedCommand.split("/").pop() || expandedCommand;
+    // Check for user-defined functions
+    const func = this.functions.get(commandName);
+    if (func) {
+      return this.callFunction(func, args);
     }
-    const cmd = this.commands.get(commandName);
+
+    // Look up command
+    let cmdName = commandName;
+    if (commandName.includes("/")) {
+      cmdName = commandName.split("/").pop() || commandName;
+    }
+
+    const cmd = this.commands.get(cmdName);
     if (!cmd) {
       return {
         stdout: "",
-        stderr: `bash: ${expandedCommand}: command not found\n`,
+        stderr: `bash: ${commandName}: command not found\n`,
         exitCode: 127,
       };
     }
 
-    // Execute the command
+    // Execute external command
     const ctx: CommandContext = {
       fs: this.fs,
       cwd: this.cwd,
@@ -785,60 +465,374 @@ export class BashEnv {
       exec: this.exec.bind(this),
     };
 
-    let result: ExecResult;
     try {
-      result = await cmd.execute(expandedArgs, ctx);
+      return await cmd.execute(args, ctx);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      result = {
+      return {
         stdout: "",
-        stderr: `${command}: ${message}\n`,
+        stderr: `${commandName}: ${message}\n`,
         exitCode: 1,
       };
     }
-
-    // Apply redirections
-    result = await this.applyRedirections(result, redirections);
-
-    return result;
   }
 
-  /**
-   * Execute a user-defined function
-   */
-  private async executeFunction(
-    name: string,
-    body: string,
-    args: string[],
-  ): Promise<ExecResult> {
-    // Protection against infinite recursion
+  // ===========================================================================
+  // CONTROL FLOW
+  // ===========================================================================
+
+  private async executeIf(node: IfNode): Promise<ExecResult> {
+    let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
+
+    for (const clause of node.clauses) {
+      // Execute condition
+      let conditionExitCode = 0;
+      for (const stmt of clause.condition) {
+        const result = await this.executeStatement(stmt);
+        stdout += result.stdout;
+        stderr += result.stderr;
+        conditionExitCode = result.exitCode;
+      }
+
+      if (conditionExitCode === 0) {
+        // Condition true - execute body
+        for (const stmt of clause.body) {
+          const result = await this.executeStatement(stmt);
+          stdout += result.stdout;
+          stderr += result.stderr;
+          exitCode = result.exitCode;
+        }
+        return { stdout, stderr, exitCode };
+      }
+    }
+
+    // No condition matched, try else
+    if (node.elseBody) {
+      for (const stmt of node.elseBody) {
+        const result = await this.executeStatement(stmt);
+        stdout += result.stdout;
+        stderr += result.stderr;
+        exitCode = result.exitCode;
+      }
+    }
+
+    return { stdout, stderr, exitCode };
+  }
+
+  private async executeFor(node: ForNode): Promise<ExecResult> {
+    let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
+    let iterations = 0;
+
+    // Get words to iterate over
+    let words: string[] = [];
+    if (node.words === null) {
+      // for VAR; do ... (iterate over $@)
+      words = (this.env["@"] || "").split(" ").filter(Boolean);
+    } else if (node.words.length === 0) {
+      // Empty list - don't iterate
+      words = [];
+    } else {
+      for (const word of node.words) {
+        const expanded = await this.expandWordWithGlob(word);
+        words.push(...expanded.values);
+      }
+    }
+
+    for (const value of words) {
+      iterations++;
+      if (iterations > this.maxLoopIterations) {
+        return {
+          stdout,
+          stderr: stderr + `bash: for loop: too many iterations (${this.maxLoopIterations}), increase maxLoopIterations\n`,
+          exitCode: 1,
+        };
+      }
+
+      this.env[node.variable] = value;
+
+      for (const stmt of node.body) {
+        try {
+          const result = await this.executeStatement(stmt);
+          stdout += result.stdout;
+          stderr += result.stderr;
+          exitCode = result.exitCode;
+        } catch (error) {
+          // Convert command count error to proper error result
+          const message = error instanceof Error ? error.message : String(error);
+          return {
+            stdout,
+            stderr: stderr + message + "\n",
+            exitCode: 1,
+          };
+        }
+      }
+    }
+
+    // Clean up loop variable after loop completes
+    delete this.env[node.variable];
+
+    return { stdout, stderr, exitCode };
+  }
+
+  private async executeCStyleFor(node: CStyleForNode): Promise<ExecResult> {
+    let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
+    let iterations = 0;
+
+    // Execute init
+    if (node.init) {
+      this.evaluateArithmetic(node.init.expression);
+    }
+
+    while (true) {
+      iterations++;
+      if (iterations > this.maxLoopIterations) {
+        return {
+          stdout,
+          stderr: stderr + `bash: for loop: too many iterations (${this.maxLoopIterations}), increase maxLoopIterations\n`,
+          exitCode: 1,
+        };
+      }
+
+      // Check condition
+      if (node.condition) {
+        const condResult = this.evaluateArithmetic(node.condition.expression);
+        if (condResult === 0) break;
+      }
+
+      // Execute body
+      for (const stmt of node.body) {
+        try {
+          const result = await this.executeStatement(stmt);
+          stdout += result.stdout;
+          stderr += result.stderr;
+          exitCode = result.exitCode;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return { stdout, stderr: stderr + message + "\n", exitCode: 1 };
+        }
+      }
+
+      // Execute update
+      if (node.update) {
+        this.evaluateArithmetic(node.update.expression);
+      }
+    }
+
+    return { stdout, stderr, exitCode };
+  }
+
+  private async executeWhile(node: WhileNode): Promise<ExecResult> {
+    let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
+    let iterations = 0;
+
+    while (true) {
+      iterations++;
+      if (iterations > this.maxLoopIterations) {
+        return {
+          stdout,
+          stderr: stderr + `bash: while loop: too many iterations (${this.maxLoopIterations}), increase maxLoopIterations\n`,
+          exitCode: 1,
+        };
+      }
+
+      // Check condition
+      let conditionExitCode = 0;
+      for (const stmt of node.condition) {
+        try {
+          const result = await this.executeStatement(stmt);
+          stdout += result.stdout;
+          stderr += result.stderr;
+          conditionExitCode = result.exitCode;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return { stdout, stderr: stderr + message + "\n", exitCode: 1 };
+        }
+      }
+
+      if (conditionExitCode !== 0) break;
+
+      // Execute body
+      for (const stmt of node.body) {
+        try {
+          const result = await this.executeStatement(stmt);
+          stdout += result.stdout;
+          stderr += result.stderr;
+          exitCode = result.exitCode;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return { stdout, stderr: stderr + message + "\n", exitCode: 1 };
+        }
+      }
+    }
+
+    return { stdout, stderr, exitCode };
+  }
+
+  private async executeUntil(node: UntilNode): Promise<ExecResult> {
+    let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
+    let iterations = 0;
+
+    while (true) {
+      iterations++;
+      if (iterations > this.maxLoopIterations) {
+        return {
+          stdout,
+          stderr: stderr + `bash: until loop: too many iterations (${this.maxLoopIterations}), increase maxLoopIterations\n`,
+          exitCode: 1,
+        };
+      }
+
+      // Check condition
+      let conditionExitCode = 0;
+      for (const stmt of node.condition) {
+        try {
+          const result = await this.executeStatement(stmt);
+          stdout += result.stdout;
+          stderr += result.stderr;
+          conditionExitCode = result.exitCode;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return { stdout, stderr: stderr + message + "\n", exitCode: 1 };
+        }
+      }
+
+      if (conditionExitCode === 0) break;
+
+      // Execute body
+      for (const stmt of node.body) {
+        try {
+          const result = await this.executeStatement(stmt);
+          stdout += result.stdout;
+          stderr += result.stderr;
+          exitCode = result.exitCode;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return { stdout, stderr: stderr + message + "\n", exitCode: 1 };
+        }
+      }
+    }
+
+    return { stdout, stderr, exitCode };
+  }
+
+  private async executeCase(node: CaseNode): Promise<ExecResult> {
+    let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
+
+    const value = await this.expandWord(node.word);
+
+    for (const item of node.items) {
+      let matched = false;
+
+      for (const pattern of item.patterns) {
+        const patternStr = await this.expandWord(pattern);
+        if (this.matchPattern(value, patternStr)) {
+          matched = true;
+          break;
+        }
+      }
+
+      if (matched) {
+        for (const stmt of item.body) {
+          const result = await this.executeStatement(stmt);
+          stdout += result.stdout;
+          stderr += result.stderr;
+          exitCode = result.exitCode;
+        }
+
+        if (item.terminator === ";;") {
+          break;
+        }
+        // ;& falls through to next, ;;& continues checking
+      }
+    }
+
+    return { stdout, stderr, exitCode };
+  }
+
+  private async executeSubshell(node: SubshellNode): Promise<ExecResult> {
+    // Save state
+    const savedEnv = { ...this.env };
+    const savedCwd = this.cwd;
+
+    let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
+
+    for (const stmt of node.body) {
+      const result = await this.executeStatement(stmt);
+      stdout += result.stdout;
+      stderr += result.stderr;
+      exitCode = result.exitCode;
+    }
+
+    // Restore state (subshell doesn't affect parent)
+    this.env = savedEnv;
+    this.cwd = savedCwd;
+
+    return { stdout, stderr, exitCode };
+  }
+
+  private async executeGroup(node: GroupNode): Promise<ExecResult> {
+    let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
+
+    for (const stmt of node.body) {
+      const result = await this.executeStatement(stmt);
+      stdout += result.stdout;
+      stderr += result.stderr;
+      exitCode = result.exitCode;
+    }
+
+    return { stdout, stderr, exitCode };
+  }
+
+  private executeFunctionDef(node: FunctionDefNode): ExecResult {
+    this.functions.set(node.name, node);
+    return { stdout: "", stderr: "", exitCode: 0 };
+  }
+
+  private async callFunction(func: FunctionDefNode, args: string[]): Promise<ExecResult> {
     this.callDepth++;
     if (this.callDepth > this.maxCallDepth) {
       this.callDepth--;
       return {
         stdout: "",
-        stderr: `bash: ${name}: maximum recursion depth (${this.maxCallDepth}) exceeded. Increase with maxCallDepth option.\n`,
+        stderr: `bash: ${func.name}: maximum recursion depth (${this.maxCallDepth}) exceeded, increase maxCallDepth\n`,
         exitCode: 1,
       };
     }
 
-    // Push a new local scope for this function call
+    // Push local scope
     this.localScopes.push(new Map());
 
-    // Set positional parameters ($1, $2, etc.)
+    // Set positional parameters
+    const savedPositional: Record<string, string | undefined> = {};
     for (let i = 0; i < args.length; i++) {
+      savedPositional[String(i + 1)] = this.env[String(i + 1)];
       this.env[String(i + 1)] = args[i];
     }
+    savedPositional["@"] = this.env["@"];
+    savedPositional["#"] = this.env["#"];
     this.env["@"] = args.join(" ");
     this.env["#"] = String(args.length);
 
-    // Execute the function body
-    const result = await this.exec(body);
+    // Execute function body
+    const result = await this.executeCommand(func.body, "");
 
-    // Decrement call depth
-    this.callDepth--;
-
-    // Pop the local scope and restore shadowed variables
+    // Pop local scope
     const localScope = this.localScopes.pop();
     if (localScope) {
       for (const [varName, originalValue] of localScope) {
@@ -850,65 +844,877 @@ export class BashEnv {
       }
     }
 
-    // Clean up positional parameters
-    for (let i = 1; i <= args.length; i++) {
-      delete this.env[String(i)];
+    // Restore positional parameters
+    for (const [key, value] of Object.entries(savedPositional)) {
+      if (value === undefined) {
+        delete this.env[key];
+      } else {
+        this.env[key] = value;
+      }
     }
-    delete this.env["@"];
-    delete this.env["#"];
 
+    this.callDepth--;
     return result;
   }
 
+  private executeArithmeticCommand(node: ArithmeticCommandNode): ExecResult {
+    try {
+      const result = this.evaluateArithmetic(node.expression.expression);
+      return { stdout: "", stderr: "", exitCode: result === 0 ? 1 : 0 };
+    } catch (error) {
+      return {
+        stdout: "",
+        stderr: `bash: arithmetic expression: ${(error as Error).message}\n`,
+        exitCode: 1,
+      };
+    }
+  }
+
+  private async executeConditionalCommand(node: ConditionalCommandNode): Promise<ExecResult> {
+    try {
+      const result = await this.evaluateConditional(node.expression);
+      return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
+    } catch (error) {
+      return {
+        stdout: "",
+        stderr: `bash: conditional expression: ${(error as Error).message}\n`,
+        exitCode: 2,
+      };
+    }
+  }
+
+  // ===========================================================================
+  // WORD EXPANSION
+  // ===========================================================================
+
+  private async expandWord(word: WordNode): Promise<string> {
+    const parts: string[] = [];
+    for (const part of word.parts) {
+      parts.push(await this.expandPart(part));
+    }
+    return parts.join("");
+  }
+
+  private async expandWordWithGlob(word: WordNode): Promise<{ values: string[]; quoted: boolean }> {
+    let hasQuoted = false;
+    let hasCommandSub = false;
+    let hasArrayVar = false;
+    const parts: string[] = [];
+
+    for (const part of word.parts) {
+      if (part.type === "SingleQuoted" || part.type === "DoubleQuoted") {
+        hasQuoted = true;
+      }
+      if (part.type === "CommandSubstitution") {
+        hasCommandSub = true;
+      }
+      // Track unquoted $@ or $* which should be word-split
+      if (part.type === "ParameterExpansion" && (part.parameter === "@" || part.parameter === "*")) {
+        hasArrayVar = true;
+      }
+      parts.push(await this.expandPart(part));
+    }
+
+    const value = parts.join("");
+
+    // Word splitting for unquoted command substitution or $@/$* results
+    if (!hasQuoted && (hasCommandSub || hasArrayVar) && value.includes(" ")) {
+      const splitValues = value.split(/\s+/).filter((v) => v !== "");
+      if (splitValues.length > 1) {
+        return { values: splitValues, quoted: false };
+      }
+    }
+
+    // Glob expansion (only if not quoted)
+    if (!hasQuoted && /[*?[]/.test(value)) {
+      const globExpander = new GlobExpander(this.fs, this.cwd);
+      const matches = await globExpander.expand(value);
+      if (matches.length > 0) {
+        return { values: matches, quoted: false };
+      }
+    }
+
+    return { values: [value], quoted: hasQuoted };
+  }
+
+  private async expandPart(part: WordPart): Promise<string> {
+    switch (part.type) {
+      case "Literal":
+        return part.value;
+
+      case "SingleQuoted":
+        return part.value;
+
+      case "DoubleQuoted": {
+        const parts: string[] = [];
+        for (const p of part.parts) {
+          parts.push(await this.expandPart(p));
+        }
+        return parts.join("");
+      }
+
+      case "Escaped":
+        return part.value;
+
+      case "ParameterExpansion":
+        return this.expandParameter(part);
+
+      case "CommandSubstitution": {
+        const result = await this.executeScript(part.body);
+        return result.stdout.replace(/\n+$/, "");
+      }
+
+      case "ArithmeticExpansion": {
+        const value = this.evaluateArithmetic(part.expression.expression);
+        return String(value);
+      }
+
+      case "TildeExpansion":
+        if (part.user === null) {
+          return this.env.HOME || "/home/user";
+        }
+        return `/home/${part.user}`;
+
+      case "BraceExpansion": {
+        // Brace expansion should be handled earlier, but fallback
+        const results: string[] = [];
+        for (const item of part.items) {
+          if (item.type === "Range") {
+            const start = item.start;
+            const end = item.end;
+            if (typeof start === "number" && typeof end === "number") {
+              const step = item.step || 1;
+              if (start <= end) {
+                for (let i = start; i <= end; i += step) results.push(String(i));
+              } else {
+                for (let i = start; i >= end; i -= step) results.push(String(i));
+              }
+            } else if (typeof start === "string" && typeof end === "string") {
+              const startCode = start.charCodeAt(0);
+              const endCode = end.charCodeAt(0);
+              if (startCode <= endCode) {
+                for (let i = startCode; i <= endCode; i++) results.push(String.fromCharCode(i));
+              } else {
+                for (let i = startCode; i >= endCode; i--) results.push(String.fromCharCode(i));
+              }
+            }
+          } else {
+            results.push(await this.expandWord(item.word));
+          }
+        }
+        return results.join(" ");
+      }
+
+      case "Glob":
+        return part.pattern;
+
+      default:
+        return "";
+    }
+  }
+
+  private expandParameter(part: {
+    type: "ParameterExpansion";
+    parameter: string;
+    operation: any;
+  }): string {
+    const { parameter, operation } = part;
+    let value = this.getVariable(parameter);
+
+    if (!operation) {
+      return value;
+    }
+
+    const isUnset = !(parameter in this.env);
+    const isEmpty = value === "";
+
+    switch (operation.type) {
+      case "DefaultValue": {
+        const useDefault = isUnset || (operation.checkEmpty && isEmpty);
+        if (useDefault && operation.word) {
+          // Simplified: use literal value
+          return operation.word.parts.map((p: any) => p.value || "").join("");
+        }
+        return value;
+      }
+
+      case "AssignDefault": {
+        const useDefault = isUnset || (operation.checkEmpty && isEmpty);
+        if (useDefault && operation.word) {
+          const defaultValue = operation.word.parts.map((p: any) => p.value || "").join("");
+          this.env[parameter] = defaultValue;
+          return defaultValue;
+        }
+        return value;
+      }
+
+      case "ErrorIfUnset": {
+        const shouldError = isUnset || (operation.checkEmpty && isEmpty);
+        if (shouldError) {
+          const message = operation.word
+            ? operation.word.parts.map((p: any) => p.value || "").join("")
+            : `${parameter}: parameter null or not set`;
+          throw new Error(message);
+        }
+        return value;
+      }
+
+      case "UseAlternative": {
+        const useAlternative = !(isUnset || (operation.checkEmpty && isEmpty));
+        if (useAlternative && operation.word) {
+          return operation.word.parts.map((p: any) => p.value || "").join("");
+        }
+        return "";
+      }
+
+      case "Length":
+        return String(value.length);
+
+      case "Substring": {
+        const offset = operation.offset?.expression?.value ?? 0;
+        const length = operation.length?.expression?.value;
+        let start = offset;
+        if (start < 0) start = Math.max(0, value.length + start);
+        if (length !== undefined) {
+          if (length < 0) {
+            return value.slice(start, Math.max(start, value.length + length));
+          }
+          return value.slice(start, start + length);
+        }
+        return value.slice(start);
+      }
+
+      case "PatternRemoval": {
+        const pattern = operation.pattern?.parts.map((p: any) => p.value || "").join("") || "";
+        const regex = this.patternToRegex(pattern, operation.greedy);
+        if (operation.side === "prefix") {
+          return value.replace(new RegExp(`^${regex}`), "");
+        }
+        return value.replace(new RegExp(`${regex}$`), "");
+      }
+
+      case "PatternReplacement": {
+        const pattern = operation.pattern?.parts.map((p: any) => p.value || "").join("") || "";
+        const replacement = operation.replacement?.parts.map((p: any) => p.value || "").join("") || "";
+        const regex = this.patternToRegex(pattern, true);
+        const flags = operation.all ? "g" : "";
+        return value.replace(new RegExp(regex, flags), replacement);
+      }
+
+      case "CaseModification": {
+        if (operation.direction === "upper") {
+          return operation.all ? value.toUpperCase() : value.charAt(0).toUpperCase() + value.slice(1);
+        }
+        return operation.all ? value.toLowerCase() : value.charAt(0).toLowerCase() + value.slice(1);
+      }
+
+      case "Indirection": {
+        return this.getVariable(value);
+      }
+
+      default:
+        return value;
+    }
+  }
+
+  private getVariable(name: string): string {
+    switch (name) {
+      case "?":
+        return String(this.lastExitCode);
+      case "$":
+        return String(process.pid);
+      case "#":
+        return this.env["#"] || "0";
+      case "@":
+      case "*":
+        return this.env["@"] || "";
+      case "0":
+        return this.env["0"] || "bash";
+      case "PWD":
+        return this.cwd;
+      case "OLDPWD":
+        return this.previousDir;
+    }
+
+    if (/^[1-9][0-9]*$/.test(name)) {
+      return this.env[name] || "";
+    }
+
+    return this.env[name] || "";
+  }
+
+  private patternToRegex(pattern: string, greedy: boolean): string {
+    let regex = "";
+    for (const char of pattern) {
+      if (char === "*") {
+        regex += greedy ? ".*" : ".*?";
+      } else if (char === "?") {
+        regex += ".";
+      } else if (/[\\^$.|+(){}[\]]/.test(char)) {
+        regex += `\\${char}`;
+      } else {
+        regex += char;
+      }
+    }
+    return regex;
+  }
+
+  // ===========================================================================
+  // ARITHMETIC
+  // ===========================================================================
+
+  private evaluateArithmetic(expr: ArithExpr): number {
+    switch (expr.type) {
+      case "ArithNumber":
+        return expr.value;
+
+      case "ArithVariable": {
+        const value = this.getVariable(expr.name);
+        return Number.parseInt(value, 10) || 0;
+      }
+
+      case "ArithBinary": {
+        const left = this.evaluateArithmetic(expr.left);
+        const right = this.evaluateArithmetic(expr.right);
+
+        switch (expr.operator) {
+          case "+": return left + right;
+          case "-": return left - right;
+          case "*": return left * right;
+          case "/": return right !== 0 ? Math.trunc(left / right) : 0;
+          case "%": return right !== 0 ? left % right : 0;
+          case "**": return Math.pow(left, right);
+          case "<<": return left << right;
+          case ">>": return left >> right;
+          case "<": return left < right ? 1 : 0;
+          case "<=": return left <= right ? 1 : 0;
+          case ">": return left > right ? 1 : 0;
+          case ">=": return left >= right ? 1 : 0;
+          case "==": return left === right ? 1 : 0;
+          case "!=": return left !== right ? 1 : 0;
+          case "&": return left & right;
+          case "|": return left | right;
+          case "^": return left ^ right;
+          case "&&": return left && right ? 1 : 0;
+          case "||": return left || right ? 1 : 0;
+          case ",": return right;
+          default: return 0;
+        }
+      }
+
+      case "ArithUnary": {
+        const operand = this.evaluateArithmetic(expr.operand);
+        switch (expr.operator) {
+          case "-": return -operand;
+          case "+": return +operand;
+          case "!": return operand === 0 ? 1 : 0;
+          case "~": return ~operand;
+          case "++":
+          case "--": {
+            if (expr.operand.type === "ArithVariable") {
+              const name = expr.operand.name;
+              const current = Number.parseInt(this.getVariable(name), 10) || 0;
+              const newValue = expr.operator === "++" ? current + 1 : current - 1;
+              this.env[name] = String(newValue);
+              return expr.prefix ? newValue : current;
+            }
+            return operand;
+          }
+          default: return operand;
+        }
+      }
+
+      case "ArithTernary": {
+        const condition = this.evaluateArithmetic(expr.condition);
+        return condition
+          ? this.evaluateArithmetic(expr.consequent)
+          : this.evaluateArithmetic(expr.alternate);
+      }
+
+      case "ArithAssignment": {
+        const name = expr.variable;
+        const current = Number.parseInt(this.getVariable(name), 10) || 0;
+        const value = this.evaluateArithmetic(expr.value);
+        let newValue: number;
+
+        switch (expr.operator) {
+          case "=": newValue = value; break;
+          case "+=": newValue = current + value; break;
+          case "-=": newValue = current - value; break;
+          case "*=": newValue = current * value; break;
+          case "/=": newValue = value !== 0 ? Math.trunc(current / value) : 0; break;
+          case "%=": newValue = value !== 0 ? current % value : 0; break;
+          case "<<=": newValue = current << value; break;
+          case ">>=": newValue = current >> value; break;
+          case "&=": newValue = current & value; break;
+          case "|=": newValue = current | value; break;
+          case "^=": newValue = current ^ value; break;
+          default: newValue = value;
+        }
+
+        this.env[name] = String(newValue);
+        return newValue;
+      }
+
+      case "ArithGroup":
+        return this.evaluateArithmetic(expr.expression);
+
+      default:
+        return 0;
+    }
+  }
+
+  // ===========================================================================
+  // CONDITIONAL EXPRESSIONS
+  // ===========================================================================
+
+  private async evaluateConditional(expr: ConditionalExpressionNode): Promise<boolean> {
+    switch (expr.type) {
+      case "CondBinary": {
+        const left = await this.expandWord(expr.left);
+        const right = await this.expandWord(expr.right);
+
+        switch (expr.operator) {
+          case "==":
+          case "=":
+            return this.matchPattern(left, right);
+          case "!=":
+            return !this.matchPattern(left, right);
+          case "=~": {
+            try {
+              const regex = new RegExp(right);
+              const match = left.match(regex);
+              if (match) {
+                // Set BASH_REMATCH
+                this.env.BASH_REMATCH = match[0];
+                for (let i = 1; i < match.length; i++) {
+                  this.env[`BASH_REMATCH_${i}`] = match[i] || "";
+                }
+              }
+              return match !== null;
+            } catch {
+              return false;
+            }
+          }
+          case "<":
+            return left < right;
+          case ">":
+            return left > right;
+          case "-eq":
+            return Number.parseInt(left, 10) === Number.parseInt(right, 10);
+          case "-ne":
+            return Number.parseInt(left, 10) !== Number.parseInt(right, 10);
+          case "-lt":
+            return Number.parseInt(left, 10) < Number.parseInt(right, 10);
+          case "-le":
+            return Number.parseInt(left, 10) <= Number.parseInt(right, 10);
+          case "-gt":
+            return Number.parseInt(left, 10) > Number.parseInt(right, 10);
+          case "-ge":
+            return Number.parseInt(left, 10) >= Number.parseInt(right, 10);
+          case "-nt":
+          case "-ot":
+          case "-ef":
+            // File comparison - simplified
+            return false;
+          default:
+            return false;
+        }
+      }
+
+      case "CondUnary": {
+        const operand = await this.expandWord(expr.operand);
+
+        switch (expr.operator) {
+          case "-z":
+            return operand === "";
+          case "-n":
+            return operand !== "";
+          case "-e":
+          case "-a":
+            return await this.fs.exists(this.resolvePath(operand));
+          case "-f": {
+            const path = this.resolvePath(operand);
+            if (await this.fs.exists(path)) {
+              const stat = await this.fs.stat(path);
+              return stat.isFile;
+            }
+            return false;
+          }
+          case "-d": {
+            const path = this.resolvePath(operand);
+            if (await this.fs.exists(path)) {
+              const stat = await this.fs.stat(path);
+              return stat.isDirectory;
+            }
+            return false;
+          }
+          case "-r":
+          case "-w":
+          case "-x":
+            return await this.fs.exists(this.resolvePath(operand));
+          case "-s": {
+            const path = this.resolvePath(operand);
+            if (await this.fs.exists(path)) {
+              const content = await this.fs.readFile(path);
+              return content.length > 0;
+            }
+            return false;
+          }
+          case "-L":
+          case "-h": {
+            const path = this.resolvePath(operand);
+            if (await this.fs.exists(path)) {
+              const stat = await this.fs.lstat(path);
+              return stat.isSymbolicLink;
+            }
+            return false;
+          }
+          case "-v":
+            return operand in this.env;
+          default:
+            return false;
+        }
+      }
+
+      case "CondNot":
+        return !(await this.evaluateConditional(expr.operand));
+
+      case "CondAnd": {
+        const left = await this.evaluateConditional(expr.left);
+        if (!left) return false;
+        return await this.evaluateConditional(expr.right);
+      }
+
+      case "CondOr": {
+        const left = await this.evaluateConditional(expr.left);
+        if (left) return true;
+        return await this.evaluateConditional(expr.right);
+      }
+
+      case "CondGroup":
+        return await this.evaluateConditional(expr.expression);
+
+      case "CondWord": {
+        const value = await this.expandWord(expr.word);
+        return value !== "";
+      }
+
+      default:
+        return false;
+    }
+  }
+
+  private async evaluateTestArgs(args: string[]): Promise<ExecResult> {
+    if (args.length === 0) {
+      return { stdout: "", stderr: "", exitCode: 1 };
+    }
+
+    // Single arg: true if non-empty
+    if (args.length === 1) {
+      return { stdout: "", stderr: "", exitCode: args[0] ? 0 : 1 };
+    }
+
+    // Two args: unary operator
+    if (args.length === 2) {
+      const op = args[0];
+      const operand = args[1];
+
+      switch (op) {
+        case "-z":
+          return { stdout: "", stderr: "", exitCode: operand === "" ? 0 : 1 };
+        case "-n":
+          return { stdout: "", stderr: "", exitCode: operand !== "" ? 0 : 1 };
+        case "-e":
+        case "-a": {
+          const exists = await this.fs.exists(this.resolvePath(operand));
+          return { stdout: "", stderr: "", exitCode: exists ? 0 : 1 };
+        }
+        case "-f": {
+          const path = this.resolvePath(operand);
+          if (await this.fs.exists(path)) {
+            const stat = await this.fs.stat(path);
+            return { stdout: "", stderr: "", exitCode: stat.isFile ? 0 : 1 };
+          }
+          return { stdout: "", stderr: "", exitCode: 1 };
+        }
+        case "-d": {
+          const path = this.resolvePath(operand);
+          if (await this.fs.exists(path)) {
+            const stat = await this.fs.stat(path);
+            return { stdout: "", stderr: "", exitCode: stat.isDirectory ? 0 : 1 };
+          }
+          return { stdout: "", stderr: "", exitCode: 1 };
+        }
+        case "-r":
+        case "-w":
+        case "-x": {
+          const exists = await this.fs.exists(this.resolvePath(operand));
+          return { stdout: "", stderr: "", exitCode: exists ? 0 : 1 };
+        }
+        case "-s": {
+          const path = this.resolvePath(operand);
+          if (await this.fs.exists(path)) {
+            const content = await this.fs.readFile(path);
+            return { stdout: "", stderr: "", exitCode: content.length > 0 ? 0 : 1 };
+          }
+          return { stdout: "", stderr: "", exitCode: 1 };
+        }
+        case "!":
+          return { stdout: "", stderr: "", exitCode: operand ? 1 : 0 };
+        default:
+          return { stdout: "", stderr: "", exitCode: 1 };
+      }
+    }
+
+    // Three args: binary operator
+    if (args.length === 3) {
+      const left = args[0];
+      const op = args[1];
+      const right = args[2];
+
+      switch (op) {
+        case "=":
+        case "==":
+          return { stdout: "", stderr: "", exitCode: this.matchPattern(left, right) ? 0 : 1 };
+        case "!=":
+          return { stdout: "", stderr: "", exitCode: !this.matchPattern(left, right) ? 0 : 1 };
+        case "-eq":
+          return { stdout: "", stderr: "", exitCode: Number.parseInt(left, 10) === Number.parseInt(right, 10) ? 0 : 1 };
+        case "-ne":
+          return { stdout: "", stderr: "", exitCode: Number.parseInt(left, 10) !== Number.parseInt(right, 10) ? 0 : 1 };
+        case "-lt":
+          return { stdout: "", stderr: "", exitCode: Number.parseInt(left, 10) < Number.parseInt(right, 10) ? 0 : 1 };
+        case "-le":
+          return { stdout: "", stderr: "", exitCode: Number.parseInt(left, 10) <= Number.parseInt(right, 10) ? 0 : 1 };
+        case "-gt":
+          return { stdout: "", stderr: "", exitCode: Number.parseInt(left, 10) > Number.parseInt(right, 10) ? 0 : 1 };
+        case "-ge":
+          return { stdout: "", stderr: "", exitCode: Number.parseInt(left, 10) >= Number.parseInt(right, 10) ? 0 : 1 };
+        default:
+          return { stdout: "", stderr: "", exitCode: 1 };
+      }
+    }
+
+    // Complex expression with && and ||
+    // Simplified handling
+    return { stdout: "", stderr: "", exitCode: 1 };
+  }
+
+  private matchPattern(value: string, pattern: string): boolean {
+    // Convert glob pattern to regex
+    let regex = "^";
+    for (let i = 0; i < pattern.length; i++) {
+      const char = pattern[i];
+      if (char === "*") {
+        regex += ".*";
+      } else if (char === "?") {
+        regex += ".";
+      } else if (char === "[") {
+        const closeIdx = pattern.indexOf("]", i + 1);
+        if (closeIdx !== -1) {
+          regex += pattern.slice(i, closeIdx + 1);
+          i = closeIdx;
+        } else {
+          regex += "\\[";
+        }
+      } else if (/[\\^$.|+(){}]/.test(char)) {
+        regex += `\\${char}`;
+      } else {
+        regex += char;
+      }
+    }
+    regex += "$";
+
+    return new RegExp(regex).test(value);
+  }
+
+  // ===========================================================================
+  // REDIRECTIONS
+  // ===========================================================================
+
   private async applyRedirections(
     result: ExecResult,
-    redirections: Redirection[],
+    redirections: RedirectionNode[],
   ): Promise<ExecResult> {
     let { stdout, stderr, exitCode } = result;
 
     for (const redir of redirections) {
-      switch (redir.type) {
-        case "stdout":
-          if (redir.target) {
-            const filePath = this.resolvePath(redir.target);
-            if (redir.append) {
-              await this.fs.appendFile(filePath, stdout);
-            } else {
-              await this.fs.writeFile(filePath, stdout);
-            }
+      if (redir.target.type === "HereDoc") {
+        continue; // Here-docs handled separately
+      }
+
+      const target = await this.expandWord(redir.target as WordNode);
+
+      switch (redir.operator) {
+        case ">": {
+          const fd = redir.fd ?? 1;
+          if (fd === 1) {
+            const filePath = this.resolvePath(target);
+            await this.fs.writeFile(filePath, stdout);
             stdout = "";
-          }
-          break;
-
-        case "stderr":
-          if (redir.target === "/dev/null") {
-            stderr = "";
-          } else if (redir.target) {
-            const filePath = this.resolvePath(redir.target);
-            if (redir.append) {
-              await this.fs.appendFile(filePath, stderr);
+          } else if (fd === 2) {
+            if (target === "/dev/null") {
+              stderr = "";
             } else {
+              const filePath = this.resolvePath(target);
               await this.fs.writeFile(filePath, stderr);
+              stderr = "";
             }
+          }
+          break;
+        }
+
+        case ">>": {
+          const fd = redir.fd ?? 1;
+          if (fd === 1) {
+            const filePath = this.resolvePath(target);
+            await this.fs.appendFile(filePath, stdout);
+            stdout = "";
+          } else if (fd === 2) {
+            const filePath = this.resolvePath(target);
+            await this.fs.appendFile(filePath, stderr);
             stderr = "";
           }
           break;
+        }
 
-        case "stderr-to-stdout":
-          stdout += stderr;
+        case ">&": {
+          if (target === "1" || target === "&1") {
+            stdout += stderr;
+            stderr = "";
+          }
+          break;
+        }
+
+        case "&>": {
+          const filePath = this.resolvePath(target);
+          await this.fs.writeFile(filePath, stdout + stderr);
+          stdout = "";
           stderr = "";
           break;
+        }
+
+        case "&>>": {
+          const filePath = this.resolvePath(target);
+          await this.fs.appendFile(filePath, stdout + stderr);
+          stdout = "";
+          stderr = "";
+          break;
+        }
       }
     }
 
     return { stdout, stderr, exitCode };
   }
 
+  // ===========================================================================
+  // BUILT-IN COMMANDS
+  // ===========================================================================
+
+  private async handleCd(args: string[]): Promise<ExecResult> {
+    let target: string;
+
+    if (args.length === 0 || args[0] === "~") {
+      target = this.env.HOME || "/";
+    } else if (args[0] === "-") {
+      target = this.previousDir;
+    } else {
+      target = args[0];
+    }
+
+    const newDir = this.resolvePath(target);
+
+    // Check if directory exists
+    try {
+      const statResult = await this.fs.stat(newDir);
+      if (!statResult.isDirectory) {
+        return {
+          stdout: "",
+          stderr: `bash: cd: ${target}: Not a directory\n`,
+          exitCode: 1,
+        };
+      }
+    } catch {
+      // If stat fails, directory doesn't exist (unless root)
+      if (newDir !== "/") {
+        return {
+          stdout: "",
+          stderr: `bash: cd: ${target}: No such file or directory\n`,
+          exitCode: 1,
+        };
+      }
+    }
+
+    this.previousDir = this.cwd;
+    this.cwd = newDir;
+    this.env.PWD = this.cwd;
+    this.env.OLDPWD = this.previousDir;
+
+    return { stdout: "", stderr: "", exitCode: 0 };
+  }
+
+  private handleExport(args: string[]): ExecResult {
+    for (const arg of args) {
+      if (arg.includes("=")) {
+        const [name, ...rest] = arg.split("=");
+        this.env[name] = rest.join("=");
+      }
+      // If no =, the variable is just marked for export (no-op in our impl)
+    }
+    return { stdout: "", stderr: "", exitCode: 0 };
+  }
+
+  private handleUnset(args: string[]): ExecResult {
+    for (const arg of args) {
+      delete this.env[arg];
+      this.functions.delete(arg);
+    }
+    return { stdout: "", stderr: "", exitCode: 0 };
+  }
+
+  private handleExit(args: string[]): ExecResult {
+    const code = args.length > 0 ? Number.parseInt(args[0], 10) || 0 : 0;
+    return { stdout: "", stderr: "", exitCode: code };
+  }
+
+  private handleLocal(args: string[]): ExecResult {
+    if (this.localScopes.length === 0) {
+      return {
+        stdout: "",
+        stderr: "bash: local: can only be used in a function\n",
+        exitCode: 1,
+      };
+    }
+
+    const currentScope = this.localScopes[this.localScopes.length - 1];
+
+    for (const arg of args) {
+      if (arg.includes("=")) {
+        const [name, ...rest] = arg.split("=");
+        if (!currentScope.has(name)) {
+          currentScope.set(name, this.env[name]);
+        }
+        this.env[name] = rest.join("=");
+      } else {
+        if (!currentScope.has(arg)) {
+          currentScope.set(arg, this.env[arg]);
+        }
+      }
+    }
+
+    return { stdout: "", stderr: "", exitCode: 0 };
+  }
+
+  // ===========================================================================
+  // UTILITIES
+  // ===========================================================================
+
   private resolvePath(path: string): string {
     return this.fs.resolvePath(this.cwd, path);
   }
 
-  // Public API for file access
+  // Public API
   async readFile(path: string): Promise<string> {
     return this.fs.readFile(this.resolvePath(path));
   }

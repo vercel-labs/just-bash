@@ -71,14 +71,14 @@ interface Token {
 }
 
 export class ShellParser {
-  private env: Record<string, string>;
+  private _env: Record<string, string>;
 
   constructor(env: Record<string, string> = {}) {
-    this.env = env;
+    this._env = env;
   }
 
   setEnv(env: Record<string, string>): void {
-    this.env = env;
+    this._env = env;
   }
 
   /**

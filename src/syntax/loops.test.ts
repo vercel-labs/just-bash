@@ -183,11 +183,12 @@ describe("Bash Syntax - Loops", () => {
       expect(result.stdout).toBe("a\nb\nc\n");
     });
 
-    it("should handle while loop without semicolon before do", async () => {
+    it("should handle while loop with semicolon before do", async () => {
       const env = new BashEnv();
       await env.exec("echo x > /f.txt");
+      // Note: Bash requires semicolon or newline before 'do'
       const result = await env.exec(
-        "while grep -q x /f.txt do echo found; echo y > /f.txt; done",
+        "while grep -q x /f.txt; do echo found; echo y > /f.txt; done",
       );
       expect(result.stdout).toBe("found\n");
     });

@@ -27,7 +27,8 @@
     "test:run": "vitest run",
     "test:unit": "vitest run --config vitest.unit.config.ts",
     "test:comparison": "vitest run --config vitest.comparison.config.ts",
-    "shell": "npx tsx src/cli/shell.ts"
+    "shell": "npx tsx src/cli/shell.ts",
+    "dev:exec": "npx tsx src/cli/exec.ts"
   },
   "keywords": [],
   "author": "",
