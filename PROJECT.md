@@ -239,3 +239,15 @@ Woohoo
 - allow `pnpm shell` to access the internet and document it
 
 ## Implementation phase 17: AI SDK Tool
+
+- Make bash-env/ai using AI SDK as a peer dependency (and install for dev)
+- Focus on AI SDK version 6 (current stable)
+- Our export is a function called `createBashTool` which uses `ai`'s `tool` function to create a tool called `Bash`.
+- Read the docs if you are not very familiar.
+- The tool should have succinct instructions letting the AI agent know how to use it
+- If initial files are provided, the instructions should show very common operations (find, grep, ls) on a small selection of files
+- Tell the agent how to discover all available commands and their options.
+- Accept a string of extra instructions provided by the user
+- Support full config of the BashEnv. Network default of (which is the default)
+- Support an optional allow-list of registered commands
+- Make examples/bash-agent which is a simple AI agent (with its own package.json) that exercises the tool with sample files read from disk.

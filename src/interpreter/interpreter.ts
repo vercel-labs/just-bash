@@ -436,6 +436,7 @@ export class Interpreter {
       stdin,
       exec: this.ctx.execFn,
       fetch: this.ctx.fetch,
+      getRegisteredCommands: () => Array.from(this.ctx.commands.keys()),
     };
 
     try {

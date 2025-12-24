@@ -130,11 +130,6 @@ class VirtualShell {
       process.exit(exitCode);
     }
 
-    if (trimmed === "help") {
-      this.printHelp();
-      return;
-    }
-
     // Sync local history with BashEnv's history for the history command
     this.syncHistory();
 
@@ -153,54 +148,6 @@ class VirtualShell {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`${colors.red}Error: ${message}${colors.reset}`);
     }
-  }
-
-  private printHelp(): void {
-    console.log(`
-${colors.bold}Virtual Shell - BashEnv Interactive Mode${colors.reset}
-
-This is a simulated bash environment running entirely in-memory.
-All commands operate on a virtual filesystem.
-
-${colors.bold}Built-in shell commands:${colors.reset}
-  exit [code]    Exit the shell with optional exit code
-  help           Show this help message
-
-${colors.bold}File commands:${colors.reset}
-  ls, cat, head, tail, wc, touch, mkdir, rm, cp, mv, ln, readlink, stat, du, tree
-
-${colors.bold}Text processing:${colors.reset}
-  grep, sed, awk, sort, uniq, cut, tr, xargs
-
-${colors.bold}Navigation & environment:${colors.reset}
-  cd, pwd, echo, env, printenv, export, true, false
-
-${colors.bold}Utilities:${colors.reset}
-  find, tee, basename, dirname, chmod, clear, history, alias, unalias
-
-${colors.bold}Network commands:${colors.reset}
-  curl              Fetch data from URLs (with full internet access)
-  html-to-markdown  Convert HTML to Markdown (use with curl)
-
-${colors.bold}Supported features:${colors.reset}
-  - Pipes: cmd1 | cmd2
-  - Redirections: >, >>, 2>, 2>&1, <
-  - Command chaining: &&, ||, ;
-  - Variables: $VAR, \${VAR}, \${VAR:-default}
-  - Glob patterns: *, ?, [...]
-  - Symbolic and hard links
-  - Functions and loops (for, while, until)
-  - If/elif/else statements
-
-${colors.bold}Example commands:${colors.reset}
-  ls -la
-  echo "Hello" > file.txt
-  cat file.txt | grep Hello
-  find . -name "*.txt"
-  ln -s target.txt link.txt
-  awk '{print $1}' file.txt
-  curl -s https://example.com | html-to-markdown
-`);
   }
 
   private printWelcome(): void {

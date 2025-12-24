@@ -19,6 +19,10 @@ export interface CommandContext {
    * Only available when network access is explicitly configured.
    */
   fetch?: SecureFetch;
+  /**
+   * Returns names of all registered commands (for help command).
+   */
+  getRegisteredCommands?: () => string[];
 }
 
 export interface Command {

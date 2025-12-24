@@ -29,6 +29,6 @@
     "indentWidth": 2
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/node_modules", "!**/*.md"]
+    "includes": ["**", "!**/dist", "!**/node_modules", "!**/*.md", "!examples"]
   }
 }

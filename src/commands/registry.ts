@@ -5,13 +5,69 @@ import type { Command, CommandContext, ExecResult } from "../types.js";
 
 type CommandLoader = () => Promise<Command>;
 
-interface LazyCommandDef {
-  name: string;
+interface LazyCommandDef<T extends string = string> {
+  name: T;
   load: CommandLoader;
 }
 
+/** All available built-in command names (excludes network commands like curl) */
+export type CommandName =
+  | "echo"
+  | "cat"
+  | "printf"
+  | "ls"
+  | "mkdir"
+  | "touch"
+  | "rm"
+  | "cp"
+  | "mv"
+  | "ln"
+  | "chmod"
+  | "pwd"
+  | "readlink"
+  | "head"
+  | "tail"
+  | "wc"
+  | "stat"
+  | "grep"
+  | "sed"
+  | "awk"
+  | "sort"
+  | "uniq"
+  | "cut"
+  | "tr"
+  | "tee"
+  | "find"
+  | "basename"
+  | "dirname"
+  | "tree"
+  | "du"
+  | "env"
+  | "printenv"
+  | "alias"
+  | "unalias"
+  | "history"
+  | "xargs"
+  | "true"
+  | "false"
+  | "clear"
+  | "bash"
+  | "sh"
+  | "jq"
+  | "base64"
+  | "diff"
+  | "date"
+  | "html-to-markdown"
+  | "help";
+
+/** Network command names (only available when network is configured) */
+export type NetworkCommandName = "curl";
+
+/** All command names including network commands */
+export type AllCommandName = CommandName | NetworkCommandName;
+
 // Statically analyzable loaders - each import() call is a literal string
-const commandLoaders: LazyCommandDef[] = [
+const commandLoaders: LazyCommandDef<CommandName>[] = [
   // Basic I/O
   {
     name: "echo",
@@ -223,10 +279,16 @@ const commandLoaders: LazyCommandDef[] = [
       (await import("./html-to-markdown/html-to-markdown.js"))
         .htmlToMarkdownCommand,
   },
+
+  // Help
+  {
+    name: "help",
+    load: async () => (await import("./help/help.js")).helpCommand,
+  },
 ];
 
 // Network commands - only registered when network is configured
-const networkCommandLoaders: LazyCommandDef[] = [
+const networkCommandLoaders: LazyCommandDef<NetworkCommandName>[] = [
   {
     name: "curl",
     load: async () => (await import("./curl/curl.js")).curlCommand,
@@ -256,10 +318,28 @@ function createLazyCommand(def: LazyCommandDef): Command {
 }
 
 /**
- * Creates all lazy commands for registration (excludes network commands)
+ * Gets all available command names (excludes network commands)
  */
-export function createLazyCommands(): Command[] {
-  return commandLoaders.map(createLazyCommand);
+export function getCommandNames(): string[] {
+  return commandLoaders.map((def) => def.name);
+}
+
+/**
+ * Gets all network command names
+ */
+export function getNetworkCommandNames(): string[] {
+  return networkCommandLoaders.map((def) => def.name);
+}
+
+/**
+ * Creates all lazy commands for registration (excludes network commands)
+ * @param filter Optional array of command names to include. If not provided, all commands are created.
+ */
+export function createLazyCommands(filter?: CommandName[]): Command[] {
+  const loaders = filter
+    ? commandLoaders.filter((def) => filter.includes(def.name))
+    : commandLoaders;
+  return loaders.map(createLazyCommand);
 }
 
 /**

@@ -1,5 +1,14 @@
 export type { BashEnvOptions } from "./BashEnv.js";
 export { BashEnv } from "./BashEnv.js";
+export type {
+  AllCommandName,
+  CommandName,
+  NetworkCommandName,
+} from "./commands/registry.js";
+export {
+  getCommandNames,
+  getNetworkCommandNames,
+} from "./commands/registry.js";
 export { VirtualFs } from "./fs.js";
 export type {
   BufferEncoding,

@@ -10,6 +10,7 @@
 
 import type { FunctionDefNode } from "./ast/types.js";
 import {
+  type CommandName,
   createLazyCommands,
   createNetworkCommands,
 } from "./commands/registry.js";
@@ -46,6 +47,12 @@ export interface BashEnvOptions {
    * Network access is disabled by default - you must explicitly configure allowed URLs.
    */
   network?: NetworkConfig;
+  /**
+   * Optional list of command names to register.
+   * If not provided, all built-in commands are available.
+   * Use this to restrict which commands can be executed.
+   */
+  commands?: CommandName[];
 }
 
 export class BashEnv {
@@ -121,7 +128,7 @@ export class BashEnv {
       }
     }
 
-    for (const cmd of createLazyCommands()) {
+    for (const cmd of createLazyCommands(options.commands)) {
       this.registerCommand(cmd);
     }
 

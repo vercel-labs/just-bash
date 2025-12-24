@@ -1,0 +1,14 @@
+{
+  "name": "bash-agent-example",
+  "version": "1.0.0",
+  "description": "Interactive AI agent for exploring the bash-env codebase",
+  "type": "module",
+  "scripts": {
+    "start": "npx tsx main.ts",
+    "typecheck": "npx tsc --noEmit"
+  },
+  "dependencies": {
+    "ai": "^6.0.0",
+    "glob": "^11.0.0"
+  }
+}

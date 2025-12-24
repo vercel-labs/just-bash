@@ -1,4 +1,4 @@
-import { BashEnv } from "../BashEnv";
+import { BashEnv } from "../BashEnv.js";
 
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
