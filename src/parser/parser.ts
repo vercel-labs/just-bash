@@ -14,6 +14,7 @@
  */
 
 import {
+  type ArithAssignmentOperator,
   type ArithExpr,
   type ArithmeticCommandNode,
   type ArithmeticExpansionPart,
@@ -25,8 +26,10 @@ import {
   type CommandNode,
   type CommandSubstitutionPart,
   type CompoundCommandNode,
+  type CondBinaryOperator,
   type ConditionalCommandNode,
   type ConditionalExpressionNode,
+  type CondUnaryOperator,
   type CStyleForNode,
   type ForNode,
   type FunctionDefNode,
@@ -1946,7 +1949,7 @@ export class Parser {
             : this.parseWord();
           return {
             type: "CondUnary",
-            operator: first as any,
+            operator: first as CondUnaryOperator,
             operand,
           };
         }
@@ -1978,7 +1981,7 @@ export class Parser {
         const right = this.parseWord();
         return {
           type: "CondBinary",
-          operator: operator as any,
+          operator: operator as CondBinaryOperator,
           left,
           right,
         };
@@ -1990,7 +1993,7 @@ export class Parser {
         const right = this.parseWord();
         return {
           type: "CondBinary",
-          operator: "<" as any,
+          operator: "<",
           left,
           right,
         };
@@ -2000,7 +2003,7 @@ export class Parser {
         const right = this.parseWord();
         return {
           type: "CondBinary",
-          operator: ">" as any,
+          operator: ">",
           left,
           right,
         };
@@ -2569,7 +2572,7 @@ export class Parser {
           return {
             expr: {
               type: "ArithAssignment",
-              operator: op as any,
+              operator: op as ArithAssignmentOperator,
               variable: name,
               value,
             },

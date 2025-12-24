@@ -105,7 +105,7 @@ export const tailCommand: Command = {
           pos = nextNewline + 1;
         }
         const result = content.slice(pos);
-        return result.endsWith("\n") ? result : result + "\n";
+        return result.endsWith("\n") ? result : `${result}\n`;
       }
 
       // Fast path: scan backwards to find last N newlines
@@ -130,7 +130,7 @@ export const tailCommand: Command = {
       if (pos < 0) pos = 0;
       const result = content.slice(pos);
       // Check if content ends with newline using direct char access (faster than endsWith)
-      return content[len - 1] === "\n" ? result : result + "\n";
+      return content[len - 1] === "\n" ? result : `${result}\n`;
     };
 
     // If no files, read from stdin

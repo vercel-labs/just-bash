@@ -71,16 +71,6 @@ interface Token {
 }
 
 export class ShellParser {
-  private _env: Record<string, string>;
-
-  constructor(env: Record<string, string> = {}) {
-    this._env = env;
-  }
-
-  setEnv(env: Record<string, string>): void {
-    this._env = env;
-  }
-
   /**
    * Parse a full command line into pipelines
    */

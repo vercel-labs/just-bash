@@ -91,7 +91,7 @@ export const headCommand: Command = {
         const nextNewline = content.indexOf("\n", pos);
         if (nextNewline === -1) {
           // No more newlines, rest of content is last line
-          return content + "\n";
+          return `${content}\n`;
         }
         lineCount++;
         pos = nextNewline + 1;

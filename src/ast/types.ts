@@ -499,20 +499,22 @@ export interface ArithTernaryNode extends ASTNode {
   alternate: ArithExpr;
 }
 
+export type ArithAssignmentOperator =
+  | "="
+  | "+="
+  | "-="
+  | "*="
+  | "/="
+  | "%="
+  | "<<="
+  | ">>="
+  | "&="
+  | "|="
+  | "^=";
+
 export interface ArithAssignmentNode extends ASTNode {
   type: "ArithAssignment";
-  operator:
-    | "="
-    | "+="
-    | "-="
-    | "*="
-    | "/="
-    | "%="
-    | "<<="
-    | ">>="
-    | "&="
-    | "|="
-    | "^=";
+  operator: ArithAssignmentOperator;
   variable: string;
   value: ArithExpr;
 }
@@ -581,57 +583,61 @@ export type ConditionalExpressionNode =
   | CondGroupNode
   | CondWordNode;
 
+export type CondBinaryOperator =
+  | "="
+  | "=="
+  | "!="
+  | "=~"
+  | "<"
+  | ">"
+  | "-eq"
+  | "-ne"
+  | "-lt"
+  | "-le"
+  | "-gt"
+  | "-ge"
+  | "-nt"
+  | "-ot"
+  | "-ef";
+
 export interface CondBinaryNode extends ASTNode {
   type: "CondBinary";
-  operator:
-    | "="
-    | "=="
-    | "!="
-    | "=~"
-    | "<"
-    | ">"
-    | "-eq"
-    | "-ne"
-    | "-lt"
-    | "-le"
-    | "-gt"
-    | "-ge"
-    | "-nt"
-    | "-ot"
-    | "-ef";
+  operator: CondBinaryOperator;
   left: WordNode;
   right: WordNode;
 }
 
+export type CondUnaryOperator =
+  | "-a"
+  | "-b"
+  | "-c"
+  | "-d"
+  | "-e"
+  | "-f"
+  | "-g"
+  | "-h"
+  | "-k"
+  | "-p"
+  | "-r"
+  | "-s"
+  | "-t"
+  | "-u"
+  | "-w"
+  | "-x"
+  | "-G"
+  | "-L"
+  | "-N"
+  | "-O"
+  | "-S"
+  | "-z"
+  | "-n"
+  | "-o"
+  | "-v"
+  | "-R";
+
 export interface CondUnaryNode extends ASTNode {
   type: "CondUnary";
-  operator:
-    | "-a"
-    | "-b"
-    | "-c"
-    | "-d"
-    | "-e"
-    | "-f"
-    | "-g"
-    | "-h"
-    | "-k"
-    | "-p"
-    | "-r"
-    | "-s"
-    | "-t"
-    | "-u"
-    | "-w"
-    | "-x"
-    | "-G"
-    | "-L"
-    | "-N"
-    | "-O"
-    | "-S"
-    | "-z"
-    | "-n"
-    | "-o"
-    | "-v"
-    | "-R";
+  operator: CondUnaryOperator;
   operand: WordNode;
 }
 

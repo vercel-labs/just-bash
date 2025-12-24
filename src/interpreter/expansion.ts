@@ -10,10 +10,40 @@
  * - Glob expansion (*, ?, [...])
  */
 
-import type { WordNode, WordPart } from "../ast/types.js";
+import type {
+  ArithExpr,
+  ParameterExpansionPart,
+  WordNode,
+  WordPart,
+} from "../ast/types.js";
 import { GlobExpander } from "../shell/glob.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import type { InterpreterContext } from "./types.js";
+
+// Helper to extract numeric value from an arithmetic expression
+function getArithValue(expr: ArithExpr): number {
+  if (expr.type === "ArithNumber") {
+    return expr.value;
+  }
+  return 0;
+}
+
+// Helper to extract literal value from a word part
+function getPartValue(part: WordPart): string {
+  switch (part.type) {
+    case "Literal":
+    case "SingleQuoted":
+    case "Escaped":
+      return part.value;
+    default:
+      return "";
+  }
+}
+
+// Helper to get string value from word parts
+function getWordPartsValue(parts: WordPart[]): string {
+  return parts.map(getPartValue).join("");
+}
 
 // Check if a word part requires async execution
 function partNeedsAsync(part: WordPart): boolean {
@@ -147,16 +177,15 @@ function analyzeWordParts(parts: WordPart[]): {
   let hasArrayVar = false;
 
   for (const part of parts) {
-    const partType = part.type;
-    if (partType === "SingleQuoted" || partType === "DoubleQuoted") {
+    if (part.type === "SingleQuoted" || part.type === "DoubleQuoted") {
       hasQuoted = true;
     }
-    if (partType === "CommandSubstitution") {
+    if (part.type === "CommandSubstitution") {
       hasCommandSub = true;
     }
     if (
-      partType === "ParameterExpansion" &&
-      ((part as any).parameter === "@" || (part as any).parameter === "*")
+      part.type === "ParameterExpansion" &&
+      (part.parameter === "@" || part.parameter === "*")
     ) {
       hasArrayVar = true;
     }
@@ -297,11 +326,7 @@ async function expandPart(
 
 function expandParameter(
   ctx: InterpreterContext,
-  part: {
-    type: "ParameterExpansion";
-    parameter: string;
-    operation: any;
-  },
+  part: ParameterExpansionPart,
 ): string {
   const { parameter, operation } = part;
   const value = getVariable(ctx, parameter);
@@ -317,7 +342,7 @@ function expandParameter(
     case "DefaultValue": {
       const useDefault = isUnset || (operation.checkEmpty && isEmpty);
       if (useDefault && operation.word) {
-        return operation.word.parts.map((p: any) => p.value || "").join("");
+        return getWordPartsValue(operation.word.parts);
       }
       return value;
     }
@@ -325,9 +350,7 @@ function expandParameter(
     case "AssignDefault": {
       const useDefault = isUnset || (operation.checkEmpty && isEmpty);
       if (useDefault && operation.word) {
-        const defaultValue = operation.word.parts
-          .map((p: any) => p.value || "")
-          .join("");
+        const defaultValue = getWordPartsValue(operation.word.parts);
         ctx.state.env[parameter] = defaultValue;
         return defaultValue;
       }
@@ -338,7 +361,7 @@ function expandParameter(
       const shouldError = isUnset || (operation.checkEmpty && isEmpty);
       if (shouldError) {
         const message = operation.word
-          ? operation.word.parts.map((p: any) => p.value || "").join("")
+          ? getWordPartsValue(operation.word.parts)
           : `${parameter}: parameter null or not set`;
         throw new Error(message);
       }
@@ -348,7 +371,7 @@ function expandParameter(
     case "UseAlternative": {
       const useAlternative = !(isUnset || (operation.checkEmpty && isEmpty));
       if (useAlternative && operation.word) {
-        return operation.word.parts.map((p: any) => p.value || "").join("");
+        return getWordPartsValue(operation.word.parts);
       }
       return "";
     }
@@ -357,8 +380,12 @@ function expandParameter(
       return String(value.length);
 
     case "Substring": {
-      const offset = operation.offset?.expression?.value ?? 0;
-      const length = operation.length?.expression?.value;
+      const offset = operation.offset
+        ? getArithValue(operation.offset.expression)
+        : 0;
+      const length = operation.length
+        ? getArithValue(operation.length.expression)
+        : undefined;
       let start = offset;
       if (start < 0) start = Math.max(0, value.length + start);
       if (length !== undefined) {
@@ -371,8 +398,9 @@ function expandParameter(
     }
 
     case "PatternRemoval": {
-      const pattern =
-        operation.pattern?.parts.map((p: any) => p.value || "").join("") || "";
+      const pattern = operation.pattern
+        ? getWordPartsValue(operation.pattern.parts)
+        : "";
       const regex = patternToRegex(pattern, operation.greedy);
       if (operation.side === "prefix") {
         return value.replace(new RegExp(`^${regex}`), "");
@@ -381,11 +409,12 @@ function expandParameter(
     }
 
     case "PatternReplacement": {
-      const pattern =
-        operation.pattern?.parts.map((p: any) => p.value || "").join("") || "";
-      const replacement =
-        operation.replacement?.parts.map((p: any) => p.value || "").join("") ||
-        "";
+      const pattern = operation.pattern
+        ? getWordPartsValue(operation.pattern.parts)
+        : "";
+      const replacement = operation.replacement
+        ? getWordPartsValue(operation.replacement.parts)
+        : "";
       const regex = patternToRegex(pattern, true);
       const flags = operation.all ? "g" : "";
       return value.replace(new RegExp(regex, flags), replacement);
