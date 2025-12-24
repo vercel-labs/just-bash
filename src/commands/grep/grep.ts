@@ -410,7 +410,8 @@ function grepContent(
   const lines = content.split("\n");
   const lineCount = lines.length;
   // Handle trailing empty line from split if content ended with newline
-  const lastIdx = lineCount > 0 && lines[lineCount - 1] === "" ? lineCount - 1 : lineCount;
+  const lastIdx =
+    lineCount > 0 && lines[lineCount - 1] === "" ? lineCount - 1 : lineCount;
 
   // Fast path: count only mode
   if (countOnly) {
@@ -421,7 +422,9 @@ function grepContent(
         matchCount++;
       }
     }
-    const countStr = filename ? `${filename}:${matchCount}` : String(matchCount);
+    const countStr = filename
+      ? `${filename}:${matchCount}`
+      : String(matchCount);
     return { output: `${countStr}\n`, matched: matchCount > 0 };
   }
 
@@ -439,12 +442,18 @@ function grepContent(
         hasMatch = true;
         if (onlyMatching) {
           regex.lastIndex = 0;
-          for (let match = regex.exec(line); match !== null; match = regex.exec(line)) {
+          for (
+            let match = regex.exec(line);
+            match !== null;
+            match = regex.exec(line)
+          ) {
             outputLines.push(filename ? `${filename}:${match[0]}` : match[0]);
             if (match[0].length === 0) regex.lastIndex++;
           }
         } else if (showLineNumbers) {
-          outputLines.push(filename ? `${filename}:${i + 1}:${line}` : `${i + 1}:${line}`);
+          outputLines.push(
+            filename ? `${filename}:${i + 1}:${line}` : `${i + 1}:${line}`,
+          );
         } else {
           outputLines.push(filename ? `${filename}:${line}` : line);
         }
@@ -492,7 +501,11 @@ function grepContent(
 
       if (onlyMatching) {
         regex.lastIndex = 0;
-        for (let match = regex.exec(line); match !== null; match = regex.exec(line)) {
+        for (
+          let match = regex.exec(line);
+          match !== null;
+          match = regex.exec(line)
+        ) {
           outputLines.push(filename ? `${filename}:${match[0]}` : match[0]);
           if (match[0].length === 0) regex.lastIndex++;
         }

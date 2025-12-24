@@ -10,37 +10,35 @@
  * - Proper word expansion (brace, tilde, parameter, command, arithmetic)
  */
 
+import type {
+  ArithExpr,
+  ArithmeticCommandNode,
+  CaseNode,
+  CommandNode,
+  ConditionalCommandNode,
+  ConditionalExpressionNode,
+  CStyleForNode,
+  ForNode,
+  FunctionDefNode,
+  GroupNode,
+  HereDocNode,
+  IfNode,
+  PipelineNode,
+  RedirectionNode,
+  ScriptNode,
+  SimpleCommandNode,
+  StatementNode,
+  SubshellNode,
+  UntilNode,
+  WhileNode,
+  WordNode,
+  WordPart,
+} from "./ast/types.js";
 import { createLazyCommands } from "./commands/registry.js";
 import { type IFileSystem, VirtualFs } from "./fs.js";
 import type { InitialFiles } from "./fs-interface.js";
+import { type ParseException, parse } from "./parser/parser.js";
 import { GlobExpander } from "./shell/glob.js";
-import { parse, type ParseException } from "./parser2/parser.js";
-import type {
-  ScriptNode,
-  StatementNode,
-  PipelineNode,
-  CommandNode,
-  SimpleCommandNode,
-  WordNode,
-  WordPart,
-  AssignmentNode,
-  RedirectionNode,
-  HereDocNode,
-  IfNode,
-  ForNode,
-  CStyleForNode,
-  WhileNode,
-  UntilNode,
-  CaseNode,
-  SubshellNode,
-  GroupNode,
-  FunctionDefNode,
-  ArithmeticCommandNode,
-  ConditionalCommandNode,
-  ArithExpr,
-  ConditionalExpressionNode,
-  CompoundCommandNode,
-} from "./ast/types.js";
 import type {
   Command,
   CommandContext,
@@ -94,7 +92,8 @@ export class BashEnv {
 
     this.maxCallDepth = options.maxCallDepth ?? DEFAULT_MAX_CALL_DEPTH;
     this.maxCommandCount = options.maxCommandCount ?? DEFAULT_MAX_COMMAND_COUNT;
-    this.maxLoopIterations = options.maxLoopIterations ?? DEFAULT_MAX_LOOP_ITERATIONS;
+    this.maxLoopIterations =
+      options.maxLoopIterations ?? DEFAULT_MAX_LOOP_ITERATIONS;
 
     // Create essential directories for VirtualFs (only for default layout)
     if (fs instanceof VirtualFs && this.useDefaultLayout) {
@@ -199,7 +198,9 @@ export class BashEnv {
     // Check command count limit to prevent infinite loops - hard crash
     this.commandCount++;
     if (this.commandCount > this.maxCommandCount) {
-      const err = new Error(`bash: too many commands executed (>${this.maxCommandCount}), increase maxCommandCount`);
+      const err = new Error(
+        `bash: too many commands executed (>${this.maxCommandCount}), increase maxCommandCount`,
+      );
       console.error(err.message);
       throw err;
     }
@@ -243,7 +244,11 @@ export class BashEnv {
       if (!isLast) {
         // Pipe stdout to next command's stdin
         stdin = result.stdout;
-        lastResult = { stdout: "", stderr: result.stderr, exitCode: result.exitCode };
+        lastResult = {
+          stdout: "",
+          stderr: result.stderr,
+          exitCode: result.exitCode,
+        };
       } else {
         lastResult = result;
       }
@@ -260,7 +265,10 @@ export class BashEnv {
     return lastResult;
   }
 
-  private async executeCommand(node: CommandNode, stdin: string): Promise<ExecResult> {
+  private async executeCommand(
+    node: CommandNode,
+    stdin: string,
+  ): Promise<ExecResult> {
     switch (node.type) {
       case "SimpleCommand":
         return this.executeSimpleCommand(node, stdin);
@@ -304,7 +312,9 @@ export class BashEnv {
 
     for (const assignment of node.assignments) {
       const name = assignment.name;
-      const value = assignment.value ? await this.expandWord(assignment.value) : "";
+      const value = assignment.value
+        ? await this.expandWord(assignment.value)
+        : "";
 
       if (node.name) {
         // Temporary assignment for command
@@ -341,7 +351,7 @@ export class BashEnv {
 
       // Handle here-strings
       if (redir.operator === "<<<" && redir.target.type === "Word") {
-        stdin = (await this.expandWord(redir.target as WordNode)) + "\n";
+        stdin = `${await this.expandWord(redir.target as WordNode)}\n`;
         continue;
       }
 
@@ -398,7 +408,7 @@ export class BashEnv {
   private async runCommand(
     commandName: string,
     args: string[],
-    quotedArgs: boolean[],
+    _quotedArgs: boolean[],
     stdin: string,
   ): Promise<ExecResult> {
     // Handle built-in commands that modify shell state
@@ -547,7 +557,9 @@ export class BashEnv {
       if (iterations > this.maxLoopIterations) {
         return {
           stdout,
-          stderr: stderr + `bash: for loop: too many iterations (${this.maxLoopIterations}), increase maxLoopIterations\n`,
+          stderr:
+            stderr +
+            `bash: for loop: too many iterations (${this.maxLoopIterations}), increase maxLoopIterations\n`,
           exitCode: 1,
         };
       }
@@ -562,10 +574,11 @@ export class BashEnv {
           exitCode = result.exitCode;
         } catch (error) {
           // Convert command count error to proper error result
-          const message = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof Error ? error.message : String(error);
           return {
             stdout,
-            stderr: stderr + message + "\n",
+            stderr: `${stderr + message}\n`,
             exitCode: 1,
           };
         }
@@ -594,7 +607,9 @@ export class BashEnv {
       if (iterations > this.maxLoopIterations) {
         return {
           stdout,
-          stderr: stderr + `bash: for loop: too many iterations (${this.maxLoopIterations}), increase maxLoopIterations\n`,
+          stderr:
+            stderr +
+            `bash: for loop: too many iterations (${this.maxLoopIterations}), increase maxLoopIterations\n`,
           exitCode: 1,
         };
       }
@@ -613,8 +628,9 @@ export class BashEnv {
           stderr += result.stderr;
           exitCode = result.exitCode;
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          return { stdout, stderr: stderr + message + "\n", exitCode: 1 };
+          const message =
+            error instanceof Error ? error.message : String(error);
+          return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
         }
       }
 
@@ -638,7 +654,9 @@ export class BashEnv {
       if (iterations > this.maxLoopIterations) {
         return {
           stdout,
-          stderr: stderr + `bash: while loop: too many iterations (${this.maxLoopIterations}), increase maxLoopIterations\n`,
+          stderr:
+            stderr +
+            `bash: while loop: too many iterations (${this.maxLoopIterations}), increase maxLoopIterations\n`,
           exitCode: 1,
         };
       }
@@ -652,8 +670,9 @@ export class BashEnv {
           stderr += result.stderr;
           conditionExitCode = result.exitCode;
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          return { stdout, stderr: stderr + message + "\n", exitCode: 1 };
+          const message =
+            error instanceof Error ? error.message : String(error);
+          return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
         }
       }
 
@@ -667,8 +686,9 @@ export class BashEnv {
           stderr += result.stderr;
           exitCode = result.exitCode;
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          return { stdout, stderr: stderr + message + "\n", exitCode: 1 };
+          const message =
+            error instanceof Error ? error.message : String(error);
+          return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
         }
       }
     }
@@ -687,7 +707,9 @@ export class BashEnv {
       if (iterations > this.maxLoopIterations) {
         return {
           stdout,
-          stderr: stderr + `bash: until loop: too many iterations (${this.maxLoopIterations}), increase maxLoopIterations\n`,
+          stderr:
+            stderr +
+            `bash: until loop: too many iterations (${this.maxLoopIterations}), increase maxLoopIterations\n`,
           exitCode: 1,
         };
       }
@@ -701,8 +723,9 @@ export class BashEnv {
           stderr += result.stderr;
           conditionExitCode = result.exitCode;
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          return { stdout, stderr: stderr + message + "\n", exitCode: 1 };
+          const message =
+            error instanceof Error ? error.message : String(error);
+          return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
         }
       }
 
@@ -716,8 +739,9 @@ export class BashEnv {
           stderr += result.stderr;
           exitCode = result.exitCode;
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          return { stdout, stderr: stderr + message + "\n", exitCode: 1 };
+          const message =
+            error instanceof Error ? error.message : String(error);
+          return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
         }
       }
     }
@@ -804,7 +828,10 @@ export class BashEnv {
     return { stdout: "", stderr: "", exitCode: 0 };
   }
 
-  private async callFunction(func: FunctionDefNode, args: string[]): Promise<ExecResult> {
+  private async callFunction(
+    func: FunctionDefNode,
+    args: string[],
+  ): Promise<ExecResult> {
     this.callDepth++;
     if (this.callDepth > this.maxCallDepth) {
       this.callDepth--;
@@ -870,7 +897,9 @@ export class BashEnv {
     }
   }
 
-  private async executeConditionalCommand(node: ConditionalCommandNode): Promise<ExecResult> {
+  private async executeConditionalCommand(
+    node: ConditionalCommandNode,
+  ): Promise<ExecResult> {
     try {
       const result = await this.evaluateConditional(node.expression);
       return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
@@ -904,7 +933,9 @@ export class BashEnv {
     return parts.join("");
   }
 
-  private async expandWordWithGlob(word: WordNode): Promise<{ values: string[]; quoted: boolean }> {
+  private async expandWordWithGlob(
+    word: WordNode,
+  ): Promise<{ values: string[]; quoted: boolean }> {
     const wordParts = word.parts;
     const len = wordParts.length;
     let hasQuoted = false;
@@ -922,7 +953,10 @@ export class BashEnv {
       if (partType === "CommandSubstitution") {
         hasCommandSub = true;
       }
-      if (partType === "ParameterExpansion" && ((part as any).parameter === "@" || (part as any).parameter === "*")) {
+      if (
+        partType === "ParameterExpansion" &&
+        ((part as any).parameter === "@" || (part as any).parameter === "*")
+      ) {
         hasArrayVar = true;
       }
       value = await this.expandPart(part);
@@ -938,7 +972,10 @@ export class BashEnv {
         if (partType === "CommandSubstitution") {
           hasCommandSub = true;
         }
-        if (partType === "ParameterExpansion" && ((part as any).parameter === "@" || (part as any).parameter === "*")) {
+        if (
+          partType === "ParameterExpansion" &&
+          ((part as any).parameter === "@" || (part as any).parameter === "*")
+        ) {
           hasArrayVar = true;
         }
         parts.push(await this.expandPart(part));
@@ -1014,17 +1051,21 @@ export class BashEnv {
             if (typeof start === "number" && typeof end === "number") {
               const step = item.step || 1;
               if (start <= end) {
-                for (let i = start; i <= end; i += step) results.push(String(i));
+                for (let i = start; i <= end; i += step)
+                  results.push(String(i));
               } else {
-                for (let i = start; i >= end; i -= step) results.push(String(i));
+                for (let i = start; i >= end; i -= step)
+                  results.push(String(i));
               }
             } else if (typeof start === "string" && typeof end === "string") {
               const startCode = start.charCodeAt(0);
               const endCode = end.charCodeAt(0);
               if (startCode <= endCode) {
-                for (let i = startCode; i <= endCode; i++) results.push(String.fromCharCode(i));
+                for (let i = startCode; i <= endCode; i++)
+                  results.push(String.fromCharCode(i));
               } else {
-                for (let i = startCode; i >= endCode; i--) results.push(String.fromCharCode(i));
+                for (let i = startCode; i >= endCode; i--)
+                  results.push(String.fromCharCode(i));
               }
             }
           } else {
@@ -1048,7 +1089,7 @@ export class BashEnv {
     operation: any;
   }): string {
     const { parameter, operation } = part;
-    let value = this.getVariable(parameter);
+    const value = this.getVariable(parameter);
 
     if (!operation) {
       return value;
@@ -1070,7 +1111,9 @@ export class BashEnv {
       case "AssignDefault": {
         const useDefault = isUnset || (operation.checkEmpty && isEmpty);
         if (useDefault && operation.word) {
-          const defaultValue = operation.word.parts.map((p: any) => p.value || "").join("");
+          const defaultValue = operation.word.parts
+            .map((p: any) => p.value || "")
+            .join("");
           this.env[parameter] = defaultValue;
           return defaultValue;
         }
@@ -1114,7 +1157,9 @@ export class BashEnv {
       }
 
       case "PatternRemoval": {
-        const pattern = operation.pattern?.parts.map((p: any) => p.value || "").join("") || "";
+        const pattern =
+          operation.pattern?.parts.map((p: any) => p.value || "").join("") ||
+          "";
         const regex = this.patternToRegex(pattern, operation.greedy);
         if (operation.side === "prefix") {
           return value.replace(new RegExp(`^${regex}`), "");
@@ -1123,8 +1168,13 @@ export class BashEnv {
       }
 
       case "PatternReplacement": {
-        const pattern = operation.pattern?.parts.map((p: any) => p.value || "").join("") || "";
-        const replacement = operation.replacement?.parts.map((p: any) => p.value || "").join("") || "";
+        const pattern =
+          operation.pattern?.parts.map((p: any) => p.value || "").join("") ||
+          "";
+        const replacement =
+          operation.replacement?.parts
+            .map((p: any) => p.value || "")
+            .join("") || "";
         const regex = this.patternToRegex(pattern, true);
         const flags = operation.all ? "g" : "";
         return value.replace(new RegExp(regex, flags), replacement);
@@ -1132,9 +1182,13 @@ export class BashEnv {
 
       case "CaseModification": {
         if (operation.direction === "upper") {
-          return operation.all ? value.toUpperCase() : value.charAt(0).toUpperCase() + value.slice(1);
+          return operation.all
+            ? value.toUpperCase()
+            : value.charAt(0).toUpperCase() + value.slice(1);
         }
-        return operation.all ? value.toLowerCase() : value.charAt(0).toLowerCase() + value.slice(1);
+        return operation.all
+          ? value.toLowerCase()
+          : value.charAt(0).toLowerCase() + value.slice(1);
       }
 
       case "Indirection": {
@@ -1207,49 +1261,76 @@ export class BashEnv {
         const right = this.evaluateArithmetic(expr.right);
 
         switch (expr.operator) {
-          case "+": return left + right;
-          case "-": return left - right;
-          case "*": return left * right;
-          case "/": return right !== 0 ? Math.trunc(left / right) : 0;
-          case "%": return right !== 0 ? left % right : 0;
-          case "**": return Math.pow(left, right);
-          case "<<": return left << right;
-          case ">>": return left >> right;
-          case "<": return left < right ? 1 : 0;
-          case "<=": return left <= right ? 1 : 0;
-          case ">": return left > right ? 1 : 0;
-          case ">=": return left >= right ? 1 : 0;
-          case "==": return left === right ? 1 : 0;
-          case "!=": return left !== right ? 1 : 0;
-          case "&": return left & right;
-          case "|": return left | right;
-          case "^": return left ^ right;
-          case "&&": return left && right ? 1 : 0;
-          case "||": return left || right ? 1 : 0;
-          case ",": return right;
-          default: return 0;
+          case "+":
+            return left + right;
+          case "-":
+            return left - right;
+          case "*":
+            return left * right;
+          case "/":
+            return right !== 0 ? Math.trunc(left / right) : 0;
+          case "%":
+            return right !== 0 ? left % right : 0;
+          case "**":
+            return left ** right;
+          case "<<":
+            return left << right;
+          case ">>":
+            return left >> right;
+          case "<":
+            return left < right ? 1 : 0;
+          case "<=":
+            return left <= right ? 1 : 0;
+          case ">":
+            return left > right ? 1 : 0;
+          case ">=":
+            return left >= right ? 1 : 0;
+          case "==":
+            return left === right ? 1 : 0;
+          case "!=":
+            return left !== right ? 1 : 0;
+          case "&":
+            return left & right;
+          case "|":
+            return left | right;
+          case "^":
+            return left ^ right;
+          case "&&":
+            return left && right ? 1 : 0;
+          case "||":
+            return left || right ? 1 : 0;
+          case ",":
+            return right;
+          default:
+            return 0;
         }
       }
 
       case "ArithUnary": {
         const operand = this.evaluateArithmetic(expr.operand);
         switch (expr.operator) {
-          case "-": return -operand;
-          case "+": return +operand;
-          case "!": return operand === 0 ? 1 : 0;
-          case "~": return ~operand;
+          case "-":
+            return -operand;
+          case "+":
+            return +operand;
+          case "!":
+            return operand === 0 ? 1 : 0;
+          case "~":
+            return ~operand;
           case "++":
           case "--": {
             if (expr.operand.type === "ArithVariable") {
               const name = expr.operand.name;
               const current = Number.parseInt(this.getVariable(name), 10) || 0;
-              const newValue = expr.operator === "++" ? current + 1 : current - 1;
+              const newValue =
+                expr.operator === "++" ? current + 1 : current - 1;
               this.env[name] = String(newValue);
               return expr.prefix ? newValue : current;
             }
             return operand;
           }
-          default: return operand;
+          default:
+            return operand;
         }
       }
 
@@ -1267,18 +1348,41 @@ export class BashEnv {
         let newValue: number;
 
         switch (expr.operator) {
-          case "=": newValue = value; break;
-          case "+=": newValue = current + value; break;
-          case "-=": newValue = current - value; break;
-          case "*=": newValue = current * value; break;
-          case "/=": newValue = value !== 0 ? Math.trunc(current / value) : 0; break;
-          case "%=": newValue = value !== 0 ? current % value : 0; break;
-          case "<<=": newValue = current << value; break;
-          case ">>=": newValue = current >> value; break;
-          case "&=": newValue = current & value; break;
-          case "|=": newValue = current | value; break;
-          case "^=": newValue = current ^ value; break;
-          default: newValue = value;
+          case "=":
+            newValue = value;
+            break;
+          case "+=":
+            newValue = current + value;
+            break;
+          case "-=":
+            newValue = current - value;
+            break;
+          case "*=":
+            newValue = current * value;
+            break;
+          case "/=":
+            newValue = value !== 0 ? Math.trunc(current / value) : 0;
+            break;
+          case "%=":
+            newValue = value !== 0 ? current % value : 0;
+            break;
+          case "<<=":
+            newValue = current << value;
+            break;
+          case ">>=":
+            newValue = current >> value;
+            break;
+          case "&=":
+            newValue = current & value;
+            break;
+          case "|=":
+            newValue = current | value;
+            break;
+          case "^=":
+            newValue = current ^ value;
+            break;
+          default:
+            newValue = value;
         }
 
         this.env[name] = String(newValue);
@@ -1297,7 +1401,9 @@ export class BashEnv {
   // CONDITIONAL EXPRESSIONS
   // ===========================================================================
 
-  private async evaluateConditional(expr: ConditionalExpressionNode): Promise<boolean> {
+  private async evaluateConditional(
+    expr: ConditionalExpressionNode,
+  ): Promise<boolean> {
     switch (expr.type) {
       case "CondBinary": {
         const left = await this.expandWord(expr.left);
@@ -1471,7 +1577,11 @@ export class BashEnv {
           const path = this.resolvePath(operand);
           if (await this.fs.exists(path)) {
             const stat = await this.fs.stat(path);
-            return { stdout: "", stderr: "", exitCode: stat.isDirectory ? 0 : 1 };
+            return {
+              stdout: "",
+              stderr: "",
+              exitCode: stat.isDirectory ? 0 : 1,
+            };
           }
           return { stdout: "", stderr: "", exitCode: 1 };
         }
@@ -1485,7 +1595,11 @@ export class BashEnv {
           const path = this.resolvePath(operand);
           if (await this.fs.exists(path)) {
             const content = await this.fs.readFile(path);
-            return { stdout: "", stderr: "", exitCode: content.length > 0 ? 0 : 1 };
+            return {
+              stdout: "",
+              stderr: "",
+              exitCode: content.length > 0 ? 0 : 1,
+            };
           }
           return { stdout: "", stderr: "", exitCode: 1 };
         }
@@ -1505,21 +1619,59 @@ export class BashEnv {
       switch (op) {
         case "=":
         case "==":
-          return { stdout: "", stderr: "", exitCode: this.matchPattern(left, right) ? 0 : 1 };
+          return {
+            stdout: "",
+            stderr: "",
+            exitCode: this.matchPattern(left, right) ? 0 : 1,
+          };
         case "!=":
-          return { stdout: "", stderr: "", exitCode: !this.matchPattern(left, right) ? 0 : 1 };
+          return {
+            stdout: "",
+            stderr: "",
+            exitCode: !this.matchPattern(left, right) ? 0 : 1,
+          };
         case "-eq":
-          return { stdout: "", stderr: "", exitCode: Number.parseInt(left, 10) === Number.parseInt(right, 10) ? 0 : 1 };
+          return {
+            stdout: "",
+            stderr: "",
+            exitCode:
+              Number.parseInt(left, 10) === Number.parseInt(right, 10) ? 0 : 1,
+          };
         case "-ne":
-          return { stdout: "", stderr: "", exitCode: Number.parseInt(left, 10) !== Number.parseInt(right, 10) ? 0 : 1 };
+          return {
+            stdout: "",
+            stderr: "",
+            exitCode:
+              Number.parseInt(left, 10) !== Number.parseInt(right, 10) ? 0 : 1,
+          };
         case "-lt":
-          return { stdout: "", stderr: "", exitCode: Number.parseInt(left, 10) < Number.parseInt(right, 10) ? 0 : 1 };
+          return {
+            stdout: "",
+            stderr: "",
+            exitCode:
+              Number.parseInt(left, 10) < Number.parseInt(right, 10) ? 0 : 1,
+          };
         case "-le":
-          return { stdout: "", stderr: "", exitCode: Number.parseInt(left, 10) <= Number.parseInt(right, 10) ? 0 : 1 };
+          return {
+            stdout: "",
+            stderr: "",
+            exitCode:
+              Number.parseInt(left, 10) <= Number.parseInt(right, 10) ? 0 : 1,
+          };
         case "-gt":
-          return { stdout: "", stderr: "", exitCode: Number.parseInt(left, 10) > Number.parseInt(right, 10) ? 0 : 1 };
+          return {
+            stdout: "",
+            stderr: "",
+            exitCode:
+              Number.parseInt(left, 10) > Number.parseInt(right, 10) ? 0 : 1,
+          };
         case "-ge":
-          return { stdout: "", stderr: "", exitCode: Number.parseInt(left, 10) >= Number.parseInt(right, 10) ? 0 : 1 };
+          return {
+            stdout: "",
+            stderr: "",
+            exitCode:
+              Number.parseInt(left, 10) >= Number.parseInt(right, 10) ? 0 : 1,
+          };
         default:
           return { stdout: "", stderr: "", exitCode: 1 };
       }

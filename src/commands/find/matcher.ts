@@ -29,9 +29,18 @@ export function matchGlob(
         while (j < pattern.length && pattern[j] !== "]") j++;
         regex += pattern.slice(i, j + 1);
         i = j;
-      } else if (c === "." || c === "+" || c === "^" || c === "$" ||
-                 c === "{" || c === "}" || c === "(" || c === ")" ||
-                 c === "|" || c === "\\") {
+      } else if (
+        c === "." ||
+        c === "+" ||
+        c === "^" ||
+        c === "$" ||
+        c === "{" ||
+        c === "}" ||
+        c === "(" ||
+        c === ")" ||
+        c === "|" ||
+        c === "\\"
+      ) {
         regex += `\\${c}`;
       } else {
         regex += c;
