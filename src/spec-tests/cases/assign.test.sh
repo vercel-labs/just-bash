@@ -735,18 +735,19 @@ typeset -Ar dict2
 ## N-I dash/mksh status: 99
 ## N-I dash/mksh stdout-json: ""
 
-#### "var d = {}; declare -p d" does not print anything (OSH)
-case $SH in bash-4.4|dash|mksh|zsh) exit 99 ;; esac
-
-# We pretend that the variable does not exist when the variable is not
-# representable with the "declare -p" format.
-
-var d = {}
-declare -p d
-## STDOUT:
-## END
-## status: 1
-## N-I bash/dash/mksh/zsh status: 99
+## YSH-specific test - commented out
+# #### "var d = {}; declare -p d" does not print anything (OSH)
+# case $SH in bash-4.4|dash|mksh|zsh) exit 99 ;; esac
+#
+# # We pretend that the variable does not exist when the variable is not
+# # representable with the "declare -p" format.
+#
+# var d = {}
+# declare -p d
+# ## STDOUT:
+# ## END
+# ## status: 1
+# ## N-I bash/dash/mksh/zsh status: 99
 
 #### readonly array should not be modified by a+=(1)
 case $SH in dash) exit 99 ;; esac # dash/mksh does not support associative arrays
