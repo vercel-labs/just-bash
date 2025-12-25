@@ -40,13 +40,27 @@ export function handleRead(
 
   // Note: prompt (-p) would typically output to terminal, but we ignore it in non-interactive mode
 
+  // Use stdin from parameter, or fall back to groupStdin (for piped groups/while loops)
+  let effectiveStdin = stdin;
+  if (!effectiveStdin && ctx.state.groupStdin !== undefined) {
+    effectiveStdin = ctx.state.groupStdin;
+  }
+
   // Get input line (up to delimiter)
   let line = "";
-  const delimIndex = stdin.indexOf(delimiter);
+  const delimIndex = effectiveStdin.indexOf(delimiter);
   if (delimIndex !== -1) {
-    line = stdin.substring(0, delimIndex);
-  } else if (stdin.length > 0) {
-    line = stdin;
+    line = effectiveStdin.substring(0, delimIndex);
+    // Consume the line including delimiter from groupStdin
+    if (ctx.state.groupStdin !== undefined && !stdin) {
+      ctx.state.groupStdin = effectiveStdin.substring(delimIndex + delimiter.length);
+    }
+  } else if (effectiveStdin.length > 0) {
+    line = effectiveStdin;
+    // Consume all of groupStdin
+    if (ctx.state.groupStdin !== undefined && !stdin) {
+      ctx.state.groupStdin = "";
+    }
   } else {
     // No input - return failure
     // Still set variables to empty

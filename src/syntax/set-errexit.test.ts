@@ -333,9 +333,9 @@ describe("Bash Syntax - set -e (errexit)", () => {
 
     it("should error on unknown long option", async () => {
       const env = new BashEnv();
-      const result = await env.exec("set -o nounset");
+      const result = await env.exec("set -o unknownoption");
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain("nounset");
+      expect(result.stderr).toContain("unknownoption");
       expect(result.stderr).toContain("invalid option name");
     });
 

@@ -263,3 +263,7 @@ xargs — build argument lists
 ## All before this is done
 
 Woohoo
+
+## Implementation phase 19
+
+Find documentation for all bash commannds and builtins, grammar, functionality, semantics, etc. ideally in markdown or text or similar form and copy it into /tmp/official-bash-docs/$sourceDomain

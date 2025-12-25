@@ -729,6 +729,8 @@ export class Lexer {
     let singleQuoted = false;
     let inSingleQuote = false;
     let inDoubleQuote = false;
+    // Track if the token STARTS with a quote (for assignment detection)
+    const startsWithQuote = input[pos] === '"' || input[pos] === "'";
 
     while (pos < len) {
       const char = input[pos];
@@ -959,7 +961,10 @@ export class Lexer {
     }
 
     // Check for assignment (VAR=value or VAR+=value)
-    if (!quoted) {
+    // Only tokens that don't start with a quote can be assignments.
+    // MYVAR="hello" is an assignment (name is unquoted)
+    // "MYVAR=hello" is NOT an assignment (starts with quote)
+    if (!startsWithQuote) {
       const assignMatch = value.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\+?=/);
       if (assignMatch) {
         return {

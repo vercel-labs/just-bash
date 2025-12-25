@@ -35,6 +35,7 @@ echo 'false; echo $?' | pnpm dev:exec
 - Biome rules often have the same name as eslint rules (if you are lookinf for one)
 - Error / show usage on unknown flags in commands and built-ins (unless real bash also ignores)
 - Dependencies that use wasm are not allowed. Binary npm packages are fine
+- When you implement multiple tasks (such as multiple commands or builtins or discovered bugs), so them one at a time, create tests, validate, and then move on
 
 ## Commands
 

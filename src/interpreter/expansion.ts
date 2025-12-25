@@ -18,6 +18,7 @@ import type {
 } from "../ast/types.js";
 import { GlobExpander } from "../shell/glob.js";
 import { evaluateArithmetic } from "./arithmetic.js";
+import { NounsetError } from "./errors.js";
 import type { InterpreterContext } from "./types.js";
 
 // Helper to extract numeric value from an arithmetic expression
@@ -329,7 +330,16 @@ function expandParameter(
   part: ParameterExpansionPart,
 ): string {
   const { parameter, operation } = part;
-  const value = getVariable(ctx, parameter);
+
+  // Operations that handle unset variables should not trigger nounset
+  const skipNounset =
+    operation &&
+    (operation.type === "DefaultValue" ||
+      operation.type === "AssignDefault" ||
+      operation.type === "UseAlternative" ||
+      operation.type === "ErrorIfUnset");
+
+  const value = getVariable(ctx, parameter, !skipNounset);
 
   if (!operation) {
     return value;
@@ -440,7 +450,18 @@ function expandParameter(
   }
 }
 
-export function getVariable(ctx: InterpreterContext, name: string): string {
+/**
+ * Get the value of a variable, optionally checking nounset.
+ * @param ctx - The interpreter context
+ * @param name - The variable name
+ * @param checkNounset - Whether to check for nounset (default true)
+ */
+export function getVariable(
+  ctx: InterpreterContext,
+  name: string,
+  checkNounset = true,
+): string {
+  // Special variables are always defined (never trigger nounset)
   switch (name) {
     case "?":
       return String(ctx.state.lastExitCode);
@@ -459,11 +480,21 @@ export function getVariable(ctx: InterpreterContext, name: string): string {
       return ctx.state.previousDir;
   }
 
+  // Positional parameters ($1, $2, etc.) - check nounset
   if (/^[1-9][0-9]*$/.test(name)) {
-    return ctx.state.env[name] || "";
+    const value = ctx.state.env[name];
+    if (value === undefined && checkNounset && ctx.state.options.nounset) {
+      throw new NounsetError(name);
+    }
+    return value || "";
   }
 
-  return ctx.state.env[name] || "";
+  // Regular variables - check nounset
+  const value = ctx.state.env[name];
+  if (value === undefined && checkNounset && ctx.state.options.nounset) {
+    throw new NounsetError(name);
+  }
+  return value || "";
 }
 
 export function patternToRegex(pattern: string, greedy: boolean): string {

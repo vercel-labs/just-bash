@@ -3,7 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { ContinueError } from "../control-flow.js";
+import { ContinueError } from "../errors.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleContinue(

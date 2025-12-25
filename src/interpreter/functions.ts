@@ -8,6 +8,7 @@
 
 import type { FunctionDefNode } from "../ast/types.js";
 import type { ExecResult } from "../types.js";
+import { ReturnError } from "./errors.js";
 import type { InterpreterContext } from "./types.js";
 
 export function executeFunctionDef(
@@ -74,6 +75,14 @@ export async function callFunction(
     return result;
   } catch (error) {
     cleanup();
+    // Handle return statement - convert to normal exit with the specified code
+    if (error instanceof ReturnError) {
+      return {
+        stdout: error.stdout,
+        stderr: error.stderr,
+        exitCode: error.exitCode,
+      };
+    }
     throw error;
   }
 }

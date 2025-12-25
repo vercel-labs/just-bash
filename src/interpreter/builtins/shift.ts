@@ -1,0 +1,74 @@
+/**
+ * shift - Shift positional parameters
+ *
+ * shift [n]
+ *
+ * Shifts positional parameters to the left by n (default 1).
+ * $n+1 becomes $1, $n+2 becomes $2, etc.
+ * $# is decremented by n.
+ */
+
+import type { ExecResult } from "../../types.js";
+import type { InterpreterContext } from "../types.js";
+
+export function handleShift(
+  ctx: InterpreterContext,
+  args: string[],
+): ExecResult {
+  // Default shift count is 1
+  let n = 1;
+
+  if (args.length > 0) {
+    const parsed = Number.parseInt(args[0], 10);
+    if (Number.isNaN(parsed) || parsed < 0) {
+      return {
+        stdout: "",
+        stderr: `bash: shift: ${args[0]}: numeric argument required\n`,
+        exitCode: 1,
+      };
+    }
+    n = parsed;
+  }
+
+  // Get current positional parameter count
+  const currentCount = Number.parseInt(ctx.state.env["#"] || "0", 10);
+
+  // Check if shift count exceeds available parameters
+  if (n > currentCount) {
+    return {
+      stdout: "",
+      stderr: `bash: shift: shift count out of range\n`,
+      exitCode: 1,
+    };
+  }
+
+  // If n is 0, do nothing
+  if (n === 0) {
+    return { stdout: "", stderr: "", exitCode: 0 };
+  }
+
+  // Get current positional parameters
+  const params: string[] = [];
+  for (let i = 1; i <= currentCount; i++) {
+    params.push(ctx.state.env[String(i)] || "");
+  }
+
+  // Remove first n parameters
+  const newParams = params.slice(n);
+
+  // Clear all old positional parameters
+  for (let i = 1; i <= currentCount; i++) {
+    delete ctx.state.env[String(i)];
+  }
+
+  // Set new positional parameters
+  for (let i = 0; i < newParams.length; i++) {
+    ctx.state.env[String(i + 1)] = newParams[i];
+  }
+
+  // Update $# and $@
+  ctx.state.env["#"] = String(newParams.length);
+  ctx.state.env["@"] = newParams.join(" ");
+
+  return { stdout: "", stderr: "", exitCode: 0 };
+}

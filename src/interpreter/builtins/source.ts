@@ -4,6 +4,7 @@
 
 import { type ParseException, parse } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
+import { ReturnError } from "../errors.js";
 import type { InterpreterContext } from "../types.js";
 
 export async function handleSource(
@@ -55,10 +56,8 @@ export async function handleSource(
     }
   }
 
-  try {
-    const ast = parse(content);
-    const result = await ctx.executeScript(ast);
-
+  const cleanup = (): void => {
+    ctx.state.sourceDepth--;
     // Restore positional parameters if we changed them
     if (args.length > 1) {
       for (const [key, value] of Object.entries(savedPositional)) {
@@ -69,18 +68,24 @@ export async function handleSource(
         }
       }
     }
+  };
 
+  ctx.state.sourceDepth++;
+  try {
+    const ast = parse(content);
+    const result = await ctx.executeScript(ast);
+    cleanup();
     return result;
   } catch (error) {
-    // Restore positional parameters on error
-    if (args.length > 1) {
-      for (const [key, value] of Object.entries(savedPositional)) {
-        if (value === undefined) {
-          delete ctx.state.env[key];
-        } else {
-          ctx.state.env[key] = value;
-        }
-      }
+    cleanup();
+
+    // Handle return in sourced script - treat as normal exit
+    if (error instanceof ReturnError) {
+      return {
+        stdout: error.stdout,
+        stderr: error.stderr,
+        exitCode: error.exitCode,
+      };
     }
 
     if ((error as ParseException).name === "ParseException") {

@@ -236,4 +236,51 @@ describe("Bash Syntax - Variables and Quoting", () => {
       expect(result.stdout).toBe("hello world\n");
     });
   });
+
+  describe("variable assignments", () => {
+    it("should assign value with double quotes", async () => {
+      const env = new BashEnv();
+      const result = await env.exec('MYVAR="hello"; echo $MYVAR');
+      expect(result.stdout).toBe("hello\n");
+    });
+
+    it("should assign value with single quotes", async () => {
+      const env = new BashEnv();
+      const result = await env.exec("MYVAR='hello'; echo $MYVAR");
+      expect(result.stdout).toBe("hello\n");
+    });
+
+    it("should assign empty string with double quotes", async () => {
+      const env = new BashEnv();
+      const result = await env.exec('MYVAR=""; echo "value:$MYVAR:"');
+      expect(result.stdout).toBe("value::\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should assign empty string with single quotes", async () => {
+      const env = new BashEnv();
+      const result = await env.exec("MYVAR=''; echo \"value:$MYVAR:\"");
+      expect(result.stdout).toBe("value::\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should assign empty string without quotes", async () => {
+      const env = new BashEnv();
+      const result = await env.exec('MYVAR=; echo "value:$MYVAR:"');
+      expect(result.stdout).toBe("value::\n");
+    });
+
+    it("should handle value with spaces in double quotes", async () => {
+      const env = new BashEnv();
+      const result = await env.exec('MYVAR="hello world"; echo "$MYVAR"');
+      expect(result.stdout).toBe("hello world\n");
+    });
+
+    it("should handle export with empty double-quoted value", async () => {
+      const env = new BashEnv();
+      const result = await env.exec('export MYVAR=""; echo "value:$MYVAR:"');
+      expect(result.stdout).toBe("value::\n");
+      expect(result.stderr).toBe("");
+    });
+  });
 });

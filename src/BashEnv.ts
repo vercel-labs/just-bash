@@ -121,11 +121,13 @@ export class BashEnv {
       functions: new Map<string, FunctionDefNode>(),
       localScopes: [],
       callDepth: 0,
+      sourceDepth: 0,
       commandCount: 0,
       lastExitCode: 0,
       options: {
         errexit: false,
         pipefail: false,
+        nounset: false,
       },
       inCondition: false,
       loopDepth: 0,

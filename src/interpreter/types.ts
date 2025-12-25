@@ -17,6 +17,8 @@ export interface ShellOptions {
   errexit: boolean;
   /** set -o pipefail: Return the exit status of the last (rightmost) command in a pipeline that fails */
   pipefail: boolean;
+  /** set -u: Treat unset variables as an error when substituting */
+  nounset: boolean;
 }
 
 export interface InterpreterState {
@@ -26,6 +28,8 @@ export interface InterpreterState {
   functions: Map<string, FunctionDefNode>;
   localScopes: Map<string, string | undefined>[];
   callDepth: number;
+  /** Current source script nesting depth (for return in sourced scripts) */
+  sourceDepth: number;
   commandCount: number;
   lastExitCode: number;
   /** Shell options (set -e, etc.) */
@@ -34,6 +38,8 @@ export interface InterpreterState {
   inCondition: boolean;
   /** Current loop nesting depth (for break/continue) */
   loopDepth: number;
+  /** Stdin available for commands in compound commands (groups, subshells, while loops with piped input) */
+  groupStdin?: string;
 }
 
 export interface InterpreterContext {

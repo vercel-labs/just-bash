@@ -31,18 +31,19 @@ import {
   handleBreak,
   handleCd,
   handleContinue,
+  handleEval,
   handleExit,
   handleExport,
   handleLocal,
   handleRead,
+  handleReturn,
   handleSet,
+  handleShift,
   handleSource,
   handleUnset,
 } from "./builtins/index.js";
 import { evaluateConditional, evaluateTestArgs } from "./conditionals.js";
 import {
-  BreakError,
-  ContinueError,
   executeCase,
   executeCStyleFor,
   executeFor,
@@ -50,6 +51,15 @@ import {
   executeUntil,
   executeWhile,
 } from "./control-flow.js";
+import {
+  BreakError,
+  ContinueError,
+  ErrexitError,
+  ExitError,
+  NounsetError,
+  ReturnError,
+  isScopeExitError,
+} from "./errors.js";
 import { expandWord, expandWordWithGlob } from "./expansion.js";
 import { callFunction, executeFunctionDef } from "./functions.js";
 import { applyRedirections } from "./redirections.js";
@@ -57,19 +67,8 @@ import type { InterpreterContext, InterpreterState } from "./types.js";
 
 export type { InterpreterContext, InterpreterState } from "./types.js";
 
-/**
- * Error thrown when set -e (errexit) is enabled and a command fails.
- */
-export class ErrexitError extends Error {
-  constructor(
-    public readonly exitCode: number,
-    public stdout: string = "",
-    public stderr: string = "",
-  ) {
-    super(`errexit: command exited with status ${exitCode}`);
-    this.name = "ErrexitError";
-  }
-}
+// Re-export ErrexitError for backwards compatibility
+export { ErrexitError } from "./errors.js";
 
 export interface InterpreterOptions {
   fs: IFileSystem;
@@ -116,25 +115,54 @@ export class Interpreter {
     let stderr = "";
     let exitCode = 0;
 
-    try {
-      for (const statement of node.statements) {
+    for (const statement of node.statements) {
+      try {
         const result = await this.executeStatement(statement);
         stdout += result.stdout;
         stderr += result.stderr;
         exitCode = result.exitCode;
         this.ctx.state.lastExitCode = exitCode;
         this.ctx.state.env["?"] = String(exitCode);
+      } catch (error) {
+        if (error instanceof ExitError) {
+          stdout += error.stdout;
+          stderr += error.stderr;
+          exitCode = error.exitCode;
+          this.ctx.state.lastExitCode = exitCode;
+          this.ctx.state.env["?"] = String(exitCode);
+          return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
+        }
+        if (error instanceof ErrexitError) {
+          stdout += error.stdout;
+          stderr += error.stderr;
+          exitCode = error.exitCode;
+          this.ctx.state.lastExitCode = exitCode;
+          this.ctx.state.env["?"] = String(exitCode);
+          return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
+        }
+        if (error instanceof NounsetError) {
+          stdout += error.stdout;
+          stderr += error.stderr;
+          exitCode = 1;
+          this.ctx.state.lastExitCode = exitCode;
+          this.ctx.state.env["?"] = String(exitCode);
+          return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
+        }
+        // Handle break/continue that escaped loops (level exceeded loop depth)
+        // In bash, this silently exits all loops and continues with next statement
+        if (error instanceof BreakError || error instanceof ContinueError) {
+          stdout += error.stdout;
+          stderr += error.stderr;
+          // Continue with next statement
+          continue;
+        }
+        // Handle return - prepend accumulated output before propagating
+        if (error instanceof ReturnError) {
+          error.prependOutput(stdout, stderr);
+          throw error;
+        }
+        throw error;
       }
-    } catch (error) {
-      if (error instanceof ErrexitError) {
-        stdout += error.stdout;
-        stderr += error.stderr;
-        exitCode = error.exitCode;
-        this.ctx.state.lastExitCode = exitCode;
-        this.ctx.state.env["?"] = String(exitCode);
-        return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
-      }
-      throw error;
     }
 
     return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
@@ -202,7 +230,23 @@ export class Interpreter {
       const command = node.commands[i];
       const isLast = i === node.commands.length - 1;
 
-      const result = await this.executeCommand(command, stdin);
+      let result: ExecResult;
+      try {
+        result = await this.executeCommand(command, stdin);
+      } catch (error) {
+        // In a MULTI-command pipeline, each command runs in a subshell context
+        // So exit/return only affect that segment, not the whole script
+        // For single commands, let ExitError propagate to terminate the script
+        if (error instanceof ExitError && node.commands.length > 1) {
+          result = {
+            stdout: error.stdout,
+            stderr: error.stderr,
+            exitCode: error.exitCode,
+          };
+        } else {
+          throw error;
+        }
+      }
 
       // Track the exit code of failing commands for pipefail
       if (result.exitCode !== 0) {
@@ -253,7 +297,7 @@ export class Interpreter {
       case "CStyleFor":
         return executeCStyleFor(this.ctx, node);
       case "While":
-        return executeWhile(this.ctx, node);
+        return executeWhile(this.ctx, node, stdin);
       case "Until":
         return executeUntil(this.ctx, node);
       case "Case":
@@ -261,7 +305,7 @@ export class Interpreter {
       case "Subshell":
         return this.executeSubshell(node);
       case "Group":
-        return this.executeGroup(node);
+        return this.executeGroup(node, stdin);
       case "FunctionDef":
         return executeFunctionDef(this.ctx, node);
       case "ArithmeticCommand":
@@ -390,6 +434,15 @@ export class Interpreter {
     if (commandName === "continue") {
       return handleContinue(this.ctx, args);
     }
+    if (commandName === "return") {
+      return handleReturn(this.ctx, args);
+    }
+    if (commandName === "eval") {
+      return handleEval(this.ctx, args);
+    }
+    if (commandName === "shift") {
+      return handleShift(this.ctx, args);
+    }
     if (commandName === "source" || commandName === ".") {
       return handleSource(this.ctx, args);
     }
@@ -502,10 +555,19 @@ export class Interpreter {
     return { stdout, stderr, exitCode };
   }
 
-  private async executeGroup(node: GroupNode): Promise<ExecResult> {
+  private async executeGroup(
+    node: GroupNode,
+    stdin = "",
+  ): Promise<ExecResult> {
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
+
+    // Save any existing groupStdin and set new one from pipeline
+    const savedGroupStdin = this.ctx.state.groupStdin;
+    if (stdin) {
+      this.ctx.state.groupStdin = stdin;
+    }
 
     try {
       for (const stmt of node.body) {
@@ -515,19 +577,18 @@ export class Interpreter {
         exitCode = result.exitCode;
       }
     } catch (error) {
-      if (error instanceof BreakError || error instanceof ContinueError) {
-        error.stdout = stdout + error.stdout;
-        error.stderr = stderr + error.stderr;
-        throw error;
-      }
-      if (error instanceof ErrexitError) {
-        error.stdout = stdout + error.stdout;
-        error.stderr = stderr + error.stderr;
+      // Restore groupStdin before handling error
+      this.ctx.state.groupStdin = savedGroupStdin;
+      if (isScopeExitError(error) || error instanceof ErrexitError || error instanceof ExitError) {
+        error.prependOutput(stdout, stderr);
         throw error;
       }
       const message = error instanceof Error ? error.message : String(error);
       return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
     }
+
+    // Restore groupStdin
+    this.ctx.state.groupStdin = savedGroupStdin;
 
     return { stdout, stderr, exitCode };
   }

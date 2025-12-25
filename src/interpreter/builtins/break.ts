@@ -3,7 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { BreakError } from "../control-flow.js";
+import { BreakError } from "../errors.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleBreak(

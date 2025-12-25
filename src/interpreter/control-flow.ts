@@ -22,37 +22,27 @@ import type {
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import { matchPattern } from "./conditionals.js";
+import {
+  BreakError,
+  ContinueError,
+  ErrexitError,
+  ExitError,
+  ReturnError,
+  isScopeExitError,
+} from "./errors.js";
 import { expandWord, expandWordWithGlob } from "./expansion.js";
-import { ErrexitError } from "./interpreter.js";
 import type { InterpreterContext } from "./types.js";
 
-/**
- * Error thrown when break is called to exit loops.
- */
-export class BreakError extends Error {
-  constructor(
-    public levels: number = 1,
-    public stdout: string = "",
-    public stderr: string = "",
-  ) {
-    super("break");
-    this.name = "BreakError";
-  }
-}
-
-/**
- * Error thrown when continue is called to skip to next iteration.
- */
-export class ContinueError extends Error {
-  constructor(
-    public levels: number = 1,
-    public stdout: string = "",
-    public stderr: string = "",
-  ) {
-    super("continue");
-    this.name = "ContinueError";
-  }
-}
+// Re-export error classes for backwards compatibility
+export {
+  BreakError,
+  ContinueError,
+  ErrexitError,
+  NounsetError,
+  ReturnError,
+  isScopeExitError,
+  isControlFlowError,
+} from "./errors.js";
 
 export async function executeIf(
   ctx: InterpreterContext,
@@ -88,14 +78,8 @@ export async function executeIf(
           exitCode = result.exitCode;
         }
       } catch (error) {
-        if (error instanceof BreakError || error instanceof ContinueError) {
-          error.stdout = stdout + error.stdout;
-          error.stderr = stderr + error.stderr;
-          throw error;
-        }
-        if (error instanceof ErrexitError) {
-          error.stdout = stdout + error.stdout;
-          error.stderr = stderr + error.stderr;
+        if (isScopeExitError(error) || error instanceof ErrexitError || error instanceof ExitError) {
+          error.prependOutput(stdout, stderr);
           throw error;
         }
         const message = error instanceof Error ? error.message : String(error);
@@ -114,14 +98,8 @@ export async function executeIf(
         exitCode = result.exitCode;
       }
     } catch (error) {
-      if (error instanceof BreakError || error instanceof ContinueError) {
-        error.stdout = stdout + error.stdout;
-        error.stderr = stderr + error.stderr;
-        throw error;
-      }
-      if (error instanceof ErrexitError) {
-        error.stdout = stdout + error.stdout;
-        error.stderr = stderr + error.stderr;
+      if (isScopeExitError(error) || error instanceof ErrexitError || error instanceof ExitError) {
+        error.prependOutput(stdout, stderr);
         throw error;
       }
       const message = error instanceof Error ? error.message : String(error);
@@ -180,7 +158,10 @@ export async function executeFor(
         if (error instanceof BreakError) {
           stdout += error.stdout;
           stderr += error.stderr;
-          if (error.levels > 1) {
+          // Only propagate if levels > 1 AND we're not at the outermost loop
+          // Per bash docs: "If n is greater than the number of enclosing loops,
+          // the last enclosing loop is exited"
+          if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
             error.stdout = stdout;
             error.stderr = stderr;
@@ -191,7 +172,10 @@ export async function executeFor(
         if (error instanceof ContinueError) {
           stdout += error.stdout;
           stderr += error.stderr;
-          if (error.levels > 1) {
+          // Only propagate if levels > 1 AND we're not at the outermost loop
+          // Per bash docs: "If n is greater than the number of enclosing loops,
+          // the last enclosing loop is resumed"
+          if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
             error.stdout = stdout;
             error.stderr = stderr;
@@ -199,9 +183,8 @@ export async function executeFor(
           }
           continue;
         }
-        if (error instanceof ErrexitError) {
-          error.stdout = stdout + error.stdout;
-          error.stderr = stderr + error.stderr;
+        if (error instanceof ReturnError || error instanceof ErrexitError || error instanceof ExitError) {
+          error.prependOutput(stdout, stderr);
           throw error;
         }
         const message = error instanceof Error ? error.message : String(error);
@@ -260,7 +243,8 @@ export async function executeCStyleFor(
         if (error instanceof BreakError) {
           stdout += error.stdout;
           stderr += error.stderr;
-          if (error.levels > 1) {
+          // Only propagate if levels > 1 AND we're not at the outermost loop
+          if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
             error.stdout = stdout;
             error.stderr = stderr;
@@ -271,7 +255,8 @@ export async function executeCStyleFor(
         if (error instanceof ContinueError) {
           stdout += error.stdout;
           stderr += error.stderr;
-          if (error.levels > 1) {
+          // Only propagate if levels > 1 AND we're not at the outermost loop
+          if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
             error.stdout = stdout;
             error.stderr = stderr;
@@ -283,9 +268,8 @@ export async function executeCStyleFor(
           }
           continue;
         }
-        if (error instanceof ErrexitError) {
-          error.stdout = stdout + error.stdout;
-          error.stderr = stderr + error.stderr;
+        if (error instanceof ReturnError || error instanceof ErrexitError || error instanceof ExitError) {
+          error.prependOutput(stdout, stderr);
           throw error;
         }
         const message = error instanceof Error ? error.message : String(error);
@@ -306,11 +290,18 @@ export async function executeCStyleFor(
 export async function executeWhile(
   ctx: InterpreterContext,
   node: WhileNode,
+  stdin = "",
 ): Promise<ExecResult> {
   let stdout = "";
   let stderr = "";
   let exitCode = 0;
   let iterations = 0;
+
+  // Save and set groupStdin for piped while loops
+  const savedGroupStdin = ctx.state.groupStdin;
+  if (stdin) {
+    ctx.state.groupStdin = stdin;
+  }
 
   ctx.state.loopDepth++;
   try {
@@ -355,7 +346,8 @@ export async function executeWhile(
         if (error instanceof BreakError) {
           stdout += error.stdout;
           stderr += error.stderr;
-          if (error.levels > 1) {
+          // Only propagate if levels > 1 AND we're not at the outermost loop
+          if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
             error.stdout = stdout;
             error.stderr = stderr;
@@ -366,7 +358,8 @@ export async function executeWhile(
         if (error instanceof ContinueError) {
           stdout += error.stdout;
           stderr += error.stderr;
-          if (error.levels > 1) {
+          // Only propagate if levels > 1 AND we're not at the outermost loop
+          if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
             error.stdout = stdout;
             error.stderr = stderr;
@@ -374,9 +367,8 @@ export async function executeWhile(
           }
           continue;
         }
-        if (error instanceof ErrexitError) {
-          error.stdout = stdout + error.stdout;
-          error.stderr = stderr + error.stderr;
+        if (error instanceof ReturnError || error instanceof ErrexitError || error instanceof ExitError) {
+          error.prependOutput(stdout, stderr);
           throw error;
         }
         const message = error instanceof Error ? error.message : String(error);
@@ -385,6 +377,7 @@ export async function executeWhile(
     }
   } finally {
     ctx.state.loopDepth--;
+    ctx.state.groupStdin = savedGroupStdin;
   }
 
   return { stdout, stderr, exitCode };
@@ -442,7 +435,8 @@ export async function executeUntil(
         if (error instanceof BreakError) {
           stdout += error.stdout;
           stderr += error.stderr;
-          if (error.levels > 1) {
+          // Only propagate if levels > 1 AND we're not at the outermost loop
+          if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
             error.stdout = stdout;
             error.stderr = stderr;
@@ -453,7 +447,8 @@ export async function executeUntil(
         if (error instanceof ContinueError) {
           stdout += error.stdout;
           stderr += error.stderr;
-          if (error.levels > 1) {
+          // Only propagate if levels > 1 AND we're not at the outermost loop
+          if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
             error.stdout = stdout;
             error.stderr = stderr;
@@ -461,9 +456,8 @@ export async function executeUntil(
           }
           continue;
         }
-        if (error instanceof ErrexitError) {
-          error.stdout = stdout + error.stdout;
-          error.stderr = stderr + error.stderr;
+        if (error instanceof ReturnError || error instanceof ErrexitError || error instanceof ExitError) {
+          error.prependOutput(stdout, stderr);
           throw error;
         }
         const message = error instanceof Error ? error.message : String(error);
@@ -507,14 +501,8 @@ export async function executeCase(
           exitCode = result.exitCode;
         }
       } catch (error) {
-        if (error instanceof BreakError || error instanceof ContinueError) {
-          error.stdout = stdout + error.stdout;
-          error.stderr = stderr + error.stderr;
-          throw error;
-        }
-        if (error instanceof ErrexitError) {
-          error.stdout = stdout + error.stdout;
-          error.stderr = stderr + error.stderr;
+        if (isScopeExitError(error) || error instanceof ErrexitError || error instanceof ExitError) {
+          error.prependOutput(stdout, stderr);
           throw error;
         }
         const message = error instanceof Error ? error.message : String(error);
