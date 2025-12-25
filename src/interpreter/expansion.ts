@@ -29,6 +29,79 @@ function getArithValue(expr: ArithExpr): number {
   return 0;
 }
 
+// Maximum iterations for range expansion to prevent infinite loops
+const MAX_SAFE_RANGE_ITERATIONS = 10000;
+
+/**
+ * Safely expand a numeric range with step, preventing infinite loops.
+ * Returns array of string values, or null if the range is invalid.
+ */
+function safeExpandNumericRange(
+  start: number,
+  end: number,
+  rawStep: number | undefined,
+): string[] | null {
+  const step = rawStep ?? 1;
+
+  // step of 0 would cause infinite loop
+  if (step === 0) return null;
+
+  const results: string[] = [];
+
+  if (start <= end) {
+    // Ascending range
+    if (step < 0) return null; // Invalid: ascending with negative step
+    for (let i = start, count = 0; i <= end && count < MAX_SAFE_RANGE_ITERATIONS; i += step, count++) {
+      results.push(String(i));
+    }
+  } else {
+    // Descending range (start > end)
+    if (step > 0) return null; // Invalid: descending with positive step
+    const absStep = Math.abs(step);
+    for (let i = start, count = 0; i >= end && count < MAX_SAFE_RANGE_ITERATIONS; i -= absStep, count++) {
+      results.push(String(i));
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Safely expand a character range with step, preventing infinite loops.
+ * Returns array of string values, or null if the range is invalid.
+ */
+function safeExpandCharRange(
+  start: string,
+  end: string,
+  rawStep: number | undefined,
+): string[] | null {
+  const step = rawStep ?? 1;
+  const startCode = start.charCodeAt(0);
+  const endCode = end.charCodeAt(0);
+
+  // step of 0 would cause infinite loop
+  if (step === 0) return null;
+
+  const results: string[] = [];
+
+  if (startCode <= endCode) {
+    // Ascending range
+    if (step < 0) return null; // Invalid: ascending with negative step
+    for (let i = startCode, count = 0; i <= endCode && count < MAX_SAFE_RANGE_ITERATIONS; i += step, count++) {
+      results.push(String.fromCharCode(i));
+    }
+  } else {
+    // Descending range
+    if (step > 0) return null; // Invalid: descending with positive step
+    const absStep = Math.abs(step);
+    for (let i = startCode, count = 0; i >= endCode && count < MAX_SAFE_RANGE_ITERATIONS; i -= absStep, count++) {
+      results.push(String.fromCharCode(i));
+    }
+  }
+
+  return results;
+}
+
 // Helper to extract literal value from a word part
 function getPartValue(part: WordPart): string {
   switch (part.type) {
@@ -186,22 +259,11 @@ function expandPartSync(ctx: InterpreterContext, part: WordPart): string {
           const start = item.start;
           const end = item.end;
           if (typeof start === "number" && typeof end === "number") {
-            const step = item.step || 1;
-            if (start <= end) {
-              for (let i = start; i <= end; i += step) results.push(String(i));
-            } else {
-              for (let i = start; i >= end; i -= step) results.push(String(i));
-            }
+            const expanded = safeExpandNumericRange(start, end, item.step);
+            if (expanded) results.push(...expanded);
           } else if (typeof start === "string" && typeof end === "string") {
-            const startCode = start.charCodeAt(0);
-            const endCode = end.charCodeAt(0);
-            if (startCode <= endCode) {
-              for (let i = startCode; i <= endCode; i++)
-                results.push(String.fromCharCode(i));
-            } else {
-              for (let i = startCode; i >= endCode; i--)
-                results.push(String.fromCharCode(i));
-            }
+            const expanded = safeExpandCharRange(start, end, item.step);
+            if (expanded) results.push(...expanded);
           }
         } else {
           results.push(expandWordSync(ctx, item.word));
@@ -290,10 +352,23 @@ function hasBraceExpansion(parts: WordPart[]): boolean {
  * Each result array represents the parts that will be joined to form one word.
  * For example, "pre{a,b}post" produces [["pre", "a", "post"], ["pre", "b", "post"]]
  */
+// Maximum number of brace expansion results to prevent memory explosion
+const MAX_BRACE_EXPANSION_RESULTS = 10000;
+// Maximum iterations for any single range expansion loop
+const MAX_RANGE_ITERATIONS = 10000;
+// Maximum total operations across all recursive calls
+const MAX_BRACE_OPERATIONS = 100000;
+
 function expandBracesInParts(
   ctx: InterpreterContext,
   parts: WordPart[],
+  operationCounter: { count: number } = { count: 0 },
 ): string[][] {
+  // Check global operation limit
+  if (operationCounter.count > MAX_BRACE_OPERATIONS) {
+    return [[]];
+  }
+
   // Start with one empty result
   let results: string[][] = [[]];
 
@@ -306,38 +381,47 @@ function expandBracesInParts(
           const start = item.start;
           const end = item.end;
           if (typeof start === "number" && typeof end === "number") {
-            const step = item.step || 1;
-            if (start <= end) {
-              for (let i = start; i <= end; i += step)
-                braceValues.push(String(i));
-            } else {
-              for (let i = start; i >= end; i -= step)
-                braceValues.push(String(i));
+            const expanded = safeExpandNumericRange(start, end, item.step);
+            if (expanded) {
+              for (const val of expanded) {
+                operationCounter.count++;
+                braceValues.push(val);
+              }
             }
           } else if (typeof start === "string" && typeof end === "string") {
-            const startCode = start.charCodeAt(0);
-            const endCode = end.charCodeAt(0);
-            if (startCode <= endCode) {
-              for (let i = startCode; i <= endCode; i++)
-                braceValues.push(String.fromCharCode(i));
-            } else {
-              for (let i = startCode; i >= endCode; i--)
-                braceValues.push(String.fromCharCode(i));
+            const expanded = safeExpandCharRange(start, end, item.step);
+            if (expanded) {
+              for (const val of expanded) {
+                operationCounter.count++;
+                braceValues.push(val);
+              }
             }
           }
         } else {
           // Word item - expand it (recursively handle nested braces)
-          const expanded = expandBracesInParts(ctx, item.word.parts);
+          const expanded = expandBracesInParts(ctx, item.word.parts, operationCounter);
           for (const exp of expanded) {
+            operationCounter.count++;
             braceValues.push(exp.join(""));
           }
         }
       }
 
       // Multiply results by brace values (cartesian product)
+      // But first check if this would exceed the limit
+      const newSize = results.length * braceValues.length;
+      if (newSize > MAX_BRACE_EXPANSION_RESULTS || operationCounter.count > MAX_BRACE_OPERATIONS) {
+        // Too many results - return what we have and stop
+        return results;
+      }
+
       const newResults: string[][] = [];
       for (const result of results) {
         for (const val of braceValues) {
+          operationCounter.count++;
+          if (operationCounter.count > MAX_BRACE_OPERATIONS) {
+            return newResults.length > 0 ? newResults : results;
+          }
           newResults.push([...result, val]);
         }
       }
@@ -346,6 +430,7 @@ function expandBracesInParts(
       // Non-brace part: expand it and append to all results
       const expanded = expandPartSync(ctx, part);
       for (const result of results) {
+        operationCounter.count++;
         result.push(expanded);
       }
     }
@@ -495,22 +580,11 @@ async function expandPart(
           const start = item.start;
           const end = item.end;
           if (typeof start === "number" && typeof end === "number") {
-            const step = item.step || 1;
-            if (start <= end) {
-              for (let i = start; i <= end; i += step) results.push(String(i));
-            } else {
-              for (let i = start; i >= end; i -= step) results.push(String(i));
-            }
+            const expanded = safeExpandNumericRange(start, end, item.step);
+            if (expanded) results.push(...expanded);
           } else if (typeof start === "string" && typeof end === "string") {
-            const startCode = start.charCodeAt(0);
-            const endCode = end.charCodeAt(0);
-            if (startCode <= endCode) {
-              for (let i = startCode; i <= endCode; i++)
-                results.push(String.fromCharCode(i));
-            } else {
-              for (let i = startCode; i >= endCode; i--)
-                results.push(String.fromCharCode(i));
-            }
+            const expanded = safeExpandCharRange(start, end, item.step);
+            if (expanded) results.push(...expanded);
           }
         } else {
           results.push(await expandWord(ctx, item.word));

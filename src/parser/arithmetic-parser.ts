@@ -571,7 +571,47 @@ function parseArithPrimary(
       if (braceDepth > 0) i++;
     }
     const content = input.slice(braceStart, i);
-    currentPos = i + 1; // Skip past the closing }
+    const afterBrace = i + 1; // Position past the closing }
+
+    // Check for dynamic base constant: ${base}#value or ${base}xHEX or ${base}octal
+    // This handles cases like: ${base}#a, ${zero}11, ${zero}xAB
+    if (input[afterBrace] === "#") {
+      // Dynamic base#value: ${base}#digits
+      let valueEnd = afterBrace + 1;
+      while (valueEnd < input.length && /[0-9a-zA-Z@_]/.test(input[valueEnd])) {
+        valueEnd++;
+      }
+      const valueStr = input.slice(afterBrace + 1, valueEnd);
+      return {
+        expr: { type: "ArithDynamicBase", baseExpr: content, value: valueStr },
+        pos: valueEnd,
+      };
+    }
+    if (
+      /[0-9]/.test(input[afterBrace]) ||
+      input[afterBrace] === "x" ||
+      input[afterBrace] === "X"
+    ) {
+      // Dynamic octal (${zero}11) or hex (${zero}xAB)
+      let numEnd = afterBrace;
+      if (input[afterBrace] === "x" || input[afterBrace] === "X") {
+        numEnd++; // Skip x/X
+        while (numEnd < input.length && /[0-9a-fA-F]/.test(input[numEnd])) {
+          numEnd++;
+        }
+      } else {
+        while (numEnd < input.length && /[0-9]/.test(input[numEnd])) {
+          numEnd++;
+        }
+      }
+      const suffix = input.slice(afterBrace, numEnd);
+      return {
+        expr: { type: "ArithDynamicNumber", prefix: content, suffix },
+        pos: numEnd,
+      };
+    }
+
+    currentPos = afterBrace;
     return { expr: { type: "ArithBracedExpansion", content }, pos: currentPos };
   }
   // Handle $1, $2, etc. (positional parameters)

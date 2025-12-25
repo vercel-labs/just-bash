@@ -21,6 +21,7 @@
  */
 
 import type { ArithExpr } from "../ast/types.js";
+import { parseArithNumber } from "../parser/arithmetic-parser.js";
 import { getVariable } from "./expansion.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -146,6 +147,20 @@ export function evaluateArithmeticSync(
       const expanded = expandBracedContent(ctx, expr.content);
       return Number.parseInt(expanded, 10) || 0;
     }
+    case "ArithDynamicBase": {
+      // ${base}#value - expand base, then parse value in that base
+      const baseStr = expandBracedContent(ctx, expr.baseExpr);
+      const base = Number.parseInt(baseStr, 10);
+      if (base < 2 || base > 64) return 0;
+      const numStr = `${base}#${expr.value}`;
+      return parseArithNumber(numStr);
+    }
+    case "ArithDynamicNumber": {
+      // ${zero}11 or ${zero}xAB - expand prefix, combine with suffix
+      const prefix = expandBracedContent(ctx, expr.prefix);
+      const numStr = prefix + expr.suffix;
+      return parseArithNumber(numStr);
+    }
     case "ArithArrayElement": {
       const index = evaluateArithmeticSync(ctx, expr.index);
       // Array elements are stored as arrayName_index in env
@@ -178,6 +193,10 @@ export function evaluateArithmeticSync(
         case "%":
           return right !== 0 ? left % right : 0;
         case "**":
+          // Bash disallows negative exponents
+          if (right < 0) {
+            throw new Error("exponent less than 0");
+          }
           return left ** right;
         case "<<":
           return left << right;
@@ -321,6 +340,22 @@ export async function evaluateArithmetic(
       return Number.parseInt(expanded, 10) || 0;
     }
 
+    case "ArithDynamicBase": {
+      // ${base}#value - expand base, then parse value in that base
+      const baseStr = expandBracedContent(ctx, expr.baseExpr);
+      const base = Number.parseInt(baseStr, 10);
+      if (base < 2 || base > 64) return 0;
+      const numStr = `${base}#${expr.value}`;
+      return parseArithNumber(numStr);
+    }
+
+    case "ArithDynamicNumber": {
+      // ${zero}11 or ${zero}xAB - expand prefix, combine with suffix
+      const prefix = expandBracedContent(ctx, expr.prefix);
+      const numStr = prefix + expr.suffix;
+      return parseArithNumber(numStr);
+    }
+
     case "ArithArrayElement": {
       const index = await evaluateArithmetic(ctx, expr.index);
       // Array elements are stored as arrayName_index in env
@@ -356,6 +391,10 @@ export async function evaluateArithmetic(
         case "%":
           return right !== 0 ? left % right : 0;
         case "**":
+          // Bash disallows negative exponents
+          if (right < 0) {
+            throw new Error("exponent less than 0");
+          }
           return left ** right;
         case "<<":
           return left << right;

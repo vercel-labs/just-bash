@@ -74,6 +74,13 @@ const TEST_FILES = [
   "dbracket.test.sh",
   "whitespace.test.sh",
   "smoke.test.sh",
+  // Array tests
+  "array-basic.test.sh",
+  "array.test.sh",
+  // More arithmetic tests
+  "arith-context.test.sh",
+  // Brace expansion - CRASHES worker, needs investigation
+  "brace-expansion.test.sh",
 ];
 
 /**

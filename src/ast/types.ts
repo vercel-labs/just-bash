@@ -449,11 +449,27 @@ export type ArithExpr =
   | ArithNestedNode
   | ArithCommandSubstNode
   | ArithBracedExpansionNode
-  | ArithArrayElementNode;
+  | ArithArrayElementNode
+  | ArithDynamicBaseNode
+  | ArithDynamicNumberNode;
 
 export interface ArithBracedExpansionNode extends ASTNode {
   type: "ArithBracedExpansion";
   content: string; // The content inside ${...}, e.g., "j:-5"
+}
+
+/** Dynamic base constant: ${base}#value where base is expanded at runtime */
+export interface ArithDynamicBaseNode extends ASTNode {
+  type: "ArithDynamicBase";
+  baseExpr: string; // The variable content (e.g., "base" from ${base})
+  value: string; // The value after # (e.g., "a" from ${base}#a)
+}
+
+/** Dynamic number prefix: ${zero}11 or ${zero}xAB for dynamic octal/hex */
+export interface ArithDynamicNumberNode extends ASTNode {
+  type: "ArithDynamicNumber";
+  prefix: string; // The variable content (e.g., "zero" from ${zero})
+  suffix: string; // The suffix (e.g., "11" or "xAB")
 }
 
 export interface ArithArrayElementNode extends ASTNode {

@@ -498,4 +498,3 @@ echo {z..3}
 ## BUG zsh STDOUT:
 BUG
 ## END
-
