@@ -207,7 +207,8 @@ export async function executeFor(
     ctx.state.loopDepth--;
   }
 
-  delete ctx.state.env[node.variable];
+  // Note: In bash, the loop variable persists after the loop with its last value
+  // Do NOT delete ctx.state.env[node.variable] here
 
   return { stdout, stderr, exitCode };
 }
@@ -505,14 +506,22 @@ export async function executeCase(
 
   const value = await expandWord(ctx, node.word);
 
-  for (const item of node.items) {
-    let matched = false;
+  // fallThrough tracks whether we should execute the next case body unconditionally
+  // This happens when the previous case ended with ;& (unconditional fall-through)
+  let fallThrough = false;
 
-    for (const pattern of item.patterns) {
-      const patternStr = await expandWord(ctx, pattern);
-      if (matchPattern(value, patternStr)) {
-        matched = true;
-        break;
+  for (let i = 0; i < node.items.length; i++) {
+    const item = node.items[i];
+    let matched = fallThrough; // If falling through, automatically match
+
+    if (!fallThrough) {
+      // Normal pattern matching
+      for (const pattern of item.patterns) {
+        const patternStr = await expandWord(ctx, pattern);
+        if (matchPattern(value, patternStr)) {
+          matched = true;
+          break;
+        }
       }
     }
 
@@ -537,9 +546,20 @@ export async function executeCase(
         return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
       }
 
+      // Handle different terminators:
+      // ;; - stop, no fall-through
+      // ;& - unconditional fall-through (execute next body without pattern check)
+      // ;;& - continue pattern matching (check next case patterns)
       if (item.terminator === ";;") {
         break;
+      } else if (item.terminator === ";&") {
+        fallThrough = true;
+      } else {
+        // ;;& - reset fallThrough, continue to next iteration for pattern matching
+        fallThrough = false;
       }
+    } else {
+      fallThrough = false;
     }
   }
 

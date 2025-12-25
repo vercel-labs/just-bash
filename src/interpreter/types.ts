@@ -40,6 +40,8 @@ export interface InterpreterState {
   loopDepth: number;
   /** Stdin available for commands in compound commands (groups, subshells, while loops with piped input) */
   groupStdin?: string;
+  /** Set of variable names that are readonly */
+  readonlyVars?: Set<string>;
 }
 
 export interface InterpreterContext {

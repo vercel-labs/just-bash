@@ -3,7 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { BreakError } from "../errors.js";
+import { BreakError, ExitError } from "../errors.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleBreak(
@@ -24,11 +24,12 @@ export function handleBreak(
   if (args.length > 0) {
     const n = Number.parseInt(args[0], 10);
     if (Number.isNaN(n) || n < 1) {
-      return {
-        stdout: "",
-        stderr: `bash: break: ${args[0]}: numeric argument required\n`,
-        exitCode: 1,
-      };
+      // Invalid argument causes a fatal error in bash (exit code 128)
+      throw new ExitError(
+        128,
+        "",
+        `bash: break: ${args[0]}: numeric argument required\n`,
+      );
     }
     levels = n;
   }

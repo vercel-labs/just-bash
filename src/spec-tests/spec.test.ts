@@ -21,6 +21,16 @@ const TEST_FILES = [
   "if_.test.sh",
   "loop.test.sh",
   "case_.test.sh",
+  // Additional test files
+  "tilde.test.sh",
+  "var-op-len.test.sh",
+  "var-op-strip.test.sh",
+  "command-sub.test.sh",
+  // More test files
+  "word-eval.test.sh",
+  "dparen.test.sh",
+  "var-sub-quote.test.sh",
+  "quote.test.sh",
 ];
 
 /**

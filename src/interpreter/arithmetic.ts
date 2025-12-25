@@ -25,6 +25,26 @@ import { getVariable } from "./expansion.js";
 import type { InterpreterContext } from "./types.js";
 
 /**
+ * Get an arithmetic variable value with array[0] decay support.
+ * In bash, when an array variable is used without an index in arithmetic context,
+ * it decays to the value at index 0.
+ */
+function getArithVariable(ctx: InterpreterContext, name: string): string {
+  // First try to get the direct variable value
+  const directValue = ctx.state.env[name];
+  if (directValue !== undefined) {
+    return directValue;
+  }
+  // Array decay: if varName_0 exists, the variable is an array and we use element 0
+  const arrayZeroValue = ctx.state.env[`${name}_0`];
+  if (arrayZeroValue !== undefined) {
+    return arrayZeroValue;
+  }
+  // Fall back to getVariable for special variables
+  return getVariable(ctx, name);
+}
+
+/**
  * Expand braced parameter content like "j:-5" or "var:=default"
  * Returns the expanded value as a string
  */
@@ -112,7 +132,7 @@ export function evaluateArithmeticSync(
     case "ArithNumber":
       return expr.value;
     case "ArithVariable": {
-      const value = getVariable(ctx, expr.name);
+      const value = getArithVariable(ctx, expr.name);
       return Number.parseInt(value, 10) || 0;
     }
     case "ArithNested":
@@ -230,7 +250,7 @@ export async function evaluateArithmetic(
       return expr.value;
 
     case "ArithVariable": {
-      const value = getVariable(ctx, expr.name);
+      const value = getArithVariable(ctx, expr.name);
       return Number.parseInt(value, 10) || 0;
     }
 

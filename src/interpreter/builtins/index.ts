@@ -3,10 +3,12 @@
  *
  * Shell built-in commands that modify interpreter state:
  * - cd: Change directory
+ * - declare/typeset: Declare variables with attributes
  * - export: Set environment variables
  * - unset: Remove variables/functions
  * - exit: Exit shell
  * - local: Declare local variables in functions
+ * - readonly: Declare readonly variables
  * - set: Set/unset shell options
  * - break: Exit from loops
  * - continue: Skip to next loop iteration
@@ -20,6 +22,7 @@
 export { handleBreak } from "./break.js";
 export { handleCd } from "./cd.js";
 export { handleContinue } from "./continue.js";
+export { handleDeclare, handleReadonly } from "./declare.js";
 export { handleEval } from "./eval.js";
 export { handleExit } from "./exit.js";
 export { handleExport } from "./export.js";

@@ -1,0 +1,262 @@
+/**
+ * declare/typeset - Declare variables and give them attributes
+ *
+ * Usage:
+ *   declare              - List all variables
+ *   declare -p           - List all variables (same as no args)
+ *   declare NAME=value   - Declare variable with value
+ *   declare -a NAME      - Declare indexed array
+ *   declare -A NAME      - Declare associative array
+ *   declare -r NAME      - Declare readonly variable
+ *   declare -x NAME      - Export variable
+ *
+ * Also aliased as 'typeset'
+ */
+
+import type { ExecResult } from "../../types.js";
+import type { InterpreterContext } from "../types.js";
+
+export function handleDeclare(
+  ctx: InterpreterContext,
+  args: string[],
+): ExecResult {
+  // Parse flags
+  let declareArray = false;
+  let declareAssoc = false;
+  let declareReadonly = false;
+  let declareExport = false;
+  let printMode = false;
+  const processedArgs: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "-a") {
+      declareArray = true;
+    } else if (arg === "-A") {
+      declareAssoc = true;
+    } else if (arg === "-r") {
+      declareReadonly = true;
+    } else if (arg === "-x") {
+      declareExport = true;
+    } else if (arg === "-p") {
+      printMode = true;
+    } else if (arg === "--") {
+      // End of options, rest are arguments
+      processedArgs.push(...args.slice(i + 1));
+      break;
+    } else if (arg.startsWith("-")) {
+      // Handle combined flags like -ar
+      for (const flag of arg.slice(1)) {
+        if (flag === "a") declareArray = true;
+        else if (flag === "A") declareAssoc = true;
+        else if (flag === "r") declareReadonly = true;
+        else if (flag === "x") declareExport = true;
+        else if (flag === "p") printMode = true;
+      }
+    } else {
+      processedArgs.push(arg);
+    }
+  }
+
+  // No args: list all variables
+  if (processedArgs.length === 0 && !printMode) {
+    let stdout = "";
+    const entries = Object.entries(ctx.state.env)
+      .filter(([key]) => !key.startsWith("BASH_"))
+      .sort(([a], [b]) => a.localeCompare(b));
+
+    for (const [name, value] of entries) {
+      const escapedValue = value.replace(/'/g, "'\\''");
+      stdout += `declare -- ${name}='${escapedValue}'\n`;
+    }
+    return { stdout, stderr: "", exitCode: 0 };
+  }
+
+  // Process each argument
+  for (const arg of processedArgs) {
+    // Check for array assignment: name=(...)
+    const arrayMatch = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)=\((.*)\)$/s);
+    if (arrayMatch) {
+      const name = arrayMatch[1];
+      const content = arrayMatch[2];
+      // Parse array elements
+      const elements = parseArrayElements(content);
+      for (let i = 0; i < elements.length; i++) {
+        ctx.state.env[`${name}_${i}`] = elements[i];
+      }
+      // Store array length marker
+      ctx.state.env[`${name}__length`] = String(elements.length);
+      if (declareReadonly) {
+        ctx.state.readonlyVars = ctx.state.readonlyVars || new Set();
+        ctx.state.readonlyVars.add(name);
+      }
+      continue;
+    }
+
+    // Check for scalar assignment: name=value
+    if (arg.includes("=")) {
+      const eqIdx = arg.indexOf("=");
+      const name = arg.slice(0, eqIdx);
+      const value = arg.slice(eqIdx + 1);
+
+      // Check if variable is readonly
+      if (ctx.state.readonlyVars?.has(name)) {
+        return {
+          stdout: "",
+          stderr: `bash: ${name}: readonly variable\n`,
+          exitCode: 1,
+        };
+      }
+
+      ctx.state.env[name] = value;
+      if (declareReadonly) {
+        ctx.state.readonlyVars = ctx.state.readonlyVars || new Set();
+        ctx.state.readonlyVars.add(name);
+      }
+    } else {
+      // Just declare without value
+      const name = arg;
+      if (!(name in ctx.state.env) && !ctx.state.env[`${name}_0`]) {
+        // If declaring as array, initialize empty array
+        if (declareArray || declareAssoc) {
+          ctx.state.env[`${name}__length`] = "0";
+        } else {
+          ctx.state.env[name] = "";
+        }
+      }
+      if (declareReadonly) {
+        ctx.state.readonlyVars = ctx.state.readonlyVars || new Set();
+        ctx.state.readonlyVars.add(name);
+      }
+    }
+  }
+
+  return { stdout: "", stderr: "", exitCode: 0 };
+}
+
+/**
+ * Parse array elements from content like "1 2 3" or "'a b' c d"
+ */
+function parseArrayElements(content: string): string[] {
+  const elements: string[] = [];
+  let current = "";
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let escaped = false;
+
+  for (const char of content) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "'" && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+      continue;
+    }
+    if (char === '"' && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote;
+      continue;
+    }
+    if ((char === " " || char === "\t" || char === "\n") && !inSingleQuote && !inDoubleQuote) {
+      if (current) {
+        elements.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+  if (current) {
+    elements.push(current);
+  }
+  return elements;
+}
+
+/**
+ * readonly - Declare readonly variables
+ *
+ * Usage:
+ *   readonly NAME=value   - Declare readonly variable
+ *   readonly NAME         - Mark existing variable as readonly
+ */
+export function handleReadonly(
+  ctx: InterpreterContext,
+  args: string[],
+): ExecResult {
+  // Parse flags
+  let declareArray = false;
+  let declareAssoc = false;
+  const processedArgs: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "-a") {
+      declareArray = true;
+    } else if (arg === "-A") {
+      declareAssoc = true;
+    } else if (arg === "-p") {
+      // Print mode - list readonly variables
+      if (args.length === 1) {
+        let stdout = "";
+        for (const name of ctx.state.readonlyVars || []) {
+          const value = ctx.state.env[name];
+          if (value !== undefined) {
+            stdout += `declare -r ${name}="${value}"\n`;
+          }
+        }
+        return { stdout, stderr: "", exitCode: 0 };
+      }
+    } else if (arg === "--") {
+      processedArgs.push(...args.slice(i + 1));
+      break;
+    } else if (!arg.startsWith("-")) {
+      processedArgs.push(arg);
+    }
+  }
+
+  ctx.state.readonlyVars = ctx.state.readonlyVars || new Set();
+
+  for (const arg of processedArgs) {
+    // Check for array assignment
+    const arrayMatch = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)=\((.*)\)$/s);
+    if (arrayMatch) {
+      const name = arrayMatch[1];
+      const content = arrayMatch[2];
+      const elements = parseArrayElements(content);
+      for (let i = 0; i < elements.length; i++) {
+        ctx.state.env[`${name}_${i}`] = elements[i];
+      }
+      ctx.state.env[`${name}__length`] = String(elements.length);
+      ctx.state.readonlyVars.add(name);
+      continue;
+    }
+
+    // Check for scalar assignment
+    if (arg.includes("=")) {
+      const eqIdx = arg.indexOf("=");
+      const name = arg.slice(0, eqIdx);
+      const value = arg.slice(eqIdx + 1);
+
+      if (ctx.state.readonlyVars.has(name)) {
+        return {
+          stdout: "",
+          stderr: `bash: ${name}: readonly variable\n`,
+          exitCode: 1,
+        };
+      }
+
+      ctx.state.env[name] = value;
+      ctx.state.readonlyVars.add(name);
+    } else {
+      // Just mark as readonly
+      ctx.state.readonlyVars.add(arg);
+    }
+  }
+
+  return { stdout: "", stderr: "", exitCode: 0 };
+}

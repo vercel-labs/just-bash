@@ -26,6 +26,7 @@ export interface TestCase {
   script: string;
   assertions: Assertion[];
   lineNumber: number;
+  skip?: string; // If set, test should be skipped (value is reason)
 }
 
 export interface ParsedSpecFile {
@@ -174,6 +175,13 @@ export function parseSpecFile(
         inMultiLineBlock = true;
         multiLineType = multiLineStart[1].toLowerCase() as "stdout" | "stderr";
         multiLineContent = [];
+        continue;
+      }
+
+      // Check for SKIP directive
+      const skipMatch = assertionLine.match(/^SKIP(?::\s*(.*))?$/i);
+      if (skipMatch) {
+        currentTest.skip = skipMatch[1] || "skipped";
         continue;
       }
 

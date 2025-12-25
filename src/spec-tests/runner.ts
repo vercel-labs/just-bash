@@ -44,6 +44,15 @@ export async function runTestCase(
   options: RunOptions = {},
 ): Promise<TestResult> {
   // Check if test should be skipped
+  if (testCase.skip) {
+    return {
+      testCase,
+      passed: true,
+      skipped: true,
+      skipReason: testCase.skip,
+    };
+  }
+
   if (isNotImplementedForBash(testCase)) {
     return {
       testCase,

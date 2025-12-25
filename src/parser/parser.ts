@@ -515,13 +515,34 @@ export class Parser {
         // Assignment words after command name are treated as arguments
         // (for local, export, declare, etc.)
         const token = this.advance();
-        args.push(
-          this.parseWordFromString(
-            token.value,
-            token.quoted,
-            token.singleQuoted,
-          ),
-        );
+        const tokenValue = token.value;
+
+        // Check if this is an array assignment: name=( or name=(
+        const endsWithEq = tokenValue.endsWith("=");
+        const endsWithEqParen = tokenValue.endsWith("=(");
+
+        if ((endsWithEq || endsWithEqParen) && (endsWithEqParen || this.check(TokenType.LPAREN))) {
+          // Parse as array assignment for declare/local/export/typeset/readonly
+          const baseName = endsWithEqParen ? tokenValue.slice(0, -2) : tokenValue.slice(0, -1);
+          if (!endsWithEqParen) {
+            this.expect(TokenType.LPAREN);
+          }
+          const elements = this.parseArrayElements();
+          this.expect(TokenType.RPAREN);
+
+          // Build the array assignment string: name=(elem1 elem2 ...)
+          const elemStrings = elements.map(e => this.wordToString(e));
+          const arrayStr = `${baseName}=(${elemStrings.join(" ")})`;
+          args.push(this.parseWordFromString(arrayStr, false, false));
+        } else {
+          args.push(
+            this.parseWordFromString(
+              tokenValue,
+              token.quoted,
+              token.singleQuoted,
+            ),
+          );
+        }
       } else {
         break;
       }
@@ -577,6 +598,42 @@ export class Parser {
     return elements;
   }
 
+  /**
+   * Convert a WordNode back to a string representation.
+   * Used for reconstructing array assignment strings for declare/local.
+   */
+  private wordToString(word: WordNode): string {
+    let result = "";
+    for (const part of word.parts) {
+      switch (part.type) {
+        case "Literal":
+        case "SingleQuoted":
+        case "Escaped":
+          result += part.value;
+          break;
+        case "DoubleQuoted":
+          // For double-quoted parts, reconstruct them
+          result += '"';
+          for (const inner of part.parts) {
+            if (inner.type === "Literal" || inner.type === "Escaped") {
+              result += inner.value;
+            } else if (inner.type === "ParameterExpansion") {
+              result += `\${${inner.parameter}}`;
+            }
+          }
+          result += '"';
+          break;
+        case "ParameterExpansion":
+          result += `\${${part.parameter}}`;
+          break;
+        default:
+          // For complex parts, just use a placeholder
+          result += part.type;
+      }
+    }
+    return result;
+  }
+
   // ===========================================================================
   // WORD PARSING
   // ===========================================================================
@@ -587,7 +644,13 @@ export class Parser {
       t === TokenType.WORD ||
       t === TokenType.NAME ||
       t === TokenType.NUMBER ||
-      // Reserved words can be used as words in certain contexts
+      // Reserved words can be used as words in certain contexts (e.g., "echo if")
+      t === TokenType.IF ||
+      t === TokenType.FOR ||
+      t === TokenType.WHILE ||
+      t === TokenType.UNTIL ||
+      t === TokenType.CASE ||
+      t === TokenType.FUNCTION ||
       t === TokenType.ELSE ||
       t === TokenType.ELIF ||
       t === TokenType.FI ||
@@ -953,10 +1016,20 @@ export class Parser {
     }
 
     // Parse parameter name
+    // For special single-char vars ($@, $*, $#, $?, $$, $!, $-), just take one char
+    // For regular vars, stop at operators (#, %, /, :, etc.)
     let name = "";
-    while (i < value.length && /[a-zA-Z0-9_@*#?$!-]/.test(value[i])) {
-      name += value[i];
+    const firstChar = value[i];
+    if (/[@*#?$!-]/.test(firstChar) && !/[a-zA-Z0-9_]/.test(value[i + 1] || "")) {
+      // Single special character variable
+      name = firstChar;
       i++;
+    } else {
+      // Regular variable name (alphanumeric + underscore only)
+      while (i < value.length && /[a-zA-Z0-9_]/.test(value[i])) {
+        name += value[i];
+        i++;
+      }
     }
 
     // Handle array subscript
@@ -1598,10 +1671,11 @@ export class Parser {
     }
 
     // Regular for: for VAR in WORDS
-    const varToken = this.expect(
-      TokenType.NAME,
-      "Expected variable name in for loop",
-    );
+    // The variable can be NAME or IN (since "for in in a b c" is valid - first 'in' is var name)
+    if (!this.check(TokenType.NAME, TokenType.IN)) {
+      this.error("Expected variable name in for loop");
+    }
+    const varToken = this.advance();
     const variable = varToken.value;
 
     let words: WordNode[] | null = null;

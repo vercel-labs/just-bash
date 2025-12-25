@@ -31,11 +31,13 @@ import {
   handleBreak,
   handleCd,
   handleContinue,
+  handleDeclare,
   handleEval,
   handleExit,
   handleExport,
   handleLocal,
   handleRead,
+  handleReadonly,
   handleReturn,
   handleSet,
   handleShift,
@@ -457,6 +459,12 @@ export class Interpreter {
     }
     if (commandName === "read") {
       return handleRead(this.ctx, args, stdin);
+    }
+    if (commandName === "declare" || commandName === "typeset") {
+      return handleDeclare(this.ctx, args);
+    }
+    if (commandName === "readonly") {
+      return handleReadonly(this.ctx, args);
     }
     // Test commands
     if (commandName === "[[") {
