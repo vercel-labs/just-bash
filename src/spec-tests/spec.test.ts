@@ -31,6 +31,25 @@ const TEST_FILES = [
   "dparen.test.sh",
   "var-sub-quote.test.sh",
   "quote.test.sh",
+  // Even more test files
+  "var-op-test.test.sh",
+  "pipeline.test.sh",
+  "redirect.test.sh",
+  // Additional fundamental tests
+  "exit-status.test.sh",
+  "subshell.test.sh",
+  "glob.test.sh",
+  "here-doc.test.sh",
+  // Builtin tests
+  "builtin-printf.test.sh",
+  "builtin-cd.test.sh",
+  // More tests
+  "var-sub.test.sh",
+  "let.test.sh",
+  "empty-bodies.test.sh",
+  "func-parsing.test.sh",
+  "errexit.test.sh",
+  "vars-special.test.sh",
 ];
 
 /**

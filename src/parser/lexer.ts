@@ -751,6 +751,40 @@ export class Lexer {
         }
       }
 
+      // Handle $'' ANSI-C quoting (must check before regular single quotes)
+      if (
+        char === "$" &&
+        pos + 1 < len &&
+        input[pos + 1] === "'" &&
+        !inSingleQuote &&
+        !inDoubleQuote
+      ) {
+        // Include the $' in the token and process the ANSI-C string
+        value += "$'";
+        pos += 2;
+        col += 2;
+        // Read until closing quote, handling escape sequences
+        while (pos < len && input[pos] !== "'") {
+          if (input[pos] === "\\" && pos + 1 < len) {
+            // Include the escape sequence in the token
+            value += input[pos] + input[pos + 1];
+            pos += 2;
+            col += 2;
+          } else {
+            value += input[pos];
+            pos++;
+            col++;
+          }
+        }
+        if (pos < len) {
+          value += "'";
+          pos++;
+          col++;
+        }
+        // Don't set quoted=true - the $'...' is kept in the value and parsed specially
+        continue;
+      }
+
       // Handle quotes
       if (char === "'" && !inDoubleQuote) {
         if (inSingleQuote) {

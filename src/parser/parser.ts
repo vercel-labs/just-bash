@@ -744,6 +744,15 @@ export class Parser {
         continue;
       }
 
+      // Handle $'' ANSI-C quoting (must check before regular $ expansion)
+      if (char === "$" && value[i + 1] === "'") {
+        flushLiteral();
+        const { part, endIndex } = this.parseAnsiCQuoted(value, i + 2);
+        parts.push(part);
+        i = endIndex;
+        continue;
+      }
+
       // Handle $ expansions
       if (char === "$") {
         flushLiteral();
@@ -925,6 +934,136 @@ export class Parser {
 
     return {
       part: AST.doubleQuoted(innerParts),
+      endIndex: i,
+    };
+  }
+
+  /**
+   * Parse $'...' ANSI-C quoted string
+   * Supports escape sequences: \n, \t, \r, \\, \', \", \xHH, \uHHHH, \0NNN
+   */
+  private parseAnsiCQuoted(
+    value: string,
+    start: number,
+  ): { part: WordPart; endIndex: number } {
+    let result = "";
+    let i = start;
+
+    while (i < value.length && value[i] !== "'") {
+      const char = value[i];
+
+      if (char === "\\" && i + 1 < value.length) {
+        const next = value[i + 1];
+        switch (next) {
+          case "n":
+            result += "\n";
+            i += 2;
+            break;
+          case "t":
+            result += "\t";
+            i += 2;
+            break;
+          case "r":
+            result += "\r";
+            i += 2;
+            break;
+          case "\\":
+            result += "\\";
+            i += 2;
+            break;
+          case "'":
+            result += "'";
+            i += 2;
+            break;
+          case '"':
+            result += '"';
+            i += 2;
+            break;
+          case "a":
+            result += "\x07"; // bell
+            i += 2;
+            break;
+          case "b":
+            result += "\b"; // backspace
+            i += 2;
+            break;
+          case "e":
+          case "E":
+            result += "\x1b"; // escape
+            i += 2;
+            break;
+          case "f":
+            result += "\f"; // form feed
+            i += 2;
+            break;
+          case "v":
+            result += "\v"; // vertical tab
+            i += 2;
+            break;
+          case "x": {
+            // \xHH - hex escape
+            const hex = value.slice(i + 2, i + 4);
+            const code = parseInt(hex, 16);
+            if (!isNaN(code)) {
+              result += String.fromCharCode(code);
+              i += 4;
+            } else {
+              result += "\\x";
+              i += 2;
+            }
+            break;
+          }
+          case "u": {
+            // \uHHHH - unicode escape
+            const hex = value.slice(i + 2, i + 6);
+            const code = parseInt(hex, 16);
+            if (!isNaN(code)) {
+              result += String.fromCharCode(code);
+              i += 6;
+            } else {
+              result += "\\u";
+              i += 2;
+            }
+            break;
+          }
+          case "0":
+          case "1":
+          case "2":
+          case "3":
+          case "4":
+          case "5":
+          case "6":
+          case "7": {
+            // \NNN - octal escape
+            let octal = "";
+            let j = i + 1;
+            while (j < value.length && j < i + 4 && /[0-7]/.test(value[j])) {
+              octal += value[j];
+              j++;
+            }
+            const code = parseInt(octal, 8);
+            result += String.fromCharCode(code);
+            i = j;
+            break;
+          }
+          default:
+            // Unknown escape, keep the backslash
+            result += char;
+            i++;
+        }
+      } else {
+        result += char;
+        i++;
+      }
+    }
+
+    // Skip closing quote
+    if (i < value.length && value[i] === "'") {
+      i++;
+    }
+
+    return {
+      part: AST.literal(result),
       endIndex: i,
     };
   }
@@ -2821,7 +2960,7 @@ export class Parser {
   }
 
   private parseArithNumber(str: string): number {
-    // Handle base#num format
+    // Handle base#num format (only bases 2-36 supported)
     if (str.includes("#")) {
       const [baseStr, numStr] = str.split("#");
       const base = Number.parseInt(baseStr, 10);

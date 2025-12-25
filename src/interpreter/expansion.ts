@@ -440,11 +440,26 @@ function expandParameter(
       const pattern = operation.pattern
         ? getWordPartsValue(operation.pattern.parts)
         : "";
-      const regex = patternToRegex(pattern, operation.greedy);
       if (operation.side === "prefix") {
+        // Prefix removal: greedy matches longest from start, non-greedy matches shortest
+        const regex = patternToRegex(pattern, operation.greedy);
         return value.replace(new RegExp(`^${regex}`), "");
       }
-      return value.replace(new RegExp(`${regex}$`), "");
+      // Suffix removal needs special handling because we need to find
+      // the rightmost (shortest) or leftmost (longest) match
+      const regex = new RegExp(`${patternToRegex(pattern, true)}$`);
+      if (operation.greedy) {
+        // %% - longest match: use regex directly (finds leftmost match)
+        return value.replace(regex, "");
+      }
+      // % - shortest match: find rightmost position where pattern matches to end
+      for (let i = value.length; i >= 0; i--) {
+        const suffix = value.slice(i);
+        if (regex.test(suffix)) {
+          return value.slice(0, i);
+        }
+      }
+      return value;
     }
 
     case "PatternReplacement": {

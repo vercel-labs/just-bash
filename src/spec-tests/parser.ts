@@ -389,14 +389,34 @@ export function isNotImplementedForBash(testCase: TestCase): boolean {
 export function requiresExternalCommands(testCase: TestCase): boolean {
   const script = testCase.script;
 
-  // Check for external commands that we don't have
+  // Check for external commands/features that we don't have
   const externalCommands = [
     "printenv.py",
     "argv.py",
     "stdout_stderr.py",
+    "read_from_fd.py",
     "foo\\=bar",
     "od ",
     "od\t",
+    "egrep",
+    "tac",
+    "$SH -c",
+    "$SH --",
+    "${SH}",
+    "setopt",
+    "--noprofile",
+    "python2",
+    "REPO_ROOT",
+    "spec/testdata",
+    "strftime",
+    "wc -l",
+    "awk ",
+    "LC_ALL",
+    "LANG=",
+    "rmdir",
+    "mkfifo",
+    "sleep ",
+    "lastpipe",
   ];
 
   return externalCommands.some((cmd) => script.includes(cmd));

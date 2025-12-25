@@ -466,6 +466,74 @@ export class Interpreter {
     if (commandName === "readonly") {
       return handleReadonly(this.ctx, args);
     }
+    // Simple builtins
+    if (commandName === ":" || commandName === "true") {
+      return { stdout: "", stderr: "", exitCode: 0 };
+    }
+    if (commandName === "false") {
+      return { stdout: "", stderr: "", exitCode: 1 };
+    }
+    if (commandName === "let") {
+      // let expr... - evaluate arithmetic expressions
+      // Returns 0 if last expression is non-zero, 1 if zero
+      if (args.length === 0) {
+        return { stdout: "", stderr: "bash: let: expression expected\n", exitCode: 1 };
+      }
+      let lastValue = 0;
+      for (const arg of args) {
+        try {
+          // Parse and evaluate the arithmetic expression
+          const result = await this.ctx.execFn(`echo $((${arg}))`);
+          lastValue = parseInt(result.stdout.trim(), 10) || 0;
+        } catch {
+          return { stdout: "", stderr: `bash: let: ${arg}: syntax error\n`, exitCode: 1 };
+        }
+      }
+      return { stdout: "", stderr: "", exitCode: lastValue === 0 ? 1 : 0 };
+    }
+    if (commandName === "command") {
+      // command [-pVv] command [arg...] - run command, bypassing functions
+      if (args.length === 0) {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      let cmdArgs = args;
+      // Skip -v, -V, -p options for now (just run the command)
+      while (cmdArgs.length > 0 && cmdArgs[0].startsWith("-")) {
+        cmdArgs = cmdArgs.slice(1);
+      }
+      if (cmdArgs.length === 0) {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      // Run command without checking functions
+      const [cmd, ...rest] = cmdArgs;
+      return this.runExternalCommand(cmd, rest, stdin);
+    }
+    if (commandName === "builtin") {
+      // builtin command [arg...] - run builtin command
+      if (args.length === 0) {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      const [cmd, ...rest] = args;
+      // Run as builtin (recursive call, but skip function lookup)
+      return this.runCommand(cmd, rest, [], stdin);
+    }
+    if (commandName === "shopt") {
+      // shopt - shell options (stub implementation)
+      // Accept -s (set) and -u (unset) but don't actually change behavior
+      return { stdout: "", stderr: "", exitCode: 0 };
+    }
+    if (commandName === "exec") {
+      // exec - replace shell with command (stub: just run the command)
+      if (args.length === 0) {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      const [cmd, ...rest] = args;
+      return this.runCommand(cmd, rest, [], stdin);
+    }
+    if (commandName === "wait") {
+      // wait - wait for background jobs (stub: no-op in this context)
+      return { stdout: "", stderr: "", exitCode: 0 };
+    }
     // Test commands
     if (commandName === "[[") {
       const endIdx = args.lastIndexOf("]]");
@@ -493,6 +561,49 @@ export class Interpreter {
     }
 
     // External commands
+    let cmdName = commandName;
+    if (commandName.includes("/")) {
+      cmdName = commandName.split("/").pop() || commandName;
+    }
+
+    const cmd = this.ctx.commands.get(cmdName);
+    if (!cmd) {
+      return {
+        stdout: "",
+        stderr: `bash: ${commandName}: command not found\n`,
+        exitCode: 127,
+      };
+    }
+
+    const cmdCtx: CommandContext = {
+      fs: this.ctx.fs,
+      cwd: this.ctx.state.cwd,
+      env: this.ctx.state.env,
+      stdin,
+      exec: this.ctx.execFn,
+      fetch: this.ctx.fetch,
+      getRegisteredCommands: () => Array.from(this.ctx.commands.keys()),
+      sleep: this.ctx.sleep,
+    };
+
+    try {
+      return await cmd.execute(args, cmdCtx);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        stdout: "",
+        stderr: `${commandName}: ${message}\n`,
+        exitCode: 1,
+      };
+    }
+  }
+
+  // Run external command, bypassing function lookup (for 'command' builtin)
+  private async runExternalCommand(
+    commandName: string,
+    args: string[],
+    stdin: string,
+  ): Promise<ExecResult> {
     let cmdName = commandName;
     if (commandName.includes("/")) {
       cmdName = commandName.split("/").pop() || commandName;

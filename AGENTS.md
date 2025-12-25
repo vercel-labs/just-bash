@@ -43,3 +43,7 @@ echo 'false; echo $?' | pnpm dev:exec
 - Must error on unknown options (unless bash ignores them)
 - Must have extensive unit tests collocated with the command
 - Should have comparison tests if there is doubt about behavior
+
+## Interpreter
+
+- We explicitly don't support 64bit integers

@@ -19,6 +19,8 @@ export interface ShellOptions {
   pipefail: boolean;
   /** set -u: Treat unset variables as an error when substituting */
   nounset: boolean;
+  /** set -x: Print commands and their arguments as they are executed */
+  xtrace: boolean;
 }
 
 export interface InterpreterState {

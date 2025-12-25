@@ -5,25 +5,29 @@
 import type { ExecResult } from "../../types.js";
 import type { InterpreterContext } from "../types.js";
 
-const SET_USAGE = `set: usage: set [-eu] [+eu] [-o option] [+o option]
+const SET_USAGE = `set: usage: set [-eux] [+eux] [-o option] [+o option]
 Options:
   -e            Exit immediately if a command exits with non-zero status
   +e            Disable -e
   -u            Treat unset variables as an error when substituting
   +u            Disable -u
+  -x            Print commands and their arguments as they are executed
+  +x            Disable -x
   -o errexit    Same as -e
   +o errexit    Disable errexit
   -o nounset    Same as -u
   +o nounset    Disable nounset
   -o pipefail   Return status of last failing command in pipeline
   +o pipefail   Disable pipefail
+  -o xtrace     Same as -x
+  +o xtrace     Disable xtrace
 `;
 
 // Valid short options for set
-const VALID_SET_OPTIONS = new Set(["e", "u"]);
+const VALID_SET_OPTIONS = new Set(["e", "u", "x"]);
 
 // Valid long options for set -o / +o
-const VALID_SET_LONG_OPTIONS = new Set(["errexit", "pipefail", "nounset"]);
+const VALID_SET_LONG_OPTIONS = new Set(["errexit", "pipefail", "nounset", "xtrace"]);
 
 export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
   if (args.includes("--help")) {
@@ -42,6 +46,10 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
       ctx.state.options.nounset = true;
     } else if (arg === "+u") {
       ctx.state.options.nounset = false;
+    } else if (arg === "-x") {
+      ctx.state.options.xtrace = true;
+    } else if (arg === "+x") {
+      ctx.state.options.xtrace = false;
     } else if (arg === "-o" && i + 1 < args.length) {
       const optName = args[i + 1];
       if (!VALID_SET_LONG_OPTIONS.has(optName)) {
@@ -57,6 +65,8 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
         ctx.state.options.pipefail = true;
       } else if (optName === "nounset") {
         ctx.state.options.nounset = true;
+      } else if (optName === "xtrace") {
+        ctx.state.options.xtrace = true;
       }
       i++;
     } else if (arg === "+o" && i + 1 < args.length) {
@@ -74,6 +84,8 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
         ctx.state.options.pipefail = false;
       } else if (optName === "nounset") {
         ctx.state.options.nounset = false;
+      } else if (optName === "xtrace") {
+        ctx.state.options.xtrace = false;
       }
       i++;
     } else if (arg === "-o" || arg === "+o") {
@@ -98,6 +110,8 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
           ctx.state.options.errexit = true;
         } else if (flag === "u") {
           ctx.state.options.nounset = true;
+        } else if (flag === "x") {
+          ctx.state.options.xtrace = true;
         }
       }
     } else if (arg.startsWith("+") && arg.length > 1) {
@@ -115,6 +129,8 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
           ctx.state.options.errexit = false;
         } else if (flag === "u") {
           ctx.state.options.nounset = false;
+        } else if (flag === "x") {
+          ctx.state.options.xtrace = false;
         }
       }
     } else if (arg === "--") {
