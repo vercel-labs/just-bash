@@ -148,7 +148,9 @@ describe("local builtin", () => {
         test_func
         echo "after: $x"
       `);
-      expect(result.stdout).toBe("before: global\ninside: local\nafter: global\n");
+      expect(result.stdout).toBe(
+        "before: global\ninside: local\nafter: global\n",
+      );
     });
 
     it("should handle recursive functions with local", async () => {

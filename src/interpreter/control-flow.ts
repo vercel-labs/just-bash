@@ -27,8 +27,8 @@ import {
   ContinueError,
   ErrexitError,
   ExitError,
-  ReturnError,
   isScopeExitError,
+  ReturnError,
 } from "./errors.js";
 import { expandWord, expandWordWithGlob } from "./expansion.js";
 import type { InterpreterContext } from "./types.js";
@@ -38,10 +38,10 @@ export {
   BreakError,
   ContinueError,
   ErrexitError,
+  isControlFlowError,
+  isScopeExitError,
   NounsetError,
   ReturnError,
-  isScopeExitError,
-  isControlFlowError,
 } from "./errors.js";
 
 export async function executeIf(
@@ -78,7 +78,11 @@ export async function executeIf(
           exitCode = result.exitCode;
         }
       } catch (error) {
-        if (isScopeExitError(error) || error instanceof ErrexitError || error instanceof ExitError) {
+        if (
+          isScopeExitError(error) ||
+          error instanceof ErrexitError ||
+          error instanceof ExitError
+        ) {
           error.prependOutput(stdout, stderr);
           throw error;
         }
@@ -98,7 +102,11 @@ export async function executeIf(
         exitCode = result.exitCode;
       }
     } catch (error) {
-      if (isScopeExitError(error) || error instanceof ErrexitError || error instanceof ExitError) {
+      if (
+        isScopeExitError(error) ||
+        error instanceof ErrexitError ||
+        error instanceof ExitError
+      ) {
         error.prependOutput(stdout, stderr);
         throw error;
       }
@@ -183,7 +191,11 @@ export async function executeFor(
           }
           continue;
         }
-        if (error instanceof ReturnError || error instanceof ErrexitError || error instanceof ExitError) {
+        if (
+          error instanceof ReturnError ||
+          error instanceof ErrexitError ||
+          error instanceof ExitError
+        ) {
           error.prependOutput(stdout, stderr);
           throw error;
         }
@@ -268,7 +280,11 @@ export async function executeCStyleFor(
           }
           continue;
         }
-        if (error instanceof ReturnError || error instanceof ErrexitError || error instanceof ExitError) {
+        if (
+          error instanceof ReturnError ||
+          error instanceof ErrexitError ||
+          error instanceof ExitError
+        ) {
           error.prependOutput(stdout, stderr);
           throw error;
         }
@@ -367,7 +383,11 @@ export async function executeWhile(
           }
           continue;
         }
-        if (error instanceof ReturnError || error instanceof ErrexitError || error instanceof ExitError) {
+        if (
+          error instanceof ReturnError ||
+          error instanceof ErrexitError ||
+          error instanceof ExitError
+        ) {
           error.prependOutput(stdout, stderr);
           throw error;
         }
@@ -456,7 +476,11 @@ export async function executeUntil(
           }
           continue;
         }
-        if (error instanceof ReturnError || error instanceof ErrexitError || error instanceof ExitError) {
+        if (
+          error instanceof ReturnError ||
+          error instanceof ErrexitError ||
+          error instanceof ExitError
+        ) {
           error.prependOutput(stdout, stderr);
           throw error;
         }
@@ -501,7 +525,11 @@ export async function executeCase(
           exitCode = result.exitCode;
         }
       } catch (error) {
-        if (isScopeExitError(error) || error instanceof ErrexitError || error instanceof ExitError) {
+        if (
+          isScopeExitError(error) ||
+          error instanceof ErrexitError ||
+          error instanceof ExitError
+        ) {
           error.prependOutput(stdout, stderr);
           throw error;
         }

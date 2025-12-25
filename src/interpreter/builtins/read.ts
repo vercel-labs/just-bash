@@ -53,7 +53,9 @@ export function handleRead(
     line = effectiveStdin.substring(0, delimIndex);
     // Consume the line including delimiter from groupStdin
     if (ctx.state.groupStdin !== undefined && !stdin) {
-      ctx.state.groupStdin = effectiveStdin.substring(delimIndex + delimiter.length);
+      ctx.state.groupStdin = effectiveStdin.substring(
+        delimIndex + delimiter.length,
+      );
     }
   } else if (effectiveStdin.length > 0) {
     line = effectiveStdin;

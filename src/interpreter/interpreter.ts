@@ -56,19 +56,18 @@ import {
   ContinueError,
   ErrexitError,
   ExitError,
+  isScopeExitError,
   NounsetError,
   ReturnError,
-  isScopeExitError,
 } from "./errors.js";
 import { expandWord, expandWordWithGlob } from "./expansion.js";
 import { callFunction, executeFunctionDef } from "./functions.js";
 import { applyRedirections } from "./redirections.js";
 import type { InterpreterContext, InterpreterState } from "./types.js";
 
-export type { InterpreterContext, InterpreterState } from "./types.js";
-
 // Re-export ErrexitError for backwards compatibility
 export { ErrexitError } from "./errors.js";
+export type { InterpreterContext, InterpreterState } from "./types.js";
 
 export interface InterpreterOptions {
   fs: IFileSystem;
@@ -555,10 +554,7 @@ export class Interpreter {
     return { stdout, stderr, exitCode };
   }
 
-  private async executeGroup(
-    node: GroupNode,
-    stdin = "",
-  ): Promise<ExecResult> {
+  private async executeGroup(node: GroupNode, stdin = ""): Promise<ExecResult> {
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
@@ -579,7 +575,11 @@ export class Interpreter {
     } catch (error) {
       // Restore groupStdin before handling error
       this.ctx.state.groupStdin = savedGroupStdin;
-      if (isScopeExitError(error) || error instanceof ErrexitError || error instanceof ExitError) {
+      if (
+        isScopeExitError(error) ||
+        error instanceof ErrexitError ||
+        error instanceof ExitError
+      ) {
         error.prependOutput(stdout, stderr);
         throw error;
       }

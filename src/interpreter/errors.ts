@@ -104,7 +104,11 @@ export class NounsetError extends ControlFlowError {
     public varName: string,
     stdout: string = "",
   ) {
-    super(`${varName}: unbound variable`, stdout, `bash: ${varName}: unbound variable\n`);
+    super(
+      `${varName}: unbound variable`,
+      stdout,
+      `bash: ${varName}: unbound variable\n`,
+    );
   }
 }
 

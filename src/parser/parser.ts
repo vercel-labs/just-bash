@@ -514,7 +514,13 @@ export class Parser {
         // Assignment words after command name are treated as arguments
         // (for local, export, declare, etc.)
         const token = this.advance();
-        args.push(this.parseWordFromString(token.value, token.quoted, token.singleQuoted));
+        args.push(
+          this.parseWordFromString(
+            token.value,
+            token.quoted,
+            token.singleQuoted,
+          ),
+        );
       } else {
         break;
       }

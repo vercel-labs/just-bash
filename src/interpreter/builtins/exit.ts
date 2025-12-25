@@ -2,13 +2,10 @@
  * exit - Exit shell builtin
  */
 
-import type { InterpreterContext } from "../types.js";
 import { ExitError } from "../errors.js";
+import type { InterpreterContext } from "../types.js";
 
-export function handleExit(
-  ctx: InterpreterContext,
-  args: string[],
-): never {
+export function handleExit(ctx: InterpreterContext, args: string[]): never {
   let exitCode: number;
   let stderr = "";
 

@@ -96,7 +96,9 @@ EOF
         }
         myfunc original
       `);
-      expect(result.stdout).toBe("func: original\nsourced: arg\nafter: original\n");
+      expect(result.stdout).toBe(
+        "func: original\nsourced: arg\nafter: original\n",
+      );
     });
   });
 
