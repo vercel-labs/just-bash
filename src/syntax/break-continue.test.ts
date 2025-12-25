@@ -76,7 +76,7 @@ describe("Bash Syntax - break and continue", () => {
         done
       `);
       expect(result.stderr).toContain("numeric argument required");
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(128); // bash returns 128 for invalid break args
     });
   });
 

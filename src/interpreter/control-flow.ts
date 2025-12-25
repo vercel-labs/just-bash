@@ -30,7 +30,12 @@ import {
   isScopeExitError,
   ReturnError,
 } from "./errors.js";
-import { expandWord, expandWordWithGlob } from "./expansion.js";
+import {
+  escapeGlobChars,
+  expandWord,
+  expandWordWithGlob,
+  isWordFullyQuoted,
+} from "./expansion.js";
 import type { InterpreterContext } from "./types.js";
 
 // Re-export error classes for backwards compatibility
@@ -520,7 +525,11 @@ export async function executeCase(
     if (!fallThrough) {
       // Normal pattern matching
       for (const pattern of item.patterns) {
-        const patternStr = await expandWord(ctx, pattern);
+        let patternStr = await expandWord(ctx, pattern);
+        // If the pattern is fully quoted, escape glob characters for literal matching
+        if (isWordFullyQuoted(pattern)) {
+          patternStr = escapeGlobChars(patternStr);
+        }
         if (matchPattern(value, patternStr)) {
           matched = true;
           break;

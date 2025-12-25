@@ -1,0 +1,187 @@
+/**
+ * Conditional Expression Parser
+ *
+ * Handles parsing of [[ ... ]] conditional commands.
+ */
+
+import {
+  AST,
+  type CondBinaryOperator,
+  type ConditionalExpressionNode,
+  type CondUnaryOperator,
+  type WordNode,
+} from "../ast/types.js";
+import { TokenType } from "./lexer.js";
+import type { Parser } from "./parser.js";
+
+// Unary operators for conditional expressions
+const UNARY_OPS = [
+  "-a",
+  "-b",
+  "-c",
+  "-d",
+  "-e",
+  "-f",
+  "-g",
+  "-h",
+  "-k",
+  "-p",
+  "-r",
+  "-s",
+  "-t",
+  "-u",
+  "-w",
+  "-x",
+  "-G",
+  "-L",
+  "-N",
+  "-O",
+  "-S",
+  "-z",
+  "-n",
+  "-o",
+  "-v",
+  "-R",
+];
+
+// Binary operators for conditional expressions
+const BINARY_OPS = [
+  "==",
+  "!=",
+  "=~",
+  "<",
+  ">",
+  "-eq",
+  "-ne",
+  "-lt",
+  "-le",
+  "-gt",
+  "-ge",
+  "-nt",
+  "-ot",
+  "-ef",
+];
+
+export function parseConditionalExpression(
+  p: Parser,
+): ConditionalExpressionNode {
+  return parseCondOr(p);
+}
+
+function parseCondOr(p: Parser): ConditionalExpressionNode {
+  let left = parseCondAnd(p);
+
+  while (p.check(TokenType.OR_OR)) {
+    p.advance();
+    const right = parseCondAnd(p);
+    left = { type: "CondOr", left, right };
+  }
+
+  return left;
+}
+
+function parseCondAnd(p: Parser): ConditionalExpressionNode {
+  let left = parseCondNot(p);
+
+  while (p.check(TokenType.AND_AND)) {
+    p.advance();
+    const right = parseCondNot(p);
+    left = { type: "CondAnd", left, right };
+  }
+
+  return left;
+}
+
+function parseCondNot(p: Parser): ConditionalExpressionNode {
+  if (p.check(TokenType.BANG)) {
+    p.advance();
+    const operand = parseCondNot(p);
+    return { type: "CondNot", operand };
+  }
+
+  return parseCondPrimary(p);
+}
+
+function parseCondPrimary(p: Parser): ConditionalExpressionNode {
+  // Handle grouping: ( expr )
+  if (p.check(TokenType.LPAREN)) {
+    p.advance();
+    const expression = parseConditionalExpression(p);
+    p.expect(TokenType.RPAREN);
+    return { type: "CondGroup", expression };
+  }
+
+  // Handle unary operators: -f file, -z string, etc.
+  if (p.isWord()) {
+    const first = p.current().value;
+
+    // Check for unary operators
+    if (UNARY_OPS.includes(first)) {
+      p.advance();
+      if (p.isWord() || p.check(TokenType.DBRACK_END)) {
+        const operand: WordNode = p.check(TokenType.DBRACK_END)
+          ? AST.word([AST.literal("")])
+          : p.parseWord();
+        return {
+          type: "CondUnary",
+          operator: first as CondUnaryOperator,
+          operand,
+        };
+      }
+    }
+
+    // Parse as word, then check for binary operator
+    const left = p.parseWord();
+
+    // Check for binary operators
+    if (p.isWord() && BINARY_OPS.includes(p.current().value)) {
+      const operator = p.advance().value;
+      const right = p.parseWord();
+      return {
+        type: "CondBinary",
+        operator: operator as CondBinaryOperator,
+        left,
+        right,
+      };
+    }
+
+    // Check for < and > which are tokenized as LESS and GREAT
+    if (p.check(TokenType.LESS)) {
+      p.advance();
+      const right = p.parseWord();
+      return {
+        type: "CondBinary",
+        operator: "<",
+        left,
+        right,
+      };
+    }
+    if (p.check(TokenType.GREAT)) {
+      p.advance();
+      const right = p.parseWord();
+      return {
+        type: "CondBinary",
+        operator: ">",
+        left,
+        right,
+      };
+    }
+
+    // Check for = (assignment/equality in test)
+    if (p.isWord() && p.current().value === "=") {
+      p.advance();
+      const right = p.parseWord();
+      return {
+        type: "CondBinary",
+        operator: "==",
+        left,
+        right,
+      };
+    }
+
+    // Just a word (non-empty string test)
+    return { type: "CondWord", word: left };
+  }
+
+  p.error("Expected conditional expression");
+}

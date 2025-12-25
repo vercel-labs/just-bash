@@ -105,7 +105,7 @@ describe("break builtin", () => {
         done
       `);
       expect(result.stderr).toContain("numeric argument required");
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(128); // bash returns 128 for invalid break args
     });
 
     it("should error on zero argument", async () => {
@@ -116,7 +116,7 @@ describe("break builtin", () => {
         done
       `);
       expect(result.stderr).toContain("numeric argument required");
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(128); // bash returns 128 for invalid break args
     });
 
     it("should error on negative argument", async () => {
@@ -127,7 +127,7 @@ describe("break builtin", () => {
         done
       `);
       expect(result.stderr).toContain("numeric argument required");
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(128); // bash returns 128 for invalid break args
     });
   });
 

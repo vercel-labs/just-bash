@@ -1,0 +1,606 @@
+/**
+ * Expansion Parser
+ *
+ * Handles parsing of parameter expansions, arithmetic expansions, etc.
+ */
+
+import {
+  AST,
+  type ParameterExpansionPart,
+  type ParameterOperation,
+  type WordNode,
+  type WordPart,
+} from "../ast/types.js";
+import type { Parser } from "./parser.js";
+import * as WordParser from "./word-parser.js";
+
+export function parseSimpleParameter(
+  _p: Parser,
+  value: string,
+  start: number,
+): { part: ParameterExpansionPart; endIndex: number } {
+  let i = start + 1;
+  const char = value[i];
+
+  // Special parameters: $@, $*, $#, $?, $$, $!, $-, $0-$9
+  if ("@*#?$!-0123456789".includes(char)) {
+    return {
+      part: AST.parameterExpansion(char),
+      endIndex: i + 1,
+    };
+  }
+
+  // Variable name
+  let name = "";
+  while (i < value.length && /[a-zA-Z0-9_]/.test(value[i])) {
+    name += value[i];
+    i++;
+  }
+
+  return {
+    part: AST.parameterExpansion(name),
+    endIndex: i,
+  };
+}
+
+export function parseParameterExpansion(
+  p: Parser,
+  value: string,
+  start: number,
+): { part: ParameterExpansionPart; endIndex: number } {
+  // Skip ${
+  let i = start + 2;
+
+  // Handle ${!var} indirection
+  let indirection = false;
+  if (value[i] === "!") {
+    indirection = true;
+    i++;
+  }
+
+  // Handle ${#var} length
+  let lengthOp = false;
+  if (value[i] === "#" && !/[}:#%/^,]/.test(value[i + 1] || "}")) {
+    lengthOp = true;
+    i++;
+  }
+
+  // Parse parameter name
+  // For special single-char vars ($@, $*, $#, $?, $$, $!, $-), just take one char
+  // For regular vars, stop at operators (#, %, /, :, etc.)
+  let name = "";
+  const firstChar = value[i];
+  if (/[@*#?$!-]/.test(firstChar) && !/[a-zA-Z0-9_]/.test(value[i + 1] || "")) {
+    // Single special character variable
+    name = firstChar;
+    i++;
+  } else {
+    // Regular variable name (alphanumeric + underscore only)
+    while (i < value.length && /[a-zA-Z0-9_]/.test(value[i])) {
+      name += value[i];
+      i++;
+    }
+  }
+
+  // Handle array subscript
+  if (value[i] === "[") {
+    const closeIdx = WordParser.findMatchingBracket(p, value, i, "[", "]");
+    name += value.slice(i, closeIdx + 1);
+    i = closeIdx + 1;
+  }
+
+  let operation: ParameterOperation | null = null;
+
+  if (indirection) {
+    operation = { type: "Indirection" };
+  } else if (lengthOp) {
+    operation = { type: "Length" };
+  }
+
+  // Parse operation
+  if (!operation && i < value.length && value[i] !== "}") {
+    const opResult = parseParameterOperation(p, value, i, name);
+    operation = opResult.operation;
+    i = opResult.endIndex;
+  }
+
+  // Find closing }
+  while (i < value.length && value[i] !== "}") {
+    i++;
+  }
+
+  return {
+    part: AST.parameterExpansion(name, operation),
+    endIndex: i + 1,
+  };
+}
+
+export function parseParameterOperation(
+  p: Parser,
+  value: string,
+  start: number,
+  _paramName: string,
+): { operation: ParameterOperation | null; endIndex: number } {
+  let i = start;
+  const char = value[i];
+  const nextChar = value[i + 1] || "";
+
+  // :- := :? :+
+  if (char === ":") {
+    const op = nextChar;
+    const checkEmpty = true;
+    i += 2;
+
+    const wordEnd = WordParser.findParameterOperationEnd(p, value, i);
+    const wordStr = value.slice(i, wordEnd);
+    const word = AST.word([AST.literal(wordStr)]);
+
+    if (op === "-") {
+      return {
+        operation: { type: "DefaultValue", word, checkEmpty },
+        endIndex: wordEnd,
+      };
+    }
+    if (op === "=") {
+      return {
+        operation: { type: "AssignDefault", word, checkEmpty },
+        endIndex: wordEnd,
+      };
+    }
+    if (op === "?") {
+      return {
+        operation: { type: "ErrorIfUnset", word, checkEmpty },
+        endIndex: wordEnd,
+      };
+    }
+    if (op === "+") {
+      return {
+        operation: { type: "UseAlternative", word, checkEmpty },
+        endIndex: wordEnd,
+      };
+    }
+
+    // Substring: ${var:offset} or ${var:offset:length}
+    const colonIdx = wordStr.indexOf(":");
+    if (colonIdx >= 0 || /^-?\d+$/.test(wordStr)) {
+      const offsetStr = colonIdx >= 0 ? wordStr.slice(0, colonIdx) : wordStr;
+      const lengthStr = colonIdx >= 0 ? wordStr.slice(colonIdx + 1) : null;
+      return {
+        operation: {
+          type: "Substring",
+          offset: WordParser.parseArithExprFromString(p, offsetStr),
+          length: lengthStr
+            ? WordParser.parseArithExprFromString(p, lengthStr)
+            : null,
+        },
+        endIndex: wordEnd,
+      };
+    }
+  }
+
+  // - = ? + (without colon)
+  if ("-=?+".includes(char)) {
+    i++;
+    const wordEnd = WordParser.findParameterOperationEnd(p, value, i);
+    const wordStr = value.slice(i, wordEnd);
+    const word = AST.word([AST.literal(wordStr)]);
+
+    if (char === "-") {
+      return {
+        operation: { type: "DefaultValue", word, checkEmpty: false },
+        endIndex: wordEnd,
+      };
+    }
+    if (char === "=") {
+      return {
+        operation: { type: "AssignDefault", word, checkEmpty: false },
+        endIndex: wordEnd,
+      };
+    }
+    if (char === "?") {
+      return {
+        operation: {
+          type: "ErrorIfUnset",
+          word: wordStr ? word : null,
+          checkEmpty: false,
+        },
+        endIndex: wordEnd,
+      };
+    }
+    if (char === "+") {
+      return {
+        operation: { type: "UseAlternative", word, checkEmpty: false },
+        endIndex: wordEnd,
+      };
+    }
+  }
+
+  // ## # %% % pattern removal
+  if (char === "#" || char === "%") {
+    const greedy = nextChar === char;
+    const side = char === "#" ? "prefix" : "suffix";
+    i += greedy ? 2 : 1;
+
+    const patternEnd = WordParser.findParameterOperationEnd(p, value, i);
+    const patternStr = value.slice(i, patternEnd);
+    const pattern = AST.word([AST.literal(patternStr)]);
+
+    return {
+      operation: { type: "PatternRemoval", pattern, side, greedy },
+      endIndex: patternEnd,
+    };
+  }
+
+  // / // pattern replacement
+  if (char === "/") {
+    const all = nextChar === "/";
+    i += all ? 2 : 1;
+
+    // Check for anchor
+    let anchor: "start" | "end" | null = null;
+    if (value[i] === "#") {
+      anchor = "start";
+      i++;
+    } else if (value[i] === "%") {
+      anchor = "end";
+      i++;
+    }
+
+    // Find pattern/replacement separator
+    const patternEnd = WordParser.findPatternEnd(p, value, i);
+    const patternStr = value.slice(i, patternEnd);
+    const pattern = AST.word([AST.literal(patternStr)]);
+
+    let replacement: WordNode | null = null;
+    let endIdx = patternEnd;
+
+    if (value[patternEnd] === "/") {
+      const replaceStart = patternEnd + 1;
+      const replaceEnd = WordParser.findParameterOperationEnd(
+        p,
+        value,
+        replaceStart,
+      );
+      const replaceStr = value.slice(replaceStart, replaceEnd);
+      replacement = AST.word([AST.literal(replaceStr)]);
+      endIdx = replaceEnd;
+    }
+
+    return {
+      operation: {
+        type: "PatternReplacement",
+        pattern,
+        replacement,
+        all,
+        anchor,
+      },
+      endIndex: endIdx,
+    };
+  }
+
+  // ^ ^^ , ,, case modification
+  if (char === "^" || char === ",") {
+    const all = nextChar === char;
+    const direction = char === "^" ? "upper" : "lower";
+    i += all ? 2 : 1;
+
+    const patternEnd = WordParser.findParameterOperationEnd(p, value, i);
+    const patternStr = value.slice(i, patternEnd);
+    const pattern = patternStr ? AST.word([AST.literal(patternStr)]) : null;
+
+    return {
+      operation: {
+        type: "CaseModification",
+        direction,
+        all,
+        pattern,
+      } as const,
+      endIndex: patternEnd,
+    };
+  }
+
+  return { operation: null, endIndex: i };
+}
+
+export function parseExpansion(
+  p: Parser,
+  value: string,
+  start: number,
+): { part: WordPart | null; endIndex: number } {
+  // $ at start
+  const i = start + 1;
+
+  if (i >= value.length) {
+    return { part: AST.literal("$"), endIndex: i };
+  }
+
+  const char = value[i];
+
+  // $((expr)) - arithmetic expansion
+  if (char === "(" && value[i + 1] === "(") {
+    return p.parseArithmeticExpansion(value, start);
+  }
+
+  // $(cmd) - command substitution
+  if (char === "(") {
+    return p.parseCommandSubstitution(value, start);
+  }
+
+  // ${...} - parameter expansion with operators
+  if (char === "{") {
+    return parseParameterExpansion(p, value, start);
+  }
+
+  // $VAR or $1 or $@ etc - simple parameter
+  if (/[a-zA-Z_0-9@*#?$!-]/.test(char)) {
+    return parseSimpleParameter(p, value, start);
+  }
+
+  // Just a literal $
+  return { part: AST.literal("$"), endIndex: i };
+}
+
+export function parseDoubleQuotedContent(p: Parser, value: string): WordPart[] {
+  const parts: WordPart[] = [];
+  let i = 0;
+  let literal = "";
+
+  const flushLiteral = () => {
+    if (literal) {
+      parts.push(AST.literal(literal));
+      literal = "";
+    }
+  };
+
+  while (i < value.length) {
+    const char = value[i];
+
+    // Handle escape sequences - \$ and \` should become $ and `
+    // In bash, "\$HOME" outputs "$HOME" (backslash is consumed by the escape)
+    if (char === "\\" && i + 1 < value.length) {
+      const next = value[i + 1];
+      // \$ and \` should become $ and ` (prevents expansion, backslash consumed)
+      if (next === "$" || next === "`") {
+        literal += next; // Add just the escaped character, not the backslash
+        i += 2;
+        continue;
+      }
+      // Other backslash sequences: just add the backslash and continue
+      literal += char;
+      i++;
+      continue;
+    }
+
+    // Handle $ expansions
+    if (char === "$") {
+      flushLiteral();
+      const { part, endIndex } = parseExpansion(p, value, i);
+      if (part) {
+        parts.push(part);
+      }
+      i = endIndex;
+      continue;
+    }
+
+    // Handle backtick command substitution
+    if (char === "`") {
+      flushLiteral();
+      const { part, endIndex } = p.parseBacktickSubstitution(value, i);
+      parts.push(part);
+      i = endIndex;
+      continue;
+    }
+
+    // All other characters are literal (including " and ' which are already processed)
+    literal += char;
+    i++;
+  }
+
+  flushLiteral();
+  return parts;
+}
+
+export function parseDoubleQuoted(
+  p: Parser,
+  value: string,
+  start: number,
+): { part: WordPart; endIndex: number } {
+  const innerParts: WordPart[] = [];
+  let i = start;
+  let literal = "";
+
+  const flushLiteral = () => {
+    if (literal) {
+      innerParts.push(AST.literal(literal));
+      literal = "";
+    }
+  };
+
+  while (i < value.length && value[i] !== '"') {
+    const char = value[i];
+
+    // Handle escapes in double quotes
+    if (char === "\\" && i + 1 < value.length) {
+      const next = value[i + 1];
+      if ('"\\$`\n'.includes(next)) {
+        literal += next;
+        i += 2;
+        continue;
+      }
+      literal += char;
+      i++;
+      continue;
+    }
+
+    // Handle $ expansions
+    if (char === "$") {
+      flushLiteral();
+      const { part, endIndex } = parseExpansion(p, value, i);
+      if (part) {
+        innerParts.push(part);
+      }
+      i = endIndex;
+      continue;
+    }
+
+    // Handle backtick
+    if (char === "`") {
+      flushLiteral();
+      const { part, endIndex } = p.parseBacktickSubstitution(value, i);
+      innerParts.push(part);
+      i = endIndex;
+      continue;
+    }
+
+    literal += char;
+    i++;
+  }
+
+  flushLiteral();
+
+  return {
+    part: AST.doubleQuoted(innerParts),
+    endIndex: i,
+  };
+}
+
+export function parseWordParts(
+  p: Parser,
+  value: string,
+  quoted = false,
+  singleQuoted = false,
+  isAssignment = false,
+): WordPart[] {
+  if (singleQuoted) {
+    // Single quotes: no expansion
+    return [AST.singleQuoted(value)];
+  }
+
+  // When quoted=true, the lexer has already stripped outer quotes and processed escapes
+  // We need to wrap the result in a DoubleQuoted node, but still process $ expansions
+  if (quoted) {
+    const innerParts = parseDoubleQuotedContent(p, value);
+    return [AST.doubleQuoted(innerParts)];
+  }
+
+  const parts: WordPart[] = [];
+  let i = 0;
+  let literal = "";
+
+  const flushLiteral = () => {
+    if (literal) {
+      parts.push(AST.literal(literal));
+      literal = "";
+    }
+  };
+
+  while (i < value.length) {
+    const char = value[i];
+
+    // Handle escape sequences
+    if (char === "\\" && i + 1 < value.length) {
+      literal += value[i + 1];
+      i += 2;
+      continue;
+    }
+
+    // Handle single quotes
+    if (char === "'") {
+      flushLiteral();
+      const closeQuote = value.indexOf("'", i + 1);
+      if (closeQuote === -1) {
+        literal += value.slice(i);
+        break;
+      }
+      parts.push(AST.singleQuoted(value.slice(i + 1, closeQuote)));
+      i = closeQuote + 1;
+      continue;
+    }
+
+    // Handle double quotes
+    if (char === '"') {
+      flushLiteral();
+      const { part, endIndex } = parseDoubleQuoted(p, value, i + 1);
+      parts.push(part);
+      i = endIndex + 1;
+      continue;
+    }
+
+    // Handle $'' ANSI-C quoting (must check before regular $ expansion)
+    if (char === "$" && value[i + 1] === "'") {
+      flushLiteral();
+      const { part, endIndex } = WordParser.parseAnsiCQuoted(p, value, i + 2);
+      parts.push(part);
+      i = endIndex;
+      continue;
+    }
+
+    // Handle $ expansions
+    if (char === "$") {
+      flushLiteral();
+      const { part, endIndex } = parseExpansion(p, value, i);
+      if (part) {
+        parts.push(part);
+      }
+      i = endIndex;
+      continue;
+    }
+
+    // Handle backtick command substitution
+    if (char === "`") {
+      flushLiteral();
+      const { part, endIndex } = p.parseBacktickSubstitution(value, i);
+      parts.push(part);
+      i = endIndex;
+      continue;
+    }
+
+    // Handle tilde expansion
+    if (char === "~") {
+      const prevChar = i > 0 ? value[i - 1] : "";
+      const canExpandAfterColon = isAssignment && prevChar === ":";
+      if (i === 0 || prevChar === "=" || canExpandAfterColon) {
+        const tildeEnd = WordParser.findTildeEnd(p, value, i);
+        const afterTilde = value[tildeEnd];
+        if (
+          afterTilde === undefined ||
+          afterTilde === "/" ||
+          afterTilde === ":"
+        ) {
+          flushLiteral();
+          const user = value.slice(i + 1, tildeEnd) || null;
+          parts.push({ type: "TildeExpansion", user });
+          i = tildeEnd;
+          continue;
+        }
+      }
+    }
+
+    // Handle glob patterns
+    if (char === "*" || char === "?" || char === "[") {
+      flushLiteral();
+      const { pattern, endIndex } = WordParser.parseGlobPattern(p, value, i);
+      parts.push({ type: "Glob", pattern });
+      i = endIndex;
+      continue;
+    }
+
+    // Handle brace expansion
+    if (char === "{") {
+      const braceResult = WordParser.tryParseBraceExpansion(p, value, i);
+      if (braceResult) {
+        flushLiteral();
+        parts.push(braceResult.part);
+        i = braceResult.endIndex;
+        continue;
+      }
+    }
+
+    // Regular character
+    literal += char;
+    i++;
+  }
+
+  flushLiteral();
+  return parts;
+}

@@ -129,6 +129,20 @@ describe("continue builtin", () => {
       expect(result.stderr).toContain("numeric argument required");
       expect(result.exitCode).toBe(1);
     });
+
+    it("should break on too many arguments (bash behavior)", async () => {
+      const env = new BashEnv();
+      const result = await env.exec(`
+        for x in a b c; do
+          echo $x
+          continue 1 2 3
+        done
+        echo --
+      `);
+      // bash treats too many args as error and breaks out of the loop
+      expect(result.stdout).toBe("a\n--\n");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("continue in nested constructs", () => {

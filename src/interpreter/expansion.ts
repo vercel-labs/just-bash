@@ -46,6 +46,53 @@ function getWordPartsValue(parts: WordPart[]): string {
   return parts.map(getPartValue).join("");
 }
 
+/**
+ * Check if a word is "fully quoted" - meaning glob characters should be treated literally.
+ * A word is fully quoted if all its parts are either:
+ * - SingleQuoted
+ * - DoubleQuoted (entirely quoted variable expansion like "$pat")
+ * - Escaped characters
+ */
+function isPartFullyQuoted(part: WordPart): boolean {
+  switch (part.type) {
+    case "SingleQuoted":
+    case "Escaped":
+      return true;
+    case "DoubleQuoted":
+      // Double-quoted is fully quoted
+      return true;
+    case "Literal":
+      // Empty literals don't affect quoting
+      return part.value === "";
+    default:
+      // Unquoted expansions like $var (without quotes) are not fully quoted
+      return false;
+  }
+}
+
+/**
+ * Check if an entire word is fully quoted
+ */
+export function isWordFullyQuoted(word: WordNode): boolean {
+  // Empty word is considered quoted (matches empty pattern literally)
+  if (word.parts.length === 0) return true;
+
+  // Check if we have any unquoted parts with actual content
+  for (const part of word.parts) {
+    if (!isPartFullyQuoted(part)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Escape glob metacharacters in a string for literal matching
+ */
+export function escapeGlobChars(str: string): string {
+  return str.replace(/([*?[\]\\])/g, "\\$1");
+}
+
 // Check if a word part requires async execution
 function arithExprNeedsAsync(
   expr: import("../ast/types.js").ArithExpr,
@@ -226,6 +273,106 @@ function analyzeWordParts(parts: WordPart[]): {
   return { hasQuoted, hasCommandSub, hasArrayVar };
 }
 
+/**
+ * Check if word parts contain brace expansion
+ */
+function hasBraceExpansion(parts: WordPart[]): boolean {
+  for (const part of parts) {
+    if (part.type === "BraceExpansion") return true;
+    if (part.type === "DoubleQuoted" && hasBraceExpansion(part.parts))
+      return true;
+  }
+  return false;
+}
+
+/**
+ * Expand brace expansion in word parts, producing multiple string arrays.
+ * Each result array represents the parts that will be joined to form one word.
+ * For example, "pre{a,b}post" produces [["pre", "a", "post"], ["pre", "b", "post"]]
+ */
+function expandBracesInParts(
+  ctx: InterpreterContext,
+  parts: WordPart[],
+): string[][] {
+  // Start with one empty result
+  let results: string[][] = [[]];
+
+  for (const part of parts) {
+    if (part.type === "BraceExpansion") {
+      // Get all brace expansion values
+      const braceValues: string[] = [];
+      for (const item of part.items) {
+        if (item.type === "Range") {
+          const start = item.start;
+          const end = item.end;
+          if (typeof start === "number" && typeof end === "number") {
+            const step = item.step || 1;
+            if (start <= end) {
+              for (let i = start; i <= end; i += step)
+                braceValues.push(String(i));
+            } else {
+              for (let i = start; i >= end; i -= step)
+                braceValues.push(String(i));
+            }
+          } else if (typeof start === "string" && typeof end === "string") {
+            const startCode = start.charCodeAt(0);
+            const endCode = end.charCodeAt(0);
+            if (startCode <= endCode) {
+              for (let i = startCode; i <= endCode; i++)
+                braceValues.push(String.fromCharCode(i));
+            } else {
+              for (let i = startCode; i >= endCode; i--)
+                braceValues.push(String.fromCharCode(i));
+            }
+          }
+        } else {
+          // Word item - expand it (recursively handle nested braces)
+          const expanded = expandBracesInParts(ctx, item.word.parts);
+          for (const exp of expanded) {
+            braceValues.push(exp.join(""));
+          }
+        }
+      }
+
+      // Multiply results by brace values (cartesian product)
+      const newResults: string[][] = [];
+      for (const result of results) {
+        for (const val of braceValues) {
+          newResults.push([...result, val]);
+        }
+      }
+      results = newResults;
+    } else {
+      // Non-brace part: expand it and append to all results
+      const expanded = expandPartSync(ctx, part);
+      for (const result of results) {
+        result.push(expanded);
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Expand a word with brace expansion support, returning multiple values
+ */
+function expandWordWithBraces(
+  ctx: InterpreterContext,
+  word: WordNode,
+): string[] {
+  const parts = word.parts;
+
+  if (!hasBraceExpansion(parts)) {
+    // No brace expansion, return single value
+    return [expandWordSync(ctx, word)];
+  }
+
+  // Expand braces and join each result
+  const expanded = expandBracesInParts(ctx, parts);
+  return expanded.map((parts) => parts.join(""));
+}
+
 export async function expandWordWithGlob(
   ctx: InterpreterContext,
   word: WordNode,
@@ -233,7 +380,31 @@ export async function expandWordWithGlob(
   const wordParts = word.parts;
   const { hasQuoted, hasCommandSub, hasArrayVar } = analyzeWordParts(wordParts);
 
-  // Fast path: no async needed, use sync expansion
+  // Handle brace expansion first (produces multiple values)
+  const braceExpanded = hasBraceExpansion(wordParts)
+    ? expandWordWithBraces(ctx, word)
+    : null;
+
+  if (braceExpanded && braceExpanded.length > 1) {
+    // Brace expansion produced multiple values - apply glob to each
+    const allValues: string[] = [];
+    for (const value of braceExpanded) {
+      if (!hasQuoted && /[*?[]/.test(value)) {
+        const globExpander = new GlobExpander(ctx.fs, ctx.state.cwd);
+        const matches = await globExpander.expand(value);
+        if (matches.length > 0) {
+          allValues.push(...matches);
+        } else {
+          allValues.push(value);
+        }
+      } else {
+        allValues.push(value);
+      }
+    }
+    return { values: allValues, quoted: false };
+  }
+
+  // No brace expansion or single value - use original logic
   const needsAsync = wordNeedsAsync(word);
   const value = needsAsync
     ? await expandWordAsync(ctx, word)

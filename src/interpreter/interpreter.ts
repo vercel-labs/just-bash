@@ -362,7 +362,15 @@ export class Interpreter {
         redir.target.type === "HereDoc"
       ) {
         const hereDoc = redir.target as HereDocNode;
-        stdin = await expandWord(this.ctx, hereDoc.content);
+        let content = await expandWord(this.ctx, hereDoc.content);
+        // <<- strips leading tabs from each line
+        if (hereDoc.stripTabs) {
+          content = content
+            .split("\n")
+            .map((line) => line.replace(/^\t+/, ""))
+            .join("\n");
+        }
+        stdin = content;
         continue;
       }
 

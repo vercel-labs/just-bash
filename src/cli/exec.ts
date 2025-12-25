@@ -8,17 +8,16 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf-8");
 }
 
-let script = process.argv[2];
-if (!script) {
-  if (process.stdin.isTTY) {
-    printUsage();
-    process.exit(1);
-  }
-  script = await readStdin();
+// Only read from stdin to avoid shell expansion issues with command line args
+if (process.stdin.isTTY) {
+  console.error("Usage: echo '<script>' | pnpm dev:exec");
+  console.error("       cat script.sh | pnpm dev:exec");
+  process.exit(1);
 }
 
+const script = await readStdin();
 if (!script) {
-  printUsage();
+  console.error("No script provided");
   process.exit(1);
 }
 
@@ -27,9 +26,3 @@ const r = await env.exec(script);
 console.log("exitCode:", r.exitCode);
 console.log("stderr:", JSON.stringify(r.stderr));
 console.log("stdout:", JSON.stringify(r.stdout));
-
-function printUsage() {
-  console.error("Usage: pnpm dev:exec '<bash script>'");
-  console.error("       echo '<script>' | pnpm dev:exec");
-  console.error("       cat script.sh | pnpm dev:exec");
-}

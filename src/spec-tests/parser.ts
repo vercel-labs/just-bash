@@ -350,26 +350,80 @@ export function getExpectedStderr(testCase: TestCase): string | null {
 
 /**
  * Get the expected exit status for a test case
+ * Returns the default expected status (ignoring OK variants which are alternates)
  */
 export function getExpectedStatus(testCase: TestCase): number | null {
-  // First, look for bash-specific status
+  // First, look for bash-specific BUG status (BUG means bash has this bug, we should match it)
   for (const assertion of testCase.assertions) {
     if (
       assertion.type === "status" &&
+      assertion.variant === "BUG" &&
       assertion.shells?.some((s) => s === "bash" || s.startsWith("bash-"))
     ) {
       return assertion.value as number;
     }
   }
 
-  // Fall back to default status
+  // Fall back to default status (not shell-specific, not a variant)
   for (const assertion of testCase.assertions) {
-    if (assertion.type === "status" && !assertion.shells) {
+    if (
+      assertion.type === "status" &&
+      !assertion.shells &&
+      !assertion.variant
+    ) {
       return assertion.value as number;
     }
   }
 
   return null;
+}
+
+/**
+ * Get all acceptable exit statuses for a test case
+ * This includes the default status and any OK variants for bash
+ */
+export function getAcceptableStatuses(testCase: TestCase): number[] {
+  const statuses: number[] = [];
+
+  // Add BUG bash status if present (this overrides the default for us)
+  for (const assertion of testCase.assertions) {
+    if (
+      assertion.type === "status" &&
+      assertion.variant === "BUG" &&
+      assertion.shells?.some((s) => s === "bash" || s.startsWith("bash-"))
+    ) {
+      statuses.push(assertion.value as number);
+      return statuses; // BUG overrides everything
+    }
+  }
+
+  // Add default status
+  for (const assertion of testCase.assertions) {
+    if (
+      assertion.type === "status" &&
+      !assertion.shells &&
+      !assertion.variant
+    ) {
+      statuses.push(assertion.value as number);
+      break;
+    }
+  }
+
+  // Add OK bash statuses (these are also acceptable)
+  for (const assertion of testCase.assertions) {
+    if (
+      assertion.type === "status" &&
+      assertion.variant === "OK" &&
+      assertion.shells?.some((s) => s === "bash" || s.startsWith("bash-"))
+    ) {
+      const value = assertion.value as number;
+      if (!statuses.includes(value)) {
+        statuses.push(value);
+      }
+    }
+  }
+
+  return statuses;
 }
 
 /**

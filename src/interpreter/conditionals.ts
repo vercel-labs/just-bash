@@ -459,7 +459,21 @@ export function matchPattern(value: string, pattern: string): boolean {
   let regex = "^";
   for (let i = 0; i < pattern.length; i++) {
     const char = pattern[i];
-    if (char === "*") {
+    // Handle backslash escapes - next char is literal
+    if (char === "\\") {
+      if (i + 1 < pattern.length) {
+        const next = pattern[i + 1];
+        // Escape regex special chars
+        if (/[\\^$.|+(){}[\]*?]/.test(next)) {
+          regex += `\\${next}`;
+        } else {
+          regex += next;
+        }
+        i++; // Skip the escaped character
+      } else {
+        regex += "\\\\"; // Trailing backslash
+      }
+    } else if (char === "*") {
       regex += ".*";
     } else if (char === "?") {
       regex += ".";

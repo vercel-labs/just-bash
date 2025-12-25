@@ -4,6 +4,7 @@
 
 import { BashEnv } from "../BashEnv.js";
 import {
+  getAcceptableStatuses,
   getExpectedStatus,
   getExpectedStderr,
   getExpectedStdout,
@@ -107,7 +108,8 @@ export async function runTestCase(
   });
 
   try {
-    const result = await env.exec(testCase.script);
+    // Use rawScript to preserve leading whitespace for here-docs
+    const result = await env.exec(testCase.script, { rawScript: true });
 
     const expectedStdout = getExpectedStdout(testCase);
     const expectedStderr = getExpectedStderr(testCase);
@@ -143,11 +145,17 @@ export async function runTestCase(
     }
 
     // Compare exit status
-    if (expectedStatus !== null) {
-      if (result.exitCode !== expectedStatus) {
+    // Use getAcceptableStatuses to handle OK variants (e.g., "## OK bash status: 1")
+    const acceptableStatuses = getAcceptableStatuses(testCase);
+    if (acceptableStatuses.length > 0) {
+      if (!acceptableStatuses.includes(result.exitCode)) {
         passed = false;
+        const statusDesc =
+          acceptableStatuses.length === 1
+            ? String(acceptableStatuses[0])
+            : `one of [${acceptableStatuses.join(", ")}]`;
         errors.push(
-          `status mismatch: expected ${expectedStatus}, got ${result.exitCode}`,
+          `status mismatch: expected ${statusDesc}, got ${result.exitCode}`,
         );
       }
     }

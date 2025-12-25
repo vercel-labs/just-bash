@@ -73,6 +73,12 @@ export interface ExecOptions {
    * Restored to original after execution.
    */
   cwd?: string;
+  /**
+   * If true, skip normalizing the script (trimming leading whitespace from lines).
+   * Useful when running scripts where leading whitespace is significant (e.g., here-docs).
+   * Default: false
+   */
+  rawScript?: boolean;
 }
 
 export class BashEnv {
@@ -220,11 +226,14 @@ export class BashEnv {
       options: { ...this.state.options },
     };
 
-    // Normalize indented multi-line scripts
-    const normalizedLines = commandLine
-      .split("\n")
-      .map((line) => line.trimStart());
-    const normalized = normalizedLines.join("\n");
+    // Normalize indented multi-line scripts (unless rawScript is true)
+    let normalized = commandLine;
+    if (!options?.rawScript) {
+      const normalizedLines = commandLine
+        .split("\n")
+        .map((line) => line.trimStart());
+      normalized = normalizedLines.join("\n");
+    }
 
     try {
       const ast = parse(normalized);

@@ -507,6 +507,13 @@ export class Lexer {
           singleQuoted: false,
         };
       }
+      // Check for brace expansion: {a,b} or {1..10}
+      // If it's a brace expansion, read it as part of a word (including any prefix/suffix)
+      const braceContent = this.scanBraceExpansion(pos);
+      if (braceContent !== null) {
+        // Read as a word starting from here - readWord will handle the full word
+        return this.readWordWithBraceExpansion(pos, startLine, startColumn);
+      }
       this.pos = pos + 1;
       this.column = startColumn + 1;
       return this.makeToken(TokenType.LBRACE, "{", pos, startLine, startColumn);
@@ -1005,6 +1012,8 @@ export class Lexer {
           end: pos,
           line,
           column,
+          quoted,
+          singleQuoted,
         };
       }
     }
@@ -1170,5 +1179,130 @@ export class Lexer {
     if (delimiter) {
       this.pendingHeredocs.push({ delimiter, stripTabs, quoted });
     }
+  }
+
+  /**
+   * Read a word that starts with a brace expansion.
+   * Includes the brace expansion plus any suffix characters.
+   */
+  private readWordWithBraceExpansion(
+    start: number,
+    line: number,
+    column: number,
+  ): Token {
+    const input = this.input;
+    const len = input.length;
+    let pos = start;
+    let col = column;
+
+    // Read the brace expansion (we already know it's valid)
+    let depth = 0;
+    while (pos < len) {
+      const c = input[pos];
+      if (c === "{") {
+        depth++;
+      } else if (c === "}") {
+        depth--;
+        if (depth === 0) {
+          pos++;
+          col++;
+          break;
+        }
+      }
+      pos++;
+      col++;
+    }
+
+    // Continue reading suffix characters (part of the same word)
+    while (pos < len) {
+      const c = input[pos];
+      // Stop at word boundaries
+      if (
+        c === " " ||
+        c === "\t" ||
+        c === "\n" ||
+        c === ";" ||
+        c === "&" ||
+        c === "|" ||
+        c === "(" ||
+        c === ")" ||
+        c === "<" ||
+        c === ">" ||
+        c === "{" || // Another brace expansion would be a new word part
+        c === "}"
+      ) {
+        break;
+      }
+      pos++;
+      col++;
+    }
+
+    const value = input.slice(start, pos);
+    this.pos = pos;
+    this.column = col;
+
+    return {
+      type: TokenType.WORD,
+      value,
+      start,
+      end: pos,
+      line,
+      column,
+      quoted: false,
+      singleQuoted: false,
+    };
+  }
+
+  /**
+   * Scan ahead to detect brace expansion pattern.
+   * Returns the full brace expansion string if found, null otherwise.
+   * Brace expansion must contain either:
+   * - A comma (e.g., {a,b,c})
+   * - A range with .. (e.g., {1..10})
+   */
+  private scanBraceExpansion(startPos: number): string | null {
+    const input = this.input;
+    const len = input.length;
+    let pos = startPos + 1; // Skip the opening {
+    let depth = 1;
+    let hasComma = false;
+    let hasRange = false;
+
+    while (pos < len && depth > 0) {
+      const c = input[pos];
+
+      if (c === "{") {
+        depth++;
+        pos++;
+      } else if (c === "}") {
+        depth--;
+        pos++;
+      } else if (c === "," && depth === 1) {
+        hasComma = true;
+        pos++;
+      } else if (c === "." && pos + 1 < len && input[pos + 1] === ".") {
+        hasRange = true;
+        pos += 2;
+      } else if (
+        c === " " ||
+        c === "\t" ||
+        c === "\n" ||
+        c === ";" ||
+        c === "&" ||
+        c === "|"
+      ) {
+        // Hit a word boundary before closing brace - not a valid brace expansion
+        return null;
+      } else {
+        pos++;
+      }
+    }
+
+    // Must have closing brace and either comma or range
+    if (depth === 0 && (hasComma || hasRange)) {
+      return input.slice(startPos, pos);
+    }
+
+    return null;
   }
 }
