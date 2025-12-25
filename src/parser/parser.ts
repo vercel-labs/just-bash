@@ -82,6 +82,11 @@ const REDIRECTION_AFTER_NUMBER = new Set([
   TokenType.TLESS,
 ]);
 
+// Parser limits to prevent hangs and resource exhaustion
+const MAX_INPUT_SIZE = 1_000_000; // 1MB max input
+const MAX_TOKENS = 100_000; // Max tokens to parse
+const MAX_PARSE_ITERATIONS = 1_000_000; // Max iterations in parsing loops
+
 export interface ParseError {
   message: string;
   line: number;
@@ -113,15 +118,50 @@ export class Parser {
     stripTabs: boolean;
     quoted: boolean;
   }[] = [];
+  private parseIterations = 0;
+
+  /**
+   * Check parse iteration limit to prevent infinite loops
+   */
+  private checkIterationLimit(): void {
+    this.parseIterations++;
+    if (this.parseIterations > MAX_PARSE_ITERATIONS) {
+      throw new ParseException(
+        "Maximum parse iterations exceeded (possible infinite loop)",
+        this.current().line,
+        this.current().column,
+      );
+    }
+  }
 
   /**
    * Parse a bash script string
    */
   parse(input: string): ScriptNode {
+    // Check input size limit
+    if (input.length > MAX_INPUT_SIZE) {
+      throw new ParseException(
+        `Input too large: ${input.length} bytes exceeds limit of ${MAX_INPUT_SIZE}`,
+        1,
+        1,
+      );
+    }
+
     const lexer = new Lexer(input);
     this.tokens = lexer.tokenize();
+
+    // Check token count limit
+    if (this.tokens.length > MAX_TOKENS) {
+      throw new ParseException(
+        `Too many tokens: ${this.tokens.length} exceeds limit of ${MAX_TOKENS}`,
+        1,
+        1,
+      );
+    }
+
     this.pos = 0;
     this.pendingHeredocs = [];
+    this.parseIterations = 0;
     return this.parseScript();
   }
 
@@ -489,11 +529,13 @@ export class Parser {
 
     // Parse prefix assignments
     while (this.check(TokenType.ASSIGNMENT_WORD)) {
+      this.checkIterationLimit();
       assignments.push(this.parseAssignment());
     }
 
     // Parse redirections that may come before command
     while (this.isRedirection()) {
+      this.checkIterationLimit();
       redirections.push(this.parseRedirection());
     }
 
@@ -507,6 +549,8 @@ export class Parser {
       !this.isStatementEnd() &&
       !this.check(TokenType.PIPE, TokenType.PIPE_AMP)
     ) {
+      this.checkIterationLimit();
+
       if (this.isRedirection()) {
         redirections.push(this.parseRedirection());
       } else if (this.isWord()) {
@@ -521,9 +565,14 @@ export class Parser {
         const endsWithEq = tokenValue.endsWith("=");
         const endsWithEqParen = tokenValue.endsWith("=(");
 
-        if ((endsWithEq || endsWithEqParen) && (endsWithEqParen || this.check(TokenType.LPAREN))) {
+        if (
+          (endsWithEq || endsWithEqParen) &&
+          (endsWithEqParen || this.check(TokenType.LPAREN))
+        ) {
           // Parse as array assignment for declare/local/export/typeset/readonly
-          const baseName = endsWithEqParen ? tokenValue.slice(0, -2) : tokenValue.slice(0, -1);
+          const baseName = endsWithEqParen
+            ? tokenValue.slice(0, -2)
+            : tokenValue.slice(0, -1);
           if (!endsWithEqParen) {
             this.expect(TokenType.LPAREN);
           }
@@ -531,7 +580,7 @@ export class Parser {
           this.expect(TokenType.RPAREN);
 
           // Build the array assignment string: name=(elem1 elem2 ...)
-          const elemStrings = elements.map(e => this.wordToString(e));
+          const elemStrings = elements.map((e) => this.wordToString(e));
           const arrayStr = `${baseName}=(${elemStrings.join(" ")})`;
           args.push(this.parseWordFromString(arrayStr, false, false));
         } else {
@@ -589,8 +638,13 @@ export class Parser {
     this.skipNewlines();
 
     while (!this.check(TokenType.RPAREN, TokenType.EOF)) {
+      this.checkIterationLimit();
       if (this.isWord()) {
         elements.push(this.parseWord());
+      } else {
+        // Skip unexpected tokens to prevent infinite loop
+        // This handles cases like nested parens: a=( (1 2) )
+        this.advance();
       }
       this.skipNewlines();
     }
@@ -1004,7 +1058,7 @@ export class Parser {
             // \xHH - hex escape
             const hex = value.slice(i + 2, i + 4);
             const code = parseInt(hex, 16);
-            if (!isNaN(code)) {
+            if (!Number.isNaN(code)) {
               result += String.fromCharCode(code);
               i += 4;
             } else {
@@ -1017,7 +1071,7 @@ export class Parser {
             // \uHHHH - unicode escape
             const hex = value.slice(i + 2, i + 6);
             const code = parseInt(hex, 16);
-            if (!isNaN(code)) {
+            if (!Number.isNaN(code)) {
               result += String.fromCharCode(code);
               i += 6;
             } else {
@@ -1159,7 +1213,10 @@ export class Parser {
     // For regular vars, stop at operators (#, %, /, :, etc.)
     let name = "";
     const firstChar = value[i];
-    if (/[@*#?$!-]/.test(firstChar) && !/[a-zA-Z0-9_]/.test(value[i + 1] || "")) {
+    if (
+      /[@*#?$!-]/.test(firstChar) &&
+      !/[a-zA-Z0-9_]/.test(value[i + 1] || "")
+    ) {
       // Single special character variable
       name = firstChar;
       i++;
@@ -1475,8 +1532,8 @@ export class Parser {
   ): { part: ArithmeticExpansionPart; endIndex: number } {
     // Skip $((
     const exprStart = start + 3;
-    let arithDepth = 1;  // Tracks (( and ))
-    let parenDepth = 0;  // Tracks single ( and ) for command subs, groups
+    let arithDepth = 1; // Tracks (( and ))
+    let parenDepth = 0; // Tracks single ( and ) for command subs, groups
     let i = exprStart;
 
     while (i < value.length - 1 && arithDepth > 0) {
@@ -1957,11 +2014,19 @@ export class Parser {
 
     // Parse case items
     while (!this.check(TokenType.ESAC, TokenType.EOF)) {
+      this.checkIterationLimit();
+      const posBefore = this.pos;
+
       const item = this.parseCaseItem();
       if (item) {
         items.push(item);
       }
       this.skipNewlines();
+
+      // Safety: if we didn't advance and didn't get an item, break to prevent infinite loop
+      if (this.pos === posBefore && !item) {
+        break;
+      }
     }
 
     this.expect(TokenType.ESAC);
@@ -2009,12 +2074,35 @@ export class Parser {
         TokenType.EOF,
       )
     ) {
+      this.checkIterationLimit();
+
+      // Check if we're looking at the start of another case pattern (word followed by ))
+      // This handles the syntax error case of empty actions like: a) b) echo A ;;
+      if (this.isWord() && this.peek(1).type === TokenType.RPAREN) {
+        // This looks like another case pattern starting - break to let outer loop handle it
+        // This is actually a syntax error in bash, but we handle it gracefully
+        break;
+      }
+      // Also check for optional ( before pattern
+      if (
+        this.check(TokenType.LPAREN) &&
+        this.peek(1).type === TokenType.WORD
+      ) {
+        break;
+      }
+
+      const posBefore = this.pos;
       const stmt = this.parseStatement();
       if (stmt) {
         body.push(stmt);
       }
       // Don't skip case terminators (;;, ;&, ;;&) - we need to see them
       this.skipSeparators(false);
+
+      // If we didn't advance and didn't get a statement, break to avoid infinite loop
+      if (this.pos === posBefore && !stmt) {
+        break;
+      }
     }
 
     // Parse terminator
@@ -2366,11 +2454,19 @@ export class Parser {
       ) &&
       this.isCommandStart()
     ) {
+      this.checkIterationLimit();
+      const posBefore = this.pos;
+
       const stmt = this.parseStatement();
       if (stmt) {
         statements.push(stmt);
       }
       this.skipSeparators();
+
+      // Safety: if we didn't advance and didn't get a statement, break
+      if (this.pos === posBefore && !stmt) {
+        break;
+      }
     }
 
     return statements;
@@ -2380,7 +2476,15 @@ export class Parser {
     const redirections: RedirectionNode[] = [];
 
     while (this.isRedirection()) {
+      this.checkIterationLimit();
+      const posBefore = this.pos;
+
       redirections.push(this.parseRedirection());
+
+      // Safety: if we didn't advance, break
+      if (this.pos === posBefore) {
+        break;
+      }
     }
 
     return redirections;
@@ -2769,7 +2873,7 @@ export class Parser {
       p += 3;
       // Find matching ))
       let depth = 1;
-      let exprStart = p;
+      const exprStart = p;
       while (p < input.length - 1 && depth > 0) {
         if (input[p] === "(" && input[p + 1] === "(") {
           depth++;
@@ -2792,7 +2896,7 @@ export class Parser {
       p += 2;
       // Find matching )
       let depth = 1;
-      let cmdStart = p;
+      const cmdStart = p;
       while (p < input.length && depth > 0) {
         if (input[p] === "(") depth++;
         else if (input[p] === ")") depth--;
@@ -2806,7 +2910,7 @@ export class Parser {
     // Backtick command substitution: `cmd`
     if (input[p] === "`") {
       p++;
-      let cmdStart = p;
+      const cmdStart = p;
       while (p < input.length && input[p] !== "`") {
         p++;
       }

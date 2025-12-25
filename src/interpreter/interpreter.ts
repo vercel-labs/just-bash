@@ -477,7 +477,11 @@ export class Interpreter {
       // let expr... - evaluate arithmetic expressions
       // Returns 0 if last expression is non-zero, 1 if zero
       if (args.length === 0) {
-        return { stdout: "", stderr: "bash: let: expression expected\n", exitCode: 1 };
+        return {
+          stdout: "",
+          stderr: "bash: let: expression expected\n",
+          exitCode: 1,
+        };
       }
       let lastValue = 0;
       for (const arg of args) {
@@ -486,7 +490,11 @@ export class Interpreter {
           const result = await this.ctx.execFn(`echo $((${arg}))`);
           lastValue = parseInt(result.stdout.trim(), 10) || 0;
         } catch {
-          return { stdout: "", stderr: `bash: let: ${arg}: syntax error\n`, exitCode: 1 };
+          return {
+            stdout: "",
+            stderr: `bash: let: ${arg}: syntax error\n`,
+            exitCode: 1,
+          };
         }
       }
       return { stdout: "", stderr: "", exitCode: lastValue === 0 ? 1 : 0 };
@@ -726,9 +734,14 @@ export class Interpreter {
   // COMPOUND COMMANDS
   // ===========================================================================
 
-  private async executeArithmeticCommand(node: ArithmeticCommandNode): Promise<ExecResult> {
+  private async executeArithmeticCommand(
+    node: ArithmeticCommandNode,
+  ): Promise<ExecResult> {
     try {
-      const result = await evaluateArithmetic(this.ctx, node.expression.expression);
+      const result = await evaluateArithmetic(
+        this.ctx,
+        node.expression.expression,
+      );
       return { stdout: "", stderr: "", exitCode: result === 0 ? 1 : 0 };
     } catch (error) {
       return {

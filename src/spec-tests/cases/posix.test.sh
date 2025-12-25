@@ -35,7 +35,7 @@ esac
 foo=a
 case $foo in
   a) echo A ;;
-  b) echo B  
+  b) echo B
 esac
 ## stdout: A
 
@@ -50,7 +50,7 @@ esac
 foo=a
 case $foo in
   (a) echo A ;;
-  (b) echo B  
+  (b) echo B
 esac
 ## stdout: A
 

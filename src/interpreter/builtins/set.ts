@@ -27,7 +27,12 @@ Options:
 const VALID_SET_OPTIONS = new Set(["e", "u", "x"]);
 
 // Valid long options for set -o / +o
-const VALID_SET_LONG_OPTIONS = new Set(["errexit", "pipefail", "nounset", "xtrace"]);
+const VALID_SET_LONG_OPTIONS = new Set([
+  "errexit",
+  "pipefail",
+  "nounset",
+  "xtrace",
+]);
 
 export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
   if (args.includes("--help")) {
@@ -134,19 +139,51 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
         }
       }
     } else if (arg === "--") {
-      // End of options, rest are positional parameters (not implemented)
-      break;
+      // End of options, rest are positional parameters
+      i++;
+      setPositionalParameters(ctx, args.slice(i));
+      return { stdout: "", stderr: "", exitCode: 0 };
     } else if (arg.startsWith("-") || arg.startsWith("+")) {
       return {
         stdout: "",
         stderr: `bash: set: ${arg}: invalid option\n${SET_USAGE}`,
         exitCode: 1,
       };
+    } else {
+      // Non-option arguments are positional parameters
+      setPositionalParameters(ctx, args.slice(i));
+      return { stdout: "", stderr: "", exitCode: 0 };
     }
-    // Other arguments are positional parameters (not implemented)
 
     i++;
   }
 
   return { stdout: "", stderr: "", exitCode: 0 };
+}
+
+/**
+ * Set positional parameters ($1, $2, etc.) and update $@, $*, $#
+ */
+function setPositionalParameters(
+  ctx: InterpreterContext,
+  params: string[],
+): void {
+  // Clear existing positional parameters
+  let i = 1;
+  while (ctx.state.env[String(i)] !== undefined) {
+    delete ctx.state.env[String(i)];
+    i++;
+  }
+
+  // Set new positional parameters
+  for (let j = 0; j < params.length; j++) {
+    ctx.state.env[String(j + 1)] = params[j];
+  }
+
+  // Update $# (number of parameters)
+  ctx.state.env["#"] = String(params.length);
+
+  // Update $@ and $* (all parameters)
+  ctx.state.env["@"] = params.join(" ");
+  ctx.state.env["*"] = params.join(" ");
 }

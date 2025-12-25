@@ -137,17 +137,17 @@ export function parseSpecFile(
         continue;
       }
 
-      // Check for shell-specific variant prefix
+      // Check for shell-specific variant prefix (BUG, BUG-2, OK, N-I, etc.)
       const variantMatch = assertionLine.match(
-        /^(OK|N-I|BUG)\s+([a-z0-9/.-]+)\s+(.+)$/i,
+        /^(OK|N-I|BUG(?:-\d+)?)\s+([a-z0-9/.-]+)\s+(.+)$/i,
       );
       if (variantMatch) {
         const variant = variantMatch[1] as "OK" | "N-I" | "BUG";
         const shells = variantMatch[2].split("/");
         const rest = variantMatch[3];
 
-        // Check if it's a multi-line start
-        const multiLineMatch = rest.match(/^(STDOUT|STDERR):$/);
+        // Check if it's a multi-line start (allow trailing whitespace)
+        const multiLineMatch = rest.match(/^(STDOUT|STDERR):\s*$/);
         if (multiLineMatch) {
           inMultiLineBlock = true;
           multiLineType = multiLineMatch[1].toLowerCase() as
@@ -169,8 +169,8 @@ export function parseSpecFile(
         continue;
       }
 
-      // Check for multi-line block start
-      const multiLineStart = assertionLine.match(/^(STDOUT|STDERR):$/);
+      // Check for multi-line block start (allow trailing whitespace)
+      const multiLineStart = assertionLine.match(/^(STDOUT|STDERR):\s*$/);
       if (multiLineStart) {
         inMultiLineBlock = true;
         multiLineType = multiLineStart[1].toLowerCase() as "stdout" | "stderr";
@@ -214,12 +214,12 @@ export function parseSpecFile(
  * Check if a line (without the ## prefix) is an assertion line
  */
 function isAssertionLine(line: string): boolean {
-  // Shell-specific variant
-  if (/^(OK|N-I|BUG)\s+[a-z0-9/.-]+\s+/i.test(line)) {
+  // Shell-specific variant (BUG, BUG-2, OK, N-I, etc.)
+  if (/^(OK|N-I|BUG(?:-\d+)?)\s+[a-z0-9/.-]+\s+/i.test(line)) {
     return true;
   }
-  // Multi-line block start
-  if (/^(STDOUT|STDERR):$/.test(line)) {
+  // Multi-line block start (allow trailing whitespace)
+  if (/^(STDOUT|STDERR):\s*$/.test(line)) {
     return true;
   }
   // Single-line assertions

@@ -24,7 +24,7 @@ export function handleDeclare(
   let declareArray = false;
   let declareAssoc = false;
   let declareReadonly = false;
-  let declareExport = false;
+  let _declareExport = false;
   let printMode = false;
   const processedArgs: string[] = [];
 
@@ -37,7 +37,7 @@ export function handleDeclare(
     } else if (arg === "-r") {
       declareReadonly = true;
     } else if (arg === "-x") {
-      declareExport = true;
+      _declareExport = true;
     } else if (arg === "-p") {
       printMode = true;
     } else if (arg === "--") {
@@ -50,7 +50,7 @@ export function handleDeclare(
         if (flag === "a") declareArray = true;
         else if (flag === "A") declareAssoc = true;
         else if (flag === "r") declareReadonly = true;
-        else if (flag === "x") declareExport = true;
+        else if (flag === "x") _declareExport = true;
         else if (flag === "p") printMode = true;
       }
     } else {
@@ -162,7 +162,11 @@ function parseArrayElements(content: string): string[] {
       inDoubleQuote = !inDoubleQuote;
       continue;
     }
-    if ((char === " " || char === "\t" || char === "\n") && !inSingleQuote && !inDoubleQuote) {
+    if (
+      (char === " " || char === "\t" || char === "\n") &&
+      !inSingleQuote &&
+      !inDoubleQuote
+    ) {
       if (current) {
         elements.push(current);
         current = "";
@@ -189,16 +193,16 @@ export function handleReadonly(
   args: string[],
 ): ExecResult {
   // Parse flags
-  let declareArray = false;
-  let declareAssoc = false;
+  let _declareArray = false;
+  let _declareAssoc = false;
   const processedArgs: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "-a") {
-      declareArray = true;
+      _declareArray = true;
     } else if (arg === "-A") {
-      declareAssoc = true;
+      _declareAssoc = true;
     } else if (arg === "-p") {
       // Print mode - list readonly variables
       if (args.length === 1) {

@@ -16,12 +16,12 @@ import {
 } from "./commands/registry.js";
 import { type IFileSystem, VirtualFs } from "./fs.js";
 import type { InitialFiles } from "./fs-interface.js";
+import { ArithmeticError } from "./interpreter/errors.js";
 import {
   Interpreter,
   type InterpreterOptions,
   type InterpreterState,
 } from "./interpreter/index.js";
-import { ArithmeticError } from "./interpreter/errors.js";
 import {
   createSecureFetch,
   type NetworkConfig,
@@ -129,6 +129,7 @@ export class BashEnv {
         errexit: false,
         pipefail: false,
         nounset: false,
+        xtrace: false,
       },
       inCondition: false,
       loopDepth: 0,

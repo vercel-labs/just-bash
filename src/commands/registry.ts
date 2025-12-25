@@ -59,6 +59,7 @@ export type CommandName =
   | "date"
   | "sleep"
   | "timeout"
+  | "seq"
   | "html-to-markdown"
   | "help";
 
@@ -280,6 +281,10 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "timeout",
     load: async () => (await import("./timeout/timeout.js")).timeoutCommand,
+  },
+  {
+    name: "seq",
+    load: async () => (await import("./seq/seq.js")).seqCommand,
   },
 
   // HTML processing

@@ -79,7 +79,11 @@ function processEscapes(input: string): { output: string; stop: boolean } {
           // \xHH - hex (1-2 hex digits)
           let hex = "";
           let j = i + 2;
-          while (j < input.length && j < i + 4 && /[0-9a-fA-F]/.test(input[j])) {
+          while (
+            j < input.length &&
+            j < i + 4 &&
+            /[0-9a-fA-F]/.test(input[j])
+          ) {
             hex += input[j];
             j++;
           }
@@ -98,7 +102,11 @@ function processEscapes(input: string): { output: string; stop: boolean } {
           // \uHHHH - 4-digit unicode
           let hex = "";
           let j = i + 2;
-          while (j < input.length && j < i + 6 && /[0-9a-fA-F]/.test(input[j])) {
+          while (
+            j < input.length &&
+            j < i + 6 &&
+            /[0-9a-fA-F]/.test(input[j])
+          ) {
             hex += input[j];
             j++;
           }
@@ -116,7 +124,11 @@ function processEscapes(input: string): { output: string; stop: boolean } {
           // \UHHHHHHHH - 8-digit unicode
           let hex = "";
           let j = i + 2;
-          while (j < input.length && j < i + 10 && /[0-9a-fA-F]/.test(input[j])) {
+          while (
+            j < input.length &&
+            j < i + 10 &&
+            /[0-9a-fA-F]/.test(input[j])
+          ) {
             hex += input[j];
             j++;
           }
@@ -129,7 +141,7 @@ function processEscapes(input: string): { output: string; stop: boolean } {
               result += String.fromCodePoint(code);
             } catch {
               // Invalid code point, output as-is
-              result += "\\U" + hex;
+              result += `\\U${hex}`;
             }
             i = j;
           }
@@ -137,7 +149,7 @@ function processEscapes(input: string): { output: string; stop: boolean } {
         }
         default:
           // Unknown escape - keep the backslash and character
-          result += "\\" + next;
+          result += `\\${next}`;
           i += 2;
       }
     } else {

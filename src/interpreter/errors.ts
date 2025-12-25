@@ -134,11 +134,7 @@ export class ExitError extends ControlFlowError {
 export class ArithmeticError extends ControlFlowError {
   readonly name = "ArithmeticError";
 
-  constructor(
-    message: string,
-    stdout: string = "",
-    stderr: string = "",
-  ) {
+  constructor(message: string, stdout: string = "", stderr: string = "") {
     super(message, stdout, stderr);
     this.stderr = stderr || `bash: ${message}\n`;
   }

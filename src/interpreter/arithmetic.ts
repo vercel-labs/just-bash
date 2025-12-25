@@ -91,7 +91,7 @@ function expandBracedContent(ctx: InterpreterContext, content: string): string {
     case ":-":
     case "-": {
       const useDefault = isUnset || (checkEmpty && isEmpty);
-      return useDefault ? defaultValue : (value || "");
+      return useDefault ? defaultValue : value || "";
     }
     case ":=":
     case "=": {
@@ -111,7 +111,9 @@ function expandBracedContent(ctx: InterpreterContext, content: string): string {
     case "?": {
       const shouldError = isUnset || (checkEmpty && isEmpty);
       if (shouldError) {
-        throw new Error(defaultValue || `${varName}: parameter null or not set`);
+        throw new Error(
+          defaultValue || `${varName}: parameter null or not set`,
+        );
       }
       return value || "";
     }
@@ -165,34 +167,57 @@ export function evaluateArithmeticSync(
       const left = evaluateArithmeticSync(ctx, expr.left);
       const right = evaluateArithmeticSync(ctx, expr.right);
       switch (expr.operator) {
-        case "+": return left + right;
-        case "-": return left - right;
-        case "*": return left * right;
-        case "/": return right !== 0 ? Math.trunc(left / right) : 0;
-        case "%": return right !== 0 ? left % right : 0;
-        case "**": return left ** right;
-        case "<<": return left << right;
-        case ">>": return left >> right;
-        case "<": return left < right ? 1 : 0;
-        case "<=": return left <= right ? 1 : 0;
-        case ">": return left > right ? 1 : 0;
-        case ">=": return left >= right ? 1 : 0;
-        case "==": return left === right ? 1 : 0;
-        case "!=": return left !== right ? 1 : 0;
-        case "&": return left & right;
-        case "|": return left | right;
-        case "^": return left ^ right;
-        case ",": return right;
-        default: return 0;
+        case "+":
+          return left + right;
+        case "-":
+          return left - right;
+        case "*":
+          return left * right;
+        case "/":
+          return right !== 0 ? Math.trunc(left / right) : 0;
+        case "%":
+          return right !== 0 ? left % right : 0;
+        case "**":
+          return left ** right;
+        case "<<":
+          return left << right;
+        case ">>":
+          return left >> right;
+        case "<":
+          return left < right ? 1 : 0;
+        case "<=":
+          return left <= right ? 1 : 0;
+        case ">":
+          return left > right ? 1 : 0;
+        case ">=":
+          return left >= right ? 1 : 0;
+        case "==":
+          return left === right ? 1 : 0;
+        case "!=":
+          return left !== right ? 1 : 0;
+        case "&":
+          return left & right;
+        case "|":
+          return left | right;
+        case "^":
+          return left ^ right;
+        case ",":
+          return right;
+        default:
+          return 0;
       }
     }
     case "ArithUnary": {
       const operand = evaluateArithmeticSync(ctx, expr.operand);
       switch (expr.operator) {
-        case "-": return -operand;
-        case "+": return +operand;
-        case "!": return operand === 0 ? 1 : 0;
-        case "~": return ~operand;
+        case "-":
+          return -operand;
+        case "+":
+          return +operand;
+        case "!":
+          return operand === 0 ? 1 : 0;
+        case "~":
+          return ~operand;
         case "++":
         case "--":
           if (expr.operand.type === "ArithVariable") {
@@ -203,7 +228,8 @@ export function evaluateArithmeticSync(
             return expr.prefix ? newValue : current;
           }
           return operand;
-        default: return operand;
+        default:
+          return operand;
       }
     }
     case "ArithTernary": {
@@ -218,18 +244,41 @@ export function evaluateArithmeticSync(
       const value = evaluateArithmeticSync(ctx, expr.value);
       let newValue: number;
       switch (expr.operator) {
-        case "=": newValue = value; break;
-        case "+=": newValue = current + value; break;
-        case "-=": newValue = current - value; break;
-        case "*=": newValue = current * value; break;
-        case "/=": newValue = value !== 0 ? Math.trunc(current / value) : 0; break;
-        case "%=": newValue = value !== 0 ? current % value : 0; break;
-        case "<<=": newValue = current << value; break;
-        case ">>=": newValue = current >> value; break;
-        case "&=": newValue = current & value; break;
-        case "|=": newValue = current | value; break;
-        case "^=": newValue = current ^ value; break;
-        default: newValue = value;
+        case "=":
+          newValue = value;
+          break;
+        case "+=":
+          newValue = current + value;
+          break;
+        case "-=":
+          newValue = current - value;
+          break;
+        case "*=":
+          newValue = current * value;
+          break;
+        case "/=":
+          newValue = value !== 0 ? Math.trunc(current / value) : 0;
+          break;
+        case "%=":
+          newValue = value !== 0 ? current % value : 0;
+          break;
+        case "<<=":
+          newValue = current << value;
+          break;
+        case ">>=":
+          newValue = current >> value;
+          break;
+        case "&=":
+          newValue = current & value;
+          break;
+        case "|=":
+          newValue = current | value;
+          break;
+        case "^=":
+          newValue = current ^ value;
+          break;
+        default:
+          newValue = value;
       }
       ctx.state.env[name] = String(newValue);
       return newValue;

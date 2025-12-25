@@ -47,3 +47,4 @@ echo 'false; echo $?' | pnpm dev:exec
 ## Interpreter
 
 - We explicitly don't support 64bit integers
+- Must never hang. All parsing and execution should have reasonable max limits to avoid runaway compute.

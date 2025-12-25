@@ -3,7 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { ContinueError } from "../errors.js";
+import { BreakError, ContinueError } from "../errors.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleContinue(
@@ -18,6 +18,11 @@ export function handleContinue(
         "bash: continue: only meaningful in a `for', `while', or `until' loop\n",
       exitCode: 0, // bash returns 0 even when not in a loop
     };
+  }
+
+  // bash: too many arguments causes a break, not continue
+  if (args.length > 1) {
+    throw new BreakError(1);
   }
 
   let levels = 1;

@@ -200,7 +200,10 @@ export async function runSpecFile(
  */
 function requiresXtrace(testCase: TestCase): boolean {
   // Check if script uses set -x and expects trace output in stderr
-  if (/\bset\s+-x\b/.test(testCase.script) || /\bset\s+-o\s+xtrace\b/.test(testCase.script)) {
+  if (
+    /\bset\s+-x\b/.test(testCase.script) ||
+    /\bset\s+-o\s+xtrace\b/.test(testCase.script)
+  ) {
     // Check if test expects xtrace-style output (lines starting with +)
     const expectedStderr = getExpectedStderr(testCase);
     if (expectedStderr && /^\+\s/m.test(expectedStderr)) {

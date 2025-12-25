@@ -50,6 +50,30 @@ const TEST_FILES = [
   "func-parsing.test.sh",
   "errexit.test.sh",
   "vars-special.test.sh",
+  // Additional test files - FIRST HALF
+  "builtin-bracket.test.sh",
+  "builtin-read.test.sh",
+  "builtin-eval-source.test.sh",
+  "builtin-misc.test.sh",
+  "builtin-type.test.sh",
+  "builtin-special.test.sh",
+  "builtin-set.test.sh",
+  "command_.test.sh",
+  "command-parsing.test.sh",
+  "var-op-slice.test.sh",
+  // SECOND HALF - first part
+  "var-op-patsub.test.sh",
+  "var-num.test.sh",
+  "word-split.test.sh",
+  "sh-func.test.sh",
+  "temp-binding.test.sh",
+  // SECOND HALF - second part
+  "posix.test.sh",
+  "strict-options.test.sh",
+  "parse-errors.test.sh",
+  "dbracket.test.sh",
+  "whitespace.test.sh",
+  "smoke.test.sh",
 ];
 
 /**

@@ -241,7 +241,10 @@ export async function executeCStyleFor(
       }
 
       if (node.condition) {
-        const condResult = await evaluateArithmetic(ctx, node.condition.expression);
+        const condResult = await evaluateArithmetic(
+          ctx,
+          node.condition.expression,
+        );
         if (condResult === 0) break;
       }
 

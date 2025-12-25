@@ -47,7 +47,9 @@ function getWordPartsValue(parts: WordPart[]): string {
 }
 
 // Check if a word part requires async execution
-function arithExprNeedsAsync(expr: import("../ast/types.js").ArithExpr): boolean {
+function arithExprNeedsAsync(
+  expr: import("../ast/types.js").ArithExpr,
+): boolean {
   switch (expr.type) {
     case "ArithCommandSubst":
       return true;
