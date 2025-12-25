@@ -214,10 +214,6 @@ xargs — build argument lists
 
 - Implement set -e
 
-## All before this is done
-
-Woohoo
-
 ## Implementation phase 16: curl
 
 - make a new non-standard command called html-to-markdown which uses turndown service (npm package) to turns HTML on STDIN to markdown
@@ -263,3 +259,7 @@ Woohoo
   - What this means, you can keep directory listings in memory and only change those copies
   - But only read files from disk once the user actually wants to read them
 - Make this a new directory
+
+## All before this is done
+
+Woohoo
