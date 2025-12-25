@@ -251,3 +251,15 @@ Woohoo
 - Support full config of the BashEnv. Network default of (which is the default)
 - Support an optional allow-list of registered commands
 - Make examples/bash-agent which is a simple AI agent (with its own package.json) that exercises the tool with sample files read from disk.
+
+## Implementation phase 18
+
+- Implement an alternative copy-on-write filesystem
+- The user provides a root directory under which files are made available
+- Read operations access the underlying file-system
+- There must not be a way to escape that root
+- The file-system is writable, but those changes only persist to an in-memory layer
+- It's not required for changes to the underlying filesytem to be visible to the caller
+  - What this means, you can keep directory listings in memory and only change those copies
+  - But only read files from disk once the user actually wants to read them
+- Make this a new directory

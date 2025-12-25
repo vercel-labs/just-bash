@@ -52,9 +52,30 @@ const env = new BashEnv({
 await env.exec("echo $TEMP", { env: { TEMP: "value" }, cwd: "/tmp" });
 ```
 
+### OverlayFs (Copy-on-Write)
+
+Seed the bash environment with files from a real directory. The agent can read but not write to the real filesystem - all changes stay in memory.
+
+```typescript
+import { BashEnv, OverlayFs } from "bash-env";
+
+// Files are mounted at /home/user/project by default
+const overlay = new OverlayFs({ root: "/path/to/project" });
+const env = new BashEnv({ fs: overlay, cwd: overlay.getMountPoint() });
+
+// Reads come from the real filesystem
+await env.exec("cat package.json"); // reads /path/to/project/package.json
+
+// Writes stay in memory (real files unchanged)
+await env.exec('echo "modified" > package.json');
+
+// Custom mount point
+const overlay2 = new OverlayFs({ root: "/path/to/project", mountPoint: "/" });
+```
+
 ### AI SDK Tool
 
-Create a bash tool for use with the [AI SDK](https://ai-sdk.dev/):
+Creates a bash tool for use with the [AI SDK](https://ai-sdk.dev/):
 
 ```typescript
 import { createBashTool } from "bash-env/ai";

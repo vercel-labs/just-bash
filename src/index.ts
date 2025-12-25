@@ -31,6 +31,7 @@ export {
   RedirectNotAllowedError,
   TooManyRedirectsError,
 } from "./network/index.js";
+export { OverlayFs, type OverlayFsOptions } from "./overlay-fs/index.js";
 export type {
   CommandFinished as SandboxCommandFinished,
   OutputMessage,

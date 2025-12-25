@@ -1,6 +1,7 @@
 import { BashEnv } from "../BashEnv.js";
 import type { IFileSystem } from "../fs-interface.js";
 import type { NetworkConfig } from "../network/index.js";
+import { OverlayFs } from "../overlay-fs/index.js";
 import type { CommandFinished } from "./Command.js";
 import { Command } from "./Command.js";
 
@@ -9,7 +10,17 @@ export interface SandboxOptions {
   env?: Record<string, string>;
   timeoutMs?: number;
   // BashEnv-specific extensions (not in Vercel Sandbox API)
+  /**
+   * Custom filesystem implementation.
+   * Mutually exclusive with `overlayRoot`.
+   */
   fs?: IFileSystem;
+  /**
+   * Path to a directory to use as the root of an OverlayFs.
+   * Reads come from this directory, writes stay in memory.
+   * Mutually exclusive with `fs`.
+   */
+  overlayRoot?: string;
   maxCallDepth?: number;
   maxCommandCount?: number;
   maxLoopIterations?: number;
@@ -32,11 +43,20 @@ export class Sandbox {
   }
 
   static async create(opts?: SandboxOptions): Promise<Sandbox> {
+    // Determine filesystem: overlayRoot creates an OverlayFs, otherwise use provided fs
+    let fs: IFileSystem | undefined = opts?.fs;
+    if (opts?.overlayRoot) {
+      if (opts?.fs) {
+        throw new Error("Cannot specify both 'fs' and 'overlayRoot' options");
+      }
+      fs = new OverlayFs({ root: opts.overlayRoot });
+    }
+
     const bashEnv = new BashEnv({
       env: opts?.env,
       cwd: opts?.cwd,
       // BashEnv-specific extensions
-      fs: opts?.fs,
+      fs,
       maxCallDepth: opts?.maxCallDepth,
       maxCommandCount: opts?.maxCommandCount,
       maxLoopIterations: opts?.maxLoopIterations,

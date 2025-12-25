@@ -2,13 +2,14 @@
  * Minimal AI agent for exploring the bash-env codebase
  *
  * This file contains only the agent logic - see shell.ts for the interactive loop.
+ * Uses OverlayFs to provide read access to the real project files while
+ * keeping any writes in memory (copy-on-write behavior).
  */
 
-import * as fs from "node:fs";
 import * as path from "node:path";
 import { streamText, stepCountIs } from "ai";
-import { globSync } from "glob";
 import { createBashTool } from "../../src/ai/index.js";
+import { OverlayFs } from "../../src/overlay-fs/index.js";
 
 export interface AgentRunner {
   chat(
@@ -25,47 +26,30 @@ export interface CreateAgentOptions {
 }
 
 /**
- * Reads all TypeScript, Markdown, and config files from the bash-env project
- */
-function readProjectFiles(): Record<string, string> {
-  const projectRoot = path.resolve(import.meta.dirname, "../..");
-  const files: Record<string, string> = {};
-
-  const matches = globSync("**/*.{ts,md,json}", {
-    cwd: projectRoot,
-    ignore: ["**/node_modules/**", "**/dist/**", "examples/**"],
-  });
-
-  for (const match of matches) {
-    const fullPath = path.join(projectRoot, match);
-    const virtualPath = `/project/${match}`;
-    try {
-      files[virtualPath] = fs.readFileSync(fullPath, "utf-8");
-    } catch {
-      // Skip files we can't read
-    }
-  }
-
-  return files;
-}
-
-/**
  * Creates an agent runner that can chat about the bash-env codebase
+ *
+ * Uses OverlayFs to provide direct read access to the real project files.
+ * Any writes the agent makes stay in memory and don't affect the real filesystem.
  */
 export function createAgent(options: CreateAgentOptions = {}): AgentRunner {
-  const files = readProjectFiles();
-  console.log(`Loaded ${Object.keys(files).length} project files\n`);
+  const projectRoot = path.resolve(import.meta.dirname, "../..");
+
+  // Create OverlayFs - files are mounted at /home/user/project by default
+  const overlayFs = new OverlayFs({ root: projectRoot });
 
   const bashTool = createBashTool({
-    files,
+    fs: overlayFs,
     extraInstructions: `You are exploring the bash-env project - a simulated bash environment in TypeScript.
-The project files are available in /project. Use bash commands to explore:
-- ls /project/src to see the source structure
-- cat /project/README.md to read documentation
-- grep -r "pattern" /project/src to search code
-- find /project -name "*.ts" to find files
+Use bash commands to explore:
+- ls src to see the source structure
+- cat README.md to read documentation
+- grep -r "pattern" src to search code
+- find . -name "*.ts" to find files
 
-Help the user understand the codebase, find code, and answer questions.`,
+Help the user understand the codebase, find code, and answer questions.
+
+Note: This environment uses OverlayFs - you can read real project files, but any
+writes you make stay in memory and don't affect the actual filesystem.`,
     onCall: options.onToolCall,
   });
 

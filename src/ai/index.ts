@@ -2,7 +2,7 @@ import { type Tool, tool, zodSchema } from "ai";
 import { z } from "zod";
 import { BashEnv, type BashEnvOptions } from "../BashEnv.js";
 import type { CommandName } from "../commands/registry.js";
-import type { InitialFiles } from "../fs-interface.js";
+import type { IFileSystem, InitialFiles } from "../fs-interface.js";
 
 type BashToolInput = { command: string };
 type BashToolOutput = { stdout: string; stderr: string; exitCode: number };
@@ -11,8 +11,15 @@ export interface CreateBashToolOptions {
   /**
    * Initial files to populate the virtual filesystem.
    * The tool instructions will include common operations on a sample of these files.
+   * Ignored if `fs` is provided.
    */
   files?: InitialFiles;
+
+  /**
+   * Custom filesystem implementation (e.g., OverlayFs for copy-on-write behavior).
+   * If provided, `files` option is ignored.
+   */
+  fs?: IFileSystem;
 
   /**
    * Additional instructions to append to the tool description.
@@ -131,7 +138,8 @@ export function createBashTool(
 ): Tool<BashToolInput, BashToolOutput> {
   // Create a shared BashEnv instance with optional command filtering
   const bashEnv = new BashEnv({
-    files: options.files,
+    fs: options.fs,
+    files: options.fs ? undefined : options.files, // files ignored if fs provided
     env: options.env,
     cwd: options.cwd,
     network: options.network,
