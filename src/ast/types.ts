@@ -445,7 +445,22 @@ export type ArithExpr =
   | ArithUnaryNode
   | ArithTernaryNode
   | ArithAssignmentNode
-  | ArithGroupNode;
+  | ArithGroupNode
+  | ArithNestedNode
+  | ArithCommandSubstNode
+  | ArithBracedExpansionNode
+  | ArithArrayElementNode;
+
+export interface ArithBracedExpansionNode extends ASTNode {
+  type: "ArithBracedExpansion";
+  content: string; // The content inside ${...}, e.g., "j:-5"
+}
+
+export interface ArithArrayElementNode extends ASTNode {
+  type: "ArithArrayElement";
+  array: string; // The array name
+  index: ArithExpr; // The index expression
+}
 
 export interface ArithNumberNode extends ASTNode {
   type: "ArithNumber";
@@ -522,6 +537,18 @@ export interface ArithAssignmentNode extends ASTNode {
 export interface ArithGroupNode extends ASTNode {
   type: "ArithGroup";
   expression: ArithExpr;
+}
+
+/** Nested arithmetic expansion within arithmetic context: $((expr)) */
+export interface ArithNestedNode extends ASTNode {
+  type: "ArithNested";
+  expression: ArithExpr;
+}
+
+/** Command substitution within arithmetic context: $(cmd) or `cmd` */
+export interface ArithCommandSubstNode extends ASTNode {
+  type: "ArithCommandSubst";
+  command: string;
 }
 
 // =============================================================================

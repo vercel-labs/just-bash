@@ -33,6 +33,18 @@ export async function applyRedirections(
         const fd = redir.fd ?? 1;
         if (fd === 1) {
           const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+          // Check if target is a directory
+          try {
+            const stat = await ctx.fs.stat(filePath);
+            if (stat.isDirectory) {
+              stderr += `bash: ${target}: Is a directory\n`;
+              exitCode = 1;
+              stdout = "";
+              break;
+            }
+          } catch {
+            // File doesn't exist, that's ok - we'll create it
+          }
           await ctx.fs.writeFile(filePath, stdout);
           stdout = "";
         } else if (fd === 2) {
@@ -40,6 +52,17 @@ export async function applyRedirections(
             stderr = "";
           } else {
             const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+            // Check if target is a directory
+            try {
+              const stat = await ctx.fs.stat(filePath);
+              if (stat.isDirectory) {
+                stderr += `bash: ${target}: Is a directory\n`;
+                exitCode = 1;
+                break;
+              }
+            } catch {
+              // File doesn't exist, that's ok
+            }
             await ctx.fs.writeFile(filePath, stderr);
             stderr = "";
           }
@@ -51,10 +74,33 @@ export async function applyRedirections(
         const fd = redir.fd ?? 1;
         if (fd === 1) {
           const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+          // Check if target is a directory
+          try {
+            const stat = await ctx.fs.stat(filePath);
+            if (stat.isDirectory) {
+              stderr += `bash: ${target}: Is a directory\n`;
+              exitCode = 1;
+              stdout = "";
+              break;
+            }
+          } catch {
+            // File doesn't exist, that's ok
+          }
           await ctx.fs.appendFile(filePath, stdout);
           stdout = "";
         } else if (fd === 2) {
           const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+          // Check if target is a directory
+          try {
+            const stat = await ctx.fs.stat(filePath);
+            if (stat.isDirectory) {
+              stderr += `bash: ${target}: Is a directory\n`;
+              exitCode = 1;
+              break;
+            }
+          } catch {
+            // File doesn't exist, that's ok
+          }
           await ctx.fs.appendFile(filePath, stderr);
           stderr = "";
         }
@@ -71,6 +117,18 @@ export async function applyRedirections(
 
       case "&>": {
         const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+        // Check if target is a directory
+        try {
+          const stat = await ctx.fs.stat(filePath);
+          if (stat.isDirectory) {
+            stderr = `bash: ${target}: Is a directory\n`;
+            exitCode = 1;
+            stdout = "";
+            break;
+          }
+        } catch {
+          // File doesn't exist, that's ok
+        }
         await ctx.fs.writeFile(filePath, stdout + stderr);
         stdout = "";
         stderr = "";
@@ -79,6 +137,18 @@ export async function applyRedirections(
 
       case "&>>": {
         const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+        // Check if target is a directory
+        try {
+          const stat = await ctx.fs.stat(filePath);
+          if (stat.isDirectory) {
+            stderr = `bash: ${target}: Is a directory\n`;
+            exitCode = 1;
+            stdout = "";
+            break;
+          }
+        } catch {
+          // File doesn't exist, that's ok
+        }
         await ctx.fs.appendFile(filePath, stdout + stderr);
         stdout = "";
         stderr = "";

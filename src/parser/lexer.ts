@@ -612,7 +612,6 @@ export class Lexer {
         c === ")" ||
         c === "<" ||
         c === ">" ||
-        c === "#" ||
         c === "'" ||
         c === '"' ||
         c === "\\" ||
@@ -645,8 +644,7 @@ export class Lexer {
         c === "(" ||
         c === ")" ||
         c === "<" ||
-        c === ">" ||
-        c === "#"
+        c === ">"
       ) {
         const value = input.slice(fastStart, pos);
         this.pos = pos;
@@ -747,8 +745,7 @@ export class Lexer {
           char === "(" ||
           char === ")" ||
           char === "<" ||
-          char === ">" ||
-          char === "#"
+          char === ">"
         ) {
           break;
         }

@@ -50,6 +50,7 @@ import {
   type WordNode,
   type WordPart,
 } from "../ast/types.js";
+import { ArithmeticError } from "../interpreter/errors.js";
 import { Lexer, type Token, TokenType } from "./lexer.js";
 
 // Pre-computed Sets for fast redirection token lookup (avoids array allocation per call)
@@ -1262,16 +1263,47 @@ export class Parser {
   ): { part: ArithmeticExpansionPart; endIndex: number } {
     // Skip $((
     const exprStart = start + 3;
-    let depth = 1;
+    let arithDepth = 1;  // Tracks (( and ))
+    let parenDepth = 0;  // Tracks single ( and ) for command subs, groups
     let i = exprStart;
 
-    while (i < value.length - 1 && depth > 0) {
-      if (value[i] === "(" && value[i + 1] === "(") {
-        depth++;
+    while (i < value.length - 1 && arithDepth > 0) {
+      // Check for $( command substitution
+      if (value[i] === "$" && value[i + 1] === "(") {
+        if (value[i + 2] === "(") {
+          // Nested arithmetic $((
+          arithDepth++;
+          i += 3;
+        } else {
+          // Command substitution $(
+          parenDepth++;
+          i += 2;
+        }
+      } else if (value[i] === "(" && value[i + 1] === "(") {
+        // Nested arithmetic ((
+        arithDepth++;
         i += 2;
       } else if (value[i] === ")" && value[i + 1] === ")") {
-        depth--;
-        if (depth > 0) i += 2;
+        // Could be closing arithmetic )) or closing ) followed by something
+        if (parenDepth > 0) {
+          // The first ) closes a command sub
+          parenDepth--;
+          i++;
+        } else {
+          // Closing arithmetic ))
+          arithDepth--;
+          if (arithDepth > 0) i += 2;
+        }
+      } else if (value[i] === "(") {
+        // Opening paren (group, subshell, etc.)
+        parenDepth++;
+        i++;
+      } else if (value[i] === ")") {
+        // Closing paren
+        if (parenDepth > 0) {
+          parenDepth--;
+        }
+        i++;
       } else {
         i++;
       }
@@ -2154,7 +2186,25 @@ export class Parser {
     input: string,
     pos: number,
   ): { expr: ArithExpr; pos: number } {
-    return this.parseArithTernary(input, pos);
+    // Comma operator has the lowest precedence
+    return this.parseArithComma(input, pos);
+  }
+
+  private parseArithComma(
+    input: string,
+    pos: number,
+  ): { expr: ArithExpr; pos: number } {
+    let { expr: left, pos: p } = this.parseArithTernary(input, pos);
+
+    p = this.skipArithWhitespace(input, p);
+    while (input[p] === ",") {
+      p++; // Skip comma
+      const { expr: right, pos: p2 } = this.parseArithTernary(input, p);
+      left = { type: "ArithBinary", operator: ",", left, right };
+      p = this.skipArithWhitespace(input, p2);
+    }
+
+    return { expr: left, pos: p };
   }
 
   private parseArithTernary(
@@ -2501,6 +2551,57 @@ export class Parser {
   ): { expr: ArithExpr; pos: number } {
     let p = this.skipArithWhitespace(input, pos);
 
+    // Nested arithmetic: $((expr))
+    if (input.slice(p, p + 3) === "$((") {
+      p += 3;
+      // Find matching ))
+      let depth = 1;
+      let exprStart = p;
+      while (p < input.length - 1 && depth > 0) {
+        if (input[p] === "(" && input[p + 1] === "(") {
+          depth++;
+          p += 2;
+        } else if (input[p] === ")" && input[p + 1] === ")") {
+          depth--;
+          if (depth > 0) p += 2;
+        } else {
+          p++;
+        }
+      }
+      const nestedExpr = input.slice(exprStart, p);
+      const { expr } = this.parseArithExpr(nestedExpr, 0);
+      p += 2; // Skip ))
+      return { expr: { type: "ArithNested", expression: expr }, pos: p };
+    }
+
+    // Command substitution: $(cmd)
+    if (input.slice(p, p + 2) === "$(" && input[p + 2] !== "(") {
+      p += 2;
+      // Find matching )
+      let depth = 1;
+      let cmdStart = p;
+      while (p < input.length && depth > 0) {
+        if (input[p] === "(") depth++;
+        else if (input[p] === ")") depth--;
+        if (depth > 0) p++;
+      }
+      const cmd = input.slice(cmdStart, p);
+      p++; // Skip )
+      return { expr: { type: "ArithCommandSubst", command: cmd }, pos: p };
+    }
+
+    // Backtick command substitution: `cmd`
+    if (input[p] === "`") {
+      p++;
+      let cmdStart = p;
+      while (p < input.length && input[p] !== "`") {
+        p++;
+      }
+      const cmd = input.slice(cmdStart, p);
+      if (input[p] === "`") p++;
+      return { expr: { type: "ArithCommandSubst", command: cmd }, pos: p };
+    }
+
     // Grouped expression
     if (input[p] === "(") {
       p++;
@@ -2513,16 +2614,54 @@ export class Parser {
     // Number
     if (/[0-9]/.test(input[p])) {
       let numStr = "";
+      let seenHash = false;
       // Handle different bases: 0x, 0, base#num
-      while (p < input.length && /[0-9a-fA-FxX#]/.test(input[p])) {
-        numStr += input[p];
-        p++;
+      while (p < input.length) {
+        const ch = input[p];
+        // After #, allow any alphanumeric for base#num format (e.g., 24#ag7)
+        if (seenHash) {
+          if (/[0-9a-zA-Z]/.test(ch)) {
+            numStr += ch;
+            p++;
+          } else {
+            break;
+          }
+        } else if (ch === "#") {
+          seenHash = true;
+          numStr += ch;
+          p++;
+        } else if (/[0-9a-fA-FxX]/.test(ch)) {
+          numStr += ch;
+          p++;
+        } else {
+          break;
+        }
+      }
+      // Check for floating point (not supported in bash arithmetic)
+      if (input[p] === "." && /[0-9]/.test(input[p + 1])) {
+        throw new ArithmeticError(
+          `${numStr}.${input[p + 1]}...: syntax error: invalid arithmetic operator`,
+        );
       }
       const value = this.parseArithNumber(numStr);
       return { expr: { type: "ArithNumber", value }, pos: p };
     }
 
     // Variable (optionally with $ prefix)
+    // Handle ${...} braced parameter expansion
+    if (input[p] === "$" && input[p + 1] === "{") {
+      const braceStart = p + 2;
+      let braceDepth = 1;
+      let i = braceStart;
+      while (i < input.length && braceDepth > 0) {
+        if (input[i] === "{") braceDepth++;
+        else if (input[i] === "}") braceDepth--;
+        if (braceDepth > 0) i++;
+      }
+      const content = input.slice(braceStart, i);
+      p = i + 1; // Skip past the closing }
+      return { expr: { type: "ArithBracedExpansion", content }, pos: p };
+    }
     // Handle $1, $2, etc. (positional parameters)
     if (
       input[p] === "$" &&
@@ -2550,6 +2689,19 @@ export class Parser {
       while (p < input.length && /[a-zA-Z0-9_]/.test(input[p])) {
         name += input[p];
         p++;
+      }
+
+      // Check for array indexing: array[index]
+      if (input[p] === "[") {
+        p++; // Skip [
+        const { expr: indexExpr, pos: p2 } = this.parseArithExpr(input, p);
+        p = p2;
+        if (input[p] === "]") p++; // Skip ]
+        p = this.skipArithWhitespace(input, p);
+        return {
+          expr: { type: "ArithArrayElement", array: name, index: indexExpr },
+          pos: p,
+        };
       }
 
       p = this.skipArithWhitespace(input, p);

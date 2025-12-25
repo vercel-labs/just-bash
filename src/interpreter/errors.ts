@@ -128,6 +128,23 @@ export class ExitError extends ControlFlowError {
 }
 
 /**
+ * Error thrown for arithmetic expression errors (e.g., floating point, invalid syntax).
+ * Returns exit code 1 instead of 2 (syntax error).
+ */
+export class ArithmeticError extends ControlFlowError {
+  readonly name = "ArithmeticError";
+
+  constructor(
+    message: string,
+    stdout: string = "",
+    stderr: string = "",
+  ) {
+    super(message, stdout, stderr);
+    this.stderr = stderr || `bash: ${message}\n`;
+  }
+}
+
+/**
  * Type guard to check if an error is a control flow error that should propagate.
  */
 export function isControlFlowError(error: unknown): error is ControlFlowError {

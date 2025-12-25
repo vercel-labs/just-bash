@@ -17,7 +17,7 @@ import type {
   WordPart,
 } from "../ast/types.js";
 import { GlobExpander } from "../shell/glob.js";
-import { evaluateArithmetic } from "./arithmetic.js";
+import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
 import { NounsetError } from "./errors.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -47,10 +47,39 @@ function getWordPartsValue(parts: WordPart[]): string {
 }
 
 // Check if a word part requires async execution
+function arithExprNeedsAsync(expr: import("../ast/types.js").ArithExpr): boolean {
+  switch (expr.type) {
+    case "ArithCommandSubst":
+      return true;
+    case "ArithNested":
+      return arithExprNeedsAsync(expr.expression);
+    case "ArithBinary":
+      return arithExprNeedsAsync(expr.left) || arithExprNeedsAsync(expr.right);
+    case "ArithUnary":
+      return arithExprNeedsAsync(expr.operand);
+    case "ArithTernary":
+      return (
+        arithExprNeedsAsync(expr.condition) ||
+        arithExprNeedsAsync(expr.consequent) ||
+        arithExprNeedsAsync(expr.alternate)
+      );
+    case "ArithAssignment":
+      return arithExprNeedsAsync(expr.value);
+    case "ArithGroup":
+      return arithExprNeedsAsync(expr.expression);
+    case "ArithArrayElement":
+      return arithExprNeedsAsync(expr.index);
+    default:
+      return false;
+  }
+}
+
 function partNeedsAsync(part: WordPart): boolean {
   switch (part.type) {
     case "CommandSubstitution":
       return true;
+    case "ArithmeticExpansion":
+      return arithExprNeedsAsync(part.expression.expression);
     case "DoubleQuoted":
       return part.parts.some(partNeedsAsync);
     case "BraceExpansion":
@@ -91,7 +120,7 @@ function expandPartSync(ctx: InterpreterContext, part: WordPart): string {
       return expandParameter(ctx, part);
 
     case "ArithmeticExpansion": {
-      const value = evaluateArithmetic(ctx, part.expression.expression);
+      const value = evaluateArithmeticSync(ctx, part.expression.expression);
       return String(value);
     }
 
@@ -276,7 +305,7 @@ async function expandPart(
     }
 
     case "ArithmeticExpansion": {
-      const value = evaluateArithmetic(ctx, part.expression.expression);
+      const value = await evaluateArithmetic(ctx, part.expression.expression);
       return String(value);
     }
 

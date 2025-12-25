@@ -222,7 +222,7 @@ export async function executeCStyleFor(
   let iterations = 0;
 
   if (node.init) {
-    evaluateArithmetic(ctx, node.init.expression);
+    await evaluateArithmetic(ctx, node.init.expression);
   }
 
   ctx.state.loopDepth++;
@@ -240,7 +240,7 @@ export async function executeCStyleFor(
       }
 
       if (node.condition) {
-        const condResult = evaluateArithmetic(ctx, node.condition.expression);
+        const condResult = await evaluateArithmetic(ctx, node.condition.expression);
         if (condResult === 0) break;
       }
 
@@ -276,7 +276,7 @@ export async function executeCStyleFor(
           }
           // Still need to run the update expression
           if (node.update) {
-            evaluateArithmetic(ctx, node.update.expression);
+            await evaluateArithmetic(ctx, node.update.expression);
           }
           continue;
         }
@@ -293,7 +293,7 @@ export async function executeCStyleFor(
       }
 
       if (node.update) {
-        evaluateArithmetic(ctx, node.update.expression);
+        await evaluateArithmetic(ctx, node.update.expression);
       }
     }
   } finally {

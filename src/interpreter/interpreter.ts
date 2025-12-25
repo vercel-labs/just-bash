@@ -328,6 +328,16 @@ export class Interpreter {
 
     for (const assignment of node.assignments) {
       const name = assignment.name;
+
+      // Handle array assignment: VAR=(a b c)
+      if (assignment.array) {
+        for (let i = 0; i < assignment.array.length; i++) {
+          const elementValue = await expandWord(this.ctx, assignment.array[i]);
+          this.ctx.state.env[`${name}_${i}`] = elementValue;
+        }
+        continue;
+      }
+
       const value = assignment.value
         ? await expandWord(this.ctx, assignment.value)
         : "";
@@ -597,9 +607,9 @@ export class Interpreter {
   // COMPOUND COMMANDS
   // ===========================================================================
 
-  private executeArithmeticCommand(node: ArithmeticCommandNode): ExecResult {
+  private async executeArithmeticCommand(node: ArithmeticCommandNode): Promise<ExecResult> {
     try {
-      const result = evaluateArithmetic(this.ctx, node.expression.expression);
+      const result = await evaluateArithmetic(this.ctx, node.expression.expression);
       return { stdout: "", stderr: "", exitCode: result === 0 ? 1 : 0 };
     } catch (error) {
       return {

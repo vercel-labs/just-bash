@@ -21,6 +21,7 @@ import {
   type InterpreterOptions,
   type InterpreterState,
 } from "./interpreter/index.js";
+import { ArithmeticError } from "./interpreter/errors.js";
 import {
   createSecureFetch,
   type NetworkConfig,
@@ -244,6 +245,14 @@ export class BashEnv {
       // Interpreter always sets env, assert it for type safety
       return result as BashExecResult;
     } catch (error) {
+      if (error instanceof ArithmeticError) {
+        return {
+          stdout: error.stdout,
+          stderr: error.stderr,
+          exitCode: 1,
+          env: { ...this.state.env, ...options?.env },
+        };
+      }
       if ((error as ParseException).name === "ParseException") {
         return {
           stdout: "",
