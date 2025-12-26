@@ -3,6 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { clearArray } from "../helpers/array.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleRead(
@@ -117,12 +118,7 @@ export function handleRead(
         ctx.state.env[name] = "";
       }
       if (arrayName) {
-        // Clear array
-        for (const key of Object.keys(ctx.state.env)) {
-          if (key.startsWith(`${arrayName}_`)) {
-            delete ctx.state.env[key];
-          }
-        }
+        clearArray(ctx, arrayName);
       }
       return { stdout: "", stderr: "", exitCode: 1 };
     }
@@ -183,12 +179,7 @@ export function handleRead(
 
   // Handle array assignment (-a)
   if (arrayName) {
-    // Clear existing array
-    for (const key of Object.keys(ctx.state.env)) {
-      if (key.startsWith(`${arrayName}_`)) {
-        delete ctx.state.env[key];
-      }
-    }
+    clearArray(ctx, arrayName);
     // Assign words to array elements
     for (let j = 0; j < words.length; j++) {
       ctx.state.env[`${arrayName}_${j}`] = words[j];

@@ -127,6 +127,52 @@ const RESERVED_WORDS: Record<string, TokenType> = {
 };
 
 /**
+ * Three-character operators (simple ones without special handling)
+ */
+const THREE_CHAR_OPS: Array<[string, string, string, TokenType]> = [
+  [";", ";", "&", TokenType.SEMI_SEMI_AND],
+  ["<", "<", "<", TokenType.TLESS],
+  ["&", ">", ">", TokenType.AND_DGREAT],
+  // Note: <<- has special handling for heredoc, not included here
+];
+
+/**
+ * Two-character operators (simple ones without special handling)
+ * Note: << has special handling for heredoc, not included here
+ */
+const TWO_CHAR_OPS: Array<[string, string, TokenType]> = [
+  ["[", "[", TokenType.DBRACK_START],
+  ["]", "]", TokenType.DBRACK_END],
+  ["(", "(", TokenType.DPAREN_START],
+  [")", ")", TokenType.DPAREN_END],
+  ["&", "&", TokenType.AND_AND],
+  ["|", "|", TokenType.OR_OR],
+  [";", ";", TokenType.DSEMI],
+  [";", "&", TokenType.SEMI_AND],
+  ["|", "&", TokenType.PIPE_AMP],
+  [">", ">", TokenType.DGREAT],
+  ["<", "&", TokenType.LESSAND],
+  [">", "&", TokenType.GREATAND],
+  ["<", ">", TokenType.LESSGREAT],
+  [">", "|", TokenType.CLOBBER],
+  ["&", ">", TokenType.AND_GREAT],
+];
+
+/**
+ * Single-character operators (simple ones without special handling)
+ * Note: {, }, ! have special handling, not included here
+ */
+const SINGLE_CHAR_OPS: Record<string, TokenType> = {
+  "|": TokenType.PIPE,
+  "&": TokenType.AMP,
+  ";": TokenType.SEMICOLON,
+  "(": TokenType.LPAREN,
+  ")": TokenType.RPAREN,
+  "<": TokenType.LESS,
+  ">": TokenType.GREAT,
+};
+
+/**
  * Check if a string is a valid variable name
  */
 function isValidName(s: string): boolean {
@@ -252,245 +298,49 @@ export class Lexer {
     }
 
     // Three-character operators (check longer ones first)
-    if (c0 === ";" && c1 === ";" && c2 === "&") {
-      this.pos = pos + 3;
-      this.column = startColumn + 3;
-      return this.makeToken(
-        TokenType.SEMI_SEMI_AND,
-        ";;&",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
-    if (c0 === "<" && c1 === "<" && c2 === "<") {
-      this.pos = pos + 3;
-      this.column = startColumn + 3;
-      return this.makeToken(
-        TokenType.TLESS,
-        "<<<",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
-    if (c0 === "&" && c1 === ">" && c2 === ">") {
-      this.pos = pos + 3;
-      this.column = startColumn + 3;
-      return this.makeToken(
-        TokenType.AND_DGREAT,
-        "&>>",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
+    // Special case: <<- (heredoc with tab stripping)
     if (c0 === "<" && c1 === "<" && c2 === "-") {
       this.pos = pos + 3;
       this.column = startColumn + 3;
       this.registerHeredocFromLookahead(true);
-      return this.makeToken(
-        TokenType.DLESSDASH,
-        "<<-",
-        pos,
-        startLine,
-        startColumn,
-      );
+      return this.makeToken(TokenType.DLESSDASH, "<<-", pos, startLine, startColumn);
+    }
+    // Table-driven three-char operators
+    for (const [first, second, third, type] of THREE_CHAR_OPS) {
+      if (c0 === first && c1 === second && c2 === third) {
+        this.pos = pos + 3;
+        this.column = startColumn + 3;
+        return this.makeToken(type, first + second + third, pos, startLine, startColumn);
+      }
     }
 
     // Two-character operators
-    if (c0 === "[" && c1 === "[") {
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(
-        TokenType.DBRACK_START,
-        "[[",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
-    if (c0 === "]" && c1 === "]") {
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(
-        TokenType.DBRACK_END,
-        "]]",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
-    if (c0 === "(" && c1 === "(") {
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(
-        TokenType.DPAREN_START,
-        "((",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
-    if (c0 === ")" && c1 === ")") {
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(
-        TokenType.DPAREN_END,
-        "))",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
-    if (c0 === "&" && c1 === "&") {
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(
-        TokenType.AND_AND,
-        "&&",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
-    if (c0 === "|" && c1 === "|") {
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(TokenType.OR_OR, "||", pos, startLine, startColumn);
-    }
-    if (c0 === ";" && c1 === ";") {
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(TokenType.DSEMI, ";;", pos, startLine, startColumn);
-    }
-    if (c0 === ";" && c1 === "&") {
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(
-        TokenType.SEMI_AND,
-        ";&",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
-    if (c0 === "|" && c1 === "&") {
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(
-        TokenType.PIPE_AMP,
-        "|&",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
+    // Special case: << (heredoc)
     if (c0 === "<" && c1 === "<") {
       this.pos = pos + 2;
       this.column = startColumn + 2;
       this.registerHeredocFromLookahead(false);
       return this.makeToken(TokenType.DLESS, "<<", pos, startLine, startColumn);
     }
-    if (c0 === ">" && c1 === ">") {
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(
-        TokenType.DGREAT,
-        ">>",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
-    if (c0 === "<" && c1 === "&") {
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(
-        TokenType.LESSAND,
-        "<&",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
-    if (c0 === ">" && c1 === "&") {
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(
-        TokenType.GREATAND,
-        ">&",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
-    if (c0 === "<" && c1 === ">") {
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(
-        TokenType.LESSGREAT,
-        "<>",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
-    if (c0 === ">" && c1 === "|") {
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(
-        TokenType.CLOBBER,
-        ">|",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
-    if (c0 === "&" && c1 === ">") {
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(
-        TokenType.AND_GREAT,
-        "&>",
-        pos,
-        startLine,
-        startColumn,
-      );
+    // Table-driven two-char operators
+    for (const [first, second, type] of TWO_CHAR_OPS) {
+      if (c0 === first && c1 === second) {
+        this.pos = pos + 2;
+        this.column = startColumn + 2;
+        return this.makeToken(type, first + second, pos, startLine, startColumn);
+      }
     }
 
     // Single-character operators
-    if (c0 === "|") {
+    // Table-driven simple single-char operators
+    const singleCharType = SINGLE_CHAR_OPS[c0];
+    if (singleCharType) {
       this.pos = pos + 1;
       this.column = startColumn + 1;
-      return this.makeToken(TokenType.PIPE, "|", pos, startLine, startColumn);
+      return this.makeToken(singleCharType, c0, pos, startLine, startColumn);
     }
-    if (c0 === "&") {
-      this.pos = pos + 1;
-      this.column = startColumn + 1;
-      return this.makeToken(TokenType.AMP, "&", pos, startLine, startColumn);
-    }
-    if (c0 === ";") {
-      this.pos = pos + 1;
-      this.column = startColumn + 1;
-      return this.makeToken(
-        TokenType.SEMICOLON,
-        ";",
-        pos,
-        startLine,
-        startColumn,
-      );
-    }
-    if (c0 === "(") {
-      this.pos = pos + 1;
-      this.column = startColumn + 1;
-      return this.makeToken(TokenType.LPAREN, "(", pos, startLine, startColumn);
-    }
-    if (c0 === ")") {
-      this.pos = pos + 1;
-      this.column = startColumn + 1;
-      return this.makeToken(TokenType.RPAREN, ")", pos, startLine, startColumn);
-    }
+
+    // Special cases with complex handling
     if (c0 === "{") {
       // Check for {} as a word (used in find -exec)
       if (c1 === "}") {
@@ -539,16 +389,6 @@ export class Lexer {
       this.pos = pos + 1;
       this.column = startColumn + 1;
       return this.makeToken(TokenType.RBRACE, "}", pos, startLine, startColumn);
-    }
-    if (c0 === "<") {
-      this.pos = pos + 1;
-      this.column = startColumn + 1;
-      return this.makeToken(TokenType.LESS, "<", pos, startLine, startColumn);
-    }
-    if (c0 === ">") {
-      this.pos = pos + 1;
-      this.column = startColumn + 1;
-      return this.makeToken(TokenType.GREAT, ">", pos, startLine, startColumn);
     }
     if (c0 === "!") {
       // Check for != operator (used in [[ ]] tests)

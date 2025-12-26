@@ -1,4 +1,5 @@
 import type { InterpreterContext } from "../types.js";
+import { getArrayIndices } from "./array.js";
 
 /**
  * Evaluates the -v (variable is set) test.
@@ -43,15 +44,7 @@ export function evaluateVariableTest(
 
     // Handle negative indices - convert to actual index
     if (index < 0) {
-      const prefix = `${arrayName}_`;
-      const indices: number[] = [];
-      for (const key of Object.keys(ctx.state.env)) {
-        if (key.startsWith(prefix)) {
-          const idx = Number.parseInt(key.slice(prefix.length), 10);
-          if (!Number.isNaN(idx)) indices.push(idx);
-        }
-      }
-      indices.sort((a, b) => a - b);
+      const indices = getArrayIndices(ctx, arrayName);
       const actualIdx = indices.length + index;
       if (actualIdx < 0 || actualIdx >= indices.length) {
         return false;

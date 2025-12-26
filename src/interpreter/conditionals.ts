@@ -20,6 +20,10 @@ import {
   evaluateFileTest,
   isFileTestOperator,
   evaluateVariableTest,
+  compareNumeric,
+  isNumericOp,
+  evaluateStringTest,
+  isStringTestOp,
 } from "./helpers/index.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -69,17 +73,12 @@ export async function evaluateConditional(
         case ">":
           return left > right;
         case "-eq":
-          return evalArithExpr(ctx, left) === evalArithExpr(ctx, right);
         case "-ne":
-          return evalArithExpr(ctx, left) !== evalArithExpr(ctx, right);
         case "-lt":
-          return evalArithExpr(ctx, left) < evalArithExpr(ctx, right);
         case "-le":
-          return evalArithExpr(ctx, left) <= evalArithExpr(ctx, right);
         case "-gt":
-          return evalArithExpr(ctx, left) > evalArithExpr(ctx, right);
         case "-ge":
-          return evalArithExpr(ctx, left) >= evalArithExpr(ctx, right);
+          return compareNumeric(expr.operator, evalArithExpr(ctx, left), evalArithExpr(ctx, right));
         case "-nt":
         case "-ot":
         case "-ef":
@@ -97,16 +96,13 @@ export async function evaluateConditional(
         return evaluateFileTest(ctx, expr.operator, operand);
       }
 
-      switch (expr.operator) {
-        case "-z":
-          return operand === "";
-        case "-n":
-          return operand !== "";
-        case "-v":
-          return evaluateVariableTest(ctx, operand);
-        default:
-          return false;
+      if (isStringTestOp(expr.operator)) {
+        return evaluateStringTest(expr.operator, operand);
       }
+      if (expr.operator === "-v") {
+        return evaluateVariableTest(ctx, operand);
+      }
+      return false;
     }
 
     case "CondNot":
@@ -159,20 +155,18 @@ export async function evaluateTestArgs(
       return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
     }
 
-    switch (op) {
-      case "-z":
-        return { stdout: "", stderr: "", exitCode: operand === "" ? 0 : 1 };
-      case "-n":
-        return { stdout: "", stderr: "", exitCode: operand !== "" ? 0 : 1 };
-      case "!":
-        return { stdout: "", stderr: "", exitCode: operand ? 1 : 0 };
-      case "-v": {
-        const result = evaluateVariableTest(ctx, operand);
-        return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
-      }
-      default:
-        return { stdout: "", stderr: "", exitCode: 1 };
+    if (isStringTestOp(op)) {
+      const result = evaluateStringTest(op, operand);
+      return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
     }
+    if (op === "!") {
+      return { stdout: "", stderr: "", exitCode: operand ? 1 : 0 };
+    }
+    if (op === "-v") {
+      const result = evaluateVariableTest(ctx, operand);
+      return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
+    }
+    return { stdout: "", stderr: "", exitCode: 1 };
   }
 
   if (args.length === 3) {
@@ -210,16 +204,7 @@ export async function evaluateTestArgs(
         if (!leftNum.valid || !rightNum.valid) {
           return { stdout: "", stderr: "", exitCode: 2 };
         }
-        let result: boolean;
-        switch (op) {
-          case "-eq": result = leftNum.value === rightNum.value; break;
-          case "-ne": result = leftNum.value !== rightNum.value; break;
-          case "-lt": result = leftNum.value < rightNum.value; break;
-          case "-le": result = leftNum.value <= rightNum.value; break;
-          case "-gt": result = leftNum.value > rightNum.value; break;
-          case "-ge": result = leftNum.value >= rightNum.value; break;
-          default: result = false;
-        }
+        const result = compareNumeric(op, leftNum.value, rightNum.value);
         return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
       }
       // Let -a, -o, and other cases fall through to compound handler
@@ -338,8 +323,7 @@ async function evaluateTestPrimary(
     return { value: next === "!=" ? !isEqual : isEqual, pos: pos + 3 };
   }
 
-  const numericOps = ["-eq", "-ne", "-lt", "-le", "-gt", "-ge"];
-  if (numericOps.includes(next)) {
+  if (isNumericOp(next)) {
     const leftParsed = parseNumericDecimal(token);
     const rightParsed = parseNumericDecimal(args[pos + 2] ?? "0");
     // Invalid operands - return false (will cause exit code 2 at higher level)
@@ -347,29 +331,7 @@ async function evaluateTestPrimary(
       // For now, return false which is at least consistent with "comparison failed"
       return { value: false, pos: pos + 3 };
     }
-    const left = leftParsed.value;
-    const right = rightParsed.value;
-    let value = false;
-    switch (next) {
-      case "-eq":
-        value = left === right;
-        break;
-      case "-ne":
-        value = left !== right;
-        break;
-      case "-lt":
-        value = left < right;
-        break;
-      case "-le":
-        value = left <= right;
-        break;
-      case "-gt":
-        value = left > right;
-        break;
-      case "-ge":
-        value = left >= right;
-        break;
-    }
+    const value = compareNumeric(next, leftParsed.value, rightParsed.value);
     return { value, pos: pos + 3 };
   }
 

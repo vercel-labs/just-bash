@@ -19,6 +19,7 @@ import type {
 import { GlobExpander } from "../shell/glob.js";
 import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
 import { BadSubstitutionError, ExitError, NounsetError } from "./errors.js";
+import { getArrayIndices } from "./helpers/array.js";
 import type { InterpreterContext } from "./types.js";
 
 // Helper to extract numeric value from an arithmetic expression
@@ -1032,39 +1033,15 @@ export function getArrayElements(
   ctx: InterpreterContext,
   arrayName: string,
 ): Array<[number, string]> {
-  const prefix = `${arrayName}_`;
-  const elements: Array<[number, string]> = [];
-
-  for (const key of Object.keys(ctx.state.env)) {
-    if (key.startsWith(prefix)) {
-      const indexStr = key.slice(prefix.length);
-      const index = Number.parseInt(indexStr, 10);
-      if (!Number.isNaN(index) && String(index) === indexStr) {
-        elements.push([index, ctx.state.env[key]]);
-      }
-    }
-  }
-
-  // Sort by index
-  elements.sort((a, b) => a[0] - b[0]);
-  return elements;
+  const indices = getArrayIndices(ctx, arrayName);
+  return indices.map((index) => [index, ctx.state.env[`${arrayName}_${index}`]]);
 }
 
 /**
  * Check if a variable is an array (has elements stored as name_0, name_1, etc.)
  */
 export function isArray(ctx: InterpreterContext, name: string): boolean {
-  const prefix = `${name}_`;
-  for (const key of Object.keys(ctx.state.env)) {
-    if (key.startsWith(prefix)) {
-      const indexStr = key.slice(prefix.length);
-      const index = Number.parseInt(indexStr, 10);
-      if (!Number.isNaN(index) && String(index) === indexStr) {
-        return true;
-      }
-    }
-  }
-  return false;
+  return getArrayIndices(ctx, name).length > 0;
 }
 
 /**
