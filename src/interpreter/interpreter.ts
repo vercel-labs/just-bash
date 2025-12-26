@@ -58,6 +58,7 @@ import {
 } from "./control-flow.js";
 import {
   ArithmeticError,
+  ArrayIndexError,
   BadSubstitutionError,
   BreakError,
   ContinueError,
@@ -416,8 +417,12 @@ export class Interpreter {
         if (index < 0) {
           const elements = getArrayElements(this.ctx, arrayName);
           const len = elements.length;
+          const originalIndex = index;
           index = len + index;
-          if (index < 0) index = 0;
+          if (index < 0) {
+            // Out-of-bounds negative index - throw error
+            throw new ArrayIndexError(arrayName, originalIndex, len);
+          }
         }
 
         const envKey = `${arrayName}_${index}`;

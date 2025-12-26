@@ -156,9 +156,10 @@ function getArithVariable(ctx: InterpreterContext, name: string): string {
 
 /**
  * Recursively resolve a variable name to its numeric value.
- * In bash arithmetic, if a variable contains a string that is another variable name,
- * it is recursively evaluated:
+ * In bash arithmetic, if a variable contains a string that is another variable name
+ * or an arithmetic expression, it is recursively evaluated:
  *   foo=5; bar=foo; $((bar)) => 5
+ *   e=1+2; $((e + 3)) => 6
  */
 function resolveArithVariable(
   ctx: InterpreterContext,
@@ -184,15 +185,78 @@ function resolveArithVariable(
     return num;
   }
 
+  const trimmed = value.trim();
+
   // If it's not a number, check if it's a variable name
   // In bash, arithmetic context recursively evaluates variable names
-  const trimmed = value.trim();
   if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(trimmed)) {
     return resolveArithVariable(ctx, trimmed, visited);
   }
 
-  // Not a valid number or variable name
-  return 0;
+  // Dynamic arithmetic: If the value contains arithmetic operators, parse and evaluate it
+  // This handles cases like e=1+2; $((e + 3)) => 6
+  // Import parseArithExpr here to avoid circular dependency issues
+  try {
+    const { parseArithExpr } = require("../parser/arithmetic-parser.js");
+    const { expr } = parseArithExpr(null, trimmed, 0);
+    // Evaluate the parsed expression (with visited set to prevent infinite recursion)
+    return evaluateArithmeticSyncWithVisited(ctx, expr, visited);
+  } catch {
+    // If parsing fails, return 0
+    return 0;
+  }
+}
+
+/**
+ * Internal version of evaluateArithmeticSync that passes through visited set
+ * for dynamic parsing recursion detection.
+ */
+function evaluateArithmeticSyncWithVisited(
+  ctx: InterpreterContext,
+  expr: ArithExpr,
+  visited: Set<string>,
+): number {
+  switch (expr.type) {
+    case "ArithNumber":
+      if (Number.isNaN(expr.value)) {
+        throw new ArithmeticError("value too great for base");
+      }
+      return expr.value;
+    case "ArithVariable": {
+      return resolveArithVariable(ctx, expr.name, visited);
+    }
+    case "ArithBinary": {
+      // Short-circuit evaluation for logical operators
+      if (expr.operator === "||") {
+        const left = evaluateArithmeticSyncWithVisited(ctx, expr.left, visited);
+        if (left) return 1;
+        return evaluateArithmeticSyncWithVisited(ctx, expr.right, visited) ? 1 : 0;
+      }
+      if (expr.operator === "&&") {
+        const left = evaluateArithmeticSyncWithVisited(ctx, expr.left, visited);
+        if (!left) return 0;
+        return evaluateArithmeticSyncWithVisited(ctx, expr.right, visited) ? 1 : 0;
+      }
+      const left = evaluateArithmeticSyncWithVisited(ctx, expr.left, visited);
+      const right = evaluateArithmeticSyncWithVisited(ctx, expr.right, visited);
+      return applyBinaryOp(left, right, expr.operator);
+    }
+    case "ArithUnary": {
+      const operand = evaluateArithmeticSyncWithVisited(ctx, expr.operand, visited);
+      return applyUnaryOp(operand, expr.operator);
+    }
+    case "ArithTernary": {
+      const condition = evaluateArithmeticSyncWithVisited(ctx, expr.condition, visited);
+      return condition
+        ? evaluateArithmeticSyncWithVisited(ctx, expr.consequent, visited)
+        : evaluateArithmeticSyncWithVisited(ctx, expr.alternate, visited);
+    }
+    case "ArithGroup":
+      return evaluateArithmeticSyncWithVisited(ctx, expr.expression, visited);
+    default:
+      // For other types, fall back to regular sync evaluation
+      return evaluateArithmeticSync(ctx, expr);
+  }
 }
 
 /**
@@ -330,6 +394,10 @@ export function evaluateArithmeticSync(
         }
       }
       return 0;
+    }
+    case "ArithDoubleSubscript": {
+      // Double subscript like a[1][1] is not valid - fail silently with exit code 1
+      throw new ArithmeticError("double subscript", "", "");
     }
     case "ArithBinary": {
       // Short-circuit evaluation for logical operators
@@ -496,6 +564,11 @@ export async function evaluateArithmetic(
         }
       }
       return 0;
+    }
+
+    case "ArithDoubleSubscript": {
+      // Double subscript like a[1][1] is not valid - fail silently with exit code 1
+      throw new ArithmeticError("double subscript", "", "");
     }
 
     case "ArithBinary": {

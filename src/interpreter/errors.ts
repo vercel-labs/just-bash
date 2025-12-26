@@ -154,6 +154,28 @@ export class BadSubstitutionError extends ControlFlowError {
 }
 
 /**
+ * Error thrown for array index out of bounds errors.
+ * Returns exit code 1.
+ */
+export class ArrayIndexError extends ControlFlowError {
+  readonly name = "ArrayIndexError";
+
+  constructor(
+    arrayName: string,
+    index: number,
+    length: number,
+    stdout: string = "",
+    stderr: string = "",
+  ) {
+    super(
+      `Index ${index} is out of bounds for array of length ${length}`,
+      stdout,
+      stderr || `bash: ${arrayName}: bad array subscript\n`,
+    );
+  }
+}
+
+/**
  * Type guard to check if an error is a control flow error that should propagate.
  */
 export function isControlFlowError(error: unknown): error is ControlFlowError {

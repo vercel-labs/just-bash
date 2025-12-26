@@ -234,7 +234,11 @@ export function parseAssignment(p: Parser): AssignmentNode {
   // Check for array assignment: VAR=(...)
   // The '(' can be part of the token (valueStr === "(") or a separate token
   // but only if it's immediately adjacent (no space between = and ()
+  // Array assignment to subscripted element is not allowed: a[0]=(1 2) is invalid
   if (valueStr === "(") {
+    if (subscript !== undefined) {
+      p.error(`cannot assign list to array member`);
+    }
     const elements = parseArrayElements(p);
     p.expect(TokenType.RPAREN);
     return AST.assignment(name, null, append, elements);
@@ -245,6 +249,9 @@ export function parseAssignment(p: Parser): AssignmentNode {
     const currentToken = p.current();
     // Only allow if LPAREN is immediately after the assignment word (token.end === lparen.start)
     if (token.end === currentToken.start) {
+      if (subscript !== undefined) {
+        p.error(`cannot assign list to array member`);
+      }
       p.advance(); // consume LPAREN
       const elements = parseArrayElements(p);
       p.expect(TokenType.RPAREN);

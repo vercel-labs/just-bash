@@ -683,6 +683,14 @@ function parseArithPrimary(
       currentPos = p2;
       if (input[currentPos] === "]") currentPos++; // Skip ]
       currentPos = skipArithWhitespace(input, currentPos);
+      // Detect double subscript: a[1][1] is not valid - mark as error but don't throw during parsing
+      if (input[currentPos] === "[") {
+        // Return a special error node that will fail during evaluation
+        return {
+          expr: { type: "ArithDoubleSubscript", array: name, index: indexExpr } as ArithExpr,
+          pos: currentPos,
+        };
+      }
       return {
         expr: { type: "ArithArrayElement", array: name, index: indexExpr },
         pos: currentPos,
