@@ -23,12 +23,52 @@ export async function handleSource(
   }
 
   const filename = sourceArgs[0];
-  const filePath = ctx.fs.resolvePath(ctx.state.cwd, filename);
+  let resolvedPath: string | null = null;
+  let content: string | null = null;
 
-  let content: string;
-  try {
-    content = await ctx.fs.readFile(filePath);
-  } catch {
+  // If filename contains '/', use it directly (relative or absolute path)
+  if (filename.includes("/")) {
+    const directPath = ctx.fs.resolvePath(ctx.state.cwd, filename);
+    try {
+      content = await ctx.fs.readFile(directPath);
+      resolvedPath = directPath;
+    } catch {
+      // File not found
+    }
+  } else {
+    // Filename doesn't contain '/' - search in PATH first, then current directory
+    const pathEnv = ctx.state.env.PATH || "";
+    const pathDirs = pathEnv.split(":").filter((d) => d);
+
+    for (const dir of pathDirs) {
+      const candidate = ctx.fs.resolvePath(ctx.state.cwd, `${dir}/${filename}`);
+      try {
+        // Check if it's a regular file (not a directory)
+        const stat = await ctx.fs.stat(candidate);
+        if (stat.isDirectory) {
+          continue; // Skip directories
+        }
+        content = await ctx.fs.readFile(candidate);
+        resolvedPath = candidate;
+        break;
+      } catch {
+        // File doesn't exist in this PATH directory, continue searching
+      }
+    }
+
+    // If not found in PATH, try current directory
+    if (content === null) {
+      const directPath = ctx.fs.resolvePath(ctx.state.cwd, filename);
+      try {
+        content = await ctx.fs.readFile(directPath);
+        resolvedPath = directPath;
+      } catch {
+        // File not found
+      }
+    }
+  }
+
+  if (content === null) {
     return failure(`bash: ${filename}: No such file or directory\n`);
   }
 

@@ -48,6 +48,37 @@ export async function handleCd(
     target = remainingArgs[0];
   }
 
+  // CDPATH support: if target doesn't start with / or ., search CDPATH directories
+  // CDPATH is only used for relative paths that don't start with .
+  if (
+    !target.startsWith("/") &&
+    !target.startsWith("./") &&
+    !target.startsWith("../") &&
+    target !== "." &&
+    target !== ".."
+  ) {
+    const cdpath = ctx.state.env.CDPATH;
+    if (cdpath) {
+      const cdpathDirs = cdpath.split(":").filter((d) => d);
+      for (const dir of cdpathDirs) {
+        const candidate = dir.startsWith("/")
+          ? `${dir}/${target}`
+          : `${ctx.state.cwd}/${dir}/${target}`;
+        try {
+          const stat = await ctx.fs.stat(candidate);
+          if (stat.isDirectory) {
+            // Found in CDPATH - use this path and print it
+            target = candidate;
+            printPath = true;
+            break;
+          }
+        } catch {
+          // Directory doesn't exist in this CDPATH entry, continue
+        }
+      }
+    }
+  }
+
   // Check path components before normalization to catch cases like "nonexistent/.."
   // where the intermediate directory doesn't exist
   const pathToCheck = target.startsWith("/")

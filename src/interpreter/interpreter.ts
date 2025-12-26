@@ -678,6 +678,10 @@ export class Interpreter {
     let cmdResult = await this.runCommand(commandName, args, quotedArgs, stdin);
     cmdResult = await applyRedirections(this.ctx, cmdResult, node.redirections);
 
+    // Update $_ to the last argument of this command (after expansion)
+    // If no arguments, $_ is set to the command name
+    this.ctx.state.lastArg = args.length > 0 ? args[args.length - 1] : commandName;
+
     for (const [name, value] of Object.entries(tempAssignments)) {
       if (value === undefined) delete this.ctx.state.env[name];
       else this.ctx.state.env[name] = value;

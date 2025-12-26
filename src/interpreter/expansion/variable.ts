@@ -82,6 +82,9 @@ export function getVariable(
       return ctx.state.env["#"] || "0";
     case "@":
       return ctx.state.env["@"] || "";
+    case "_":
+      // $_ is the last argument of the previous command
+      return ctx.state.lastArg;
     case "-": {
       // $- returns current shell option flags
       let flags = "";

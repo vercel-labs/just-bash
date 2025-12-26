@@ -136,6 +136,7 @@ export class BashEnv {
       sourceDepth: 0,
       commandCount: 0,
       lastExitCode: 0,
+      lastArg: "", // $_ is initially empty (or could be shell name)
       options: {
         errexit: false,
         pipefail: false,

@@ -36,6 +36,8 @@ export interface InterpreterState {
   sourceDepth: number;
   commandCount: number;
   lastExitCode: number;
+  /** Last argument of previous command, for $_ expansion */
+  lastArg: string;
   /** Shell options (set -e, etc.) */
   options: ShellOptions;
   /** True when executing condition for if/while/until (errexit doesn't apply) */

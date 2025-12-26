@@ -604,17 +604,14 @@ export function evaluateArithmeticSync(
         envKey = `${name}_${expr.stringKey}`;
       } else if (expr.subscript) {
         const isAssoc = ctx.state.associativeArrays?.has(name);
-        if (isAssoc) {
-          // For associative arrays, get the key as a string
-          // A[key] or A[$key] - get the VALUE of the variable as the key
-          if (expr.subscript.type === "ArithVariable") {
-            const keyValue = ctx.state.env[expr.subscript.name] || "";
-            envKey = `${name}_${keyValue}`;
-          } else {
-            // For non-variable subscripts, evaluate and convert to string
-            const index = evaluateArithmeticSync(ctx, expr.subscript);
-            envKey = `${name}_${index}`;
-          }
+        if (isAssoc && expr.subscript.type === "ArithVariable") {
+          // For associative arrays, variable names are used as literal keys
+          // A[K] = V where K is a variable name -> use "K" as the key, not K's value
+          envKey = `${name}_${expr.subscript.name}`;
+        } else if (isAssoc) {
+          // For non-variable subscripts on associative arrays, evaluate and convert to string
+          const index = evaluateArithmeticSync(ctx, expr.subscript);
+          envKey = `${name}_${index}`;
         } else {
           // For indexed arrays, evaluate the subscript as arithmetic
           let index = evaluateArithmeticSync(ctx, expr.subscript);
@@ -871,17 +868,14 @@ export async function evaluateArithmetic(
         envKey = `${name}_${expr.stringKey}`;
       } else if (expr.subscript) {
         const isAssoc = ctx.state.associativeArrays?.has(name);
-        if (isAssoc) {
-          // For associative arrays, get the key as a string
-          // A[key] or A[$key] - get the VALUE of the variable as the key
-          if (expr.subscript.type === "ArithVariable") {
-            const keyValue = ctx.state.env[expr.subscript.name] || "";
-            envKey = `${name}_${keyValue}`;
-          } else {
-            // For non-variable subscripts, evaluate and convert to string
-            const index = await evaluateArithmetic(ctx, expr.subscript);
-            envKey = `${name}_${index}`;
-          }
+        if (isAssoc && expr.subscript.type === "ArithVariable") {
+          // For associative arrays, variable names are used as literal keys
+          // A[K] = V where K is a variable name -> use "K" as the key, not K's value
+          envKey = `${name}_${expr.subscript.name}`;
+        } else if (isAssoc) {
+          // For non-variable subscripts on associative arrays, evaluate and convert to string
+          const index = await evaluateArithmetic(ctx, expr.subscript);
+          envKey = `${name}_${index}`;
         } else {
           // For indexed arrays, evaluate the subscript as arithmetic
           let index = await evaluateArithmetic(ctx, expr.subscript);
