@@ -38,7 +38,7 @@ export function arithExprNeedsAsync(expr: ArithExpr): boolean {
     case "ArithGroup":
       return arithExprNeedsAsync(expr.expression);
     case "ArithArrayElement":
-      return arithExprNeedsAsync(expr.index);
+      return expr.index ? arithExprNeedsAsync(expr.index) : false;
     case "ArithConcat":
       return expr.parts.some(arithExprNeedsAsync);
     default:

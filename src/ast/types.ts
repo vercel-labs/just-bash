@@ -490,7 +490,10 @@ export interface ArithConcatNode extends ASTNode {
 export interface ArithArrayElementNode extends ASTNode {
   type: "ArithArrayElement";
   array: string; // The array name
-  index: ArithExpr; // The index expression
+  /** The index expression (for numeric indices) */
+  index?: ArithExpr;
+  /** For associative arrays: literal string key (e.g., 'key' or "key") */
+  stringKey?: string;
 }
 
 /** Invalid double subscript node (e.g., a[1][1]) - evaluated to error at runtime */
@@ -576,6 +579,10 @@ export interface ArithAssignmentNode extends ASTNode {
   type: "ArithAssignment";
   operator: ArithAssignmentOperator;
   variable: string;
+  /** For array element assignment: the subscript expression */
+  subscript?: ArithExpr;
+  /** For associative arrays: literal string key (e.g., 'key' or "key") */
+  stringKey?: string;
   value: ArithExpr;
 }
 

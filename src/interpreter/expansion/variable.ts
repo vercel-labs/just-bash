@@ -12,17 +12,31 @@ import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import { evaluateArithmeticSync } from "../arithmetic.js";
 import { BadSubstitutionError, NounsetError } from "../errors.js";
-import { getArrayIndices } from "../helpers/array.js";
+import {
+  getArrayIndices,
+  getAssocArrayKeys,
+  unquoteKey,
+} from "../helpers/array.js";
 import type { InterpreterContext } from "../types.js";
 
 /**
  * Get all elements of an array stored as arrayName_0, arrayName_1, etc.
- * Returns an array of [index, value] tuples, sorted by index.
+ * Returns an array of [index/key, value] tuples, sorted by index/key.
+ * For associative arrays, uses string keys.
  */
 export function getArrayElements(
   ctx: InterpreterContext,
   arrayName: string,
-): Array<[number, string]> {
+): Array<[number | string, string]> {
+  const isAssoc = ctx.state.associativeArrays?.has(arrayName);
+
+  if (isAssoc) {
+    // For associative arrays, get string keys
+    const keys = getAssocArrayKeys(ctx, arrayName);
+    return keys.map((key) => [key, ctx.state.env[`${arrayName}_${key}`]]);
+  }
+
+  // For indexed arrays, get numeric indices
   const indices = getArrayIndices(ctx, arrayName);
   return indices.map((index) => [
     index,
@@ -34,6 +48,11 @@ export function getArrayElements(
  * Check if a variable is an array (has elements stored as name_0, name_1, etc.)
  */
 export function isArray(ctx: InterpreterContext, name: string): boolean {
+  // Check if it's an associative array
+  if (ctx.state.associativeArrays?.has(name)) {
+    return getAssocArrayKeys(ctx, name).length > 0;
+  }
+  // Check for indexed array elements
   return getArrayIndices(ctx, name).length > 0;
 }
 
@@ -117,7 +136,19 @@ export function getVariable(
       return "";
     }
 
-    // Evaluate subscript as arithmetic expression
+    const isAssoc = ctx.state.associativeArrays?.has(arrayName);
+
+    if (isAssoc) {
+      // For associative arrays, use subscript as string key (remove quotes if present)
+      const key = unquoteKey(subscript);
+      const value = ctx.state.env[`${arrayName}_${key}`];
+      if (value === undefined && checkNounset && ctx.state.options.nounset) {
+        throw new NounsetError(`${arrayName}[${subscript}]`);
+      }
+      return value || "";
+    }
+
+    // Evaluate subscript as arithmetic expression for indexed arrays
     // This handles: a[0], a[x], a[x+1], a[a[0]], a[b=2], etc.
     let index: number;
     if (/^-?\d+$/.test(subscript)) {

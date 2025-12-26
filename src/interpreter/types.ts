@@ -48,6 +48,8 @@ export interface InterpreterState {
   expansionExitCode?: number;
   /** Stderr from expansion errors */
   expansionStderr?: string;
+  /** Set of variable names that are associative arrays */
+  associativeArrays?: Set<string>;
 }
 
 export interface InterpreterContext {

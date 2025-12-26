@@ -96,13 +96,29 @@ export function handleDeclare(
     if (arrayMatch) {
       const name = arrayMatch[1];
       const content = arrayMatch[2];
-      // Parse array elements
-      const elements = parseArrayElements(content);
-      for (let i = 0; i < elements.length; i++) {
-        ctx.state.env[`${name}_${i}`] = elements[i];
+
+      // Track associative array declaration
+      if (declareAssoc) {
+        ctx.state.associativeArrays ??= new Set();
+        ctx.state.associativeArrays.add(name);
       }
-      // Store array length marker
-      ctx.state.env[`${name}__length`] = String(elements.length);
+
+      // Check if this is associative array literal syntax: (['key']=value ...)
+      if (declareAssoc && content.includes("[")) {
+        const entries = parseAssocArrayLiteral(content);
+        for (const [key, value] of entries) {
+          ctx.state.env[`${name}_${key}`] = value;
+        }
+      } else {
+        // Parse as indexed array elements
+        const elements = parseArrayElements(content);
+        for (let i = 0; i < elements.length; i++) {
+          ctx.state.env[`${name}_${i}`] = elements[i];
+        }
+        // Store array length marker
+        ctx.state.env[`${name}__length`] = String(elements.length);
+      }
+
       if (declareReadonly) {
         markReadonly(ctx, name);
       }
@@ -126,6 +142,13 @@ export function handleDeclare(
     } else {
       // Just declare without value
       const name = arg;
+
+      // Track associative array declaration
+      if (declareAssoc) {
+        ctx.state.associativeArrays ??= new Set();
+        ctx.state.associativeArrays.add(name);
+      }
+
       // Check if any array elements exist (numeric or string keys)
       const hasArrayElements = Object.keys(ctx.state.env).some(
         (key) =>
@@ -193,6 +216,84 @@ export function parseArrayElements(content: string): string[] {
     elements.push(current);
   }
   return elements;
+}
+
+/**
+ * Parse associative array literal content like "['foo']=bar ['spam']=42"
+ * Returns array of [key, value] pairs
+ */
+export function parseAssocArrayLiteral(content: string): [string, string][] {
+  const entries: [string, string][] = [];
+  let pos = 0;
+
+  while (pos < content.length) {
+    // Skip whitespace
+    while (pos < content.length && /\s/.test(content[pos])) {
+      pos++;
+    }
+    if (pos >= content.length) break;
+
+    // Expect [
+    if (content[pos] !== "[") {
+      // Skip non-bracket content
+      pos++;
+      continue;
+    }
+    pos++; // skip [
+
+    // Parse key (may be quoted)
+    let key = "";
+    if (content[pos] === "'" || content[pos] === '"') {
+      const quote = content[pos];
+      pos++;
+      while (pos < content.length && content[pos] !== quote) {
+        key += content[pos];
+        pos++;
+      }
+      if (content[pos] === quote) pos++;
+    } else {
+      while (pos < content.length && content[pos] !== "]" && content[pos] !== "=") {
+        key += content[pos];
+        pos++;
+      }
+    }
+
+    // Skip to ]
+    while (pos < content.length && content[pos] !== "]") {
+      pos++;
+    }
+    if (content[pos] === "]") pos++;
+
+    // Expect =
+    if (content[pos] !== "=") continue;
+    pos++;
+
+    // Parse value (may be quoted)
+    let value = "";
+    if (content[pos] === "'" || content[pos] === '"') {
+      const quote = content[pos];
+      pos++;
+      while (pos < content.length && content[pos] !== quote) {
+        if (content[pos] === "\\" && pos + 1 < content.length) {
+          pos++;
+          value += content[pos];
+        } else {
+          value += content[pos];
+        }
+        pos++;
+      }
+      if (content[pos] === quote) pos++;
+    } else {
+      while (pos < content.length && !/\s/.test(content[pos])) {
+        value += content[pos];
+        pos++;
+      }
+    }
+
+    entries.push([key, value]);
+  }
+
+  return entries;
 }
 
 /**

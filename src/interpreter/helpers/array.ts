@@ -40,3 +40,48 @@ export function clearArray(ctx: InterpreterContext, arrayName: string): void {
     }
   }
 }
+
+/**
+ * Check if an array is associative (declared with -A).
+ */
+export function isAssociativeArray(
+  ctx: InterpreterContext,
+  name: string,
+): boolean {
+  return ctx.state.associativeArrays?.has(name) ?? false;
+}
+
+/**
+ * Get all keys of an associative array.
+ * For associative arrays, keys are stored as `name_key` where key is a string.
+ */
+export function getAssocArrayKeys(
+  ctx: InterpreterContext,
+  arrayName: string,
+): string[] {
+  const prefix = `${arrayName}_`;
+  const keys: string[] = [];
+
+  for (const envKey of Object.keys(ctx.state.env)) {
+    if (envKey.startsWith(prefix) && !envKey.includes("__")) {
+      const key = envKey.slice(prefix.length);
+      keys.push(key);
+    }
+  }
+
+  return keys.sort();
+}
+
+/**
+ * Remove surrounding quotes from a key string.
+ * Handles 'key' and "key" → key
+ */
+export function unquoteKey(key: string): string {
+  if (
+    (key.startsWith("'") && key.endsWith("'")) ||
+    (key.startsWith('"') && key.endsWith('"'))
+  ) {
+    return key.slice(1, -1);
+  }
+  return key;
+}

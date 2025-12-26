@@ -693,20 +693,82 @@ function parseArithPrimary(
     // Check for array indexing: array[index]
     if (input[currentPos] === "[") {
       currentPos++; // Skip [
-      const { expr: indexExpr, pos: p2 } = parseArithExpr(p, input, currentPos);
-      currentPos = p2;
-      if (input[currentPos] === "]") currentPos++; // Skip ]
+
+      // Check for quoted string key: array['key'] or array["key"]
+      let stringKey: string | undefined;
+      if (input[currentPos] === "'" || input[currentPos] === '"') {
+        const quote = input[currentPos];
+        currentPos++;
+        stringKey = "";
+        while (currentPos < input.length && input[currentPos] !== quote) {
+          stringKey += input[currentPos];
+          currentPos++;
+        }
+        if (input[currentPos] === quote) currentPos++;
+        // Skip to ]
+        currentPos = skipArithWhitespace(input, currentPos);
+        if (input[currentPos] === "]") currentPos++;
+      }
+
+      let indexExpr: ArithExpr | undefined;
+      if (stringKey === undefined) {
+        const { expr, pos: p2 } = parseArithExpr(p, input, currentPos);
+        indexExpr = expr;
+        currentPos = p2;
+        if (input[currentPos] === "]") currentPos++; // Skip ]
+      }
+
       currentPos = skipArithWhitespace(input, currentPos);
       // Detect double subscript: a[1][1] is not valid - mark as error but don't throw during parsing
-      if (input[currentPos] === "[") {
+      if (input[currentPos] === "[" && indexExpr) {
         // Return a special error node that will fail during evaluation
         return {
           expr: { type: "ArithDoubleSubscript", array: name, index: indexExpr },
           pos: currentPos,
         };
       }
+
+      // Check for assignment operators after array subscript
+      const assignOps = [
+        "=",
+        "+=",
+        "-=",
+        "*=",
+        "/=",
+        "%=",
+        "<<=",
+        ">>=",
+        "&=",
+        "|=",
+        "^=",
+      ];
+      for (const op of assignOps) {
+        if (
+          input.slice(currentPos, currentPos + op.length) === op &&
+          input.slice(currentPos, currentPos + op.length + 1) !== "=="
+        ) {
+          currentPos += op.length;
+          const { expr: value, pos: p2 } = parseArithTernary(
+            p,
+            input,
+            currentPos,
+          );
+          return {
+            expr: {
+              type: "ArithAssignment",
+              operator: op as ArithAssignmentOperator,
+              variable: name,
+              subscript: indexExpr,
+              stringKey,
+              value,
+            },
+            pos: p2,
+          };
+        }
+      }
+
       return {
-        expr: { type: "ArithArrayElement", array: name, index: indexExpr },
+        expr: { type: "ArithArrayElement", array: name, index: indexExpr, stringKey },
         pos: currentPos,
       };
     }

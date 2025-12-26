@@ -58,6 +58,7 @@ done' | pnpm dev:exec --real-bash
 ## Architecture
 
 ### Core Pipeline
+
 ```
 Input Script → Parser (src/parser/) → AST (src/ast/) → Interpreter (src/interpreter/) → ExecResult
 ```
@@ -65,12 +66,14 @@ Input Script → Parser (src/parser/) → AST (src/ast/) → Interpreter (src/in
 ### Key Modules
 
 **Parser** (`src/parser/`): Recursive descent parser producing AST nodes
+
 - `lexer.ts` - Tokenizer with bash-specific handling (heredocs, quotes, expansions)
 - `parser.ts` - Main parser orchestrating specialized sub-parsers
 - `expansion-parser.ts` - Parameter expansion, command substitution parsing
 - `compound-parser.ts` - if/for/while/case/function parsing
 
 **Interpreter** (`src/interpreter/`): AST execution engine
+
 - `interpreter.ts` - Main execution loop, command dispatch
 - `expansion.ts` - Word expansion (parameter, brace, glob, tilde, command substitution)
 - `arithmetic.ts` - `$((...))` and `((...))` evaluation
@@ -79,6 +82,7 @@ Input Script → Parser (src/parser/) → AST (src/ast/) → Interpreter (src/in
 - `builtins/` - Shell builtins (export, local, declare, read, etc.)
 
 **Commands** (`src/commands/`): External command implementations
+
 - Each command in its own directory with implementation + tests
 - Registry pattern via `registry.ts`
 
@@ -87,6 +91,7 @@ Input Script → Parser (src/parser/) → AST (src/ast/) → Interpreter (src/in
 ### Adding Commands
 
 Commands go in `src/commands/<name>/` with:
+
 1. Implementation file with usage statement
 2. Unit tests (collocated `*.test.ts`)
 3. Error on unknown options (unless real bash ignores them)
@@ -102,6 +107,7 @@ Prefer comparison tests when uncertain about bash behavior. Keep test files unde
 
 ## Development Guidelines
 
+- Read AGENTS.md
 - Use `pnpm dev:exec` instead of ad-hoc test scripts (avoids approval prompts)
 - Always verify with `pnpm typecheck && pnpm test:run` before finishing
 - Assert full stdout/stderr in tests, not partial matches

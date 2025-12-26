@@ -449,29 +449,52 @@ export function evaluateArithmeticSync(
       return parseArithNumber(numStr);
     }
     case "ArithArrayElement": {
-      const index = evaluateArithmeticSync(ctx, expr.index);
-      // Array elements are stored as arrayName_index in env
-      // But if the variable is a scalar (not an array), s[0] returns the scalar value
-      const arrayValue = ctx.state.env[`${expr.array}_${index}`];
+      const isAssoc = ctx.state.associativeArrays?.has(expr.array);
+      let envKey: string;
+
+      if (expr.stringKey !== undefined) {
+        // Literal string key: A['key']
+        envKey = `${expr.array}_${expr.stringKey}`;
+      } else if (isAssoc && expr.index?.type === "ArithVariable") {
+        // For associative arrays, variable names are used as literal keys
+        // A[K] where K is a variable name -> use "K" as the key
+        envKey = `${expr.array}_${expr.index.name}`;
+      } else if (expr.index) {
+        // For indexed arrays, evaluate the index as arithmetic
+        const index = evaluateArithmeticSync(ctx, expr.index);
+        envKey = `${expr.array}_${index}`;
+
+        // Array elements are stored as arrayName_index in env
+        // But if the variable is a scalar (not an array), s[0] returns the scalar value
+        const arrayValue = ctx.state.env[envKey];
+        if (arrayValue !== undefined) {
+          return parseArithValue(arrayValue);
+        }
+        // Check if it's a scalar variable (strings decay to s[0] = s)
+        if (index === 0) {
+          const scalarValue = ctx.state.env[expr.array];
+          if (scalarValue !== undefined) {
+            return parseArithValue(scalarValue);
+          }
+        }
+        // Variable is not defined - check nounset
+        if (ctx.state.options.nounset) {
+          // Check if there are ANY elements of this array in env
+          const hasAnyElement = Object.keys(ctx.state.env).some(
+            (key) => key === expr.array || key.startsWith(`${expr.array}_`),
+          );
+          if (!hasAnyElement) {
+            throw new NounsetError(`${expr.array}[${index}]`);
+          }
+        }
+        return 0;
+      } else {
+        return 0;
+      }
+
+      const arrayValue = ctx.state.env[envKey];
       if (arrayValue !== undefined) {
         return parseArithValue(arrayValue);
-      }
-      // Check if it's a scalar variable (strings decay to s[0] = s)
-      if (index === 0) {
-        const scalarValue = ctx.state.env[expr.array];
-        if (scalarValue !== undefined) {
-          return parseArithValue(scalarValue);
-        }
-      }
-      // Variable is not defined - check nounset
-      if (ctx.state.options.nounset) {
-        // Check if there are ANY elements of this array in env
-        const hasAnyElement = Object.keys(ctx.state.env).some(
-          (key) => key === expr.array || key.startsWith(`${expr.array}_`),
-        );
-        if (!hasAnyElement) {
-          throw new NounsetError(`${expr.array}[${index}]`);
-        }
       }
       return 0;
     }
@@ -515,8 +538,20 @@ export function evaluateArithmeticSync(
         if (expr.operand.type === "ArithArrayElement") {
           // Handle array element increment/decrement: a[0]++, ++a[0], etc.
           const arrayName = expr.operand.array;
-          const index = evaluateArithmeticSync(ctx, expr.operand.index);
-          const envKey = `${arrayName}_${index}`;
+          const isAssoc = ctx.state.associativeArrays?.has(arrayName);
+          let envKey: string;
+
+          if (expr.operand.stringKey !== undefined) {
+            envKey = `${arrayName}_${expr.operand.stringKey}`;
+          } else if (isAssoc && expr.operand.index?.type === "ArithVariable") {
+            envKey = `${arrayName}_${expr.operand.index.name}`;
+          } else if (expr.operand.index) {
+            const index = evaluateArithmeticSync(ctx, expr.operand.index);
+            envKey = `${arrayName}_${index}`;
+          } else {
+            return operand;
+          }
+
           const current =
             Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
           const newValue = expr.operator === "++" ? current + 1 : current - 1;
@@ -535,10 +570,29 @@ export function evaluateArithmeticSync(
     }
     case "ArithAssignment": {
       const name = expr.variable;
-      const current = Number.parseInt(getVariable(ctx, name), 10) || 0;
+      let envKey = name;
+
+      // Handle array element assignment
+      if (expr.stringKey !== undefined) {
+        // Literal string key: A['key'] = V
+        envKey = `${name}_${expr.stringKey}`;
+      } else if (expr.subscript) {
+        const isAssoc = ctx.state.associativeArrays?.has(name);
+        if (isAssoc && expr.subscript.type === "ArithVariable") {
+          // For associative arrays, variable names are used as literal keys
+          // A[K] = V where K is a variable name -> use "K" as the key
+          envKey = `${name}_${expr.subscript.name}`;
+        } else {
+          // For indexed arrays, evaluate the subscript as arithmetic
+          const index = evaluateArithmeticSync(ctx, expr.subscript);
+          envKey = `${name}_${index}`;
+        }
+      }
+
+      const current = Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
       const value = evaluateArithmeticSync(ctx, expr.value);
       const newValue = applyAssignmentOp(current, value, expr.operator);
-      ctx.state.env[name] = String(newValue);
+      ctx.state.env[envKey] = String(newValue);
       return newValue;
     }
     case "ArithGroup":
@@ -636,29 +690,52 @@ export async function evaluateArithmetic(
     }
 
     case "ArithArrayElement": {
-      const index = await evaluateArithmetic(ctx, expr.index);
-      // Array elements are stored as arrayName_index in env
-      // But if the variable is a scalar (not an array), s[0] returns the scalar value
-      const arrayValue = ctx.state.env[`${expr.array}_${index}`];
+      const isAssoc = ctx.state.associativeArrays?.has(expr.array);
+      let envKey: string;
+
+      if (expr.stringKey !== undefined) {
+        // Literal string key: A['key']
+        envKey = `${expr.array}_${expr.stringKey}`;
+      } else if (isAssoc && expr.index?.type === "ArithVariable") {
+        // For associative arrays, variable names are used as literal keys
+        // A[K] where K is a variable name -> use "K" as the key
+        envKey = `${expr.array}_${expr.index.name}`;
+      } else if (expr.index) {
+        // For indexed arrays, evaluate the index as arithmetic
+        const index = await evaluateArithmetic(ctx, expr.index);
+        envKey = `${expr.array}_${index}`;
+
+        // Array elements are stored as arrayName_index in env
+        // But if the variable is a scalar (not an array), s[0] returns the scalar value
+        const arrayValue = ctx.state.env[envKey];
+        if (arrayValue !== undefined) {
+          return parseArithValue(arrayValue);
+        }
+        // Check if it's a scalar variable (strings decay to s[0] = s)
+        if (index === 0) {
+          const scalarValue = ctx.state.env[expr.array];
+          if (scalarValue !== undefined) {
+            return parseArithValue(scalarValue);
+          }
+        }
+        // Variable is not defined - check nounset
+        if (ctx.state.options.nounset) {
+          // Check if there are ANY elements of this array in env
+          const hasAnyElement = Object.keys(ctx.state.env).some(
+            (key) => key === expr.array || key.startsWith(`${expr.array}_`),
+          );
+          if (!hasAnyElement) {
+            throw new NounsetError(`${expr.array}[${index}]`);
+          }
+        }
+        return 0;
+      } else {
+        return 0;
+      }
+
+      const arrayValue = ctx.state.env[envKey];
       if (arrayValue !== undefined) {
         return parseArithValue(arrayValue);
-      }
-      // Check if it's a scalar variable (strings decay to s[0] = s)
-      if (index === 0) {
-        const scalarValue = ctx.state.env[expr.array];
-        if (scalarValue !== undefined) {
-          return parseArithValue(scalarValue);
-        }
-      }
-      // Variable is not defined - check nounset
-      if (ctx.state.options.nounset) {
-        // Check if there are ANY elements of this array in env
-        const hasAnyElement = Object.keys(ctx.state.env).some(
-          (key) => key === expr.array || key.startsWith(`${expr.array}_`),
-        );
-        if (!hasAnyElement) {
-          throw new NounsetError(`${expr.array}[${index}]`);
-        }
       }
       return 0;
     }
@@ -707,8 +784,20 @@ export async function evaluateArithmetic(
         if (expr.operand.type === "ArithArrayElement") {
           // Handle array element increment/decrement: a[0]++, ++a[0], etc.
           const arrayName = expr.operand.array;
-          const index = await evaluateArithmetic(ctx, expr.operand.index);
-          const envKey = `${arrayName}_${index}`;
+          const isAssoc = ctx.state.associativeArrays?.has(arrayName);
+          let envKey: string;
+
+          if (expr.operand.stringKey !== undefined) {
+            envKey = `${arrayName}_${expr.operand.stringKey}`;
+          } else if (isAssoc && expr.operand.index?.type === "ArithVariable") {
+            envKey = `${arrayName}_${expr.operand.index.name}`;
+          } else if (expr.operand.index) {
+            const index = await evaluateArithmetic(ctx, expr.operand.index);
+            envKey = `${arrayName}_${index}`;
+          } else {
+            return operand;
+          }
+
           const current =
             Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
           const newValue = expr.operator === "++" ? current + 1 : current - 1;
@@ -729,10 +818,29 @@ export async function evaluateArithmetic(
 
     case "ArithAssignment": {
       const name = expr.variable;
-      const current = Number.parseInt(getVariable(ctx, name), 10) || 0;
+      let envKey = name;
+
+      // Handle array element assignment
+      if (expr.stringKey !== undefined) {
+        // Literal string key: A['key'] = V
+        envKey = `${name}_${expr.stringKey}`;
+      } else if (expr.subscript) {
+        const isAssoc = ctx.state.associativeArrays?.has(name);
+        if (isAssoc && expr.subscript.type === "ArithVariable") {
+          // For associative arrays, variable names are used as literal keys
+          // A[K] = V where K is a variable name -> use "K" as the key
+          envKey = `${name}_${expr.subscript.name}`;
+        } else {
+          // For indexed arrays, evaluate the subscript as arithmetic
+          const index = await evaluateArithmetic(ctx, expr.subscript);
+          envKey = `${name}_${index}`;
+        }
+      }
+
+      const current = Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
       const value = await evaluateArithmetic(ctx, expr.value);
       const newValue = applyAssignmentOp(current, value, expr.operator);
-      ctx.state.env[name] = String(newValue);
+      ctx.state.env[envKey] = String(newValue);
       return newValue;
     }
 

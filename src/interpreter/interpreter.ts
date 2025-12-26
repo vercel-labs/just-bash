@@ -73,6 +73,7 @@ import {
   getArrayElements,
 } from "./expansion.js";
 import { callFunction, executeFunctionDef } from "./functions.js";
+import { unquoteKey } from "./helpers/array.js";
 import { getErrorMessage } from "./helpers/errors.js";
 import { checkReadonlyError } from "./helpers/readonly.js";
 import { failure, OK, result, testResult } from "./helpers/result.js";
@@ -425,42 +426,52 @@ export class Interpreter {
         const readonlyError = checkReadonlyError(this.ctx, arrayName);
         if (readonlyError) return readonlyError;
 
-        // Evaluate subscript as arithmetic expression
-        // This handles: a[0], a[x], a[x+1], a[a[0]], a[b=2], etc.
-        let index: number;
-        if (/^-?\d+$/.test(subscriptExpr)) {
-          // Simple numeric subscript
-          index = Number.parseInt(subscriptExpr, 10);
+        const isAssoc = this.ctx.state.associativeArrays?.has(arrayName);
+        let envKey: string;
+
+        if (isAssoc) {
+          // For associative arrays, use subscript as string key (remove quotes if present)
+          const key = unquoteKey(subscriptExpr);
+          envKey = `${arrayName}_${key}`;
         } else {
-          // Parse and evaluate as arithmetic expression
-          try {
-            const parser = new Parser();
-            const arithAst = parseArithmeticExpression(parser, subscriptExpr);
-            index = evaluateArithmeticSync(this.ctx, arithAst.expression);
-          } catch {
-            // Fall back to variable lookup for backwards compatibility
-            const varValue = this.ctx.state.env[subscriptExpr];
-            index = varValue ? Number.parseInt(varValue, 10) : 0;
+          // Evaluate subscript as arithmetic expression for indexed arrays
+          // This handles: a[0], a[x], a[x+1], a[a[0]], a[b=2], etc.
+          let index: number;
+          if (/^-?\d+$/.test(subscriptExpr)) {
+            // Simple numeric subscript
+            index = Number.parseInt(subscriptExpr, 10);
+          } else {
+            // Parse and evaluate as arithmetic expression
+            try {
+              const parser = new Parser();
+              const arithAst = parseArithmeticExpression(parser, subscriptExpr);
+              index = evaluateArithmeticSync(this.ctx, arithAst.expression);
+            } catch {
+              // Fall back to variable lookup for backwards compatibility
+              const varValue = this.ctx.state.env[subscriptExpr];
+              index = varValue ? Number.parseInt(varValue, 10) : 0;
+            }
+            if (Number.isNaN(index)) index = 0;
           }
-          if (Number.isNaN(index)) index = 0;
-        }
 
-        // Handle negative indices
-        if (index < 0) {
-          const elements = getArrayElements(this.ctx, arrayName);
-          const len = elements.length;
-          index = len + index;
+          // Handle negative indices
           if (index < 0) {
-            // Out-of-bounds negative index - return error result
-            return result(
-              "",
-              `bash: ${arrayName}[${subscriptExpr}]: bad array subscript\n`,
-              1,
-            );
+            const elements = getArrayElements(this.ctx, arrayName);
+            const len = elements.length;
+            index = len + index;
+            if (index < 0) {
+              // Out-of-bounds negative index - return error result
+              return result(
+                "",
+                `bash: ${arrayName}[${subscriptExpr}]: bad array subscript\n`,
+                1,
+              );
+            }
           }
+
+          envKey = `${arrayName}_${index}`;
         }
 
-        const envKey = `${arrayName}_${index}`;
         if (node.name) {
           tempAssignments[envKey] = this.ctx.state.env[envKey];
           this.ctx.state.env[envKey] = value;
