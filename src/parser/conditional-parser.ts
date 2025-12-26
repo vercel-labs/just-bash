@@ -65,16 +65,23 @@ const BINARY_OPS = [
 export function parseConditionalExpression(
   p: Parser,
 ): ConditionalExpressionNode {
+  // Skip leading newlines inside [[ ]]
+  p.skipNewlines();
   return parseCondOr(p);
 }
 
 function parseCondOr(p: Parser): ConditionalExpressionNode {
   let left = parseCondAnd(p);
 
+  // Skip newlines before ||
+  p.skipNewlines();
   while (p.check(TokenType.OR_OR)) {
     p.advance();
+    // Skip newlines after ||
+    p.skipNewlines();
     const right = parseCondAnd(p);
     left = { type: "CondOr", left, right };
+    p.skipNewlines();
   }
 
   return left;
@@ -83,18 +90,25 @@ function parseCondOr(p: Parser): ConditionalExpressionNode {
 function parseCondAnd(p: Parser): ConditionalExpressionNode {
   let left = parseCondNot(p);
 
+  // Skip newlines before &&
+  p.skipNewlines();
   while (p.check(TokenType.AND_AND)) {
     p.advance();
+    // Skip newlines after &&
+    p.skipNewlines();
     const right = parseCondNot(p);
     left = { type: "CondAnd", left, right };
+    p.skipNewlines();
   }
 
   return left;
 }
 
 function parseCondNot(p: Parser): ConditionalExpressionNode {
+  p.skipNewlines();
   if (p.check(TokenType.BANG)) {
     p.advance();
+    p.skipNewlines();
     const operand = parseCondNot(p);
     return { type: "CondNot", operand };
   }
@@ -113,10 +127,12 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
 
   // Handle unary operators: -f file, -z string, etc.
   if (p.isWord()) {
-    const first = p.current().value;
+    const firstToken = p.current();
+    const first = firstToken.value;
 
-    // Check for unary operators
-    if (UNARY_OPS.includes(first)) {
+    // Check for unary operators - only if NOT quoted
+    // Quoted '-f' etc. are string operands, not test operators
+    if (UNARY_OPS.includes(first) && !firstToken.quoted) {
       p.advance();
       // Unary operators require an operand - syntax error if at end
       if (p.check(TokenType.DBRACK_END)) {

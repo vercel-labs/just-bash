@@ -102,6 +102,7 @@ export function parseParameterExpansion(
     operation = { type: "Indirection" };
   } else if (lengthOp) {
     // ${#var:...} is invalid - you can't take length of a substring
+    // ${#var-...} is also invalid - length operator can't be followed by test operators
     if (value[i] === ":") {
       // Mark this as an invalid length+slice operation
       // This will be handled at runtime to throw an error
@@ -110,6 +111,10 @@ export function parseParameterExpansion(
       while (i < value.length && value[i] !== "}") {
         i++;
       }
+    } else if (value[i] !== "}" && /[\-+=?]/.test(value[i])) {
+      // ${#x-default} etc. are syntax errors in bash
+      // length operator cannot be followed by test operators
+      p.error(`\${#${name}${value.slice(i, value.indexOf("}", i))}}: bad substitution`);
     } else {
       operation = { type: "Length" };
     }

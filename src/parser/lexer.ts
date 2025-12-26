@@ -669,13 +669,26 @@ export class Lexer {
       }
 
       // Handle quotes
+      // For partially quoted words (not starting with a quote), preserve the quotes in value
+      // and don't set the quoted/singleQuoted flags. This allows parseWordParts to properly
+      // handle mixed quoting and brace expansion.
       if (char === "'" && !inDoubleQuote) {
         if (inSingleQuote) {
           inSingleQuote = false;
+          if (!startsWithQuote) {
+            // Preserve closing quote for partially quoted words
+            value += char;
+          }
         } else {
           inSingleQuote = true;
-          singleQuoted = true;
-          quoted = true;
+          if (startsWithQuote) {
+            // Only set flags if word starts with quote
+            singleQuoted = true;
+            quoted = true;
+          } else {
+            // Preserve opening quote for partially quoted words
+            value += char;
+          }
         }
         pos++;
         col++;
@@ -685,9 +698,19 @@ export class Lexer {
       if (char === '"' && !inSingleQuote) {
         if (inDoubleQuote) {
           inDoubleQuote = false;
+          if (!startsWithQuote) {
+            // Preserve closing quote for partially quoted words
+            value += char;
+          }
         } else {
           inDoubleQuote = true;
-          quoted = true;
+          if (startsWithQuote) {
+            // Only set flags if word starts with quote
+            quoted = true;
+          } else {
+            // Preserve opening quote for partially quoted words
+            value += char;
+          }
         }
         pos++;
         col++;
@@ -746,16 +769,94 @@ export class Lexer {
         value += input[pos]; // Add the (
         pos++;
         col++;
-        // Track parenthesis depth
+        // Track parenthesis depth with context awareness for case statements
         let depth = 1;
+        let inSingleQuote = false;
+        let inDoubleQuote = false;
+        let caseDepth = 0; // Track nested case statements
+        let inCasePattern = false; // Are we in case pattern (after 'in', before ')')
+        let wordBuffer = ""; // Track recent word for keyword detection
         while (depth > 0 && pos < len) {
           const c = input[pos];
           value += c;
-          if (c === "(") depth++;
-          else if (c === ")") depth--;
-          else if (c === "\n") {
+
+          if (inSingleQuote) {
+            if (c === "'") inSingleQuote = false;
+          } else if (inDoubleQuote) {
+            if (c === "\\" && pos + 1 < len) {
+              // Skip escaped char in double quotes
+              value += input[pos + 1];
+              pos++;
+              col++;
+            } else if (c === '"') {
+              inDoubleQuote = false;
+            }
+          } else {
+            // Not in quotes
+            if (c === "'") {
+              inSingleQuote = true;
+              wordBuffer = "";
+            } else if (c === '"') {
+              inDoubleQuote = true;
+              wordBuffer = "";
+            } else if (c === "\\" && pos + 1 < len) {
+              // Skip escaped char
+              value += input[pos + 1];
+              pos++;
+              col++;
+              wordBuffer = "";
+            } else if (c === "#" && (wordBuffer === "" || /\s/.test(input[pos - 1] || ""))) {
+              // Comment - skip to end of line
+              while (pos + 1 < len && input[pos + 1] !== "\n") {
+                pos++;
+                col++;
+                value += input[pos];
+              }
+              wordBuffer = "";
+            } else if (/[a-zA-Z_]/.test(c)) {
+              wordBuffer += c;
+            } else {
+              // Check for keywords
+              if (wordBuffer === "case") {
+                caseDepth++;
+                inCasePattern = false;
+              } else if (wordBuffer === "in" && caseDepth > 0) {
+                inCasePattern = true;
+              } else if (wordBuffer === "esac" && caseDepth > 0) {
+                caseDepth--;
+                inCasePattern = false;
+              }
+              wordBuffer = "";
+
+              if (c === "(") {
+                // Check for $( which starts nested command substitution
+                if (pos > 0 && input[pos - 1] === "$") {
+                  depth++;
+                } else if (!inCasePattern) {
+                  // Regular ( in non-pattern context
+                  depth++;
+                }
+                // In case pattern, ( is part of extended glob or literal
+              } else if (c === ")") {
+                if (inCasePattern) {
+                  // ) ends the case pattern, doesn't affect depth
+                  inCasePattern = false;
+                } else {
+                  depth--;
+                }
+              } else if (c === ";") {
+                // ;; in case body means next pattern
+                if (caseDepth > 0 && pos + 1 < len && input[pos + 1] === ";") {
+                  inCasePattern = true;
+                }
+              }
+            }
+          }
+
+          if (c === "\n") {
             ln++;
             col = 0;
+            wordBuffer = "";
           }
           pos++;
           col++;
@@ -1174,6 +1275,58 @@ export class Lexer {
       if (c === "}") {
         pos++;
         col++;
+        continue;
+      }
+
+      // Handle $(...) or $((...)) - consume the entire construct
+      if (c === "$" && pos + 1 < len && input[pos + 1] === "(") {
+        pos++; // Skip $
+        col++;
+        pos++; // Skip first (
+        col++;
+        let depth = 1;
+        while (depth > 0 && pos < len) {
+          if (input[pos] === "(") depth++;
+          else if (input[pos] === ")") depth--;
+          pos++;
+          col++;
+        }
+        continue;
+      }
+
+      // Handle ${...} parameter expansion
+      if (c === "$" && pos + 1 < len && input[pos + 1] === "{") {
+        pos++; // Skip $
+        col++;
+        pos++; // Skip {
+        col++;
+        let depth = 1;
+        while (depth > 0 && pos < len) {
+          if (input[pos] === "{") depth++;
+          else if (input[pos] === "}") depth--;
+          pos++;
+          col++;
+        }
+        continue;
+      }
+
+      // Handle backtick command substitution
+      if (c === "`") {
+        pos++; // Skip opening `
+        col++;
+        while (pos < len && input[pos] !== "`") {
+          if (input[pos] === "\\" && pos + 1 < len) {
+            pos += 2; // Skip escape sequence
+            col += 2;
+          } else {
+            pos++;
+            col++;
+          }
+        }
+        if (pos < len) {
+          pos++; // Skip closing `
+          col++;
+        }
         continue;
       }
 

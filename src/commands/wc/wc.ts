@@ -155,10 +155,9 @@ function formatStats(
   const hasFilename = filename.length > 0;
 
   // Real wc behavior:
-  // - stdin (no filename): always use 8-char padding
-  // - single file, single field: no padding
-  // - multiple files or multiple fields: use 8-char padding
-  const usePadding = hasFilename ? (fieldCount > 1 || fileCount > 1) : true;
+  // - single field from stdin or single file: no padding
+  // - multiple files or multiple fields: use padding
+  const usePadding = fieldCount > 1 || fileCount > 1;
 
   const values: string[] = [];
   if (showLines) {

@@ -711,3 +711,23 @@ async function expandRecursiveGlob(
     // Ignore errors
   }
 }
+
+// fgrep is equivalent to grep -F
+export const fgrepCommand: Command = {
+  name: "fgrep",
+
+  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+    // Insert -F at the beginning of args
+    return grepCommand.execute(["-F", ...args], ctx);
+  },
+};
+
+// egrep is equivalent to grep -E
+export const egrepCommand: Command = {
+  name: "egrep",
+
+  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+    // Insert -E at the beginning of args
+    return grepCommand.execute(["-E", ...args], ctx);
+  },
+};

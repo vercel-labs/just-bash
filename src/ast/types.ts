@@ -457,7 +457,8 @@ export type ArithExpr =
   | ArithBracedExpansionNode
   | ArithArrayElementNode
   | ArithDynamicBaseNode
-  | ArithDynamicNumberNode;
+  | ArithDynamicNumberNode
+  | ArithConcatNode;
 
 export interface ArithBracedExpansionNode extends ASTNode {
   type: "ArithBracedExpansion";
@@ -476,6 +477,12 @@ export interface ArithDynamicNumberNode extends ASTNode {
   type: "ArithDynamicNumber";
   prefix: string; // The variable content (e.g., "zero" from ${zero})
   suffix: string; // The suffix (e.g., "11" or "xAB")
+}
+
+/** Concatenation of multiple parts forming a single numeric value */
+export interface ArithConcatNode extends ASTNode {
+  type: "ArithConcat";
+  parts: ArithExpr[]; // Parts to concatenate (e.g., [$(echo 1), ${x:-3}] → "13")
 }
 
 export interface ArithArrayElementNode extends ASTNode {

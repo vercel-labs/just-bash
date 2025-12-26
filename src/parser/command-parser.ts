@@ -128,11 +128,20 @@ export function parseSimpleCommand(p: Parser): SimpleCommandNode {
   }
 
   // Parse arguments and redirections
-  while (!p.isStatementEnd() && !p.check(TokenType.PIPE, TokenType.PIPE_AMP)) {
+  // RBRACE (}) can be an argument in command position (e.g., "echo }"), so we handle it specially.
+  // The loop stops on statement-end tokens EXCEPT RBRACE when we're in argument position.
+  while (
+    (!p.isStatementEnd() || p.check(TokenType.RBRACE)) &&
+    !p.check(TokenType.PIPE, TokenType.PIPE_AMP)
+  ) {
     p.checkIterationLimit();
 
     if (isRedirection(p)) {
       redirections.push(parseRedirection(p));
+    } else if (p.check(TokenType.RBRACE)) {
+      // } can be an argument like "echo }" - parse it as a word
+      const token = p.advance();
+      args.push(p.parseWordFromString(token.value, false, false));
     } else if (p.isWord()) {
       args.push(p.parseWord());
     } else if (p.check(TokenType.ASSIGNMENT_WORD)) {

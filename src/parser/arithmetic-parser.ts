@@ -417,12 +417,42 @@ function parseArithUnary(
   return parseArithPostfix(p, input, currentPos);
 }
 
+/**
+ * Check if a character can start another concatenated primary (expansion)
+ * This is used to detect adjacent expansions like $(cmd)${var}
+ */
+function canStartConcatPrimary(input: string, pos: number): boolean {
+  const c = input[pos];
+  // $ starts command sub, parameter expansion, nested arith, or variable
+  if (c === "$") return true;
+  // ` starts backtick command substitution
+  if (c === "`") return true;
+  return false;
+}
+
 function parseArithPostfix(
   p: Parser,
   input: string,
   pos: number,
 ): { expr: ArithExpr; pos: number } {
   let { expr, pos: currentPos } = parseArithPrimary(p, input, pos);
+
+  // Check for adjacent primaries without whitespace (concatenation)
+  // e.g., $(echo 1)${undefined:-3} → "13"
+  const parts: ArithExpr[] = [expr];
+  while (canStartConcatPrimary(input, currentPos)) {
+    const { expr: nextExpr, pos: nextPos } = parseArithPrimary(
+      p,
+      input,
+      currentPos,
+    );
+    parts.push(nextExpr);
+    currentPos = nextPos;
+  }
+
+  if (parts.length > 1) {
+    expr = { type: "ArithConcat", parts };
+  }
 
   currentPos = skipArithWhitespace(input, currentPos);
 
@@ -748,7 +778,11 @@ export function parseArithNumber(str: string): number {
   }
 
   // Handle octal
-  if (str.startsWith("0") && str.length > 1 && !/[89]/.test(str)) {
+  if (str.startsWith("0") && str.length > 1 && /^[0-9]+$/.test(str)) {
+    // If it looks like octal (0-prefixed digits) but has 8 or 9, it's an error
+    if (/[89]/.test(str)) {
+      return Number.NaN;
+    }
     return Number.parseInt(str, 8);
   }
 

@@ -283,6 +283,9 @@ export function evaluateArithmeticSync(
 ): number {
   switch (expr.type) {
     case "ArithNumber":
+      if (Number.isNaN(expr.value)) {
+        throw new ArithmeticError("value too great for base");
+      }
       return expr.value;
     case "ArithVariable": {
       // Use recursive resolution - bash evaluates variable names recursively
@@ -364,8 +367,42 @@ export function evaluateArithmeticSync(
     }
     case "ArithGroup":
       return evaluateArithmeticSync(ctx, expr.expression);
+    case "ArithConcat": {
+      // Concatenate all parts as strings, then parse as number
+      let concatenated = "";
+      for (const part of expr.parts) {
+        concatenated += evalPartToStringSync(ctx, part);
+      }
+      return Number.parseInt(concatenated, 10) || 0;
+    }
     default:
       return 0;
+  }
+}
+
+/**
+ * Evaluate an arithmetic expression part to its string representation (sync)
+ */
+function evalPartToStringSync(ctx: InterpreterContext, expr: ArithExpr): string {
+  switch (expr.type) {
+    case "ArithNumber":
+      return String(expr.value);
+    case "ArithVariable":
+      return getVariable(ctx, expr.name);
+    case "ArithBracedExpansion":
+      return expandBracedContent(ctx, expr.content);
+    case "ArithCommandSubst":
+      // Not supported in sync
+      return "0";
+    case "ArithConcat": {
+      let result = "";
+      for (const part of expr.parts) {
+        result += evalPartToStringSync(ctx, part);
+      }
+      return result;
+    }
+    default:
+      return String(evaluateArithmeticSync(ctx, expr));
   }
 }
 
@@ -375,6 +412,9 @@ export async function evaluateArithmetic(
 ): Promise<number> {
   switch (expr.type) {
     case "ArithNumber":
+      if (Number.isNaN(expr.value)) {
+        throw new ArithmeticError("value too great for base");
+      }
       return expr.value;
 
     case "ArithVariable": {
@@ -476,7 +516,49 @@ export async function evaluateArithmetic(
     case "ArithGroup":
       return await evaluateArithmetic(ctx, expr.expression);
 
+    case "ArithConcat": {
+      // Concatenate all parts as strings, then parse as number
+      let concatenated = "";
+      for (const part of expr.parts) {
+        concatenated += await evalPartToStringAsync(ctx, part);
+      }
+      return Number.parseInt(concatenated, 10) || 0;
+    }
+
     default:
       return 0;
+  }
+}
+
+/**
+ * Evaluate an arithmetic expression part to its string representation (async)
+ */
+async function evalPartToStringAsync(
+  ctx: InterpreterContext,
+  expr: ArithExpr,
+): Promise<string> {
+  switch (expr.type) {
+    case "ArithNumber":
+      return String(expr.value);
+    case "ArithVariable":
+      return getVariable(ctx, expr.name);
+    case "ArithBracedExpansion":
+      return expandBracedContent(ctx, expr.content);
+    case "ArithCommandSubst": {
+      if (ctx.execFn) {
+        const result = await ctx.execFn(expr.command);
+        return result.stdout.trim();
+      }
+      return "0";
+    }
+    case "ArithConcat": {
+      let result = "";
+      for (const part of expr.parts) {
+        result += await evalPartToStringAsync(ctx, part);
+      }
+      return result;
+    }
+    default:
+      return String(await evaluateArithmetic(ctx, expr));
   }
 }

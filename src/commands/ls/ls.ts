@@ -82,7 +82,7 @@ export const lsCommand: Command = {
     let recursive = false;
     let reverse = false;
     let sortBySize = false;
-    let _directoryOnly = false;
+    let directoryOnly = false;
     let _sortByTime = false;
     const paths: string[] = [];
 
@@ -97,7 +97,7 @@ export const lsCommand: Command = {
           else if (flag === "R") recursive = true;
           else if (flag === "r") reverse = true;
           else if (flag === "S") sortBySize = true;
-          else if (flag === "d") _directoryOnly = true;
+          else if (flag === "d") directoryOnly = true;
           else if (flag === "t") _sortByTime = true;
           else if (flag === "1") {
             /* -1 is implicit */
@@ -112,7 +112,7 @@ export const lsCommand: Command = {
       } else if (arg === "--reverse") {
         reverse = true;
       } else if (arg === "--directory") {
-        _directoryOnly = true;
+        directoryOnly = true;
       } else if (arg === "--recursive") {
         recursive = true;
       } else if (arg === "--human-readable") {
@@ -138,6 +138,31 @@ export const lsCommand: Command = {
       // Add blank line between directory listings
       if (i > 0 && stdout && !stdout.endsWith("\n\n")) {
         stdout += "\n";
+      }
+
+      // With -d flag, just list the directories/files themselves, not their contents
+      if (directoryOnly) {
+        const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
+        try {
+          const stat = await ctx.fs.stat(fullPath);
+          if (longFormat) {
+            const mode = stat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
+            const type = stat.isDirectory ? "/" : "";
+            const size = stat.size ?? 0;
+            const sizeStr = humanReadable
+              ? formatHumanSize(size).padStart(5)
+              : String(size).padStart(5);
+            const mtime = stat.mtime ?? new Date(0);
+            const dateStr = formatDate(mtime);
+            stdout += `${mode} 1 user user ${sizeStr} ${dateStr} ${path}${type}\n`;
+          } else {
+            stdout += path + "\n";
+          }
+        } catch {
+          stderr += `ls: cannot access '${path}': No such file or directory\n`;
+          exitCode = 2;
+        }
+        continue;
       }
 
       // Check if it's a glob pattern

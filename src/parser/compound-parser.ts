@@ -32,6 +32,11 @@ export function parseIf(p: Parser): IfNode {
   const condition = p.parseCompoundList();
   p.expect(TokenType.THEN);
   const body = p.parseCompoundList();
+  // Empty body is a syntax error in bash
+  if (body.length === 0) {
+    const nextTok = p.check(TokenType.FI) ? "fi" : p.check(TokenType.ELSE) ? "else" : p.check(TokenType.ELIF) ? "elif" : "fi";
+    p.error(`syntax error near unexpected token \`${nextTok}'`);
+  }
   clauses.push({ condition, body });
 
   // Parse elif clauses
@@ -40,6 +45,11 @@ export function parseIf(p: Parser): IfNode {
     const elifCondition = p.parseCompoundList();
     p.expect(TokenType.THEN);
     const elifBody = p.parseCompoundList();
+    // Empty elif body is a syntax error
+    if (elifBody.length === 0) {
+      const nextTok = p.check(TokenType.FI) ? "fi" : p.check(TokenType.ELSE) ? "else" : p.check(TokenType.ELIF) ? "elif" : "fi";
+      p.error(`syntax error near unexpected token \`${nextTok}'`);
+    }
     clauses.push({ condition: elifCondition, body: elifBody });
   }
 
@@ -48,6 +58,10 @@ export function parseIf(p: Parser): IfNode {
   if (p.check(TokenType.ELSE)) {
     p.advance();
     elseBody = p.parseCompoundList();
+    // Empty else body is a syntax error
+    if (elseBody.length === 0) {
+      p.error("syntax error near unexpected token `fi'");
+    }
   }
 
   p.expect(TokenType.FI);
@@ -180,6 +194,10 @@ export function parseWhile(p: Parser): WhileNode {
   const condition = p.parseCompoundList();
   p.expect(TokenType.DO);
   const body = p.parseCompoundList();
+  // Empty body is a syntax error in bash
+  if (body.length === 0) {
+    p.error("syntax error near unexpected token `done'");
+  }
   p.expect(TokenType.DONE);
 
   const redirections = p.parseOptionalRedirections();
@@ -192,6 +210,10 @@ export function parseUntil(p: Parser): UntilNode {
   const condition = p.parseCompoundList();
   p.expect(TokenType.DO);
   const body = p.parseCompoundList();
+  // Empty body is a syntax error in bash
+  if (body.length === 0) {
+    p.error("syntax error near unexpected token `done'");
+  }
   p.expect(TokenType.DONE);
 
   const redirections = p.parseOptionalRedirections();

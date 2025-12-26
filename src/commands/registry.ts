@@ -30,6 +30,8 @@ export type CommandName =
   | "wc"
   | "stat"
   | "grep"
+  | "fgrep"
+  | "egrep"
   | "sed"
   | "awk"
   | "sort"
@@ -60,6 +62,7 @@ export type CommandName =
   | "sleep"
   | "timeout"
   | "seq"
+  | "expr"
   | "html-to-markdown"
   | "help";
 
@@ -151,6 +154,14 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "grep",
     load: async () => (await import("./grep/grep.js")).grepCommand,
+  },
+  {
+    name: "fgrep",
+    load: async () => (await import("./grep/grep.js")).fgrepCommand,
+  },
+  {
+    name: "egrep",
+    load: async () => (await import("./grep/grep.js")).egrepCommand,
   },
   {
     name: "sed",
@@ -285,6 +296,10 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "seq",
     load: async () => (await import("./seq/seq.js")).seqCommand,
+  },
+  {
+    name: "expr",
+    load: async () => (await import("./expr/expr.js")).exprCommand,
   },
 
   // HTML processing

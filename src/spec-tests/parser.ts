@@ -298,7 +298,7 @@ function parseSingleLineAssertion(line: string): Assertion | null {
  * Get the expected stdout for a test case (considering bash-specific variants)
  */
 export function getExpectedStdout(testCase: TestCase): string | null {
-  // First, look for bash-specific assertions
+  // First, look for bash-specific assertions (BUG or OK with shells)
   for (const assertion of testCase.assertions) {
     if (
       (assertion.type === "stdout" || assertion.type === "stdout-json") &&

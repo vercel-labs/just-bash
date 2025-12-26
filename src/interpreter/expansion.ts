@@ -18,7 +18,7 @@ import type {
 } from "../ast/types.js";
 import { GlobExpander } from "../shell/glob.js";
 import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
-import { BadSubstitutionError, ExitError, NounsetError } from "./errors.js";
+import { ArithmeticError, BadSubstitutionError, ExitError, NounsetError } from "./errors.js";
 import { getArrayIndices } from "./helpers/array.js";
 import { escapeRegex } from "./helpers/regex.js";
 import { getLiteralValue, isQuotedPart } from "./helpers/word-parts.js";
@@ -217,11 +217,26 @@ function getWordPartsValue(parts: WordPart[]): string {
 }
 
 // Helper to fully expand word parts (including variables, arithmetic, etc.)
+// inDoubleQuotes flag suppresses tilde expansion
 function expandWordPartsSync(
   ctx: InterpreterContext,
   parts: WordPart[],
+  inDoubleQuotes = false,
 ): string {
-  return parts.map((part) => expandPartSync(ctx, part)).join("");
+  return parts.map((part) => expandPartSync(ctx, part, inDoubleQuotes)).join("");
+}
+
+// Async version of expandWordPartsSync for parts that contain command substitution
+async function expandWordPartsAsync(
+  ctx: InterpreterContext,
+  parts: WordPart[],
+  inDoubleQuotes = false,
+): Promise<string> {
+  const results: string[] = [];
+  for (const part of parts) {
+    results.push(await expandPart(ctx, part));
+  }
+  return results.join("");
 }
 
 /**
@@ -283,9 +298,31 @@ function arithExprNeedsAsync(
       return arithExprNeedsAsync(expr.expression);
     case "ArithArrayElement":
       return arithExprNeedsAsync(expr.index);
+    case "ArithConcat":
+      return expr.parts.some(arithExprNeedsAsync);
     default:
       return false;
   }
+}
+
+function paramExpansionNeedsAsync(part: ParameterExpansionPart): boolean {
+  const op = part.operation;
+  if (!op) return false;
+
+  // Check if the operation's word contains async parts
+  if ('word' in op && op.word && wordNeedsAsync(op.word)) {
+    return true;
+  }
+  // Check pattern and replacement in PatternReplacement
+  if (op.type === 'PatternReplacement') {
+    if (op.pattern && wordNeedsAsync(op.pattern)) return true;
+    if (op.replacement && wordNeedsAsync(op.replacement)) return true;
+  }
+  // Check pattern in PatternRemoval
+  if (op.type === 'PatternRemoval' && op.pattern && wordNeedsAsync(op.pattern)) {
+    return true;
+  }
+  return false;
 }
 
 function partNeedsAsync(part: WordPart): boolean {
@@ -300,6 +337,8 @@ function partNeedsAsync(part: WordPart): boolean {
       return part.items.some(
         (item) => item.type === "Word" && wordNeedsAsync(item.word),
       );
+    case "ParameterExpansion":
+      return paramExpansionNeedsAsync(part);
     default:
       return false;
   }
@@ -313,16 +352,21 @@ function wordNeedsAsync(word: WordNode): boolean {
 /**
  * Handle simple part types that don't require recursion or async.
  * Returns the expanded string, or null if the part type needs special handling.
+ * inDoubleQuotes flag suppresses tilde expansion (tilde is literal inside "...")
  */
-function expandSimplePart(ctx: InterpreterContext, part: WordPart): string | null {
+function expandSimplePart(ctx: InterpreterContext, part: WordPart, inDoubleQuotes = false): string | null {
   // Handle literal parts (Literal, SingleQuoted, Escaped)
   const literal = getLiteralValue(part);
   if (literal !== null) return literal;
 
   switch (part.type) {
     case "ParameterExpansion":
-      return expandParameter(ctx, part);
+      return expandParameter(ctx, part, inDoubleQuotes);
     case "TildeExpansion":
+      // Tilde expansion doesn't happen inside double quotes
+      if (inDoubleQuotes) {
+        return part.user === null ? "~" : `~${part.user}`;
+      }
       if (part.user === null) {
         return ctx.state.env.HOME || "/home/user";
       }
@@ -335,9 +379,10 @@ function expandSimplePart(ctx: InterpreterContext, part: WordPart): string | nul
 }
 
 // Sync version of expandPart for parts that don't need async
-function expandPartSync(ctx: InterpreterContext, part: WordPart): string {
+// inDoubleQuotes flag suppresses tilde expansion
+function expandPartSync(ctx: InterpreterContext, part: WordPart, inDoubleQuotes = false): string {
   // Try simple cases first
-  const simple = expandSimplePart(ctx, part);
+  const simple = expandSimplePart(ctx, part, inDoubleQuotes);
   if (simple !== null) return simple;
 
   // Handle cases that need recursion
@@ -345,7 +390,8 @@ function expandPartSync(ctx: InterpreterContext, part: WordPart): string {
     case "DoubleQuoted": {
       const parts: string[] = [];
       for (const p of part.parts) {
-        parts.push(expandPartSync(ctx, p));
+        // Inside double quotes, suppress tilde expansion
+        parts.push(expandPartSync(ctx, p, true));
       }
       return parts.join("");
     }
@@ -414,11 +460,13 @@ function analyzeWordParts(parts: WordPart[]): {
   hasCommandSub: boolean;
   hasArrayVar: boolean;
   hasArrayAtExpansion: boolean;
+  hasParamExpansion: boolean;
 } {
   let hasQuoted = false;
   let hasCommandSub = false;
   let hasArrayVar = false;
   let hasArrayAtExpansion = false;
+  let hasParamExpansion = false;
 
   for (const part of parts) {
     if (part.type === "SingleQuoted" || part.type === "DoubleQuoted") {
@@ -440,15 +488,15 @@ function analyzeWordParts(parts: WordPart[]): {
     if (part.type === "CommandSubstitution") {
       hasCommandSub = true;
     }
-    if (
-      part.type === "ParameterExpansion" &&
-      (part.parameter === "@" || part.parameter === "*")
-    ) {
-      hasArrayVar = true;
+    if (part.type === "ParameterExpansion") {
+      hasParamExpansion = true;
+      if (part.parameter === "@" || part.parameter === "*") {
+        hasArrayVar = true;
+      }
     }
   }
 
-  return { hasQuoted, hasCommandSub, hasArrayVar, hasArrayAtExpansion };
+  return { hasQuoted, hasCommandSub, hasArrayVar, hasArrayAtExpansion, hasParamExpansion };
 }
 
 /**
@@ -459,6 +507,23 @@ function hasBraceExpansion(parts: WordPart[]): boolean {
     if (part.type === "BraceExpansion") return true;
     if (part.type === "DoubleQuoted" && hasBraceExpansion(part.parts))
       return true;
+  }
+  return false;
+}
+
+/**
+ * Check if brace expansion contains parts that need async (command substitution)
+ */
+function braceExpansionNeedsAsync(parts: WordPart[]): boolean {
+  for (const part of parts) {
+    if (part.type === "BraceExpansion") {
+      for (const item of part.items) {
+        if (item.type === "Word" && wordNeedsAsync(item.word)) {
+          return true;
+        }
+      }
+    }
+    if (partNeedsAsync(part)) return true;
   }
   return false;
 }
@@ -588,16 +653,129 @@ function expandWordWithBraces(
   return expanded.map((parts) => parts.join(""));
 }
 
+/**
+ * Async version of expandBracesInParts for when brace expansion contains command substitution
+ */
+async function expandBracesInPartsAsync(
+  ctx: InterpreterContext,
+  parts: WordPart[],
+  operationCounter: { count: number } = { count: 0 },
+): Promise<string[][]> {
+  if (operationCounter.count > MAX_BRACE_OPERATIONS) {
+    return [[]];
+  }
+
+  let results: string[][] = [[]];
+
+  for (const part of parts) {
+    if (part.type === "BraceExpansion") {
+      const braceValues: string[] = [];
+      let hasInvalidRange = false;
+      let invalidRangeLiteral = "";
+      for (const item of part.items) {
+        if (item.type === "Range") {
+          const range = expandBraceRange(
+            item.start,
+            item.end,
+            item.step,
+            item.startStr,
+            item.endStr,
+          );
+          if (range.expanded) {
+            for (const val of range.expanded) {
+              operationCounter.count++;
+              braceValues.push(val);
+            }
+          } else {
+            hasInvalidRange = true;
+            invalidRangeLiteral = range.literal;
+            break;
+          }
+        } else {
+          // Word item - expand it (recursively handle nested braces)
+          const expanded = await expandBracesInPartsAsync(
+            ctx,
+            item.word.parts,
+            operationCounter,
+          );
+          for (const exp of expanded) {
+            operationCounter.count++;
+            braceValues.push(exp.join(""));
+          }
+        }
+      }
+
+      if (hasInvalidRange) {
+        for (const result of results) {
+          operationCounter.count++;
+          result.push(invalidRangeLiteral);
+        }
+        continue;
+      }
+
+      const newSize = results.length * braceValues.length;
+      if (
+        newSize > MAX_BRACE_EXPANSION_RESULTS ||
+        operationCounter.count > MAX_BRACE_OPERATIONS
+      ) {
+        return results;
+      }
+
+      const newResults: string[][] = [];
+      for (const result of results) {
+        for (const val of braceValues) {
+          operationCounter.count++;
+          if (operationCounter.count > MAX_BRACE_OPERATIONS) {
+            return newResults.length > 0 ? newResults : results;
+          }
+          newResults.push([...result, val]);
+        }
+      }
+      results = newResults;
+    } else {
+      // Non-brace part: expand it asynchronously and append to all results
+      const expanded = await expandPart(ctx, part);
+      for (const result of results) {
+        operationCounter.count++;
+        result.push(expanded);
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Async version of expandWordWithBraces
+ */
+async function expandWordWithBracesAsync(
+  ctx: InterpreterContext,
+  word: WordNode,
+): Promise<string[]> {
+  const parts = word.parts;
+
+  if (!hasBraceExpansion(parts)) {
+    return [await expandWord(ctx, word)];
+  }
+
+  const expanded = await expandBracesInPartsAsync(ctx, parts);
+  return expanded.map((parts) => parts.join(""));
+}
+
 export async function expandWordWithGlob(
   ctx: InterpreterContext,
   word: WordNode,
 ): Promise<{ values: string[]; quoted: boolean }> {
   const wordParts = word.parts;
-  const { hasQuoted, hasCommandSub, hasArrayVar, hasArrayAtExpansion } = analyzeWordParts(wordParts);
+  const { hasQuoted, hasCommandSub, hasArrayVar, hasArrayAtExpansion, hasParamExpansion } = analyzeWordParts(wordParts);
 
   // Handle brace expansion first (produces multiple values)
-  const braceExpanded = hasBraceExpansion(wordParts)
-    ? expandWordWithBraces(ctx, word)
+  // Use async version if brace expansion contains command substitution
+  const hasBraces = hasBraceExpansion(wordParts);
+  const braceExpanded = hasBraces
+    ? (braceExpansionNeedsAsync(wordParts)
+        ? await expandWordWithBracesAsync(ctx, word)
+        : expandWordWithBraces(ctx, word))
     : null;
 
   if (braceExpanded && braceExpanded.length > 1) {
@@ -677,7 +855,8 @@ export async function expandWordWithGlob(
   // Word splitting based on IFS
   const ifs = ctx.state.env.IFS;
   // If IFS is set to empty string, no word splitting occurs
-  if (!hasQuoted && (hasCommandSub || hasArrayVar) && ifs !== "") {
+  // Word splitting applies to results of parameter expansion, command substitution, and arithmetic expansion
+  if (!hasQuoted && (hasCommandSub || hasArrayVar || hasParamExpansion) && ifs !== "") {
     // Default IFS is space/tab/newline
     const ifsChars = ifs === undefined ? " \t\n" : ifs;
     // Build regex from IFS characters
@@ -690,8 +869,28 @@ export async function expandWordWithGlob(
     }).join("");
     if (ifsPattern && new RegExp(`[${ifsPattern}]`).test(value)) {
       const splitValues = value.split(new RegExp(`[${ifsPattern}]+`)).filter((v) => v !== "");
-      if (splitValues.length > 1) {
-        return { values: splitValues, quoted: false };
+      // If split produced different result than original, return split values
+      // This handles:
+      // - Multiple fields: "a b c" -> ["a", "b", "c"]
+      // - Single field with trimmed IFS: " a " -> ["a"]
+      // - All IFS characters: "   " -> []
+      if (splitValues.length !== 1 || splitValues[0] !== value) {
+        // Perform glob expansion on each split value
+        const expandedValues: string[] = [];
+        const globExpander = new GlobExpander(ctx.fs, ctx.state.cwd);
+        for (const sv of splitValues) {
+          if (/[*?[]/.test(sv)) {
+            const matches = await globExpander.expand(sv);
+            if (matches.length > 0) {
+              expandedValues.push(...matches);
+            } else {
+              expandedValues.push(sv);
+            }
+          } else {
+            expandedValues.push(sv);
+          }
+        }
+        return { values: expandedValues, quoted: false };
       }
     }
   }
@@ -736,6 +935,11 @@ async function expandPart(
   ctx: InterpreterContext,
   part: WordPart,
 ): Promise<string> {
+  // Check if ParameterExpansion needs async (has command substitution in operation)
+  if (part.type === "ParameterExpansion" && paramExpansionNeedsAsync(part)) {
+    return expandParameterAsync(ctx, part);
+  }
+
   // Try simple cases first
   const simple = expandSimplePart(ctx, part);
   if (simple !== null) return simple;
@@ -804,6 +1008,7 @@ async function expandPart(
 function expandParameter(
   ctx: InterpreterContext,
   part: ParameterExpansionPart,
+  inDoubleQuotes = false,
 ): string {
   const { parameter, operation } = part;
 
@@ -829,7 +1034,8 @@ function expandParameter(
       const useDefault = isUnset || (operation.checkEmpty && isEmpty);
       if (useDefault && operation.word) {
         // Only expand when actually using the default (lazy evaluation)
-        return expandWordPartsSync(ctx, operation.word.parts);
+        // Pass inDoubleQuotes to suppress tilde expansion inside "..."
+        return expandWordPartsSync(ctx, operation.word.parts, inDoubleQuotes);
       }
       return value;
     }
@@ -838,7 +1044,8 @@ function expandParameter(
       const useDefault = isUnset || (operation.checkEmpty && isEmpty);
       if (useDefault && operation.word) {
         // Only expand when actually using the default (lazy evaluation)
-        const defaultValue = expandWordPartsSync(ctx, operation.word.parts);
+        // Pass inDoubleQuotes to suppress tilde expansion inside "..."
+        const defaultValue = expandWordPartsSync(ctx, operation.word.parts, inDoubleQuotes);
         ctx.state.env[parameter] = defaultValue;
         return defaultValue;
       }
@@ -849,7 +1056,7 @@ function expandParameter(
       const shouldError = isUnset || (operation.checkEmpty && isEmpty);
       if (shouldError) {
         const message = operation.word
-          ? expandWordPartsSync(ctx, operation.word.parts)
+          ? expandWordPartsSync(ctx, operation.word.parts, inDoubleQuotes)
           : `${parameter}: parameter null or not set`;
         // Use ExitError to properly exit with status 1 and error message
         throw new ExitError(1, "", `bash: ${message}\n`);
@@ -861,7 +1068,8 @@ function expandParameter(
       const useAlternative = !(isUnset || (operation.checkEmpty && isEmpty));
       if (useAlternative && operation.word) {
         // Only expand when actually using the alternative (lazy evaluation)
-        return expandWordPartsSync(ctx, operation.word.parts);
+        // Pass inDoubleQuotes to suppress tilde expansion inside "..."
+        return expandWordPartsSync(ctx, operation.word.parts, inDoubleQuotes);
       }
       return "";
     }
@@ -1058,6 +1266,161 @@ function expandParameter(
 
     default:
       return value;
+  }
+}
+
+// Async version of expandParameter for parameter expansions that contain command substitution
+async function expandParameterAsync(
+  ctx: InterpreterContext,
+  part: ParameterExpansionPart,
+  inDoubleQuotes = false,
+): Promise<string> {
+  const { parameter, operation } = part;
+
+  // Operations that handle unset variables should not trigger nounset
+  const skipNounset =
+    operation &&
+    (operation.type === "DefaultValue" ||
+      operation.type === "AssignDefault" ||
+      operation.type === "UseAlternative" ||
+      operation.type === "ErrorIfUnset");
+
+  const value = getVariable(ctx, parameter, !skipNounset);
+
+  if (!operation) {
+    return value;
+  }
+
+  const isUnset = !(parameter in ctx.state.env);
+  const isEmpty = value === "";
+
+  switch (operation.type) {
+    case "DefaultValue": {
+      const useDefault = isUnset || (operation.checkEmpty && isEmpty);
+      if (useDefault && operation.word) {
+        return expandWordPartsAsync(ctx, operation.word.parts, inDoubleQuotes);
+      }
+      return value;
+    }
+
+    case "AssignDefault": {
+      const useDefault = isUnset || (operation.checkEmpty && isEmpty);
+      if (useDefault && operation.word) {
+        const defaultValue = await expandWordPartsAsync(ctx, operation.word.parts, inDoubleQuotes);
+        ctx.state.env[parameter] = defaultValue;
+        return defaultValue;
+      }
+      return value;
+    }
+
+    case "ErrorIfUnset": {
+      const shouldError = isUnset || (operation.checkEmpty && isEmpty);
+      if (shouldError) {
+        const message = operation.word
+          ? await expandWordPartsAsync(ctx, operation.word.parts, inDoubleQuotes)
+          : `${parameter}: parameter null or not set`;
+        throw new ExitError(1, "", `bash: ${message}\n`);
+      }
+      return value;
+    }
+
+    case "UseAlternative": {
+      const useAlternative = !(isUnset || (operation.checkEmpty && isEmpty));
+      if (useAlternative && operation.word) {
+        return expandWordPartsAsync(ctx, operation.word.parts, inDoubleQuotes);
+      }
+      return "";
+    }
+
+    case "PatternRemoval": {
+      const pattern = operation.pattern
+        ? await expandWordPartsAsync(ctx, operation.pattern.parts)
+        : "";
+      if (operation.side === "prefix") {
+        const regex = patternToRegex(pattern, operation.greedy);
+        return value.replace(new RegExp(`^${regex}`), "");
+      }
+      const regex = new RegExp(`${patternToRegex(pattern, true)}$`);
+      if (operation.greedy) {
+        return value.replace(regex, "");
+      }
+      for (let i = value.length; i >= 0; i--) {
+        const suffix = value.slice(i);
+        if (regex.test(suffix)) {
+          return value.slice(0, i);
+        }
+      }
+      return value;
+    }
+
+    case "PatternReplacement": {
+      let regex = "";
+      if (operation.pattern) {
+        for (const part of operation.pattern.parts) {
+          if (part.type === "Glob") {
+            regex += patternToRegex(part.pattern, true);
+          } else if (
+            part.type === "Literal" ||
+            part.type === "SingleQuoted" ||
+            part.type === "Escaped"
+          ) {
+            regex += escapeRegex(part.value);
+          } else if (part.type === "DoubleQuoted") {
+            const expanded = await expandWordPartsAsync(ctx, part.parts);
+            regex += escapeRegex(expanded);
+          } else if (part.type === "ParameterExpansion") {
+            const expanded = await expandPart(ctx, part);
+            regex += patternToRegex(expanded, true);
+          } else {
+            const expanded = await expandPart(ctx, part);
+            regex += escapeRegex(expanded);
+          }
+        }
+      }
+
+      const replacement = operation.replacement
+        ? await expandWordPartsAsync(ctx, operation.replacement.parts)
+        : "";
+
+      if (regex === "") {
+        return value;
+      }
+
+      if (operation.anchor === "start") {
+        regex = "^" + regex;
+      } else if (operation.anchor === "end") {
+        regex = regex + "$";
+      }
+      const flags = operation.all ? "g" : "";
+
+      try {
+        const re = new RegExp(regex, flags);
+        if (operation.all) {
+          let result = "";
+          let lastIndex = 0;
+          let match: RegExpExecArray | null;
+          while ((match = re.exec(value)) !== null) {
+            if (match[0].length === 0 && match.index === value.length) {
+              break;
+            }
+            result += value.slice(lastIndex, match.index) + replacement;
+            lastIndex = match.index + match[0].length;
+            if (match[0].length === 0) {
+              lastIndex++;
+            }
+          }
+          result += value.slice(lastIndex);
+          return result;
+        }
+        return value.replace(re, replacement);
+      } catch {
+        return value;
+      }
+    }
+
+    // Other operations don't have words with command substitution, use sync
+    default:
+      return expandParameter(ctx, part, inDoubleQuotes);
   }
 }
 

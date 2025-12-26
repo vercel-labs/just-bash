@@ -44,6 +44,10 @@ export interface InterpreterState {
   groupStdin?: string;
   /** Set of variable names that are readonly */
   readonlyVars?: Set<string>;
+  /** Exit code from expansion errors (arithmetic, etc.) - overrides command exit code */
+  expansionExitCode?: number;
+  /** Stderr from expansion errors */
+  expansionStderr?: string;
 }
 
 export interface InterpreterContext {

@@ -518,6 +518,9 @@ export function wordToString(_p: Parser, word: WordNode): string {
       case "ParameterExpansion":
         result += `\${${part.parameter}}`;
         break;
+      case "Glob":
+        result += part.pattern;
+        break;
       default:
         // For complex parts, just use a placeholder
         result += part.type;

@@ -55,6 +55,7 @@ import {
   executeWhile,
 } from "./control-flow.js";
 import {
+  ArithmeticError,
   BadSubstitutionError,
   BreakError,
   ContinueError,
@@ -233,7 +234,7 @@ export class Interpreter {
       !lastPipelineNegated &&
       !this.ctx.state.inCondition
     ) {
-      throw new ErrexitError(exitCode);
+      throw new ErrexitError(exitCode, stdout, stderr);
     }
 
     return { stdout, stderr, exitCode };
@@ -340,6 +341,22 @@ export class Interpreter {
   // ===========================================================================
 
   private async executeSimpleCommand(
+    node: SimpleCommandNode,
+    stdin: string,
+  ): Promise<ExecResult> {
+    try {
+      return await this.executeSimpleCommandInner(node, stdin);
+    } catch (error) {
+      if (error instanceof ArithmeticError) {
+        // Arithmetic errors in expansion should not terminate the script
+        // Just return exit code 1 with the error message on stderr
+        return { stdout: "", stderr: error.stderr, exitCode: 1 };
+      }
+      throw error;
+    }
+  }
+
+  private async executeSimpleCommandInner(
     node: SimpleCommandNode,
     stdin: string,
   ): Promise<ExecResult> {
@@ -487,8 +504,11 @@ export class Interpreter {
 
     // Handle empty command name specially
     // If the command word contains ONLY command substitutions/expansions and expands
-    // to empty, treat it as a no-op (status 0). This matches bash behavior where
-    // x=''; $x is a no-op, not "command not found".
+    // to empty, word-splitting removes the empty result. If there are args, the first
+    // arg becomes the command name. This matches bash behavior:
+    // - x=''; $x is a no-op (empty, no args)
+    // - x=''; $x Y runs command Y (empty command name, Y becomes command)
+    // - `true` X runs command X (since `true` outputs nothing)
     // However, a literal empty string (like '') is "command not found".
     if (!commandName) {
       const isOnlyExpansions = node.name.parts.every(
@@ -498,7 +518,14 @@ export class Interpreter {
           p.type === "ArithmeticExpansion",
       );
       if (isOnlyExpansions) {
-        // Empty result from variable/command substitution - treat as no-op (status 0)
+        // Empty result from variable/command substitution - word split removes it
+        // If there are args, the first arg becomes the command name
+        if (args.length > 0) {
+          const newCommandName = args.shift()!;
+          quotedArgs.shift();
+          return await this.runCommand(newCommandName, args, quotedArgs, stdin);
+        }
+        // No args - treat as no-op (status 0)
         // Preserve lastExitCode for command subs like $(exit 42)
         return { stdout: "", stderr: "", exitCode: this.ctx.state.lastExitCode };
       }

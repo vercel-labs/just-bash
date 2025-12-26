@@ -406,8 +406,17 @@ let lastParseError = false;
 function parseIntArg(arg: string): number {
   lastParseError = false;
 
-  // Trim leading/trailing whitespace
-  arg = arg.trim();
+  // Only trim leading whitespace - trailing whitespace is invalid
+  const trimmed = arg.trimStart();
+
+  // Check for trailing whitespace (invalid)
+  if (trimmed !== trimmed.trimEnd()) {
+    lastParseError = true;
+    // Bash prints 0 for invalid input
+    return 0;
+  }
+
+  arg = trimmed;
 
   // Handle character notation: 'x' or "x" gives ASCII value
   // Also handle \'x and \"x (escaped quotes, which shell may pass through)
@@ -736,27 +745,29 @@ function formatFloat(spec: string, specifier: string, num: number): string {
 
   if (lowerSpec === "e") {
     result = num.toExponential(precision);
+    // Ensure exponent has at least 2 digits (e+0 -> e+00)
+    result = result.replace(/e([+-])(\d)$/, "e$10$2");
     if (specifier === "E") result = result.toUpperCase();
   } else if (lowerSpec === "f") {
     result = num.toFixed(precision);
+    // # flag for %f: always show decimal point even if precision is 0
+    if (flags.includes("#") && precision === 0 && !result.includes(".")) {
+      result += ".";
+    }
   } else if (lowerSpec === "g") {
     // %g: use shortest representation between %e and %f
     result = num.toPrecision(precision || 1);
-    // Remove trailing zeros unless # flag
+    // # flag: keep trailing zeros (do not omit zeros in fraction)
+    // Without #: remove trailing zeros and unnecessary decimal point
     if (!flags.includes("#")) {
       result = result.replace(/\.?0+$/, "");
       result = result.replace(/\.?0+e/, "e");
     }
+    // Ensure exponent has at least 2 digits if present
+    result = result.replace(/e([+-])(\d)$/, "e$10$2");
     if (specifier === "G") result = result.toUpperCase();
   } else {
     result = num.toString();
-  }
-
-  // Handle # flag (force decimal point and trailing zeros for g)
-  if (flags.includes("#") && lowerSpec === "g") {
-    if (!result.includes(".") && !result.includes("e")) {
-      result += ".";
-    }
   }
 
   // Handle sign

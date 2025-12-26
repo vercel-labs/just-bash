@@ -534,8 +534,7 @@ export class Parser {
       t === TokenType.ESAC ||
       t === TokenType.IN ||
       // Operators that can appear as words in command arguments (e.g., "[ ! -z foo ]")
-      t === TokenType.BANG ||
-      t === TokenType.RBRACKET
+      t === TokenType.BANG
     );
   }
 
@@ -573,9 +572,73 @@ export class Parser {
     let depth = 1;
     let i = cmdStart;
 
+    // Track context for case statements
+    let inSingleQuote = false;
+    let inDoubleQuote = false;
+    let caseDepth = 0;
+    let inCasePattern = false;
+    let wordBuffer = "";
+
     while (i < value.length && depth > 0) {
-      if (value[i] === "(") depth++;
-      else if (value[i] === ")") depth--;
+      const c = value[i];
+
+      if (inSingleQuote) {
+        if (c === "'") inSingleQuote = false;
+      } else if (inDoubleQuote) {
+        if (c === "\\" && i + 1 < value.length) {
+          i++; // Skip escaped char
+        } else if (c === '"') {
+          inDoubleQuote = false;
+        }
+      } else {
+        // Not in quotes
+        if (c === "'") {
+          inSingleQuote = true;
+          wordBuffer = "";
+        } else if (c === '"') {
+          inDoubleQuote = true;
+          wordBuffer = "";
+        } else if (c === "\\" && i + 1 < value.length) {
+          i++; // Skip escaped char
+          wordBuffer = "";
+        } else if (/[a-zA-Z_]/.test(c)) {
+          wordBuffer += c;
+        } else {
+          // Check for keywords
+          if (wordBuffer === "case") {
+            caseDepth++;
+            inCasePattern = false;
+          } else if (wordBuffer === "in" && caseDepth > 0) {
+            inCasePattern = true;
+          } else if (wordBuffer === "esac" && caseDepth > 0) {
+            caseDepth--;
+            inCasePattern = false;
+          }
+          wordBuffer = "";
+
+          if (c === "(") {
+            // Check for $( which starts nested command substitution
+            if (i > 0 && value[i - 1] === "$") {
+              depth++;
+            } else if (!inCasePattern) {
+              depth++;
+            }
+          } else if (c === ")") {
+            if (inCasePattern) {
+              // ) ends the case pattern, doesn't affect depth
+              inCasePattern = false;
+            } else {
+              depth--;
+            }
+          } else if (c === ";") {
+            // ;; in case body means next pattern
+            if (caseDepth > 0 && i + 1 < value.length && value[i + 1] === ";") {
+              inCasePattern = true;
+            }
+          }
+        }
+      }
+
       if (depth > 0) i++;
     }
 
