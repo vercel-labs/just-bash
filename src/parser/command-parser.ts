@@ -235,13 +235,13 @@ export function parseAssignment(p: Parser): AssignmentNode {
   // The '(' can be part of the token (valueStr === "(") or a separate token
   // but only if it's immediately adjacent (no space between = and ()
   // Array assignment to subscripted element is not allowed: a[0]=(1 2) is invalid
+  // But we parse it anyway and handle the error at runtime (bash behavior)
   if (valueStr === "(") {
-    if (subscript !== undefined) {
-      p.error(`cannot assign list to array member`);
-    }
     const elements = parseArrayElements(p);
     p.expect(TokenType.RPAREN);
-    return AST.assignment(name, null, append, elements);
+    // If subscript is defined, include it in name so runtime can detect the error
+    const assignName = subscript !== undefined ? `${name}[${subscript}]` : name;
+    return AST.assignment(assignName, null, append, elements);
   }
 
   // Check for adjacent LPAREN: a=() with no space
@@ -249,13 +249,13 @@ export function parseAssignment(p: Parser): AssignmentNode {
     const currentToken = p.current();
     // Only allow if LPAREN is immediately after the assignment word (token.end === lparen.start)
     if (token.end === currentToken.start) {
-      if (subscript !== undefined) {
-        p.error(`cannot assign list to array member`);
-      }
       p.advance(); // consume LPAREN
       const elements = parseArrayElements(p);
       p.expect(TokenType.RPAREN);
-      return AST.assignment(name, null, append, elements);
+      // If subscript is defined, include it in name so runtime can detect the error
+      const assignName =
+        subscript !== undefined ? `${name}[${subscript}]` : name;
+      return AST.assignment(assignName, null, append, elements);
     }
     // Space between = and ( is a syntax error - let the parser handle it
   }

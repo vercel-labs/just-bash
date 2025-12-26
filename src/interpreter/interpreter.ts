@@ -58,7 +58,6 @@ import {
 } from "./control-flow.js";
 import {
   ArithmeticError,
-  ArrayIndexError,
   BadSubstitutionError,
   BreakError,
   ContinueError,
@@ -257,10 +256,18 @@ export class Interpreter {
       try {
         result = await this.executeCommand(command, stdin);
       } catch (error) {
+        // BadSubstitutionError should fail the command but not abort the script
+        if (error instanceof BadSubstitutionError) {
+          result = {
+            stdout: error.stdout,
+            stderr: error.stderr,
+            exitCode: 1,
+          };
+        }
         // In a MULTI-command pipeline, each command runs in a subshell context
         // So exit/return only affect that segment, not the whole script
         // For single commands, let ExitError propagate to terminate the script
-        if (error instanceof ExitError && node.commands.length > 1) {
+        else if (error instanceof ExitError && node.commands.length > 1) {
           result = {
             stdout: error.stdout,
             stderr: error.stderr,
@@ -372,6 +379,16 @@ export class Interpreter {
       // Handle array assignment: VAR=(a b c)
       // Each element can be a glob that expands to multiple values
       if (assignment.array) {
+        // Check if trying to assign array to subscripted element: a[0]=(1 2) is invalid
+        // This should be a runtime error (exit code 1) not a parse error
+        if (/\[.+\]$/.test(name)) {
+          // Bash outputs to stderr and returns exit code 1
+          return result(
+            "",
+            `bash: ${name}: cannot assign list to array member\n`,
+            1,
+          );
+        }
         const allElements: string[] = [];
         for (const element of assignment.array) {
           const expanded = await expandWordWithGlob(this.ctx, element);
@@ -387,6 +404,12 @@ export class Interpreter {
       const value = assignment.value
         ? await expandWord(this.ctx, assignment.value)
         : "";
+
+      // Check for empty subscript assignment: a[]=value is invalid
+      const emptySubscriptMatch = name.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[\]$/);
+      if (emptySubscriptMatch) {
+        return result("", `bash: ${name}: bad array subscript\n`, 1);
+      }
 
       // Check for array subscript assignment: a[subscript]=value
       const subscriptMatch = name.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
@@ -418,11 +441,14 @@ export class Interpreter {
         if (index < 0) {
           const elements = getArrayElements(this.ctx, arrayName);
           const len = elements.length;
-          const originalIndex = index;
           index = len + index;
           if (index < 0) {
-            // Out-of-bounds negative index - throw error
-            throw new ArrayIndexError(arrayName, originalIndex, len);
+            // Out-of-bounds negative index - return error result
+            return result(
+              "",
+              `bash: ${arrayName}[${subscriptExpr}]: bad array subscript\n`,
+              1,
+            );
           }
         }
 

@@ -21,8 +21,12 @@
  */
 
 import type { ArithExpr } from "../ast/types.js";
-import { parseArithNumber } from "../parser/arithmetic-parser.js";
-import { ArithmeticError } from "./errors.js";
+import {
+  parseArithExpr,
+  parseArithNumber,
+} from "../parser/arithmetic-parser.js";
+import { Parser } from "../parser/parser.js";
+import { ArithmeticError, NounsetError } from "./errors.js";
 import { getVariable } from "./expansion.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -155,6 +159,61 @@ function getArithVariable(ctx: InterpreterContext, name: string): string {
 }
 
 /**
+ * Parse a string value as an arithmetic expression.
+ * Unlike resolveArithVariable, this throws on parse errors (e.g., "12 34" is invalid).
+ * Used for array element access where the value must be valid arithmetic.
+ */
+function parseArithValue(value: string): number {
+  if (!value) {
+    return 0;
+  }
+
+  // Try to parse as a simple number
+  const num = Number.parseInt(value, 10);
+  if (!Number.isNaN(num) && /^-?\d+$/.test(value.trim())) {
+    return num;
+  }
+
+  const trimmed = value.trim();
+
+  // If it's empty, return 0
+  if (!trimmed) {
+    return 0;
+  }
+
+  // If it contains spaces and isn't a valid arithmetic expression, it's an error
+  // Parse it to validate - if parsing fails, throw
+  try {
+    const parser = new Parser();
+    const { expr, pos } = parseArithExpr(parser, trimmed, 0);
+    // Check if we parsed the whole string (pos should be at the end)
+    if (pos < trimmed.length) {
+      // There's unparsed content - find the error token
+      const errorToken = trimmed.slice(pos).trim().split(/\s+/)[0];
+      throw new ArithmeticError(
+        `${trimmed}: syntax error in expression (error token is "${errorToken}")`,
+      );
+    }
+    // We don't actually evaluate here - just return the parsed number
+    // Since this is for scalar decay, we just want to validate it's parseable
+    if (expr.type === "ArithNumber") {
+      return expr.value;
+    }
+    // For other expression types, return 0 (they need full evaluation)
+    return num || 0;
+  } catch (error) {
+    if (error instanceof ArithmeticError) {
+      throw error;
+    }
+    // Parse failed - find the error token
+    const errorToken = trimmed.split(/\s+/).slice(1)[0] || trimmed;
+    throw new ArithmeticError(
+      `${trimmed}: syntax error in expression (error token is "${errorToken}")`,
+    );
+  }
+}
+
+/**
  * Recursively resolve a variable name to its numeric value.
  * In bash arithmetic, if a variable contains a string that is another variable name
  * or an arithmetic expression, it is recursively evaluated:
@@ -195,10 +254,9 @@ function resolveArithVariable(
 
   // Dynamic arithmetic: If the value contains arithmetic operators, parse and evaluate it
   // This handles cases like e=1+2; $((e + 3)) => 6
-  // Import parseArithExpr here to avoid circular dependency issues
   try {
-    const { parseArithExpr } = require("../parser/arithmetic-parser.js");
-    const { expr } = parseArithExpr(null, trimmed, 0);
+    const parser = new Parser();
+    const { expr } = parseArithExpr(parser, trimmed, 0);
     // Evaluate the parsed expression (with visited set to prevent infinite recursion)
     return evaluateArithmeticSyncWithVisited(ctx, expr, visited);
   } catch {
@@ -396,13 +454,23 @@ export function evaluateArithmeticSync(
       // But if the variable is a scalar (not an array), s[0] returns the scalar value
       const arrayValue = ctx.state.env[`${expr.array}_${index}`];
       if (arrayValue !== undefined) {
-        return Number.parseInt(arrayValue, 10) || 0;
+        return parseArithValue(arrayValue);
       }
       // Check if it's a scalar variable (strings decay to s[0] = s)
       if (index === 0) {
         const scalarValue = ctx.state.env[expr.array];
         if (scalarValue !== undefined) {
-          return Number.parseInt(scalarValue, 10) || 0;
+          return parseArithValue(scalarValue);
+        }
+      }
+      // Variable is not defined - check nounset
+      if (ctx.state.options.nounset) {
+        // Check if there are ANY elements of this array in env
+        const hasAnyElement = Object.keys(ctx.state.env).some(
+          (key) => key === expr.array || key.startsWith(`${expr.array}_`),
+        );
+        if (!hasAnyElement) {
+          throw new NounsetError(`${expr.array}[${index}]`);
         }
       }
       return 0;
@@ -410,6 +478,12 @@ export function evaluateArithmeticSync(
     case "ArithDoubleSubscript": {
       // Double subscript like a[1][1] is not valid - fail silently with exit code 1
       throw new ArithmeticError("double subscript", "", "");
+    }
+    case "ArithNumberSubscript": {
+      // Number subscript like 1[2] is not valid - throw syntax error at evaluation time
+      throw new ArithmeticError(
+        `${expr.number}${expr.errorToken}: syntax error: invalid arithmetic operator (error token is "${expr.errorToken}")`,
+      );
     }
     case "ArithBinary": {
       // Short-circuit evaluation for logical operators
@@ -567,13 +641,23 @@ export async function evaluateArithmetic(
       // But if the variable is a scalar (not an array), s[0] returns the scalar value
       const arrayValue = ctx.state.env[`${expr.array}_${index}`];
       if (arrayValue !== undefined) {
-        return Number.parseInt(arrayValue, 10) || 0;
+        return parseArithValue(arrayValue);
       }
       // Check if it's a scalar variable (strings decay to s[0] = s)
       if (index === 0) {
         const scalarValue = ctx.state.env[expr.array];
         if (scalarValue !== undefined) {
-          return Number.parseInt(scalarValue, 10) || 0;
+          return parseArithValue(scalarValue);
+        }
+      }
+      // Variable is not defined - check nounset
+      if (ctx.state.options.nounset) {
+        // Check if there are ANY elements of this array in env
+        const hasAnyElement = Object.keys(ctx.state.env).some(
+          (key) => key === expr.array || key.startsWith(`${expr.array}_`),
+        );
+        if (!hasAnyElement) {
+          throw new NounsetError(`${expr.array}[${index}]`);
         }
       }
       return 0;
@@ -582,6 +666,13 @@ export async function evaluateArithmetic(
     case "ArithDoubleSubscript": {
       // Double subscript like a[1][1] is not valid - fail silently with exit code 1
       throw new ArithmeticError("double subscript", "", "");
+    }
+
+    case "ArithNumberSubscript": {
+      // Number subscript like 1[2] is not valid - throw syntax error at evaluation time
+      throw new ArithmeticError(
+        `${expr.number}${expr.errorToken}: syntax error: invalid arithmetic operator (error token is "${expr.errorToken}")`,
+      );
     }
 
     case "ArithBinary": {

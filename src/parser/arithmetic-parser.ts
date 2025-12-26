@@ -585,6 +585,20 @@ function parseArithPrimary(
         `${numStr}.${input[currentPos + 1]}...: syntax error: invalid arithmetic operator`,
       );
     }
+    // Check for array subscript on number: 1[2] is invalid - numbers can't be indexed
+    // Instead of throwing at parse time, return a special node that throws at evaluation
+    if (input[currentPos] === "[") {
+      // Find the error token (everything from [ onwards)
+      const errorToken = input.slice(currentPos).trim();
+      return {
+        expr: {
+          type: "ArithNumberSubscript" as const,
+          number: numStr,
+          errorToken,
+        },
+        pos: input.length, // Consume the rest
+      };
+    }
     const value = parseArithNumber(numStr);
     return { expr: { type: "ArithNumber", value }, pos: currentPos };
   }
