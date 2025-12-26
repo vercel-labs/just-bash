@@ -26,7 +26,9 @@ import {
   partNeedsAsync,
   wordNeedsAsync,
 } from "./expansion/analysis.js";
+import { expandBraceRange } from "./expansion/brace-range.js";
 import { patternToRegex } from "./expansion/pattern.js";
+import { smartWordSplit } from "./expansion/word-split.js";
 import {
   getArrayElements,
   getVariable,
@@ -50,180 +52,6 @@ function _getArithValue(expr: ArithExpr): number {
     return expr.value;
   }
   return 0;
-}
-
-// Maximum iterations for range expansion to prevent infinite loops
-const MAX_SAFE_RANGE_ITERATIONS = 10000;
-
-/**
- * Safely expand a numeric range with step, preventing infinite loops.
- * Returns array of string values, or null if the range is invalid.
- *
- * Bash behavior:
- * - When step is 0, treat it as 1
- * - When step direction is "wrong", use absolute value and go in natural direction
- * - Zero-padding: use the max width of start/end for padding
- */
-function safeExpandNumericRange(
-  start: number,
-  end: number,
-  rawStep: number | undefined,
-  startStr?: string,
-  endStr?: string,
-): string[] | null {
-  // Step of 0 is treated as 1 in bash
-  let step = rawStep ?? 1;
-  if (step === 0) step = 1;
-
-  // Use absolute value of step - bash ignores step sign and uses natural direction
-  const absStep = Math.abs(step);
-
-  const results: string[] = [];
-
-  // Determine zero-padding width (max width of start or end if leading zeros)
-  let padWidth = 0;
-  if (startStr?.match(/^-?0\d/)) {
-    padWidth = Math.max(padWidth, startStr.replace(/^-/, "").length);
-  }
-  if (endStr?.match(/^-?0\d/)) {
-    padWidth = Math.max(padWidth, endStr.replace(/^-/, "").length);
-  }
-
-  const formatNum = (n: number): string => {
-    if (padWidth > 0) {
-      const neg = n < 0;
-      const absStr = String(Math.abs(n)).padStart(padWidth, "0");
-      return neg ? `-${absStr}` : absStr;
-    }
-    return String(n);
-  };
-
-  if (start <= end) {
-    // Ascending range
-    for (
-      let i = start, count = 0;
-      i <= end && count < MAX_SAFE_RANGE_ITERATIONS;
-      i += absStep, count++
-    ) {
-      results.push(formatNum(i));
-    }
-  } else {
-    // Descending range (start > end)
-    for (
-      let i = start, count = 0;
-      i >= end && count < MAX_SAFE_RANGE_ITERATIONS;
-      i -= absStep, count++
-    ) {
-      results.push(formatNum(i));
-    }
-  }
-
-  return results;
-}
-
-/**
- * Safely expand a character range with step, preventing infinite loops.
- * Returns array of string values, or null if the range is invalid.
- *
- * Bash behavior:
- * - When step is 0, treat it as 1
- * - When step direction is "wrong", use absolute value and go in natural direction
- * - Mixed case (e.g., {z..A}) is invalid - return null
- */
-function safeExpandCharRange(
-  start: string,
-  end: string,
-  rawStep: number | undefined,
-): string[] | null {
-  // Step of 0 is treated as 1 in bash
-  let step = rawStep ?? 1;
-  if (step === 0) step = 1;
-
-  const startCode = start.charCodeAt(0);
-  const endCode = end.charCodeAt(0);
-
-  // Use absolute value of step - bash ignores step sign and uses natural direction
-  const absStep = Math.abs(step);
-
-  // Check for mixed case (upper to lower or vice versa) - invalid in bash
-  const startIsUpper = start >= "A" && start <= "Z";
-  const startIsLower = start >= "a" && start <= "z";
-  const endIsUpper = end >= "A" && end <= "Z";
-  const endIsLower = end >= "a" && end <= "z";
-
-  if ((startIsUpper && endIsLower) || (startIsLower && endIsUpper)) {
-    return null; // Mixed case is invalid
-  }
-
-  const results: string[] = [];
-
-  if (startCode <= endCode) {
-    // Ascending range
-    for (
-      let i = startCode, count = 0;
-      i <= endCode && count < MAX_SAFE_RANGE_ITERATIONS;
-      i += absStep, count++
-    ) {
-      results.push(String.fromCharCode(i));
-    }
-  } else {
-    // Descending range
-    for (
-      let i = startCode, count = 0;
-      i >= endCode && count < MAX_SAFE_RANGE_ITERATIONS;
-      i -= absStep, count++
-    ) {
-      results.push(String.fromCharCode(i));
-    }
-  }
-
-  return results;
-}
-
-/**
- * Result of a brace range expansion.
- * Either contains expanded values or a literal fallback for invalid ranges.
- */
-interface BraceRangeResult {
-  expanded: string[] | null;
-  literal: string;
-}
-
-/**
- * Unified brace range expansion helper.
- * Handles both numeric and character ranges, returning either expanded values
- * or a literal string for invalid ranges.
- */
-function expandBraceRange(
-  start: number | string,
-  end: number | string,
-  step: number | undefined,
-  startStr?: string,
-  endStr?: string,
-): BraceRangeResult {
-  const stepPart = step !== undefined ? `..${step}` : "";
-
-  if (typeof start === "number" && typeof end === "number") {
-    const expanded = safeExpandNumericRange(start, end, step, startStr, endStr);
-    return {
-      expanded,
-      literal: `{${start}..${end}${stepPart}}`,
-    };
-  }
-
-  if (typeof start === "string" && typeof end === "string") {
-    const expanded = safeExpandCharRange(start, end, step);
-    return {
-      expanded,
-      literal: `{${start}..${end}${stepPart}}`,
-    };
-  }
-
-  // Mixed types - invalid
-  return {
-    expanded: null,
-    literal: `{${start}..${end}${stepPart}}`,
-  };
 }
 
 // Helper to extract literal value from a word part
@@ -671,94 +499,6 @@ async function expandWordWithBracesAsync(
   return expanded.map((parts) => parts.join(""));
 }
 
-/**
- * Smart word splitting that respects literal boundaries.
- *
- * In bash, word splitting only applies to results of parameter expansion,
- * command substitution, and arithmetic expansion. Literal characters in
- * the word attach to adjacent fields.
- *
- * E.g., with IFS=x: ${v:-AxBxC}x should give "A B Cx" (literal x attaches to last field)
- * E.g., with IFS=x: y${v:-AxBxC}z should give "yA B Cz" (literals attach to first/last fields)
- */
-async function smartWordSplit(
-  ctx: InterpreterContext,
-  wordParts: WordPart[],
-  _ifsChars: string,
-  ifsPattern: string,
-): Promise<string[]> {
-  // First, check if any expansion result contains IFS characters
-  // If not, no splitting needed
-  type Segment = { value: string; splittable: boolean };
-  const segments: Segment[] = [];
-
-  for (const part of wordParts) {
-    const isSplittable =
-      part.type === "ParameterExpansion" ||
-      part.type === "CommandSubstitution" ||
-      part.type === "ArithmeticExpansion";
-
-    // Check if parameter expansion has quoted operation word - those shouldn't split
-    if (part.type === "ParameterExpansion" && hasQuotedOperationWord(part)) {
-      const expanded = await expandPart(ctx, part);
-      segments.push({ value: expanded, splittable: false });
-    } else {
-      const expanded = await expandPart(ctx, part);
-      segments.push({ value: expanded, splittable: isSplittable });
-    }
-  }
-
-  // Check if any splittable segment contains IFS chars
-  const hasSplittableIFS = segments.some(
-    (seg) => seg.splittable && new RegExp(`[${ifsPattern}]`).test(seg.value),
-  );
-
-  if (!hasSplittableIFS) {
-    // No splitting needed - return the joined value to avoid double expansion
-    const joined = segments.map((s) => s.value).join("");
-    return joined ? [joined] : [];
-  }
-
-  // Now do the smart splitting
-  const ifsRegex = new RegExp(`[${ifsPattern}]+`);
-  const result: string[] = [];
-  let currentField = "";
-
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-
-    if (!seg.splittable) {
-      // Literal: append to current field
-      currentField += seg.value;
-    } else {
-      // Splittable: apply IFS splitting
-      const fields = seg.value.split(ifsRegex);
-
-      for (let j = 0; j < fields.length; j++) {
-        if (j === 0) {
-          // First field: append to current accumulated literal
-          currentField += fields[j];
-        } else {
-          // Subsequent fields: push previous and start new
-          if (currentField !== "") {
-            result.push(currentField);
-          }
-          currentField = fields[j];
-        }
-      }
-    }
-  }
-
-  // Push final field if not empty
-  if (currentField !== "") {
-    result.push(currentField);
-  }
-
-  // Always return the result to avoid double expansion
-  // The result contains [joined_value] if no splitting happened
-  return result;
-}
-
 export async function expandWordWithGlob(
   ctx: InterpreterContext,
   word: WordNode,
@@ -889,6 +629,7 @@ export async function expandWordWithGlob(
       wordParts,
       ifsChars,
       ifsPattern,
+      expandPart,
     );
     // Perform glob expansion on each split value
     const expandedValues: string[] = [];
