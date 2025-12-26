@@ -6,6 +6,37 @@ import type { ExecResult } from "../../types.js";
 import { failure, result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
+/**
+ * Expand tildes in assignment values (PATH-like expansion)
+ * - ~ at start expands to HOME
+ * - ~ after : expands to HOME (for PATH-like values)
+ * - ~username expands to user's home (only root supported)
+ */
+function expandTildesInValue(ctx: InterpreterContext, value: string): string {
+  const home = ctx.state.env.HOME || "/home/user";
+
+  // Split by : to handle PATH-like values
+  const parts = value.split(":");
+  const expanded = parts.map((part) => {
+    if (part === "~") {
+      return home;
+    }
+    if (part === "~root") {
+      return "/root";
+    }
+    if (part.startsWith("~/")) {
+      return home + part.slice(1);
+    }
+    if (part.startsWith("~root/")) {
+      return "/root" + part.slice(5);
+    }
+    // ~otheruser stays literal (can't verify user exists)
+    return part;
+  });
+
+  return expanded.join(":");
+}
+
 export function handleLocal(
   ctx: InterpreterContext,
   args: string[],
@@ -25,7 +56,7 @@ export function handleLocal(
     if (arg.includes("=")) {
       const eqIdx = arg.indexOf("=");
       name = arg.slice(0, eqIdx);
-      value = arg.slice(eqIdx + 1);
+      value = expandTildesInValue(ctx, arg.slice(eqIdx + 1));
     } else {
       name = arg;
     }

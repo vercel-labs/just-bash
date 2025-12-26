@@ -881,8 +881,18 @@ export function parseArithNumber(str: string): number {
 }
 
 function skipArithWhitespace(input: string, pos: number): number {
-  while (pos < input.length && /\s/.test(input[pos])) {
-    pos++;
+  while (pos < input.length) {
+    // Skip line continuations (backslash followed by newline)
+    if (input[pos] === "\\" && input[pos + 1] === "\n") {
+      pos += 2;
+      continue;
+    }
+    // Skip regular whitespace
+    if (/\s/.test(input[pos])) {
+      pos++;
+      continue;
+    }
+    break;
   }
   return pos;
 }

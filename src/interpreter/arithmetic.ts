@@ -26,7 +26,7 @@ import {
   parseArithNumber,
 } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
-import { ArithmeticError, NounsetError } from "./errors.js";
+import { ArrayIndexError, ArithmeticError, NounsetError } from "./errors.js";
 import { getArrayElements, getVariable } from "./expansion.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -461,7 +461,33 @@ export function evaluateArithmeticSync(
         envKey = `${expr.array}_${expr.index.name}`;
       } else if (expr.index) {
         // For indexed arrays, evaluate the index as arithmetic
-        const index = evaluateArithmeticSync(ctx, expr.index);
+        let index = evaluateArithmeticSync(ctx, expr.index);
+
+        // Handle negative indices - bash counts from max_index + 1
+        if (index < 0) {
+          const elements = getArrayElements(ctx, expr.array);
+          if (elements.length === 0) {
+            // Empty array with negative index - output error to stderr and return 0
+            ctx.state.expansionStderr =
+              (ctx.state.expansionStderr || "") +
+              `bash: ${expr.array}: bad array subscript\n`;
+            return 0;
+          }
+          // Find the maximum index
+          const maxIndex = Math.max(
+            ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
+          );
+          // Convert negative index to actual index
+          const actualIdx = maxIndex + 1 + index;
+          if (actualIdx < 0) {
+            // Out of bounds negative index - output error to stderr and return 0
+            ctx.state.expansionStderr =
+              (ctx.state.expansionStderr || "") +
+              `bash: ${expr.array}: bad array subscript\n`;
+            return 0;
+          }
+          index = actualIdx;
+        }
         envKey = `${expr.array}_${index}`;
 
         // Array elements are stored as arrayName_index in env
@@ -578,10 +604,17 @@ export function evaluateArithmeticSync(
         envKey = `${name}_${expr.stringKey}`;
       } else if (expr.subscript) {
         const isAssoc = ctx.state.associativeArrays?.has(name);
-        if (isAssoc && expr.subscript.type === "ArithVariable") {
-          // For associative arrays, variable names are used as literal keys
-          // A[K] = V where K is a variable name -> use "K" as the key
-          envKey = `${name}_${expr.subscript.name}`;
+        if (isAssoc) {
+          // For associative arrays, get the key as a string
+          // A[key] or A[$key] - get the VALUE of the variable as the key
+          if (expr.subscript.type === "ArithVariable") {
+            const keyValue = ctx.state.env[expr.subscript.name] || "";
+            envKey = `${name}_${keyValue}`;
+          } else {
+            // For non-variable subscripts, evaluate and convert to string
+            const index = evaluateArithmeticSync(ctx, expr.subscript);
+            envKey = `${name}_${index}`;
+          }
         } else {
           // For indexed arrays, evaluate the subscript as arithmetic
           let index = evaluateArithmeticSync(ctx, expr.subscript);
@@ -838,10 +871,17 @@ export async function evaluateArithmetic(
         envKey = `${name}_${expr.stringKey}`;
       } else if (expr.subscript) {
         const isAssoc = ctx.state.associativeArrays?.has(name);
-        if (isAssoc && expr.subscript.type === "ArithVariable") {
-          // For associative arrays, variable names are used as literal keys
-          // A[K] = V where K is a variable name -> use "K" as the key
-          envKey = `${name}_${expr.subscript.name}`;
+        if (isAssoc) {
+          // For associative arrays, get the key as a string
+          // A[key] or A[$key] - get the VALUE of the variable as the key
+          if (expr.subscript.type === "ArithVariable") {
+            const keyValue = ctx.state.env[expr.subscript.name] || "";
+            envKey = `${name}_${keyValue}`;
+          } else {
+            // For non-variable subscripts, evaluate and convert to string
+            const index = await evaluateArithmetic(ctx, expr.subscript);
+            envKey = `${name}_${index}`;
+          }
         } else {
           // For indexed arrays, evaluate the subscript as arithmetic
           let index = await evaluateArithmetic(ctx, expr.subscript);

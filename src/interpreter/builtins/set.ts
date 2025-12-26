@@ -6,6 +6,18 @@ import type { ExecResult } from "../../types.js";
 import { failure, OK, success } from "../helpers/result.js";
 import type { InterpreterContext, ShellOptions } from "../types.js";
 
+/**
+ * Quote a value for shell output (used by 'set' with no args)
+ */
+function quoteValue(value: string): string {
+  // If value contains no special chars, return as-is
+  if (/^[a-zA-Z0-9_/.:-]*$/.test(value)) {
+    return value;
+  }
+  // Use single quotes, escaping any single quotes in the value
+  return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
 const SET_USAGE = `set: usage: set [-eux] [+eux] [-o option] [+o option]
 Options:
   -e            Exit immediately if a command exits with non-zero status
@@ -140,6 +152,16 @@ function hasNonOptionArg(args: string[], i: number): boolean {
 export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
   if (args.includes("--help")) {
     return success(SET_USAGE);
+  }
+
+  // With no arguments, print all shell variables
+  if (args.length === 0) {
+    const output = Object.entries(ctx.state.env)
+      .filter(([key]) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) // Only valid variable names
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => `${key}=${quoteValue(value)}`)
+      .join("\n");
+    return success(output ? output + "\n" : "");
   }
 
   let i = 0;

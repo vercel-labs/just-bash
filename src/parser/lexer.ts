@@ -831,6 +831,8 @@ export class Lexer {
         let caseDepth = 0; // Track nested case statements
         let inCasePattern = false; // Are we in case pattern (after 'in', before ')')
         let wordBuffer = ""; // Track recent word for keyword detection
+        // Check if this is $((...)) arithmetic expansion
+        const isArithmetic = input[pos] === "(";
         while (depth > 0 && pos < len) {
           const c = input[pos];
           value += c;
@@ -862,9 +864,10 @@ export class Lexer {
               wordBuffer = "";
             } else if (
               c === "#" &&
+              !isArithmetic && // # is NOT a comment in arithmetic expansion
               (wordBuffer === "" || /\s/.test(input[pos - 1] || ""))
             ) {
-              // Comment - skip to end of line
+              // Comment - skip to end of line (only in command substitution, not arithmetic)
               while (pos + 1 < len && input[pos + 1] !== "\n") {
                 pos++;
                 col++;

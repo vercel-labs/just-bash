@@ -11,7 +11,11 @@
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import { evaluateArithmeticSync } from "../arithmetic.js";
-import { BadSubstitutionError, NounsetError } from "../errors.js";
+import {
+  ArrayIndexError,
+  BadSubstitutionError,
+  NounsetError,
+} from "../errors.js";
 import {
   getArrayIndices,
   getAssocArrayKeys,
@@ -182,14 +186,26 @@ export function getVariable(
     // So a[-1] = a[max_index], a[-2] = a[max_index - 1], etc.
     if (index < 0) {
       const elements = getArrayElements(ctx, arrayName);
-      if (elements.length === 0) return "";
+      if (elements.length === 0) {
+        // Empty array with negative index - output error to stderr and return empty
+        ctx.state.expansionStderr =
+          (ctx.state.expansionStderr || "") +
+          `bash: ${arrayName}: bad array subscript\n`;
+        return "";
+      }
       // Find the maximum index
       const maxIndex = Math.max(
         ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
       );
       // Convert negative index to actual index
       const actualIdx = maxIndex + 1 + index;
-      if (actualIdx < 0) return "";
+      if (actualIdx < 0) {
+        // Out of bounds negative index - output error to stderr and return empty
+        ctx.state.expansionStderr =
+          (ctx.state.expansionStderr || "") +
+          `bash: ${arrayName}: bad array subscript\n`;
+        return "";
+      }
       // Look up by actual index, not position
       const value = ctx.state.env[`${arrayName}_${actualIdx}`];
       return value || "";

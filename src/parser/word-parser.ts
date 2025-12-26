@@ -205,6 +205,12 @@ function findCharacterClassEnd(value: string, start: number): number {
   while (i < value.length) {
     const char = value[i];
 
+    // Handle escape sequences - \] should not end the class
+    if (char === "\\" && i + 1 < value.length) {
+      i += 2; // Skip both the backslash and the escaped character
+      continue;
+    }
+
     if (char === "]") {
       return i;
     }

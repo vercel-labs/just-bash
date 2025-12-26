@@ -249,6 +249,7 @@ export class Interpreter {
     let stdin = "";
     let lastResult: ExecResult = OK;
     let pipefailExitCode = 0; // Track rightmost failing command
+    const pipestatusExitCodes: number[] = []; // Track all exit codes for PIPESTATUS
 
     for (let i = 0; i < node.commands.length; i++) {
       const command = node.commands[i];
@@ -280,6 +281,9 @@ export class Interpreter {
         }
       }
 
+      // Track exit code for PIPESTATUS
+      pipestatusExitCodes.push(result.exitCode);
+
       // Track the exit code of failing commands for pipefail
       if (result.exitCode !== 0) {
         pipefailExitCode = result.exitCode;
@@ -296,6 +300,19 @@ export class Interpreter {
         lastResult = result;
       }
     }
+
+    // Set PIPESTATUS array with exit codes from all pipeline commands
+    // Clear any previous PIPESTATUS entries
+    for (const key of Object.keys(this.ctx.state.env)) {
+      if (key.startsWith("PIPESTATUS_")) {
+        delete this.ctx.state.env[key];
+      }
+    }
+    // Set new PIPESTATUS entries
+    for (let i = 0; i < pipestatusExitCodes.length; i++) {
+      this.ctx.state.env[`PIPESTATUS_${i}`] = String(pipestatusExitCodes[i]);
+    }
+    this.ctx.state.env.PIPESTATUS__length = String(pipestatusExitCodes.length);
 
     // If pipefail is enabled, use the rightmost failing exit code
     if (this.ctx.state.options.pipefail && pipefailExitCode !== 0) {
@@ -373,6 +390,8 @@ export class Interpreter {
     node: SimpleCommandNode,
     stdin: string,
   ): Promise<ExecResult> {
+    // Clear expansion stderr at the start
+    this.ctx.state.expansionStderr = "";
     const tempAssignments: Record<string, string | undefined> = {};
 
     for (const assignment of node.assignments) {
@@ -662,6 +681,15 @@ export class Interpreter {
     for (const [name, value] of Object.entries(tempAssignments)) {
       if (value === undefined) delete this.ctx.state.env[name];
       else this.ctx.state.env[name] = value;
+    }
+
+    // Include any stderr from expansion errors
+    if (this.ctx.state.expansionStderr) {
+      cmdResult = {
+        ...cmdResult,
+        stderr: this.ctx.state.expansionStderr + cmdResult.stderr,
+      };
+      this.ctx.state.expansionStderr = "";
     }
 
     return cmdResult;

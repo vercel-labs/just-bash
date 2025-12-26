@@ -48,6 +48,7 @@ export function parseParameterExpansion(
   p: Parser,
   value: string,
   start: number,
+  quoted = false,
 ): { part: ParameterExpansionPart; endIndex: number } {
   // Skip ${
   let i = start + 2;
@@ -147,7 +148,7 @@ export function parseParameterExpansion(
 
   // Parse operation
   if (!operation && i < value.length && value[i] !== "}") {
-    const opResult = parseParameterOperation(p, value, i, name);
+    const opResult = parseParameterOperation(p, value, i, name, quoted);
     operation = opResult.operation;
     i = opResult.endIndex;
   }
@@ -181,6 +182,7 @@ export function parseParameterOperation(
   value: string,
   start: number,
   _paramName: string,
+  quoted = false,
 ): { operation: ParameterOperation | null; endIndex: number } {
   let i = start;
   const char = value[i];
@@ -198,7 +200,16 @@ export function parseParameterOperation(
       const wordEnd = WordParser.findParameterOperationEnd(p, value, i);
       const wordStr = value.slice(i, wordEnd);
       // Parse the word for expansions (variables, arithmetic, command substitution)
-      const wordParts = parseWordParts(p, wordStr, false, false, false);
+      // When inside double quotes, single quotes should be literal, not quote delimiters
+      const wordParts = parseWordParts(
+        p,
+        wordStr,
+        false,
+        false,
+        true, // isAssignment=true for tilde expansion after : in default values
+        false,
+        quoted,
+      );
       const word = AST.word(
         wordParts.length > 0 ? wordParts : [AST.literal("")],
       );
@@ -280,7 +291,16 @@ export function parseParameterOperation(
     const wordEnd = WordParser.findParameterOperationEnd(p, value, i);
     const wordStr = value.slice(i, wordEnd);
     // Parse the word for expansions (variables, arithmetic, command substitution)
-    const wordParts = parseWordParts(p, wordStr, false, false, false);
+    // When inside double quotes, single quotes should be literal, not quote delimiters
+    const wordParts = parseWordParts(
+      p,
+      wordStr,
+      false,
+      false,
+      true, // isAssignment=true for tilde expansion after : in default values
+      false,
+      quoted,
+    );
     const word = AST.word(wordParts.length > 0 ? wordParts : [AST.literal("")]);
 
     if (char === "-") {
@@ -428,6 +448,7 @@ export function parseExpansion(
   p: Parser,
   value: string,
   start: number,
+  quoted = false,
 ): { part: WordPart | null; endIndex: number } {
   // $ at start
   const i = start + 1;
@@ -468,7 +489,7 @@ export function parseExpansion(
 
   // ${...} - parameter expansion with operators
   if (char === "{") {
-    return parseParameterExpansion(p, value, start);
+    return parseParameterExpansion(p, value, start, quoted);
   }
 
   // $VAR or $1 or $@ etc - simple parameter
@@ -514,7 +535,8 @@ export function parseDoubleQuotedContent(p: Parser, value: string): WordPart[] {
     // Handle $ expansions
     if (char === "$") {
       flushLiteral();
-      const { part, endIndex } = parseExpansion(p, value, i);
+      // Pass quoted=true since we're inside double quotes
+      const { part, endIndex } = parseExpansion(p, value, i, true);
       if (part) {
         parts.push(part);
       }
@@ -525,7 +547,8 @@ export function parseDoubleQuotedContent(p: Parser, value: string): WordPart[] {
     // Handle backtick command substitution
     if (char === "`") {
       flushLiteral();
-      const { part, endIndex } = p.parseBacktickSubstitution(value, i);
+      // Pass true since we're inside double quotes
+      const { part, endIndex } = p.parseBacktickSubstitution(value, i, true);
       parts.push(part);
       i = endIndex;
       continue;
@@ -575,7 +598,8 @@ export function parseDoubleQuoted(
     // Handle $ expansions
     if (char === "$") {
       flushLiteral();
-      const { part, endIndex } = parseExpansion(p, value, i);
+      // Pass quoted=true since we're inside double quotes
+      const { part, endIndex } = parseExpansion(p, value, i, true);
       if (part) {
         innerParts.push(part);
       }
@@ -586,7 +610,8 @@ export function parseDoubleQuoted(
     // Handle backtick
     if (char === "`") {
       flushLiteral();
-      const { part, endIndex } = p.parseBacktickSubstitution(value, i);
+      // Pass true since we're inside double quotes
+      const { part, endIndex } = p.parseBacktickSubstitution(value, i, true);
       innerParts.push(part);
       i = endIndex;
       continue;
@@ -611,6 +636,8 @@ export function parseWordParts(
   singleQuoted = false,
   isAssignment = false,
   hereDoc = false,
+  /** When true, single quotes are treated as literal characters, not quote delimiters */
+  singleQuotesAreLiteral = false,
 ): WordPart[] {
   if (singleQuoted) {
     // Single quotes: no expansion
@@ -662,7 +689,9 @@ export function parseWordParts(
     }
 
     // Handle single quotes
-    if (char === "'") {
+    // When inside double-quoted context (singleQuotesAreLiteral=true), single quotes
+    // are literal characters, not quote delimiters
+    if (char === "'" && !singleQuotesAreLiteral) {
       flushLiteral();
       const closeQuote = value.indexOf("'", i + 1);
       if (closeQuote === -1) {

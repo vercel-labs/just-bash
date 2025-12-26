@@ -670,24 +670,29 @@ export class Parser {
   parseBacktickSubstitution(
     value: string,
     start: number,
+    /** Whether the backtick is inside double quotes */
+    inDoubleQuotes = false,
   ): { part: CommandSubstitutionPart; endIndex: number } {
     const cmdStart = start + 1;
     let i = cmdStart;
     let cmdStr = "";
 
     // Process backtick escaping rules:
-    // \$ \` \\ \" \<newline> have backslash removed
+    // \$ \` \\ \<newline> have backslash removed
+    // \" has backslash removed ONLY inside double quotes
     // \x for other chars keeps the backslash
     while (i < value.length && value[i] !== "`") {
       if (value[i] === "\\") {
         const next = value[i + 1];
-        if (
+        // In unquoted context: only \$ \` \\ \newline are special
+        // In double-quoted context: also \" is special
+        const isSpecial =
           next === "$" ||
           next === "`" ||
           next === "\\" ||
-          next === '"' ||
-          next === "\n"
-        ) {
+          next === "\n" ||
+          (inDoubleQuotes && next === '"');
+        if (isSpecial) {
           // Remove the backslash, keep the next char (or nothing for newline)
           if (next !== "\n") {
             cmdStr += next;

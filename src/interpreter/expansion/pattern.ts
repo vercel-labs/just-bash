@@ -82,6 +82,12 @@ function findCharClassEnd(pattern: string, start: number): number {
   }
 
   while (i < pattern.length) {
+    // Handle escape sequences - \] should not end the class
+    if (pattern[i] === "\\" && i + 1 < pattern.length) {
+      i += 2; // Skip both the backslash and the escaped character
+      continue;
+    }
+
     if (pattern[i] === "]") {
       return i;
     }

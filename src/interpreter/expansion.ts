@@ -16,6 +16,8 @@ import type {
   WordNode,
   WordPart,
 } from "../ast/types.js";
+import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
+import { Parser } from "../parser/parser.js";
 import { GlobExpander } from "../shell/glob.js";
 import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
 import { BadSubstitutionError, ExitError } from "./errors.js";
@@ -192,6 +194,12 @@ function expandSimplePart(
       }
       if (part.user === null) {
         return ctx.state.env.HOME || "/home/user";
+      }
+      // ~username only expands if user exists
+      // In sandboxed environment, we can only verify 'root' exists universally
+      // Other unknown users stay literal (matches bash behavior)
+      if (part.user === "root") {
+        return "/root";
       }
       return `~${part.user}`;
     case "Glob":
@@ -854,7 +862,40 @@ function expandParameter(
           operation.word.parts,
           inDoubleQuotes,
         );
-        ctx.state.env[parameter] = defaultValue;
+        // Handle array subscript assignment (e.g., arr[0]=x)
+        const arrayMatch = parameter.match(
+          /^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/,
+        );
+        if (arrayMatch) {
+          const [, arrayName, subscriptExpr] = arrayMatch;
+          // Evaluate subscript as arithmetic expression
+          let index: number;
+          if (/^\d+$/.test(subscriptExpr)) {
+            index = Number.parseInt(subscriptExpr, 10);
+          } else {
+            try {
+              const parser = new Parser();
+              const arithAst = parseArithmeticExpression(parser, subscriptExpr);
+              index = evaluateArithmeticSync(ctx, arithAst.expression);
+            } catch {
+              const varValue = ctx.state.env[subscriptExpr];
+              index = varValue ? Number.parseInt(varValue, 10) : 0;
+            }
+            if (Number.isNaN(index)) index = 0;
+          }
+          // Set array element
+          ctx.state.env[`${arrayName}_${index}`] = defaultValue;
+          // Update array length if needed
+          const currentLength = Number.parseInt(
+            ctx.state.env[`${arrayName}__length`] || "0",
+            10,
+          );
+          if (index >= currentLength) {
+            ctx.state.env[`${arrayName}__length`] = String(index + 1);
+          }
+        } else {
+          ctx.state.env[parameter] = defaultValue;
+        }
         return defaultValue;
       }
       return value;
@@ -1256,7 +1297,40 @@ async function expandParameterAsync(
           operation.word.parts,
           inDoubleQuotes,
         );
-        ctx.state.env[parameter] = defaultValue;
+        // Handle array subscript assignment (e.g., arr[0]=x)
+        const arrayMatch = parameter.match(
+          /^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/,
+        );
+        if (arrayMatch) {
+          const [, arrayName, subscriptExpr] = arrayMatch;
+          // Evaluate subscript as arithmetic expression
+          let index: number;
+          if (/^\d+$/.test(subscriptExpr)) {
+            index = Number.parseInt(subscriptExpr, 10);
+          } else {
+            try {
+              const parser = new Parser();
+              const arithAst = parseArithmeticExpression(parser, subscriptExpr);
+              index = await evaluateArithmetic(ctx, arithAst.expression);
+            } catch {
+              const varValue = ctx.state.env[subscriptExpr];
+              index = varValue ? Number.parseInt(varValue, 10) : 0;
+            }
+            if (Number.isNaN(index)) index = 0;
+          }
+          // Set array element
+          ctx.state.env[`${arrayName}_${index}`] = defaultValue;
+          // Update array length if needed
+          const currentLength = Number.parseInt(
+            ctx.state.env[`${arrayName}__length`] || "0",
+            10,
+          );
+          if (index >= currentLength) {
+            ctx.state.env[`${arrayName}__length`] = String(index + 1);
+          }
+        } else {
+          ctx.state.env[parameter] = defaultValue;
+        }
         return defaultValue;
       }
       return value;
