@@ -4,7 +4,8 @@
 
 import * as Diff from "diff";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { parseArgs } from "../../utils/args.js";
+import { hasHelpFlag, showHelp } from "../help.js";
 
 const diffHelp = {
   name: "diff",
@@ -19,37 +20,33 @@ const diffHelp = {
   ],
 };
 
+const argDefs = {
+  unified: { short: "u", long: "unified", type: "boolean" as const },
+  brief: { short: "q", long: "brief", type: "boolean" as const },
+  reportSame: {
+    short: "s",
+    long: "report-identical-files",
+    type: "boolean" as const,
+  },
+  ignoreCase: { short: "i", long: "ignore-case", type: "boolean" as const },
+};
+
 export const diffCommand: Command = {
   name: "diff",
 
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
     if (hasHelpFlag(args)) return showHelp(diffHelp);
 
-    let brief = false,
-      reportSame = false,
-      ignoreCase = false;
-    const files: string[] = [];
+    const parsed = parseArgs("diff", args, argDefs);
+    if (!parsed.ok) return parsed.error;
 
-    for (const arg of args) {
-      if (arg === "-u" || arg === "--unified") {
-        /* default */
-      } else if (arg === "-q" || arg === "--brief") brief = true;
-      else if (arg === "-s" || arg === "--report-identical-files")
-        reportSame = true;
-      else if (arg === "-i" || arg === "--ignore-case") ignoreCase = true;
-      else if (arg === "-") files.push("-");
-      else if (arg.startsWith("--")) return unknownOption("diff", arg);
-      else if (arg.startsWith("-")) {
-        for (const c of arg.slice(1)) {
-          if (c === "u") {
-            /* default */
-          } else if (c === "q") brief = true;
-          else if (c === "s") reportSame = true;
-          else if (c === "i") ignoreCase = true;
-          else return unknownOption("diff", `-${c}`);
-        }
-      } else files.push(arg);
-    }
+    const brief = parsed.result.flags.brief;
+    const reportSame = parsed.result.flags.reportSame;
+    const ignoreCase = parsed.result.flags.ignoreCase;
+    const files = parsed.result.positional;
+
+    // Note: unified flag is accepted but is the default behavior
+    void parsed.result.flags.unified;
 
     if (files.length < 2) {
       return { stdout: "", stderr: "diff: missing operand\n", exitCode: 2 };

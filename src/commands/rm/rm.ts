@@ -1,37 +1,26 @@
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { unknownOption } from "../help.js";
+import { parseArgs } from "../../utils/args.js";
+
+const argDefs = {
+  recursive: { short: "r", long: "recursive", type: "boolean" as const },
+  recursiveUpper: { short: "R", type: "boolean" as const },
+  force: { short: "f", long: "force", type: "boolean" as const },
+  verbose: { short: "v", long: "verbose", type: "boolean" as const },
+};
 
 export const rmCommand: Command = {
   name: "rm",
 
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
-    let recursive = false;
-    let force = false;
-    let verbose = false;
-    const paths: string[] = [];
+    const parsed = parseArgs("rm", args, argDefs);
+    if (!parsed.ok) return parsed.error;
 
-    // Parse arguments
-    for (const arg of args) {
-      if (arg.startsWith("-") && !arg.startsWith("--")) {
-        for (const flag of arg.slice(1)) {
-          if (flag === "r" || flag === "R") recursive = true;
-          else if (flag === "f") force = true;
-          else if (flag === "v") verbose = true;
-          else return unknownOption("rm", `-${flag}`);
-        }
-      } else if (arg === "--recursive") {
-        recursive = true;
-      } else if (arg === "--force") {
-        force = true;
-      } else if (arg === "--verbose" || arg === "-v") {
-        verbose = true;
-      } else if (arg.startsWith("--")) {
-        return unknownOption("rm", arg);
-      } else {
-        paths.push(arg);
-      }
-    }
+    const recursive =
+      parsed.result.flags.recursive || parsed.result.flags.recursiveUpper;
+    const force = parsed.result.flags.force;
+    const verbose = parsed.result.flags.verbose;
+    const paths = parsed.result.positional;
 
     if (paths.length === 0) {
       if (force) {

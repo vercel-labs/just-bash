@@ -1,5 +1,7 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { parseArgs } from "../../utils/args.js";
+import { readFiles } from "../../utils/file-reader.js";
+import { hasHelpFlag, showHelp } from "../help.js";
 
 const wcHelp = {
   name: "wc",
@@ -14,6 +16,13 @@ const wcHelp = {
   ],
 };
 
+const argDefs = {
+  lines: { short: "l", long: "lines", type: "boolean" as const },
+  words: { short: "w", long: "words", type: "boolean" as const },
+  bytes: { short: "c", long: "bytes", type: "boolean" as const },
+  chars: { short: "m", long: "chars", type: "boolean" as const },
+};
+
 export const wcCommand: Command = {
   name: "wc",
 
@@ -22,41 +31,28 @@ export const wcCommand: Command = {
       return showHelp(wcHelp);
     }
 
-    let showLines = false;
-    let showWords = false;
-    let showChars = false;
-    const files: string[] = [];
+    const parsed = parseArgs("wc", args, argDefs);
+    if (!parsed.ok) return parsed.error;
 
-    // Parse arguments
-    for (const arg of args) {
-      if (arg.startsWith("-") && !arg.startsWith("--")) {
-        for (const flag of arg.slice(1)) {
-          if (flag === "l") showLines = true;
-          else if (flag === "w") showWords = true;
-          else if (flag === "c" || flag === "m") showChars = true;
-          else return unknownOption("wc", `-${flag}`);
-        }
-      } else if (arg === "--lines") {
-        showLines = true;
-      } else if (arg === "--words") {
-        showWords = true;
-      } else if (arg === "--bytes" || arg === "--chars") {
-        showChars = true;
-      } else if (arg.startsWith("--")) {
-        return unknownOption("wc", arg);
-      } else {
-        files.push(arg);
-      }
-    }
+    let { lines: showLines, words: showWords } = parsed.result.flags;
+    // -c (bytes) and -m (chars) both show character counts
+    let showChars = parsed.result.flags.bytes || parsed.result.flags.chars;
+    const files = parsed.result.positional;
 
     // If no flags specified, show all
     if (!showLines && !showWords && !showChars) {
       showLines = showWords = showChars = true;
     }
 
-    // If no files, read from stdin
+    // Read files
+    const readResult = await readFiles(ctx, files, {
+      cmdName: "wc",
+      stopOnError: false,
+    });
+
+    // If reading from stdin (no files), use simpler output
     if (files.length === 0) {
-      const stats = countStats(ctx.stdin);
+      const stats = countStats(readResult.files[0].content);
       return {
         stdout: `${formatStats(stats, showLines, showWords, showChars, "")}\n`,
         stderr: "",
@@ -65,27 +61,16 @@ export const wcCommand: Command = {
     }
 
     let stdout = "";
-    let stderr = "";
-    let exitCode = 0;
     let totalLines = 0;
     let totalWords = 0;
     let totalChars = 0;
 
-    for (const file of files) {
-      try {
-        const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-        const content = await ctx.fs.readFile(filePath);
-        const stats = countStats(content);
-
-        totalLines += stats.lines;
-        totalWords += stats.words;
-        totalChars += stats.chars;
-
-        stdout += `${formatStats(stats, showLines, showWords, showChars, file)}\n`;
-      } catch {
-        stderr += `wc: ${file}: No such file or directory\n`;
-        exitCode = 1;
-      }
+    for (const { filename, content } of readResult.files) {
+      const stats = countStats(content);
+      totalLines += stats.lines;
+      totalWords += stats.words;
+      totalChars += stats.chars;
+      stdout += `${formatStats(stats, showLines, showWords, showChars, filename)}\n`;
     }
 
     // Show total for multiple files
@@ -99,7 +84,7 @@ export const wcCommand: Command = {
       )}\n`;
     }
 
-    return { stdout, stderr, exitCode };
+    return { stdout, stderr: readResult.stderr, exitCode: readResult.exitCode };
   },
 };
 

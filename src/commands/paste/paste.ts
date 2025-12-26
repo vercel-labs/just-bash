@@ -1,5 +1,6 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { parseArgs } from "../../utils/args.js";
+import { hasHelpFlag, showHelp } from "../help.js";
 
 const pasteHelp = {
   name: "paste",
@@ -24,6 +25,16 @@ const pasteHelp = {
   ],
 };
 
+const argDefs = {
+  delimiter: {
+    short: "d",
+    long: "delimiters",
+    type: "string" as const,
+    default: "\t",
+  },
+  serial: { short: "s", long: "serial", type: "boolean" as const },
+};
+
 export const pasteCommand: Command = {
   name: "paste",
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
@@ -31,55 +42,12 @@ export const pasteCommand: Command = {
       return showHelp(pasteHelp);
     }
 
-    let delimiter = "\t";
-    let serial = false;
-    const files: string[] = [];
+    const parsed = parseArgs("paste", args, argDefs);
+    if (!parsed.ok) return parsed.error;
 
-    // Parse arguments
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-
-      if (arg === "-d") {
-        delimiter = args[++i] ?? "\t";
-      } else if (arg.startsWith("-d")) {
-        delimiter = arg.slice(2);
-      } else if (arg === "--delimiters") {
-        delimiter = args[++i] ?? "\t";
-      } else if (arg.startsWith("--delimiters=")) {
-        delimiter = arg.slice("--delimiters=".length);
-      } else if (arg === "-s" || arg === "--serial") {
-        serial = true;
-      } else if (arg === "--") {
-        // Everything after -- is a file
-        files.push(...args.slice(i + 1));
-        break;
-      } else if (arg.startsWith("--")) {
-        return unknownOption("paste", arg);
-      } else if (arg.startsWith("-") && arg !== "-") {
-        // Handle combined short options like -sd,
-        let j = 1;
-        while (j < arg.length) {
-          const c = arg[j];
-          if (c === "s") {
-            serial = true;
-            j++;
-          } else if (c === "d") {
-            // -d takes the rest of the arg as delimiter, or next arg if empty
-            const rest = arg.slice(j + 1);
-            if (rest) {
-              delimiter = rest;
-            } else {
-              delimiter = args[++i] ?? "\t";
-            }
-            break;
-          } else {
-            return unknownOption("paste", `-${c}`);
-          }
-        }
-      } else {
-        files.push(arg);
-      }
-    }
+    const delimiter = parsed.result.flags.delimiter;
+    const serial = parsed.result.flags.serial;
+    const files = parsed.result.positional;
 
     // If no files specified, show usage error (matches BSD/macOS behavior)
     if (files.length === 0) {

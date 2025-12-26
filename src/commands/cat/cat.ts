@@ -1,5 +1,7 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { parseArgs } from "../../utils/args.js";
+import { readFiles } from "../../utils/file-reader.js";
+import { hasHelpFlag, showHelp } from "../help.js";
 
 const catHelp = {
   name: "cat",
@@ -11,6 +13,10 @@ const catHelp = {
   ],
 };
 
+const argDefs = {
+  number: { short: "n", long: "number", type: "boolean" as const },
+};
+
 export const catCommand: Command = {
   name: "cat",
 
@@ -19,70 +25,34 @@ export const catCommand: Command = {
       return showHelp(catHelp);
     }
 
-    let showLineNumbers = false;
-    const files: string[] = [];
+    const parsed = parseArgs("cat", args, argDefs);
+    if (!parsed.ok) return parsed.error;
 
-    // Parse arguments
-    for (const arg of args) {
-      if (arg === "-n" || arg === "--number") {
-        showLineNumbers = true;
-      } else if (arg === "-") {
-        // '-' means read from stdin
-        files.push("-");
-      } else if (arg.startsWith("--")) {
-        return unknownOption("cat", arg);
-      } else if (arg.startsWith("-")) {
-        // Check each character in combined flags
-        for (const c of arg.slice(1)) {
-          if (c !== "n") {
-            return unknownOption("cat", `-${c}`);
-          }
-        }
-        showLineNumbers = true;
-      } else {
-        files.push(arg);
-      }
-    }
+    const showLineNumbers = parsed.result.flags.number;
+    const files = parsed.result.positional;
 
-    // If no files specified, read from stdin
-    if (files.length === 0) {
-      let output = ctx.stdin;
-      if (showLineNumbers && output) {
-        output = addLineNumbers(output, 1).content;
-      }
-      return { stdout: output, stderr: "", exitCode: 0 };
-    }
+    // Read files (allows "-" for stdin)
+    const readResult = await readFiles(ctx, files, {
+      cmdName: "cat",
+      allowStdinMarker: true,
+      stopOnError: false,
+    });
 
     let stdout = "";
-    let stderr = "";
-    let exitCode = 0;
     let lineNumber = 1;
 
-    for (const file of files) {
-      try {
-        let content: string;
-        if (file === "-") {
-          content = ctx.stdin;
-        } else {
-          const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-          content = await ctx.fs.readFile(filePath);
-        }
-
-        if (showLineNumbers) {
-          // Real bash continues line numbers across files
-          const result = addLineNumbers(content, lineNumber);
-          content = result.content;
-          lineNumber = result.nextLineNumber;
-        }
-
+    for (const { content } of readResult.files) {
+      if (showLineNumbers) {
+        // Real bash continues line numbers across files
+        const result = addLineNumbers(content, lineNumber);
+        stdout += result.content;
+        lineNumber = result.nextLineNumber;
+      } else {
         stdout += content;
-      } catch (_error) {
-        stderr += `cat: ${file}: No such file or directory\n`;
-        exitCode = 1;
       }
     }
 
-    return { stdout, stderr, exitCode };
+    return { stdout, stderr: readResult.stderr, exitCode: readResult.exitCode };
   },
 };
 

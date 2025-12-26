@@ -3,7 +3,9 @@
  */
 
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { parseArgs } from "../../utils/args.js";
+import { readAndConcat } from "../../utils/file-reader.js";
+import { hasHelpFlag, showHelp } from "../help.js";
 
 const base64Help = {
   name: "base64",
@@ -16,6 +18,11 @@ const base64Help = {
   ],
 };
 
+const argDefs = {
+  decode: { short: "d", long: "decode", type: "boolean" as const },
+  wrap: { short: "w", long: "wrap", type: "number" as const, default: 76 },
+};
+
 export const base64Command: Command = {
   name: "base64",
 
@@ -24,49 +31,17 @@ export const base64Command: Command = {
       return showHelp(base64Help);
     }
 
-    let decode = false;
-    let wrapCols = 76;
-    const files: string[] = [];
+    const parsed = parseArgs("base64", args, argDefs);
+    if (!parsed.ok) return parsed.error;
 
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      if (arg === "-d" || arg === "--decode") {
-        decode = true;
-      } else if (arg === "-w" || arg === "--wrap") {
-        wrapCols = Number.parseInt(args[++i] ?? "76", 10) || 0;
-      } else if (arg.startsWith("--wrap=")) {
-        wrapCols = Number.parseInt(arg.slice(7), 10) || 0;
-      } else if (arg.startsWith("-w")) {
-        wrapCols = Number.parseInt(arg.slice(2), 10) || 0;
-      } else if (arg === "-") {
-        files.push("-");
-      } else if (arg.startsWith("--")) {
-        return unknownOption("base64", arg);
-      } else if (arg.startsWith("-")) {
-        for (const c of arg.slice(1)) {
-          if (c === "d") decode = true;
-          else return unknownOption("base64", `-${c}`);
-        }
-      } else {
-        files.push(arg);
-      }
-    }
+    const decode = parsed.result.flags.decode;
+    const wrapCols = parsed.result.flags.wrap;
+    const files = parsed.result.positional;
 
-    let input: string;
-    if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-      input = ctx.stdin;
-    } else {
-      try {
-        const filePath = ctx.fs.resolvePath(ctx.cwd, files[0]);
-        input = await ctx.fs.readFile(filePath);
-      } catch {
-        return {
-          stdout: "",
-          stderr: `base64: ${files[0]}: No such file or directory\n`,
-          exitCode: 1,
-        };
-      }
-    }
+    // Read input from files or stdin
+    const readResult = await readAndConcat(ctx, files, { cmdName: "base64" });
+    if (!readResult.ok) return readResult.error;
+    const input = readResult.content;
 
     try {
       if (decode) {

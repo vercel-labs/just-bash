@@ -1,6 +1,7 @@
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { parseArgs } from "../../utils/args.js";
+import { hasHelpFlag, showHelp } from "../help.js";
 
 const cpHelp = {
   name: "cp",
@@ -15,6 +16,14 @@ const cpHelp = {
   ],
 };
 
+const argDefs = {
+  recursive: { short: "r", long: "recursive", type: "boolean" as const },
+  recursiveUpper: { short: "R", type: "boolean" as const },
+  noClobber: { short: "n", long: "no-clobber", type: "boolean" as const },
+  preserve: { short: "p", long: "preserve", type: "boolean" as const },
+  verbose: { short: "v", long: "verbose", type: "boolean" as const },
+};
+
 export const cpCommand: Command = {
   name: "cp",
 
@@ -23,36 +32,15 @@ export const cpCommand: Command = {
       return showHelp(cpHelp);
     }
 
-    let recursive = false;
-    let noClobber = false;
-    let preserve = false;
-    let verbose = false;
-    const paths: string[] = [];
+    const parsed = parseArgs("cp", args, argDefs);
+    if (!parsed.ok) return parsed.error;
 
-    // Parse arguments
-    for (const arg of args) {
-      if (arg === "-r" || arg === "-R" || arg === "--recursive") {
-        recursive = true;
-      } else if (arg === "-n" || arg === "--no-clobber") {
-        noClobber = true;
-      } else if (arg === "-p" || arg === "--preserve") {
-        preserve = true;
-      } else if (arg === "-v" || arg === "--verbose") {
-        verbose = true;
-      } else if (arg.startsWith("--")) {
-        return unknownOption("cp", arg);
-      } else if (arg.startsWith("-")) {
-        for (const c of arg.slice(1)) {
-          if (c === "r" || c === "R") recursive = true;
-          else if (c === "n") noClobber = true;
-          else if (c === "p") preserve = true;
-          else if (c === "v") verbose = true;
-          else return unknownOption("cp", `-${c}`);
-        }
-      } else {
-        paths.push(arg);
-      }
-    }
+    const recursive =
+      parsed.result.flags.recursive || parsed.result.flags.recursiveUpper;
+    const noClobber = parsed.result.flags.noClobber;
+    const preserve = parsed.result.flags.preserve;
+    const verbose = parsed.result.flags.verbose;
+    const paths = parsed.result.positional;
 
     if (paths.length < 2) {
       return {

@@ -1,33 +1,22 @@
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { unknownOption } from "../help.js";
+import { parseArgs } from "../../utils/args.js";
+
+const argDefs = {
+  recursive: { short: "p", long: "parents", type: "boolean" as const },
+  verbose: { short: "v", long: "verbose", type: "boolean" as const },
+};
 
 export const mkdirCommand: Command = {
   name: "mkdir",
 
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
-    let recursive = false;
-    let verbose = false;
-    const dirs: string[] = [];
+    const parsed = parseArgs("mkdir", args, argDefs);
+    if (!parsed.ok) return parsed.error;
 
-    // Parse arguments
-    for (const arg of args) {
-      if (arg === "-p" || arg === "--parents") {
-        recursive = true;
-      } else if (arg === "-v" || arg === "--verbose") {
-        verbose = true;
-      } else if (arg.startsWith("--")) {
-        return unknownOption("mkdir", arg);
-      } else if (arg.startsWith("-")) {
-        for (const c of arg.slice(1)) {
-          if (c === "p") recursive = true;
-          else if (c === "v") verbose = true;
-          else return unknownOption("mkdir", `-${c}`);
-        }
-      } else {
-        dirs.push(arg);
-      }
-    }
+    const recursive = parsed.result.flags.recursive;
+    const verbose = parsed.result.flags.verbose;
+    const dirs = parsed.result.positional;
 
     if (dirs.length === 0) {
       return {

@@ -1,5 +1,6 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { parseArgs } from "../../utils/args.js";
+import { hasHelpFlag, showHelp } from "../help.js";
 
 const treeHelp = {
   name: "tree",
@@ -12,6 +13,13 @@ const treeHelp = {
     "-f          print full path prefix for each file",
     "    --help  display this help and exit",
   ],
+};
+
+const argDefs = {
+  showHidden: { short: "a", type: "boolean" as const },
+  directoriesOnly: { short: "d", type: "boolean" as const },
+  fullPath: { short: "f", type: "boolean" as const },
+  maxDepth: { short: "L", type: "number" as const },
 };
 
 interface TreeOptions {
@@ -29,43 +37,17 @@ export const treeCommand: Command = {
       return showHelp(treeHelp);
     }
 
+    const parsed = parseArgs("tree", args, argDefs);
+    if (!parsed.ok) return parsed.error;
+
     const options: TreeOptions = {
-      showHidden: false,
-      directoriesOnly: false,
-      maxDepth: null,
-      fullPath: false,
+      showHidden: parsed.result.flags.showHidden,
+      directoriesOnly: parsed.result.flags.directoriesOnly,
+      maxDepth: parsed.result.flags.maxDepth ?? null,
+      fullPath: parsed.result.flags.fullPath,
     };
 
-    const directories: string[] = [];
-
-    // Parse arguments
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      if (arg === "-a") {
-        options.showHidden = true;
-      } else if (arg === "-d") {
-        options.directoriesOnly = true;
-      } else if (arg === "-f") {
-        options.fullPath = true;
-      } else if (arg === "-L" && i + 1 < args.length) {
-        options.maxDepth = parseInt(args[++i], 10);
-      } else if (arg.startsWith("--")) {
-        return unknownOption("tree", arg);
-      } else if (arg.startsWith("-") && arg.length > 1) {
-        // Check combined short options
-        for (const c of arg.slice(1)) {
-          if (c === "a") options.showHidden = true;
-          else if (c === "d") options.directoriesOnly = true;
-          else if (c === "f") options.fullPath = true;
-          else if (c === "L") {
-            // -L requires argument, can't be combined
-            return unknownOption("tree", `-${c}`);
-          } else return unknownOption("tree", `-${c}`);
-        }
-      } else if (!arg.startsWith("-")) {
-        directories.push(arg);
-      }
-    }
+    const directories = parsed.result.positional;
 
     // Default to current directory
     if (directories.length === 0) {

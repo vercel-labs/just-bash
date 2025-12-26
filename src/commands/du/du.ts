@@ -1,5 +1,6 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { parseArgs } from "../../utils/args.js";
+import { hasHelpFlag, showHelp } from "../help.js";
 
 const duHelp = {
   name: "du",
@@ -13,6 +14,14 @@ const duHelp = {
     "--max-depth=N  print total for directory only if N or fewer levels deep",
     "    --help  display this help and exit",
   ],
+};
+
+const argDefs = {
+  allFiles: { short: "a", type: "boolean" as const },
+  humanReadable: { short: "h", type: "boolean" as const },
+  summarize: { short: "s", type: "boolean" as const },
+  grandTotal: { short: "c", type: "boolean" as const },
+  maxDepth: { long: "max-depth", type: "number" as const },
 };
 
 interface DuOptions {
@@ -31,44 +40,18 @@ export const duCommand: Command = {
       return showHelp(duHelp);
     }
 
+    const parsed = parseArgs("du", args, argDefs);
+    if (!parsed.ok) return parsed.error;
+
     const options: DuOptions = {
-      allFiles: false,
-      humanReadable: false,
-      summarize: false,
-      grandTotal: false,
-      maxDepth: null,
+      allFiles: parsed.result.flags.allFiles,
+      humanReadable: parsed.result.flags.humanReadable,
+      summarize: parsed.result.flags.summarize,
+      grandTotal: parsed.result.flags.grandTotal,
+      maxDepth: parsed.result.flags.maxDepth ?? null,
     };
 
-    const targets: string[] = [];
-
-    // Parse arguments
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      if (arg === "-a") {
-        options.allFiles = true;
-      } else if (arg === "-h") {
-        options.humanReadable = true;
-      } else if (arg === "-s") {
-        options.summarize = true;
-      } else if (arg === "-c") {
-        options.grandTotal = true;
-      } else if (arg.startsWith("--max-depth=")) {
-        options.maxDepth = parseInt(arg.slice("--max-depth=".length), 10);
-      } else if (arg.startsWith("--")) {
-        return unknownOption("du", arg);
-      } else if (arg.startsWith("-") && arg.length > 1) {
-        // Check combined short options
-        for (const c of arg.slice(1)) {
-          if (c === "a") options.allFiles = true;
-          else if (c === "h") options.humanReadable = true;
-          else if (c === "s") options.summarize = true;
-          else if (c === "c") options.grandTotal = true;
-          else return unknownOption("du", `-${c}`);
-        }
-      } else if (!arg.startsWith("-")) {
-        targets.push(arg);
-      }
-    }
+    const targets = parsed.result.positional;
 
     // Default to current directory
     if (targets.length === 0) {

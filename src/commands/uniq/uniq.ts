@@ -1,5 +1,7 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { parseArgs } from "../../utils/args.js";
+import { readAndConcat } from "../../utils/file-reader.js";
+import { hasHelpFlag, showHelp } from "../help.js";
 
 const uniqHelp = {
   name: "uniq",
@@ -14,6 +16,13 @@ const uniqHelp = {
   ],
 };
 
+const argDefs = {
+  count: { short: "c", long: "count", type: "boolean" as const },
+  duplicatesOnly: { short: "d", long: "repeated", type: "boolean" as const },
+  uniqueOnly: { short: "u", long: "unique", type: "boolean" as const },
+  ignoreCase: { short: "i", long: "ignore-case", type: "boolean" as const },
+};
+
 export const uniqCommand: Command = {
   name: "uniq",
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
@@ -21,57 +30,17 @@ export const uniqCommand: Command = {
       return showHelp(uniqHelp);
     }
 
-    let count = false;
-    let duplicatesOnly = false;
-    let uniqueOnly = false;
-    let ignoreCase = false;
-    const files: string[] = [];
+    const parsed = parseArgs("uniq", args, argDefs);
+    if (!parsed.ok) return parsed.error;
 
-    // Parse arguments
-    for (const arg of args) {
-      if (arg === "-c" || arg === "--count") {
-        count = true;
-      } else if (arg === "-d" || arg === "--repeated") {
-        duplicatesOnly = true;
-      } else if (arg === "-u" || arg === "--unique") {
-        uniqueOnly = true;
-      } else if (arg === "-i" || arg === "--ignore-case") {
-        ignoreCase = true;
-      } else if (arg.startsWith("--")) {
-        return unknownOption("uniq", arg);
-      } else if (arg.startsWith("-") && !arg.startsWith("--")) {
-        // Handle combined flags like -cd
-        for (const char of arg.slice(1)) {
-          if (char === "c") count = true;
-          else if (char === "d") duplicatesOnly = true;
-          else if (char === "u") uniqueOnly = true;
-          else if (char === "i") ignoreCase = true;
-          else return unknownOption("uniq", `-${char}`);
-        }
-      } else {
-        files.push(arg);
-      }
-    }
-
-    let content = "";
+    const { count, duplicatesOnly, uniqueOnly, ignoreCase } =
+      parsed.result.flags;
+    const files = parsed.result.positional;
 
     // Read from files or stdin
-    if (files.length === 0) {
-      content = ctx.stdin;
-    } else {
-      for (const file of files) {
-        const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-        try {
-          content += await ctx.fs.readFile(filePath);
-        } catch {
-          return {
-            stdout: "",
-            stderr: `uniq: ${file}: No such file or directory\n`,
-            exitCode: 1,
-          };
-        }
-      }
-    }
+    const readResult = await readAndConcat(ctx, files, { cmdName: "uniq" });
+    if (!readResult.ok) return readResult.error;
+    const content = readResult.content;
 
     // Split into lines
     const lines = content.split("\n");

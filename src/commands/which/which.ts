@@ -1,4 +1,5 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const whichHelp = {
@@ -12,6 +13,11 @@ const whichHelp = {
   ],
 };
 
+const argDefs = {
+  showAll: { short: "a", type: "boolean" as const },
+  silent: { short: "s", type: "boolean" as const },
+};
+
 export const whichCommand: Command = {
   name: "which",
 
@@ -20,23 +26,12 @@ export const whichCommand: Command = {
       return showHelp(whichHelp);
     }
 
-    let showAll = false;
-    let silent = false;
-    const names: string[] = [];
+    const parsed = parseArgs("which", args, argDefs);
+    if (!parsed.ok) return parsed.error;
 
-    for (const arg of args) {
-      if (arg === "-a") {
-        showAll = true;
-      } else if (arg === "-s") {
-        silent = true;
-      } else if (arg === "-as" || arg === "-sa") {
-        showAll = true;
-        silent = true;
-      } else if (arg.startsWith("-") && arg !== "-") {
-      } else {
-        names.push(arg);
-      }
-    }
+    const showAll = parsed.result.flags.showAll;
+    const silent = parsed.result.flags.silent;
+    const names = parsed.result.positional;
 
     if (names.length === 0) {
       return { stdout: "", stderr: "", exitCode: 1 };

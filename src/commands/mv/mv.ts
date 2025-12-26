@@ -1,6 +1,7 @@
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { parseArgs } from "../../utils/args.js";
+import { hasHelpFlag, showHelp } from "../help.js";
 
 const mvHelp = {
   name: "mv",
@@ -14,6 +15,12 @@ const mvHelp = {
   ],
 };
 
+const argDefs = {
+  force: { short: "f", long: "force", type: "boolean" as const },
+  noClobber: { short: "n", long: "no-clobber", type: "boolean" as const },
+  verbose: { short: "v", long: "verbose", type: "boolean" as const },
+};
+
 export const mvCommand: Command = {
   name: "mv",
 
@@ -22,33 +29,13 @@ export const mvCommand: Command = {
       return showHelp(mvHelp);
     }
 
-    let force = false;
-    let noClobber = false;
-    let verbose = false;
-    const paths: string[] = [];
+    const parsed = parseArgs("mv", args, argDefs);
+    if (!parsed.ok) return parsed.error;
 
-    // Parse arguments
-    for (const arg of args) {
-      if (arg === "-f" || arg === "--force") {
-        force = true;
-      } else if (arg === "-n" || arg === "--no-clobber") {
-        noClobber = true;
-      } else if (arg === "-v" || arg === "--verbose") {
-        verbose = true;
-      } else if (arg.startsWith("--")) {
-        return unknownOption("mv", arg);
-      } else if (arg.startsWith("-") && arg.length > 1) {
-        // Handle combined flags like -fv
-        for (const char of arg.slice(1)) {
-          if (char === "f") force = true;
-          else if (char === "n") noClobber = true;
-          else if (char === "v") verbose = true;
-          else return unknownOption("mv", `-${char}`);
-        }
-      } else {
-        paths.push(arg);
-      }
-    }
+    let force = parsed.result.flags.force;
+    const noClobber = parsed.result.flags.noClobber;
+    const verbose = parsed.result.flags.verbose;
+    const paths = parsed.result.positional;
 
     // -n takes precedence over -f (per GNU coreutils behavior)
     if (noClobber) {

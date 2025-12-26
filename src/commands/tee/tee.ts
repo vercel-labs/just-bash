@@ -1,5 +1,6 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { parseArgs } from "../../utils/args.js";
+import { hasHelpFlag, showHelp } from "../help.js";
 
 const teeHelp = {
   name: "tee",
@@ -11,6 +12,10 @@ const teeHelp = {
   ],
 };
 
+const argDefs = {
+  append: { short: "a", long: "append", type: "boolean" as const },
+};
+
 export const teeCommand: Command = {
   name: "tee",
 
@@ -19,24 +24,11 @@ export const teeCommand: Command = {
       return showHelp(teeHelp);
     }
 
-    let append = false;
-    const files: string[] = [];
+    const parsed = parseArgs("tee", args, argDefs);
+    if (!parsed.ok) return parsed.error;
 
-    for (const arg of args) {
-      if (arg === "-a" || arg === "--append") {
-        append = true;
-      } else if (arg.startsWith("--")) {
-        return unknownOption("tee", arg);
-      } else if (arg.startsWith("-") && arg.length > 1) {
-        for (const c of arg.slice(1)) {
-          if (c === "a") append = true;
-          else return unknownOption("tee", `-${c}`);
-        }
-      } else if (!arg.startsWith("-")) {
-        files.push(arg);
-      }
-    }
-
+    const { append } = parsed.result.flags;
+    const files = parsed.result.positional;
     const content = ctx.stdin;
     let stderr = "";
     let exitCode = 0;

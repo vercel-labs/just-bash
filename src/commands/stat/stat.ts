@@ -1,4 +1,5 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const statHelp = {
@@ -11,6 +12,10 @@ const statHelp = {
   ],
 };
 
+const argDefs = {
+  format: { short: "c", type: "string" as const },
+};
+
 export const statCommand: Command = {
   name: "stat",
 
@@ -19,18 +24,11 @@ export const statCommand: Command = {
       return showHelp(statHelp);
     }
 
-    let format: string | null = null;
-    const files: string[] = [];
+    const parsed = parseArgs("stat", args, argDefs);
+    if (!parsed.ok) return parsed.error;
 
-    // Parse arguments
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      if (arg === "-c" && i + 1 < args.length) {
-        format = args[++i];
-      } else if (!arg.startsWith("-")) {
-        files.push(arg);
-      }
-    }
+    const format = parsed.result.flags.format ?? null;
+    const files = parsed.result.positional;
 
     if (files.length === 0) {
       return {

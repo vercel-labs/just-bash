@@ -1,6 +1,7 @@
 import { minimatch } from "minimatch";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { parseArgs } from "../../utils/args.js";
+import { hasHelpFlag, showHelp } from "../help.js";
 
 // Format size in human-readable format (e.g., 1.5K, 234M, 2G)
 function formatHumanSize(bytes: number): string {
@@ -67,6 +68,23 @@ const lsHelp = {
   ],
 };
 
+const argDefs = {
+  showAll: { short: "a", long: "all", type: "boolean" as const },
+  showAlmostAll: { short: "A", long: "almost-all", type: "boolean" as const },
+  longFormat: { short: "l", type: "boolean" as const },
+  humanReadable: {
+    short: "h",
+    long: "human-readable",
+    type: "boolean" as const,
+  },
+  recursive: { short: "R", long: "recursive", type: "boolean" as const },
+  reverse: { short: "r", long: "reverse", type: "boolean" as const },
+  sortBySize: { short: "S", type: "boolean" as const },
+  directoryOnly: { short: "d", long: "directory", type: "boolean" as const },
+  sortByTime: { short: "t", type: "boolean" as const },
+  onePerLine: { short: "1", type: "boolean" as const },
+};
+
 export const lsCommand: Command = {
   name: "ls",
 
@@ -75,54 +93,22 @@ export const lsCommand: Command = {
       return showHelp(lsHelp);
     }
 
-    let showAll = false;
-    let showAlmostAll = false;
-    let longFormat = false;
-    let humanReadable = false;
-    let recursive = false;
-    let reverse = false;
-    let sortBySize = false;
-    let directoryOnly = false;
-    let _sortByTime = false;
-    const paths: string[] = [];
+    const parsed = parseArgs("ls", args, argDefs);
+    if (!parsed.ok) return parsed.error;
 
-    // Parse arguments
-    for (const arg of args) {
-      if (arg.startsWith("-") && !arg.startsWith("--")) {
-        for (const flag of arg.slice(1)) {
-          if (flag === "a") showAll = true;
-          else if (flag === "A") showAlmostAll = true;
-          else if (flag === "l") longFormat = true;
-          else if (flag === "h") humanReadable = true;
-          else if (flag === "R") recursive = true;
-          else if (flag === "r") reverse = true;
-          else if (flag === "S") sortBySize = true;
-          else if (flag === "d") directoryOnly = true;
-          else if (flag === "t") _sortByTime = true;
-          else if (flag === "1") {
-            /* -1 is implicit */
-          } else {
-            return unknownOption("ls", `-${flag}`);
-          }
-        }
-      } else if (arg === "--all") {
-        showAll = true;
-      } else if (arg === "--almost-all") {
-        showAlmostAll = true;
-      } else if (arg === "--reverse") {
-        reverse = true;
-      } else if (arg === "--directory") {
-        directoryOnly = true;
-      } else if (arg === "--recursive") {
-        recursive = true;
-      } else if (arg === "--human-readable") {
-        humanReadable = true;
-      } else if (arg.startsWith("--")) {
-        return unknownOption("ls", arg);
-      } else {
-        paths.push(arg);
-      }
-    }
+    const showAll = parsed.result.flags.showAll;
+    const showAlmostAll = parsed.result.flags.showAlmostAll;
+    const longFormat = parsed.result.flags.longFormat;
+    const humanReadable = parsed.result.flags.humanReadable;
+    const recursive = parsed.result.flags.recursive;
+    const reverse = parsed.result.flags.reverse;
+    const sortBySize = parsed.result.flags.sortBySize;
+    const directoryOnly = parsed.result.flags.directoryOnly;
+    const _sortByTime = parsed.result.flags.sortByTime;
+    // Note: onePerLine is accepted but implicit in our output
+    void parsed.result.flags.onePerLine;
+
+    const paths = parsed.result.positional;
 
     if (paths.length === 0) {
       paths.push(".");

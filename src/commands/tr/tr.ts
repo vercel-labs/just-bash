@@ -1,5 +1,6 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { parseArgs } from "../../utils/args.js";
+import { hasHelpFlag, showHelp } from "../help.js";
 
 const trHelp = {
   name: "tr",
@@ -103,6 +104,13 @@ function expandRange(set: string): string {
   return result;
 }
 
+const argDefs = {
+  complement: { short: "c", long: "complement", type: "boolean" as const },
+  complementUpper: { short: "C", type: "boolean" as const },
+  delete: { short: "d", long: "delete", type: "boolean" as const },
+  squeeze: { short: "s", long: "squeeze-repeats", type: "boolean" as const },
+};
+
 export const trCommand: Command = {
   name: "tr",
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
@@ -110,36 +118,15 @@ export const trCommand: Command = {
       return showHelp(trHelp);
     }
 
-    let complementMode = false;
-    let deleteMode = false;
-    let squeezeMode = false;
-    const sets: string[] = [];
+    const parsed = parseArgs("tr", args, argDefs);
+    if (!parsed.ok) return parsed.error;
 
-    // Parse arguments
-    for (const arg of args) {
-      if (arg === "-c" || arg === "-C" || arg === "--complement") {
-        complementMode = true;
-      } else if (arg === "-d" || arg === "--delete") {
-        deleteMode = true;
-      } else if (arg === "-s" || arg === "--squeeze-repeats") {
-        squeezeMode = true;
-      } else if (arg.startsWith("--")) {
-        return unknownOption("tr", arg);
-      } else if (arg.startsWith("-") && arg.length > 1) {
-        // Check for unknown short options
-        for (const c of arg.slice(1)) {
-          if (c !== "d" && c !== "s" && c !== "c" && c !== "C") {
-            return unknownOption("tr", `-${c}`);
-          }
-        }
-        if (arg.includes("c") || arg.includes("C")) complementMode = true;
-        if (arg.includes("d")) deleteMode = true;
-        if (arg.includes("s")) squeezeMode = true;
-      } else {
-        // Treat as a set operand (including bare "-" which is valid)
-        sets.push(arg);
-      }
-    }
+    // -c and -C both enable complement mode
+    const complementMode =
+      parsed.result.flags.complement || parsed.result.flags.complementUpper;
+    const deleteMode = parsed.result.flags.delete;
+    const squeezeMode = parsed.result.flags.squeeze;
+    const sets = parsed.result.positional;
 
     if (sets.length < 1) {
       return {

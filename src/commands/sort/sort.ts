@@ -1,4 +1,5 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { readAndConcat } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { createComparator, filterUnique } from "./comparator.js";
 import { parseKeySpec } from "./parser.js";
@@ -105,25 +106,10 @@ export const sortCommand: Command = {
       }
     }
 
-    let content = "";
-
     // Read from files or stdin
-    if (files.length === 0) {
-      content = ctx.stdin;
-    } else {
-      for (const file of files) {
-        const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-        try {
-          content += await ctx.fs.readFile(filePath);
-        } catch {
-          return {
-            stdout: "",
-            stderr: `sort: ${file}: No such file or directory\n`,
-            exitCode: 1,
-          };
-        }
-      }
-    }
+    const readResult = await readAndConcat(ctx, files, { cmdName: "sort" });
+    if (!readResult.ok) return readResult.error;
+    const content = readResult.content;
 
     // Split into lines (preserve empty lines at the end for sorting)
     let lines = content.split("\n");
