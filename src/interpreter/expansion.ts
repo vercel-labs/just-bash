@@ -454,6 +454,34 @@ export async function expandWord(
   return expandWordAsync(ctx, word);
 }
 
+// Check if a parameter expansion has quoted parts in its operation word
+// e.g., ${v:-"AxBxC"} has a quoted default value
+function hasQuotedOperationWord(part: ParameterExpansionPart): boolean {
+  if (!part.operation) return false;
+
+  const op = part.operation;
+  let wordParts: WordPart[] | undefined;
+
+  // These operation types have a 'word' property that can contain quoted parts
+  if (
+    op.type === "DefaultValue" ||
+    op.type === "AssignDefault" ||
+    op.type === "UseAlternative" ||
+    op.type === "ErrorIfUnset"
+  ) {
+    wordParts = op.word?.parts;
+  }
+
+  if (!wordParts) return false;
+
+  for (const p of wordParts) {
+    if (p.type === "DoubleQuoted" || p.type === "SingleQuoted") {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Analyze word parts for expansion behavior
 function analyzeWordParts(parts: WordPart[]): {
   hasQuoted: boolean;
@@ -492,6 +520,11 @@ function analyzeWordParts(parts: WordPart[]): {
       hasParamExpansion = true;
       if (part.parameter === "@" || part.parameter === "*") {
         hasArrayVar = true;
+      }
+      // Check if the parameter expansion has quoted parts in its operation
+      // e.g., ${v:-"AxBxC"} - the quoted default value should prevent word splitting
+      if (hasQuotedOperationWord(part)) {
+        hasQuoted = true;
       }
     }
   }
@@ -762,6 +795,93 @@ async function expandWordWithBracesAsync(
   return expanded.map((parts) => parts.join(""));
 }
 
+/**
+ * Smart word splitting that respects literal boundaries.
+ *
+ * In bash, word splitting only applies to results of parameter expansion,
+ * command substitution, and arithmetic expansion. Literal characters in
+ * the word attach to adjacent fields.
+ *
+ * E.g., with IFS=x: ${v:-AxBxC}x should give "A B Cx" (literal x attaches to last field)
+ * E.g., with IFS=x: y${v:-AxBxC}z should give "yA B Cz" (literals attach to first/last fields)
+ */
+async function smartWordSplit(
+  ctx: InterpreterContext,
+  wordParts: WordPart[],
+  ifsChars: string,
+  ifsPattern: string,
+): Promise<string[]> {
+  // First, check if any expansion result contains IFS characters
+  // If not, no splitting needed
+  type Segment = { value: string; splittable: boolean };
+  const segments: Segment[] = [];
+
+  for (const part of wordParts) {
+    const isSplittable = part.type === "ParameterExpansion" ||
+                         part.type === "CommandSubstitution" ||
+                         part.type === "ArithmeticExpansion";
+
+    // Check if parameter expansion has quoted operation word - those shouldn't split
+    if (part.type === "ParameterExpansion" && hasQuotedOperationWord(part)) {
+      const expanded = await expandPart(ctx, part);
+      segments.push({ value: expanded, splittable: false });
+    } else {
+      const expanded = await expandPart(ctx, part);
+      segments.push({ value: expanded, splittable: isSplittable });
+    }
+  }
+
+  // Check if any splittable segment contains IFS chars
+  const hasSplittableIFS = segments.some(
+    seg => seg.splittable && new RegExp(`[${ifsPattern}]`).test(seg.value)
+  );
+
+  if (!hasSplittableIFS) {
+    // No splitting needed - return the joined value to avoid double expansion
+    const joined = segments.map(s => s.value).join("");
+    return joined ? [joined] : [];
+  }
+
+  // Now do the smart splitting
+  const ifsRegex = new RegExp(`[${ifsPattern}]+`);
+  const result: string[] = [];
+  let currentField = "";
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+
+    if (!seg.splittable) {
+      // Literal: append to current field
+      currentField += seg.value;
+    } else {
+      // Splittable: apply IFS splitting
+      const fields = seg.value.split(ifsRegex);
+
+      for (let j = 0; j < fields.length; j++) {
+        if (j === 0) {
+          // First field: append to current accumulated literal
+          currentField += fields[j];
+        } else {
+          // Subsequent fields: push previous and start new
+          if (currentField !== "") {
+            result.push(currentField);
+          }
+          currentField = fields[j];
+        }
+      }
+    }
+  }
+
+  // Push final field if not empty
+  if (currentField !== "") {
+    result.push(currentField);
+  }
+
+  // Always return the result to avoid double expansion
+  // The result contains [joined_value] if no splitting happened
+  return result;
+}
+
 export async function expandWordWithGlob(
   ctx: InterpreterContext,
   word: WordNode,
@@ -847,11 +967,6 @@ export async function expandWordWithGlob(
   }
 
   // No brace expansion or single value - use original logic
-  const needsAsync = wordNeedsAsync(word);
-  const value = needsAsync
-    ? await expandWordAsync(ctx, word)
-    : expandWordSync(ctx, word);
-
   // Word splitting based on IFS
   const ifs = ctx.state.env.IFS;
   // If IFS is set to empty string, no word splitting occurs
@@ -867,33 +982,32 @@ export async function expandWordWithGlob(
       if (c === "\n") return "\\n";
       return c;
     }).join("");
-    if (ifsPattern && new RegExp(`[${ifsPattern}]`).test(value)) {
-      const splitValues = value.split(new RegExp(`[${ifsPattern}]+`)).filter((v) => v !== "");
-      // If split produced different result than original, return split values
-      // This handles:
-      // - Multiple fields: "a b c" -> ["a", "b", "c"]
-      // - Single field with trimmed IFS: " a " -> ["a"]
-      // - All IFS characters: "   " -> []
-      if (splitValues.length !== 1 || splitValues[0] !== value) {
-        // Perform glob expansion on each split value
-        const expandedValues: string[] = [];
-        const globExpander = new GlobExpander(ctx.fs, ctx.state.cwd);
-        for (const sv of splitValues) {
-          if (/[*?[]/.test(sv)) {
-            const matches = await globExpander.expand(sv);
-            if (matches.length > 0) {
-              expandedValues.push(...matches);
-            } else {
-              expandedValues.push(sv);
-            }
-          } else {
-            expandedValues.push(sv);
-          }
+
+    // Smart word splitting: literals should NOT be split, they attach to adjacent fields
+    // E.g., ${v:-AxBxC}x with IFS=x should give "A B Cx" not "A B C"
+    const splitResult = await smartWordSplit(ctx, wordParts, ifsChars, ifsPattern);
+    // Perform glob expansion on each split value
+    const expandedValues: string[] = [];
+    const globExpander = new GlobExpander(ctx.fs, ctx.state.cwd);
+    for (const sv of splitResult) {
+      if (/[*?[]/.test(sv)) {
+        const matches = await globExpander.expand(sv);
+        if (matches.length > 0) {
+          expandedValues.push(...matches);
+        } else {
+          expandedValues.push(sv);
         }
-        return { values: expandedValues, quoted: false };
+      } else {
+        expandedValues.push(sv);
       }
     }
+    return { values: expandedValues, quoted: false };
   }
+
+  const needsAsync = wordNeedsAsync(word);
+  const value = needsAsync
+    ? await expandWordAsync(ctx, word)
+    : expandWordSync(ctx, word);
 
   if (!hasQuoted && /[*?[]/.test(value)) {
     const globExpander = new GlobExpander(ctx.fs, ctx.state.cwd);

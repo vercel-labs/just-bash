@@ -406,17 +406,12 @@ let lastParseError = false;
 function parseIntArg(arg: string): number {
   lastParseError = false;
 
-  // Only trim leading whitespace - trailing whitespace is invalid
+  // Only trim leading whitespace - trailing whitespace triggers error but we still parse
   const trimmed = arg.trimStart();
+  const hasTrailingWhitespace = trimmed !== trimmed.trimEnd();
 
-  // Check for trailing whitespace (invalid)
-  if (trimmed !== trimmed.trimEnd()) {
-    lastParseError = true;
-    // Bash prints 0 for invalid input
-    return 0;
-  }
-
-  arg = trimmed;
+  // Continue parsing with trimmed value - but set error flag later if there's trailing whitespace
+  arg = trimmed.trimEnd();
 
   // Handle character notation: 'x' or "x" gives ASCII value
   // Also handle \'x and \"x (escaped quotes, which shell may pass through)
@@ -445,11 +440,13 @@ function parseIntArg(arg: string): number {
       lastParseError = true;
       return 0;
     }
+    if (hasTrailingWhitespace) lastParseError = true;
     return num;
   }
 
   // Handle octal
   if (arg.startsWith("0") && arg.length > 1 && /^-?0[0-7]+$/.test(arg)) {
+    if (hasTrailingWhitespace) lastParseError = true;
     return parseInt(arg, 8) || 0;
   }
 
@@ -468,6 +465,9 @@ function parseIntArg(arg: string): number {
     const num = parseInt(arg, 10);
     return Number.isNaN(num) ? 0 : num;
   }
+
+  // Set error flag if there was trailing whitespace
+  if (hasTrailingWhitespace) lastParseError = true;
 
   return parseInt(arg, 10) || 0;
 }
