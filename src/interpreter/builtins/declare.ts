@@ -61,6 +61,20 @@ export function handleDeclare(
     }
   }
 
+  // Print mode with specific variable names: declare -p varname
+  if (printMode && processedArgs.length > 0) {
+    let stdout = "";
+    for (const name of processedArgs) {
+      const value = ctx.state.env[name];
+      if (value !== undefined) {
+        // Use double quotes and escape properly for bash compatibility
+        const escapedValue = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        stdout += `declare -- ${name}="${escapedValue}"\n`;
+      }
+    }
+    return success(stdout);
+  }
+
   // No args: list all variables
   if (processedArgs.length === 0 && !printMode) {
     let stdout = "";
@@ -112,7 +126,12 @@ export function handleDeclare(
     } else {
       // Just declare without value
       const name = arg;
-      if (!(name in ctx.state.env) && !ctx.state.env[`${name}_0`]) {
+      // Check if any array elements exist (numeric or string keys)
+      const hasArrayElements = Object.keys(ctx.state.env).some(
+        (key) =>
+          key.startsWith(`${name}_`) && !key.startsWith(`${name}__length`),
+      );
+      if (!(name in ctx.state.env) && !hasArrayElements) {
         // If declaring as array, initialize empty array
         if (declareArray || declareAssoc) {
           ctx.state.env[`${name}__length`] = "0";

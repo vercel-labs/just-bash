@@ -774,28 +774,90 @@ export class Parser {
   private parseArithmeticCommand(): ArithmeticCommandNode {
     this.expect(TokenType.DPAREN_START);
 
-    // Read expression until ))
+    // Read expression until )) at paren depth 0
+    // We need to track single paren depth to handle cases like ((a=1 + (2*3)))
+    // where ))) should be parsed as ) + )) not )) + )
     let exprStr = "";
-    let depth = 1;
+    let dparenDepth = 1;
+    let parenDepth = 0;
+    let pendingRparen = false; // Track if we have a "virtual" ) from splitting ))
 
-    while (depth > 0 && !this.check(TokenType.EOF)) {
+    let foundClosing = false;
+    while (dparenDepth > 0 && !this.check(TokenType.EOF)) {
+      // First check if we have a pending ) from a previous )) split
+      if (pendingRparen) {
+        pendingRparen = false;
+        if (parenDepth > 0) {
+          parenDepth--;
+          exprStr += ")";
+          continue;
+        }
+        // parenDepth is 0, so this pending ) plus next ) closes the outer ((
+        // Check if next token is also ) or ))
+        if (this.check(TokenType.RPAREN)) {
+          dparenDepth--;
+          foundClosing = true;
+          this.advance();
+          continue;
+        }
+        if (this.check(TokenType.DPAREN_END)) {
+          // The )) here is unexpected since we just had a pending ) - treat it as closing
+          dparenDepth--;
+          foundClosing = true;
+          // Don't advance - the )) might be needed for another purpose
+          continue;
+        }
+        // Otherwise just add the ) to exprStr (shouldn't happen in well-formed input)
+        exprStr += ")";
+        continue;
+      }
+
       if (this.check(TokenType.DPAREN_START)) {
-        depth++;
+        dparenDepth++;
         exprStr += "((";
         this.advance();
       } else if (this.check(TokenType.DPAREN_END)) {
-        depth--;
-        if (depth > 0) {
+        // If we have unmatched single parens, the )) should close them first
+        if (parenDepth >= 2) {
+          // Need both ) from )) to close inner parens
+          parenDepth -= 2;
           exprStr += "))";
           this.advance();
+        } else if (parenDepth === 1) {
+          // First ) closes inner paren, second ) creates pending
+          parenDepth--;
+          exprStr += ")";
+          pendingRparen = true;
+          this.advance();
+        } else {
+          // parenDepth is 0, this )) closes the outer arithmetic
+          dparenDepth--;
+          foundClosing = true;
+          if (dparenDepth > 0) {
+            exprStr += "))";
+          }
+          this.advance();
         }
+      } else if (this.check(TokenType.LPAREN)) {
+        parenDepth++;
+        exprStr += "(";
+        this.advance();
+      } else if (this.check(TokenType.RPAREN)) {
+        if (parenDepth > 0) {
+          parenDepth--;
+        }
+        exprStr += ")";
+        this.advance();
       } else {
         exprStr += this.current().value;
         this.advance();
       }
     }
 
-    this.expect(TokenType.DPAREN_END);
+    // Only expect DPAREN_END if we didn't already consume the closing via splitting
+    if (!foundClosing) {
+      this.expect(TokenType.DPAREN_END);
+    }
 
     const expression = this.parseArithmeticExpression(exprStr.trim());
     const redirections = this.parseOptionalRedirections();

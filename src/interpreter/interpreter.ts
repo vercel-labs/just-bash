@@ -74,6 +74,7 @@ import {
 } from "./expansion.js";
 import { callFunction, executeFunctionDef } from "./functions.js";
 import { getErrorMessage } from "./helpers/errors.js";
+import { checkReadonlyError } from "./helpers/readonly.js";
 import { failure, OK, result, testResult } from "./helpers/result.js";
 import { applyRedirections } from "./redirections.js";
 import type { InterpreterContext, InterpreterState } from "./types.js";
@@ -389,6 +390,9 @@ export class Interpreter {
             1,
           );
         }
+        // Check if array variable is readonly
+        const readonlyError = checkReadonlyError(this.ctx, name);
+        if (readonlyError) return readonlyError;
         const allElements: string[] = [];
         for (const element of assignment.array) {
           const expanded = await expandWordWithGlob(this.ctx, element);
@@ -416,6 +420,10 @@ export class Interpreter {
       if (subscriptMatch) {
         const arrayName = subscriptMatch[1];
         const subscriptExpr = subscriptMatch[2];
+
+        // Check if array variable is readonly
+        const readonlyError = checkReadonlyError(this.ctx, arrayName);
+        if (readonlyError) return readonlyError;
 
         // Evaluate subscript as arithmetic expression
         // This handles: a[0], a[x], a[x+1], a[a[0]], a[b=2], etc.
@@ -461,6 +469,10 @@ export class Interpreter {
         }
         continue;
       }
+
+      // Check if variable is readonly (for scalar assignment)
+      const readonlyError = checkReadonlyError(this.ctx, name);
+      if (readonlyError) return readonlyError;
 
       if (node.name) {
         tempAssignments[name] = this.ctx.state.env[name];

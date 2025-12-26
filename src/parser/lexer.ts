@@ -643,7 +643,8 @@ export class Lexer {
     let inSingleQuote = false;
     let inDoubleQuote = false;
     // Track if the token STARTS with a quote (for assignment detection)
-    const startsWithQuote = input[pos] === '"' || input[pos] === "'";
+    // This can be set later when handling $"..." to treat it like a quoted start
+    let startsWithQuote = input[pos] === '"' || input[pos] === "'";
 
     while (pos < len) {
       const char = input[pos];
@@ -711,9 +712,12 @@ export class Lexer {
         // Skip the $ and handle as regular double quote
         pos++;
         col++;
-        // Now handle the opening double quote
+        // Now handle the opening double quote - treat as if word started with quote
         inDoubleQuote = true;
         quoted = true;
+        if (value === "") {
+          startsWithQuote = true;
+        }
         pos++;
         col++;
         continue;
