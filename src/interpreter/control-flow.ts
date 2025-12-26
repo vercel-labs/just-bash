@@ -144,7 +144,7 @@ export async function executeFor(
   // Note: In bash, the loop variable persists after the loop with its last value
   // Do NOT delete ctx.state.env[node.variable] here
 
-  return { stdout, stderr, exitCode };
+  return result(stdout, stderr, exitCode);
 }
 
 export async function executeCStyleFor(
@@ -218,7 +218,7 @@ export async function executeCStyleFor(
     ctx.state.loopDepth--;
   }
 
-  return { stdout, stderr, exitCode };
+  return result(stdout, stderr, exitCode);
 }
 
 export async function executeWhile(
@@ -358,7 +358,7 @@ export async function executeWhile(
     ctx.state.groupStdin = savedGroupStdin;
   }
 
-  return { stdout, stderr, exitCode };
+  return result(stdout, stderr, exitCode);
 }
 
 export async function executeUntil(
@@ -417,7 +417,7 @@ export async function executeUntil(
     ctx.state.loopDepth--;
   }
 
-  return { stdout, stderr, exitCode };
+  return result(stdout, stderr, exitCode);
 }
 
 export async function executeCase(
@@ -481,5 +481,5 @@ export async function executeCase(
     }
   }
 
-  return { stdout, stderr, exitCode };
+  return result(stdout, stderr, exitCode);
 }

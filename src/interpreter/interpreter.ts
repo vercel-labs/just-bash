@@ -241,7 +241,7 @@ export class Interpreter {
       throw new ErrexitError(exitCode, stdout, stderr);
     }
 
-    return { stdout, stderr, exitCode };
+    return result(stdout, stderr, exitCode);
   }
 
   private async executePipeline(node: PipelineNode): Promise<ExecResult> {
@@ -794,7 +794,7 @@ export class Interpreter {
       }
     }
 
-    return { stdout, stderr, exitCode };
+    return result(stdout, stderr, exitCode);
   }
 
   // ===========================================================================
@@ -838,32 +838,28 @@ export class Interpreter {
       if (error instanceof BreakError || error instanceof ContinueError) {
         stdout += error.stdout;
         stderr += error.stderr;
-        return { stdout, stderr, exitCode: 0 };
+        return result(stdout, stderr, 0);
       }
       // ExitError in subshell should NOT propagate - just return the exit code
       // (subshells are like separate processes)
       if (error instanceof ExitError) {
         stdout += error.stdout;
         stderr += error.stderr;
-        return { stdout, stderr, exitCode: error.exitCode };
+        return result(stdout, stderr, error.exitCode);
       }
       // ReturnError in subshell (e.g., f() ( return 42; )) should also just exit
       // with the given code, since subshells are like separate processes
       if (error instanceof ReturnError) {
         stdout += error.stdout;
         stderr += error.stderr;
-        return { stdout, stderr, exitCode: error.exitCode };
+        return result(stdout, stderr, error.exitCode);
       }
       if (error instanceof ErrexitError) {
         error.stdout = stdout + error.stdout;
         error.stderr = stderr + error.stderr;
         throw error;
       }
-      return {
-        stdout,
-        stderr: `${stderr}${getErrorMessage(error)}\n`,
-        exitCode: 1,
-      };
+      return result(stdout, `${stderr}${getErrorMessage(error)}\n`, 1);
     }
 
     this.ctx.state.env = savedEnv;
@@ -871,7 +867,7 @@ export class Interpreter {
     this.ctx.state.loopDepth = savedLoopDepth;
     this.ctx.state.groupStdin = savedGroupStdin;
 
-    return { stdout, stderr, exitCode };
+    return result(stdout, stderr, exitCode);
   }
 
   private async executeGroup(node: GroupNode, stdin = ""): Promise<ExecResult> {
@@ -903,17 +899,13 @@ export class Interpreter {
         error.prependOutput(stdout, stderr);
         throw error;
       }
-      return {
-        stdout,
-        stderr: `${stderr}${getErrorMessage(error)}\n`,
-        exitCode: 1,
-      };
+      return result(stdout, `${stderr}${getErrorMessage(error)}\n`, 1);
     }
 
     // Restore groupStdin
     this.ctx.state.groupStdin = savedGroupStdin;
 
-    return { stdout, stderr, exitCode };
+    return result(stdout, stderr, exitCode);
   }
 
   // ===========================================================================

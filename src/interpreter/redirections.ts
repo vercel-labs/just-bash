@@ -12,6 +12,7 @@
 import type { RedirectionNode, WordNode } from "../ast/types.js";
 import type { ExecResult } from "../types.js";
 import { expandWord } from "./expansion.js";
+import { result as makeResult } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
 
 export async function applyRedirections(
@@ -172,5 +173,5 @@ export async function applyRedirections(
     }
   }
 
-  return { stdout, stderr, exitCode };
+  return makeResult(stdout, stderr, exitCode);
 }
