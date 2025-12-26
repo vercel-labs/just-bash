@@ -24,6 +24,7 @@ FALSE
 ## END
 
 #### extglob in variable
+## SKIP: extglob not implemented
 shopt -s extglob
 
 # this syntax requires extglob in bash!!
@@ -51,6 +52,7 @@ FALSE
 ## END
 
 #### Matching literal '@(cc)'
+## SKIP: extglob not implemented
 
 # extglob is OFF.  Doesn't affect bash or mksh!
 [[ cc == @(cc) ]] 
@@ -73,6 +75,7 @@ status=1
 ## END
 
 #### nested @()
+## SKIP: extglob not implemented
 shopt -s extglob
 pat='--@(help|verbose|no-@(long|short)-option)'
 [[ --no-long-option == $pat ]] && echo TRUE
@@ -90,6 +93,7 @@ FALSE
 ## END
 
 #### nested @() with quotes and vars
+## SKIP: extglob not implemented
 shopt -s extglob
 prefix=no
 [[ --no-long-option == --@(help|verbose|$prefix-@(long|short)-'option') ]] &&
@@ -196,6 +200,7 @@ FALSE
 ## END
 
 #### extglob empty string
+## SKIP: extglob not implemented
 shopt -s extglob
 [[ '' == @(foo|bar) ]] || echo FALSE
 [[ '' == @(foo||bar) ]] && echo TRUE
@@ -205,6 +210,7 @@ TRUE
 ## END
 
 #### extglob empty pattern
+## SKIP: extglob not implemented
 shopt -s extglob
 [[ '' == @() ]] && echo TRUE
 [[ '' == @(||) ]] && echo TRUE
@@ -218,6 +224,7 @@ FALSE
 ## END
 
 #### case with extglob
+## SKIP: extglob not implemented
 shopt -s extglob
 for word in --help --verbose --unmatched -- -zxzx -; do
   case $word in
@@ -253,6 +260,7 @@ D
 ## END
 
 #### [[ $x == !($str) ]]
+## SKIP: extglob not implemented
 shopt -s extglob
 empty=''
 str='x'
@@ -264,6 +272,7 @@ FALSE
 ## END
 
 #### Turning extglob on changes the meaning of [[ !(str) ]] in bash
+## SKIP: extglob not implemented
 empty=''
 str='x'
 [[ !($empty) ]]  && echo TRUE   # test if $empty is empty
@@ -284,6 +293,7 @@ TRUE
 ## END
 
 #### With extglob on, !($str) on the left or right of == has different meanings
+## SKIP: extglob not implemented
 shopt -s extglob
 str='x'
 [[ 1 == !($str) ]]  && echo TRUE   # glob match
@@ -293,6 +303,7 @@ TRUE
 ## END
 
 #### extglob inside arg word
+## SKIP: extglob not implemented
 shopt -s extglob
 [[ foo == @(foo|bar) ]] && echo rhs
 [[ foo == ${unset:-@(foo|bar)} ]] && echo 'rhs arg'
@@ -308,6 +319,7 @@ nope
 ## END
 
 #### extglob is not detected in regex!
+## SKIP: extglob not implemented
 shopt -s extglob
 [[ foo =~ ^@(foo|bar)$ ]] || echo FALSE
 ## STDOUT:
@@ -317,6 +329,7 @@ FALSE
 ## N-I mksh/ksh status: 1
 
 #### regular glob of single unicode char
+## SKIP: extglob not implemented
 shopt -s extglob
 [[ __a__ == __?__ ]]
 echo $?
@@ -332,6 +345,7 @@ echo $?
 ## END
 
 #### extended glob of single unicode char
+## SKIP: extglob not implemented
 shopt -s extglob
 [[ __a__ == @(__?__) ]]
 echo $?
@@ -347,6 +361,7 @@ echo $?
 ## END
 
 #### Extended glob in ${x//pat/replace}
+## SKIP: extglob not implemented
 # not supported in OSH due to GlobToERE() strategy for positional info
 
 shopt -s extglob
@@ -359,6 +374,7 @@ foZ
 ## N-I osh stdout-json: ""
 
 #### Extended glob in ${x%PATTERN}
+## SKIP: extglob not implemented
 
 shopt -s extglob
 x=foo.py

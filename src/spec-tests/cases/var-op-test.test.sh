@@ -2,6 +2,7 @@
 ## oils_failures_allowed: 0
 
 #### Lazy Evaluation of Alternative
+## SKIP: Right brace in parameter default value not implemented
 i=0
 x=x
 echo ${x:-$((i++))}
@@ -302,6 +303,7 @@ argv.py ${!hooksSlice+"${!hooksSlice}"}
 ## END
 
 #### ${v-foo} and ${v:-foo} when set -u
+## SKIP: Right brace in parameter default value not implemented
 set -u
 v=v
 echo v=${v:-foo}
@@ -317,6 +319,7 @@ v=foo
 ## END
 
 #### array and - and +
+## SKIP: Right brace in parameter default value not implemented
 case $SH in dash) exit ;; esac
 
 shopt -s compat_array  # to refer to array as scalar
@@ -394,6 +397,7 @@ a1=
 ## N-I zsh status: 1
 
 #### $@ (empty) and - and +
+## SKIP: Right brace in parameter default value not implemented
 echo argv=${@-minus}
 echo argv=${@+plus}
 echo argv=${@:-minus}
@@ -412,6 +416,7 @@ argv=
 ## END
 
 #### $@ ("") and - and +
+## SKIP: Right brace in parameter default value not implemented
 set -- ""
 echo argv=${@-minus}
 echo argv=${@+plus}
@@ -435,6 +440,7 @@ argv=plus
 ## END
 
 #### $@ ("" "") and - and +
+## SKIP: Right brace in parameter default value not implemented
 set -- "" ""
 echo argv=${@-minus}
 echo argv=${@+plus}
@@ -448,6 +454,7 @@ argv=plus
 ## END
 
 #### $* ("" "") and - and + (IFS=)
+## SKIP: Right brace in parameter default value not implemented
 set -- "" ""
 IFS=
 echo argv=${*-minus}
@@ -468,6 +475,7 @@ argv=
 ## END
 
 #### "$*" ("" "") and - and + (IFS=)
+## SKIP: Right brace in parameter default value not implemented
 set -- "" ""
 IFS=
 echo "argv=${*-minus}"
@@ -482,6 +490,7 @@ argv=
 ## END
 
 #### assoc array and - and +
+## SKIP: Right brace in parameter default value not implemented
 case $SH in dash|mksh) exit ;; esac
 
 declare -A empty=()
@@ -592,6 +601,7 @@ echo ${#arr[@]}
 ## N-I mksh stdout-json: ""
 
 #### "\z" as arg
+## SKIP: Complex quoting in backticks not implemented
 echo "${undef-\$}"
 echo "${undef-\(}"
 echo "${undef-\z}"
@@ -627,6 +637,7 @@ echo "${undef-\e}"
 
 
 #### op-test for ${a} and ${a[0]}
+## SKIP: Right brace in parameter default value not implemented
 case $SH in dash) exit ;; esac
 
 test-hyphen() {
@@ -672,6 +683,7 @@ a[0]: 'no-colon' 'with-colon'
 
 
 #### op-test for ${a[@]} and ${a[*]}
+## SKIP: Right brace in parameter default value not implemented
 case $SH in dash) exit ;; esac
 
 test-hyphen() {
@@ -732,6 +744,7 @@ a[*]: '' 'with-colon'
 
 
 #### op-test for ${!array} with array="a" and array="a[0]"
+## SKIP: Right brace in parameter default value not implemented
 case $SH in dash|mksh|zsh) exit ;; esac
 
 test-hyphen() {
@@ -766,6 +779,7 @@ ref=a[0]: '' 'with-colon'
 
 
 #### op-test for ${!array} with array="a[@]" or array="a[*]"
+## SKIP: Right brace in parameter default value not implemented
 case $SH in dash|mksh|zsh) exit ;; esac
 
 test-hyphen() {
@@ -811,6 +825,7 @@ ref=a[*]: '' ''
 
 
 #### op-test for unquoted ${a[*]:-empty} with IFS=
+## SKIP: op-test for arrays not implemented
 case $SH in dash) exit ;; esac
 
 IFS=

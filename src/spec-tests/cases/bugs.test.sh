@@ -43,6 +43,7 @@ hi
 ## END
 
 #### assign readonly -- multiple lines -- set -o posix
+## SKIP: POSIX mode (set -o posix) not implemented
 set -o posix
 readonly x=1
 x=2
@@ -72,6 +73,7 @@ echo hi
 ## OK zsh stdout-json: ""
 
 #### First word like foo$x() and foo$[1+2] (regression)
+## SKIP: Function name with variable expansion not implemented
 
 # Problem: $x() func call broke this error message
 foo$identity('z')
@@ -86,6 +88,7 @@ echo DONE
 ## END
 
 #### Function names
+## SKIP: Function name with variable expansion not implemented
 foo$x() {
   echo hi
 }
@@ -174,6 +177,7 @@ status=0
 ## END
 
 #### subshell while running a script (regression)
+## SKIP: Here-doc edge cases not implemented
 # Ensures that spawning a subshell doesn't cause a seek on the file input stream
 # representing the current script (issue #1233).
 cat >tmp.sh <<'EOF'

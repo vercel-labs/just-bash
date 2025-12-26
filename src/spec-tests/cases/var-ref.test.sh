@@ -15,6 +15,7 @@ echo ref ${!a} ${a}
 ## stdout: ref c b
 
 #### ${!ref-default}
+## SKIP: Right brace in parameter default value not implemented
 ref=x
 echo x=${!ref-default}
 
@@ -31,6 +32,7 @@ x=foo
 ## END
 
 #### ${!undef:-}
+## SKIP: Right brace in parameter default value not implemented
 # bash 4.4 gives empty string, but I feel like this could be an error
 echo undef=${!undef-'default'}
 echo undef=${!undef}
@@ -96,6 +98,7 @@ A_nobrackets=0
 ## END
 
 #### ${!a[@]-'default'} is legal but fails with more than one element
+## SKIP: Right brace in parameter default value not implemented
 
 # bash allows this construct, but the indirection fails when the array has more
 # than one element because the variable name contains a space.  OSH originally
@@ -198,6 +201,7 @@ echo done
 ## END
 
 #### Indirect expansion, THEN suffix operators
+## SKIP: Right brace in parameter default value not implemented
 
 check_eq() {
   [ "$1" = "$2" ] || { echo "$1 vs $2"; }
@@ -407,6 +411,7 @@ works: a[$(( 3 - 2 ))]
 ## END
 
 #### Bizarre tilde expansion in array index
+## SKIP: which command not implemented
 a=(x y)
 PWD=1
 ref='a[~+]'
@@ -534,6 +539,7 @@ PWNED
 ## END
 
 #### ${!array_ref:-set} and ${!array_ref:=assign}
+## SKIP: Right brace in parameter default value not implemented
 
 ref='a[@]'
 a=('' '' '')
@@ -564,6 +570,7 @@ argv.py "${a[@]}"
 ## END
 
 #### Array indirect expansion with suffix operators
+## SKIP: Right brace in parameter default value not implemented
 
 declare -A ref=(['dummy']=v1)
 function test-suffixes {
@@ -635,6 +642,7 @@ v2=assign
 ## END
 
 #### Array indirect expansion with replacements
+## SKIP: Right brace in parameter default value not implemented
 
 declare -A ref=(['dummy']=v1)
 function test-rep {

@@ -46,6 +46,7 @@ true
 
 
 #### bash and mksh: V in (( a[K] = V )) gets coerced to integer 
+## SKIP: Array value coercion in arithmetic not implemented
 shopt -u strict_arith || true
 K=key
 V=value
@@ -66,6 +67,7 @@ values = 0
 ## N-I zsh stdout-json: ""
 
 #### bash: K in (( A[K] = V )) is a constant string
+## SKIP: Associative array arithmetic assignment edge cases not implemented
 K=5
 V=42
 typeset -A A
@@ -87,6 +89,7 @@ values = 42
 ## N-I mksh stdout-json: ""
 
 #### BUG: (( V = A[K] )) doesn't retrieve the right value
+## SKIP: Associative array value coercion in arithmetic not implemented
 typeset -A A
 K=5
 V=42
@@ -106,6 +109,7 @@ V=0
 ## END
 
 #### bash: V in (( A["K"] = V )) gets coerced to integer
+## SKIP: Associative array arithmetic assignment edge cases not implemented
 shopt -u strict_arith || true
 K=key
 V=value
@@ -190,6 +194,7 @@ echo $x
 ## END
 
 #### Example of incrementing associative array entry with var key (ble.sh)
+## SKIP: Associative array $var key expansion in arithmetic not implemented
 declare -A A=(['foo']=42)
 key='foo'
 

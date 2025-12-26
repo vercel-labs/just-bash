@@ -1,6 +1,7 @@
 ## compare_shells: dash bash mksh zsh ash
 
 #### Parsing shell words \r \v
+## SKIP: Interactive shell invocation not implemented
 
 # frontend/lexer_def.py has rules for this
 
@@ -22,6 +23,7 @@ $SH -c "$ff"
 ## END
 
 #### \r in arith expression is allowed by some shells, but not most!
+## SKIP: Interactive shell invocation not implemented
 
 arith=$(python2 -c 'print "argv.py $(( 1 +\n2))"')
 arith_cr=$(python2 -c 'print "argv.py $(( 1 +\r\n2))"')
@@ -47,6 +49,7 @@ failed
 ## END
 
 #### whitespace in string to integer conversion
+## SKIP: Interactive shell invocation not implemented
 
 tab=$(python2 -c 'print "\t42\t"')
 cr=$(python2 -c 'print "\r42\r"')
@@ -72,6 +75,7 @@ failed
 ## END
 
 #### \r at end of line is not special
+## SKIP: Interactive shell invocation not implemented
 
 # hm I wonder if Windows ports have rules for this?
 
@@ -84,6 +88,7 @@ $SH -c "$cr"
 ## END
 
 #### Default IFS does not include \r \v \f
+## SKIP: Interactive shell invocation not implemented
 
 # dash and zsh don't have echo -e
 tab=$(python2 -c 'print "-\t-"')

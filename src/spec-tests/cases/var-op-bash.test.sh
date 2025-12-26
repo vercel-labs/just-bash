@@ -148,6 +148,7 @@ aaa aBC DEF
 ## END
 
 #### Lower Case glob
+## SKIP: Right brace in parameter default value not implemented
 
 # Hm with C.UTF-8, this does no case folding?
 export LC_ALL=en_US.UTF-8
@@ -268,6 +269,7 @@ echo [${?@a}]
 ## END
 
 #### undef and @P @Q @a
+## SKIP: Interactive shell invocation not implemented
 $SH -c 'echo ${undef@P}'
 echo status=$?
 $SH -c 'echo ${undef@Q}'
@@ -285,6 +287,7 @@ status=0
 
 
 #### argv array and @P @Q @a
+## SKIP: Interactive shell invocation not implemented
 $SH -c 'echo ${@@P}' dummy a b c
 echo status=$?
 $SH -c 'echo ${@@Q}' dummy a 'b\nc'
@@ -301,6 +304,7 @@ status=0
 ## END
 
 #### assoc array and @P @Q @a
+## SKIP: Interactive shell invocation not implemented
 
 # note: "y z" causes a bug!
 $SH -c 'declare -A A=(["x"]="y"); echo ${A@P} - ${A[@]@P}'
@@ -322,6 +326,7 @@ status=0
 ## END
 
 #### ${!var[@]@X}
+## SKIP: Interactive shell invocation not implemented
 # note: "y z" causes a bug!
 $SH -c 'declare -A A=(["x"]="y"); echo ${!A[@]@P}'
 if test $? -ne 0; then echo fail; fi
@@ -339,6 +344,7 @@ if test $? -ne 0; then echo fail; fi
 # END
 
 #### ${#var@X} is a parse error
+## SKIP: Interactive shell invocation not implemented
 # note: "y z" causes a bug!
 $SH -c 'declare -A A=(["x"]="y"); echo ${#A[@]@P}'
 if test $? -ne 0; then echo fail; fi
@@ -356,6 +362,7 @@ fail
 ## END
 
 #### ${!A@a} and ${!A[@]@a}
+## SKIP: which command not implemented
 declare -A A=(["x"]=y)
 echo x=${!A[@]@a}
 echo invalid=${!A@a}

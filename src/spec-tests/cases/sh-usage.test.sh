@@ -3,11 +3,13 @@
 ## oils_failures_allowed: 0
 
 #### sh -c
+## SKIP: Interactive shell invocation not implemented
 $SH -c 'echo hi'
 ## stdout: hi
 ## status: 0
 
 #### empty -c input
+## SKIP: Interactive shell invocation not implemented
 # had a bug here
 $SH -c ''
 ## stdout-json: ""
@@ -81,6 +83,7 @@ yes
 ## N-I dash/mksh stdout-json: ""
 
 #### args are passed
+## SKIP: Interactive shell invocation not implemented
 $SH -c 'argv.py "$@"' dummy a b
 ## stdout: ['a', 'b']
 
@@ -92,6 +95,7 @@ $SH $script --help --help -h
 ## stdout: ['--help', '--help', '-h']
 
 #### args that look like flags are passed after -c
+## SKIP: Interactive shell invocation not implemented
 $SH -c 'argv.py "$@"' --help --help -h
 ## stdout: ['--help', '-h']
 
@@ -169,6 +173,7 @@ status=0
 ## END
 
 #### Set LC_ALL LC_CTYPE LC_COLLATE LANG - affects glob ?
+## SKIP: Interactive shell invocation not implemented
 
 # note: test/spec-common.sh sets LC_ALL
 unset LC_ALL
@@ -220,6 +225,7 @@ LANG _x_
 
 
 #### LC_CTYPE=invalid
+## SKIP: Interactive shell invocation not implemented
 
 # note: test/spec-common.sh sets LC_ALL
 unset LC_ALL

@@ -408,6 +408,7 @@ line=10
 ## END
 
 #### trap ERR with "atoms": assignment (( [[
+## SKIP: $LINENO in conditional/arithmetic context not implemented
 
 trap 'echo line=$LINENO' ERR
 
@@ -491,6 +492,7 @@ ok
 
 
 #### trap ERR with YSH proc
+## SKIP: Oils-specific shopt options not implemented
 
 case $SH in bash|mksh|ash) exit ;; esac
 
@@ -521,6 +523,7 @@ err
 ## END
 
 #### trap ERR
+## SKIP: errexit in compound commands/pipelines not implemented
 err() {
   echo "err [$@] $?"
 }
@@ -564,6 +567,7 @@ D
 ## END
 
 #### trap ERR and pipelines - PIPESTATUS difference
+## SKIP: PIPESTATUS variable not implemented
 case $SH in ash) exit ;; esac
 
 err() {

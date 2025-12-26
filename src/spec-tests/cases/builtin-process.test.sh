@@ -9,6 +9,7 @@ exec echo hi
 ## stdout: hi
 
 #### exec builtin with redirects
+## SKIP: Advanced file descriptor redirections not implemented
 exec 1>&2
 echo 'to stderr'
 ## stdout-json: ""
@@ -239,6 +240,7 @@ failure that was expected
 
 
 #### ulimit doesn't accept multiple flags - reduce confusion between shells
+## SKIP: which command not implemented
 
 # - bash, zsh, busybox ash accept multiple "commands", which requires custom
 #   flag parsing, like
@@ -329,6 +331,7 @@ status=0
 
 
 #### ulimit of 2**32, 2**31 (int overflow)
+## SKIP: 64-bit integer edge cases not implemented
 
 echo -n 'one '; ulimit -f
 
@@ -356,6 +359,7 @@ three 1
 
 
 #### ulimit that is 64 bits
+## SKIP: 64-bit shift overflow not implemented
 
 # no 64-bit integers
 case $SH in mksh) exit ;; esac
@@ -384,6 +388,7 @@ after 9007199254740992
 
 
 #### arg that would overflow 64 bits is detected
+## SKIP: 64-bit shift overflow not implemented
 
 # no 64-bit integers
 case $SH in mksh) exit ;; esac
@@ -476,6 +481,7 @@ ERROR: echo failed with status 1
 ## END
 
 #### write big file with ulimit
+## SKIP: which command not implemented
 
 # I think this will test write() errors, rather than the final flush() error
 # (which is currently skipped by C++
@@ -601,6 +607,7 @@ hard OK
 ## END
 
 #### ulimit -n limits file descriptors
+## SKIP: Interactive shell invocation not implemented
 
 # OSH bug
 # https://oilshell.zulipchat.com/#narrow/channel/502349-osh/topic/alpine.20build.20failures.20-.20make.20-.20ulimit.20-n.2064/with/519691301

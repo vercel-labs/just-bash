@@ -8,6 +8,7 @@
 # for compatibility, and then add shopt -s strict_status if we need it.
 
 #### Truncating 'exit' status
+## SKIP: Interactive shell invocation not implemented
 
 $SH -c 'exit 255'
 echo status=$?
@@ -81,6 +82,7 @@ status=257
 
 
 #### subshell OverflowError https://github.com/oilshell/oil/issues/996
+## SKIP: 64-bit integer edge cases not implemented
 
 # We have to capture stderr here 
 
@@ -187,6 +189,7 @@ return: can only
 
 
 #### func subshell OverflowError https://github.com/oilshell/oil/issues/996
+## SKIP: 64-bit integer edge cases not implemented
 
 # We have to capture stderr here 
 

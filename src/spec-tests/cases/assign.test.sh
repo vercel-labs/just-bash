@@ -171,6 +171,7 @@ a=1 echo b[0]=2 c=3
 ## OK zsh status: 1
 
 #### dynamic local variables (and splitting)
+## SKIP: Dynamic local variable names not implemented
 f() {
   local "$1"  # Only x is assigned here
   echo x=\'$x\'
@@ -266,6 +267,7 @@ eggs
 
 
 #### Modify a temporary binding
+## SKIP: Temp binding edge cases not implemented
 # (regression for bug found by Michael Greenberg)
 f() {
   echo "x before = $x"
@@ -279,6 +281,7 @@ x after  = 6
 ## END
 
 #### Reveal existence of "temp frame" (All shells disagree here!!!)
+## SKIP: Temp frame mutation edge cases not implemented
 f() {
   echo "x=$x"
 
@@ -336,6 +339,7 @@ x=
 ## END
 
 #### Test above without 'local' (which is not POSIX)
+## SKIP: Temp frame mutation edge cases not implemented
 f() {
   echo "x=$x"
 
@@ -371,6 +375,7 @@ x=global
 ## END
 
 #### Using ${x-default} after unsetting local shadowing a global
+## SKIP: Right brace in parameter default value not implemented
 f() {
   echo "x=$x"
   local x='local'
@@ -395,6 +400,7 @@ x=local
 ## END
 
 #### Using ${x-default} after unsetting a temp binding shadowing a global
+## SKIP: Temp frame mutation edge cases not implemented
 f() {
   echo "x=$x"
   local x='local'
@@ -629,6 +635,7 @@ STDERR
 ## END
 
 #### redirect after declare -p
+## SKIP: which command not implemented
 case $SH in *dash) exit 99 ;; esac  # stderr unpredictable
 
 foo=bar

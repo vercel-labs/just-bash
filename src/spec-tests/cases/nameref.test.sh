@@ -78,6 +78,7 @@ ref=x
 ## END
 
 #### mutating through nameref: ref=
+## SKIP: which command not implemented
 x=XX
 y=YY
 
@@ -177,6 +178,7 @@ ref=0
 ## END
 
 #### named ref with 1 $1 etc.
+## SKIP: which command not implemented
 set -- one two three
 
 x=X

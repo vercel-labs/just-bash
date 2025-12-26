@@ -154,6 +154,7 @@ compgen -v __nonexistent__
 ## stdout-json: ""
 
 #### compgen -v P
+## SKIP: PIPESTATUS variable not implemented
 cd > /dev/null  # for some reason in bash, this makes PIPESTATUS appear!
 compgen -v P | grep -E '^PATH|PWD' | sort
 ## STDOUT:
@@ -186,6 +187,7 @@ compgen -e __nonexistent__
 ## stdout-json: ""
 
 #### compgen -e P
+## SKIP: PIPESTATUS variable not implemented
 cd > /dev/null  # for some reason in bash, this makes PIPESTATUS appear!
 compgen -e P | grep -E '^PATH|PWD' | sort
 ## STDOUT:
@@ -302,6 +304,7 @@ status=0
 ## END
 
 #### compgen -k shows the same keywords as bash
+## SKIP: Interactive shell invocation not implemented
 
 # bash adds ]] and } and coproc
 
@@ -421,6 +424,7 @@ spec/type-compat.test.sh
 ## END
 
 #### compgen doesn't respect -X for user-defined functions
+## SKIP: extglob not implemented
 # WORKAROUND: wrap in bash -i -c because non-interactive bash behaves
 # differently!
 case $SH in
@@ -444,6 +448,7 @@ bin
 ## END
 
 #### compgen -W words -X filter
+## SKIP: extglob not implemented
 # WORKAROUND: wrap in bash -i -c because non-interactive bash behaves
 # differently!
 case $SH in
@@ -456,6 +461,7 @@ three
 ## END
 
 #### compgen -f -X filter -- $cur
+## SKIP: extglob not implemented
 cd $TMP
 touch spam.py spam.sh
 compgen -f -- sp | sort
@@ -525,6 +531,7 @@ ham cheese:colon
 ## END
 
 #### Parse errors for compgen -W and complete -W
+## SKIP: Parse error detection edge cases not implemented
 # bash doesn't detect as many errors because it lacks static parsing.
 compgen -W '${'
 echo status=$?

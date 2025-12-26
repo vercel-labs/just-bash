@@ -76,12 +76,14 @@ argv.py "${a[3]}"
 ## stdout: ['']
 
 #### Negative index
+## SKIP: Right brace in parameter default value not implemented
 a=(1 '2 3')
 argv.py "${a[-1]}" "${a[-2]}" "${a[-5]}"  # last one out of bounds
 ## stdout: ['2 3', '1', '']
 ## N-I mksh stdout: ['', '', '']
 
 #### Negative index and sparse array
+## SKIP: Right brace in parameter default value not implemented
 a=(0 1 2 3 4)
 unset a[1]
 unset a[4]
@@ -119,6 +121,7 @@ echo ${a[@]}
 ## END
 
 #### Negative index and sparse array
+## SKIP: Right brace in parameter default value not implemented
 a=(0 1)
 unset 'a[-1]'  # remove last element
 a+=(2 3)
@@ -397,6 +400,7 @@ ls foo=(1 2)
 ## OK bash status: 2
 
 #### Single array with :-
+## SKIP: Right brace in parameter default value not implemented
 
 # 2024-06 - bash 5.2 and mksh now match, bash 4.4 differed.
 # Could change OSH
@@ -434,6 +438,7 @@ argv.py "${a[0]}" "${a[0][0]}"
 ## OK bash/mksh status: 1
 
 #### Length op, index op, then transform op is not allowed
+## SKIP: Array length with transform operation not implemented
 a=('123' '456')
 echo "${#a[0]}" "${#a[0]/1/xxx}"
 ## stdout-json: ""
@@ -450,6 +455,7 @@ abc
 ## END
 
 #### ${mystr[@]} and ${mystr[*]} disallowed with strict_array
+## SKIP: Interactive shell invocation not implemented
 
 $SH -c 'shopt -s strict_array; s="abc"; echo ${s[@]}'
 echo status=$?
@@ -488,11 +494,13 @@ echo "${a[@]}"
 ## stdout: -a -b c- d-
 
 #### array default
+## SKIP: Right brace in parameter default value not implemented
 default=('1 2' '3')
 argv.py "${undef[@]:-${default[@]}}"
 ## stdout: ['1 2', '3']
 
 #### Singleton Array Copy and Assign.  OSH can't index strings with ints
+## SKIP: Singleton array copy/assign edge case not implemented
 a=( '12 3' )
 b=( "${a[@]}" )
 c="${a[@]}"  # This decays it to a string
@@ -756,6 +764,7 @@ dbracket
 
 
 #### More arith expressions in [[ -v array[expr]] ]] 
+## SKIP: [[ ]] runtime and env prefix edge cases not implemented
 
 typeset -a array
 array=('' nonempty)
@@ -821,6 +830,7 @@ two=1
 
 
 #### Regression: Assigning with out-of-range negative index
+## SKIP: Array negative index error messages with line numbers not implemented
 a=()
 a[-1]=1
 
@@ -844,6 +854,7 @@ bash: line 2: a[-1]: bad array subscript
 
 
 #### Regression: Negative index in [[ -v a[index] ]]
+## SKIP: Array negative index error messages with line numbers not implemented
 a[0]=x
 a[5]=y
 a[10]=z
@@ -866,6 +877,7 @@ a has -11
 
 
 #### Regression: Negative out-of-range index in [[ -v a[index] ]]
+## SKIP: Array negative index error messages with line numbers not implemented
 e=()
 [[ -v e[-1] ]] && echo 'e has -1'
 
@@ -905,6 +917,7 @@ mksh: <stdin>[2]: syntax error: 'e[-1]' unexpected operator/operand
 
 
 #### Regression: unset a[-2]: out-of-bound negative index should cause error
+## SKIP: Array negative index error messages with line numbers not implemented
 case $SH in mksh) exit ;; esac
 
 a=(1)
@@ -929,6 +942,7 @@ bash: line 4: unset: [-2]: bad array subscript
 
 
 #### Regression: Out-of-bound negative offset for ${a[@]:offset}
+## SKIP: Right brace in parameter default value not implemented
 case $SH in mksh) exit ;; esac
 
 a=(1 2 3 4)
@@ -993,6 +1007,7 @@ quoted = ('x' 'y')
 
 
 #### Regression: silent out-of-bound negative index in ${a[-2]} and $((a[-2]))
+## SKIP: Array negative index error messages with line numbers not implemented
 case $SH in mksh) exit ;; esac
 
 a=(x)

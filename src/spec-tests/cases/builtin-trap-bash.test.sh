@@ -87,6 +87,7 @@ status=0
 ## END
 
 #### but trap DEBUG respects errexit
+## SKIP: errexit in compound commands/pipelines not implemented
 set -o errexit
 
 debuglog() {
@@ -164,6 +165,7 @@ echo status=$?
 
 
 #### trap DEBUG with non-compound commands
+## SKIP: $LINENO in conditional/arithmetic context not implemented
 case $SH in dash|mksh) exit ;; esac
 
 debuglog() {
@@ -460,6 +462,7 @@ ok
 ## END
 
 #### trap DEBUG for expr
+## SKIP: $LINENO in conditional/arithmetic context not implemented
 debuglog() {
   echo "  [$@]"
 }

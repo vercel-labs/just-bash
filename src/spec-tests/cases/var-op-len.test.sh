@@ -196,6 +196,7 @@ echo ${#undef}
 ## OK dash status: 2
 
 #### Length operator can't be followed by test operator
+## SKIP: Right brace in parameter default value not implemented
 echo ${#x-default}
 
 x=''

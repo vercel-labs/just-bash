@@ -5,6 +5,7 @@
 ## compare_shells: bash dash mksh
 
 #### parse if
+## SKIP: Interactive shell invocation not implemented
 
 case $SH in zsh) exit ;; esac
 

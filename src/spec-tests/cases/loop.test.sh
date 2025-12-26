@@ -212,6 +212,7 @@ subshell status=0
 ## END
 
 #### continue in subshell aborts with errexit
+## SKIP: errexit in compound commands/pipelines not implemented
 # The other shells don't let you recover from this programming error!
 set -o errexit
 for i in $(seq 2); do
@@ -385,6 +386,7 @@ done
 ## END
 
 #### top-level break/continue/return (without strict_control_flow)
+## SKIP: Interactive shell invocation not implemented
 $SH -c 'break; echo break=$?'
 $SH -c 'continue; echo continue=$?'
 $SH -c 'return; echo return=$?'

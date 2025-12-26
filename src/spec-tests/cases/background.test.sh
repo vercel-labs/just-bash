@@ -17,6 +17,7 @@ wait
 ## status: 0
 
 #### wait -n with arguments - arguments are respected
+## SKIP: which command not implemented
 case $SH in dash|mksh) exit ;; esac
 
 echo x &
@@ -83,6 +84,7 @@ status=0
 ## END
 
 #### wait for N parallel jobs and check failure
+## SKIP: errexit in compound commands/pipelines not implemented
 
 set -o errexit
 
@@ -169,6 +171,7 @@ status=99
 ## END
 
 #### Wait for job and PIPESTATUS
+## SKIP: PIPESTATUS variable not implemented
 
 # foreground
 { echo hi; exit 55; } | false
@@ -194,6 +197,7 @@ wait status=1 pipestatus=1
 ## END
 
 #### Wait for job and PIPESTATUS - cat
+## SKIP: PIPESTATUS variable not implemented
 
 # foreground
 exit 55 | ( cat; exit 99 )

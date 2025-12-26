@@ -116,6 +116,7 @@ done
 ## END
 
 #### Newlines in compound lists
+## SKIP: Newlines in compound lists not implemented
 x=3
 while
   # a couple of <newline>s

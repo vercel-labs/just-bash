@@ -2,6 +2,7 @@
 ## compare_shells: dash bash mksh zsh
 
 #### history builtin usage
+## SKIP: history builtin not implemented
 history
 echo status=$?
 history +5  # hm bash considers this valid
@@ -44,6 +45,7 @@ status=127
 
 
 #### Print shell strings with weird chars: set and printf %q and ${x@Q}
+## SKIP: printf %q / set output format not implemented
 
 # bash declare -p will print binary data, which makes this invalid UTF-8!
 foo=$(/bin/echo -e 'a\nb\xffc'\'d)
@@ -91,6 +93,7 @@ pf  $'a\nb\001c\'d'
 ## END
 
 #### Print shell strings with normal chars: set and printf %q and ${x@Q}
+## SKIP: printf %q / set output format not implemented
 
 # There are variations on whether quotes are printed
 

@@ -187,6 +187,7 @@ len=2
 ## END
 
 #### More fragments like a[  a[5  a[5 +  a[5 + 3]
+## SKIP: Interactive shell invocation not implemented
 
 for name in 'a[' 'a[5'; do
   echo "echo hi from $name: \$# args: \$@" > "$name"

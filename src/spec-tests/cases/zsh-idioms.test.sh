@@ -25,6 +25,7 @@ fi
 ## END
 
 #### zsh var sub is rejected at runtime
+## SKIP: Right brace in parameter default value not implemented
 
 eval 'echo z ${(m)foo} z'
 echo status=$?

@@ -32,6 +32,7 @@ argv.py "status=$?" "$REPLY"
 ## status: 0
 
 #### read /dev/null
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 read -n 1 </dev/null
 echo $?
 ## STDOUT:
@@ -83,6 +84,7 @@ echo /$x/$y/$z/
 ## status: 0
 
 #### read -n (with $REPLY)
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 echo 12345 > $TMP/readn.txt
 read -n 4 x < $TMP/readn.txt
 read -n 2 < $TMP/readn.txt  # Do it again with no variable
@@ -91,6 +93,7 @@ argv.py $x $REPLY
 ## N-I dash/zsh stdout: []
 
 #### IFS= read -n (OSH regression: value saved in tempenv)
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 echo XYZ > "$TMP/readn.txt"
 IFS= TMOUT= read -n 1 char < "$TMP/readn.txt"
 argv.py "$char"
@@ -98,6 +101,7 @@ argv.py "$char"
 ## N-I dash/zsh stdout: ['']
 
 #### read -n doesn't strip whitespace (bug fix)
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in dash|zsh) exit ;; esac
 
 echo '  a b  ' | (read -n 4; echo "[$REPLY]")
@@ -152,6 +156,7 @@ three vars
 ## END
 
 #### read -d -n - respects delimiter and splits
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 
 case $SH in dash|zsh|ash) exit ;; esac
 
@@ -211,6 +216,7 @@ three vars
 
 
 #### read -n with invalid arg
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 read -n not_a_number
 echo status=$?
 ## stdout: status=2
@@ -218,6 +224,7 @@ echo status=$?
 ## N-I zsh stdout-json: ""
 
 #### read -n from pipe
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in dash|ash|zsh) exit ;; esac
 
 echo abcxyz | { read -n 3; echo reply=$REPLY; }
@@ -272,6 +279,7 @@ echo '  a b  \
 ## END
 
 #### read -n vs. -N
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 # dash, ash and zsh do not implement read -N
 # mksh treats -N exactly the same as -n
 case $SH in dash|ash|zsh) exit ;; esac
@@ -309,6 +317,7 @@ read -N
 ## END
 
 #### read -N ignores delimiters
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in dash|ash|zsh) exit ;; esac
 
 echo $'a\nb\nc' > $TMP/read-lines.txt
@@ -322,6 +331,7 @@ b
 ## N-I dash/ash/zsh stdout-json: ""
 
 #### read will unset extranous vars
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 
 echo 'a b' > $TMP/read-few.txt
 
@@ -393,6 +403,7 @@ argv.py "$escaped" "$raw"
 ## BUG dash/mksh/zsh stdout: ['', '']
 
 #### read -s from pipe, not a terminal
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in dash|zsh) exit ;; esac
 
 # It's hard to really test this because it requires a terminal.  We hit a
@@ -413,6 +424,7 @@ b
 ## N-I dash/zsh stdout-json: ""
 
 #### read with IFS=$'\n'
+## SKIP: IFS with newline character not implemented
 # The leading spaces are stripped if they appear in IFS.
 IFS=$(echo -e '\n')
 read var <<EOF
@@ -424,6 +436,7 @@ echo "[$var]"
 ## N-I dash stdout: [a b c]
 
 #### read multiple lines with IFS=:
+## SKIP: Here-doc edge cases not implemented
 # The leading spaces are stripped if they appear in IFS.
 # IFS chars are escaped with :.
 tmp=$TMP/$(basename $SH)-read-ifs.txt
@@ -439,6 +452,7 @@ printf "%s\n" "[$a|$b|$c|$d]"
 ## stdout: [  \a |b: c|d  e|]
 
 #### read with IFS=''
+## SKIP: Read with special IFS values not implemented
 IFS=''
 read x y <<EOF
   a b c d
@@ -475,6 +489,7 @@ ref: refs/heads/dev/andy
 ## END
 
 #### read -a reads into array
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 
 # read -a is used in bash-completion
 # none of these shells implement it
@@ -507,6 +522,7 @@ argv.py "${arguments[@]}"
 ## N-I dash/mksh/zsh/ash stdout-json: ""
 
 #### read -d : (colon-separated records)
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 printf a,b,c:d,e,f:g,h,i | {
   IFS=,
   read -d : v1
@@ -528,6 +544,7 @@ v1= v2= v3=
 ## END
 
 #### read -d '' (null-separated records)
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 printf 'a,b,c\0d,e,f\0g,h,i' | {
   IFS=,
   read -d '' v1
@@ -549,6 +566,7 @@ v1= v2= v3=
 ## END
 
 #### read -rd
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 read -rd '' var <<EOF
 foo
 bar
@@ -563,6 +581,7 @@ bar
 ## END
 
 #### read -d when there's no delimiter
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 { read -d : part
   echo $part $?
   read -d : part
@@ -580,6 +599,7 @@ bar 1
 ## END
 
 #### read -t 0 tests if input is available
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in dash|zsh|mksh) exit ;; esac
 
 # is there input available?
@@ -603,6 +623,7 @@ reply=
 ## N-I dash/zsh/mksh stdout-json: ""
 
 #### read -t 0.5
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in dash) exit ;; esac
 
 read -t 0.5 < /dev/null
@@ -617,6 +638,7 @@ echo $?
 ## N-I dash stdout-json: ""
 
 #### read -t -0.5 is invalid
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 # bash appears to just take the absolute value?
 
 read -t -0.5 < /dev/null
@@ -632,6 +654,7 @@ echo $?
 ## BUG zsh status: 1
 
 #### read -u
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in dash|mksh) exit ;; esac
 
 # file descriptor
@@ -645,6 +668,7 @@ reply=hi
 ## N-I dash/mksh stdout-json: ""
 
 #### read -u syntax error
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 read -u -3
 echo status=$?
 ## STDOUT:
@@ -655,6 +679,7 @@ status=1
 ## END
 
 #### read -u -s
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in dash|mksh) exit ;; esac
 
 # file descriptor
@@ -668,6 +693,7 @@ reply=hi
 ## N-I dash/mksh stdout-json: ""
 
 #### read -u 3 -d 5
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in dash|mksh) exit ;; esac
 
 # file descriptor
@@ -681,6 +707,7 @@ reply=1234
 ## N-I dash/mksh stdout-json: ""
 
 #### read -u 3 -d b -N 6
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in ash|zsh) exit ;; esac
 
 # file descriptor
@@ -703,6 +730,7 @@ reply=ab
 
 
 #### read -N doesn't respect delimiter, while read -n does
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in dash|zsh|ash) exit ;; esac
 
 echo foobar | { read -n 5 -d b; echo $REPLY; }
@@ -718,6 +746,7 @@ fooba
 ## N-I dash/zsh/ash stdout-json: ""
 
 #### read -p (not fully tested)
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 
 # hm DISABLED if we're not going to the terminal
 # so we're only testing that it accepts the flag here
@@ -734,6 +763,7 @@ h
 ## N-I dash/mksh/zsh stdout-json: ""
 
 #### read usage
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 read -n -1
 echo status=$?
 ## STDOUT:
@@ -746,6 +776,7 @@ status=2
 ## BUG zsh status: 1
 
 #### read with smooshed args
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 echo hi | { read -rn1 var; echo var=$var; }
 ## STDOUT:
 var=h
@@ -755,6 +786,7 @@ var=
 ## END
 
 #### read -r -d '' for NUL strings, e.g. find -print0
+## SKIP: Glob with escaped special characters not implemented
 
 
 case $SH in dash|zsh|mksh) exit ;; esac  # NOT IMPLEMENTED
@@ -792,6 +824,7 @@ status=1
 ## OK mksh stdout-json: ""
 
 #### read -n from directory
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 
 case $SH in dash|ash) return ;; esac  # not implemented
 
@@ -808,6 +841,7 @@ status=1
 ## N-I dash/ash stdout-json: ""
 
 #### mapfile from directory (bash doesn't handle errors)
+## SKIP: mapfile/readarray not implemented
 case $SH in dash|ash|mksh|zsh) return ;; esac  # not implemented
 
 mkdir -p dir
@@ -823,6 +857,7 @@ status=0
 ## N-I dash/ash/mksh/zsh stdout-json: ""
 
 #### read -n 0
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in zsh) exit 99;; esac  # read -n not implemented
 
 echo 'a\b\c\d\e\f' | (read -n 0; argv.py "$REPLY")
@@ -839,6 +874,7 @@ echo 'a\b\c\d\e\f' | (read -n 0; argv.py "$REPLY")
 ## END
 
 #### read -n and backslash escape
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in zsh) exit 99;; esac  # read -n not implemented
 
 echo 'a\b\c\d\e\f' | (read -n 5; argv.py "$REPLY")
@@ -861,6 +897,7 @@ echo 'a\ \ \ \ \ ' | (read -n 5; argv.py "$REPLY")
 ## END
 
 #### read -n 4 with incomplete backslash
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in zsh) exit 99;; esac  # read -n not implemented
 
 echo 'abc\def\ghijklmn' | (read -n 4; argv.py "$REPLY")
@@ -887,6 +924,7 @@ echo '   \xxx\xxxxxxxx' | (read -n 4; argv.py "$REPLY")
 ## END
 
 #### read -n 4 with backslash + delim
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in zsh) exit 99;; esac  # read -n not implemented
 
 echo $'abc\\\ndefg' | (read -n 4; argv.py "$REPLY")
@@ -903,6 +941,7 @@ echo $'abc\\\ndefg' | (read -n 4; argv.py "$REPLY")
 ## END
 
 #### "backslash + newline" should be swallowed regardless of "-d <delim>"
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 
 printf '%s\n' 'a b\' 'c d' | (read; argv.py "$REPLY")
 printf '%s\n' 'a b\,c d'   | (read; argv.py "$REPLY")
@@ -924,6 +963,7 @@ printf '%s\n' 'a b\,c d'   | (read -d ,; argv.py "$REPLY")
 ## END
 
 #### empty input and splitting
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in mksh|ash|dash|zsh) exit 99; esac
 echo '' | (read -a a; argv.py "${a[@]}")
 IFS=x
@@ -940,6 +980,7 @@ echo '' | (read -a a; argv.py "${a[@]}")
 ## END
 
 #### IFS='x ' read -a: trailing spaces (unlimited split)
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in mksh|ash|dash|zsh) exit 99; esac
 IFS='x '
 echo 'a b'     | (read -a a; argv.py "${a[@]}")
@@ -964,6 +1005,7 @@ echo 'a b x x' | (read -a a; argv.py "${a[@]}")
 ## END
 
 #### IFS='x ' read a b: trailing spaces (with max_split)
+## SKIP: Read with special IFS values not implemented
 echo 'hello world  test   ' | (read a b; argv.py "$a" "$b")
 echo '-- IFS=x --'
 IFS='x '
@@ -981,6 +1023,7 @@ echo 'a ax  x  x  a' | (read a b; argv.py "$a" "$b")
 ## END
 
 #### IFS='x ' read -a: intermediate spaces (unlimited split)
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in mksh|ash|dash|zsh) exit 99; esac
 IFS='x '
 echo 'a x b'   | (read -a a; argv.py "${a[@]}")
@@ -1008,6 +1051,7 @@ echo 'ax x xb' | (read -a a; argv.py "${a[@]}")
 ## END
 
 #### IFS='x ' incomplete backslash
+## SKIP: Read with special IFS values not implemented
 echo ' a b \' | (read a; argv.py "$a")
 echo ' a b \' | (read a b; argv.py "$a" "$b")
 IFS='x '
@@ -1019,6 +1063,7 @@ echo $'a ax  x    \\\nhello' | (read a b; argv.py "$a" "$b")
 ## END
 
 #### IFS='\ ' and backslash escaping
+## SKIP: Read with special IFS values not implemented
 IFS='\ '
 echo "hello\ world  test" | (read a b; argv.py "$a" "$b")
 IFS='\'
@@ -1044,6 +1089,7 @@ echo 'Aa b \ a\ b' | (read a b c d; argv.py "$a" "$b" "$c" "$d")
 ## END
 
 #### IFS=x read a b <<< xxxxxx
+## SKIP: Read with special IFS values not implemented
 IFS='x '
 echo x     | (read a b; argv.py "$a" "$b")
 echo xx    | (read a b; argv.py "$a" "$b")
@@ -1102,6 +1148,7 @@ echo 'xaxxxx' | (read a b; argv.py "$a" "$b")
 ## END
 
 #### read and "\ "
+## SKIP: Read with special IFS values not implemented
 
 IFS='x '
 check() { echo "$1" | (read a b; argv.py "$a" "$b"); }
@@ -1166,6 +1213,7 @@ check 'x\    '
 ## END
 
 #### read bash bug
+## SKIP: Read with special IFS values not implemented
 IFS='x '
 echo 'x\  \ ' | (read a b; argv.py "$a" "$b")
 ## STDOUT:

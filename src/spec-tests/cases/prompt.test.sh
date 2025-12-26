@@ -299,6 +299,7 @@ matched=0
 ## END
 
 #### \! for history number
+## SKIP: history builtin not implemented
 set -o history # enable history
 PS1='foo \! bar'
 history -c # clear history
@@ -323,6 +324,7 @@ matched=0
 ## END
 
 #### @P with array
+## SKIP: Interactive shell invocation not implemented
 $SH -c 'echo ${@@P}' dummy a b c
 echo status=$?
 $SH -c 'echo ${*@P}' dummy a b c

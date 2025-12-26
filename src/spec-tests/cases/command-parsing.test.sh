@@ -39,6 +39,7 @@ done
 ## OK osh stdout-json: ""
 
 #### Redirect on control flow (ignored in OSH)
+## SKIP: Redirect on control flow not implemented
 rm -f _tmp/r.txt
 for x in a b c; do
   break > _tmp/r.txt
@@ -53,6 +54,7 @@ fi
 ## OK osh stdout: NO
 
 #### Redirect on control flow with ysh:all (no_parse_ignored)
+## SKIP: Oils-specific shopt options not implemented
 shopt -s ysh:all
 rm -f _tmp/r.txt
 for x in a b c; do

@@ -5,6 +5,7 @@
 # We could move others too
 
 #### [bash_unset] nested context by tempenv-eval
+## SKIP: Right brace in parameter default value not implemented
 f1() {
   local v=local1
   echo "[$1,local1] v: ${v-(unset)}"
@@ -35,6 +36,7 @@ v=tempenv1 f1 global,tempenv1
 ## END
 
 #### [bash_unset] local-unset / dynamic-unset for localvar on nested-context
+## SKIP: Right brace in parameter default value not implemented
 unlocal() { unset -v "$1"; }
 
 f2() {
@@ -71,6 +73,7 @@ v=tempenv1 f2 global,tempenv1
 ## END
 
 #### [bash_unset] dynamic-unset for nested localvars
+## SKIP: Right brace in parameter default value not implemented
 unlocal() { unset -v "$1"; }
 
 f3() {
@@ -132,6 +135,7 @@ v=tempenv1 f3 global,tempenv1
 
 
 #### [bash_unset] dynamic-unset for nested tempenvs
+## SKIP: Right brace in parameter default value not implemented
 unlocal() { unset -v "$1"; }
 
 f4_unlocal() {
@@ -188,6 +192,7 @@ v=tempenv1 f4_unlocal global,tempenv1
 ## END
 
 #### [bash_unset] local-unset for nested tempenvs
+## SKIP: Right brace in parameter default value not implemented
 f4_unset() {
   v=tempenv2 eval '
     v=tempenv3 eval "

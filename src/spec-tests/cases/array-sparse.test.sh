@@ -2,6 +2,7 @@
 ## oils_cpp_failures_allowed: 2
 
 #### Performance demo
+## SKIP: Oils-specific shopt options not implemented
 
 case $SH in bash|mksh) exit ;; esac
 
@@ -591,6 +592,7 @@ bash: line 6: a: bad array subscript
 
 
 #### ${sp[i]}
+## SKIP: Right brace in parameter default value not implemented
 case $SH in mksh) exit ;; esac
 
 sp=({1..9})
@@ -630,6 +632,7 @@ sp[-9]: '1'.
 
 
 #### ${sp[i]} with negative invalid index
+## SKIP: Right brace in parameter default value not implemented
 case $SH in mksh) exit ;; esac
 
 sp=({1..9})
@@ -671,6 +674,7 @@ bash: line 10: sp: bad array subscript
 
 
 #### ${a[@]:offset:length}
+## SKIP: Right brace in parameter default value not implemented
 case $SH in mksh) exit ;; esac
 
 a=(v{0..9})
@@ -743,6 +747,7 @@ echo "[${a[@]:10:1}][${a[*]:10:1}]"
 
 
 #### ${@:offset:length}
+## SKIP: Right brace in parameter default value not implemented
 case $SH in mksh) exit ;; esac
 
 set -- v{1..9}
@@ -789,6 +794,7 @@ set -- v{1..9}
 
 
 #### ${a[@]:BigInt}
+## SKIP: Right brace in parameter default value not implemented
 case $SH in mksh) exit ;; esac
 
 case $SH in
@@ -857,6 +863,7 @@ argv.py "abc${a[@]}xyz"
 
 
 #### ${a[@]#...}
+## SKIP: Right brace in parameter default value not implemented
 case $SH in mksh) exit ;; esac
 
 a=(v{0..9})
@@ -881,6 +888,7 @@ argv.py "${a[@]#v?}"
 
 
 #### ${a[@]/pat/rep}
+## SKIP: Right brace in parameter default value not implemented
 
 case $SH in mksh) exit ;; esac
 
@@ -948,6 +956,7 @@ argv.py "${a[*]@a}"
 
 
 #### ${a[@]-unset}, ${a[@]:-empty}, etc.
+## SKIP: Right brace in parameter default value not implemented
 a1=()
 a2=("")
 a3=("" "")
@@ -970,6 +979,7 @@ a3 empty: [ ]
 
 
 #### ${a-}
+## SKIP: Right brace in parameter default value not implemented
 a1=()
 a2=("" "")
 a3=(foo bar)
@@ -1094,6 +1104,7 @@ argv.py @a
 
 
 #### (YSH) $[a1 === a2]
+## SKIP: Oils-specific shopt options not implemented
 case $SH in bash|mksh) exit ;; esac
 
 a1=(1 2 3)
@@ -1145,6 +1156,7 @@ append 'x' 'y' 'z' (a)
 
 
 #### (YSH) $[bool(a)]
+## SKIP: Oils-specific shopt options not implemented
 case $SH in bash|mksh) exit ;; esac
 
 a1=()

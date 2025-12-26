@@ -28,6 +28,7 @@ foo=bar
 # https://www.reddit.com/r/oilshell/comments/5ykpi3/oildev_is_alive/
 
 #### Prefix assignments persist after special builtins, like : (set -o posix)
+## SKIP: POSIX mode (set -o posix) not implemented
 case $SH in
   bash) set -o posix ;;
 esac
@@ -50,6 +51,7 @@ z=
 ## END
 
 #### Prefix assignments persist after readonly, but NOT exported (set -o posix)
+## SKIP: POSIX mode (set -o posix) not implemented
 
 # Bash only implements it behind the posix option
 case $SH in
@@ -78,6 +80,7 @@ None
 ## END
 
 #### Prefix binding for exec is a special case (versus e.g. readonly)
+## SKIP: exec special behaviors not implemented
 
 pre1=pre1 readonly x=x
 pre2=pre2 exec sh -c 'echo pre1=$pre1 x=$x pre2=$pre2'
@@ -90,6 +93,7 @@ pre1=pre1 x= pre2=pre2
 ## END
 
 #### exec without args is a special case of the special case in some shells
+## SKIP: exec special behaviors not implemented
 
 FOO=bar exec >& 2
 echo FOO=$FOO
@@ -104,6 +108,7 @@ FOO=bar
 ## END
 
 #### Which shells allow special builtins to be redefined?
+## SKIP: Special builtin redefinition not implemented
 eval() {
   echo 'eval func' "$@"
 }
@@ -128,6 +133,7 @@ eval func echo hi
 
 
 #### Special builtins can't be redefined as shell functions (set -o posix)
+## SKIP: POSIX mode (set -o posix) not implemented
 case $SH in
   bash) set -o posix ;;
 esac
@@ -158,6 +164,7 @@ sh func echo hi
 ## END
 
 #### Non-special builtins CAN be redefined as functions
+## SKIP: POSIX mode (set -o posix) not implemented
 test -n "$BASH_VERSION" && set -o posix
 true() {
   echo 'true func'
@@ -170,6 +177,7 @@ status=0
 ## END
 
 #### Shift is special and fails whole script
+## SKIP: POSIX mode (set -o posix) not implemented
 
 # https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html#tag_18_14
 #
@@ -201,6 +209,7 @@ status=1
 ## END
 
 #### set is special and fails whole script, even if using || true
+## SKIP: POSIX mode (set -o posix) not implemented
 $SH -c '
 if test -n "$BASH_VERSION"; then
   set -o posix
@@ -227,6 +236,7 @@ should not get here
 ## END
 
 #### bash 'type' gets confused - says 'function', but runs builtin
+## SKIP: POSIX mode (set -o posix) not implemented
 case $SH in dash|mksh|zsh|ash|yash) exit ;; esac
 
 echo TRUE

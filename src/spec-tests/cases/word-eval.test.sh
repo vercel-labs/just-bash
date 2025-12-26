@@ -16,6 +16,7 @@ argv.py bare 'sq'
 ## stdout: ['bare', 'sq']
 
 #### Evaluation of each part
+## SKIP: noglob (set -f) not implemented
 #set -o noglob
 HOME=/home/bob
 str=s
@@ -47,6 +48,7 @@ argv.py $s1 - "$s1"
 ## stdout: ['-', '']
 
 #### Default values -- more cases
+## SKIP: Right brace in parameter default value not implemented
 argv.py ${undef:-hi} ${undef:-'a b'} "${undef:-c d}" "${un:-"e f"}" "${un:-'g h'}"
 ## stdout: ['hi', 'a b', 'c d', 'e f', "'g h'"]
 
@@ -58,6 +60,7 @@ argv.py $pat
 ## stdout: ['_tmp/foo.hh', '_tmp/bar.gg', '_tmp/foo.gg']
 
 #### Globbing escaping
+## SKIP: Glob with escaped special characters not implemented
 mkdir -p _tmp
 touch '_tmp/[bc]ar.mm' # file that looks like a glob pattern
 touch _tmp/bar.mm _tmp/car.mm

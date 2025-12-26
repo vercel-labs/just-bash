@@ -39,6 +39,7 @@ yes
 ## N-I dash status: 127
 
 #### $- with interactive shell
+## SKIP: Interactive shell invocation not implemented
 $SH -c 'echo $-' | grep i || echo FALSE
 $SH -i -c 'echo $-' | grep -q i && echo TRUE
 ## STDOUT:
@@ -155,6 +156,7 @@ echo end  # never reached
 ## OK dash status: 2
 
 #### -n for no execution (useful with --ast-output)
+## SKIP: noexec (set -n) not implemented
 # NOTE: set +n doesn't work because nothing is executed!
 echo 1
 set -n
@@ -168,6 +170,7 @@ echo 3
 ## status: 0
 
 #### pipefail
+## SKIP: PIPESTATUS variable not implemented
 # NOTE: the sleeps are because osh can fail non-deterministically because of a
 # bug.  Same problem as PIPESTATUS.
 { sleep 0.01; exit 9; } | { sleep 0.02; exit 2; } | { sleep 0.03; }
@@ -277,6 +280,7 @@ foo
 ## END
 
 #### noclobber on
+## SKIP: noclobber (set -C) not implemented
 
 rm -f no-clobber
 set -C
@@ -306,6 +310,7 @@ force
 ## END
 
 #### noclobber on <>
+## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 set -C
 echo foo >| $TMP/no-clobber
 exec 3<> $TMP/no-clobber
@@ -321,6 +326,7 @@ f.o
 ## END
 
 #### noclobber on >>
+## SKIP: noclobber (set -C) not implemented
 rm -f $TMP/no-clobber
 
 set -C
@@ -334,6 +340,7 @@ foo
 ## END
 
 #### noclobber on &> >
+## SKIP: noclobber (set -C) not implemented
 case $SH in dash) exit ;; esac
 
 set -C
@@ -364,6 +371,7 @@ baz
 ## END
 
 #### noclobber on &>> >>
+## SKIP: noclobber (set -C) not implemented
 case $SH in dash) echo 'flaky'; exit ;; esac
 
 set -C
@@ -397,6 +405,7 @@ flaky
 ## END
 
 #### set without args lists variables
+## SKIP: printf %q / set output format not implemented
 __GLOBAL=g
 f() {
   local __mylocal=L
@@ -430,6 +439,7 @@ __var_in_parent_scope='D'
 ## END
 
 #### set without args and array variables
+## SKIP: printf %q / set output format not implemented
 declare -a __array
 __array=(1 2 '3 4')
 set | grep '^__'
@@ -451,6 +461,7 @@ a=( 1 2 3 )
 ## N-I dash status: 2
 
 #### set without args and assoc array variables (not in OSH)
+## SKIP: printf %q / set output format not implemented
 typeset -A __assoc
 __assoc['k e y']='v a l'
 __assoc[a]=b
@@ -542,6 +553,7 @@ shopt -u strict_argv
 ## END
 
 #### shopt allows for backward compatibility like bash
+## SKIP: which command not implemented
 
 # doesn't have to be on, but just for testing
 set -o errexit

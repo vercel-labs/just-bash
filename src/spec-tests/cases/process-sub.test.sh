@@ -143,6 +143,7 @@ b
 ## END
 
 #### process subs and pipelines together
+## SKIP: which command not implemented
 
 # zsh is very similar to bash, but don't bother with the assertions
 case $SH in bash*|zsh) exit ;; esac

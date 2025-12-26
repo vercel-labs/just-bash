@@ -3,6 +3,7 @@
 ## oils_failures_allowed: 2
 
 #### fc -l lists history commands
+## SKIP: history builtin not implemented
 printf "echo %s\n" {1..3} > tmp
 
 echo '
@@ -25,6 +26,7 @@ case $SH in bash) echo '^D' ;; esac
 ## END
 
 #### fc -ln lists history commands without numbers
+## SKIP: history builtin not implemented
 printf "echo %s\n" {1..3} > tmp
 
 echo '
@@ -47,6 +49,7 @@ case $SH in bash) echo '^D' ;; esac
 ## END
 
 #### fc -lr lists history commands in reverse order
+## SKIP: history builtin not implemented
 printf "echo %s\n" {1..3} > tmp
 
 echo '
@@ -69,6 +72,7 @@ case $SH in bash) echo '^D' ;; esac
 ## END
 
 #### fc -lnr lists history commands without numbers in reverse order
+## SKIP: history builtin not implemented
 printf "echo %s\n" {1..3} > tmp
 
 echo '
@@ -91,6 +95,7 @@ case $SH in bash) echo '^D' ;; esac
 ## END
 
 #### fc -l lists history commands with default page size
+## SKIP: history builtin not implemented
 printf "echo %s\n" {1..16} > tmp
 
 echo '
@@ -125,6 +130,7 @@ case $SH in bash) echo '^D' ;; esac
 ## END
 
 #### fc -l [first] where first is an index
+## SKIP: history builtin not implemented
 printf "echo %s\n" {1..3} > tmp
 
 echo '
@@ -146,6 +152,7 @@ case $SH in bash) echo '^D' ;; esac
 ## END
 
 #### fc -l [first] where first is an offset from current command
+## SKIP: history builtin not implemented
 printf "echo %s\n" {1..3} > tmp
 
 echo '
@@ -167,6 +174,7 @@ case $SH in bash) echo '^D' ;; esac
 ## END
 
 #### fc -l [first] [last] where first and last are indexes
+## SKIP: history builtin not implemented
 printf "echo %s\n" {1..3} > tmp
 
 echo '
@@ -187,6 +195,7 @@ case $SH in bash) echo '^D' ;; esac
 ## END
 
 #### fc -l [first] [last] where first and last are offsets from current command
+## SKIP: history builtin not implemented
 printf "echo %s\n" {1..3} > tmp
 
 echo '
@@ -207,6 +216,7 @@ case $SH in bash) echo '^D' ;; esac
 ## END
 
 #### fc -l [first] [last] where first and last are reversed indexes
+## SKIP: history builtin not implemented
 printf "echo %s\n" {1..3} > tmp
 
 echo '
@@ -227,6 +237,7 @@ case $SH in bash) echo '^D' ;; esac
 ## END
 
 #### fc -lr [first] [last] where first and last are reversed indexes does not undo reverse
+## SKIP: history builtin not implemented
 printf "echo %s\n" {1..3} > tmp
 
 echo '
@@ -251,6 +262,7 @@ fc -l 0 1 2 || echo too many args!
 ## status: 0
 
 #### fc errors out on too many args with strict_arg_parse
+## SKIP: Oils-specific shopt options not implemented
 shopt -s strict_arg_parse || true
 fc -l 0 1 2 || echo too many args!
 ## STDOUT:

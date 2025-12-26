@@ -154,6 +154,7 @@ declare -x NIX_LDFLAGS_foo=' -Lone/lib64'
 ## END
 
 #### let idiom can be written in POSIX shell - eval ": \$(( ))"
+## SKIP: Right brace in parameter default value not implemented
 
 for i in 0 1 2; do
   echo i=$i

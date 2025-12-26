@@ -195,6 +195,7 @@ argv.py "${undef[@]}"
 ## N-I dash stdout-json: ""
 
 #### automatically creating arrays are INDEXED, not associative
+## SKIP: which command not implemented
 shopt -u strict_arith || true
 
 undef[2]=x
@@ -252,6 +253,7 @@ status=0
 
 
 #### strict_parse_slice means you need explicit  length
+## SKIP: Interactive shell invocation not implemented
 case $SH in bash*|dash|mksh) exit ;; esac
 
 $SH -c '

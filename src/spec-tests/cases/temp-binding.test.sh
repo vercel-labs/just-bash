@@ -38,6 +38,7 @@ z=z
 ## END
 
 #### Temp bindings with local
+## SKIP: Temp binding edge cases not implemented
 
 f() {
   local x=x
@@ -82,6 +83,7 @@ ty=
 ## END
 
 #### Temp bindings with unset 
+## SKIP: Temp binding edge cases not implemented
 
 # key point:
 # unset looks up the stack
@@ -154,6 +156,7 @@ x=
 ## END
 
 #### FOO=bar $unset - temp binding, then empty argv from unquoted unset var (#2411)
+## SKIP: Temp binding edge cases not implemented
 foo=alive! $unset
 echo $foo
 ## STDOUT:

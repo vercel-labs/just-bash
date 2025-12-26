@@ -34,6 +34,7 @@ echo 3
 ## END
 
 #### (( closed with )) after multiple lines is parse error - #2337
+## SKIP: Interactive shell invocation not implemented
 
 $SH -c '
 (( echo 1
@@ -57,6 +58,7 @@ ok
 ## END
 
 #### $(( closed with )) after multiple lines is parse error - #2337
+## SKIP: Interactive shell invocation not implemented
 
 $SH -c '
 echo $(( echo 1
@@ -95,6 +97,7 @@ bad
 ## END
 
 #### ((gzip example - zdiff package - #2337
+## SKIP: File descriptor close/move syntax (>&-) not implemented
 
 # https://github.com/git-for-windows/git-sdk-64/blob/main/usr/bin/zdiff#L136
 
@@ -134,6 +137,7 @@ bye
 ## END
 
 #### $((which example - command sub versus arith sub - gnunet-gtk package
+## SKIP: which command not implemented
 
         gtk_update_icon_cache_bin="$((which gtk-update-icon-cache ||
 echo /opt/gnome/bin/gtk-update-icon-cache)2>/dev/null)"

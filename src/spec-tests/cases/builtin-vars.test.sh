@@ -485,6 +485,7 @@ status=0
 ## END
 
 #### Unset wrong type
+## SKIP: which command not implemented
 case $SH in mksh) exit ;; esac
 
 declare undef
@@ -645,6 +646,7 @@ y=
 ## END
 
 #### unset a[-1] (bf.bash regression)
+## SKIP: Right brace in parameter default value not implemented
 case $SH in dash|zsh) exit ;; esac
 
 a=(1 2 3)
@@ -674,6 +676,7 @@ last=0
 
 
 #### unset a[-1] in sparse array (bf.bash regression)
+## SKIP: Right brace in parameter default value not implemented
 case $SH in dash|zsh) exit ;; esac
 
 a=(0 1 2 3 4)

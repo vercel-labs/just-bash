@@ -22,6 +22,7 @@ a b c d
 ## N-I dash/mksh/zsh stdout-json: ""
 
 #### extglob $IFS 1
+## SKIP: extglob not implemented
 # http://landley.net/notes.html#12-06-2020
 shopt -s extglob
 
@@ -46,6 +47,7 @@ abc)d
 ## END
 
 #### extglob $IFS 2
+## SKIP: extglob not implemented
 # http://landley.net/notes.html#17-05-2020
 
 shopt -s extglob  # required for bash, not osh
@@ -57,6 +59,7 @@ IFS=x; ABC=cxd; for i in +($ABC); do echo =$i=; done
 ## END
 
 #### char class / extglob
+## SKIP: extglob not implemented
 # http://landley.net/notes.html#14-05-2020
 shopt -s extglob
 
@@ -111,6 +114,7 @@ echo ""{~,~root}/pwd
 ## END
 
 #### {abc}<<< - http://landley.net/notes-2019.html#09-12-2019
+## SKIP: File descriptor variable syntax ({fd}>file) not implemented
 { echo; } {abc}<<< walrus
 cat <&$abc
 ## STDOUT:

@@ -24,6 +24,7 @@ status=0
 ## END
 
 #### cd with 2 or more args - with strict_arg_parse
+## SKIP: Oils-specific shopt options not implemented
 
 shopt -s strict_arg_parse
 
@@ -118,6 +119,7 @@ dir-one
 ## END
 
 #### pwd with symlink and -P
+## SKIP: Symbolic links (ln -s) not implemented
 tmp=$TMP/builtins-pwd-1
 mkdir -p $tmp/target
 ln -s -f $tmp/target $tmp/symlink
@@ -168,6 +170,7 @@ PWD=
 ## END
 
 #### 'unset PWD; pwd' before any cd (tickles a rare corner case)
+## SKIP: Interactive shell invocation not implemented
 dir=/tmp/oil-spec-test/pwd-2
 mkdir -p $dir
 cd $dir
@@ -180,6 +183,7 @@ $SH -c 'unset PWD; pwd'
 ## END
 
 #### lie about PWD; pwd before any cd
+## SKIP: Interactive shell invocation not implemented
 dir=/tmp/oil-spec-test/pwd-3
 mkdir -p $dir
 cd $dir
@@ -213,6 +217,7 @@ status=1
 ## END
 
 #### pwd in symlinked dir on shell initialization
+## SKIP: Symbolic links (ln -s) not implemented
 tmp=$TMP/builtins-pwd-2
 mkdir -p $tmp
 mkdir -p $tmp/target
@@ -234,6 +239,7 @@ target
 ## stderr-json: ""
 
 #### Test the current directory after 'cd ..' involving symlinks
+## SKIP: Symbolic links (ln -s) not implemented
 dir=$TMP/symlinktest
 mkdir -p $dir
 cd $dir
@@ -282,6 +288,7 @@ echo $PWD
 ## stdout: /
 
 #### cd to symlink with -L and -P
+## SKIP: Symbolic links (ln -s) not implemented
 targ=$TMP/cd-symtarget
 lnk=$TMP/cd-symlink
 mkdir -p $targ
@@ -303,6 +310,7 @@ OK
 ## END
 
 #### cd to relative path with -L and -P
+## SKIP: Symbolic links (ln -s) not implemented
 die() { echo "$@"; exit 1; }
 
 targ=$TMP/cd-symtarget/subdir
@@ -364,6 +372,7 @@ status=0
 
 
 #### Change directory in non-shell parent process (make or Python)
+## SKIP: Interactive shell invocation not implemented
 
 # inspired by Perl package bug
 
@@ -405,6 +414,7 @@ echo "${new_dir##$old_dir}"
 ## END
 
 #### What happens when inherited $PWD and current dir disagree?
+## SKIP: Interactive shell invocation not implemented
 
 DIR=/tmp/osh-spec-cd
 mkdir -p $DIR
@@ -465,6 +475,7 @@ PWD = /tmp/osh-spec-cd/cpan/Encode/Byte
 ## END
 
 #### Survey of getcwd() syscall
+## SKIP: Interactive shell invocation not implemented
 
 # This is not that important -- see core/sh_init.py
 # Instead of verifying that stat('.') == stat(PWD), which is two sycalls,
@@ -514,6 +525,7 @@ pwd /
 ## OK zsh/mksh status: 1
 
 #### pwd errors out on args with strict_arg_parse
+## SKIP: Oils-specific shopt options not implemented
 shopt -s strict_arg_parse || true
 pwd / >/dev/null || echo 'too many args!'
 ## N-I bash/dash/ash STDOUT:

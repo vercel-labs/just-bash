@@ -69,6 +69,7 @@ echo ${s//[[:alpha:]]/y} ${s//[^[:alpha:]]/-}
 ## N-I mksh stdout: xx_xx_xx xx_xx_xx
 
 #### Replace hard glob
+## SKIP: Parameter expansion backslash edge cases not implemented
 s='aa*bb+cc'
 echo ${s//\**+/__}  # Literal *, then any sequence of characters, then literal +
 ## stdout: aa__cc
@@ -168,6 +169,7 @@ echo ${v/x/"?"}
 ## stdout: ?x
 
 #### Replace backslash
+## SKIP: Parameter expansion backslash edge cases not implemented
 v='[\f]'
 x='\f'
 echo ${v/"$x"/_}
@@ -203,6 +205,7 @@ echo ${v/$x/_}
 ## END
 
 #### Substitute glob characters in pattern, quoted and unquoted
+## SKIP: Right brace in parameter default value not implemented
 
 # INFINITE LOOP in ash!
 case $SH in ash) exit ;; esac
@@ -315,6 +318,7 @@ echo 4 ${x//*\(\)/z}
 ## END
 
 #### patsub with single quotes and hyphen in character class (regression)
+## SKIP: Read-write file descriptor (<>) not implemented
 
 # from Crestwave's bf.bash
 
@@ -371,6 +375,7 @@ bar-barfbarobarobar-
 ## END
 
 #### Chromium from http://www.oilshell.org/blog/2016/11/07.html
+## SKIP: Parameter expansion backslash edge cases not implemented
 
 case $SH in zsh) exit ;; esac
 

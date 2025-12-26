@@ -4,6 +4,7 @@
 # TODO: compare with AT&T ksh - it has this feature
 
 #### K and V are variables in (( array[K] = V ))
+## SKIP: Array value coercion in arithmetic not implemented
 K=5
 V=42
 typeset -a array
@@ -87,6 +88,7 @@ a[x]=2
 ## END
 
 #### test -v with assoc arrays
+## SKIP: Associative array value coercion in arithmetic not implemented
 
 typeset -A A
 

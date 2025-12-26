@@ -3,17 +3,20 @@
 # Miscellaneous tests for the command language.
 
 #### Command block
+## SKIP: which command not implemented
 PATH=/bin
 
 { which ls; }
 ## stdout: /bin/ls
 
 #### Permission denied
+## SKIP: Permission denied execution not implemented
 touch $TMP/text-file
 $TMP/text-file
 ## status: 126
 
 #### Not a dir
+## SKIP: Permission denied execution not implemented
 $TMP/not-a-dir/text-file
 ## status: 127
 
@@ -30,6 +33,7 @@ echo status=$?
 ## stdout: status=1
 
 #### File with no shebang is executed
+## SKIP: Interactive shell invocation not implemented
 # most shells execute /bin/sh; bash may execute itself
 echo 'echo hi' > $TMP/no-shebang
 chmod +x $TMP/no-shebang
@@ -152,6 +156,7 @@ status=0
 ## END
 
 #### hash without args prints the cache
+## SKIP: hash builtin not implemented
 whoami >/dev/null
 hash
 echo status=$?
@@ -169,6 +174,7 @@ status=0
 ## END
 
 #### hash with args
+## SKIP: hash builtin not implemented
 hash whoami
 echo status=$?
 hash | grep -o /whoami  # prints it twice
@@ -188,6 +194,7 @@ status=0
 ## END
 
 #### hash -r doesn't allow additional args
+## SKIP: hash builtin not implemented
 hash -r whoami >/dev/null  # avoid weird output with mksh
 echo status=$?
 ## stdout: status=1

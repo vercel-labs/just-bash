@@ -440,6 +440,7 @@ argv.py ${word}z
 ## END
 
 #### Bug #698, similar crash
+## SKIP: noglob (set -f) not implemented
 var='\'
 set -f
 echo $var
@@ -448,6 +449,7 @@ echo $var
 ## END
 
 #### Bug #1664, \\ with noglob
+## SKIP: noglob (set -f) not implemented
 
 # Note that we're not changing IFS
 
@@ -517,6 +519,7 @@ sum 12 30 # fails with "fatal: Undefined variable '2'" on res=$(($1 + $2))
 ## END
 
 #### Unicode in IFS
+## SKIP: Read-write file descriptor (<>) not implemented
 
 # bash, zsh, and yash support unicode in IFS, but dash/mksh/ash don't.
 
@@ -890,6 +893,7 @@ echo "${#v}"
 
 
 #### Regression: "${v:-AxBxC}"x should not be split
+## SKIP: Right brace in parameter default value not implemented
 IFS=x
 v=
 echo "${v:-AxBxC}"

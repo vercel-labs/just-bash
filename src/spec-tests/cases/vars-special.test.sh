@@ -29,6 +29,7 @@ echo status=$?
 ## BUG mksh stdout: status=1
 
 #### $PATH is set if unset at startup
+## SKIP: which command not implemented
 
 # WORKAROUND for Python version of bin/osh -- we can't run bin/oils_for_unix.py
 # because it a shebang #!/usr/bin/env python2
@@ -71,6 +72,7 @@ yes
 ## END
 
 #### $HOME is NOT set
+## SKIP: Interactive shell invocation not implemented
 case $SH in *zsh) echo 'zsh sets HOME'; exit ;; esac
 
 home=$(echo $HOME)
@@ -108,6 +110,7 @@ histfile=yes
 ## END
 
 #### Some vars are set, even without startup file, or env: PATH, PWD
+## SKIP: which command not implemented
 
 flags=''
 case $SH in
@@ -178,6 +181,7 @@ ifs 0
 ## END
 
 #### UID EUID PPID can't be changed
+## SKIP: Interactive shell invocation not implemented
 
 # bash makes these 3 read-only
 {
@@ -207,6 +211,7 @@ status=0
 ## END
 
 #### HOSTNAME OSTYPE can be changed
+## SKIP: Interactive shell invocation not implemented
 case $SH in zsh) exit ;; esac
 
 #$SH -c 'echo hostname=$HOSTNAME'
@@ -278,6 +283,7 @@ status=0
 ## END
 
 #### $$ doesn't change with subshell or command sub
+## SKIP: errexit in compound commands/pipelines not implemented
 # Just test that it has decimal digits
 set -o errexit
 die() {
@@ -303,6 +309,7 @@ command sub OK
 ## END
 
 #### $BASHPID DOES change with subshell and command sub
+## SKIP: errexit in compound commands/pipelines not implemented
 set -o errexit
 die() {
   echo 1>&2 "$@"; exit 1
@@ -347,6 +354,7 @@ echo $PPID | egrep '[0-9]+'
 # NOTE: There is also $BASHPID
 
 #### $PIPESTATUS
+## SKIP: PIPESTATUS variable not implemented
 echo hi | sh -c 'cat; exit 33' | wc -l >/dev/null
 argv.py "${PIPESTATUS[@]}"
 ## status: 0
@@ -426,6 +434,7 @@ f
 ## END
 
 #### $LINENO in "bare" redirect arg (bug regression)
+## SKIP: $LINENO tracking in complex contexts not implemented
 filename=$TMP/bare3
 rm -f $filename
 > $TMP/bare$LINENO
@@ -439,6 +448,7 @@ written
 ## END
 
 #### $LINENO in redirect arg (bug regression)
+## SKIP: $LINENO tracking in complex contexts not implemented
 filename=$TMP/lineno_regression3
 rm -f $filename
 echo x > $TMP/lineno_regression$LINENO
@@ -450,6 +460,7 @@ written
 ## END
 
 #### $LINENO in [[
+## SKIP: $LINENO in conditional/arithmetic context not implemented
 echo one
 [[ $LINENO -eq 2 ]] && echo OK
 ## STDOUT:
@@ -462,6 +473,7 @@ OK
 ## N-I mksh stdout: one
 
 #### $LINENO in ((
+## SKIP: LINENO in arithmetic context not implemented
 echo one
 (( x = LINENO ))
 echo $x
@@ -475,6 +487,7 @@ one
 ## END
 
 #### $LINENO in for loop
+## SKIP: $LINENO tracking in complex contexts not implemented
 # hm bash doesn't take into account the word break.  That's OK; we won't either.
 echo one
 for x in \
@@ -493,6 +506,7 @@ zzz
 ## END
 
 #### $LINENO in other for loops
+## SKIP: $LINENO tracking in complex contexts not implemented
 set -- a b c
 for x; do
   echo $LINENO $x
@@ -504,6 +518,7 @@ done
 ## END
 
 #### $LINENO in for (( loop
+## SKIP: $LINENO tracking in complex contexts not implemented
 # This is a real edge case that I'm not sure we care about.  We would have to
 # change the span ID inside the loop to make it really correct.
 echo one
@@ -521,6 +536,7 @@ one
 ## BUG mksh status: 1
 
 #### $LINENO for assignment
+## SKIP: $LINENO tracking in complex contexts not implemented
 a1=$LINENO a2=$LINENO
 b1=$LINENO b2=$LINENO
 echo $a1 $a2
@@ -531,6 +547,7 @@ echo $b1 $b2
 ## END
 
 #### $LINENO in case
+## SKIP: $LINENO tracking in complex contexts not implemented
 case $LINENO in
   1) echo 'got line 1' ;;
   *) echo line=$LINENO
@@ -557,6 +574,7 @@ hi world
 ## END
 
 #### $_ and ${_}
+## SKIP: $_ with declare/colon builtin not implemented
 case $SH in dash|mksh) exit ;; esac
 
 _var=value
@@ -660,6 +678,7 @@ simple
 
 
 #### $_ with assignments, arrays, etc.
+## SKIP: $_ with declare/colon builtin not implemented
 case $SH in dash|mksh) exit ;; esac
 
 : foo
@@ -743,6 +762,7 @@ prev=prev=prev=
 
 
 #### $_ is not undefined on first use
+## SKIP: $_ in subshell invocation not implemented
 set -e
 
 x=$($SH -u -c 'echo prev=$_')

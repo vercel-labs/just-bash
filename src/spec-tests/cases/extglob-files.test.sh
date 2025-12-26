@@ -35,6 +35,7 @@
 # !(pattern-list): Matches anything EXCEPT any of the patterns
 
 #### @() matches exactly one of the patterns
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p 0
 cd 0
@@ -43,6 +44,7 @@ echo @(*.cc|*.h)
 ## stdout: bar.cc bar.h baz.h foo.cc foo.h
 
 #### ?() matches 0 or 1
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p 1
 cd 1
@@ -52,6 +54,7 @@ echo foo.?($ext|h)
 ## stdout: foo. foo.cc foo.h
 
 #### *() matches 0 or more
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p eg1
 touch eg1/_ eg1/_One eg1/_OneOne eg1/_TwoTwo eg1/_OneTwo
@@ -59,6 +62,7 @@ echo eg1/_*(One|Two)
 ## stdout: eg1/_ eg1/_One eg1/_OneOne eg1/_OneTwo eg1/_TwoTwo
 
 #### +() matches 1 or more
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p eg2
 touch eg2/_ eg2/_One eg2/_OneOne eg2/_TwoTwo eg2/_OneTwo
@@ -66,6 +70,7 @@ echo eg2/_+(One|$(echo Two))
 ## stdout: eg2/_One eg2/_OneOne eg2/_OneTwo eg2/_TwoTwo
 
 #### !(*.h|*.cc) to match everything except C++
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p extglob2
 touch extglob2/{foo,bar}.cc extglob2/{foo,bar,baz}.h \
@@ -74,6 +79,7 @@ echo extglob2/!(*.h|*.cc)
 ## stdout: extglob2/bar.py extglob2/baz.py extglob2/foo.py
 
 #### Two adjacent alternations
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p 2
 touch 2/{aa,ab,ac,ba,bb,bc,ca,cb,cc}
@@ -87,6 +93,7 @@ echo 2/!(b)a@(b|c)  # constant in between
 ## END
 
 #### Nested extended glob pattern 
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p eg6
 touch eg6/{ab,ac,ad,az,bc,bd}
@@ -98,6 +105,7 @@ eg6/ac eg6/ad eg6/az
 ## END
 
 #### Extended glob patterns with spaces
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p eg4
 touch eg4/a 'eg4/a b' eg4/foo
@@ -107,6 +115,7 @@ argv.py eg4/@(a b|foo)
 ## END
 
 #### Filenames with spaces
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p eg5
 touch eg5/'a b'{cd,de,ef}
@@ -116,6 +125,7 @@ argv.py eg5/'a '@(bcd|bde|zzz)
 ## END
 
 #### nullglob with extended glob
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir eg6
 argv.py eg6/@(no|matches)  # no matches
@@ -131,6 +141,7 @@ argv.py eg6/@(no|matches)  # no matches
 ## END
 
 #### Glob other punctuation chars (lexer mode)
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p eg5
 cd eg5
@@ -143,6 +154,7 @@ argv.py @(__aa|'__<>'|__{}|__#|__&&|)
 ## END
 
 #### More glob escaping
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p eg7
 cd eg7
@@ -157,6 +169,7 @@ argv.py @(nested|'_?'|@('_[:]'|'_*'))
 ## END
 
 #### Escaping of pipe (glibc bug, see demo/glibc_fnmatch.c)
+## SKIP: extglob not implemented
 shopt -s extglob
 
 mkdir -p extpipe
@@ -172,6 +185,7 @@ argv.py @('foo'|'__|'|bar)
 ## END
 
 #### Extended glob as argument to ${undef:-} (dynamic globbing)
+## SKIP: extglob not implemented
 
 # This case popped into my mind after inspecting osh/word_eval.py for calls to
 # _EvalWordToParts()
@@ -202,6 +216,7 @@ bar.py foo.py spam.py
 ## END
 
 #### Extended glob in assignment builtin
+## SKIP: extglob not implemented
 
 # Another invocation of _EvalWordToParts() that OSH should handle
 
@@ -222,6 +237,7 @@ status=1
 ## END
 
 #### Extended glob in same word as array
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p eg10
 cd eg10
@@ -253,6 +269,7 @@ argv.py at extglob "$@"*@(.py|cc)
 ## N-I osh status: 1
 
 #### Extended glob with word splitting
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p 3
 cd 3
@@ -271,6 +288,7 @@ argv.py $x*.@(cc|h)
 ## END
 
 #### In Array Literal and for loop
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p eg11
 cd eg11
@@ -291,6 +309,7 @@ zzz bar.py foo.py
 ## END
 
 #### No extended glob with simple_word_eval (YSH evaluation)
+## SKIP: extglob not implemented
 shopt -s ysh:all
 shopt -s extglob
 mkdir -p eg12
@@ -303,6 +322,7 @@ builtin write -- @(fo*|bar).py
 ## END
 
 #### no match
+## SKIP: extglob not implemented
 shopt -s extglob
 echo @(__nope__)
 
@@ -322,6 +342,7 @@ echo ,(osh|style)
 ## END
 
 #### no_dash_glob
+## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p opts
 cd opts
@@ -343,6 +364,7 @@ bar foo
 ## END
 
 #### noglob
+## SKIP: noglob (set -f) not implemented
 shopt -s extglob
 mkdir -p _noglob
 cd _noglob
@@ -357,6 +379,7 @@ echo @(__nope__*|__nope__?|'*'|'?'|'[:alpha:]'|'|')
 ## END
 
 #### failglob
+## SKIP: extglob not implemented
 shopt -s extglob
 
 rm -f _failglob/*

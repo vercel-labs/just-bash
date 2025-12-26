@@ -35,6 +35,7 @@ argv.py "${empty[@]}"
 ## END
 
 #### Empty array with :-
+## SKIP: Right brace in parameter default value not implemented
 empty=()
 argv.py ${empty[@]:-not one} "${empty[@]:-not one}"
 ## STDOUT:

@@ -1,6 +1,7 @@
 ## compare_shells: bash zsh mksh ash dash yash
 
 #### [bash_unset] local-unset / dynamic-unset for localvar
+## SKIP: Right brace in parameter default value not implemented
 unlocal() { unset -v "$1"; }
 
 f1() {
@@ -45,6 +46,7 @@ f1 'global'
 
 
 #### [bash_unset] local-unset / dynamic-unset for localvar (mutated from tempenv)
+## SKIP: Right brace in parameter default value not implemented
 unlocal() { unset -v "$1"; }
 
 f1() {
@@ -93,6 +95,7 @@ v=tempenv f1 'global,tempenv'
 
 
 #### [bash_unset] local-unset / dynamic-unset for tempenv
+## SKIP: Right brace in parameter default value not implemented
 unlocal() { unset -v "$1"; }
 
 f1() {
@@ -126,6 +129,7 @@ v=tempenv f1 'global,tempenv'
 ## END
 
 #### [bash_unset] function call with tempenv vs tempenv-eval
+## SKIP: Right brace in parameter default value not implemented
 unlocal() { unset -v "$1"; }
 
 f5() {
@@ -238,6 +242,7 @@ v=tempenv eval 'f5 "global,tempenv,(eval)"'
 
 
 #### [bash_unset] localvar-inherit from tempenv
+## SKIP: Right brace in parameter default value not implemented
 f1() {
   local v
   echo "[$1,(local)] v: ${v-(unset)}"

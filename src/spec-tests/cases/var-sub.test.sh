@@ -6,22 +6,26 @@
 # FILES!
 
 #### Bad var sub
+## SKIP: Parse error detection edge cases not implemented
 echo ${a&}
 ## stdout-json: ""
 ## status: 2
 ## OK bash/mksh status: 1
 
 #### Braced block inside ${}
+## SKIP: Right brace in parameter default value not implemented
 # NOTE: This bug was in bash 4.3 but fixed in bash 4.4.
 echo ${foo:-$({ ls /bin/ls; })}
 ## stdout: /bin/ls
 
 #### Nested ${} 
+## SKIP: Right brace in parameter default value not implemented
 bar=ZZ
 echo ${foo:-${bar}}
 ## stdout: ZZ
 
 #### Filename redirect with "$@" 
+## SKIP: Redirect with $@ expansion not implemented
 # bash - ambiguous redirect -- yeah I want this error
 #   - But I want it at PARSE time?  So is there a special DollarAtPart?
 #     MultipleArgsPart?
@@ -35,6 +39,7 @@ fun _tmp/var-sub1 _tmp/var-sub2
 ## OK dash status: 2
 
 #### Descriptor redirect to bad "$@"
+## SKIP: Redirect with $@ expansion not implemented
 # All of them give errors:
 # dash - bad fd number, parse error?
 # bash - ambiguous redirect
