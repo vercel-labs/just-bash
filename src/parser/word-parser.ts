@@ -12,6 +12,7 @@ import {
   type WordNode,
   type WordPart,
 } from "../ast/types.js";
+import { parseArithmeticExpression } from "./arithmetic-parser.js";
 import { TokenType } from "./lexer.js";
 import type { Parser } from "./parser.js";
 
@@ -71,11 +72,48 @@ export function findPatternEnd(
 ): number {
   let i = start;
 
+  // In bash, if the pattern starts with /, that / IS the pattern.
+  // For ${x////c}: after //, the next / is the pattern, followed by / separator, then c
+  // So we need to consume at least one character before treating / as a delimiter.
+  let consumedAny = false;
+
   while (i < value.length) {
     const char = value[i];
-    if (char === "/" || char === "}") break;
-    if (char === "\\") i += 2;
-    else i++;
+    // Only break on / if we've consumed at least one character
+    if ((char === "/" && consumedAny) || char === "}") break;
+
+    // Handle single quotes - skip until closing quote
+    if (char === "'") {
+      const closeIdx = value.indexOf("'", i + 1);
+      if (closeIdx !== -1) {
+        i = closeIdx + 1;
+        consumedAny = true;
+        continue;
+      }
+    }
+
+    // Handle double quotes - skip until closing quote (handling escapes)
+    if (char === '"') {
+      i++;
+      while (i < value.length && value[i] !== '"') {
+        if (value[i] === "\\" && i + 1 < value.length) {
+          i += 2;
+        } else {
+          i++;
+        }
+      }
+      if (i < value.length) i++; // Skip closing quote
+      consumedAny = true;
+      continue;
+    }
+
+    if (char === "\\") {
+      i += 2;
+      consumedAny = true;
+    } else {
+      i++;
+      consumedAny = true;
+    }
   }
 
   return i;
@@ -96,8 +134,9 @@ export function parseGlobPattern(
       pattern += char;
       i++;
     } else if (char === "[") {
-      // Character class
-      const closeIdx = value.indexOf("]", i + 1);
+      // Character class - need to properly find closing ]
+      // Handle POSIX character classes like [[:alpha:]], [^[:alpha:]], etc.
+      const closeIdx = findCharacterClassEnd(value, i);
       if (closeIdx === -1) {
         pattern += char;
         i++;
@@ -111,6 +150,74 @@ export function parseGlobPattern(
   }
 
   return { pattern, endIndex: i };
+}
+
+/**
+ * Find the closing ] of a character class, properly handling:
+ * - POSIX character classes like [:alpha:], [:digit:], etc.
+ * - Negation [^...]
+ * - Literal ] at the start []] or [^]]
+ * - Single quotes inside class (bash extension): [^'abc]'] contains literal ]
+ */
+function findCharacterClassEnd(value: string, start: number): number {
+  let i = start + 1; // Skip opening [
+
+  // Handle negation
+  if (i < value.length && value[i] === "^") {
+    i++;
+  }
+
+  // A ] immediately after [ or [^ is literal, not closing
+  if (i < value.length && value[i] === "]") {
+    i++;
+  }
+
+  while (i < value.length) {
+    const char = value[i];
+
+    if (char === "]") {
+      return i;
+    }
+
+    // Handle single quotes inside character class (bash extension)
+    // [^'abc]'] - the ] inside quotes is literal, class ends at second ]
+    if (char === "'") {
+      const closeQuote = value.indexOf("'", i + 1);
+      if (closeQuote !== -1) {
+        i = closeQuote + 1;
+        continue;
+      }
+    }
+
+    // Handle POSIX character classes [:name:]
+    if (char === "[" && i + 1 < value.length && value[i + 1] === ":") {
+      // Find closing :]
+      const closePos = value.indexOf(":]", i + 2);
+      if (closePos !== -1) {
+        i = closePos + 2;
+        continue;
+      }
+    }
+
+    // Handle collating symbols [.name.] and equivalence classes [=name=]
+    if (
+      char === "[" &&
+      i + 1 < value.length &&
+      (value[i + 1] === "." || value[i + 1] === "=")
+    ) {
+      const closeChar = value[i + 1];
+      const closeSeq = closeChar + "]";
+      const closePos = value.indexOf(closeSeq, i + 2);
+      if (closePos !== -1) {
+        i = closePos + 2;
+        continue;
+      }
+    }
+
+    i++;
+  }
+
+  return -1; // No closing ] found
 }
 
 export function parseAnsiCQuoted(
@@ -241,15 +348,20 @@ export function parseAnsiCQuoted(
 }
 
 export function parseArithExprFromString(
-  _p: Parser,
+  p: Parser,
   str: string,
 ): ArithmeticExpressionNode {
-  // Simple arithmetic expression parser
-  // For now, just wrap in a node - full parsing happens during interpretation
-  return {
-    type: "ArithmeticExpression",
-    expression: { type: "ArithNumber", value: Number.parseInt(str, 10) || 0 },
-  };
+  // Trim whitespace - bash allows spaces around arithmetic expressions in slices
+  const trimmed = str.trim();
+  if (trimmed === "") {
+    // Empty string means 0
+    return {
+      type: "ArithmeticExpression",
+      expression: { type: "ArithNumber", value: 0 },
+    };
+  }
+  // Use the full arithmetic expression parser
+  return parseArithmeticExpression(p, trimmed);
 }
 
 /**

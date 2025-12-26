@@ -1,17 +1,30 @@
 # Plan to Fix Remaining Spec Tests
 
-**Current Status:** 403 failing tests out of 1380 total (71% passing)
+**Current Status:** 373 failing tests out of 1380 total (73% passing)
 **Goal:** 0 failing tests (100% pass rate)
+
+## Process
+
+- Pick 8-20 related failing tests to fix
+- Figure out how to fix them
+  - Analyze common root causes
+  - Make a plan to fix. Ideally in one process.
+  - Apply the fixes to the code
+- Then run the tests again to validate you succeded.
+- If there are still failures in the group, fix them
+- Otherwise move on to the next 8-20
 
 ---
 
 ## Progress Summary
 
-| Session | Starting | Ending | Fixed | Key Changes |
-|---------|----------|--------|-------|-------------|
-| Initial | 467 | 441 | 26 | Brace cartesian, array subscript, printf -v/-- |
-| Session 2 | 441 | 425 | 16 | Lazy eval, octal/hex numerics, range steps, zero-padding |
-| Session 3 | 425 | 403 | 22 | Printf precision, backslash escapes, quoted patterns, brace in assignment |
+| Session   | Starting | Ending | Fixed | Key Changes                                                               |
+| --------- | -------- | ------ | ----- | ------------------------------------------------------------------------- |
+| Initial   | 467      | 441    | 26    | Brace cartesian, array subscript, printf -v/--                            |
+| Session 2 | 441      | 425    | 16    | Lazy eval, octal/hex numerics, range steps, zero-padding                  |
+| Session 3 | 425      | 403    | 22    | Printf precision, backslash escapes, quoted patterns, brace in assignment |
+| Session 4 | 403      | 383    | 20    | String slice, arithmetic in slice, ${#v:x} error, pattern var expansion   |
+| Session 5 | 383      | 373    | 10    | Pattern slash as pattern, POSIX char classes, quoted patterns in patsub   |
 
 ### Completed Fixes ✅
 
@@ -32,6 +45,18 @@
 15. **Quoted Patterns in [[** - `[[ foo.py == '*.py' ]]` treats RHS literally
 16. **Brace Expansion in Assignment** - `v={X,Y}` stores literal `{X,Y}`
 17. **$OSTYPE, $MACHTYPE, $HOSTTYPE** - Now set in initial environment
+18. **String Slice Parsing** - `${foo:1:3}` now correctly parses offset/length
+19. **Arithmetic in Slice** - `${foo: i+4-2 : i+2}` evaluates expressions
+20. **UTF-8 String Slicing** - `${foo:1:3}` now slices by character, not byte
+21. **Negative Length in Slice** - `${foo:3:-1}` correctly treats negative length as end position
+22. **${#v:x} Error** - `${#v:1:3}` now throws "bad substitution" error
+23. **Pattern Variable Expansion** - `${var//$pat/repl}` now expands $pat and $repl
+24. **Slash as Pattern** - `${x///}` and `${x////c}` now correctly parse `/` as pattern
+25. **POSIX Character Classes** - `[[:alpha:]]`, `[[:digit:]]` etc. in patterns
+26. **Quoted Patterns in Char Class** - `[^'><+-.,[]']` handles single quotes inside `[...]`
+27. **Empty Pattern Handling** - `${x//$undef/y}` returns original when pattern is empty
+28. **Glob vs Literal in Pattern** - `\*` is literal, unquoted `$g` where g=* is glob
+29. **Invalid Range Graceful** - `[z-a]` returns original value instead of error
 
 ---
 
@@ -42,6 +67,7 @@
 **File:** `src/parser/word-parser.ts`, `src/interpreter/expansion.ts`
 
 **Problems:**
+
 - `{{a,b}` - bash treats first `{` as prefix, outputs `{a {b`
 - Mixed quotes in braces: `{\X"b",'cd'}` should expand
 - Variable expansion in braces: `{$a,b}_{c,d}` has bash-specific behavior
@@ -53,6 +79,7 @@
 **File:** `src/interpreter/conditionals.ts`, `src/parser/parser.ts`
 
 **Problems:**
+
 - Quoted patterns: `[[ foo.py == '*.py' ]]` - quoted pattern should be literal
 - `[[ -z ]]` should be syntax error
 - Multi-line `[[`: newlines between `[[` and `]]` should work
@@ -65,6 +92,7 @@
 **File:** `src/commands/printf/printf.ts`
 
 **Problems:**
+
 - Precision with integers: `printf '[%6.4d]' 42` → `[  0042]`
 - %q shell quoting
 - %b escape sequences
@@ -76,6 +104,7 @@
 **File:** `src/interpreter/interpreter.ts`, `src/parser/command-parser.ts`
 
 **Problems:**
+
 - `FOO=bar [[ x == x ]]` should fail (env prefix before compound command)
 - `FOO=foo printenv.py FOO` - temp env binding for command
 - `readonly x=` should set empty string
@@ -87,6 +116,7 @@
 **File:** `src/interpreter/arithmetic.ts`
 
 **Problems:**
+
 - Dynamic variable names: `$((f$x))` where x=oo evaluates `foo`
 - Side effects in array index: `${a[b=2]}`
 - Nested arithmetic: `$((1 + $((2 + 3)) + 4))`
@@ -97,6 +127,7 @@
 **File:** `src/shell/glob.ts`
 
 **Problems:**
+
 - Character classes: `[[:punct:]]`, `[[:alpha:]]`
 - Escaped patterns: `*\(\)` should match `foo()`
 - Glob in double quotes should be literal
@@ -106,6 +137,7 @@
 **File:** `src/interpreter/expansion.ts`
 
 **Problems:**
+
 - `${!prefix*}` - list vars starting with prefix
 - `${var@Q}` - quoting transformations
 - Pattern substitution edge cases
@@ -115,6 +147,7 @@
 **File:** `src/interpreter/expansion.ts`
 
 **Problems:**
+
 - `$LINENO` tracking
 - `$FUNCNAME` array
 - `$BASH_SOURCE` array
@@ -127,6 +160,7 @@
 Run `pnpm test:run src/spec-tests/spec.test.ts 2>&1 | grep "FAIL" | sed 's/.*> //' | cut -d'>' -f1 | sort | uniq -c | sort -rn` to get updated counts.
 
 Estimated distribution:
+
 - brace-expansion.test.sh: ~25
 - builtin-printf.test.sh: ~35
 - array.test.sh: ~20
@@ -137,32 +171,6 @@ Estimated distribution:
 - vars-special.test.sh: ~15
 - redirect.test.sh: ~15
 - Other: ~263
-
----
-
-## Implementation Strategy
-
-### Phase 1: Quick Wins (target: 380 failures)
-1. ~~Brace expansion step/padding~~ ✅
-2. ~~Lazy evaluation~~ ✅
-3. ~~Numeric bases in conditionals~~ ✅
-4. Fix quoted patterns in `[[`
-5. Fix printf precision with integers
-
-### Phase 2: Medium Complexity (target: 300 failures)
-6. Fix brace expansion with variables/command subs
-7. Fix assignment edge cases (temp env, readonly, local)
-8. Fix arithmetic edge cases
-9. Fix glob character classes
-
-### Phase 3: Complex Features (target: 200 failures)
-10. Fix special variables ($LINENO, $FUNCNAME, etc)
-11. Fix ${!prefix*} and ${var@Q}
-12. Fix remaining parse errors
-
-### Phase 4: Final Polish (target: 0 failures)
-13. Fix all remaining edge cases
-14. Document any legitimate skips
 
 ---
 
@@ -186,10 +194,10 @@ pnpm test:run src/spec-tests/spec.test.ts 2>&1 | tail -5
 
 ## Code Reference
 
-| Feature | Primary File | Key Functions |
-|---------|-------------|---------------|
-| Brace Expansion | `src/interpreter/expansion.ts` | `safeExpandNumericRange`, `safeExpandCharRange` |
-| Conditionals | `src/interpreter/conditionals.ts` | `evaluateConditional`, `parseNumeric` |
-| Printf | `src/commands/printf/printf.ts` | `handlePrintf` |
-| Expansion Parser | `src/parser/expansion-parser.ts` | `parseParameterOperation` |
-| Word Parser | `src/parser/word-parser.ts` | `tryParseBraceExpansion` |
+| Feature          | Primary File                      | Key Functions                                   |
+| ---------------- | --------------------------------- | ----------------------------------------------- |
+| Brace Expansion  | `src/interpreter/expansion.ts`    | `safeExpandNumericRange`, `safeExpandCharRange` |
+| Conditionals     | `src/interpreter/conditionals.ts` | `evaluateConditional`, `parseNumeric`           |
+| Printf           | `src/commands/printf/printf.ts`   | `handlePrintf`                                  |
+| Expansion Parser | `src/parser/expansion-parser.ts`  | `parseParameterOperation`                       |
+| Word Parser      | `src/parser/word-parser.ts`       | `tryParseBraceExpansion`                        |

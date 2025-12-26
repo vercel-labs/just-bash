@@ -54,6 +54,7 @@ import {
   executeWhile,
 } from "./control-flow.js";
 import {
+  BadSubstitutionError,
   BreakError,
   ContinueError,
   ErrexitError,
@@ -146,6 +147,14 @@ export class Interpreter {
           return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
         }
         if (error instanceof NounsetError) {
+          stdout += error.stdout;
+          stderr += error.stderr;
+          exitCode = 1;
+          this.ctx.state.lastExitCode = exitCode;
+          this.ctx.state.env["?"] = String(exitCode);
+          return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
+        }
+        if (error instanceof BadSubstitutionError) {
           stdout += error.stdout;
           stderr += error.stderr;
           exitCode = 1;

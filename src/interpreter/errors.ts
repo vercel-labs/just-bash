@@ -141,6 +141,19 @@ export class ArithmeticError extends ControlFlowError {
 }
 
 /**
+ * Error thrown for bad substitution errors (e.g., ${#var:1:3}).
+ * Returns exit code 1.
+ */
+export class BadSubstitutionError extends ControlFlowError {
+  readonly name = "BadSubstitutionError";
+
+  constructor(message: string, stdout: string = "", stderr: string = "") {
+    super(message, stdout, stderr);
+    this.stderr = stderr || `bash: ${message}: bad substitution\n`;
+  }
+}
+
+/**
  * Type guard to check if an error is a control flow error that should propagate.
  */
 export function isControlFlowError(error: unknown): error is ControlFlowError {

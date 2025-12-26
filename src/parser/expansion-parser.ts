@@ -94,7 +94,18 @@ export function parseParameterExpansion(
   if (indirection) {
     operation = { type: "Indirection" };
   } else if (lengthOp) {
-    operation = { type: "Length" };
+    // ${#var:...} is invalid - you can't take length of a substring
+    if (value[i] === ":") {
+      // Mark this as an invalid length+slice operation
+      // This will be handled at runtime to throw an error
+      operation = { type: "LengthSliceError" } as ParameterOperation;
+      // Skip past the invalid :offset:length part
+      while (i < value.length && value[i] !== "}") {
+        i++;
+      }
+    } else {
+      operation = { type: "Length" };
+    }
   }
 
   // Parse operation
@@ -125,59 +136,64 @@ export function parseParameterOperation(
   const char = value[i];
   const nextChar = value[i + 1] || "";
 
-  // :- := :? :+
+  // :- := :? :+ or :offset:length (substring)
   if (char === ":") {
     const op = nextChar;
-    const checkEmpty = true;
-    i += 2;
 
-    const wordEnd = WordParser.findParameterOperationEnd(p, value, i);
-    const wordStr = value.slice(i, wordEnd);
-    // Parse the word for expansions (variables, arithmetic, command substitution)
-    const wordParts = parseWordParts(p, wordStr, false, false, false);
-    const word = AST.word(wordParts.length > 0 ? wordParts : [AST.literal("")]);
+    // Check if this is a special operator :- := :? :+
+    if ("-=?+".includes(op)) {
+      const checkEmpty = true;
+      i += 2; // Skip : and operator
 
-    if (op === "-") {
-      return {
-        operation: { type: "DefaultValue", word, checkEmpty },
-        endIndex: wordEnd,
-      };
-    }
-    if (op === "=") {
-      return {
-        operation: { type: "AssignDefault", word, checkEmpty },
-        endIndex: wordEnd,
-      };
-    }
-    if (op === "?") {
-      return {
-        operation: { type: "ErrorIfUnset", word, checkEmpty },
-        endIndex: wordEnd,
-      };
-    }
-    if (op === "+") {
-      return {
-        operation: { type: "UseAlternative", word, checkEmpty },
-        endIndex: wordEnd,
-      };
+      const wordEnd = WordParser.findParameterOperationEnd(p, value, i);
+      const wordStr = value.slice(i, wordEnd);
+      // Parse the word for expansions (variables, arithmetic, command substitution)
+      const wordParts = parseWordParts(p, wordStr, false, false, false);
+      const word = AST.word(wordParts.length > 0 ? wordParts : [AST.literal("")]);
+
+      if (op === "-") {
+        return {
+          operation: { type: "DefaultValue", word, checkEmpty },
+          endIndex: wordEnd,
+        };
+      }
+      if (op === "=") {
+        return {
+          operation: { type: "AssignDefault", word, checkEmpty },
+          endIndex: wordEnd,
+        };
+      }
+      if (op === "?") {
+        return {
+          operation: { type: "ErrorIfUnset", word, checkEmpty },
+          endIndex: wordEnd,
+        };
+      }
+      if (op === "+") {
+        return {
+          operation: { type: "UseAlternative", word, checkEmpty },
+          endIndex: wordEnd,
+        };
+      }
     }
 
     // Substring: ${var:offset} or ${var:offset:length}
+    i++; // Skip only the first :
+    const wordEnd = WordParser.findParameterOperationEnd(p, value, i);
+    const wordStr = value.slice(i, wordEnd);
     const colonIdx = wordStr.indexOf(":");
-    if (colonIdx >= 0 || /^-?\d+$/.test(wordStr)) {
-      const offsetStr = colonIdx >= 0 ? wordStr.slice(0, colonIdx) : wordStr;
-      const lengthStr = colonIdx >= 0 ? wordStr.slice(colonIdx + 1) : null;
-      return {
-        operation: {
-          type: "Substring",
-          offset: WordParser.parseArithExprFromString(p, offsetStr),
-          length: lengthStr
-            ? WordParser.parseArithExprFromString(p, lengthStr)
-            : null,
-        },
-        endIndex: wordEnd,
-      };
-    }
+    const offsetStr = colonIdx >= 0 ? wordStr.slice(0, colonIdx) : wordStr;
+    const lengthStr = colonIdx >= 0 ? wordStr.slice(colonIdx + 1) : null;
+    return {
+      operation: {
+        type: "Substring",
+        offset: WordParser.parseArithExprFromString(p, offsetStr),
+        length: lengthStr
+          ? WordParser.parseArithExprFromString(p, lengthStr)
+          : null,
+      },
+      endIndex: wordEnd,
+    };
   }
 
   // - = ? + (without colon)
@@ -253,7 +269,11 @@ export function parseParameterOperation(
     // Find pattern/replacement separator
     const patternEnd = WordParser.findPatternEnd(p, value, i);
     const patternStr = value.slice(i, patternEnd);
-    const pattern = AST.word([AST.literal(patternStr)]);
+    // Parse the pattern for variable expansions (e.g., ${var//$pat/repl})
+    const patternParts = parseWordParts(p, patternStr, false, false, false);
+    const pattern = AST.word(
+      patternParts.length > 0 ? patternParts : [AST.literal("")],
+    );
 
     let replacement: WordNode | null = null;
     let endIdx = patternEnd;
@@ -266,7 +286,11 @@ export function parseParameterOperation(
         replaceStart,
       );
       const replaceStr = value.slice(replaceStart, replaceEnd);
-      replacement = AST.word([AST.literal(replaceStr)]);
+      // Parse the replacement for variable expansions
+      const replaceParts = parseWordParts(p, replaceStr, false, false, false);
+      replacement = AST.word(
+        replaceParts.length > 0 ? replaceParts : [AST.literal("")],
+      );
       endIdx = replaceEnd;
     }
 
