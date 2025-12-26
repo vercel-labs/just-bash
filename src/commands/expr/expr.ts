@@ -69,7 +69,7 @@ function evaluateExpr(args: string[]): string {
       i++;
       const right = parseComparison();
       // AND: returns left if both non-zero/non-empty, else 0
-      if ((left === "0" || left === "") || (right === "0" || right === "")) {
+      if (left === "0" || left === "" || right === "0" || right === "") {
         left = "0";
       }
       // keep left as is if both are truthy

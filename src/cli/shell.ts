@@ -146,7 +146,9 @@ class VirtualShell {
         process.stderr.write(`${colors.red}${result.stderr}${colors.reset}`);
       }
     } catch (error) {
-      console.error(`${colors.red}Error: ${getErrorMessage(error)}${colors.reset}`);
+      console.error(
+        `${colors.red}Error: ${getErrorMessage(error)}${colors.reset}`,
+      );
     }
   }
 

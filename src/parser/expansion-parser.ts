@@ -111,10 +111,12 @@ export function parseParameterExpansion(
       while (i < value.length && value[i] !== "}") {
         i++;
       }
-    } else if (value[i] !== "}" && /[\-+=?]/.test(value[i])) {
+    } else if (value[i] !== "}" && /[-+=?]/.test(value[i])) {
       // ${#x-default} etc. are syntax errors in bash
       // length operator cannot be followed by test operators
-      p.error(`\${#${name}${value.slice(i, value.indexOf("}", i))}}: bad substitution`);
+      p.error(
+        `\${#${name}${value.slice(i, value.indexOf("}", i))}}: bad substitution`,
+      );
     } else {
       operation = { type: "Length" };
     }
@@ -174,7 +176,9 @@ export function parseParameterOperation(
       const wordStr = value.slice(i, wordEnd);
       // Parse the word for expansions (variables, arithmetic, command substitution)
       const wordParts = parseWordParts(p, wordStr, false, false, false);
-      const word = AST.word(wordParts.length > 0 ? wordParts : [AST.literal("")]);
+      const word = AST.word(
+        wordParts.length > 0 ? wordParts : [AST.literal("")],
+      );
 
       if (op === "-") {
         return {
@@ -574,7 +578,13 @@ export function parseWordParts(
     // Other characters keep the backslash
     if (char === "\\" && i + 1 < value.length) {
       const next = value[i + 1];
-      if (next === "$" || next === "`" || next === "\\" || next === '"' || next === "\n") {
+      if (
+        next === "$" ||
+        next === "`" ||
+        next === "\\" ||
+        next === '"' ||
+        next === "\n"
+      ) {
         literal += next;
       } else {
         // Keep the backslash for non-special characters

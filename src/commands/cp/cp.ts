@@ -1,5 +1,5 @@
-import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
+import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const cpHelp = {

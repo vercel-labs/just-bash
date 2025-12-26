@@ -1,6 +1,6 @@
 import { sprintf } from "sprintf-js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
+import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const printfHelp = {
@@ -124,9 +124,17 @@ export const printfCommand: Command = {
         return { stdout: "", stderr: errorMessage, exitCode: hadError ? 1 : 0 };
       }
 
-      return { stdout: output, stderr: errorMessage, exitCode: hadError ? 1 : 0 };
+      return {
+        stdout: output,
+        stderr: errorMessage,
+        exitCode: hadError ? 1 : 0,
+      };
     } catch (error) {
-      return { stdout: "", stderr: `printf: ${getErrorMessage(error)}\n`, exitCode: 1 };
+      return {
+        stdout: "",
+        stderr: `printf: ${getErrorMessage(error)}\n`,
+        exitCode: 1,
+      };
     }
   },
 };
@@ -229,7 +237,13 @@ function formatOnce(
   format: string,
   args: string[],
   argPos: number,
-): { result: string; argsConsumed: number; error: boolean; errMsg: string; stopped: boolean } {
+): {
+  result: string;
+  argsConsumed: number;
+  error: boolean;
+  errMsg: string;
+  stopped: boolean;
+} {
   let result = "";
   let i = 0;
   let argsConsumed = 0;
@@ -308,7 +322,11 @@ function formatOnce(
       argsConsumed++;
 
       // Format based on specifier
-      const { value, parseError, parseErrMsg, stopped } = formatValue(adjustedSpec, specifier, arg);
+      const { value, parseError, parseErrMsg, stopped } = formatValue(
+        adjustedSpec,
+        specifier,
+        arg,
+      );
       result += value;
       if (parseError) {
         error = true;
@@ -330,7 +348,16 @@ function formatOnce(
 /**
  * Format a single value with the given specifier
  */
-function formatValue(spec: string, specifier: string, arg: string): { value: string; parseError: boolean; parseErrMsg: string; stopped?: boolean } {
+function formatValue(
+  spec: string,
+  specifier: string,
+  arg: string,
+): {
+  value: string;
+  parseError: boolean;
+  parseErrMsg: string;
+  stopped?: boolean;
+} {
   let parseError = false;
   let parseErrMsg = "";
 
@@ -354,7 +381,11 @@ function formatValue(spec: string, specifier: string, arg: string): { value: str
       if (parseError) parseErrMsg = `printf: ${arg}: invalid number\n`;
       // For unsigned with negative, convert to unsigned representation
       const unsignedNum = num < 0 ? num >>> 0 : num;
-      return { value: formatInteger(spec.replace("u", "d"), unsignedNum), parseError, parseErrMsg };
+      return {
+        value: formatInteger(spec.replace("u", "d"), unsignedNum),
+        parseError,
+        parseErrMsg,
+      };
     }
     case "x":
     case "X": {
@@ -370,27 +401,52 @@ function formatValue(spec: string, specifier: string, arg: string): { value: str
     case "g":
     case "G": {
       const num = parseFloat(arg) || 0;
-      return { value: formatFloat(spec, specifier, num), parseError: false, parseErrMsg: "" };
+      return {
+        value: formatFloat(spec, specifier, num),
+        parseError: false,
+        parseErrMsg: "",
+      };
     }
     case "c":
       // Character - take first char
       return { value: arg.charAt(0) || "", parseError: false, parseErrMsg: "" };
     case "s":
-      return { value: formatString(spec, arg), parseError: false, parseErrMsg: "" };
+      return {
+        value: formatString(spec, arg),
+        parseError: false,
+        parseErrMsg: "",
+      };
     case "q":
       // Shell quoting with width support
-      return { value: formatQuoted(spec, arg), parseError: false, parseErrMsg: "" };
+      return {
+        value: formatQuoted(spec, arg),
+        parseError: false,
+        parseErrMsg: "",
+      };
     case "b": {
       // Interpret escape sequences in arg
       // Returns {value, stopped} - if stopped is true, \c was encountered
       const bResult = processBEscapes(arg);
-      return { value: bResult.value, parseError: false, parseErrMsg: "", stopped: bResult.stopped };
+      return {
+        value: bResult.value,
+        parseError: false,
+        parseErrMsg: "",
+        stopped: bResult.stopped,
+      };
     }
     default:
       try {
-        return { value: sprintf(spec, arg), parseError: false, parseErrMsg: "" };
+        return {
+          value: sprintf(spec, arg),
+          parseError: false,
+          parseErrMsg: "",
+        };
       } catch {
-        return { value: "", parseError: true, parseErrMsg: `printf: [sprintf] unexpected placeholder\n` };
+        return {
+          value: "",
+          parseError: true,
+          parseErrMsg: `printf: [sprintf] unexpected placeholder\n`,
+        };
       }
   }
 }
@@ -486,7 +542,8 @@ function formatInteger(spec: string, num: number): string {
   const flags = match[1] || "";
   const width = match[2] ? parseInt(match[2], 10) : 0;
   // If there's a dot (match[3]), precision is match[4] or 0 if empty
-  const precision = match[3] !== undefined ? (match[4] ? parseInt(match[4], 10) : 0) : -1;
+  const precision =
+    match[3] !== undefined ? (match[4] ? parseInt(match[4], 10) : 0) : -1;
 
   const negative = num < 0;
   const absNum = Math.abs(num);
@@ -535,7 +592,8 @@ function formatOctal(spec: string, num: number): string {
 
   const flags = match[1] || "";
   const width = match[2] ? parseInt(match[2], 10) : 0;
-  const precision = match[3] !== undefined ? (match[4] ? parseInt(match[4], 10) : 0) : -1;
+  const precision =
+    match[3] !== undefined ? (match[4] ? parseInt(match[4], 10) : 0) : -1;
 
   let numStr = Math.abs(num).toString(8);
 
@@ -573,7 +631,8 @@ function formatHex(spec: string, num: number): string {
 
   const flags = match[1] || "";
   const width = match[2] ? parseInt(match[2], 10) : 0;
-  const precision = match[3] !== undefined ? (match[4] ? parseInt(match[4], 10) : 0) : -1;
+  const precision =
+    match[3] !== undefined ? (match[4] ? parseInt(match[4], 10) : 0) : -1;
 
   let numStr = Math.abs(num).toString(16);
   if (isUpper) numStr = numStr.toUpperCase();
@@ -681,7 +740,8 @@ function formatString(spec: string, str: string): string {
   const width = match[2] ? parseInt(match[2], 10) : 0;
   // Precision for strings means max length (truncate)
   // %.s or %0.s means precision 0 (empty string)
-  const precision = match[3] !== undefined ? (match[4] ? parseInt(match[4], 10) : 0) : -1;
+  const precision =
+    match[3] !== undefined ? (match[4] ? parseInt(match[4], 10) : 0) : -1;
 
   let result = str;
   if (precision >= 0 && result.length > precision) {
@@ -738,7 +798,8 @@ function formatFloat(spec: string, specifier: string, num: number): string {
   const flags = match[1] || "";
   const width = match[2] ? parseInt(match[2], 10) : 0;
   // Default precision is 6 for f/e, but %.f means precision 0
-  const precision = match[3] !== undefined ? (match[4] ? parseInt(match[4], 10) : 0) : 6;
+  const precision =
+    match[3] !== undefined ? (match[4] ? parseInt(match[4], 10) : 0) : 6;
 
   let result: string;
   const lowerSpec = specifier.toLowerCase();

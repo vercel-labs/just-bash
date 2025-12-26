@@ -1,5 +1,5 @@
-import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { escapeRegex } from "../../interpreter/helpers/regex.js";
+import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { executeAwkAction, matchesPattern } from "./executor.js";
 import { parseAwkProgram } from "./parser.js";

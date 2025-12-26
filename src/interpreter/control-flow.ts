@@ -33,16 +33,16 @@ import {
   ReturnError,
 } from "./errors.js";
 import {
-  executeCondition,
-  getErrorMessage,
-  handleLoopError,
-} from "./helpers/index.js";
-import {
   escapeGlobChars,
   expandWord,
   expandWordWithGlob,
   isWordFullyQuoted,
 } from "./expansion.js";
+import {
+  executeCondition,
+  getErrorMessage,
+  handleLoopError,
+} from "./helpers/index.js";
 import type { InterpreterContext } from "./types.js";
 
 // Re-export error classes for backwards compatibility
@@ -87,7 +87,11 @@ export async function executeIf(
           error.prependOutput(stdout, stderr);
           throw error;
         }
-        return { stdout, stderr: `${stderr}${getErrorMessage(error)}\n`, exitCode: 1 };
+        return {
+          stdout,
+          stderr: `${stderr}${getErrorMessage(error)}\n`,
+          exitCode: 1,
+        };
       }
       return { stdout, stderr, exitCode };
     }
@@ -110,7 +114,11 @@ export async function executeIf(
         error.prependOutput(stdout, stderr);
         throw error;
       }
-      return { stdout, stderr: `${stderr}${getErrorMessage(error)}\n`, exitCode: 1 };
+      return {
+        stdout,
+        stderr: `${stderr}${getErrorMessage(error)}\n`,
+        exitCode: 1,
+      };
     }
   }
 
@@ -171,7 +179,12 @@ export async function executeFor(
           exitCode = result.exitCode;
         }
       } catch (error) {
-        const loopResult = handleLoopError(error, stdout, stderr, ctx.state.loopDepth);
+        const loopResult = handleLoopError(
+          error,
+          stdout,
+          stderr,
+          ctx.state.loopDepth,
+        );
         stdout = loopResult.stdout;
         stderr = loopResult.stderr;
         if (loopResult.action === "break") break;
@@ -235,7 +248,12 @@ export async function executeCStyleFor(
           exitCode = result.exitCode;
         }
       } catch (error) {
-        const loopResult = handleLoopError(error, stdout, stderr, ctx.state.loopDepth);
+        const loopResult = handleLoopError(
+          error,
+          stdout,
+          stderr,
+          ctx.state.loopDepth,
+        );
         stdout = loopResult.stdout;
         stderr = loopResult.stderr;
         if (loopResult.action === "break") break;
@@ -385,7 +403,12 @@ export async function executeWhile(
           exitCode = result.exitCode;
         }
       } catch (error) {
-        const loopResult = handleLoopError(error, stdout, stderr, ctx.state.loopDepth);
+        const loopResult = handleLoopError(
+          error,
+          stdout,
+          stderr,
+          ctx.state.loopDepth,
+        );
         stdout = loopResult.stdout;
         stderr = loopResult.stderr;
         if (loopResult.action === "break") break;
@@ -442,7 +465,12 @@ export async function executeUntil(
           exitCode = result.exitCode;
         }
       } catch (error) {
-        const loopResult = handleLoopError(error, stdout, stderr, ctx.state.loopDepth);
+        const loopResult = handleLoopError(
+          error,
+          stdout,
+          stderr,
+          ctx.state.loopDepth,
+        );
         stdout = loopResult.stdout;
         stderr = loopResult.stderr;
         if (loopResult.action === "break") break;
@@ -510,7 +538,11 @@ export async function executeCase(
           error.prependOutput(stdout, stderr);
           throw error;
         }
-        return { stdout, stderr: `${stderr}${getErrorMessage(error)}\n`, exitCode: 1 };
+        return {
+          stdout,
+          stderr: `${stderr}${getErrorMessage(error)}\n`,
+          exitCode: 1,
+        };
       }
 
       // Handle different terminators:

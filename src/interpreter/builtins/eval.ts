@@ -7,7 +7,12 @@
 
 import { type ParseException, parse } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
-import { BreakError, ContinueError, ExitError, ReturnError } from "../errors.js";
+import {
+  BreakError,
+  ContinueError,
+  ExitError,
+  ReturnError,
+} from "../errors.js";
 import type { InterpreterContext } from "../types.js";
 
 export async function handleEval(

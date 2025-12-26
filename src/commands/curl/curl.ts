@@ -5,8 +5,8 @@
  * Network access must be explicitly configured via BashEnvOptions.network.
  */
 
-import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
+import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import { generateMultipartBody } from "./form.js";
 import { curlHelp } from "./help.js";

@@ -259,7 +259,11 @@ function isKnownLimitation(testCase: TestCase): string | null {
     return "Temp frame mutation edge cases not implemented";
   }
   // Tests specifically about temp binding behavior
-  if (name.toLowerCase().includes("temp") && (name.toLowerCase().includes("binding") || name.toLowerCase().includes("frame"))) {
+  if (
+    name.toLowerCase().includes("temp") &&
+    (name.toLowerCase().includes("binding") ||
+      name.toLowerCase().includes("frame"))
+  ) {
     return "Temp binding edge cases not implemented";
   }
 
@@ -281,7 +285,9 @@ function isKnownLimitation(testCase: TestCase): string | null {
     return "extglob not implemented";
   }
   // Oils-specific shopt options
-  if (/\bshopt\s+-s\s+(ysh:|strict_arg_parse|command_sub_errexit)/.test(script)) {
+  if (
+    /\bshopt\s+-s\s+(ysh:|strict_arg_parse|command_sub_errexit)/.test(script)
+  ) {
     return "Oils-specific shopt options not implemented";
   }
 
@@ -304,7 +310,10 @@ function isKnownLimitation(testCase: TestCase): string | null {
     return "64-bit integer edge cases not implemented";
   }
   // Tests specifically about integer overflow
-  if (name.toLowerCase().includes("overflow") || name.toLowerCase().includes("64-bit")) {
+  if (
+    name.toLowerCase().includes("overflow") ||
+    name.toLowerCase().includes("64-bit")
+  ) {
     return "64-bit integer edge cases not implemented";
   }
   // printf with unsigned/octal/hex of negative numbers produces 64-bit results in bash

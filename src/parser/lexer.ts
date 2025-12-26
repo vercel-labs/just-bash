@@ -303,14 +303,26 @@ export class Lexer {
       this.pos = pos + 3;
       this.column = startColumn + 3;
       this.registerHeredocFromLookahead(true);
-      return this.makeToken(TokenType.DLESSDASH, "<<-", pos, startLine, startColumn);
+      return this.makeToken(
+        TokenType.DLESSDASH,
+        "<<-",
+        pos,
+        startLine,
+        startColumn,
+      );
     }
     // Table-driven three-char operators
     for (const [first, second, third, type] of THREE_CHAR_OPS) {
       if (c0 === first && c1 === second && c2 === third) {
         this.pos = pos + 3;
         this.column = startColumn + 3;
-        return this.makeToken(type, first + second + third, pos, startLine, startColumn);
+        return this.makeToken(
+          type,
+          first + second + third,
+          pos,
+          startLine,
+          startColumn,
+        );
       }
     }
 
@@ -327,7 +339,13 @@ export class Lexer {
       if (c0 === first && c1 === second) {
         this.pos = pos + 2;
         this.column = startColumn + 2;
-        return this.makeToken(type, first + second, pos, startLine, startColumn);
+        return this.makeToken(
+          type,
+          first + second,
+          pos,
+          startLine,
+          startColumn,
+        );
       }
     }
 
@@ -805,7 +823,10 @@ export class Lexer {
               pos++;
               col++;
               wordBuffer = "";
-            } else if (c === "#" && (wordBuffer === "" || /\s/.test(input[pos - 1] || ""))) {
+            } else if (
+              c === "#" &&
+              (wordBuffer === "" || /\s/.test(input[pos - 1] || ""))
+            ) {
               // Comment - skip to end of line
               while (pos + 1 < len && input[pos + 1] !== "\n") {
                 pos++;

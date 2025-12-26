@@ -70,8 +70,8 @@ import {
   expandWordWithGlob,
   getArrayElements,
 } from "./expansion.js";
-import { getErrorMessage } from "./helpers/index.js";
 import { callFunction, executeFunctionDef } from "./functions.js";
+import { getErrorMessage } from "./helpers/index.js";
 import { applyRedirections } from "./redirections.js";
 import type { InterpreterContext, InterpreterState } from "./types.js";
 
@@ -391,9 +391,12 @@ export class Interpreter {
         let subscriptExpr = subscriptMatch[2];
 
         // Expand variables in subscript (e.g., a[$x$y] where x=1, y=2 → a[12])
-        subscriptExpr = subscriptExpr.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, varName) => {
-          return this.ctx.state.env[varName] || "";
-        });
+        subscriptExpr = subscriptExpr.replace(
+          /\$([a-zA-Z_][a-zA-Z0-9_]*)/g,
+          (_, varName) => {
+            return this.ctx.state.env[varName] || "";
+          },
+        );
 
         // Evaluate subscript as arithmetic or variable
         let index: number;
@@ -403,7 +406,9 @@ export class Interpreter {
           // Try to evaluate as arithmetic expression
           try {
             // Simple arithmetic: allow expressions like "1+2"
-            const result = Function(`"use strict"; return (${subscriptExpr})`)();
+            const result = Function(
+              `"use strict"; return (${subscriptExpr})`,
+            )();
             index = typeof result === "number" ? Math.floor(result) : 0;
           } catch {
             // Fall back to variable lookup
@@ -527,7 +532,11 @@ export class Interpreter {
         }
         // No args - treat as no-op (status 0)
         // Preserve lastExitCode for command subs like $(exit 42)
-        return { stdout: "", stderr: "", exitCode: this.ctx.state.lastExitCode };
+        return {
+          stdout: "",
+          stderr: "",
+          exitCode: this.ctx.state.lastExitCode,
+        };
       }
       // Literal empty command name - command not found
       return {
@@ -912,7 +921,11 @@ export class Interpreter {
         error.stderr = stderr + error.stderr;
         throw error;
       }
-      return { stdout, stderr: `${stderr}${getErrorMessage(error)}\n`, exitCode: 1 };
+      return {
+        stdout,
+        stderr: `${stderr}${getErrorMessage(error)}\n`,
+        exitCode: 1,
+      };
     }
 
     this.ctx.state.env = savedEnv;
@@ -952,7 +965,11 @@ export class Interpreter {
         error.prependOutput(stdout, stderr);
         throw error;
       }
-      return { stdout, stderr: `${stderr}${getErrorMessage(error)}\n`, exitCode: 1 };
+      return {
+        stdout,
+        stderr: `${stderr}${getErrorMessage(error)}\n`,
+        exitCode: 1,
+      };
     }
 
     // Restore groupStdin

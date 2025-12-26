@@ -37,6 +37,7 @@ export type CommandName =
   | "sort"
   | "uniq"
   | "cut"
+  | "paste"
   | "tr"
   | "tee"
   | "find"
@@ -182,6 +183,10 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "cut",
     load: async () => (await import("./cut/cut.js")).cutCommand,
+  },
+  {
+    name: "paste",
+    load: async () => (await import("./paste/paste.js")).pasteCommand,
   },
   {
     name: "tr",

@@ -383,7 +383,10 @@ export function evaluateArithmeticSync(
 /**
  * Evaluate an arithmetic expression part to its string representation (sync)
  */
-function evalPartToStringSync(ctx: InterpreterContext, expr: ArithExpr): string {
+function evalPartToStringSync(
+  ctx: InterpreterContext,
+  expr: ArithExpr,
+): string {
   switch (expr.type) {
     case "ArithNumber":
       return String(expr.value);

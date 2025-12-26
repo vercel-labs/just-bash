@@ -190,9 +190,12 @@ export async function evaluateFileTest(
  */
 export const BINARY_FILE_TEST_OPERATORS = ["-nt", "-ot", "-ef"] as const;
 
-export type BinaryFileTestOperator = (typeof BINARY_FILE_TEST_OPERATORS)[number];
+export type BinaryFileTestOperator =
+  (typeof BINARY_FILE_TEST_OPERATORS)[number];
 
-export function isBinaryFileTestOperator(op: string): op is BinaryFileTestOperator {
+export function isBinaryFileTestOperator(
+  op: string,
+): op is BinaryFileTestOperator {
   return BINARY_FILE_TEST_OPERATORS.includes(op as BinaryFileTestOperator);
 }
 
@@ -242,7 +245,10 @@ export async function evaluateBinaryFileTest(
       // In virtual fs, compare resolved canonical paths
       try {
         // Both files must exist
-        if (!(await ctx.fs.exists(leftPath)) || !(await ctx.fs.exists(rightPath))) {
+        if (
+          !(await ctx.fs.exists(leftPath)) ||
+          !(await ctx.fs.exists(rightPath))
+        ) {
           return false;
         }
         // Compare canonical paths (handles symlinks)

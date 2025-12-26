@@ -17,14 +17,14 @@ import type { ExecResult } from "../types.js";
 import { evaluateArithmeticSync } from "./arithmetic.js";
 import { expandWord } from "./expansion.js";
 import {
-  evaluateFileTest,
-  isFileTestOperator,
-  evaluateBinaryFileTest,
-  isBinaryFileTestOperator,
-  evaluateVariableTest,
   compareNumeric,
-  isNumericOp,
+  evaluateBinaryFileTest,
+  evaluateFileTest,
   evaluateStringTest,
+  evaluateVariableTest,
+  isBinaryFileTestOperator,
+  isFileTestOperator,
+  isNumericOp,
   isStringTestOp,
 } from "./helpers/index.js";
 import type { InterpreterContext } from "./types.js";
@@ -81,7 +81,11 @@ export async function evaluateConditional(
         case "-le":
         case "-gt":
         case "-ge":
-          return compareNumeric(expr.operator, evalArithExpr(ctx, left), evalArithExpr(ctx, right));
+          return compareNumeric(
+            expr.operator,
+            evalArithExpr(ctx, left),
+            evalArithExpr(ctx, right),
+          );
         case "-nt":
         case "-ot":
         case "-ef":
@@ -186,9 +190,22 @@ export async function evaluateTestArgs(
       return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
     }
     // If the first arg is a known binary operator but used in 2-arg context, it's an error
-    if (op === "=" || op === "==" || op === "!=" || op === "<" || op === ">" ||
-        op === "-eq" || op === "-ne" || op === "-lt" || op === "-le" || op === "-gt" || op === "-ge" ||
-        op === "-nt" || op === "-ot" || op === "-ef") {
+    if (
+      op === "=" ||
+      op === "==" ||
+      op === "!=" ||
+      op === "<" ||
+      op === ">" ||
+      op === "-eq" ||
+      op === "-ne" ||
+      op === "-lt" ||
+      op === "-le" ||
+      op === "-gt" ||
+      op === "-ge" ||
+      op === "-nt" ||
+      op === "-ot" ||
+      op === "-ef"
+    ) {
       return {
         stdout: "",
         stderr: `test: ${op}: unary operator expected\n`,
@@ -279,7 +296,12 @@ export async function evaluateTestArgs(
       return {
         stdout: "",
         stderr: result.stderr,
-        exitCode: result.exitCode === 0 ? 1 : result.exitCode === 1 ? 0 : result.exitCode,
+        exitCode:
+          result.exitCode === 0
+            ? 1
+            : result.exitCode === 1
+              ? 0
+              : result.exitCode,
       };
     }
 
@@ -301,7 +323,12 @@ export async function evaluateTestArgs(
       return {
         stdout: "",
         stderr: result.stderr,
-        exitCode: result.exitCode === 0 ? 1 : result.exitCode === 1 ? 0 : result.exitCode,
+        exitCode:
+          result.exitCode === 0
+            ? 1
+            : result.exitCode === 1
+              ? 0
+              : result.exitCode,
       };
     }
 

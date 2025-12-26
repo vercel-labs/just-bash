@@ -16,9 +16,16 @@ import type {
   WordNode,
   WordPart,
 } from "../ast/types.js";
+import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
+import { Parser } from "../parser/parser.js";
 import { GlobExpander } from "../shell/glob.js";
 import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
-import { ArithmeticError, BadSubstitutionError, ExitError, NounsetError } from "./errors.js";
+import {
+  ArithmeticError,
+  BadSubstitutionError,
+  ExitError,
+  NounsetError,
+} from "./errors.js";
 import { getArrayIndices } from "./helpers/array.js";
 import { escapeRegex } from "./helpers/regex.js";
 import { getLiteralValue, isQuotedPart } from "./helpers/word-parts.js";
@@ -223,7 +230,9 @@ function expandWordPartsSync(
   parts: WordPart[],
   inDoubleQuotes = false,
 ): string {
-  return parts.map((part) => expandPartSync(ctx, part, inDoubleQuotes)).join("");
+  return parts
+    .map((part) => expandPartSync(ctx, part, inDoubleQuotes))
+    .join("");
 }
 
 // Async version of expandWordPartsSync for parts that contain command substitution
@@ -310,16 +319,20 @@ function paramExpansionNeedsAsync(part: ParameterExpansionPart): boolean {
   if (!op) return false;
 
   // Check if the operation's word contains async parts
-  if ('word' in op && op.word && wordNeedsAsync(op.word)) {
+  if ("word" in op && op.word && wordNeedsAsync(op.word)) {
     return true;
   }
   // Check pattern and replacement in PatternReplacement
-  if (op.type === 'PatternReplacement') {
+  if (op.type === "PatternReplacement") {
     if (op.pattern && wordNeedsAsync(op.pattern)) return true;
     if (op.replacement && wordNeedsAsync(op.replacement)) return true;
   }
   // Check pattern in PatternRemoval
-  if (op.type === 'PatternRemoval' && op.pattern && wordNeedsAsync(op.pattern)) {
+  if (
+    op.type === "PatternRemoval" &&
+    op.pattern &&
+    wordNeedsAsync(op.pattern)
+  ) {
     return true;
   }
   return false;
@@ -354,7 +367,11 @@ function wordNeedsAsync(word: WordNode): boolean {
  * Returns the expanded string, or null if the part type needs special handling.
  * inDoubleQuotes flag suppresses tilde expansion (tilde is literal inside "...")
  */
-function expandSimplePart(ctx: InterpreterContext, part: WordPart, inDoubleQuotes = false): string | null {
+function expandSimplePart(
+  ctx: InterpreterContext,
+  part: WordPart,
+  inDoubleQuotes = false,
+): string | null {
   // Handle literal parts (Literal, SingleQuoted, Escaped)
   const literal = getLiteralValue(part);
   if (literal !== null) return literal;
@@ -380,7 +397,11 @@ function expandSimplePart(ctx: InterpreterContext, part: WordPart, inDoubleQuote
 
 // Sync version of expandPart for parts that don't need async
 // inDoubleQuotes flag suppresses tilde expansion
-function expandPartSync(ctx: InterpreterContext, part: WordPart, inDoubleQuotes = false): string {
+function expandPartSync(
+  ctx: InterpreterContext,
+  part: WordPart,
+  inDoubleQuotes = false,
+): string {
   // Try simple cases first
   const simple = expandSimplePart(ctx, part, inDoubleQuotes);
   if (simple !== null) return simple;
@@ -505,7 +526,9 @@ function analyzeWordParts(parts: WordPart[]): {
         for (const inner of part.parts) {
           if (inner.type === "ParameterExpansion") {
             // Check if it's array[@] or array[*] WITHOUT any operation
-            const match = inner.parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/);
+            const match = inner.parameter.match(
+              /^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/,
+            );
             if (match && !inner.operation) {
               hasArrayAtExpansion = true;
             }
@@ -529,7 +552,13 @@ function analyzeWordParts(parts: WordPart[]): {
     }
   }
 
-  return { hasQuoted, hasCommandSub, hasArrayVar, hasArrayAtExpansion, hasParamExpansion };
+  return {
+    hasQuoted,
+    hasCommandSub,
+    hasArrayVar,
+    hasArrayAtExpansion,
+    hasParamExpansion,
+  };
 }
 
 /**
@@ -817,9 +846,10 @@ async function smartWordSplit(
   const segments: Segment[] = [];
 
   for (const part of wordParts) {
-    const isSplittable = part.type === "ParameterExpansion" ||
-                         part.type === "CommandSubstitution" ||
-                         part.type === "ArithmeticExpansion";
+    const isSplittable =
+      part.type === "ParameterExpansion" ||
+      part.type === "CommandSubstitution" ||
+      part.type === "ArithmeticExpansion";
 
     // Check if parameter expansion has quoted operation word - those shouldn't split
     if (part.type === "ParameterExpansion" && hasQuotedOperationWord(part)) {
@@ -833,12 +863,12 @@ async function smartWordSplit(
 
   // Check if any splittable segment contains IFS chars
   const hasSplittableIFS = segments.some(
-    seg => seg.splittable && new RegExp(`[${ifsPattern}]`).test(seg.value)
+    (seg) => seg.splittable && new RegExp(`[${ifsPattern}]`).test(seg.value),
   );
 
   if (!hasSplittableIFS) {
     // No splitting needed - return the joined value to avoid double expansion
-    const joined = segments.map(s => s.value).join("");
+    const joined = segments.map((s) => s.value).join("");
     return joined ? [joined] : [];
   }
 
@@ -887,15 +917,21 @@ export async function expandWordWithGlob(
   word: WordNode,
 ): Promise<{ values: string[]; quoted: boolean }> {
   const wordParts = word.parts;
-  const { hasQuoted, hasCommandSub, hasArrayVar, hasArrayAtExpansion, hasParamExpansion } = analyzeWordParts(wordParts);
+  const {
+    hasQuoted,
+    hasCommandSub,
+    hasArrayVar,
+    hasArrayAtExpansion,
+    hasParamExpansion,
+  } = analyzeWordParts(wordParts);
 
   // Handle brace expansion first (produces multiple values)
   // Use async version if brace expansion contains command substitution
   const hasBraces = hasBraceExpansion(wordParts);
   const braceExpanded = hasBraces
-    ? (braceExpansionNeedsAsync(wordParts)
-        ? await expandWordWithBracesAsync(ctx, word)
-        : expandWordWithBraces(ctx, word))
+    ? braceExpansionNeedsAsync(wordParts)
+      ? await expandWordWithBracesAsync(ctx, word)
+      : expandWordWithBraces(ctx, word)
     : null;
 
   if (braceExpanded && braceExpanded.length > 1) {
@@ -919,13 +955,22 @@ export async function expandWordWithGlob(
 
   // Special handling for "${a[@]}" - each array element becomes a separate word
   // This applies even inside double quotes
-  if (hasArrayAtExpansion && wordParts.length === 1 && wordParts[0].type === "DoubleQuoted") {
+  if (
+    hasArrayAtExpansion &&
+    wordParts.length === 1 &&
+    wordParts[0].type === "DoubleQuoted"
+  ) {
     const dqPart = wordParts[0];
     // Check if it's ONLY the array expansion (like "${a[@]}")
     // More complex cases like "prefix${a[@]}suffix" need different handling
-    if (dqPart.parts.length === 1 && dqPart.parts[0].type === "ParameterExpansion") {
+    if (
+      dqPart.parts.length === 1 &&
+      dqPart.parts[0].type === "ParameterExpansion"
+    ) {
       const paramPart = dqPart.parts[0];
-      const match = paramPart.parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@]\]$/);
+      const match = paramPart.parameter.match(
+        /^([a-zA-Z_][a-zA-Z0-9_]*)\[[@]\]$/,
+      );
       if (match) {
         const arrayName = match[1];
         const elements = getArrayElements(ctx, arrayName);
@@ -971,21 +1016,33 @@ export async function expandWordWithGlob(
   const ifs = ctx.state.env.IFS;
   // If IFS is set to empty string, no word splitting occurs
   // Word splitting applies to results of parameter expansion, command substitution, and arithmetic expansion
-  if (!hasQuoted && (hasCommandSub || hasArrayVar || hasParamExpansion) && ifs !== "") {
+  if (
+    !hasQuoted &&
+    (hasCommandSub || hasArrayVar || hasParamExpansion) &&
+    ifs !== ""
+  ) {
     // Default IFS is space/tab/newline
     const ifsChars = ifs === undefined ? " \t\n" : ifs;
     // Build regex from IFS characters
-    const ifsPattern = ifsChars.split("").map(c => {
-      // Escape regex special chars
-      if (/[\\^$.*+?()[\]{}|]/.test(c)) return "\\" + c;
-      if (c === "\t") return "\\t";
-      if (c === "\n") return "\\n";
-      return c;
-    }).join("");
+    const ifsPattern = ifsChars
+      .split("")
+      .map((c) => {
+        // Escape regex special chars
+        if (/[\\^$.*+?()[\]{}|]/.test(c)) return "\\" + c;
+        if (c === "\t") return "\\t";
+        if (c === "\n") return "\\n";
+        return c;
+      })
+      .join("");
 
     // Smart word splitting: literals should NOT be split, they attach to adjacent fields
     // E.g., ${v:-AxBxC}x with IFS=x should give "A B Cx" not "A B C"
-    const splitResult = await smartWordSplit(ctx, wordParts, ifsChars, ifsPattern);
+    const splitResult = await smartWordSplit(
+      ctx,
+      wordParts,
+      ifsChars,
+      ifsPattern,
+    );
     // Perform glob expansion on each split value
     const expandedValues: string[] = [];
     const globExpander = new GlobExpander(ctx.fs, ctx.state.cwd);
@@ -1159,7 +1216,11 @@ function expandParameter(
       if (useDefault && operation.word) {
         // Only expand when actually using the default (lazy evaluation)
         // Pass inDoubleQuotes to suppress tilde expansion inside "..."
-        const defaultValue = expandWordPartsSync(ctx, operation.word.parts, inDoubleQuotes);
+        const defaultValue = expandWordPartsSync(
+          ctx,
+          operation.word.parts,
+          inDoubleQuotes,
+        );
         ctx.state.env[parameter] = defaultValue;
         return defaultValue;
       }
@@ -1420,7 +1481,11 @@ async function expandParameterAsync(
     case "AssignDefault": {
       const useDefault = isUnset || (operation.checkEmpty && isEmpty);
       if (useDefault && operation.word) {
-        const defaultValue = await expandWordPartsAsync(ctx, operation.word.parts, inDoubleQuotes);
+        const defaultValue = await expandWordPartsAsync(
+          ctx,
+          operation.word.parts,
+          inDoubleQuotes,
+        );
         ctx.state.env[parameter] = defaultValue;
         return defaultValue;
       }
@@ -1431,7 +1496,11 @@ async function expandParameterAsync(
       const shouldError = isUnset || (operation.checkEmpty && isEmpty);
       if (shouldError) {
         const message = operation.word
-          ? await expandWordPartsAsync(ctx, operation.word.parts, inDoubleQuotes)
+          ? await expandWordPartsAsync(
+              ctx,
+              operation.word.parts,
+              inDoubleQuotes,
+            )
           : `${parameter}: parameter null or not set`;
         throw new ExitError(1, "", `bash: ${message}\n`);
       }
@@ -1547,7 +1616,10 @@ export function getArrayElements(
   arrayName: string,
 ): Array<[number, string]> {
   const indices = getArrayIndices(ctx, arrayName);
-  return indices.map((index) => [index, ctx.state.env[`${arrayName}_${index}`]]);
+  return indices.map((index) => [
+    index,
+    ctx.state.env[`${arrayName}_${index}`],
+  ]);
 }
 
 /**
@@ -1591,7 +1663,7 @@ export function getVariable(
       }
       // Get separator from IFS
       const ifs = ctx.state.env.IFS;
-      const separator = ifs === undefined ? " " : (ifs[0] || "");
+      const separator = ifs === undefined ? " " : ifs[0] || "";
       return params.join(separator);
     }
     case "0":
@@ -1632,15 +1704,24 @@ export function getVariable(
       return "";
     }
 
-    // Numeric subscript - evaluate it as arithmetic
+    // Evaluate subscript as arithmetic expression
+    // This handles: a[0], a[x], a[x+1], a[a[0]], a[b=2], etc.
     let index: number;
     if (/^-?\d+$/.test(subscript)) {
+      // Simple numeric subscript - no need for full arithmetic parsing
       index = Number.parseInt(subscript, 10);
     } else {
-      // Subscript may be a variable or arithmetic expression
-      const evalValue = ctx.state.env[subscript];
-      index = evalValue ? Number.parseInt(evalValue, 10) : 0;
-      if (Number.isNaN(index)) index = 0;
+      // Parse and evaluate as arithmetic expression
+      try {
+        const parser = new Parser();
+        const arithAst = parseArithmeticExpression(parser, subscript);
+        index = evaluateArithmeticSync(ctx, arithAst.expression);
+      } catch {
+        // Fall back to simple variable lookup for backwards compatibility
+        const evalValue = ctx.state.env[subscript];
+        index = evalValue ? Number.parseInt(evalValue, 10) : 0;
+        if (Number.isNaN(index)) index = 0;
+      }
     }
 
     // Handle negative indices

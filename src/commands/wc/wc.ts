@@ -161,13 +161,19 @@ function formatStats(
 
   const values: string[] = [];
   if (showLines) {
-    values.push(usePadding ? String(stats.lines).padStart(8) : String(stats.lines));
+    values.push(
+      usePadding ? String(stats.lines).padStart(8) : String(stats.lines),
+    );
   }
   if (showWords) {
-    values.push(usePadding ? String(stats.words).padStart(8) : String(stats.words));
+    values.push(
+      usePadding ? String(stats.words).padStart(8) : String(stats.words),
+    );
   }
   if (showChars) {
-    values.push(usePadding ? String(stats.chars).padStart(8) : String(stats.chars));
+    values.push(
+      usePadding ? String(stats.chars).padStart(8) : String(stats.chars),
+    );
   }
 
   let result = values.join("");

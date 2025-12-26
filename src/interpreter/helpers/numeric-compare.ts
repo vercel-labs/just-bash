@@ -17,7 +17,11 @@ export function isNumericOp(op: string): op is NumericOp {
 /**
  * Compare two numbers using a numeric comparison operator.
  */
-export function compareNumeric(op: NumericOp, left: number, right: number): boolean {
+export function compareNumeric(
+  op: NumericOp,
+  left: number,
+  right: number,
+): boolean {
   switch (op) {
     case "-eq":
       return left === right;

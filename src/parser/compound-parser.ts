@@ -34,7 +34,13 @@ export function parseIf(p: Parser): IfNode {
   const body = p.parseCompoundList();
   // Empty body is a syntax error in bash
   if (body.length === 0) {
-    const nextTok = p.check(TokenType.FI) ? "fi" : p.check(TokenType.ELSE) ? "else" : p.check(TokenType.ELIF) ? "elif" : "fi";
+    const nextTok = p.check(TokenType.FI)
+      ? "fi"
+      : p.check(TokenType.ELSE)
+        ? "else"
+        : p.check(TokenType.ELIF)
+          ? "elif"
+          : "fi";
     p.error(`syntax error near unexpected token \`${nextTok}'`);
   }
   clauses.push({ condition, body });
@@ -47,7 +53,13 @@ export function parseIf(p: Parser): IfNode {
     const elifBody = p.parseCompoundList();
     // Empty elif body is a syntax error
     if (elifBody.length === 0) {
-      const nextTok = p.check(TokenType.FI) ? "fi" : p.check(TokenType.ELSE) ? "else" : p.check(TokenType.ELIF) ? "elif" : "fi";
+      const nextTok = p.check(TokenType.FI)
+        ? "fi"
+        : p.check(TokenType.ELSE)
+          ? "else"
+          : p.check(TokenType.ELIF)
+            ? "elif"
+            : "fi";
       p.error(`syntax error near unexpected token \`${nextTok}'`);
     }
     clauses.push({ condition: elifCondition, body: elifBody });

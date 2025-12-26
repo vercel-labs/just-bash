@@ -89,7 +89,10 @@ export async function handleLet(
         const command = statement.pipelines[0].commands[0];
         if (command.type === "ArithmeticCommand") {
           const arithNode = command as ArithmeticCommandNode;
-          lastResult = await evaluateArithmetic(ctx, arithNode.expression.expression);
+          lastResult = await evaluateArithmetic(
+            ctx,
+            arithNode.expression.expression,
+          );
         }
       }
     } catch (error) {

@@ -10,12 +10,19 @@ import type { WordPart } from "../../ast/types.js";
 /**
  * Part types that contain a simple literal value accessible via part.value
  */
-export const LITERAL_PART_TYPES: Set<string> = new Set(["Literal", "SingleQuoted", "Escaped"]);
+export const LITERAL_PART_TYPES: Set<string> = new Set([
+  "Literal",
+  "SingleQuoted",
+  "Escaped",
+]);
 
 /**
  * Part types that are inherently quoted (content should not be glob-expanded)
  */
-export const QUOTED_PART_TYPES: Set<string> = new Set(["SingleQuoted", "Escaped"]);
+export const QUOTED_PART_TYPES: Set<string> = new Set([
+  "SingleQuoted",
+  "Escaped",
+]);
 
 /**
  * Get the literal string value from a word part.

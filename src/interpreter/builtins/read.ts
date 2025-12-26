@@ -218,9 +218,7 @@ export function handleRead(
       if (j < wordStarts.length) {
         let value = line.substring(wordStarts[j]);
         // Strip trailing IFS whitespace
-        const trailingIfsRegex = new RegExp(
-          `[${escapeRegexCharClass(ifs)}]+$`,
-        );
+        const trailingIfsRegex = new RegExp(`[${escapeRegexCharClass(ifs)}]+$`);
         value = value.replace(trailingIfsRegex, "");
         ctx.state.env[name] = value;
       } else {

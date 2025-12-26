@@ -672,7 +672,13 @@ export class Parser {
     while (i < value.length && value[i] !== "`") {
       if (value[i] === "\\") {
         const next = value[i + 1];
-        if (next === "$" || next === "`" || next === "\\" || next === '"' || next === "\n") {
+        if (
+          next === "$" ||
+          next === "`" ||
+          next === "\\" ||
+          next === '"' ||
+          next === "\n"
+        ) {
           // Remove the backslash, keep the next char (or nothing for newline)
           if (next !== "\n") {
             cmdStr += next;
