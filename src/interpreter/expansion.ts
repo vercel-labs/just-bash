@@ -35,6 +35,12 @@ import {
   isArray,
 } from "./expansion/variable.js";
 import { smartWordSplit } from "./expansion/word-split.js";
+import {
+  buildIfsCharClassPattern,
+  getIfs,
+  getIfsSeparator,
+  isIfsEmpty,
+} from "./helpers/ifs.js";
 import { escapeRegex } from "./helpers/regex.js";
 import { getLiteralValue, isQuotedPart } from "./helpers/word-parts.js";
 import type { InterpreterContext } from "./types.js";
@@ -653,27 +659,16 @@ export async function expandWordWithGlob(
 
   // No brace expansion or single value - use original logic
   // Word splitting based on IFS
-  const ifs = ctx.state.env.IFS;
   // If IFS is set to empty string, no word splitting occurs
   // Word splitting applies to results of parameter expansion, command substitution, and arithmetic expansion
   if (
     !hasQuoted &&
     (hasCommandSub || hasArrayVar || hasParamExpansion) &&
-    ifs !== ""
+    !isIfsEmpty(ctx.state.env)
   ) {
-    // Default IFS is space/tab/newline
-    const ifsChars = ifs === undefined ? " \t\n" : ifs;
-    // Build regex from IFS characters
-    const ifsPattern = ifsChars
-      .split("")
-      .map((c) => {
-        // Escape regex special chars
-        if (/[\\^$.*+?()[\]{}|]/.test(c)) return `\\${c}`;
-        if (c === "\t") return "\\t";
-        if (c === "\n") return "\\n";
-        return c;
-      })
-      .join("");
+    const ifsChars = getIfs(ctx.state.env);
+    // Build regex-safe pattern from IFS characters
+    const ifsPattern = buildIfsCharClassPattern(ifsChars);
 
     // Smart word splitting: literals should NOT be split, they attach to adjacent fields
     // E.g., ${v:-AxBxC}x with IFS=x should give "A B Cx" not "A B C"
@@ -1229,9 +1224,7 @@ function expandParameter(
       const keys = elements.map(([k]) => String(k));
       if (operation.star) {
         // ${!arr[*]} - join with first char of IFS
-        const ifs = ctx.state.env.IFS;
-        const sep = ifs === undefined ? " " : ifs[0] || "";
-        return keys.join(sep);
+        return keys.join(getIfsSeparator(ctx.state.env));
       }
       // ${!arr[@]} - join with space
       return keys.join(" ");
@@ -1249,9 +1242,7 @@ function expandParameter(
         .sort();
       if (operation.star) {
         // ${!prefix*} - join with first char of IFS
-        const ifs = ctx.state.env.IFS;
-        const sep = ifs === undefined ? " " : ifs[0] || "";
-        return matchingVars.join(sep);
+        return matchingVars.join(getIfsSeparator(ctx.state.env));
       }
       // ${!prefix@} - join with space
       return matchingVars.join(" ");

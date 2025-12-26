@@ -17,6 +17,7 @@ import {
   getAssocArrayKeys,
   unquoteKey,
 } from "../helpers/array.js";
+import { getIfsSeparator } from "../helpers/ifs.js";
 import type { InterpreterContext } from "../types.js";
 
 /**
@@ -101,10 +102,7 @@ export function getVariable(
       for (let i = 1; i <= numParams; i++) {
         params.push(ctx.state.env[String(i)] || "");
       }
-      // Get separator from IFS
-      const ifs = ctx.state.env.IFS;
-      const separator = ifs === undefined ? " " : ifs[0] || "";
-      return params.join(separator);
+      return params.join(getIfsSeparator(ctx.state.env));
     }
     case "0":
       return ctx.state.env["0"] || "bash";

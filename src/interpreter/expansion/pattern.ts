@@ -4,6 +4,15 @@
  * Converts shell glob patterns to regex equivalents for pattern matching
  * in parameter expansion (${var%pattern}, ${var/pattern/replacement}, etc.)
  * and case statements.
+ *
+ * ## Error Handling
+ *
+ * This module follows bash's behavior for invalid patterns:
+ * - Invalid character ranges (e.g., `[z-a]`) result in regex compilation failure
+ * - Unknown POSIX classes (e.g., `[:foo:]`) produce empty match groups
+ * - Unclosed character classes (`[abc`) are treated as literal `[`
+ *
+ * Callers should wrap regex compilation in try/catch to handle invalid patterns.
  */
 
 /**
@@ -206,25 +215,28 @@ function convertCharClass(content: string): string {
   return result;
 }
 
+/** Valid POSIX character class names */
+const POSIX_CLASSES: Record<string, string> = {
+  alnum: "a-zA-Z0-9",
+  alpha: "a-zA-Z",
+  ascii: "\\x00-\\x7F",
+  blank: " \\t",
+  cntrl: "\\x00-\\x1F\\x7F",
+  digit: "0-9",
+  graph: "!-~",
+  lower: "a-z",
+  print: " -~",
+  punct: "!-/:-@\\[-`{-~",
+  space: " \\t\\n\\r\\f\\v",
+  upper: "A-Z",
+  word: "a-zA-Z0-9_",
+  xdigit: "0-9A-Fa-f",
+};
+
 /**
- * Convert POSIX character class name to regex equivalent
+ * Convert POSIX character class name to regex equivalent.
+ * Returns empty string for unknown class names (matches bash behavior).
  */
 function posixClassToRegex(name: string): string {
-  const posixClasses: Record<string, string> = {
-    alnum: "a-zA-Z0-9",
-    alpha: "a-zA-Z",
-    ascii: "\\x00-\\x7F",
-    blank: " \\t",
-    cntrl: "\\x00-\\x1F\\x7F",
-    digit: "0-9",
-    graph: "!-~",
-    lower: "a-z",
-    print: " -~",
-    punct: "!-/:-@\\[-`{-~",
-    space: " \\t\\n\\r\\f\\v",
-    upper: "A-Z",
-    word: "a-zA-Z0-9_",
-    xdigit: "0-9A-Fa-f",
-  };
-  return posixClasses[name] || "";
+  return POSIX_CLASSES[name] ?? "";
 }

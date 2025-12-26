@@ -22,25 +22,51 @@ export interface CommandExecOptions {
   cwd?: string;
 }
 
+/**
+ * Context provided to commands during execution.
+ *
+ * ## Field Availability
+ *
+ * **Always available (core fields):**
+ * - `fs`, `cwd`, `env`, `stdin`
+ *
+ * **Available when running via BashEnv interpreter:**
+ * - `exec` - For commands like `xargs`, `bash -c` that need to run subcommands
+ * - `getRegisteredCommands` - For the `help` command to list available commands
+ *
+ * **Conditionally available based on configuration:**
+ * - `fetch` - Only when `network` option is configured in BashEnv
+ * - `sleep` - Only when a custom sleep function is provided (e.g., for testing)
+ */
 export interface CommandContext {
+  /** Virtual filesystem interface for file operations */
   fs: IFileSystem;
+  /** Current working directory */
   cwd: string;
+  /** Environment variables */
   env: Record<string, string>;
+  /** Standard input content */
   stdin: string;
-  /** Optional exec function for commands that need to run subcommands (like xargs, bash) */
+  /**
+   * Execute a subcommand (e.g., for `xargs`, `bash -c`).
+   * Available when running commands via BashEnv interpreter.
+   */
   exec?: (command: string, options?: CommandExecOptions) => Promise<ExecResult>;
   /**
-   * Optional secure fetch function for network-enabled commands (like curl).
-   * Only available when network access is explicitly configured.
+   * Secure fetch function for network requests (e.g., for `curl`).
+   * Only available when `network` option is configured in BashEnv.
    */
   fetch?: SecureFetch;
   /**
-   * Returns names of all registered commands (for help command).
+   * Returns names of all registered commands.
+   * Available when running commands via BashEnv interpreter.
+   * Used by the `help` command.
    */
   getRegisteredCommands?: () => string[];
   /**
-   * Optional sleep function for the sleep command.
-   * If provided, used instead of real setTimeout (useful for testing with mock clocks).
+   * Custom sleep implementation.
+   * If provided, used instead of real setTimeout.
+   * Useful for testing with mock clocks.
    */
   sleep?: (ms: number) => Promise<void>;
 }

@@ -4,7 +4,11 @@
 
 import type { ExecResult } from "../../types.js";
 import { clearArray } from "../helpers/array.js";
-import { escapeRegexCharClass } from "../helpers/regex.js";
+import {
+  getIfs,
+  splitByIfs,
+  stripTrailingIfs,
+} from "../helpers/ifs.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -166,38 +170,8 @@ export function handleRead(
   }
 
   // Split by IFS (default is space, tab, newline)
-  const ifs = ctx.state.env.IFS ?? " \t\n";
-  let words: string[] = [];
-  let wordStarts: number[] = []; // Track where each word starts in original line
-  if (ifs === "") {
-    words = [line];
-    wordStarts = [0];
-  } else {
-    // Create regex from IFS characters
-    const escapedIfs = escapeRegexCharClass(ifs);
-    const ifsRegex = new RegExp(`[${escapedIfs}]+`, "g");
-    let lastEnd = 0;
-    let match: RegExpExecArray | null;
-    // Find leading IFS and strip it
-    const leadingMatch = line.match(new RegExp(`^[${escapedIfs}]+`));
-    if (leadingMatch) {
-      lastEnd = leadingMatch[0].length;
-    }
-    ifsRegex.lastIndex = lastEnd;
-    match = ifsRegex.exec(line);
-    while (match !== null) {
-      if (match.index > lastEnd) {
-        wordStarts.push(lastEnd);
-        words.push(line.substring(lastEnd, match.index));
-      }
-      lastEnd = ifsRegex.lastIndex;
-      match = ifsRegex.exec(line);
-    }
-    if (lastEnd < line.length) {
-      wordStarts.push(lastEnd);
-      words.push(line.substring(lastEnd));
-    }
-  }
+  const ifs = getIfs(ctx.state.env);
+  const { words, wordStarts } = splitByIfs(line, ifs);
 
   // Handle array assignment (-a)
   if (arrayName) {
@@ -219,10 +193,7 @@ export function handleRead(
       // Last variable gets all remaining content from original line
       // This preserves original separators (tabs, etc.)
       if (j < wordStarts.length) {
-        let value = line.substring(wordStarts[j]);
-        // Strip trailing IFS whitespace
-        const trailingIfsRegex = new RegExp(`[${escapeRegexCharClass(ifs)}]+$`);
-        value = value.replace(trailingIfsRegex, "");
+        const value = stripTrailingIfs(line.substring(wordStarts[j]), ifs);
         ctx.state.env[name] = value;
       } else {
         ctx.state.env[name] = "";
