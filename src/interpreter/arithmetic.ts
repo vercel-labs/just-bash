@@ -27,6 +27,114 @@ import { getVariable } from "./expansion.js";
 import type { InterpreterContext } from "./types.js";
 
 /**
+ * Pure binary operator evaluation - no async, no side effects.
+ * Shared by both sync and async evaluators.
+ */
+function applyBinaryOp(left: number, right: number, operator: string): number {
+  switch (operator) {
+    case "+":
+      return left + right;
+    case "-":
+      return left - right;
+    case "*":
+      return left * right;
+    case "/":
+      return right !== 0 ? Math.trunc(left / right) : 0;
+    case "%":
+      return right !== 0 ? left % right : 0;
+    case "**":
+      // Bash disallows negative exponents
+      if (right < 0) {
+        throw new ArithmeticError("exponent less than 0");
+      }
+      return left ** right;
+    case "<<":
+      return left << right;
+    case ">>":
+      return left >> right;
+    case "<":
+      return left < right ? 1 : 0;
+    case "<=":
+      return left <= right ? 1 : 0;
+    case ">":
+      return left > right ? 1 : 0;
+    case ">=":
+      return left >= right ? 1 : 0;
+    case "==":
+      return left === right ? 1 : 0;
+    case "!=":
+      return left !== right ? 1 : 0;
+    case "&":
+      return left & right;
+    case "|":
+      return left | right;
+    case "^":
+      return left ^ right;
+    case ",":
+      return right;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Pure assignment operator evaluation - no async, no side effects on ctx.
+ * Returns the new value to be assigned.
+ */
+function applyAssignmentOp(
+  current: number,
+  value: number,
+  operator: string,
+): number {
+  switch (operator) {
+    case "=":
+      return value;
+    case "+=":
+      return current + value;
+    case "-=":
+      return current - value;
+    case "*=":
+      return current * value;
+    case "/=":
+      return value !== 0 ? Math.trunc(current / value) : 0;
+    case "%=":
+      return value !== 0 ? current % value : 0;
+    case "<<=":
+      return current << value;
+    case ">>=":
+      return current >> value;
+    case "&=":
+      return current & value;
+    case "|=":
+      return current | value;
+    case "^=":
+      return current ^ value;
+    default:
+      return value;
+  }
+}
+
+/**
+ * Pure unary operator evaluation - no async, no side effects.
+ * For ++/-- operators, this only handles the operand transformation,
+ * not the variable assignment which must be done by the caller.
+ */
+function applyUnaryOp(operand: number, operator: string): number {
+  switch (operator) {
+    case "-":
+      return -operand;
+    case "+":
+      return +operand;
+    case "!":
+      return operand === 0 ? 1 : 0;
+    case "~":
+      return ~operand;
+    default:
+      return operand;
+  }
+}
+
+/**
  * Get an arithmetic variable value with array[0] decay support.
  * In bash, when an array variable is used without an index in arithmetic context,
  * it decays to the value at index 0.
@@ -182,75 +290,22 @@ export function evaluateArithmeticSync(
       }
       const left = evaluateArithmeticSync(ctx, expr.left);
       const right = evaluateArithmeticSync(ctx, expr.right);
-      switch (expr.operator) {
-        case "+":
-          return left + right;
-        case "-":
-          return left - right;
-        case "*":
-          return left * right;
-        case "/":
-          return right !== 0 ? Math.trunc(left / right) : 0;
-        case "%":
-          return right !== 0 ? left % right : 0;
-        case "**":
-          // Bash disallows negative exponents
-          if (right < 0) {
-            throw new ArithmeticError("exponent less than 0");
-          }
-          return left ** right;
-        case "<<":
-          return left << right;
-        case ">>":
-          return left >> right;
-        case "<":
-          return left < right ? 1 : 0;
-        case "<=":
-          return left <= right ? 1 : 0;
-        case ">":
-          return left > right ? 1 : 0;
-        case ">=":
-          return left >= right ? 1 : 0;
-        case "==":
-          return left === right ? 1 : 0;
-        case "!=":
-          return left !== right ? 1 : 0;
-        case "&":
-          return left & right;
-        case "|":
-          return left | right;
-        case "^":
-          return left ^ right;
-        case ",":
-          return right;
-        default:
-          return 0;
-      }
+      return applyBinaryOp(left, right, expr.operator);
     }
     case "ArithUnary": {
       const operand = evaluateArithmeticSync(ctx, expr.operand);
-      switch (expr.operator) {
-        case "-":
-          return -operand;
-        case "+":
-          return +operand;
-        case "!":
-          return operand === 0 ? 1 : 0;
-        case "~":
-          return ~operand;
-        case "++":
-        case "--":
-          if (expr.operand.type === "ArithVariable") {
-            const name = expr.operand.name;
-            const current = Number.parseInt(getVariable(ctx, name), 10) || 0;
-            const newValue = expr.operator === "++" ? current + 1 : current - 1;
-            ctx.state.env[name] = String(newValue);
-            return expr.prefix ? newValue : current;
-          }
-          return operand;
-        default:
-          return operand;
+      // Handle ++/-- with side effects separately
+      if (expr.operator === "++" || expr.operator === "--") {
+        if (expr.operand.type === "ArithVariable") {
+          const name = expr.operand.name;
+          const current = Number.parseInt(getVariable(ctx, name), 10) || 0;
+          const newValue = expr.operator === "++" ? current + 1 : current - 1;
+          ctx.state.env[name] = String(newValue);
+          return expr.prefix ? newValue : current;
+        }
+        return operand;
       }
+      return applyUnaryOp(operand, expr.operator);
     }
     case "ArithTernary": {
       const condition = evaluateArithmeticSync(ctx, expr.condition);
@@ -262,44 +317,7 @@ export function evaluateArithmeticSync(
       const name = expr.variable;
       const current = Number.parseInt(getVariable(ctx, name), 10) || 0;
       const value = evaluateArithmeticSync(ctx, expr.value);
-      let newValue: number;
-      switch (expr.operator) {
-        case "=":
-          newValue = value;
-          break;
-        case "+=":
-          newValue = current + value;
-          break;
-        case "-=":
-          newValue = current - value;
-          break;
-        case "*=":
-          newValue = current * value;
-          break;
-        case "/=":
-          newValue = value !== 0 ? Math.trunc(current / value) : 0;
-          break;
-        case "%=":
-          newValue = value !== 0 ? current % value : 0;
-          break;
-        case "<<=":
-          newValue = current << value;
-          break;
-        case ">>=":
-          newValue = current >> value;
-          break;
-        case "&=":
-          newValue = current & value;
-          break;
-        case "|=":
-          newValue = current | value;
-          break;
-        case "^=":
-          newValue = current ^ value;
-          break;
-        default:
-          newValue = value;
-      }
+      const newValue = applyAssignmentOp(current, value, expr.operator);
       ctx.state.env[name] = String(newValue);
       return newValue;
     }
@@ -379,78 +397,23 @@ export async function evaluateArithmetic(
 
       const left = await evaluateArithmetic(ctx, expr.left);
       const right = await evaluateArithmetic(ctx, expr.right);
-
-      switch (expr.operator) {
-        case "+":
-          return left + right;
-        case "-":
-          return left - right;
-        case "*":
-          return left * right;
-        case "/":
-          return right !== 0 ? Math.trunc(left / right) : 0;
-        case "%":
-          return right !== 0 ? left % right : 0;
-        case "**":
-          // Bash disallows negative exponents
-          if (right < 0) {
-            throw new ArithmeticError("exponent less than 0");
-          }
-          return left ** right;
-        case "<<":
-          return left << right;
-        case ">>":
-          return left >> right;
-        case "<":
-          return left < right ? 1 : 0;
-        case "<=":
-          return left <= right ? 1 : 0;
-        case ">":
-          return left > right ? 1 : 0;
-        case ">=":
-          return left >= right ? 1 : 0;
-        case "==":
-          return left === right ? 1 : 0;
-        case "!=":
-          return left !== right ? 1 : 0;
-        case "&":
-          return left & right;
-        case "|":
-          return left | right;
-        case "^":
-          return left ^ right;
-        case ",":
-          return right;
-        default:
-          return 0;
-      }
+      return applyBinaryOp(left, right, expr.operator);
     }
 
     case "ArithUnary": {
       const operand = await evaluateArithmetic(ctx, expr.operand);
-      switch (expr.operator) {
-        case "-":
-          return -operand;
-        case "+":
-          return +operand;
-        case "!":
-          return operand === 0 ? 1 : 0;
-        case "~":
-          return ~operand;
-        case "++":
-        case "--": {
-          if (expr.operand.type === "ArithVariable") {
-            const name = expr.operand.name;
-            const current = Number.parseInt(getVariable(ctx, name), 10) || 0;
-            const newValue = expr.operator === "++" ? current + 1 : current - 1;
-            ctx.state.env[name] = String(newValue);
-            return expr.prefix ? newValue : current;
-          }
-          return operand;
+      // Handle ++/-- with side effects separately
+      if (expr.operator === "++" || expr.operator === "--") {
+        if (expr.operand.type === "ArithVariable") {
+          const name = expr.operand.name;
+          const current = Number.parseInt(getVariable(ctx, name), 10) || 0;
+          const newValue = expr.operator === "++" ? current + 1 : current - 1;
+          ctx.state.env[name] = String(newValue);
+          return expr.prefix ? newValue : current;
         }
-        default:
-          return operand;
+        return operand;
       }
+      return applyUnaryOp(operand, expr.operator);
     }
 
     case "ArithTernary": {
@@ -464,46 +427,7 @@ export async function evaluateArithmetic(
       const name = expr.variable;
       const current = Number.parseInt(getVariable(ctx, name), 10) || 0;
       const value = await evaluateArithmetic(ctx, expr.value);
-      let newValue: number;
-
-      switch (expr.operator) {
-        case "=":
-          newValue = value;
-          break;
-        case "+=":
-          newValue = current + value;
-          break;
-        case "-=":
-          newValue = current - value;
-          break;
-        case "*=":
-          newValue = current * value;
-          break;
-        case "/=":
-          newValue = value !== 0 ? Math.trunc(current / value) : 0;
-          break;
-        case "%=":
-          newValue = value !== 0 ? current % value : 0;
-          break;
-        case "<<=":
-          newValue = current << value;
-          break;
-        case ">>=":
-          newValue = current >> value;
-          break;
-        case "&=":
-          newValue = current & value;
-          break;
-        case "|=":
-          newValue = current | value;
-          break;
-        case "^=":
-          newValue = current ^ value;
-          break;
-        default:
-          newValue = value;
-      }
-
+      const newValue = applyAssignmentOp(current, value, expr.operator);
       ctx.state.env[name] = String(newValue);
       return newValue;
     }

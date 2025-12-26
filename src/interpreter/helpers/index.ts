@@ -6,3 +6,5 @@
  */
 
 export * from "./loop.js";
+export * from "./file-tests.js";
+export * from "./variable-tests.js";

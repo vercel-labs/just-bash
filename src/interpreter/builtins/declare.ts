@@ -15,6 +15,7 @@
 
 import type { ExecResult } from "../../types.js";
 import type { InterpreterContext } from "../types.js";
+import { parseAssignment, setVariable } from "./variable-helpers.js";
 
 export function handleDeclare(
   ctx: InterpreterContext,
@@ -137,7 +138,7 @@ export function handleDeclare(
 /**
  * Parse array elements from content like "1 2 3" or "'a b' c d"
  */
-function parseArrayElements(content: string): string[] {
+export function parseArrayElements(content: string): string[] {
   const elements: string[] = [];
   let current = "";
   let inSingleQuote = false;
@@ -226,39 +227,18 @@ export function handleReadonly(
   ctx.state.readonlyVars = ctx.state.readonlyVars || new Set();
 
   for (const arg of processedArgs) {
-    // Check for array assignment
-    const arrayMatch = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)=\((.*)\)$/s);
-    if (arrayMatch) {
-      const name = arrayMatch[1];
-      const content = arrayMatch[2];
-      const elements = parseArrayElements(content);
-      for (let i = 0; i < elements.length; i++) {
-        ctx.state.env[`${name}_${i}`] = elements[i];
-      }
-      ctx.state.env[`${name}__length`] = String(elements.length);
-      ctx.state.readonlyVars.add(name);
+    const assignment = parseAssignment(arg);
+
+    // If no value provided, just mark as readonly
+    if (assignment.value === undefined && !assignment.isArray) {
+      ctx.state.readonlyVars.add(assignment.name);
       continue;
     }
 
-    // Check for scalar assignment
-    if (arg.includes("=")) {
-      const eqIdx = arg.indexOf("=");
-      const name = arg.slice(0, eqIdx);
-      const value = arg.slice(eqIdx + 1);
-
-      if (ctx.state.readonlyVars.has(name)) {
-        return {
-          stdout: "",
-          stderr: `bash: ${name}: readonly variable\n`,
-          exitCode: 1,
-        };
-      }
-
-      ctx.state.env[name] = value;
-      ctx.state.readonlyVars.add(name);
-    } else {
-      // Just mark as readonly
-      ctx.state.readonlyVars.add(arg);
+    // Set variable and mark as readonly
+    const error = setVariable(ctx, assignment, { makeReadonly: true });
+    if (error) {
+      return error;
     }
   }
 

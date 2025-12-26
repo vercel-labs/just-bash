@@ -157,6 +157,52 @@ function safeExpandCharRange(
   return results;
 }
 
+/**
+ * Result of a brace range expansion.
+ * Either contains expanded values or a literal fallback for invalid ranges.
+ */
+interface BraceRangeResult {
+  expanded: string[] | null;
+  literal: string;
+}
+
+/**
+ * Unified brace range expansion helper.
+ * Handles both numeric and character ranges, returning either expanded values
+ * or a literal string for invalid ranges.
+ */
+function expandBraceRange(
+  start: number | string,
+  end: number | string,
+  step: number | undefined,
+  startStr?: string,
+  endStr?: string,
+): BraceRangeResult {
+  const stepPart = step !== undefined ? `..${step}` : "";
+
+  if (typeof start === "number" && typeof end === "number") {
+    const expanded = safeExpandNumericRange(start, end, step, startStr, endStr);
+    return {
+      expanded,
+      literal: `{${start}..${end}${stepPart}}`,
+    };
+  }
+
+  if (typeof start === "string" && typeof end === "string") {
+    const expanded = safeExpandCharRange(start, end, step);
+    return {
+      expanded,
+      literal: `{${start}..${end}${stepPart}}`,
+    };
+  }
+
+  // Mixed types - invalid
+  return {
+    expanded: null,
+    literal: `{${start}..${end}${stepPart}}`,
+  };
+}
+
 // Helper to extract literal value from a word part
 function getPartValue(part: WordPart): string {
   switch (part.type) {
@@ -281,15 +327,40 @@ function wordNeedsAsync(word: WordNode): boolean {
   return word.parts.some(partNeedsAsync);
 }
 
-// Sync version of expandPart for parts that don't need async
-function expandPartSync(ctx: InterpreterContext, part: WordPart): string {
+/**
+ * Handle simple part types that don't require recursion or async.
+ * Returns the expanded string, or null if the part type needs special handling.
+ */
+function expandSimplePart(ctx: InterpreterContext, part: WordPart): string | null {
   switch (part.type) {
     case "Literal":
       return part.value;
-
     case "SingleQuoted":
       return part.value;
+    case "Escaped":
+      return part.value;
+    case "ParameterExpansion":
+      return expandParameter(ctx, part);
+    case "TildeExpansion":
+      if (part.user === null) {
+        return ctx.state.env.HOME || "/home/user";
+      }
+      return `~${part.user}`;
+    case "Glob":
+      return part.pattern;
+    default:
+      return null; // Needs special handling (DoubleQuoted, BraceExpansion, ArithmeticExpansion, CommandSubstitution)
+  }
+}
 
+// Sync version of expandPart for parts that don't need async
+function expandPartSync(ctx: InterpreterContext, part: WordPart): string {
+  // Try simple cases first
+  const simple = expandSimplePart(ctx, part);
+  if (simple !== null) return simple;
+
+  // Handle cases that need recursion
+  switch (part.type) {
     case "DoubleQuoted": {
       const parts: string[] = [];
       for (const p of part.parts) {
@@ -298,54 +369,24 @@ function expandPartSync(ctx: InterpreterContext, part: WordPart): string {
       return parts.join("");
     }
 
-    case "Escaped":
-      return part.value;
-
-    case "ParameterExpansion":
-      return expandParameter(ctx, part);
-
-    case "ArithmeticExpansion": {
-      const value = evaluateArithmeticSync(ctx, part.expression.expression);
-      return String(value);
-    }
-
-    case "TildeExpansion":
-      if (part.user === null) {
-        return ctx.state.env.HOME || "/home/user";
-      }
-      // For ~user, return literal (user doesn't exist in virtual environment)
-      return `~${part.user}`;
+    case "ArithmeticExpansion":
+      return String(evaluateArithmeticSync(ctx, part.expression.expression));
 
     case "BraceExpansion": {
       const results: string[] = [];
       for (const item of part.items) {
         if (item.type === "Range") {
-          const start = item.start;
-          const end = item.end;
-          if (typeof start === "number" && typeof end === "number") {
-            const expanded = safeExpandNumericRange(
-              start,
-              end,
-              item.step,
-              item.startStr,
-              item.endStr,
-            );
-            if (expanded) {
-              results.push(...expanded);
-            } else {
-              // Invalid range - treat as literal
-              const stepPart = item.step !== undefined ? `..${item.step}` : "";
-              return `{${start}..${end}${stepPart}}`;
-            }
-          } else if (typeof start === "string" && typeof end === "string") {
-            const expanded = safeExpandCharRange(start, end, item.step);
-            if (expanded) {
-              results.push(...expanded);
-            } else {
-              // Invalid range - treat as literal
-              const stepPart = item.step !== undefined ? `..${item.step}` : "";
-              return `{${start}..${end}${stepPart}}`;
-            }
+          const range = expandBraceRange(
+            item.start,
+            item.end,
+            item.step,
+            item.startStr,
+            item.endStr,
+          );
+          if (range.expanded) {
+            results.push(...range.expanded);
+          } else {
+            return range.literal;
           }
         } else {
           results.push(expandWordSync(ctx, item.word));
@@ -353,9 +394,6 @@ function expandPartSync(ctx: InterpreterContext, part: WordPart): string {
       }
       return results.join(" ");
     }
-
-    case "Glob":
-      return part.pattern;
 
     default:
       return "";
@@ -475,42 +513,22 @@ function expandBracesInParts(
       let invalidRangeLiteral = "";
       for (const item of part.items) {
         if (item.type === "Range") {
-          const start = item.start;
-          const end = item.end;
-          if (typeof start === "number" && typeof end === "number") {
-            const expanded = safeExpandNumericRange(
-              start,
-              end,
-              item.step,
-              item.startStr,
-              item.endStr,
-            );
-            if (expanded) {
-              for (const val of expanded) {
-                operationCounter.count++;
-                braceValues.push(val);
-              }
-            } else {
-              // Invalid range - treat entire brace expansion as literal
-              hasInvalidRange = true;
-              const stepPart = item.step !== undefined ? `..${item.step}` : "";
-              invalidRangeLiteral = `{${start}..${end}${stepPart}}`;
-              break;
+          const range = expandBraceRange(
+            item.start,
+            item.end,
+            item.step,
+            item.startStr,
+            item.endStr,
+          );
+          if (range.expanded) {
+            for (const val of range.expanded) {
+              operationCounter.count++;
+              braceValues.push(val);
             }
-          } else if (typeof start === "string" && typeof end === "string") {
-            const expanded = safeExpandCharRange(start, end, item.step);
-            if (expanded) {
-              for (const val of expanded) {
-                operationCounter.count++;
-                braceValues.push(val);
-              }
-            } else {
-              // Invalid range - treat entire brace expansion as literal
-              hasInvalidRange = true;
-              const stepPart = item.step !== undefined ? `..${item.step}` : "";
-              invalidRangeLiteral = `{${start}..${end}${stepPart}}`;
-              break;
-            }
+          } else {
+            hasInvalidRange = true;
+            invalidRangeLiteral = range.literal;
+            break;
           }
         } else {
           // Word item - expand it (recursively handle nested braces)
@@ -696,13 +714,12 @@ async function expandPart(
   ctx: InterpreterContext,
   part: WordPart,
 ): Promise<string> {
+  // Try simple cases first
+  const simple = expandSimplePart(ctx, part);
+  if (simple !== null) return simple;
+
+  // Handle cases that need recursion or async
   switch (part.type) {
-    case "Literal":
-      return part.value;
-
-    case "SingleQuoted":
-      return part.value;
-
     case "DoubleQuoted": {
       const parts: string[] = [];
       for (const p of part.parts) {
@@ -711,59 +728,29 @@ async function expandPart(
       return parts.join("");
     }
 
-    case "Escaped":
-      return part.value;
-
-    case "ParameterExpansion":
-      return expandParameter(ctx, part);
-
     case "CommandSubstitution": {
       const result = await ctx.executeScript(part.body);
       return result.stdout.replace(/\n+$/, "");
     }
 
-    case "ArithmeticExpansion": {
-      const value = await evaluateArithmetic(ctx, part.expression.expression);
-      return String(value);
-    }
-
-    case "TildeExpansion":
-      if (part.user === null) {
-        return ctx.state.env.HOME || "/home/user";
-      }
-      // For ~user, return literal (user doesn't exist in virtual environment)
-      return `~${part.user}`;
+    case "ArithmeticExpansion":
+      return String(await evaluateArithmetic(ctx, part.expression.expression));
 
     case "BraceExpansion": {
       const results: string[] = [];
       for (const item of part.items) {
         if (item.type === "Range") {
-          const start = item.start;
-          const end = item.end;
-          if (typeof start === "number" && typeof end === "number") {
-            const expanded = safeExpandNumericRange(
-              start,
-              end,
-              item.step,
-              item.startStr,
-              item.endStr,
-            );
-            if (expanded) {
-              results.push(...expanded);
-            } else {
-              // Invalid range - treat as literal
-              const stepPart = item.step !== undefined ? `..${item.step}` : "";
-              return `{${start}..${end}${stepPart}}`;
-            }
-          } else if (typeof start === "string" && typeof end === "string") {
-            const expanded = safeExpandCharRange(start, end, item.step);
-            if (expanded) {
-              results.push(...expanded);
-            } else {
-              // Invalid range - treat as literal
-              const stepPart = item.step !== undefined ? `..${item.step}` : "";
-              return `{${start}..${end}${stepPart}}`;
-            }
+          const range = expandBraceRange(
+            item.start,
+            item.end,
+            item.step,
+            item.startStr,
+            item.endStr,
+          );
+          if (range.expanded) {
+            results.push(...range.expanded);
+          } else {
+            return range.literal;
           }
         } else {
           results.push(await expandWord(ctx, item.word));
@@ -771,9 +758,6 @@ async function expandPart(
       }
       return results.join(" ");
     }
-
-    case "Glob":
-      return part.pattern;
 
     default:
       return "";

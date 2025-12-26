@@ -16,6 +16,11 @@ import { Parser } from "../parser/parser.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmeticSync } from "./arithmetic.js";
 import { expandWord } from "./expansion.js";
+import {
+  evaluateFileTest,
+  isFileTestOperator,
+  evaluateVariableTest,
+} from "./helpers/index.js";
 import type { InterpreterContext } from "./types.js";
 
 export async function evaluateConditional(
@@ -87,95 +92,18 @@ export async function evaluateConditional(
     case "CondUnary": {
       const operand = await expandWord(ctx, expr.operand);
 
+      // Handle file test operators using shared helper
+      if (isFileTestOperator(expr.operator)) {
+        return evaluateFileTest(ctx, expr.operator, operand);
+      }
+
       switch (expr.operator) {
         case "-z":
           return operand === "";
         case "-n":
           return operand !== "";
-        case "-e":
-        case "-a":
-          return await ctx.fs.exists(resolvePath(ctx, operand));
-        case "-f": {
-          const path = resolvePath(ctx, operand);
-          if (await ctx.fs.exists(path)) {
-            const stat = await ctx.fs.stat(path);
-            return stat.isFile;
-          }
-          return false;
-        }
-        case "-d": {
-          const path = resolvePath(ctx, operand);
-          if (await ctx.fs.exists(path)) {
-            const stat = await ctx.fs.stat(path);
-            return stat.isDirectory;
-          }
-          return false;
-        }
-        case "-r":
-        case "-w":
-        case "-x":
-          return await ctx.fs.exists(resolvePath(ctx, operand));
-        case "-s": {
-          const path = resolvePath(ctx, operand);
-          if (await ctx.fs.exists(path)) {
-            const content = await ctx.fs.readFile(path);
-            return content.length > 0;
-          }
-          return false;
-        }
-        case "-L":
-        case "-h": {
-          const path = resolvePath(ctx, operand);
-          if (await ctx.fs.exists(path)) {
-            const stat = await ctx.fs.lstat(path);
-            return stat.isSymbolicLink;
-          }
-          return false;
-        }
-        case "-v": {
-          // Check for array element syntax: var[index]
-          const arrayMatch = operand.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
-          if (arrayMatch) {
-            const arrayName = arrayMatch[1];
-            let indexExpr = arrayMatch[2];
-            // Expand variables in index
-            indexExpr = indexExpr.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, varName) => {
-              return ctx.state.env[varName] || "";
-            });
-            // Evaluate as arithmetic or number
-            let index: number;
-            if (/^-?\d+$/.test(indexExpr)) {
-              index = Number.parseInt(indexExpr, 10);
-            } else {
-              // Try to evaluate as arithmetic expression
-              try {
-                const result = Function(`"use strict"; return (${indexExpr})`)();
-                index = typeof result === "number" ? Math.floor(result) : 0;
-              } catch {
-                const varValue = ctx.state.env[indexExpr];
-                index = varValue ? Number.parseInt(varValue, 10) : 0;
-              }
-            }
-            // Handle negative indices - convert to actual index
-            if (index < 0) {
-              // Need to import getArrayElements, for now use simple lookup
-              const prefix = `${arrayName}_`;
-              const indices: number[] = [];
-              for (const key of Object.keys(ctx.state.env)) {
-                if (key.startsWith(prefix)) {
-                  const idx = Number.parseInt(key.slice(prefix.length), 10);
-                  if (!Number.isNaN(idx)) indices.push(idx);
-                }
-              }
-              indices.sort((a, b) => a - b);
-              const actualIdx = indices.length + index;
-              if (actualIdx < 0 || actualIdx >= indices.length) return false;
-              index = indices[actualIdx];
-            }
-            return `${arrayName}_${index}` in ctx.state.env;
-          }
-          return operand in ctx.state.env;
-        }
+        case "-v":
+          return evaluateVariableTest(ctx, operand);
         default:
           return false;
       }
@@ -225,99 +153,22 @@ export async function evaluateTestArgs(
     const op = args[0];
     const operand = args[1];
 
+    // Handle file test operators using shared helper
+    if (isFileTestOperator(op)) {
+      const result = await evaluateFileTest(ctx, op, operand);
+      return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
+    }
+
     switch (op) {
       case "-z":
         return { stdout: "", stderr: "", exitCode: operand === "" ? 0 : 1 };
       case "-n":
         return { stdout: "", stderr: "", exitCode: operand !== "" ? 0 : 1 };
-      case "-e":
-      case "-a": {
-        const exists = await ctx.fs.exists(resolvePath(ctx, operand));
-        return { stdout: "", stderr: "", exitCode: exists ? 0 : 1 };
-      }
-      case "-f": {
-        const path = resolvePath(ctx, operand);
-        if (await ctx.fs.exists(path)) {
-          const stat = await ctx.fs.stat(path);
-          return { stdout: "", stderr: "", exitCode: stat.isFile ? 0 : 1 };
-        }
-        return { stdout: "", stderr: "", exitCode: 1 };
-      }
-      case "-d": {
-        const path = resolvePath(ctx, operand);
-        if (await ctx.fs.exists(path)) {
-          const stat = await ctx.fs.stat(path);
-          return {
-            stdout: "",
-            stderr: "",
-            exitCode: stat.isDirectory ? 0 : 1,
-          };
-        }
-        return { stdout: "", stderr: "", exitCode: 1 };
-      }
-      case "-r":
-      case "-w":
-      case "-x": {
-        const exists = await ctx.fs.exists(resolvePath(ctx, operand));
-        return { stdout: "", stderr: "", exitCode: exists ? 0 : 1 };
-      }
-      case "-s": {
-        const path = resolvePath(ctx, operand);
-        if (await ctx.fs.exists(path)) {
-          const content = await ctx.fs.readFile(path);
-          return {
-            stdout: "",
-            stderr: "",
-            exitCode: content.length > 0 ? 0 : 1,
-          };
-        }
-        return { stdout: "", stderr: "", exitCode: 1 };
-      }
       case "!":
         return { stdout: "", stderr: "", exitCode: operand ? 1 : 0 };
       case "-v": {
-        // Check for array element syntax: var[index]
-        const arrayMatch = operand.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
-        if (arrayMatch) {
-          const arrayName = arrayMatch[1];
-          let indexExpr = arrayMatch[2];
-          // Expand variables in index
-          indexExpr = indexExpr.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, vn) => {
-            return ctx.state.env[vn] || "";
-          });
-          // Evaluate as arithmetic or number
-          let index: number;
-          if (/^-?\d+$/.test(indexExpr)) {
-            index = Number.parseInt(indexExpr, 10);
-          } else {
-            try {
-              const result = Function(`"use strict"; return (${indexExpr})`)();
-              index = typeof result === "number" ? Math.floor(result) : 0;
-            } catch {
-              const varValue = ctx.state.env[indexExpr];
-              index = varValue ? Number.parseInt(varValue, 10) : 0;
-            }
-          }
-          // Handle negative indices
-          if (index < 0) {
-            const prefix = `${arrayName}_`;
-            const indices: number[] = [];
-            for (const key of Object.keys(ctx.state.env)) {
-              if (key.startsWith(prefix)) {
-                const idx = Number.parseInt(key.slice(prefix.length), 10);
-                if (!Number.isNaN(idx)) indices.push(idx);
-              }
-            }
-            indices.sort((a, b) => a - b);
-            const actualIdx = indices.length + index;
-            if (actualIdx < 0 || actualIdx >= indices.length) {
-              return { stdout: "", stderr: "", exitCode: 1 };
-            }
-            index = indices[actualIdx];
-          }
-          return { stdout: "", stderr: "", exitCode: `${arrayName}_${index}` in ctx.state.env ? 0 : 1 };
-        }
-        return { stdout: "", stderr: "", exitCode: operand in ctx.state.env ? 0 : 1 };
+        const result = evaluateVariableTest(ctx, operand);
+        return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
       }
       default:
         return { stdout: "", stderr: "", exitCode: 1 };
@@ -453,49 +304,10 @@ async function evaluateTestPrimary(
     return { value, pos: args[newPos] === ")" ? newPos + 1 : newPos };
   }
 
-  // Unary file tests
-  const fileOps = ["-e", "-a", "-f", "-d", "-r", "-w", "-x", "-s", "-L", "-h"];
-  if (fileOps.includes(token)) {
+  // Unary file tests - use shared helper
+  if (isFileTestOperator(token)) {
     const operand = args[pos + 1] ?? "";
-    const path = resolvePath(ctx, operand);
-
-    let value = false;
-    switch (token) {
-      case "-e":
-      case "-a":
-        value = await ctx.fs.exists(path);
-        break;
-      case "-f":
-        if (await ctx.fs.exists(path)) {
-          const stat = await ctx.fs.stat(path);
-          value = stat.isFile;
-        }
-        break;
-      case "-d":
-        if (await ctx.fs.exists(path)) {
-          const stat = await ctx.fs.stat(path);
-          value = stat.isDirectory;
-        }
-        break;
-      case "-r":
-      case "-w":
-      case "-x":
-        value = await ctx.fs.exists(path);
-        break;
-      case "-s":
-        if (await ctx.fs.exists(path)) {
-          const content = await ctx.fs.readFile(path);
-          value = content.length > 0;
-        }
-        break;
-      case "-L":
-      case "-h":
-        if (await ctx.fs.exists(path)) {
-          const stat = await ctx.fs.lstat(path);
-          value = stat.isSymbolicLink;
-        }
-        break;
-    }
+    const value = await evaluateFileTest(ctx, token, operand);
     return { value, pos: pos + 2 };
   }
 
@@ -512,48 +324,8 @@ async function evaluateTestPrimary(
   // Variable tests
   if (token === "-v") {
     const varName = args[pos + 1] ?? "";
-    // Check for array element syntax: var[index]
-    const arrayMatch = varName.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
-    if (arrayMatch) {
-      const arrayName = arrayMatch[1];
-      let indexExpr = arrayMatch[2];
-      // Expand variables in index
-      indexExpr = indexExpr.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, vn) => {
-        return ctx.state.env[vn] || "";
-      });
-      // Evaluate as arithmetic or number
-      let index: number;
-      if (/^-?\d+$/.test(indexExpr)) {
-        index = Number.parseInt(indexExpr, 10);
-      } else {
-        try {
-          const result = Function(`"use strict"; return (${indexExpr})`)();
-          index = typeof result === "number" ? Math.floor(result) : 0;
-        } catch {
-          const varValue = ctx.state.env[indexExpr];
-          index = varValue ? Number.parseInt(varValue, 10) : 0;
-        }
-      }
-      // Handle negative indices
-      if (index < 0) {
-        const prefix = `${arrayName}_`;
-        const indices: number[] = [];
-        for (const key of Object.keys(ctx.state.env)) {
-          if (key.startsWith(prefix)) {
-            const idx = Number.parseInt(key.slice(prefix.length), 10);
-            if (!Number.isNaN(idx)) indices.push(idx);
-          }
-        }
-        indices.sort((a, b) => a - b);
-        const actualIdx = indices.length + index;
-        if (actualIdx < 0 || actualIdx >= indices.length) {
-          return { value: false, pos: pos + 2 };
-        }
-        index = indices[actualIdx];
-      }
-      return { value: `${arrayName}_${index}` in ctx.state.env, pos: pos + 2 };
-    }
-    return { value: varName in ctx.state.env, pos: pos + 2 };
+    const value = evaluateVariableTest(ctx, varName);
+    return { value, pos: pos + 2 };
   }
 
   // Check for binary operators
