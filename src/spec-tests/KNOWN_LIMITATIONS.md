@@ -235,6 +235,129 @@ Redefining special builtins like `eval`, `export` as functions is not implemente
 
 ---
 
+## Skipped Test Files
+
+The following test files are entirely skipped in `spec.test.ts`:
+
+### Interactive Shell (require TTY)
+- `interactive.test.sh`
+- `interactive-parse.test.sh`
+- `prompt.test.sh`
+- `builtin-history.test.sh`
+- `builtin-fc.test.sh`
+- `builtin-bind.test.sh`
+- `builtin-completion.test.sh`
+
+### Process/Job Control (require real processes)
+- `background.test.sh`
+- `builtin-process.test.sh`
+- `builtin-kill.test.sh`
+- `builtin-trap.test.sh`
+- `builtin-trap-bash.test.sh`
+- `builtin-trap-err.test.sh`
+- `builtin-times.test.sh`
+- `process-sub.test.sh`
+
+### Shell Features Not Implemented
+- `alias.test.sh` - alias expansion
+- `xtrace.test.sh` - set -x tracing
+- `builtin-dirs.test.sh` - directory stack
+- `sh-usage.test.sh` - shell invocation options
+
+### ZSH-Specific
+- `zsh-assoc.test.sh`
+- `zsh-idioms.test.sh`
+
+### BLE (Bash Line Editor)
+- `ble-features.test.sh`
+- `ble-idioms.test.sh`
+- `ble-unset.test.sh`
+
+### External Dependencies
+- `nul-bytes.test.sh` - NUL byte handling
+- `unicode.test.sh` - Unicode support
+
+### Meta/Introspection
+- `introspect.test.sh`
+- `print-source-code.test.sh`
+- `serialize.test.sh`
+- `spec-harness-bug.test.sh`
+
+### Documentation (not real tests)
+- `known-differences.test.sh`
+- `divergence.test.sh`
+
+### Toysh-Specific
+- `toysh.test.sh`
+- `toysh-posix.test.sh`
+
+### Blog/Exploration (not spec tests)
+- `blog1.test.sh`
+- `blog2.test.sh`
+- `blog-other1.test.sh`
+- `explore-parsing.test.sh`
+
+### Extended Globbing
+- `extglob-match.test.sh`
+- `extglob-files.test.sh`
+- `globstar.test.sh`
+- `globignore.test.sh`
+- `nocasematch-match.test.sh`
+
+### Advanced Features Not Implemented
+- `builtin-getopts.test.sh` - getopts builtin
+- `nameref.test.sh` - nameref/declare -n
+- `var-ref.test.sh` - ${!var} indirect references
+- `regex.test.sh` - =~ regex matching
+- `sh-options.test.sh` - shopt options
+- `sh-options-bash.test.sh`
+
+### Bash-Specific Builtins
+- `builtin-bash.test.sh`
+- `builtin-type-bash.test.sh`
+- `builtin-vars.test.sh`
+- `builtin-meta.test.sh`
+- `builtin-meta-assign.test.sh`
+
+### Advanced Array Features
+- `array-assoc.test.sh` - associative arrays
+- `array-sparse.test.sh` - sparse arrays
+- `array-compat.test.sh`
+- `array-literal.test.sh`
+- `array-assign.test.sh`
+
+### Complex Assignment
+- `assign-extended.test.sh`
+- `assign-deferred.test.sh`
+- `assign-dialects.test.sh`
+
+### Advanced Arithmetic
+- `arith-dynamic.test.sh`
+
+### Complex Redirections
+- `redirect-multi.test.sh`
+- `redirect-command.test.sh`
+- `redir-order.test.sh`
+
+### Other Advanced Features
+- `command-sub-ksh.test.sh`
+- `vars-bash.test.sh`
+- `var-op-bash.test.sh`
+- `type-compat.test.sh`
+- `shell-grammar.test.sh`
+- `shell-bugs.test.sh`
+- `nix-idioms.test.sh`
+- `paren-ambiguity.test.sh`
+- `fatal-errors.test.sh`
+- `for-expr.test.sh`
+- `glob-bash.test.sh`
+- `bool-parse.test.sh`
+- `arg-parse.test.sh`
+- `append.test.sh`
+- `bugs.test.sh`
+
+---
+
 ## Out of Scope
 
 The following are intentionally not implemented as they are outside the scope of bash-env:
