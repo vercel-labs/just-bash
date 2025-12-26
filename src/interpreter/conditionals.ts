@@ -48,12 +48,26 @@ export async function evaluateConditional(
             p.type === "Escaped",
         );
 
+      // String comparisons (with pattern matching support in [[ ]])
+      if (isStringCompareOp(expr.operator)) {
+        return compareStrings(expr.operator, left, right, !isRhsQuoted);
+      }
+
+      // Numeric comparisons
+      if (isNumericOp(expr.operator)) {
+        return compareNumeric(
+          expr.operator,
+          evalArithExpr(ctx, left),
+          evalArithExpr(ctx, right),
+        );
+      }
+
+      // Binary file tests
+      if (isBinaryFileTestOperator(expr.operator)) {
+        return evaluateBinaryFileTest(ctx, expr.operator, left, right);
+      }
+
       switch (expr.operator) {
-        case "==":
-        case "=":
-        case "!=":
-          // If RHS is quoted, use literal comparison; otherwise use pattern matching
-          return compareStrings(expr.operator, left, right, !isRhsQuoted);
         case "=~": {
           try {
             const regex = new RegExp(right);
@@ -74,21 +88,6 @@ export async function evaluateConditional(
           return left < right;
         case ">":
           return left > right;
-        case "-eq":
-        case "-ne":
-        case "-lt":
-        case "-le":
-        case "-gt":
-        case "-ge":
-          return compareNumeric(
-            expr.operator,
-            evalArithExpr(ctx, left),
-            evalArithExpr(ctx, right),
-          );
-        case "-nt":
-        case "-ot":
-        case "-ef":
-          return evaluateBinaryFileTest(ctx, expr.operator, left, right);
         default:
           return false;
       }
@@ -217,25 +216,22 @@ export async function evaluateTestArgs(
       return testResult(compareStrings(op, left, right));
     }
 
-    switch (op) {
-      case "-eq":
-      case "-ne":
-      case "-lt":
-      case "-le":
-      case "-gt":
-      case "-ge": {
-        const leftNum = parseNumericDecimal(left);
-        const rightNum = parseNumericDecimal(right);
-        // Invalid operand returns exit code 2
-        if (!leftNum.valid || !rightNum.valid) {
-          return execResult("", "", 2);
-        }
-        return testResult(compareNumeric(op, leftNum.value, rightNum.value));
+    if (isNumericOp(op)) {
+      const leftNum = parseNumericDecimal(left);
+      const rightNum = parseNumericDecimal(right);
+      // Invalid operand returns exit code 2
+      if (!leftNum.valid || !rightNum.valid) {
+        return execResult("", "", 2);
       }
-      case "-nt":
-      case "-ot":
-      case "-ef":
-        return testResult(await evaluateBinaryFileTest(ctx, op, left, right));
+      return testResult(compareNumeric(op, leftNum.value, rightNum.value));
+    }
+
+    // Binary file tests
+    if (isBinaryFileTestOperator(op)) {
+      return testResult(await evaluateBinaryFileTest(ctx, op, left, right));
+    }
+
+    switch (op) {
       case "-a":
         // In 3-arg context, -a is binary AND: both operands must be non-empty
         return testResult(left !== "" && right !== "");
