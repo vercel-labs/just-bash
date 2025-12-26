@@ -14,3 +14,4 @@ export * from "./array.js";
 export * from "./errors.js";
 export * from "./regex.js";
 export * from "./condition.js";
+export * from "./word-parts.js";

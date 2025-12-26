@@ -21,6 +21,7 @@ import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
 import { BadSubstitutionError, ExitError, NounsetError } from "./errors.js";
 import { getArrayIndices } from "./helpers/array.js";
 import { escapeRegex } from "./helpers/regex.js";
+import { getLiteralValue, isQuotedPart } from "./helpers/word-parts.js";
 import type { InterpreterContext } from "./types.js";
 
 // Helper to extract numeric value from an arithmetic expression
@@ -207,14 +208,7 @@ function expandBraceRange(
 
 // Helper to extract literal value from a word part
 function getPartValue(part: WordPart): string {
-  switch (part.type) {
-    case "Literal":
-    case "SingleQuoted":
-    case "Escaped":
-      return part.value;
-    default:
-      return "";
-  }
+  return getLiteralValue(part) ?? "";
 }
 
 // Helper to get string value from word parts (literals only, no expansion)
@@ -238,20 +232,7 @@ function expandWordPartsSync(
  * - Escaped characters
  */
 function isPartFullyQuoted(part: WordPart): boolean {
-  switch (part.type) {
-    case "SingleQuoted":
-    case "Escaped":
-      return true;
-    case "DoubleQuoted":
-      // Double-quoted is fully quoted
-      return true;
-    case "Literal":
-      // Empty literals don't affect quoting
-      return part.value === "";
-    default:
-      // Unquoted expansions like $var (without quotes) are not fully quoted
-      return false;
-  }
+  return isQuotedPart(part);
 }
 
 /**
@@ -334,13 +315,11 @@ function wordNeedsAsync(word: WordNode): boolean {
  * Returns the expanded string, or null if the part type needs special handling.
  */
 function expandSimplePart(ctx: InterpreterContext, part: WordPart): string | null {
+  // Handle literal parts (Literal, SingleQuoted, Escaped)
+  const literal = getLiteralValue(part);
+  if (literal !== null) return literal;
+
   switch (part.type) {
-    case "Literal":
-      return part.value;
-    case "SingleQuoted":
-      return part.value;
-    case "Escaped":
-      return part.value;
     case "ParameterExpansion":
       return expandParameter(ctx, part);
     case "TildeExpansion":
