@@ -5,7 +5,6 @@
  * (for, c-style for, while, until).
  */
 
-import type { ExecResult } from "../../types.js";
 import {
   BreakError,
   ContinueError,
@@ -87,41 +86,4 @@ export function handleLoopError(
     stderr: `${stderr}${message}\n`,
     exitCode: 1,
   };
-}
-
-/**
- * Apply the result of handleLoopError to the loop.
- * Returns an ExecResult if the loop should return, otherwise null.
- *
- * Usage in loops:
- * ```typescript
- * } catch (error) {
- *   const result = handleLoopError(error, stdout, stderr, ctx.state.loopDepth);
- *   stdout = result.stdout;
- *   stderr = result.stderr;
- *   const loopResult = applyLoopErrorResult(result);
- *   if (loopResult === "break") break;
- *   if (loopResult === "continue") continue;
- *   if (loopResult) return loopResult; // ExecResult for error case
- *   throw result.error; // rethrow case
- * }
- * ```
- */
-export function applyLoopErrorResult(
-  result: LoopErrorResult,
-): "break" | "continue" | ExecResult | null {
-  switch (result.action) {
-    case "break":
-      return "break";
-    case "continue":
-      return "continue";
-    case "error":
-      return {
-        stdout: result.stdout,
-        stderr: result.stderr,
-        exitCode: result.exitCode ?? 1,
-      };
-    case "rethrow":
-      return null; // Caller should throw result.error
-  }
 }

@@ -84,8 +84,6 @@ import { failure, OK, result, testResult } from "./helpers/result.js";
 import { applyRedirections } from "./redirections.js";
 import type { InterpreterContext, InterpreterState } from "./types.js";
 
-// Re-export ErrexitError for backwards compatibility
-export { ErrexitError } from "./errors.js";
 export type { InterpreterContext, InterpreterState } from "./types.js";
 
 export interface InterpreterOptions {

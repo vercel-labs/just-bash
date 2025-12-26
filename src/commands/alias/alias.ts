@@ -119,11 +119,3 @@ export const unaliasCommand: Command = {
     return { stdout: "", stderr, exitCode: anyError ? 1 : 0 };
   },
 };
-
-// Helper to check if a command is aliased (called from BashEnv)
-export function getAlias(
-  env: Record<string, string>,
-  name: string,
-): string | undefined {
-  return env[ALIAS_PREFIX + name];
-}

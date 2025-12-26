@@ -24,12 +24,3 @@ export interface SortOptions {
   keys: KeySpec[];
   fieldDelimiter: string | null;
 }
-
-export const DEFAULT_OPTIONS: SortOptions = {
-  reverse: false,
-  numeric: false,
-  unique: false,
-  ignoreCase: false,
-  keys: [],
-  fieldDelimiter: null,
-};

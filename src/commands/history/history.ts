@@ -54,26 +54,3 @@ export const historyCommand: Command = {
     return { stdout, stderr: "", exitCode: 0 };
   },
 };
-
-// Helper to add a command to history (called from BashEnv)
-export function addToHistory(
-  env: Record<string, string>,
-  command: string,
-): void {
-  const historyStr = env[HISTORY_KEY] || "[]";
-  let history: string[];
-  try {
-    history = JSON.parse(historyStr);
-  } catch {
-    history = [];
-  }
-  // Don't add empty commands or duplicates of the last command
-  if (command.trim() && history[history.length - 1] !== command) {
-    history.push(command);
-    // Limit history size
-    if (history.length > 1000) {
-      history = history.slice(-1000);
-    }
-    env[HISTORY_KEY] = JSON.stringify(history);
-  }
-}

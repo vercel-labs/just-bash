@@ -11,7 +11,7 @@ function resolvePath(ctx: InterpreterContext, path: string): string {
  * File test operators supported by bash
  * Unary operators that test file properties
  */
-export const FILE_TEST_OPERATORS = [
+const FILE_TEST_OPERATORS = [
   "-e", // file exists
   "-a", // file exists (deprecated synonym for -e)
   "-f", // regular file
@@ -188,7 +188,7 @@ export async function evaluateFileTest(
 /**
  * Binary file test operators for comparing two files
  */
-export const BINARY_FILE_TEST_OPERATORS = ["-nt", "-ot", "-ef"] as const;
+const BINARY_FILE_TEST_OPERATORS = ["-nt", "-ot", "-ef"] as const;
 
 export type BinaryFileTestOperator =
   (typeof BINARY_FILE_TEST_OPERATORS)[number];

@@ -48,7 +48,7 @@ function matchesAddress(
   return false;
 }
 
-export function isInRange(
+function isInRange(
   range: AddressRange | undefined,
   lineNum: number,
   totalLines: number,
@@ -87,7 +87,7 @@ export function isInRange(
   return true;
 }
 
-export function processReplacement(
+function processReplacement(
   replacement: string,
   match: string,
   groups: string[],
@@ -141,7 +141,7 @@ export function processReplacement(
   return result;
 }
 
-export function executeCommand(cmd: SedCommand, state: SedState): void {
+function executeCommand(cmd: SedCommand, state: SedState): void {
   const { lineNumber, totalLines, patternSpace } = state;
 
   // Labels don't have addresses and are handled separately

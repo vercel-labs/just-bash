@@ -141,7 +141,7 @@ export function parseFor(p: Parser): ForNode | CStyleForNode {
   return AST.forNode(variable, words, body, redirections);
 }
 
-export function parseCStyleFor(p: Parser): CStyleForNode {
+function parseCStyleFor(p: Parser): CStyleForNode {
   p.expect(TokenType.DPAREN_START);
 
   // Parse init; cond; step

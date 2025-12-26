@@ -17,7 +17,7 @@ import type {
  * Check if an arithmetic expression requires async execution
  * (contains command substitution)
  */
-export function arithExprNeedsAsync(expr: ArithExpr): boolean {
+function arithExprNeedsAsync(expr: ArithExpr): boolean {
   switch (expr.type) {
     case "ArithCommandSubst":
       return true;

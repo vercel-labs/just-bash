@@ -13,7 +13,7 @@ import { BashEnv } from "../../BashEnv.js";
 import { Sandbox } from "../../sandbox/index.js";
 
 // Unique markers in mock responses to verify we're not hitting real network
-export const MOCK_MARKER: string = "MOCK_RESPONSE_12345";
+const MOCK_MARKER: string = "MOCK_RESPONSE_12345";
 export const MOCK_SUCCESS_BODY: string = `{"message":"success","_mock":"${MOCK_MARKER}"}`;
 export const MOCK_USERS_BODY: string = `{"users":[],"_mock":"${MOCK_MARKER}"}`;
 export const MOCK_POSTS_BODY: string = `{"posts":[],"_mock":"${MOCK_MARKER}"}`;
@@ -21,7 +21,7 @@ export const MOCK_FILE_BODY: string = `file contents - ${MOCK_MARKER}`;
 export const MOCK_EVIL_BODY: string = `EVIL DATA - should never see this - ${MOCK_MARKER}`;
 
 // Mock responses for different URLs
-export const mockResponses: Record<
+const mockResponses: Record<
   string,
   { status: number; body: string; headers?: Record<string, string> }
 > = {

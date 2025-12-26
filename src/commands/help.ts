@@ -63,38 +63,3 @@ export function unknownOption(cmdName: string, option: string): ExecResult {
     : `${cmdName}: invalid option -- '${option.replace(/^-/, "")}'\n`;
   return { stdout: "", stderr: msg, exitCode: 1 };
 }
-
-/**
- * Check if an argument is an unknown option given a set of valid options
- * Returns the unknown option if found, null otherwise
- */
-export function findUnknownOption(
-  args: string[],
-  validShortOpts: string,
-  validLongOpts: string[] = [],
-): string | null {
-  for (const arg of args) {
-    if (arg === "--help") continue;
-    if (arg === "--") break;
-
-    if (arg.startsWith("--")) {
-      // Long option - check if it matches any valid long option (with or without =value)
-      const optName = arg.split("=")[0];
-      if (
-        !validLongOpts.some(
-          (valid) => optName === valid || optName === `--${valid}`,
-        )
-      ) {
-        return arg;
-      }
-    } else if (arg.startsWith("-") && arg !== "-") {
-      // Short option(s) - check each character
-      for (const c of arg.slice(1)) {
-        if (!validShortOpts.includes(c)) {
-          return `-${c}`;
-        }
-      }
-    }
-  }
-  return null;
-}

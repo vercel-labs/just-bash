@@ -5,7 +5,7 @@ import type { KeySpec, SortOptions } from "./types.js";
 /**
  * Extract key value from a line based on key specification
  */
-export function extractKeyValue(
+function extractKeyValue(
   line: string,
   key: KeySpec,
   delimiter: string | null,

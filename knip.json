@@ -1,0 +1,12 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "project": ["src/**/*.ts"],
+  "ignore": ["src/**/*.test.ts", "src/spec-tests/**"],
+  "ignoreBinaries": ["tsx"],
+  "rules": {
+    "unlisted": "off",
+    "unresolved": "off",
+    "optionalPeerDependencies": "off",
+    "types": "off"
+  }
+}

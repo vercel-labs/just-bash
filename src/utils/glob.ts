@@ -99,11 +99,3 @@ function globToRegex(pattern: string, ignoreCase?: boolean): RegExp {
   regex += "$";
   return new RegExp(regex, ignoreCase ? "i" : "");
 }
-
-/**
- * Clear the glob regex cache.
- * Useful for testing or memory management.
- */
-export function clearGlobCache(): void {
-  globRegexCache.clear();
-}

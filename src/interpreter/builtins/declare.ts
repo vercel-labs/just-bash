@@ -222,7 +222,7 @@ export function parseArrayElements(content: string): string[] {
  * Parse associative array literal content like "['foo']=bar ['spam']=42"
  * Returns array of [key, value] pairs
  */
-export function parseAssocArrayLiteral(content: string): [string, string][] {
+function parseAssocArrayLiteral(content: string): [string, string][] {
   const entries: [string, string][] = [];
   let pos = 0;
 

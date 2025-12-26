@@ -277,3 +277,7 @@ Woohoo
 - Make a binary called `bash-env` which takes a root path (default to .) and accepts a shell script via argument or STDIN and then executes it with an OverlayFS from the path
 - The idea is that this can be used as a secure alternative to `sh` or `bash` by AI agents
 - Should be a bin in `package.json`. Should be globally installable.
+
+## Implementation phase 21
+
+Build binaries with esbuild

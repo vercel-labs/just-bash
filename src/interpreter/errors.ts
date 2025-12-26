@@ -16,7 +16,7 @@
  * Base class for all control flow errors.
  * Carries stdout/stderr to preserve output during propagation.
  */
-export abstract class ControlFlowError extends Error {
+abstract class ControlFlowError extends Error {
   constructor(
     message: string,
     public stdout: string = "",
@@ -151,35 +151,6 @@ export class BadSubstitutionError extends ControlFlowError {
     super(message, stdout, stderr);
     this.stderr = stderr || `bash: ${message}: bad substitution\n`;
   }
-}
-
-/**
- * Error thrown for array index out of bounds errors.
- * Returns exit code 1.
- */
-export class ArrayIndexError extends ControlFlowError {
-  readonly name = "ArrayIndexError";
-
-  constructor(
-    arrayName: string,
-    index: number,
-    length: number,
-    stdout: string = "",
-    stderr: string = "",
-  ) {
-    super(
-      `Index ${index} is out of bounds for array of length ${length}`,
-      stdout,
-      stderr || `bash: ${arrayName}: bad array subscript\n`,
-    );
-  }
-}
-
-/**
- * Type guard to check if an error is a control flow error that should propagate.
- */
-export function isControlFlowError(error: unknown): error is ControlFlowError {
-  return error instanceof ControlFlowError;
 }
 
 /**

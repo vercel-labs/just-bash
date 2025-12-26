@@ -46,12 +46,7 @@ import { getLiteralValue, isQuotedPart } from "./helpers/word-parts.js";
 import type { InterpreterContext } from "./types.js";
 
 // Re-export for backward compatibility
-export { patternToRegex } from "./expansion/pattern.js";
-export {
-  getArrayElements,
-  getVariable,
-  isArray,
-} from "./expansion/variable.js";
+export { getArrayElements, getVariable } from "./expansion/variable.js";
 
 /**
  * Quote a value for safe reuse as shell input (${var@Q} transformation)

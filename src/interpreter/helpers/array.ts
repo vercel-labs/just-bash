@@ -42,16 +42,6 @@ export function clearArray(ctx: InterpreterContext, arrayName: string): void {
 }
 
 /**
- * Check if an array is associative (declared with -A).
- */
-export function isAssociativeArray(
-  ctx: InterpreterContext,
-  name: string,
-): boolean {
-  return ctx.state.associativeArrays?.has(name) ?? false;
-}
-
-/**
  * Get all keys of an associative array.
  * For associative arrays, keys are stored as `name_key` where key is a string.
  */

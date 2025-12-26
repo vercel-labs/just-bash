@@ -19,7 +19,7 @@ export function markReadonly(ctx: InterpreterContext, name: string): void {
 /**
  * Check if a variable is readonly.
  */
-export function isReadonly(ctx: InterpreterContext, name: string): boolean {
+function isReadonly(ctx: InterpreterContext, name: string): boolean {
   return ctx.state.readonlyVars?.has(name) ?? false;
 }
 

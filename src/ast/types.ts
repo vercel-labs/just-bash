@@ -779,35 +779,6 @@ export interface CondWordNode extends ASTNode {
 }
 
 // =============================================================================
-// TYPE GUARDS
-// =============================================================================
-
-export function isCompoundCommand(
-  node: CommandNode,
-): node is CompoundCommandNode {
-  return [
-    "If",
-    "For",
-    "CStyleFor",
-    "While",
-    "Until",
-    "Case",
-    "Subshell",
-    "Group",
-    "ArithmeticCommand",
-    "ConditionalCommand",
-  ].includes(node.type);
-}
-
-export function isSimpleCommand(node: CommandNode): node is SimpleCommandNode {
-  return node.type === "SimpleCommand";
-}
-
-export function isFunctionDef(node: CommandNode): node is FunctionDefNode {
-  return node.type === "FunctionDef";
-}
-
-// =============================================================================
 // FACTORY FUNCTIONS (for building AST nodes)
 // =============================================================================
 

@@ -8,23 +8,6 @@
 import type { WordPart } from "../../ast/types.js";
 
 /**
- * Part types that contain a simple literal value accessible via part.value
- */
-export const LITERAL_PART_TYPES: Set<string> = new Set([
-  "Literal",
-  "SingleQuoted",
-  "Escaped",
-]);
-
-/**
- * Part types that are inherently quoted (content should not be glob-expanded)
- */
-export const QUOTED_PART_TYPES: Set<string> = new Set([
-  "SingleQuoted",
-  "Escaped",
-]);
-
-/**
  * Get the literal string value from a word part.
  * Returns the value for Literal, SingleQuoted, and Escaped parts.
  * Returns null for complex parts that require expansion.

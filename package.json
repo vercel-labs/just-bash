@@ -40,6 +40,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
+    "knip": "knip",
     "test": "vitest",
     "test:run": "vitest run",
     "test:unit": "vitest run --config vitest.unit.config.ts",
@@ -56,6 +57,7 @@
     "@types/sprintf-js": "^1.1.4",
     "@types/turndown": "^5.0.6",
     "ai": "^6.0.3",
+    "knip": "^5.41.1",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16",
     "zod": "^4.2.1"

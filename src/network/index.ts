@@ -5,14 +5,6 @@
  */
 
 export {
-  isUrlAllowed,
-  matchesAllowListEntry,
-  normalizeAllowListEntry,
-  parseUrl,
-  validateAllowList,
-} from "./allow-list.js";
-
-export {
   createSecureFetch,
   type SecureFetch,
   type SecureFetchOptions,
@@ -21,7 +13,6 @@ export {
 export {
   type FetchResult,
   type HttpMethod,
-  MethodNotAllowedError,
   NetworkAccessDeniedError,
   type NetworkConfig,
   RedirectNotAllowedError,

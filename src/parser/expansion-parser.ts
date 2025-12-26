@@ -15,7 +15,7 @@ import { parseArithmeticExpression } from "./arithmetic-parser.js";
 import type { Parser } from "./parser.js";
 import * as WordParser from "./word-parser.js";
 
-export function parseSimpleParameter(
+function parseSimpleParameter(
   _p: Parser,
   value: string,
   start: number,
@@ -44,7 +44,7 @@ export function parseSimpleParameter(
   };
 }
 
-export function parseParameterExpansion(
+function parseParameterExpansion(
   p: Parser,
   value: string,
   start: number,
@@ -177,7 +177,7 @@ export function parseParameterExpansion(
   };
 }
 
-export function parseParameterOperation(
+function parseParameterOperation(
   p: Parser,
   value: string,
   start: number,
@@ -444,7 +444,7 @@ export function parseParameterOperation(
   return { operation: null, endIndex: i };
 }
 
-export function parseExpansion(
+function parseExpansion(
   p: Parser,
   value: string,
   start: number,
@@ -501,7 +501,7 @@ export function parseExpansion(
   return { part: AST.literal("$"), endIndex: i };
 }
 
-export function parseDoubleQuotedContent(p: Parser, value: string): WordPart[] {
+function parseDoubleQuotedContent(p: Parser, value: string): WordPart[] {
   const parts: WordPart[] = [];
   let i = 0;
   let literal = "";
@@ -563,7 +563,7 @@ export function parseDoubleQuotedContent(p: Parser, value: string): WordPart[] {
   return parts;
 }
 
-export function parseDoubleQuoted(
+function parseDoubleQuoted(
   p: Parser,
   value: string,
   start: number,

@@ -17,7 +17,7 @@ const MAX_SAFE_RANGE_ITERATIONS = 10000;
  * - When step direction is "wrong", use absolute value and go in natural direction
  * - Zero-padding: use the max width of start/end for padding
  */
-export function safeExpandNumericRange(
+function safeExpandNumericRange(
   start: number,
   end: number,
   rawStep: number | undefined,
@@ -83,7 +83,7 @@ export function safeExpandNumericRange(
  * - When step direction is "wrong", use absolute value and go in natural direction
  * - Mixed case (e.g., {z..A}) is invalid - return null
  */
-export function safeExpandCharRange(
+function safeExpandCharRange(
   start: string,
   end: string,
   rawStep: number | undefined,

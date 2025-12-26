@@ -10,6 +10,7 @@
 - Commands must handle unknown arguments correctly
 - Always ensure all tests pass in the end and there are no compile and lint errors
 - Use `pnpm lint:fix`
+- Always also run `pnpm knip`
 - Strongly prefer running a temporary comparison test or unit test over an ad-hoc script to figure out the behavior of some bash script or API.
 - The implementation should align with the real behavior of bash, not what is convenient for TS or TE tests.
 - Always make sure to build before using dist

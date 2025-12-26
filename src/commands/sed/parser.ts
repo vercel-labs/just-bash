@@ -102,7 +102,7 @@ function parseAddressRange(script: string): {
   return { rest };
 }
 
-export function parseSedScript(script: string): ParseResult {
+function parseSedScript(script: string): ParseResult {
   const trimmed = script.trim();
   if (!trimmed) {
     return { command: null };

@@ -69,7 +69,7 @@ export function parseRedirection(p: Parser): RedirectionNode {
   return AST.redirection(operator, target, fd);
 }
 
-export function parseHeredocStart(
+function parseHeredocStart(
   p: Parser,
   _operator: RedirectionOperator,
   fd: number | null,
@@ -188,7 +188,7 @@ export function parseSimpleCommand(p: Parser): SimpleCommandNode {
   return AST.simpleCommand(name, args, assignments, redirections);
 }
 
-export function parseAssignment(p: Parser): AssignmentNode {
+function parseAssignment(p: Parser): AssignmentNode {
   const token = p.expect(TokenType.ASSIGNMENT_WORD);
   const value = token.value;
 
@@ -274,7 +274,7 @@ export function parseAssignment(p: Parser): AssignmentNode {
   return AST.assignment(assignName, wordValue, append, null);
 }
 
-export function parseArrayElements(p: Parser): WordNode[] {
+function parseArrayElements(p: Parser): WordNode[] {
   const elements: WordNode[] = [];
   p.skipNewlines();
 

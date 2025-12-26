@@ -222,7 +222,7 @@ function processEscapesInString(str: string): string {
     .replace(/\\\\/g, "\\");
 }
 
-export function evaluateConcatenation(expr: string, ctx: AwkContext): string {
+function evaluateConcatenation(expr: string, ctx: AwkContext): string {
   let result = "";
   let i = 0;
 
@@ -387,7 +387,7 @@ function splitLogicalOp(expr: string, op: string): string[] {
   return parts;
 }
 
-export function compareValues(
+function compareValues(
   left: number | string,
   op: string,
   right: number | string,

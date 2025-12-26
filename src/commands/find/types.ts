@@ -32,21 +32,6 @@ export type FindAction =
   | { type: "print0" }
   | { type: "delete" };
 
-// Known predicates that take arguments
-export const PREDICATES_WITH_ARGS: Set<string> = new Set([
-  "-name",
-  "-iname",
-  "-path",
-  "-ipath",
-  "-type",
-  "-maxdepth",
-  "-mindepth",
-  "-mtime",
-  "-newer",
-  "-size",
-  "-perm",
-]);
-
 // Evaluation context for file matching
 export interface EvalContext {
   name: string;

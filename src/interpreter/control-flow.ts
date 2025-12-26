@@ -37,17 +37,6 @@ import { failure, result } from "./helpers/result.js";
 import { executeStatements } from "./helpers/statements.js";
 import type { InterpreterContext } from "./types.js";
 
-// Re-export error classes for backwards compatibility
-export {
-  BreakError,
-  ContinueError,
-  ErrexitError,
-  isControlFlowError,
-  isScopeExitError,
-  NounsetError,
-  ReturnError,
-} from "./errors.js";
-
 export async function executeIf(
   ctx: InterpreterContext,
   node: IfNode,
