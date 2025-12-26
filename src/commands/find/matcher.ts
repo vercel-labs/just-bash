@@ -1,58 +1,7 @@
 // Matcher functions for find command
 
+import { matchGlob } from "../../utils/glob.js";
 import type { EvalContext, Expression } from "./types.js";
-
-// Cache compiled regexes for glob patterns (key: pattern + ignoreCase flag)
-const globRegexCache = new Map<string, RegExp>();
-
-export function matchGlob(
-  name: string,
-  pattern: string,
-  ignoreCase = false,
-): boolean {
-  // Check cache first
-  const cacheKey = ignoreCase ? `i:${pattern}` : pattern;
-  let re = globRegexCache.get(cacheKey);
-
-  if (!re) {
-    // Convert glob pattern to regex
-    let regex = "^";
-    for (let i = 0; i < pattern.length; i++) {
-      const c = pattern[i];
-      if (c === "*") {
-        regex += ".*";
-      } else if (c === "?") {
-        regex += ".";
-      } else if (c === "[") {
-        // Character class
-        let j = i + 1;
-        while (j < pattern.length && pattern[j] !== "]") j++;
-        regex += pattern.slice(i, j + 1);
-        i = j;
-      } else if (
-        c === "." ||
-        c === "+" ||
-        c === "^" ||
-        c === "$" ||
-        c === "{" ||
-        c === "}" ||
-        c === "(" ||
-        c === ")" ||
-        c === "|" ||
-        c === "\\"
-      ) {
-        regex += `\\${c}`;
-      } else {
-        regex += c;
-      }
-    }
-    regex += "$";
-    re = new RegExp(regex, ignoreCase ? "i" : "");
-    globRegexCache.set(cacheKey, re);
-  }
-
-  return re.test(name);
-}
 
 export function evaluateExpression(
   expr: Expression,

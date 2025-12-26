@@ -407,7 +407,11 @@ describe("OverlayFs", () => {
 
   describe("readOnly mode", () => {
     it("should throw EROFS on writeFile when readOnly is true", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/", readOnly: true });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        readOnly: true,
+      });
 
       await expect(overlay.writeFile("/test.txt", "content")).rejects.toThrow(
         "EROFS: read-only file system",
@@ -416,7 +420,11 @@ describe("OverlayFs", () => {
 
     it("should throw EROFS on appendFile when readOnly is true", async () => {
       fs.writeFileSync(path.join(tempDir, "existing.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/", readOnly: true });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        readOnly: true,
+      });
 
       await expect(overlay.appendFile("/existing.txt", "more")).rejects.toThrow(
         "EROFS: read-only file system",
@@ -424,7 +432,11 @@ describe("OverlayFs", () => {
     });
 
     it("should throw EROFS on mkdir when readOnly is true", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/", readOnly: true });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        readOnly: true,
+      });
 
       await expect(overlay.mkdir("/newdir")).rejects.toThrow(
         "EROFS: read-only file system",
@@ -433,7 +445,11 @@ describe("OverlayFs", () => {
 
     it("should throw EROFS on rm when readOnly is true", async () => {
       fs.writeFileSync(path.join(tempDir, "delete.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/", readOnly: true });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        readOnly: true,
+      });
 
       await expect(overlay.rm("/delete.txt")).rejects.toThrow(
         "EROFS: read-only file system",
@@ -442,7 +458,11 @@ describe("OverlayFs", () => {
 
     it("should throw EROFS on cp when readOnly is true", async () => {
       fs.writeFileSync(path.join(tempDir, "source.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/", readOnly: true });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        readOnly: true,
+      });
 
       await expect(overlay.cp("/source.txt", "/dest.txt")).rejects.toThrow(
         "EROFS: read-only file system",
@@ -451,7 +471,11 @@ describe("OverlayFs", () => {
 
     it("should throw EROFS on mv when readOnly is true", async () => {
       fs.writeFileSync(path.join(tempDir, "source.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/", readOnly: true });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        readOnly: true,
+      });
 
       await expect(overlay.mv("/source.txt", "/dest.txt")).rejects.toThrow(
         "EROFS: read-only file system",
@@ -460,7 +484,11 @@ describe("OverlayFs", () => {
 
     it("should throw EROFS on chmod when readOnly is true", async () => {
       fs.writeFileSync(path.join(tempDir, "file.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/", readOnly: true });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        readOnly: true,
+      });
 
       await expect(overlay.chmod("/file.txt", 0o755)).rejects.toThrow(
         "EROFS: read-only file system",
@@ -468,7 +496,11 @@ describe("OverlayFs", () => {
     });
 
     it("should throw EROFS on symlink when readOnly is true", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/", readOnly: true });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        readOnly: true,
+      });
 
       await expect(overlay.symlink("/target", "/link")).rejects.toThrow(
         "EROFS: read-only file system",
@@ -477,17 +509,25 @@ describe("OverlayFs", () => {
 
     it("should throw EROFS on link when readOnly is true", async () => {
       fs.writeFileSync(path.join(tempDir, "source.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/", readOnly: true });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        readOnly: true,
+      });
 
-      await expect(overlay.link("/source.txt", "/hardlink.txt")).rejects.toThrow(
-        "EROFS: read-only file system",
-      );
+      await expect(
+        overlay.link("/source.txt", "/hardlink.txt"),
+      ).rejects.toThrow("EROFS: read-only file system");
     });
 
     it("should allow read operations when readOnly is true", async () => {
       fs.writeFileSync(path.join(tempDir, "test.txt"), "content");
       fs.mkdirSync(path.join(tempDir, "subdir"));
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/", readOnly: true });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        readOnly: true,
+      });
 
       // All read operations should work
       expect(await overlay.readFile("/test.txt")).toBe("content");
@@ -506,7 +546,11 @@ describe("OverlayFs", () => {
 
     it("should work with BashEnv in readOnly mode", async () => {
       fs.writeFileSync(path.join(tempDir, "data.txt"), "hello");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/", readOnly: true });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        readOnly: true,
+      });
       const env = new BashEnv({ fs: overlay, cwd: "/" });
 
       // Read should work

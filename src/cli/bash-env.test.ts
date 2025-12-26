@@ -1,4 +1,4 @@
-import { execSync, spawn } from "node:child_process";
+import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -310,7 +310,14 @@ describe("bash-env CLI", () => {
     });
 
     it("should allow --cwd to override working directory", () => {
-      const result = runCli(["-c", "'pwd'", "--root", tempDir, "--cwd", "/tmp"]);
+      const result = runCli([
+        "-c",
+        "'pwd'",
+        "--root",
+        tempDir,
+        "--cwd",
+        "/tmp",
+      ]);
       expect(result.stdout.trim()).toBe("/tmp");
     });
   });

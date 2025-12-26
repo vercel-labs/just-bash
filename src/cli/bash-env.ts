@@ -244,9 +244,7 @@ async function main(): Promise<void> {
         : `${mountPoint}/${options.scriptFile}`;
       script = await fs.readFile(virtualPath, "utf-8");
     } catch (e) {
-      console.error(
-        `Error: Cannot read script file: ${options.scriptFile}`,
-      );
+      console.error(`Error: Cannot read script file: ${options.scriptFile}`);
       console.error(e instanceof Error ? e.message : String(e));
       process.exit(1);
     }
@@ -269,7 +267,10 @@ async function main(): Promise<void> {
 
   // Create OverlayFS - files are mounted at /home/user/project by default
   // Read-only by default for security (use --allow-write to enable writes)
-  const fs = new OverlayFs({ root: options.root, readOnly: !options.allowWrite });
+  const fs = new OverlayFs({
+    root: options.root,
+    readOnly: !options.allowWrite,
+  });
   const mountPoint = fs.getMountPoint();
 
   // Use mount point as cwd unless explicitly overridden

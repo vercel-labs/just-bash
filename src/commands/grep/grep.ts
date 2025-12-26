@@ -1,4 +1,5 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { matchGlob } from "../../utils/glob.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const grepHelp = {
@@ -264,14 +265,22 @@ export const grepCommand: Command = {
 
       // Check exclude patterns for non-recursive case
       if (excludePatterns.length > 0 && !recursive) {
-        if (excludePatterns.some((p) => matchGlob(basename, p))) {
+        if (
+          excludePatterns.some((p) =>
+            matchGlob(basename, p, { stripQuotes: true }),
+          )
+        ) {
           continue;
         }
       }
 
       // Check include patterns for non-recursive case
       if (includePatterns.length > 0 && !recursive) {
-        if (!includePatterns.some((p) => matchGlob(basename, p))) {
+        if (
+          !includePatterns.some((p) =>
+            matchGlob(basename, p, { stripQuotes: true }),
+          )
+        ) {
           continue;
         }
       }
@@ -554,14 +563,22 @@ async function expandRecursive(
 
       // Check exclude patterns - skip if file matches any exclude pattern
       if (excludePatterns.length > 0) {
-        if (excludePatterns.some((p) => matchGlob(basename, p))) {
+        if (
+          excludePatterns.some((p) =>
+            matchGlob(basename, p, { stripQuotes: true }),
+          )
+        ) {
           return [];
         }
       }
 
       // Check include patterns - file must match at least one pattern (if any are specified)
       if (includePatterns.length > 0) {
-        if (!includePatterns.some((p) => matchGlob(basename, p))) {
+        if (
+          !includePatterns.some((p) =>
+            matchGlob(basename, p, { stripQuotes: true }),
+          )
+        ) {
           return [];
         }
       }
@@ -571,7 +588,11 @@ async function expandRecursive(
     // Check if directory should be excluded
     const dirName = path.split("/").pop() || path;
     if (excludeDirPatterns.length > 0) {
-      if (excludeDirPatterns.some((p) => matchGlob(dirName, p))) {
+      if (
+        excludeDirPatterns.some((p) =>
+          matchGlob(dirName, p, { stripQuotes: true }),
+        )
+      ) {
         return [];
       }
     }
@@ -595,26 +616,6 @@ async function expandRecursive(
   }
 
   return result;
-}
-
-function matchGlob(filename: string, pattern: string): boolean {
-  // Convert glob pattern to regex
-  // Remove surrounding quotes if present
-  let cleanPattern = pattern;
-  if (
-    (cleanPattern.startsWith('"') && cleanPattern.endsWith('"')) ||
-    (cleanPattern.startsWith("'") && cleanPattern.endsWith("'"))
-  ) {
-    cleanPattern = cleanPattern.slice(1, -1);
-  }
-
-  const regexPattern = cleanPattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&") // Escape special regex chars
-    .replace(/\*/g, ".*") // * matches anything
-    .replace(/\?/g, "."); // ? matches single char
-
-  const regex = new RegExp(`^${regexPattern}$`);
-  return regex.test(filename);
 }
 
 async function expandGlobPattern(
@@ -654,7 +655,7 @@ async function expandGlobPattern(
     const entries = await ctx.fs.readdir(fullDirPath);
 
     for (const entry of entries) {
-      if (matchGlob(entry, globPart)) {
+      if (matchGlob(entry, globPart, { stripQuotes: true })) {
         const fullPath = lastSlash === -1 ? entry : `${dirPath}/${entry}`;
         result.push(fullPath);
       }
@@ -682,7 +683,7 @@ async function expandRecursiveGlob(
       const filename = baseDir.split("/").pop() || "";
       if (afterGlob) {
         const pattern = afterGlob.replace(/^\//, "");
-        if (matchGlob(filename, pattern)) {
+        if (matchGlob(filename, pattern, { stripQuotes: true })) {
           result.push(baseDir);
         }
       }
@@ -702,7 +703,7 @@ async function expandRecursiveGlob(
       } else if (afterGlob) {
         // Check if file matches afterGlob pattern
         const pattern = afterGlob.replace(/^\//, "");
-        if (matchGlob(entry, pattern)) {
+        if (matchGlob(entry, pattern, { stripQuotes: true })) {
           result.push(entryPath);
         }
       }
