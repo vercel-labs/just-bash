@@ -1,5 +1,6 @@
 import { sprintf } from "sprintf-js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const printfHelp = {
@@ -125,8 +126,7 @@ export const printfCommand: Command = {
 
       return { stdout: output, stderr: errorMessage, exitCode: hadError ? 1 : 0 };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return { stdout: "", stderr: `printf: ${message}\n`, exitCode: 1 };
+      return { stdout: "", stderr: `printf: ${getErrorMessage(error)}\n`, exitCode: 1 };
     }
   },
 };

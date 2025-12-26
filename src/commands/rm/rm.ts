@@ -1,4 +1,5 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { unknownOption } from "../help.js";
 
 export const rmCommand: Command = {
@@ -62,8 +63,7 @@ export const rmCommand: Command = {
         }
       } catch (error) {
         if (!force) {
-          const message =
-            error instanceof Error ? error.message : String(error);
+          const message = getErrorMessage(error);
           if (message.includes("ENOENT") || message.includes("no such file")) {
             stderr += `rm: cannot remove '${path}': No such file or directory\n`;
           } else if (

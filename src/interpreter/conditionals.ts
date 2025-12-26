@@ -296,14 +296,10 @@ async function evaluateTestPrimary(
     return { value, pos: pos + 2 };
   }
 
-  // Unary string tests
-  if (token === "-z") {
+  // Unary string tests - use shared helper
+  if (isStringTestOp(token)) {
     const operand = args[pos + 1] ?? "";
-    return { value: operand === "", pos: pos + 2 };
-  }
-  if (token === "-n") {
-    const operand = args[pos + 1] ?? "";
-    return { value: operand !== "", pos: pos + 2 };
+    return { value: evaluateStringTest(token, operand), pos: pos + 2 };
   }
 
   // Variable tests

@@ -12,6 +12,7 @@
 import * as fs from "node:fs";
 import * as readline from "node:readline";
 import { BashEnv } from "../BashEnv.js";
+import { getErrorMessage } from "../interpreter/helpers/errors.js";
 
 // ANSI colors
 const colors = {
@@ -145,8 +146,7 @@ class VirtualShell {
         process.stderr.write(`${colors.red}${result.stderr}${colors.reset}`);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`${colors.red}Error: ${message}${colors.reset}`);
+      console.error(`${colors.red}Error: ${getErrorMessage(error)}${colors.reset}`);
     }
   }
 

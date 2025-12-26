@@ -6,6 +6,7 @@
  */
 
 import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import { generateMultipartBody } from "./form.js";
 import { curlHelp } from "./help.js";
@@ -257,7 +258,7 @@ export const curlCommand: Command = {
 
       return { stdout: output, stderr: "", exitCode: 0 };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
 
       // Determine exit code based on error type
       let exitCode = 1;

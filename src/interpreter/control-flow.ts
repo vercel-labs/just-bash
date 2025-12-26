@@ -30,7 +30,11 @@ import {
   isScopeExitError,
   ReturnError,
 } from "./errors.js";
-import { handleLoopError } from "./helpers/loop.js";
+import {
+  executeCondition,
+  getErrorMessage,
+  handleLoopError,
+} from "./helpers/index.js";
 import {
   escapeGlobChars,
   expandWord,
@@ -59,23 +63,12 @@ export async function executeIf(
   let exitCode = 0;
 
   for (const clause of node.clauses) {
-    let conditionExitCode = 0;
-
     // Condition evaluation should not trigger errexit
-    const savedInCondition = ctx.state.inCondition;
-    ctx.state.inCondition = true;
-    try {
-      for (const stmt of clause.condition) {
-        const result = await ctx.executeStatement(stmt);
-        stdout += result.stdout;
-        stderr += result.stderr;
-        conditionExitCode = result.exitCode;
-      }
-    } finally {
-      ctx.state.inCondition = savedInCondition;
-    }
+    const condResult = await executeCondition(ctx, clause.condition);
+    stdout += condResult.stdout;
+    stderr += condResult.stderr;
 
-    if (conditionExitCode === 0) {
+    if (condResult.exitCode === 0) {
       try {
         for (const stmt of clause.body) {
           const result = await ctx.executeStatement(stmt);
@@ -92,8 +85,7 @@ export async function executeIf(
           error.prependOutput(stdout, stderr);
           throw error;
         }
-        const message = error instanceof Error ? error.message : String(error);
-        return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
+        return { stdout, stderr: `${stderr}${getErrorMessage(error)}\n`, exitCode: 1 };
       }
       return { stdout, stderr, exitCode };
     }
@@ -116,8 +108,7 @@ export async function executeIf(
         error.prependOutput(stdout, stderr);
         throw error;
       }
-      const message = error instanceof Error ? error.message : String(error);
-      return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
+      return { stdout, stderr: `${stderr}${getErrorMessage(error)}\n`, exitCode: 1 };
     }
   }
 
@@ -391,23 +382,12 @@ export async function executeUntil(
         };
       }
 
-      let conditionExitCode = 0;
-
       // Condition evaluation should not trigger errexit
-      const savedInCondition = ctx.state.inCondition;
-      ctx.state.inCondition = true;
-      try {
-        for (const stmt of node.condition) {
-          const result = await ctx.executeStatement(stmt);
-          stdout += result.stdout;
-          stderr += result.stderr;
-          conditionExitCode = result.exitCode;
-        }
-      } finally {
-        ctx.state.inCondition = savedInCondition;
-      }
+      const condResult = await executeCondition(ctx, node.condition);
+      stdout += condResult.stdout;
+      stderr += condResult.stderr;
 
-      if (conditionExitCode === 0) break;
+      if (condResult.exitCode === 0) break;
 
       try {
         for (const stmt of node.body) {
@@ -485,8 +465,7 @@ export async function executeCase(
           error.prependOutput(stdout, stderr);
           throw error;
         }
-        const message = error instanceof Error ? error.message : String(error);
-        return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
+        return { stdout, stderr: `${stderr}${getErrorMessage(error)}\n`, exitCode: 1 };
       }
 
       // Handle different terminators:

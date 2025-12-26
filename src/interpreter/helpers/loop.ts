@@ -13,6 +13,7 @@ import {
   ReturnError,
 } from "../errors.js";
 import type { ExecResult } from "../../types.js";
+import { getErrorMessage } from "./errors.js";
 
 export type LoopAction = "break" | "continue" | "rethrow" | "error";
 
@@ -79,7 +80,7 @@ export function handleLoopError(
   }
 
   // Generic error - return error result
-  const message = error instanceof Error ? error.message : String(error);
+  const message = getErrorMessage(error);
   return {
     action: "error",
     stdout,

@@ -69,6 +69,7 @@ import {
   expandWordWithGlob,
   getArrayElements,
 } from "./expansion.js";
+import { getErrorMessage } from "./helpers/index.js";
 import { callFunction, executeFunctionDef } from "./functions.js";
 import { applyRedirections } from "./redirections.js";
 import type { InterpreterContext, InterpreterState } from "./types.js";
@@ -679,10 +680,9 @@ export class Interpreter {
     try {
       return await cmd.execute(args, cmdCtx);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
       return {
         stdout: "",
-        stderr: `${commandName}: ${message}\n`,
+        stderr: `${commandName}: ${getErrorMessage(error)}\n`,
         exitCode: 1,
       };
     }
@@ -722,10 +722,9 @@ export class Interpreter {
     try {
       return await cmd.execute(args, cmdCtx);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
       return {
         stdout: "",
-        stderr: `${commandName}: ${message}\n`,
+        stderr: `${commandName}: ${getErrorMessage(error)}\n`,
         exitCode: 1,
       };
     }
@@ -868,8 +867,7 @@ export class Interpreter {
         error.stderr = stderr + error.stderr;
         throw error;
       }
-      const message = error instanceof Error ? error.message : String(error);
-      return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
+      return { stdout, stderr: `${stderr}${getErrorMessage(error)}\n`, exitCode: 1 };
     }
 
     this.ctx.state.env = savedEnv;
@@ -908,8 +906,7 @@ export class Interpreter {
         error.prependOutput(stdout, stderr);
         throw error;
       }
-      const message = error instanceof Error ? error.message : String(error);
-      return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
+      return { stdout, stderr: `${stderr}${getErrorMessage(error)}\n`, exitCode: 1 };
     }
 
     // Restore groupStdin

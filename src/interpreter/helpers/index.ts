@@ -11,3 +11,6 @@ export * from "./variable-tests.js";
 export * from "./numeric-compare.js";
 export * from "./string-tests.js";
 export * from "./array.js";
+export * from "./errors.js";
+export * from "./regex.js";
+export * from "./condition.js";

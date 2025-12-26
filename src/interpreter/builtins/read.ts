@@ -4,6 +4,7 @@
 
 import type { ExecResult } from "../../types.js";
 import { clearArray } from "../helpers/array.js";
+import { escapeRegexCharClass } from "../helpers/regex.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleRead(
@@ -152,14 +153,12 @@ export function handleRead(
     wordStarts = [0];
   } else {
     // Create regex from IFS characters
-    const ifsRegex = new RegExp(
-      `[${ifs.replace(/[-[\]{}()*+?.,\\^$|#]/g, "\\$&")}]+`,
-      "g",
-    );
+    const escapedIfs = escapeRegexCharClass(ifs);
+    const ifsRegex = new RegExp(`[${escapedIfs}]+`, "g");
     let lastEnd = 0;
     let match: RegExpExecArray | null;
     // Find leading IFS and strip it
-    const leadingMatch = line.match(new RegExp(`^[${ifs.replace(/[-[\]{}()*+?.,\\^$|#]/g, "\\$&")}]+`));
+    const leadingMatch = line.match(new RegExp(`^[${escapedIfs}]+`));
     if (leadingMatch) {
       lastEnd = leadingMatch[0].length;
     }
@@ -200,7 +199,7 @@ export function handleRead(
         let value = line.substring(wordStarts[j]);
         // Strip trailing IFS whitespace
         const trailingIfsRegex = new RegExp(
-          `[${ifs.replace(/[-[\]{}()*+?.,\\^$|#]/g, "\\$&")}]+$`,
+          `[${escapeRegexCharClass(ifs)}]+$`,
         );
         value = value.replace(trailingIfsRegex, "");
         ctx.state.env[name] = value;

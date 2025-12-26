@@ -1,4 +1,5 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const mvHelp = {
@@ -122,7 +123,7 @@ export const mvCommand: Command = {
           stdout += `renamed '${src}' -> '${targetName}'\n`;
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         if (message.includes("ENOENT") || message.includes("no such file")) {
           stderr += `mv: cannot stat '${src}': No such file or directory\n`;
         } else {

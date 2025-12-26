@@ -20,6 +20,7 @@ import { GlobExpander } from "../shell/glob.js";
 import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
 import { BadSubstitutionError, ExitError, NounsetError } from "./errors.js";
 import { getArrayIndices } from "./helpers/array.js";
+import { escapeRegex } from "./helpers/regex.js";
 import type { InterpreterContext } from "./types.js";
 
 // Helper to extract numeric value from an arithmetic expression
@@ -1152,14 +1153,6 @@ export function getVariable(
     throw new NounsetError(name);
   }
   return value || "";
-}
-
-/**
- * Escape a string for use as a literal in a regex pattern.
- * All regex special characters are escaped.
- */
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function patternToRegex(pattern: string, greedy: boolean): string {
