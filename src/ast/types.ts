@@ -595,6 +595,9 @@ export type BraceItem =
       start: string | number;
       end: string | number;
       step?: number;
+      // Original string form for zero-padding support
+      startStr?: string;
+      endStr?: string;
     };
 
 /** Tilde expansion: ~ or ~user */

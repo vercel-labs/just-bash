@@ -24,12 +24,23 @@ export async function evaluateConditional(
       const left = await expandWord(ctx, expr.left);
       const right = await expandWord(ctx, expr.right);
 
+      // Check if RHS is fully quoted (should be treated literally, not as pattern)
+      const isRhsQuoted =
+        expr.right.parts.length > 0 &&
+        expr.right.parts.every(
+          (p) =>
+            p.type === "SingleQuoted" ||
+            p.type === "DoubleQuoted" ||
+            p.type === "Escaped",
+        );
+
       switch (expr.operator) {
         case "==":
         case "=":
-          return matchPattern(left, right);
+          // If RHS is quoted, use literal comparison; otherwise use pattern matching
+          return isRhsQuoted ? left === right : matchPattern(left, right);
         case "!=":
-          return !matchPattern(left, right);
+          return isRhsQuoted ? left !== right : !matchPattern(left, right);
         case "=~": {
           try {
             const regex = new RegExp(right);
@@ -50,17 +61,17 @@ export async function evaluateConditional(
         case ">":
           return left > right;
         case "-eq":
-          return Number.parseInt(left, 10) === Number.parseInt(right, 10);
+          return parseNumeric(left) === parseNumeric(right);
         case "-ne":
-          return Number.parseInt(left, 10) !== Number.parseInt(right, 10);
+          return parseNumeric(left) !== parseNumeric(right);
         case "-lt":
-          return Number.parseInt(left, 10) < Number.parseInt(right, 10);
+          return parseNumeric(left) < parseNumeric(right);
         case "-le":
-          return Number.parseInt(left, 10) <= Number.parseInt(right, 10);
+          return parseNumeric(left) <= parseNumeric(right);
         case "-gt":
-          return Number.parseInt(left, 10) > Number.parseInt(right, 10);
+          return parseNumeric(left) > parseNumeric(right);
         case "-ge":
-          return Number.parseInt(left, 10) >= Number.parseInt(right, 10);
+          return parseNumeric(left) >= parseNumeric(right);
         case "-nt":
         case "-ot":
         case "-ef":
@@ -247,43 +258,37 @@ export async function evaluateTestArgs(
         return {
           stdout: "",
           stderr: "",
-          exitCode:
-            Number.parseInt(left, 10) === Number.parseInt(right, 10) ? 0 : 1,
+          exitCode: parseNumeric(left) === parseNumeric(right) ? 0 : 1,
         };
       case "-ne":
         return {
           stdout: "",
           stderr: "",
-          exitCode:
-            Number.parseInt(left, 10) !== Number.parseInt(right, 10) ? 0 : 1,
+          exitCode: parseNumeric(left) !== parseNumeric(right) ? 0 : 1,
         };
       case "-lt":
         return {
           stdout: "",
           stderr: "",
-          exitCode:
-            Number.parseInt(left, 10) < Number.parseInt(right, 10) ? 0 : 1,
+          exitCode: parseNumeric(left) < parseNumeric(right) ? 0 : 1,
         };
       case "-le":
         return {
           stdout: "",
           stderr: "",
-          exitCode:
-            Number.parseInt(left, 10) <= Number.parseInt(right, 10) ? 0 : 1,
+          exitCode: parseNumeric(left) <= parseNumeric(right) ? 0 : 1,
         };
       case "-gt":
         return {
           stdout: "",
           stderr: "",
-          exitCode:
-            Number.parseInt(left, 10) > Number.parseInt(right, 10) ? 0 : 1,
+          exitCode: parseNumeric(left) > parseNumeric(right) ? 0 : 1,
         };
       case "-ge":
         return {
           stdout: "",
           stderr: "",
-          exitCode:
-            Number.parseInt(left, 10) >= Number.parseInt(right, 10) ? 0 : 1,
+          exitCode: parseNumeric(left) >= parseNumeric(right) ? 0 : 1,
         };
       default:
         return { stdout: "", stderr: "", exitCode: 1 };
@@ -414,6 +419,12 @@ async function evaluateTestPrimary(
     return { value: operand !== "", pos: pos + 2 };
   }
 
+  // Variable tests
+  if (token === "-v") {
+    const varName = args[pos + 1] ?? "";
+    return { value: varName in ctx.state.env, pos: pos + 2 };
+  }
+
   // Check for binary operators
   const next = args[pos + 1];
   if (next === "=" || next === "==" || next === "!=") {
@@ -425,8 +436,8 @@ async function evaluateTestPrimary(
 
   const numericOps = ["-eq", "-ne", "-lt", "-le", "-gt", "-ge"];
   if (numericOps.includes(next)) {
-    const left = Number.parseInt(token, 10);
-    const right = Number.parseInt(args[pos + 2] ?? "0", 10);
+    const left = parseNumeric(token);
+    const right = parseNumeric(args[pos + 2] ?? "0");
     let value = false;
     switch (next) {
       case "-eq":
@@ -498,4 +509,58 @@ export function matchPattern(value: string, pattern: string): boolean {
 
 function resolvePath(ctx: InterpreterContext, path: string): string {
   return ctx.fs.resolvePath(ctx.state.cwd, path);
+}
+
+/**
+ * Parse a bash numeric value, supporting:
+ * - Decimal: 42, -42
+ * - Octal: 0777, -0123
+ * - Hex: 0xff, 0xFF, -0xff
+ * - Base-N: 64#a, 2#1010
+ * - Strings are coerced to 0
+ */
+function parseNumeric(value: string): number {
+  value = value.trim();
+  if (value === "") return 0;
+
+  // Handle negative numbers
+  let negative = false;
+  if (value.startsWith("-")) {
+    negative = true;
+    value = value.slice(1);
+  } else if (value.startsWith("+")) {
+    value = value.slice(1);
+  }
+
+  let result: number;
+
+  // Base-N syntax: base#value
+  const baseMatch = value.match(/^(\d+)#([a-zA-Z0-9]+)$/);
+  if (baseMatch) {
+    const base = Number.parseInt(baseMatch[1], 10);
+    if (base >= 2 && base <= 64) {
+      result = Number.parseInt(baseMatch[2], base);
+    } else {
+      result = 0;
+    }
+  }
+  // Hex: 0x or 0X
+  else if (/^0[xX][0-9a-fA-F]+$/.test(value)) {
+    result = Number.parseInt(value, 16);
+  }
+  // Octal: starts with 0 followed by digits (0-7)
+  else if (/^0[0-7]+$/.test(value)) {
+    result = Number.parseInt(value, 8);
+  }
+  // Decimal
+  else {
+    result = Number.parseInt(value, 10);
+  }
+
+  // NaN becomes 0 (bash coerces invalid strings to 0)
+  if (Number.isNaN(result)) {
+    result = 0;
+  }
+
+  return negative ? -result : result;
 }

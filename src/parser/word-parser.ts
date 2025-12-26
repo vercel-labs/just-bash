@@ -252,10 +252,47 @@ export function parseArithExprFromString(
   };
 }
 
+/**
+ * Split a brace expansion inner content by commas at the top level.
+ * Handles nested braces like {a,{b,c},d} correctly.
+ */
+function splitBraceItems(inner: string): string[] {
+  const items: string[] = [];
+  let current = "";
+  let depth = 0;
+
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if (c === "{") {
+      depth++;
+      current += c;
+    } else if (c === "}") {
+      depth--;
+      current += c;
+    } else if (c === "," && depth === 0) {
+      items.push(current);
+      current = "";
+    } else {
+      current += c;
+    }
+  }
+  items.push(current);
+  return items;
+}
+
+export type WordPartsParser = (
+  p: Parser,
+  value: string,
+  quoted?: boolean,
+  singleQuoted?: boolean,
+  isAssignment?: boolean,
+) => WordPart[];
+
 export function tryParseBraceExpansion(
   p: Parser,
   value: string,
   start: number,
+  parseWordPartsFn?: WordPartsParser,
 ): { part: WordPart; endIndex: number } | null {
   // Find matching }
   const closeIdx = findMatchingBracket(p, value, start, "{", "}");
@@ -263,7 +300,7 @@ export function tryParseBraceExpansion(
 
   const inner = value.slice(start + 1, closeIdx);
 
-  // Check for range: {a..z} or {1..10}
+  // Check for range: {a..z} or {1..10} or {1..10..2}
   const rangeMatch = inner.match(/^(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?$/);
   if (rangeMatch) {
     return {
@@ -277,6 +314,9 @@ export function tryParseBraceExpansion(
             step: rangeMatch[3]
               ? Number.parseInt(rangeMatch[3], 10)
               : undefined,
+            // Store original strings for zero-padding support
+            startStr: rangeMatch[1],
+            endStr: rangeMatch[2],
           },
         ],
       },
@@ -284,7 +324,10 @@ export function tryParseBraceExpansion(
     };
   }
 
-  const charRangeMatch = inner.match(/^([a-zA-Z])\.\.([a-zA-Z])$/);
+  // Character ranges: {a..z} or {a..z..2}
+  const charRangeMatch = inner.match(
+    /^([a-zA-Z])\.\.([a-zA-Z])(?:\.\.(-?\d+))?$/,
+  );
   if (charRangeMatch) {
     return {
       part: {
@@ -294,6 +337,9 @@ export function tryParseBraceExpansion(
             type: "Range",
             start: charRangeMatch[1],
             end: charRangeMatch[2],
+            step: charRangeMatch[3]
+              ? Number.parseInt(charRangeMatch[3], 10)
+              : undefined,
           },
         ],
       },
@@ -302,8 +348,24 @@ export function tryParseBraceExpansion(
   }
 
   // Check for comma-separated list: {a,b,c}
+  if (inner.includes(",") && parseWordPartsFn) {
+    // Split by comma at top level (handling nested braces)
+    const rawItems = splitBraceItems(inner);
+    // Parse each item as a word with full expansion support
+    const items = rawItems.map((s) => ({
+      type: "Word" as const,
+      word: AST.word(parseWordPartsFn(p, s, false, false, false)),
+    }));
+    return {
+      part: { type: "BraceExpansion", items },
+      endIndex: closeIdx + 1,
+    };
+  }
+
+  // Legacy fallback: treat items as literals if no parser provided
   if (inner.includes(",")) {
-    const items = inner.split(",").map((s) => ({
+    const rawItems = splitBraceItems(inner);
+    const items = rawItems.map((s) => ({
       type: "Word" as const,
       word: AST.word([AST.literal(s)]),
     }));

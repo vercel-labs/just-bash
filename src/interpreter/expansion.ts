@@ -35,31 +35,63 @@ const MAX_SAFE_RANGE_ITERATIONS = 10000;
 /**
  * Safely expand a numeric range with step, preventing infinite loops.
  * Returns array of string values, or null if the range is invalid.
+ *
+ * Bash behavior:
+ * - When step is 0, treat it as 1
+ * - When step direction is "wrong", use absolute value and go in natural direction
+ * - Zero-padding: use the max width of start/end for padding
  */
 function safeExpandNumericRange(
   start: number,
   end: number,
   rawStep: number | undefined,
+  startStr?: string,
+  endStr?: string,
 ): string[] | null {
-  const step = rawStep ?? 1;
+  // Step of 0 is treated as 1 in bash
+  let step = rawStep ?? 1;
+  if (step === 0) step = 1;
 
-  // step of 0 would cause infinite loop
-  if (step === 0) return null;
+  // Use absolute value of step - bash ignores step sign and uses natural direction
+  const absStep = Math.abs(step);
 
   const results: string[] = [];
 
+  // Determine zero-padding width (max width of start or end if leading zeros)
+  let padWidth = 0;
+  if (startStr && startStr.match(/^-?0\d/)) {
+    padWidth = Math.max(padWidth, startStr.replace(/^-/, "").length);
+  }
+  if (endStr && endStr.match(/^-?0\d/)) {
+    padWidth = Math.max(padWidth, endStr.replace(/^-/, "").length);
+  }
+
+  const formatNum = (n: number): string => {
+    if (padWidth > 0) {
+      const neg = n < 0;
+      const absStr = String(Math.abs(n)).padStart(padWidth, "0");
+      return neg ? `-${absStr}` : absStr;
+    }
+    return String(n);
+  };
+
   if (start <= end) {
     // Ascending range
-    if (step < 0) return null; // Invalid: ascending with negative step
-    for (let i = start, count = 0; i <= end && count < MAX_SAFE_RANGE_ITERATIONS; i += step, count++) {
-      results.push(String(i));
+    for (
+      let i = start, count = 0;
+      i <= end && count < MAX_SAFE_RANGE_ITERATIONS;
+      i += absStep, count++
+    ) {
+      results.push(formatNum(i));
     }
   } else {
     // Descending range (start > end)
-    if (step > 0) return null; // Invalid: descending with positive step
-    const absStep = Math.abs(step);
-    for (let i = start, count = 0; i >= end && count < MAX_SAFE_RANGE_ITERATIONS; i -= absStep, count++) {
-      results.push(String(i));
+    for (
+      let i = start, count = 0;
+      i >= end && count < MAX_SAFE_RANGE_ITERATIONS;
+      i -= absStep, count++
+    ) {
+      results.push(formatNum(i));
     }
   }
 
@@ -69,32 +101,55 @@ function safeExpandNumericRange(
 /**
  * Safely expand a character range with step, preventing infinite loops.
  * Returns array of string values, or null if the range is invalid.
+ *
+ * Bash behavior:
+ * - When step is 0, treat it as 1
+ * - When step direction is "wrong", use absolute value and go in natural direction
+ * - Mixed case (e.g., {z..A}) is invalid - return null
  */
 function safeExpandCharRange(
   start: string,
   end: string,
   rawStep: number | undefined,
 ): string[] | null {
-  const step = rawStep ?? 1;
+  // Step of 0 is treated as 1 in bash
+  let step = rawStep ?? 1;
+  if (step === 0) step = 1;
+
   const startCode = start.charCodeAt(0);
   const endCode = end.charCodeAt(0);
 
-  // step of 0 would cause infinite loop
-  if (step === 0) return null;
+  // Use absolute value of step - bash ignores step sign and uses natural direction
+  const absStep = Math.abs(step);
+
+  // Check for mixed case (upper to lower or vice versa) - invalid in bash
+  const startIsUpper = start >= "A" && start <= "Z";
+  const startIsLower = start >= "a" && start <= "z";
+  const endIsUpper = end >= "A" && end <= "Z";
+  const endIsLower = end >= "a" && end <= "z";
+
+  if ((startIsUpper && endIsLower) || (startIsLower && endIsUpper)) {
+    return null; // Mixed case is invalid
+  }
 
   const results: string[] = [];
 
   if (startCode <= endCode) {
     // Ascending range
-    if (step < 0) return null; // Invalid: ascending with negative step
-    for (let i = startCode, count = 0; i <= endCode && count < MAX_SAFE_RANGE_ITERATIONS; i += step, count++) {
+    for (
+      let i = startCode, count = 0;
+      i <= endCode && count < MAX_SAFE_RANGE_ITERATIONS;
+      i += absStep, count++
+    ) {
       results.push(String.fromCharCode(i));
     }
   } else {
     // Descending range
-    if (step > 0) return null; // Invalid: descending with positive step
-    const absStep = Math.abs(step);
-    for (let i = startCode, count = 0; i >= endCode && count < MAX_SAFE_RANGE_ITERATIONS; i -= absStep, count++) {
+    for (
+      let i = startCode, count = 0;
+      i >= endCode && count < MAX_SAFE_RANGE_ITERATIONS;
+      i -= absStep, count++
+    ) {
       results.push(String.fromCharCode(i));
     }
   }
@@ -114,9 +169,17 @@ function getPartValue(part: WordPart): string {
   }
 }
 
-// Helper to get string value from word parts
+// Helper to get string value from word parts (literals only, no expansion)
 function getWordPartsValue(parts: WordPart[]): string {
   return parts.map(getPartValue).join("");
+}
+
+// Helper to fully expand word parts (including variables, arithmetic, etc.)
+function expandWordPartsSync(
+  ctx: InterpreterContext,
+  parts: WordPart[],
+): string {
+  return parts.map((part) => expandPartSync(ctx, part)).join("");
 }
 
 /**
@@ -259,11 +322,29 @@ function expandPartSync(ctx: InterpreterContext, part: WordPart): string {
           const start = item.start;
           const end = item.end;
           if (typeof start === "number" && typeof end === "number") {
-            const expanded = safeExpandNumericRange(start, end, item.step);
-            if (expanded) results.push(...expanded);
+            const expanded = safeExpandNumericRange(
+              start,
+              end,
+              item.step,
+              item.startStr,
+              item.endStr,
+            );
+            if (expanded) {
+              results.push(...expanded);
+            } else {
+              // Invalid range - treat as literal
+              const stepPart = item.step !== undefined ? `..${item.step}` : "";
+              return `{${start}..${end}${stepPart}}`;
+            }
           } else if (typeof start === "string" && typeof end === "string") {
             const expanded = safeExpandCharRange(start, end, item.step);
-            if (expanded) results.push(...expanded);
+            if (expanded) {
+              results.push(...expanded);
+            } else {
+              // Invalid range - treat as literal
+              const stepPart = item.step !== undefined ? `..${item.step}` : "";
+              return `{${start}..${end}${stepPart}}`;
+            }
           }
         } else {
           results.push(expandWordSync(ctx, item.word));
@@ -354,8 +435,6 @@ function hasBraceExpansion(parts: WordPart[]): boolean {
  */
 // Maximum number of brace expansion results to prevent memory explosion
 const MAX_BRACE_EXPANSION_RESULTS = 10000;
-// Maximum iterations for any single range expansion loop
-const MAX_RANGE_ITERATIONS = 10000;
 // Maximum total operations across all recursive calls
 const MAX_BRACE_OPERATIONS = 100000;
 
@@ -376,17 +455,31 @@ function expandBracesInParts(
     if (part.type === "BraceExpansion") {
       // Get all brace expansion values
       const braceValues: string[] = [];
+      let hasInvalidRange = false;
+      let invalidRangeLiteral = "";
       for (const item of part.items) {
         if (item.type === "Range") {
           const start = item.start;
           const end = item.end;
           if (typeof start === "number" && typeof end === "number") {
-            const expanded = safeExpandNumericRange(start, end, item.step);
+            const expanded = safeExpandNumericRange(
+              start,
+              end,
+              item.step,
+              item.startStr,
+              item.endStr,
+            );
             if (expanded) {
               for (const val of expanded) {
                 operationCounter.count++;
                 braceValues.push(val);
               }
+            } else {
+              // Invalid range - treat entire brace expansion as literal
+              hasInvalidRange = true;
+              const stepPart = item.step !== undefined ? `..${item.step}` : "";
+              invalidRangeLiteral = `{${start}..${end}${stepPart}}`;
+              break;
             }
           } else if (typeof start === "string" && typeof end === "string") {
             const expanded = safeExpandCharRange(start, end, item.step);
@@ -395,11 +488,21 @@ function expandBracesInParts(
                 operationCounter.count++;
                 braceValues.push(val);
               }
+            } else {
+              // Invalid range - treat entire brace expansion as literal
+              hasInvalidRange = true;
+              const stepPart = item.step !== undefined ? `..${item.step}` : "";
+              invalidRangeLiteral = `{${start}..${end}${stepPart}}`;
+              break;
             }
           }
         } else {
           // Word item - expand it (recursively handle nested braces)
-          const expanded = expandBracesInParts(ctx, item.word.parts, operationCounter);
+          const expanded = expandBracesInParts(
+            ctx,
+            item.word.parts,
+            operationCounter,
+          );
           for (const exp of expanded) {
             operationCounter.count++;
             braceValues.push(exp.join(""));
@@ -407,10 +510,22 @@ function expandBracesInParts(
         }
       }
 
+      // If we have an invalid range, treat it as a literal and append to all results
+      if (hasInvalidRange) {
+        for (const result of results) {
+          operationCounter.count++;
+          result.push(invalidRangeLiteral);
+        }
+        continue;
+      }
+
       // Multiply results by brace values (cartesian product)
       // But first check if this would exceed the limit
       const newSize = results.length * braceValues.length;
-      if (newSize > MAX_BRACE_EXPANSION_RESULTS || operationCounter.count > MAX_BRACE_OPERATIONS) {
+      if (
+        newSize > MAX_BRACE_EXPANSION_RESULTS ||
+        operationCounter.count > MAX_BRACE_OPERATIONS
+      ) {
         // Too many results - return what we have and stop
         return results;
       }
@@ -580,11 +695,29 @@ async function expandPart(
           const start = item.start;
           const end = item.end;
           if (typeof start === "number" && typeof end === "number") {
-            const expanded = safeExpandNumericRange(start, end, item.step);
-            if (expanded) results.push(...expanded);
+            const expanded = safeExpandNumericRange(
+              start,
+              end,
+              item.step,
+              item.startStr,
+              item.endStr,
+            );
+            if (expanded) {
+              results.push(...expanded);
+            } else {
+              // Invalid range - treat as literal
+              const stepPart = item.step !== undefined ? `..${item.step}` : "";
+              return `{${start}..${end}${stepPart}}`;
+            }
           } else if (typeof start === "string" && typeof end === "string") {
             const expanded = safeExpandCharRange(start, end, item.step);
-            if (expanded) results.push(...expanded);
+            if (expanded) {
+              results.push(...expanded);
+            } else {
+              // Invalid range - treat as literal
+              const stepPart = item.step !== undefined ? `..${item.step}` : "";
+              return `{${start}..${end}${stepPart}}`;
+            }
           }
         } else {
           results.push(await expandWord(ctx, item.word));
@@ -628,7 +761,8 @@ function expandParameter(
     case "DefaultValue": {
       const useDefault = isUnset || (operation.checkEmpty && isEmpty);
       if (useDefault && operation.word) {
-        return getWordPartsValue(operation.word.parts);
+        // Only expand when actually using the default (lazy evaluation)
+        return expandWordPartsSync(ctx, operation.word.parts);
       }
       return value;
     }
@@ -636,7 +770,8 @@ function expandParameter(
     case "AssignDefault": {
       const useDefault = isUnset || (operation.checkEmpty && isEmpty);
       if (useDefault && operation.word) {
-        const defaultValue = getWordPartsValue(operation.word.parts);
+        // Only expand when actually using the default (lazy evaluation)
+        const defaultValue = expandWordPartsSync(ctx, operation.word.parts);
         ctx.state.env[parameter] = defaultValue;
         return defaultValue;
       }
@@ -647,7 +782,7 @@ function expandParameter(
       const shouldError = isUnset || (operation.checkEmpty && isEmpty);
       if (shouldError) {
         const message = operation.word
-          ? getWordPartsValue(operation.word.parts)
+          ? expandWordPartsSync(ctx, operation.word.parts)
           : `${parameter}: parameter null or not set`;
         throw new Error(message);
       }
@@ -657,13 +792,29 @@ function expandParameter(
     case "UseAlternative": {
       const useAlternative = !(isUnset || (operation.checkEmpty && isEmpty));
       if (useAlternative && operation.word) {
-        return getWordPartsValue(operation.word.parts);
+        // Only expand when actually using the alternative (lazy evaluation)
+        return expandWordPartsSync(ctx, operation.word.parts);
       }
       return "";
     }
 
-    case "Length":
+    case "Length": {
+      // Check if this is an array length: ${#a[@]} or ${#a[*]}
+      const arrayMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/);
+      if (arrayMatch) {
+        const elements = getArrayElements(ctx, arrayMatch[1]);
+        return String(elements.length);
+      }
+      // Check if this is just the array name (decays to ${#a[0]})
+      if (
+        /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(parameter) &&
+        isArray(ctx, parameter)
+      ) {
+        const firstElement = ctx.state.env[`${parameter}_0`] || "";
+        return String(firstElement.length);
+      }
       return String(value.length);
+    }
 
     case "Substring": {
       const offset = operation.offset
@@ -716,7 +867,13 @@ function expandParameter(
       const replacement = operation.replacement
         ? getWordPartsValue(operation.replacement.parts)
         : "";
-      const regex = patternToRegex(pattern, true);
+      let regex = patternToRegex(pattern, true);
+      // Apply anchor modifiers
+      if (operation.anchor === "start") {
+        regex = "^" + regex;
+      } else if (operation.anchor === "end") {
+        regex = regex + "$";
+      }
       const flags = operation.all ? "g" : "";
       return value.replace(new RegExp(regex, flags), replacement);
     }
@@ -739,6 +896,49 @@ function expandParameter(
     default:
       return value;
   }
+}
+
+/**
+ * Get all elements of an array stored as arrayName_0, arrayName_1, etc.
+ * Returns an array of [index, value] tuples, sorted by index.
+ */
+export function getArrayElements(
+  ctx: InterpreterContext,
+  arrayName: string,
+): Array<[number, string]> {
+  const prefix = `${arrayName}_`;
+  const elements: Array<[number, string]> = [];
+
+  for (const key of Object.keys(ctx.state.env)) {
+    if (key.startsWith(prefix)) {
+      const indexStr = key.slice(prefix.length);
+      const index = Number.parseInt(indexStr, 10);
+      if (!Number.isNaN(index) && String(index) === indexStr) {
+        elements.push([index, ctx.state.env[key]]);
+      }
+    }
+  }
+
+  // Sort by index
+  elements.sort((a, b) => a[0] - b[0]);
+  return elements;
+}
+
+/**
+ * Check if a variable is an array (has elements stored as name_0, name_1, etc.)
+ */
+export function isArray(ctx: InterpreterContext, name: string): boolean {
+  const prefix = `${name}_`;
+  for (const key of Object.keys(ctx.state.env)) {
+    if (key.startsWith(prefix)) {
+      const indexStr = key.slice(prefix.length);
+      const index = Number.parseInt(indexStr, 10);
+      if (!Number.isNaN(index) && String(index) === indexStr) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -769,6 +969,51 @@ export function getVariable(
       return ctx.state.cwd;
     case "OLDPWD":
       return ctx.state.previousDir;
+  }
+
+  // Check for array subscript: varName[subscript]
+  const bracketMatch = name.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
+  if (bracketMatch) {
+    const arrayName = bracketMatch[1];
+    const subscript = bracketMatch[2];
+
+    if (subscript === "@" || subscript === "*") {
+      // Get all array elements joined with space
+      const elements = getArrayElements(ctx, arrayName);
+      return elements.map(([, v]) => v).join(" ");
+    }
+
+    // Numeric subscript - evaluate it as arithmetic
+    let index: number;
+    if (/^-?\d+$/.test(subscript)) {
+      index = Number.parseInt(subscript, 10);
+    } else {
+      // Subscript may be a variable or arithmetic expression
+      const evalValue = ctx.state.env[subscript];
+      index = evalValue ? Number.parseInt(evalValue, 10) : 0;
+      if (Number.isNaN(index)) index = 0;
+    }
+
+    // Handle negative indices
+    if (index < 0) {
+      const elements = getArrayElements(ctx, arrayName);
+      const len = elements.length;
+      if (len === 0) return "";
+      // Negative index counts from end
+      const actualIdx = len + index;
+      if (actualIdx < 0) return "";
+      // Find element at that position in the sorted array
+      if (actualIdx < elements.length) {
+        return elements[actualIdx][1];
+      }
+      return "";
+    }
+
+    const value = ctx.state.env[`${arrayName}_${index}`];
+    if (value === undefined && checkNounset && ctx.state.options.nounset) {
+      throw new NounsetError(`${arrayName}[${index}]`);
+    }
+    return value || "";
   }
 
   // Positional parameters ($1, $2, etc.) - check nounset

@@ -180,15 +180,18 @@ export function parseAssignment(p: Parser): AssignmentNode {
   const token = p.expect(TokenType.ASSIGNMENT_WORD);
   const value = token.value;
 
-  // Parse VAR=value or VAR+=value
-  const match = value.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(\+)?=(.*)?$/s);
+  // Parse VAR=value, VAR+=value, or VAR[subscript]=value, VAR[subscript]+=value
+  const match = value.match(
+    /^([a-zA-Z_][a-zA-Z0-9_]*)(?:\[([^\]]*)\])?(\+)?=(.*)?$/s,
+  );
   if (!match) {
     p.error(`Invalid assignment: ${value}`);
   }
 
   const name = match[1];
-  const append = match[2] === "+";
-  const valueStr = match[3] ?? "";
+  const subscript = match[2]; // may be undefined
+  const append = match[3] === "+";
+  const valueStr = match[4] ?? "";
 
   // Check for array assignment: VAR=(...)
   if (valueStr === "(" || (valueStr === "" && p.check(TokenType.LPAREN))) {
@@ -200,13 +203,18 @@ export function parseAssignment(p: Parser): AssignmentNode {
     return AST.assignment(name, null, append, elements);
   }
 
-  // Regular assignment
+  // Regular assignment (may include subscript)
   // Pass through the quoting info from the token so tilde expansion is properly suppressed
   // isAssignment=true allows tilde expansion after : (for PATH-like assignments)
   const wordValue = valueStr
     ? p.parseWordFromString(valueStr, token.quoted, token.singleQuoted, true)
     : null;
-  return AST.assignment(name, wordValue, append, null);
+
+  // If we have a subscript, embed it in the name (e.g., "a[0]")
+  // The interpreter will parse this out
+  const assignName = subscript !== undefined ? `${name}[${subscript}]` : name;
+
+  return AST.assignment(assignName, wordValue, append, null);
 }
 
 export function parseArrayElements(p: Parser): WordNode[] {

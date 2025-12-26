@@ -62,7 +62,11 @@ import {
   NounsetError,
   ReturnError,
 } from "./errors.js";
-import { expandWord, expandWordWithGlob } from "./expansion.js";
+import {
+  expandWord,
+  expandWordWithGlob,
+  getArrayElements,
+} from "./expansion.js";
 import { callFunction, executeFunctionDef } from "./functions.js";
 import { applyRedirections } from "./redirections.js";
 import type { InterpreterContext, InterpreterState } from "./types.js";
@@ -343,6 +347,40 @@ export class Interpreter {
       const value = assignment.value
         ? await expandWord(this.ctx, assignment.value)
         : "";
+
+      // Check for array subscript assignment: a[subscript]=value
+      const subscriptMatch = name.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
+      if (subscriptMatch) {
+        const arrayName = subscriptMatch[1];
+        const subscriptExpr = subscriptMatch[2];
+        // Evaluate subscript as arithmetic or variable
+        let index: number;
+        if (/^-?\d+$/.test(subscriptExpr)) {
+          index = Number.parseInt(subscriptExpr, 10);
+        } else {
+          // Subscript may be a variable reference
+          const varValue = this.ctx.state.env[subscriptExpr];
+          index = varValue ? Number.parseInt(varValue, 10) : 0;
+          if (Number.isNaN(index)) index = 0;
+        }
+
+        // Handle negative indices
+        if (index < 0) {
+          const elements = getArrayElements(this.ctx, arrayName);
+          const len = elements.length;
+          index = len + index;
+          if (index < 0) index = 0;
+        }
+
+        const envKey = `${arrayName}_${index}`;
+        if (node.name) {
+          tempAssignments[envKey] = this.ctx.state.env[envKey];
+          this.ctx.state.env[envKey] = value;
+        } else {
+          this.ctx.state.env[envKey] = value;
+        }
+        continue;
+      }
 
       if (node.name) {
         tempAssignments[name] = this.ctx.state.env[name];

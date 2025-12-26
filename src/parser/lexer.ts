@@ -514,11 +514,23 @@ export class Lexer {
         // Read as a word starting from here - readWord will handle the full word
         return this.readWordWithBraceExpansion(pos, startLine, startColumn);
       }
+      // Not a valid brace expansion - check if there's a matching closing brace
+      // If so, treat {foo} as part of a word that may include more content
+      const literalBrace = this.scanLiteralBraceWord(pos);
+      if (literalBrace !== null) {
+        // Read as a word including the literal brace and any suffix/additional braces
+        return this.readWordWithBraceExpansion(pos, startLine, startColumn);
+      }
       this.pos = pos + 1;
       this.column = startColumn + 1;
       return this.makeToken(TokenType.LBRACE, "{", pos, startLine, startColumn);
     }
     if (c0 === "}") {
+      // Check if } is followed by word characters - if so, it's a literal } in a word
+      // e.g., echo }_{a,b} should output }_a }_b
+      if (this.isWordCharFollowing(pos + 1)) {
+        return this.readWord(pos, startLine, startColumn);
+      }
       this.pos = pos + 1;
       this.column = startColumn + 1;
       return this.makeToken(TokenType.RBRACE, "}", pos, startLine, startColumn);
@@ -669,11 +681,11 @@ export class Lexer {
           };
         }
 
-        // Check for assignment
+        // Check for assignment (including array subscript: a[0]=value, a[idx]=value)
         const eqIdx = value.indexOf("=");
         if (
           eqIdx > 0 &&
-          /^[a-zA-Z_][a-zA-Z0-9_]*\+?$/.test(value.slice(0, eqIdx))
+          /^[a-zA-Z_][a-zA-Z0-9_]*(\[[^\]]*\])?\+?$/.test(value.slice(0, eqIdx))
         ) {
           return {
             type: TokenType.ASSIGNMENT_WORD,
@@ -849,7 +861,12 @@ export class Lexer {
           }
         } else {
           // Outside quotes, backslash escapes next character
-          value += nextChar;
+          // Keep the backslash for quotes so parser knows they're escaped
+          if (nextChar === '"' || nextChar === "'") {
+            value += char + nextChar;
+          } else {
+            value += nextChar;
+          }
           pos += 2;
           col += 2;
           continue;
@@ -1002,8 +1019,11 @@ export class Lexer {
     // Only tokens that don't start with a quote can be assignments.
     // MYVAR="hello" is an assignment (name is unquoted)
     // "MYVAR=hello" is NOT an assignment (starts with quote)
+    // Also matches array subscript: a[0]=value, a[idx]=value
     if (!startsWithQuote) {
-      const assignMatch = value.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\+?=/);
+      const assignMatch = value.match(
+        /^([a-zA-Z_][a-zA-Z0-9_]*)(\[[^\]]*\])?\+?=/,
+      );
       if (assignMatch) {
         return {
           type: TokenType.ASSIGNMENT_WORD,
@@ -1182,8 +1202,30 @@ export class Lexer {
   }
 
   /**
+   * Check if position is followed by word characters (not a word boundary).
+   * Used to determine if } should be literal or RBRACE token.
+   */
+  private isWordCharFollowing(pos: number): boolean {
+    if (pos >= this.input.length) return false;
+    const c = this.input[pos];
+    // Word continues if followed by non-boundary characters
+    return !(
+      c === " " ||
+      c === "\t" ||
+      c === "\n" ||
+      c === ";" ||
+      c === "&" ||
+      c === "|" ||
+      c === "(" ||
+      c === ")" ||
+      c === "<" ||
+      c === ">"
+    );
+  }
+
+  /**
    * Read a word that starts with a brace expansion.
-   * Includes the brace expansion plus any suffix characters.
+   * Includes the brace expansion plus any suffix characters and additional brace expansions.
    */
   private readWordWithBraceExpansion(
     start: number,
@@ -1195,27 +1237,10 @@ export class Lexer {
     let pos = start;
     let col = column;
 
-    // Read the brace expansion (we already know it's valid)
-    let depth = 0;
+    // Read the word which may contain multiple brace expansions
     while (pos < len) {
       const c = input[pos];
-      if (c === "{") {
-        depth++;
-      } else if (c === "}") {
-        depth--;
-        if (depth === 0) {
-          pos++;
-          col++;
-          break;
-        }
-      }
-      pos++;
-      col++;
-    }
 
-    // Continue reading suffix characters (part of the same word)
-    while (pos < len) {
-      const c = input[pos];
       // Stop at word boundaries
       if (
         c === " " ||
@@ -1227,12 +1252,42 @@ export class Lexer {
         c === "(" ||
         c === ")" ||
         c === "<" ||
-        c === ">" ||
-        c === "{" || // Another brace expansion would be a new word part
-        c === "}"
+        c === ">"
       ) {
         break;
       }
+
+      // Handle opening brace
+      if (c === "{") {
+        // Check if this is a valid brace expansion
+        const braceExp = this.scanBraceExpansion(pos);
+        if (braceExp !== null) {
+          // Valid brace expansion - consume it entirely
+          let depth = 1;
+          pos++;
+          col++;
+          while (pos < len && depth > 0) {
+            if (input[pos] === "{") depth++;
+            else if (input[pos] === "}") depth--;
+            pos++;
+            col++;
+          }
+          continue;
+        }
+        // Not a valid brace expansion - treat { as a literal character
+        pos++;
+        col++;
+        continue;
+      }
+
+      // Handle closing brace - treat as literal (part of suffix like "a}")
+      if (c === "}") {
+        pos++;
+        col++;
+        continue;
+      }
+
+      // Regular character
       pos++;
       col++;
     }
@@ -1301,6 +1356,48 @@ export class Lexer {
     // Must have closing brace and either comma or range
     if (depth === 0 && (hasComma || hasRange)) {
       return input.slice(startPos, pos);
+    }
+
+    return null;
+  }
+
+  /**
+   * Scan a literal brace word like {foo} (no comma, no range).
+   * Returns the literal string if found, null otherwise.
+   * This is used when {} contains something but it's not a valid brace expansion.
+   */
+  private scanLiteralBraceWord(startPos: number): string | null {
+    const input = this.input;
+    const len = input.length;
+    let pos = startPos + 1; // Skip the opening {
+    let depth = 1;
+
+    while (pos < len && depth > 0) {
+      const c = input[pos];
+
+      if (c === "{") {
+        depth++;
+        pos++;
+      } else if (c === "}") {
+        depth--;
+        if (depth === 0) {
+          // Found the closing brace - return the entire {content}
+          return input.slice(startPos, pos + 1);
+        }
+        pos++;
+      } else if (
+        c === " " ||
+        c === "\t" ||
+        c === "\n" ||
+        c === ";" ||
+        c === "&" ||
+        c === "|"
+      ) {
+        // Hit a word boundary before closing brace
+        return null;
+      } else {
+        pos++;
+      }
     }
 
     return null;

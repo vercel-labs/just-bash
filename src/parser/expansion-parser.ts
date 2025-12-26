@@ -133,7 +133,9 @@ export function parseParameterOperation(
 
     const wordEnd = WordParser.findParameterOperationEnd(p, value, i);
     const wordStr = value.slice(i, wordEnd);
-    const word = AST.word([AST.literal(wordStr)]);
+    // Parse the word for expansions (variables, arithmetic, command substitution)
+    const wordParts = parseWordParts(p, wordStr, false, false, false);
+    const word = AST.word(wordParts.length > 0 ? wordParts : [AST.literal("")]);
 
     if (op === "-") {
       return {
@@ -183,7 +185,9 @@ export function parseParameterOperation(
     i++;
     const wordEnd = WordParser.findParameterOperationEnd(p, value, i);
     const wordStr = value.slice(i, wordEnd);
-    const word = AST.word([AST.literal(wordStr)]);
+    // Parse the word for expansions (variables, arithmetic, command substitution)
+    const wordParts = parseWordParts(p, wordStr, false, false, false);
+    const word = AST.word(wordParts.length > 0 ? wordParts : [AST.literal("")]);
 
     if (char === "-") {
       return {
@@ -585,9 +589,14 @@ export function parseWordParts(
       continue;
     }
 
-    // Handle brace expansion
-    if (char === "{") {
-      const braceResult = WordParser.tryParseBraceExpansion(p, value, i);
+    // Handle brace expansion (but NOT on the RHS of assignments)
+    if (char === "{" && !isAssignment) {
+      const braceResult = WordParser.tryParseBraceExpansion(
+        p,
+        value,
+        i,
+        parseWordParts,
+      );
       if (braceResult) {
         flushLiteral();
         parts.push(braceResult.part);

@@ -104,6 +104,9 @@ export class BashEnv {
       HOME: this.useDefaultLayout ? "/home/user" : "/",
       PATH: "/bin:/usr/bin",
       IFS: " \t\n",
+      OSTYPE: "linux-gnu",
+      MACHTYPE: "x86_64-pc-linux-gnu",
+      HOSTTYPE: "x86_64",
       ...options.env,
     };
 
