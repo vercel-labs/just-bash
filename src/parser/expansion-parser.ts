@@ -207,10 +207,36 @@ export function parseParameterOperation(
     }
 
     // Substring: ${var:offset} or ${var:offset:length}
+    // Handle ternary expressions in offset: ${s: 0 < 1 ? 2 : 0 : 1}
+    // The offset contains "0 < 1 ? 2 : 0" and length is "1"
+    // We need to find the colon that separates offset from length
     i++; // Skip only the first :
     const wordEnd = WordParser.findParameterOperationEnd(p, value, i);
     const wordStr = value.slice(i, wordEnd);
-    const colonIdx = wordStr.indexOf(":");
+
+    // Find the separator colon that's NOT part of a ternary expression
+    // A ternary colon is preceded (somewhere) by a ? at the same depth
+    // We track if we've seen a ? and skip the : that follows it
+    let colonIdx = -1;
+    let depth = 0;
+    let ternaryDepth = 0; // Tracks ternary nesting
+    for (let j = 0; j < wordStr.length; j++) {
+      const c = wordStr[j];
+      if (c === "(" || c === "[") depth++;
+      else if (c === ")" || c === "]") depth--;
+      else if (c === "?" && depth === 0) ternaryDepth++;
+      else if (c === ":" && depth === 0) {
+        if (ternaryDepth > 0) {
+          // This is a ternary colon, not the separator
+          ternaryDepth--;
+        } else {
+          // This is the offset:length separator
+          colonIdx = j;
+          break;
+        }
+      }
+    }
+
     const offsetStr = colonIdx >= 0 ? wordStr.slice(0, colonIdx) : wordStr;
     const lengthStr = colonIdx >= 0 ? wordStr.slice(colonIdx + 1) : null;
     return {

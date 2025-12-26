@@ -692,6 +692,8 @@ function parseArithPrimary(
     currentPos = skipArithWhitespace(input, currentPos);
 
     // Check for assignment operators
+    // Assignment has higher precedence than comma, so parse RHS with parseArithTernary
+    // This makes `a = b, c` parse as `(a = b), c` not `a = (b, c)`
     const assignOps = [
       "=",
       "+=",
@@ -711,7 +713,8 @@ function parseArithPrimary(
         input.slice(currentPos, currentPos + op.length + 1) !== "=="
       ) {
         currentPos += op.length;
-        const { expr: value, pos: p2 } = parseArithExpr(p, input, currentPos);
+        // Use parseArithTernary instead of parseArithExpr to give assignment higher precedence than comma
+        const { expr: value, pos: p2 } = parseArithTernary(p, input, currentPos);
         return {
           expr: {
             type: "ArithAssignment",

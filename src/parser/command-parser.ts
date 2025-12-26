@@ -193,17 +193,43 @@ export function parseAssignment(p: Parser): AssignmentNode {
   const value = token.value;
 
   // Parse VAR=value, VAR+=value, or VAR[subscript]=value, VAR[subscript]+=value
-  const match = value.match(
-    /^([a-zA-Z_][a-zA-Z0-9_]*)(?:\[([^\]]*)\])?(\+)?=(.*)?$/s,
-  );
-  if (!match) {
+  // Handle nested brackets in subscript: a[a[0]]=value
+  const nameMatch = value.match(/^[a-zA-Z_][a-zA-Z0-9_]*/);
+  if (!nameMatch) {
     p.error(`Invalid assignment: ${value}`);
   }
 
-  const name = match[1];
-  const subscript = match[2]; // may be undefined
-  const append = match[3] === "+";
-  const valueStr = match[4] ?? "";
+  const name = nameMatch[0];
+  let subscript: string | undefined;
+  let pos = name.length;
+
+  // Check for array subscript with nested brackets
+  if (value[pos] === "[") {
+    let depth = 0;
+    const subscriptStart = pos + 1;
+    for (; pos < value.length; pos++) {
+      if (value[pos] === "[") depth++;
+      else if (value[pos] === "]") {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    if (depth !== 0) {
+      p.error(`Invalid assignment: ${value}`);
+    }
+    subscript = value.slice(subscriptStart, pos);
+    pos++; // skip closing ]
+  }
+
+  // Check for += or =
+  const append = value[pos] === "+";
+  if (append) pos++;
+  if (value[pos] !== "=") {
+    p.error(`Invalid assignment: ${value}`);
+  }
+  pos++; // skip =
+
+  const valueStr = value.slice(pos);
 
   // Check for array assignment: VAR=(...)
   // The '(' can be part of the token (valueStr === "(") or a separate token

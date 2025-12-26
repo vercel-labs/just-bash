@@ -26,7 +26,9 @@ import type {
 import type { IFileSystem } from "../fs-interface.js";
 import type { SecureFetch } from "../network/index.js";
 import type { CommandContext, CommandRegistry, ExecResult } from "../types.js";
-import { evaluateArithmetic } from "./arithmetic.js";
+import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
+import { Parser } from "../parser/parser.js";
+import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
 import {
   handleBreak,
   handleCd,
@@ -388,30 +390,22 @@ export class Interpreter {
       const subscriptMatch = name.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
       if (subscriptMatch) {
         const arrayName = subscriptMatch[1];
-        let subscriptExpr = subscriptMatch[2];
+        const subscriptExpr = subscriptMatch[2];
 
-        // Expand variables in subscript (e.g., a[$x$y] where x=1, y=2 → a[12])
-        subscriptExpr = subscriptExpr.replace(
-          /\$([a-zA-Z_][a-zA-Z0-9_]*)/g,
-          (_, varName) => {
-            return this.ctx.state.env[varName] || "";
-          },
-        );
-
-        // Evaluate subscript as arithmetic or variable
+        // Evaluate subscript as arithmetic expression
+        // This handles: a[0], a[x], a[x+1], a[a[0]], a[b=2], etc.
         let index: number;
         if (/^-?\d+$/.test(subscriptExpr)) {
+          // Simple numeric subscript
           index = Number.parseInt(subscriptExpr, 10);
         } else {
-          // Try to evaluate as arithmetic expression
+          // Parse and evaluate as arithmetic expression
           try {
-            // Simple arithmetic: allow expressions like "1+2"
-            const result = Function(
-              `"use strict"; return (${subscriptExpr})`,
-            )();
-            index = typeof result === "number" ? Math.floor(result) : 0;
+            const parser = new Parser();
+            const arithAst = parseArithmeticExpression(parser, subscriptExpr);
+            index = evaluateArithmeticSync(this.ctx, arithAst.expression);
           } catch {
-            // Fall back to variable lookup
+            // Fall back to variable lookup for backwards compatibility
             const varValue = this.ctx.state.env[subscriptExpr];
             index = varValue ? Number.parseInt(varValue, 10) : 0;
           }

@@ -317,8 +317,19 @@ export function evaluateArithmeticSync(
     case "ArithArrayElement": {
       const index = evaluateArithmeticSync(ctx, expr.index);
       // Array elements are stored as arrayName_index in env
-      const value = ctx.state.env[`${expr.array}_${index}`];
-      return Number.parseInt(value || "0", 10) || 0;
+      // But if the variable is a scalar (not an array), s[0] returns the scalar value
+      const arrayValue = ctx.state.env[`${expr.array}_${index}`];
+      if (arrayValue !== undefined) {
+        return Number.parseInt(arrayValue, 10) || 0;
+      }
+      // Check if it's a scalar variable (strings decay to s[0] = s)
+      if (index === 0) {
+        const scalarValue = ctx.state.env[expr.array];
+        if (scalarValue !== undefined) {
+          return Number.parseInt(scalarValue, 10) || 0;
+        }
+      }
+      return 0;
     }
     case "ArithBinary": {
       // Short-circuit evaluation for logical operators
@@ -345,6 +356,16 @@ export function evaluateArithmeticSync(
           const current = Number.parseInt(getVariable(ctx, name), 10) || 0;
           const newValue = expr.operator === "++" ? current + 1 : current - 1;
           ctx.state.env[name] = String(newValue);
+          return expr.prefix ? newValue : current;
+        }
+        if (expr.operand.type === "ArithArrayElement") {
+          // Handle array element increment/decrement: a[0]++, ++a[0], etc.
+          const arrayName = expr.operand.array;
+          const index = evaluateArithmeticSync(ctx, expr.operand.index);
+          const envKey = `${arrayName}_${index}`;
+          const current = Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
+          const newValue = expr.operator === "++" ? current + 1 : current - 1;
+          ctx.state.env[envKey] = String(newValue);
           return expr.prefix ? newValue : current;
         }
         return operand;
@@ -462,8 +483,19 @@ export async function evaluateArithmetic(
     case "ArithArrayElement": {
       const index = await evaluateArithmetic(ctx, expr.index);
       // Array elements are stored as arrayName_index in env
-      const value = ctx.state.env[`${expr.array}_${index}`];
-      return Number.parseInt(value || "0", 10) || 0;
+      // But if the variable is a scalar (not an array), s[0] returns the scalar value
+      const arrayValue = ctx.state.env[`${expr.array}_${index}`];
+      if (arrayValue !== undefined) {
+        return Number.parseInt(arrayValue, 10) || 0;
+      }
+      // Check if it's a scalar variable (strings decay to s[0] = s)
+      if (index === 0) {
+        const scalarValue = ctx.state.env[expr.array];
+        if (scalarValue !== undefined) {
+          return Number.parseInt(scalarValue, 10) || 0;
+        }
+      }
+      return 0;
     }
 
     case "ArithBinary": {
@@ -493,6 +525,16 @@ export async function evaluateArithmetic(
           const current = Number.parseInt(getVariable(ctx, name), 10) || 0;
           const newValue = expr.operator === "++" ? current + 1 : current - 1;
           ctx.state.env[name] = String(newValue);
+          return expr.prefix ? newValue : current;
+        }
+        if (expr.operand.type === "ArithArrayElement") {
+          // Handle array element increment/decrement: a[0]++, ++a[0], etc.
+          const arrayName = expr.operand.array;
+          const index = await evaluateArithmetic(ctx, expr.operand.index);
+          const envKey = `${arrayName}_${index}`;
+          const current = Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
+          const newValue = expr.operator === "++" ? current + 1 : current - 1;
+          ctx.state.env[envKey] = String(newValue);
           return expr.prefix ? newValue : current;
         }
         return operand;

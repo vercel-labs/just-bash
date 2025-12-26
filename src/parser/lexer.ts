@@ -127,6 +127,42 @@ const RESERVED_WORDS: Record<string, TokenType> = {
 };
 
 /**
+ * Check if a string is a valid assignment LHS with optional nested array subscript
+ * Handles: VAR, a[0], a[x], a[a[0]], a[x+1], etc.
+ */
+function isValidAssignmentLHS(str: string): boolean {
+  // Must start with valid variable name
+  const match = str.match(/^[a-zA-Z_][a-zA-Z0-9_]*/);
+  if (!match) return false;
+
+  const afterName = str.slice(match[0].length);
+
+  // If nothing after name, it's valid (simple variable)
+  if (afterName === "" || afterName === "+") return true;
+
+  // If it's an array subscript, need to check for balanced brackets
+  if (afterName[0] === "[") {
+    // Find matching close bracket (handling nested brackets)
+    let depth = 0;
+    let i = 0;
+    for (; i < afterName.length; i++) {
+      if (afterName[i] === "[") depth++;
+      else if (afterName[i] === "]") {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    // Must have found closing bracket
+    if (depth !== 0 || i >= afterName.length) return false;
+    // After closing bracket, only + is allowed (for +=)
+    const afterBracket = afterName.slice(i + 1);
+    return afterBracket === "" || afterBracket === "+";
+  }
+
+  return false;
+}
+
+/**
  * Three-character operators (simple ones without special handling)
  */
 const THREE_CHAR_OPS: Array<[string, string, string, TokenType]> = [
@@ -544,12 +580,9 @@ export class Lexer {
           };
         }
 
-        // Check for assignment (including array subscript: a[0]=value, a[idx]=value)
+        // Check for assignment (including array subscript: a[0]=value, a[idx]=value, a[a[0]]=value)
         const eqIdx = value.indexOf("=");
-        if (
-          eqIdx > 0 &&
-          /^[a-zA-Z_][a-zA-Z0-9_]*(\[[^\]]*\])?\+?$/.test(value.slice(0, eqIdx))
-        ) {
+        if (eqIdx > 0 && isValidAssignmentLHS(value.slice(0, eqIdx))) {
           return {
             type: TokenType.ASSIGNMENT_WORD,
             value,
@@ -1031,12 +1064,10 @@ export class Lexer {
     // Only tokens that don't start with a quote can be assignments.
     // MYVAR="hello" is an assignment (name is unquoted)
     // "MYVAR=hello" is NOT an assignment (starts with quote)
-    // Also matches array subscript: a[0]=value, a[idx]=value
+    // Also matches array subscript: a[0]=value, a[idx]=value, a[a[0]]=value
     if (!startsWithQuote) {
-      const assignMatch = value.match(
-        /^([a-zA-Z_][a-zA-Z0-9_]*)(\[[^\]]*\])?\+?=/,
-      );
-      if (assignMatch) {
+      const eqIdx = value.indexOf("=");
+      if (eqIdx > 0 && isValidAssignmentLHS(value.slice(0, eqIdx))) {
         return {
           type: TokenType.ASSIGNMENT_WORD,
           value,
