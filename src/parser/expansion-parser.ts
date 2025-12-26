@@ -109,6 +109,17 @@ export function parseParameterExpansion(
       };
       // Clear name so it doesn't get treated as a variable
       name = "";
+    } else if (value[i] === "*" || value[i] === "@") {
+      // Check for ${!prefix*} or ${!prefix@} - list variables with prefix
+      const suffix = value[i];
+      i++; // Consume the * or @
+      operation = {
+        type: "VarNamePrefix",
+        prefix: name,
+        star: suffix === "*",
+      };
+      // Clear name so it doesn't get treated as a variable
+      name = "";
     } else {
       operation = { type: "Indirection" };
     }
@@ -310,7 +321,11 @@ export function parseParameterOperation(
 
     const patternEnd = WordParser.findParameterOperationEnd(p, value, i);
     const patternStr = value.slice(i, patternEnd);
-    const pattern = AST.word([AST.literal(patternStr)]);
+    // Parse the pattern for variable expansions and quoting (like PatternReplacement)
+    const patternParts = parseWordParts(p, patternStr, false, false, false);
+    const pattern = AST.word(
+      patternParts.length > 0 ? patternParts : [AST.literal("")],
+    );
 
     return {
       operation: { type: "PatternRemoval", pattern, side, greedy },
@@ -391,6 +406,18 @@ export function parseParameterOperation(
         pattern,
       } as const,
       endIndex: patternEnd,
+    };
+  }
+
+  // @Q @P @a @A @E @K transformations
+  if (char === "@" && /[QPaAEK]/.test(nextChar)) {
+    const operator = nextChar as "Q" | "P" | "a" | "A" | "E" | "K";
+    return {
+      operation: {
+        type: "Transform",
+        operator,
+      } as const,
+      endIndex: i + 2,
     };
   }
 
@@ -583,6 +610,7 @@ export function parseWordParts(
   quoted = false,
   singleQuoted = false,
   isAssignment = false,
+  hereDoc = false,
 ): WordPart[] {
   if (singleQuoted) {
     // Single quotes: no expansion
@@ -612,17 +640,18 @@ export function parseWordParts(
 
     // Handle escape sequences
     // In unquoted context, only certain characters are escapable
-    // $, `, \, ", newline are always escapable
-    // Other characters keep the backslash
+    // In here-docs, only $, `, \, newline are escapable (NOT ")
+    // In regular words, $, `, \, ", newline are escapable
     if (char === "\\" && i + 1 < value.length) {
       const next = value[i + 1];
-      if (
-        next === "$" ||
-        next === "`" ||
-        next === "\\" ||
-        next === '"' ||
-        next === "\n"
-      ) {
+      const isEscapable = hereDoc
+        ? next === "$" || next === "`" || next === "\\" || next === "\n"
+        : next === "$" ||
+          next === "`" ||
+          next === "\\" ||
+          next === '"' ||
+          next === "\n";
+      if (isEscapable) {
         literal += next;
       } else {
         // Keep the backslash for non-special characters

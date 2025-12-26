@@ -46,6 +46,51 @@ export {
   isArray,
 } from "./expansion/variable.js";
 
+/**
+ * Quote a value for safe reuse as shell input (${var@Q} transformation)
+ * Uses single quotes with proper escaping for special characters.
+ */
+function quoteValue(value: string): string {
+  // Empty string becomes ''
+  if (value === "") return "''";
+
+  // If value contains no special characters that need $'...' format, use simple single quotes
+  if (!/['\\\n\r\t\x00-\x1f\x7f]/.test(value)) {
+    return `'${value}'`;
+  }
+
+  // Use $'...' format for strings with special characters
+  let result = "$'";
+  for (const char of value) {
+    switch (char) {
+      case "'":
+        result += "\\'";
+        break;
+      case "\\":
+        result += "\\\\";
+        break;
+      case "\n":
+        result += "\\n";
+        break;
+      case "\r":
+        result += "\\r";
+        break;
+      case "\t":
+        result += "\\t";
+        break;
+      default:
+        // Check for control characters
+        const code = char.charCodeAt(0);
+        if (code < 32 || code === 127) {
+          result += `\\x${code.toString(16).padStart(2, "0")}`;
+        } else {
+          result += char;
+        }
+    }
+  }
+  return result + "'";
+}
+
 // Helper to extract numeric value from an arithmetic expression
 function _getArithValue(expr: ArithExpr): number {
   if (expr.type === "ArithNumber") {
@@ -862,7 +907,7 @@ function expandParameter(
 
     case "Substring": {
       // Evaluate arithmetic expressions in offset and length
-      const offset = operation.offset
+      let offset = operation.offset
         ? evaluateArithmeticSync(ctx, operation.offset.expression)
         : 0;
       const length = operation.length
@@ -888,6 +933,29 @@ function expandParameter(
         return allArgs.slice(startIdx).join(" ");
       }
 
+      // Handle array slicing: ${arr[@]:offset} or ${arr[*]:offset}
+      const arrayMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/);
+      if (arrayMatch) {
+        const elements = getArrayElements(ctx, arrayMatch[1]);
+        const values = elements.map(([, v]) => v);
+        let start = offset;
+        // Negative offset: count from end
+        if (start < 0) {
+          start = values.length + start;
+          // Out of bounds negative index returns empty
+          if (start < 0) return "";
+        }
+        if (length !== undefined) {
+          if (length < 0) {
+            // Negative length means end position from end
+            const endPos = values.length + length;
+            return values.slice(start, Math.max(start, endPos)).join(" ");
+          }
+          return values.slice(start, start + length).join(" ");
+        }
+        return values.slice(start).join(" ");
+      }
+
       // String slicing with UTF-8 support (slice by characters, not bytes)
       const chars = [...value]; // This handles multi-byte UTF-8 characters
       let start = offset;
@@ -904,18 +972,45 @@ function expandParameter(
     }
 
     case "PatternRemoval": {
-      // Expand the pattern (for variable expansion in patterns like ${var#$prefix})
-      const pattern = operation.pattern
-        ? expandWordPartsSync(ctx, operation.pattern.parts)
-        : "";
+      // Build regex pattern from parts, preserving literal vs glob distinction
+      let regexStr = "";
+      if (operation.pattern) {
+        for (const part of operation.pattern.parts) {
+          if (part.type === "Glob") {
+            // Glob pattern - convert * and ? to regex equivalents
+            regexStr += patternToRegex(part.pattern, operation.greedy);
+          } else if (part.type === "Literal") {
+            // Unquoted literal - treat as glob pattern (may contain *, ?, [...])
+            regexStr += patternToRegex(part.value, operation.greedy);
+          } else if (
+            part.type === "SingleQuoted" ||
+            part.type === "Escaped"
+          ) {
+            // Quoted text - escape all special regex and glob characters
+            regexStr += escapeRegex(part.value);
+          } else if (part.type === "DoubleQuoted") {
+            // Double quoted - expand variables but treat result as literal
+            const expanded = expandWordPartsSync(ctx, part.parts);
+            regexStr += escapeRegex(expanded);
+          } else if (part.type === "ParameterExpansion") {
+            // Unquoted parameter expansion - treat expanded value as glob pattern
+            const expanded = expandPartSync(ctx, part);
+            regexStr += patternToRegex(expanded, operation.greedy);
+          } else {
+            // Other parts - expand and escape (command substitution, etc.)
+            const expanded = expandPartSync(ctx, part);
+            regexStr += escapeRegex(expanded);
+          }
+        }
+      }
+
       if (operation.side === "prefix") {
         // Prefix removal: greedy matches longest from start, non-greedy matches shortest
-        const regex = patternToRegex(pattern, operation.greedy);
-        return value.replace(new RegExp(`^${regex}`), "");
+        return value.replace(new RegExp(`^${regexStr}`), "");
       }
       // Suffix removal needs special handling because we need to find
       // the rightmost (shortest) or leftmost (longest) match
-      const regex = new RegExp(`${patternToRegex(pattern, true)}$`);
+      const regex = new RegExp(`${regexStr}$`);
       if (operation.greedy) {
         // %% - longest match: use regex directly (finds leftmost match)
         return value.replace(regex, "");
@@ -1024,6 +1119,56 @@ function expandParameter(
         : value.charAt(0).toLowerCase() + value.slice(1);
     }
 
+    case "Transform": {
+      // Handle array transformations specially
+      const arrayMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/);
+      if (arrayMatch && operation.operator === "Q") {
+        // ${arr[@]@Q} - quote each element
+        const elements = getArrayElements(ctx, arrayMatch[1]);
+        const quotedElements = elements.map(([, v]) => quoteValue(v));
+        return quotedElements.join(" ");
+      }
+
+      switch (operation.operator) {
+        case "Q":
+          // Quote the value for reuse as shell input
+          return quoteValue(value);
+        case "P":
+          // Expand as if it were a prompt string (limited implementation)
+          return value;
+        case "a":
+          // Return attribute flags (empty for regular variables)
+          return "";
+        case "A":
+          // Assignment format: name='value'
+          return `${parameter}=${quoteValue(value)}`;
+        case "E":
+          // Expand escape sequences
+          return value.replace(/\\([\\abefnrtv'"?])/g, (_, c) => {
+            switch (c) {
+              case "\\": return "\\";
+              case "a": return "\x07";
+              case "b": return "\b";
+              case "e": return "\x1b";
+              case "f": return "\f";
+              case "n": return "\n";
+              case "r": return "\r";
+              case "t": return "\t";
+              case "v": return "\v";
+              case "'": return "'";
+              case '"': return '"';
+              case "?": return "?";
+              default: return c;
+            }
+          });
+        case "K":
+          // Return keys (same as ${!arr[@]} for arrays)
+          return "";
+        default:
+          return value;
+      }
+    }
+
     case "Indirection": {
       return getVariable(ctx, value);
     }
@@ -1040,6 +1185,26 @@ function expandParameter(
       }
       // ${!arr[@]} - join with space
       return keys.join(" ");
+    }
+
+    case "VarNamePrefix": {
+      // ${!prefix*} or ${!prefix@} - list variable names with prefix
+      const matchingVars = Object.keys(ctx.state.env)
+        .filter(
+          (k) =>
+            k.startsWith(operation.prefix) &&
+            // Exclude internal array storage keys (contain _ after the prefix)
+            !k.includes("__"),
+        )
+        .sort();
+      if (operation.star) {
+        // ${!prefix*} - join with first char of IFS
+        const ifs = ctx.state.env.IFS;
+        const sep = ifs === undefined ? " " : ifs[0] || "";
+        return matchingVars.join(sep);
+      }
+      // ${!prefix@} - join with space
+      return matchingVars.join(" ");
     }
 
     default:
@@ -1119,14 +1284,37 @@ async function expandParameterAsync(
     }
 
     case "PatternRemoval": {
-      const pattern = operation.pattern
-        ? await expandWordPartsAsync(ctx, operation.pattern.parts)
-        : "";
-      if (operation.side === "prefix") {
-        const regex = patternToRegex(pattern, operation.greedy);
-        return value.replace(new RegExp(`^${regex}`), "");
+      // Build regex pattern from parts, preserving literal vs glob distinction
+      let regexStr = "";
+      if (operation.pattern) {
+        for (const part of operation.pattern.parts) {
+          if (part.type === "Glob") {
+            regexStr += patternToRegex(part.pattern, operation.greedy);
+          } else if (part.type === "Literal") {
+            // Unquoted literal - treat as glob pattern (may contain *, ?, [...])
+            regexStr += patternToRegex(part.value, operation.greedy);
+          } else if (
+            part.type === "SingleQuoted" ||
+            part.type === "Escaped"
+          ) {
+            regexStr += escapeRegex(part.value);
+          } else if (part.type === "DoubleQuoted") {
+            const expanded = await expandWordPartsAsync(ctx, part.parts);
+            regexStr += escapeRegex(expanded);
+          } else if (part.type === "ParameterExpansion") {
+            const expanded = await expandPart(ctx, part);
+            regexStr += patternToRegex(expanded, operation.greedy);
+          } else {
+            const expanded = await expandPart(ctx, part);
+            regexStr += escapeRegex(expanded);
+          }
+        }
       }
-      const regex = new RegExp(`${patternToRegex(pattern, true)}$`);
+
+      if (operation.side === "prefix") {
+        return value.replace(new RegExp(`^${regexStr}`), "");
+      }
+      const regex = new RegExp(`${regexStr}$`);
       if (operation.greedy) {
         return value.replace(regex, "");
       }

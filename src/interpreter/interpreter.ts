@@ -378,7 +378,7 @@ export class Interpreter {
     for (const assignment of node.assignments) {
       const name = assignment.name;
 
-      // Handle array assignment: VAR=(a b c)
+      // Handle array assignment: VAR=(a b c) or VAR+=(a b c)
       // Each element can be a glob that expands to multiple values
       if (assignment.array) {
         // Check if trying to assign array to subscripted element: a[0]=(1 2) is invalid
@@ -399,10 +399,36 @@ export class Interpreter {
           const expanded = await expandWordWithGlob(this.ctx, element);
           allElements.push(...expanded.values);
         }
-        for (let i = 0; i < allElements.length; i++) {
-          this.ctx.state.env[`${name}_${i}`] = allElements[i];
+
+        // For append mode (+=), find the max existing index and start after it
+        let startIndex = 0;
+        if (assignment.append) {
+          const elements = getArrayElements(this.ctx, name);
+          if (elements.length > 0) {
+            const maxIndex = Math.max(
+              ...elements.map(([idx]) =>
+                typeof idx === "number" ? idx : 0,
+              ),
+            );
+            startIndex = maxIndex + 1;
+          }
+        } else {
+          // For regular assignment, clear existing array elements
+          const prefix = `${name}_`;
+          for (const key of Object.keys(this.ctx.state.env)) {
+            if (key.startsWith(prefix) && !key.includes("__")) {
+              delete this.ctx.state.env[key];
+            }
+          }
         }
-        this.ctx.state.env[`${name}__length`] = String(allElements.length);
+
+        for (let i = 0; i < allElements.length; i++) {
+          this.ctx.state.env[`${name}_${startIndex + i}`] = allElements[i];
+        }
+        // Update length only for non-append (length tracking is not reliable with sparse arrays)
+        if (!assignment.append) {
+          this.ctx.state.env[`${name}__length`] = String(allElements.length);
+        }
         continue;
       }
 
@@ -480,11 +506,22 @@ export class Interpreter {
             if (Number.isNaN(index)) index = 0;
           }
 
-          // Handle negative indices
+          // Handle negative indices - bash counts from max_index + 1
           if (index < 0) {
             const elements = getArrayElements(this.ctx, arrayName);
-            const len = elements.length;
-            index = len + index;
+            if (elements.length === 0) {
+              // Empty array with negative index - error
+              return result(
+                "",
+                `bash: ${arrayName}[${subscriptExpr}]: bad array subscript\n`,
+                1,
+              );
+            }
+            // Find the maximum index
+            const maxIndex = Math.max(
+              ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
+            );
+            index = maxIndex + 1 + index;
             if (index < 0) {
               // Out-of-bounds negative index - return error result
               return result(
@@ -498,11 +535,16 @@ export class Interpreter {
           envKey = `${arrayName}_${index}`;
         }
 
+        // Handle append mode (+=)
+        const finalValue = assignment.append
+          ? (this.ctx.state.env[envKey] || "") + value
+          : value;
+
         if (node.name) {
           tempAssignments[envKey] = this.ctx.state.env[envKey];
-          this.ctx.state.env[envKey] = value;
+          this.ctx.state.env[envKey] = finalValue;
         } else {
-          this.ctx.state.env[envKey] = value;
+          this.ctx.state.env[envKey] = finalValue;
         }
         continue;
       }
@@ -511,11 +553,16 @@ export class Interpreter {
       const readonlyError = checkReadonlyError(this.ctx, name);
       if (readonlyError) return readonlyError;
 
+      // Handle append mode (+=)
+      const finalValue = assignment.append
+        ? (this.ctx.state.env[name] || "") + value
+        : value;
+
       if (node.name) {
         tempAssignments[name] = this.ctx.state.env[name];
-        this.ctx.state.env[name] = value;
+        this.ctx.state.env[name] = finalValue;
       } else {
-        this.ctx.state.env[name] = value;
+        this.ctx.state.env[name] = finalValue;
       }
     }
 
@@ -673,7 +720,15 @@ export class Interpreter {
     if (commandName === "readonly") {
       return handleReadonly(this.ctx, args);
     }
-    // Simple builtins
+    // User-defined functions override most builtins (except special ones above)
+    // This needs to happen before true/false/let which are regular builtins
+    if (!skipFunctions) {
+      const func = this.ctx.state.functions.get(commandName);
+      if (func) {
+        return callFunction(this.ctx, func, args);
+      }
+    }
+    // Simple builtins (can be overridden by functions)
     if (commandName === ":" || commandName === "true") {
       return OK;
     }
@@ -748,14 +803,6 @@ export class Interpreter {
         testArgs = args.slice(0, -1);
       }
       return evaluateTestArgs(this.ctx, testArgs);
-    }
-
-    // User-defined functions (skip if called via 'command' builtin)
-    if (!skipFunctions) {
-      const func = this.ctx.state.functions.get(commandName);
-      if (func) {
-        return callFunction(this.ctx, func, args);
-      }
     }
 
     // External commands

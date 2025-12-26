@@ -333,8 +333,10 @@ export type ParameterOperation =
   | PatternRemovalOp
   | PatternReplacementOp
   | CaseModificationOp
+  | TransformOp
   | IndirectionOp
-  | ArrayKeysOp;
+  | ArrayKeysOp
+  | VarNamePrefixOp;
 
 /** ${#VAR:...} - invalid syntax, length cannot have substring */
 export interface LengthSliceErrorOp {
@@ -412,6 +414,13 @@ export interface CaseModificationOp {
   pattern: WordNode | null;
 }
 
+/** ${var@Q}, ${var@P}, etc. - parameter transformation */
+export interface TransformOp {
+  type: "Transform";
+  /** Q=quote, P=prompt, a=attributes, A=assignment, E=escape, K=keys */
+  operator: "Q" | "P" | "a" | "A" | "E" | "K";
+}
+
 /** ${!VAR} - indirect expansion */
 export interface IndirectionOp {
   type: "Indirection";
@@ -423,6 +432,15 @@ export interface ArrayKeysOp {
   /** The array name (without subscript) */
   array: string;
   /** true if [*] was used instead of [@] */
+  star: boolean;
+}
+
+/** ${!prefix*} or ${!prefix@} - list variable names with prefix */
+export interface VarNamePrefixOp {
+  type: "VarNamePrefix";
+  /** The prefix to match */
+  prefix: string;
+  /** true if * was used instead of @ */
   star: boolean;
 }
 

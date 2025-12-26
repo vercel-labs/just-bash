@@ -178,19 +178,21 @@ export function getVariable(
       }
     }
 
-    // Handle negative indices
+    // Handle negative indices - bash counts from max_index + 1
+    // So a[-1] = a[max_index], a[-2] = a[max_index - 1], etc.
     if (index < 0) {
       const elements = getArrayElements(ctx, arrayName);
-      const len = elements.length;
-      if (len === 0) return "";
-      // Negative index counts from end
-      const actualIdx = len + index;
+      if (elements.length === 0) return "";
+      // Find the maximum index
+      const maxIndex = Math.max(
+        ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
+      );
+      // Convert negative index to actual index
+      const actualIdx = maxIndex + 1 + index;
       if (actualIdx < 0) return "";
-      // Find element at that position in the sorted array
-      if (actualIdx < elements.length) {
-        return elements[actualIdx][1];
-      }
-      return "";
+      // Look up by actual index, not position
+      const value = ctx.state.env[`${arrayName}_${actualIdx}`];
+      return value || "";
     }
 
     const value = ctx.state.env[`${arrayName}_${index}`];

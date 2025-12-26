@@ -236,7 +236,14 @@ export class Parser {
           contentWord = AST.word([AST.literal(content.value)]);
         } else {
           // Unquoted delimiter - parse for variable expansions
-          contentWord = this.parseWordFromString(content.value, false, false);
+          // Use hereDoc=true for proper escape handling (\" is not an escape in here-docs)
+          contentWord = this.parseWordFromString(
+            content.value,
+            false,
+            false,
+            false,
+            true,
+          );
         }
 
         heredoc.redirect.target = AST.hereDoc(
@@ -552,6 +559,7 @@ export class Parser {
     quoted = false,
     singleQuoted = false,
     isAssignment = false,
+    hereDoc = false,
   ): WordNode {
     const parts = ExpParser.parseWordParts(
       this,
@@ -559,6 +567,7 @@ export class Parser {
       quoted,
       singleQuoted,
       isAssignment,
+      hereDoc,
     );
     return AST.word(parts);
   }

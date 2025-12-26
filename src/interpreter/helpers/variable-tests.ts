@@ -42,14 +42,17 @@ export function evaluateVariableTest(
       }
     }
 
-    // Handle negative indices - convert to actual index
+    // Handle negative indices - bash counts from max_index + 1
     if (index < 0) {
       const indices = getArrayIndices(ctx, arrayName);
-      const actualIdx = indices.length + index;
-      if (actualIdx < 0 || actualIdx >= indices.length) {
+      if (indices.length === 0) {
         return false;
       }
-      index = indices[actualIdx];
+      const maxIndex = Math.max(...indices);
+      index = maxIndex + 1 + index;
+      if (index < 0) {
+        return false;
+      }
     }
 
     return `${arrayName}_${index}` in ctx.state.env;

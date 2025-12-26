@@ -57,6 +57,36 @@ export function findParameterOperationEnd(
 
   while (i < value.length && depth > 0) {
     const char = value[i];
+
+    // Handle escape sequences - \X escapes the next character
+    if (char === "\\" && i + 1 < value.length) {
+      i += 2; // Skip escape and the escaped character
+      continue;
+    }
+
+    // Handle single quotes - content is literal
+    if (char === "'") {
+      const closeIdx = value.indexOf("'", i + 1);
+      if (closeIdx !== -1) {
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+
+    // Handle double quotes - content with escapes
+    if (char === '"') {
+      i++;
+      while (i < value.length && value[i] !== '"') {
+        if (value[i] === "\\" && i + 1 < value.length) {
+          i += 2;
+        } else {
+          i++;
+        }
+      }
+      if (i < value.length) i++; // Skip closing quote
+      continue;
+    }
+
     if (char === "{") depth++;
     else if (char === "}") depth--;
     if (depth > 0) i++;
@@ -177,6 +207,12 @@ function findCharacterClassEnd(value: string, start: number): number {
 
     if (char === "]") {
       return i;
+    }
+
+    // If we encounter expansion or quote characters, this is NOT a valid glob
+    // character class. In bash, ["$x"] is [ + "$x" + ], not a character class.
+    if (char === '"' || char === "$" || char === "`") {
+      return -1;
     }
 
     // Handle single quotes inside character class (bash extension)

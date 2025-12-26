@@ -18,7 +18,23 @@ export function patternToRegex(pattern: string, greedy: boolean): string {
   while (i < pattern.length) {
     const char = pattern[i];
 
-    if (char === "*") {
+    if (char === "\\") {
+      // Shell escape: \X means literal X
+      if (i + 1 < pattern.length) {
+        const next = pattern[i + 1];
+        // Escape for regex if it's a regex special char
+        if (/[\\^$.|+(){}[\]*?]/.test(next)) {
+          regex += `\\${next}`;
+        } else {
+          regex += next;
+        }
+        i += 2;
+      } else {
+        // Trailing backslash - treat as literal
+        regex += "\\\\";
+        i++;
+      }
+    } else if (char === "*") {
       regex += greedy ? ".*" : ".*?";
       i++;
     } else if (char === "?") {
@@ -37,8 +53,8 @@ export function patternToRegex(pattern: string, greedy: boolean): string {
         regex += convertCharClass(classContent);
         i = classEnd + 1;
       }
-    } else if (/[\\^$.|+(){}]/.test(char)) {
-      // Escape regex special chars (but NOT [ and ] - handled above)
+    } else if (/[\^$.|+(){}]/.test(char)) {
+      // Escape regex special chars (but NOT [ and ] - handled above, and NOT \\ - handled above)
       regex += `\\${char}`;
       i++;
     } else {

@@ -27,7 +27,7 @@ import {
 } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
 import { ArithmeticError, NounsetError } from "./errors.js";
-import { getVariable } from "./expansion.js";
+import { getArrayElements, getVariable } from "./expansion.js";
 import type { InterpreterContext } from "./types.js";
 
 /**
@@ -584,7 +584,19 @@ export function evaluateArithmeticSync(
           envKey = `${name}_${expr.subscript.name}`;
         } else {
           // For indexed arrays, evaluate the subscript as arithmetic
-          const index = evaluateArithmeticSync(ctx, expr.subscript);
+          let index = evaluateArithmeticSync(ctx, expr.subscript);
+          // Handle negative indices
+          if (index < 0) {
+            const elements = getArrayElements(ctx, name);
+            if (elements.length > 0) {
+              const maxIndex = Math.max(
+                ...elements.map(([idx]) =>
+                  typeof idx === "number" ? idx : 0,
+                ),
+              );
+              index = maxIndex + 1 + index;
+            }
+          }
           envKey = `${name}_${index}`;
         }
       }
@@ -832,7 +844,19 @@ export async function evaluateArithmetic(
           envKey = `${name}_${expr.subscript.name}`;
         } else {
           // For indexed arrays, evaluate the subscript as arithmetic
-          const index = await evaluateArithmetic(ctx, expr.subscript);
+          let index = await evaluateArithmetic(ctx, expr.subscript);
+          // Handle negative indices
+          if (index < 0) {
+            const elements = getArrayElements(ctx, name);
+            if (elements.length > 0) {
+              const maxIndex = Math.max(
+                ...elements.map(([idx]) =>
+                  typeof idx === "number" ? idx : 0,
+                ),
+              );
+              index = maxIndex + 1 + index;
+            }
+          }
           envKey = `${name}_${index}`;
         }
       }

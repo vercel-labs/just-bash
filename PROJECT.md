@@ -270,4 +270,4 @@ Find documentation for all bash commannds and builtins, grammar, functionality, 
 
 ## Implementation phase 20
 
-Implement the paste command.
+- Implement which and proper PATH to resolve commands
