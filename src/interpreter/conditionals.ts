@@ -17,19 +17,16 @@ import type { ExecResult } from "../types.js";
 import { evaluateArithmeticSync } from "./arithmetic.js";
 import { expandWord } from "./expansion.js";
 import {
-  compareNumeric,
   evaluateBinaryFileTest,
   evaluateFileTest,
-  evaluateStringTest,
-  evaluateVariableTest,
-  result as execResult,
-  failure,
   isBinaryFileTestOperator,
   isFileTestOperator,
-  isNumericOp,
-  isStringTestOp,
-  testResult,
-} from "./helpers/index.js";
+} from "./helpers/file-tests.js";
+import { compareNumeric, isNumericOp } from "./helpers/numeric-compare.js";
+import { result as execResult, failure, testResult } from "./helpers/result.js";
+import { compareStrings, isStringCompareOp } from "./helpers/string-compare.js";
+import { evaluateStringTest, isStringTestOp } from "./helpers/string-tests.js";
+import { evaluateVariableTest } from "./helpers/variable-tests.js";
 import type { InterpreterContext } from "./types.js";
 
 export async function evaluateConditional(
@@ -54,10 +51,9 @@ export async function evaluateConditional(
       switch (expr.operator) {
         case "==":
         case "=":
-          // If RHS is quoted, use literal comparison; otherwise use pattern matching
-          return isRhsQuoted ? left === right : matchPattern(left, right);
         case "!=":
-          return isRhsQuoted ? left !== right : !matchPattern(left, right);
+          // If RHS is quoted, use literal comparison; otherwise use pattern matching
+          return compareStrings(expr.operator, left, right, !isRhsQuoted);
         case "=~": {
           try {
             const regex = new RegExp(right);
@@ -216,12 +212,12 @@ export async function evaluateTestArgs(
     // Binary primaries include: =, !=, -eq, -ne, -lt, -le, -gt, -ge, -a, -o, -nt, -ot, -ef
     // Note: -a and -o as binary primaries test if both/either operand is non-empty
 
+    // String comparisons (no pattern matching in test/[)
+    if (isStringCompareOp(op)) {
+      return testResult(compareStrings(op, left, right));
+    }
+
     switch (op) {
-      case "=":
-      case "==":
-        return testResult(left === right);
-      case "!=":
-        return testResult(left !== right);
       case "-eq":
       case "-ne":
       case "-lt":
@@ -400,11 +396,10 @@ async function evaluateTestPrimary(
   // Check for binary operators
   // Note: [ / test uses literal string comparison, NOT pattern matching
   const next = args[pos + 1];
-  if (next === "=" || next === "==" || next === "!=") {
+  if (isStringCompareOp(next)) {
     const left = token;
     const right = args[pos + 2] ?? "";
-    const isEqual = left === right;
-    return { value: next === "!=" ? !isEqual : isEqual, pos: pos + 3 };
+    return { value: compareStrings(next, left, right), pos: pos + 3 };
   }
 
   if (isNumericOp(next)) {

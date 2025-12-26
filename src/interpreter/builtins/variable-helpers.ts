@@ -3,7 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { failure } from "../helpers/index.js";
+import { checkReadonlyError, markReadonly } from "../helpers/readonly.js";
 import type { InterpreterContext } from "../types.js";
 import { parseArrayElements } from "./declare.js";
 
@@ -69,8 +69,9 @@ export function setVariable(
   const { makeReadonly = false, checkReadonly = true } = options;
 
   // Check if variable is readonly (if checking is enabled)
-  if (checkReadonly && ctx.state.readonlyVars?.has(name)) {
-    return failure(`bash: ${name}: readonly variable\n`);
+  if (checkReadonly) {
+    const error = checkReadonlyError(ctx, name);
+    if (error) return error;
   }
 
   if (isArray && arrayElements) {
@@ -86,8 +87,7 @@ export function setVariable(
 
   // Mark as readonly if requested
   if (makeReadonly) {
-    ctx.state.readonlyVars = ctx.state.readonlyVars || new Set();
-    ctx.state.readonlyVars.add(name);
+    markReadonly(ctx, name);
   }
 
   return null; // Success

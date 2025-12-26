@@ -3,7 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { failure, result } from "../helpers/index.js";
+import { failure, result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleLocal(

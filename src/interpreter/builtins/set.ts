@@ -3,7 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { failure, OK, success } from "../helpers/index.js";
+import { failure, OK, success } from "../helpers/result.js";
 import type { InterpreterContext, ShellOptions } from "../types.js";
 
 const SET_USAGE = `set: usage: set [-eux] [+eux] [-o option] [+o option]

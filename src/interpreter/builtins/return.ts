@@ -4,7 +4,7 @@
 
 import type { ExecResult } from "../../types.js";
 import { ReturnError } from "../errors.js";
-import { failure } from "../helpers/index.js";
+import { failure } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleReturn(

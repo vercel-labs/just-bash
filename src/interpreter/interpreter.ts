@@ -74,13 +74,8 @@ import {
   getArrayElements,
 } from "./expansion.js";
 import { callFunction, executeFunctionDef } from "./functions.js";
-import {
-  failure,
-  getErrorMessage,
-  OK,
-  result,
-  testResult,
-} from "./helpers/index.js";
+import { getErrorMessage } from "./helpers/errors.js";
+import { failure, OK, result, testResult } from "./helpers/result.js";
 import { applyRedirections } from "./redirections.js";
 import type { InterpreterContext, InterpreterState } from "./types.js";
 

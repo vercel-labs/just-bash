@@ -3,7 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { failure, success } from "../helpers/index.js";
+import { failure, success } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
 export async function handleCd(

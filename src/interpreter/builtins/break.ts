@@ -4,7 +4,7 @@
 
 import type { ExecResult } from "../../types.js";
 import { BreakError, ExitError } from "../errors.js";
-import { OK } from "../helpers/index.js";
+import { OK } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleBreak(

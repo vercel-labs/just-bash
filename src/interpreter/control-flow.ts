@@ -24,27 +24,17 @@ import type {
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import { matchPattern } from "./conditionals.js";
-import {
-  BreakError,
-  ContinueError,
-  ErrexitError,
-  ExitError,
-  isScopeExitError,
-} from "./errors.js";
+import { BreakError, ContinueError } from "./errors.js";
 import {
   escapeGlobChars,
   expandWord,
   expandWordWithGlob,
   isWordFullyQuoted,
 } from "./expansion.js";
-import {
-  executeCondition,
-  executeStatements,
-  failure,
-  getErrorMessage,
-  handleLoopError,
-  result,
-} from "./helpers/index.js";
+import { executeCondition } from "./helpers/condition.js";
+import { handleLoopError } from "./helpers/loop.js";
+import { failure, result } from "./helpers/result.js";
+import { executeStatements } from "./helpers/statements.js";
 import type { InterpreterContext } from "./types.js";
 
 // Re-export error classes for backwards compatibility
@@ -464,24 +454,15 @@ export async function executeCase(
     }
 
     if (matched) {
-      try {
-        for (const stmt of item.body) {
-          const stmtResult = await ctx.executeStatement(stmt);
-          stdout += stmtResult.stdout;
-          stderr += stmtResult.stderr;
-          exitCode = stmtResult.exitCode;
-        }
-      } catch (error) {
-        if (
-          isScopeExitError(error) ||
-          error instanceof ErrexitError ||
-          error instanceof ExitError
-        ) {
-          error.prependOutput(stdout, stderr);
-          throw error;
-        }
-        return result(stdout, `${stderr}${getErrorMessage(error)}\n`, 1);
-      }
+      const bodyResult = await executeStatements(
+        ctx,
+        item.body,
+        stdout,
+        stderr,
+      );
+      stdout = bodyResult.stdout;
+      stderr = bodyResult.stderr;
+      exitCode = bodyResult.exitCode;
 
       // Handle different terminators:
       // ;; - stop, no fall-through

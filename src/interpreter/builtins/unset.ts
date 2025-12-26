@@ -10,7 +10,7 @@
 
 import type { ExecResult } from "../../types.js";
 import { getArrayElements } from "../expansion.js";
-import { result } from "../helpers/index.js";
+import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleUnset(

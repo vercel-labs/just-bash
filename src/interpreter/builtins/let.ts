@@ -18,7 +18,7 @@ import type { ArithmeticCommandNode } from "../../ast/types.js";
 import { parse } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { evaluateArithmetic } from "../arithmetic.js";
-import { failure, result } from "../helpers/index.js";
+import { failure, result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
 /**

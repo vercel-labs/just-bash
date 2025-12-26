@@ -5,7 +5,7 @@
 import { type ParseException, parse } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { ExitError, ReturnError } from "../errors.js";
-import { failure, result } from "../helpers/index.js";
+import { failure, result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
 export async function handleSource(

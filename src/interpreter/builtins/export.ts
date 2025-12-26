@@ -10,7 +10,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { OK, result, success } from "../helpers/index.js";
+import { OK, result, success } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleExport(

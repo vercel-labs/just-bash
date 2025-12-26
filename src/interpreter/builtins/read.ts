@@ -4,8 +4,8 @@
 
 import type { ExecResult } from "../../types.js";
 import { clearArray } from "../helpers/array.js";
-import { result } from "../helpers/index.js";
 import { escapeRegexCharClass } from "../helpers/regex.js";
+import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleRead(

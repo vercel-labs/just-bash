@@ -14,7 +14,8 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { failure, OK, success } from "../helpers/index.js";
+import { checkReadonlyError, markReadonly } from "../helpers/readonly.js";
+import { OK, success } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 import { parseAssignment, setVariable } from "./variable-helpers.js";
 
@@ -89,8 +90,7 @@ export function handleDeclare(
       // Store array length marker
       ctx.state.env[`${name}__length`] = String(elements.length);
       if (declareReadonly) {
-        ctx.state.readonlyVars = ctx.state.readonlyVars || new Set();
-        ctx.state.readonlyVars.add(name);
+        markReadonly(ctx, name);
       }
       continue;
     }
@@ -102,14 +102,12 @@ export function handleDeclare(
       const value = arg.slice(eqIdx + 1);
 
       // Check if variable is readonly
-      if (ctx.state.readonlyVars?.has(name)) {
-        return failure(`bash: ${name}: readonly variable\n`);
-      }
+      const error = checkReadonlyError(ctx, name);
+      if (error) return error;
 
       ctx.state.env[name] = value;
       if (declareReadonly) {
-        ctx.state.readonlyVars = ctx.state.readonlyVars || new Set();
-        ctx.state.readonlyVars.add(name);
+        markReadonly(ctx, name);
       }
     } else {
       // Just declare without value
@@ -123,8 +121,7 @@ export function handleDeclare(
         }
       }
       if (declareReadonly) {
-        ctx.state.readonlyVars = ctx.state.readonlyVars || new Set();
-        ctx.state.readonlyVars.add(name);
+        markReadonly(ctx, name);
       }
     }
   }
@@ -221,14 +218,12 @@ export function handleReadonly(
     }
   }
 
-  ctx.state.readonlyVars = ctx.state.readonlyVars || new Set();
-
   for (const arg of processedArgs) {
     const assignment = parseAssignment(arg);
 
     // If no value provided, just mark as readonly
     if (assignment.value === undefined && !assignment.isArray) {
-      ctx.state.readonlyVars.add(assignment.name);
+      markReadonly(ctx, assignment.name);
       continue;
     }
 
