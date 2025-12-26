@@ -339,20 +339,22 @@ describe("Bash Syntax - set -e (errexit)", () => {
       expect(result.stderr).toContain("invalid option name");
     });
 
-    it("should error when -o is missing argument", async () => {
+    it("should list options when -o has no argument", async () => {
+      // In bash, `set -o` without argument lists all options
       const env = new BashEnv();
       const result = await env.exec("set -o");
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain("-o");
-      expect(result.stderr).toContain("requires an argument");
+      expect(result.exitCode).toBe(0);
+      // Should output option status (e.g., "errexit off")
+      expect(result.stdout).toContain("errexit");
     });
 
-    it("should error when +o is missing argument", async () => {
+    it("should list options when +o has no argument", async () => {
+      // In bash, `set +o` without argument outputs commands to recreate settings
       const env = new BashEnv();
       const result = await env.exec("set +o");
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain("+o");
-      expect(result.stderr).toContain("requires an argument");
+      expect(result.exitCode).toBe(0);
+      // Should output set commands (e.g., "set +o errexit")
+      expect(result.stdout).toContain("set");
     });
   });
 });

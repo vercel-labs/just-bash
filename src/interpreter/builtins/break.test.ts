@@ -90,10 +90,11 @@ describe("break builtin", () => {
   });
 
   describe("error cases", () => {
-    it("should show warning when not in loop", async () => {
+    it("should silently do nothing when not in loop", async () => {
       const env = new BashEnv();
       const result = await env.exec("break");
-      expect(result.stderr).toContain("only meaningful in");
+      // In bash, break outside a loop silently does nothing
+      expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
 

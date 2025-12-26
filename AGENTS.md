@@ -22,9 +22,9 @@
 ## Debugging
 
 - Don't use `cat > test-direct.ts << 'SCRIPT'` style test scripts because they constantly require 1-off approval.
-- Instead use `pnpm dev:exec` (Which also outputs the AST of the parsed script)
+- Instead use `pnpm dev:exec`
   - use `--real-bash` to also get comparison output from the system bash
-  - use `--no-ast` to avoid the AST output if you don't need it
+  - use `--print-ast` to also print the AST of the program as parsed by our parser.ts
 
 ## Commands
 

@@ -11,7 +11,7 @@ export function handleContinue(
   args: string[],
 ): ExecResult {
   // Check if we're in a loop
-  // In bash, if not in a loop (e.g., inside a subshell), continue silently does nothing
+  // In bash, if not in a loop, continue silently does nothing (returns 0)
   if (ctx.state.loopDepth === 0) {
     return {
       stdout: "",

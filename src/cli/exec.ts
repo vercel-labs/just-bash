@@ -24,7 +24,7 @@ import { spawnSync } from "node:child_process";
 import { BashEnv } from "../BashEnv.js";
 import { parse } from "../parser/parser.js";
 
-const showAst = !process.argv.includes("--no-ast");
+const showAst = process.argv.includes("--print-ast");
 const runRealBash = process.argv.includes("--real-bash");
 
 async function readStdin(): Promise<string> {
@@ -62,6 +62,8 @@ if (showAst) {
     console.error("Error parsing script:", error);
     process.exit(1);
   }
+} else {
+  console.log("AST: Request with --print-ast");
 }
 
 const env = new BashEnv();

@@ -364,15 +364,28 @@ export class Interpreter {
       const subscriptMatch = name.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
       if (subscriptMatch) {
         const arrayName = subscriptMatch[1];
-        const subscriptExpr = subscriptMatch[2];
+        let subscriptExpr = subscriptMatch[2];
+
+        // Expand variables in subscript (e.g., a[$x$y] where x=1, y=2 → a[12])
+        subscriptExpr = subscriptExpr.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, varName) => {
+          return this.ctx.state.env[varName] || "";
+        });
+
         // Evaluate subscript as arithmetic or variable
         let index: number;
         if (/^-?\d+$/.test(subscriptExpr)) {
           index = Number.parseInt(subscriptExpr, 10);
         } else {
-          // Subscript may be a variable reference
-          const varValue = this.ctx.state.env[subscriptExpr];
-          index = varValue ? Number.parseInt(varValue, 10) : 0;
+          // Try to evaluate as arithmetic expression
+          try {
+            // Simple arithmetic: allow expressions like "1+2"
+            const result = Function(`"use strict"; return (${subscriptExpr})`)();
+            index = typeof result === "number" ? Math.floor(result) : 0;
+          } catch {
+            // Fall back to variable lookup
+            const varValue = this.ctx.state.env[subscriptExpr];
+            index = varValue ? Number.parseInt(varValue, 10) : 0;
+          }
           if (Number.isNaN(index)) index = 0;
         }
 

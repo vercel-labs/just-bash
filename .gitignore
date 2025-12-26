@@ -10,3 +10,4 @@ test-*.ts
 profile-*.mjs
 *.cpuprofile
 bench-*.mjs
+todo/

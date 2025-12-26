@@ -11,7 +11,10 @@
  */
 
 import type { ConditionalExpressionNode } from "../ast/types.js";
+import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
+import { Parser } from "../parser/parser.js";
 import type { ExecResult } from "../types.js";
+import { evaluateArithmeticSync } from "./arithmetic.js";
 import { expandWord } from "./expansion.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -61,17 +64,17 @@ export async function evaluateConditional(
         case ">":
           return left > right;
         case "-eq":
-          return parseNumeric(left) === parseNumeric(right);
+          return evalArithExpr(ctx, left) === evalArithExpr(ctx, right);
         case "-ne":
-          return parseNumeric(left) !== parseNumeric(right);
+          return evalArithExpr(ctx, left) !== evalArithExpr(ctx, right);
         case "-lt":
-          return parseNumeric(left) < parseNumeric(right);
+          return evalArithExpr(ctx, left) < evalArithExpr(ctx, right);
         case "-le":
-          return parseNumeric(left) <= parseNumeric(right);
+          return evalArithExpr(ctx, left) <= evalArithExpr(ctx, right);
         case "-gt":
-          return parseNumeric(left) > parseNumeric(right);
+          return evalArithExpr(ctx, left) > evalArithExpr(ctx, right);
         case "-ge":
-          return parseNumeric(left) >= parseNumeric(right);
+          return evalArithExpr(ctx, left) >= evalArithExpr(ctx, right);
         case "-nt":
         case "-ot":
         case "-ef":
@@ -129,8 +132,50 @@ export async function evaluateConditional(
           }
           return false;
         }
-        case "-v":
+        case "-v": {
+          // Check for array element syntax: var[index]
+          const arrayMatch = operand.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
+          if (arrayMatch) {
+            const arrayName = arrayMatch[1];
+            let indexExpr = arrayMatch[2];
+            // Expand variables in index
+            indexExpr = indexExpr.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, varName) => {
+              return ctx.state.env[varName] || "";
+            });
+            // Evaluate as arithmetic or number
+            let index: number;
+            if (/^-?\d+$/.test(indexExpr)) {
+              index = Number.parseInt(indexExpr, 10);
+            } else {
+              // Try to evaluate as arithmetic expression
+              try {
+                const result = Function(`"use strict"; return (${indexExpr})`)();
+                index = typeof result === "number" ? Math.floor(result) : 0;
+              } catch {
+                const varValue = ctx.state.env[indexExpr];
+                index = varValue ? Number.parseInt(varValue, 10) : 0;
+              }
+            }
+            // Handle negative indices - convert to actual index
+            if (index < 0) {
+              // Need to import getArrayElements, for now use simple lookup
+              const prefix = `${arrayName}_`;
+              const indices: number[] = [];
+              for (const key of Object.keys(ctx.state.env)) {
+                if (key.startsWith(prefix)) {
+                  const idx = Number.parseInt(key.slice(prefix.length), 10);
+                  if (!Number.isNaN(idx)) indices.push(idx);
+                }
+              }
+              indices.sort((a, b) => a - b);
+              const actualIdx = indices.length + index;
+              if (actualIdx < 0 || actualIdx >= indices.length) return false;
+              index = indices[actualIdx];
+            }
+            return `${arrayName}_${index}` in ctx.state.env;
+          }
           return operand in ctx.state.env;
+        }
         default:
           return false;
       }
@@ -230,6 +275,50 @@ export async function evaluateTestArgs(
       }
       case "!":
         return { stdout: "", stderr: "", exitCode: operand ? 1 : 0 };
+      case "-v": {
+        // Check for array element syntax: var[index]
+        const arrayMatch = operand.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
+        if (arrayMatch) {
+          const arrayName = arrayMatch[1];
+          let indexExpr = arrayMatch[2];
+          // Expand variables in index
+          indexExpr = indexExpr.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, vn) => {
+            return ctx.state.env[vn] || "";
+          });
+          // Evaluate as arithmetic or number
+          let index: number;
+          if (/^-?\d+$/.test(indexExpr)) {
+            index = Number.parseInt(indexExpr, 10);
+          } else {
+            try {
+              const result = Function(`"use strict"; return (${indexExpr})`)();
+              index = typeof result === "number" ? Math.floor(result) : 0;
+            } catch {
+              const varValue = ctx.state.env[indexExpr];
+              index = varValue ? Number.parseInt(varValue, 10) : 0;
+            }
+          }
+          // Handle negative indices
+          if (index < 0) {
+            const prefix = `${arrayName}_`;
+            const indices: number[] = [];
+            for (const key of Object.keys(ctx.state.env)) {
+              if (key.startsWith(prefix)) {
+                const idx = Number.parseInt(key.slice(prefix.length), 10);
+                if (!Number.isNaN(idx)) indices.push(idx);
+              }
+            }
+            indices.sort((a, b) => a - b);
+            const actualIdx = indices.length + index;
+            if (actualIdx < 0 || actualIdx >= indices.length) {
+              return { stdout: "", stderr: "", exitCode: 1 };
+            }
+            index = indices[actualIdx];
+          }
+          return { stdout: "", stderr: "", exitCode: `${arrayName}_${index}` in ctx.state.env ? 0 : 1 };
+        }
+        return { stdout: "", stderr: "", exitCode: operand in ctx.state.env ? 0 : 1 };
+      }
       default:
         return { stdout: "", stderr: "", exitCode: 1 };
     }
@@ -259,41 +348,29 @@ export async function evaluateTestArgs(
           exitCode: left !== right ? 0 : 1,
         };
       case "-eq":
-        return {
-          stdout: "",
-          stderr: "",
-          exitCode: parseNumeric(left) === parseNumeric(right) ? 0 : 1,
-        };
       case "-ne":
-        return {
-          stdout: "",
-          stderr: "",
-          exitCode: parseNumeric(left) !== parseNumeric(right) ? 0 : 1,
-        };
       case "-lt":
-        return {
-          stdout: "",
-          stderr: "",
-          exitCode: parseNumeric(left) < parseNumeric(right) ? 0 : 1,
-        };
       case "-le":
-        return {
-          stdout: "",
-          stderr: "",
-          exitCode: parseNumeric(left) <= parseNumeric(right) ? 0 : 1,
-        };
       case "-gt":
-        return {
-          stdout: "",
-          stderr: "",
-          exitCode: parseNumeric(left) > parseNumeric(right) ? 0 : 1,
-        };
-      case "-ge":
-        return {
-          stdout: "",
-          stderr: "",
-          exitCode: parseNumeric(left) >= parseNumeric(right) ? 0 : 1,
-        };
+      case "-ge": {
+        const leftNum = parseNumericDecimal(left);
+        const rightNum = parseNumericDecimal(right);
+        // Invalid operand returns exit code 2
+        if (!leftNum.valid || !rightNum.valid) {
+          return { stdout: "", stderr: "", exitCode: 2 };
+        }
+        let result: boolean;
+        switch (op) {
+          case "-eq": result = leftNum.value === rightNum.value; break;
+          case "-ne": result = leftNum.value !== rightNum.value; break;
+          case "-lt": result = leftNum.value < rightNum.value; break;
+          case "-le": result = leftNum.value <= rightNum.value; break;
+          case "-gt": result = leftNum.value > rightNum.value; break;
+          case "-ge": result = leftNum.value >= rightNum.value; break;
+          default: result = false;
+        }
+        return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
+      }
       // Let -a, -o, and other cases fall through to compound handler
     }
   }
@@ -435,6 +512,47 @@ async function evaluateTestPrimary(
   // Variable tests
   if (token === "-v") {
     const varName = args[pos + 1] ?? "";
+    // Check for array element syntax: var[index]
+    const arrayMatch = varName.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
+    if (arrayMatch) {
+      const arrayName = arrayMatch[1];
+      let indexExpr = arrayMatch[2];
+      // Expand variables in index
+      indexExpr = indexExpr.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, vn) => {
+        return ctx.state.env[vn] || "";
+      });
+      // Evaluate as arithmetic or number
+      let index: number;
+      if (/^-?\d+$/.test(indexExpr)) {
+        index = Number.parseInt(indexExpr, 10);
+      } else {
+        try {
+          const result = Function(`"use strict"; return (${indexExpr})`)();
+          index = typeof result === "number" ? Math.floor(result) : 0;
+        } catch {
+          const varValue = ctx.state.env[indexExpr];
+          index = varValue ? Number.parseInt(varValue, 10) : 0;
+        }
+      }
+      // Handle negative indices
+      if (index < 0) {
+        const prefix = `${arrayName}_`;
+        const indices: number[] = [];
+        for (const key of Object.keys(ctx.state.env)) {
+          if (key.startsWith(prefix)) {
+            const idx = Number.parseInt(key.slice(prefix.length), 10);
+            if (!Number.isNaN(idx)) indices.push(idx);
+          }
+        }
+        indices.sort((a, b) => a - b);
+        const actualIdx = indices.length + index;
+        if (actualIdx < 0 || actualIdx >= indices.length) {
+          return { value: false, pos: pos + 2 };
+        }
+        index = indices[actualIdx];
+      }
+      return { value: `${arrayName}_${index}` in ctx.state.env, pos: pos + 2 };
+    }
     return { value: varName in ctx.state.env, pos: pos + 2 };
   }
 
@@ -450,8 +568,15 @@ async function evaluateTestPrimary(
 
   const numericOps = ["-eq", "-ne", "-lt", "-le", "-gt", "-ge"];
   if (numericOps.includes(next)) {
-    const left = parseNumeric(token);
-    const right = parseNumeric(args[pos + 2] ?? "0");
+    const leftParsed = parseNumericDecimal(token);
+    const rightParsed = parseNumericDecimal(args[pos + 2] ?? "0");
+    // Invalid operands - return false (will cause exit code 2 at higher level)
+    if (!leftParsed.valid || !rightParsed.valid) {
+      // For now, return false which is at least consistent with "comparison failed"
+      return { value: false, pos: pos + 3 };
+    }
+    const left = leftParsed.value;
+    const right = rightParsed.value;
     let value = false;
     switch (next) {
       case "-eq":
@@ -526,6 +651,60 @@ function resolvePath(ctx: InterpreterContext, path: string): string {
 }
 
 /**
+ * Evaluate an arithmetic expression string for [[ ]] comparisons.
+ * In bash, [[ -eq ]] etc. evaluate operands as arithmetic expressions.
+ */
+function evalArithExpr(ctx: InterpreterContext, expr: string): number {
+  expr = expr.trim();
+  if (expr === "") return 0;
+
+  // First try simple numeric parsing (handles octal, hex, base-N)
+  // If the expression is just a number, parseNumeric handles it correctly
+  if (/^[+-]?(\d+#[a-zA-Z0-9@_]+|0[xX][0-9a-fA-F]+|0[0-7]+|\d+)$/.test(expr)) {
+    return parseNumeric(expr);
+  }
+
+  // Otherwise, parse and evaluate as arithmetic expression
+  try {
+    const parser = new Parser();
+    const arithAst = parseArithmeticExpression(parser, expr);
+    return evaluateArithmeticSync(ctx, arithAst.expression);
+  } catch {
+    // If parsing fails, try simple numeric
+    return parseNumeric(expr);
+  }
+}
+
+/**
+ * Parse a number in base N (2-64).
+ * Digit values: 0-9=0-9, a-z=10-35, A-Z=36-61, @=62, _=63
+ */
+function parseBaseN(digits: string, base: number): number {
+  let result = 0;
+  for (const char of digits) {
+    let digitValue: number;
+    if (char >= "0" && char <= "9") {
+      digitValue = char.charCodeAt(0) - 48; // '0' = 48
+    } else if (char >= "a" && char <= "z") {
+      digitValue = char.charCodeAt(0) - 97 + 10; // 'a' = 97
+    } else if (char >= "A" && char <= "Z") {
+      digitValue = char.charCodeAt(0) - 65 + 36; // 'A' = 65
+    } else if (char === "@") {
+      digitValue = 62;
+    } else if (char === "_") {
+      digitValue = 63;
+    } else {
+      return Number.NaN;
+    }
+    if (digitValue >= base) {
+      return Number.NaN;
+    }
+    result = result * base + digitValue;
+  }
+  return result;
+}
+
+/**
  * Parse a bash numeric value, supporting:
  * - Decimal: 42, -42
  * - Octal: 0777, -0123
@@ -549,11 +728,11 @@ function parseNumeric(value: string): number {
   let result: number;
 
   // Base-N syntax: base#value
-  const baseMatch = value.match(/^(\d+)#([a-zA-Z0-9]+)$/);
+  const baseMatch = value.match(/^(\d+)#([a-zA-Z0-9@_]+)$/);
   if (baseMatch) {
     const base = Number.parseInt(baseMatch[1], 10);
     if (base >= 2 && base <= 64) {
-      result = Number.parseInt(baseMatch[2], base);
+      result = parseBaseN(baseMatch[2], base);
     } else {
       result = 0;
     }
@@ -577,4 +756,40 @@ function parseNumeric(value: string): number {
   }
 
   return negative ? -result : result;
+}
+
+/**
+ * Parse a number as plain decimal (for test/[ command).
+ * Unlike parseNumeric, this does NOT interpret octal/hex/base-N.
+ * Leading zeros are treated as decimal.
+ * Returns { value, valid } - valid is false if input is invalid.
+ */
+function parseNumericDecimal(value: string): { value: number; valid: boolean } {
+  value = value.trim();
+  if (value === "") return { value: 0, valid: true };
+
+  // Handle negative numbers
+  let negative = false;
+  if (value.startsWith("-")) {
+    negative = true;
+    value = value.slice(1);
+  } else if (value.startsWith("+")) {
+    value = value.slice(1);
+  }
+
+  // Check if it's a valid decimal number (only digits)
+  if (!/^\d+$/.test(value)) {
+    // Invalid format (hex, base-N, letters, etc.)
+    return { value: 0, valid: false };
+  }
+
+  // Always parse as decimal (base 10)
+  const result = Number.parseInt(value, 10);
+
+  // NaN is invalid
+  if (Number.isNaN(result)) {
+    return { value: 0, valid: false };
+  }
+
+  return { value: negative ? -result : result, valid: true };
 }

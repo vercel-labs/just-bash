@@ -328,11 +328,17 @@ export type ParameterOperation =
   | ErrorIfUnsetOp
   | UseAlternativeOp
   | LengthOp
+  | LengthSliceErrorOp
   | SubstringOp
   | PatternRemovalOp
   | PatternReplacementOp
   | CaseModificationOp
   | IndirectionOp;
+
+/** ${#VAR:...} - invalid syntax, length cannot have substring */
+export interface LengthSliceErrorOp {
+  type: "LengthSliceError";
+}
 
 /** ${VAR:-default} or ${VAR-default} */
 export interface DefaultValueOp {

@@ -30,6 +30,7 @@ import {
   isScopeExitError,
   ReturnError,
 } from "./errors.js";
+import { handleLoopError } from "./helpers/loop.js";
 import {
   escapeGlobChars,
   expandWord,
@@ -168,44 +169,15 @@ export async function executeFor(
           exitCode = result.exitCode;
         }
       } catch (error) {
-        if (error instanceof BreakError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
-          // Only propagate if levels > 1 AND we're not at the outermost loop
-          // Per bash docs: "If n is greater than the number of enclosing loops,
-          // the last enclosing loop is exited"
-          if (error.levels > 1 && ctx.state.loopDepth > 1) {
-            error.levels--;
-            error.stdout = stdout;
-            error.stderr = stderr;
-            throw error;
-          }
-          break;
+        const loopResult = handleLoopError(error, stdout, stderr, ctx.state.loopDepth);
+        stdout = loopResult.stdout;
+        stderr = loopResult.stderr;
+        if (loopResult.action === "break") break;
+        if (loopResult.action === "continue") continue;
+        if (loopResult.action === "error") {
+          return { stdout, stderr, exitCode: loopResult.exitCode ?? 1 };
         }
-        if (error instanceof ContinueError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
-          // Only propagate if levels > 1 AND we're not at the outermost loop
-          // Per bash docs: "If n is greater than the number of enclosing loops,
-          // the last enclosing loop is resumed"
-          if (error.levels > 1 && ctx.state.loopDepth > 1) {
-            error.levels--;
-            error.stdout = stdout;
-            error.stderr = stderr;
-            throw error;
-          }
-          continue;
-        }
-        if (
-          error instanceof ReturnError ||
-          error instanceof ErrexitError ||
-          error instanceof ExitError
-        ) {
-          error.prependOutput(stdout, stderr);
-          throw error;
-        }
-        const message = error instanceof Error ? error.message : String(error);
-        return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
+        throw loopResult.error;
       }
     }
   } finally {
@@ -261,44 +233,21 @@ export async function executeCStyleFor(
           exitCode = result.exitCode;
         }
       } catch (error) {
-        if (error instanceof BreakError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
-          // Only propagate if levels > 1 AND we're not at the outermost loop
-          if (error.levels > 1 && ctx.state.loopDepth > 1) {
-            error.levels--;
-            error.stdout = stdout;
-            error.stderr = stderr;
-            throw error;
-          }
-          break;
-        }
-        if (error instanceof ContinueError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
-          // Only propagate if levels > 1 AND we're not at the outermost loop
-          if (error.levels > 1 && ctx.state.loopDepth > 1) {
-            error.levels--;
-            error.stdout = stdout;
-            error.stderr = stderr;
-            throw error;
-          }
-          // Still need to run the update expression
+        const loopResult = handleLoopError(error, stdout, stderr, ctx.state.loopDepth);
+        stdout = loopResult.stdout;
+        stderr = loopResult.stderr;
+        if (loopResult.action === "break") break;
+        if (loopResult.action === "continue") {
+          // Still need to run the update expression on continue
           if (node.update) {
             await evaluateArithmetic(ctx, node.update.expression);
           }
           continue;
         }
-        if (
-          error instanceof ReturnError ||
-          error instanceof ErrexitError ||
-          error instanceof ExitError
-        ) {
-          error.prependOutput(stdout, stderr);
-          throw error;
+        if (loopResult.action === "error") {
+          return { stdout, stderr, exitCode: loopResult.exitCode ?? 1 };
         }
-        const message = error instanceof Error ? error.message : String(error);
-        return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
+        throw loopResult.error;
       }
 
       if (node.update) {
@@ -400,40 +349,15 @@ export async function executeWhile(
           exitCode = result.exitCode;
         }
       } catch (error) {
-        if (error instanceof BreakError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
-          // Only propagate if levels > 1 AND we're not at the outermost loop
-          if (error.levels > 1 && ctx.state.loopDepth > 1) {
-            error.levels--;
-            error.stdout = stdout;
-            error.stderr = stderr;
-            throw error;
-          }
-          break;
+        const loopResult = handleLoopError(error, stdout, stderr, ctx.state.loopDepth);
+        stdout = loopResult.stdout;
+        stderr = loopResult.stderr;
+        if (loopResult.action === "break") break;
+        if (loopResult.action === "continue") continue;
+        if (loopResult.action === "error") {
+          return { stdout, stderr, exitCode: loopResult.exitCode ?? 1 };
         }
-        if (error instanceof ContinueError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
-          // Only propagate if levels > 1 AND we're not at the outermost loop
-          if (error.levels > 1 && ctx.state.loopDepth > 1) {
-            error.levels--;
-            error.stdout = stdout;
-            error.stderr = stderr;
-            throw error;
-          }
-          continue;
-        }
-        if (
-          error instanceof ReturnError ||
-          error instanceof ErrexitError ||
-          error instanceof ExitError
-        ) {
-          error.prependOutput(stdout, stderr);
-          throw error;
-        }
-        const message = error instanceof Error ? error.message : String(error);
-        return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
+        throw loopResult.error;
       }
     }
   } finally {
@@ -493,40 +417,15 @@ export async function executeUntil(
           exitCode = result.exitCode;
         }
       } catch (error) {
-        if (error instanceof BreakError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
-          // Only propagate if levels > 1 AND we're not at the outermost loop
-          if (error.levels > 1 && ctx.state.loopDepth > 1) {
-            error.levels--;
-            error.stdout = stdout;
-            error.stderr = stderr;
-            throw error;
-          }
-          break;
+        const loopResult = handleLoopError(error, stdout, stderr, ctx.state.loopDepth);
+        stdout = loopResult.stdout;
+        stderr = loopResult.stderr;
+        if (loopResult.action === "break") break;
+        if (loopResult.action === "continue") continue;
+        if (loopResult.action === "error") {
+          return { stdout, stderr, exitCode: loopResult.exitCode ?? 1 };
         }
-        if (error instanceof ContinueError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
-          // Only propagate if levels > 1 AND we're not at the outermost loop
-          if (error.levels > 1 && ctx.state.loopDepth > 1) {
-            error.levels--;
-            error.stdout = stdout;
-            error.stderr = stderr;
-            throw error;
-          }
-          continue;
-        }
-        if (
-          error instanceof ReturnError ||
-          error instanceof ErrexitError ||
-          error instanceof ExitError
-        ) {
-          error.prependOutput(stdout, stderr);
-          throw error;
-        }
-        const message = error instanceof Error ? error.message : String(error);
-        return { stdout, stderr: `${stderr + message}\n`, exitCode: 1 };
+        throw loopResult.error;
       }
     }
   } finally {

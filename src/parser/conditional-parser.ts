@@ -118,10 +118,12 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
     // Check for unary operators
     if (UNARY_OPS.includes(first)) {
       p.advance();
-      if (p.isWord() || p.check(TokenType.DBRACK_END)) {
-        const operand: WordNode = p.check(TokenType.DBRACK_END)
-          ? AST.word([AST.literal("")])
-          : p.parseWord();
+      // Unary operators require an operand - syntax error if at end
+      if (p.check(TokenType.DBRACK_END)) {
+        p.error(`Expected operand after ${first}`);
+      }
+      if (p.isWord()) {
+        const operand = p.parseWord();
         return {
           type: "CondUnary",
           operator: first as CondUnaryOperator,

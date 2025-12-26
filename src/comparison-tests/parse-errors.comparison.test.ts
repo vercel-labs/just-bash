@@ -278,11 +278,9 @@ describe("Parse Errors - Comparison Tests", () => {
       const realResult = runRealBash("echo a;;;echo b");
       const virtualResult = await runVirtualBash("echo a;;;echo b");
 
-      // Real bash returns exit code 2 for syntax error
-      // Our virtual shell currently doesn't detect this syntax error
-      // This is a known limitation - we execute commands sequentially
+      // Both real bash and our shell should return exit code 2 for syntax error
       expect(realResult.exitCode).toBe(2);
-      expect(virtualResult.stdout).toBe("a\nb\n"); // Our behavior (permissive)
+      expect(virtualResult.exitCode).toBe(2);
     });
   });
 });

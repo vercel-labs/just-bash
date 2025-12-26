@@ -98,12 +98,13 @@ describe("eval builtin", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should return 2 for syntax errors", async () => {
+    it("should return 1 for syntax errors", async () => {
       const env = new BashEnv();
       // Use "for do done" which is a syntax error (missing variable name)
+      // Bash returns exit code 1 for eval syntax errors
       const result = await env.exec('eval "for do done"');
-      expect(result.exitCode).toBe(2);
-      expect(result.stderr).toContain("eval:");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("Parse error");
     });
   });
 

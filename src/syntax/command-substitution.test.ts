@@ -43,13 +43,13 @@ describe("Command Substitution $(cmd)", () => {
     expect(result.stdout).toBe("world\n");
   });
 
-  it("should preserve multi-line output as single line", async () => {
+  it("should convert newlines to spaces in unquoted command substitution", async () => {
     const env = new BashEnv({
       files: { "/test.txt": "line1\nline2\nline3" },
     });
     const result = await env.exec("echo $(cat /test.txt)");
-    // In bash, newlines become spaces when echoed
-    expect(result.stdout).toBe("line1\nline2\nline3\n");
+    // In bash, newlines become spaces when echoed unquoted
+    expect(result.stdout).toBe("line1 line2 line3\n");
   });
 
   it("should work with wc -l", async () => {

@@ -298,10 +298,12 @@ describe("Bash Syntax - Parser Edge Cases", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should handle multiple semicolons", async () => {
+    it("should treat multiple semicolons as syntax error", async () => {
       const env = new BashEnv();
       const result = await env.exec("echo a;;;echo b");
-      expect(result.stdout).toBe("a\nb\n");
+      // In bash, `;;` is the case terminator and is a syntax error outside case
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain("syntax error");
     });
 
     it("should handle very long argument", async () => {

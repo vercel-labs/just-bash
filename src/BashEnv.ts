@@ -221,10 +221,16 @@ export class BashEnv {
 
     // Each exec call gets an isolated state copy - like starting a new shell
     // This ensures exec calls never interfere with each other
+    const effectiveCwd = options?.cwd ?? this.state.cwd;
     const execState: InterpreterState = {
       ...this.state,
-      env: { ...this.state.env, ...options?.env },
-      cwd: options?.cwd ?? this.state.cwd,
+      env: {
+        ...this.state.env,
+        ...options?.env,
+        // Update PWD when cwd option is provided
+        ...(options?.cwd ? { PWD: options.cwd } : {}),
+      },
+      cwd: effectiveCwd,
       // Deep copy mutable objects to prevent interference
       functions: new Map(this.state.functions),
       localScopes: [...this.state.localScopes],

@@ -18,7 +18,7 @@ import type {
 } from "../ast/types.js";
 import { GlobExpander } from "../shell/glob.js";
 import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
-import { BadSubstitutionError, NounsetError } from "./errors.js";
+import { BadSubstitutionError, ExitError, NounsetError } from "./errors.js";
 import type { InterpreterContext } from "./types.js";
 
 // Helper to extract numeric value from an arithmetic expression
@@ -394,14 +394,29 @@ function analyzeWordParts(parts: WordPart[]): {
   hasQuoted: boolean;
   hasCommandSub: boolean;
   hasArrayVar: boolean;
+  hasArrayAtExpansion: boolean;
 } {
   let hasQuoted = false;
   let hasCommandSub = false;
   let hasArrayVar = false;
+  let hasArrayAtExpansion = false;
 
   for (const part of parts) {
     if (part.type === "SingleQuoted" || part.type === "DoubleQuoted") {
       hasQuoted = true;
+      // Check for "${a[@]}" inside double quotes
+      // BUT NOT if there's an operation like ${#a[@]} (Length) or other operations
+      if (part.type === "DoubleQuoted") {
+        for (const inner of part.parts) {
+          if (inner.type === "ParameterExpansion") {
+            // Check if it's array[@] or array[*] WITHOUT any operation
+            const match = inner.parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/);
+            if (match && !inner.operation) {
+              hasArrayAtExpansion = true;
+            }
+          }
+        }
+      }
     }
     if (part.type === "CommandSubstitution") {
       hasCommandSub = true;
@@ -414,7 +429,7 @@ function analyzeWordParts(parts: WordPart[]): {
     }
   }
 
-  return { hasQuoted, hasCommandSub, hasArrayVar };
+  return { hasQuoted, hasCommandSub, hasArrayVar, hasArrayAtExpansion };
 }
 
 /**
@@ -579,7 +594,7 @@ export async function expandWordWithGlob(
   word: WordNode,
 ): Promise<{ values: string[]; quoted: boolean }> {
   const wordParts = word.parts;
-  const { hasQuoted, hasCommandSub, hasArrayVar } = analyzeWordParts(wordParts);
+  const { hasQuoted, hasCommandSub, hasArrayVar, hasArrayAtExpansion } = analyzeWordParts(wordParts);
 
   // Handle brace expansion first (produces multiple values)
   const braceExpanded = hasBraceExpansion(wordParts)
@@ -603,6 +618,34 @@ export async function expandWordWithGlob(
       }
     }
     return { values: allValues, quoted: false };
+  }
+
+  // Special handling for "${a[@]}" - each array element becomes a separate word
+  // This applies even inside double quotes
+  if (hasArrayAtExpansion && wordParts.length === 1 && wordParts[0].type === "DoubleQuoted") {
+    const dqPart = wordParts[0];
+    // Check if it's ONLY the array expansion (like "${a[@]}")
+    // More complex cases like "prefix${a[@]}suffix" need different handling
+    if (dqPart.parts.length === 1 && dqPart.parts[0].type === "ParameterExpansion") {
+      const paramPart = dqPart.parts[0];
+      const match = paramPart.parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@]\]$/);
+      if (match) {
+        const arrayName = match[1];
+        const elements = getArrayElements(ctx, arrayName);
+        if (elements.length > 0) {
+          // Return each element as a separate word
+          return { values: elements.map(([, v]) => v), quoted: true };
+        }
+        // No array elements - check for scalar variable
+        // ${s[@]} where s='abc' should return 'abc' (treat scalar as single-element array)
+        const scalarValue = ctx.state.env[arrayName];
+        if (scalarValue !== undefined) {
+          return { values: [scalarValue], quoted: true };
+        }
+        // Variable is unset - return empty
+        return { values: [], quoted: true };
+      }
+    }
   }
 
   // No brace expansion or single value - use original logic
@@ -787,7 +830,8 @@ function expandParameter(
         const message = operation.word
           ? expandWordPartsSync(ctx, operation.word.parts)
           : `${parameter}: parameter null or not set`;
-        throw new Error(message);
+        // Use ExitError to properly exit with status 1 and error message
+        throw new ExitError(1, "", `bash: ${message}\n`);
       }
       return value;
     }
@@ -1087,7 +1131,16 @@ export function getVariable(
     if (subscript === "@" || subscript === "*") {
       // Get all array elements joined with space
       const elements = getArrayElements(ctx, arrayName);
-      return elements.map(([, v]) => v).join(" ");
+      if (elements.length > 0) {
+        return elements.map(([, v]) => v).join(" ");
+      }
+      // If no array elements, treat scalar variable as single-element array
+      // ${s[@]} where s='abc' returns 'abc'
+      const scalarValue = ctx.state.env[arrayName];
+      if (scalarValue !== undefined) {
+        return scalarValue;
+      }
+      return "";
     }
 
     // Numeric subscript - evaluate it as arithmetic

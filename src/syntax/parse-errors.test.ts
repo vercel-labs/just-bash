@@ -29,13 +29,13 @@ describe("Bash Syntax - Parse Errors", () => {
     it("should error on else without if", async () => {
       const env = new BashEnv();
       const result = await env.exec("else echo hello; fi");
-      expect(result.exitCode).toBe(127); // command not found
+      expect(result.exitCode).toBe(2); // syntax error
     });
 
     it("should error on fi without if", async () => {
       const env = new BashEnv();
       const result = await env.exec("fi");
-      expect(result.exitCode).toBe(127); // command not found
+      expect(result.exitCode).toBe(2); // syntax error
     });
   });
 
