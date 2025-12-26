@@ -521,6 +521,11 @@ export class Lexer {
         // Read as a word including the literal brace and any suffix/additional braces
         return this.readWordWithBraceExpansion(pos, startLine, startColumn);
       }
+      // In bash, { must be followed by whitespace to be a group start
+      // If followed by a word character, treat as a literal word starting with {
+      if (c1 !== undefined && c1 !== " " && c1 !== "\t" && c1 !== "\n") {
+        return this.readWord(pos, startLine, startColumn);
+      }
       this.pos = pos + 1;
       this.column = startColumn + 1;
       return this.makeToken(TokenType.LBRACE, "{", pos, startLine, startColumn);
@@ -804,6 +809,25 @@ export class Lexer {
         continue;
       }
 
+      // Handle $"..." locale quoting (bash extension, treated like "..." in practice)
+      if (
+        char === "$" &&
+        pos + 1 < len &&
+        input[pos + 1] === '"' &&
+        !inSingleQuote &&
+        !inDoubleQuote
+      ) {
+        // Skip the $ and handle as regular double quote
+        pos++;
+        col++;
+        // Now handle the opening double quote
+        inDoubleQuote = true;
+        quoted = true;
+        pos++;
+        col++;
+        continue;
+      }
+
       // Handle quotes
       if (char === "'" && !inDoubleQuote) {
         if (inSingleQuote) {
@@ -889,6 +913,32 @@ export class Lexer {
           value += c;
           if (c === "(") depth++;
           else if (c === ")") depth--;
+          else if (c === "\n") {
+            ln++;
+            col = 0;
+          }
+          pos++;
+          col++;
+        }
+        continue;
+      }
+
+      // Handle $[...] old-style arithmetic - consume the entire construct
+      if (char === "$" && pos + 1 < len && input[pos + 1] === "[") {
+        value += char;
+        pos++;
+        col++;
+        // Now consume the $[...]
+        value += input[pos]; // Add the [
+        pos++;
+        col++;
+        // Track bracket depth
+        let depth = 1;
+        while (depth > 0 && pos < len) {
+          const c = input[pos];
+          value += c;
+          if (c === "[") depth++;
+          else if (c === "]") depth--;
           else if (c === "\n") {
             ln++;
             col = 0;

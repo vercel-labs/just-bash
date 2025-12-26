@@ -24,14 +24,55 @@ Options:
 `;
 
 // Valid short options for set
-const VALID_SET_OPTIONS = new Set(["e", "u", "x"]);
+// Note: some options are no-ops but accepted for compatibility
+const VALID_SET_OPTIONS = new Set([
+  "e", // errexit
+  "u", // nounset
+  "x", // xtrace
+  "f", // noglob (no-op)
+  "v", // verbose (no-op)
+  "h", // hashall (no-op)
+  "C", // noclobber (no-op)
+  "n", // noexec (no-op)
+  "a", // allexport (no-op)
+  "b", // notify (no-op)
+  "m", // monitor (no-op)
+  "B", // braceexpand (no-op)
+  "H", // histexpand (no-op)
+  "P", // physical (no-op)
+  "T", // functrace (no-op)
+  "E", // errtrace (no-op)
+  "p", // privileged (no-op)
+]);
 
 // Valid long options for set -o / +o
+// Note: many are no-ops but accepted for compatibility
 const VALID_SET_LONG_OPTIONS = new Set([
   "errexit",
   "pipefail",
   "nounset",
   "xtrace",
+  "noclobber",
+  "noglob",
+  "verbose",
+  "noexec",
+  "allexport",
+  "notify",
+  "monitor",
+  "braceexpand",
+  "histexpand",
+  "physical",
+  "functrace",
+  "errtrace",
+  "privileged",
+  "hashall",
+  "posix",
+  "vi",
+  "emacs",
+  "ignoreeof",
+  "interactive-comments",
+  "keyword",
+  "onecmd",
 ]);
 
 export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
@@ -93,13 +134,26 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
         ctx.state.options.xtrace = false;
       }
       i++;
-    } else if (arg === "-o" || arg === "+o") {
-      // -o or +o without argument
-      return {
-        stdout: "",
-        stderr: `bash: set: ${arg}: option requires an argument\n${SET_USAGE}`,
-        exitCode: 1,
-      };
+    } else if (arg === "-o" && (i + 1 >= args.length || args[i + 1].startsWith("-") || args[i + 1].startsWith("+"))) {
+      // set -o alone prints current option settings
+      const options = ctx.state.options;
+      const output = [
+        `errexit         ${options.errexit ? "on" : "off"}`,
+        `nounset         ${options.nounset ? "on" : "off"}`,
+        `pipefail        ${options.pipefail ? "on" : "off"}`,
+        `xtrace          ${options.xtrace ? "on" : "off"}`,
+      ].join("\n") + "\n";
+      return { stdout: output, stderr: "", exitCode: 0 };
+    } else if (arg === "+o" && (i + 1 >= args.length || args[i + 1].startsWith("-") || args[i + 1].startsWith("+"))) {
+      // set +o prints commands to recreate current settings
+      const options = ctx.state.options;
+      const output = [
+        `set ${options.errexit ? "-o" : "+o"} errexit`,
+        `set ${options.nounset ? "-o" : "+o"} nounset`,
+        `set ${options.pipefail ? "-o" : "+o"} pipefail`,
+        `set ${options.xtrace ? "-o" : "+o"} xtrace`,
+      ].join("\n") + "\n";
+      return { stdout: output, stderr: "", exitCode: 0 };
     } else if (arg.startsWith("-") && arg.length > 1 && arg[1] !== "-") {
       // Handle combined flags like -eu
       for (let j = 1; j < arg.length; j++) {
@@ -143,6 +197,20 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
       i++;
       setPositionalParameters(ctx, args.slice(i));
       return { stdout: "", stderr: "", exitCode: 0 };
+    } else if (arg === "-") {
+      // set - disables -x and -v (traditional behavior)
+      ctx.state.options.xtrace = false;
+      // Also marks end of options, rest are positional parameters
+      if (i + 1 < args.length) {
+        setPositionalParameters(ctx, args.slice(i + 1));
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+    } else if (arg === "+") {
+      // set + is just like set -- (end of options)
+      if (i + 1 < args.length) {
+        setPositionalParameters(ctx, args.slice(i + 1));
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
     } else if (arg.startsWith("-") || arg.startsWith("+")) {
       return {
         stdout: "",

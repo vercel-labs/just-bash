@@ -168,6 +168,9 @@ export function parseSimpleCommand(p: Parser): SimpleCommandNode {
           p.parseWordFromString(tokenValue, token.quoted, token.singleQuoted),
         );
       }
+    } else if (p.check(TokenType.LPAREN)) {
+      // Bare ( in argument position is a syntax error (e.g., "echo a(b)")
+      p.error(`syntax error near unexpected token \`('`);
     } else {
       break;
     }

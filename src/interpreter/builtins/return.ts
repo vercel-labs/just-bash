@@ -21,7 +21,7 @@ export function handleReturn(
   }
 
   let exitCode = ctx.state.lastExitCode;
-  if (args.length > 0) {
+  if (args.length > 0 && args[0] !== "") {
     const n = Number.parseInt(args[0], 10);
     if (Number.isNaN(n)) {
       return {

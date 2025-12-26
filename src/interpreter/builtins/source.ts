@@ -4,14 +4,20 @@
 
 import { type ParseException, parse } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
-import { ReturnError } from "../errors.js";
+import { ExitError, ReturnError } from "../errors.js";
 import type { InterpreterContext } from "../types.js";
 
 export async function handleSource(
   ctx: InterpreterContext,
   args: string[],
 ): Promise<ExecResult> {
-  if (args.length === 0) {
+  // Handle -- to end options (ignored like bash does)
+  let sourceArgs = args;
+  if (sourceArgs.length > 0 && sourceArgs[0] === "--") {
+    sourceArgs = sourceArgs.slice(1);
+  }
+
+  if (sourceArgs.length === 0) {
     return {
       stdout: "",
       stderr: "bash: source: filename argument required\n",
@@ -19,7 +25,7 @@ export async function handleSource(
     };
   }
 
-  const filename = args[0];
+  const filename = sourceArgs[0];
   const filePath = ctx.fs.resolvePath(ctx.state.cwd, filename);
 
   let content: string;
@@ -35,7 +41,7 @@ export async function handleSource(
 
   // Save and set positional parameters from additional args
   const savedPositional: Record<string, string | undefined> = {};
-  if (args.length > 1) {
+  if (sourceArgs.length > 1) {
     // Save current positional parameters
     for (let i = 1; i <= 9; i++) {
       savedPositional[String(i)] = ctx.state.env[String(i)];
@@ -44,7 +50,7 @@ export async function handleSource(
     savedPositional["@"] = ctx.state.env["@"];
 
     // Set new positional parameters
-    const scriptArgs = args.slice(1);
+    const scriptArgs = sourceArgs.slice(1);
     ctx.state.env["#"] = String(scriptArgs.length);
     ctx.state.env["@"] = scriptArgs.join(" ");
     for (let i = 0; i < scriptArgs.length && i < 9; i++) {
@@ -59,7 +65,7 @@ export async function handleSource(
   const cleanup = (): void => {
     ctx.state.sourceDepth--;
     // Restore positional parameters if we changed them
-    if (args.length > 1) {
+    if (sourceArgs.length > 1) {
       for (const [key, value] of Object.entries(savedPositional)) {
         if (value === undefined) {
           delete ctx.state.env[key];
@@ -79,6 +85,11 @@ export async function handleSource(
   } catch (error) {
     cleanup();
 
+    // ExitError propagates up to exit the shell
+    if (error instanceof ExitError) {
+      throw error;
+    }
+
     // Handle return in sourced script - treat as normal exit
     if (error instanceof ReturnError) {
       return {
@@ -92,7 +103,7 @@ export async function handleSource(
       return {
         stdout: "",
         stderr: `bash: ${filename}: ${(error as Error).message}\n`,
-        exitCode: 2,
+        exitCode: 1, // bash returns 1 for syntax errors in source
       };
     }
     throw error;

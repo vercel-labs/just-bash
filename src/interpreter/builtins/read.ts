@@ -140,23 +140,45 @@ export function handleRead(
     line = line.replace(/\\(.)/g, "$1");
   }
 
-  // If -n was used with no variable names, store in REPLY without IFS splitting
-  if (nchars >= 0 && varNames.length === 1 && varNames[0] === "REPLY") {
+  // If no variable names given (only REPLY), store whole line without IFS splitting
+  // This preserves leading/trailing whitespace
+  if (varNames.length === 1 && varNames[0] === "REPLY") {
     ctx.state.env.REPLY = line;
-    return { stdout: "", stderr: "", exitCode: 0 };
+    return { stdout: "", stderr: "", exitCode: foundDelimiter ? 0 : 1 };
   }
 
   // Split by IFS (default is space, tab, newline)
   const ifs = ctx.state.env.IFS ?? " \t\n";
-  let words: string[];
+  let words: string[] = [];
+  let wordStarts: number[] = []; // Track where each word starts in original line
   if (ifs === "") {
     words = [line];
+    wordStarts = [0];
   } else {
     // Create regex from IFS characters
     const ifsRegex = new RegExp(
       `[${ifs.replace(/[-[\]{}()*+?.,\\^$|#]/g, "\\$&")}]+`,
+      "g",
     );
-    words = line.split(ifsRegex).filter((w) => w !== "");
+    let lastEnd = 0;
+    let match: RegExpExecArray | null;
+    // Find leading IFS and strip it
+    const leadingMatch = line.match(new RegExp(`^[${ifs.replace(/[-[\]{}()*+?.,\\^$|#]/g, "\\$&")}]+`));
+    if (leadingMatch) {
+      lastEnd = leadingMatch[0].length;
+    }
+    ifsRegex.lastIndex = lastEnd;
+    while ((match = ifsRegex.exec(line)) !== null) {
+      if (match.index > lastEnd) {
+        wordStarts.push(lastEnd);
+        words.push(line.substring(lastEnd, match.index));
+      }
+      lastEnd = ifsRegex.lastIndex;
+    }
+    if (lastEnd < line.length) {
+      wordStarts.push(lastEnd);
+      words.push(line.substring(lastEnd));
+    }
   }
 
   // Handle array assignment (-a)
@@ -181,8 +203,19 @@ export function handleRead(
       // Assign single word
       ctx.state.env[name] = words[j] ?? "";
     } else {
-      // Last variable gets all remaining words
-      ctx.state.env[name] = words.slice(j).join(" ");
+      // Last variable gets all remaining content from original line
+      // This preserves original separators (tabs, etc.)
+      if (j < wordStarts.length) {
+        let value = line.substring(wordStarts[j]);
+        // Strip trailing IFS whitespace
+        const trailingIfsRegex = new RegExp(
+          `[${ifs.replace(/[-[\]{}()*+?.,\\^$|#]/g, "\\$&")}]+$`,
+        );
+        value = value.replace(trailingIfsRegex, "");
+        ctx.state.env[name] = value;
+      } else {
+        ctx.state.env[name] = "";
+      }
     }
   }
 

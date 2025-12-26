@@ -35,6 +35,7 @@ import {
   handleEval,
   handleExit,
   handleExport,
+  handleLet,
   handleLocal,
   handleRead,
   handleReadonly,
@@ -130,13 +131,11 @@ export class Interpreter {
         this.ctx.state.lastExitCode = exitCode;
         this.ctx.state.env["?"] = String(exitCode);
       } catch (error) {
+        // ExitError always propagates up to terminate the script
+        // This allows 'eval exit 42' and 'source exit.sh' to exit properly
         if (error instanceof ExitError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
-          exitCode = error.exitCode;
-          this.ctx.state.lastExitCode = exitCode;
-          this.ctx.state.env["?"] = String(exitCode);
-          return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
+          error.prependOutput(stdout, stderr);
+          throw error;
         }
         if (error instanceof ErrexitError) {
           stdout += error.stdout;
@@ -162,12 +161,16 @@ export class Interpreter {
           this.ctx.state.env["?"] = String(exitCode);
           return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
         }
-        // Handle break/continue that escaped loops (level exceeded loop depth)
-        // In bash, this silently exits all loops and continues with next statement
+        // Handle break/continue errors
         if (error instanceof BreakError || error instanceof ContinueError) {
+          // If we're inside a loop, propagate the error up (for eval/source inside loops)
+          if (this.ctx.state.loopDepth > 0) {
+            error.prependOutput(stdout, stderr);
+            throw error;
+          }
+          // Outside loops (level exceeded loop depth), silently continue with next statement
           stdout += error.stdout;
           stderr += error.stderr;
-          // Continue with next statement
           continue;
         }
         // Handle return - prepend accumulated output before propagating
@@ -447,15 +450,42 @@ export class Interpreter {
     }
 
     const commandName = await expandWord(this.ctx, node.name);
+
     const args: string[] = [];
     const quotedArgs: boolean[] = [];
 
+    // Expand args even if command name is empty (they may have side effects)
     for (const arg of node.args) {
       const expanded = await expandWordWithGlob(this.ctx, arg);
       for (const value of expanded.values) {
         args.push(value);
         quotedArgs.push(expanded.quoted);
       }
+    }
+
+    // Handle empty command name specially
+    // If the command word contains ONLY command substitutions/expansions and expands
+    // to empty, treat it as a no-op (status 0). This matches bash behavior where
+    // x=''; $x is a no-op, not "command not found".
+    // However, a literal empty string (like '') is "command not found".
+    if (!commandName) {
+      const isOnlyExpansions = node.name.parts.every(
+        (p) =>
+          p.type === "CommandSubstitution" ||
+          p.type === "ParameterExpansion" ||
+          p.type === "ArithmeticExpansion",
+      );
+      if (isOnlyExpansions) {
+        // Empty result from variable/command substitution - treat as no-op (status 0)
+        // Preserve lastExitCode for command subs like $(exit 42)
+        return { stdout: "", stderr: "", exitCode: this.ctx.state.lastExitCode };
+      }
+      // Literal empty command name - command not found
+      return {
+        stdout: "",
+        stderr: "bash: : command not found\n",
+        exitCode: 127,
+      };
     }
 
     let result = await this.runCommand(commandName, args, quotedArgs, stdin);
@@ -474,6 +504,7 @@ export class Interpreter {
     args: string[],
     _quotedArgs: boolean[],
     stdin: string,
+    skipFunctions = false,
   ): Promise<ExecResult> {
     // Built-in commands
     if (commandName === "cd") {
@@ -529,30 +560,7 @@ export class Interpreter {
       return { stdout: "", stderr: "", exitCode: 1 };
     }
     if (commandName === "let") {
-      // let expr... - evaluate arithmetic expressions
-      // Returns 0 if last expression is non-zero, 1 if zero
-      if (args.length === 0) {
-        return {
-          stdout: "",
-          stderr: "bash: let: expression expected\n",
-          exitCode: 1,
-        };
-      }
-      let lastValue = 0;
-      for (const arg of args) {
-        try {
-          // Parse and evaluate the arithmetic expression
-          const result = await this.ctx.execFn(`echo $((${arg}))`);
-          lastValue = parseInt(result.stdout.trim(), 10) || 0;
-        } catch {
-          return {
-            stdout: "",
-            stderr: `bash: let: ${arg}: syntax error\n`,
-            exitCode: 1,
-          };
-        }
-      }
-      return { stdout: "", stderr: "", exitCode: lastValue === 0 ? 1 : 0 };
+      return handleLet(this.ctx, args);
     }
     if (commandName === "command") {
       // command [-pVv] command [arg...] - run command, bypassing functions
@@ -567,9 +575,9 @@ export class Interpreter {
       if (cmdArgs.length === 0) {
         return { stdout: "", stderr: "", exitCode: 0 };
       }
-      // Run command without checking functions
+      // Run command without checking functions, but builtins are still available
       const [cmd, ...rest] = cmdArgs;
-      return this.runExternalCommand(cmd, rest, stdin);
+      return this.runCommand(cmd, rest, [], stdin, true);
     }
     if (commandName === "builtin") {
       // builtin command [arg...] - run builtin command
@@ -597,6 +605,10 @@ export class Interpreter {
       // wait - wait for background jobs (stub: no-op in this context)
       return { stdout: "", stderr: "", exitCode: 0 };
     }
+    if (commandName === "type") {
+      // type - describe commands
+      return this.handleType(args);
+    }
     // Test commands
     if (commandName === "[[") {
       const endIdx = args.lastIndexOf("]]");
@@ -617,10 +629,12 @@ export class Interpreter {
       return evaluateTestArgs(this.ctx, testArgs);
     }
 
-    // User-defined functions
-    const func = this.ctx.state.functions.get(commandName);
-    if (func) {
-      return callFunction(this.ctx, func, args);
+    // User-defined functions (skip if called via 'command' builtin)
+    if (!skipFunctions) {
+      const func = this.ctx.state.functions.get(commandName);
+      if (func) {
+        return callFunction(this.ctx, func, args);
+      }
     }
 
     // External commands
@@ -705,12 +719,100 @@ export class Interpreter {
   }
 
   // ===========================================================================
+  // TYPE COMMAND
+  // ===========================================================================
+
+  private handleType(args: string[]): ExecResult {
+    // Shell keywords
+    const keywords = new Set([
+      "if",
+      "then",
+      "else",
+      "elif",
+      "fi",
+      "case",
+      "esac",
+      "for",
+      "select",
+      "while",
+      "until",
+      "do",
+      "done",
+      "in",
+      "function",
+      "{",
+      "}",
+      "time",
+      "[[",
+      "]]",
+      "!",
+    ]);
+
+    // Shell builtins
+    const builtins = new Set([
+      "cd",
+      "export",
+      "unset",
+      "exit",
+      "local",
+      "set",
+      "break",
+      "continue",
+      "return",
+      "eval",
+      "shift",
+      "source",
+      ".",
+      "read",
+      "declare",
+      "typeset",
+      "readonly",
+      ":",
+      "true",
+      "false",
+      "let",
+      "command",
+      "builtin",
+      "shopt",
+      "exec",
+      "wait",
+      "type",
+      "[",
+      "test",
+    ]);
+
+    let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
+
+    for (const name of args) {
+      if (keywords.has(name)) {
+        stdout += `${name} is a shell keyword\n`;
+      } else if (builtins.has(name)) {
+        stdout += `${name} is a shell builtin\n`;
+      } else if (this.ctx.state.functions.has(name)) {
+        stdout += `${name} is a function\n`;
+      } else if (this.ctx.commands.has(name)) {
+        stdout += `${name} is /bin/${name}\n`;
+      } else {
+        stderr += `bash: type: ${name}: not found\n`;
+        exitCode = 1;
+      }
+    }
+
+    return { stdout, stderr, exitCode };
+  }
+
+  // ===========================================================================
   // SUBSHELL AND GROUP EXECUTION
   // ===========================================================================
 
   private async executeSubshell(node: SubshellNode): Promise<ExecResult> {
     const savedEnv = { ...this.ctx.state.env };
     const savedCwd = this.ctx.state.cwd;
+    // Reset loopDepth in subshell - break/continue should not affect parent loops
+    const savedLoopDepth = this.ctx.state.loopDepth;
+    this.ctx.state.loopDepth = 0;
 
     let stdout = "";
     let stderr = "";
@@ -726,10 +828,27 @@ export class Interpreter {
     } catch (error) {
       this.ctx.state.env = savedEnv;
       this.ctx.state.cwd = savedCwd;
+      this.ctx.state.loopDepth = savedLoopDepth;
+      // BreakError/ContinueError should NOT propagate out of subshell
+      // They only affect loops within the subshell
       if (error instanceof BreakError || error instanceof ContinueError) {
-        error.stdout = stdout + error.stdout;
-        error.stderr = stderr + error.stderr;
-        throw error;
+        stdout += error.stdout;
+        stderr += error.stderr;
+        return { stdout, stderr, exitCode: 0 };
+      }
+      // ExitError in subshell should NOT propagate - just return the exit code
+      // (subshells are like separate processes)
+      if (error instanceof ExitError) {
+        stdout += error.stdout;
+        stderr += error.stderr;
+        return { stdout, stderr, exitCode: error.exitCode };
+      }
+      // ReturnError in subshell (e.g., f() ( return 42; )) should also just exit
+      // with the given code, since subshells are like separate processes
+      if (error instanceof ReturnError) {
+        stdout += error.stdout;
+        stderr += error.stderr;
+        return { stdout, stderr, exitCode: error.exitCode };
       }
       if (error instanceof ErrexitError) {
         error.stdout = stdout + error.stdout;
@@ -742,6 +861,7 @@ export class Interpreter {
 
     this.ctx.state.env = savedEnv;
     this.ctx.state.cwd = savedCwd;
+    this.ctx.state.loopDepth = savedLoopDepth;
 
     return { stdout, stderr, exitCode };
   }

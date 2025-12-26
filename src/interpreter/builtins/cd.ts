@@ -19,26 +19,39 @@ export async function handleCd(
     target = args[0];
   }
 
-  const newDir = ctx.fs.resolvePath(ctx.state.cwd, target);
-
-  try {
-    const statResult = await ctx.fs.stat(newDir);
-    if (!statResult.isDirectory) {
-      return {
-        stdout: "",
-        stderr: `bash: cd: ${target}: Not a directory\n`,
-        exitCode: 1,
-      };
-    }
-  } catch {
-    if (newDir !== "/") {
-      return {
-        stdout: "",
-        stderr: `bash: cd: ${target}: No such file or directory\n`,
-        exitCode: 1,
-      };
+  // Check path components before normalization to catch cases like "nonexistent/.."
+  // where the intermediate directory doesn't exist
+  const pathToCheck = target.startsWith("/")
+    ? target
+    : `${ctx.state.cwd}/${target}`;
+  const parts = pathToCheck.split("/").filter((p) => p && p !== ".");
+  let currentPath = "";
+  for (const part of parts) {
+    if (part === "..") {
+      // Go up one level
+      currentPath = currentPath.split("/").slice(0, -1).join("/") || "/";
+    } else {
+      currentPath = currentPath ? `${currentPath}/${part}` : `/${part}`;
+      try {
+        const stat = await ctx.fs.stat(currentPath);
+        if (!stat.isDirectory) {
+          return {
+            stdout: "",
+            stderr: `bash: cd: ${target}: Not a directory\n`,
+            exitCode: 1,
+          };
+        }
+      } catch {
+        return {
+          stdout: "",
+          stderr: `bash: cd: ${target}: No such file or directory\n`,
+          exitCode: 1,
+        };
+      }
     }
   }
+
+  const newDir = currentPath || "/";
 
   ctx.state.previousDir = ctx.state.cwd;
   ctx.state.cwd = newDir;

@@ -343,6 +343,8 @@ export async function executeWhile(
       }
 
       let conditionExitCode = 0;
+      let shouldBreak = false;
+      let shouldContinue = false;
 
       // Condition evaluation should not trigger errexit
       const savedInCondition = ctx.state.inCondition;
@@ -354,10 +356,40 @@ export async function executeWhile(
           stderr += result.stderr;
           conditionExitCode = result.exitCode;
         }
+      } catch (error) {
+        // break/continue in condition should affect THIS while loop
+        if (error instanceof BreakError) {
+          stdout += error.stdout;
+          stderr += error.stderr;
+          if (error.levels > 1 && ctx.state.loopDepth > 1) {
+            error.levels--;
+            error.stdout = stdout;
+            error.stderr = stderr;
+            ctx.state.inCondition = savedInCondition;
+            throw error;
+          }
+          shouldBreak = true;
+        } else if (error instanceof ContinueError) {
+          stdout += error.stdout;
+          stderr += error.stderr;
+          if (error.levels > 1 && ctx.state.loopDepth > 1) {
+            error.levels--;
+            error.stdout = stdout;
+            error.stderr = stderr;
+            ctx.state.inCondition = savedInCondition;
+            throw error;
+          }
+          shouldContinue = true;
+        } else {
+          ctx.state.inCondition = savedInCondition;
+          throw error;
+        }
       } finally {
         ctx.state.inCondition = savedInCondition;
       }
 
+      if (shouldBreak) break;
+      if (shouldContinue) continue;
       if (conditionExitCode !== 0) break;
 
       try {

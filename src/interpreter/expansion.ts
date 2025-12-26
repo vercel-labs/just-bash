@@ -313,7 +313,8 @@ function expandPartSync(ctx: InterpreterContext, part: WordPart): string {
       if (part.user === null) {
         return ctx.state.env.HOME || "/home/user";
       }
-      return `/home/${part.user}`;
+      // For ~user, return literal (user doesn't exist in virtual environment)
+      return `~${part.user}`;
 
     case "BraceExpansion": {
       const results: string[] = [];
@@ -610,7 +611,8 @@ export async function expandWordWithGlob(
     ? await expandWordAsync(ctx, word)
     : expandWordSync(ctx, word);
 
-  if (!hasQuoted && (hasCommandSub || hasArrayVar) && value.includes(" ")) {
+  // Word splitting: check for any IFS whitespace (space, tab, newline)
+  if (!hasQuoted && (hasCommandSub || hasArrayVar) && /\s/.test(value)) {
     const splitValues = value.split(/\s+/).filter((v) => v !== "");
     if (splitValues.length > 1) {
       return { values: splitValues, quoted: false };
@@ -686,7 +688,8 @@ async function expandPart(
       if (part.user === null) {
         return ctx.state.env.HOME || "/home/user";
       }
-      return `/home/${part.user}`;
+      // For ~user, return literal (user doesn't exist in virtual environment)
+      return `~${part.user}`;
 
     case "BraceExpansion": {
       const results: string[] = [];
@@ -1061,9 +1064,18 @@ export function getVariable(
     case "0":
       return ctx.state.env["0"] || "bash";
     case "PWD":
-      return ctx.state.cwd;
+      // Check if PWD is in env (might have been unset)
+      if (ctx.state.env.PWD !== undefined) {
+        return ctx.state.env.PWD;
+      }
+      // PWD was unset, return empty string
+      return "";
     case "OLDPWD":
-      return ctx.state.previousDir;
+      // Check if OLDPWD is in env (might have been unset)
+      if (ctx.state.env.OLDPWD !== undefined) {
+        return ctx.state.env.OLDPWD;
+      }
+      return "";
   }
 
   // Check for array subscript: varName[subscript]

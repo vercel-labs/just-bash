@@ -16,7 +16,7 @@ import {
 } from "./commands/registry.js";
 import { type IFileSystem, VirtualFs } from "./fs.js";
 import type { InitialFiles } from "./fs-interface.js";
-import { ArithmeticError } from "./interpreter/errors.js";
+import { ArithmeticError, ExitError } from "./interpreter/errors.js";
 import {
   Interpreter,
   type InterpreterOptions,
@@ -107,6 +107,8 @@ export class BashEnv {
       OSTYPE: "linux-gnu",
       MACHTYPE: "x86_64-pc-linux-gnu",
       HOSTTYPE: "x86_64",
+      PWD: cwd,
+      OLDPWD: cwd,
       ...options.env,
     };
 
@@ -258,6 +260,15 @@ export class BashEnv {
       // Interpreter always sets env, assert it for type safety
       return result as BashExecResult;
     } catch (error) {
+      // ExitError propagates from 'exit' builtin (including via eval/source)
+      if (error instanceof ExitError) {
+        return {
+          stdout: error.stdout,
+          stderr: error.stderr,
+          exitCode: error.exitCode,
+          env: { ...this.state.env, ...options?.env },
+        };
+      }
       if (error instanceof ArithmeticError) {
         return {
           stdout: error.stdout,

@@ -284,14 +284,7 @@ export class Parser {
       t === TokenType.DBRACK_START ||
       t === TokenType.FUNCTION ||
       t === TokenType.BANG ||
-      // Reserved words outside their context should be treated as commands
-      t === TokenType.ELSE ||
-      t === TokenType.ELIF ||
-      t === TokenType.FI ||
-      t === TokenType.THEN ||
-      t === TokenType.DO ||
-      t === TokenType.DONE ||
-      t === TokenType.ESAC ||
+      // 'in' can appear as a command name (e.g., 'in' is not reserved outside for/case)
       t === TokenType.IN
     );
   }
@@ -313,12 +306,25 @@ export class Parser {
         this.error(`Parser stuck: too many iterations (>${maxIterations})`);
       }
 
+      // Check for unexpected tokens at statement start
+      this.checkUnexpectedToken();
+
       const posBefore = this.pos;
       const stmt = this.parseStatement();
       if (stmt) {
         statements.push(stmt);
       }
-      this.skipSeparators();
+      // Don't skip case terminators (;;, ;&, ;;&) at script level - they're syntax errors
+      this.skipSeparators(false);
+
+      // Check for case terminators at script level - these are syntax errors
+      if (
+        this.check(TokenType.DSEMI, TokenType.SEMI_AND, TokenType.SEMI_SEMI_AND)
+      ) {
+        this.error(
+          `syntax error near unexpected token \`${this.current().value}'`,
+        );
+      }
 
       // Safety: if we didn't advance, force advance to prevent infinite loop
       if (this.pos === posBefore && !this.check(TokenType.EOF)) {
@@ -327,6 +333,41 @@ export class Parser {
     }
 
     return AST.script(statements);
+  }
+
+  /**
+   * Check for unexpected tokens that can't appear at statement start
+   */
+  private checkUnexpectedToken(): void {
+    const t = this.current().type;
+    const v = this.current().value;
+
+    // Check for unexpected reserved words that can only appear inside specific constructs
+    if (
+      t === TokenType.DO ||
+      t === TokenType.DONE ||
+      t === TokenType.THEN ||
+      t === TokenType.ELSE ||
+      t === TokenType.ELIF ||
+      t === TokenType.FI ||
+      t === TokenType.ESAC
+    ) {
+      this.error(`syntax error near unexpected token \`${v}'`);
+    }
+
+    // Check for unexpected closing braces/parens
+    if (t === TokenType.RBRACE || t === TokenType.RPAREN) {
+      this.error(`syntax error near unexpected token \`${v}'`);
+    }
+
+    // Check for case terminators at statement start
+    if (
+      t === TokenType.DSEMI ||
+      t === TokenType.SEMI_AND ||
+      t === TokenType.SEMI_SEMI_AND
+    ) {
+      this.error(`syntax error near unexpected token \`${v}'`);
+    }
   }
 
   // ===========================================================================
@@ -530,6 +571,11 @@ export class Parser {
       if (depth > 0) i++;
     }
 
+    // Check for unclosed command substitution
+    if (depth > 0) {
+      this.error("unexpected EOF while looking for matching `)'");
+    }
+
     const cmdStr = value.slice(cmdStart, i);
     // Use a new Parser instance to avoid overwriting this parser's tokens
     const nestedParser = new Parser();
@@ -547,13 +593,36 @@ export class Parser {
   ): { part: CommandSubstitutionPart; endIndex: number } {
     const cmdStart = start + 1;
     let i = cmdStart;
+    let cmdStr = "";
 
+    // Process backtick escaping rules:
+    // \$ \` \\ \" \<newline> have backslash removed
+    // \x for other chars keeps the backslash
     while (i < value.length && value[i] !== "`") {
-      if (value[i] === "\\") i += 2;
-      else i++;
+      if (value[i] === "\\") {
+        const next = value[i + 1];
+        if (next === "$" || next === "`" || next === "\\" || next === '"' || next === "\n") {
+          // Remove the backslash, keep the next char (or nothing for newline)
+          if (next !== "\n") {
+            cmdStr += next;
+          }
+          i += 2;
+        } else {
+          // Keep the backslash for other characters
+          cmdStr += value[i];
+          i++;
+        }
+      } else {
+        cmdStr += value[i];
+        i++;
+      }
     }
 
-    const cmdStr = value.slice(cmdStart, i);
+    // Check for unclosed backtick substitution
+    if (i >= value.length) {
+      this.error("unexpected EOF while looking for matching ``'");
+    }
+
     // Use a new Parser instance to avoid overwriting this parser's tokens
     const nestedParser = new Parser();
     const body = nestedParser.parse(cmdStr);

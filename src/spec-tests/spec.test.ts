@@ -12,76 +12,133 @@ import { runTestCase } from "./runner.js";
 
 const CASES_DIR = path.join(__dirname, "cases");
 
-// Test files by priority - start with simpler ones
-const TEST_FILES = [
-  "builtin-echo.test.sh",
-  "comments.test.sh",
-  "assign.test.sh",
-  "arith.test.sh",
-  "if_.test.sh",
-  "loop.test.sh",
-  "case_.test.sh",
-  // Additional test files
-  "tilde.test.sh",
-  "var-op-len.test.sh",
-  "var-op-strip.test.sh",
-  "command-sub.test.sh",
-  // More test files
-  "word-eval.test.sh",
-  "dparen.test.sh",
-  "var-sub-quote.test.sh",
-  "quote.test.sh",
-  // Even more test files
-  "var-op-test.test.sh",
-  "pipeline.test.sh",
-  "redirect.test.sh",
-  // Additional fundamental tests
-  "exit-status.test.sh",
-  "subshell.test.sh",
-  "glob.test.sh",
-  "here-doc.test.sh",
-  // Builtin tests
-  "builtin-printf.test.sh",
-  "builtin-cd.test.sh",
-  // More tests
-  "var-sub.test.sh",
-  "let.test.sh",
-  "empty-bodies.test.sh",
-  "func-parsing.test.sh",
-  "errexit.test.sh",
-  "vars-special.test.sh",
-  // Additional test files - FIRST HALF
-  "builtin-bracket.test.sh",
-  "builtin-read.test.sh",
-  "builtin-eval-source.test.sh",
-  "builtin-misc.test.sh",
-  "builtin-type.test.sh",
-  "builtin-special.test.sh",
-  "builtin-set.test.sh",
-  "command_.test.sh",
-  "command-parsing.test.sh",
-  "var-op-slice.test.sh",
-  // SECOND HALF - first part
-  "var-op-patsub.test.sh",
-  "var-num.test.sh",
-  "word-split.test.sh",
-  "sh-func.test.sh",
-  "temp-binding.test.sh",
-  // SECOND HALF - second part
-  "posix.test.sh",
-  "strict-options.test.sh",
-  "parse-errors.test.sh",
-  "dbracket.test.sh",
-  "whitespace.test.sh",
-  "smoke.test.sh",
-  // Array tests
-  "array-basic.test.sh",
-  "array.test.sh",
-  // More arithmetic tests
-  "arith-context.test.sh",
-  // Brace expansion - CRASHES worker, needs investigation
-  "brace-expansion.test.sh",
-];
+// All available test files - dynamically loaded
+const ALL_TEST_FILES = fs
+  .readdirSync(CASES_DIR)
+  .filter((f) => f.endsWith(".test.sh"))
+  .sort();
+
+// Tests to skip entirely (interactive, requires real shell, etc.)
+const SKIP_FILES = new Set([
+  // Interactive shell tests - require TTY
+  "interactive.test.sh",
+  "interactive-parse.test.sh",
+  "prompt.test.sh",
+  "builtin-history.test.sh",
+  "builtin-fc.test.sh",
+  "builtin-bind.test.sh",
+  "builtin-completion.test.sh",
+
+  // Process/job control - requires real processes
+  "background.test.sh",
+  "builtin-process.test.sh",
+  "builtin-kill.test.sh",
+  "builtin-trap.test.sh",
+  "builtin-trap-bash.test.sh",
+  "builtin-trap-err.test.sh",
+  "builtin-times.test.sh",
+  "process-sub.test.sh",
+
+  // Shell-specific features not implemented
+  "alias.test.sh",
+  "xtrace.test.sh",
+  "builtin-dirs.test.sh",
+  "sh-usage.test.sh",
+
+  // ZSH-specific tests
+  "zsh-assoc.test.sh",
+  "zsh-idioms.test.sh",
+
+  // BLE (bash line editor) specific
+  "ble-features.test.sh",
+  "ble-idioms.test.sh",
+  "ble-unset.test.sh",
+
+  // Tests that require external commands or real filesystem
+  "nul-bytes.test.sh",
+  "unicode.test.sh",
+
+  // Meta/introspection tests
+  "introspect.test.sh",
+  "print-source-code.test.sh",
+  "serialize.test.sh",
+  "spec-harness-bug.test.sh",
+
+  // Known differences / divergence docs (not real tests)
+  "known-differences.test.sh",
+  "divergence.test.sh",
+
+  // Toysh-specific
+  "toysh.test.sh",
+  "toysh-posix.test.sh",
+
+  // Blog/exploration tests (not spec tests)
+  "blog1.test.sh",
+  "blog2.test.sh",
+  "blog-other1.test.sh",
+  "explore-parsing.test.sh",
+
+  // Extended globbing - not implemented
+  "extglob-match.test.sh",
+  "extglob-files.test.sh",
+  "globstar.test.sh",
+  "globignore.test.sh",
+  "nocasematch-match.test.sh",
+
+  // Advanced features not implemented
+  "builtin-getopts.test.sh", // getopts builtin
+  "nameref.test.sh", // nameref/declare -n
+  "var-ref.test.sh", // ${!var} indirect references
+  "regex.test.sh", // =~ regex matching
+  "sh-options.test.sh", // shopt options
+  "sh-options-bash.test.sh",
+
+  // Bash-specific builtins not implemented
+  "builtin-bash.test.sh",
+  "builtin-type-bash.test.sh",
+  "builtin-vars.test.sh",
+  "builtin-meta.test.sh",
+  "builtin-meta-assign.test.sh",
+
+  // Advanced array features
+  "array-assoc.test.sh", // associative arrays
+  "array-sparse.test.sh", // sparse arrays
+  "array-compat.test.sh",
+  "array-literal.test.sh",
+  "array-assign.test.sh",
+
+  // Complex assignment features
+  "assign-extended.test.sh",
+  "assign-deferred.test.sh",
+  "assign-dialects.test.sh",
+
+  // Advanced arithmetic
+  "arith-dynamic.test.sh",
+
+  // Complex redirect features
+  "redirect-multi.test.sh",
+  "redirect-command.test.sh",
+  "redir-order.test.sh",
+
+  // Other advanced features
+  "command-sub-ksh.test.sh",
+  "vars-bash.test.sh",
+  "var-op-bash.test.sh",
+  "type-compat.test.sh",
+  "shell-grammar.test.sh",
+  "shell-bugs.test.sh",
+  "nix-idioms.test.sh",
+  "paren-ambiguity.test.sh",
+  "fatal-errors.test.sh",
+  "for-expr.test.sh",
+  "glob-bash.test.sh",
+  "bool-parse.test.sh",
+  "arg-parse.test.sh",
+  "append.test.sh",
+  "bugs.test.sh",
+]);
+
+const TEST_FILES = ALL_TEST_FILES.filter((f) => !SKIP_FILES.has(f));
 
 /**
  * Truncate script for test name display

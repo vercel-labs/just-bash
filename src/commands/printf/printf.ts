@@ -91,15 +91,25 @@ export const printfCommand: Command = {
       // Format and handle argument reuse (bash loops through format until all args consumed)
       let output = "";
       let argPos = 0;
+      let hadError = false;
+      let errorMessage = "";
 
       do {
-        const { result, argsConsumed } = formatOnce(
+        const { result, argsConsumed, error, errMsg, stopped } = formatOnce(
           processedFormat,
           formatArgs,
           argPos,
         );
         output += result;
         argPos += argsConsumed;
+        if (error) {
+          hadError = true;
+          if (errMsg) errorMessage = errMsg;
+        }
+        // If %b with \c was encountered, stop all output immediately
+        if (stopped) {
+          break;
+        }
       } while (argPos < formatArgs.length && argPos > 0);
 
       // If no args were consumed but format had no specifiers, just output format
@@ -110,10 +120,10 @@ export const printfCommand: Command = {
       // If -v was specified, store in variable instead of printing
       if (targetVar) {
         ctx.env[targetVar] = output;
-        return { stdout: "", stderr: "", exitCode: 0 };
+        return { stdout: "", stderr: errorMessage, exitCode: hadError ? 1 : 0 };
       }
 
-      return { stdout: output, stderr: "", exitCode: 0 };
+      return { stdout: output, stderr: errorMessage, exitCode: hadError ? 1 : 0 };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { stdout: "", stderr: `printf: ${message}\n`, exitCode: 1 };
@@ -219,10 +229,12 @@ function formatOnce(
   format: string,
   args: string[],
   argPos: number,
-): { result: string; argsConsumed: number } {
+): { result: string; argsConsumed: number; error: boolean; errMsg: string; stopped: boolean } {
   let result = "";
   let i = 0;
   let argsConsumed = 0;
+  let error = false;
+  let errMsg = "";
 
   while (i < format.length) {
     if (format[i] === "%" && i + 1 < format.length) {
@@ -296,38 +308,60 @@ function formatOnce(
       argsConsumed++;
 
       // Format based on specifier
-      result += formatValue(adjustedSpec, specifier, arg);
+      const { value, parseError, parseErrMsg, stopped } = formatValue(adjustedSpec, specifier, arg);
+      result += value;
+      if (parseError) {
+        error = true;
+        if (parseErrMsg) errMsg = parseErrMsg;
+      }
+      // If %b with \c was encountered, stop all output immediately
+      if (stopped) {
+        return { result, argsConsumed, error, errMsg, stopped: true };
+      }
     } else {
       result += format[i];
       i++;
     }
   }
 
-  return { result, argsConsumed };
+  return { result, argsConsumed, error, errMsg, stopped: false };
 }
 
 /**
  * Format a single value with the given specifier
  */
-function formatValue(spec: string, specifier: string, arg: string): string {
+function formatValue(spec: string, specifier: string, arg: string): { value: string; parseError: boolean; parseErrMsg: string; stopped?: boolean } {
+  let parseError = false;
+  let parseErrMsg = "";
+
   switch (specifier) {
     case "d":
     case "i": {
       const num = parseIntArg(arg);
-      return formatInteger(spec, num);
+      parseError = lastParseError;
+      if (parseError) parseErrMsg = `printf: ${arg}: invalid number\n`;
+      return { value: formatInteger(spec, num), parseError, parseErrMsg };
     }
     case "o": {
       const num = parseIntArg(arg);
-      return formatOctal(spec, num);
+      parseError = lastParseError;
+      if (parseError) parseErrMsg = `printf: ${arg}: invalid number\n`;
+      return { value: formatOctal(spec, num), parseError, parseErrMsg };
     }
     case "u": {
-      const num = Math.abs(parseIntArg(arg));
-      return formatInteger(spec.replace("u", "d"), num);
+      const num = parseIntArg(arg);
+      parseError = lastParseError;
+      if (parseError) parseErrMsg = `printf: ${arg}: invalid number\n`;
+      // For unsigned with negative, convert to unsigned representation
+      const unsignedNum = num < 0 ? num >>> 0 : num;
+      return { value: formatInteger(spec.replace("u", "d"), unsignedNum), parseError, parseErrMsg };
     }
     case "x":
     case "X": {
       const num = parseIntArg(arg);
-      return formatHex(spec, num);
+      parseError = lastParseError;
+      if (parseError) parseErrMsg = `printf: ${arg}: invalid number\n`;
+      return { value: formatHex(spec, num), parseError, parseErrMsg };
     }
     case "e":
     case "E":
@@ -336,28 +370,45 @@ function formatValue(spec: string, specifier: string, arg: string): string {
     case "g":
     case "G": {
       const num = parseFloat(arg) || 0;
-      return sprintf(spec, num);
+      return { value: formatFloat(spec, specifier, num), parseError: false, parseErrMsg: "" };
     }
     case "c":
       // Character - take first char
-      return arg.charAt(0) || "";
+      return { value: arg.charAt(0) || "", parseError: false, parseErrMsg: "" };
     case "s":
-      return sprintf(spec, arg);
+      return { value: formatString(spec, arg), parseError: false, parseErrMsg: "" };
     case "q":
-      // Shell quoting
-      return shellQuote(arg);
-    case "b":
+      // Shell quoting with width support
+      return { value: formatQuoted(spec, arg), parseError: false, parseErrMsg: "" };
+    case "b": {
       // Interpret escape sequences in arg
-      return processEscapes(arg);
+      // Returns {value, stopped} - if stopped is true, \c was encountered
+      const bResult = processBEscapes(arg);
+      return { value: bResult.value, parseError: false, parseErrMsg: "", stopped: bResult.stopped };
+    }
     default:
-      return sprintf(spec, arg);
+      try {
+        return { value: sprintf(spec, arg), parseError: false, parseErrMsg: "" };
+      } catch {
+        return { value: "", parseError: true, parseErrMsg: `printf: [sprintf] unexpected placeholder\n` };
+      }
   }
 }
+
+/**
+ * Error flag for invalid integer parsing - set by parseIntArg
+ */
+let lastParseError = false;
 
 /**
  * Parse an integer argument, handling bash-style character notation ('a' = 97)
  */
 function parseIntArg(arg: string): number {
+  lastParseError = false;
+
+  // Trim leading/trailing whitespace
+  arg = arg.trim();
+
   // Handle character notation: 'x' or "x" gives ASCII value
   // Also handle \'x and \"x (escaped quotes, which shell may pass through)
   if (arg.startsWith("'") && arg.length >= 2) {
@@ -372,14 +423,43 @@ function parseIntArg(arg: string): number {
   if (arg.startsWith('\\"') && arg.length >= 3) {
     return arg.charCodeAt(2);
   }
+
+  // Handle + prefix (e.g., +42)
+  if (arg.startsWith("+")) {
+    arg = arg.slice(1);
+  }
+
   // Handle hex
   if (arg.startsWith("0x") || arg.startsWith("0X")) {
-    return parseInt(arg, 16) || 0;
+    const num = parseInt(arg, 16);
+    if (Number.isNaN(num)) {
+      lastParseError = true;
+      return 0;
+    }
+    return num;
   }
+
   // Handle octal
-  if (arg.startsWith("0") && arg.length > 1 && /^0[0-7]+$/.test(arg)) {
+  if (arg.startsWith("0") && arg.length > 1 && /^-?0[0-7]+$/.test(arg)) {
     return parseInt(arg, 8) || 0;
   }
+
+  // Reject arbitrary base notation like 64#a (valid in arithmetic but not printf)
+  // Bash parses the number before # and returns that with error status
+  if (/^\d+#/.test(arg)) {
+    lastParseError = true;
+    const match = arg.match(/^(\d+)#/);
+    return match ? parseInt(match[1], 10) : 0;
+  }
+
+  // Check for invalid characters
+  if (arg !== "" && !/^-?\d+$/.test(arg)) {
+    lastParseError = true;
+    // Try to parse what we can (bash behavior: 3abc -> 3, but sets error)
+    const num = parseInt(arg, 10);
+    return Number.isNaN(num) ? 0 : num;
+  }
+
   return parseInt(arg, 10) || 0;
 }
 
@@ -514,7 +594,7 @@ function formatHex(spec: string, num: number): string {
 
 /**
  * Shell-quote a string (for %q)
- * Bash uses backslash escaping for printable special chars, $'...' for control chars
+ * Bash uses backslash escaping for printable chars, $'...' only for control chars
  */
 function shellQuote(str: string): string {
   if (str === "") {
@@ -529,7 +609,7 @@ function shellQuote(str: string): string {
   const needsDollarQuote = /[\x00-\x1f\x7f]/.test(str);
 
   if (needsDollarQuote) {
-    // Use $'...' syntax for strings with control characters
+    // Use $'...' format with escape sequences for control characters
     let result = "$'";
     for (const char of str) {
       const code = char.charCodeAt(0);
@@ -543,8 +623,20 @@ function shellQuote(str: string): string {
         result += "\\t";
       } else if (char === "\r") {
         result += "\\r";
+      } else if (char === "\x07") {
+        result += "\\a";
+      } else if (char === "\b") {
+        result += "\\b";
+      } else if (char === "\f") {
+        result += "\\f";
+      } else if (char === "\v") {
+        result += "\\v";
+      } else if (char === "\x1b") {
+        result += "\\E";
       } else if (code < 32 || code > 126) {
         result += "\\x" + code.toString(16).padStart(2, "0");
+      } else if (char === '"') {
+        result += '\\"';
       } else {
         result += char;
       }
@@ -564,4 +656,263 @@ function shellQuote(str: string): string {
     }
   }
   return result;
+}
+
+/**
+ * Format a string with %s, respecting width and precision
+ * Note: %06s should NOT zero-pad (0 flag is ignored for strings)
+ */
+function formatString(spec: string, str: string): string {
+  const match = spec.match(/^%(-?)(\d*)(\.(\d*))?s$/);
+  if (!match) {
+    return sprintf(spec.replace(/0+(?=\d)/, ""), str);
+  }
+
+  const leftJustify = match[1] === "-";
+  const width = match[2] ? parseInt(match[2], 10) : 0;
+  // Precision for strings means max length (truncate)
+  // %.s or %0.s means precision 0 (empty string)
+  const precision = match[3] !== undefined ? (match[4] ? parseInt(match[4], 10) : 0) : -1;
+
+  let result = str;
+  if (precision >= 0 && result.length > precision) {
+    result = result.slice(0, precision);
+  }
+
+  if (width > result.length) {
+    if (leftJustify) {
+      result = result.padEnd(width, " ");
+    } else {
+      result = result.padStart(width, " ");
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Format a quoted string with %q, respecting width
+ */
+function formatQuoted(spec: string, str: string): string {
+  const quoted = shellQuote(str);
+
+  const match = spec.match(/^%(-?)(\d*)q$/);
+  if (!match) {
+    return quoted;
+  }
+
+  const leftJustify = match[1] === "-";
+  const width = match[2] ? parseInt(match[2], 10) : 0;
+
+  let result = quoted;
+  if (width > result.length) {
+    if (leftJustify) {
+      result = result.padEnd(width, " ");
+    } else {
+      result = result.padStart(width, " ");
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Format floating point with default precision and # flag support
+ */
+function formatFloat(spec: string, specifier: string, num: number): string {
+  // Parse spec to extract flags, width, precision
+  const match = spec.match(/^%([- +#0']*)(\d*)(\.(\d*))?[eEfFgG]$/);
+  if (!match) {
+    return sprintf(spec, num);
+  }
+
+  const flags = match[1] || "";
+  const width = match[2] ? parseInt(match[2], 10) : 0;
+  // Default precision is 6 for f/e, but %.f means precision 0
+  const precision = match[3] !== undefined ? (match[4] ? parseInt(match[4], 10) : 0) : 6;
+
+  let result: string;
+  const lowerSpec = specifier.toLowerCase();
+
+  if (lowerSpec === "e") {
+    result = num.toExponential(precision);
+    if (specifier === "E") result = result.toUpperCase();
+  } else if (lowerSpec === "f") {
+    result = num.toFixed(precision);
+  } else if (lowerSpec === "g") {
+    // %g: use shortest representation between %e and %f
+    result = num.toPrecision(precision || 1);
+    // Remove trailing zeros unless # flag
+    if (!flags.includes("#")) {
+      result = result.replace(/\.?0+$/, "");
+      result = result.replace(/\.?0+e/, "e");
+    }
+    if (specifier === "G") result = result.toUpperCase();
+  } else {
+    result = num.toString();
+  }
+
+  // Handle # flag (force decimal point and trailing zeros for g)
+  if (flags.includes("#") && lowerSpec === "g") {
+    if (!result.includes(".") && !result.includes("e")) {
+      result += ".";
+    }
+  }
+
+  // Handle sign
+  if (num >= 0) {
+    if (flags.includes("+")) {
+      result = "+" + result;
+    } else if (flags.includes(" ")) {
+      result = " " + result;
+    }
+  }
+
+  // Handle width
+  if (width > result.length) {
+    if (flags.includes("-")) {
+      result = result.padEnd(width, " ");
+    } else if (flags.includes("0")) {
+      const signPrefix = result.match(/^[+ -]/)?.[0] || "";
+      const numPart = signPrefix ? result.slice(1) : result;
+      result = signPrefix + numPart.padStart(width - signPrefix.length, "0");
+    } else {
+      result = result.padStart(width, " ");
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Process escape sequences in %b argument
+ * Similar to processEscapes but with additional features:
+ * - \c stops output (discards rest of string and rest of format)
+ * - \uHHHH unicode escapes
+ * - Octal can be \NNN or \0NNN
+ * Returns {value, stopped} - stopped is true if \c was encountered
+ */
+function processBEscapes(str: string): { value: string; stopped: boolean } {
+  let result = "";
+  let i = 0;
+
+  while (i < str.length) {
+    if (str[i] === "\\" && i + 1 < str.length) {
+      const next = str[i + 1];
+      switch (next) {
+        case "n":
+          result += "\n";
+          i += 2;
+          break;
+        case "t":
+          result += "\t";
+          i += 2;
+          break;
+        case "r":
+          result += "\r";
+          i += 2;
+          break;
+        case "\\":
+          result += "\\";
+          i += 2;
+          break;
+        case "a":
+          result += "\x07";
+          i += 2;
+          break;
+        case "b":
+          result += "\b";
+          i += 2;
+          break;
+        case "f":
+          result += "\f";
+          i += 2;
+          break;
+        case "v":
+          result += "\v";
+          i += 2;
+          break;
+        case "c":
+          // \c stops all output - return immediately with stopped flag
+          return { value: result, stopped: true };
+        case "x": {
+          // \xHH - hex escape (1-2 hex digits)
+          let hex = "";
+          let j = i + 2;
+          while (j < str.length && j < i + 4 && /[0-9a-fA-F]/.test(str[j])) {
+            hex += str[j];
+            j++;
+          }
+          if (hex) {
+            result += String.fromCharCode(parseInt(hex, 16));
+            i = j;
+          } else {
+            result += "\\x";
+            i += 2;
+          }
+          break;
+        }
+        case "u": {
+          // \uHHHH - unicode escape (1-4 hex digits)
+          let hex = "";
+          let j = i + 2;
+          while (j < str.length && j < i + 6 && /[0-9a-fA-F]/.test(str[j])) {
+            hex += str[j];
+            j++;
+          }
+          if (hex) {
+            result += String.fromCodePoint(parseInt(hex, 16));
+            i = j;
+          } else {
+            result += "\\u";
+            i += 2;
+          }
+          break;
+        }
+        case "0": {
+          // \0NNN - octal escape (0-3 digits after the 0)
+          let octal = "";
+          let j = i + 2;
+          while (j < str.length && j < i + 5 && /[0-7]/.test(str[j])) {
+            octal += str[j];
+            j++;
+          }
+          if (octal) {
+            result += String.fromCharCode(parseInt(octal, 8));
+          } else {
+            result += "\0"; // Just \0 is NUL
+          }
+          i = j;
+          break;
+        }
+        case "1":
+        case "2":
+        case "3":
+        case "4":
+        case "5":
+        case "6":
+        case "7": {
+          // \NNN - octal escape (1-3 digits, no leading 0)
+          let octal = "";
+          let j = i + 1;
+          while (j < str.length && j < i + 4 && /[0-7]/.test(str[j])) {
+            octal += str[j];
+            j++;
+          }
+          result += String.fromCharCode(parseInt(octal, 8));
+          i = j;
+          break;
+        }
+        default:
+          // Unknown escape, keep as-is
+          result += str[i];
+          i++;
+      }
+    } else {
+      result += str[i];
+      i++;
+    }
+  }
+
+  return { value: result, stopped: false };
 }

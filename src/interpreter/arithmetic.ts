@@ -22,6 +22,7 @@
 
 import type { ArithExpr } from "../ast/types.js";
 import { parseArithNumber } from "../parser/arithmetic-parser.js";
+import { ArithmeticError } from "./errors.js";
 import { getVariable } from "./expansion.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -195,7 +196,7 @@ export function evaluateArithmeticSync(
         case "**":
           // Bash disallows negative exponents
           if (right < 0) {
-            throw new Error("exponent less than 0");
+            throw new ArithmeticError("exponent less than 0");
           }
           return left ** right;
         case "<<":
@@ -393,7 +394,7 @@ export async function evaluateArithmetic(
         case "**":
           // Bash disallows negative exponents
           if (right < 0) {
-            throw new Error("exponent less than 0");
+            throw new ArithmeticError("exponent less than 0");
           }
           return left ** right;
         case "<<":

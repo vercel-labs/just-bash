@@ -14,6 +14,7 @@
  * - continue: Skip to next loop iteration
  * - return: Return from a function
  * - eval: Execute arguments as a shell command
+ * - let: Evaluate arithmetic expressions
  * - shift: Shift positional parameters
  * - read: Read a line of input
  * - source/.: Execute commands from a file in current environment
@@ -26,6 +27,7 @@ export { handleDeclare, handleReadonly } from "./declare.js";
 export { handleEval } from "./eval.js";
 export { handleExit } from "./exit.js";
 export { handleExport } from "./export.js";
+export { handleLet } from "./let.js";
 export { handleLocal } from "./local.js";
 export { handleRead } from "./read.js";
 export { handleReturn } from "./return.js";

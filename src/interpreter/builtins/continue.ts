@@ -11,12 +11,12 @@ export function handleContinue(
   args: string[],
 ): ExecResult {
   // Check if we're in a loop
+  // In bash, if not in a loop (e.g., inside a subshell), continue silently does nothing
   if (ctx.state.loopDepth === 0) {
     return {
       stdout: "",
-      stderr:
-        "bash: continue: only meaningful in a `for', `while', or `until' loop\n",
-      exitCode: 0, // bash returns 0 even when not in a loop
+      stderr: "",
+      exitCode: 0,
     };
   }
 

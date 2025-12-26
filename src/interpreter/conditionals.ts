@@ -240,19 +240,23 @@ export async function evaluateTestArgs(
     const op = args[1];
     const right = args[2];
 
+    // Only handle simple binary comparisons in the fast path
+    // Let -a, -o, and parentheses fall through to compound handler
+    // Note: [ / test uses literal string comparison, NOT pattern matching
+    // Pattern matching is only for [[ ]]
     switch (op) {
       case "=":
       case "==":
         return {
           stdout: "",
           stderr: "",
-          exitCode: matchPattern(left, right) ? 0 : 1,
+          exitCode: left === right ? 0 : 1,
         };
       case "!=":
         return {
           stdout: "",
           stderr: "",
-          exitCode: !matchPattern(left, right) ? 0 : 1,
+          exitCode: left !== right ? 0 : 1,
         };
       case "-eq":
         return {
@@ -290,13 +294,22 @@ export async function evaluateTestArgs(
           stderr: "",
           exitCode: parseNumeric(left) >= parseNumeric(right) ? 0 : 1,
         };
-      default:
-        return { stdout: "", stderr: "", exitCode: 1 };
+      // Let -a, -o, and other cases fall through to compound handler
     }
   }
 
   // Handle compound expressions with -a (AND) and -o (OR)
   const result = await evaluateTestExpr(ctx, args, 0);
+
+  // Check for unconsumed tokens (extra arguments = syntax error)
+  if (result.pos < args.length) {
+    return {
+      stdout: "",
+      stderr: `test: too many arguments\n`,
+      exitCode: 2,
+    };
+  }
+
   return { stdout: "", stderr: "", exitCode: result.value ? 0 : 1 };
 }
 
@@ -426,11 +439,12 @@ async function evaluateTestPrimary(
   }
 
   // Check for binary operators
+  // Note: [ / test uses literal string comparison, NOT pattern matching
   const next = args[pos + 1];
   if (next === "=" || next === "==" || next === "!=") {
     const left = token;
     const right = args[pos + 2] ?? "";
-    const isEqual = matchPattern(left, right);
+    const isEqual = left === right;
     return { value: next === "!=" ? !isEqual : isEqual, pos: pos + 3 };
   }
 

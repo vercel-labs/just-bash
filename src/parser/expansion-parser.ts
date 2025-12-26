@@ -11,6 +11,7 @@ import {
   type WordNode,
   type WordPart,
 } from "../ast/types.js";
+import { parseArithmeticExpression } from "./arithmetic-parser.js";
 import type { Parser } from "./parser.js";
 import * as WordParser from "./word-parser.js";
 
@@ -89,6 +90,12 @@ export function parseParameterExpansion(
     i = closeIdx + 1;
   }
 
+  // Check for invalid parameter expansion with empty name and operator
+  // e.g., ${%} - there's no parameter before the %
+  if (name === "" && !indirection && !lengthOp && value[i] !== "}") {
+    p.error(`\${${value[i]}}: bad substitution`);
+  }
+
   let operation: ParameterOperation | null = null;
 
   if (indirection) {
@@ -113,6 +120,19 @@ export function parseParameterExpansion(
     const opResult = parseParameterOperation(p, value, i, name);
     operation = opResult.operation;
     i = opResult.endIndex;
+  }
+
+  // Check for invalid characters that indicate bad substitution
+  // Valid characters after name are: }, :, -, +, =, ?, #, %, /, ^, ,, @, [
+  if (i < value.length && value[i] !== "}") {
+    const c = value[i];
+    if (!/[:\-+=?#%/^,@[]/.test(c)) {
+      // Find the full expansion for error message
+      let endIdx = i;
+      while (endIdx < value.length && value[endIdx] !== "}") endIdx++;
+      const badExp = value.slice(start, endIdx + 1);
+      p.error(`\${${badExp.slice(2, -1)}}: bad substitution`);
+    }
   }
 
   // Find closing }
@@ -349,6 +369,24 @@ export function parseExpansion(
     return p.parseArithmeticExpansion(value, start);
   }
 
+  // $[expr] - old-style arithmetic expansion (synonym for $((expr)))
+  if (char === "[") {
+    // Find matching ]
+    let depth = 1;
+    let j = i + 1;
+    while (j < value.length && depth > 0) {
+      if (value[j] === "[") depth++;
+      else if (value[j] === "]") depth--;
+      if (depth > 0) j++;
+    }
+    if (depth === 0) {
+      const expr = value.slice(i + 1, j);
+      // Create ArithmeticExpansion node (wraps the expression)
+      const arithExpr = parseArithmeticExpression(p, expr);
+      return { part: AST.arithmeticExpansion(arithExpr), endIndex: j + 1 };
+    }
+  }
+
   // $(cmd) - command substitution
   if (char === "(") {
     return p.parseCommandSubstitution(value, start);
@@ -526,8 +564,17 @@ export function parseWordParts(
     const char = value[i];
 
     // Handle escape sequences
+    // In unquoted context, only certain characters are escapable
+    // $, `, \, ", newline are always escapable
+    // Other characters keep the backslash
     if (char === "\\" && i + 1 < value.length) {
-      literal += value[i + 1];
+      const next = value[i + 1];
+      if (next === "$" || next === "`" || next === "\\" || next === '"' || next === "\n") {
+        literal += next;
+      } else {
+        // Keep the backslash for non-special characters
+        literal += "\\" + next;
+      }
       i += 2;
       continue;
     }
