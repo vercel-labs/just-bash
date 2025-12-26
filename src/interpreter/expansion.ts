@@ -1033,12 +1033,14 @@ function expandParameter(
           if (part.type === "Glob") {
             // Glob pattern - convert * and ? to regex equivalents
             regex += patternToRegex(part.pattern, true);
+          } else if (part.type === "Literal") {
+            // Unquoted literal - treat as glob pattern (may contain *, ?, [...], \X)
+            regex += patternToRegex(part.value, true);
           } else if (
-            part.type === "Literal" ||
             part.type === "SingleQuoted" ||
             part.type === "Escaped"
           ) {
-            // Literal text - escape all special regex and glob characters
+            // Quoted text - escape all special regex and glob characters
             regex += escapeRegex(part.value);
           } else if (part.type === "DoubleQuoted") {
             // Double quoted - expand variables but treat result as literal
@@ -1333,8 +1335,10 @@ async function expandParameterAsync(
         for (const part of operation.pattern.parts) {
           if (part.type === "Glob") {
             regex += patternToRegex(part.pattern, true);
+          } else if (part.type === "Literal") {
+            // Unquoted literal - treat as glob pattern (may contain *, ?, [...], \X)
+            regex += patternToRegex(part.value, true);
           } else if (
-            part.type === "Literal" ||
             part.type === "SingleQuoted" ||
             part.type === "Escaped"
           ) {
