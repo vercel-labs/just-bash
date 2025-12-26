@@ -32,7 +32,40 @@ pnpm test:run src/spec-tests/spec.test.ts -t "array-basic.test.sh"
 # Interactive shell
 pnpm shell                 # Full network access
 pnpm shell --no-network    # No network
+
+# Sandboxed CLI (read-only by default)
+node ./dist/cli/bash-env.js -c 'ls -la' --root .
+node ./dist/cli/bash-env.js -c 'cat package.json' --root .
+node ./dist/cli/bash-env.js -c 'grep -r "TODO" src/' --root .
 ```
+
+### Sandboxed Shell Execution with `bash-env`
+
+The `bash-env` CLI provides a secure, sandboxed bash environment using OverlayFS:
+
+```bash
+# Execute inline script (read-only by default)
+node ./dist/cli/bash-env.js -c 'ls -la && cat README.md | head -5' --root .
+
+# Execute with JSON output
+node ./dist/cli/bash-env.js -c 'echo hello' --root . --json
+
+# Allow writes (writes stay in memory, don't affect real filesystem)
+node ./dist/cli/bash-env.js -c 'echo test > /tmp/file.txt && cat /tmp/file.txt' --root . --allow-write
+
+# Execute script file
+node ./dist/cli/bash-env.js script.sh --root .
+
+# Exit on first error
+node ./dist/cli/bash-env.js -e -c 'false; echo "not reached"' --root .
+```
+
+Options:
+- `--root <path>` - Root directory (default: current directory)
+- `--cwd <path>` - Working directory in sandbox (default: /home/user/project)
+- `--allow-write` - Enable write operations (writes stay in memory)
+- `--json` - Output as JSON (stdout, stderr, exitCode)
+- `-e, --errexit` - Exit on first error
 
 ### Debug with `pnpm dev:exec`
 
