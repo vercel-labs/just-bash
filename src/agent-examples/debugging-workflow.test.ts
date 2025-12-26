@@ -470,10 +470,10 @@ import { logger } from '../utils/logger';
     const result = await env.exec(
       "wc -l /app/src/services/order.ts /app/src/services/payment.ts /app/src/validators/payment.ts",
     );
-    expect(result.stdout).toBe(`      76 /app/src/services/order.ts
-      39 /app/src/services/payment.ts
-      70 /app/src/validators/payment.ts
-     185 total
+    expect(result.stdout).toBe(`76 /app/src/services/order.ts
+39 /app/src/services/payment.ts
+70 /app/src/validators/payment.ts
+185 total
 `);
     expect(result.exitCode).toBe(0);
   });

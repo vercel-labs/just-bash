@@ -173,7 +173,7 @@ export { Logger } from './logger';
   it("should count files in each package", async () => {
     const env = createEnv();
     const result = await env.exec("ls /repo/packages/core/src | wc -l");
-    expect(result.stdout).toBe("       3\n");
+    expect(result.stdout).toBe("3\n");
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
   });

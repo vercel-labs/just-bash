@@ -240,7 +240,7 @@ export function formatFullName_deprecated(name: string): string {
     const result = await env.exec(
       "cat /project/src/utils/string.ts /project/src/components/UserCard.tsx /project/src/components/UserList.tsx | wc -l",
     );
-    expect(result.stdout).toBe("      27\n");
+    expect(result.stdout).toBe("27\n");
     expect(result.exitCode).toBe(0);
   });
 });

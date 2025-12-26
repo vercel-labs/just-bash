@@ -211,7 +211,6 @@ export async function runSpecFile(
   return results;
 }
 
-
 /**
  * Check if a test requires xtrace (set -x) trace output
  */

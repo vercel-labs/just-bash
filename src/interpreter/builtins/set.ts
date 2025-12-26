@@ -15,7 +15,7 @@ function quoteValue(value: string): string {
     return value;
   }
   // Use single quotes, escaping any single quotes in the value
-  return "'" + value.replace(/'/g, "'\\''") + "'";
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 const SET_USAGE = `set: usage: set [-eux] [+eux] [-o option] [+o option]
@@ -161,7 +161,7 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => `${key}=${quoteValue(value)}`)
       .join("\n");
-    return success(output ? output + "\n" : "");
+    return success(output ? `${output}\n` : "");
   }
 
   let i = 0;

@@ -768,7 +768,12 @@ function parseArithPrimary(
       }
 
       return {
-        expr: { type: "ArithArrayElement", array: name, index: indexExpr, stringKey },
+        expr: {
+          type: "ArithArrayElement",
+          array: name,
+          index: indexExpr,
+          stringKey,
+        },
         pos: currentPos,
       };
     }

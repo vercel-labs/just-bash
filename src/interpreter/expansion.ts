@@ -23,19 +23,18 @@ import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
 import { BadSubstitutionError, ExitError } from "./errors.js";
 import {
   analyzeWordParts,
-  hasQuotedOperationWord,
   paramExpansionNeedsAsync,
   partNeedsAsync,
   wordNeedsAsync,
 } from "./expansion/analysis.js";
 import { expandBraceRange } from "./expansion/brace-range.js";
 import { patternToRegex } from "./expansion/pattern.js";
-import { smartWordSplit } from "./expansion/word-split.js";
 import {
   getArrayElements,
   getVariable,
   isArray,
 } from "./expansion/variable.js";
+import { smartWordSplit } from "./expansion/word-split.js";
 import { escapeRegex } from "./helpers/regex.js";
 import { getLiteralValue, isQuotedPart } from "./helpers/word-parts.js";
 import type { InterpreterContext } from "./types.js";
@@ -80,7 +79,7 @@ function quoteValue(value: string): string {
       case "\t":
         result += "\\t";
         break;
-      default:
+      default: {
         // Check for control characters
         const code = char.charCodeAt(0);
         if (code < 32 || code === 127) {
@@ -88,9 +87,10 @@ function quoteValue(value: string): string {
         } else {
           result += char;
         }
+      }
     }
   }
-  return result + "'";
+  return `${result}'`;
 }
 
 // Helper to extract numeric value from an arithmetic expression
@@ -948,7 +948,7 @@ function expandParameter(
 
     case "Substring": {
       // Evaluate arithmetic expressions in offset and length
-      let offset = operation.offset
+      const offset = operation.offset
         ? evaluateArithmeticSync(ctx, operation.offset.expression)
         : 0;
       const length = operation.length
@@ -1023,10 +1023,7 @@ function expandParameter(
           } else if (part.type === "Literal") {
             // Unquoted literal - treat as glob pattern (may contain *, ?, [...])
             regexStr += patternToRegex(part.value, operation.greedy);
-          } else if (
-            part.type === "SingleQuoted" ||
-            part.type === "Escaped"
-          ) {
+          } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
             // Quoted text - escape all special regex and glob characters
             regexStr += escapeRegex(part.value);
           } else if (part.type === "DoubleQuoted") {
@@ -1077,10 +1074,7 @@ function expandParameter(
           } else if (part.type === "Literal") {
             // Unquoted literal - treat as glob pattern (may contain *, ?, [...], \X)
             regex += patternToRegex(part.value, true);
-          } else if (
-            part.type === "SingleQuoted" ||
-            part.type === "Escaped"
-          ) {
+          } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
             // Quoted text - escape all special regex and glob characters
             regex += escapeRegex(part.value);
           } else if (part.type === "DoubleQuoted") {
@@ -1189,19 +1183,32 @@ function expandParameter(
           // Expand escape sequences
           return value.replace(/\\([\\abefnrtv'"?])/g, (_, c) => {
             switch (c) {
-              case "\\": return "\\";
-              case "a": return "\x07";
-              case "b": return "\b";
-              case "e": return "\x1b";
-              case "f": return "\f";
-              case "n": return "\n";
-              case "r": return "\r";
-              case "t": return "\t";
-              case "v": return "\v";
-              case "'": return "'";
-              case '"': return '"';
-              case "?": return "?";
-              default: return c;
+              case "\\":
+                return "\\";
+              case "a":
+                return "\x07";
+              case "b":
+                return "\b";
+              case "e":
+                return "\x1b";
+              case "f":
+                return "\f";
+              case "n":
+                return "\n";
+              case "r":
+                return "\r";
+              case "t":
+                return "\t";
+              case "v":
+                return "\v";
+              case "'":
+                return "'";
+              case '"':
+                return '"';
+              case "?":
+                return "?";
+              default:
+                return c;
             }
           });
         case "K":
@@ -1369,10 +1376,7 @@ async function expandParameterAsync(
           } else if (part.type === "Literal") {
             // Unquoted literal - treat as glob pattern (may contain *, ?, [...])
             regexStr += patternToRegex(part.value, operation.greedy);
-          } else if (
-            part.type === "SingleQuoted" ||
-            part.type === "Escaped"
-          ) {
+          } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
             regexStr += escapeRegex(part.value);
           } else if (part.type === "DoubleQuoted") {
             const expanded = await expandWordPartsAsync(ctx, part.parts);
@@ -1412,10 +1416,7 @@ async function expandParameterAsync(
           } else if (part.type === "Literal") {
             // Unquoted literal - treat as glob pattern (may contain *, ?, [...], \X)
             regex += patternToRegex(part.value, true);
-          } else if (
-            part.type === "SingleQuoted" ||
-            part.type === "Escaped"
-          ) {
+          } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
             regex += escapeRegex(part.value);
           } else if (part.type === "DoubleQuoted") {
             const expanded = await expandWordPartsAsync(ctx, part.parts);

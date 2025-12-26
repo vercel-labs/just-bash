@@ -23,7 +23,7 @@ export async function handleSource(
   }
 
   const filename = sourceArgs[0];
-  let resolvedPath: string | null = null;
+  let _resolvedPath: string | null = null;
   let content: string | null = null;
 
   // If filename contains '/', use it directly (relative or absolute path)
@@ -31,7 +31,7 @@ export async function handleSource(
     const directPath = ctx.fs.resolvePath(ctx.state.cwd, filename);
     try {
       content = await ctx.fs.readFile(directPath);
-      resolvedPath = directPath;
+      _resolvedPath = directPath;
     } catch {
       // File not found
     }
@@ -49,7 +49,7 @@ export async function handleSource(
           continue; // Skip directories
         }
         content = await ctx.fs.readFile(candidate);
-        resolvedPath = candidate;
+        _resolvedPath = candidate;
         break;
       } catch {
         // File doesn't exist in this PATH directory, continue searching
@@ -61,7 +61,7 @@ export async function handleSource(
       const directPath = ctx.fs.resolvePath(ctx.state.cwd, filename);
       try {
         content = await ctx.fs.readFile(directPath);
-        resolvedPath = directPath;
+        _resolvedPath = directPath;
       } catch {
         // File not found
       }

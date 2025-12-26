@@ -11,11 +11,7 @@
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import { evaluateArithmeticSync } from "../arithmetic.js";
-import {
-  ArrayIndexError,
-  BadSubstitutionError,
-  NounsetError,
-} from "../errors.js";
+import { BadSubstitutionError, NounsetError } from "../errors.js";
 import {
   getArrayIndices,
   getAssocArrayKeys,

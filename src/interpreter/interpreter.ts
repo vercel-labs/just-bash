@@ -73,7 +73,6 @@ import {
   getArrayElements,
 } from "./expansion.js";
 import { callFunction, executeFunctionDef } from "./functions.js";
-import { unquoteKey } from "./helpers/array.js";
 import { getErrorMessage } from "./helpers/errors.js";
 import { checkReadonlyError } from "./helpers/readonly.js";
 import { failure, OK, result, testResult } from "./helpers/result.js";
@@ -425,9 +424,7 @@ export class Interpreter {
           const elements = getArrayElements(this.ctx, name);
           if (elements.length > 0) {
             const maxIndex = Math.max(
-              ...elements.map(([idx]) =>
-                typeof idx === "number" ? idx : 0,
-              ),
+              ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
             );
             startIndex = maxIndex + 1;
           }
@@ -680,7 +677,8 @@ export class Interpreter {
 
     // Update $_ to the last argument of this command (after expansion)
     // If no arguments, $_ is set to the command name
-    this.ctx.state.lastArg = args.length > 0 ? args[args.length - 1] : commandName;
+    this.ctx.state.lastArg =
+      args.length > 0 ? args[args.length - 1] : commandName;
 
     for (const [name, value] of Object.entries(tempAssignments)) {
       if (value === undefined) delete this.ctx.state.env[name];

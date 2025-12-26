@@ -58,7 +58,7 @@ export const wcCommand: Command = {
     if (files.length === 0) {
       const stats = countStats(ctx.stdin);
       return {
-        stdout: `${formatStats(stats, showLines, showWords, showChars, "", 0)}\n`,
+        stdout: `${formatStats(stats, showLines, showWords, showChars, "")}\n`,
         stderr: "",
         exitCode: 0,
       };
@@ -81,7 +81,7 @@ export const wcCommand: Command = {
         totalWords += stats.words;
         totalChars += stats.chars;
 
-        stdout += `${formatStats(stats, showLines, showWords, showChars, file, files.length)}\n`;
+        stdout += `${formatStats(stats, showLines, showWords, showChars, file)}\n`;
       } catch {
         stderr += `wc: ${file}: No such file or directory\n`;
         exitCode = 1;
@@ -96,7 +96,6 @@ export const wcCommand: Command = {
         showWords,
         showChars,
         "total",
-        files.length,
       )}\n`;
     }
 
@@ -147,37 +146,20 @@ function formatStats(
   showWords: boolean,
   showChars: boolean,
   filename: string,
-  fileCount: number,
 ): string {
-  // Count how many fields we're showing
-  const fieldCount =
-    (showLines ? 1 : 0) + (showWords ? 1 : 0) + (showChars ? 1 : 0);
-  const hasFilename = filename.length > 0;
-
-  // Real wc behavior:
-  // - single field from stdin or single file: no padding
-  // - multiple files or multiple fields: use padding
-  const usePadding = fieldCount > 1 || fileCount > 1;
-
   const values: string[] = [];
   if (showLines) {
-    values.push(
-      usePadding ? String(stats.lines).padStart(8) : String(stats.lines),
-    );
+    values.push(String(stats.lines));
   }
   if (showWords) {
-    values.push(
-      usePadding ? String(stats.words).padStart(8) : String(stats.words),
-    );
+    values.push(String(stats.words));
   }
   if (showChars) {
-    values.push(
-      usePadding ? String(stats.chars).padStart(8) : String(stats.chars),
-    );
+    values.push(String(stats.chars));
   }
 
-  let result = values.join("");
-  if (hasFilename) {
+  let result = values.join(" ");
+  if (filename) {
     result += ` ${filename}`;
   }
 

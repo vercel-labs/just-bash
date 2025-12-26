@@ -252,7 +252,11 @@ export function parseAssocArrayLiteral(content: string): [string, string][] {
       }
       if (content[pos] === quote) pos++;
     } else {
-      while (pos < content.length && content[pos] !== "]" && content[pos] !== "=") {
+      while (
+        pos < content.length &&
+        content[pos] !== "]" &&
+        content[pos] !== "="
+      ) {
         key += content[pos];
         pos++;
       }

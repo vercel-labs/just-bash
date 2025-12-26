@@ -26,7 +26,7 @@ import {
   parseArithNumber,
 } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
-import { ArrayIndexError, ArithmeticError, NounsetError } from "./errors.js";
+import { ArithmeticError, NounsetError } from "./errors.js";
 import { getArrayElements, getVariable } from "./expansion.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -620,9 +620,7 @@ export function evaluateArithmeticSync(
             const elements = getArrayElements(ctx, name);
             if (elements.length > 0) {
               const maxIndex = Math.max(
-                ...elements.map(([idx]) =>
-                  typeof idx === "number" ? idx : 0,
-                ),
+                ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
               );
               index = maxIndex + 1 + index;
             }
@@ -884,9 +882,7 @@ export async function evaluateArithmetic(
             const elements = getArrayElements(ctx, name);
             if (elements.length > 0) {
               const maxIndex = Math.max(
-                ...elements.map(([idx]) =>
-                  typeof idx === "number" ? idx : 0,
-                ),
+                ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
               );
               index = maxIndex + 1 + index;
             }

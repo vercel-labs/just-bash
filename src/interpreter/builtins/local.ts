@@ -28,7 +28,7 @@ function expandTildesInValue(ctx: InterpreterContext, value: string): string {
       return home + part.slice(1);
     }
     if (part.startsWith("~root/")) {
-      return "/root" + part.slice(5);
+      return `/root${part.slice(5)}`;
     }
     // ~otheruser stays literal (can't verify user exists)
     return part;
