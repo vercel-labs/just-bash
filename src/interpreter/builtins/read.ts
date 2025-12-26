@@ -4,6 +4,7 @@
 
 import type { ExecResult } from "../../types.js";
 import { clearArray } from "../helpers/array.js";
+import { result } from "../helpers/index.js";
 import { escapeRegexCharClass } from "../helpers/regex.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -57,7 +58,7 @@ export function handleRead(
 
   // Return error if -n had invalid argument
   if (invalidNArg) {
-    return { stdout: "", stderr: "", exitCode: 1 };
+    return result("", "", 1);
   }
 
   // Default variable is REPLY
@@ -132,7 +133,7 @@ export function handleRead(
           if (arrayName) {
             clearArray(ctx, arrayName);
           }
-          return { stdout: "", stderr: "", exitCode: 1 };
+          return result("", "", 1);
         }
         foundDelimiter = false;
         break;
@@ -161,7 +162,7 @@ export function handleRead(
   // This preserves leading/trailing whitespace
   if (varNames.length === 1 && varNames[0] === "REPLY") {
     ctx.state.env.REPLY = line;
-    return { stdout: "", stderr: "", exitCode: foundDelimiter ? 0 : 1 };
+    return result("", "", foundDelimiter ? 0 : 1);
   }
 
   // Split by IFS (default is space, tab, newline)
@@ -205,7 +206,7 @@ export function handleRead(
     for (let j = 0; j < words.length; j++) {
       ctx.state.env[`${arrayName}_${j}`] = words[j];
     }
-    return { stdout: "", stderr: "", exitCode: foundDelimiter ? 0 : 1 };
+    return result("", "", foundDelimiter ? 0 : 1);
   }
 
   // Assign words to variables
@@ -229,5 +230,5 @@ export function handleRead(
     }
   }
 
-  return { stdout: "", stderr: "", exitCode: foundDelimiter ? 0 : 1 };
+  return result("", "", foundDelimiter ? 0 : 1);
 }

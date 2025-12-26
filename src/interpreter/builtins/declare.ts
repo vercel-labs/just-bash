@@ -14,6 +14,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { failure, OK, success } from "../helpers/index.js";
 import type { InterpreterContext } from "../types.js";
 import { parseAssignment, setVariable } from "./variable-helpers.js";
 
@@ -70,7 +71,7 @@ export function handleDeclare(
       const escapedValue = value.replace(/'/g, "'\\''");
       stdout += `declare -- ${name}='${escapedValue}'\n`;
     }
-    return { stdout, stderr: "", exitCode: 0 };
+    return success(stdout);
   }
 
   // Process each argument
@@ -102,11 +103,7 @@ export function handleDeclare(
 
       // Check if variable is readonly
       if (ctx.state.readonlyVars?.has(name)) {
-        return {
-          stdout: "",
-          stderr: `bash: ${name}: readonly variable\n`,
-          exitCode: 1,
-        };
+        return failure(`bash: ${name}: readonly variable\n`);
       }
 
       ctx.state.env[name] = value;
@@ -132,7 +129,7 @@ export function handleDeclare(
     }
   }
 
-  return { stdout: "", stderr: "", exitCode: 0 };
+  return OK;
 }
 
 /**
@@ -214,7 +211,7 @@ export function handleReadonly(
             stdout += `declare -r ${name}="${value}"\n`;
           }
         }
-        return { stdout, stderr: "", exitCode: 0 };
+        return success(stdout);
       }
     } else if (arg === "--") {
       processedArgs.push(...args.slice(i + 1));
@@ -242,5 +239,5 @@ export function handleReadonly(
     }
   }
 
-  return { stdout: "", stderr: "", exitCode: 0 };
+  return OK;
 }

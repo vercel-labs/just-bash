@@ -22,6 +22,8 @@ import {
   evaluateFileTest,
   evaluateStringTest,
   evaluateVariableTest,
+  result as execResult,
+  failure,
   isBinaryFileTestOperator,
   isFileTestOperator,
   isNumericOp,
@@ -148,11 +150,11 @@ export async function evaluateTestArgs(
   args: string[],
 ): Promise<ExecResult> {
   if (args.length === 0) {
-    return { stdout: "", stderr: "", exitCode: 1 };
+    return execResult("", "", 1);
   }
 
   if (args.length === 1) {
-    return { stdout: "", stderr: "", exitCode: args[0] ? 0 : 1 };
+    return execResult("", "", args[0] ? 0 : 1);
   }
 
   if (args.length === 2) {
@@ -161,33 +163,29 @@ export async function evaluateTestArgs(
 
     // "(" without matching ")" is a syntax error
     if (op === "(") {
-      return {
-        stdout: "",
-        stderr: `test: '(' without matching ')'\n`,
-        exitCode: 2,
-      };
+      return failure("test: '(' without matching ')'\n", 2);
     }
 
     // Handle file test operators using shared helper
     if (isFileTestOperator(op)) {
-      const result = await evaluateFileTest(ctx, op, operand);
-      return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
+      const testResult = await evaluateFileTest(ctx, op, operand);
+      return execResult("", "", testResult ? 0 : 1);
     }
 
     if (isStringTestOp(op)) {
-      const result = evaluateStringTest(op, operand);
-      return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
+      const testResult = evaluateStringTest(op, operand);
+      return execResult("", "", testResult ? 0 : 1);
     }
     if (op === "!") {
-      return { stdout: "", stderr: "", exitCode: operand ? 1 : 0 };
+      return execResult("", "", operand ? 1 : 0);
     }
     if (op === "-v") {
-      const result = evaluateVariableTest(ctx, operand);
-      return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
+      const testResult = evaluateVariableTest(ctx, operand);
+      return execResult("", "", testResult ? 0 : 1);
     }
     if (op === "-o") {
-      const result = evaluateShellOption(ctx, operand);
-      return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
+      const testResult = evaluateShellOption(ctx, operand);
+      return execResult("", "", testResult ? 0 : 1);
     }
     // If the first arg is a known binary operator but used in 2-arg context, it's an error
     if (
@@ -206,13 +204,9 @@ export async function evaluateTestArgs(
       op === "-ot" ||
       op === "-ef"
     ) {
-      return {
-        stdout: "",
-        stderr: `test: ${op}: unary operator expected\n`,
-        exitCode: 2,
-      };
+      return failure(`test: ${op}: unary operator expected\n`, 2);
     }
-    return { stdout: "", stderr: "", exitCode: 1 };
+    return execResult("", "", 1);
   }
 
   if (args.length === 3) {
@@ -228,17 +222,9 @@ export async function evaluateTestArgs(
     switch (op) {
       case "=":
       case "==":
-        return {
-          stdout: "",
-          stderr: "",
-          exitCode: left === right ? 0 : 1,
-        };
+        return execResult("", "", left === right ? 0 : 1);
       case "!=":
-        return {
-          stdout: "",
-          stderr: "",
-          exitCode: left !== right ? 0 : 1,
-        };
+        return execResult("", "", left !== right ? 0 : 1);
       case "-eq":
       case "-ne":
       case "-lt":
@@ -249,69 +235,48 @@ export async function evaluateTestArgs(
         const rightNum = parseNumericDecimal(right);
         // Invalid operand returns exit code 2
         if (!leftNum.valid || !rightNum.valid) {
-          return { stdout: "", stderr: "", exitCode: 2 };
+          return execResult("", "", 2);
         }
-        const result = compareNumeric(op, leftNum.value, rightNum.value);
-        return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
+        const cmpResult = compareNumeric(op, leftNum.value, rightNum.value);
+        return execResult("", "", cmpResult ? 0 : 1);
       }
       case "-nt":
       case "-ot":
       case "-ef": {
-        const result = await evaluateBinaryFileTest(ctx, op, left, right);
-        return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
+        const fileResult = await evaluateBinaryFileTest(ctx, op, left, right);
+        return execResult("", "", fileResult ? 0 : 1);
       }
       case "-a":
         // In 3-arg context, -a is binary AND: both operands must be non-empty
-        return {
-          stdout: "",
-          stderr: "",
-          exitCode: left !== "" && right !== "" ? 0 : 1,
-        };
+        return execResult("", "", left !== "" && right !== "" ? 0 : 1);
       case "-o":
         // In 3-arg context, -o is binary OR: at least one operand must be non-empty
-        return {
-          stdout: "",
-          stderr: "",
-          exitCode: left !== "" || right !== "" ? 0 : 1,
-        };
+        return execResult("", "", left !== "" || right !== "" ? 0 : 1);
       case ">":
         // String comparison: left > right (lexicographically)
-        return {
-          stdout: "",
-          stderr: "",
-          exitCode: left > right ? 0 : 1,
-        };
+        return execResult("", "", left > right ? 0 : 1);
       case "<":
         // String comparison: left < right (lexicographically)
-        return {
-          stdout: "",
-          stderr: "",
-          exitCode: left < right ? 0 : 1,
-        };
+        return execResult("", "", left < right ? 0 : 1);
     }
 
     // If $1 is '!', negate the 2-argument test
     if (left === "!") {
-      const result = await evaluateTestArgs(ctx, [op, right]);
-      return {
-        stdout: "",
-        stderr: result.stderr,
-        exitCode:
-          result.exitCode === 0
-            ? 1
-            : result.exitCode === 1
-              ? 0
-              : result.exitCode,
-      };
+      const negResult = await evaluateTestArgs(ctx, [op, right]);
+      return execResult(
+        "",
+        negResult.stderr,
+        negResult.exitCode === 0
+          ? 1
+          : negResult.exitCode === 1
+            ? 0
+            : negResult.exitCode,
+      );
     }
 
     // If $1 is '(' and $3 is ')', evaluate $2 as single-arg test
     if (left === "(" && right === ")") {
-      return {
-        stdout: "",
-        stderr: "",
-        exitCode: op !== "" ? 0 : 1,
-      };
+      return execResult("", "", op !== "" ? 0 : 1);
     }
   }
 
@@ -319,17 +284,16 @@ export async function evaluateTestArgs(
   if (args.length === 4) {
     // If $1 is '!', negate the 3-argument expression
     if (args[0] === "!") {
-      const result = await evaluateTestArgs(ctx, args.slice(1));
-      return {
-        stdout: "",
-        stderr: result.stderr,
-        exitCode:
-          result.exitCode === 0
-            ? 1
-            : result.exitCode === 1
-              ? 0
-              : result.exitCode,
-      };
+      const negResult = await evaluateTestArgs(ctx, args.slice(1));
+      return execResult(
+        "",
+        negResult.stderr,
+        negResult.exitCode === 0
+          ? 1
+          : negResult.exitCode === 1
+            ? 0
+            : negResult.exitCode,
+      );
     }
 
     // If $1 is '(' and $4 is ')', evaluate $2 and $3 as 2-arg expression
@@ -339,18 +303,14 @@ export async function evaluateTestArgs(
   }
 
   // Handle compound expressions with -a (AND) and -o (OR)
-  const result = await evaluateTestExpr(ctx, args, 0);
+  const exprResult = await evaluateTestExpr(ctx, args, 0);
 
   // Check for unconsumed tokens (extra arguments = syntax error)
-  if (result.pos < args.length) {
-    return {
-      stdout: "",
-      stderr: `test: too many arguments\n`,
-      exitCode: 2,
-    };
+  if (exprResult.pos < args.length) {
+    return failure("test: too many arguments\n", 2);
   }
 
-  return { stdout: "", stderr: "", exitCode: result.value ? 0 : 1 };
+  return execResult("", "", exprResult.value ? 0 : 1);
 }
 
 // Recursive expression evaluator for test command

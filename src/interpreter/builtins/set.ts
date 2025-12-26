@@ -3,6 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { failure, OK, success } from "../helpers/index.js";
 import type { InterpreterContext } from "../types.js";
 
 const SET_USAGE = `set: usage: set [-eux] [+eux] [-o option] [+o option]
@@ -77,7 +78,7 @@ const VALID_SET_LONG_OPTIONS = new Set([
 
 export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
   if (args.includes("--help")) {
-    return { stdout: SET_USAGE, stderr: "", exitCode: 0 };
+    return success(SET_USAGE);
   }
 
   let i = 0;
@@ -99,11 +100,9 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
     } else if (arg === "-o" && i + 1 < args.length) {
       const optName = args[i + 1];
       if (!VALID_SET_LONG_OPTIONS.has(optName)) {
-        return {
-          stdout: "",
-          stderr: `bash: set: ${optName}: invalid option name\n${SET_USAGE}`,
-          exitCode: 1,
-        };
+        return failure(
+          `bash: set: ${optName}: invalid option name\n${SET_USAGE}`,
+        );
       }
       if (optName === "errexit") {
         ctx.state.options.errexit = true;
@@ -118,11 +117,9 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
     } else if (arg === "+o" && i + 1 < args.length) {
       const optName = args[i + 1];
       if (!VALID_SET_LONG_OPTIONS.has(optName)) {
-        return {
-          stdout: "",
-          stderr: `bash: set: ${optName}: invalid option name\n${SET_USAGE}`,
-          exitCode: 1,
-        };
+        return failure(
+          `bash: set: ${optName}: invalid option name\n${SET_USAGE}`,
+        );
       }
       if (optName === "errexit") {
         ctx.state.options.errexit = false;
@@ -148,7 +145,7 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
         `pipefail        ${options.pipefail ? "on" : "off"}`,
         `xtrace          ${options.xtrace ? "on" : "off"}`,
       ].join("\n")}\n`;
-      return { stdout: output, stderr: "", exitCode: 0 };
+      return success(output);
     } else if (
       arg === "+o" &&
       (i + 1 >= args.length ||
@@ -163,17 +160,13 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
         `set ${options.pipefail ? "-o" : "+o"} pipefail`,
         `set ${options.xtrace ? "-o" : "+o"} xtrace`,
       ].join("\n")}\n`;
-      return { stdout: output, stderr: "", exitCode: 0 };
+      return success(output);
     } else if (arg.startsWith("-") && arg.length > 1 && arg[1] !== "-") {
       // Handle combined flags like -eu
       for (let j = 1; j < arg.length; j++) {
         const flag = arg[j];
         if (!VALID_SET_OPTIONS.has(flag)) {
-          return {
-            stdout: "",
-            stderr: `bash: set: -${flag}: invalid option\n${SET_USAGE}`,
-            exitCode: 1,
-          };
+          return failure(`bash: set: -${flag}: invalid option\n${SET_USAGE}`);
         }
         if (flag === "e") {
           ctx.state.options.errexit = true;
@@ -188,11 +181,7 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
       for (let j = 1; j < arg.length; j++) {
         const flag = arg[j];
         if (!VALID_SET_OPTIONS.has(flag)) {
-          return {
-            stdout: "",
-            stderr: `bash: set: +${flag}: invalid option\n${SET_USAGE}`,
-            exitCode: 1,
-          };
+          return failure(`bash: set: +${flag}: invalid option\n${SET_USAGE}`);
         }
         if (flag === "e") {
           ctx.state.options.errexit = false;
@@ -206,37 +195,33 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
       // End of options, rest are positional parameters
       i++;
       setPositionalParameters(ctx, args.slice(i));
-      return { stdout: "", stderr: "", exitCode: 0 };
+      return OK;
     } else if (arg === "-") {
       // set - disables -x and -v (traditional behavior)
       ctx.state.options.xtrace = false;
       // Also marks end of options, rest are positional parameters
       if (i + 1 < args.length) {
         setPositionalParameters(ctx, args.slice(i + 1));
-        return { stdout: "", stderr: "", exitCode: 0 };
+        return OK;
       }
     } else if (arg === "+") {
       // set + is just like set -- (end of options)
       if (i + 1 < args.length) {
         setPositionalParameters(ctx, args.slice(i + 1));
-        return { stdout: "", stderr: "", exitCode: 0 };
+        return OK;
       }
     } else if (arg.startsWith("-") || arg.startsWith("+")) {
-      return {
-        stdout: "",
-        stderr: `bash: set: ${arg}: invalid option\n${SET_USAGE}`,
-        exitCode: 1,
-      };
+      return failure(`bash: set: ${arg}: invalid option\n${SET_USAGE}`);
     } else {
       // Non-option arguments are positional parameters
       setPositionalParameters(ctx, args.slice(i));
-      return { stdout: "", stderr: "", exitCode: 0 };
+      return OK;
     }
 
     i++;
   }
 
-  return { stdout: "", stderr: "", exitCode: 0 };
+  return OK;
 }
 
 /**

@@ -9,6 +9,7 @@
 import type { FunctionDefNode } from "../ast/types.js";
 import type { ExecResult } from "../types.js";
 import { ReturnError } from "./errors.js";
+import { failure, OK, result } from "./helpers/index.js";
 import type { InterpreterContext } from "./types.js";
 
 export function executeFunctionDef(
@@ -16,7 +17,7 @@ export function executeFunctionDef(
   node: FunctionDefNode,
 ): ExecResult {
   ctx.state.functions.set(node.name, node);
-  return { stdout: "", stderr: "", exitCode: 0 };
+  return OK;
 }
 
 export async function callFunction(
@@ -27,11 +28,9 @@ export async function callFunction(
   ctx.state.callDepth++;
   if (ctx.state.callDepth > ctx.maxCallDepth) {
     ctx.state.callDepth--;
-    return {
-      stdout: "",
-      stderr: `bash: ${func.name}: maximum recursion depth (${ctx.maxCallDepth}) exceeded, increase maxCallDepth\n`,
-      exitCode: 1,
-    };
+    return failure(
+      `bash: ${func.name}: maximum recursion depth (${ctx.maxCallDepth}) exceeded, increase maxCallDepth\n`,
+    );
   }
 
   ctx.state.localScopes.push(new Map());
@@ -70,18 +69,14 @@ export async function callFunction(
   };
 
   try {
-    const result = await ctx.executeCommand(func.body, "");
+    const execResult = await ctx.executeCommand(func.body, "");
     cleanup();
-    return result;
+    return execResult;
   } catch (error) {
     cleanup();
     // Handle return statement - convert to normal exit with the specified code
     if (error instanceof ReturnError) {
-      return {
-        stdout: error.stdout,
-        stderr: error.stderr,
-        exitCode: error.exitCode,
-      };
+      return result(error.stdout, error.stderr, error.exitCode);
     }
     throw error;
   }

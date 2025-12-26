@@ -4,6 +4,7 @@
 
 import type { ExecResult } from "../../types.js";
 import { BreakError, ExitError } from "../errors.js";
+import { OK } from "../helpers/index.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleBreak(
@@ -13,11 +14,7 @@ export function handleBreak(
   // Check if we're in a loop
   // In bash, if not in a loop, break silently does nothing (returns 0)
   if (ctx.state.loopDepth === 0) {
-    return {
-      stdout: "",
-      stderr: "",
-      exitCode: 0,
-    };
+    return OK;
   }
 
   let levels = 1;

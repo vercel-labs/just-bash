@@ -74,7 +74,7 @@ import {
   getArrayElements,
 } from "./expansion.js";
 import { callFunction, executeFunctionDef } from "./functions.js";
-import { getErrorMessage } from "./helpers/index.js";
+import { failure, getErrorMessage, OK, result } from "./helpers/index.js";
 import { applyRedirections } from "./redirections.js";
 import type { InterpreterContext, InterpreterState } from "./types.js";
 
@@ -335,7 +335,7 @@ export class Interpreter {
       case "ConditionalCommand":
         return this.executeConditionalCommand(node);
       default:
-        return { stdout: "", stderr: "", exitCode: 0 };
+        return OK;
     }
   }
 
@@ -353,7 +353,7 @@ export class Interpreter {
       if (error instanceof ArithmeticError) {
         // Arithmetic errors in expansion should not terminate the script
         // Just return exit code 1 with the error message on stderr
-        return { stdout: "", stderr: error.stderr, exitCode: 1 };
+        return failure(error.stderr);
       }
       throw error;
     }
@@ -446,7 +446,7 @@ export class Interpreter {
     if (!node.name) {
       // Assignment-only command: preserve the exit code from command substitution
       // e.g., x=$(false) should set $? to 1, not 0
-      return { stdout: "", stderr: "", exitCode: this.ctx.state.lastExitCode };
+      return result("", "", this.ctx.state.lastExitCode);
     }
 
     for (const redir of node.redirections) {
@@ -531,29 +531,21 @@ export class Interpreter {
         }
         // No args - treat as no-op (status 0)
         // Preserve lastExitCode for command subs like $(exit 42)
-        return {
-          stdout: "",
-          stderr: "",
-          exitCode: this.ctx.state.lastExitCode,
-        };
+        return result("", "", this.ctx.state.lastExitCode);
       }
       // Literal empty command name - command not found
-      return {
-        stdout: "",
-        stderr: "bash: : command not found\n",
-        exitCode: 127,
-      };
+      return failure("bash: : command not found\n", 127);
     }
 
-    let result = await this.runCommand(commandName, args, quotedArgs, stdin);
-    result = await applyRedirections(this.ctx, result, node.redirections);
+    let cmdResult = await this.runCommand(commandName, args, quotedArgs, stdin);
+    cmdResult = await applyRedirections(this.ctx, cmdResult, node.redirections);
 
     for (const [name, value] of Object.entries(tempAssignments)) {
       if (value === undefined) delete this.ctx.state.env[name];
       else this.ctx.state.env[name] = value;
     }
 
-    return result;
+    return cmdResult;
   }
 
   private async runCommand(
@@ -611,10 +603,10 @@ export class Interpreter {
     }
     // Simple builtins
     if (commandName === ":" || commandName === "true") {
-      return { stdout: "", stderr: "", exitCode: 0 };
+      return OK;
     }
     if (commandName === "false") {
-      return { stdout: "", stderr: "", exitCode: 1 };
+      return result("", "", 1);
     }
     if (commandName === "let") {
       return handleLet(this.ctx, args);
@@ -622,7 +614,7 @@ export class Interpreter {
     if (commandName === "command") {
       // command [-pVv] command [arg...] - run command, bypassing functions
       if (args.length === 0) {
-        return { stdout: "", stderr: "", exitCode: 0 };
+        return OK;
       }
       let cmdArgs = args;
       // Skip -v, -V, -p options for now (just run the command)
@@ -630,7 +622,7 @@ export class Interpreter {
         cmdArgs = cmdArgs.slice(1);
       }
       if (cmdArgs.length === 0) {
-        return { stdout: "", stderr: "", exitCode: 0 };
+        return OK;
       }
       // Run command without checking functions, but builtins are still available
       const [cmd, ...rest] = cmdArgs;
@@ -639,7 +631,7 @@ export class Interpreter {
     if (commandName === "builtin") {
       // builtin command [arg...] - run builtin command
       if (args.length === 0) {
-        return { stdout: "", stderr: "", exitCode: 0 };
+        return OK;
       }
       const [cmd, ...rest] = args;
       // Run as builtin (recursive call, but skip function lookup)
@@ -648,19 +640,19 @@ export class Interpreter {
     if (commandName === "shopt") {
       // shopt - shell options (stub implementation)
       // Accept -s (set) and -u (unset) but don't actually change behavior
-      return { stdout: "", stderr: "", exitCode: 0 };
+      return OK;
     }
     if (commandName === "exec") {
       // exec - replace shell with command (stub: just run the command)
       if (args.length === 0) {
-        return { stdout: "", stderr: "", exitCode: 0 };
+        return OK;
       }
       const [cmd, ...rest] = args;
       return this.runCommand(cmd, rest, [], stdin);
     }
     if (commandName === "wait") {
       // wait - wait for background jobs (stub: no-op in this context)
-      return { stdout: "", stderr: "", exitCode: 0 };
+      return OK;
     }
     if (commandName === "type") {
       // type - describe commands
@@ -673,13 +665,13 @@ export class Interpreter {
         const testArgs = args.slice(0, endIdx);
         return evaluateTestArgs(this.ctx, testArgs);
       }
-      return { stdout: "", stderr: "bash: [[: missing `]]'\n", exitCode: 2 };
+      return failure("bash: [[: missing `]]'\n", 2);
     }
     if (commandName === "[" || commandName === "test") {
       let testArgs = args;
       if (commandName === "[") {
         if (args[args.length - 1] !== "]") {
-          return { stdout: "", stderr: "[: missing `]'\n", exitCode: 2 };
+          return failure("[: missing `]'\n", 2);
         }
         testArgs = args.slice(0, -1);
       }
@@ -702,11 +694,7 @@ export class Interpreter {
 
     const cmd = this.ctx.commands.get(cmdName);
     if (!cmd) {
-      return {
-        stdout: "",
-        stderr: `bash: ${commandName}: command not found\n`,
-        exitCode: 127,
-      };
+      return failure(`bash: ${commandName}: command not found\n`, 127);
     }
 
     const cmdCtx: CommandContext = {
@@ -723,11 +711,7 @@ export class Interpreter {
     try {
       return await cmd.execute(args, cmdCtx);
     } catch (error) {
-      return {
-        stdout: "",
-        stderr: `${commandName}: ${getErrorMessage(error)}\n`,
-        exitCode: 1,
-      };
+      return failure(`${commandName}: ${getErrorMessage(error)}\n`);
     }
   }
 
@@ -943,17 +927,15 @@ export class Interpreter {
     node: ArithmeticCommandNode,
   ): Promise<ExecResult> {
     try {
-      const result = await evaluateArithmetic(
+      const arithResult = await evaluateArithmetic(
         this.ctx,
         node.expression.expression,
       );
-      return { stdout: "", stderr: "", exitCode: result === 0 ? 1 : 0 };
+      return result("", "", arithResult === 0 ? 1 : 0);
     } catch (error) {
-      return {
-        stdout: "",
-        stderr: `bash: arithmetic expression: ${(error as Error).message}\n`,
-        exitCode: 1,
-      };
+      return failure(
+        `bash: arithmetic expression: ${(error as Error).message}\n`,
+      );
     }
   }
 
@@ -961,14 +943,13 @@ export class Interpreter {
     node: ConditionalCommandNode,
   ): Promise<ExecResult> {
     try {
-      const result = await evaluateConditional(this.ctx, node.expression);
-      return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
+      const condResult = await evaluateConditional(this.ctx, node.expression);
+      return result("", "", condResult ? 0 : 1);
     } catch (error) {
-      return {
-        stdout: "",
-        stderr: `bash: conditional expression: ${(error as Error).message}\n`,
-        exitCode: 2,
-      };
+      return failure(
+        `bash: conditional expression: ${(error as Error).message}\n`,
+        2,
+      );
     }
   }
 }

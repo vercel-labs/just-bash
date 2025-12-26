@@ -3,6 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { failure, result } from "../helpers/index.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleLocal(
@@ -10,11 +11,7 @@ export function handleLocal(
   args: string[],
 ): ExecResult {
   if (ctx.state.localScopes.length === 0) {
-    return {
-      stdout: "",
-      stderr: "bash: local: can only be used in a function\n",
-      exitCode: 1,
-    };
+    return failure("bash: local: can only be used in a function\n");
   }
 
   const currentScope = ctx.state.localScopes[ctx.state.localScopes.length - 1];
@@ -48,5 +45,5 @@ export function handleLocal(
     }
   }
 
-  return { stdout: "", stderr, exitCode };
+  return result("", stderr, exitCode);
 }

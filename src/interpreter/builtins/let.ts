@@ -18,6 +18,7 @@ import type { ArithmeticCommandNode } from "../../ast/types.js";
 import { parse } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { evaluateArithmetic } from "../arithmetic.js";
+import { failure, result } from "../helpers/index.js";
 import type { InterpreterContext } from "../types.js";
 
 /**
@@ -62,11 +63,7 @@ export async function handleLet(
   args: string[],
 ): Promise<ExecResult> {
   if (args.length === 0) {
-    return {
-      stdout: "",
-      stderr: "bash: let: expression expected\n",
-      exitCode: 1,
-    };
+    return failure("bash: let: expression expected\n");
   }
 
   // Parse args into expressions (handling split parentheses)
@@ -96,14 +93,10 @@ export async function handleLet(
         }
       }
     } catch (error) {
-      return {
-        stdout: "",
-        stderr: `bash: let: ${expr}: ${(error as Error).message}\n`,
-        exitCode: 1,
-      };
+      return failure(`bash: let: ${expr}: ${(error as Error).message}\n`);
     }
   }
 
   // Return 0 if last expression is non-zero, 1 if zero
-  return { stdout: "", stderr: "", exitCode: lastResult === 0 ? 1 : 0 };
+  return result("", "", lastResult === 0 ? 1 : 0);
 }

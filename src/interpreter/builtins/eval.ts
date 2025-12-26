@@ -13,6 +13,7 @@ import {
   ExitError,
   ReturnError,
 } from "../errors.js";
+import { failure, OK } from "../helpers/index.js";
 import type { InterpreterContext } from "../types.js";
 
 export async function handleEval(
@@ -30,23 +31,22 @@ export async function handleEval(
       evalArgs = evalArgs.slice(1);
     } else if (first.startsWith("-") && first !== "-" && first.length > 1) {
       // Invalid option like -z, -x, etc.
-      return {
-        stdout: "",
-        stderr: `bash: eval: ${first}: invalid option\neval: usage: eval [arg ...]\n`,
-        exitCode: 2,
-      };
+      return failure(
+        `bash: eval: ${first}: invalid option\neval: usage: eval [arg ...]\n`,
+        2,
+      );
     }
   }
 
   if (evalArgs.length === 0) {
-    return { stdout: "", stderr: "", exitCode: 0 };
+    return OK;
   }
 
   // Concatenate all arguments with spaces (like bash does)
   const command = evalArgs.join(" ");
 
   if (command.trim() === "") {
-    return { stdout: "", stderr: "", exitCode: 0 };
+    return OK;
   }
 
   try {
@@ -64,11 +64,7 @@ export async function handleEval(
       throw error;
     }
     if ((error as ParseException).name === "ParseException") {
-      return {
-        stdout: "",
-        stderr: `bash: eval: ${(error as Error).message}\n`,
-        exitCode: 1, // bash returns 1 for syntax errors in eval
-      };
+      return failure(`bash: eval: ${(error as Error).message}\n`);
     }
     throw error;
   }

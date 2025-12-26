@@ -9,6 +9,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { failure, OK } from "../helpers/index.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleShift(
@@ -21,11 +22,7 @@ export function handleShift(
   if (args.length > 0) {
     const parsed = Number.parseInt(args[0], 10);
     if (Number.isNaN(parsed) || parsed < 0) {
-      return {
-        stdout: "",
-        stderr: `bash: shift: ${args[0]}: numeric argument required\n`,
-        exitCode: 1,
-      };
+      return failure(`bash: shift: ${args[0]}: numeric argument required\n`);
     }
     n = parsed;
   }
@@ -35,16 +32,12 @@ export function handleShift(
 
   // Check if shift count exceeds available parameters
   if (n > currentCount) {
-    return {
-      stdout: "",
-      stderr: `bash: shift: shift count out of range\n`,
-      exitCode: 1,
-    };
+    return failure("bash: shift: shift count out of range\n");
   }
 
   // If n is 0, do nothing
   if (n === 0) {
-    return { stdout: "", stderr: "", exitCode: 0 };
+    return OK;
   }
 
   // Get current positional parameters
@@ -70,5 +63,5 @@ export function handleShift(
   ctx.state.env["#"] = String(newParams.length);
   ctx.state.env["@"] = newParams.join(" ");
 
-  return { stdout: "", stderr: "", exitCode: 0 };
+  return OK;
 }

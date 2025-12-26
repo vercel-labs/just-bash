@@ -10,6 +10,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { OK, result, success } from "../helpers/index.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleExport(
@@ -42,7 +43,7 @@ export function handleExport(
       const escapedValue = value.replace(/'/g, "'\\''");
       stdout += `declare -x ${name}='${escapedValue}'\n`;
     }
-    return { stdout, stderr: "", exitCode: 0 };
+    return success(stdout);
   }
 
   // Handle un-export
@@ -52,7 +53,7 @@ export function handleExport(
       const name = arg.split("=")[0];
       delete ctx.state.env[name];
     }
-    return { stdout: "", stderr: "", exitCode: 0 };
+    return OK;
   }
 
   // Process each argument
@@ -91,5 +92,5 @@ export function handleExport(
     }
   }
 
-  return { stdout: "", stderr, exitCode };
+  return result("", stderr, exitCode);
 }
