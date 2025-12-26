@@ -93,9 +93,14 @@ export async function runTestCase(
   }
 
   // Create a fresh BashEnv for each test
+  // Note: Don't use dotfiles here as they interfere with glob tests like "echo .*"
   const env = new BashEnv({
     files: {
-      "/tmp/.keep": "",
+      "/tmp/_keep": "",
+      // Set up /dev/zero as a character device placeholder
+      "/dev/zero": "",
+      // Set up /bin directory
+      "/bin/_keep": "",
     },
     cwd: "/tmp",
     env: {
@@ -106,6 +111,9 @@ export async function runTestCase(
     },
     ...options.bashEnvOptions,
   });
+
+  // Set up /tmp with sticky bit (mode 1777) for tests that check it
+  await env.fs.chmod("/tmp", 0o1777);
 
   try {
     // Use rawScript to preserve leading whitespace for here-docs

@@ -183,13 +183,70 @@ export class GlobExpander {
         regex += ".";
       } else if (c === "[") {
         // Character class - find the closing bracket
+        // Handle negation [^...] or [!...]
+        // Handle POSIX classes [[:alpha:]], [[:punct:]], etc.
         let j = i + 1;
-        while (j < pattern.length && pattern[j] !== "]") {
+        let classContent = "[";
+
+        // Handle negation
+        if (j < pattern.length && (pattern[j] === "^" || pattern[j] === "!")) {
+          classContent += "^";
           j++;
         }
-        regex += pattern.slice(i, j + 1);
+
+        // Handle ] as first character (literal])
+        if (j < pattern.length && pattern[j] === "]") {
+          classContent += "\\]";
+          j++;
+        }
+
+        // Parse until closing ]
+        while (j < pattern.length && pattern[j] !== "]") {
+          // Check for POSIX character class [[:name:]]
+          if (
+            pattern[j] === "[" &&
+            j + 1 < pattern.length &&
+            pattern[j + 1] === ":"
+          ) {
+            const posixEnd = pattern.indexOf(":]", j + 2);
+            if (posixEnd !== -1) {
+              const posixClass = pattern.slice(j + 2, posixEnd);
+              const regexClass = this.posixClassToRegex(posixClass);
+              classContent += regexClass;
+              j = posixEnd + 2;
+              continue;
+            }
+          }
+
+          // Handle escaped characters in character class
+          if (pattern[j] === "\\" && j + 1 < pattern.length) {
+            classContent += "\\" + pattern[j + 1];
+            j += 2;
+            continue;
+          }
+
+          // Handle - as literal if at start/end
+          if (pattern[j] === "-") {
+            classContent += "\\-";
+          } else {
+            classContent += pattern[j];
+          }
+          j++;
+        }
+
+        classContent += "]";
+        regex += classContent;
         i = j;
-      } else if (/[.+^${}()|\\]/.test(c)) {
+      } else if (c === "\\" && i + 1 < pattern.length) {
+        // Escaped character - treat next char as literal
+        const nextChar = pattern[i + 1];
+        if (/[.+^${}()|\\*?[\]]/.test(nextChar)) {
+          regex += `\\${nextChar}`;
+        } else {
+          regex += nextChar;
+        }
+        i++;
+      } else if (/[.+^${}()|]/.test(c)) {
         // Escape regex special characters
         regex += `\\${c}`;
       } else {
@@ -199,5 +256,28 @@ export class GlobExpander {
 
     regex += "$";
     return new RegExp(regex);
+  }
+
+  /**
+   * Convert POSIX character class name to regex equivalent
+   */
+  private posixClassToRegex(className: string): string {
+    const posixClasses: Record<string, string> = {
+      alnum: "a-zA-Z0-9",
+      alpha: "a-zA-Z",
+      ascii: "\\x00-\\x7F",
+      blank: " \\t",
+      cntrl: "\\x00-\\x1F\\x7F",
+      digit: "0-9",
+      graph: "!-~",
+      lower: "a-z",
+      print: " -~",
+      punct: "!-/:-@\\[-`{-~",
+      space: " \\t\\n\\r\\f\\v",
+      upper: "A-Z",
+      word: "a-zA-Z0-9_",
+      xdigit: "0-9a-fA-F",
+    };
+    return posixClasses[className] || "";
   }
 }

@@ -10,13 +10,41 @@ export async function handleCd(
   args: string[],
 ): Promise<ExecResult> {
   let target: string;
+  let printPath = false;
+  let _physical = false;
 
-  if (args.length === 0 || args[0] === "~") {
+  // Parse options
+  let i = 0;
+  while (i < args.length) {
+    if (args[i] === "--") {
+      // End of options
+      i++;
+      break;
+    } else if (args[i] === "-L") {
+      _physical = false;
+      i++;
+    } else if (args[i] === "-P") {
+      _physical = true;
+      i++;
+    } else if (args[i].startsWith("-") && args[i] !== "-") {
+      // Unknown option - ignore for now
+      i++;
+    } else {
+      break;
+    }
+  }
+
+  // Get the target directory
+  const remainingArgs = args.slice(i);
+  if (remainingArgs.length === 0) {
     target = ctx.state.env.HOME || "/";
-  } else if (args[0] === "-") {
+  } else if (remainingArgs[0] === "~") {
+    target = ctx.state.env.HOME || "/";
+  } else if (remainingArgs[0] === "-") {
     target = ctx.state.previousDir;
+    printPath = true; // cd - prints the new directory
   } else {
-    target = args[0];
+    target = remainingArgs[0];
   }
 
   // Check path components before normalization to catch cases like "nonexistent/.."
@@ -58,5 +86,7 @@ export async function handleCd(
   ctx.state.env.PWD = ctx.state.cwd;
   ctx.state.env.OLDPWD = ctx.state.previousDir;
 
-  return { stdout: "", stderr: "", exitCode: 0 };
+  // cd - prints the new directory
+  const stdout = printPath ? `${newDir}\n` : "";
+  return { stdout, stderr: "", exitCode: 0 };
 }

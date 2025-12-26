@@ -15,9 +15,11 @@ import type {
   CaseNode,
   CStyleForNode,
   ForNode,
+  HereDocNode,
   IfNode,
   UntilNode,
   WhileNode,
+  WordNode,
 } from "../ast/types.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
@@ -123,6 +125,15 @@ export async function executeFor(
   let stderr = "";
   let exitCode = 0;
   let iterations = 0;
+
+  // Validate variable name at runtime (matches bash behavior)
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(node.variable)) {
+    return {
+      stdout: "",
+      stderr: `bash: \`${node.variable}': not a valid identifier\n`,
+      exitCode: 1,
+    };
+  }
 
   let words: string[] = [];
   if (node.words === null) {
@@ -262,10 +273,44 @@ export async function executeWhile(
   let exitCode = 0;
   let iterations = 0;
 
+  // Process here-doc redirections to get stdin content
+  let effectiveStdin = stdin;
+  for (const redir of node.redirections) {
+    if (
+      (redir.operator === "<<" || redir.operator === "<<-") &&
+      redir.target.type === "HereDoc"
+    ) {
+      const hereDoc = redir.target as HereDocNode;
+      let content = await expandWord(ctx, hereDoc.content);
+      if (hereDoc.stripTabs) {
+        content = content
+          .split("\n")
+          .map((line) => line.replace(/^\t+/, ""))
+          .join("\n");
+      }
+      effectiveStdin = content;
+    } else if (redir.operator === "<<<" && redir.target.type === "Word") {
+      effectiveStdin = `${await expandWord(ctx, redir.target as WordNode)}\n`;
+    } else if (redir.operator === "<" && redir.target.type === "Word") {
+      try {
+        const target = await expandWord(ctx, redir.target as WordNode);
+        const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+        effectiveStdin = await ctx.fs.readFile(filePath);
+      } catch {
+        const target = await expandWord(ctx, redir.target as WordNode);
+        return {
+          stdout: "",
+          stderr: `bash: ${target}: No such file or directory\n`,
+          exitCode: 1,
+        };
+      }
+    }
+  }
+
   // Save and set groupStdin for piped while loops
   const savedGroupStdin = ctx.state.groupStdin;
-  if (stdin) {
-    ctx.state.groupStdin = stdin;
+  if (effectiveStdin) {
+    ctx.state.groupStdin = effectiveStdin;
   }
 
   ctx.state.loopDepth++;

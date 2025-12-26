@@ -58,7 +58,7 @@ export const wcCommand: Command = {
     if (files.length === 0) {
       const stats = countStats(ctx.stdin);
       return {
-        stdout: `${formatStats(stats, showLines, showWords, showChars, "")}\n`,
+        stdout: `${formatStats(stats, showLines, showWords, showChars, "", 0)}\n`,
         stderr: "",
         exitCode: 0,
       };
@@ -81,7 +81,7 @@ export const wcCommand: Command = {
         totalWords += stats.words;
         totalChars += stats.chars;
 
-        stdout += `${formatStats(stats, showLines, showWords, showChars, file)}\n`;
+        stdout += `${formatStats(stats, showLines, showWords, showChars, file, files.length)}\n`;
       } catch {
         stderr += `wc: ${file}: No such file or directory\n`;
         exitCode = 1;
@@ -96,6 +96,7 @@ export const wcCommand: Command = {
         showWords,
         showChars,
         "total",
+        files.length,
       )}\n`;
     }
 
@@ -146,16 +147,32 @@ function formatStats(
   showWords: boolean,
   showChars: boolean,
   filename: string,
+  fileCount: number,
 ): string {
-  // Real wc uses 8-char fields for counts, no separator between them
-  // Then a single space before filename
-  let result = "";
+  // Count how many fields we're showing
+  const fieldCount =
+    (showLines ? 1 : 0) + (showWords ? 1 : 0) + (showChars ? 1 : 0);
+  const hasFilename = filename.length > 0;
 
-  if (showLines) result += String(stats.lines).padStart(8);
-  if (showWords) result += String(stats.words).padStart(8);
-  if (showChars) result += String(stats.chars).padStart(8);
+  // Real wc behavior:
+  // - stdin (no filename): always use 8-char padding
+  // - single file, single field: no padding
+  // - multiple files or multiple fields: use 8-char padding
+  const usePadding = hasFilename ? (fieldCount > 1 || fileCount > 1) : true;
 
-  if (filename) {
+  const values: string[] = [];
+  if (showLines) {
+    values.push(usePadding ? String(stats.lines).padStart(8) : String(stats.lines));
+  }
+  if (showWords) {
+    values.push(usePadding ? String(stats.words).padStart(8) : String(stats.words));
+  }
+  if (showChars) {
+    values.push(usePadding ? String(stats.chars).padStart(8) : String(stats.chars));
+  }
+
+  let result = values.join("");
+  if (hasFilename) {
     result += ` ${filename}`;
   }
 

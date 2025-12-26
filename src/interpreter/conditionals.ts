@@ -19,6 +19,8 @@ import { expandWord } from "./expansion.js";
 import {
   evaluateFileTest,
   isFileTestOperator,
+  evaluateBinaryFileTest,
+  isBinaryFileTestOperator,
   evaluateVariableTest,
   compareNumeric,
   isNumericOp,
@@ -65,7 +67,8 @@ export async function evaluateConditional(
             }
             return match !== null;
           } catch {
-            return false;
+            // Invalid regex pattern is a syntax error (exit code 2)
+            throw new Error("syntax error in regular expression");
           }
         }
         case "<":
@@ -82,7 +85,7 @@ export async function evaluateConditional(
         case "-nt":
         case "-ot":
         case "-ef":
-          return false;
+          return evaluateBinaryFileTest(ctx, expr.operator, left, right);
         default:
           return false;
       }
@@ -101,6 +104,9 @@ export async function evaluateConditional(
       }
       if (expr.operator === "-v") {
         return evaluateVariableTest(ctx, operand);
+      }
+      if (expr.operator === "-o") {
+        return evaluateShellOption(ctx, operand);
       }
       return false;
     }
@@ -149,6 +155,15 @@ export async function evaluateTestArgs(
     const op = args[0];
     const operand = args[1];
 
+    // "(" without matching ")" is a syntax error
+    if (op === "(") {
+      return {
+        stdout: "",
+        stderr: `test: '(' without matching ')'\n`,
+        exitCode: 2,
+      };
+    }
+
     // Handle file test operators using shared helper
     if (isFileTestOperator(op)) {
       const result = await evaluateFileTest(ctx, op, operand);
@@ -166,6 +181,20 @@ export async function evaluateTestArgs(
       const result = evaluateVariableTest(ctx, operand);
       return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
     }
+    if (op === "-o") {
+      const result = evaluateShellOption(ctx, operand);
+      return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
+    }
+    // If the first arg is a known binary operator but used in 2-arg context, it's an error
+    if (op === "=" || op === "==" || op === "!=" || op === "<" || op === ">" ||
+        op === "-eq" || op === "-ne" || op === "-lt" || op === "-le" || op === "-gt" || op === "-ge" ||
+        op === "-nt" || op === "-ot" || op === "-ef") {
+      return {
+        stdout: "",
+        stderr: `test: ${op}: unary operator expected\n`,
+        exitCode: 2,
+      };
+    }
     return { stdout: "", stderr: "", exitCode: 1 };
   }
 
@@ -174,10 +203,11 @@ export async function evaluateTestArgs(
     const op = args[1];
     const right = args[2];
 
-    // Only handle simple binary comparisons in the fast path
-    // Let -a, -o, and parentheses fall through to compound handler
-    // Note: [ / test uses literal string comparison, NOT pattern matching
-    // Pattern matching is only for [[ ]]
+    // POSIX 3-argument rules:
+    // If $2 is a binary primary, evaluate as: $1 op $3
+    // Binary primaries include: =, !=, -eq, -ne, -lt, -le, -gt, -ge, -a, -o, -nt, -ot, -ef
+    // Note: -a and -o as binary primaries test if both/either operand is non-empty
+
     switch (op) {
       case "=":
       case "==":
@@ -207,7 +237,77 @@ export async function evaluateTestArgs(
         const result = compareNumeric(op, leftNum.value, rightNum.value);
         return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
       }
-      // Let -a, -o, and other cases fall through to compound handler
+      case "-nt":
+      case "-ot":
+      case "-ef": {
+        const result = await evaluateBinaryFileTest(ctx, op, left, right);
+        return { stdout: "", stderr: "", exitCode: result ? 0 : 1 };
+      }
+      case "-a":
+        // In 3-arg context, -a is binary AND: both operands must be non-empty
+        return {
+          stdout: "",
+          stderr: "",
+          exitCode: left !== "" && right !== "" ? 0 : 1,
+        };
+      case "-o":
+        // In 3-arg context, -o is binary OR: at least one operand must be non-empty
+        return {
+          stdout: "",
+          stderr: "",
+          exitCode: left !== "" || right !== "" ? 0 : 1,
+        };
+      case ">":
+        // String comparison: left > right (lexicographically)
+        return {
+          stdout: "",
+          stderr: "",
+          exitCode: left > right ? 0 : 1,
+        };
+      case "<":
+        // String comparison: left < right (lexicographically)
+        return {
+          stdout: "",
+          stderr: "",
+          exitCode: left < right ? 0 : 1,
+        };
+    }
+
+    // If $1 is '!', negate the 2-argument test
+    if (left === "!") {
+      const result = await evaluateTestArgs(ctx, [op, right]);
+      return {
+        stdout: "",
+        stderr: result.stderr,
+        exitCode: result.exitCode === 0 ? 1 : result.exitCode === 1 ? 0 : result.exitCode,
+      };
+    }
+
+    // If $1 is '(' and $3 is ')', evaluate $2 as single-arg test
+    if (left === "(" && right === ")") {
+      return {
+        stdout: "",
+        stderr: "",
+        exitCode: op !== "" ? 0 : 1,
+      };
+    }
+  }
+
+  // POSIX 4-argument rules
+  if (args.length === 4) {
+    // If $1 is '!', negate the 3-argument expression
+    if (args[0] === "!") {
+      const result = await evaluateTestArgs(ctx, args.slice(1));
+      return {
+        stdout: "",
+        stderr: result.stderr,
+        exitCode: result.exitCode === 0 ? 1 : result.exitCode === 1 ? 0 : result.exitCode,
+      };
+    }
+
+    // If $1 is '(' and $4 is ')', evaluate $2 and $3 as 2-arg expression
+    if (args[0] === "(" && args[3] === ")") {
+      return evaluateTestArgs(ctx, [args[1], args[2]]);
     }
   }
 
@@ -309,6 +409,13 @@ async function evaluateTestPrimary(
     return { value, pos: pos + 2 };
   }
 
+  // Shell option tests
+  if (token === "-o") {
+    const optName = args[pos + 1] ?? "";
+    const value = evaluateShellOption(ctx, optName);
+    return { value, pos: pos + 2 };
+  }
+
   // Check for binary operators
   // Note: [ / test uses literal string comparison, NOT pattern matching
   const next = args[pos + 1];
@@ -328,6 +435,14 @@ async function evaluateTestPrimary(
       return { value: false, pos: pos + 3 };
     }
     const value = compareNumeric(next, leftParsed.value, rightParsed.value);
+    return { value, pos: pos + 3 };
+  }
+
+  // Binary file tests
+  if (isBinaryFileTestOperator(next)) {
+    const left = token;
+    const right = args[pos + 2] ?? "";
+    const value = await evaluateBinaryFileTest(ctx, next, left, right);
     return { value, pos: pos + 3 };
   }
 
@@ -378,6 +493,33 @@ export function matchPattern(value: string, pattern: string): boolean {
 
 function resolvePath(ctx: InterpreterContext, path: string): string {
   return ctx.fs.resolvePath(ctx.state.cwd, path);
+}
+
+/**
+ * Evaluate -o option test (check if shell option is enabled).
+ * Maps option names to interpreter state flags.
+ */
+function evaluateShellOption(ctx: InterpreterContext, option: string): boolean {
+  // Map of option names to their state in ctx.state.options
+  // Only includes options that are actually implemented
+  const optionMap: Record<string, () => boolean> = {
+    // Implemented options (set -o)
+    errexit: () => ctx.state.options.errexit === true,
+    nounset: () => ctx.state.options.nounset === true,
+    pipefail: () => ctx.state.options.pipefail === true,
+    xtrace: () => ctx.state.options.xtrace === true,
+    // Single-letter aliases for implemented options
+    e: () => ctx.state.options.errexit === true,
+    u: () => ctx.state.options.nounset === true,
+    x: () => ctx.state.options.xtrace === true,
+  };
+
+  const getter = optionMap[option];
+  if (getter) {
+    return getter();
+  }
+  // Unknown or unimplemented option - return false
+  return false;
 }
 
 /**

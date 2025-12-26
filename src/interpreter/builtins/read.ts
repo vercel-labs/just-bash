@@ -94,34 +94,54 @@ export function handleRead(
       ctx.state.groupStdin = effectiveStdin.substring(consumed);
     }
   } else {
-    // Read until delimiter
-    const delimIndex = effectiveStdin.indexOf(delimiter);
-    if (delimIndex !== -1) {
-      line = effectiveStdin.substring(0, delimIndex);
-      consumed = delimIndex + delimiter.length;
-      foundDelimiter = true;
-      // Consume the line including delimiter from groupStdin
-      if (ctx.state.groupStdin !== undefined && !stdin) {
-        ctx.state.groupStdin = effectiveStdin.substring(consumed);
+    // Read until delimiter, handling line continuation (backslash-newline) if not raw mode
+    let remaining = effectiveStdin;
+    consumed = 0;
+
+    while (true) {
+      const delimIndex = remaining.indexOf(delimiter);
+      if (delimIndex !== -1) {
+        const segment = remaining.substring(0, delimIndex);
+        consumed += delimIndex + delimiter.length;
+        remaining = remaining.substring(delimIndex + delimiter.length);
+
+        // Check for line continuation: if line ends with \ and not in raw mode
+        if (!raw && segment.endsWith("\\")) {
+          // Remove trailing backslash and continue reading
+          line += segment.slice(0, -1);
+          continue;
+        }
+
+        line += segment;
+        foundDelimiter = true;
+        break;
+      } else if (remaining.length > 0) {
+        // No delimiter found but have content - read it but return exit code 1
+        line += remaining;
+        consumed += remaining.length;
+        foundDelimiter = false;
+        remaining = "";
+        break;
+      } else {
+        // No more input
+        if (line.length === 0) {
+          // No input at all - return failure
+          for (const name of varNames) {
+            ctx.state.env[name] = "";
+          }
+          if (arrayName) {
+            clearArray(ctx, arrayName);
+          }
+          return { stdout: "", stderr: "", exitCode: 1 };
+        }
+        foundDelimiter = false;
+        break;
       }
-    } else if (effectiveStdin.length > 0) {
-      // No delimiter found but have content - read it but return exit code 1
-      line = effectiveStdin;
-      foundDelimiter = false;
-      // Consume all of groupStdin
-      if (ctx.state.groupStdin !== undefined && !stdin) {
-        ctx.state.groupStdin = "";
-      }
-    } else {
-      // No input - return failure
-      // Still set variables to empty
-      for (const name of varNames) {
-        ctx.state.env[name] = "";
-      }
-      if (arrayName) {
-        clearArray(ctx, arrayName);
-      }
-      return { stdout: "", stderr: "", exitCode: 1 };
+    }
+
+    // Consume from groupStdin
+    if (ctx.state.groupStdin !== undefined && !stdin) {
+      ctx.state.groupStdin = effectiveStdin.substring(consumed);
     }
   }
 

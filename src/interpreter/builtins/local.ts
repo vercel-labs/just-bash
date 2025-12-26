@@ -18,20 +18,35 @@ export function handleLocal(
   }
 
   const currentScope = ctx.state.localScopes[ctx.state.localScopes.length - 1];
+  let stderr = "";
+  let exitCode = 0;
 
   for (const arg of args) {
+    let name: string;
+    let value: string | undefined;
+
     if (arg.includes("=")) {
-      const [name, ...rest] = arg.split("=");
-      if (!currentScope.has(name)) {
-        currentScope.set(name, ctx.state.env[name]);
-      }
-      ctx.state.env[name] = rest.join("=");
+      const eqIdx = arg.indexOf("=");
+      name = arg.slice(0, eqIdx);
+      value = arg.slice(eqIdx + 1);
     } else {
-      if (!currentScope.has(arg)) {
-        currentScope.set(arg, ctx.state.env[arg]);
-      }
+      name = arg;
+    }
+
+    // Validate variable name: must start with letter/underscore, contain only alphanumeric/_
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+      stderr += `bash: local: \`${arg}': not a valid identifier\n`;
+      exitCode = 1;
+      continue;
+    }
+
+    if (!currentScope.has(name)) {
+      currentScope.set(name, ctx.state.env[name]);
+    }
+    if (value !== undefined) {
+      ctx.state.env[name] = value;
     }
   }
 
-  return { stdout: "", stderr: "", exitCode: 0 };
+  return { stdout: "", stderr, exitCode };
 }

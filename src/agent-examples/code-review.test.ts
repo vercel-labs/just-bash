@@ -112,7 +112,7 @@ app.listen(3000);
   it("should count lines of code", async () => {
     const env = createEnv();
     const result = await env.exec("wc -l /project/src/index.ts");
-    expect(result.stdout).toBe("       5 /project/src/index.ts\n");
+    expect(result.stdout).toBe("5 /project/src/index.ts\n");
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
   });

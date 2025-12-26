@@ -67,8 +67,9 @@ export function parseFor(p: Parser): ForNode | CStyleForNode {
   }
 
   // Regular for: for VAR in WORDS
-  // The variable can be NAME or IN (since "for in in a b c" is valid - first 'in' is var name)
-  if (!p.check(TokenType.NAME, TokenType.IN)) {
+  // The variable can be NAME, IN, or even invalid names like "i.j"
+  // Invalid names are validated at runtime to match bash behavior
+  if (!p.isWord()) {
     p.error("Expected variable name in for loop");
   }
   const varToken = p.advance();
@@ -279,13 +280,13 @@ function parseCaseItem(p: Parser): CaseItemNode | null {
     // Check if we're looking at the start of another case pattern (word followed by ))
     // This handles the syntax error case of empty actions like: a) b) echo A ;;
     if (p.isWord() && p.peek(1).type === TokenType.RPAREN) {
-      // This looks like another case pattern starting - break to let outer loop handle it
-      // This is actually a syntax error in bash, but we handle it gracefully
-      break;
+      // This looks like another case pattern starting without a terminator
+      // This is a syntax error in bash
+      p.error(`syntax error near unexpected token \`)'`);
     }
     // Also check for optional ( before pattern
     if (p.check(TokenType.LPAREN) && p.peek(1).type === TokenType.WORD) {
-      break;
+      p.error(`syntax error near unexpected token \`${p.peek(1).value}'`);
     }
 
     const posBefore = p.getPos();

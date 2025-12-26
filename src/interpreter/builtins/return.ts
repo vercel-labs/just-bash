@@ -21,12 +21,14 @@ export function handleReturn(
   }
 
   let exitCode = ctx.state.lastExitCode;
-  if (args.length > 0 && args[0] !== "") {
-    const n = Number.parseInt(args[0], 10);
-    if (Number.isNaN(n)) {
+  if (args.length > 0) {
+    const arg = args[0];
+    // Empty string or non-numeric is an error
+    const n = Number.parseInt(arg, 10);
+    if (arg === "" || Number.isNaN(n) || !/^-?\d+$/.test(arg)) {
       return {
         stdout: "",
-        stderr: `bash: return: ${args[0]}: numeric argument required\n`,
+        stderr: `bash: return: ${arg}: numeric argument required\n`,
         exitCode: 2,
       };
     }

@@ -116,7 +116,7 @@ describe("Agent Scenario: Log Analysis", () => {
   it("should count total log lines", async () => {
     const env = createEnv();
     const result = await env.exec("wc -l /logs/app.log");
-    expect(result.stdout).toBe("       8 /logs/app.log\n");
+    expect(result.stdout).toBe("8 /logs/app.log\n");
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
   });

@@ -197,13 +197,25 @@ export function parseAssignment(p: Parser): AssignmentNode {
   const valueStr = match[4] ?? "";
 
   // Check for array assignment: VAR=(...)
-  if (valueStr === "(" || (valueStr === "" && p.check(TokenType.LPAREN))) {
-    if (valueStr !== "(") {
-      p.expect(TokenType.LPAREN);
-    }
+  // The '(' can be part of the token (valueStr === "(") or a separate token
+  // but only if it's immediately adjacent (no space between = and ()
+  if (valueStr === "(") {
     const elements = parseArrayElements(p);
     p.expect(TokenType.RPAREN);
     return AST.assignment(name, null, append, elements);
+  }
+
+  // Check for adjacent LPAREN: a=() with no space
+  if (valueStr === "" && p.check(TokenType.LPAREN)) {
+    const currentToken = p.current();
+    // Only allow if LPAREN is immediately after the assignment word (token.end === lparen.start)
+    if (token.end === currentToken.start) {
+      p.advance(); // consume LPAREN
+      const elements = parseArrayElements(p);
+      p.expect(TokenType.RPAREN);
+      return AST.assignment(name, null, append, elements);
+    }
+    // Space between = and ( is a syntax error - let the parser handle it
   }
 
   // Regular assignment (may include subscript)

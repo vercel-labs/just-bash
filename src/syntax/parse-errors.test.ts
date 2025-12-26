@@ -64,8 +64,10 @@ describe("Bash Syntax - Parse Errors", () => {
     it("should error on invalid variable name", async () => {
       const env = new BashEnv();
       const result = await env.exec("for 123 in a b c; do echo $123; done");
-      expect(result.exitCode).toBe(2);
-      expect(result.stderr).toContain("syntax error");
+      // Bash validates variable name at runtime, not parse time
+      // Returns exit code 1 and "not a valid identifier" error
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("not a valid identifier");
     });
   });
 

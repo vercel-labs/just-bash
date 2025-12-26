@@ -13,9 +13,11 @@ export function handleExit(ctx: InterpreterContext, args: string[]): never {
     // Use last command's exit code when no argument given
     exitCode = ctx.state.lastExitCode;
   } else {
-    const parsed = Number.parseInt(args[0], 10);
-    if (Number.isNaN(parsed)) {
-      stderr = `bash: exit: ${args[0]}: numeric argument required\n`;
+    const arg = args[0];
+    const parsed = Number.parseInt(arg, 10);
+    // Empty string or non-numeric is an error
+    if (arg === "" || Number.isNaN(parsed) || !/^-?\d+$/.test(arg)) {
+      stderr = `bash: exit: ${arg}: numeric argument required\n`;
       exitCode = 2;
     } else {
       // Exit codes are modulo 256 (wrap around)

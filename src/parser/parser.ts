@@ -368,6 +368,11 @@ export class Parser {
     ) {
       this.error(`syntax error near unexpected token \`${v}'`);
     }
+
+    // Check for bare semicolon (with nothing before it)
+    if (t === TokenType.SEMICOLON) {
+      this.error(`syntax error near unexpected token \`${v}'`);
+    }
   }
 
   // ===========================================================================
@@ -527,7 +532,10 @@ export class Parser {
       t === TokenType.DO ||
       t === TokenType.DONE ||
       t === TokenType.ESAC ||
-      t === TokenType.IN
+      t === TokenType.IN ||
+      // Operators that can appear as words in command arguments (e.g., "[ ! -z foo ]")
+      t === TokenType.BANG ||
+      t === TokenType.RBRACKET
     );
   }
 

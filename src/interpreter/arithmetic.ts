@@ -155,6 +155,47 @@ function getArithVariable(ctx: InterpreterContext, name: string): string {
 }
 
 /**
+ * Recursively resolve a variable name to its numeric value.
+ * In bash arithmetic, if a variable contains a string that is another variable name,
+ * it is recursively evaluated:
+ *   foo=5; bar=foo; $((bar)) => 5
+ */
+function resolveArithVariable(
+  ctx: InterpreterContext,
+  name: string,
+  visited: Set<string> = new Set(),
+): number {
+  // Prevent infinite recursion
+  if (visited.has(name)) {
+    return 0;
+  }
+  visited.add(name);
+
+  const value = getArithVariable(ctx, name);
+
+  // If value is empty or undefined, return 0
+  if (!value) {
+    return 0;
+  }
+
+  // Try to parse as a number
+  const num = Number.parseInt(value, 10);
+  if (!Number.isNaN(num) && /^-?\d+$/.test(value.trim())) {
+    return num;
+  }
+
+  // If it's not a number, check if it's a variable name
+  // In bash, arithmetic context recursively evaluates variable names
+  const trimmed = value.trim();
+  if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(trimmed)) {
+    return resolveArithVariable(ctx, trimmed, visited);
+  }
+
+  // Not a valid number or variable name
+  return 0;
+}
+
+/**
  * Expand braced parameter content like "j:-5" or "var:=default"
  * Returns the expanded value as a string
  */
@@ -244,8 +285,8 @@ export function evaluateArithmeticSync(
     case "ArithNumber":
       return expr.value;
     case "ArithVariable": {
-      const value = getArithVariable(ctx, expr.name);
-      return Number.parseInt(value, 10) || 0;
+      // Use recursive resolution - bash evaluates variable names recursively
+      return resolveArithVariable(ctx, expr.name);
     }
     case "ArithNested":
       return evaluateArithmeticSync(ctx, expr.expression);
@@ -337,8 +378,8 @@ export async function evaluateArithmetic(
       return expr.value;
 
     case "ArithVariable": {
-      const value = getArithVariable(ctx, expr.name);
-      return Number.parseInt(value, 10) || 0;
+      // Use recursive resolution - bash evaluates variable names recursively
+      return resolveArithVariable(ctx, expr.name);
     }
 
     case "ArithNested":

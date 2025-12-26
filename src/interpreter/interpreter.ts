@@ -321,7 +321,7 @@ export class Interpreter {
       case "Case":
         return executeCase(this.ctx, node);
       case "Subshell":
-        return this.executeSubshell(node);
+        return this.executeSubshell(node, stdin);
       case "Group":
         return this.executeGroup(node, stdin);
       case "FunctionDef":
@@ -349,11 +349,17 @@ export class Interpreter {
       const name = assignment.name;
 
       // Handle array assignment: VAR=(a b c)
+      // Each element can be a glob that expands to multiple values
       if (assignment.array) {
-        for (let i = 0; i < assignment.array.length; i++) {
-          const elementValue = await expandWord(this.ctx, assignment.array[i]);
-          this.ctx.state.env[`${name}_${i}`] = elementValue;
+        const allElements: string[] = [];
+        for (const element of assignment.array) {
+          const expanded = await expandWordWithGlob(this.ctx, element);
+          allElements.push(...expanded.values);
         }
+        for (let i = 0; i < allElements.length; i++) {
+          this.ctx.state.env[`${name}_${i}`] = allElements[i];
+        }
+        this.ctx.state.env[`${name}__length`] = String(allElements.length);
         continue;
       }
 
@@ -417,7 +423,9 @@ export class Interpreter {
     }
 
     if (!node.name) {
-      return { stdout: "", stderr: "", exitCode: 0 };
+      // Assignment-only command: preserve the exit code from command substitution
+      // e.g., x=$(false) should set $? to 1, not 0
+      return { stdout: "", stderr: "", exitCode: this.ctx.state.lastExitCode };
     }
 
     for (const redir of node.redirections) {
@@ -819,12 +827,21 @@ export class Interpreter {
   // SUBSHELL AND GROUP EXECUTION
   // ===========================================================================
 
-  private async executeSubshell(node: SubshellNode): Promise<ExecResult> {
+  private async executeSubshell(
+    node: SubshellNode,
+    stdin = "",
+  ): Promise<ExecResult> {
     const savedEnv = { ...this.ctx.state.env };
     const savedCwd = this.ctx.state.cwd;
     // Reset loopDepth in subshell - break/continue should not affect parent loops
     const savedLoopDepth = this.ctx.state.loopDepth;
     this.ctx.state.loopDepth = 0;
+
+    // Save any existing groupStdin and set new one from pipeline
+    const savedGroupStdin = this.ctx.state.groupStdin;
+    if (stdin) {
+      this.ctx.state.groupStdin = stdin;
+    }
 
     let stdout = "";
     let stderr = "";
@@ -841,6 +858,7 @@ export class Interpreter {
       this.ctx.state.env = savedEnv;
       this.ctx.state.cwd = savedCwd;
       this.ctx.state.loopDepth = savedLoopDepth;
+      this.ctx.state.groupStdin = savedGroupStdin;
       // BreakError/ContinueError should NOT propagate out of subshell
       // They only affect loops within the subshell
       if (error instanceof BreakError || error instanceof ContinueError) {
@@ -873,6 +891,7 @@ export class Interpreter {
     this.ctx.state.env = savedEnv;
     this.ctx.state.cwd = savedCwd;
     this.ctx.state.loopDepth = savedLoopDepth;
+    this.ctx.state.groupStdin = savedGroupStdin;
 
     return { stdout, stderr, exitCode };
   }

@@ -647,17 +647,52 @@ export async function expandWordWithGlob(
     }
   }
 
+  // Handle unquoted $@ and $* specially - they should expand to individual args
+  // without IFS-based word splitting
+  if (!hasQuoted && hasArrayVar) {
+    // Check if this is purely $@ or $* (not part of a larger word)
+    if (wordParts.length === 1 && wordParts[0].type === "ParameterExpansion") {
+      const param = wordParts[0].parameter;
+      if (param === "@" || param === "*") {
+        // Get individual positional parameters
+        const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+        if (numParams === 0) {
+          return { values: [], quoted: false };
+        }
+        const params: string[] = [];
+        for (let i = 1; i <= numParams; i++) {
+          params.push(ctx.state.env[String(i)] || "");
+        }
+        return { values: params, quoted: false };
+      }
+    }
+  }
+
   // No brace expansion or single value - use original logic
   const needsAsync = wordNeedsAsync(word);
   const value = needsAsync
     ? await expandWordAsync(ctx, word)
     : expandWordSync(ctx, word);
 
-  // Word splitting: check for any IFS whitespace (space, tab, newline)
-  if (!hasQuoted && (hasCommandSub || hasArrayVar) && /\s/.test(value)) {
-    const splitValues = value.split(/\s+/).filter((v) => v !== "");
-    if (splitValues.length > 1) {
-      return { values: splitValues, quoted: false };
+  // Word splitting based on IFS
+  const ifs = ctx.state.env.IFS;
+  // If IFS is set to empty string, no word splitting occurs
+  if (!hasQuoted && (hasCommandSub || hasArrayVar) && ifs !== "") {
+    // Default IFS is space/tab/newline
+    const ifsChars = ifs === undefined ? " \t\n" : ifs;
+    // Build regex from IFS characters
+    const ifsPattern = ifsChars.split("").map(c => {
+      // Escape regex special chars
+      if (/[\\^$.*+?()[\]{}|]/.test(c)) return "\\" + c;
+      if (c === "\t") return "\\t";
+      if (c === "\n") return "\\n";
+      return c;
+    }).join("");
+    if (ifsPattern && new RegExp(`[${ifsPattern}]`).test(value)) {
+      const splitValues = value.split(new RegExp(`[${ifsPattern}]+`)).filter((v) => v !== "");
+      if (splitValues.length > 1) {
+        return { values: splitValues, quoted: false };
+      }
     }
   }
 
@@ -667,6 +702,12 @@ export async function expandWordWithGlob(
     if (matches.length > 0) {
       return { values: matches, quoted: false };
     }
+  }
+
+  // Empty unquoted expansion produces no words (e.g., $empty where empty is unset/empty)
+  // But quoted empty string produces one empty word (e.g., "" or "$empty")
+  if (value === "" && !hasQuoted) {
+    return { values: [], quoted: false };
   }
 
   return { values: [value], quoted: hasQuoted };
@@ -710,8 +751,23 @@ async function expandPart(
     }
 
     case "CommandSubstitution": {
-      const result = await ctx.executeScript(part.body);
-      return result.stdout.replace(/\n+$/, "");
+      // Command substitution runs in a subshell-like context
+      // ExitError should NOT terminate the main script, just this substitution
+      try {
+        const result = await ctx.executeScript(part.body);
+        // Store the exit code for $?
+        ctx.state.lastExitCode = result.exitCode;
+        ctx.state.env["?"] = String(result.exitCode);
+        return result.stdout.replace(/\n+$/, "");
+      } catch (error) {
+        if (error instanceof ExitError) {
+          // Catch exit in command substitution - return output so far
+          ctx.state.lastExitCode = error.exitCode;
+          ctx.state.env["?"] = String(error.exitCode);
+          return error.stdout.replace(/\n+$/, "");
+        }
+        throw error;
+      }
     }
 
     case "ArithmeticExpansion":
@@ -1034,6 +1090,7 @@ export function getVariable(
   ctx: InterpreterContext,
   name: string,
   checkNounset = true,
+  insideDoubleQuotes = false,
 ): string {
   // Special variables are always defined (never trigger nounset)
   switch (name) {
@@ -1044,8 +1101,22 @@ export function getVariable(
     case "#":
       return ctx.state.env["#"] || "0";
     case "@":
-    case "*":
       return ctx.state.env["@"] || "";
+    case "*": {
+      // $* uses first character of IFS as separator when inside double quotes
+      // When IFS is empty string, no separator is used
+      // When IFS is unset, space is used (default behavior)
+      const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+      if (numParams === 0) return "";
+      const params: string[] = [];
+      for (let i = 1; i <= numParams; i++) {
+        params.push(ctx.state.env[String(i)] || "");
+      }
+      // Get separator from IFS
+      const ifs = ctx.state.env.IFS;
+      const separator = ifs === undefined ? " " : (ifs[0] || "");
+      return params.join(separator);
+    }
     case "0":
       return ctx.state.env["0"] || "bash";
     case "PWD":
