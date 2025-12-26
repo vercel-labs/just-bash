@@ -183,12 +183,14 @@ export function handleRead(
       lastEnd = leadingMatch[0].length;
     }
     ifsRegex.lastIndex = lastEnd;
-    while ((match = ifsRegex.exec(line)) !== null) {
+    match = ifsRegex.exec(line);
+    while (match !== null) {
       if (match.index > lastEnd) {
         wordStarts.push(lastEnd);
         words.push(line.substring(lastEnd, match.index));
       }
       lastEnd = ifsRegex.lastIndex;
+      match = ifsRegex.exec(line);
     }
     if (lastEnd < line.length) {
       wordStarts.push(lastEnd);

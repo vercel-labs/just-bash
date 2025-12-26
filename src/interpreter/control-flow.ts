@@ -30,7 +30,6 @@ import {
   ErrexitError,
   ExitError,
   isScopeExitError,
-  ReturnError,
 } from "./errors.js";
 import {
   escapeGlobChars,

@@ -220,7 +220,7 @@ export class GlobExpander {
 
           // Handle escaped characters in character class
           if (pattern[j] === "\\" && j + 1 < pattern.length) {
-            classContent += "\\" + pattern[j + 1];
+            classContent += `\\${pattern[j + 1]}`;
             j += 2;
             continue;
           }

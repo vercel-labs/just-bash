@@ -687,7 +687,7 @@ function parseArithPrimary(
       if (input[currentPos] === "[") {
         // Return a special error node that will fail during evaluation
         return {
-          expr: { type: "ArithDoubleSubscript", array: name, index: indexExpr } as ArithExpr,
+          expr: { type: "ArithDoubleSubscript", array: name, index: indexExpr },
           pos: currentPos,
         };
       }
@@ -722,7 +722,11 @@ function parseArithPrimary(
       ) {
         currentPos += op.length;
         // Use parseArithTernary instead of parseArithExpr to give assignment higher precedence than comma
-        const { expr: value, pos: p2 } = parseArithTernary(p, input, currentPos);
+        const { expr: value, pos: p2 } = parseArithTernary(
+          p,
+          input,
+          currentPos,
+        );
         return {
           expr: {
             type: "ArithAssignment",

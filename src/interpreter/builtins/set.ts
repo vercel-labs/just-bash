@@ -142,13 +142,12 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
     ) {
       // set -o alone prints current option settings
       const options = ctx.state.options;
-      const output =
-        [
-          `errexit         ${options.errexit ? "on" : "off"}`,
-          `nounset         ${options.nounset ? "on" : "off"}`,
-          `pipefail        ${options.pipefail ? "on" : "off"}`,
-          `xtrace          ${options.xtrace ? "on" : "off"}`,
-        ].join("\n") + "\n";
+      const output = `${[
+        `errexit         ${options.errexit ? "on" : "off"}`,
+        `nounset         ${options.nounset ? "on" : "off"}`,
+        `pipefail        ${options.pipefail ? "on" : "off"}`,
+        `xtrace          ${options.xtrace ? "on" : "off"}`,
+      ].join("\n")}\n`;
       return { stdout: output, stderr: "", exitCode: 0 };
     } else if (
       arg === "+o" &&
@@ -158,13 +157,12 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
     ) {
       // set +o prints commands to recreate current settings
       const options = ctx.state.options;
-      const output =
-        [
-          `set ${options.errexit ? "-o" : "+o"} errexit`,
-          `set ${options.nounset ? "-o" : "+o"} nounset`,
-          `set ${options.pipefail ? "-o" : "+o"} pipefail`,
-          `set ${options.xtrace ? "-o" : "+o"} xtrace`,
-        ].join("\n") + "\n";
+      const output = `${[
+        `set ${options.errexit ? "-o" : "+o"} errexit`,
+        `set ${options.nounset ? "-o" : "+o"} nounset`,
+        `set ${options.pipefail ? "-o" : "+o"} pipefail`,
+        `set ${options.xtrace ? "-o" : "+o"} xtrace`,
+      ].join("\n")}\n`;
       return { stdout: output, stderr: "", exitCode: 0 };
     } else if (arg.startsWith("-") && arg.length > 1 && arg[1] !== "-") {
       // Handle combined flags like -eu

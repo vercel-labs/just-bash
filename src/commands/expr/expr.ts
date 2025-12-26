@@ -22,7 +22,7 @@ export const exprCommand: Command = {
       // expr returns 1 if result is 0 or empty, 0 otherwise
       const exitCode = result === "0" || result === "" ? 1 : 0;
       return {
-        stdout: result + "\n",
+        stdout: `${result}\n`,
         stderr: "",
         exitCode,
       };
@@ -86,7 +86,7 @@ function evaluateExpr(args: string[]): string {
         const right = parseAddSub();
         const leftNum = parseInt(left, 10);
         const rightNum = parseInt(right, 10);
-        const isNumeric = !isNaN(leftNum) && !isNaN(rightNum);
+        const isNumeric = !Number.isNaN(leftNum) && !Number.isNaN(rightNum);
 
         let result: boolean;
         if (op === "=") {
@@ -119,7 +119,7 @@ function evaluateExpr(args: string[]): string {
         const right = parseMulDiv();
         const leftNum = parseInt(left, 10);
         const rightNum = parseInt(right, 10);
-        if (isNaN(leftNum) || isNaN(rightNum)) {
+        if (Number.isNaN(leftNum) || Number.isNaN(rightNum)) {
           throw new Error("non-integer argument");
         }
         left = String(op === "+" ? leftNum + rightNum : leftNum - rightNum);
@@ -139,7 +139,7 @@ function evaluateExpr(args: string[]): string {
         const right = parseMatch();
         const leftNum = parseInt(left, 10);
         const rightNum = parseInt(right, 10);
-        if (isNaN(leftNum) || isNaN(rightNum)) {
+        if (Number.isNaN(leftNum) || Number.isNaN(rightNum)) {
           throw new Error("non-integer argument");
         }
         if ((op === "/" || op === "%") && rightNum === 0) {
@@ -165,7 +165,7 @@ function evaluateExpr(args: string[]): string {
       i++;
       const pattern = parsePrimary();
       // Match from beginning of string
-      const regex = new RegExp("^" + pattern);
+      const regex = new RegExp(`^${pattern}`);
       const match = left.match(regex);
       if (match) {
         // If pattern has capturing group, return the captured string
@@ -203,7 +203,7 @@ function evaluateExpr(args: string[]): string {
       const str = parsePrimary();
       const pos = parseInt(parsePrimary(), 10);
       const len = parseInt(parsePrimary(), 10);
-      if (isNaN(pos) || isNaN(len)) {
+      if (Number.isNaN(pos) || Number.isNaN(len)) {
         throw new Error("non-integer argument");
       }
       // expr uses 1-based indexing

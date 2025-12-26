@@ -37,7 +37,7 @@ function parseLetArgs(args: string[]): string[] {
     }
 
     if (current) {
-      current += " " + arg;
+      current += ` ${arg}`;
     } else {
       current = arg;
     }

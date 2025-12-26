@@ -156,7 +156,7 @@ export const lsCommand: Command = {
             const dateStr = formatDate(mtime);
             stdout += `${mode} 1 user user ${sizeStr} ${dateStr} ${path}${type}\n`;
           } else {
-            stdout += path + "\n";
+            stdout += `${path}\n`;
           }
         } catch {
           stderr += `ls: cannot access '${path}': No such file or directory\n`;

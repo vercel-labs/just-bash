@@ -518,10 +518,6 @@ export function matchPattern(value: string, pattern: string): boolean {
   return new RegExp(regex).test(value);
 }
 
-function resolvePath(ctx: InterpreterContext, path: string): string {
-  return ctx.fs.resolvePath(ctx.state.cwd, path);
-}
-
 /**
  * Evaluate -o option test (check if shell option is enabled).
  * Maps option names to interpreter state flags.

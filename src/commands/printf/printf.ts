@@ -602,7 +602,7 @@ function formatOctal(spec: string, num: number): string {
   }
 
   if (flags.includes("#") && !numStr.startsWith("0")) {
-    numStr = "0" + numStr;
+    numStr = `0${numStr}`;
   }
 
   let result = numStr;
@@ -702,7 +702,7 @@ function shellQuote(str: string): string {
       } else if (char === "\x1b") {
         result += "\\E";
       } else if (code < 32 || code > 126) {
-        result += "\\x" + code.toString(16).padStart(2, "0");
+        result += `\\x${code.toString(16).padStart(2, "0")}`;
       } else if (char === '"') {
         result += '\\"';
       } else {
@@ -718,7 +718,7 @@ function shellQuote(str: string): string {
   for (const char of str) {
     // Characters that need backslash escaping
     if (" \t|&;<>()$`\\\"'*?[#~=%!{}".includes(char)) {
-      result += "\\" + char;
+      result += `\\${char}`;
     } else {
       result += char;
     }
@@ -834,9 +834,9 @@ function formatFloat(spec: string, specifier: string, num: number): string {
   // Handle sign
   if (num >= 0) {
     if (flags.includes("+")) {
-      result = "+" + result;
+      result = `+${result}`;
     } else if (flags.includes(" ")) {
-      result = " " + result;
+      result = ` ${result}`;
     }
   }
 

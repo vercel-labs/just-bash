@@ -458,7 +458,8 @@ export type ArithExpr =
   | ArithArrayElementNode
   | ArithDynamicBaseNode
   | ArithDynamicNumberNode
-  | ArithConcatNode;
+  | ArithConcatNode
+  | ArithDoubleSubscriptNode;
 
 export interface ArithBracedExpansionNode extends ASTNode {
   type: "ArithBracedExpansion";
@@ -489,6 +490,13 @@ export interface ArithArrayElementNode extends ASTNode {
   type: "ArithArrayElement";
   array: string; // The array name
   index: ArithExpr; // The index expression
+}
+
+/** Invalid double subscript node (e.g., a[1][1]) - evaluated to error at runtime */
+export interface ArithDoubleSubscriptNode extends ASTNode {
+  type: "ArithDoubleSubscript";
+  array: string; // The array name
+  index: ArithExpr; // The first index expression
 }
 
 export interface ArithNumberNode extends ASTNode {

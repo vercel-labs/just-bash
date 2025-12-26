@@ -25,9 +25,9 @@ import type {
 } from "../ast/types.js";
 import type { IFileSystem } from "../fs-interface.js";
 import type { SecureFetch } from "../network/index.js";
-import type { CommandContext, CommandRegistry, ExecResult } from "../types.js";
 import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
+import type { CommandContext, CommandRegistry, ExecResult } from "../types.js";
 import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
 import {
   handleBreak,
@@ -525,7 +525,7 @@ export class Interpreter {
         // Empty result from variable/command substitution - word split removes it
         // If there are args, the first arg becomes the command name
         if (args.length > 0) {
-          const newCommandName = args.shift()!;
+          const newCommandName = args.shift() as string;
           quotedArgs.shift();
           return await this.runCommand(newCommandName, args, quotedArgs, stdin);
         }
@@ -695,48 +695,6 @@ export class Interpreter {
     }
 
     // External commands
-    let cmdName = commandName;
-    if (commandName.includes("/")) {
-      cmdName = commandName.split("/").pop() || commandName;
-    }
-
-    const cmd = this.ctx.commands.get(cmdName);
-    if (!cmd) {
-      return {
-        stdout: "",
-        stderr: `bash: ${commandName}: command not found\n`,
-        exitCode: 127,
-      };
-    }
-
-    const cmdCtx: CommandContext = {
-      fs: this.ctx.fs,
-      cwd: this.ctx.state.cwd,
-      env: this.ctx.state.env,
-      stdin,
-      exec: this.ctx.execFn,
-      fetch: this.ctx.fetch,
-      getRegisteredCommands: () => Array.from(this.ctx.commands.keys()),
-      sleep: this.ctx.sleep,
-    };
-
-    try {
-      return await cmd.execute(args, cmdCtx);
-    } catch (error) {
-      return {
-        stdout: "",
-        stderr: `${commandName}: ${getErrorMessage(error)}\n`,
-        exitCode: 1,
-      };
-    }
-  }
-
-  // Run external command, bypassing function lookup (for 'command' builtin)
-  private async runExternalCommand(
-    commandName: string,
-    args: string[],
-    stdin: string,
-  ): Promise<ExecResult> {
     let cmdName = commandName;
     if (commandName.includes("/")) {
       cmdName = commandName.split("/").pop() || commandName;

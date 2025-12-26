@@ -4,12 +4,10 @@
  * Handles parsing of [[ ... ]] conditional commands.
  */
 
-import {
-  AST,
-  type CondBinaryOperator,
-  type ConditionalExpressionNode,
-  type CondUnaryOperator,
-  type WordNode,
+import type {
+  CondBinaryOperator,
+  ConditionalExpressionNode,
+  CondUnaryOperator,
 } from "../ast/types.js";
 import { TokenType } from "./lexer.js";
 import type { Parser } from "./parser.js";

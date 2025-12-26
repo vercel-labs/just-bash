@@ -20,19 +20,14 @@ import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
 import { GlobExpander } from "../shell/glob.js";
 import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
-import {
-  ArithmeticError,
-  BadSubstitutionError,
-  ExitError,
-  NounsetError,
-} from "./errors.js";
+import { BadSubstitutionError, ExitError, NounsetError } from "./errors.js";
 import { getArrayIndices } from "./helpers/array.js";
 import { escapeRegex } from "./helpers/regex.js";
 import { getLiteralValue, isQuotedPart } from "./helpers/word-parts.js";
 import type { InterpreterContext } from "./types.js";
 
 // Helper to extract numeric value from an arithmetic expression
-function getArithValue(expr: ArithExpr): number {
+function _getArithValue(expr: ArithExpr): number {
   if (expr.type === "ArithNumber") {
     return expr.value;
   }
@@ -69,10 +64,10 @@ function safeExpandNumericRange(
 
   // Determine zero-padding width (max width of start or end if leading zeros)
   let padWidth = 0;
-  if (startStr && startStr.match(/^-?0\d/)) {
+  if (startStr?.match(/^-?0\d/)) {
     padWidth = Math.max(padWidth, startStr.replace(/^-/, "").length);
   }
-  if (endStr && endStr.match(/^-?0\d/)) {
+  if (endStr?.match(/^-?0\d/)) {
     padWidth = Math.max(padWidth, endStr.replace(/^-/, "").length);
   }
 
@@ -219,7 +214,7 @@ function getPartValue(part: WordPart): string {
 }
 
 // Helper to get string value from word parts (literals only, no expansion)
-function getWordPartsValue(parts: WordPart[]): string {
+function _getWordPartsValue(parts: WordPart[]): string {
   return parts.map(getPartValue).join("");
 }
 
@@ -239,7 +234,7 @@ function expandWordPartsSync(
 async function expandWordPartsAsync(
   ctx: InterpreterContext,
   parts: WordPart[],
-  inDoubleQuotes = false,
+  _inDoubleQuotes = false,
 ): Promise<string> {
   const results: string[] = [];
   for (const part of parts) {
@@ -837,7 +832,7 @@ async function expandWordWithBracesAsync(
 async function smartWordSplit(
   ctx: InterpreterContext,
   wordParts: WordPart[],
-  ifsChars: string,
+  _ifsChars: string,
   ifsPattern: string,
 ): Promise<string[]> {
   // First, check if any expansion result contains IFS characters
@@ -1028,7 +1023,7 @@ export async function expandWordWithGlob(
       .split("")
       .map((c) => {
         // Escape regex special chars
-        if (/[\\^$.*+?()[\]{}|]/.test(c)) return "\\" + c;
+        if (/[\\^$.*+?()[\]{}|]/.test(c)) return `\\${c}`;
         if (c === "\t") return "\\t";
         if (c === "\n") return "\\n";
         return c;
@@ -1386,9 +1381,9 @@ function expandParameter(
 
       // Apply anchor modifiers
       if (operation.anchor === "start") {
-        regex = "^" + regex;
+        regex = `^${regex}`;
       } else if (operation.anchor === "end") {
-        regex = regex + "$";
+        regex = `${regex}$`;
       }
       const flags = operation.all ? "g" : "";
 
@@ -1401,8 +1396,8 @@ function expandParameter(
           // JavaScript regex does but bash pattern matching doesn't
           let result = "";
           let lastIndex = 0;
-          let match: RegExpExecArray | null;
-          while ((match = re.exec(value)) !== null) {
+          let match: RegExpExecArray | null = re.exec(value);
+          while (match !== null) {
             // Skip empty matches (except at the start when pattern allows)
             if (match[0].length === 0 && match.index === value.length) {
               break;
@@ -1413,6 +1408,7 @@ function expandParameter(
             if (match[0].length === 0) {
               lastIndex++;
             }
+            match = re.exec(value);
           }
           result += value.slice(lastIndex);
           return result;
@@ -1570,9 +1566,9 @@ async function expandParameterAsync(
       }
 
       if (operation.anchor === "start") {
-        regex = "^" + regex;
+        regex = `^${regex}`;
       } else if (operation.anchor === "end") {
-        regex = regex + "$";
+        regex = `${regex}$`;
       }
       const flags = operation.all ? "g" : "";
 
@@ -1581,8 +1577,8 @@ async function expandParameterAsync(
         if (operation.all) {
           let result = "";
           let lastIndex = 0;
-          let match: RegExpExecArray | null;
-          while ((match = re.exec(value)) !== null) {
+          let match: RegExpExecArray | null = re.exec(value);
+          while (match !== null) {
             if (match[0].length === 0 && match.index === value.length) {
               break;
             }
@@ -1591,6 +1587,7 @@ async function expandParameterAsync(
             if (match[0].length === 0) {
               lastIndex++;
             }
+            match = re.exec(value);
           }
           result += value.slice(lastIndex);
           return result;
@@ -1639,7 +1636,7 @@ export function getVariable(
   ctx: InterpreterContext,
   name: string,
   checkNounset = true,
-  insideDoubleQuotes = false,
+  _insideDoubleQuotes = false,
 ): string {
   // Special variables are always defined (never trigger nounset)
   switch (name) {
@@ -1907,7 +1904,7 @@ function convertCharClass(content: string): string {
     if (char === "\\") {
       // Escape sequence
       if (i + 1 < content.length) {
-        result += "\\" + content[i + 1];
+        result += `\\${content[i + 1]}`;
         i += 2;
       } else {
         result += "\\\\";

@@ -206,7 +206,7 @@ function findCharacterClassEnd(value: string, start: number): number {
       (value[i + 1] === "." || value[i + 1] === "=")
     ) {
       const closeChar = value[i + 1];
-      const closeSeq = closeChar + "]";
+      const closeSeq = `${closeChar}]`;
       const closePos = value.indexOf(closeSeq, i + 2);
       if (closePos !== -1) {
         i = closePos + 2;

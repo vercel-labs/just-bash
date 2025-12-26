@@ -230,23 +230,35 @@ function evaluateArithmeticSyncWithVisited(
       if (expr.operator === "||") {
         const left = evaluateArithmeticSyncWithVisited(ctx, expr.left, visited);
         if (left) return 1;
-        return evaluateArithmeticSyncWithVisited(ctx, expr.right, visited) ? 1 : 0;
+        return evaluateArithmeticSyncWithVisited(ctx, expr.right, visited)
+          ? 1
+          : 0;
       }
       if (expr.operator === "&&") {
         const left = evaluateArithmeticSyncWithVisited(ctx, expr.left, visited);
         if (!left) return 0;
-        return evaluateArithmeticSyncWithVisited(ctx, expr.right, visited) ? 1 : 0;
+        return evaluateArithmeticSyncWithVisited(ctx, expr.right, visited)
+          ? 1
+          : 0;
       }
       const left = evaluateArithmeticSyncWithVisited(ctx, expr.left, visited);
       const right = evaluateArithmeticSyncWithVisited(ctx, expr.right, visited);
       return applyBinaryOp(left, right, expr.operator);
     }
     case "ArithUnary": {
-      const operand = evaluateArithmeticSyncWithVisited(ctx, expr.operand, visited);
+      const operand = evaluateArithmeticSyncWithVisited(
+        ctx,
+        expr.operand,
+        visited,
+      );
       return applyUnaryOp(operand, expr.operator);
     }
     case "ArithTernary": {
-      const condition = evaluateArithmeticSyncWithVisited(ctx, expr.condition, visited);
+      const condition = evaluateArithmeticSyncWithVisited(
+        ctx,
+        expr.condition,
+        visited,
+      );
       return condition
         ? evaluateArithmeticSyncWithVisited(ctx, expr.consequent, visited)
         : evaluateArithmeticSyncWithVisited(ctx, expr.alternate, visited);
@@ -431,7 +443,8 @@ export function evaluateArithmeticSync(
           const arrayName = expr.operand.array;
           const index = evaluateArithmeticSync(ctx, expr.operand.index);
           const envKey = `${arrayName}_${index}`;
-          const current = Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
+          const current =
+            Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
           const newValue = expr.operator === "++" ? current + 1 : current - 1;
           ctx.state.env[envKey] = String(newValue);
           return expr.prefix ? newValue : current;
@@ -605,7 +618,8 @@ export async function evaluateArithmetic(
           const arrayName = expr.operand.array;
           const index = await evaluateArithmetic(ctx, expr.operand.index);
           const envKey = `${arrayName}_${index}`;
-          const current = Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
+          const current =
+            Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
           const newValue = expr.operator === "++" ? current + 1 : current - 1;
           ctx.state.env[envKey] = String(newValue);
           return expr.prefix ? newValue : current;

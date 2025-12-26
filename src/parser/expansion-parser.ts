@@ -614,7 +614,7 @@ export function parseWordParts(
         literal += next;
       } else {
         // Keep the backslash for non-special characters
-        literal += "\\" + next;
+        literal += `\\${next}`;
       }
       i += 2;
       continue;
