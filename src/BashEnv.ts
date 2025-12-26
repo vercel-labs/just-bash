@@ -141,6 +141,7 @@ export class BashEnv {
         pipefail: false,
         nounset: false,
         xtrace: false,
+        verbose: false,
       },
       inCondition: false,
       loopDepth: 0,

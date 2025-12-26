@@ -1028,6 +1028,20 @@ function expandParameter(
       return getVariable(ctx, value);
     }
 
+    case "ArrayKeys": {
+      // ${!arr[@]} or ${!arr[*]} - return the keys/indices of an array
+      const elements = getArrayElements(ctx, operation.array);
+      const keys = elements.map(([k]) => String(k));
+      if (operation.star) {
+        // ${!arr[*]} - join with first char of IFS
+        const ifs = ctx.state.env.IFS;
+        const sep = ifs === undefined ? " " : ifs[0] || "";
+        return keys.join(sep);
+      }
+      // ${!arr[@]} - join with space
+      return keys.join(" ");
+    }
+
     default:
       return value;
   }

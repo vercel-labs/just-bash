@@ -99,7 +99,19 @@ export function parseParameterExpansion(
   let operation: ParameterOperation | null = null;
 
   if (indirection) {
-    operation = { type: "Indirection" };
+    // Check for ${!arr[@]} or ${!arr[*]} - array keys/indices
+    const arrayKeysMatch = name.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/);
+    if (arrayKeysMatch) {
+      operation = {
+        type: "ArrayKeys",
+        array: arrayKeysMatch[1],
+        star: arrayKeysMatch[2] === "*",
+      };
+      // Clear name so it doesn't get treated as a variable
+      name = "";
+    } else {
+      operation = { type: "Indirection" };
+    }
   } else if (lengthOp) {
     // ${#var:...} is invalid - you can't take length of a substring
     // ${#var-...} is also invalid - length operator can't be followed by test operators

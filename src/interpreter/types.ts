@@ -21,6 +21,8 @@ export interface ShellOptions {
   nounset: boolean;
   /** set -x: Print commands and their arguments as they are executed */
   xtrace: boolean;
+  /** set -v: Print shell input lines as they are read (verbose) */
+  verbose: boolean;
 }
 
 export interface InterpreterState {

@@ -30,9 +30,9 @@ const SHORT_OPTION_MAP: Record<string, keyof ShellOptions | null> = {
   e: "errexit",
   u: "nounset",
   x: "xtrace",
+  v: "verbose",
   // No-ops (accepted for compatibility)
   f: null,
-  v: null,
   h: null,
   C: null,
   n: null,
@@ -54,10 +54,10 @@ const LONG_OPTION_MAP: Record<string, keyof ShellOptions | null> = {
   pipefail: "pipefail",
   nounset: "nounset",
   xtrace: "xtrace",
+  verbose: "verbose",
   // No-ops (accepted for compatibility)
   noclobber: null,
   noglob: null,
-  verbose: null,
   noexec: null,
   allexport: null,
   notify: null,
@@ -78,12 +78,39 @@ const LONG_OPTION_MAP: Record<string, keyof ShellOptions | null> = {
   onecmd: null,
 };
 
-// List of options to display in `set -o` / `set +o` output
+// List of implemented options to display in `set -o` / `set +o` output
 const DISPLAY_OPTIONS: (keyof ShellOptions)[] = [
   "errexit",
   "nounset",
   "pipefail",
+  "verbose",
   "xtrace",
+];
+
+// List of no-op options to display (always off, for compatibility)
+const NOOP_DISPLAY_OPTIONS: string[] = [
+  "allexport",
+  "braceexpand",
+  "emacs",
+  "errtrace",
+  "functrace",
+  "hashall",
+  "histexpand",
+  "history",
+  "ignoreeof",
+  "interactive-comments",
+  "keyword",
+  "monitor",
+  "noclobber",
+  "noexec",
+  "noglob",
+  "nolog",
+  "notify",
+  "onecmd",
+  "physical",
+  "posix",
+  "privileged",
+  "vi",
 ];
 
 /**
@@ -134,18 +161,24 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
 
     // Handle -o alone (print current settings)
     if (arg === "-o") {
-      const output = DISPLAY_OPTIONS.map(
+      const implementedOutput = DISPLAY_OPTIONS.map(
         (opt) => `${opt.padEnd(16)}${ctx.state.options[opt] ? "on" : "off"}`,
-      ).join("\n");
-      return success(`${output}\n`);
+      );
+      const noopOutput = NOOP_DISPLAY_OPTIONS.map(
+        (opt) => `${opt.padEnd(16)}off`,
+      );
+      const allOptions = [...implementedOutput, ...noopOutput].sort();
+      return success(`${allOptions.join("\n")}\n`);
     }
 
     // Handle +o alone (print commands to recreate settings)
     if (arg === "+o") {
-      const output = DISPLAY_OPTIONS.map(
+      const implementedOutput = DISPLAY_OPTIONS.map(
         (opt) => `set ${ctx.state.options[opt] ? "-o" : "+o"} ${opt}`,
-      ).join("\n");
-      return success(`${output}\n`);
+      );
+      const noopOutput = NOOP_DISPLAY_OPTIONS.map((opt) => `set +o ${opt}`);
+      const allOptions = [...implementedOutput, ...noopOutput].sort();
+      return success(`${allOptions.join("\n")}\n`);
     }
 
     // Handle combined short flags like -eu or +eu
@@ -174,9 +207,10 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
       return OK;
     }
 
-    // Handle - (disable xtrace, end of options)
+    // Handle - (disable xtrace and verbose, end of options)
     if (arg === "-") {
       ctx.state.options.xtrace = false;
+      ctx.state.options.verbose = false;
       if (i + 1 < args.length) {
         setPositionalParameters(ctx, args.slice(i + 1));
         return OK;
@@ -185,12 +219,8 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
       continue;
     }
 
-    // Handle + (end of options)
+    // Handle + (single + is ignored, continue processing options)
     if (arg === "+") {
-      if (i + 1 < args.length) {
-        setPositionalParameters(ctx, args.slice(i + 1));
-        return OK;
-      }
       i++;
       continue;
     }

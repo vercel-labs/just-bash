@@ -430,8 +430,34 @@ export class Interpreter {
         let envKey: string;
 
         if (isAssoc) {
-          // For associative arrays, use subscript as string key (remove quotes if present)
-          const key = unquoteKey(subscriptExpr);
+          // For associative arrays, expand variables in subscript first, then use as key
+          // e.g., foo["$key"]=value where key=bar should set foo_bar
+          let key: string;
+          if (subscriptExpr.startsWith("'") && subscriptExpr.endsWith("'")) {
+            // Single-quoted: literal value, no expansion
+            key = subscriptExpr.slice(1, -1);
+          } else if (
+            subscriptExpr.startsWith('"') &&
+            subscriptExpr.endsWith('"')
+          ) {
+            // Double-quoted: expand variables inside
+            const inner = subscriptExpr.slice(1, -1);
+            const parser = new Parser();
+            const wordNode = parser.parseWordFromString(inner, true, false);
+            key = await expandWord(this.ctx, wordNode);
+          } else if (subscriptExpr.includes("$")) {
+            // Unquoted with variable reference
+            const parser = new Parser();
+            const wordNode = parser.parseWordFromString(
+              subscriptExpr,
+              false,
+              false,
+            );
+            key = await expandWord(this.ctx, wordNode);
+          } else {
+            // Plain literal
+            key = subscriptExpr;
+          }
           envKey = `${arrayName}_${key}`;
         } else {
           // Evaluate subscript as arithmetic expression for indexed arrays

@@ -333,7 +333,8 @@ export type ParameterOperation =
   | PatternRemovalOp
   | PatternReplacementOp
   | CaseModificationOp
-  | IndirectionOp;
+  | IndirectionOp
+  | ArrayKeysOp;
 
 /** ${#VAR:...} - invalid syntax, length cannot have substring */
 export interface LengthSliceErrorOp {
@@ -414,6 +415,15 @@ export interface CaseModificationOp {
 /** ${!VAR} - indirect expansion */
 export interface IndirectionOp {
   type: "Indirection";
+}
+
+/** ${!arr[@]} or ${!arr[*]} - array keys/indices */
+export interface ArrayKeysOp {
+  type: "ArrayKeys";
+  /** The array name (without subscript) */
+  array: string;
+  /** true if [*] was used instead of [@] */
+  star: boolean;
 }
 
 // =============================================================================

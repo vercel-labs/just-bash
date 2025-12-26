@@ -78,6 +78,16 @@ export function getVariable(
       return ctx.state.env["#"] || "0";
     case "@":
       return ctx.state.env["@"] || "";
+    case "-": {
+      // $- returns current shell option flags
+      let flags = "";
+      if (ctx.state.options.errexit) flags += "e";
+      if (ctx.state.options.nounset) flags += "u";
+      if (ctx.state.options.verbose) flags += "v";
+      if (ctx.state.options.xtrace) flags += "x";
+      if (ctx.state.options.pipefail) flags += "p";
+      return flags;
+    }
     case "*": {
       // $* uses first character of IFS as separator when inside double quotes
       // When IFS is empty string, no separator is used
