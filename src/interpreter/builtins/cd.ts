@@ -3,6 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { failure, success } from "../helpers/index.js";
 import type { InterpreterContext } from "../types.js";
 
 export async function handleCd(
@@ -63,18 +64,10 @@ export async function handleCd(
       try {
         const stat = await ctx.fs.stat(currentPath);
         if (!stat.isDirectory) {
-          return {
-            stdout: "",
-            stderr: `bash: cd: ${target}: Not a directory\n`,
-            exitCode: 1,
-          };
+          return failure(`bash: cd: ${target}: Not a directory\n`);
         }
       } catch {
-        return {
-          stdout: "",
-          stderr: `bash: cd: ${target}: No such file or directory\n`,
-          exitCode: 1,
-        };
+        return failure(`bash: cd: ${target}: No such file or directory\n`);
       }
     }
   }
@@ -87,6 +80,5 @@ export async function handleCd(
   ctx.state.env.OLDPWD = ctx.state.previousDir;
 
   // cd - prints the new directory
-  const stdout = printPath ? `${newDir}\n` : "";
-  return { stdout, stderr: "", exitCode: 0 };
+  return success(printPath ? `${newDir}\n` : "");
 }

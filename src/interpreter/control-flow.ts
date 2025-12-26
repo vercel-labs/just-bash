@@ -39,8 +39,11 @@ import {
 } from "./expansion.js";
 import {
   executeCondition,
+  executeStatements,
+  failure,
   getErrorMessage,
   handleLoopError,
+  result,
 } from "./helpers/index.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -61,7 +64,6 @@ export async function executeIf(
 ): Promise<ExecResult> {
   let stdout = "";
   let stderr = "";
-  let exitCode = 0;
 
   for (const clause of node.clauses) {
     // Condition evaluation should not trigger errexit
@@ -70,58 +72,15 @@ export async function executeIf(
     stderr += condResult.stderr;
 
     if (condResult.exitCode === 0) {
-      try {
-        for (const stmt of clause.body) {
-          const result = await ctx.executeStatement(stmt);
-          stdout += result.stdout;
-          stderr += result.stderr;
-          exitCode = result.exitCode;
-        }
-      } catch (error) {
-        if (
-          isScopeExitError(error) ||
-          error instanceof ErrexitError ||
-          error instanceof ExitError
-        ) {
-          error.prependOutput(stdout, stderr);
-          throw error;
-        }
-        return {
-          stdout,
-          stderr: `${stderr}${getErrorMessage(error)}\n`,
-          exitCode: 1,
-        };
-      }
-      return { stdout, stderr, exitCode };
+      return executeStatements(ctx, clause.body, stdout, stderr);
     }
   }
 
   if (node.elseBody) {
-    try {
-      for (const stmt of node.elseBody) {
-        const result = await ctx.executeStatement(stmt);
-        stdout += result.stdout;
-        stderr += result.stderr;
-        exitCode = result.exitCode;
-      }
-    } catch (error) {
-      if (
-        isScopeExitError(error) ||
-        error instanceof ErrexitError ||
-        error instanceof ExitError
-      ) {
-        error.prependOutput(stdout, stderr);
-        throw error;
-      }
-      return {
-        stdout,
-        stderr: `${stderr}${getErrorMessage(error)}\n`,
-        exitCode: 1,
-      };
-    }
+    return executeStatements(ctx, node.elseBody, stdout, stderr);
   }
 
-  return { stdout, stderr, exitCode };
+  return result(stdout, stderr, 0);
 }
 
 export async function executeFor(
@@ -135,11 +94,7 @@ export async function executeFor(
 
   // Validate variable name at runtime (matches bash behavior)
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(node.variable)) {
-    return {
-      stdout: "",
-      stderr: `bash: \`${node.variable}': not a valid identifier\n`,
-      exitCode: 1,
-    };
+    return failure(`bash: \`${node.variable}': not a valid identifier\n`);
   }
 
   let words: string[] = [];
@@ -159,23 +114,21 @@ export async function executeFor(
     for (const value of words) {
       iterations++;
       if (iterations > ctx.maxLoopIterations) {
-        return {
+        return result(
           stdout,
-          stderr:
-            stderr +
-            `bash: for loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations\n`,
-          exitCode: 1,
-        };
+          `${stderr}bash: for loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations\n`,
+          1,
+        );
       }
 
       ctx.state.env[node.variable] = value;
 
       try {
         for (const stmt of node.body) {
-          const result = await ctx.executeStatement(stmt);
-          stdout += result.stdout;
-          stderr += result.stderr;
-          exitCode = result.exitCode;
+          const stmtResult = await ctx.executeStatement(stmt);
+          stdout += stmtResult.stdout;
+          stderr += stmtResult.stderr;
+          exitCode = stmtResult.exitCode;
         }
       } catch (error) {
         const loopResult = handleLoopError(
@@ -189,7 +142,7 @@ export async function executeFor(
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") continue;
         if (loopResult.action === "error") {
-          return { stdout, stderr, exitCode: loopResult.exitCode ?? 1 };
+          return result(stdout, stderr, loopResult.exitCode ?? 1);
         }
         throw loopResult.error;
       }
@@ -222,13 +175,11 @@ export async function executeCStyleFor(
     while (true) {
       iterations++;
       if (iterations > ctx.maxLoopIterations) {
-        return {
+        return result(
           stdout,
-          stderr:
-            stderr +
-            `bash: for loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations\n`,
-          exitCode: 1,
-        };
+          `${stderr}bash: for loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations\n`,
+          1,
+        );
       }
 
       if (node.condition) {
@@ -241,10 +192,10 @@ export async function executeCStyleFor(
 
       try {
         for (const stmt of node.body) {
-          const result = await ctx.executeStatement(stmt);
-          stdout += result.stdout;
-          stderr += result.stderr;
-          exitCode = result.exitCode;
+          const stmtResult = await ctx.executeStatement(stmt);
+          stdout += stmtResult.stdout;
+          stderr += stmtResult.stderr;
+          exitCode = stmtResult.exitCode;
         }
       } catch (error) {
         const loopResult = handleLoopError(
@@ -264,7 +215,7 @@ export async function executeCStyleFor(
           continue;
         }
         if (loopResult.action === "error") {
-          return { stdout, stderr, exitCode: loopResult.exitCode ?? 1 };
+          return result(stdout, stderr, loopResult.exitCode ?? 1);
         }
         throw loopResult.error;
       }
@@ -315,11 +266,7 @@ export async function executeWhile(
         effectiveStdin = await ctx.fs.readFile(filePath);
       } catch {
         const target = await expandWord(ctx, redir.target as WordNode);
-        return {
-          stdout: "",
-          stderr: `bash: ${target}: No such file or directory\n`,
-          exitCode: 1,
-        };
+        return failure(`bash: ${target}: No such file or directory\n`);
       }
     }
   }
@@ -335,13 +282,11 @@ export async function executeWhile(
     while (true) {
       iterations++;
       if (iterations > ctx.maxLoopIterations) {
-        return {
+        return result(
           stdout,
-          stderr:
-            stderr +
-            `bash: while loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations\n`,
-          exitCode: 1,
-        };
+          `${stderr}bash: while loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations\n`,
+          1,
+        );
       }
 
       let conditionExitCode = 0;
@@ -396,10 +341,10 @@ export async function executeWhile(
 
       try {
         for (const stmt of node.body) {
-          const result = await ctx.executeStatement(stmt);
-          stdout += result.stdout;
-          stderr += result.stderr;
-          exitCode = result.exitCode;
+          const stmtResult = await ctx.executeStatement(stmt);
+          stdout += stmtResult.stdout;
+          stderr += stmtResult.stderr;
+          exitCode = stmtResult.exitCode;
         }
       } catch (error) {
         const loopResult = handleLoopError(
@@ -413,7 +358,7 @@ export async function executeWhile(
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") continue;
         if (loopResult.action === "error") {
-          return { stdout, stderr, exitCode: loopResult.exitCode ?? 1 };
+          return result(stdout, stderr, loopResult.exitCode ?? 1);
         }
         throw loopResult.error;
       }
@@ -440,13 +385,11 @@ export async function executeUntil(
     while (true) {
       iterations++;
       if (iterations > ctx.maxLoopIterations) {
-        return {
+        return result(
           stdout,
-          stderr:
-            stderr +
-            `bash: until loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations\n`,
-          exitCode: 1,
-        };
+          `${stderr}bash: until loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations\n`,
+          1,
+        );
       }
 
       // Condition evaluation should not trigger errexit
@@ -458,10 +401,10 @@ export async function executeUntil(
 
       try {
         for (const stmt of node.body) {
-          const result = await ctx.executeStatement(stmt);
-          stdout += result.stdout;
-          stderr += result.stderr;
-          exitCode = result.exitCode;
+          const stmtResult = await ctx.executeStatement(stmt);
+          stdout += stmtResult.stdout;
+          stderr += stmtResult.stderr;
+          exitCode = stmtResult.exitCode;
         }
       } catch (error) {
         const loopResult = handleLoopError(
@@ -475,7 +418,7 @@ export async function executeUntil(
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") continue;
         if (loopResult.action === "error") {
-          return { stdout, stderr, exitCode: loopResult.exitCode ?? 1 };
+          return result(stdout, stderr, loopResult.exitCode ?? 1);
         }
         throw loopResult.error;
       }
@@ -523,10 +466,10 @@ export async function executeCase(
     if (matched) {
       try {
         for (const stmt of item.body) {
-          const result = await ctx.executeStatement(stmt);
-          stdout += result.stdout;
-          stderr += result.stderr;
-          exitCode = result.exitCode;
+          const stmtResult = await ctx.executeStatement(stmt);
+          stdout += stmtResult.stdout;
+          stderr += stmtResult.stderr;
+          exitCode = stmtResult.exitCode;
         }
       } catch (error) {
         if (
@@ -537,11 +480,7 @@ export async function executeCase(
           error.prependOutput(stdout, stderr);
           throw error;
         }
-        return {
-          stdout,
-          stderr: `${stderr}${getErrorMessage(error)}\n`,
-          exitCode: 1,
-        };
+        return result(stdout, `${stderr}${getErrorMessage(error)}\n`, 1);
       }
 
       // Handle different terminators:

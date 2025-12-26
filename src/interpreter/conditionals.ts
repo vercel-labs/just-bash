@@ -28,6 +28,7 @@ import {
   isFileTestOperator,
   isNumericOp,
   isStringTestOp,
+  testResult,
 } from "./helpers/index.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -154,7 +155,7 @@ export async function evaluateTestArgs(
   }
 
   if (args.length === 1) {
-    return execResult("", "", args[0] ? 0 : 1);
+    return testResult(Boolean(args[0]));
   }
 
   if (args.length === 2) {
@@ -168,24 +169,20 @@ export async function evaluateTestArgs(
 
     // Handle file test operators using shared helper
     if (isFileTestOperator(op)) {
-      const testResult = await evaluateFileTest(ctx, op, operand);
-      return execResult("", "", testResult ? 0 : 1);
+      return testResult(await evaluateFileTest(ctx, op, operand));
     }
 
     if (isStringTestOp(op)) {
-      const testResult = evaluateStringTest(op, operand);
-      return execResult("", "", testResult ? 0 : 1);
+      return testResult(evaluateStringTest(op, operand));
     }
     if (op === "!") {
-      return execResult("", "", operand ? 1 : 0);
+      return testResult(!operand);
     }
     if (op === "-v") {
-      const testResult = evaluateVariableTest(ctx, operand);
-      return execResult("", "", testResult ? 0 : 1);
+      return testResult(evaluateVariableTest(ctx, operand));
     }
     if (op === "-o") {
-      const testResult = evaluateShellOption(ctx, operand);
-      return execResult("", "", testResult ? 0 : 1);
+      return testResult(evaluateShellOption(ctx, operand));
     }
     // If the first arg is a known binary operator but used in 2-arg context, it's an error
     if (
@@ -222,9 +219,9 @@ export async function evaluateTestArgs(
     switch (op) {
       case "=":
       case "==":
-        return execResult("", "", left === right ? 0 : 1);
+        return testResult(left === right);
       case "!=":
-        return execResult("", "", left !== right ? 0 : 1);
+        return testResult(left !== right);
       case "-eq":
       case "-ne":
       case "-lt":
@@ -237,27 +234,24 @@ export async function evaluateTestArgs(
         if (!leftNum.valid || !rightNum.valid) {
           return execResult("", "", 2);
         }
-        const cmpResult = compareNumeric(op, leftNum.value, rightNum.value);
-        return execResult("", "", cmpResult ? 0 : 1);
+        return testResult(compareNumeric(op, leftNum.value, rightNum.value));
       }
       case "-nt":
       case "-ot":
-      case "-ef": {
-        const fileResult = await evaluateBinaryFileTest(ctx, op, left, right);
-        return execResult("", "", fileResult ? 0 : 1);
-      }
+      case "-ef":
+        return testResult(await evaluateBinaryFileTest(ctx, op, left, right));
       case "-a":
         // In 3-arg context, -a is binary AND: both operands must be non-empty
-        return execResult("", "", left !== "" && right !== "" ? 0 : 1);
+        return testResult(left !== "" && right !== "");
       case "-o":
         // In 3-arg context, -o is binary OR: at least one operand must be non-empty
-        return execResult("", "", left !== "" || right !== "" ? 0 : 1);
+        return testResult(left !== "" || right !== "");
       case ">":
         // String comparison: left > right (lexicographically)
-        return execResult("", "", left > right ? 0 : 1);
+        return testResult(left > right);
       case "<":
         // String comparison: left < right (lexicographically)
-        return execResult("", "", left < right ? 0 : 1);
+        return testResult(left < right);
     }
 
     // If $1 is '!', negate the 2-argument test
@@ -276,7 +270,7 @@ export async function evaluateTestArgs(
 
     // If $1 is '(' and $3 is ')', evaluate $2 as single-arg test
     if (left === "(" && right === ")") {
-      return execResult("", "", op !== "" ? 0 : 1);
+      return testResult(op !== "");
     }
   }
 
@@ -310,7 +304,7 @@ export async function evaluateTestArgs(
     return failure("test: too many arguments\n", 2);
   }
 
-  return execResult("", "", exprResult.value ? 0 : 1);
+  return testResult(exprResult.value);
 }
 
 // Recursive expression evaluator for test command

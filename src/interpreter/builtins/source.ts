@@ -5,6 +5,7 @@
 import { type ParseException, parse } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { ExitError, ReturnError } from "../errors.js";
+import { failure, result } from "../helpers/index.js";
 import type { InterpreterContext } from "../types.js";
 
 export async function handleSource(
@@ -18,11 +19,7 @@ export async function handleSource(
   }
 
   if (sourceArgs.length === 0) {
-    return {
-      stdout: "",
-      stderr: "bash: source: filename argument required\n",
-      exitCode: 2,
-    };
+    return result("", "bash: source: filename argument required\n", 2);
   }
 
   const filename = sourceArgs[0];
@@ -32,11 +29,7 @@ export async function handleSource(
   try {
     content = await ctx.fs.readFile(filePath);
   } catch {
-    return {
-      stdout: "",
-      stderr: `bash: ${filename}: No such file or directory\n`,
-      exitCode: 1,
-    };
+    return failure(`bash: ${filename}: No such file or directory\n`);
   }
 
   // Save and set positional parameters from additional args
@@ -92,19 +85,11 @@ export async function handleSource(
 
     // Handle return in sourced script - treat as normal exit
     if (error instanceof ReturnError) {
-      return {
-        stdout: error.stdout,
-        stderr: error.stderr,
-        exitCode: error.exitCode,
-      };
+      return result(error.stdout, error.stderr, error.exitCode);
     }
 
     if ((error as ParseException).name === "ParseException") {
-      return {
-        stdout: "",
-        stderr: `bash: ${filename}: ${(error as Error).message}\n`,
-        exitCode: 1, // bash returns 1 for syntax errors in source
-      };
+      return failure(`bash: ${filename}: ${(error as Error).message}\n`);
     }
     throw error;
   }

@@ -3,6 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { failure } from "../helpers/index.js";
 import type { InterpreterContext } from "../types.js";
 import { parseArrayElements } from "./declare.js";
 
@@ -69,11 +70,7 @@ export function setVariable(
 
   // Check if variable is readonly (if checking is enabled)
   if (checkReadonly && ctx.state.readonlyVars?.has(name)) {
-    return {
-      stdout: "",
-      stderr: `bash: ${name}: readonly variable\n`,
-      exitCode: 1,
-    };
+    return failure(`bash: ${name}: readonly variable\n`);
   }
 
   if (isArray && arrayElements) {

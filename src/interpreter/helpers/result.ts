@@ -53,3 +53,14 @@ export function result(
 ): ExecResult {
   return { stdout, stderr, exitCode };
 }
+
+/**
+ * Convert a boolean test result to an ExecResult.
+ * Useful for test/conditional commands where true = exit 0, false = exit 1.
+ *
+ * @param passed - Boolean test result
+ * @returns ExecResult with exitCode 0 if passed, 1 otherwise
+ */
+export function testResult(passed: boolean): ExecResult {
+  return { stdout: "", stderr: "", exitCode: passed ? 0 : 1 };
+}

@@ -4,7 +4,7 @@
 
 import type { ExecResult } from "../../types.js";
 import { failure, OK, success } from "../helpers/index.js";
-import type { InterpreterContext } from "../types.js";
+import type { InterpreterContext, ShellOptions } from "../types.js";
 
 const SET_USAGE = `set: usage: set [-eux] [+eux] [-o option] [+o option]
 Options:
@@ -24,57 +24,91 @@ Options:
   +o xtrace     Disable xtrace
 `;
 
-// Valid short options for set
-// Note: some options are no-ops but accepted for compatibility
-const VALID_SET_OPTIONS = new Set([
-  "e", // errexit
-  "u", // nounset
-  "x", // xtrace
-  "f", // noglob (no-op)
-  "v", // verbose (no-op)
-  "h", // hashall (no-op)
-  "C", // noclobber (no-op)
-  "n", // noexec (no-op)
-  "a", // allexport (no-op)
-  "b", // notify (no-op)
-  "m", // monitor (no-op)
-  "B", // braceexpand (no-op)
-  "H", // histexpand (no-op)
-  "P", // physical (no-op)
-  "T", // functrace (no-op)
-  "E", // errtrace (no-op)
-  "p", // privileged (no-op)
-]);
+// Map short options to their corresponding shell option property
+// Options not in this map are valid but no-ops
+const SHORT_OPTION_MAP: Record<string, keyof ShellOptions | null> = {
+  e: "errexit",
+  u: "nounset",
+  x: "xtrace",
+  // No-ops (accepted for compatibility)
+  f: null,
+  v: null,
+  h: null,
+  C: null,
+  n: null,
+  a: null,
+  b: null,
+  m: null,
+  B: null,
+  H: null,
+  P: null,
+  T: null,
+  E: null,
+  p: null,
+};
 
-// Valid long options for set -o / +o
-// Note: many are no-ops but accepted for compatibility
-const VALID_SET_LONG_OPTIONS = new Set([
+// Map long options to their corresponding shell option property
+// Options not mapped to a property are valid but no-ops
+const LONG_OPTION_MAP: Record<string, keyof ShellOptions | null> = {
+  errexit: "errexit",
+  pipefail: "pipefail",
+  nounset: "nounset",
+  xtrace: "xtrace",
+  // No-ops (accepted for compatibility)
+  noclobber: null,
+  noglob: null,
+  verbose: null,
+  noexec: null,
+  allexport: null,
+  notify: null,
+  monitor: null,
+  braceexpand: null,
+  histexpand: null,
+  physical: null,
+  functrace: null,
+  errtrace: null,
+  privileged: null,
+  hashall: null,
+  posix: null,
+  vi: null,
+  emacs: null,
+  ignoreeof: null,
+  "interactive-comments": null,
+  keyword: null,
+  onecmd: null,
+};
+
+// List of options to display in `set -o` / `set +o` output
+const DISPLAY_OPTIONS: (keyof ShellOptions)[] = [
   "errexit",
-  "pipefail",
   "nounset",
+  "pipefail",
   "xtrace",
-  "noclobber",
-  "noglob",
-  "verbose",
-  "noexec",
-  "allexport",
-  "notify",
-  "monitor",
-  "braceexpand",
-  "histexpand",
-  "physical",
-  "functrace",
-  "errtrace",
-  "privileged",
-  "hashall",
-  "posix",
-  "vi",
-  "emacs",
-  "ignoreeof",
-  "interactive-comments",
-  "keyword",
-  "onecmd",
-]);
+];
+
+/**
+ * Set a shell option value using the option map
+ */
+function setShellOption(
+  ctx: InterpreterContext,
+  optionKey: keyof ShellOptions | null,
+  value: boolean,
+): void {
+  if (optionKey !== null) {
+    ctx.state.options[optionKey] = value;
+  }
+}
+
+/**
+ * Check if the next argument exists and is not an option flag
+ */
+function hasNonOptionArg(args: string[], i: number): boolean {
+  return (
+    i + 1 < args.length &&
+    !args[i + 1].startsWith("-") &&
+    !args[i + 1].startsWith("+")
+  );
+}
 
 export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
   if (args.includes("--help")) {
@@ -85,140 +119,90 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
   while (i < args.length) {
     const arg = args[i];
 
-    if (arg === "-e") {
-      ctx.state.options.errexit = true;
-    } else if (arg === "+e") {
-      ctx.state.options.errexit = false;
-    } else if (arg === "-u") {
-      ctx.state.options.nounset = true;
-    } else if (arg === "+u") {
-      ctx.state.options.nounset = false;
-    } else if (arg === "-x") {
-      ctx.state.options.xtrace = true;
-    } else if (arg === "+x") {
-      ctx.state.options.xtrace = false;
-    } else if (arg === "-o" && i + 1 < args.length) {
+    // Handle -o / +o with option name
+    if ((arg === "-o" || arg === "+o") && hasNonOptionArg(args, i)) {
       const optName = args[i + 1];
-      if (!VALID_SET_LONG_OPTIONS.has(optName)) {
+      if (!(optName in LONG_OPTION_MAP)) {
         return failure(
           `bash: set: ${optName}: invalid option name\n${SET_USAGE}`,
         );
       }
-      if (optName === "errexit") {
-        ctx.state.options.errexit = true;
-      } else if (optName === "pipefail") {
-        ctx.state.options.pipefail = true;
-      } else if (optName === "nounset") {
-        ctx.state.options.nounset = true;
-      } else if (optName === "xtrace") {
-        ctx.state.options.xtrace = true;
-      }
-      i++;
-    } else if (arg === "+o" && i + 1 < args.length) {
-      const optName = args[i + 1];
-      if (!VALID_SET_LONG_OPTIONS.has(optName)) {
-        return failure(
-          `bash: set: ${optName}: invalid option name\n${SET_USAGE}`,
-        );
-      }
-      if (optName === "errexit") {
-        ctx.state.options.errexit = false;
-      } else if (optName === "pipefail") {
-        ctx.state.options.pipefail = false;
-      } else if (optName === "nounset") {
-        ctx.state.options.nounset = false;
-      } else if (optName === "xtrace") {
-        ctx.state.options.xtrace = false;
-      }
-      i++;
-    } else if (
-      arg === "-o" &&
-      (i + 1 >= args.length ||
-        args[i + 1].startsWith("-") ||
-        args[i + 1].startsWith("+"))
+      setShellOption(ctx, LONG_OPTION_MAP[optName], arg === "-o");
+      i += 2;
+      continue;
+    }
+
+    // Handle -o alone (print current settings)
+    if (arg === "-o") {
+      const output = DISPLAY_OPTIONS.map(
+        (opt) => `${opt.padEnd(16)}${ctx.state.options[opt] ? "on" : "off"}`,
+      ).join("\n");
+      return success(`${output}\n`);
+    }
+
+    // Handle +o alone (print commands to recreate settings)
+    if (arg === "+o") {
+      const output = DISPLAY_OPTIONS.map(
+        (opt) => `set ${ctx.state.options[opt] ? "-o" : "+o"} ${opt}`,
+      ).join("\n");
+      return success(`${output}\n`);
+    }
+
+    // Handle combined short flags like -eu or +eu
+    if (
+      arg.length > 1 &&
+      (arg[0] === "-" || arg[0] === "+") &&
+      arg[1] !== "-"
     ) {
-      // set -o alone prints current option settings
-      const options = ctx.state.options;
-      const output = `${[
-        `errexit         ${options.errexit ? "on" : "off"}`,
-        `nounset         ${options.nounset ? "on" : "off"}`,
-        `pipefail        ${options.pipefail ? "on" : "off"}`,
-        `xtrace          ${options.xtrace ? "on" : "off"}`,
-      ].join("\n")}\n`;
-      return success(output);
-    } else if (
-      arg === "+o" &&
-      (i + 1 >= args.length ||
-        args[i + 1].startsWith("-") ||
-        args[i + 1].startsWith("+"))
-    ) {
-      // set +o prints commands to recreate current settings
-      const options = ctx.state.options;
-      const output = `${[
-        `set ${options.errexit ? "-o" : "+o"} errexit`,
-        `set ${options.nounset ? "-o" : "+o"} nounset`,
-        `set ${options.pipefail ? "-o" : "+o"} pipefail`,
-        `set ${options.xtrace ? "-o" : "+o"} xtrace`,
-      ].join("\n")}\n`;
-      return success(output);
-    } else if (arg.startsWith("-") && arg.length > 1 && arg[1] !== "-") {
-      // Handle combined flags like -eu
+      const enable = arg[0] === "-";
       for (let j = 1; j < arg.length; j++) {
         const flag = arg[j];
-        if (!VALID_SET_OPTIONS.has(flag)) {
-          return failure(`bash: set: -${flag}: invalid option\n${SET_USAGE}`);
+        if (!(flag in SHORT_OPTION_MAP)) {
+          return failure(
+            `bash: set: ${arg[0]}${flag}: invalid option\n${SET_USAGE}`,
+          );
         }
-        if (flag === "e") {
-          ctx.state.options.errexit = true;
-        } else if (flag === "u") {
-          ctx.state.options.nounset = true;
-        } else if (flag === "x") {
-          ctx.state.options.xtrace = true;
-        }
+        setShellOption(ctx, SHORT_OPTION_MAP[flag], enable);
       }
-    } else if (arg.startsWith("+") && arg.length > 1) {
-      // Handle combined flags like +eu
-      for (let j = 1; j < arg.length; j++) {
-        const flag = arg[j];
-        if (!VALID_SET_OPTIONS.has(flag)) {
-          return failure(`bash: set: +${flag}: invalid option\n${SET_USAGE}`);
-        }
-        if (flag === "e") {
-          ctx.state.options.errexit = false;
-        } else if (flag === "u") {
-          ctx.state.options.nounset = false;
-        } else if (flag === "x") {
-          ctx.state.options.xtrace = false;
-        }
-      }
-    } else if (arg === "--") {
-      // End of options, rest are positional parameters
       i++;
-      setPositionalParameters(ctx, args.slice(i));
-      return OK;
-    } else if (arg === "-") {
-      // set - disables -x and -v (traditional behavior)
-      ctx.state.options.xtrace = false;
-      // Also marks end of options, rest are positional parameters
-      if (i + 1 < args.length) {
-        setPositionalParameters(ctx, args.slice(i + 1));
-        return OK;
-      }
-    } else if (arg === "+") {
-      // set + is just like set -- (end of options)
-      if (i + 1 < args.length) {
-        setPositionalParameters(ctx, args.slice(i + 1));
-        return OK;
-      }
-    } else if (arg.startsWith("-") || arg.startsWith("+")) {
-      return failure(`bash: set: ${arg}: invalid option\n${SET_USAGE}`);
-    } else {
-      // Non-option arguments are positional parameters
-      setPositionalParameters(ctx, args.slice(i));
+      continue;
+    }
+
+    // Handle -- (end of options)
+    if (arg === "--") {
+      setPositionalParameters(ctx, args.slice(i + 1));
       return OK;
     }
 
-    i++;
+    // Handle - (disable xtrace, end of options)
+    if (arg === "-") {
+      ctx.state.options.xtrace = false;
+      if (i + 1 < args.length) {
+        setPositionalParameters(ctx, args.slice(i + 1));
+        return OK;
+      }
+      i++;
+      continue;
+    }
+
+    // Handle + (end of options)
+    if (arg === "+") {
+      if (i + 1 < args.length) {
+        setPositionalParameters(ctx, args.slice(i + 1));
+        return OK;
+      }
+      i++;
+      continue;
+    }
+
+    // Invalid option
+    if (arg.startsWith("-") || arg.startsWith("+")) {
+      return failure(`bash: set: ${arg}: invalid option\n${SET_USAGE}`);
+    }
+
+    // Non-option arguments are positional parameters
+    setPositionalParameters(ctx, args.slice(i));
+    return OK;
   }
 
   return OK;

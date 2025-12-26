@@ -74,7 +74,13 @@ import {
   getArrayElements,
 } from "./expansion.js";
 import { callFunction, executeFunctionDef } from "./functions.js";
-import { failure, getErrorMessage, OK, result } from "./helpers/index.js";
+import {
+  failure,
+  getErrorMessage,
+  OK,
+  result,
+  testResult,
+} from "./helpers/index.js";
 import { applyRedirections } from "./redirections.js";
 import type { InterpreterContext, InterpreterState } from "./types.js";
 
@@ -245,7 +251,7 @@ export class Interpreter {
 
   private async executePipeline(node: PipelineNode): Promise<ExecResult> {
     let stdin = "";
-    let lastResult: ExecResult = { stdout: "", stderr: "", exitCode: 0 };
+    let lastResult: ExecResult = OK;
     let pipefailExitCode = 0; // Track rightmost failing command
 
     for (let i = 0; i < node.commands.length; i++) {
@@ -483,11 +489,7 @@ export class Interpreter {
             if (value === undefined) delete this.ctx.state.env[name];
             else this.ctx.state.env[name] = value;
           }
-          return {
-            stdout: "",
-            stderr: `bash: ${target}: No such file or directory\n`,
-            exitCode: 1,
-          };
+          return failure(`bash: ${target}: No such file or directory\n`);
         }
       }
     }
@@ -606,7 +608,7 @@ export class Interpreter {
       return OK;
     }
     if (commandName === "false") {
-      return result("", "", 1);
+      return testResult(false);
     }
     if (commandName === "let") {
       return handleLet(this.ctx, args);
@@ -931,7 +933,7 @@ export class Interpreter {
         this.ctx,
         node.expression.expression,
       );
-      return result("", "", arithResult === 0 ? 1 : 0);
+      return testResult(arithResult !== 0);
     } catch (error) {
       return failure(
         `bash: arithmetic expression: ${(error as Error).message}\n`,
@@ -944,7 +946,7 @@ export class Interpreter {
   ): Promise<ExecResult> {
     try {
       const condResult = await evaluateConditional(this.ctx, node.expression);
-      return result("", "", condResult ? 0 : 1);
+      return testResult(condResult);
     } catch (error) {
       return failure(
         `bash: conditional expression: ${(error as Error).message}\n`,
