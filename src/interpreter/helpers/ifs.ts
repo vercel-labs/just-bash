@@ -34,7 +34,7 @@ export function buildIfsCharClassPattern(ifs: string): string {
     .split("")
     .map((c) => {
       // Escape regex special chars for character class
-      if (/[\\^$.*+?()[\]{}|\-]/.test(c)) return `\\${c}`;
+      if (/[\\^$.*+?()[\]{}|-]/.test(c)) return `\\${c}`;
       if (c === "\t") return "\\t";
       if (c === "\n") return "\\n";
       return c;

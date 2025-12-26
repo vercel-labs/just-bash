@@ -4,11 +4,7 @@
 
 import type { ExecResult } from "../../types.js";
 import { clearArray } from "../helpers/array.js";
-import {
-  getIfs,
-  splitByIfs,
-  stripTrailingIfs,
-} from "../helpers/ifs.js";
+import { getIfs, splitByIfs, stripTrailingIfs } from "../helpers/ifs.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
