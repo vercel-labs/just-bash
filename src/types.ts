@@ -1,4 +1,5 @@
 import type { IFileSystem } from "./fs-interface.js";
+import type { ExecutionLimits } from "./limits.js";
 import type { SecureFetch } from "./network/index.js";
 
 export interface ExecResult {
@@ -47,6 +48,11 @@ export interface CommandContext {
   env: Record<string, string>;
   /** Standard input content */
   stdin: string;
+  /**
+   * Execution limits configuration.
+   * Available when running commands via BashEnv interpreter.
+   */
+  limits?: Required<ExecutionLimits>;
   /**
    * Execute a subcommand (e.g., for `xargs`, `bash -c`).
    * Available when running commands via BashEnv interpreter.

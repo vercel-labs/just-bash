@@ -92,9 +92,9 @@ export async function executeFor(
   try {
     for (const value of words) {
       iterations++;
-      if (iterations > ctx.maxLoopIterations) {
+      if (iterations > ctx.limits.maxLoopIterations) {
         throwExecutionLimit(
-          `for loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations`,
+          `for loop: too many iterations (${ctx.limits.maxLoopIterations}), increase executionLimits.maxLoopIterations`,
           "iterations",
           stdout,
           stderr,
@@ -154,9 +154,9 @@ export async function executeCStyleFor(
   try {
     while (true) {
       iterations++;
-      if (iterations > ctx.maxLoopIterations) {
+      if (iterations > ctx.limits.maxLoopIterations) {
         throwExecutionLimit(
-          `for loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations`,
+          `for loop: too many iterations (${ctx.limits.maxLoopIterations}), increase executionLimits.maxLoopIterations`,
           "iterations",
           stdout,
           stderr,
@@ -262,9 +262,9 @@ export async function executeWhile(
   try {
     while (true) {
       iterations++;
-      if (iterations > ctx.maxLoopIterations) {
+      if (iterations > ctx.limits.maxLoopIterations) {
         throwExecutionLimit(
-          `while loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations`,
+          `while loop: too many iterations (${ctx.limits.maxLoopIterations}), increase executionLimits.maxLoopIterations`,
           "iterations",
           stdout,
           stderr,
@@ -366,9 +366,9 @@ export async function executeUntil(
   try {
     while (true) {
       iterations++;
-      if (iterations > ctx.maxLoopIterations) {
+      if (iterations > ctx.limits.maxLoopIterations) {
         throwExecutionLimit(
-          `until loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations`,
+          `until loop: too many iterations (${ctx.limits.maxLoopIterations}), increase executionLimits.maxLoopIterations`,
           "iterations",
           stdout,
           stderr,

@@ -26,10 +26,10 @@ export async function callFunction(
   args: string[],
 ): Promise<ExecResult> {
   ctx.state.callDepth++;
-  if (ctx.state.callDepth > ctx.maxCallDepth) {
+  if (ctx.state.callDepth > ctx.limits.maxCallDepth) {
     ctx.state.callDepth--;
     throwExecutionLimit(
-      `${func.name}: maximum recursion depth (${ctx.maxCallDepth}) exceeded, increase maxCallDepth`,
+      `${func.name}: maximum recursion depth (${ctx.limits.maxCallDepth}) exceeded, increase executionLimits.maxCallDepth`,
       "recursion",
     );
   }

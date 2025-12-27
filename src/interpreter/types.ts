@@ -9,6 +9,7 @@ import type {
   StatementNode,
 } from "../ast/types.js";
 import type { IFileSystem } from "../fs-interface.js";
+import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
 import type { CommandRegistry, ExecResult } from "../types.js";
 
@@ -60,9 +61,8 @@ export interface InterpreterContext {
   state: InterpreterState;
   fs: IFileSystem;
   commands: CommandRegistry;
-  maxCallDepth: number;
-  maxCommandCount: number;
-  maxLoopIterations: number;
+  /** Execution limits configuration */
+  limits: Required<ExecutionLimits>;
   execFn: (
     script: string,
     options?: { env?: Record<string, string>; cwd?: string },

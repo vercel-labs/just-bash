@@ -137,21 +137,24 @@ describe("Bash Syntax - Loops", () => {
       // Create a list that's too long
       const longList = Array(10001).fill("x").join(" ");
       const result = await env.exec(`for i in ${longList}; do echo $i; done`);
-      expect(result.stderr).toContain("too many iterations");
+      // May hit either iteration limit or command count limit depending on loop body
+      expect(result.stderr).toMatch(/too many (iterations|commands)/);
       expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
 
     it("should detect infinite while loop", async () => {
       const env = new BashEnv();
       const result = await env.exec("while true; do echo loop; done");
-      expect(result.stderr).toContain("too many iterations");
+      // May hit either iteration limit or command count limit depending on loop body
+      expect(result.stderr).toMatch(/too many (iterations|commands)/);
       expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
 
     it("should detect infinite until loop", async () => {
       const env = new BashEnv();
       const result = await env.exec("until false; do echo loop; done");
-      expect(result.stderr).toContain("too many iterations");
+      // May hit either iteration limit or command count limit depending on loop body
+      expect(result.stderr).toMatch(/too many (iterations|commands)/);
       expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
   });

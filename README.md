@@ -9,7 +9,7 @@ Supports optional network access via `curl` with secure-by-default URL filtering
 ## Security model
 
 - The shell only has access to the provided file system.
-- Execution is protected against infinite loops or recursion through.
+- Execution is protected against infinite loops or recursion through. However, BashEnv is not fully robust against DOS from input. If you need to be robust against this, use process isolation at the OS level.
 - Binaries or even WASM are inherently unsupported (Use [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) or a similar product if a full VM is needed).
 - There is no network access by default.
 - Network access can be enabled, but requests are checked against URL prefix allow-lists and HTTP-method allow-lists. See [network access](#network-access) for details
@@ -44,8 +44,7 @@ const env = new BashEnv({
   files: { "/data/file.txt": "content" }, // Initial files
   env: { MY_VAR: "value" }, // Initial environment
   cwd: "/app", // Starting directory (default: /home/user)
-  maxCallDepth: 50, // Max recursion (default: 100)
-  maxLoopIterations: 5000, // Max iterations (default: 10000)
+  executionLimits: { maxCallDepth: 50 }, // See "Execution Protection"
 });
 
 // Per-exec overrides
@@ -150,6 +149,7 @@ bash-env -c 'echo hello' --json
 The CLI uses OverlayFS - reads come from the real filesystem, but all writes stay in memory and are discarded after execution. The project root is mounted at `/home/user/project`.
 
 Options:
+
 - `-c <script>` - Execute script from argument
 - `--root <path>` - Root directory (default: current directory)
 - `--cwd <path>` - Working directory in sandbox
@@ -274,7 +274,21 @@ curl -X POST -H "Content-Type: application/json" \
 
 ## Execution Protection
 
-BashEnv protects against infinite loops and deep recursion with configurable limits (`maxCallDepth`, `maxLoopIterations`). Error messages include hints on how to increase limits.
+BashEnv protects against infinite loops and deep recursion with configurable limits:
+
+```typescript
+const env = new BashEnv({
+  executionLimits: {
+    maxCallDepth: 100, // Max function recursion depth
+    maxCommandCount: 10000, // Max total commands executed
+    maxLoopIterations: 10000, // Max iterations per loop
+    maxAwkIterations: 10000, // Max iterations in awk programs
+    maxSedIterations: 10000, // Max iterations in sed scripts
+  },
+});
+```
+
+All limits have sensible defaults. Error messages include hints on which limit to increase. Feel free to increase if your scripts intentionally go beyond them.
 
 ## Development
 

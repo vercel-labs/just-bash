@@ -1,3 +1,4 @@
+import type { ExecutionLimits } from "../../limits.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import {
@@ -6,7 +7,7 @@ import {
   executeCommands,
 } from "./executor.js";
 import { parseMultipleScripts } from "./parser.js";
-import type { SedCommand, SedState } from "./types.js";
+import type { SedCommand, SedExecutionLimits, SedState } from "./types.js";
 
 const sedHelp = {
   name: "sed",
@@ -52,6 +53,7 @@ function processContent(
   content: string,
   commands: SedCommand[],
   silent: boolean,
+  limits?: Required<ExecutionLimits>,
 ): string {
   const lines = content.split("\n");
   if (lines.length > 0 && lines[lines.length - 1] === "") {
@@ -64,6 +66,11 @@ function processContent(
   // Persistent hold space across all lines
   let holdSpace = "";
   let substitutionMade = false;
+
+  // Convert to SedExecutionLimits format
+  const sedLimits: SedExecutionLimits | undefined = limits
+    ? { maxIterations: limits.maxSedIterations }
+    : undefined;
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const state: SedState = {
@@ -81,7 +88,7 @@ function processContent(
       currentLineIndex: lineIndex,
     };
 
-    const linesConsumed = executeCommands(commands, state, ctx);
+    const linesConsumed = executeCommands(commands, state, ctx, sedLimits);
     lineIndex += linesConsumed;
 
     // Preserve state for next line
@@ -258,7 +265,7 @@ export const sedCommand: Command = {
     // Read from files or stdin
     if (files.length === 0) {
       content = ctx.stdin;
-      const output = processContent(content, commands, silent);
+      const output = processContent(content, commands, silent, ctx.limits);
       return { stdout: output, stderr: "", exitCode: 0 };
     }
 
@@ -268,7 +275,12 @@ export const sedCommand: Command = {
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
         try {
           const fileContent = await ctx.fs.readFile(filePath);
-          const output = processContent(fileContent, commands, silent);
+          const output = processContent(
+            fileContent,
+            commands,
+            silent,
+            ctx.limits,
+          );
           await ctx.fs.writeFile(filePath, output);
         } catch {
           return {
@@ -295,7 +307,7 @@ export const sedCommand: Command = {
       }
     }
 
-    const output = processContent(content, commands, silent);
+    const output = processContent(content, commands, silent, ctx.limits);
     return { stdout: output, stderr: "", exitCode: 0 };
   },
 };

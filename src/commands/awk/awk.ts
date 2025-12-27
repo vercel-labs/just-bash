@@ -106,6 +106,7 @@ export const awkCommand: Command = {
       vars,
       arrays: {},
       fieldSep,
+      maxIterations: ctx.limits?.maxAwkIterations,
     };
 
     let stdout = "";

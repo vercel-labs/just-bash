@@ -26,6 +26,7 @@ import {
   type InterpreterOptions,
   type InterpreterState,
 } from "./interpreter/index.js";
+import { type ExecutionLimits, resolveLimits } from "./limits.js";
 import {
   createSecureFetch,
   type NetworkConfig,
@@ -34,18 +35,29 @@ import {
 import { type ParseException, parse } from "./parser/parser.js";
 import type { BashExecResult, Command, CommandRegistry } from "./types.js";
 
-// Default protection limits
-const DEFAULT_MAX_CALL_DEPTH = 100;
-const DEFAULT_MAX_COMMAND_COUNT = 100000;
-const DEFAULT_MAX_LOOP_ITERATIONS = 10000;
+export type { ExecutionLimits } from "./limits.js";
 
 export interface BashEnvOptions {
   files?: InitialFiles;
   env?: Record<string, string>;
   cwd?: string;
   fs?: IFileSystem;
+  /**
+   * Execution limits to prevent runaway compute.
+   * See ExecutionLimits interface for available options.
+   */
+  executionLimits?: ExecutionLimits;
+  /**
+   * @deprecated Use executionLimits.maxCallDepth instead
+   */
   maxCallDepth?: number;
+  /**
+   * @deprecated Use executionLimits.maxCommandCount instead
+   */
   maxCommandCount?: number;
+  /**
+   * @deprecated Use executionLimits.maxLoopIterations instead
+   */
   maxLoopIterations?: number;
   /**
    * Network configuration for commands like curl.
@@ -89,9 +101,7 @@ export class BashEnv {
   readonly fs: IFileSystem;
   private commands: CommandRegistry = new Map();
   private useDefaultLayout: boolean = false;
-  private maxCallDepth: number;
-  private maxCommandCount: number;
-  private maxLoopIterations: number;
+  private limits: Required<ExecutionLimits>;
   private secureFetch?: SecureFetch;
   private sleepFn?: (ms: number) => Promise<void>;
 
@@ -116,10 +126,20 @@ export class BashEnv {
       ...options.env,
     };
 
-    this.maxCallDepth = options.maxCallDepth ?? DEFAULT_MAX_CALL_DEPTH;
-    this.maxCommandCount = options.maxCommandCount ?? DEFAULT_MAX_COMMAND_COUNT;
-    this.maxLoopIterations =
-      options.maxLoopIterations ?? DEFAULT_MAX_LOOP_ITERATIONS;
+    // Resolve limits: new executionLimits takes precedence, then deprecated individual options
+    this.limits = resolveLimits({
+      ...options.executionLimits,
+      // Support deprecated individual options (they override executionLimits if set)
+      ...(options.maxCallDepth !== undefined && {
+        maxCallDepth: options.maxCallDepth,
+      }),
+      ...(options.maxCommandCount !== undefined && {
+        maxCommandCount: options.maxCommandCount,
+      }),
+      ...(options.maxLoopIterations !== undefined && {
+        maxLoopIterations: options.maxLoopIterations,
+      }),
+    });
 
     // Create secure fetch if network is configured
     if (options.network) {
@@ -212,10 +232,10 @@ export class BashEnv {
     }
 
     this.state.commandCount++;
-    if (this.state.commandCount > this.maxCommandCount) {
+    if (this.state.commandCount > this.limits.maxCommandCount) {
       return {
         stdout: "",
-        stderr: `bash: maximum command count (${this.maxCommandCount}) exceeded (possible infinite loop). Increase with maxCommandCount option.\n`,
+        stderr: `bash: maximum command count (${this.limits.maxCommandCount}) exceeded (possible infinite loop). Increase with executionLimits.maxCommandCount option.\n`,
         exitCode: 1,
         env: { ...this.state.env, ...options?.env },
       };
@@ -264,9 +284,7 @@ export class BashEnv {
       const interpreterOptions: InterpreterOptions = {
         fs: this.fs,
         commands: this.commands,
-        maxCallDepth: this.maxCallDepth,
-        maxCommandCount: this.maxCommandCount,
-        maxLoopIterations: this.maxLoopIterations,
+        limits: this.limits,
         exec: this.exec.bind(this),
         fetch: this.secureFetch,
         sleep: this.sleepFn,

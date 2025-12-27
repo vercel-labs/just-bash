@@ -24,6 +24,7 @@ import type {
   WordNode,
 } from "../ast/types.js";
 import type { IFileSystem } from "../fs-interface.js";
+import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
 import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
@@ -96,9 +97,7 @@ export type { InterpreterContext, InterpreterState } from "./types.js";
 export interface InterpreterOptions {
   fs: IFileSystem;
   commands: CommandRegistry;
-  maxCallDepth: number;
-  maxCommandCount: number;
-  maxLoopIterations: number;
+  limits: Required<ExecutionLimits>;
   exec: (
     script: string,
     options?: { env?: Record<string, string>; cwd?: string },
@@ -117,9 +116,7 @@ export class Interpreter {
       state,
       fs: options.fs,
       commands: options.commands,
-      maxCallDepth: options.maxCallDepth,
-      maxCommandCount: options.maxCommandCount,
-      maxLoopIterations: options.maxLoopIterations,
+      limits: options.limits,
       execFn: options.exec,
       executeScript: this.executeScript.bind(this),
       executeStatement: this.executeStatement.bind(this),
@@ -207,9 +204,9 @@ export class Interpreter {
 
   private async executeStatement(node: StatementNode): Promise<ExecResult> {
     this.ctx.state.commandCount++;
-    if (this.ctx.state.commandCount > this.ctx.maxCommandCount) {
+    if (this.ctx.state.commandCount > this.ctx.limits.maxCommandCount) {
       throwExecutionLimit(
-        `too many commands executed (>${this.ctx.maxCommandCount}), increase maxCommandCount`,
+        `too many commands executed (>${this.ctx.limits.maxCommandCount}), increase executionLimits.maxCommandCount`,
         "commands",
       );
     }
@@ -862,6 +859,7 @@ export class Interpreter {
       cwd: this.ctx.state.cwd,
       env: this.ctx.state.env,
       stdin,
+      limits: this.ctx.limits,
       exec: this.ctx.execFn,
       fetch: this.ctx.fetch,
       getRegisteredCommands: () => Array.from(this.ctx.commands.keys()),
