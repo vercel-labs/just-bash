@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("ln command", () => {
   describe("symbolic links (-s)", () => {
     it("should create a symbolic link", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/target.txt": "hello world\n" },
       });
       const result = await env.exec("ln -s /target.txt /link.txt");
@@ -16,7 +16,7 @@ describe("ln command", () => {
     });
 
     it("should create a relative symbolic link", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/dir/target.txt": "content\n" },
       });
       const result = await env.exec("ln -s target.txt /dir/link.txt");
@@ -27,7 +27,7 @@ describe("ln command", () => {
     });
 
     it("should allow dangling symlinks", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       // ln -s should succeed even if target doesn't exist
       const result = await env.exec("ln -s /nonexistent /link.txt");
       expect(result.exitCode).toBe(0);
@@ -38,7 +38,7 @@ describe("ln command", () => {
     });
 
     it("should error if link already exists", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/target.txt": "hello\n",
           "/link.txt": "existing\n",
@@ -50,7 +50,7 @@ describe("ln command", () => {
     });
 
     it("should overwrite with -f flag", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/target.txt": "new content\n",
           "/link.txt": "old content\n",
@@ -66,7 +66,7 @@ describe("ln command", () => {
 
   describe("hard links", () => {
     it("should create a hard link", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/original.txt": "hello world\n" },
       });
       const result = await env.exec("ln /original.txt /hardlink.txt");
@@ -79,14 +79,14 @@ describe("ln command", () => {
     });
 
     it("should error when target does not exist", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("ln /nonexistent.txt /link.txt");
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("No such file");
     });
 
     it("should error when trying to hard link a directory", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/dir/file.txt": "test\n" },
       });
       const result = await env.exec("ln /dir /dirlink");
@@ -97,14 +97,14 @@ describe("ln command", () => {
 
   describe("error handling", () => {
     it("should error on missing operand", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("ln");
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("missing file operand");
     });
 
     it("should show help with --help", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("ln --help");
       expect(result.stdout).toContain("ln");
       expect(result.stdout).toContain("link");
@@ -115,7 +115,7 @@ describe("ln command", () => {
 
 describe("readlink command", () => {
   it("should read symbolic link target", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/target.txt": "hello\n" },
     });
     await env.exec("ln -s /target.txt /link.txt");
@@ -125,7 +125,7 @@ describe("readlink command", () => {
   });
 
   it("should read relative symbolic link target", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/dir/target.txt": "hello\n" },
     });
     await env.exec("ln -s target.txt /dir/link.txt");
@@ -135,7 +135,7 @@ describe("readlink command", () => {
   });
 
   it("should resolve with -f flag", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/dir/target.txt": "hello\n" },
     });
     await env.exec("ln -s target.txt /dir/link.txt");
@@ -145,7 +145,7 @@ describe("readlink command", () => {
   });
 
   it("should error on non-symlink without -f", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/regular.txt": "hello\n" },
     });
     const result = await env.exec("readlink /regular.txt");
@@ -153,7 +153,7 @@ describe("readlink command", () => {
   });
 
   it("should show help with --help", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("readlink --help");
     expect(result.stdout).toContain("readlink");
     expect(result.exitCode).toBe(0);

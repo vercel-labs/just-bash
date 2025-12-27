@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 /**
  * Advanced Agent Scenario: Dependency Analysis
@@ -12,7 +12,7 @@ import { BashEnv } from "../BashEnv.js";
  */
 describe("Agent Scenario: Dependency Analysis", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/project/src/index.ts": `import { App } from './app';
 import { logger } from './utils/logger';

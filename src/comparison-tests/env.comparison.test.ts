@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 import {
   cleanupTestDir,
   createTestDir,
@@ -21,7 +21,7 @@ describe("env command - Real Bash Comparison", () => {
   describe("output format", () => {
     it("should output in KEY=value format", async () => {
       // Create env with known variables
-      const env = new BashEnv({
+      const env = new Bash({
         cwd: testDir,
         env: { TEST_VAR: "test_value" },
       });
@@ -49,7 +49,7 @@ describe("printenv command - Real Bash Comparison", () => {
   describe("specific variable", () => {
     it("should print specific variable value", async () => {
       // Use a common environment variable that exists in both
-      const env = new BashEnv({
+      const env = new Bash({
         cwd: testDir,
         env: { HOME: "/home/testuser" },
       });
@@ -75,7 +75,7 @@ describe("printenv command - Real Bash Comparison", () => {
 
   describe("multiple variables", () => {
     it("should print multiple variable values", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         cwd: testDir,
         env: { VAR1: "value1", VAR2: "value2" },
       });

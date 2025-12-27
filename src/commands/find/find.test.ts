@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("find command", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/project/README.md": "# Project",
         "/project/src/index.ts": "export {}",
@@ -181,7 +181,7 @@ describe("find command", () => {
     });
 
     it("should work with multiple OR conditions", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/a.txt": "",
           "/dir/b.md": "",
@@ -213,7 +213,7 @@ describe("find command", () => {
     });
 
     it("should find auth-related files", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/app/src/auth/login.ts": "",
           "/app/src/auth/jwt.ts": "",
@@ -338,7 +338,7 @@ describe("find command", () => {
 
   describe("-iname (case insensitive)", () => {
     it("should find files case insensitively", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/README.md": "",
           "/dir/readme.txt": "",
@@ -355,7 +355,7 @@ describe("find command", () => {
     });
 
     it("should match uppercase pattern to lowercase file", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/config.json": "",
         },
@@ -387,7 +387,7 @@ describe("find command", () => {
 
   describe("-ipath option", () => {
     it("should match path case insensitively", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/Project/SRC/file.ts": "",
           "/Project/src/other.ts": "",
@@ -402,7 +402,7 @@ describe("find command", () => {
 
   describe("-empty option", () => {
     it("should find empty files", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/empty.txt": "",
           "/dir/notempty.txt": "content",
@@ -415,7 +415,7 @@ describe("find command", () => {
     });
 
     it("should find empty directories", async () => {
-      const _env = new BashEnv({
+      const _env = new Bash({
         files: {
           "/dir/emptydir/.keep": "", // Create then we'll remove the file conceptually
           "/dir/notempty/file.txt": "content",
@@ -423,7 +423,7 @@ describe("find command", () => {
       });
       // The emptydir has a file so it's not empty, notempty has a file
       // Let's create a truly empty directory scenario
-      const env2 = new BashEnv({
+      const env2 = new Bash({
         files: {
           "/dir/notempty/file.txt": "content",
         },
@@ -471,7 +471,7 @@ describe("find command", () => {
     });
 
     it("should combine negation with OR", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/a.txt": "",
           "/dir/b.md": "",

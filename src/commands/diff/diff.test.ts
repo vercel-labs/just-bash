@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("diff", () => {
   describe("basic comparison", () => {
     it("should return 0 for identical files", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "line1\nline2\nline3\n",
           "/b.txt": "line1\nline2\nline3\n",
@@ -17,7 +17,7 @@ describe("diff", () => {
     });
 
     it("should return 1 for different files", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "line1\n",
           "/b.txt": "line2\n",
@@ -28,7 +28,7 @@ describe("diff", () => {
     });
 
     it("should show unified diff output by default", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "hello\n",
           "/b.txt": "world\n",
@@ -43,7 +43,7 @@ describe("diff", () => {
     });
 
     it("should show added lines", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "line1\n",
           "/b.txt": "line1\nline2\n",
@@ -55,7 +55,7 @@ describe("diff", () => {
     });
 
     it("should show removed lines", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "line1\nline2\n",
           "/b.txt": "line1\n",
@@ -69,7 +69,7 @@ describe("diff", () => {
 
   describe("brief mode (-q)", () => {
     it("should report files differ with -q", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "aaa\n",
           "/b.txt": "bbb\n",
@@ -81,7 +81,7 @@ describe("diff", () => {
     });
 
     it("should output nothing for identical files with -q", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "same\n",
           "/b.txt": "same\n",
@@ -93,7 +93,7 @@ describe("diff", () => {
     });
 
     it("should work with --brief", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "aaa\n",
           "/b.txt": "bbb\n",
@@ -107,7 +107,7 @@ describe("diff", () => {
 
   describe("report identical (-s)", () => {
     it("should report when files are identical with -s", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "same\n",
           "/b.txt": "same\n",
@@ -119,7 +119,7 @@ describe("diff", () => {
     });
 
     it("should work with --report-identical-files", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "same\n",
           "/b.txt": "same\n",
@@ -135,7 +135,7 @@ describe("diff", () => {
 
   describe("ignore case (-i)", () => {
     it("should ignore case differences with -i", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "Hello World\n",
           "/b.txt": "hello world\n",
@@ -147,7 +147,7 @@ describe("diff", () => {
     });
 
     it("should show diff without -i for case differences", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "Hello\n",
           "/b.txt": "hello\n",
@@ -160,7 +160,7 @@ describe("diff", () => {
 
   describe("stdin support", () => {
     it("should read first file from stdin with -", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/b.txt": "from file\n",
         },
@@ -172,7 +172,7 @@ describe("diff", () => {
     });
 
     it("should read second file from stdin with -", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "from file\n",
         },
@@ -186,7 +186,7 @@ describe("diff", () => {
 
   describe("error handling", () => {
     it("should error on missing file", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/exists.txt": "content\n" },
       });
       const result = await env.exec("diff /missing.txt /exists.txt");
@@ -197,7 +197,7 @@ describe("diff", () => {
     });
 
     it("should error on missing second file", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/exists.txt": "content\n" },
       });
       const result = await env.exec("diff /exists.txt /missing.txt");
@@ -208,21 +208,21 @@ describe("diff", () => {
     });
 
     it("should error with missing operand", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("diff /a.txt");
       expect(result.stderr).toContain("missing operand");
       expect(result.exitCode).toBe(2);
     });
 
     it("should error on unknown option", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("diff --unknown /a.txt /b.txt");
       expect(result.stderr).toContain("unrecognized option");
       expect(result.exitCode).toBe(1);
     });
 
     it("should error on unknown short option", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("diff -z /a.txt /b.txt");
       expect(result.stderr).toContain("invalid option");
       expect(result.exitCode).toBe(1);
@@ -231,7 +231,7 @@ describe("diff", () => {
 
   describe("help", () => {
     it("should show help with --help", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("diff --help");
       expect(result.stdout).toContain("diff");
       expect(result.stdout).toContain("compare");
@@ -241,7 +241,7 @@ describe("diff", () => {
 
   describe("multiline diffs", () => {
     it("should handle multiple changed lines", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "line1\nline2\nline3\n",
           "/b.txt": "line1\nmodified\nline3\n",
@@ -254,7 +254,7 @@ describe("diff", () => {
     });
 
     it("should show context around changes", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "1\n2\n3\n4\n5\n",
           "/b.txt": "1\n2\nX\n4\n5\n",
@@ -268,7 +268,7 @@ describe("diff", () => {
 
   describe("empty files", () => {
     it("should handle empty vs non-empty", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/empty.txt": "",
           "/content.txt": "has content\n",
@@ -280,7 +280,7 @@ describe("diff", () => {
     });
 
     it("should handle both empty files", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "",
           "/b.txt": "",

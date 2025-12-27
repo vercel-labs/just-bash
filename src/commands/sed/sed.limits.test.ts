@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 /**
  * SED Execution Limits Tests
@@ -13,7 +13,7 @@ import { BashEnv } from "../../BashEnv.js";
 describe("SED Execution Limits", () => {
   describe("infinite loop protection", () => {
     it("should protect against branch loop (b command)", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       // :label followed by b label creates infinite loop
       const result = await env.exec(`echo "test" | sed ':loop; b loop'`);
 
@@ -26,7 +26,7 @@ describe("SED Execution Limits", () => {
     // The t command branches on successful substitution, but s/./&/ replaces
     // a character with itself, which doesn't count as "successful" in our impl
     it.skip("should protect against test loop (t command)", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       // Substitution that always succeeds + t branch = infinite loop
       const result = await env.exec(
         `echo "test" | sed ':loop; s/./&/; t loop'`,
@@ -37,7 +37,7 @@ describe("SED Execution Limits", () => {
     });
 
     it("should protect against unconditional branch at start", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`echo "test" | sed 'b; p'`);
 
       // Should complete - this isn't infinite but tests branch handling
@@ -47,7 +47,7 @@ describe("SED Execution Limits", () => {
 
   describe("substitution limits", () => {
     it("should handle global substitution on long lines", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const longLine = "a".repeat(100000);
       await env.writeFile("/input.txt", longLine);
 
@@ -59,7 +59,7 @@ describe("SED Execution Limits", () => {
     });
 
     it("should handle backreference expansion limits", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       // Many backreferences
       const result = await env.exec(
         `echo "abcdefghij" | sed 's/\\(.\\)\\(.\\)\\(.\\)\\(.\\)\\(.\\)\\(.\\)\\(.\\)\\(.\\)\\(.\\)\\(.\\)/\\1\\2\\3\\4\\5\\6\\7\\8\\9\\1/'`,
@@ -69,7 +69,7 @@ describe("SED Execution Limits", () => {
     });
 
     it("should limit output from repeated substitution", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       // Substitution that doubles content
       const result = await env.exec(`echo "x" | sed 's/./&&/g'`);
 
@@ -79,7 +79,7 @@ describe("SED Execution Limits", () => {
 
   describe("hold space limits", () => {
     it("should handle large hold space operations", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const lines = Array(1000).fill("line").join("\n");
       await env.writeFile("/input.txt", lines);
 
@@ -90,7 +90,7 @@ describe("SED Execution Limits", () => {
     });
 
     it("should handle exchange with large buffers", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const longLine = "x".repeat(10000);
       await env.writeFile("/input.txt", longLine);
 
@@ -102,7 +102,7 @@ describe("SED Execution Limits", () => {
 
   describe("regex limits", () => {
     it("should handle pathological regex patterns", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       // ReDoS-style pattern
       const result = await env.exec(
         `echo "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaab" | sed '/^\\(a\\+\\)\\+$/p'`,
@@ -113,7 +113,7 @@ describe("SED Execution Limits", () => {
     });
 
     it("should handle complex alternation", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         `echo "test" | sed 's/a\\|b\\|c\\|d\\|e\\|f\\|g\\|h\\|i\\|j/X/g'`,
       );
@@ -124,7 +124,7 @@ describe("SED Execution Limits", () => {
 
   describe("address range limits", () => {
     it("should handle large line number addresses", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`echo "test" | sed '999999999p'`);
 
       // Should not hang trying to reach that line
@@ -132,7 +132,7 @@ describe("SED Execution Limits", () => {
     });
 
     it("should handle step addresses on large input", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const lines = Array(10000).fill("line").join("\n");
       await env.writeFile("/input.txt", lines);
 
@@ -144,7 +144,7 @@ describe("SED Execution Limits", () => {
 
   describe("command limits", () => {
     it("should handle many commands", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const commands = Array(100).fill("s/a/b/").join("; ");
       const result = await env.exec(`echo "aaa" | sed '${commands}'`);
 
@@ -153,7 +153,7 @@ describe("SED Execution Limits", () => {
 
     // TODO: Nested braces parsing not implemented in our sed
     it.skip("should handle deeply nested braces", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       // Nested command blocks
       const result = await env.exec(`echo "test" | sed '{ { { p } } }'`);
 
@@ -163,7 +163,7 @@ describe("SED Execution Limits", () => {
 
   describe("n/N command limits", () => {
     it("should handle N command accumulation without infinite loop", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const lines = Array(100).fill("line").join("\n");
       await env.writeFile("/input.txt", lines);
 

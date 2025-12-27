@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("cut command", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/test/passwd.txt":
           "root:x:0:0:root:/root:/bin/bash\nuser:x:1000:1000:User:/home/user:/bin/zsh\n",

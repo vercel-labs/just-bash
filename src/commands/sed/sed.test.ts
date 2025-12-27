@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("sed command", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/test/file.txt": "hello world\nhello universe\ngoodbye world\n",
         "/test/numbers.txt": "line 1\nline 2\nline 3\nline 4\nline 5\n",
@@ -122,7 +122,7 @@ describe("sed command", () => {
     });
 
     it("should combine i and g flags", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "Hello HELLO hello\n" },
         cwd: "/",
       });
@@ -211,7 +211,7 @@ describe("sed command", () => {
 
   describe("& replacement (matched text)", () => {
     it("should replace & with matched text", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello\n" },
         cwd: "/",
       });
@@ -222,7 +222,7 @@ describe("sed command", () => {
     });
 
     it("should handle multiple & in replacement", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "world\n" },
         cwd: "/",
       });
@@ -233,7 +233,7 @@ describe("sed command", () => {
     });
 
     it("should handle escaped & in replacement", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello\n" },
         cwd: "/",
       });
@@ -246,7 +246,7 @@ describe("sed command", () => {
 
   describe("in-place editing (-i)", () => {
     it("should edit file in-place with -i", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello world\n" },
         cwd: "/",
       });
@@ -260,7 +260,7 @@ describe("sed command", () => {
     });
 
     it("should edit file in-place with global replacement", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "foo foo foo\nbar foo bar\n" },
         cwd: "/",
       });
@@ -273,7 +273,7 @@ describe("sed command", () => {
     });
 
     it("should delete lines in-place", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "line 1\nline 2\nline 3\n" },
         cwd: "/",
       });
@@ -286,7 +286,7 @@ describe("sed command", () => {
     });
 
     it("should delete matching lines in-place", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "keep this\nremove this\nkeep that\n" },
         cwd: "/",
       });
@@ -299,7 +299,7 @@ describe("sed command", () => {
     });
 
     it("should edit multiple files in-place", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "hello\n",
           "/b.txt": "hello\n",
@@ -318,7 +318,7 @@ describe("sed command", () => {
     });
 
     it("should handle --in-place flag", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "old text\n" },
         cwd: "/",
       });
@@ -333,7 +333,7 @@ describe("sed command", () => {
 
   describe("hold space commands (h/H/g/G/x)", () => {
     it("should copy pattern space to hold space with h", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "first\nsecond\nthird\n" },
         cwd: "/",
       });
@@ -343,7 +343,7 @@ describe("sed command", () => {
     });
 
     it("should append pattern space to hold space with H", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "a\nb\nc\n" },
         cwd: "/",
       });
@@ -357,7 +357,7 @@ describe("sed command", () => {
     });
 
     it("should copy hold space to pattern space with g", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "first\nsecond\n" },
         cwd: "/",
       });
@@ -367,7 +367,7 @@ describe("sed command", () => {
     });
 
     it("should append hold space to pattern space with G", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "header\ndata\n" },
         cwd: "/",
       });
@@ -377,7 +377,7 @@ describe("sed command", () => {
     });
 
     it("should exchange pattern and hold spaces with x", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "A\nB\n" },
         cwd: "/",
       });
@@ -389,7 +389,7 @@ describe("sed command", () => {
     });
 
     it("should collect lines in hold space with h and H", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "1\n2\n3\n" },
         cwd: "/",
       });
@@ -405,7 +405,7 @@ describe("sed command", () => {
 
   describe("append command (a)", () => {
     it("should append text after matching line", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "line 1\nline 2\nline 3\n" },
         cwd: "/",
       });
@@ -414,7 +414,7 @@ describe("sed command", () => {
     });
 
     it("should append text after every line", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "a\nb\n" },
         cwd: "/",
       });
@@ -423,7 +423,7 @@ describe("sed command", () => {
     });
 
     it("should append text after last line", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "first\nlast\n" },
         cwd: "/",
       });
@@ -434,7 +434,7 @@ describe("sed command", () => {
 
   describe("insert command (i)", () => {
     it("should insert text before matching line", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "line 1\nline 2\nline 3\n" },
         cwd: "/",
       });
@@ -443,7 +443,7 @@ describe("sed command", () => {
     });
 
     it("should insert text before first line", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "content\n" },
         cwd: "/",
       });
@@ -452,7 +452,7 @@ describe("sed command", () => {
     });
 
     it("should insert text before every line", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "a\nb\n" },
         cwd: "/",
       });
@@ -463,7 +463,7 @@ describe("sed command", () => {
 
   describe("change command (c)", () => {
     it("should change matching line", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "old line\n" },
         cwd: "/",
       });
@@ -472,7 +472,7 @@ describe("sed command", () => {
     });
 
     it("should change specific line number", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "line 1\nline 2\nline 3\n" },
         cwd: "/",
       });
@@ -483,7 +483,7 @@ describe("sed command", () => {
 
   describe("quit command (q)", () => {
     it("should quit after matching line", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "1\n2\n3\n4\n5\n" },
         cwd: "/",
       });
@@ -492,7 +492,7 @@ describe("sed command", () => {
     });
 
     it("should quit immediately on first line", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "a\nb\nc\n" },
         cwd: "/",
       });
@@ -503,7 +503,7 @@ describe("sed command", () => {
 
   describe("escaped characters", () => {
     it("should handle escaped parentheses in pattern", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "const x = require('foo');\n" },
         cwd: "/",
       });
@@ -515,7 +515,7 @@ describe("sed command", () => {
     });
 
     it("should handle semicolons in pattern and replacement", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "a;b;c\n" },
         cwd: "/",
       });
@@ -527,7 +527,7 @@ describe("sed command", () => {
 
   describe("pattern addresses", () => {
     it("should match lines by pattern", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "foo\nbar\nbaz\n" },
         cwd: "/",
       });
@@ -536,7 +536,7 @@ describe("sed command", () => {
     });
 
     it("should apply substitution to pattern-matched lines", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "apple\nbanana\napricot\n" },
         cwd: "/",
       });
@@ -547,7 +547,7 @@ describe("sed command", () => {
 
   describe("Nth occurrence substitution", () => {
     it("should replace 2nd occurrence only", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "foo bar foo baz foo\n" },
         cwd: "/",
       });
@@ -556,7 +556,7 @@ describe("sed command", () => {
     });
 
     it("should replace 3rd occurrence only", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "a a a a a\n" },
         cwd: "/",
       });
@@ -567,7 +567,7 @@ describe("sed command", () => {
 
   describe("step address (first~step)", () => {
     it("should match every 2nd line starting from 0", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "1\n2\n3\n4\n5\n6\n" },
         cwd: "/",
       });
@@ -576,7 +576,7 @@ describe("sed command", () => {
     });
 
     it("should match every 3rd line starting from 1", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "1\n2\n3\n4\n5\n6\n" },
         cwd: "/",
       });
@@ -587,7 +587,7 @@ describe("sed command", () => {
 
   describe("grouped commands", () => {
     it("should execute multiple commands in group", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "a\nb\nc\n" },
         cwd: "/",
       });
@@ -596,7 +596,7 @@ describe("sed command", () => {
     });
 
     it("should execute multiple commands with semicolon in group", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "a\nb\nc\n" },
         cwd: "/",
       });
@@ -607,7 +607,7 @@ describe("sed command", () => {
 
   describe("P command (print first line)", () => {
     it("should print up to first newline", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "line1\nline2\n" },
         cwd: "/",
       });
@@ -619,7 +619,7 @@ describe("sed command", () => {
 
   describe("D command (delete first line)", () => {
     it("should delete up to first newline and restart cycle", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "a\nb\nc\n" },
         cwd: "/",
       });
@@ -631,7 +631,7 @@ describe("sed command", () => {
     });
 
     it("should quit when N has no more lines", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "a\nb\nc\n" },
         cwd: "/",
       });
@@ -644,7 +644,7 @@ describe("sed command", () => {
 
   describe("z command (zap pattern space)", () => {
     it("should empty pattern space", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello\nworld\n" },
         cwd: "/",
       });
@@ -655,7 +655,7 @@ describe("sed command", () => {
 
   describe("T command (branch if no substitution)", () => {
     it("should branch when no substitution made", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "foo\nbar\n" },
         cwd: "/",
       });
@@ -667,7 +667,7 @@ describe("sed command", () => {
 
   describe("extended regex (-E/-r flag)", () => {
     it("should support + quantifier with -E", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "aaa bbb ccc\n" },
         cwd: "/",
       });
@@ -677,7 +677,7 @@ describe("sed command", () => {
     });
 
     it("should support ? quantifier with -E", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "color colour\n" },
         cwd: "/",
       });
@@ -687,7 +687,7 @@ describe("sed command", () => {
     });
 
     it("should support alternation | with -E", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "cat dog bird\n" },
         cwd: "/",
       });
@@ -697,7 +697,7 @@ describe("sed command", () => {
     });
 
     it("should support grouping () with -E", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello world\n" },
         cwd: "/",
       });
@@ -709,7 +709,7 @@ describe("sed command", () => {
     });
 
     it("should support -r as alias for -E", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "aaa bbb\n" },
         cwd: "/",
       });
@@ -719,7 +719,7 @@ describe("sed command", () => {
     });
 
     it("should support complex ERE patterns", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/test.txt":
             "error: file not found\nwarning: deprecated\ninfo: success\n",
@@ -736,7 +736,7 @@ describe("sed command", () => {
     });
 
     it("should support {n,m} quantifier with -E", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "a aa aaa aaaa\n" },
         cwd: "/",
       });
@@ -746,7 +746,7 @@ describe("sed command", () => {
     });
 
     it("should work without -E flag (JS RegExp is ERE-like)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "aaa bbb\n" },
         cwd: "/",
       });

@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 export const execAsync: (
   command: string,
@@ -45,7 +45,7 @@ export async function cleanupTestDir(testDir: string): Promise<void> {
 export async function setupFiles(
   testDir: string,
   files: Record<string, string>,
-): Promise<BashEnv> {
+): Promise<Bash> {
   // Create files in real FS
   for (const [filePath, content] of Object.entries(files)) {
     const fullPath = path.join(testDir, filePath);
@@ -59,7 +59,7 @@ export async function setupFiles(
     bashEnvFiles[path.join(testDir, filePath)] = content;
   }
 
-  return new BashEnv({
+  return new Bash({
     files: bashEnvFiles,
     cwd: testDir,
   });
@@ -103,7 +103,7 @@ function normalizeWhitespace(str: string): string {
  * Compares BashEnv output with real bash output
  */
 export async function compareOutputs(
-  env: BashEnv,
+  env: Bash,
   testDir: string,
   command: string,
   options?: {

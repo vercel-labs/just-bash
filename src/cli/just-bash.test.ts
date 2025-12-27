@@ -4,10 +4,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const CLI_PATH = path.resolve(__dirname, "../../dist/cli/bash-env.js");
+const CLI_PATH = path.resolve(__dirname, "../../dist/cli/just-bash.js");
 
 /**
- * Helper to run bash-env CLI and capture output
+ * Helper to run just-bash CLI and capture output
  */
 function runCli(
   args: string[],
@@ -35,11 +35,11 @@ function runCli(
   }
 }
 
-describe("bash-env CLI", () => {
+describe("just-bash CLI", () => {
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "bash-env-cli-test-"));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "just-bash-cli-test-"));
   });
 
   afterEach(() => {
@@ -49,26 +49,26 @@ describe("bash-env CLI", () => {
   describe("help and version", () => {
     it("should show help with -h", () => {
       const result = runCli(["-h"]);
-      expect(result.stdout).toContain("bash-env");
+      expect(result.stdout).toContain("just-bash");
       expect(result.stdout).toContain("Usage:");
       expect(result.exitCode).toBe(0);
     });
 
     it("should show help with --help", () => {
       const result = runCli(["--help"]);
-      expect(result.stdout).toContain("bash-env");
+      expect(result.stdout).toContain("just-bash");
       expect(result.exitCode).toBe(0);
     });
 
     it("should show version with -v", () => {
       const result = runCli(["-v"]);
-      expect(result.stdout).toContain("bash-env");
+      expect(result.stdout).toContain("just-bash");
       expect(result.exitCode).toBe(0);
     });
 
     it("should show version with --version", () => {
       const result = runCli(["--version"]);
-      expect(result.stdout).toContain("bash-env");
+      expect(result.stdout).toContain("just-bash");
       expect(result.exitCode).toBe(0);
     });
   });

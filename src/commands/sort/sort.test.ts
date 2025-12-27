@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("sort command", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/test/names.txt": "Charlie\nAlice\nBob\nDavid\n",
         "/test/numbers.txt": "10\n2\n1\n20\n5\n",
@@ -118,7 +118,7 @@ describe("sort command", () => {
     });
 
     it("should sort case-insensitively with --ignore-case", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "Banana\napple\nCherry\n" },
       });
       const result = await env.exec("sort --ignore-case /test.txt");
@@ -127,7 +127,7 @@ describe("sort command", () => {
     });
 
     it("should combine -f with -r for reverse case-insensitive", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "apple\nBanana\ncherry\n" },
       });
       const result = await env.exec("sort -fr /test.txt");
@@ -136,7 +136,7 @@ describe("sort command", () => {
     });
 
     it("should combine -f with -u for unique case-insensitive", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "Apple\napple\nBanana\nbanana\n" },
       });
       const result = await env.exec("sort -fu /test.txt");
@@ -147,7 +147,7 @@ describe("sort command", () => {
     });
 
     it("should work with -k field and -f", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "1 Zebra\n2 apple\n3 BANANA\n" },
       });
       const result = await env.exec("sort -f -k2 /test.txt");
@@ -156,7 +156,7 @@ describe("sort command", () => {
     });
 
     it("should show help with --help", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("sort --help");
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("--ignore-case");
@@ -165,7 +165,7 @@ describe("sort command", () => {
 
   describe("complex -k syntax", () => {
     it("should sort by field range -k1,2", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "a b c\na a c\nb a a\n" },
         cwd: "/",
       });
@@ -174,7 +174,7 @@ describe("sort command", () => {
     });
 
     it("should sort by single field only with -k2,2", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "1 banana\n2 apple\n3 cherry\n" },
         cwd: "/",
       });
@@ -183,7 +183,7 @@ describe("sort command", () => {
     });
 
     it("should support per-key numeric modifier -k2n", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "a 10\nb 2\nc 1\n" },
         cwd: "/",
       });
@@ -192,7 +192,7 @@ describe("sort command", () => {
     });
 
     it("should support per-key reverse modifier -k1r", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "a 1\nb 2\nc 3\n" },
         cwd: "/",
       });
@@ -201,7 +201,7 @@ describe("sort command", () => {
     });
 
     it("should support combined modifiers -k2,2nr", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "x 5\ny 10\nz 2\n" },
         cwd: "/",
       });
@@ -210,7 +210,7 @@ describe("sort command", () => {
     });
 
     it("should support multiple keys for secondary sort", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "a 2\nb 1\na 1\nb 2\n" },
         cwd: "/",
       });
@@ -220,7 +220,7 @@ describe("sort command", () => {
     });
 
     it("should support character position -k1.2", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "abc\nabc\nbac\naac\n" },
         cwd: "/",
       });
@@ -230,7 +230,7 @@ describe("sort command", () => {
     });
 
     it("should support per-key ignore-case -k1f", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "Zebra\napple\nBANANA\n" },
         cwd: "/",
       });
@@ -239,7 +239,7 @@ describe("sort command", () => {
     });
 
     it("should support custom delimiter with -t", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "c:3\na:1\nb:2\n" },
         cwd: "/",
       });
@@ -248,7 +248,7 @@ describe("sort command", () => {
     });
 
     it("should handle --key= syntax", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "3 c\n1 a\n2 b\n" },
         cwd: "/",
       });

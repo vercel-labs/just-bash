@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
-const binPath = resolve(__dirname, "../../dist/bin/bash-env.js");
+const binPath = resolve(__dirname, "../../dist/bin/just-bash.js");
 
 async function runBin(
   args: string[],
@@ -22,10 +22,10 @@ async function runBin(
   }
 }
 
-describe("bash-env bundled binary", () => {
+describe("just-bash bundled binary", () => {
   it("should show version", async () => {
     const result = await runBin(["--version"]);
-    expect(result.stdout).toContain("bash-env");
+    expect(result.stdout).toContain("just-bash");
     expect(result.exitCode).toBe(0);
   });
 

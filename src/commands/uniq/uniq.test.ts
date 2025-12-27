@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("uniq command", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/test/adjacent.txt": "apple\napple\nbanana\nbanana\nbanana\ncherry\n",
         "/test/mixed.txt": "a\nb\na\nc\nc\n",

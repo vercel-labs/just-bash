@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("timeout command", () => {
   describe("basic functionality", () => {
     it("should run command that completes before timeout", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async () => {},
       });
 
@@ -14,7 +14,7 @@ describe("timeout command", () => {
     });
 
     it("should timeout slow command", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async (ms) => {
           // Simulate actual sleep for testing
           await new Promise((r) => setTimeout(r, ms));
@@ -26,7 +26,7 @@ describe("timeout command", () => {
     });
 
     it("should pass arguments to command", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async () => {},
       });
 
@@ -38,7 +38,7 @@ describe("timeout command", () => {
 
   describe("duration parsing", () => {
     it("should handle seconds (default)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async () => {},
       });
 
@@ -47,7 +47,7 @@ describe("timeout command", () => {
     });
 
     it("should handle seconds suffix", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async () => {},
       });
 
@@ -56,7 +56,7 @@ describe("timeout command", () => {
     });
 
     it("should handle minutes suffix", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async () => {},
       });
 
@@ -65,7 +65,7 @@ describe("timeout command", () => {
     });
 
     it("should handle decimal durations", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async () => {},
       });
 
@@ -76,7 +76,7 @@ describe("timeout command", () => {
 
   describe("error handling", () => {
     it("should error on missing operand", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
 
       const result = await env.exec("timeout");
       expect(result.exitCode).toBe(1);
@@ -84,7 +84,7 @@ describe("timeout command", () => {
     });
 
     it("should error on missing command", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
 
       const result = await env.exec("timeout 5");
       expect(result.exitCode).toBe(1);
@@ -92,7 +92,7 @@ describe("timeout command", () => {
     });
 
     it("should error on invalid duration", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
 
       const result = await env.exec("timeout abc echo test");
       expect(result.exitCode).toBe(1);
@@ -100,7 +100,7 @@ describe("timeout command", () => {
     });
 
     it("should error on unknown option", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
 
       const result = await env.exec("timeout --unknown 5 echo test");
       expect(result.exitCode).toBe(1);
@@ -110,7 +110,7 @@ describe("timeout command", () => {
 
   describe("options", () => {
     it("should ignore --foreground option", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async () => {},
       });
 
@@ -120,7 +120,7 @@ describe("timeout command", () => {
     });
 
     it("should ignore -k option", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async () => {},
       });
 
@@ -130,7 +130,7 @@ describe("timeout command", () => {
     });
 
     it("should ignore -s option", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async () => {},
       });
 
@@ -142,7 +142,7 @@ describe("timeout command", () => {
 
   describe("help", () => {
     it("should show help with --help", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
 
       const result = await env.exec("timeout --help");
       expect(result.exitCode).toBe(0);

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("sort with binary content", () => {
   it("should sort lines containing binary-safe content", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/data.txt": new Uint8Array([
           0x63,

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("find -exec", () => {
   describe("-exec command {} ;", () => {
     it("should execute command for each found file", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/a.txt": "content a",
           "/dir/b.txt": "content b",
@@ -17,7 +17,7 @@ describe("find -exec", () => {
     });
 
     it("should execute echo for each file", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/file1.txt": "",
           "/dir/file2.txt": "",
@@ -33,7 +33,7 @@ describe("find -exec", () => {
     });
 
     it("should handle multiple {} replacements", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/dir/test.txt": "" },
       });
       const result = await env.exec(
@@ -45,7 +45,7 @@ describe("find -exec", () => {
     });
 
     it("should propagate command exit codes", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/dir/file.txt": "" },
       });
       const result = await env.exec(
@@ -58,7 +58,7 @@ describe("find -exec", () => {
 
   describe("-exec command {} +", () => {
     it("should execute command once with all files", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/a.txt": "",
           "/dir/b.txt": "",
@@ -76,7 +76,7 @@ describe("find -exec", () => {
     });
 
     it("should work with ls command in batch mode", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/file1.txt": "content1",
           "/dir/file2.txt": "content2",
@@ -91,7 +91,7 @@ describe("find -exec", () => {
 
   describe("error handling", () => {
     it("should error on missing terminator", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/dir/file.txt": "" },
       });
       const result = await env.exec(
@@ -102,7 +102,7 @@ describe("find -exec", () => {
     });
 
     it("should not print files when -exec is used", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/a.txt": "",
           "/dir/b.txt": "",
@@ -117,7 +117,7 @@ describe("find -exec", () => {
     });
 
     it("should handle no matching files", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/dir/file.txt": "" },
       });
       const result = await env.exec(
@@ -130,7 +130,7 @@ describe("find -exec", () => {
 
   describe("combined with other predicates", () => {
     it("should work with -type f", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/file.txt": "content",
           "/dir/subdir/nested.txt": "",
@@ -144,7 +144,7 @@ describe("find -exec", () => {
     });
 
     it("should work with -maxdepth", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/file.txt": "top",
           "/dir/sub/file.txt": "nested",

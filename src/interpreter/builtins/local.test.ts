@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("local builtin", () => {
   describe("basic local variables", () => {
     it("should declare local variable with value", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         "test_func() { local x=hello; echo $x; }; test_func",
       );
@@ -12,7 +12,7 @@ describe("local builtin", () => {
     });
 
     it("should not affect outer scope", async () => {
-      const env = new BashEnv({ env: { x: "outer" } });
+      const env = new Bash({ env: { x: "outer" } });
       const result = await env.exec(
         "test_func() { local x=inner; echo $x; }; test_func; echo $x",
       );
@@ -20,7 +20,7 @@ describe("local builtin", () => {
     });
 
     it("should shadow outer variable", async () => {
-      const env = new BashEnv({ env: { x: "outer" } });
+      const env = new Bash({ env: { x: "outer" } });
       const result = await env.exec(
         "test_func() { local x=inner; echo $x; }; test_func",
       );
@@ -28,7 +28,7 @@ describe("local builtin", () => {
     });
 
     it("should restore undefined variable after function", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         'test_func() { local newvar=value; echo $newvar; }; test_func; echo "[$newvar]"',
       );
@@ -36,7 +36,7 @@ describe("local builtin", () => {
     });
 
     it("should declare local without value", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         "test_func() { local x; x=assigned; echo $x; }; test_func",
       );
@@ -46,7 +46,7 @@ describe("local builtin", () => {
 
   describe("multiple local declarations", () => {
     it("should handle multiple local declarations", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         "test_func() { local a=1 b=2 c=3; echo $a $b $c; }; test_func",
       );
@@ -54,7 +54,7 @@ describe("local builtin", () => {
     });
 
     it("should handle mixed declarations with and without values", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         "test_func() { local a=1 b c=3; b=2; echo $a $b $c; }; test_func",
       );
@@ -64,7 +64,7 @@ describe("local builtin", () => {
 
   describe("nested functions", () => {
     it("should work with nested function calls", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         "inner() { local x=inner; echo $x; }; outer() { local x=outer; inner; echo $x; }; outer",
       );
@@ -72,7 +72,7 @@ describe("local builtin", () => {
     });
 
     it("should keep local changes within same scope", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         "test_func() { local x=first; x=second; echo $x; }; test_func",
       );
@@ -80,7 +80,7 @@ describe("local builtin", () => {
     });
 
     it("should not leak local from inner to outer function", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         inner() { local y=inner; }
         outer() {
@@ -96,14 +96,14 @@ describe("local builtin", () => {
 
   describe("error cases", () => {
     it("should error when used outside function", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("local x=value");
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("can only be used in a function");
     });
 
     it("should error when used in subshell outside function", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("(local x=value)");
       expect(result.exitCode).not.toBe(0);
     });
@@ -111,7 +111,7 @@ describe("local builtin", () => {
 
   describe("local with special values", () => {
     it("should handle local with empty value", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         'test_func() { local x=; echo "x is $x end"; }; test_func',
       );
@@ -119,7 +119,7 @@ describe("local builtin", () => {
     });
 
     it("should handle local with spaces in value (quoted)", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         'test_func() { local x="hello world"; echo "$x"; }; test_func',
       );
@@ -127,7 +127,7 @@ describe("local builtin", () => {
     });
 
     it("should handle local with variable expansion", async () => {
-      const env = new BashEnv({ env: { OUTER: "expanded" } });
+      const env = new Bash({ env: { OUTER: "expanded" } });
       const result = await env.exec(
         'test_func() { local x=$OUTER; echo "$x"; }; test_func',
       );
@@ -137,7 +137,7 @@ describe("local builtin", () => {
 
   describe("local scope restoration", () => {
     it("should restore original value after function returns", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         x=global
         test_func() {
@@ -154,7 +154,7 @@ describe("local builtin", () => {
     });
 
     it("should handle recursive functions with local", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         countdown() {
           local n=$1

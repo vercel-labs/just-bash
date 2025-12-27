@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("tr command", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {},
       cwd: "/",
     });

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 describe("Bash Syntax - set -o pipefail", () => {
   describe("basic pipefail behavior", () => {
     it("should return success when all commands succeed", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         set -o pipefail
         echo hello | cat | cat
@@ -15,7 +15,7 @@ describe("Bash Syntax - set -o pipefail", () => {
     });
 
     it("should return failure when first command fails", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         set -o pipefail
         false | true
@@ -26,7 +26,7 @@ describe("Bash Syntax - set -o pipefail", () => {
     });
 
     it("should return failure when middle command fails", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         set -o pipefail
         echo hello | false | cat
@@ -37,7 +37,7 @@ describe("Bash Syntax - set -o pipefail", () => {
     });
 
     it("should return rightmost failing exit code", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         set -o pipefail
         exit 2 | exit 3 | true
@@ -50,7 +50,7 @@ describe("Bash Syntax - set -o pipefail", () => {
 
   describe("without pipefail", () => {
     it("should return last command exit code without pipefail", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         false | true
         echo "exit: $?"
@@ -62,7 +62,7 @@ describe("Bash Syntax - set -o pipefail", () => {
 
   describe("disable pipefail", () => {
     it("should disable pipefail with +o pipefail", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         set -o pipefail
         set +o pipefail
@@ -76,7 +76,7 @@ describe("Bash Syntax - set -o pipefail", () => {
 
   describe("pipefail with errexit", () => {
     it("should trigger errexit when pipeline fails with pipefail", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         set -e
         set -o pipefail
@@ -89,7 +89,7 @@ describe("Bash Syntax - set -o pipefail", () => {
     });
 
     it("should not trigger errexit without pipefail", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         set -e
         echo before
@@ -103,7 +103,7 @@ describe("Bash Syntax - set -o pipefail", () => {
 
   describe("single command", () => {
     it("should work with single command pipeline", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         set -o pipefail
         false

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("tail", () => {
   it("should show last 10 lines by default", async () => {
     const lines = `${Array.from({ length: 20 }, (_, i) => `line${i + 1}`).join("\n")}\n`;
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": lines },
     });
     const result = await env.exec("tail /test.txt");
@@ -15,7 +15,7 @@ describe("tail", () => {
   });
 
   it("should show specified number of lines with -n", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "a\nb\nc\nd\ne\n" },
     });
     const result = await env.exec("tail -n 2 /test.txt");
@@ -23,7 +23,7 @@ describe("tail", () => {
   });
 
   it("should show specified number of lines with -n attached", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "a\nb\nc\nd\ne\n" },
     });
     const result = await env.exec("tail -n2 /test.txt");
@@ -31,7 +31,7 @@ describe("tail", () => {
   });
 
   it("should show specified number of lines with -NUM", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "a\nb\nc\nd\ne\n" },
     });
     const result = await env.exec("tail -3 /test.txt");
@@ -39,7 +39,7 @@ describe("tail", () => {
   });
 
   it("should handle file with fewer lines than requested", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "a\nb\n" },
     });
     const result = await env.exec("tail -n 10 /test.txt");
@@ -47,7 +47,7 @@ describe("tail", () => {
   });
 
   it("should show headers for multiple files", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a.txt": "aaa\n",
         "/b.txt": "bbb\n",
@@ -61,7 +61,7 @@ describe("tail", () => {
   });
 
   it("should error on missing file", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("tail /missing.txt");
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe(
@@ -70,7 +70,7 @@ describe("tail", () => {
   });
 
   it("should read from stdin", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec('echo -e "a\\nb\\nc\\nd\\ne" | tail -n 2');
     expect(result.stdout).toContain("d");
     expect(result.stdout).toContain("e");
@@ -78,7 +78,7 @@ describe("tail", () => {
   });
 
   it("should handle empty file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/empty.txt": "" },
     });
     const result = await env.exec("tail /empty.txt");
@@ -86,7 +86,7 @@ describe("tail", () => {
   });
 
   it("should handle tail -n 1 with single line", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "only line\n" },
     });
     const result = await env.exec("tail -n 1 /test.txt");
@@ -94,7 +94,7 @@ describe("tail", () => {
   });
 
   it("should show last line only with -n 1", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "first\nsecond\nthird\n" },
     });
     const result = await env.exec("tail -n 1 /test.txt");
@@ -102,7 +102,7 @@ describe("tail", () => {
   });
 
   it("should combine with head for specific line", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "line1\nline2\nline3\nline4\nline5\n" },
     });
     const result = await env.exec("cat /test.txt | head -n 3 | tail -n 1");
@@ -111,7 +111,7 @@ describe("tail", () => {
 
   describe("+n syntax (from line n)", () => {
     it("should start from line n with -n +n", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "line1\nline2\nline3\nline4\nline5\n" },
       });
       const result = await env.exec("tail -n +3 /test.txt");
@@ -120,7 +120,7 @@ describe("tail", () => {
     });
 
     it("should start from line 1 with -n +1 (same as entire file)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "line1\nline2\nline3\n" },
       });
       const result = await env.exec("tail -n +1 /test.txt");
@@ -128,7 +128,7 @@ describe("tail", () => {
     });
 
     it("should start from line 2 with -n +2", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "line1\nline2\nline3\n" },
       });
       const result = await env.exec("tail -n +2 /test.txt");
@@ -136,7 +136,7 @@ describe("tail", () => {
     });
 
     it("should return empty when starting beyond file length", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "line1\nline2\n" },
       });
       const result = await env.exec("tail -n +10 /test.txt");
@@ -145,7 +145,7 @@ describe("tail", () => {
     });
 
     it("should work with stdin", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo -e "a\\nb\\nc\\nd\\ne" | tail -n +3');
       expect(result.stdout).toBe("c\nd\ne\n");
     });

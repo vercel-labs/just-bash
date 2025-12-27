@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("awk getline", () => {
   it("reads next line into $0", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/data.txt": `header
 value1
@@ -19,7 +19,7 @@ value3`,
   });
 
   it("reads next line into variable", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/data.txt": `name: Alice
 age: 30
@@ -35,7 +35,7 @@ age: 25`,
   });
 
   it("updates NR when reading next line", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/data.txt": `line1
 line2
@@ -52,7 +52,7 @@ line3`,
   });
 
   it("skips lines when used in pattern match", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/data.txt": `header1
 data1
@@ -72,7 +72,7 @@ data3`,
   });
 
   it("handles getline at end of file gracefully", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/data.txt": `only line`,
       },
@@ -86,7 +86,7 @@ data3`,
   });
 
   it("combines lines using getline", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/data.txt": `key1
 value1

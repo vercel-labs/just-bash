@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 import { OverlayFs } from "./OverlayFs.js";
 
 describe("OverlayFs", () => {
@@ -84,7 +84,7 @@ describe("OverlayFs", () => {
     it("should work with BashEnv at mount point", async () => {
       fs.writeFileSync(path.join(tempDir, "file.txt"), "hello");
       const overlay = new OverlayFs({ root: tempDir });
-      const env = new BashEnv({ fs: overlay, cwd: overlay.getMountPoint() });
+      const env = new Bash({ fs: overlay, cwd: overlay.getMountPoint() });
 
       const result = await env.exec("cat file.txt");
       expect(result.stdout).toBe("hello");
@@ -551,7 +551,7 @@ describe("OverlayFs", () => {
         mountPoint: "/",
         readOnly: true,
       });
-      const env = new BashEnv({ fs: overlay, cwd: "/" });
+      const env = new Bash({ fs: overlay, cwd: "/" });
 
       // Read should work
       const readResult = await env.exec("cat /data.txt");
@@ -572,7 +572,7 @@ describe("OverlayFs", () => {
     it("should work with BashEnv for basic commands", async () => {
       fs.writeFileSync(path.join(tempDir, "input.txt"), "hello world");
       const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
-      const env = new BashEnv({ fs: overlay });
+      const env = new Bash({ fs: overlay });
 
       const result = await env.exec("cat /input.txt");
       expect(result.stdout).toBe("hello world");
@@ -581,7 +581,7 @@ describe("OverlayFs", () => {
 
     it("should allow writing without affecting real fs", async () => {
       const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
-      const env = new BashEnv({ fs: overlay });
+      const env = new Bash({ fs: overlay });
 
       await env.exec('echo "new content" > /output.txt');
 
@@ -595,7 +595,7 @@ describe("OverlayFs", () => {
     it("should work with grep on real files", async () => {
       fs.writeFileSync(path.join(tempDir, "data.txt"), "apple\nbanana\ncherry");
       const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
-      const env = new BashEnv({ fs: overlay });
+      const env = new Bash({ fs: overlay });
 
       const result = await env.exec("grep banana /data.txt");
       expect(result.stdout).toBe("banana\n");
@@ -604,7 +604,7 @@ describe("OverlayFs", () => {
     it("should work with find on mixed real/memory files", async () => {
       fs.writeFileSync(path.join(tempDir, "real.txt"), "real");
       const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
-      const env = new BashEnv({ fs: overlay, cwd: "/" });
+      const env = new Bash({ fs: overlay, cwd: "/" });
 
       await env.exec('echo "memory" > /memory.txt');
 

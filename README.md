@@ -1,4 +1,4 @@
-# bash-env
+# just-bash
 
 A simulated bash environment with an in-memory virtual filesystem, written in TypeScript.
 
@@ -30,7 +30,7 @@ Supports optional network access via `curl` with secure-by-default URL filtering
 ## Security model
 
 - The shell only has access to the provided file system.
-- Execution is protected against infinite loops or recursion through. However, BashEnv is not fully robust against DOS from input. If you need to be robust against this, use process isolation at the OS level.
+- Execution is protected against infinite loops or recursion through. However, Bash is not fully robust against DOS from input. If you need to be robust against this, use process isolation at the OS level.
 - Binaries or even WASM are inherently unsupported (Use [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) or a similar product if a full VM is needed).
 - There is no network access by default.
 - Network access can be enabled, but requests are checked against URL prefix allow-lists and HTTP-method allow-lists. See [network access](#network-access) for details
@@ -38,7 +38,7 @@ Supports optional network access via `curl` with secure-by-default URL filtering
 ## Installation
 
 ```bash
-npm install bash-env
+npm install just-bash
 ```
 
 ## Usage
@@ -46,9 +46,9 @@ npm install bash-env
 ### Basic API
 
 ```typescript
-import { BashEnv } from "bash-env";
+import { Bash } from "just-bash";
 
-const env = new BashEnv();
+const env = new Bash();
 await env.exec('echo "Hello" > greeting.txt');
 const result = await env.exec("cat greeting.txt");
 console.log(result.stdout); // "Hello\n"
@@ -61,7 +61,7 @@ Each `exec()` is isolated—env vars, functions, and cwd don't persist across ca
 ### Configuration
 
 ```typescript
-const env = new BashEnv({
+const env = new Bash({
   files: { "/data/file.txt": "content" }, // Initial files
   env: { MY_VAR: "value" }, // Initial environment
   cwd: "/app", // Starting directory (default: /home/user)
@@ -77,11 +77,11 @@ await env.exec("echo $TEMP", { env: { TEMP: "value" }, cwd: "/tmp" });
 Seed the bash environment with files from a real directory. The agent can read but not write to the real filesystem - all changes stay in memory.
 
 ```typescript
-import { BashEnv, OverlayFs } from "bash-env";
+import { Bash, OverlayFs } from "just-bash";
 
 // Files are mounted at /home/user/project by default
 const overlay = new OverlayFs({ root: "/path/to/project" });
-const env = new BashEnv({ fs: overlay, cwd: overlay.getMountPoint() });
+const env = new Bash({ fs: overlay, cwd: overlay.getMountPoint() });
 
 // Reads come from the real filesystem
 await env.exec("cat package.json"); // reads /path/to/project/package.json
@@ -98,7 +98,7 @@ const overlay2 = new OverlayFs({ root: "/path/to/project", mountPoint: "/" });
 Creates a bash tool for use with the [AI SDK](https://ai-sdk.dev/):
 
 ```typescript
-import { createBashTool } from "bash-env/ai";
+import { createBashTool } from "just-bash/ai";
 import { generateText } from "ai";
 
 const bashTool = createBashTool({
@@ -116,10 +116,10 @@ See [`examples/bash-agent`](./examples/bash-agent) for a full implementation.
 
 ### Vercel Sandbox Compatible API
 
-BashEnv provides a `Sandbox` class that's API-compatible with [`@vercel/sandbox`](https://vercel.com/docs/vercel-sandbox), making it easy to swap implementations. You can start with BashEnv and switch to a real sandbox when you need the power of a full VM (e.g. to run node, python, or custom binaries).
+Bash provides a `Sandbox` class that's API-compatible with [`@vercel/sandbox`](https://vercel.com/docs/vercel-sandbox), making it easy to swap implementations. You can start with Bash and switch to a real sandbox when you need the power of a full VM (e.g. to run node, python, or custom binaries).
 
 ```typescript
-import { Sandbox } from "bash-env";
+import { Sandbox } from "just-bash";
 
 // Create a sandbox instance
 const sandbox = await Sandbox.create({ cwd: "/app" });
@@ -141,29 +141,29 @@ const content = await sandbox.readFile("/app/data.json");
 // Create directories
 await sandbox.mkDir("/app/logs", { recursive: true });
 
-// Clean up (no-op for BashEnv, but API-compatible)
+// Clean up (no-op for Bash, but API-compatible)
 await sandbox.stop();
 ```
 
 ### CLI Binary
 
-After installing globally (`npm install -g bash-env`), use the `bash-env` command as a secure alternative to `bash` for AI agents:
+After installing globally (`npm install -g just-bash`), use the `just-bash` command as a secure alternative to `bash` for AI agents:
 
 ```bash
 # Execute inline script
-bash-env -c 'ls -la && cat package.json | head -5'
+just-bash -c 'ls -la && cat package.json | head -5'
 
 # Execute with specific project root
-bash-env -c 'grep -r "TODO" src/' --root /path/to/project
+just-bash -c 'grep -r "TODO" src/' --root /path/to/project
 
 # Pipe script from stdin
-echo 'find . -name "*.ts" | wc -l' | bash-env
+echo 'find . -name "*.ts" | wc -l' | just-bash
 
 # Execute a script file
-bash-env ./scripts/deploy.sh
+just-bash ./scripts/deploy.sh
 
 # Get JSON output for programmatic use
-bash-env -c 'echo hello' --json
+just-bash -c 'echo hello' --json
 # Output: {"stdout":"hello\n","stderr":"","exitCode":0}
 ```
 
@@ -230,7 +230,7 @@ All commands support `--help` for usage information.
 
 ## Default Layout
 
-When created without options, BashEnv provides a Unix-like directory structure:
+When created without options, Bash provides a Unix-like directory structure:
 
 - `/home/user` - Default working directory (and `$HOME`)
 - `/bin` - Contains stubs for all built-in commands
@@ -245,7 +245,7 @@ Network access (and the `curl` command) is disabled by default for security. To 
 
 ```typescript
 // Allow specific URLs with GET/HEAD only (safest)
-const env = new BashEnv({
+const env = new Bash({
   network: {
     allowedUrlPrefixes: [
       "https://api.github.com/repos/myorg/",
@@ -255,7 +255,7 @@ const env = new BashEnv({
 });
 
 // Allow specific URLs with additional methods
-const env = new BashEnv({
+const env = new Bash({
   network: {
     allowedUrlPrefixes: ["https://api.example.com"],
     allowedMethods: ["GET", "HEAD", "POST"], // Default: ["GET", "HEAD"]
@@ -263,7 +263,7 @@ const env = new BashEnv({
 });
 
 // Allow all URLs and methods (use with caution)
-const env = new BashEnv({
+const env = new Bash({
   network: { dangerouslyAllowFullInternetAccess: true },
 });
 ```
@@ -295,10 +295,10 @@ curl -X POST -H "Content-Type: application/json" \
 
 ## Execution Protection
 
-BashEnv protects against infinite loops and deep recursion with configurable limits:
+Bash protects against infinite loops and deep recursion with configurable limits:
 
 ```typescript
-const env = new BashEnv({
+const env = new Bash({
   executionLimits: {
     maxCallDepth: 100, // Max function recursion depth
     maxCommandCount: 10000, // Max total commands executed

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("cp with binary files", () => {
   it("should copy binary file preserving content", async () => {
     const data = new Uint8Array([0x00, 0xff, 0x00, 0xff, 0x7f]);
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/src.bin": data },
     });
 

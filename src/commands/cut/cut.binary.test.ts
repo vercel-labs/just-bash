@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("cut with binary content", () => {
   it("should cut fields from binary file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/data.bin": new Uint8Array([
           0x61,

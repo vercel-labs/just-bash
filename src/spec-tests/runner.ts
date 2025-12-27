@@ -1,8 +1,8 @@
 /**
- * Spec test runner - executes parsed spec tests against BashEnv
+ * Spec test runner - executes parsed spec tests against Bash
  */
 
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 import {
   getAcceptableStatuses,
   getExpectedStatus,
@@ -35,8 +35,8 @@ export interface RunOptions {
   filter?: RegExp;
   /** Skip tests requiring external commands */
   skipExternal?: boolean;
-  /** Custom BashEnv options */
-  bashEnvOptions?: ConstructorParameters<typeof BashEnv>[0];
+  /** Custom Bash options */
+  bashEnvOptions?: ConstructorParameters<typeof Bash>[0];
 }
 
 /**
@@ -89,9 +89,9 @@ export async function runTestCase(
     };
   }
 
-  // Create a fresh BashEnv for each test
+  // Create a fresh Bash for each test
   // Note: Don't use dotfiles here as they interfere with glob tests like "echo .*"
-  const env = new BashEnv({
+  const env = new Bash({
     files: {
       "/tmp/_keep": "",
       // Set up /dev/zero as a character device placeholder

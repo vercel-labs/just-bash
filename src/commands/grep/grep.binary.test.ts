@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("grep with binary files", () => {
   it("should find pattern in binary file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/binary.bin": new Uint8Array([
           0x66,
@@ -24,7 +24,7 @@ describe("grep with binary files", () => {
   });
 
   it("should handle binary content with matches", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/binary.bin": new Uint8Array([
           0x00,

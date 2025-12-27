@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("tree command", () => {
   describe("basic usage", () => {
     it("should display directory tree", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/project/src/main.ts": "code",
           "/project/src/utils.ts": "utils",
@@ -20,7 +20,7 @@ describe("tree command", () => {
     });
 
     it("should show summary at end", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/file1.txt": "a",
           "/dir/file2.txt": "b",
@@ -33,7 +33,7 @@ describe("tree command", () => {
     });
 
     it("should handle empty directory", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       await env.exec("mkdir /empty");
       const result = await env.exec("tree /empty");
       expect(result.stdout).toContain("/empty");
@@ -42,7 +42,7 @@ describe("tree command", () => {
     });
 
     it("should error on missing directory", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("tree /nonexistent");
       expect(result.stderr).toContain("No such file or directory");
       expect(result.exitCode).toBe(1);
@@ -51,7 +51,7 @@ describe("tree command", () => {
 
   describe("-a option", () => {
     it("should show hidden files with -a", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/.hidden": "hidden",
           "/dir/visible.txt": "visible",
@@ -63,7 +63,7 @@ describe("tree command", () => {
     });
 
     it("should hide hidden files without -a", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/.hidden": "hidden",
           "/dir/visible.txt": "visible",
@@ -77,7 +77,7 @@ describe("tree command", () => {
 
   describe("-d option", () => {
     it("should show only directories with -d", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/project/src/main.ts": "code",
           "/project/lib/helper.ts": "helper",
@@ -93,7 +93,7 @@ describe("tree command", () => {
 
   describe("-L option", () => {
     it("should limit depth with -L 1", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/deep/level1/level2/file.txt": "deep",
         },
@@ -104,7 +104,7 @@ describe("tree command", () => {
     });
 
     it("should limit depth with -L 2", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/deep/level1/level2/level3/file.txt": "deep",
         },
@@ -118,7 +118,7 @@ describe("tree command", () => {
 
   describe("-f option", () => {
     it("should show full path with -f", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/project/src/main.ts": "code",
         },
@@ -131,7 +131,7 @@ describe("tree command", () => {
 
   describe("help option", () => {
     it("should show help with --help", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("tree --help");
       expect(result.stdout).toContain("tree");
       expect(result.stdout).toContain("-a");

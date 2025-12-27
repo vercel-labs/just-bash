@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 /**
  * Comparison tests for parse errors
@@ -42,7 +42,7 @@ describe("Parse Errors - Comparison Tests", () => {
     command: string,
     files: Record<string, string> = {},
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> => {
-    const env = new BashEnv({ files, cwd: "/" });
+    const env = new Bash({ files, cwd: "/" });
     return env.exec(command);
   };
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 import {
   clearCommandCache,
   createLazyCommands,
@@ -32,7 +32,7 @@ describe("Command Registry", () => {
   it("should load command on first execution", async () => {
     expect(getLoadedCommandCount()).toBe(0);
 
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("echo hello world");
 
     expect(result.stdout).toBe("hello world\n");
@@ -41,7 +41,7 @@ describe("Command Registry", () => {
   });
 
   it("should cache commands after loading", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
 
     await env.exec("echo first");
     const countAfterFirst = getLoadedCommandCount();
@@ -54,7 +54,7 @@ describe("Command Registry", () => {
   });
 
   it("should load different commands independently", async () => {
-    const env = new BashEnv({ files: { "/test.txt": "content" } });
+    const env = new Bash({ files: { "/test.txt": "content" } });
 
     await env.exec("echo test");
     const countAfterEcho = getLoadedCommandCount();
@@ -66,7 +66,7 @@ describe("Command Registry", () => {
   });
 
   it("should clear cache correctly", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
 
     await env.exec("echo test");
     expect(getLoadedCommandCount()).toBeGreaterThan(0);

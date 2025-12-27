@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("grep", () => {
   it("should find matching lines", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "hello world\nfoo bar\nhello again\n" },
     });
     const result = await env.exec("grep hello /test.txt");
@@ -13,7 +13,7 @@ describe("grep", () => {
   });
 
   it("should return exit code 1 when no match", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "hello world\n" },
     });
     const result = await env.exec("grep missing /test.txt");
@@ -23,7 +23,7 @@ describe("grep", () => {
   });
 
   it("should be case sensitive by default", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "Hello\nhello\nHELLO\n" },
     });
     const result = await env.exec("grep hello /test.txt");
@@ -32,7 +32,7 @@ describe("grep", () => {
   });
 
   it("should be case insensitive with -i", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "Hello\nhello\nHELLO\n" },
     });
     const result = await env.exec("grep -i hello /test.txt");
@@ -41,7 +41,7 @@ describe("grep", () => {
   });
 
   it("should be case insensitive with --ignore-case", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "Hello\nhello\n" },
     });
     const result = await env.exec("grep --ignore-case hello /test.txt");
@@ -50,7 +50,7 @@ describe("grep", () => {
   });
 
   it("should show line numbers with -n", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "aaa\nbbb\naaa\n" },
     });
     const result = await env.exec("grep -n aaa /test.txt");
@@ -59,7 +59,7 @@ describe("grep", () => {
   });
 
   it("should show line numbers with --line-number", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "match\nno\nmatch\n" },
     });
     const result = await env.exec("grep --line-number match /test.txt");
@@ -68,7 +68,7 @@ describe("grep", () => {
   });
 
   it("should invert match with -v", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "keep\nremove\nkeep\n" },
     });
     const result = await env.exec("grep -v remove /test.txt");
@@ -77,7 +77,7 @@ describe("grep", () => {
   });
 
   it("should invert match with --invert-match", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "yes\nno\nyes\n" },
     });
     const result = await env.exec("grep --invert-match no /test.txt");
@@ -86,7 +86,7 @@ describe("grep", () => {
   });
 
   it("should count matches with -c", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "a\nb\na\na\n" },
     });
     const result = await env.exec("grep -c a /test.txt");
@@ -95,7 +95,7 @@ describe("grep", () => {
   });
 
   it("should count matches with --count", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "x\nx\ny\n" },
     });
     const result = await env.exec("grep --count x /test.txt");
@@ -104,7 +104,7 @@ describe("grep", () => {
   });
 
   it("should list files with matches using -l", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a.txt": "found here\n",
         "/b.txt": "nothing\n",
@@ -117,7 +117,7 @@ describe("grep", () => {
   });
 
   it("should list files with --files-with-matches", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a.txt": "yes\n",
         "/b.txt": "no\n",
@@ -131,7 +131,7 @@ describe("grep", () => {
   });
 
   it("should search recursively with -r", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/dir/root.txt": "needle here\n",
         "/dir/sub/file.txt": "another needle\n",
@@ -145,7 +145,7 @@ describe("grep", () => {
   });
 
   it("should search recursively with -R", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/dir/file.txt": "findme\n" },
     });
     const result = await env.exec("grep -R findme /dir");
@@ -154,7 +154,7 @@ describe("grep", () => {
   });
 
   it("should match whole words with -w", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "cat\ncats\ncat dog\ncaterpillar\n" },
     });
     const result = await env.exec("grep -w cat /test.txt");
@@ -163,7 +163,7 @@ describe("grep", () => {
   });
 
   it("should match whole words with --word-regexp", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "the\ntheme\nthe end\n" },
     });
     const result = await env.exec("grep --word-regexp the /test.txt");
@@ -172,7 +172,7 @@ describe("grep", () => {
   });
 
   it("should support extended regex with -E", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "cat\ndog\nbird\n" },
     });
     const result = await env.exec('grep -E "cat|dog" /test.txt');
@@ -181,7 +181,7 @@ describe("grep", () => {
   });
 
   it("should support extended regex with --extended-regexp", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "abc\nabc123\nxyz\n" },
     });
     const result = await env.exec(
@@ -192,7 +192,7 @@ describe("grep", () => {
   });
 
   it("should use -e to specify pattern", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "hello\nworld\n" },
     });
     const result = await env.exec("grep -e hello /test.txt");
@@ -201,14 +201,14 @@ describe("grep", () => {
   });
 
   it("should read from stdin", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec('echo -e "foo\\nbar\\nfoo" | grep foo');
     expect(result.stdout).toBe("foo\nfoo\n");
     expect(result.stderr).toBe("");
   });
 
   it("should error on missing pattern", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("grep");
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("grep: missing pattern\n");
@@ -216,7 +216,7 @@ describe("grep", () => {
   });
 
   it("should error on missing file", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("grep pattern /missing.txt");
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe(
@@ -226,7 +226,7 @@ describe("grep", () => {
   });
 
   it("should combine -in flags", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "Hello\nhello\n" },
     });
     const result = await env.exec("grep -in hello /test.txt");
@@ -235,7 +235,7 @@ describe("grep", () => {
   });
 
   it("should show filename for multiple files", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a.txt": "match\n",
         "/b.txt": "match\n",
@@ -247,7 +247,7 @@ describe("grep", () => {
   });
 
   it("should match literal text without regex interpretation", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "hello\nworld\nhello world\n" },
     });
     const result = await env.exec('grep "hello world" /test.txt');
@@ -256,7 +256,7 @@ describe("grep", () => {
   });
 
   it("should skip directories in non-recursive mode", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/dir/file.txt": "content\n" },
     });
     const result = await env.exec("grep pattern /dir");
@@ -265,7 +265,7 @@ describe("grep", () => {
   });
 
   it("should count zero matches correctly with -c", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "no match here\n" },
     });
     const result = await env.exec("grep -c missing /test.txt");
@@ -276,7 +276,7 @@ describe("grep", () => {
   // Regex pattern tests
   describe("regex patterns", () => {
     it("should match beginning of line with ^", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello world\nworld hello\n" },
       });
       const result = await env.exec('grep "^hello" /test.txt');
@@ -284,7 +284,7 @@ describe("grep", () => {
     });
 
     it("should match end of line with $", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello world\nworld hello\n" },
       });
       const result = await env.exec('grep "hello$" /test.txt');
@@ -292,7 +292,7 @@ describe("grep", () => {
     });
 
     it("should match any character with .", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "cat\ncut\ncot\ncar\n" },
       });
       const result = await env.exec('grep "c.t" /test.txt');
@@ -300,7 +300,7 @@ describe("grep", () => {
     });
 
     it("should match zero or more with *", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "ac\nabc\nabbc\nabbbc\n" },
       });
       const result = await env.exec('grep "ab*c" /test.txt');
@@ -308,7 +308,7 @@ describe("grep", () => {
     });
 
     it("should match character class with []", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "cat\nbat\nrat\nhat\n" },
       });
       const result = await env.exec('grep "[cbr]at" /test.txt');
@@ -316,7 +316,7 @@ describe("grep", () => {
     });
 
     it("should match negated character class with [^]", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "cat\nbat\nrat\nhat\n" },
       });
       const result = await env.exec('grep "[^cbr]at" /test.txt');
@@ -324,7 +324,7 @@ describe("grep", () => {
     });
 
     it("should escape special regex characters in literal search", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "price: $100\nprice: 100\n" },
       });
       // To match literal $, escape it with \\$ (shell escaping gives grep \$)
@@ -333,7 +333,7 @@ describe("grep", () => {
     });
 
     it("should match digits with extended regex", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "abc\nabc123\n123abc\n" },
       });
       const result = await env.exec('grep -E "[0-9]+" /test.txt');
@@ -341,7 +341,7 @@ describe("grep", () => {
     });
 
     it("should match one or more with + in extended regex", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "ac\nabc\nabbc\n" },
       });
       const result = await env.exec('grep -E "ab+c" /test.txt');
@@ -349,7 +349,7 @@ describe("grep", () => {
     });
 
     it("should match optional with ? in extended regex", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "color\ncolour\ncolr\n" },
       });
       const result = await env.exec('grep -E "colou?r" /test.txt');
@@ -357,7 +357,7 @@ describe("grep", () => {
     });
 
     it("should match groups with () in extended regex", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "ab\nabab\nababab\nac\n" },
       });
       const result = await env.exec('grep -E "(ab)+" /test.txt');
@@ -368,7 +368,7 @@ describe("grep", () => {
   // Edge cases
   describe("edge cases", () => {
     it("should handle empty file", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/empty.txt": "" },
       });
       const result = await env.exec("grep pattern /empty.txt");
@@ -377,7 +377,7 @@ describe("grep", () => {
     });
 
     it("should handle file with only newlines", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/newlines.txt": "\n\n\n" },
       });
       const result = await env.exec('grep "." /newlines.txt');
@@ -386,7 +386,7 @@ describe("grep", () => {
     });
 
     it("should handle very long lines", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/long.txt": `${"a".repeat(10000)}needle${"b".repeat(10000)}\n`,
         },
@@ -397,7 +397,7 @@ describe("grep", () => {
     });
 
     it("should handle multiple matches on same line", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "foo bar foo baz foo\n" },
       });
       const result = await env.exec("grep foo /test.txt");
@@ -405,7 +405,7 @@ describe("grep", () => {
     });
 
     it("should handle pattern that matches entire line", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "exactmatch\nno\n" },
       });
       const result = await env.exec('grep "^exactmatch$" /test.txt');
@@ -413,7 +413,7 @@ describe("grep", () => {
     });
 
     it("should handle special characters in filenames", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/file-with-dash.txt": "content\n" },
       });
       const result = await env.exec("grep content /file-with-dash.txt");
@@ -421,7 +421,7 @@ describe("grep", () => {
     });
 
     it("should handle unicode content", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/unicode.txt": "hello\n\u4e2d\u6587\nworld\n" },
       });
       const result = await env.exec('grep "\u4e2d\u6587" /unicode.txt');
@@ -429,7 +429,7 @@ describe("grep", () => {
     });
 
     it("should handle tabs in content", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/tabs.txt": "col1\tcol2\tcol3\n" },
       });
       const result = await env.exec("grep col2 /tabs.txt");
@@ -440,7 +440,7 @@ describe("grep", () => {
   // Combined flags
   describe("combined flags", () => {
     it("should combine -i and -v (case insensitive invert)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "Hello\nWorld\nhello\n" },
       });
       const result = await env.exec("grep -iv hello /test.txt");
@@ -448,7 +448,7 @@ describe("grep", () => {
     });
 
     it("should combine -c and -i (count case insensitive)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "Hello\nhello\nHELLO\nworld\n" },
       });
       const result = await env.exec("grep -ci hello /test.txt");
@@ -456,7 +456,7 @@ describe("grep", () => {
     });
 
     it("should combine -n and -v (line numbers with invert)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "keep\nremove\nkeep\n" },
       });
       const result = await env.exec("grep -nv remove /test.txt");
@@ -464,7 +464,7 @@ describe("grep", () => {
     });
 
     it("should combine -l and -r (files with matches recursive)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/a.txt": "needle\n",
           "/dir/b.txt": "no match\n",
@@ -478,7 +478,7 @@ describe("grep", () => {
     });
 
     it("should combine -w and -i (whole word case insensitive)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "Cat\ncat\ncaterpillar\nCAT\n" },
       });
       const result = await env.exec("grep -wi cat /test.txt");
@@ -486,7 +486,7 @@ describe("grep", () => {
     });
 
     it("should combine -E and -i (extended regex case insensitive)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "CAT\nDOG\nbird\n" },
       });
       const result = await env.exec('grep -Ei "cat|dog" /test.txt');

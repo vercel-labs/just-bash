@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("head", () => {
   it("should show first 10 lines by default", async () => {
     const lines = `${Array.from({ length: 20 }, (_, i) => `line${i + 1}`).join("\n")}\n`;
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": lines },
     });
     const result = await env.exec("head /test.txt");
@@ -15,7 +15,7 @@ describe("head", () => {
   });
 
   it("should show specified number of lines with -n", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "a\nb\nc\nd\ne\n" },
     });
     const result = await env.exec("head -n 3 /test.txt");
@@ -23,7 +23,7 @@ describe("head", () => {
   });
 
   it("should show specified number of lines with -n attached", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "a\nb\nc\nd\ne\n" },
     });
     const result = await env.exec("head -n3 /test.txt");
@@ -31,7 +31,7 @@ describe("head", () => {
   });
 
   it("should show specified number of lines with -NUM", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "a\nb\nc\nd\ne\n" },
     });
     const result = await env.exec("head -2 /test.txt");
@@ -39,7 +39,7 @@ describe("head", () => {
   });
 
   it("should handle file with fewer lines than requested", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "a\nb\n" },
     });
     const result = await env.exec("head -n 10 /test.txt");
@@ -47,7 +47,7 @@ describe("head", () => {
   });
 
   it("should show headers for multiple files", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a.txt": "aaa\n",
         "/b.txt": "bbb\n",
@@ -61,7 +61,7 @@ describe("head", () => {
   });
 
   it("should error on missing file", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("head /missing.txt");
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe(
@@ -70,7 +70,7 @@ describe("head", () => {
   });
 
   it("should read from stdin", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec('echo -e "a\\nb\\nc\\nd\\ne" | head -n 2');
     expect(result.stdout).toContain("a");
     expect(result.stdout).toContain("b");
@@ -78,7 +78,7 @@ describe("head", () => {
   });
 
   it("should handle empty file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/empty.txt": "" },
     });
     const result = await env.exec("head /empty.txt");
@@ -86,7 +86,7 @@ describe("head", () => {
   });
 
   it("should handle head -n 1", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "first\nsecond\n" },
     });
     const result = await env.exec("head -n 1 /test.txt");
@@ -94,7 +94,7 @@ describe("head", () => {
   });
 
   it("should handle file without trailing newline", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "no newline" },
     });
     const result = await env.exec("head -n 1 /test.txt");
@@ -102,7 +102,7 @@ describe("head", () => {
   });
 
   it("should show first line only with -n 1", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "first\nsecond\nthird\n" },
     });
     const result = await env.exec("head -n 1 /test.txt");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 /**
  * Config Analysis Scenario
@@ -7,7 +7,7 @@ import { BashEnv } from "../BashEnv.js";
  */
 describe("Agent Scenario: Config Analysis", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/app/config/default.json": `{
   "port": 3000,

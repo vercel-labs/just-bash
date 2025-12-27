@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 /**
  * Text Processing Workflows for Coding Agents
@@ -10,7 +10,7 @@ import { BashEnv } from "../BashEnv.js";
 
 describe("Agent Workflow: Code Analysis with grep", () => {
   const createCodebaseEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/project/src/index.ts": `import { UserService } from './services/user';
 import { AuthService } from './services/auth';
@@ -181,7 +181,7 @@ export class AuthService {
 
 describe("Agent Workflow: Code Refactoring with sed", () => {
   const createRefactoringEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/project/config.ts": `export const config = {
   apiUrl: 'http://localhost:3000',
@@ -285,7 +285,7 @@ function setUserName(name) {
 
 describe("Agent Workflow: Data Extraction with awk", () => {
   const createDataEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/data/users.csv": `id,name,email,role,created_at
 1,Alice,alice@example.com,admin,2024-01-15
@@ -455,7 +455,7 @@ describe("Agent Workflow: Data Extraction with awk", () => {
 
 describe("Agent Workflow: Combined Pipeline Operations", () => {
   const createPipelineEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/project/src/components/Button.tsx": `import React from 'react';
 
@@ -616,7 +616,7 @@ export function useFetch<T>(url: string) {
 
 describe("Agent Workflow: awk pattern ranges for log sections", () => {
   const createLogEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/logs/server.log": `[2024-01-15 10:00:00] Server starting
 [2024-01-15 10:00:01] Loading config
@@ -765,7 +765,7 @@ END_RECORD`,
 
 describe("Agent Workflow: Text Sanitization with tr -c", () => {
   const createSanitizeEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/data/user-input.txt": `Hello! My email is user@example.com
 Phone: +1 (555) 123-4567
@@ -907,37 +907,37 @@ Stack trace follows...`,
 
 describe("Agent Workflow: printf formatting", () => {
   it("should format numbers with padding", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("printf '%05d\\n' 42");
     expect(result.stdout).toBe("00042\n");
   });
 
   it("should format floats with precision", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("printf '%.2f\\n' 3.14159");
     expect(result.stdout).toBe("3.14\n");
   });
 
   it("should format hex numbers", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("printf '%x\\n' 255");
     expect(result.stdout).toBe("ff\n");
   });
 
   it("should format with width specifier", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("printf '%10s\\n' hello");
     expect(result.stdout).toBe("     hello\n");
   });
 
   it("should left-justify with minus flag", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("printf '%-10s|\\n' hello");
     expect(result.stdout).toBe("hello     |\n");
   });
 
   it("should format table-like output", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     // %-10s = "Item" + 6 spaces (10 chars), space, %5d = 3 spaces + "42" (5 chars), space, %8.2f = 4 spaces + "3.14" (8 chars)
     const result = await env.exec("printf '%-10s %5d %8.2f\\n' Item 42 3.14");
     expect(result.stdout).toBe("Item          42     3.14\n");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 /**
  * Agent Scenario: Feature Implementation Workflow
@@ -15,8 +15,8 @@ import { BashEnv } from "../BashEnv.js";
  * adding true/false commands.
  */
 
-function createEnv(): BashEnv {
-  return new BashEnv({
+function createEnv(): Bash {
+  return new Bash({
     files: {
       // Main BashEnv implementation
       "/project/src/BashEnv.ts": `import { VirtualFs } from './fs.js';
@@ -30,7 +30,7 @@ export class BashEnv {
   private cwd: string;
   private commands: Map<string, Command> = new Map();
 
-  constructor(options: BashEnvOptions = {}) {
+  constructor(options: BashOptions = {}) {
     this.fs = new VirtualFs(options.files);
     this.cwd = options.cwd || '/';
 
@@ -127,11 +127,11 @@ export const lsCommand: Command = {
 
       // ls unit tests
       "/project/src/commands/ls/ls.test.ts": `import { describe, it, expect } from 'vitest';
-import { BashEnv } from '../../BashEnv.js';
+import { Bash } from '../../BashEnv.js';
 
 describe('ls command', () => {
   it('should list directory contents', async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { '/dir/file.txt': '' },
     });
     const result = await env.exec('ls /dir');
@@ -139,7 +139,7 @@ describe('ls command', () => {
   });
 
   it('should hide hidden files by default', async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         '/dir/.hidden': '',
         '/dir/visible.txt': '',
@@ -151,7 +151,7 @@ describe('ls command', () => {
   });
 
   it('should show hidden files with -a', async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         '/dir/.hidden': '',
         '/dir/visible.txt': '',
@@ -163,7 +163,7 @@ describe('ls command', () => {
 
   // Test expects -a to include . and ..
   it.skip('should include . and .. with -a flag', async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { '/dir/file.txt': '' },
     });
     const result = await env.exec('ls -a /dir');
@@ -173,7 +173,7 @@ describe('ls command', () => {
 
   // Test expects -A to NOT include . and ..
   it('should show hidden files with -A but not . and ..', async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         '/dir/.hidden': '',
         '/dir/visible.txt': '',
@@ -298,7 +298,7 @@ describe('grep command - Real Bash Comparison', () => {
 `,
 
       // Test helpers
-      "/project/src/comparison-tests/test-helpers.ts": `import { BashEnv } from '../BashEnv.js';
+      "/project/src/comparison-tests/test-helpers.ts": `import { Bash } from '../BashEnv.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
@@ -319,7 +319,7 @@ export async function cleanupTestDir(testDir: string): Promise<void> {
 export async function setupFiles(
   testDir: string,
   files: Record<string, string>
-): Promise<BashEnv> {
+): Promise<Bash> {
   for (const [filePath, content] of Object.entries(files)) {
     const fullPath = path.join(testDir, filePath);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -331,14 +331,14 @@ export async function setupFiles(
     bashEnvFiles[path.join(testDir, filePath)] = content;
   }
 
-  return new BashEnv({
+  return new Bash({
     files: bashEnvFiles,
     cwd: testDir,
   });
 }
 
 export async function compareOutputs(
-  env: BashEnv,
+  env: Bash,
   testDir: string,
   command: string
 ): Promise<void> {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 /**
  * Advanced Agent Scenario: Security Audit
@@ -12,7 +12,7 @@ import { BashEnv } from "../BashEnv.js";
  */
 describe("Agent Scenario: Security Audit", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/app/src/config.ts": `export const config = {
   apiKey: 'sk-1234567890abcdef',
@@ -272,7 +272,7 @@ DATABASE_URL
 
 describe("Agent Scenario: File Permission Audit with find -perm", () => {
   const createPermEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/server/bin/start.sh": {
           content: "#!/bin/bash\nnode app.js",

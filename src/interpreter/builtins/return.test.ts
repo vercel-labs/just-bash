@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("return builtin", () => {
   describe("basic return", () => {
     it("should return from function with default exit code", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           echo before
@@ -19,7 +19,7 @@ describe("return builtin", () => {
     });
 
     it("should return from function with specified exit code", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           return 42
@@ -31,7 +31,7 @@ describe("return builtin", () => {
     });
 
     it("should use last command exit code when no argument", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           false
@@ -44,7 +44,7 @@ describe("return builtin", () => {
     });
 
     it("should handle exit code 0", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           return 0
@@ -58,7 +58,7 @@ describe("return builtin", () => {
 
   describe("exit code modulo 256", () => {
     it("should wrap large exit codes", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           return 256
@@ -70,7 +70,7 @@ describe("return builtin", () => {
     });
 
     it("should handle 257 as 1", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           return 257
@@ -82,7 +82,7 @@ describe("return builtin", () => {
     });
 
     it("should handle negative numbers", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           return -1
@@ -96,7 +96,7 @@ describe("return builtin", () => {
 
   describe("error cases", () => {
     it("should error when not in function", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("return");
       expect(result.stderr).toContain(
         "can only `return' from a function or sourced script",
@@ -105,7 +105,7 @@ describe("return builtin", () => {
     });
 
     it("should error on non-numeric argument", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           return abc
@@ -119,7 +119,7 @@ describe("return builtin", () => {
 
   describe("nested functions", () => {
     it("should only return from innermost function", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         outer() {
           echo outer-start
@@ -139,7 +139,7 @@ describe("return builtin", () => {
     });
 
     it("should propagate return through control flow", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           for i in 1 2 3; do
@@ -159,7 +159,7 @@ describe("return builtin", () => {
 
   describe("return with output", () => {
     it("should preserve stdout before return", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           echo line1
@@ -173,7 +173,7 @@ describe("return builtin", () => {
     });
 
     it("should preserve stderr before return", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       // Use a command that actually produces stderr (command not found)
       const result = await env.exec(`
         myfunc() {

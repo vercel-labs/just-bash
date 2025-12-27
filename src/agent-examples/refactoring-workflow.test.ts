@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 /**
  * Advanced Agent Scenario: Refactoring Workflow
@@ -11,7 +11,7 @@ import { BashEnv } from "../BashEnv.js";
  */
 describe("Agent Scenario: Refactoring Workflow", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/project/src/utils/string.ts": `export function formatUserName(first: string, last: string): string {
   return \`\${first} \${last}\`;
@@ -247,7 +247,7 @@ export function formatFullName_deprecated(name: string): string {
 
 describe("Agent Scenario: Advanced sed for Code Transformations", () => {
   const createAdvancedEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/code/imports.ts": `import { foo } from './foo';
 import { bar } from './bar';

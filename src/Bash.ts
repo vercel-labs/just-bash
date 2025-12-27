@@ -1,5 +1,5 @@
 /**
- * BashEnv - Bash Shell Environment
+ * Bash - Bash Shell Environment
  *
  * A complete bash-like shell environment using a proper AST-based architecture:
  *   Input → Parser → AST → Interpreter → Output
@@ -37,7 +37,7 @@ import type { BashExecResult, Command, CommandRegistry } from "./types.js";
 
 export type { ExecutionLimits } from "./limits.js";
 
-export interface BashEnvOptions {
+export interface BashOptions {
   files?: InitialFiles;
   env?: Record<string, string>;
   cwd?: string;
@@ -97,7 +97,7 @@ export interface ExecOptions {
   rawScript?: boolean;
 }
 
-export class BashEnv {
+export class Bash {
   readonly fs: IFileSystem;
   private commands: CommandRegistry = new Map();
   private useDefaultLayout: boolean = false;
@@ -108,7 +108,7 @@ export class BashEnv {
   // Interpreter state (shared with interpreter instances)
   private state: InterpreterState;
 
-  constructor(options: BashEnvOptions = {}) {
+  constructor(options: BashOptions = {}) {
     const fs = options.fs ?? new VirtualFs(options.files);
     this.fs = fs;
 

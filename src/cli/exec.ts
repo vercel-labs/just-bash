@@ -1,5 +1,5 @@
 /**
- * CLI tool for executing bash scripts using BashEnv.
+ * CLI tool for executing bash scripts using Bash.
  *
  * Reads a bash script from stdin, parses it to an AST, executes it,
  * and outputs the AST, exit code, stderr, and stdout.
@@ -21,7 +21,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 import { parse } from "../parser/parser.js";
 
 const showAst = process.argv.includes("--print-ast");
@@ -66,7 +66,7 @@ if (showAst) {
   console.log("AST: Request with --print-ast");
 }
 
-const env = new BashEnv();
+const env = new Bash();
 const r = await env.exec(script);
 console.log("exitCode:", r.exitCode);
 console.log("stderr:", JSON.stringify(r.stderr));

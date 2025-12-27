@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("shift builtin", () => {
   describe("basic shift", () => {
     it("should shift positional parameters by 1", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           echo "before: $1 $2 $3"
@@ -17,7 +17,7 @@ describe("shift builtin", () => {
     });
 
     it("should update $# after shift", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           echo "count: $#"
@@ -30,7 +30,7 @@ describe("shift builtin", () => {
     });
 
     it("should update $@ after shift", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           echo "args: $@"
@@ -45,7 +45,7 @@ describe("shift builtin", () => {
 
   describe("shift with count", () => {
     it("should shift by specified count", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           echo "before: $1 $2 $3 $4"
@@ -58,7 +58,7 @@ describe("shift builtin", () => {
     });
 
     it("should shift all parameters", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           shift 3
@@ -70,7 +70,7 @@ describe("shift builtin", () => {
     });
 
     it("should handle shift 0", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           shift 0
@@ -85,7 +85,7 @@ describe("shift builtin", () => {
 
   describe("error cases", () => {
     it("should error when shift count exceeds parameters", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           shift 5
@@ -97,7 +97,7 @@ describe("shift builtin", () => {
     });
 
     it("should error on negative count", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           shift -1
@@ -109,7 +109,7 @@ describe("shift builtin", () => {
     });
 
     it("should error on non-numeric argument", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           shift abc
@@ -123,7 +123,7 @@ describe("shift builtin", () => {
 
   describe("multiple shifts", () => {
     it("should handle consecutive shifts", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           echo $1
@@ -138,7 +138,7 @@ describe("shift builtin", () => {
     });
 
     it("should work in a loop", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           while [ $# -gt 0 ]; do
@@ -154,7 +154,7 @@ describe("shift builtin", () => {
 
   describe("nested functions", () => {
     it("should only affect current function scope", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         outer() {
           inner() {
@@ -172,7 +172,7 @@ describe("shift builtin", () => {
 
   describe("edge cases", () => {
     it("should work with no parameters", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           shift
@@ -184,7 +184,7 @@ describe("shift builtin", () => {
     });
 
     it("should work with single parameter", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         myfunc() {
           echo "before: $1"

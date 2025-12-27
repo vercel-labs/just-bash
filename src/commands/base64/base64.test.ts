@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("base64", () => {
   describe("encoding", () => {
     it("should encode string from stdin", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo -n "hello" | base64');
       expect(result.stdout).toBe("aGVsbG8=\n");
       expect(result.stderr).toBe("");
@@ -12,7 +12,7 @@ describe("base64", () => {
     });
 
     it("should encode string with newline", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "hello" | base64');
       expect(result.stdout).toBe("aGVsbG8K\n");
       expect(result.stderr).toBe("");
@@ -20,7 +20,7 @@ describe("base64", () => {
     });
 
     it("should encode file contents", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello" },
       });
       const result = await env.exec("base64 /test.txt");
@@ -30,7 +30,7 @@ describe("base64", () => {
     });
 
     it("should wrap lines at 76 characters by default", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       // Long input that will produce > 76 chars of base64
       const result = await env.exec(
         'echo -n "This is a very long string that will definitely produce more than 76 characters of base64 output" | base64',
@@ -41,7 +41,7 @@ describe("base64", () => {
     });
 
     it("should not wrap with -w 0", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         'echo -n "This is a very long string that will definitely produce more than 76 characters of base64 output" | base64 -w 0',
       );
@@ -51,7 +51,7 @@ describe("base64", () => {
     });
 
     it("should wrap at custom width", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         'echo -n "hello world test" | base64 -w 10',
       );
@@ -65,7 +65,7 @@ describe("base64", () => {
 
   describe("decoding", () => {
     it("should decode base64 with -d", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "aGVsbG8=" | base64 -d');
       expect(result.stdout).toBe("hello");
       expect(result.stderr).toBe("");
@@ -73,7 +73,7 @@ describe("base64", () => {
     });
 
     it("should decode base64 with --decode", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "aGVsbG8=" | base64 --decode');
       expect(result.stdout).toBe("hello");
       expect(result.stderr).toBe("");
@@ -81,7 +81,7 @@ describe("base64", () => {
     });
 
     it("should decode base64 from file", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/encoded.txt": "aGVsbG8gd29ybGQ=" },
       });
       const result = await env.exec("base64 -d /encoded.txt");
@@ -91,14 +91,14 @@ describe("base64", () => {
     });
 
     it("should ignore whitespace when decoding", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "aGVs\nbG8=" | base64 -d');
       expect(result.stdout).toBe("hello");
       expect(result.exitCode).toBe(0);
     });
 
     it("should roundtrip encode then decode", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         'echo -n "test data 123" | base64 | base64 -d',
       );
@@ -109,7 +109,7 @@ describe("base64", () => {
 
   describe("error handling", () => {
     it("should error on missing file", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("base64 /nonexistent.txt");
       expect(result.stdout).toBe("");
       expect(result.stderr).toBe(
@@ -119,14 +119,14 @@ describe("base64", () => {
     });
 
     it("should error on unknown option", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("base64 --unknown");
       expect(result.stderr).toContain("unrecognized option");
       expect(result.exitCode).toBe(1);
     });
 
     it("should error on unknown short option", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("base64 -z");
       expect(result.stderr).toContain("invalid option");
       expect(result.exitCode).toBe(1);
@@ -135,7 +135,7 @@ describe("base64", () => {
 
   describe("help", () => {
     it("should show help with --help", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("base64 --help");
       expect(result.stdout).toContain("base64");
       expect(result.stdout).toContain("decode");
@@ -145,7 +145,7 @@ describe("base64", () => {
 
   describe("stdin placeholder", () => {
     it("should read from stdin with -", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo -n "test" | base64 -');
       expect(result.stdout).toBe("dGVzdA==\n");
       expect(result.exitCode).toBe(0);

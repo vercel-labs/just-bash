@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("xargs command", () => {
   describe("basic usage", () => {
     it("should execute echo by default", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "a b c" | xargs');
       expect(result.stdout).toBe("a b c\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should execute specified command", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/file1.txt": "content1",
           "/file2.txt": "content2",
@@ -22,7 +22,7 @@ describe("xargs command", () => {
     });
 
     it("should handle empty input", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "" | xargs');
       expect(result.stdout).toBe("");
       expect(result.exitCode).toBe(0);
@@ -31,19 +31,19 @@ describe("xargs command", () => {
 
   describe("-n option (batch size)", () => {
     it("should batch with -n 1", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "a b c" | xargs -n 1 echo');
       expect(result.stdout).toBe("a\nb\nc\n");
     });
 
     it("should batch with -n 2", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "a b c d" | xargs -n 2 echo');
       expect(result.stdout).toBe("a b\nc d\n");
     });
 
     it("should handle partial last batch", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "a b c" | xargs -n 2 echo');
       expect(result.stdout).toBe("a b\nc\n");
     });
@@ -51,7 +51,7 @@ describe("xargs command", () => {
 
   describe("-I option (replace string)", () => {
     it("should replace placeholder with input", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         'echo "a\nb\nc" | xargs -I {} echo file-{}',
       );
@@ -59,13 +59,13 @@ describe("xargs command", () => {
     });
 
     it("should replace multiple occurrences", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "x" | xargs -I % echo %-%');
       expect(result.stdout).toBe("x-x\n");
     });
 
     it("should work with file operations", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/src/a.txt": "content-a",
           "/src/b.txt": "content-b",
@@ -80,7 +80,7 @@ describe("xargs command", () => {
 
   describe("-0 option (null separator)", () => {
     it("should split on null character", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       // Create input with null-separated items (simulated via file)
       await env.exec('echo -n "a" > /items.txt');
       // Note: Our echo doesn't handle -n yet, so let's test differently
@@ -92,7 +92,7 @@ describe("xargs command", () => {
 
   describe("-t option (verbose)", () => {
     it("should print commands to stderr", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "x y" | xargs -t echo');
       expect(result.stdout).toBe("x y\n");
       expect(result.stderr).toBe("echo x y\n");
@@ -101,7 +101,7 @@ describe("xargs command", () => {
 
   describe("-r option (no-run-if-empty)", () => {
     it("should not run command when input is empty", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "" | xargs -r echo "nonempty"');
       expect(result.stdout).toBe("");
       expect(result.exitCode).toBe(0);
@@ -110,7 +110,7 @@ describe("xargs command", () => {
 
   describe("real-world patterns", () => {
     it("should process files with grep results", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/src/app.ts": "const x = 1;\nconst y = 2;",
           "/src/lib.ts": "export const z = 3;",
@@ -126,7 +126,7 @@ describe("xargs command", () => {
     });
 
     it("should handle find | xargs rm pattern", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/tmp/file1.tmp": "temp1",
           "/tmp/file2.tmp": "temp2",
@@ -143,7 +143,7 @@ describe("xargs command", () => {
     });
 
     it("should work with -I for complex transformations", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/files/a": "original-a",
           "/files/b": "original-b",
@@ -163,7 +163,7 @@ describe("xargs command", () => {
 
   describe("exit codes", () => {
     it("should propagate command failure exit code", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "missing.txt" | xargs cat');
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("No such file");
@@ -172,7 +172,7 @@ describe("xargs command", () => {
 
   describe("help option", () => {
     it("should show help with --help", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("xargs --help");
       expect(result.stdout).toContain("xargs");
       expect(result.stdout).toContain("build and execute");

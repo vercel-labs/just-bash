@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("awk pattern ranges", () => {
   it("prints lines between START and END markers", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/data.txt": `before
 START
@@ -19,7 +19,7 @@ after`,
   });
 
   it("handles multiple ranges in same file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/data.txt": `before
 BEGIN
@@ -38,7 +38,7 @@ after`,
   });
 
   it("handles range with action", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/data.txt": `before
 START
@@ -56,7 +56,7 @@ after`,
   });
 
   it("handles single-line range (start and end match same line)", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/data.txt": `before
 START END
@@ -69,7 +69,7 @@ after`,
   });
 
   it("handles range that extends to end of file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/data.txt": `before
 START
@@ -83,7 +83,7 @@ line2`,
   });
 
   it("handles range with regex patterns", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/data.txt": `line1
 header: foo
@@ -99,7 +99,7 @@ line2`,
   });
 
   it("works with numbered conditions in range", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/data.txt": `line1
 line2

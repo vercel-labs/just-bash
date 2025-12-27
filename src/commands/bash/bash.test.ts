@@ -1,24 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("bash/sh command", () => {
   describe("bash -c", () => {
     it("should execute command string with -c", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('bash -c "echo hello"');
       expect(result.stdout).toBe("hello\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should execute multiple commands with -c", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('bash -c "echo one; echo two"');
       expect(result.stdout).toBe("one\ntwo\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should pass positional arguments to -c", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       // Use single quotes to prevent outer shell expansion of $1 and $2
       const result = await env.exec("bash -c 'echo $1 $2' _ foo bar");
       expect(result.stdout).toBe("foo bar\n");
@@ -28,14 +28,14 @@ describe("bash/sh command", () => {
 
   describe("sh -c", () => {
     it("should execute command string with -c", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('sh -c "echo hello"');
       expect(result.stdout).toBe("hello\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should pass positional arguments to -c", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       // Use single quotes to prevent outer shell expansion of $1
       const result = await env.exec("sh -c 'echo $1' _ world");
       expect(result.stdout).toBe("world\n");
@@ -45,7 +45,7 @@ describe("bash/sh command", () => {
 
   describe("script file execution", () => {
     it("should execute a simple script file", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/scripts/hello.sh": 'echo "Hello, World!"',
         },
@@ -56,7 +56,7 @@ describe("bash/sh command", () => {
     });
 
     it("should execute script with shebang", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/scripts/script.sh": '#!/bin/bash\necho "from shebang script"',
         },
@@ -67,7 +67,7 @@ describe("bash/sh command", () => {
     });
 
     it("should pass arguments to script", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/scripts/greet.sh": 'echo "Hello, $1!"',
         },
@@ -78,7 +78,7 @@ describe("bash/sh command", () => {
     });
 
     it("should support $# for argument count", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/scripts/count.sh": 'echo "Got $# arguments"',
         },
@@ -89,7 +89,7 @@ describe("bash/sh command", () => {
     });
 
     it("should support $@ for all arguments", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/scripts/all.sh": 'echo "Args: $@"',
         },
@@ -100,7 +100,7 @@ describe("bash/sh command", () => {
     });
 
     it("should return error for non-existent script", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("bash /nonexistent.sh");
       expect(result.stderr).toBe(
         "bash: /nonexistent.sh: No such file or directory\n",
@@ -109,7 +109,7 @@ describe("bash/sh command", () => {
     });
 
     it("should execute script with multiple commands", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/scripts/multi.sh": `echo "Line 1"
 echo "Line 2"
@@ -122,7 +122,7 @@ echo "Line 3"`,
     });
 
     it("should execute sh scripts", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/scripts/test.sh": 'echo "from sh"',
         },
@@ -135,7 +135,7 @@ echo "Line 3"`,
 
   describe("script with complex operations", () => {
     it("should handle script with environment variable", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/scripts/vars.sh": 'echo "Hello $NAME"',
         },
@@ -147,7 +147,7 @@ echo "Line 3"`,
     });
 
     it("should handle script with file operations", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/scripts/fileop.sh": `echo "content" > /tmp/test.txt
 cat /tmp/test.txt`,
@@ -159,7 +159,7 @@ cat /tmp/test.txt`,
     });
 
     it("should handle script with pipes", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/scripts/pipes.sh": 'echo -e "foo\\nbar\\nbaz" | grep bar',
         },
@@ -172,13 +172,13 @@ cat /tmp/test.txt`,
 
   describe("no arguments", () => {
     it("bash without arguments should succeed", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("bash");
       expect(result.exitCode).toBe(0);
     });
 
     it("sh without arguments should succeed", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("sh");
       expect(result.exitCode).toBe(0);
     });
@@ -186,7 +186,7 @@ cat /tmp/test.txt`,
 
   describe("--help", () => {
     it("bash --help should show usage", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("bash --help");
       expect(result.stdout).toContain("bash");
       expect(result.stdout).toContain("-c");
@@ -194,7 +194,7 @@ cat /tmp/test.txt`,
     });
 
     it("sh --help should show usage", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("sh --help");
       expect(result.stdout).toContain("sh");
       expect(result.exitCode).toBe(0);

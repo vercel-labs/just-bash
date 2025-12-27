@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 describe("Here Documents <<EOF", () => {
   it("should pass here document content as stdin to cat", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`cat <<EOF
 hello world
 EOF`);
@@ -12,7 +12,7 @@ EOF`);
   });
 
   it("should handle multiple lines", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`cat <<END
 line 1
 line 2
@@ -23,7 +23,7 @@ END`);
   });
 
   it("should expand variables in here document", async () => {
-    const env = new BashEnv({ env: { NAME: "Alice" } });
+    const env = new Bash({ env: { NAME: "Alice" } });
     const result = await env.exec(`cat <<EOF
 Hello, $NAME!
 EOF`);
@@ -32,7 +32,7 @@ EOF`);
   });
 
   it("should NOT expand variables when delimiter is quoted", async () => {
-    const env = new BashEnv({ env: { NAME: "Alice" } });
+    const env = new Bash({ env: { NAME: "Alice" } });
     const result = await env.exec(`cat <<'EOF'
 Hello, $NAME!
 EOF`);
@@ -41,7 +41,7 @@ EOF`);
   });
 
   it("should work with double-quoted delimiter", async () => {
-    const env = new BashEnv({ env: { NAME: "Alice" } });
+    const env = new Bash({ env: { NAME: "Alice" } });
     const result = await env.exec(`cat <<"EOF"
 Hello, $NAME!
 EOF`);
@@ -50,7 +50,7 @@ EOF`);
   });
 
   it("should work with wc command", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`wc -l <<EOF
 one
 two
@@ -61,7 +61,7 @@ EOF`);
   });
 
   it("should work with grep", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`grep world <<EOF
 hello world
 goodbye world
@@ -72,7 +72,7 @@ EOF`);
   });
 
   it("should handle empty here document", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`cat <<EOF
 EOF`);
     expect(result.stdout).toBe("");
@@ -80,7 +80,7 @@ EOF`);
   });
 
   it("should handle here document with empty line", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`cat <<EOF
 
 EOF`);
@@ -89,7 +89,7 @@ EOF`);
   });
 
   it("should work in pipes", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`cat <<EOF | grep hello
 hello world
 goodbye world
@@ -99,7 +99,7 @@ EOF`);
   });
 
   it("should handle different delimiters", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`cat <<MYDELIM
 content here
 MYDELIM`);
@@ -108,7 +108,7 @@ MYDELIM`);
   });
 
   it("should expand command substitution in here document", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`cat <<EOF
 Today is $(echo wonderful)
 EOF`);
@@ -117,7 +117,7 @@ EOF`);
   });
 
   it("should handle multiple commands with here document", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`cat <<EOF
 hello
 EOF

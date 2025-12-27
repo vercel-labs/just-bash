@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("cp", () => {
   it("should copy file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/src.txt": "content" },
     });
     const result = await env.exec("cp /src.txt /dst.txt");
@@ -13,7 +13,7 @@ describe("cp", () => {
   });
 
   it("should preserve original file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/src.txt": "content" },
     });
     await env.exec("cp /src.txt /dst.txt");
@@ -22,7 +22,7 @@ describe("cp", () => {
   });
 
   it("should overwrite existing destination", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/src.txt": "new content",
         "/dst.txt": "old content",
@@ -34,7 +34,7 @@ describe("cp", () => {
   });
 
   it("should copy to directory", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/src.txt": "content",
         "/dir/.keep": "",
@@ -46,7 +46,7 @@ describe("cp", () => {
   });
 
   it("should copy multiple files to directory", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a.txt": "aaa",
         "/b.txt": "bbb",
@@ -59,7 +59,7 @@ describe("cp", () => {
   });
 
   it("should error when copying multiple files to non-directory", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a.txt": "",
         "/b.txt": "",
@@ -71,7 +71,7 @@ describe("cp", () => {
   });
 
   it("should error when copying directory without -r", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/srcdir/file.txt": "content" },
     });
     const result = await env.exec("cp /srcdir /dstdir");
@@ -80,7 +80,7 @@ describe("cp", () => {
   });
 
   it("should copy directory with -r", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/srcdir/file.txt": "content" },
     });
     const result = await env.exec("cp -r /srcdir /dstdir");
@@ -90,7 +90,7 @@ describe("cp", () => {
   });
 
   it("should copy directory with -R", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/srcdir/file.txt": "content" },
     });
     await env.exec("cp -R /srcdir /dstdir");
@@ -99,7 +99,7 @@ describe("cp", () => {
   });
 
   it("should copy nested directories with -r", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/src/a/b/c.txt": "deep",
         "/src/root.txt": "root",
@@ -111,7 +111,7 @@ describe("cp", () => {
   });
 
   it("should copy with --recursive flag", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/srcdir/file.txt": "content" },
     });
     await env.exec("cp --recursive /srcdir /dstdir");
@@ -120,7 +120,7 @@ describe("cp", () => {
   });
 
   it("should error on missing source", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("cp /missing.txt /dst.txt");
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe(
@@ -129,7 +129,7 @@ describe("cp", () => {
   });
 
   it("should error with missing destination", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/src.txt": "" },
     });
     const result = await env.exec("cp /src.txt");
@@ -138,7 +138,7 @@ describe("cp", () => {
   });
 
   it("should copy with relative paths", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/home/user/src.txt": "content" },
       cwd: "/home/user",
     });

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("chmod command", () => {
   describe("octal mode", () => {
     it("should change file permissions with octal mode", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello" },
       });
       const result = await env.exec("chmod 755 /test.txt");
@@ -16,7 +16,7 @@ describe("chmod command", () => {
     });
 
     it("should change to read-only mode", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello" },
       });
       await env.exec("chmod 444 /test.txt");
@@ -28,7 +28,7 @@ describe("chmod command", () => {
 
   describe("symbolic mode", () => {
     it("should add execute permission with u+x", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/script.sh": "#!/bin/bash" },
       });
       // Default mode is 644 (rw-r--r--)
@@ -39,7 +39,7 @@ describe("chmod command", () => {
     });
 
     it("should add execute for all with a+x", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/script.sh": "#!/bin/bash" },
       });
       await env.exec("chmod a+x /script.sh");
@@ -49,7 +49,7 @@ describe("chmod command", () => {
     });
 
     it("should remove write permission with g-w", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello" },
       });
       await env.exec("chmod 664 /test.txt"); // rw-rw-r--
@@ -60,7 +60,7 @@ describe("chmod command", () => {
     });
 
     it("should set exact permissions with =", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello" },
       });
       await env.exec("chmod u=rwx /test.txt");
@@ -72,7 +72,7 @@ describe("chmod command", () => {
 
   describe("multiple files", () => {
     it("should change permissions on multiple files", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "a",
           "/b.txt": "b",
@@ -90,7 +90,7 @@ describe("chmod command", () => {
 
   describe("recursive mode", () => {
     it("should change permissions recursively with -R", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/a.txt": "a",
           "/dir/sub/b.txt": "b",
@@ -108,21 +108,21 @@ describe("chmod command", () => {
 
   describe("error handling", () => {
     it("should error on missing operand", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("chmod");
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("missing operand");
     });
 
     it("should error on missing file", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("chmod 755 /nonexistent");
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("No such file");
     });
 
     it("should error on invalid mode", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello" },
       });
       const result = await env.exec("chmod xyz /test.txt");
@@ -131,7 +131,7 @@ describe("chmod command", () => {
     });
 
     it("should show help with --help", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("chmod --help");
       expect(result.stdout).toContain("chmod");
       expect(result.stdout).toContain("change file mode");

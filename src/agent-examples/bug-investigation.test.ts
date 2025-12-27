@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 /**
  * Bug Investigation Scenario
@@ -7,7 +7,7 @@ import { BashEnv } from "../BashEnv.js";
  */
 describe("Agent Scenario: Bug Investigation", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/project/src/utils/format.ts": `export function formatPrice(price: number): string {
   return '$' + price.toFixed(2);

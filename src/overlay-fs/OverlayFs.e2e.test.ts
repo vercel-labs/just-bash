@@ -9,18 +9,18 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 import { OverlayFs } from "./OverlayFs.js";
 
 describe("BashEnv with OverlayFs - E2E", () => {
   let tempDir: string;
   let overlay: OverlayFs;
-  let env: BashEnv;
+  let env: Bash;
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "overlay-e2e-"));
     overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
-    env = new BashEnv({ fs: overlay, cwd: "/" });
+    env = new Bash({ fs: overlay, cwd: "/" });
   });
 
   afterEach(() => {
@@ -468,7 +468,7 @@ describe("BashEnv with OverlayFs - E2E", () => {
 
   describe("environment and variables", () => {
     it("should use environment variables", async () => {
-      const envWithVars = new BashEnv({
+      const envWithVars = new Bash({
         fs: overlay,
         cwd: "/",
         env: { MY_VAR: "test_value" },
@@ -594,7 +594,7 @@ describe("BashEnv with OverlayFs - E2E", () => {
 
       // Create second overlay with same root
       const overlay2 = new OverlayFs({ root: tempDir, mountPoint: "/" });
-      const env2 = new BashEnv({ fs: overlay2, cwd: "/" });
+      const env2 = new Bash({ fs: overlay2, cwd: "/" });
 
       // Second overlay should not see first overlay's writes
       const result = await env2.exec("cat /shared.txt");

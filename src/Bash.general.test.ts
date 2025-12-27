@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "./BashEnv.js";
+import { Bash } from "./Bash.js";
 
-describe("BashEnv General", () => {
+describe("Bash General", () => {
   describe("pipes", () => {
     it("should pipe output between commands", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello\nworld\nhello\n" },
       });
       const result = await env.exec("cat /test.txt | grep hello");
@@ -12,7 +12,7 @@ describe("BashEnv General", () => {
     });
 
     it("should support multiple pipes", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "line1\nline2\nline3\nline4\nline5\n" },
       });
       const result = await env.exec("cat /test.txt | head -n 3 | tail -n 1");
@@ -20,19 +20,19 @@ describe("BashEnv General", () => {
     });
 
     it("should pipe echo to grep", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo -e "foo\\nbar\\nfoo" | grep foo');
       expect(result.stdout).toBe("foo\nfoo\n");
     });
 
     it("should pipe through wc", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo -e "one\\ntwo\\nthree" | wc -l');
       expect(result.stdout.trim()).toBe("3");
     });
 
     it("should pipe ls to grep", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/file.txt": "",
           "/dir/file.md": "",
@@ -46,13 +46,13 @@ describe("BashEnv General", () => {
     });
 
     it("should handle long pipe chains", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "hello world" | cat | cat | cat');
       expect(result.stdout).toBe("hello world\n");
     });
 
     it("should pass exit code through pipe", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "no match\n" },
       });
       const result = await env.exec("cat /test.txt | grep missing");
@@ -62,14 +62,14 @@ describe("BashEnv General", () => {
 
   describe("output redirection", () => {
     it("should redirect output to file with >", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       await env.exec("echo hello > /output.txt");
       const content = await env.readFile("/output.txt");
       expect(content).toBe("hello\n");
     });
 
     it("should overwrite existing file with >", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/output.txt": "old content\n" },
       });
       await env.exec("echo new > /output.txt");
@@ -78,7 +78,7 @@ describe("BashEnv General", () => {
     });
 
     it("should append with >>", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/output.txt": "line1\n" },
       });
       await env.exec("echo line2 >> /output.txt");
@@ -87,14 +87,14 @@ describe("BashEnv General", () => {
     });
 
     it("should create file when appending to non-existent", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       await env.exec("echo first >> /new.txt");
       const content = await env.readFile("/new.txt");
       expect(content).toBe("first\n");
     });
 
     it("should redirect command output to file", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/input.txt": "hello world\n" },
       });
       await env.exec("cat /input.txt > /output.txt");
@@ -103,7 +103,7 @@ describe("BashEnv General", () => {
     });
 
     it("should redirect simple output to file", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       await env.exec('echo "line 1" > /output.txt');
       await env.exec('echo "line 2" >> /output.txt');
       const content = await env.readFile("/output.txt");
@@ -111,7 +111,7 @@ describe("BashEnv General", () => {
     });
 
     it("should handle redirection with spaces", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       await env.exec("echo test   >   /output.txt");
       const content = await env.readFile("/output.txt");
       expect(content).toBe("test\n");
@@ -120,7 +120,7 @@ describe("BashEnv General", () => {
 
   describe("environment variables", () => {
     it("should expand $VAR", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         env: { NAME: "world" },
       });
       const result = await env.exec("echo hello $NAME");
@@ -128,7 +128,7 @@ describe("BashEnv General", () => {
     });
 
     it("should expand ${VAR}", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         env: { NAME: "world" },
       });
       const result = await env.exec("echo hello ${NAME}");
@@ -136,7 +136,7 @@ describe("BashEnv General", () => {
     });
 
     it("should expand ${VAR} adjacent to text", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         env: { PREFIX: "pre" },
       });
       const result = await env.exec("echo ${PREFIX}fix");
@@ -144,13 +144,13 @@ describe("BashEnv General", () => {
     });
 
     it("should handle default values with ${VAR:-default}", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("echo ${MISSING:-default}");
       expect(result.stdout).toBe("default\n");
     });
 
     it("should use value when set with ${VAR:-default}", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         env: { SET: "value" },
       });
       const result = await env.exec("echo ${SET:-default}");
@@ -158,26 +158,26 @@ describe("BashEnv General", () => {
     });
 
     it("should expand empty for unset variable", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "value:$UNSET:"');
       expect(result.stdout).toBe("value::\n");
     });
 
     it("should set variables with export (within same exec)", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       // Each exec is a new shell - export only persists within the same exec
       const result = await env.exec("export FOO=bar; echo $FOO");
       expect(result.stdout).toBe("bar\n");
     });
 
     it("should set multiple variables with export (within same exec)", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("export A=1 B=2 C=3; echo $A $B $C");
       expect(result.stdout).toBe("1 2 3\n");
     });
 
     it("should unset variables (within same exec)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         env: { FOO: "bar" },
       });
       // unset only affects the current exec
@@ -186,7 +186,7 @@ describe("BashEnv General", () => {
     });
 
     it("should unset multiple variables (within same exec)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         env: { A: "1", B: "2" },
       });
       const result = await env.exec('unset A B; echo "$A$B"');
@@ -194,7 +194,7 @@ describe("BashEnv General", () => {
     });
 
     it("export does not persist across exec calls", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       await env.exec("export FOO=bar");
       // Each exec is a new shell - FOO is not set
       const result = await env.exec("echo $FOO");
@@ -202,32 +202,32 @@ describe("BashEnv General", () => {
     });
 
     it("should return final env in result", async () => {
-      const env = new BashEnv({ env: { INITIAL: "value" } });
+      const env = new Bash({ env: { INITIAL: "value" } });
       const result = await env.exec("export NEW_VAR=hello");
       expect(result.env.INITIAL).toBe("value");
       expect(result.env.NEW_VAR).toBe("hello");
     });
 
     it("should return env with modified values", async () => {
-      const env = new BashEnv({ env: { FOO: "original" } });
+      const env = new Bash({ env: { FOO: "original" } });
       const result = await env.exec("export FOO=modified");
       expect(result.env.FOO).toBe("modified");
     });
 
     it("should return env with unset values removed", async () => {
-      const env = new BashEnv({ env: { TO_REMOVE: "value" } });
+      const env = new Bash({ env: { TO_REMOVE: "value" } });
       const result = await env.exec("unset TO_REMOVE");
       expect(result.env.TO_REMOVE).toBeUndefined();
     });
 
     it("should return env even for empty command", async () => {
-      const env = new BashEnv({ env: { EXISTING: "value" } });
+      const env = new Bash({ env: { EXISTING: "value" } });
       const result = await env.exec("");
       expect(result.env.EXISTING).toBe("value");
     });
 
     it("should use HOME variable", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         env: { HOME: "/home/user" },
       });
       const result = await env.exec("echo $HOME");
@@ -235,7 +235,7 @@ describe("BashEnv General", () => {
     });
 
     it("should expand variable in path", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/home/user/file.txt": "content" },
         env: { HOME: "/home/user" },
       });
@@ -244,7 +244,7 @@ describe("BashEnv General", () => {
     });
 
     it("should expand multiple variables in one line", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         env: { A: "hello", B: "world" },
       });
       const result = await env.exec("echo $A $B");
@@ -252,7 +252,7 @@ describe("BashEnv General", () => {
     });
 
     it("should expand variables in double quotes", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         env: { VAR: "value" },
       });
       const result = await env.exec('echo "$VAR"');
@@ -262,26 +262,26 @@ describe("BashEnv General", () => {
 
   describe("command chaining", () => {
     it("should run commands with &&", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("echo first && echo second");
       expect(result.stdout).toBe("first\nsecond\n");
     });
 
     it("should not run second command if first fails with &&", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("cat /missing && echo second");
       expect(result.stdout).not.toContain("second");
       expect(result.exitCode).toBe(1);
     });
 
     it("should run second command with || if first fails", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("cat /missing || echo fallback");
       expect(result.stdout).toBe("fallback\n");
     });
 
     it("should stop at first success with ||", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/marker.txt": "" },
       });
       // When first command succeeds, || should stop there
@@ -300,32 +300,32 @@ describe("BashEnv General", () => {
     });
 
     it("should run commands with ; regardless of exit code", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("echo first ; echo second");
       expect(result.stdout).toBe("first\nsecond\n");
     });
 
     it("should run commands with ; even if first fails", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("cat /missing ; echo second");
       expect(result.stdout).toContain("second");
     });
 
     it("should chain multiple && operators", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("echo a && echo b && echo c");
       expect(result.stdout).toBe("a\nb\nc\n");
     });
 
     it("should short-circuit && chain on failure", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("echo a && cat /missing && echo c");
       expect(result.stdout).toContain("a");
       expect(result.stdout).not.toContain("c");
     });
 
     it("should chain || operators", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         "cat /missing || cat /missing2 || echo fallback",
       );
@@ -333,7 +333,7 @@ describe("BashEnv General", () => {
     });
 
     it("should combine && and ||", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         "cat /missing && echo success || echo failure",
       );
@@ -344,38 +344,38 @@ describe("BashEnv General", () => {
 
   describe("exit codes", () => {
     it("should return 0 for successful command", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("echo hello");
       expect(result.exitCode).toBe(0);
     });
 
     it("should return non-zero for failed command", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("cat /missing");
       expect(result.exitCode).not.toBe(0);
     });
 
     it("should return 127 for unknown command", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("unknowncommand");
       expect(result.exitCode).toBe(127);
       expect(result.stderr).toContain("command not found");
     });
 
     it("should handle exit command", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("exit 0");
       expect(result.exitCode).toBe(0);
     });
 
     it("should handle exit with non-zero code", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("exit 42");
       expect(result.exitCode).toBe(42);
     });
 
     it("should return exit code from last command in pipe", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("echo test | grep missing");
       expect(result.exitCode).toBe(1);
     });
@@ -383,7 +383,7 @@ describe("BashEnv General", () => {
 
   describe("cd command", () => {
     it("should change directory within same exec", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/home/user/.keep": "" },
       });
       // cd works within the same exec
@@ -392,7 +392,7 @@ describe("BashEnv General", () => {
     });
 
     it("cd does not persist across exec calls", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/home/user/.keep": "" },
         cwd: "/",
       });
@@ -404,7 +404,7 @@ describe("BashEnv General", () => {
     });
 
     it("should go to HOME with cd alone", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/home/.keep": "" },
         env: { HOME: "/home" },
         cwd: "/tmp",
@@ -414,7 +414,7 @@ describe("BashEnv General", () => {
     });
 
     it("should go to HOME with cd ~", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/home/user/.keep": "" },
         env: { HOME: "/home/user" },
         cwd: "/tmp",
@@ -424,7 +424,7 @@ describe("BashEnv General", () => {
     });
 
     it("should handle cd - within same exec", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir1/.keep": "",
           "/dir2/.keep": "",
@@ -436,7 +436,7 @@ describe("BashEnv General", () => {
     });
 
     it("should handle cd ..", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/parent/child/.keep": "" },
         cwd: "/parent/child",
       });
@@ -445,14 +445,14 @@ describe("BashEnv General", () => {
     });
 
     it("should error on non-existent directory", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("cd /nonexistent");
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("No such file or directory");
     });
 
     it("should error when cd to file", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/file.txt": "content" },
       });
       const result = await env.exec("cd /file.txt");
@@ -461,7 +461,7 @@ describe("BashEnv General", () => {
     });
 
     it("should handle relative path cd", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/home/user/projects/.keep": "" },
         cwd: "/home/user",
       });
@@ -472,31 +472,31 @@ describe("BashEnv General", () => {
 
   describe("quoting", () => {
     it("should preserve spaces in double quotes", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "hello   world"');
       expect(result.stdout).toBe("hello   world\n");
     });
 
     it("should preserve spaces in single quotes", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("echo 'hello   world'");
       expect(result.stdout).toBe("hello   world\n");
     });
 
     it("should handle nested quotes", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "it\'s working"');
       expect(result.stdout).toBe("it's working\n");
     });
 
     it("should handle escaped quotes in double quotes", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "say \\"hello\\""');
       expect(result.stdout).toBe('say "hello"\n');
     });
 
     it("should handle empty string argument", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo ""');
       expect(result.stdout).toBe("\n");
     });
@@ -504,7 +504,7 @@ describe("BashEnv General", () => {
 
   describe("file access API", () => {
     it("should read files via API", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "content" },
       });
       const content = await env.readFile("/test.txt");
@@ -512,14 +512,14 @@ describe("BashEnv General", () => {
     });
 
     it("should write files via API", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       await env.writeFile("/test.txt", "new content");
       const content = await env.readFile("/test.txt");
       expect(content).toBe("new content");
     });
 
     it("should read relative paths via API", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/home/user/file.txt": "content" },
         cwd: "/home/user",
       });
@@ -528,7 +528,7 @@ describe("BashEnv General", () => {
     });
 
     it("should write relative paths via API", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/home/user/.keep": "" },
         cwd: "/home/user",
       });
@@ -538,12 +538,12 @@ describe("BashEnv General", () => {
     });
 
     it("should get current working directory", async () => {
-      const env = new BashEnv({ cwd: "/home/user" });
+      const env = new Bash({ cwd: "/home/user" });
       expect(env.getCwd()).toBe("/home/user");
     });
 
     it("should get environment variables", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         env: { FOO: "bar", BAZ: "qux" },
       });
       const envVars = env.getEnv();
@@ -554,26 +554,26 @@ describe("BashEnv General", () => {
 
   describe("empty and whitespace", () => {
     it("should handle empty command", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("");
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toBe("");
     });
 
     it("should handle whitespace-only command", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("   ");
       expect(result.exitCode).toBe(0);
     });
 
     it("should handle command with extra whitespace", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("   echo   hello   world   ");
       expect(result.stdout).toBe("hello world\n");
     });
 
     it("should handle tabs as whitespace", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("echo\thello\tworld");
       expect(result.stdout).toBe("hello world\n");
     });
@@ -581,12 +581,12 @@ describe("BashEnv General", () => {
 
   describe("default layout", () => {
     it("should create /home/user as default cwd", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       expect(env.getCwd()).toBe("/home/user");
     });
 
     it("should create /bin with command stubs", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("ls /bin");
       expect(result.stdout).toContain("ls");
       expect(result.stdout).toContain("cat");
@@ -595,25 +595,25 @@ describe("BashEnv General", () => {
     });
 
     it("should create /tmp directory", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("ls /tmp");
       expect(result.exitCode).toBe(0);
     });
 
     it("should allow running commands via /bin path", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("/bin/echo hello");
       expect(result.stdout).toBe("hello\n");
     });
 
     it("should set HOME to /home/user", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("echo $HOME");
       expect(result.stdout).toBe("/home/user\n");
     });
 
     it("should not create default layout when files are provided", async () => {
-      const env = new BashEnv({ files: { "/test.txt": "content" } });
+      const env = new Bash({ files: { "/test.txt": "content" } });
       expect(env.getCwd()).toBe("/");
       // /bin always exists for PATH-based command resolution, but /home/user doesn't
       const result = await env.exec("ls /home/user");
@@ -622,7 +622,7 @@ describe("BashEnv General", () => {
     });
 
     it("should not create default layout when cwd is provided", async () => {
-      const env = new BashEnv({ cwd: "/custom" });
+      const env = new Bash({ cwd: "/custom" });
       // /bin always exists for PATH-based command resolution, but /home/user doesn't
       const result = await env.exec("ls /home/user");
       expect(result.exitCode).not.toBe(0); // /home/user doesn't exist

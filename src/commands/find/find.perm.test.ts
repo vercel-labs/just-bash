@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("find -perm", () => {
   describe("exact mode matching", () => {
     it("finds files with exact permission 644", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/test/file1.txt": { content: "a", mode: 0o644 },
           "/test/file2.txt": { content: "b", mode: 0o755 },
@@ -20,7 +20,7 @@ describe("find -perm", () => {
     });
 
     it("finds files with exact permission 755", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/test/script.sh": { content: "#!/bin/bash", mode: 0o755 },
           "/test/data.txt": { content: "data", mode: 0o644 },
@@ -34,7 +34,7 @@ describe("find -perm", () => {
 
   describe("-mode (all bits set)", () => {
     it("finds files with at least user execute", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/test/exec.sh": { content: "a", mode: 0o755 },
           "/test/data.txt": { content: "b", mode: 0o644 },
@@ -51,7 +51,7 @@ describe("find -perm", () => {
     });
 
     it("finds files with user+group read", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/test/readable.txt": { content: "a", mode: 0o644 },
           "/test/private.txt": { content: "b", mode: 0o600 },
@@ -66,7 +66,7 @@ describe("find -perm", () => {
 
   describe("/mode (any bit set)", () => {
     it("finds files with any execute bit", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/test/user_exec.sh": { content: "a", mode: 0o700 },
           "/test/group_exec.sh": { content: "b", mode: 0o070 },

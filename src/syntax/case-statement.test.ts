@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 describe("Case Statement", () => {
   it("should match exact pattern", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`
       case hello in
         hello) echo "matched hello";;
@@ -15,7 +15,7 @@ describe("Case Statement", () => {
   });
 
   it("should match wildcard pattern", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`
       case "anything" in
         specific) echo "specific";;
@@ -27,7 +27,7 @@ describe("Case Statement", () => {
   });
 
   it("should match glob patterns", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`
       case "hello.txt" in
         *.txt) echo "text file";;
@@ -40,7 +40,7 @@ describe("Case Statement", () => {
   });
 
   it("should match multiple patterns with |", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`
       case "yes" in
         y|yes|Y|YES) echo "confirmed";;
@@ -53,7 +53,7 @@ describe("Case Statement", () => {
   });
 
   it("should work with variables", async () => {
-    const env = new BashEnv({ env: { FRUIT: "apple" } });
+    const env = new Bash({ env: { FRUIT: "apple" } });
     const result = await env.exec(`
       case $FRUIT in
         apple) echo "It's an apple";;
@@ -66,7 +66,7 @@ describe("Case Statement", () => {
   });
 
   it("should execute only first matching branch", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`
       case "test" in
         test) echo "first";;
@@ -79,7 +79,7 @@ describe("Case Statement", () => {
   });
 
   it("should handle no match (empty output)", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`
       case "nomatch" in
         a) echo "a";;
@@ -91,7 +91,7 @@ describe("Case Statement", () => {
   });
 
   it("should handle single-line case", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(
       'case "x" in x) echo "X";; y) echo "Y";; esac',
     );
@@ -100,7 +100,7 @@ describe("Case Statement", () => {
   });
 
   it("should handle question mark wildcard", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`
       case "abc" in
         a?c) echo "matches";;
@@ -112,7 +112,7 @@ describe("Case Statement", () => {
   });
 
   it("should handle character class", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`
       case "b" in
         [abc]) echo "a, b, or c";;
@@ -125,7 +125,7 @@ describe("Case Statement", () => {
   });
 
   it("should handle pattern with prefix wildcard", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`
       case "myfile.bak" in
         *.bak) echo "backup file";;
@@ -137,7 +137,7 @@ describe("Case Statement", () => {
   });
 
   it("should handle multiple commands in branch", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`
       case "multi" in
         multi)
@@ -152,7 +152,7 @@ describe("Case Statement", () => {
   });
 
   it("should work with command substitution in case word", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`
       case $(echo test) in
         test) echo "matched";;
@@ -164,7 +164,7 @@ describe("Case Statement", () => {
   });
 
   it("should handle last branch without ;;", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`
       case "default" in
         a) echo "a";;
@@ -176,7 +176,7 @@ describe("Case Statement", () => {
   });
 
   it("should match numbers", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`
       case "42" in
         [0-9]) echo "single digit";;
@@ -189,7 +189,7 @@ describe("Case Statement", () => {
   });
 
   it("should handle optional opening paren", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec(`
       case "test" in
         (test) echo "with paren";;

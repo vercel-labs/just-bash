@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "./BashEnv.js";
+import { Bash } from "./Bash.js";
 import { getCommandNames } from "./commands/registry.js";
 
-describe("BashEnv commands filtering", () => {
+describe("Bash commands filtering", () => {
   it("registers all commands by default", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
 
     // Check that common commands are available
     const echoResult = await env.exec("echo hello");
@@ -18,7 +18,7 @@ describe("BashEnv commands filtering", () => {
   });
 
   it("only registers specified commands", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       commands: ["echo", "cat"],
     });
 
@@ -37,7 +37,7 @@ describe("BashEnv commands filtering", () => {
   });
 
   it("grep is not available when not in commands list", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       commands: ["echo", "cat"],
     });
 
@@ -58,7 +58,7 @@ describe("BashEnv commands filtering", () => {
   });
 
   it("empty commands array means no commands", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       commands: [],
     });
 
@@ -68,7 +68,7 @@ describe("BashEnv commands filtering", () => {
   });
 
   it("can use a subset of file commands", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       commands: ["ls", "cat", "mkdir"],
       files: { "/test.txt": "hello" },
     });

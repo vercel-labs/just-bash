@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 /**
  * Code Review Scenario
@@ -7,7 +7,7 @@ import { BashEnv } from "../BashEnv.js";
  */
 describe("Agent Scenario: Code Review", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/project/package.json": `{
   "name": "my-app",

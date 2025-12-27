@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("tee with binary files", () => {
   it("should write binary content to file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/input.bin": new Uint8Array([0x48, 0x69, 0x0a]), // Hi\n
       },

@@ -4,7 +4,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 import { createMockFetch, originalFetch } from "./shared.js";
 
 describe("allow-list mock verification", () => {
@@ -23,7 +23,7 @@ describe("allow-list mock verification", () => {
   it("never calls fetch for blocked URLs", async () => {
     mockFetch.mockClear();
 
-    const env = new BashEnv({
+    const env = new Bash({
       network: { allowedUrlPrefixes: ["https://allowed.com"] },
     });
 
@@ -35,7 +35,7 @@ describe("allow-list mock verification", () => {
   it("calls fetch only for allowed URLs", async () => {
     mockFetch.mockClear();
 
-    const env = new BashEnv({
+    const env = new Bash({
       network: { allowedUrlPrefixes: ["https://api.example.com"] },
     });
 
@@ -48,7 +48,7 @@ describe("allow-list mock verification", () => {
   it("does not call fetch for multiple blocked URLs", async () => {
     mockFetch.mockClear();
 
-    const env = new BashEnv({
+    const env = new Bash({
       network: { allowedUrlPrefixes: ["https://api.example.com"] },
     });
 
@@ -62,7 +62,7 @@ describe("allow-list mock verification", () => {
   it("calls fetch once per allowed request", async () => {
     mockFetch.mockClear();
 
-    const env = new BashEnv({
+    const env = new Bash({
       network: { allowedUrlPrefixes: ["https://api.example.com"] },
     });
 
@@ -77,7 +77,7 @@ describe("allow-list mock verification", () => {
   it("does not call fetch for redirect target when blocked", async () => {
     mockFetch.mockClear();
 
-    const env = new BashEnv({
+    const env = new Bash({
       network: { allowedUrlPrefixes: ["https://api.example.com"] },
     });
 
@@ -92,7 +92,7 @@ describe("allow-list mock verification", () => {
   it("calls fetch for both URLs in allowed redirect chain", async () => {
     mockFetch.mockClear();
 
-    const env = new BashEnv({
+    const env = new Bash({
       network: { allowedUrlPrefixes: ["https://api.example.com"] },
     });
 

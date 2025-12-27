@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("stat command", () => {
   describe("basic usage", () => {
     it("should display file info", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/test.txt": "hello world",
         },
@@ -16,7 +16,7 @@ describe("stat command", () => {
     });
 
     it("should display directory info", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/mydir/file.txt": "content",
         },
@@ -28,14 +28,14 @@ describe("stat command", () => {
     });
 
     it("should error on missing file", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("stat /nonexistent");
       expect(result.stderr).toContain("No such file or directory");
       expect(result.exitCode).toBe(1);
     });
 
     it("should error without operand", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("stat");
       expect(result.stderr).toContain("missing operand");
       expect(result.exitCode).toBe(1);
@@ -44,7 +44,7 @@ describe("stat command", () => {
 
   describe("-c option (format)", () => {
     it("should format with %n (filename)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello" },
       });
       const result = await env.exec('stat -c "%n" /test.txt');
@@ -52,7 +52,7 @@ describe("stat command", () => {
     });
 
     it("should format with %s (size)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello" },
       });
       const result = await env.exec('stat -c "%s" /test.txt');
@@ -60,7 +60,7 @@ describe("stat command", () => {
     });
 
     it("should format with %F (file type)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/mydir/file.txt": "content" },
       });
       const fileResult = await env.exec('stat -c "%F" /mydir/file.txt');
@@ -71,7 +71,7 @@ describe("stat command", () => {
     });
 
     it("should format with combined specifiers", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello world" },
       });
       const result = await env.exec('stat -c "%n: %s bytes" /test.txt');
@@ -81,7 +81,7 @@ describe("stat command", () => {
 
   describe("multiple files", () => {
     it("should stat multiple files", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "aaa",
           "/b.txt": "bbbbb",
@@ -93,7 +93,7 @@ describe("stat command", () => {
     });
 
     it("should continue on error", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/exists.txt": "yes" },
       });
       const result = await env.exec("stat /exists.txt /missing.txt");
@@ -105,7 +105,7 @@ describe("stat command", () => {
 
   describe("help option", () => {
     it("should show help with --help", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("stat --help");
       expect(result.stdout).toContain("stat");
       expect(result.stdout).toContain("-c");

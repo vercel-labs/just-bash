@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("continue builtin", () => {
   describe("basic continue", () => {
     it("should skip to next iteration in for loop", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         for i in 1 2 3 4 5; do
           if [ $i -eq 3 ]; then continue; fi
@@ -17,7 +17,7 @@ describe("continue builtin", () => {
     });
 
     it("should skip to next iteration in while loop", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         x=0
         while [ $x -lt 5 ]; do
@@ -32,7 +32,7 @@ describe("continue builtin", () => {
     });
 
     it("should skip to next iteration in until loop", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         x=0
         until [ $x -ge 5 ]; do
@@ -49,7 +49,7 @@ describe("continue builtin", () => {
 
   describe("continue with level argument", () => {
     it("should continue multiple levels with continue n", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         for i in 1 2; do
           for j in a b c; do
@@ -65,7 +65,7 @@ describe("continue builtin", () => {
     });
 
     it("should continue single level with continue 1", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         for i in 1 2 3; do
           if [ $i -eq 2 ]; then continue 1; fi
@@ -76,7 +76,7 @@ describe("continue builtin", () => {
     });
 
     it("should handle continue with level exceeding loop depth", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         for i in 1 2 3; do
           if [ $i -eq 2 ]; then continue 10; fi
@@ -91,7 +91,7 @@ describe("continue builtin", () => {
 
   describe("error cases", () => {
     it("should silently do nothing when not in loop", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("continue");
       // In bash, continue outside a loop silently does nothing
       expect(result.stderr).toBe("");
@@ -99,7 +99,7 @@ describe("continue builtin", () => {
     });
 
     it("should error on invalid argument", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         for i in 1 2 3; do
           continue abc
@@ -110,7 +110,7 @@ describe("continue builtin", () => {
     });
 
     it("should error on zero argument", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         for i in 1 2 3; do
           continue 0
@@ -121,7 +121,7 @@ describe("continue builtin", () => {
     });
 
     it("should error on negative argument", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         for i in 1 2 3; do
           continue -1
@@ -132,7 +132,7 @@ describe("continue builtin", () => {
     });
 
     it("should break on too many arguments (bash behavior)", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         for x in a b c; do
           echo $x
@@ -148,7 +148,7 @@ describe("continue builtin", () => {
 
   describe("continue in nested constructs", () => {
     it("should work with case statements inside loops", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         for x in a b c; do
           case $x in
@@ -162,7 +162,7 @@ describe("continue builtin", () => {
     });
 
     it("should work with if statements inside loops", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         for i in 1 2 3 4 5; do
           if [ $i -eq 2 ] || [ $i -eq 4 ]; then
@@ -175,7 +175,7 @@ describe("continue builtin", () => {
     });
 
     it("should work in function inside loop", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         skip_even() {
           if [ $(($1 % 2)) -eq 0 ]; then
@@ -194,7 +194,7 @@ describe("continue builtin", () => {
 
   describe("continue in C-style for loop", () => {
     it("should continue in C-style for loop", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         for ((i=1; i<=5; i++)); do
           if [ $i -eq 3 ]; then continue; fi
@@ -205,7 +205,7 @@ describe("continue builtin", () => {
     });
 
     it("should run update expression after continue", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         for ((i=0; i<5; i++)); do
           if [ $i -lt 3 ]; then continue; fi

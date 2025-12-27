@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("ls -h (human-readable)", () => {
   it("displays bytes for small files", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/small.txt": { content: "a".repeat(100) },
       },
@@ -15,7 +15,7 @@ describe("ls -h (human-readable)", () => {
   });
 
   it("displays K for kilobyte-sized files", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/medium.txt": { content: "a".repeat(1536) }, // 1.5K
       },
@@ -27,7 +27,7 @@ describe("ls -h (human-readable)", () => {
   });
 
   it("displays rounded K for larger KB files", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/data.txt": { content: "a".repeat(15 * 1024) }, // 15K
       },
@@ -39,7 +39,7 @@ describe("ls -h (human-readable)", () => {
   });
 
   it("displays M for megabyte-sized files", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/big.txt": { content: "a".repeat(2 * 1024 * 1024) }, // 2M
       },
@@ -51,7 +51,7 @@ describe("ls -h (human-readable)", () => {
   });
 
   it("works with --human-readable long form", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/file.txt": { content: "a".repeat(2048) }, // 2K
       },
@@ -62,7 +62,7 @@ describe("ls -h (human-readable)", () => {
   });
 
   it("displays exact bytes without -h flag", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/file.txt": { content: "a".repeat(1536) }, // Would be 1.5K with -h
       },
@@ -74,7 +74,7 @@ describe("ls -h (human-readable)", () => {
   });
 
   it("can combine -h with other flags", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/test/visible.txt": { content: "a".repeat(3072) }, // 3K
         "/test/.hidden.txt": { content: "b".repeat(4096) }, // 4K

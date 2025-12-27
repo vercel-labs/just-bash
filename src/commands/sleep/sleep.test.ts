@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("sleep command", () => {
   describe("basic functionality", () => {
     it("should sleep for specified seconds", async () => {
       let sleptMs = 0;
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async (ms) => {
           sleptMs = ms;
         },
@@ -18,7 +18,7 @@ describe("sleep command", () => {
 
     it("should handle decimal seconds", async () => {
       let sleptMs = 0;
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async (ms) => {
           sleptMs = ms;
         },
@@ -33,7 +33,7 @@ describe("sleep command", () => {
   describe("duration suffixes", () => {
     it("should handle seconds suffix", async () => {
       let sleptMs = 0;
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async (ms) => {
           sleptMs = ms;
         },
@@ -46,7 +46,7 @@ describe("sleep command", () => {
 
     it("should handle minutes suffix", async () => {
       let sleptMs = 0;
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async (ms) => {
           sleptMs = ms;
         },
@@ -59,7 +59,7 @@ describe("sleep command", () => {
 
     it("should handle hours suffix", async () => {
       let sleptMs = 0;
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async (ms) => {
           sleptMs = ms;
         },
@@ -72,7 +72,7 @@ describe("sleep command", () => {
 
     it("should handle days suffix", async () => {
       let sleptMs = 0;
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async (ms) => {
           sleptMs = ms;
         },
@@ -85,7 +85,7 @@ describe("sleep command", () => {
 
     it("should handle decimal values with suffix", async () => {
       let sleptMs = 0;
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async (ms) => {
           sleptMs = ms;
         },
@@ -100,7 +100,7 @@ describe("sleep command", () => {
   describe("multiple arguments", () => {
     it("should sum multiple durations", async () => {
       let sleptMs = 0;
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async (ms) => {
           sleptMs = ms;
         },
@@ -113,7 +113,7 @@ describe("sleep command", () => {
 
     it("should sum durations with mixed suffixes", async () => {
       let sleptMs = 0;
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: async (ms) => {
           sleptMs = ms;
         },
@@ -127,7 +127,7 @@ describe("sleep command", () => {
 
   describe("error handling", () => {
     it("should error on missing operand", async () => {
-      const env = new BashEnv({ sleep: async () => {} });
+      const env = new Bash({ sleep: async () => {} });
 
       const result = await env.exec("sleep");
       expect(result.exitCode).toBe(1);
@@ -135,7 +135,7 @@ describe("sleep command", () => {
     });
 
     it("should error on invalid time interval", async () => {
-      const env = new BashEnv({ sleep: async () => {} });
+      const env = new Bash({ sleep: async () => {} });
 
       const result = await env.exec("sleep abc");
       expect(result.exitCode).toBe(1);
@@ -143,7 +143,7 @@ describe("sleep command", () => {
     });
 
     it("should error on invalid suffix", async () => {
-      const env = new BashEnv({ sleep: async () => {} });
+      const env = new Bash({ sleep: async () => {} });
 
       const result = await env.exec("sleep 1x");
       expect(result.exitCode).toBe(1);
@@ -153,7 +153,7 @@ describe("sleep command", () => {
 
   describe("help", () => {
     it("should show help with --help", async () => {
-      const env = new BashEnv({ sleep: async () => {} });
+      const env = new Bash({ sleep: async () => {} });
 
       const result = await env.exec("sleep --help");
       expect(result.exitCode).toBe(0);
@@ -164,7 +164,7 @@ describe("sleep command", () => {
 
   describe("without mock sleep (using real setTimeout)", () => {
     it("should work with real setTimeout for short duration", async () => {
-      const env = new BashEnv(); // No mock sleep
+      const env = new Bash(); // No mock sleep
 
       const start = Date.now();
       const result = await env.exec("sleep 0.01"); // 10ms

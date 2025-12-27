@@ -1,4 +1,4 @@
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 import type { IFileSystem } from "../fs-interface.js";
 import type { NetworkConfig } from "../network/index.js";
 import { OverlayFs } from "../overlay-fs/index.js";
@@ -9,7 +9,7 @@ export interface SandboxOptions {
   cwd?: string;
   env?: Record<string, string>;
   timeoutMs?: number;
-  // BashEnv-specific extensions (not in Vercel Sandbox API)
+  // Bash-specific extensions (not in Vercel Sandbox API)
   /**
    * Custom filesystem implementation.
    * Mutually exclusive with `overlayRoot`.
@@ -36,9 +36,9 @@ export interface WriteFilesInput {
 }
 
 export class Sandbox {
-  private bashEnv: BashEnv;
+  private bashEnv: Bash;
 
-  private constructor(bashEnv: BashEnv) {
+  private constructor(bashEnv: Bash) {
     this.bashEnv = bashEnv;
   }
 
@@ -52,10 +52,10 @@ export class Sandbox {
       fs = new OverlayFs({ root: opts.overlayRoot });
     }
 
-    const bashEnv = new BashEnv({
+    const bashEnv = new Bash({
       env: opts?.env,
       cwd: opts?.cwd,
-      // BashEnv-specific extensions
+      // Bash-specific extensions
       fs,
       maxCallDepth: opts?.maxCallDepth,
       maxCommandCount: opts?.maxCommandCount,
@@ -124,10 +124,10 @@ export class Sandbox {
   }
 
   /**
-   * BashEnv-specific: Get the underlying BashEnv instance for advanced operations.
+   * Bash-specific: Get the underlying Bash instance for advanced operations.
    * Not available in Vercel Sandbox API.
    */
-  get bashEnvInstance(): BashEnv {
+  get bashEnvInstance(): Bash {
     return this.bashEnv;
   }
 }

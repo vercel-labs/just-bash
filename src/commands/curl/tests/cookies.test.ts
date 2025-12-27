@@ -11,7 +11,7 @@ import {
   it,
   vi,
 } from "vitest";
-import { BashEnv } from "../../../BashEnv.js";
+import { Bash } from "../../../Bash.js";
 
 const originalFetch = global.fetch;
 let lastRequest: { url: string; options: RequestInit } | null = null;
@@ -43,7 +43,7 @@ describe("curl cookies", () => {
 
   describe("-b/--cookie send cookies", () => {
     it("sends Cookie header with -b", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       await env.exec("curl -b 'session=xyz789' https://api.example.com/data");
@@ -53,7 +53,7 @@ describe("curl cookies", () => {
     });
 
     it("sends Cookie header with --cookie", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       await env.exec(
@@ -65,7 +65,7 @@ describe("curl cookies", () => {
     });
 
     it("supports --cookie=value format", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       await env.exec("curl --cookie=foo=bar https://api.example.com/data");
@@ -75,7 +75,7 @@ describe("curl cookies", () => {
     });
 
     it("sends multiple cookies", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       await env.exec("curl -b 'a=1; b=2; c=3' https://api.example.com/data");
@@ -87,7 +87,7 @@ describe("curl cookies", () => {
 
   describe("-c/--cookie-jar save cookies", () => {
     it("saves cookies to file with -c", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       await env.exec("curl -c /cookies.txt https://api.example.com/login");
@@ -97,7 +97,7 @@ describe("curl cookies", () => {
     });
 
     it("saves cookies to file with --cookie-jar", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       await env.exec(
@@ -109,7 +109,7 @@ describe("curl cookies", () => {
     });
 
     it("supports --cookie-jar=value format", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       await env.exec(

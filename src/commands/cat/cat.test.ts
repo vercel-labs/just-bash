@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("cat", () => {
   it("should read file contents", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "hello world" },
     });
     const result = await env.exec("cat /test.txt");
@@ -13,7 +13,7 @@ describe("cat", () => {
   });
 
   it("should read file with newline at end", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "hello world\n" },
     });
     const result = await env.exec("cat /test.txt");
@@ -22,7 +22,7 @@ describe("cat", () => {
   });
 
   it("should concatenate multiple files", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a.txt": "aaa\n",
         "/b.txt": "bbb\n",
@@ -34,7 +34,7 @@ describe("cat", () => {
   });
 
   it("should concatenate three files", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a.txt": "A",
         "/b.txt": "B",
@@ -47,7 +47,7 @@ describe("cat", () => {
   });
 
   it("should show line numbers with -n", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "line1\nline2\nline3\n" },
     });
     const result = await env.exec("cat -n /test.txt");
@@ -56,7 +56,7 @@ describe("cat", () => {
   });
 
   it("should show padded line numbers", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "a\n" },
     });
     const result = await env.exec("cat -n /test.txt");
@@ -65,7 +65,7 @@ describe("cat", () => {
   });
 
   it("should error on missing file", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("cat /missing.txt");
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe(
@@ -75,7 +75,7 @@ describe("cat", () => {
   });
 
   it("should continue after missing file with other files", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/exists.txt": "content" },
     });
     const result = await env.exec("cat /missing.txt /exists.txt");
@@ -87,14 +87,14 @@ describe("cat", () => {
   });
 
   it("should read from stdin when no file specified", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec('echo "hello" | cat');
     expect(result.stdout).toBe("hello\n");
     expect(result.stderr).toBe("");
   });
 
   it("should read empty file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/empty.txt": "" },
     });
     const result = await env.exec("cat /empty.txt");
@@ -104,7 +104,7 @@ describe("cat", () => {
   });
 
   it("should handle file with special characters", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/special.txt": "tab:\there\nnewline above" },
     });
     const result = await env.exec("cat /special.txt");
@@ -113,7 +113,7 @@ describe("cat", () => {
   });
 
   it("should handle relative paths", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/home/user/file.txt": "content" },
       cwd: "/home/user",
     });
@@ -123,7 +123,7 @@ describe("cat", () => {
   });
 
   it("should show line numbers from stdin with -n", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec('echo -e "a\\nb\\nc" | cat -n');
     expect(result.stdout).toBe("     1\ta\n     2\tb\n     3\tc\n");
     expect(result.stderr).toBe("");
@@ -131,14 +131,14 @@ describe("cat", () => {
 
   describe("stdin placeholder (-)", () => {
     it("should read stdin when - is specified", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "from stdin" | cat -');
       expect(result.stdout).toBe("from stdin\n");
       expect(result.stderr).toBe("");
     });
 
     it("should combine stdin with file", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/file.txt": "from file\n" },
         cwd: "/",
       });
@@ -148,7 +148,7 @@ describe("cat", () => {
     });
 
     it("should combine file with stdin", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/file.txt": "from file\n" },
         cwd: "/",
       });
@@ -158,7 +158,7 @@ describe("cat", () => {
     });
 
     it("should handle stdin placeholder with line numbers", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/file.txt": "line1\n" },
         cwd: "/",
       });

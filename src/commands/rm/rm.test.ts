@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("rm", () => {
   it("should remove file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "content" },
     });
     const result = await env.exec("rm /test.txt");
@@ -15,7 +15,7 @@ describe("rm", () => {
   });
 
   it("should remove multiple files", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a.txt": "",
         "/b.txt": "",
@@ -29,7 +29,7 @@ describe("rm", () => {
   });
 
   it("should error on missing file", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("rm /missing.txt");
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe(
@@ -39,7 +39,7 @@ describe("rm", () => {
   });
 
   it("should not error with -f on missing file", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("rm -f /missing.txt");
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("");
@@ -47,7 +47,7 @@ describe("rm", () => {
   });
 
   it("should error when removing directory without -r", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/dir/file.txt": "content" },
     });
     const result = await env.exec("rm /dir");
@@ -56,7 +56,7 @@ describe("rm", () => {
   });
 
   it("should remove directory with -r", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/dir/file.txt": "content" },
     });
     const result = await env.exec("rm -r /dir");
@@ -68,7 +68,7 @@ describe("rm", () => {
   });
 
   it("should remove directory with -R", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/dir/file.txt": "content" },
     });
     await env.exec("rm -R /dir");
@@ -77,7 +77,7 @@ describe("rm", () => {
   });
 
   it("should remove nested directories with -r", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/dir/sub1/file1.txt": "",
         "/dir/sub2/file2.txt": "",
@@ -90,7 +90,7 @@ describe("rm", () => {
   });
 
   it("should combine -rf flags", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/dir/file.txt": "" },
     });
     const result = await env.exec("rm -rf /dir /nonexistent");
@@ -100,7 +100,7 @@ describe("rm", () => {
   });
 
   it("should handle --recursive flag", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/dir/file.txt": "" },
     });
     await env.exec("rm --recursive /dir");
@@ -109,7 +109,7 @@ describe("rm", () => {
   });
 
   it("should handle --force flag", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("rm --force /missing");
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("");
@@ -117,7 +117,7 @@ describe("rm", () => {
   });
 
   it("should not error with -f and no arguments", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("rm -f");
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("");
@@ -125,7 +125,7 @@ describe("rm", () => {
   });
 
   it("should error with no arguments", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("rm");
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("rm: missing operand\n");
@@ -133,7 +133,7 @@ describe("rm", () => {
   });
 
   it("should remove empty directory with -r", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     await env.exec("mkdir /emptydir");
     await env.exec("rm -r /emptydir");
     const ls = await env.exec("ls /emptydir");
@@ -141,7 +141,7 @@ describe("rm", () => {
   });
 
   it("should remove file with relative path", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/home/user/file.txt": "content" },
       cwd: "/home/user",
     });

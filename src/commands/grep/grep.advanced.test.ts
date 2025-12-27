@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("grep advanced", () => {
   // Piping tests
   describe("piping", () => {
     it("should work in middle of pipe chain", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "line1\nline2\nline3\nline4\nline5\n" },
       });
       const result = await env.exec("cat /test.txt | grep line | head -n 2");
@@ -13,7 +13,7 @@ describe("grep advanced", () => {
     });
 
     it("should filter ls output", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/file.txt": "",
           "/dir/file.md": "",
@@ -25,7 +25,7 @@ describe("grep advanced", () => {
     });
 
     it("should chain multiple greps", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/test.txt": "apple pie\nbanana bread\napple tart\norange juice\n",
         },
@@ -35,7 +35,7 @@ describe("grep advanced", () => {
     });
 
     it("should work with wc after grep", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/test.txt": "error: one\ninfo: two\nerror: three\nwarn: four\n",
         },
@@ -48,7 +48,7 @@ describe("grep advanced", () => {
   // Only matching (-o) tests
   describe("-o flag (only matching)", () => {
     it("should output only matching parts with -o", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "hello world hello\nfoo bar\n" },
       });
       const result = await env.exec("grep -o hello /test.txt");
@@ -57,7 +57,7 @@ describe("grep advanced", () => {
     });
 
     it("should output only matching parts with --only-matching", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "cat dog cat\n" },
       });
       const result = await env.exec("grep --only-matching cat /test.txt");
@@ -66,7 +66,7 @@ describe("grep advanced", () => {
     });
 
     it("should include filename with -o for multiple files", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "test one test\n",
           "/b.txt": "test two\n",
@@ -78,7 +78,7 @@ describe("grep advanced", () => {
     });
 
     it("should work with regex patterns and -o", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "price: 100 and 200 dollars\n" },
       });
       const result = await env.exec('grep -Eo "[0-9]+" /test.txt');
@@ -87,7 +87,7 @@ describe("grep advanced", () => {
     });
 
     it("should suppress filename with -h and -o", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "foo bar foo\n",
           "/b.txt": "foo baz\n",
@@ -102,7 +102,7 @@ describe("grep advanced", () => {
   // Context flags (-A, -B, -C) tests
   describe("context flags (-A, -B, -C)", () => {
     const contextEnv = () =>
-      new BashEnv({
+      new Bash({
         files: {
           "/test.txt": "line1\nline2\nmatch\nline4\nline5\n",
         },
@@ -144,7 +144,7 @@ describe("grep advanced", () => {
     });
 
     it("should handle multiple matches with context", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/test.txt": "a\nmatch1\nb\nc\nmatch2\nd\n",
         },
@@ -155,7 +155,7 @@ describe("grep advanced", () => {
     });
 
     it("should handle overlapping context ranges", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/test.txt": "a\nmatch1\nb\nmatch2\nc\n",
         },
@@ -168,7 +168,7 @@ describe("grep advanced", () => {
 
   describe("-h flag (no filename)", () => {
     it("should suppress filename with -h", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "match\n",
           "/b.txt": "match\n",
@@ -180,7 +180,7 @@ describe("grep advanced", () => {
     });
 
     it("should suppress filename with --no-filename", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "test\n",
           "/b.txt": "test\n",
@@ -192,7 +192,7 @@ describe("grep advanced", () => {
     });
 
     it("should work with -h and -n", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "line1\nmatch\nline3\n",
           "/b.txt": "match\n",
@@ -204,7 +204,7 @@ describe("grep advanced", () => {
     });
 
     it("should work with -h and recursive", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/a.txt": "content\n",
           "/dir/b.txt": "content\n",
@@ -218,7 +218,7 @@ describe("grep advanced", () => {
 
   describe("--include flag", () => {
     it("should only search files matching pattern", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/a.ts": "test\n",
           "/dir/b.js": "test\n",
@@ -231,7 +231,7 @@ describe("grep advanced", () => {
     });
 
     it("should work with multiple file types", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/a.ts": "test\n",
           "/dir/b.js": "test\n",
@@ -245,7 +245,7 @@ describe("grep advanced", () => {
     });
 
     it("should work with nested directories", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/a.ts": "match\n",
           "/dir/sub/b.ts": "match\n",
@@ -261,7 +261,7 @@ describe("grep advanced", () => {
   // Glob expansion tests
   describe("glob expansion", () => {
     it("should expand *.ts to match files", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/a.ts": "foo\n",
           "/dir/b.ts": "bar\n",
@@ -275,7 +275,7 @@ describe("grep advanced", () => {
     });
 
     it("should expand path/*.ts pattern", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/src/a.ts": "test\n",
           "/src/b.ts": "test\n",
@@ -288,7 +288,7 @@ describe("grep advanced", () => {
     });
 
     it("should handle no matches from glob", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/file.js": "content\n",
         },
@@ -302,7 +302,7 @@ describe("grep advanced", () => {
   // BRE alternation tests
   describe("BRE alternation (\\|)", () => {
     it("should support alternation with \\|", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "cat\ndog\nbird\n" },
       });
       const result = await env.exec('grep "cat\\|dog" /test.txt');
@@ -311,7 +311,7 @@ describe("grep advanced", () => {
     });
 
     it("should support multiple alternations", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "red\ngreen\nblue\nyellow\n" },
       });
       const result = await env.exec('grep "red\\|green\\|blue" /test.txt');
@@ -320,7 +320,7 @@ describe("grep advanced", () => {
     });
 
     it("should work case insensitively with alternation", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test.txt": "PASSWORD\npassword\nsecret\n" },
       });
       const result = await env.exec('grep -i "PASSWORD\\|secret" /test.txt');
@@ -332,7 +332,7 @@ describe("grep advanced", () => {
   // Real-world scenarios
   describe("real-world scenarios", () => {
     it("should search for function definitions", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/code.js":
             'function hello() {\n  return "hello";\n}\nfunction world() {\n  return "world";\n}\n',
@@ -343,7 +343,7 @@ describe("grep advanced", () => {
     });
 
     it("should search log files for errors", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/app.log":
             "[INFO] Starting app\n[ERROR] Connection failed\n[INFO] Retrying\n[ERROR] Timeout\n[INFO] Success\n",
@@ -356,7 +356,7 @@ describe("grep advanced", () => {
     });
 
     it("should find TODO comments", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/src/a.js": "// TODO: fix this\ncode here\n",
           "/src/b.js": "// Regular comment\n// TODO: implement\n",
@@ -367,7 +367,7 @@ describe("grep advanced", () => {
     });
 
     it("should search config files", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/config.json":
             '{\n  "port": 3000,\n  "host": "localhost",\n  "debug": true\n}\n',
@@ -378,7 +378,7 @@ describe("grep advanced", () => {
     });
 
     it("should find import statements", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/index.ts":
             "import { foo } from './foo';\nimport { bar } from './bar';\nconst x = 1;\n",
@@ -391,7 +391,7 @@ describe("grep advanced", () => {
     });
 
     it("should search for IP addresses", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/hosts.txt":
             "localhost 127.0.0.1\nserver 192.168.1.100\ngateway 10.0.0.1\n",
@@ -406,7 +406,7 @@ describe("grep advanced", () => {
     });
 
     it("should find class definitions", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/code.ts":
             "class User {\n  name: string;\n}\nclass Admin extends User {\n}\n",

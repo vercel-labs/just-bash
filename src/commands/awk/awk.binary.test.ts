@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("awk with binary content", () => {
   it("should process binary file with awk", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/data.bin": new Uint8Array([
           0x31,

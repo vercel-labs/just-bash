@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("ls", () => {
   it("should list directory contents", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/dir/a.txt": "",
         "/dir/b.txt": "",
@@ -16,7 +16,7 @@ describe("ls", () => {
   });
 
   it("should list current directory by default", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/file.txt": "" },
       cwd: "/",
     });
@@ -27,7 +27,7 @@ describe("ls", () => {
   });
 
   it("should hide hidden files by default", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/dir/.hidden": "",
         "/dir/visible.txt": "",
@@ -39,7 +39,7 @@ describe("ls", () => {
   });
 
   it("should show hidden files with -a including . and ..", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/dir/.hidden": "",
         "/dir/visible.txt": "",
@@ -51,7 +51,7 @@ describe("ls", () => {
   });
 
   it("should show hidden files with --all including . and ..", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/dir/.secret": "" },
     });
     const result = await env.exec("ls --all /dir");
@@ -60,7 +60,7 @@ describe("ls", () => {
   });
 
   it("should support long format with -l", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/dir/test.txt": "" },
     });
     const result = await env.exec("ls -l /dir");
@@ -71,7 +71,7 @@ describe("ls", () => {
   });
 
   it("should show directory indicator in long format", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/dir/subdir/file.txt": "" },
     });
     const result = await env.exec("ls -l /dir");
@@ -82,7 +82,7 @@ describe("ls", () => {
   });
 
   it("should combine -la flags including . and ..", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/dir/.hidden": "",
         "/dir/visible": "",
@@ -100,7 +100,7 @@ describe("ls", () => {
   });
 
   it("should list multiple directories", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/dir1/a.txt": "",
         "/dir2/b.txt": "",
@@ -112,7 +112,7 @@ describe("ls", () => {
   });
 
   it("should list recursively with -R", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/dir/subdir/file.txt": "",
         "/dir/root.txt": "",
@@ -127,7 +127,7 @@ describe("ls", () => {
   });
 
   it("should error on missing directory", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("ls /nonexistent");
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("ls: /nonexistent: No such file or directory\n");
@@ -135,7 +135,7 @@ describe("ls", () => {
   });
 
   it("should list a single file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/file.txt": "content" },
     });
     const result = await env.exec("ls /file.txt");
@@ -144,7 +144,7 @@ describe("ls", () => {
   });
 
   it("should handle glob pattern with find and grep workaround", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/dir/a.txt": "",
         "/dir/b.txt": "",
@@ -157,7 +157,7 @@ describe("ls", () => {
   });
 
   it("should sort entries alphabetically", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/dir/zebra.txt": "",
         "/dir/apple.txt": "",
@@ -170,7 +170,7 @@ describe("ls", () => {
   });
 
   it("should handle empty directory", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/empty/.keep": "" },
     });
     await env.exec("rm /empty/.keep");
@@ -182,7 +182,7 @@ describe("ls", () => {
 
   describe("-A flag (almost all)", () => {
     it("should show hidden files except . and ..", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/.hidden": "",
           "/dir/visible.txt": "",
@@ -194,7 +194,7 @@ describe("ls", () => {
     });
 
     it("should differ from -a (no . and ..)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/.config": "",
           "/dir/data.txt": "",
@@ -211,7 +211,7 @@ describe("ls", () => {
 
   describe("-r flag (reverse)", () => {
     it("should reverse sort order", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/aaa.txt": "",
           "/dir/bbb.txt": "",
@@ -224,7 +224,7 @@ describe("ls", () => {
     });
 
     it("should combine with -1 flag", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/x.txt": "",
           "/dir/y.txt": "",
@@ -237,7 +237,7 @@ describe("ls", () => {
     });
 
     it("should combine with -a flag including . and .. reversed", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/.hidden": "",
           "/dir/visible": "",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 /**
  * Codebase Exploration Scenario
@@ -7,7 +7,7 @@ import { BashEnv } from "../BashEnv.js";
  */
 describe("Agent Scenario: Codebase Exploration", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/repo/package.json": `{
   "name": "monorepo",
@@ -181,7 +181,7 @@ export { Logger } from './logger';
 
 describe("Agent Scenario: Disk Usage Analysis with ls -h and du -h", () => {
   const createDiskEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         // Small config files
         "/project/package.json": { content: '{"name": "app"}', mode: 0o644 },

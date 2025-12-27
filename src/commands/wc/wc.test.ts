@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("wc", () => {
   it("should count lines, words, and characters", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "hello world\nfoo bar\n" },
     });
     const result = await env.exec("wc /test.txt");
@@ -14,7 +14,7 @@ describe("wc", () => {
   });
 
   it("should count only lines with -l", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "a\nb\nc\n" },
     });
     const result = await env.exec("wc -l /test.txt");
@@ -22,7 +22,7 @@ describe("wc", () => {
   });
 
   it("should count only words with -w", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "one two three four\n" },
     });
     const result = await env.exec("wc -w /test.txt");
@@ -30,7 +30,7 @@ describe("wc", () => {
   });
 
   it("should count only characters with -c", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "hello\n" },
     });
     const result = await env.exec("wc -c /test.txt");
@@ -38,7 +38,7 @@ describe("wc", () => {
   });
 
   it("should count only characters with -m", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "hello\n" },
     });
     const result = await env.exec("wc -m /test.txt");
@@ -46,7 +46,7 @@ describe("wc", () => {
   });
 
   it("should combine -lw flags", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "one two\nthree\n" },
     });
     const result = await env.exec("wc -lw /test.txt");
@@ -56,7 +56,7 @@ describe("wc", () => {
   });
 
   it("should show total for multiple files", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a.txt": "one\n",
         "/b.txt": "two\n",
@@ -69,13 +69,13 @@ describe("wc", () => {
   });
 
   it("should read from stdin", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec('echo "hello world" | wc -w');
     expect(result.stdout.trim()).toBe("2");
   });
 
   it("should handle empty file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/empty.txt": "" },
     });
     const result = await env.exec("wc /empty.txt");
@@ -83,14 +83,14 @@ describe("wc", () => {
   });
 
   it("should error on missing file", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("wc /missing.txt");
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("No such file or directory");
   });
 
   it("should handle --lines flag", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "a\nb\n" },
     });
     const result = await env.exec("wc --lines /test.txt");
@@ -98,7 +98,7 @@ describe("wc", () => {
   });
 
   it("should handle --words flag", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "one two\n" },
     });
     const result = await env.exec("wc --words /test.txt");
@@ -106,7 +106,7 @@ describe("wc", () => {
   });
 
   it("should handle --bytes flag", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "hi\n" },
     });
     const result = await env.exec("wc --bytes /test.txt");
@@ -114,7 +114,7 @@ describe("wc", () => {
   });
 
   it("should count lines with content ending in newline", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "line1\nline2\n" },
     });
     const result = await env.exec("wc -l /test.txt");
@@ -122,7 +122,7 @@ describe("wc", () => {
   });
 
   it("should handle multiple spaces between words", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/test.txt": "one   two    three\n" },
     });
     const result = await env.exec("wc -w /test.txt");

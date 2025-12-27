@@ -1,14 +1,14 @@
 /**
- * bash-env CLI - A secure alternative to bash for AI agents
+ * just-bash CLI - A secure alternative to bash for AI agents
  *
  * Executes bash scripts in an isolated environment using OverlayFS.
  * Reads from the real filesystem, but writes stay in memory.
  *
  * Usage:
- *   bash-env [options] [root-path]
- *   bash-env -c 'script' [root-path]
- *   echo 'script' | bash-env [root-path]
- *   bash-env script.sh [root-path]
+ *   just-bash [options] [root-path]
+ *   just-bash -c 'script' [root-path]
+ *   echo 'script' | just-bash [root-path]
+ *   just-bash script.sh [root-path]
  *
  * Options:
  *   -c <script>       Execute the script from command line argument
@@ -25,20 +25,20 @@
  *
  * Examples:
  *   # Execute inline script in current directory
- *   bash-env -c 'ls -la'
+ *   just-bash -c 'ls -la'
  *
  *   # Execute script from stdin with specific root
- *   echo 'cat README.md' | bash-env --root /path/to/project
+ *   echo 'cat README.md' | just-bash --root /path/to/project
  *
  *   # Execute script file
- *   bash-env ./deploy.sh
+ *   just-bash ./deploy.sh
  *
  *   # Execute with errexit mode
- *   bash-env -e -c 'set -e; false; echo "not reached"'
+ *   just-bash -e -c 'set -e; false; echo "not reached"'
  */
 
 import { resolve } from "node:path";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 import { OverlayFs } from "../overlay-fs/index.js";
 
 interface CliOptions {
@@ -55,12 +55,12 @@ interface CliOptions {
 }
 
 function printHelp(): void {
-  console.log(`bash-env - A secure bash environment for AI agents
+  console.log(`just-bash - A secure bash environment for AI agents
 
 Usage:
-  bash-env [options] [script-file]
-  bash-env -c 'script' [options]
-  echo 'script' | bash-env [options]
+  just-bash [options] [script-file]
+  just-bash -c 'script' [options]
+  echo 'script' | just-bash [options]
 
 Options:
   -c <script>       Execute the script from command line argument
@@ -84,27 +84,27 @@ Filesystem:
 
 Examples:
   # List files in current directory
-  bash-env -c 'ls -la'
+  just-bash -c 'ls -la'
 
   # Execute with specific root
-  bash-env -c 'cat package.json' --root /path/to/project
+  just-bash -c 'cat package.json' --root /path/to/project
 
   # Pipe script from stdin
-  echo 'find . -name "*.ts" | head -5' | bash-env
+  echo 'find . -name "*.ts" | head -5' | just-bash
 
   # Execute a script file
-  bash-env ./scripts/build.sh
+  just-bash ./scripts/build.sh
 
   # Get JSON output for programmatic use
-  bash-env -c 'echo hello' --json
+  just-bash -c 'echo hello' --json
 
   # Allow write operations (writes stay in memory)
-  bash-env -c 'echo test > /tmp/file.txt && cat /tmp/file.txt' --allow-write
+  just-bash -c 'echo test > /tmp/file.txt && cat /tmp/file.txt' --allow-write
 `);
 }
 
 function printVersion(): void {
-  console.log("bash-env 1.0.0");
+  console.log("just-bash 1.0.0");
 }
 
 function parseArgs(args: string[]): CliOptions {
@@ -275,7 +275,7 @@ async function main(): Promise<void> {
   // Use mount point as cwd unless explicitly overridden
   const cwd = options.cwdOverridden ? options.cwd : mountPoint;
 
-  const env = new BashEnv({
+  const env = new Bash({
     fs,
     cwd,
   });

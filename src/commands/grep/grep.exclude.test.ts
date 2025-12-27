@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("grep --exclude and --exclude-dir", () => {
   describe("--exclude", () => {
     it("should exclude files matching pattern", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/file.txt": "hello world",
           "/dir/file.log": "hello world",
@@ -19,7 +19,7 @@ describe("grep --exclude and --exclude-dir", () => {
     });
 
     it("should handle multiple --exclude patterns", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/file.txt": "hello",
           "/dir/file.log": "hello",
@@ -34,7 +34,7 @@ describe("grep --exclude and --exclude-dir", () => {
     });
 
     it("should work with non-recursive search", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/a.txt": "hello",
           "/b.log": "hello",
@@ -49,7 +49,7 @@ describe("grep --exclude and --exclude-dir", () => {
 
   describe("--exclude-dir", () => {
     it("should exclude directories matching pattern", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/project/src/main.js": "hello",
           "/project/node_modules/pkg/index.js": "hello",
@@ -66,7 +66,7 @@ describe("grep --exclude and --exclude-dir", () => {
     });
 
     it("should handle multiple --exclude-dir patterns", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/project/src/main.js": "hello",
           "/project/node_modules/pkg/index.js": "hello",
@@ -84,7 +84,7 @@ describe("grep --exclude and --exclude-dir", () => {
     });
 
     it("should combine --exclude and --exclude-dir", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/project/src/main.js": "hello",
           "/project/src/test.spec.js": "hello",
@@ -102,7 +102,7 @@ describe("grep --exclude and --exclude-dir", () => {
 
 describe("grep -L (files without match)", () => {
   it("should list files without matches", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/dir/has-match.txt": "hello world",
         "/dir/no-match.txt": "goodbye world",
@@ -117,7 +117,7 @@ describe("grep -L (files without match)", () => {
   });
 
   it("should return exit code 0 when files without match found", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/file1.txt": "hello",
         "/file2.txt": "goodbye",
@@ -129,7 +129,7 @@ describe("grep -L (files without match)", () => {
   });
 
   it("should return exit code 1 when all files have matches", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/file1.txt": "hello",
         "/file2.txt": "hello",
@@ -141,7 +141,7 @@ describe("grep -L (files without match)", () => {
   });
 
   it("should work with recursive search", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/dir/has-hello.txt": "hello",
         "/dir/no-hello.txt": "goodbye",
@@ -158,7 +158,7 @@ describe("grep -L (files without match)", () => {
   });
 
   it("should support --files-without-match long form", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a.txt": "hello",
         "/b.txt": "goodbye",

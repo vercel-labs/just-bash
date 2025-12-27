@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("mv", () => {
   it("should move file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/old.txt": "content" },
     });
     const result = await env.exec("mv /old.txt /new.txt");
@@ -13,7 +13,7 @@ describe("mv", () => {
   });
 
   it("should remove source after move", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/old.txt": "content" },
     });
     await env.exec("mv /old.txt /new.txt");
@@ -22,7 +22,7 @@ describe("mv", () => {
   });
 
   it("should rename file in same directory", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/dir/oldname.txt": "content" },
     });
     await env.exec("mv /dir/oldname.txt /dir/newname.txt");
@@ -31,7 +31,7 @@ describe("mv", () => {
   });
 
   it("should move file to directory", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/file.txt": "content",
         "/dir/.keep": "",
@@ -43,7 +43,7 @@ describe("mv", () => {
   });
 
   it("should move multiple files to directory", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a.txt": "aaa",
         "/b.txt": "bbb",
@@ -56,7 +56,7 @@ describe("mv", () => {
   });
 
   it("should error when moving multiple files to non-directory", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a.txt": "",
         "/b.txt": "",
@@ -68,7 +68,7 @@ describe("mv", () => {
   });
 
   it("should move directory", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/srcdir/file.txt": "content" },
     });
     await env.exec("mv /srcdir /dstdir");
@@ -79,7 +79,7 @@ describe("mv", () => {
   });
 
   it("should move nested directories", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/src/a/b/c.txt": "deep",
         "/src/root.txt": "root",
@@ -91,7 +91,7 @@ describe("mv", () => {
   });
 
   it("should overwrite destination file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/src.txt": "new",
         "/dst.txt": "old",
@@ -103,7 +103,7 @@ describe("mv", () => {
   });
 
   it("should error on missing source", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("mv /missing.txt /dst.txt");
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe(
@@ -112,7 +112,7 @@ describe("mv", () => {
   });
 
   it("should error with missing destination", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/src.txt": "" },
     });
     const result = await env.exec("mv /src.txt");
@@ -121,7 +121,7 @@ describe("mv", () => {
   });
 
   it("should move with relative paths", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/home/user/old.txt": "content" },
       cwd: "/home/user",
     });
@@ -131,7 +131,7 @@ describe("mv", () => {
   });
 
   it("should move directory into existing directory", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/src/file.txt": "content",
         "/dst/.keep": "",
@@ -144,7 +144,7 @@ describe("mv", () => {
 
   describe("flags", () => {
     it("should accept -f flag (force)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/src.txt": "new",
           "/dst.txt": "old",
@@ -158,7 +158,7 @@ describe("mv", () => {
     });
 
     it("should skip existing file with -n flag (no-clobber)", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/src.txt": "new",
           "/dst.txt": "old",
@@ -176,7 +176,7 @@ describe("mv", () => {
     });
 
     it("should move when destination doesn't exist with -n flag", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/src.txt": "content" },
       });
       const result = await env.exec("mv -n /src.txt /dst.txt");
@@ -186,7 +186,7 @@ describe("mv", () => {
     });
 
     it("should show verbose output with -v flag", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/old.txt": "content" },
       });
       const result = await env.exec("mv -v /old.txt /new.txt");
@@ -195,7 +195,7 @@ describe("mv", () => {
     });
 
     it("should handle combined flags -fv", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/src.txt": "new",
           "/dst.txt": "old",
@@ -207,7 +207,7 @@ describe("mv", () => {
     });
 
     it("should let -n take precedence over -f", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/src.txt": "new",
           "/dst.txt": "old",
@@ -221,7 +221,7 @@ describe("mv", () => {
     });
 
     it("should show help with --help", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("mv --help");
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("mv");
@@ -231,7 +231,7 @@ describe("mv", () => {
     });
 
     it("should error on unknown flag", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/src.txt": "content" },
       });
       const result = await env.exec("mv -x /src.txt /dst.txt");

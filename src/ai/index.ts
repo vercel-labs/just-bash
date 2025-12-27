@@ -1,6 +1,6 @@
 import { type Tool, tool, zodSchema } from "ai";
 import { z } from "zod";
-import { BashEnv, type BashEnvOptions } from "../BashEnv.js";
+import { Bash, type BashOptions } from "../Bash.js";
 import type { CommandName } from "../commands/registry.js";
 import type { IFileSystem, InitialFiles } from "../fs-interface.js";
 
@@ -37,7 +37,7 @@ export interface CreateBashToolOptions {
    * Network configuration for commands like curl.
    * Disabled by default for security.
    */
-  network?: BashEnvOptions["network"];
+  network?: BashOptions["network"];
 
   /**
    * Environment variables to set in the bash environment.
@@ -136,8 +136,8 @@ const bashToolSchema = z.object({
 export function createBashTool(
   options: CreateBashToolOptions = {},
 ): Tool<BashToolInput, BashToolOutput> {
-  // Create a shared BashEnv instance with optional command filtering
-  const bashEnv = new BashEnv({
+  // Create a shared Bash instance with optional command filtering
+  const bashEnv = new Bash({
     fs: options.fs,
     files: options.fs ? undefined : options.files, // files ignored if fs provided
     env: options.env,

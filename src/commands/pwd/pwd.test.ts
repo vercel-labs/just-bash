@@ -1,29 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("pwd", () => {
   it("should show default home directory", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("pwd");
     expect(result.stdout).toBe("/home/user\n");
     expect(result.exitCode).toBe(0);
   });
 
   it("should show root directory when cwd is /", async () => {
-    const env = new BashEnv({ cwd: "/" });
+    const env = new Bash({ cwd: "/" });
     const result = await env.exec("pwd");
     expect(result.stdout).toBe("/\n");
     expect(result.exitCode).toBe(0);
   });
 
   it("should show current directory", async () => {
-    const env = new BashEnv({ cwd: "/home/user" });
+    const env = new Bash({ cwd: "/home/user" });
     const result = await env.exec("pwd");
     expect(result.stdout).toBe("/home/user\n");
   });
 
   it("should reflect cd changes within same exec", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/home/user/.keep": "" },
     });
     // cd and pwd must be in same exec (each exec is a new shell)
@@ -32,7 +32,7 @@ describe("pwd", () => {
   });
 
   it("should work after multiple cd commands within same exec", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a/.keep": "",
         "/b/.keep": "",
@@ -44,7 +44,7 @@ describe("pwd", () => {
   });
 
   it("should work after cd ..", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/parent/child/.keep": "" },
       cwd: "/parent/child",
     });
@@ -53,7 +53,7 @@ describe("pwd", () => {
   });
 
   it("should ignore arguments", async () => {
-    const env = new BashEnv({ cwd: "/test" });
+    const env = new Bash({ cwd: "/test" });
     const result = await env.exec("pwd ignored args");
     expect(result.stdout).toBe("/test\n");
   });

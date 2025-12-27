@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("cat with binary files", () => {
   it("should output binary content unchanged", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/binary.bin": new Uint8Array([0x48, 0x65, 0x6c, 0x6c, 0x6f]), // "Hello"
       },
@@ -15,7 +15,7 @@ describe("cat with binary files", () => {
   });
 
   it("should handle null bytes in content", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/binary.bin": new Uint8Array([0x41, 0x00, 0x42, 0x00, 0x43]), // A\0B\0C
       },
@@ -27,7 +27,7 @@ describe("cat with binary files", () => {
   });
 
   it("should concatenate multiple binary files", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/a.bin": new Uint8Array([0x41, 0x42]), // "AB"
         "/b.bin": new Uint8Array([0x43, 0x44]), // "CD"
@@ -40,7 +40,7 @@ describe("cat with binary files", () => {
   });
 
   it("should number lines in binary file with -n", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/binary.bin": new Uint8Array([0x41, 0x0a, 0x42, 0x0a]), // "A\nB\n"
       },

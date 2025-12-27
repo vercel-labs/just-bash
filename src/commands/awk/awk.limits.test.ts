@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 /**
  * AWK Execution Limits Tests
@@ -13,7 +13,7 @@ import { BashEnv } from "../../BashEnv.js";
 describe("AWK Execution Limits", () => {
   describe("infinite loop protection", () => {
     it("should protect against while(1) infinite loop", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         `echo "test" | awk 'BEGIN { while(1) print "x" }'`,
       );
@@ -24,7 +24,7 @@ describe("AWK Execution Limits", () => {
     });
 
     it("should protect against for loop with always-true condition", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         `echo "test" | awk 'BEGIN { for(i=0; 1; i++) print "x" }'`,
       );
@@ -35,7 +35,7 @@ describe("AWK Execution Limits", () => {
 
     // TODO: for(;;) requires special parsing - skip for now
     it.skip("should protect against for(;;) infinite loop", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         `echo "test" | awk 'BEGIN { for(;;) print "x" }'`,
       );
@@ -46,7 +46,7 @@ describe("AWK Execution Limits", () => {
 
     // TODO: do-while not implemented in our awk
     it.skip("should protect against do-while infinite loop", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         `echo "test" | awk 'BEGIN { do { print "x" } while(1) }'`,
       );
@@ -59,7 +59,7 @@ describe("AWK Execution Limits", () => {
   // TODO: User-defined functions not implemented in our awk
   describe.skip("recursion protection", () => {
     it("should protect against recursive function calls", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         `echo "test" | awk 'function f() { f() } BEGIN { f() }'`,
       );
@@ -69,7 +69,7 @@ describe("AWK Execution Limits", () => {
     });
 
     it("should protect against mutual recursion", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         `echo "test" | awk 'function a() { b() } function b() { a() } BEGIN { a() }'`,
       );
@@ -81,7 +81,7 @@ describe("AWK Execution Limits", () => {
 
   describe("output size limits", () => {
     it("should limit output from print in loop", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         `echo "test" | awk 'BEGIN { for(i=0; i<1000000; i++) print "x" }'`,
       );
@@ -93,7 +93,7 @@ describe("AWK Execution Limits", () => {
     });
 
     it("should limit string concatenation growth", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         `echo "test" | awk 'BEGIN { s="x"; for(i=0; i<30; i++) s=s s; print length(s) }'`,
       );
@@ -105,7 +105,7 @@ describe("AWK Execution Limits", () => {
 
   describe("array limits", () => {
     it("should handle large array creation", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         `echo "test" | awk 'BEGIN { for(i=0; i<100000; i++) a[i]=i; print length(a) }'`,
       );
@@ -119,7 +119,7 @@ describe("AWK Execution Limits", () => {
   // JavaScript's regex engine is vulnerable to pathological patterns
   describe.skip("regex limits", () => {
     it("should handle pathological regex patterns", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       // ReDoS-style pattern
       const result = await env.exec(
         `echo "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaab" | awk '/^(a+)+$/'`,
@@ -132,7 +132,7 @@ describe("AWK Execution Limits", () => {
 
   describe("getline limits", () => {
     it("should not hang on getline in loop", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(
         `echo "test" | awk '{ while((getline line < "/dev/zero") > 0) print line }'`,
       );

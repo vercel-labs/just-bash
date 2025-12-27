@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("mkdir", () => {
   it("should create directory", async () => {
-    const env = new BashEnv({ cwd: "/" });
+    const env = new Bash({ cwd: "/" });
     const result = await env.exec("mkdir /newdir");
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("");
@@ -14,7 +14,7 @@ describe("mkdir", () => {
   });
 
   it("should create multiple directories", async () => {
-    const env = new BashEnv({ cwd: "/" });
+    const env = new Bash({ cwd: "/" });
     await env.exec("mkdir /dir1 /dir2 /dir3");
     const ls = await env.exec("ls /");
     // /bin and /usr always exist for PATH-based command resolution
@@ -22,7 +22,7 @@ describe("mkdir", () => {
   });
 
   it("should create nested directories with -p", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("mkdir -p /a/b/c");
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("");
@@ -32,21 +32,21 @@ describe("mkdir", () => {
   });
 
   it("should create deeply nested directories with -p", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     await env.exec("mkdir -p /one/two/three/four/five");
     const ls = await env.exec("ls /one/two/three/four");
     expect(ls.stdout).toBe("five\n");
   });
 
   it("should create nested directories with --parents", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     await env.exec("mkdir --parents /x/y/z");
     const ls = await env.exec("ls /x/y");
     expect(ls.stdout).toBe("z\n");
   });
 
   it("should fail without -p for nested dirs", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("mkdir /a/b/c");
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe(
@@ -56,7 +56,7 @@ describe("mkdir", () => {
   });
 
   it("should not error if directory exists with -p", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/existing/file.txt": "" },
     });
     const result = await env.exec("mkdir -p /existing");
@@ -66,7 +66,7 @@ describe("mkdir", () => {
   });
 
   it("should error if file exists at path", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/file": "content" },
     });
     const result = await env.exec("mkdir /file");
@@ -75,7 +75,7 @@ describe("mkdir", () => {
   });
 
   it("should error with no arguments", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     const result = await env.exec("mkdir");
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("mkdir: missing operand\n");
@@ -83,7 +83,7 @@ describe("mkdir", () => {
   });
 
   it("should create directory with relative path", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: { "/home/user/.keep": "" },
       cwd: "/home/user",
     });
@@ -93,7 +93,7 @@ describe("mkdir", () => {
   });
 
   it("should create multiple nested paths with -p", async () => {
-    const env = new BashEnv();
+    const env = new Bash();
     await env.exec("mkdir -p /a/b /c/d");
     const lsA = await env.exec("ls /a");
     const lsC = await env.exec("ls /c");

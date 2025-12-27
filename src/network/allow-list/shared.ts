@@ -8,8 +8,8 @@
  */
 
 import { expect, vi } from "vitest";
-import type { BashEnvOptions } from "../../BashEnv.js";
-import { BashEnv } from "../../BashEnv.js";
+import type { BashOptions } from "../../Bash.js";
+import { Bash } from "../../Bash.js";
 import { Sandbox } from "../../sandbox/index.js";
 
 // Unique markers in mock responses to verify we're not hitting real network
@@ -122,8 +122,8 @@ export interface EnvAdapter {
 /**
  * Creates an adapter for BashEnv
  */
-export function createBashEnvAdapter(options: BashEnvOptions): EnvAdapter {
-  const env = new BashEnv(options);
+export function createBashEnvAdapter(options: BashOptions): EnvAdapter {
+  const env = new Bash(options);
   return {
     exec: (cmd) => env.exec(cmd),
     readFile: (path) => env.readFile(path),
@@ -134,7 +134,7 @@ export function createBashEnvAdapter(options: BashEnvOptions): EnvAdapter {
  * Creates an adapter for Sandbox
  */
 export async function createSandboxAdapter(
-  options: BashEnvOptions,
+  options: BashOptions,
 ): Promise<EnvAdapter> {
   const sandbox = await Sandbox.create({ network: options.network });
   return {
@@ -152,7 +152,7 @@ export async function createSandboxAdapter(
 }
 
 export type AdapterFactory = (
-  options: BashEnvOptions,
+  options: BashOptions,
 ) => EnvAdapter | Promise<EnvAdapter>;
 
 /**

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("cd builtin", () => {
   describe("basic cd", () => {
     it("should change to specified directory", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       await env.exec("mkdir -p /tmp/testdir");
       const result = await env.exec(`
         cd /tmp/testdir
@@ -14,7 +14,7 @@ describe("cd builtin", () => {
     });
 
     it("should change to home directory without argument", async () => {
-      const env = new BashEnv({ env: { HOME: "/tmp" } });
+      const env = new Bash({ env: { HOME: "/tmp" } });
       const result = await env.exec(`
         cd
         pwd
@@ -23,7 +23,7 @@ describe("cd builtin", () => {
     });
 
     it("should update PWD environment variable", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       await env.exec("mkdir -p /tmp/pwdtest");
       const result = await env.exec(`
         cd /tmp/pwdtest
@@ -33,7 +33,7 @@ describe("cd builtin", () => {
     });
 
     it("should update OLDPWD environment variable", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       await env.exec("mkdir -p /tmp/dir1 /tmp/dir2");
       const result = await env.exec(`
         cd /tmp/dir1
@@ -46,7 +46,7 @@ describe("cd builtin", () => {
 
   describe("cd with special paths", () => {
     it("should handle cd -", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       await env.exec("mkdir -p /tmp/orig /tmp/new");
       const result = await env.exec(`
         cd /tmp/orig
@@ -58,7 +58,7 @@ describe("cd builtin", () => {
     });
 
     it("should handle cd with ..", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       await env.exec("mkdir -p /tmp/parent/child");
       const result = await env.exec(`
         cd /tmp/parent/child
@@ -69,7 +69,7 @@ describe("cd builtin", () => {
     });
 
     it("should handle cd with absolute path", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec(`
         cd /tmp
         pwd
@@ -80,14 +80,14 @@ describe("cd builtin", () => {
 
   describe("error cases", () => {
     it("should error on non-existent directory", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("cd /nonexistent/directory");
       expect(result.stderr).toContain("No such file or directory");
       expect(result.exitCode).toBe(1);
     });
 
     it("should error when cd to a file", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       await env.exec("touch /tmp/testfile");
       const result = await env.exec("cd /tmp/testfile");
       expect(result.stderr).toContain("Not a directory");

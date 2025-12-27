@@ -1,14 +1,14 @@
 {
-  "name": "bash-env",
+  "name": "just-bash",
   "version": "1.0.0",
   "description": "A simulated bash environment with virtual filesystem",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vercel-labs/bash-env.git"
+    "url": "git+https://github.com/vercel-labs/just-bash.git"
   },
-  "homepage": "https://github.com/vercel-labs/bash-env#readme",
+  "homepage": "https://github.com/vercel-labs/just-bash#readme",
   "bugs": {
-    "url": "https://github.com/vercel-labs/bash-env/issues"
+    "url": "https://github.com/vercel-labs/just-bash/issues"
   },
   "type": "module",
   "main": "dist/bundle/index.js",
@@ -52,8 +52,8 @@
     "README.md"
   ],
   "bin": {
-    "bash-env": "./dist/bin/bash-env.js",
-    "bash-env-shell": "./dist/bin/shell/shell.js"
+    "just-bash": "./dist/bin/just-bash.js",
+    "just-bash-shell": "./dist/bin/shell/shell.js"
   },
   "publishConfig": {
     "access": "public"
@@ -63,7 +63,7 @@
     "build:clean": "find dist -name '*.test.js' -delete && find dist -name '*.test.d.ts' -delete",
     "build:lib": "esbuild dist/index.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bundle --chunk-names=chunks/[name]-[hash] --external:diff --external:minimatch --external:sprintf-js --external:turndown",
     "build:ai": "esbuild dist/ai/index.js --bundle --platform=node --format=esm --minify --outfile=dist/bundle/ai/index.js --external:ai --external:zod --external:diff --external:minimatch --external:sprintf-js --external:turndown",
-    "build:cli": "esbuild dist/cli/bash-env.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bin --entry-names=[name] --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node'",
+    "build:cli": "esbuild dist/cli/just-bash.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bin --entry-names=[name] --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node'",
     "build:shell": "esbuild dist/cli/shell.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bin/shell --entry-names=[name] --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node'",
     "prepublishOnly": "pnpm validate",
     "validate": "pnpm build && pnpm typecheck && pnpm lint && pnpm knip && pnpm test:run && pnpm test:dist",
@@ -73,7 +73,7 @@
     "knip": "knip",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:dist": "vitest run src/cli/bash-env.bundle.test.ts",
+    "test:dist": "vitest run src/cli/just-bash.bundle.test.ts",
     "test:unit": "vitest run --config vitest.unit.config.ts",
     "test:comparison": "vitest run --config vitest.comparison.config.ts",
     "shell": "npx tsx src/cli/shell.ts",

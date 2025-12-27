@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("du command", () => {
   describe("basic usage", () => {
     it("should show directory size", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/mydir/file.txt": "hello",
         },
@@ -15,7 +15,7 @@ describe("du command", () => {
     });
 
     it("should show file size", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/test.txt": "hello world",
         },
@@ -26,7 +26,7 @@ describe("du command", () => {
     });
 
     it("should error on missing file", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("du /nonexistent");
       expect(result.stderr).toContain("No such file or directory");
       expect(result.exitCode).toBe(1);
@@ -35,7 +35,7 @@ describe("du command", () => {
 
   describe("-a option", () => {
     it("should show all files with -a", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/file1.txt": "aaa",
           "/dir/file2.txt": "bbbbb",
@@ -50,7 +50,7 @@ describe("du command", () => {
 
   describe("-s option", () => {
     it("should show only summary with -s", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/sub/file.txt": "content",
         },
@@ -65,7 +65,7 @@ describe("du command", () => {
 
   describe("-h option", () => {
     it("should show human readable sizes", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/big/file.txt": "x".repeat(2048),
         },
@@ -78,7 +78,7 @@ describe("du command", () => {
 
   describe("-c option", () => {
     it("should show grand total", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir1/file.txt": "aaa",
           "/dir2/file.txt": "bbb",
@@ -91,7 +91,7 @@ describe("du command", () => {
 
   describe("--max-depth option", () => {
     it("should limit depth with --max-depth=0", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir/sub/file.txt": "content",
         },
@@ -105,7 +105,7 @@ describe("du command", () => {
 
   describe("help option", () => {
     it("should show help with --help", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("du --help");
       expect(result.stdout).toContain("du");
       expect(result.stdout).toContain("-s");

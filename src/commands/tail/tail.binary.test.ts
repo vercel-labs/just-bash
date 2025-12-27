@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("tail with binary files", () => {
   it("should read last n lines from binary file", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/binary.bin": new Uint8Array([
           0x4c,
@@ -25,7 +25,7 @@ describe("tail with binary files", () => {
   });
 
   it("should read last n bytes with -c", async () => {
-    const env = new BashEnv({
+    const env = new Bash({
       files: {
         "/binary.bin": new Uint8Array([0x41, 0x42, 0x43, 0x44, 0x45]), // ABCDE
       },

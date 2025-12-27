@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 /**
  * Log Analysis Scenario
@@ -7,7 +7,7 @@ import { BashEnv } from "../BashEnv.js";
  */
 describe("Agent Scenario: Log Analysis", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/logs/app.log": `2024-01-15 10:00:00 INFO  Application starting
 2024-01-15 10:00:01 INFO  Database connected

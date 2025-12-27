@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 /**
  * Tests for shell-like functionality in BashEnv.
@@ -9,7 +9,7 @@ import { BashEnv } from "../BashEnv.js";
 describe("Shell functionality", () => {
   describe("cd command", () => {
     it("should change directory within same exec", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/home/user/test/.keep": "" },
         cwd: "/home/user",
       });
@@ -19,7 +19,7 @@ describe("Shell functionality", () => {
     });
 
     it("cd does not persist across exec calls", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/home/user/test/.keep": "" },
         cwd: "/home/user",
       });
@@ -30,7 +30,7 @@ describe("Shell functionality", () => {
     });
 
     it("should support cd - within same exec", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: {
           "/dir1/.keep": "",
           "/dir2/.keep": "",
@@ -43,7 +43,7 @@ describe("Shell functionality", () => {
     });
 
     it("should support cd ~", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/home/user/.keep": "" },
         cwd: "/tmp",
         env: { HOME: "/home/user" },
@@ -54,7 +54,7 @@ describe("Shell functionality", () => {
     });
 
     it("should support cd without args", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/home/user/.keep": "" },
         cwd: "/tmp",
         env: { HOME: "/home/user" },
@@ -65,7 +65,7 @@ describe("Shell functionality", () => {
     });
 
     it("should support cd ..", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/a/b/c/.keep": "" },
         cwd: "/a/b/c",
       });
@@ -75,7 +75,7 @@ describe("Shell functionality", () => {
     });
 
     it("should support cd with multiple .. in path", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/a/b/c/d/.keep": "" },
         cwd: "/a/b/c/d",
       });
@@ -87,7 +87,7 @@ describe("Shell functionality", () => {
 
   describe("pwd command", () => {
     it("should return current directory", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         cwd: "/home/user",
       });
 
@@ -96,7 +96,7 @@ describe("Shell functionality", () => {
     });
 
     it("should reflect cd changes within same exec", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/var/log/.keep": "" },
         cwd: "/",
       });
@@ -108,7 +108,7 @@ describe("Shell functionality", () => {
 
   describe("command chaining", () => {
     it("should support && chaining", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test/.keep": "" },
         cwd: "/",
       });
@@ -120,7 +120,7 @@ describe("Shell functionality", () => {
     });
 
     it("should stop && chain on failure", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         cwd: "/",
       });
 
@@ -130,7 +130,7 @@ describe("Shell functionality", () => {
     });
 
     it("should support || chaining", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/fallback/.keep": "" },
         cwd: "/",
       });
@@ -142,7 +142,7 @@ describe("Shell functionality", () => {
     });
 
     it("should support ; chaining", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/test/.keep": "" },
         cwd: "/",
       });
@@ -154,14 +154,14 @@ describe("Shell functionality", () => {
 
   describe("environment variables", () => {
     it("should support export within same exec", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
 
       const result = await env.exec("export MY_VAR=hello; echo $MY_VAR");
       expect(result.stdout).toBe("hello\n");
     });
 
     it("export does not persist across exec calls", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
 
       await env.exec("export MY_VAR=hello");
       const result = await env.exec("echo $MY_VAR");
@@ -169,7 +169,7 @@ describe("Shell functionality", () => {
     });
 
     it("should support unset within same exec", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         env: { MY_VAR: "hello" },
       });
 
@@ -178,7 +178,7 @@ describe("Shell functionality", () => {
     });
 
     it("initial env vars are available in every exec", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         env: { SHARED: "value" },
       });
 
@@ -191,13 +191,13 @@ describe("Shell functionality", () => {
 
   describe("exit command", () => {
     it("should return exit code 0 by default", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("exit");
       expect(result.exitCode).toBe(0);
     });
 
     it("should return specified exit code", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("exit 42");
       expect(result.exitCode).toBe(42);
     });

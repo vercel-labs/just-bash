@@ -11,7 +11,7 @@ import {
   it,
   vi,
 } from "vitest";
-import { BashEnv } from "../../../BashEnv.js";
+import { Bash } from "../../../Bash.js";
 
 const originalFetch = global.fetch;
 let lastSignal: AbortSignal | null | undefined;
@@ -40,7 +40,7 @@ describe("curl timeouts", () => {
 
   describe("-m/--max-time", () => {
     it("accepts -m timeout option", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl -m 5 https://api.example.com/test");
@@ -50,7 +50,7 @@ describe("curl timeouts", () => {
     });
 
     it("accepts --max-time timeout option", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec(
@@ -60,7 +60,7 @@ describe("curl timeouts", () => {
     });
 
     it("accepts --max-time=value format", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec(
@@ -70,7 +70,7 @@ describe("curl timeouts", () => {
     });
 
     it("accepts decimal timeout values", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl -m 0.5 https://api.example.com/test");
@@ -80,7 +80,7 @@ describe("curl timeouts", () => {
 
   describe("--connect-timeout", () => {
     it("accepts --connect-timeout option", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec(
@@ -90,7 +90,7 @@ describe("curl timeouts", () => {
     });
 
     it("accepts --connect-timeout=value format", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec(
@@ -115,7 +115,7 @@ describe("curl timeouts", () => {
       );
       global.fetch = abortingFetch as typeof fetch;
 
-      const env = new BashEnv({
+      const env = new Bash({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl -m 1 https://api.example.com/slow");

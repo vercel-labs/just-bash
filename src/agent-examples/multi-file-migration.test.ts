@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 /**
  * Advanced Agent Scenario: Multi-File Migration
@@ -12,7 +12,7 @@ import { BashEnv } from "../BashEnv.js";
  */
 describe("Agent Scenario: Multi-File Migration", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/project/package.json": `{
   "name": "legacy-app",

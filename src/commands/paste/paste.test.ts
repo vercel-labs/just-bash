@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../../BashEnv.js";
+import { Bash } from "../../Bash.js";
 
 describe("paste command", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/test/file1.txt": "a\nb\nc\n",
         "/test/file2.txt": "1\n2\n3\n",

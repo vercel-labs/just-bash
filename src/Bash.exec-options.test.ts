@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "./BashEnv.js";
+import { Bash } from "./Bash.js";
 
 // Helper to create a mock clock for testing sleep
 function createMockClock() {
@@ -45,20 +45,20 @@ async function tick(times = 50): Promise<void> {
 describe("exec options", () => {
   describe("per-exec env", () => {
     it("should use env vars for single execution", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("echo $FOO", { env: { FOO: "bar" } });
       expect(result.stdout).toBe("bar\n");
     });
 
     it("should not persist env vars after execution", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       await env.exec("echo $FOO", { env: { FOO: "bar" } });
       const result = await env.exec("echo $FOO");
       expect(result.stdout).toBe("\n"); // FOO should not be set
     });
 
     it("should merge with existing env vars", async () => {
-      const env = new BashEnv({ env: { EXISTING: "value" } });
+      const env = new Bash({ env: { EXISTING: "value" } });
       const result = await env.exec("echo $EXISTING $NEW", {
         env: { NEW: "added" },
       });
@@ -66,7 +66,7 @@ describe("exec options", () => {
     });
 
     it("should override existing env vars temporarily", async () => {
-      const env = new BashEnv({ env: { VAR: "original" } });
+      const env = new Bash({ env: { VAR: "original" } });
 
       // Override temporarily
       const result1 = await env.exec("echo $VAR", { env: { VAR: "override" } });
@@ -78,7 +78,7 @@ describe("exec options", () => {
     });
 
     it("should work with multiple env vars", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("echo $A $B $C", {
         env: { A: "1", B: "2", C: "3" },
       });
@@ -86,7 +86,7 @@ describe("exec options", () => {
     });
 
     it("should handle env vars with special characters", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec('echo "$MSG"', {
         env: { MSG: "hello world" },
       });
@@ -96,13 +96,13 @@ describe("exec options", () => {
 
   describe("per-exec cwd", () => {
     it("should use cwd for single execution", async () => {
-      const env = new BashEnv({ files: { "/tmp/test/file.txt": "content" } });
+      const env = new Bash({ files: { "/tmp/test/file.txt": "content" } });
       const result = await env.exec("pwd", { cwd: "/tmp/test" });
       expect(result.stdout).toBe("/tmp/test\n");
     });
 
     it("should not persist cwd after execution", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/tmp/test/file.txt": "content" },
         cwd: "/",
       });
@@ -112,7 +112,7 @@ describe("exec options", () => {
     });
 
     it("should resolve relative paths from per-exec cwd", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/project/src/main.ts": "console.log('hi')" },
       });
       const result = await env.exec("cat main.ts", { cwd: "/project/src" });
@@ -122,7 +122,7 @@ describe("exec options", () => {
 
   describe("combined options", () => {
     it("should handle both env and cwd together", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/app/config": "config file" },
         cwd: "/",
       });
@@ -134,7 +134,7 @@ describe("exec options", () => {
     });
 
     it("should restore both env and cwd after execution", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         files: { "/app/config": "config" },
         cwd: "/",
         env: { MODE: "dev" },
@@ -152,14 +152,14 @@ describe("exec options", () => {
 
   describe("error handling", () => {
     it("should restore state even on command error", async () => {
-      const env = new BashEnv({ env: { VAR: "original" } });
+      const env = new Bash({ env: { VAR: "original" } });
       await env.exec("nonexistent_command", { env: { VAR: "temp" } });
       const result = await env.exec("echo $VAR");
       expect(result.stdout).toBe("original\n");
     });
 
     it("should restore state even on parse error", async () => {
-      const env = new BashEnv({ env: { VAR: "original" } });
+      const env = new Bash({ env: { VAR: "original" } });
       await env.exec("echo ${", { env: { VAR: "temp" } });
       const result = await env.exec("echo $VAR");
       expect(result.stdout).toBe("original\n");
@@ -168,7 +168,7 @@ describe("exec options", () => {
 
   describe("concurrent execution", () => {
     it("concurrent exec with different env options should be isolated", async () => {
-      const env = new BashEnv({ env: { SHARED: "original" } });
+      const env = new Bash({ env: { SHARED: "original" } });
 
       // Run two commands concurrently with different per-exec env
       const [result1, result2] = await Promise.all([
@@ -182,7 +182,7 @@ describe("exec options", () => {
     });
 
     it("state should not be modified by concurrent exec with options", async () => {
-      const env = new BashEnv({ env: { ORIGINAL: "value" } });
+      const env = new Bash({ env: { ORIGINAL: "value" } });
 
       await Promise.all([
         env.exec("echo $A", { env: { A: "1" } }),
@@ -197,7 +197,7 @@ describe("exec options", () => {
     });
 
     it("concurrent exec should each see shared original env", async () => {
-      const env = new BashEnv({ env: { SHARED: "original" } });
+      const env = new Bash({ env: { SHARED: "original" } });
 
       const [result1, result2] = await Promise.all([
         env.exec("echo $SHARED $VAR", { env: { VAR: "A" } }),
@@ -210,7 +210,7 @@ describe("exec options", () => {
     });
 
     it("concurrent exec without options should share state", async () => {
-      const env = new BashEnv({ env: { COUNTER: "0" } });
+      const env = new Bash({ env: { COUNTER: "0" } });
 
       // Without per-exec options, state is shared (as expected)
       // These run sequentially due to async/await nature anyway
@@ -226,7 +226,7 @@ describe("exec options", () => {
 
   describe("environment restoration verification", () => {
     it("should restore env using getEnv() after per-exec env", async () => {
-      const env = new BashEnv({ env: { ORIGINAL: "value" } });
+      const env = new Bash({ env: { ORIGINAL: "value" } });
 
       // Verify initial state
       expect(env.getEnv().ORIGINAL).toBe("value");
@@ -241,7 +241,7 @@ describe("exec options", () => {
     });
 
     it("should restore overridden vars using getEnv()", async () => {
-      const env = new BashEnv({ env: { VAR: "original" } });
+      const env = new Bash({ env: { VAR: "original" } });
 
       expect(env.getEnv().VAR).toBe("original");
 
@@ -251,7 +251,7 @@ describe("exec options", () => {
     });
 
     it("should restore cwd using getCwd() after per-exec cwd", async () => {
-      const env = new BashEnv({
+      const env = new Bash({
         cwd: "/home",
         files: { "/tmp/file": "content" },
       });
@@ -264,7 +264,7 @@ describe("exec options", () => {
     });
 
     it("should not leak command-set variables when using per-exec env", async () => {
-      const env = new BashEnv({ env: { KEEP: "keep" } });
+      const env = new Bash({ env: { KEEP: "keep" } });
 
       // Command sets a new variable, but we're using per-exec env
       await env.exec("export NEW_VAR=created", { env: { TEMP: "temp" } });
@@ -276,7 +276,7 @@ describe("exec options", () => {
     });
 
     it("should not leak command modifications to existing vars", async () => {
-      const env = new BashEnv({ env: { VAR: "original" } });
+      const env = new Bash({ env: { VAR: "original" } });
 
       // Command modifies VAR, but we're using per-exec env
       await env.exec("export VAR=modified", { env: { OTHER: "other" } });
@@ -289,7 +289,7 @@ describe("exec options", () => {
   describe("sleep command with mock clock", () => {
     it("should use mock sleep function", async () => {
       const clock = createMockClock();
-      const env = new BashEnv({ sleep: clock.sleep });
+      const env = new Bash({ sleep: clock.sleep });
 
       const promise = env.exec("sleep 1");
 
@@ -309,7 +309,7 @@ describe("exec options", () => {
 
     it("should parse duration with suffix", async () => {
       const clock = createMockClock();
-      const env = new BashEnv({ sleep: clock.sleep });
+      const env = new Bash({ sleep: clock.sleep });
 
       // Start sleep with minute suffix
       const promise = env.exec("sleep 0.5m");
@@ -326,7 +326,7 @@ describe("exec options", () => {
 
     it("should handle multiple sleep arguments", async () => {
       const clock = createMockClock();
-      const env = new BashEnv({ sleep: clock.sleep });
+      const env = new Bash({ sleep: clock.sleep });
 
       // GNU sleep sums multiple arguments
       const promise = env.exec("sleep 1 2");
@@ -350,7 +350,7 @@ describe("exec options", () => {
   describe("concurrent execution with sleep (mock clock)", () => {
     it("multiple concurrent sleeps should all complete independently", async () => {
       const clock = createMockClock();
-      const env = new BashEnv({ sleep: clock.sleep });
+      const env = new Bash({ sleep: clock.sleep });
 
       // Start three sleeps with different durations
       const p1 = env.exec("sleep 1; echo done1");
@@ -381,7 +381,7 @@ describe("exec options", () => {
 
     it("concurrent execs with per-exec env should be isolated during sleep", async () => {
       const clock = createMockClock();
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: clock.sleep,
         env: { SHARED: "original" },
       });
@@ -409,7 +409,7 @@ describe("exec options", () => {
 
     it("state modifications during concurrent sleep should be isolated", async () => {
       const clock = createMockClock();
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: clock.sleep,
         env: { VAR: "initial" },
       });
@@ -443,7 +443,7 @@ describe("exec options", () => {
 
     it("high concurrency stress test", async () => {
       const clock = createMockClock();
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: clock.sleep,
         env: { BASE: "shared" },
       });
@@ -479,7 +479,7 @@ describe("exec options", () => {
 
     it("interleaved operations: file writes during concurrent sleeps", async () => {
       const clock = createMockClock();
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: clock.sleep,
         files: { "/data/base.txt": "base" },
       });
@@ -518,7 +518,7 @@ describe("exec options", () => {
 
     it("concurrent cwd changes should be isolated", async () => {
       const clock = createMockClock();
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: clock.sleep,
         cwd: "/home",
         files: {
@@ -549,7 +549,7 @@ describe("exec options", () => {
 
     it("function definitions should not leak between isolated execs", async () => {
       const clock = createMockClock();
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: clock.sleep,
       });
 
@@ -576,7 +576,7 @@ describe("exec options", () => {
 
     it("shell options should not leak between isolated execs", async () => {
       const clock = createMockClock();
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: clock.sleep,
       });
 
@@ -604,7 +604,7 @@ describe("exec options", () => {
 
     it("each exec is isolated even without per-exec options", async () => {
       const clock = createMockClock();
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: clock.sleep,
         env: { COUNTER: "0" },
       });
@@ -626,7 +626,7 @@ describe("exec options", () => {
 
     it("race condition test: many concurrent modifications", async () => {
       const clock = createMockClock();
-      const env = new BashEnv({
+      const env = new Bash({
         sleep: clock.sleep,
         env: { ORIGINAL: "unchanged" },
       });

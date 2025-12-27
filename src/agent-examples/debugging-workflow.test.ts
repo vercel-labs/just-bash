@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 
 /**
  * Advanced Agent Scenario: Debugging Workflow
@@ -12,7 +12,7 @@ import { BashEnv } from "../BashEnv.js";
  */
 describe("Agent Scenario: Debugging Workflow", () => {
   const createEnv = () =>
-    new BashEnv({
+    new Bash({
       files: {
         "/app/logs/error.log": `[2024-01-15T10:30:45.123Z] ERROR: Failed to process order
   at OrderService.processOrder (/app/src/services/order.ts:45)

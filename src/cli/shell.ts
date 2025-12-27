@@ -4,12 +4,12 @@
  * Usage:
  *   npx tsx src/cli/shell.ts [--cwd <dir>] [--files <json-file>]
  *
- * This provides an interactive shell experience using BashEnv's virtual filesystem.
+ * This provides an interactive shell experience using Bash's virtual filesystem.
  */
 
 import * as fs from "node:fs";
 import * as readline from "node:readline";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 import { getErrorMessage } from "../interpreter/helpers/errors.js";
 
 // ANSI colors
@@ -32,7 +32,7 @@ interface ShellOptions {
 }
 
 class VirtualShell {
-  private env: BashEnv;
+  private env: Bash;
   private rl: readline.Interface;
   private running = true;
   private history: string[] = [];
@@ -47,7 +47,7 @@ class VirtualShell {
       "/tmp/.keep": "",
     };
 
-    this.env = new BashEnv({
+    this.env = new Bash({
       files: { ...defaultFiles, ...options.files },
       cwd: options.cwd || "/home/user",
       env: {
@@ -90,7 +90,7 @@ class VirtualShell {
   }
 
   private syncHistory(): void {
-    // Sync local history to BashEnv's BASH_HISTORY for the history command
+    // Sync local history to Bash's BASH_HISTORY for the history command
     const envObj = this.env.getEnv();
     envObj.BASH_HISTORY = JSON.stringify(this.history);
   }
@@ -129,10 +129,10 @@ class VirtualShell {
       process.exit(exitCode);
     }
 
-    // Sync local history with BashEnv's history for the history command
+    // Sync local history with Bash's history for the history command
     this.syncHistory();
 
-    // Execute command in BashEnv
+    // Execute command in Bash
     try {
       const result = await this.env.exec(trimmed);
 

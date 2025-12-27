@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 import { parse } from "../parser/parser.js";
 
 /**
@@ -207,7 +207,7 @@ describe("Parser Protection", () => {
 
   describe("execution after parsing", () => {
     it("should limit brace expansion during execution", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       // This parses fine but expansion could be exponential
       const result = await env.exec(
         "echo {a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}{o,p}{q,r}{s,t}",
@@ -218,7 +218,7 @@ describe("Parser Protection", () => {
     });
 
     it("should limit range expansion during execution", async () => {
-      const env = new BashEnv();
+      const env = new Bash();
       const result = await env.exec("echo {1..100000}");
 
       // Range expansion should be limited

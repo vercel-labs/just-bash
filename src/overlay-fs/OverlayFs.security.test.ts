@@ -9,7 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { BashEnv } from "../BashEnv.js";
+import { Bash } from "../Bash.js";
 import { OverlayFs } from "./OverlayFs.js";
 
 describe("OverlayFs Security - Path Traversal Prevention", () => {
@@ -530,59 +530,59 @@ describe("OverlayFs Security - Path Traversal Prevention", () => {
 
   describe("BashEnv integration security", () => {
     it("should not allow cat to read files outside root", async () => {
-      const env = new BashEnv({ fs: overlay });
+      const env = new Bash({ fs: overlay });
       const result = await env.exec(`cat ${outsideFile}`);
       expect(result.exitCode).not.toBe(0);
       expect(result.stdout).not.toContain("TOP SECRET");
     });
 
     it("should not allow cat with path traversal", async () => {
-      const env = new BashEnv({ fs: overlay });
+      const env = new Bash({ fs: overlay });
       const result = await env.exec("cat /../../../etc/passwd");
       expect(result.exitCode).not.toBe(0);
     });
 
     it("should not allow ls to list directories outside root", async () => {
-      const env = new BashEnv({ fs: overlay });
+      const env = new Bash({ fs: overlay });
       const result = await env.exec(`ls ${outsideDir}`);
       expect(result.stdout).not.toContain("secret.txt");
     });
 
     it("should not allow find to search outside root", async () => {
-      const env = new BashEnv({ fs: overlay, cwd: "/" });
+      const env = new Bash({ fs: overlay, cwd: "/" });
       const result = await env.exec("find / -name secret.txt");
       expect(result.stdout).not.toContain(outsideDir);
       expect(result.stdout).not.toContain("secret.txt");
     });
 
     it("should not allow grep to read outside root", async () => {
-      const env = new BashEnv({ fs: overlay });
+      const env = new Bash({ fs: overlay });
       const result = await env.exec(`grep SECRET ${outsideFile}`);
       expect(result.exitCode).not.toBe(0);
       expect(result.stdout).not.toContain("TOP SECRET");
     });
 
     it("should not allow head to read outside root", async () => {
-      const env = new BashEnv({ fs: overlay });
+      const env = new Bash({ fs: overlay });
       const result = await env.exec(`head ${outsideFile}`);
       expect(result.exitCode).not.toBe(0);
     });
 
     it("should not allow tail to read outside root", async () => {
-      const env = new BashEnv({ fs: overlay });
+      const env = new Bash({ fs: overlay });
       const result = await env.exec(`tail ${outsideFile}`);
       expect(result.exitCode).not.toBe(0);
     });
 
     it("should not allow redirects to write outside root", async () => {
-      const env = new BashEnv({ fs: overlay });
+      const env = new Bash({ fs: overlay });
       await env.exec(`echo "PWNED" > /../../../tmp/pwned.txt`);
       // File should not exist in real filesystem's tmp
       expect(fs.existsSync("/tmp/pwned.txt")).toBe(false);
     });
 
     it("should not allow symlink command to escape", async () => {
-      const env = new BashEnv({ fs: overlay });
+      const env = new Bash({ fs: overlay });
       await env.exec(`ln -s ${outsideFile} /escape`);
       const result = await env.exec("cat /escape");
       expect(result.exitCode).not.toBe(0);
@@ -590,7 +590,7 @@ describe("OverlayFs Security - Path Traversal Prevention", () => {
     });
 
     it("should not allow source command to read outside", async () => {
-      const env = new BashEnv({ fs: overlay });
+      const env = new Bash({ fs: overlay });
       const result = await env.exec(`source ${outsideFile}`);
       expect(result.exitCode).not.toBe(0);
     });

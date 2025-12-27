@@ -1,4 +1,4 @@
-import type { BashEnv } from "../BashEnv.js";
+import type { Bash } from "../Bash.js";
 import type { ExecResult } from "../types.js";
 
 export interface OutputMessage {
@@ -13,14 +13,14 @@ export class Command {
   readonly startedAt: Date;
   exitCode: number | undefined;
 
-  private bashEnv: BashEnv;
+  private bashEnv: Bash;
   private cmdLine: string;
   private env?: Record<string, string>;
   private explicitCwd: boolean;
   private resultPromise: Promise<ExecResult>;
 
   constructor(
-    bashEnv: BashEnv,
+    bashEnv: Bash,
     cmdLine: string,
     cwd: string,
     env?: Record<string, string>,
@@ -52,7 +52,7 @@ export class Command {
   async *logs(): AsyncGenerator<OutputMessage, void, unknown> {
     const result = await this.resultPromise;
 
-    // For BashEnv, we don't have true streaming, so emit all at once
+    // For Bash, we don't have true streaming, so emit all at once
     if (result.stdout) {
       yield { type: "stdout", data: result.stdout, timestamp: new Date() };
     }
@@ -82,7 +82,7 @@ export class Command {
   }
 
   async kill(): Promise<void> {
-    // For BashEnv synchronous execution, this is a no-op
+    // For Bash synchronous execution, this is a no-op
     // Commands complete immediately in the simulation
   }
 }
