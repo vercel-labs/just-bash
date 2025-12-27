@@ -1,4 +1,3 @@
-import { escapeRegex } from "../../interpreter/helpers/regex.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { executeAwkAction, matchesPattern } from "./executor.js";
@@ -34,11 +33,12 @@ export const awkCommand: Command = {
       const arg = args[i];
       if (arg === "-F" && i + 1 < args.length) {
         fieldSepStr = processEscapes(args[++i]);
-        fieldSep = new RegExp(escapeRegex(fieldSepStr));
+        // Support regex field separators - don't escape if it looks like a regex
+        fieldSep = createFieldSepRegex(fieldSepStr);
         programIdx = i + 1;
       } else if (arg.startsWith("-F")) {
         fieldSepStr = processEscapes(arg.slice(2));
-        fieldSep = new RegExp(escapeRegex(fieldSepStr));
+        fieldSep = createFieldSepRegex(fieldSepStr);
         programIdx = i + 1;
       } else if (arg === "-v" && i + 1 < args.length) {
         const assignment = args[++i];
@@ -71,29 +71,8 @@ export const awkCommand: Command = {
     const program = args[programIdx];
     const files = args.slice(programIdx + 1);
 
-    // Get input
-    let input: string;
-    if (files.length > 0) {
-      const contents: string[] = [];
-      for (const file of files) {
-        try {
-          const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-          contents.push(await ctx.fs.readFile(filePath));
-        } catch {
-          return {
-            stdout: "",
-            stderr: `awk: ${file}: No such file or directory\n`,
-            exitCode: 1,
-          };
-        }
-      }
-      input = contents.join("");
-    } else {
-      input = ctx.stdin;
-    }
-
-    // Parse program
-    const { begin, main, end } = parseAwkProgram(program);
+    // Parse program first to extract functions
+    const { begin, main, end, functions } = parseAwkProgram(program);
 
     // Execute
     const awkCtx: AwkContext = {
@@ -101,10 +80,15 @@ export const awkCommand: Command = {
       OFS: " ",
       NR: 0,
       NF: 0,
+      FNR: 0,
+      FILENAME: "",
+      RSTART: 0,
+      RLENGTH: -1,
       fields: [],
       line: "",
       vars,
       arrays: {},
+      functions: functions || {},
       fieldSep,
       maxIterations: ctx.limits?.maxAwkIterations,
     };
@@ -114,69 +98,119 @@ export const awkCommand: Command = {
     // BEGIN block
     if (begin) {
       stdout += executeAwkAction(begin, awkCtx);
+      if (awkCtx.shouldExit) {
+        return { stdout, stderr: "", exitCode: awkCtx.exitCode || 0 };
+      }
     }
 
-    // Process lines
-    const lines = input.split("\n");
-    // Remove trailing empty line if input ends with newline
-    if (lines.length > 0 && lines[lines.length - 1] === "") {
-      lines.pop();
+    // Collect all file contents with metadata
+    interface FileData {
+      filename: string;
+      lines: string[];
+    }
+    const fileDataList: FileData[] = [];
+
+    if (files.length > 0) {
+      for (const file of files) {
+        try {
+          const filePath = ctx.fs.resolvePath(ctx.cwd, file);
+          const content = await ctx.fs.readFile(filePath);
+          const lines = content.split("\n");
+          // Remove trailing empty line if content ends with newline
+          if (lines.length > 0 && lines[lines.length - 1] === "") {
+            lines.pop();
+          }
+          fileDataList.push({ filename: file, lines });
+        } catch {
+          return {
+            stdout: "",
+            stderr: `awk: ${file}: No such file or directory\n`,
+            exitCode: 1,
+          };
+        }
+      }
+    } else {
+      const lines = ctx.stdin.split("\n");
+      if (lines.length > 0 && lines[lines.length - 1] === "") {
+        lines.pop();
+      }
+      fileDataList.push({ filename: "", lines });
     }
 
     // Track range state for each rule with a range pattern
     const rangeActive: boolean[] = main.map(() => false);
 
-    // Make lines available in context for getline
-    awkCtx.lines = lines;
+    // Process each file
+    for (const fileData of fileDataList) {
+      awkCtx.FILENAME = fileData.filename;
+      awkCtx.FNR = 0;
 
-    awkCtx.lineIndex = -1; // Will be incremented to 0 at start
+      // Make lines available in context for getline
+      awkCtx.lines = fileData.lines;
+      awkCtx.lineIndex = -1;
 
-    while (awkCtx.lineIndex < lines.length - 1) {
-      awkCtx.lineIndex++;
-      const line = lines[awkCtx.lineIndex];
-      awkCtx.NR++;
-      awkCtx.line = line;
-      awkCtx.fields = line.split(fieldSep);
-      awkCtx.NF = awkCtx.fields.length;
+      while (awkCtx.lineIndex < fileData.lines.length - 1) {
+        awkCtx.lineIndex++;
+        const line = fileData.lines[awkCtx.lineIndex];
+        awkCtx.NR++;
+        awkCtx.FNR++;
+        awkCtx.line = line;
+        awkCtx.fields = line.split(fieldSep);
+        awkCtx.NF = awkCtx.fields.length;
 
-      for (let ruleIdx = 0; ruleIdx < main.length; ruleIdx++) {
-        const rule = main[ruleIdx];
+        // Reset next flag for this line
+        awkCtx.shouldNext = false;
 
-        // Handle range patterns
-        if (rule.range) {
-          const startRegex = new RegExp(rule.range.start);
-          const endRegex = new RegExp(rule.range.end);
+        for (let ruleIdx = 0; ruleIdx < main.length; ruleIdx++) {
+          // Check for exit
+          if (awkCtx.shouldExit) break;
+          // Check for next (skip remaining rules for this line)
+          if (awkCtx.shouldNext) break;
 
-          if (!rangeActive[ruleIdx]) {
-            // Not in range - check if we match the start
-            if (startRegex.test(line)) {
-              rangeActive[ruleIdx] = true;
+          const rule = main[ruleIdx];
+
+          // Handle range patterns
+          if (rule.range) {
+            const startRegex = new RegExp(rule.range.start);
+            const endRegex = new RegExp(rule.range.end);
+
+            if (!rangeActive[ruleIdx]) {
+              // Not in range - check if we match the start
+              if (startRegex.test(line)) {
+                rangeActive[ruleIdx] = true;
+                stdout += executeAwkAction(rule.action, awkCtx);
+                // Check if end also matches (single line range)
+                if (endRegex.test(line)) {
+                  rangeActive[ruleIdx] = false;
+                }
+              }
+            } else {
+              // In range - execute action
               stdout += executeAwkAction(rule.action, awkCtx);
-              // Check if end also matches (single line range)
+              // Check if we match the end
               if (endRegex.test(line)) {
                 rangeActive[ruleIdx] = false;
               }
             }
-          } else {
-            // In range - execute action
+          } else if (matchesPattern(rule.pattern, awkCtx)) {
             stdout += executeAwkAction(rule.action, awkCtx);
-            // Check if we match the end
-            if (endRegex.test(line)) {
-              rangeActive[ruleIdx] = false;
-            }
           }
-        } else if (matchesPattern(rule.pattern, awkCtx)) {
-          stdout += executeAwkAction(rule.action, awkCtx);
         }
+
+        // Check for exit after processing line
+        if (awkCtx.shouldExit) break;
       }
+
+      // Check for exit after processing file
+      if (awkCtx.shouldExit) break;
     }
 
-    // END block
-    if (end) {
+    // END block (runs even after exit, unless exit was in BEGIN)
+    if (end && !awkCtx.shouldExit) {
       stdout += executeAwkAction(end, awkCtx);
     }
 
-    return { stdout, stderr: "", exitCode: 0 };
+    return { stdout, stderr: "", exitCode: awkCtx.exitCode || 0 };
   },
 };
 
@@ -186,4 +220,31 @@ function processEscapes(str: string): string {
     .replace(/\\n/g, "\n")
     .replace(/\\r/g, "\r")
     .replace(/\\\\/g, "\\");
+}
+
+// Create a regex for field separator
+// Support both literal strings and regex patterns
+function createFieldSepRegex(sep: string): RegExp {
+  // Special case: single space means split on runs of whitespace
+  if (sep === " ") {
+    return /\s+/;
+  }
+
+  // Check if it looks like a regex pattern (contains regex metacharacters)
+  const regexMetachars = /[[\](){}.*+?^$|\\]/;
+  if (regexMetachars.test(sep)) {
+    try {
+      return new RegExp(sep);
+    } catch {
+      // Fall back to literal if invalid regex
+      return new RegExp(escapeForRegex(sep));
+    }
+  }
+
+  // Literal string - escape special regex characters
+  return new RegExp(escapeForRegex(sep));
+}
+
+function escapeForRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

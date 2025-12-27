@@ -544,4 +544,207 @@ describe("sed command", () => {
       expect(result.stdout).toBe("Apple\nbanana\nApricot\n");
     });
   });
+
+  describe("Nth occurrence substitution", () => {
+    it("should replace 2nd occurrence only", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "foo bar foo baz foo\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed 's/foo/XXX/2' /test.txt");
+      expect(result.stdout).toBe("foo bar XXX baz foo\n");
+    });
+
+    it("should replace 3rd occurrence only", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "a a a a a\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed 's/a/X/3' /test.txt");
+      expect(result.stdout).toBe("a a X a a\n");
+    });
+  });
+
+  describe("step address (first~step)", () => {
+    it("should match every 2nd line starting from 0", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "1\n2\n3\n4\n5\n6\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed -n '0~2p' /test.txt");
+      expect(result.stdout).toBe("2\n4\n6\n");
+    });
+
+    it("should match every 3rd line starting from 1", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "1\n2\n3\n4\n5\n6\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed -n '1~3p' /test.txt");
+      expect(result.stdout).toBe("1\n4\n");
+    });
+  });
+
+  describe("grouped commands", () => {
+    it("should execute multiple commands in group", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "a\nb\nc\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed '2{s/b/B/}' /test.txt");
+      expect(result.stdout).toBe("a\nB\nc\n");
+    });
+
+    it("should execute multiple commands with semicolon in group", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "a\nb\nc\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed -n '2{s/b/B/;p}' /test.txt");
+      expect(result.stdout).toBe("B\n");
+    });
+  });
+
+  describe("P command (print first line)", () => {
+    it("should print up to first newline", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "line1\nline2\n" },
+        cwd: "/",
+      });
+      // N appends next line, P prints first part
+      const result = await env.exec("sed -n 'N;P' /test.txt");
+      expect(result.stdout).toBe("line1\n");
+    });
+  });
+
+  describe("D command (delete first line)", () => {
+    it("should delete up to first newline and restart cycle", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "a\nb\nc\n" },
+        cwd: "/",
+      });
+      // N;P;D is the classic sliding window: prints each line except last
+      // N appends next line, P prints first part, D deletes first part and restarts
+      const result = await env.exec("sed -n 'N;P;D' /test.txt");
+      // Real bash: outputs "a\nb\n" (all lines except last)
+      expect(result.stdout).toBe("a\nb\n");
+    });
+
+    it("should quit when N has no more lines", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "a\nb\nc\n" },
+        cwd: "/",
+      });
+      // N;D without -n: N eventually runs out of lines and quits silently
+      const result = await env.exec("sed 'N;D' /test.txt");
+      // Real bash: outputs empty (N quits when no more lines)
+      expect(result.stdout).toBe("");
+    });
+  });
+
+  describe("z command (zap pattern space)", () => {
+    it("should empty pattern space", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "hello\nworld\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed '1z' /test.txt");
+      expect(result.stdout).toBe("\nworld\n");
+    });
+  });
+
+  describe("T command (branch if no substitution)", () => {
+    it("should branch when no substitution made", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "foo\nbar\n" },
+        cwd: "/",
+      });
+      // Replace foo with FOO, T branches to end if no match (skipping p)
+      const result = await env.exec("sed -n 's/foo/FOO/;T;p' /test.txt");
+      expect(result.stdout).toBe("FOO\n");
+    });
+  });
+
+  describe("extended regex (-E/-r flag)", () => {
+    it("should support + quantifier with -E", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "aaa bbb ccc\n" },
+        cwd: "/",
+      });
+      // + means one or more (ERE syntax)
+      const result = await env.exec("sed -E 's/a+/X/' /test.txt");
+      expect(result.stdout).toBe("X bbb ccc\n");
+    });
+
+    it("should support ? quantifier with -E", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "color colour\n" },
+        cwd: "/",
+      });
+      // ? means zero or one (ERE syntax)
+      const result = await env.exec("sed -E 's/colou?r/COLOR/g' /test.txt");
+      expect(result.stdout).toBe("COLOR COLOR\n");
+    });
+
+    it("should support alternation | with -E", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "cat dog bird\n" },
+        cwd: "/",
+      });
+      // | means alternation (ERE syntax)
+      const result = await env.exec("sed -E 's/cat|dog/ANIMAL/g' /test.txt");
+      expect(result.stdout).toBe("ANIMAL ANIMAL bird\n");
+    });
+
+    it("should support grouping () with -E", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "hello world\n" },
+        cwd: "/",
+      });
+      // () for grouping and backreferences (ERE syntax)
+      const result = await env.exec("sed -E 's/(hello) (world)/\\2 \\1/' /test.txt");
+      expect(result.stdout).toBe("world hello\n");
+    });
+
+    it("should support -r as alias for -E", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "aaa bbb\n" },
+        cwd: "/",
+      });
+      // -r is GNU sed alias for -E
+      const result = await env.exec("sed -r 's/a+/X/' /test.txt");
+      expect(result.stdout).toBe("X bbb\n");
+    });
+
+    it("should support complex ERE patterns", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "error: file not found\nwarning: deprecated\ninfo: success\n" },
+        cwd: "/",
+      });
+      // Complex pattern with alternation and grouping
+      const result = await env.exec("sed -E 's/^(error|warning): (.+)/[\\1] \\2/' /test.txt");
+      expect(result.stdout).toBe("[error] file not found\n[warning] deprecated\ninfo: success\n");
+    });
+
+    it("should support {n,m} quantifier with -E", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "a aa aaa aaaa\n" },
+        cwd: "/",
+      });
+      // {2,3} means 2 to 3 occurrences
+      const result = await env.exec("sed -E 's/a{2,3}/X/g' /test.txt");
+      expect(result.stdout).toBe("a X X Xa\n");
+    });
+
+    it("should work without -E flag (JS RegExp is ERE-like)", async () => {
+      const env = new BashEnv({
+        files: { "/test.txt": "aaa bbb\n" },
+        cwd: "/",
+      });
+      // Note: Our implementation uses JS RegExp which is ERE-like,
+      // so ERE patterns work even without -E (unlike real sed)
+      const result = await env.exec("sed 's/a+/X/' /test.txt");
+      expect(result.stdout).toBe("X bbb\n");
+    });
+  });
 });

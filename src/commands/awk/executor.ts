@@ -11,6 +11,10 @@ export function executeAwkAction(action: string, ctx: AwkContext): string {
 
   for (const stmt of statements) {
     output += executeStatement(stmt, ctx);
+    // Check for control flow flags that should stop execution
+    if (ctx.shouldNext || ctx.shouldExit || ctx.loopBreak || ctx.loopContinue) {
+      break;
+    }
   }
 
   return output;
@@ -72,6 +76,11 @@ function executeStatement(stmt: string, ctx: AwkContext): string {
     return executeWhile(stmt, ctx);
   }
 
+  // Handle do-while
+  if (stmt.startsWith("do")) {
+    return executeDoWhile(stmt, ctx);
+  }
+
   // Handle for
   if (stmt.startsWith("for")) {
     return executeFor(stmt, ctx);
@@ -94,12 +103,32 @@ function executeStatement(stmt: string, ctx: AwkContext): string {
 
   // Handle next (skip to next line)
   if (stmt === "next") {
-    return ""; // In full implementation, this would throw to skip processing
+    ctx.shouldNext = true;
+    return "";
   }
 
   // Handle exit
   if (stmt === "exit" || stmt.startsWith("exit ")) {
-    return ""; // In full implementation, this would throw to exit
+    ctx.shouldExit = true;
+    if (stmt.startsWith("exit ")) {
+      const codeExpr = stmt.slice(5).trim();
+      ctx.exitCode = Number(evaluateExpression(codeExpr, ctx)) || 0;
+    } else {
+      ctx.exitCode = 0;
+    }
+    return "";
+  }
+
+  // Handle break (for loops)
+  if (stmt === "break") {
+    ctx.loopBreak = true;
+    return "";
+  }
+
+  // Handle continue (for loops)
+  if (stmt === "continue") {
+    ctx.loopContinue = true;
+    return "";
   }
 
   // Handle getline
@@ -364,8 +393,73 @@ function executeWhile(stmt: string, ctx: AwkContext): string {
         output,
       );
     }
+
+    // Reset continue flag
+    ctx.loopContinue = false;
+
     output += executeAwkAction(body, ctx);
+
+    // Check for break
+    if (ctx.loopBreak) {
+      ctx.loopBreak = false;
+      break;
+    }
+    // Check for exit/next
+    if (ctx.shouldExit || ctx.shouldNext) {
+      break;
+    }
   }
+
+  return output;
+}
+
+function executeDoWhile(stmt: string, ctx: AwkContext): string {
+  // Parse: do { body } while (condition)
+  const doMatch = stmt.match(/^do\s*\{/);
+  if (!doMatch) return "";
+
+  const bodyStart = stmt.indexOf("{");
+  const bodyEnd = findMatchingBrace(stmt, bodyStart);
+  if (bodyEnd === -1) return "";
+
+  const body = stmt.slice(bodyStart + 1, bodyEnd).trim();
+  const afterBody = stmt.slice(bodyEnd + 1).trim();
+
+  // Extract while condition
+  const whileMatch = afterBody.match(/^while\s*\((.+)\)\s*;?$/);
+  if (!whileMatch) return "";
+
+  const condition = whileMatch[1].trim();
+
+  let output = "";
+  let iterations = 0;
+  const maxIterations = ctx.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+
+  do {
+    iterations++;
+    if (iterations > maxIterations) {
+      throw new ExecutionLimitError(
+        `awk: do-while loop exceeded maximum iterations (${maxIterations})`,
+        "iterations",
+        output,
+      );
+    }
+
+    // Reset continue flag
+    ctx.loopContinue = false;
+
+    output += executeAwkAction(body, ctx);
+
+    // Check for break
+    if (ctx.loopBreak) {
+      ctx.loopBreak = false;
+      break;
+    }
+    // Check for exit/next
+    if (ctx.shouldExit || ctx.shouldNext) {
+      break;
+    }
+  } while (evaluateCondition(condition, ctx));
 
   return output;
 }
@@ -408,7 +502,21 @@ function executeFor(stmt: string, ctx: AwkContext): string {
     if (ctx.arrays[arrayName]) {
       for (const key of Object.keys(ctx.arrays[arrayName])) {
         ctx.vars[varName] = key;
+
+        // Reset continue flag
+        ctx.loopContinue = false;
+
         output += executeAwkAction(body, ctx);
+
+        // Check for break
+        if (ctx.loopBreak) {
+          ctx.loopBreak = false;
+          break;
+        }
+        // Check for exit/next
+        if (ctx.shouldExit || ctx.shouldNext) {
+          break;
+        }
       }
     }
 
@@ -439,7 +547,22 @@ function executeFor(stmt: string, ctx: AwkContext): string {
         output,
       );
     }
+
+    // Reset continue flag
+    ctx.loopContinue = false;
+
     output += executeAwkAction(body, ctx);
+
+    // Check for break
+    if (ctx.loopBreak) {
+      ctx.loopBreak = false;
+      break;
+    }
+    // Check for exit/next
+    if (ctx.shouldExit || ctx.shouldNext) {
+      break;
+    }
+
     if (increment) {
       executeStatement(increment, ctx);
     }
@@ -549,6 +672,82 @@ function evaluatePrintf(args: string, ctx: AwkContext): string {
           : 0;
         const prec = precision ? parseInt(precision, 10) : 6;
         let valStr = val.toFixed(prec);
+        if (width) {
+          valStr = valStr.padStart(parseInt(width, 10));
+        }
+        result += valStr;
+        valueIdx++;
+        i = j + 1;
+      } else if (spec === "x" || spec === "X") {
+        // Hexadecimal
+        const val = values[valueIdx]
+          ? Math.floor(Number(evaluateExpression(values[valueIdx], ctx)))
+          : 0;
+        let valStr = Math.abs(val).toString(16);
+        if (spec === "X") valStr = valStr.toUpperCase();
+        if (width) {
+          valStr = valStr.padStart(parseInt(width, 10), "0");
+        }
+        result += val < 0 ? "-" + valStr : valStr;
+        valueIdx++;
+        i = j + 1;
+      } else if (spec === "o") {
+        // Octal
+        const val = values[valueIdx]
+          ? Math.floor(Number(evaluateExpression(values[valueIdx], ctx)))
+          : 0;
+        let valStr = Math.abs(val).toString(8);
+        if (width) {
+          valStr = valStr.padStart(parseInt(width, 10), "0");
+        }
+        result += val < 0 ? "-" + valStr : valStr;
+        valueIdx++;
+        i = j + 1;
+      } else if (spec === "c") {
+        // Character
+        const val = values[valueIdx]
+          ? evaluateExpression(values[valueIdx], ctx)
+          : "";
+        if (typeof val === "number") {
+          result += String.fromCharCode(val);
+        } else {
+          result += String(val).charAt(0) || "";
+        }
+        valueIdx++;
+        i = j + 1;
+      } else if (spec === "e" || spec === "E") {
+        // Scientific notation
+        const val = values[valueIdx]
+          ? Number(evaluateExpression(values[valueIdx], ctx))
+          : 0;
+        const prec = precision ? parseInt(precision, 10) : 6;
+        let valStr = val.toExponential(prec);
+        if (spec === "E") valStr = valStr.toUpperCase();
+        if (width) {
+          valStr = valStr.padStart(parseInt(width, 10));
+        }
+        result += valStr;
+        valueIdx++;
+        i = j + 1;
+      } else if (spec === "g" || spec === "G") {
+        // Shortest of %e or %f
+        const val = values[valueIdx]
+          ? Number(evaluateExpression(values[valueIdx], ctx))
+          : 0;
+        const prec = precision ? parseInt(precision, 10) : 6;
+        // Use exponential if exponent < -4 or >= precision
+        const exp = Math.floor(Math.log10(Math.abs(val)));
+        let valStr: string;
+        if (val === 0) {
+          valStr = "0";
+        } else if (exp < -4 || exp >= prec) {
+          valStr = val.toExponential(prec - 1);
+          if (spec === "G") valStr = valStr.toUpperCase();
+        } else {
+          valStr = val.toPrecision(prec);
+        }
+        // Remove trailing zeros after decimal
+        valStr = valStr.replace(/\.?0+$/, "").replace(/\.?0+e/, "e");
         if (width) {
           valStr = valStr.padStart(parseInt(width, 10));
         }

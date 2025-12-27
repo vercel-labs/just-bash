@@ -418,4 +418,210 @@ describe("awk command", () => {
       expect(result.exitCode).toBe(0);
     });
   });
+
+  describe("match() function with RSTART/RLENGTH", () => {
+    it("should return position and set RSTART/RLENGTH", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "hello foo world\n" },
+      });
+      const result = await env.exec(
+        "awk '{print match($0, /foo/), RSTART, RLENGTH}' /data.txt",
+      );
+      expect(result.stdout).toBe("7 7 3\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should return 0 when no match", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "hello world\n" },
+      });
+      const result = await env.exec(
+        "awk '{print match($0, /foo/), RSTART, RLENGTH}' /data.txt",
+      );
+      expect(result.stdout).toBe("0 0 -1\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe("gensub() function", () => {
+    it("should replace globally with g flag", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "hello world\n" },
+      });
+      const result = await env.exec(
+        'awk \'{print gensub(/o/, "0", "g")}\' /data.txt',
+      );
+      expect(result.stdout).toBe("hell0 w0rld\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should replace Nth occurrence", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "foo bar foo baz foo\n" },
+      });
+      const result = await env.exec(
+        'awk \'{print gensub(/foo/, "XXX", 2)}\' /data.txt',
+      );
+      expect(result.stdout).toBe("foo bar XXX baz foo\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe("power operator", () => {
+    it("should compute power with ^", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "test\n" },
+      });
+      const result = await env.exec("awk '{print 2^3}' /data.txt");
+      expect(result.stdout).toBe("8\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should compute power with **", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "test\n" },
+      });
+      const result = await env.exec("awk '{print 3**2}' /data.txt");
+      expect(result.stdout).toBe("9\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe("FILENAME and FNR variables", () => {
+    it("should track FILENAME", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "line1\nline2\n" },
+      });
+      const result = await env.exec(
+        "awk '{print FILENAME, NR}' /data.txt",
+      );
+      expect(result.stdout).toBe("/data.txt 1\n/data.txt 2\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should reset FNR per file", async () => {
+      const env = new BashEnv({
+        files: {
+          "/a.txt": "a1\na2\n",
+          "/b.txt": "b1\nb2\n",
+        },
+      });
+      const result = await env.exec(
+        "awk '{print FILENAME, FNR, NR}' /a.txt /b.txt",
+      );
+      expect(result.stdout).toBe(
+        "/a.txt 1 1\n/a.txt 2 2\n/b.txt 1 3\n/b.txt 2 4\n",
+      );
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe("exit and next statements", () => {
+    it("should exit with code", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "line1\nline2\nline3\n" },
+      });
+      const result = await env.exec(
+        "awk 'NR==2{exit 5}' /data.txt",
+      );
+      expect(result.exitCode).toBe(5);
+    });
+
+    it("should skip to next line with next", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "a\nb\nc\n" },
+      });
+      const result = await env.exec(
+        "awk '/b/{next}{print}' /data.txt",
+      );
+      expect(result.stdout).toBe("a\nc\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe("do-while loops", () => {
+    it("should execute do-while at least once", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "test\n" },
+      });
+      const result = await env.exec(
+        'awk \'BEGIN{i=0; do{i++}while(i<3); print i}\'',
+      );
+      expect(result.stdout).toBe("3\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe("break and continue", () => {
+    it("should break out of loop", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "test\n" },
+      });
+      const result = await env.exec(
+        'awk \'BEGIN{for(i=1;i<=10;i++){if(i==5)break; print i}}\'',
+      );
+      expect(result.stdout).toBe("1\n2\n3\n4\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should continue to next iteration", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "test\n" },
+      });
+      const result = await env.exec(
+        'awk \'BEGIN{for(i=1;i<=5;i++){if(i==3)continue; print i}}\'',
+      );
+      expect(result.stdout).toBe("1\n2\n4\n5\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe("printf formats", () => {
+    it("should format hex with %x", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "test\n" },
+      });
+      const result = await env.exec('awk \'BEGIN{printf "%x\\n", 255}\'');
+      expect(result.stdout).toBe("ff\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should format octal with %o", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "test\n" },
+      });
+      const result = await env.exec('awk \'BEGIN{printf "%o\\n", 8}\'');
+      expect(result.stdout).toBe("10\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should format char with %c", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "test\n" },
+      });
+      const result = await env.exec('awk \'BEGIN{printf "%c\\n", 65}\'');
+      expect(result.stdout).toBe("A\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should format scientific with %e", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "test\n" },
+      });
+      const result = await env.exec('awk \'BEGIN{printf "%.2e\\n", 1234}\'');
+      expect(result.stdout).toBe("1.23e+3\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe("regex field separator", () => {
+    it("should split on regex pattern", async () => {
+      const env = new BashEnv({
+        files: { "/data.txt": "a1b2c\n" },
+      });
+      const result = await env.exec("awk -F'[0-9]+' '{print $1, $2, $3}' /data.txt");
+      expect(result.stdout).toBe("a b c\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
 });

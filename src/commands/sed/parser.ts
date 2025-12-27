@@ -1,14 +1,28 @@
 // Parser for sed scripts
 
-import type { AddressRange, SedAddress, SedCommand } from "./types.js";
+import type { AddressRange, SedAddress, SedCommand, StepAddress } from "./types.js";
 
 interface ParseResult {
   command: SedCommand | null;
   error?: string;
 }
 
+interface ParseContext {
+  extendedRegex: boolean;
+}
+
 function parseAddress(addr: string): SedAddress | undefined {
   if (addr === "$") return "$";
+
+  // Check for step address: first~step (e.g., 0~2, 1~3)
+  const stepMatch = addr.match(/^(\d+)~(\d+)$/);
+  if (stepMatch) {
+    return {
+      first: parseInt(stepMatch[1], 10),
+      step: parseInt(stepMatch[2], 10),
+    } as StepAddress;
+  }
+
   const num = parseInt(addr, 10);
   if (!Number.isNaN(num)) return num;
   // Pattern address /pattern/
@@ -25,6 +39,18 @@ function parseAddressRange(script: string): {
   let rest = script;
   let start: SedAddress | undefined;
   let end: SedAddress | undefined;
+
+  // Check for step address first: first~step (e.g., 0~2)
+  const stepMatch = rest.match(/^(\d+)~(\d+)/);
+  if (stepMatch) {
+    start = {
+      first: parseInt(stepMatch[1], 10),
+      step: parseInt(stepMatch[2], 10),
+    } as StepAddress;
+    rest = rest.slice(stepMatch[0].length);
+    // Step addresses don't support ranges, return immediately
+    return { range: { start, end: undefined }, rest };
+  }
 
   // Check for $ address
   if (rest.startsWith("$")) {
@@ -152,8 +178,20 @@ function parseSedScript(script: string): ParseResult {
     case "N":
       return { command: { type: "nextAppend", address: range } };
 
+    case "P":
+      // Print first line (up to newline)
+      return { command: { type: "printFirstLine", address: range } };
+
+    case "D":
+      // Delete first line (up to newline), restart cycle
+      return { command: { type: "deleteFirstLine", address: range } };
+
     case "q":
       return { command: { type: "quit", address: range } };
+
+    case "z":
+      // Zap/empty pattern space (GNU extension)
+      return { command: { type: "zap", address: range } };
 
     case "=":
       return { command: { type: "lineNumber", address: range } };
@@ -181,6 +219,22 @@ function parseSedScript(script: string): ParseResult {
         },
       };
     }
+
+    case "T": {
+      // Branch if NO substitution made: T [label]
+      const label = cmd.slice(1).trim();
+      return {
+        command: {
+          type: "branchOnNoSubst",
+          address: range,
+          label: label || undefined,
+        },
+      };
+    }
+
+    case "{":
+      // Grouped commands - parse recursively
+      return parseGroupedCommands(cmd, range);
 
     case ":": {
       // Label definition: :name
@@ -344,6 +398,13 @@ function parseSubstitute(cmd: string, range?: AddressRange): ParseResult {
     flags = cmd.slice(i);
   }
 
+  // Parse numeric flags for Nth occurrence (e.g., s/foo/bar/2)
+  let nthOccurrence: number | undefined;
+  const numericMatch = flags.match(/(\d+)/);
+  if (numericMatch) {
+    nthOccurrence = parseInt(numericMatch[1], 10);
+  }
+
   return {
     command: {
       type: "substitute",
@@ -353,11 +414,88 @@ function parseSubstitute(cmd: string, range?: AddressRange): ParseResult {
       global: flags.includes("g"),
       ignoreCase: flags.includes("i"),
       printOnMatch: flags.includes("p"),
+      nthOccurrence,
     },
   };
 }
 
-export function parseMultipleScripts(scripts: string[]): {
+// Parse grouped commands: { cmd1; cmd2; ... }
+function parseGroupedCommands(
+  cmd: string,
+  range?: AddressRange,
+): ParseResult {
+  // Find matching closing brace, handling nested braces and escapes
+  let depth = 1;
+  let i = 1; // Start after opening brace
+  let inSubstitution = false;
+  let subDelimiter = "";
+  let subDelimCount = 0;
+
+  while (i < cmd.length && depth > 0) {
+    const ch = cmd[i];
+
+    // Handle escape sequences
+    if (ch === "\\" && i + 1 < cmd.length) {
+      i += 2;
+      continue;
+    }
+
+    // Track substitution commands to avoid counting braces in patterns
+    if (!inSubstitution && ch === "s" && i + 1 < cmd.length && /[^a-zA-Z0-9]/.test(cmd[i + 1])) {
+      inSubstitution = true;
+      subDelimiter = cmd[i + 1];
+      subDelimCount = 0;
+      i++;
+      continue;
+    }
+
+    if (inSubstitution && ch === subDelimiter) {
+      subDelimCount++;
+      if (subDelimCount >= 3) {
+        inSubstitution = false;
+      }
+      i++;
+      continue;
+    }
+
+    if (!inSubstitution) {
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+    }
+    i++;
+  }
+
+  if (depth !== 0) {
+    return { command: null, error: "unmatched brace in grouped commands" };
+  }
+
+  const innerCommands = cmd.slice(1, i - 1).trim();
+  const parts = splitBySemicolon(innerCommands);
+
+  const commands: SedCommand[] = [];
+  for (const part of parts) {
+    const result = parseSedScript(part);
+    if (result.error) {
+      return { command: null, error: result.error };
+    }
+    if (result.command) {
+      commands.push(result.command);
+    }
+  }
+
+  return {
+    command: {
+      type: "group",
+      address: range,
+      commands,
+    },
+  };
+}
+
+export function parseMultipleScripts(
+  scripts: string[],
+  extendedRegex = false,
+): {
   commands: SedCommand[];
   error?: string;
 } {
@@ -373,6 +511,10 @@ export function parseMultipleScripts(scripts: string[]): {
         return { commands: [], error: result.error };
       }
       if (result.command) {
+        // Mark substitute commands with extended regex flag
+        if (result.command.type === "substitute" && extendedRegex) {
+          result.command.extendedRegex = true;
+        }
         commands.push(result.command);
       }
     }
@@ -387,6 +529,7 @@ function splitBySemicolon(script: string): string[] {
   let inSubstitution = false;
   let delimiter = "";
   let delimiterCount = 0;
+  let braceDepth = 0;
   let i = 0;
 
   while (i < script.length) {
@@ -397,6 +540,22 @@ function splitBySemicolon(script: string): string[] {
       current += char + script[i + 1];
       i += 2;
       continue;
+    }
+
+    // Track brace depth for grouped commands
+    if (!inSubstitution) {
+      if (char === "{") {
+        braceDepth++;
+        current += char;
+        i++;
+        continue;
+      }
+      if (char === "}") {
+        braceDepth--;
+        current += char;
+        i++;
+        continue;
+      }
     }
 
     // Detect start of substitution command
@@ -427,8 +586,8 @@ function splitBySemicolon(script: string): string[] {
       continue;
     }
 
-    // Only split on semicolons when not inside a substitution
-    if (!inSubstitution && char === ";") {
+    // Only split on semicolons when not inside a substitution or braces
+    if (!inSubstitution && braceDepth === 0 && char === ";") {
       if (current.trim()) {
         parts.push(current.trim());
       }

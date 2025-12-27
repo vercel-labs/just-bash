@@ -5,10 +5,14 @@ import type {
   AddressRange,
   BranchCommand,
   BranchOnSubstCommand,
+  BranchOnNoSubstCommand,
+  GroupCommand,
   SedAddress,
   SedCommand,
   SedExecutionLimits,
   SedState,
+  StepAddress,
+  SubstituteCommand,
   TransliterateCommand,
 } from "./types.js";
 
@@ -26,7 +30,16 @@ export function createInitialState(totalLines: number): SedState {
     appendBuffer: [],
     substitutionMade: false,
     lineNumberOutput: [],
+    restartCycle: false,
   };
+}
+
+function isStepAddress(address: SedAddress): address is StepAddress {
+  return (
+    typeof address === "object" &&
+    "first" in address &&
+    "step" in address
+  );
 }
 
 function matchesAddress(
@@ -40,6 +53,12 @@ function matchesAddress(
   }
   if (typeof address === "number") {
     return lineNum === address;
+  }
+  // Step address: first~step (e.g., 0~2 matches lines 0, 2, 4, ...)
+  if (isStepAddress(address)) {
+    const { first, step } = address;
+    if (step === 0) return lineNum === first;
+    return (lineNum - first) % step === 0 && lineNum >= first;
   }
   if (typeof address === "object" && "pattern" in address) {
     try {
@@ -160,27 +179,48 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
 
   switch (cmd.type) {
     case "substitute": {
+      const subCmd = cmd as SubstituteCommand;
       let flags = "";
-      if (cmd.global) flags += "g";
-      if (cmd.ignoreCase) flags += "i";
+      if (subCmd.global) flags += "g";
+      if (subCmd.ignoreCase) flags += "i";
 
+      // Note: JavaScript RegExp always uses ERE (Extended Regular Expressions) syntax,
+      // so -E/-r flag doesn't change behavior. BRE patterns may not work as expected.
+      // This matches the most common use case since agents typically use -E anyway.
       try {
-        const regex = new RegExp(cmd.pattern, flags);
+        const regex = new RegExp(subCmd.pattern, flags);
         const original = state.patternSpace;
 
-        state.patternSpace = state.patternSpace.replace(
-          regex,
-          (match, ...args) => {
-            // Extract captured groups (all args before the last two which are offset and string)
-            const groups = args.slice(0, -2) as string[];
-            return processReplacement(cmd.replacement, match, groups);
-          },
-        );
+        // Handle Nth occurrence
+        if (subCmd.nthOccurrence && subCmd.nthOccurrence > 0 && !subCmd.global) {
+          let count = 0;
+          const nth = subCmd.nthOccurrence;
+          state.patternSpace = state.patternSpace.replace(
+            new RegExp(subCmd.pattern, "g" + (subCmd.ignoreCase ? "i" : "")),
+            (match, ...args) => {
+              count++;
+              if (count === nth) {
+                const groups = args.slice(0, -2) as string[];
+                return processReplacement(subCmd.replacement, match, groups);
+              }
+              return match;
+            },
+          );
+        } else {
+          state.patternSpace = state.patternSpace.replace(
+            regex,
+            (match, ...args) => {
+              // Extract captured groups (all args before the last two which are offset and string)
+              const groups = args.slice(0, -2) as string[];
+              return processReplacement(subCmd.replacement, match, groups);
+            },
+          );
+        }
 
         const hadMatch = original !== state.patternSpace;
         if (hadMatch) {
           state.substitutionMade = true;
-          if (cmd.printOnMatch) {
+          if (subCmd.printOnMatch) {
             state.printed = true;
           }
         }
@@ -194,8 +234,37 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
       state.printed = true;
       break;
 
+    case "printFirstLine": {
+      // P - print up to first newline
+      const newlineIdx = state.patternSpace.indexOf("\n");
+      if (newlineIdx !== -1) {
+        state.lineNumberOutput.push(state.patternSpace.slice(0, newlineIdx));
+      } else {
+        state.lineNumberOutput.push(state.patternSpace);
+      }
+      break;
+    }
+
     case "delete":
       state.deleted = true;
+      break;
+
+    case "deleteFirstLine": {
+      // D - delete up to first newline, restart cycle if more content
+      const newlineIdx = state.patternSpace.indexOf("\n");
+      if (newlineIdx !== -1) {
+        state.patternSpace = state.patternSpace.slice(newlineIdx + 1);
+        // Restart the cycle from the beginning with remaining content
+        state.restartCycle = true;
+      } else {
+        state.deleted = true;
+      }
+      break;
+    }
+
+    case "zap":
+      // z - empty pattern space (GNU extension)
+      state.patternSpace = "";
       break;
 
     case "append":
@@ -277,6 +346,14 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
     case "branchOnSubst":
       // t [label] - Will be handled in executeCommands
       break;
+
+    case "branchOnNoSubst":
+      // T [label] - Will be handled in executeCommands
+      break;
+
+    case "group":
+      // Grouped commands - will be handled in executeCommands
+      break;
   }
 }
 
@@ -330,7 +407,7 @@ export function executeCommands(
       );
     }
 
-    if (state.deleted || state.quit) break;
+    if (state.deleted || state.quit || state.restartCycle) break;
 
     const cmd = commands[i];
 
@@ -352,8 +429,13 @@ export function executeCommands(
           const nextLine = ctx.lines[ctx.currentLineIndex + linesConsumed];
           state.patternSpace += `\n${nextLine}`;
           state.lineNumber = ctx.currentLineIndex + linesConsumed + 1;
+        } else {
+          // If no next line, N quits without printing current pattern space
+          // This matches real bash behavior
+          state.quit = true;
+          state.deleted = true;
+          break;
         }
-        // If no next line available, N command just continues
       }
       i++;
       continue;
@@ -408,6 +490,52 @@ export function executeCommands(
           // Branch without label means jump to end
           break;
         }
+      }
+      i++;
+      continue;
+    }
+
+    // T - branch if NO substitution made (since last line read)
+    if (cmd.type === "branchOnNoSubst") {
+      const branchCmd = cmd as BranchOnNoSubstCommand;
+      // Check if address matches
+      if (
+        isInRange(
+          branchCmd.address,
+          state.lineNumber,
+          state.totalLines,
+          state.patternSpace,
+        )
+      ) {
+        if (!state.substitutionMade) {
+          if (branchCmd.label) {
+            const target = labelIndex.get(branchCmd.label);
+            if (target !== undefined) {
+              i = target;
+              continue;
+            }
+          }
+          // Branch without label means jump to end
+          break;
+        }
+      }
+      i++;
+      continue;
+    }
+
+    // Grouped commands - execute recursively
+    if (cmd.type === "group") {
+      const groupCmd = cmd as GroupCommand;
+      if (
+        isInRange(
+          groupCmd.address,
+          state.lineNumber,
+          state.totalLines,
+          state.patternSpace,
+        )
+      ) {
+        // Execute all commands in the group
+        executeCommands(groupCmd.commands, state, ctx, limits);
       }
       i++;
       continue;

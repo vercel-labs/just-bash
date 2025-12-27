@@ -1,6 +1,12 @@
 // Types for sed command implementation
 
-export type SedAddress = number | "$" | { pattern: string };
+// Address with stepping support (e.g., 0~2 for every other line)
+export interface StepAddress {
+  first: number;
+  step: number;
+}
+
+export type SedAddress = number | "$" | { pattern: string } | StepAddress;
 
 export interface AddressRange {
   start?: SedAddress;
@@ -10,7 +16,9 @@ export interface AddressRange {
 export type SedCommandType =
   | "substitute"
   | "print"
+  | "printFirstLine" // P - print up to first newline
   | "delete"
+  | "deleteFirstLine" // D - delete up to first newline
   | "append"
   | "insert"
   | "change"
@@ -26,7 +34,10 @@ export type SedCommandType =
   | "lineNumber"
   | "branch"
   | "branchOnSubst"
-  | "label";
+  | "branchOnNoSubst" // T - branch if no substitution made
+  | "label"
+  | "zap" // z - zap/empty pattern space
+  | "group"; // { } - grouped commands
 
 export interface SubstituteCommand {
   type: "substitute";
@@ -36,6 +47,8 @@ export interface SubstituteCommand {
   global: boolean;
   ignoreCase: boolean;
   printOnMatch: boolean;
+  nthOccurrence?: number; // Replace only Nth occurrence (1-based)
+  extendedRegex?: boolean; // Use extended regex
 }
 
 export interface PrintCommand {
@@ -136,10 +149,39 @@ export interface LabelCommand {
   name: string;
 }
 
+export interface BranchOnNoSubstCommand {
+  type: "branchOnNoSubst"; // T [label] - branch if NO substitution made
+  address?: AddressRange;
+  label?: string;
+}
+
+export interface PrintFirstLineCommand {
+  type: "printFirstLine"; // P - print up to first newline
+  address?: AddressRange;
+}
+
+export interface DeleteFirstLineCommand {
+  type: "deleteFirstLine"; // D - delete up to first newline, restart cycle
+  address?: AddressRange;
+}
+
+export interface ZapCommand {
+  type: "zap"; // z - empty/zap pattern space
+  address?: AddressRange;
+}
+
+export interface GroupCommand {
+  type: "group"; // { commands } - grouped commands
+  address?: AddressRange;
+  commands: SedCommand[];
+}
+
 export type SedCommand =
   | SubstituteCommand
   | PrintCommand
+  | PrintFirstLineCommand
   | DeleteCommand
+  | DeleteFirstLineCommand
   | AppendCommand
   | InsertCommand
   | ChangeCommand
@@ -155,7 +197,10 @@ export type SedCommand =
   | LineNumberCommand
   | BranchCommand
   | BranchOnSubstCommand
-  | LabelCommand;
+  | BranchOnNoSubstCommand
+  | LabelCommand
+  | ZapCommand
+  | GroupCommand;
 
 export interface SedState {
   patternSpace: string;
@@ -168,6 +213,7 @@ export interface SedState {
   appendBuffer: string[]; // Lines to append after current line
   substitutionMade: boolean; // Track if substitution was made (for 't' command)
   lineNumberOutput: string[]; // Output from '=' command
+  restartCycle: boolean; // For D command: restart cycle without reading new line
 }
 
 export interface SedExecutionLimits {

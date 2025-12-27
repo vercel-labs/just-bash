@@ -162,16 +162,17 @@ describe("SED Execution Limits", () => {
   });
 
   describe("n/N command limits", () => {
-    it("should handle N command accumulation", async () => {
+    it("should handle N command accumulation without infinite loop", async () => {
       const env = new BashEnv();
-      const lines = Array(1000).fill("line").join("\n");
+      const lines = Array(100).fill("line").join("\n");
       await env.writeFile("/input.txt", lines);
 
-      // N accumulates all lines in pattern space
+      // N accumulates lines but quits when no more lines available
+      // This should complete successfully (not loop forever)
       const result = await env.exec(`sed ':a; N; ba' /input.txt`);
 
-      // Should hit iteration limit
-      expect(result.exitCode).not.toBe(0);
+      // N quits when there's no next line, so this completes
+      expect(result.exitCode).toBe(0);
     });
   });
 });

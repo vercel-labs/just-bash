@@ -3,12 +3,23 @@ import { BashEnv } from "../../BashEnv.js";
 
 describe("sed advanced commands", () => {
   describe("N command (append next line)", () => {
-    it("appends next line to pattern space", async () => {
+    it("appends next line to pattern space (even line count)", async () => {
+      const env = new BashEnv({
+        // Use even number of lines so N always has a next line
+        files: { "/test.txt": "line1\nline2\nline3\nline4\n" },
+      });
+      const result = await env.exec("sed 'N;s/\\n/ /' /test.txt");
+      expect(result.stdout).toBe("line1 line2\nline3 line4\n");
+    });
+
+    it("quits without printing when N has no next line (odd line count)", async () => {
       const env = new BashEnv({
         files: { "/test.txt": "line1\nline2\nline3\n" },
       });
+      // With 3 lines: N works on 1+2, then N on line3 has no next line and quits
       const result = await env.exec("sed 'N;s/\\n/ /' /test.txt");
-      expect(result.stdout).toBe("line1 line2\nline3\n");
+      // Real bash: only outputs the first pair, line3 is not printed
+      expect(result.stdout).toBe("line1 line2\n");
     });
 
     it("joins pairs of lines", async () => {

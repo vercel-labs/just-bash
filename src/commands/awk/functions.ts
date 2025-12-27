@@ -1,6 +1,129 @@
 import type { AwkContext } from "./types.js";
 
 // String functions for awk
+
+export function awkMatch(
+  args: string[],
+  ctx: AwkContext,
+  evaluateExpr: (expr: string, ctx: AwkContext) => string | number,
+): number {
+  if (args.length < 2) {
+    ctx.RSTART = 0;
+    ctx.RLENGTH = -1;
+    return 0;
+  }
+  const str = String(evaluateExpr(args[0], ctx));
+  let pattern = args[1].trim();
+
+  // Remove surrounding slashes if present
+  if (pattern.startsWith("/") && pattern.endsWith("/")) {
+    pattern = pattern.slice(1, -1);
+  }
+
+  try {
+    const regex = new RegExp(pattern);
+    const match = regex.exec(str);
+    if (match) {
+      ctx.RSTART = match.index + 1; // 1-indexed
+      ctx.RLENGTH = match[0].length;
+      return ctx.RSTART;
+    }
+  } catch {
+    // Invalid regex
+  }
+
+  ctx.RSTART = 0;
+  ctx.RLENGTH = -1;
+  return 0;
+}
+
+export function awkGensub(
+  args: string[],
+  ctx: AwkContext,
+  evaluateExpr: (expr: string, ctx: AwkContext) => string | number,
+): string {
+  if (args.length < 3) return "";
+
+  let pattern = String(evaluateExpr(args[0], ctx));
+  const replacement = String(evaluateExpr(args[1], ctx));
+  const how = String(evaluateExpr(args[2], ctx));
+  const target =
+    args.length >= 4 ? String(evaluateExpr(args[3], ctx)) : ctx.line;
+
+  // Remove surrounding slashes if present
+  if (pattern.startsWith("/") && pattern.endsWith("/")) {
+    pattern = pattern.slice(1, -1);
+  }
+
+  try {
+    // Determine if global or specific occurrence
+    const isGlobal = how.toLowerCase() === "g";
+    const occurrenceNum = isGlobal ? 0 : parseInt(how, 10) || 1;
+
+    if (isGlobal) {
+      const regex = new RegExp(pattern, "g");
+      return target.replace(regex, (match, ...groups) => {
+        return processGensub(replacement, match, groups.slice(0, -2));
+      });
+    } else {
+      // Replace Nth occurrence
+      let count = 0;
+      const regex = new RegExp(pattern, "g");
+      return target.replace(regex, (match, ...groups) => {
+        count++;
+        if (count === occurrenceNum) {
+          return processGensub(replacement, match, groups.slice(0, -2));
+        }
+        return match;
+      });
+    }
+  } catch {
+    return target;
+  }
+}
+
+// Process gensub replacement with backreferences
+function processGensub(
+  replacement: string,
+  match: string,
+  groups: string[],
+): string {
+  let result = "";
+  let i = 0;
+  while (i < replacement.length) {
+    if (replacement[i] === "\\" && i + 1 < replacement.length) {
+      const next = replacement[i + 1];
+      if (next === "&") {
+        result += "&";
+        i += 2;
+      } else if (next === "0") {
+        result += match;
+        i += 2;
+      } else if (next >= "1" && next <= "9") {
+        const idx = parseInt(next, 10) - 1;
+        result += groups[idx] || "";
+        i += 2;
+      } else if (next === "n") {
+        result += "\n";
+        i += 2;
+      } else if (next === "t") {
+        result += "\t";
+        i += 2;
+      } else {
+        result += next;
+        i += 2;
+      }
+    } else if (replacement[i] === "&") {
+      result += match;
+      i++;
+    } else {
+      result += replacement[i];
+      i++;
+    }
+  }
+  return result;
+}
+
 export function awkLength(
   args: string[],
   ctx: AwkContext,
