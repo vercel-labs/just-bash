@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": ["src/cli/bash-env.ts"],
   "project": ["src/**/*.ts"],
   "ignore": ["src/**/*.test.ts", "src/spec-tests/**"],
   "ignoreBinaries": ["tsx"],
