@@ -31,7 +31,7 @@ export interface ExecutionLimits {
  * These are conservative limits designed to prevent runaway execution
  * while allowing reasonable scripts to complete.
  */
-export const DEFAULT_LIMITS: Required<ExecutionLimits> = {
+const DEFAULT_LIMITS: Required<ExecutionLimits> = {
   maxCallDepth: 100,
   maxCommandCount: 10000,
   maxLoopIterations: 10000,
