@@ -32,18 +32,20 @@
     "README.md"
   ],
   "bin": {
-    "bash-env": "./dist/cli/bash-env.js",
+    "bash-env": "./dist/bin/bash-env.js",
     "bash-env-shell": "./dist/cli/shell.js"
   },
   "scripts": {
-    "build": "tsc",
-    "validate": "pnpm build && pnpm typecheck && pnpm lint && pnpm knip && pnpm test:run",
+    "build": "tsc && pnpm build:cli",
+    "build:cli": "esbuild dist/cli/bash-env.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bin --entry-names=[name] --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node'",
+    "validate": "pnpm build && pnpm typecheck && pnpm lint && pnpm knip && pnpm test:run && pnpm test:dist",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "knip": "knip",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:dist": "vitest run src/cli/bash-env.bundle.test.ts",
     "test:unit": "vitest run --config vitest.unit.config.ts",
     "test:comparison": "vitest run --config vitest.comparison.config.ts",
     "shell": "npx tsx src/cli/shell.ts",
@@ -58,6 +60,7 @@
     "@types/sprintf-js": "^1.1.4",
     "@types/turndown": "^5.0.6",
     "ai": "^6.0.3",
+    "esbuild": "^0.27.2",
     "knip": "^5.41.1",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16",

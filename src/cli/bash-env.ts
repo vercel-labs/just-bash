@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * bash-env CLI - A secure alternative to bash for AI agents
  *
