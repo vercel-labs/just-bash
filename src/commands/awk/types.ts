@@ -47,5 +47,5 @@ export interface ParsedProgram {
   begin: string | null;
   main: AwkRule[];
   end: string | null;
-  functions?: Record<string, AwkFunction>;
+  functions: Record<string, AwkFunction>;
 }

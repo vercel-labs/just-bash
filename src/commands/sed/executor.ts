@@ -4,8 +4,8 @@ import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type {
   AddressRange,
   BranchCommand,
-  BranchOnSubstCommand,
   BranchOnNoSubstCommand,
+  BranchOnSubstCommand,
   GroupCommand,
   SedAddress,
   SedCommand,
@@ -35,11 +35,7 @@ export function createInitialState(totalLines: number): SedState {
 }
 
 function isStepAddress(address: SedAddress): address is StepAddress {
-  return (
-    typeof address === "object" &&
-    "first" in address &&
-    "step" in address
-  );
+  return typeof address === "object" && "first" in address && "step" in address;
 }
 
 function matchesAddress(
@@ -192,11 +188,15 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
         const original = state.patternSpace;
 
         // Handle Nth occurrence
-        if (subCmd.nthOccurrence && subCmd.nthOccurrence > 0 && !subCmd.global) {
+        if (
+          subCmd.nthOccurrence &&
+          subCmd.nthOccurrence > 0 &&
+          !subCmd.global
+        ) {
           let count = 0;
           const nth = subCmd.nthOccurrence;
           state.patternSpace = state.patternSpace.replace(
-            new RegExp(subCmd.pattern, "g" + (subCmd.ignoreCase ? "i" : "")),
+            new RegExp(subCmd.pattern, `g${subCmd.ignoreCase ? "i" : ""}`),
             (match, ...args) => {
               count++;
               if (count === nth) {

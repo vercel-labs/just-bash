@@ -688,7 +688,7 @@ function evaluatePrintf(args: string, ctx: AwkContext): string {
         if (width) {
           valStr = valStr.padStart(parseInt(width, 10), "0");
         }
-        result += val < 0 ? "-" + valStr : valStr;
+        result += val < 0 ? `-${valStr}` : valStr;
         valueIdx++;
         i = j + 1;
       } else if (spec === "o") {
@@ -700,7 +700,7 @@ function evaluatePrintf(args: string, ctx: AwkContext): string {
         if (width) {
           valStr = valStr.padStart(parseInt(width, 10), "0");
         }
-        result += val < 0 ? "-" + valStr : valStr;
+        result += val < 0 ? `-${valStr}` : valStr;
         valueIdx++;
         i = j + 1;
       } else if (spec === "c") {

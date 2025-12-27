@@ -702,7 +702,9 @@ describe("sed command", () => {
         cwd: "/",
       });
       // () for grouping and backreferences (ERE syntax)
-      const result = await env.exec("sed -E 's/(hello) (world)/\\2 \\1/' /test.txt");
+      const result = await env.exec(
+        "sed -E 's/(hello) (world)/\\2 \\1/' /test.txt",
+      );
       expect(result.stdout).toBe("world hello\n");
     });
 
@@ -718,12 +720,19 @@ describe("sed command", () => {
 
     it("should support complex ERE patterns", async () => {
       const env = new BashEnv({
-        files: { "/test.txt": "error: file not found\nwarning: deprecated\ninfo: success\n" },
+        files: {
+          "/test.txt":
+            "error: file not found\nwarning: deprecated\ninfo: success\n",
+        },
         cwd: "/",
       });
       // Complex pattern with alternation and grouping
-      const result = await env.exec("sed -E 's/^(error|warning): (.+)/[\\1] \\2/' /test.txt");
-      expect(result.stdout).toBe("[error] file not found\n[warning] deprecated\ninfo: success\n");
+      const result = await env.exec(
+        "sed -E 's/^(error|warning): (.+)/[\\1] \\2/' /test.txt",
+      );
+      expect(result.stdout).toBe(
+        "[error] file not found\n[warning] deprecated\ninfo: success\n",
+      );
     });
 
     it("should support {n,m} quantifier with -E", async () => {

@@ -1,16 +1,24 @@
-import type { AwkFunction, ParsedProgram } from "./types.js";
+import type { ParsedProgram } from "./types.js";
 
 export function parseAwkProgram(program: string): ParsedProgram {
-  const result: ParsedProgram = { begin: null, main: [], end: null, functions: {} };
+  const result: ParsedProgram = {
+    begin: null,
+    main: [],
+    end: null,
+    functions: {},
+  };
 
   let remaining = program.trim();
 
   // Extract user-defined functions: function name(params) { body }
   const funcRegex = /function\s+(\w+)\s*\(([^)]*)\)\s*\{/g;
-  let funcMatch: RegExpExecArray | null;
 
   // Process functions first
-  while ((funcMatch = funcRegex.exec(remaining)) !== null) {
+  for (
+    let funcMatch = funcRegex.exec(remaining);
+    funcMatch !== null;
+    funcMatch = funcRegex.exec(remaining)
+  ) {
     const funcName = funcMatch[1];
     const paramsStr = funcMatch[2];
     const funcStart = funcMatch.index;
@@ -24,11 +32,10 @@ export function parseAwkProgram(program: string): ParsedProgram {
         .filter((p) => p.length > 0);
       const body = remaining.slice(bodyStart + 1, bodyEnd).trim();
 
-      result.functions![funcName] = { params, body };
+      result.functions[funcName] = { params, body };
 
       // Remove function from remaining
-      remaining =
-        remaining.slice(0, funcStart) + remaining.slice(bodyEnd + 1);
+      remaining = remaining.slice(0, funcStart) + remaining.slice(bodyEnd + 1);
       remaining = remaining.trim();
 
       // Reset regex position
@@ -37,8 +44,10 @@ export function parseAwkProgram(program: string): ParsedProgram {
   }
 
   // Check for BEGIN block - handle nested braces
-  const beginIdx = remaining.indexOf("BEGIN");
-  if (beginIdx !== -1) {
+  // Use regex to find BEGIN followed by { (not BEGIN inside strings)
+  const beginMatch = remaining.match(/\bBEGIN\s*\{/);
+  if (beginMatch && beginMatch.index !== undefined) {
+    const beginIdx = beginMatch.index;
     const afterBegin = remaining.slice(beginIdx + 5).trim();
     if (afterBegin.startsWith("{")) {
       const endBrace = findMatchingBrace(afterBegin, 0);
@@ -52,8 +61,10 @@ export function parseAwkProgram(program: string): ParsedProgram {
   }
 
   // Check for END block - handle nested braces
-  const endIdx = remaining.lastIndexOf("END");
-  if (endIdx !== -1) {
+  // Use regex to find END followed by { (not END inside strings)
+  const endMatch = remaining.match(/\bEND\s*\{/);
+  if (endMatch && endMatch.index !== undefined) {
+    const endIdx = endMatch.index;
     const afterEnd = remaining.slice(endIdx + 3).trim();
     if (afterEnd.startsWith("{")) {
       const endBrace = findMatchingBrace(afterEnd, 0);

@@ -460,7 +460,7 @@ describe("awk command", () => {
         files: { "/data.txt": "foo bar foo baz foo\n" },
       });
       const result = await env.exec(
-        'awk \'{print gensub(/foo/, "XXX", 2)}\' /data.txt',
+        "awk '{print gensub(/foo/, \"XXX\", 2)}' /data.txt",
       );
       expect(result.stdout).toBe("foo bar XXX baz foo\n");
       expect(result.exitCode).toBe(0);
@@ -492,9 +492,7 @@ describe("awk command", () => {
       const env = new BashEnv({
         files: { "/data.txt": "line1\nline2\n" },
       });
-      const result = await env.exec(
-        "awk '{print FILENAME, NR}' /data.txt",
-      );
+      const result = await env.exec("awk '{print FILENAME, NR}' /data.txt");
       expect(result.stdout).toBe("/data.txt 1\n/data.txt 2\n");
       expect(result.exitCode).toBe(0);
     });
@@ -521,9 +519,7 @@ describe("awk command", () => {
       const env = new BashEnv({
         files: { "/data.txt": "line1\nline2\nline3\n" },
       });
-      const result = await env.exec(
-        "awk 'NR==2{exit 5}' /data.txt",
-      );
+      const result = await env.exec("awk 'NR==2{exit 5}' /data.txt");
       expect(result.exitCode).toBe(5);
     });
 
@@ -531,9 +527,7 @@ describe("awk command", () => {
       const env = new BashEnv({
         files: { "/data.txt": "a\nb\nc\n" },
       });
-      const result = await env.exec(
-        "awk '/b/{next}{print}' /data.txt",
-      );
+      const result = await env.exec("awk '/b/{next}{print}' /data.txt");
       expect(result.stdout).toBe("a\nc\n");
       expect(result.exitCode).toBe(0);
     });
@@ -545,7 +539,7 @@ describe("awk command", () => {
         files: { "/data.txt": "test\n" },
       });
       const result = await env.exec(
-        'awk \'BEGIN{i=0; do{i++}while(i<3); print i}\'',
+        "awk 'BEGIN{i=0; do{i++}while(i<3); print i}'",
       );
       expect(result.stdout).toBe("3\n");
       expect(result.exitCode).toBe(0);
@@ -558,7 +552,7 @@ describe("awk command", () => {
         files: { "/data.txt": "test\n" },
       });
       const result = await env.exec(
-        'awk \'BEGIN{for(i=1;i<=10;i++){if(i==5)break; print i}}\'',
+        "awk 'BEGIN{for(i=1;i<=10;i++){if(i==5)break; print i}}'",
       );
       expect(result.stdout).toBe("1\n2\n3\n4\n");
       expect(result.exitCode).toBe(0);
@@ -569,7 +563,7 @@ describe("awk command", () => {
         files: { "/data.txt": "test\n" },
       });
       const result = await env.exec(
-        'awk \'BEGIN{for(i=1;i<=5;i++){if(i==3)continue; print i}}\'',
+        "awk 'BEGIN{for(i=1;i<=5;i++){if(i==3)continue; print i}}'",
       );
       expect(result.stdout).toBe("1\n2\n4\n5\n");
       expect(result.exitCode).toBe(0);
@@ -581,7 +575,7 @@ describe("awk command", () => {
       const env = new BashEnv({
         files: { "/data.txt": "test\n" },
       });
-      const result = await env.exec('awk \'BEGIN{printf "%x\\n", 255}\'');
+      const result = await env.exec("awk 'BEGIN{printf \"%x\\n\", 255}'");
       expect(result.stdout).toBe("ff\n");
       expect(result.exitCode).toBe(0);
     });
@@ -590,7 +584,7 @@ describe("awk command", () => {
       const env = new BashEnv({
         files: { "/data.txt": "test\n" },
       });
-      const result = await env.exec('awk \'BEGIN{printf "%o\\n", 8}\'');
+      const result = await env.exec("awk 'BEGIN{printf \"%o\\n\", 8}'");
       expect(result.stdout).toBe("10\n");
       expect(result.exitCode).toBe(0);
     });
@@ -599,7 +593,7 @@ describe("awk command", () => {
       const env = new BashEnv({
         files: { "/data.txt": "test\n" },
       });
-      const result = await env.exec('awk \'BEGIN{printf "%c\\n", 65}\'');
+      const result = await env.exec("awk 'BEGIN{printf \"%c\\n\", 65}'");
       expect(result.stdout).toBe("A\n");
       expect(result.exitCode).toBe(0);
     });
@@ -608,7 +602,7 @@ describe("awk command", () => {
       const env = new BashEnv({
         files: { "/data.txt": "test\n" },
       });
-      const result = await env.exec('awk \'BEGIN{printf "%.2e\\n", 1234}\'');
+      const result = await env.exec("awk 'BEGIN{printf \"%.2e\\n\", 1234}'");
       expect(result.stdout).toBe("1.23e+3\n");
       expect(result.exitCode).toBe(0);
     });
@@ -619,7 +613,9 @@ describe("awk command", () => {
       const env = new BashEnv({
         files: { "/data.txt": "a1b2c\n" },
       });
-      const result = await env.exec("awk -F'[0-9]+' '{print $1, $2, $3}' /data.txt");
+      const result = await env.exec(
+        "awk -F'[0-9]+' '{print $1, $2, $3}' /data.txt",
+      );
       expect(result.stdout).toBe("a b c\n");
       expect(result.exitCode).toBe(0);
     });

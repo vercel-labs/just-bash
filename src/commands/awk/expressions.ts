@@ -88,16 +88,26 @@ export function evaluateExpression(
       case "systime":
       case "mktime":
       case "strftime":
-        throw new Error(`awk: function '${funcName}' is not implemented`);
+        throw new Error(`function '${funcName}()' is not implemented`);
+      // Unsupported functions - security/sandboxing reasons
       case "system":
-      case "getline":
         throw new Error(
-          `awk: function '${funcName}' is not supported in sandboxed environment`,
+          "system() is not supported - shell execution not allowed in sandboxed environment",
         );
+      case "close":
+        throw new Error(
+          "close() is not supported - file operations not allowed",
+        );
+      case "fflush":
+        throw new Error(
+          "fflush() is not supported - file operations not allowed",
+        );
+      case "nextfile":
+        throw new Error("nextfile is not supported - use 'next' instead");
     }
 
     // Check for user-defined function
-    if (ctx.functions && ctx.functions[funcName]) {
+    if (ctx.functions?.[funcName]) {
       return executeUserFunction(funcName, args, ctx);
     }
   }
@@ -160,7 +170,7 @@ export function evaluateExpression(
   if (powerMatch) {
     const left = Number(evaluateExpression(powerMatch[1], ctx));
     const right = Number(evaluateExpression(powerMatch[3], ctx));
-    return Math.pow(left, right);
+    return left ** right;
   }
 
   // Arithmetic - check BEFORE concatenation
@@ -182,14 +192,19 @@ export function evaluateExpression(
     }
   }
 
-  // Arithmetic without spaces for simple identifiers
+  // Arithmetic without spaces for simple identifiers - handles chained operations like x*x*x
+  // Parse from left to right for all arithmetic operators
   const arithMatchNoSpace = expr.match(
-    /^([a-zA-Z_]\w*|\$\d+|\d+(?:\.\d+)?)\s*([*/%])\s*([a-zA-Z_]\w*|\$\d+|\d+(?:\.\d+)?)$/,
+    /^([a-zA-Z_]\w*|\$\d+|\d+(?:\.\d+)?)\s*([+\-*/%])\s*(.+)$/,
   );
   if (arithMatchNoSpace) {
     const left = Number(evaluateExpression(arithMatchNoSpace[1], ctx));
     const right = Number(evaluateExpression(arithMatchNoSpace[3], ctx));
     switch (arithMatchNoSpace[2]) {
+      case "+":
+        return left + right;
+      case "-":
+        return left - right;
       case "*":
         return left * right;
       case "/":
@@ -517,8 +532,9 @@ function executeUserFunction(
   } finally {
     // Restore saved variables
     for (const param of func.params) {
-      if (savedVars[param] !== undefined) {
-        ctx.vars[param] = savedVars[param]!;
+      const saved = savedVars[param];
+      if (saved !== undefined) {
+        ctx.vars[param] = saved;
       } else {
         delete ctx.vars[param];
       }

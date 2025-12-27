@@ -65,7 +65,7 @@ function processContent(
 
   // Persistent hold space across all lines
   let holdSpace = "";
-  let substitutionMade = false;
+  let _substitutionMade = false;
 
   // Convert to SedExecutionLimits format
   const sedLimits: SedExecutionLimits | undefined = limits
@@ -73,7 +73,7 @@ function processContent(
     : undefined;
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    let state: SedState = {
+    const state: SedState = {
       ...createInitialState(totalLines),
       patternSpace: lines[lineIndex],
       holdSpace: holdSpace,
@@ -112,7 +112,7 @@ function processContent(
 
     // Preserve state for next line
     holdSpace = state.holdSpace;
-    substitutionMade = state.substitutionMade;
+    _substitutionMade = state.substitutionMade;
 
     // Output line numbers from = command
     for (const ln of state.lineNumberOutput) {

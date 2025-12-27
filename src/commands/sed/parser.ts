@@ -1,14 +1,28 @@
 // Parser for sed scripts
 
-import type { AddressRange, SedAddress, SedCommand, StepAddress } from "./types.js";
+import type {
+  AddressRange,
+  SedAddress,
+  SedCommand,
+  StepAddress,
+} from "./types.js";
+
+// Unsupported sed commands with descriptions
+const UNSUPPORTED_COMMANDS: Record<string, string> = {
+  r: "r (read file) - file operations not supported",
+  R: "R (read line from file) - file operations not supported",
+  w: "w (write to file) - file operations not supported",
+  W: "W (write first line to file) - file operations not supported",
+  e: "e (execute shell command) - shell execution not supported",
+  l: "l (list/escape special chars) - not implemented",
+  F: "F (print filename) - not implemented",
+  Q: "Q (quit without printing) - use 'q' instead",
+  v: "v (version check) - not implemented",
+};
 
 interface ParseResult {
   command: SedCommand | null;
   error?: string;
-}
-
-interface ParseContext {
-  extendedRegex: boolean;
 }
 
 function parseAddress(addr: string): SedAddress | undefined {
@@ -279,6 +293,14 @@ function parseSedScript(script: string): ParseResult {
     return parseSubstitute(cmd, range);
   }
 
+  // Check if this is an unsupported command
+  if (firstChar && UNSUPPORTED_COMMANDS[firstChar]) {
+    return {
+      command: null,
+      error: `unsupported command: ${UNSUPPORTED_COMMANDS[firstChar]}`,
+    };
+  }
+
   return { command: null, error: `invalid command: ${script}` };
 }
 
@@ -420,10 +442,7 @@ function parseSubstitute(cmd: string, range?: AddressRange): ParseResult {
 }
 
 // Parse grouped commands: { cmd1; cmd2; ... }
-function parseGroupedCommands(
-  cmd: string,
-  range?: AddressRange,
-): ParseResult {
+function parseGroupedCommands(cmd: string, range?: AddressRange): ParseResult {
   // Find matching closing brace, handling nested braces and escapes
   let depth = 1;
   let i = 1; // Start after opening brace
@@ -441,7 +460,12 @@ function parseGroupedCommands(
     }
 
     // Track substitution commands to avoid counting braces in patterns
-    if (!inSubstitution && ch === "s" && i + 1 < cmd.length && /[^a-zA-Z0-9]/.test(cmd[i + 1])) {
+    if (
+      !inSubstitution &&
+      ch === "s" &&
+      i + 1 < cmd.length &&
+      /[^a-zA-Z0-9]/.test(cmd[i + 1])
+    ) {
       inSubstitution = true;
       subDelimiter = cmd[i + 1];
       subDelimCount = 0;
