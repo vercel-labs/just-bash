@@ -1,6 +1,9 @@
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { evaluateCondition, evaluateExpression } from "./expressions.js";
 import { findMatchingBrace } from "./parser.js";
 import type { AwkContext } from "./types.js";
+
+const DEFAULT_MAX_ITERATIONS = 10000;
 
 export function executeAwkAction(action: string, ctx: AwkContext): string {
   let output = "";
@@ -16,7 +19,8 @@ export function executeAwkAction(action: string, ctx: AwkContext): string {
 function parseStatements(action: string): string[] {
   const statements: string[] = [];
   let current = "";
-  let depth = 0;
+  let braceDepth = 0;
+  let parenDepth = 0;
   let inString = false;
 
   for (let i = 0; i < action.length; i++) {
@@ -27,9 +31,15 @@ function parseStatements(action: string): string[] {
     }
 
     if (!inString) {
-      if (ch === "{") depth++;
-      else if (ch === "}") depth--;
-      else if ((ch === ";" || ch === "\n") && depth === 0) {
+      if (ch === "{") braceDepth++;
+      else if (ch === "}") braceDepth--;
+      else if (ch === "(") parenDepth++;
+      else if (ch === ")") parenDepth--;
+      else if (
+        (ch === ";" || ch === "\n") &&
+        braceDepth === 0 &&
+        parenDepth === 0
+      ) {
         if (current.trim()) {
           statements.push(current.trim());
         }
@@ -343,11 +353,18 @@ function executeWhile(stmt: string, ctx: AwkContext): string {
 
   let output = "";
   let iterations = 0;
-  const maxIterations = 10000; // Safety limit
+  const maxIterations = ctx.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
-  while (evaluateCondition(condition, ctx) && iterations < maxIterations) {
-    output += executeAwkAction(body, ctx);
+  while (evaluateCondition(condition, ctx)) {
     iterations++;
+    if (iterations > maxIterations) {
+      throw new ExecutionLimitError(
+        `awk: while loop exceeded maximum iterations (${maxIterations})`,
+        "iterations",
+        output,
+      );
+    }
+    output += executeAwkAction(body, ctx);
   }
 
   return output;
@@ -411,17 +428,21 @@ function executeFor(stmt: string, ctx: AwkContext): string {
 
   let output = "";
   let iterations = 0;
-  const maxIterations = 10000;
+  const maxIterations = ctx.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
-  while (
-    (!condition || evaluateCondition(condition, ctx)) &&
-    iterations < maxIterations
-  ) {
+  while (!condition || evaluateCondition(condition, ctx)) {
+    iterations++;
+    if (iterations > maxIterations) {
+      throw new ExecutionLimitError(
+        `awk: for loop exceeded maximum iterations (${maxIterations})`,
+        "iterations",
+        output,
+      );
+    }
     output += executeAwkAction(body, ctx);
     if (increment) {
       executeStatement(increment, ctx);
     }
-    iterations++;
   }
 
   return output;

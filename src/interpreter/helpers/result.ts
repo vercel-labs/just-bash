@@ -6,6 +6,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { ExecutionLimitError } from "../errors.js";
 
 /**
  * A successful result with no output.
@@ -63,4 +64,22 @@ export function result(
  */
 export function testResult(passed: boolean): ExecResult {
   return { stdout: "", stderr: "", exitCode: passed ? 0 : 1 };
+}
+
+/**
+ * Throw an ExecutionLimitError for execution limits (recursion, iterations, commands).
+ *
+ * @param message - Error message describing the limit exceeded
+ * @param limitType - Type of limit exceeded
+ * @param stdout - Accumulated stdout to include
+ * @param stderr - Accumulated stderr to include
+ * @throws ExecutionLimitError always
+ */
+export function throwExecutionLimit(
+  message: string,
+  limitType: "recursion" | "iterations" | "commands",
+  stdout = "",
+  stderr = "",
+): never {
+  throw new ExecutionLimitError(message, limitType, stdout, stderr);
 }

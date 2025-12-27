@@ -37,6 +37,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "validate": "pnpm build && pnpm typecheck && pnpm lint && pnpm knip && pnpm test:run",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",

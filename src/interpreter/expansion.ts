@@ -20,7 +20,11 @@ import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
 import { GlobExpander } from "../shell/glob.js";
 import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
-import { BadSubstitutionError, ExitError } from "./errors.js";
+import {
+  BadSubstitutionError,
+  ExecutionLimitError,
+  ExitError,
+} from "./errors.js";
 import {
   analyzeWordParts,
   paramExpansionNeedsAsync,
@@ -759,6 +763,7 @@ async function expandPart(
     case "CommandSubstitution": {
       // Command substitution runs in a subshell-like context
       // ExitError should NOT terminate the main script, just this substitution
+      // But ExecutionLimitError MUST propagate to protect against infinite recursion
       try {
         const result = await ctx.executeScript(part.body);
         // Store the exit code for $?
@@ -766,6 +771,10 @@ async function expandPart(
         ctx.state.env["?"] = String(result.exitCode);
         return result.stdout.replace(/\n+$/, "");
       } catch (error) {
+        // ExecutionLimitError must always propagate - these are safety limits
+        if (error instanceof ExecutionLimitError) {
+          throw error;
+        }
         if (error instanceof ExitError) {
           // Catch exit in command substitution - return output so far
           ctx.state.lastExitCode = error.exitCode;

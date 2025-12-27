@@ -1,14 +1,18 @@
 // Executor for sed commands
 
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type {
   AddressRange,
   BranchCommand,
   BranchOnSubstCommand,
   SedAddress,
   SedCommand,
+  SedExecutionLimits,
   SedState,
   TransliterateCommand,
 } from "./types.js";
+
+const DEFAULT_MAX_ITERATIONS = 10000;
 
 export function createInitialState(totalLines: number): SedState {
   return {
@@ -301,6 +305,7 @@ export function executeCommands(
   commands: SedCommand[],
   state: SedState,
   ctx?: ExecuteContext,
+  limits?: SedExecutionLimits,
 ): number {
   // Build label index for branching
   const labelIndex = new Map<string, number>();
@@ -311,9 +316,20 @@ export function executeCommands(
     }
   }
 
+  const maxIterations = limits?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+  let totalIterations = 0;
+
   let linesConsumed = 0;
   let i = 0;
   while (i < commands.length) {
+    totalIterations++;
+    if (totalIterations > maxIterations) {
+      throw new ExecutionLimitError(
+        `sed: command execution exceeded maximum iterations (${maxIterations})`,
+        "iterations",
+      );
+    }
+
     if (state.deleted || state.quit) break;
 
     const cmd = commands[i];

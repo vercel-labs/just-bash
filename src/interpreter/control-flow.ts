@@ -33,7 +33,7 @@ import {
 } from "./expansion.js";
 import { executeCondition } from "./helpers/condition.js";
 import { handleLoopError } from "./helpers/loop.js";
-import { failure, result } from "./helpers/result.js";
+import { failure, result, throwExecutionLimit } from "./helpers/result.js";
 import { executeStatements } from "./helpers/statements.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -93,10 +93,11 @@ export async function executeFor(
     for (const value of words) {
       iterations++;
       if (iterations > ctx.maxLoopIterations) {
-        return result(
+        throwExecutionLimit(
+          `for loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations`,
+          "iterations",
           stdout,
-          `${stderr}bash: for loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations\n`,
-          1,
+          stderr,
         );
       }
 
@@ -154,10 +155,11 @@ export async function executeCStyleFor(
     while (true) {
       iterations++;
       if (iterations > ctx.maxLoopIterations) {
-        return result(
+        throwExecutionLimit(
+          `for loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations`,
+          "iterations",
           stdout,
-          `${stderr}bash: for loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations\n`,
-          1,
+          stderr,
         );
       }
 
@@ -261,10 +263,11 @@ export async function executeWhile(
     while (true) {
       iterations++;
       if (iterations > ctx.maxLoopIterations) {
-        return result(
+        throwExecutionLimit(
+          `while loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations`,
+          "iterations",
           stdout,
-          `${stderr}bash: while loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations\n`,
-          1,
+          stderr,
         );
       }
 
@@ -364,10 +367,11 @@ export async function executeUntil(
     while (true) {
       iterations++;
       if (iterations > ctx.maxLoopIterations) {
-        return result(
+        throwExecutionLimit(
+          `until loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations`,
+          "iterations",
           stdout,
-          `${stderr}bash: until loop: too many iterations (${ctx.maxLoopIterations}), increase maxLoopIterations\n`,
-          1,
+          stderr,
         );
       }
 

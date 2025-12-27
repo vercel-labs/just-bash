@@ -9,7 +9,7 @@
 import type { FunctionDefNode } from "../ast/types.js";
 import type { ExecResult } from "../types.js";
 import { ReturnError } from "./errors.js";
-import { failure, OK, result } from "./helpers/result.js";
+import { OK, result, throwExecutionLimit } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
 
 export function executeFunctionDef(
@@ -28,8 +28,9 @@ export async function callFunction(
   ctx.state.callDepth++;
   if (ctx.state.callDepth > ctx.maxCallDepth) {
     ctx.state.callDepth--;
-    return failure(
-      `bash: ${func.name}: maximum recursion depth (${ctx.maxCallDepth}) exceeded, increase maxCallDepth\n`,
+    throwExecutionLimit(
+      `${func.name}: maximum recursion depth (${ctx.maxCallDepth}) exceeded, increase maxCallDepth`,
+      "recursion",
     );
   }
 

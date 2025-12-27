@@ -154,6 +154,26 @@ export class BadSubstitutionError extends ControlFlowError {
 }
 
 /**
+ * Error thrown when execution limits are exceeded (recursion depth, command count, loop iterations).
+ * This should ALWAYS be thrown before JavaScript's native RangeError kicks in.
+ * Exit code 126 indicates a limit was exceeded.
+ */
+export class ExecutionLimitError extends ControlFlowError {
+  readonly name = "ExecutionLimitError";
+  static readonly EXIT_CODE = 126;
+
+  constructor(
+    message: string,
+    public readonly limitType: "recursion" | "commands" | "iterations",
+    stdout: string = "",
+    stderr: string = "",
+  ) {
+    super(message, stdout, stderr);
+    this.stderr = stderr || `bash: ${message}\n`;
+  }
+}
+
+/**
  * Type guard for errors that exit the current scope (return, break, continue).
  * These need special handling vs errexit/nounset which terminate execution.
  */

@@ -12,6 +12,8 @@ export interface AwkContext {
   lines?: string[];
   lineIndex?: number;
   fieldSep?: RegExp;
+  // Execution limits
+  maxIterations?: number; // Max loop iterations (default: 10000)
 }
 
 export interface PatternRange {

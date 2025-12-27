@@ -9,6 +9,7 @@ import {
   BreakError,
   ContinueError,
   ErrexitError,
+  ExecutionLimitError,
   ExitError,
   ReturnError,
 } from "../errors.js";
@@ -72,7 +73,8 @@ export function handleLoopError(
   if (
     error instanceof ReturnError ||
     error instanceof ErrexitError ||
-    error instanceof ExitError
+    error instanceof ExitError ||
+    error instanceof ExecutionLimitError
   ) {
     error.prependOutput(stdout, stderr);
     return { action: "rethrow", stdout, stderr, error };

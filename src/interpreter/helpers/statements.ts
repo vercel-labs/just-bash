@@ -7,7 +7,12 @@
 
 import type { StatementNode } from "../../ast/types.js";
 import type { ExecResult } from "../../types.js";
-import { ErrexitError, ExitError, isScopeExitError } from "../errors.js";
+import {
+  ErrexitError,
+  ExecutionLimitError,
+  ExitError,
+  isScopeExitError,
+} from "../errors.js";
 import type { InterpreterContext } from "../types.js";
 import { getErrorMessage } from "./errors.js";
 
@@ -42,7 +47,8 @@ export async function executeStatements(
     if (
       isScopeExitError(error) ||
       error instanceof ErrexitError ||
-      error instanceof ExitError
+      error instanceof ExitError ||
+      error instanceof ExecutionLimitError
     ) {
       error.prependOutput(stdout, stderr);
       throw error;

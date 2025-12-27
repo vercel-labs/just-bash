@@ -16,7 +16,11 @@ import {
 } from "./commands/registry.js";
 import { type IFileSystem, VirtualFs } from "./fs.js";
 import type { InitialFiles } from "./fs-interface.js";
-import { ArithmeticError, ExitError } from "./interpreter/errors.js";
+import {
+  ArithmeticError,
+  ExecutionLimitError,
+  ExitError,
+} from "./interpreter/errors.js";
 import {
   Interpreter,
   type InterpreterOptions,
@@ -287,6 +291,16 @@ export class BashEnv {
           stdout: error.stdout,
           stderr: error.stderr,
           exitCode: 1,
+          env: { ...this.state.env, ...options?.env },
+        };
+      }
+      // ExecutionLimitError is thrown when our conservative limits are exceeded
+      // (command count, recursion depth, loop iterations)
+      if (error instanceof ExecutionLimitError) {
+        return {
+          stdout: error.stdout,
+          stderr: error.stderr,
+          exitCode: ExecutionLimitError.EXIT_CODE,
           env: { ...this.state.env, ...options?.env },
         };
       }

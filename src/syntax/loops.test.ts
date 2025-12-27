@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BashEnv } from "../BashEnv.js";
+import { ExecutionLimitError } from "../interpreter/errors.js";
 
 describe("Bash Syntax - Loops", () => {
   describe("for loops", () => {
@@ -137,21 +138,21 @@ describe("Bash Syntax - Loops", () => {
       const longList = Array(10001).fill("x").join(" ");
       const result = await env.exec(`for i in ${longList}; do echo $i; done`);
       expect(result.stderr).toContain("too many iterations");
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
 
     it("should detect infinite while loop", async () => {
       const env = new BashEnv();
       const result = await env.exec("while true; do echo loop; done");
       expect(result.stderr).toContain("too many iterations");
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
 
     it("should detect infinite until loop", async () => {
       const env = new BashEnv();
       const result = await env.exec("until false; do echo loop; done");
       expect(result.stderr).toContain("too many iterations");
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
   });
 

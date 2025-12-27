@@ -169,3 +169,7 @@ export interface SedState {
   substitutionMade: boolean; // Track if substitution was made (for 't' command)
   lineNumberOutput: string[]; // Output from '=' command
 }
+
+export interface SedExecutionLimits {
+  maxIterations: number; // Max branch iterations per line (default: 10000)
+}

@@ -67,6 +67,7 @@ import {
   BreakError,
   ContinueError,
   ErrexitError,
+  ExecutionLimitError,
   ExitError,
   isScopeExitError,
   NounsetError,
@@ -80,7 +81,13 @@ import {
 import { callFunction, executeFunctionDef } from "./functions.js";
 import { getErrorMessage } from "./helpers/errors.js";
 import { checkReadonlyError } from "./helpers/readonly.js";
-import { failure, OK, result, testResult } from "./helpers/result.js";
+import {
+  failure,
+  OK,
+  result,
+  testResult,
+  throwExecutionLimit,
+} from "./helpers/result.js";
 import { applyRedirections } from "./redirections.js";
 import type { InterpreterContext, InterpreterState } from "./types.js";
 
@@ -146,6 +153,10 @@ export class Interpreter {
           error.prependOutput(stdout, stderr);
           throw error;
         }
+        // ExecutionLimitError must always propagate - these are safety limits
+        if (error instanceof ExecutionLimitError) {
+          throw error;
+        }
         if (error instanceof ErrexitError) {
           stdout += error.stdout;
           stderr += error.stderr;
@@ -197,11 +208,10 @@ export class Interpreter {
   private async executeStatement(node: StatementNode): Promise<ExecResult> {
     this.ctx.state.commandCount++;
     if (this.ctx.state.commandCount > this.ctx.maxCommandCount) {
-      const err = new Error(
-        `bash: too many commands executed (>${this.ctx.maxCommandCount}), increase maxCommandCount`,
+      throwExecutionLimit(
+        `too many commands executed (>${this.ctx.maxCommandCount}), increase maxCommandCount`,
+        "commands",
       );
-      console.error(err.message);
-      throw err;
     }
 
     let stdout = "";
@@ -1068,6 +1078,10 @@ export class Interpreter {
       this.ctx.state.cwd = savedCwd;
       this.ctx.state.loopDepth = savedLoopDepth;
       this.ctx.state.groupStdin = savedGroupStdin;
+      // ExecutionLimitError must always propagate - these are safety limits
+      if (error instanceof ExecutionLimitError) {
+        throw error;
+      }
       // BreakError/ContinueError should NOT propagate out of subshell
       // They only affect loops within the subshell
       if (error instanceof BreakError || error instanceof ContinueError) {
@@ -1126,6 +1140,10 @@ export class Interpreter {
     } catch (error) {
       // Restore groupStdin before handling error
       this.ctx.state.groupStdin = savedGroupStdin;
+      // ExecutionLimitError must always propagate - these are safety limits
+      if (error instanceof ExecutionLimitError) {
+        throw error;
+      }
       if (
         isScopeExitError(error) ||
         error instanceof ErrexitError ||
