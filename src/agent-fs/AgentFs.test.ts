@@ -9,7 +9,7 @@ describe("AgentFs", () => {
   beforeEach(async () => {
     // Use in-memory database for tests
     agentHandle = await AgentFS.open({ path: ":memory:" });
-    fs = new AgentFs({ agent: agentHandle });
+    fs = new AgentFs({ fs: agentHandle });
   });
 
   afterEach(async () => {
@@ -23,7 +23,7 @@ describe("AgentFs", () => {
 
     it("should accept custom mount point", () => {
       const customFs = new AgentFs({
-        agent: agentHandle,
+        fs: agentHandle,
         mountPoint: "/mnt/data",
       });
       expect(customFs.getMountPoint()).toBe("/mnt/data");
@@ -31,7 +31,7 @@ describe("AgentFs", () => {
 
     it("should normalize mount point with trailing slash", () => {
       const customFs = new AgentFs({
-        agent: agentHandle,
+        fs: agentHandle,
         mountPoint: "/mnt/data/",
       });
       expect(customFs.getMountPoint()).toBe("/mnt/data");
@@ -39,7 +39,7 @@ describe("AgentFs", () => {
 
     it("should throw for non-absolute mount point", () => {
       expect(
-        () => new AgentFs({ agent: agentHandle, mountPoint: "relative" }),
+        () => new AgentFs({ fs: agentHandle, mountPoint: "relative" }),
       ).toThrow("Mount point must be an absolute path");
     });
   });
@@ -676,7 +676,7 @@ describe("AgentFs", () => {
   describe("mount point handling", () => {
     it("should work with custom mount point", async () => {
       const customFs = new AgentFs({
-        agent: agentHandle,
+        fs: agentHandle,
         mountPoint: "/mnt/data",
       });
       await customFs.writeFile("/mnt/data/file.txt", "content");

@@ -98,7 +98,7 @@ export interface AgentFsOptions {
   /**
    * The AgentFS handle from AgentFS.open()
    */
-  agent: AgentFsHandle;
+  fs: AgentFsHandle;
 
   /**
    * The virtual mount point for the filesystem.
@@ -111,11 +111,11 @@ export interface AgentFsOptions {
 const DEFAULT_MOUNT_POINT = "/";
 
 export class AgentFs implements IFileSystem {
-  private readonly agent: AgentFsHandle;
+  private readonly agentFs: Filesystem;
   private readonly mountPoint: string;
 
   constructor(options: AgentFsOptions) {
-    this.agent = options.agent;
+    this.agentFs = options.fs.fs;
 
     // Normalize mount point
     const mp = options.mountPoint ?? DEFAULT_MOUNT_POINT;
@@ -202,7 +202,7 @@ export class AgentFs implements IFileSystem {
     const agentPath = this.toAgentPath(normalized);
 
     try {
-      const data = await this.agent.fs.readFile(agentPath);
+      const data = await this.agentFs.readFile(agentPath);
       if (typeof data === "string") {
         return textEncoder.encode(data);
       }
@@ -226,7 +226,7 @@ export class AgentFs implements IFileSystem {
     const buffer = toBuffer(content, encoding);
     const agentPath = this.toAgentPath(normalized);
     // AgentFS creates parent directories implicitly
-    await this.agent.fs.writeFile(agentPath, Buffer.from(buffer));
+    await this.agentFs.writeFile(agentPath, Buffer.from(buffer));
   }
 
   async appendFile(
@@ -257,7 +257,7 @@ export class AgentFs implements IFileSystem {
     const normalized = this.normalizePath(path);
     const agentPath = this.toAgentPath(normalized);
     try {
-      await this.agent.fs.access(agentPath);
+      await this.agentFs.access(agentPath);
       return true;
     } catch {
       return false;
@@ -269,7 +269,7 @@ export class AgentFs implements IFileSystem {
     const agentPath = this.toAgentPath(normalized);
 
     try {
-      const stats = await this.agent.fs.stat(agentPath);
+      const stats = await this.agentFs.stat(agentPath);
       return {
         isFile: stats.isFile(),
         isDirectory: stats.isDirectory(),
@@ -308,7 +308,7 @@ export class AgentFs implements IFileSystem {
     }
 
     try {
-      await this.agent.fs.mkdir(agentPath);
+      await this.agentFs.mkdir(agentPath);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes("EEXIST") || msg.includes("already exists")) {
@@ -330,7 +330,7 @@ export class AgentFs implements IFileSystem {
     const agentPath = this.toAgentPath(normalized);
 
     try {
-      const entries = await this.agent.fs.readdir(agentPath);
+      const entries = await this.agentFs.readdir(agentPath);
       return entries.sort();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -346,7 +346,7 @@ export class AgentFs implements IFileSystem {
     const agentPath = this.toAgentPath(normalized);
 
     try {
-      await this.agent.fs.rm(agentPath, {
+      await this.agentFs.rm(agentPath, {
         force: options?.force,
         recursive: options?.recursive,
       });
@@ -364,7 +364,7 @@ export class AgentFs implements IFileSystem {
       if (msg.includes("EISDIR")) {
         // Directory without recursive - try rmdir for empty directories
         try {
-          await this.agent.fs.rmdir(agentPath);
+          await this.agentFs.rmdir(agentPath);
           return;
         } catch (rmdirErr) {
           const rmdirMsg =
@@ -392,7 +392,7 @@ export class AgentFs implements IFileSystem {
 
     if (srcStat.isFile) {
       // Use native copyFile for files
-      await this.agent.fs.copyFile(srcAgent, destAgent);
+      await this.agentFs.copyFile(srcAgent, destAgent);
     } else if (srcStat.isDirectory) {
       if (!options?.recursive) {
         throw new Error(`EISDIR: is a directory, cp '${src}'`);
@@ -416,7 +416,7 @@ export class AgentFs implements IFileSystem {
     const destAgent = this.toAgentPath(destNorm);
 
     try {
-      await this.agent.fs.rename(srcAgent, destAgent);
+      await this.agentFs.rename(srcAgent, destAgent);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes("ENOENT") || msg.includes("not found")) {
@@ -483,7 +483,7 @@ export class AgentFs implements IFileSystem {
     }
 
     // Use copyFile for hard link emulation
-    await this.agent.fs.copyFile(existingAgent, newAgent);
+    await this.agentFs.copyFile(existingAgent, newAgent);
   }
 
   async readlink(path: string): Promise<string> {
