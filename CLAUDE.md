@@ -120,7 +120,10 @@ Input Script → Parser (src/parser/) → AST (src/ast/) → Interpreter (src/in
 - Each command in its own directory with implementation + tests
 - Registry pattern via `registry.ts`
 
-**Filesystem** (`src/fs.ts`, `src/overlay-fs/`): In-memory VFS with optional overlay on real filesystem
+**Filesystem** (`src/fs.ts`, `src/overlay-fs/`, `src/agent-fs/`): Virtual filesystem implementations
+- `VirtualFs` - Pure in-memory filesystem
+- `OverlayFs` - Overlay on real filesystem (reads from real FS, writes to memory)
+- `AgentFs` - Persistent filesystem backed by AgentFS (SQLite via Turso)
 
 **AWK** (`src/commands/awk/`): AWK text processing implementation
 

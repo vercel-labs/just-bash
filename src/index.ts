@@ -1,3 +1,8 @@
+export {
+  AgentFs,
+  type AgentFsHandle,
+  type AgentFsOptions,
+} from "./agent-fs/index.js";
 export type { BashOptions, ExecOptions } from "./Bash.js";
 export { Bash } from "./Bash.js";
 export type {
