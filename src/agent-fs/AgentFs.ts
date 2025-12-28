@@ -4,8 +4,7 @@
  * Full read-write filesystem that persists to an AgentFS SQLite database.
  * Designed for AI agents needing persistent, auditable file storage.
  *
- * This is a thin wrapper around AgentFS - directories are created implicitly
- * when writing files. No in-memory tracking.
+ * This is a thin wrapper around AgentFS - uses native mkdir, rm, rename, etc.
  *
  * @see https://docs.turso.tech/agentfs/sdk/typescript
  */
@@ -258,7 +257,7 @@ export class AgentFs implements IFileSystem {
     const normalized = this.normalizePath(path);
     const agentPath = this.toAgentPath(normalized);
     try {
-      await this.agent.fs.stat(agentPath);
+      await this.agent.fs.access(agentPath);
       return true;
     } catch {
       return false;
@@ -274,10 +273,10 @@ export class AgentFs implements IFileSystem {
       return {
         isFile: stats.isFile(),
         isDirectory: stats.isDirectory(),
-        isSymbolicLink: false,
-        mode: stats.mode ?? 0o644,
+        isSymbolicLink: stats.isSymbolicLink(),
+        mode: stats.mode,
         size: stats.size,
-        mtime: stats.mtime ? new Date(stats.mtime * 1000) : new Date(),
+        mtime: new Date(stats.mtime * 1000),
       };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -289,44 +288,40 @@ export class AgentFs implements IFileSystem {
   }
 
   async lstat(path: string): Promise<FsStat> {
-    // AgentFS doesn't support symlinks, so lstat === stat
+    // AgentFS stat doesn't follow symlinks by default
     return this.stat(path);
   }
 
   async mkdir(path: string, options?: MkdirOptions): Promise<void> {
     const normalized = this.normalizePath(path);
+    const agentPath = this.toAgentPath(normalized);
 
-    // Check if it exists
-    const pathExists = await this.exists(normalized);
-    if (pathExists) {
-      if (!options?.recursive) {
-        throw new Error(`EEXIST: file already exists, mkdir '${path}'`);
-      }
-      return;
-    }
-
-    // Check parent exists (unless recursive)
-    const parent = this.dirname(normalized);
-    if (parent !== "/") {
-      const parentExists = await this.exists(parent);
-      if (!parentExists) {
-        if (options?.recursive) {
+    if (options?.recursive) {
+      // Create parent directories first
+      const parent = this.dirname(normalized);
+      if (parent !== "/" && parent !== normalized) {
+        const parentExists = await this.exists(parent);
+        if (!parentExists) {
           await this.mkdir(parent, { recursive: true });
-        } else {
-          throw new Error(`ENOENT: no such file or directory, mkdir '${path}'`);
         }
       }
     }
 
-    // AgentFS creates directories implicitly when writing files.
-    // To create an empty directory, we write a marker file and delete it,
-    // which should create the directory in AgentFS.
-    const markerPath = `${normalized}/.agentfs-mkdir-marker`;
-    await this.writeFile(markerPath, "");
     try {
-      await this.agent.fs.deleteFile(this.toAgentPath(markerPath));
-    } catch {
-      // Ignore - the directory exists now
+      await this.agent.fs.mkdir(agentPath);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("EEXIST") || msg.includes("already exists")) {
+        if (!options?.recursive) {
+          throw new Error(`EEXIST: file already exists, mkdir '${path}'`);
+        }
+        // With recursive, existing dir is ok
+        return;
+      }
+      if (msg.includes("ENOENT") || msg.includes("not found")) {
+        throw new Error(`ENOENT: no such file or directory, mkdir '${path}'`);
+      }
+      throw e;
     }
   }
 
@@ -350,63 +345,59 @@ export class AgentFs implements IFileSystem {
     const normalized = this.normalizePath(path);
     const agentPath = this.toAgentPath(normalized);
 
-    const pathExists = await this.exists(normalized);
-    if (!pathExists) {
-      if (options?.force) return;
-      throw new Error(`ENOENT: no such file or directory, rm '${path}'`);
-    }
-
-    // Check if it's a directory
-    const stats = await this.stat(normalized);
-    if (stats.isDirectory) {
-      const children = await this.readdir(normalized);
-      if (children.length > 0) {
-        if (!options?.recursive) {
-          throw new Error(`ENOTEMPTY: directory not empty, rm '${path}'`);
-        }
-        for (const child of children) {
-          const childPath =
-            normalized === "/" ? `/${child}` : `${normalized}/${child}`;
-          await this.rm(childPath, options);
-        }
-      }
-      // AgentFS may keep the directory around - that's fine
-      return;
-    }
-
-    // It's a file - delete via AgentFS
     try {
-      await this.agent.fs.deleteFile(agentPath);
+      await this.agent.fs.rm(agentPath, {
+        force: options?.force,
+        recursive: options?.recursive,
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes("not found") || msg.includes("ENOENT")) {
+      if (msg.includes("ENOENT") || msg.includes("not found")) {
         if (!options?.force) {
           throw new Error(`ENOENT: no such file or directory, rm '${path}'`);
         }
-      } else {
-        throw e;
+        return;
       }
+      if (msg.includes("ENOTEMPTY") || msg.includes("not empty")) {
+        throw new Error(`ENOTEMPTY: directory not empty, rm '${path}'`);
+      }
+      if (msg.includes("EISDIR")) {
+        // Directory without recursive - try rmdir for empty directories
+        try {
+          await this.agent.fs.rmdir(agentPath);
+          return;
+        } catch (rmdirErr) {
+          const rmdirMsg =
+            rmdirErr instanceof Error ? rmdirErr.message : String(rmdirErr);
+          if (
+            rmdirMsg.includes("ENOTEMPTY") ||
+            rmdirMsg.includes("not empty")
+          ) {
+            throw new Error(`ENOTEMPTY: directory not empty, rm '${path}'`);
+          }
+          throw rmdirErr;
+        }
+      }
+      throw e;
     }
   }
 
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
     const srcNorm = this.normalizePath(src);
     const destNorm = this.normalizePath(dest);
-
-    const srcExists = await this.exists(srcNorm);
-    if (!srcExists) {
-      throw new Error(`ENOENT: no such file or directory, cp '${src}'`);
-    }
+    const srcAgent = this.toAgentPath(srcNorm);
+    const destAgent = this.toAgentPath(destNorm);
 
     const srcStat = await this.stat(srcNorm);
 
     if (srcStat.isFile) {
-      const content = await this.readFileBuffer(srcNorm);
-      await this.writeFile(destNorm, content);
+      // Use native copyFile for files
+      await this.agent.fs.copyFile(srcAgent, destAgent);
     } else if (srcStat.isDirectory) {
       if (!options?.recursive) {
         throw new Error(`EISDIR: is a directory, cp '${src}'`);
       }
+      // Recursively copy directory
       await this.mkdir(destNorm, { recursive: true });
       const children = await this.readdir(srcNorm);
       for (const child of children) {
@@ -419,9 +410,20 @@ export class AgentFs implements IFileSystem {
   }
 
   async mv(src: string, dest: string): Promise<void> {
-    // AgentFS doesn't have rename, so we cp + rm
-    await this.cp(src, dest, { recursive: true });
-    await this.rm(src, { recursive: true });
+    const srcNorm = this.normalizePath(src);
+    const destNorm = this.normalizePath(dest);
+    const srcAgent = this.toAgentPath(srcNorm);
+    const destAgent = this.toAgentPath(destNorm);
+
+    try {
+      await this.agent.fs.rename(srcAgent, destAgent);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("ENOENT") || msg.includes("not found")) {
+        throw new Error(`ENOENT: no such file or directory, mv '${src}'`);
+      }
+      throw e;
+    }
   }
 
   resolvePath(base: string, path: string): string {
@@ -434,20 +436,19 @@ export class AgentFs implements IFileSystem {
 
   getAllPaths(): string[] {
     // AgentFS doesn't provide a way to list all paths efficiently
-    // This would require scanning the entire filesystem
     return [];
   }
 
   async chmod(path: string, mode: number): Promise<void> {
     const normalized = this.normalizePath(path);
 
+    // Verify path exists
     const pathExists = await this.exists(normalized);
     if (!pathExists) {
       throw new Error(`ENOENT: no such file or directory, chmod '${path}'`);
     }
 
-    // AgentFS doesn't support chmod - this is a no-op
-    // but we validate the path exists
+    // AgentFS doesn't support chmod yet - this is a no-op
     void mode;
   }
 
@@ -459,7 +460,7 @@ export class AgentFs implements IFileSystem {
       throw new Error(`EEXIST: file already exists, symlink '${linkPath}'`);
     }
 
-    // AgentFS doesn't support symlinks natively
+    // AgentFS doesn't support symlinks natively yet
     // Create a special file that acts like a symlink
     const content = JSON.stringify({ __symlink: target });
     await this.writeFile(normalized, content);
@@ -468,13 +469,8 @@ export class AgentFs implements IFileSystem {
   async link(existingPath: string, newPath: string): Promise<void> {
     const existingNorm = this.normalizePath(existingPath);
     const newNorm = this.normalizePath(newPath);
-
-    const existingExists = await this.exists(existingNorm);
-    if (!existingExists) {
-      throw new Error(
-        `ENOENT: no such file or directory, link '${existingPath}'`,
-      );
-    }
+    const existingAgent = this.toAgentPath(existingNorm);
+    const newAgent = this.toAgentPath(newNorm);
 
     const existingStat = await this.stat(existingNorm);
     if (!existingStat.isFile) {
@@ -486,9 +482,8 @@ export class AgentFs implements IFileSystem {
       throw new Error(`EEXIST: file already exists, link '${newPath}'`);
     }
 
-    // Copy content to new location (AgentFS doesn't support hard links)
-    const content = await this.readFileBuffer(existingNorm);
-    await this.writeFile(newNorm, content);
+    // Use copyFile for hard link emulation
+    await this.agent.fs.copyFile(existingAgent, newAgent);
   }
 
   async readlink(path: string): Promise<string> {

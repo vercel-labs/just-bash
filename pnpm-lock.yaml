@@ -32,8 +32,8 @@ devDependencies:
     specifier: ^5.0.6
     version: 5.0.6
   agentfs-sdk:
-    specifier: ^0.3.1
-    version: 0.3.1
+    specifier: 0.4.0-pre.6
+    version: 0.4.0-pre.6
   ai:
     specifier: ^6.0.3
     version: 6.0.3(zod@4.2.1)
@@ -979,8 +979,8 @@ packages:
       tinyrainbow: 3.0.3
     dev: true
 
-  /agentfs-sdk@0.3.1:
-    resolution: {integrity: sha512-l/2WA7m4WHqXr2AWD+ae3N7g2ffneLHSRLOK2NfOMQTSLubXRMog0LhdyqqYyC4WTPG8s1v4pc1OA8/MYilUhw==}
+  /agentfs-sdk@0.4.0-pre.6:
+    resolution: {integrity: sha512-EiGFzpkJit4DKzjN04kdDQgKReaCi6kOH3KeLDAdI6051diJ6OZ+RY4ysQC6ILAiNGELG9KUJgPCg8kXfPtEZQ==}
     dependencies:
       '@tursodatabase/database': 0.4.0-pre.18
       '@tursodatabase/database-common': 0.4.0-pre.18
