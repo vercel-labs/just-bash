@@ -15,6 +15,7 @@ Supports optional network access via `curl` with secure-by-default URL filtering
 - [Usage](#usage)
   - [Basic API](#basic-api)
   - [Configuration](#configuration)
+  - [Custom Commands](#custom-commands)
   - [OverlayFs (Copy-on-Write)](#overlayfs-copy-on-write)
   - [AI SDK Tool](#ai-sdk-tool)
   - [Vercel Sandbox Compatible API](#vercel-sandbox-compatible-api)
@@ -71,6 +72,30 @@ const env = new Bash({
 // Per-exec overrides
 await env.exec("echo $TEMP", { env: { TEMP: "value" }, cwd: "/tmp" });
 ```
+
+### Custom Commands
+
+Extend just-bash with your own TypeScript commands using `defineCommand`:
+
+```typescript
+import { Bash, defineCommand } from "just-bash";
+
+const hello = defineCommand("hello", async (args, ctx) => {
+  const name = args[0] || "world";
+  return { stdout: `Hello, ${name}!\n`, stderr: "", exitCode: 0 };
+});
+
+const upper = defineCommand("upper", async (args, ctx) => {
+  return { stdout: ctx.stdin.toUpperCase(), stderr: "", exitCode: 0 };
+});
+
+const bash = new Bash({ customCommands: [hello, upper] });
+
+await bash.exec("hello Alice");              // "Hello, Alice!\n"
+await bash.exec("echo 'test' | upper");      // "TEST\n"
+```
+
+Custom commands receive the full `CommandContext` with access to `fs`, `cwd`, `env`, `stdin`, and `exec` for running subcommands.
 
 ### OverlayFs (Copy-on-Write)
 

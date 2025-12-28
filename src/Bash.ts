@@ -14,6 +14,11 @@ import {
   createLazyCommands,
   createNetworkCommands,
 } from "./commands/registry.js";
+import {
+  type CustomCommand,
+  createLazyCustomCommand,
+  isLazyCommand,
+} from "./custom-commands.js";
 import { type IFileSystem, VirtualFs } from "./fs.js";
 import type { InitialFiles } from "./fs-interface.js";
 import {
@@ -76,6 +81,24 @@ export interface BashOptions {
    * Useful for testing with mock clocks.
    */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Custom commands to register alongside built-in commands.
+   * These take precedence over built-ins with the same name.
+   *
+   * @example
+   * ```ts
+   * import { defineCommand } from "just-bash";
+   *
+   * const hello = defineCommand("hello", async (args) => ({
+   *   stdout: `Hello, ${args[0] || "world"}!\n`,
+   *   stderr: "",
+   *   exitCode: 0,
+   * }));
+   *
+   * const bash = new Bash({ customCommands: [hello] });
+   * ```
+   */
+  customCommands?: CustomCommand[];
 }
 
 export interface ExecOptions {
@@ -204,6 +227,17 @@ export class Bash {
     if (options.network) {
       for (const cmd of createNetworkCommands()) {
         this.registerCommand(cmd);
+      }
+    }
+
+    // Register custom commands (after built-ins so they can override)
+    if (options.customCommands) {
+      for (const cmd of options.customCommands) {
+        if (isLazyCommand(cmd)) {
+          this.registerCommand(createLazyCustomCommand(cmd));
+        } else {
+          this.registerCommand(cmd);
+        }
       }
     }
   }

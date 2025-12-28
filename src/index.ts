@@ -9,6 +9,9 @@ export {
   getCommandNames,
   getNetworkCommandNames,
 } from "./commands/registry.js";
+// Custom commands API
+export type { CustomCommand, LazyCommand } from "./custom-commands.js";
+export { defineCommand } from "./custom-commands.js";
 export { VirtualFs } from "./fs.js";
 export type {
   BufferEncoding,
