@@ -16,7 +16,7 @@ Supports optional network access via `curl` with secure-by-default URL filtering
   - [Basic API](#basic-api)
   - [Configuration](#configuration)
   - [Custom Commands](#custom-commands)
-  - [OverlayFs (Copy-on-Write)](#overlayfs-copy-on-write)
+  - [Filesystem Options](#filesystem-options)
   - [AI SDK Tool](#ai-sdk-tool)
   - [Vercel Sandbox Compatible API](#vercel-sandbox-compatible-api)
   - [CLI Binary](#cli-binary)
@@ -97,25 +97,40 @@ await bash.exec("echo 'test' | upper");      // "TEST\n"
 
 Custom commands receive the full `CommandContext` with access to `fs`, `cwd`, `env`, `stdin`, and `exec` for running subcommands.
 
-### OverlayFs (Copy-on-Write)
+### Filesystem Options
 
-Seed the bash environment with files from a real directory. The agent can read but not write to the real filesystem - all changes stay in memory.
+Three filesystem implementations are available:
+
+**InMemoryFs** (default) - Pure in-memory filesystem, no disk access:
 
 ```typescript
-import { Bash, OverlayFs } from "just-bash";
+import { Bash } from "just-bash";
+const env = new Bash(); // Uses InMemoryFs by default
+```
 
-// Files are mounted at /home/user/project by default
+**OverlayFs** - Copy-on-write over a real directory. Reads come from disk, writes stay in memory:
+
+```typescript
+import { Bash } from "just-bash";
+import { OverlayFs } from "just-bash/fs/overlay-fs";
+
 const overlay = new OverlayFs({ root: "/path/to/project" });
 const env = new Bash({ fs: overlay, cwd: overlay.getMountPoint() });
 
-// Reads come from the real filesystem
-await env.exec("cat package.json"); // reads /path/to/project/package.json
+await env.exec("cat package.json"); // reads from disk
+await env.exec('echo "modified" > package.json'); // stays in memory
+```
 
-// Writes stay in memory (real files unchanged)
-await env.exec('echo "modified" > package.json');
+**ReadWriteFs** - Direct read-write access to a real directory (use with caution):
 
-// Custom mount point
-const overlay2 = new OverlayFs({ root: "/path/to/project", mountPoint: "/" });
+```typescript
+import { Bash } from "just-bash";
+import { ReadWriteFs } from "just-bash/fs/read-write-fs";
+
+const rwfs = new ReadWriteFs({ root: "/path/to/sandbox" });
+const env = new Bash({ fs: rwfs });
+
+await env.exec('echo "hello" > file.txt'); // writes to real filesystem
 ```
 
 ### AI SDK Tool

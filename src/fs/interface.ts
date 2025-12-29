@@ -91,7 +91,7 @@ export interface CpOptions {
 /**
  * Abstract filesystem interface that can be implemented by different backends.
  * This allows BashEnv to work with:
- * - VirtualFs (in-memory, default)
+ * - InMemoryFs (in-memory, default)
  * - Real filesystem (via node:fs)
  * - Custom implementations (e.g., remote storage, browser IndexedDB)
  */

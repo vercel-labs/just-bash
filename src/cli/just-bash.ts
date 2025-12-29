@@ -39,7 +39,7 @@
 
 import { resolve } from "node:path";
 import { Bash } from "../Bash.js";
-import { OverlayFs } from "../overlay-fs/index.js";
+import { OverlayFs } from "../fs/overlay-fs/index.js";
 
 interface CliOptions {
   script?: string;

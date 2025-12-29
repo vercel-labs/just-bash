@@ -19,8 +19,8 @@ import {
   createLazyCustomCommand,
   isLazyCommand,
 } from "./custom-commands.js";
-import { type IFileSystem, VirtualFs } from "./fs.js";
-import type { InitialFiles } from "./fs-interface.js";
+import { InMemoryFs } from "./fs/in-memory-fs/in-memory-fs.js";
+import type { IFileSystem, InitialFiles } from "./fs/interface.js";
 import {
   ArithmeticError,
   ExecutionLimitError,
@@ -132,7 +132,7 @@ export class Bash {
   private state: InterpreterState;
 
   constructor(options: BashOptions = {}) {
-    const fs = options.fs ?? new VirtualFs(options.files);
+    const fs = options.fs ?? new InMemoryFs(options.files);
     this.fs = fs;
 
     this.useDefaultLayout = !options.cwd && !options.files;
@@ -195,8 +195,8 @@ export class Bash {
       loopDepth: 0,
     };
 
-    // Create essential directories for VirtualFs
-    if (fs instanceof VirtualFs) {
+    // Create essential directories for InMemoryFs
+    if (fs instanceof InMemoryFs) {
       try {
         // Always create /bin for PATH-based command resolution
         fs.mkdirSync("/bin", { recursive: true });
@@ -211,7 +211,7 @@ export class Bash {
       }
     }
 
-    if (cwd !== "/" && fs instanceof VirtualFs) {
+    if (cwd !== "/" && fs instanceof InMemoryFs) {
       try {
         fs.mkdirSync(cwd, { recursive: true });
       } catch {
@@ -245,7 +245,7 @@ export class Bash {
   registerCommand(command: Command): void {
     this.commands.set(command.name, command);
     // Always create command stubs in /bin for PATH-based resolution
-    if (this.fs instanceof VirtualFs) {
+    if (this.fs instanceof InMemoryFs) {
       try {
         this.fs.writeFileSync(
           `/bin/${command.name}`,

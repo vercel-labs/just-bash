@@ -1,7 +1,7 @@
 import { Bash } from "../Bash.js";
-import type { IFileSystem } from "../fs-interface.js";
+import type { IFileSystem } from "../fs/interface.js";
+import { OverlayFs } from "../fs/overlay-fs/index.js";
 import type { NetworkConfig } from "../network/index.js";
-import { OverlayFs } from "../overlay-fs/index.js";
 import type { CommandFinished } from "./Command.js";
 import { Command } from "./Command.js";
 

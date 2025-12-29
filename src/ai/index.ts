@@ -2,7 +2,7 @@ import { type Tool, tool, zodSchema } from "ai";
 import { z } from "zod";
 import { Bash, type BashOptions } from "../Bash.js";
 import type { CommandName } from "../commands/registry.js";
-import type { IFileSystem, InitialFiles } from "../fs-interface.js";
+import type { IFileSystem, InitialFiles } from "../fs/interface.js";
 
 type BashToolInput = { command: string };
 type BashToolOutput = { stdout: string; stderr: string; exitCode: number };
