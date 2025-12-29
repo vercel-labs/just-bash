@@ -53,7 +53,9 @@ describe("awk edge cases", () => {
     it.skip("should handle backslash in data", async () => {
       // TODO: Backslash escaping in shell/awk interaction needs work
       const env = new Bash();
-      const result = await env.exec(`echo 'path\\\\to\\\\file' | awk '{ print }'`);
+      const result = await env.exec(
+        `echo 'path\\\\to\\\\file' | awk '{ print }'`,
+      );
       expect(result.stdout).toBe("path\\to\\file\n");
       expect(result.exitCode).toBe(0);
     });
@@ -68,7 +70,9 @@ describe("awk edge cases", () => {
     it.skip("should handle dollar sign in data", async () => {
       // TODO: Dollar sign escaping in shell/awk interaction needs work
       const env = new Bash();
-      const result = await env.exec(`echo 'price: \\$100' | awk '{ print $2 }'`);
+      const result = await env.exec(
+        `echo 'price: \\$100' | awk '{ print $2 }'`,
+      );
       expect(result.stdout).toBe("$100\n");
       expect(result.exitCode).toBe(0);
     });
@@ -84,27 +88,21 @@ describe("awk edge cases", () => {
   describe("numeric edge cases", () => {
     it("should handle very large numbers", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "" | awk 'BEGIN { print 1e308 }'`,
-      );
+      const result = await env.exec(`echo "" | awk 'BEGIN { print 1e308 }'`);
       expect(result.stdout).toMatch(/1e\+?308/i);
       expect(result.exitCode).toBe(0);
     });
 
     it("should handle very small numbers", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "" | awk 'BEGIN { print 1e-308 }'`,
-      );
+      const result = await env.exec(`echo "" | awk 'BEGIN { print 1e-308 }'`);
       expect(result.stdout).toMatch(/1e-308/i);
       expect(result.exitCode).toBe(0);
     });
 
     it("should handle negative zero", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "" | awk 'BEGIN { print -0 }'`,
-      );
+      const result = await env.exec(`echo "" | awk 'BEGIN { print -0 }'`);
       expect(result.stdout).toBe("0\n");
       expect(result.exitCode).toBe(0);
     });
@@ -158,9 +156,7 @@ describe("awk edge cases", () => {
 
     it("should handle string with only spaces", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "     " | awk '{ print NF }'`,
-      );
+      const result = await env.exec(`echo "     " | awk '{ print NF }'`);
       expect(result.stdout).toBe("0\n");
       expect(result.exitCode).toBe(0);
     });
@@ -169,9 +165,7 @@ describe("awk edge cases", () => {
   describe("regex edge cases", () => {
     it("should match empty regex", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "test" | awk '//' | head -1`,
-      );
+      const result = await env.exec(`echo "test" | awk '//' | head -1`);
       expect(result.stdout).toBe("test\n");
       expect(result.exitCode).toBe(0);
     });
@@ -261,9 +255,7 @@ describe("awk edge cases", () => {
   describe("variable edge cases", () => {
     it("should handle uninitialized variable as number", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "" | awk 'BEGIN { print x + 0 }'`,
-      );
+      const result = await env.exec(`echo "" | awk 'BEGIN { print x + 0 }'`);
       expect(result.stdout).toBe("0\n");
       expect(result.exitCode).toBe(0);
     });

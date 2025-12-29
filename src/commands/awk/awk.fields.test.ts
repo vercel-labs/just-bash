@@ -12,7 +12,9 @@ describe("awk field handling", () => {
 
     it("should access individual fields", async () => {
       const env = new Bash();
-      const result = await env.exec(`echo "a b c d e" | awk '{ print $1, $3, $5 }'`);
+      const result = await env.exec(
+        `echo "a b c d e" | awk '{ print $1, $3, $5 }'`,
+      );
       expect(result.stdout).toBe("a c e\n");
       expect(result.exitCode).toBe(0);
     });
@@ -26,34 +28,30 @@ describe("awk field handling", () => {
 
     it("should access last field with $NF", async () => {
       const env = new Bash();
-      const result = await env.exec(`echo "first second last" | awk '{ print $NF }'`);
+      const result = await env.exec(
+        `echo "first second last" | awk '{ print $NF }'`,
+      );
       expect(result.stdout).toBe("last\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should access second-to-last with $(NF-1)", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "a b c d" | awk '{ print $(NF-1) }'`,
-      );
+      const result = await env.exec(`echo "a b c d" | awk '{ print $(NF-1) }'`);
       expect(result.stdout).toBe("c\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should use variable for field index", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "a b c d" | awk '{ i=3; print $i }'`,
-      );
+      const result = await env.exec(`echo "a b c d" | awk '{ i=3; print $i }'`);
       expect(result.stdout).toBe("c\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should use expression for field index", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "a b c d" | awk '{ print $(1+2) }'`,
-      );
+      const result = await env.exec(`echo "a b c d" | awk '{ print $(1+2) }'`);
       expect(result.stdout).toBe("c\n");
       expect(result.exitCode).toBe(0);
     });
@@ -62,9 +60,7 @@ describe("awk field handling", () => {
   describe("field modification", () => {
     it("should modify specific field", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "a b c" | awk '{ $2 = "X"; print }'`,
-      );
+      const result = await env.exec(`echo "a b c" | awk '{ $2 = "X"; print }'`);
       expect(result.stdout).toBe("a X c\n");
       expect(result.exitCode).toBe(0);
     });
@@ -137,8 +133,7 @@ describe("awk field handling", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should truncate fields when NF is reduced", async () => {
-      // TODO: Assigning to NF to truncate fields not working
+    it("should truncate fields when NF is reduced", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "a b c d e" | awk '{ NF = 2; print $0 }'`,
@@ -202,9 +197,7 @@ describe("awk field handling", () => {
       const env = new Bash({
         files: { "/data.txt": "line1\nline2\nline3\n" },
       });
-      const result = await env.exec(
-        `awk 'BEGIN{ORS=";"} { print }' /data.txt`,
-      );
+      const result = await env.exec(`awk 'BEGIN{ORS=";"} { print }' /data.txt`);
       expect(result.stdout).toBe("line1;line2;line3;");
       expect(result.exitCode).toBe(0);
     });
@@ -242,9 +235,7 @@ describe("awk field handling", () => {
 
     it("should use -F option for field separator", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "a:b:c" | awk -F: '{ print $2 }'`,
-      );
+      const result = await env.exec(`echo "a:b:c" | awk -F: '{ print $2 }'`);
       expect(result.stdout).toBe("b\n");
       expect(result.exitCode).toBe(0);
     });
@@ -298,9 +289,7 @@ describe("awk field handling", () => {
 
     it("should multiply fields", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "5 6" | awk '{ print $1 * $2 }'`,
-      );
+      const result = await env.exec(`echo "5 6" | awk '{ print $1 * $2 }'`);
       expect(result.stdout).toBe("30\n");
       expect(result.exitCode).toBe(0);
     });
@@ -365,9 +354,7 @@ describe("awk field handling", () => {
 
     it("should handle leading whitespace", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "   a b c" | awk '{ print NF, $1 }'`,
-      );
+      const result = await env.exec(`echo "   a b c" | awk '{ print NF, $1 }'`);
       expect(result.stdout).toBe("3 a\n");
       expect(result.exitCode).toBe(0);
     });
@@ -401,8 +388,7 @@ describe("awk field handling", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should filter by field regex", async () => {
-      // TODO: ~ operator in pattern condition not working correctly
+    it("should filter by field regex", async () => {
       const env = new Bash({
         files: { "/data.txt": "apple red\nbanana yellow\napricot orange\n" },
       });

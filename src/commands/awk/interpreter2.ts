@@ -663,9 +663,22 @@ export class AwkInterpreter {
       case "NR":
         this.ctx.NR = Math.floor(this.toNumber(value));
         return;
-      case "NF":
-        this.ctx.NF = Math.floor(this.toNumber(value));
+      case "NF": {
+        const newNF = Math.floor(this.toNumber(value));
+        if (newNF < this.ctx.NF) {
+          // Truncate fields when NF is reduced
+          this.ctx.fields = this.ctx.fields.slice(0, newNF);
+          this.ctx.line = this.ctx.fields.join(this.ctx.OFS);
+        } else if (newNF > this.ctx.NF) {
+          // Extend fields when NF is increased
+          while (this.ctx.fields.length < newNF) {
+            this.ctx.fields.push("");
+          }
+          this.ctx.line = this.ctx.fields.join(this.ctx.OFS);
+        }
+        this.ctx.NF = newNF;
         return;
+      }
       case "FNR":
         this.ctx.FNR = Math.floor(this.toNumber(value));
         return;
@@ -719,30 +732,41 @@ export class AwkInterpreter {
         : 0;
     }
 
+    // Regex match operators - handle regex literal specially
+    // Don't evaluate regex as expression (which would match against $0)
+    if (op === "~") {
+      const left = this.evalExpr(expr.left);
+      // Get regex pattern directly if right side is a regex literal
+      const pattern =
+        expr.right.type === "regex"
+          ? expr.right.pattern
+          : this.toString(this.evalExpr(expr.right));
+      try {
+        return new RegExp(pattern).test(this.toString(left)) ? 1 : 0;
+      } catch {
+        return 0;
+      }
+    }
+    if (op === "!~") {
+      const left = this.evalExpr(expr.left);
+      // Get regex pattern directly if right side is a regex literal
+      const pattern =
+        expr.right.type === "regex"
+          ? expr.right.pattern
+          : this.toString(this.evalExpr(expr.right));
+      try {
+        return new RegExp(pattern).test(this.toString(left)) ? 0 : 1;
+      } catch {
+        return 1;
+      }
+    }
+
     const left = this.evalExpr(expr.left);
     const right = this.evalExpr(expr.right);
 
     // String concatenation
     if (op === " ") {
       return this.toString(left) + this.toString(right);
-    }
-
-    // Regex match operators
-    if (op === "~") {
-      const rightStr = this.toString(right);
-      try {
-        return new RegExp(rightStr).test(this.toString(left)) ? 1 : 0;
-      } catch {
-        return 0;
-      }
-    }
-    if (op === "!~") {
-      const rightStr = this.toString(right);
-      try {
-        return new RegExp(rightStr).test(this.toString(left)) ? 0 : 1;
-      } catch {
-        return 1;
-      }
     }
 
     // Comparison operators - use string comparison if both are strings

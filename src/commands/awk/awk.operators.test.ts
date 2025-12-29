@@ -61,7 +61,9 @@ describe("awk operators", () => {
 
     it("should handle unary minus", async () => {
       const env = new Bash();
-      const result = await env.exec(`echo "" | awk 'BEGIN { x = 5; print -x }'`);
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x = 5; print -x }'`,
+      );
       expect(result.stdout).toBe("-5\n");
       expect(result.exitCode).toBe(0);
     });
@@ -187,8 +189,7 @@ describe("awk operators", () => {
   });
 
   describe("regex match operators", () => {
-    it.skip("should match with ~ operator", async () => {
-      // TODO: ~ operator in expression context not working
+    it("should match with ~ operator", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "hello world" | awk '{ print ($0 ~ /world/) }'`,
@@ -215,8 +216,7 @@ describe("awk operators", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should use ~ in condition", async () => {
-      // TODO: ~ operator in pattern condition not working correctly
+    it("should use ~ in condition", async () => {
       const env = new Bash({
         files: { "/data.txt": "apple\nbanana\napricot\ncherry\n" },
       });
@@ -225,8 +225,7 @@ describe("awk operators", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should use !~ in condition", async () => {
-      // TODO: !~ operator in pattern condition not working correctly
+    it("should use !~ in condition", async () => {
       const env = new Bash({
         files: { "/data.txt": "apple\nbanana\napricot\ncherry\n" },
       });
@@ -235,8 +234,7 @@ describe("awk operators", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should match field with regex", async () => {
-      // TODO: ~ operator with field not working correctly
+    it("should match field with regex", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "123 abc 456" | awk '{ print ($2 ~ /[a-z]+/) }'`,
@@ -465,12 +463,9 @@ describe("awk operators", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should handle unary minus precedence", async () => {
-      // TODO: Unary minus precedence with exponent not correct
+    it("should handle unary minus precedence", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "" | awk 'BEGIN { print -2 ^ 2 }'`,
-      );
+      const result = await env.exec(`echo "" | awk 'BEGIN { print -2 ^ 2 }'`);
       // In AWK, -2^2 is -(2^2) = -4
       expect(result.stdout).toBe("-4\n");
       expect(result.exitCode).toBe(0);

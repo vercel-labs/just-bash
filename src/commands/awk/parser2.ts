@@ -340,7 +340,8 @@ export class AwkParser {
     this.expect(TokenType.RPAREN);
     this.skipNewlines();
     const consequent = this.parseStatement();
-    this.skipNewlines();
+    // Skip semicolons and newlines before checking for else
+    this.skipTerminators();
 
     let alternate: AwkStmt | undefined;
     if (this.check(TokenType.ELSE)) {
@@ -709,11 +710,11 @@ export class AwkParser {
   }
 
   private parseMulDiv(): AwkExpr {
-    let left = this.parsePower();
+    let left = this.parseUnary();
 
     while (this.match(TokenType.STAR, TokenType.SLASH, TokenType.PERCENT)) {
       const opToken = this.advance();
-      const right = this.parsePower();
+      const right = this.parseUnary();
       const opMap: Record<string, "*" | "/" | "%"> = {
         "*": "*",
         "/": "/",
@@ -730,18 +731,6 @@ export class AwkParser {
     return left;
   }
 
-  private parsePower(): AwkExpr {
-    let left = this.parseUnary();
-
-    if (this.check(TokenType.CARET)) {
-      this.advance();
-      const right = this.parsePower(); // Right associative
-      left = { type: "binary", operator: "^", left, right };
-    }
-
-    return left;
-  }
-
   private parseUnary(): AwkExpr {
     // Prefix increment/decrement
     if (this.check(TokenType.INCREMENT)) {
@@ -752,7 +741,13 @@ export class AwkParser {
         operand.type !== "field" &&
         operand.type !== "array_access"
       ) {
-        throw new Error("Invalid increment operand");
+        // Not a valid increment target - treat as double unary plus
+        // ++5 becomes +(+5) = 5
+        return {
+          type: "unary",
+          operator: "+",
+          operand: { type: "unary", operator: "+", operand },
+        };
       }
       return {
         type: "pre_increment",
@@ -768,7 +763,13 @@ export class AwkParser {
         operand.type !== "field" &&
         operand.type !== "array_access"
       ) {
-        throw new Error("Invalid decrement operand");
+        // Not a valid decrement target - treat as double unary minus
+        // --5 becomes -(-5) = 5
+        return {
+          type: "unary",
+          operator: "-",
+          operand: { type: "unary", operator: "-", operand },
+        };
       }
       return {
         type: "pre_decrement",
@@ -776,14 +777,30 @@ export class AwkParser {
       };
     }
 
-    // Unary operators
+    // Unary operators (-, +, !)
+    // In AWK, -2^2 = -(2^2) = -4, so unary binds looser than exponent
     if (this.match(TokenType.NOT, TokenType.MINUS, TokenType.PLUS)) {
       const op = this.advance().value as "!" | "-" | "+";
       const operand = this.parseUnary();
       return { type: "unary", operator: op, operand };
     }
 
-    return this.parsePostfix();
+    return this.parsePower();
+  }
+
+  private parsePower(): AwkExpr {
+    let left = this.parsePostfix();
+
+    if (this.check(TokenType.CARET)) {
+      this.advance();
+      // Exponent is right-associative, and binds tighter than unary
+      // So 2^3^2 = 2^(3^2) = 2^9 = 512
+      // But -2^2 = -(2^2) = -4 (unary handled in parseUnary)
+      const right = this.parsePower();
+      left = { type: "binary", operator: "^", left, right };
+    }
+
+    return left;
   }
 
   private parsePostfix(): AwkExpr {
@@ -899,8 +916,36 @@ export class AwkParser {
       // Array access
       if (this.check(TokenType.LBRACKET)) {
         this.advance();
-        const key = this.parseExpression();
+        // Handle multi-dimensional array syntax: a[1,2,3] -> a[1 SUBSEP 2 SUBSEP 3]
+        const keys: AwkExpr[] = [this.parseExpression()];
+        while (this.check(TokenType.COMMA)) {
+          this.advance();
+          keys.push(this.parseExpression());
+        }
         this.expect(TokenType.RBRACKET);
+
+        // If multiple keys, concatenate with SUBSEP
+        let key: AwkExpr;
+        if (keys.length === 1) {
+          key = keys[0];
+        } else {
+          // Build concatenation: key1 SUBSEP key2 SUBSEP key3 ...
+          key = keys[0];
+          for (let i = 1; i < keys.length; i++) {
+            // Concatenate with SUBSEP
+            key = {
+              type: "binary",
+              operator: " ",
+              left: {
+                type: "binary",
+                operator: " ",
+                left: key,
+                right: { type: "variable", name: "SUBSEP" },
+              },
+              right: keys[i],
+            };
+          }
+        }
         return { type: "array_access", array: name, key };
       }
 

@@ -220,8 +220,7 @@ describe("awk associative arrays", () => {
   });
 
   describe("multi-dimensional arrays (SUBSEP)", () => {
-    it.skip("should simulate 2D array with SUBSEP", async () => {
-      // TODO: Comma syntax a[1,2] for multi-dimensional arrays not implemented
+    it("should simulate 2D array with SUBSEP", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "" | awk 'BEGIN { a[1,2] = "val"; print a[1,2] }'`,
@@ -230,8 +229,7 @@ describe("awk associative arrays", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should store matrix values", async () => {
-      // TODO: Comma syntax a[1,2] for multi-dimensional arrays not implemented
+    it("should store matrix values", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "" | awk 'BEGIN {

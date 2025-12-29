@@ -5,28 +5,36 @@ describe("awk string functions", () => {
   describe("length()", () => {
     it("should return length of string", async () => {
       const env = new Bash();
-      const result = await env.exec(`echo "hello" | awk '{ print length($0) }'`);
+      const result = await env.exec(
+        `echo "hello" | awk '{ print length($0) }'`,
+      );
       expect(result.stdout).toBe("5\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should return 0 for empty string", async () => {
       const env = new Bash();
-      const result = await env.exec(`echo "" | awk 'BEGIN { print length("") }'`);
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { print length("") }'`,
+      );
       expect(result.stdout).toBe("0\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should use $0 when called without argument", async () => {
       const env = new Bash();
-      const result = await env.exec(`echo "abcdefg" | awk '{ print length() }'`);
+      const result = await env.exec(
+        `echo "abcdefg" | awk '{ print length() }'`,
+      );
       expect(result.stdout).toBe("7\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should handle numbers", async () => {
       const env = new Bash();
-      const result = await env.exec(`echo "" | awk 'BEGIN { print length(12345) }'`);
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { print length(12345) }'`,
+      );
       expect(result.stdout).toBe("5\n");
       expect(result.exitCode).toBe(0);
     });
@@ -230,7 +238,7 @@ describe("awk string functions", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should work with & in replacement (matched text)", async () => {
+    it("should work with & in replacement (matched text)", async () => {
       // Note: & replacement in sub/gsub is not fully implemented
       const env = new Bash();
       const result = await env.exec(
@@ -374,9 +382,7 @@ describe("awk string functions", () => {
 
     it("should concatenate numbers as strings", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "" | awk 'BEGIN { print 1 2 3 }'`,
-      );
+      const result = await env.exec(`echo "" | awk 'BEGIN { print 1 2 3 }'`);
       expect(result.stdout).toBe("123\n");
       expect(result.exitCode).toBe(0);
     });
@@ -432,9 +438,7 @@ describe("awk string functions", () => {
   describe("string to number conversion", () => {
     it("should convert numeric string to number", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "" | awk 'BEGIN { print "42" + 0 }'`,
-      );
+      const result = await env.exec(`echo "" | awk 'BEGIN { print "42" + 0 }'`);
       expect(result.stdout).toBe("42\n");
       expect(result.exitCode).toBe(0);
     });

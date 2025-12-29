@@ -70,9 +70,7 @@ describe("awk parsing", () => {
 
     it("should handle string with only escape", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "" | awk 'BEGIN { print "\\n" }'`,
-      );
+      const result = await env.exec(`echo "" | awk 'BEGIN { print "\\n" }'`);
       expect(result.stdout).toBe("\n\n");
       expect(result.exitCode).toBe(0);
     });
@@ -81,45 +79,35 @@ describe("awk parsing", () => {
   describe("number parsing", () => {
     it("should parse integers", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "" | awk 'BEGIN { print 42 }'`,
-      );
+      const result = await env.exec(`echo "" | awk 'BEGIN { print 42 }'`);
       expect(result.stdout).toBe("42\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should parse floating point", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "" | awk 'BEGIN { print 3.14 }'`,
-      );
+      const result = await env.exec(`echo "" | awk 'BEGIN { print 3.14 }'`);
       expect(result.stdout).toBe("3.14\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should parse scientific notation", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "" | awk 'BEGIN { print 1e3 }'`,
-      );
+      const result = await env.exec(`echo "" | awk 'BEGIN { print 1e3 }'`);
       expect(result.stdout).toBe("1000\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should parse negative scientific notation", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "" | awk 'BEGIN { print 1e-2 }'`,
-      );
+      const result = await env.exec(`echo "" | awk 'BEGIN { print 1e-2 }'`);
       expect(result.stdout).toBe("0.01\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should parse leading decimal", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "" | awk 'BEGIN { print .5 }'`,
-      );
+      const result = await env.exec(`echo "" | awk 'BEGIN { print .5 }'`);
       expect(result.stdout).toBe("0.5\n");
       expect(result.exitCode).toBe(0);
     });
@@ -241,8 +229,7 @@ describe("awk parsing", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should parse regex operators", async () => {
-      // TODO: ~ operator in print expression not working correctly
+    it("should parse regex operators", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "hello" | awk '{ print ($0 ~ /hello/), ($0 !~ /world/) }'`,
@@ -303,8 +290,7 @@ describe("awk parsing", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should parse if-else statement", async () => {
-      // TODO: if-else with semicolon before else not parsing correctly
+    it("should parse if-else statement", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "" | awk 'BEGIN { if (0) print "yes"; else print "no" }'`,
@@ -386,19 +372,14 @@ describe("awk parsing", () => {
   describe("expression parsing edge cases", () => {
     it("should parse negative numbers", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "" | awk 'BEGIN { print -5 }'`,
-      );
+      const result = await env.exec(`echo "" | awk 'BEGIN { print -5 }'`);
       expect(result.stdout).toBe("-5\n");
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should parse double negative on literal", async () => {
-      // TODO: --5 (double unary minus on literal) parsing not working
+    it("should parse double negative on literal", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "" | awk 'BEGIN { print --5 }'`,
-      );
+      const result = await env.exec(`echo "" | awk 'BEGIN { print --5 }'`);
       // --5 should be interpreted as -(-5) = 5
       expect(result.stdout).toBe("5\n");
       expect(result.exitCode).toBe(0);
@@ -406,9 +387,7 @@ describe("awk parsing", () => {
 
     it("should parse chained field access", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo "1 2 3" | awk '{ print $($1) }'`,
-      );
+      const result = await env.exec(`echo "1 2 3" | awk '{ print $($1) }'`);
       // $1 = "1", $($1) = $(1) = "1"
       expect(result.stdout).toBe("1\n");
       expect(result.exitCode).toBe(0);

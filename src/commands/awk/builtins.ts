@@ -140,7 +140,7 @@ function awkSub(
 
   try {
     const regex = new RegExp(pattern);
-    const newTarget = target.replace(regex, processSubReplacement(replacement));
+    const newTarget = target.replace(regex, createSubReplacer(replacement));
     const changed = newTarget !== target ? 1 : 0;
 
     // Update target
@@ -216,7 +216,7 @@ function awkGsub(
     const regex = new RegExp(pattern, "g");
     const matches = target.match(regex);
     const count = matches ? matches.length : 0;
-    const newTarget = target.replace(regex, processSubReplacement(replacement));
+    const newTarget = target.replace(regex, createSubReplacer(replacement));
 
     // Update target
     if (targetName === "$0") {
@@ -242,13 +242,39 @@ function awkGsub(
   }
 }
 
-// Process & in replacement string
-function processSubReplacement(replacement: string): string {
-  // In sub/gsub, & represents the matched text
-  // We need to return a function for replace() to handle this properly
-  // But for simple cases, we just return the replacement
-  // Actually, we need to escape properly
-  return replacement.replace(/&/g, "$&").replace(/\\&/g, "&");
+// Process & in replacement string for sub/gsub
+// Returns a replacer function that handles & (matched text) and \& (literal &)
+function createSubReplacer(replacement: string): (match: string) => string {
+  return (match: string) => {
+    let result = "";
+    let i = 0;
+    while (i < replacement.length) {
+      if (replacement[i] === "\\" && i + 1 < replacement.length) {
+        const next = replacement[i + 1];
+        if (next === "&") {
+          // \& means literal &
+          result += "&";
+          i += 2;
+        } else if (next === "\\") {
+          // \\ means literal \
+          result += "\\";
+          i += 2;
+        } else {
+          // Other escapes - keep as-is
+          result += replacement[i + 1];
+          i += 2;
+        }
+      } else if (replacement[i] === "&") {
+        // & means the matched text
+        result += match;
+        i++;
+      } else {
+        result += replacement[i];
+        i++;
+      }
+    }
+    return result;
+  };
 }
 
 function awkMatch(
