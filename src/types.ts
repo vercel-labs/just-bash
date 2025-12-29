@@ -1,4 +1,4 @@
-import type { IFileSystem } from "./fs-interface.js";
+import type { IFileSystem } from "./fs/interface.js";
 import type { ExecutionLimits } from "./limits.js";
 import type { SecureFetch } from "./network/index.js";
 

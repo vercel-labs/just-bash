@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { VirtualFs } from "./fs.js";
+import { InMemoryFs } from "./in-memory-fs.js";
 
-describe("VirtualFs Buffer and Encoding Support", () => {
+describe("InMemoryFs Buffer and Encoding Support", () => {
   describe("basic Buffer operations", () => {
     it("should write and read Uint8Array", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
       const data = new Uint8Array([0x48, 0x65, 0x6c, 0x6c, 0x6f]); // "Hello"
 
       await fs.writeFile("/binary.bin", data);
@@ -14,7 +14,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
     });
 
     it("should write Uint8Array and read as string", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
       const data = new Uint8Array([0x48, 0x65, 0x6c, 0x6c, 0x6f]); // "Hello"
 
       await fs.writeFile("/test.txt", data);
@@ -24,7 +24,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
     });
 
     it("should write string and read as Uint8Array", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
 
       await fs.writeFile("/test.txt", "Hello");
       const result = await fs.readFileBuffer("/test.txt");
@@ -33,7 +33,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
     });
 
     it("should handle binary data with null bytes", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
       const data = new Uint8Array([0x00, 0x01, 0x00, 0xff, 0x00]);
 
       await fs.writeFile("/binary.bin", data);
@@ -43,7 +43,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
     });
 
     it("should calculate correct size for binary files", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
       const data = new Uint8Array([0x00, 0x01, 0x02, 0x03, 0x04]);
 
       await fs.writeFile("/binary.bin", data);
@@ -55,7 +55,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
 
   describe("encoding support", () => {
     it("should write and read with utf8 encoding", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
 
       await fs.writeFile("/test.txt", "Hello 世界", "utf8");
       const result = await fs.readFile("/test.txt", "utf8");
@@ -64,7 +64,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
     });
 
     it("should write and read with base64 encoding", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
 
       // "Hello" in base64 is "SGVsbG8="
       await fs.writeFile("/test.txt", "SGVsbG8=", "base64");
@@ -74,7 +74,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
     });
 
     it("should read as base64", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
 
       await fs.writeFile("/test.txt", "Hello");
       const result = await fs.readFile("/test.txt", "base64");
@@ -83,7 +83,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
     });
 
     it("should write and read with hex encoding", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
 
       // "Hello" in hex is "48656c6c6f"
       await fs.writeFile("/test.txt", "48656c6c6f", "hex");
@@ -93,7 +93,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
     });
 
     it("should read as hex", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
 
       await fs.writeFile("/test.txt", "Hello");
       const result = await fs.readFile("/test.txt", "hex");
@@ -102,7 +102,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
     });
 
     it("should write with latin1 encoding", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
 
       // Latin1 character é is 0xe9
       await fs.writeFile("/test.txt", "café", "latin1");
@@ -112,7 +112,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
     });
 
     it("should support encoding in options object", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
 
       await fs.writeFile("/test.txt", "SGVsbG8=", { encoding: "base64" });
       const result = await fs.readFile("/test.txt", { encoding: "utf8" });
@@ -123,7 +123,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
 
   describe("appendFile with Buffer", () => {
     it("should append Uint8Array to existing file", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
 
       await fs.writeFile("/test.txt", "Hello");
       await fs.appendFile(
@@ -136,7 +136,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
     });
 
     it("should append string to file with Buffer content", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
       const initial = new Uint8Array([0x48, 0x65, 0x6c, 0x6c, 0x6f]); // "Hello"
 
       await fs.writeFile("/test.txt", initial);
@@ -147,7 +147,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
     });
 
     it("should append with encoding", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
 
       await fs.writeFile("/test.txt", "Hello");
       // " World" in base64 is "IFdvcmxk"
@@ -160,7 +160,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
 
   describe("constructor with Buffer content", () => {
     it("should initialize files with Uint8Array content", async () => {
-      const fs = new VirtualFs({
+      const fs = new InMemoryFs({
         "/binary.bin": new Uint8Array([0x00, 0x01, 0x02]),
         "/text.txt": "Hello",
       });
@@ -175,7 +175,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
 
   describe("edge cases", () => {
     it("should handle empty Uint8Array", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
 
       await fs.writeFile("/empty.bin", new Uint8Array(0));
       const result = await fs.readFileBuffer("/empty.bin");
@@ -185,7 +185,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
     });
 
     it("should handle large binary files", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
       const size = 1024 * 1024; // 1MB
       const data = new Uint8Array(size);
       for (let i = 0; i < size; i++) {
@@ -202,7 +202,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
     });
 
     it("should preserve binary content through copy", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
       const data = new Uint8Array([0x00, 0xff, 0x00, 0xff]);
 
       await fs.writeFile("/src.bin", data);
@@ -213,7 +213,7 @@ describe("VirtualFs Buffer and Encoding Support", () => {
     });
 
     it("should follow symlinks for binary files", async () => {
-      const fs = new VirtualFs();
+      const fs = new InMemoryFs();
       const data = new Uint8Array([0x48, 0x69]);
 
       await fs.writeFile("/real.bin", data);

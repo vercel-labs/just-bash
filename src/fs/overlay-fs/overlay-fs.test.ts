@@ -2,8 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Bash } from "../Bash.js";
-import { OverlayFs } from "./OverlayFs.js";
+import { Bash } from "../../Bash.js";
+import { OverlayFs } from "./overlay-fs.js";
 
 describe("OverlayFs", () => {
   let tempDir: string;

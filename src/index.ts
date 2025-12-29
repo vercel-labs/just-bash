@@ -12,7 +12,7 @@ export {
 // Custom commands API
 export type { CustomCommand, LazyCommand } from "./custom-commands.js";
 export { defineCommand } from "./custom-commands.js";
-export { VirtualFs } from "./fs.js";
+export { InMemoryFs } from "./fs/in-memory-fs/index.js";
 export type {
   BufferEncoding,
   CpOptions,
@@ -27,14 +27,18 @@ export type {
   MkdirOptions,
   RmOptions,
   SymlinkEntry,
-} from "./fs-interface.js";
+} from "./fs/interface.js";
+export { OverlayFs, type OverlayFsOptions } from "./fs/overlay-fs/index.js";
+export {
+  ReadWriteFs,
+  type ReadWriteFsOptions,
+} from "./fs/read-write-fs/index.js";
 export type { NetworkConfig } from "./network/index.js";
 export {
   NetworkAccessDeniedError,
   RedirectNotAllowedError,
   TooManyRedirectsError,
 } from "./network/index.js";
-export { OverlayFs, type OverlayFsOptions } from "./overlay-fs/index.js";
 export type {
   CommandFinished as SandboxCommandFinished,
   OutputMessage,

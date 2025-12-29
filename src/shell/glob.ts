@@ -8,7 +8,7 @@
  * - [...] (character classes)
  */
 
-import type { IFileSystem } from "../fs.js";
+import type { IFileSystem } from "../fs/interface.js";
 
 export class GlobExpander {
   constructor(

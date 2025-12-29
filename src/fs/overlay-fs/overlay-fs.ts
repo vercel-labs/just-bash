@@ -8,7 +8,6 @@
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import type {
-  BufferEncoding,
   CpOptions,
   FsStat,
   IFileSystem,
@@ -16,13 +15,13 @@ import type {
   ReadFileOptions,
   RmOptions,
   WriteFileOptions,
-} from "../fs-interface.js";
-
-// Text encoder/decoder for encoding conversions
-const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
-
-type FileContent = string | Uint8Array;
+} from "../interface.js";
+import {
+  type FileContent,
+  fromBuffer,
+  getEncoding,
+  toBuffer,
+} from "../utils.js";
 
 interface MemoryFileEntry {
   type: "file";
@@ -45,66 +44,6 @@ interface MemorySymlinkEntry {
 }
 
 type MemoryEntry = MemoryFileEntry | MemoryDirEntry | MemorySymlinkEntry;
-
-/**
- * Helper to convert content to Uint8Array
- */
-function toBuffer(content: FileContent, encoding?: BufferEncoding): Uint8Array {
-  if (content instanceof Uint8Array) {
-    return content;
-  }
-
-  switch (encoding) {
-    case "base64":
-      return Uint8Array.from(atob(content), (c) => c.charCodeAt(0));
-    case "hex": {
-      const bytes = new Uint8Array(content.length / 2);
-      for (let i = 0; i < content.length; i += 2) {
-        bytes[i / 2] = parseInt(content.slice(i, i + 2), 16);
-      }
-      return bytes;
-    }
-    case "binary":
-    case "latin1":
-      return Uint8Array.from(content, (c) => c.charCodeAt(0));
-    default:
-      return textEncoder.encode(content);
-  }
-}
-
-/**
- * Helper to convert Uint8Array to string with encoding
- */
-function fromBuffer(
-  buffer: Uint8Array,
-  encoding?: BufferEncoding | null,
-): string {
-  switch (encoding) {
-    case "base64":
-      return btoa(String.fromCharCode(...buffer));
-    case "hex":
-      return Array.from(buffer)
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-    case "binary":
-    case "latin1":
-      return String.fromCharCode(...buffer);
-    default:
-      return textDecoder.decode(buffer);
-  }
-}
-
-function getEncoding(
-  options?: ReadFileOptions | WriteFileOptions | BufferEncoding | null,
-): BufferEncoding | undefined {
-  if (options === null || options === undefined) {
-    return undefined;
-  }
-  if (typeof options === "string") {
-    return options;
-  }
-  return options.encoding ?? undefined;
-}
 
 export interface OverlayFsOptions {
   /**

@@ -23,7 +23,7 @@ import type {
   SubshellNode,
   WordNode,
 } from "../ast/types.js";
-import type { IFileSystem } from "../fs-interface.js";
+import type { IFileSystem } from "../fs/interface.js";
 import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
 import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
@@ -884,7 +884,7 @@ export class Interpreter {
    * Resolution order:
    * 1. If command contains "/", resolve as a path
    * 2. Search PATH directories for the command file
-   * 3. Fall back to registry lookup (for non-VirtualFs filesystems like OverlayFs)
+   * 3. Fall back to registry lookup (for non-InMemoryFs filesystems like OverlayFs)
    */
   private async resolveCommand(
     commandName: string,
@@ -923,8 +923,8 @@ export class Interpreter {
     }
 
     // Fallback: check registry directly only if /bin doesn't exist
-    // This maintains backward compatibility for OverlayFs and other non-VirtualFs
-    // where command stubs aren't created, while still respecting PATH for VirtualFs
+    // This maintains backward compatibility for OverlayFs and other non-InMemoryFs
+    // where command stubs aren't created, while still respecting PATH for InMemoryFs
     const binExists = await this.ctx.fs.exists("/bin");
     if (!binExists) {
       const cmd = this.ctx.commands.get(commandName);
