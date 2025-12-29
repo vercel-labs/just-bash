@@ -27,6 +27,16 @@ An interactive AI agent that lets you chat about the just-bash codebase using na
    npm start
    ```
 
+## Logging
+
+All bash commands are logged to `commands.log` with execution details:
+
+```
+[INFO] exec {"command":"ls src"}
+[DEBUG] stdout {"output":"Bash.ts\ncommands\n..."}
+[INFO] exit {"exitCode":0}
+```
+
 ## Usage
 
 Ask questions like:

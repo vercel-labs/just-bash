@@ -42,6 +42,17 @@ import type { BashExecResult, Command, CommandRegistry } from "./types.js";
 
 export type { ExecutionLimits } from "./limits.js";
 
+/**
+ * Logger interface for Bash execution logging.
+ * Implement this interface to receive execution logs.
+ */
+export interface BashLogger {
+  /** Log informational messages (exec commands, stderr, exit codes) */
+  info(message: string, data?: Record<string, unknown>): void;
+  /** Log debug messages (stdout output) */
+  debug(message: string, data?: Record<string, unknown>): void;
+}
+
 export interface BashOptions {
   files?: InitialFiles;
   env?: Record<string, string>;
@@ -99,6 +110,12 @@ export interface BashOptions {
    * ```
    */
   customCommands?: CustomCommand[];
+  /**
+   * Optional logger for execution tracing.
+   * When provided, logs exec commands (info), stdout (debug), stderr (info), and exit codes (info).
+   * Disabled by default.
+   */
+  logger?: BashLogger;
 }
 
 export interface ExecOptions {
@@ -127,6 +144,7 @@ export class Bash {
   private limits: Required<ExecutionLimits>;
   private secureFetch?: SecureFetch;
   private sleepFn?: (ms: number) => Promise<void>;
+  private logger?: BashLogger;
 
   // Interpreter state (shared with interpreter instances)
   private state: InterpreterState;
@@ -171,6 +189,9 @@ export class Bash {
 
     // Store sleep function if provided (for mock clocks in testing)
     this.sleepFn = options.sleep;
+
+    // Store logger if provided
+    this.logger = options.logger;
 
     // Initialize interpreter state
     this.state = {
@@ -257,6 +278,19 @@ export class Bash {
     }
   }
 
+  private logResult(result: BashExecResult): BashExecResult {
+    if (this.logger) {
+      if (result.stdout) {
+        this.logger.debug("stdout", { output: result.stdout });
+      }
+      if (result.stderr) {
+        this.logger.info("stderr", { output: result.stderr });
+      }
+      this.logger.info("exit", { exitCode: result.exitCode });
+    }
+    return result;
+  }
+
   async exec(
     commandLine: string,
     options?: ExecOptions,
@@ -283,6 +317,9 @@ export class Bash {
         env: { ...this.state.env, ...options?.env },
       };
     }
+
+    // Log command execution
+    this.logger?.info("exec", { command: commandLine });
 
     // Each exec call gets an isolated state copy - like starting a new shell
     // This ensures exec calls never interfere with each other
@@ -327,51 +364,51 @@ export class Bash {
       const interpreter = new Interpreter(interpreterOptions, execState);
       const result = await interpreter.executeScript(ast);
       // Interpreter always sets env, assert it for type safety
-      return result as BashExecResult;
+      return this.logResult(result as BashExecResult);
     } catch (error) {
       // ExitError propagates from 'exit' builtin (including via eval/source)
       if (error instanceof ExitError) {
-        return {
+        return this.logResult({
           stdout: error.stdout,
           stderr: error.stderr,
           exitCode: error.exitCode,
           env: { ...this.state.env, ...options?.env },
-        };
+        });
       }
       if (error instanceof ArithmeticError) {
-        return {
+        return this.logResult({
           stdout: error.stdout,
           stderr: error.stderr,
           exitCode: 1,
           env: { ...this.state.env, ...options?.env },
-        };
+        });
       }
       // ExecutionLimitError is thrown when our conservative limits are exceeded
       // (command count, recursion depth, loop iterations)
       if (error instanceof ExecutionLimitError) {
-        return {
+        return this.logResult({
           stdout: error.stdout,
           stderr: error.stderr,
           exitCode: ExecutionLimitError.EXIT_CODE,
           env: { ...this.state.env, ...options?.env },
-        };
+        });
       }
       if ((error as ParseException).name === "ParseException") {
-        return {
+        return this.logResult({
           stdout: "",
           stderr: `bash: syntax error: ${(error as Error).message}\n`,
           exitCode: 2,
           env: { ...this.state.env, ...options?.env },
-        };
+        });
       }
       // RangeError occurs when JavaScript call stack is exceeded (deep recursion)
       if (error instanceof RangeError) {
-        return {
+        return this.logResult({
           stdout: "",
           stderr: `bash: ${error.message}\n`,
           exitCode: 1,
           env: { ...this.state.env, ...options?.env },
-        };
+        });
       }
       throw error;
     }

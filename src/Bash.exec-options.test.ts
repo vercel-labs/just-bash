@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Bash } from "./Bash.js";
+import { Bash, type BashLogger } from "./Bash.js";
 
 // Helper to create a mock clock for testing sleep
 function createMockClock() {
@@ -657,6 +657,154 @@ describe("exec options", () => {
       for (let i = 0; i < 20; i++) {
         expect(env.getEnv()[`NEW_VAR_${i}`]).toBeUndefined();
       }
+    });
+  });
+
+  describe("logger option", () => {
+    function createMockLogger(): BashLogger & {
+      logs: Array<{
+        level: string;
+        message: string;
+        data?: Record<string, unknown>;
+      }>;
+    } {
+      const logs: Array<{
+        level: string;
+        message: string;
+        data?: Record<string, unknown>;
+      }> = [];
+      return {
+        logs,
+        info(message: string, data?: Record<string, unknown>) {
+          logs.push({ level: "info", message, data });
+        },
+        debug(message: string, data?: Record<string, unknown>) {
+          logs.push({ level: "debug", message, data });
+        },
+      };
+    }
+
+    it("should not log when logger is not provided", async () => {
+      const env = new Bash();
+      const result = await env.exec("echo hello");
+      expect(result.stdout).toBe("hello\n");
+      // No errors, just ensure it works without logger
+    });
+
+    it("should log exec command at info level", async () => {
+      const logger = createMockLogger();
+      const env = new Bash({ logger });
+
+      await env.exec("echo hello");
+
+      const execLog = logger.logs.find((l) => l.message === "exec");
+      expect(execLog).toBeDefined();
+      expect(execLog?.level).toBe("info");
+      expect(execLog?.data?.command).toBe("echo hello");
+    });
+
+    it("should log stdout at debug level", async () => {
+      const logger = createMockLogger();
+      const env = new Bash({ logger });
+
+      await env.exec("echo hello");
+
+      const stdoutLog = logger.logs.find((l) => l.message === "stdout");
+      expect(stdoutLog).toBeDefined();
+      expect(stdoutLog?.level).toBe("debug");
+      expect(stdoutLog?.data?.output).toBe("hello\n");
+    });
+
+    it("should log stderr at info level", async () => {
+      const logger = createMockLogger();
+      const env = new Bash({ logger });
+
+      await env.exec("echo error >&2");
+
+      const stderrLog = logger.logs.find((l) => l.message === "stderr");
+      expect(stderrLog).toBeDefined();
+      expect(stderrLog?.level).toBe("info");
+      expect(stderrLog?.data?.output).toBe("error\n");
+    });
+
+    it("should log exit code at info level", async () => {
+      const logger = createMockLogger();
+      const env = new Bash({ logger });
+
+      await env.exec("echo hello");
+
+      const exitLog = logger.logs.find((l) => l.message === "exit");
+      expect(exitLog).toBeDefined();
+      expect(exitLog?.level).toBe("info");
+      expect(exitLog?.data?.exitCode).toBe(0);
+    });
+
+    it("should log non-zero exit code", async () => {
+      const logger = createMockLogger();
+      const env = new Bash({ logger });
+
+      await env.exec("exit 42");
+
+      const exitLog = logger.logs.find((l) => l.message === "exit");
+      expect(exitLog).toBeDefined();
+      expect(exitLog?.data?.exitCode).toBe(42);
+    });
+
+    it("should log in correct order: exec, stdout/stderr, exit", async () => {
+      const logger = createMockLogger();
+      const env = new Bash({ logger });
+
+      await env.exec("echo out; echo err >&2");
+
+      expect(logger.logs[0].message).toBe("exec");
+      expect(logger.logs[logger.logs.length - 1].message).toBe("exit");
+    });
+
+    it("should not log stdout when empty", async () => {
+      const logger = createMockLogger();
+      const env = new Bash({ logger });
+
+      await env.exec("true");
+
+      const stdoutLog = logger.logs.find((l) => l.message === "stdout");
+      expect(stdoutLog).toBeUndefined();
+    });
+
+    it("should not log stderr when empty", async () => {
+      const logger = createMockLogger();
+      const env = new Bash({ logger });
+
+      await env.exec("echo hello");
+
+      const stderrLog = logger.logs.find((l) => l.message === "stderr");
+      expect(stderrLog).toBeUndefined();
+    });
+
+    it("should not log empty commands", async () => {
+      const logger = createMockLogger();
+      const env = new Bash({ logger });
+
+      await env.exec("");
+      await env.exec("   ");
+
+      expect(logger.logs.length).toBe(0);
+    });
+
+    it("should log parse errors", async () => {
+      const logger = createMockLogger();
+      const env = new Bash({ logger });
+
+      await env.exec("echo ${");
+
+      const execLog = logger.logs.find((l) => l.message === "exec");
+      expect(execLog).toBeDefined();
+
+      const stderrLog = logger.logs.find((l) => l.message === "stderr");
+      expect(stderrLog).toBeDefined();
+      expect(stderrLog?.data?.output).toContain("syntax error");
+
+      const exitLog = logger.logs.find((l) => l.message === "exit");
+      expect(exitLog?.data?.exitCode).toBe(2);
     });
   });
 });

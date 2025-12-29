@@ -10,6 +10,7 @@
 import * as fs from "node:fs";
 import * as readline from "node:readline";
 import { Bash } from "../Bash.js";
+import { OverlayFs } from "../fs/overlay-fs/overlay-fs.js";
 import { getErrorMessage } from "../interpreter/helpers/errors.js";
 
 // ANSI colors
@@ -40,18 +41,15 @@ class VirtualShell {
   private isInteractive: boolean;
 
   constructor(options: ShellOptions = {}) {
-    // Default files to create a basic environment
-    const defaultFiles: Record<string, string> = {
-      "/home/user/.bashrc": '# Virtual shell\nexport PS1="\\u@virtual:\\w$ "\n',
-      "/home/user/.profile": "# User profile\n",
-      "/tmp/.keep": "",
-    };
+    // Use OverlayFs with current directory as root
+    const root = process.cwd();
+    const overlayFs = new OverlayFs({ root, mountPoint: "/" });
 
     this.env = new Bash({
-      files: { ...defaultFiles, ...options.files },
-      cwd: options.cwd || "/home/user",
+      fs: overlayFs,
+      cwd: options.cwd || "/",
       env: {
-        HOME: "/home/user",
+        HOME: "/",
         USER: "user",
         SHELL: "/bin/bash",
         TERM: "xterm-256color",
@@ -157,8 +155,10 @@ ${colors.cyan}${colors.bold}╔════════════════�
 ║            A simulated bash environment in TypeScript         ║
 ╚══════════════════════════════════════════════════════════════╝${colors.reset}
 
+${colors.dim}Exploring: ${process.cwd()}${colors.reset}
+
 Type ${colors.green}help${colors.reset} for available commands, ${colors.green}exit${colors.reset} to quit.
-All operations run on a virtual in-memory filesystem.
+Reads from real filesystem, writes stay in memory (OverlayFs).
 `);
   }
 
@@ -218,21 +218,18 @@ function parseArgs(): ShellOptions {
       options.network = false;
     } else if (args[i] === "--help" || args[i] === "-h") {
       console.log(`
-Usage: npx tsx src/cli/shell.ts [options]
+Usage: pnpm shell [options]
+
+Interactive shell using OverlayFs - reads from the current directory,
+writes stay in memory (copy-on-write).
 
 Options:
-  --cwd <dir>         Set initial working directory (default: /home/user)
-  --files <json>      Load initial files from JSON file
+  --cwd <dir>         Set initial working directory (default: /)
   --no-network        Disable network access (curl commands disabled)
   --help, -h          Show this help message
 
-Network Access:
-  By default, the interactive shell has full internet access enabled,
-  allowing curl commands to fetch data from any URL. Use --no-network
-  to disable this for sandboxed execution.
-
 Example:
-  npx tsx src/cli/shell.ts --cwd /app --files ./my-files.json
+  pnpm shell
   pnpm shell --no-network
 `);
       process.exit(0);

@@ -6,19 +6,33 @@ import type { Expression, FindAction, ParseResult, SizeUnit } from "./types.js";
 type Token =
   | { type: "expr"; expr: Expression }
   | { type: "op"; op: "and" | "or" }
-  | { type: "not" };
+  | { type: "not" }
+  | { type: "lparen" }
+  | { type: "rparen" };
 
 export function parseExpressions(
   args: string[],
   startIndex: number,
 ): ParseResult {
-  // Parse into tokens: expressions, operators, and negations
+  // Parse into tokens: expressions, operators, negations, and parentheses
   const tokens: Token[] = [];
   const actions: FindAction[] = [];
   let i = startIndex;
 
   while (i < args.length) {
     const arg = args[i];
+
+    // Handle parentheses for grouping
+    if (arg === "(" || arg === "\\(") {
+      tokens.push({ type: "lparen" });
+      i++;
+      continue;
+    }
+    if (arg === ")" || arg === "\\)") {
+      tokens.push({ type: "rparen" });
+      i++;
+      continue;
+    }
 
     if (arg === "-name" && i + 1 < args.length) {
       tokens.push({ type: "expr", expr: { type: "name", pattern: args[++i] } });
@@ -166,63 +180,120 @@ export function parseExpressions(
     return { expr: null, pathIndex: i, actions };
   }
 
-  // Process NOT operators - they bind to the immediately following expression
-  const processedTokens: (Token & { type: "expr" | "op" })[] = [];
-  for (let j = 0; j < tokens.length; j++) {
-    const token = tokens[j];
-    if (token.type === "not") {
-      // Find the next expression and negate it
-      if (j + 1 < tokens.length && tokens[j + 1].type === "expr") {
-        const nextExpr = (tokens[j + 1] as { type: "expr"; expr: Expression })
-          .expr;
-        processedTokens.push({
-          type: "expr",
-          expr: { type: "not", expr: nextExpr },
-        });
-        j++; // Skip the next token since we consumed it
+  // Build expression tree using recursive descent parsing
+  // Handles: parentheses > NOT > AND > OR (precedence high to low)
+  const result = buildExpressionTree(tokens);
+  if (result.error) {
+    return { expr: null, pathIndex: i, error: result.error, actions };
+  }
+
+  return { expr: result.expr, pathIndex: i, actions };
+}
+
+/**
+ * Recursive descent parser for find expressions with proper precedence:
+ * - Parentheses have highest precedence
+ * - NOT binds tightly to the next expression
+ * - AND (implicit or explicit) binds tighter than OR
+ * - OR has lowest precedence
+ */
+function buildExpressionTree(tokens: Token[]): {
+  expr: Expression | null;
+  error?: string;
+} {
+  let pos = 0;
+
+  // Parse OR expressions (lowest precedence)
+  function parseOr(): Expression | null {
+    let left = parseAnd();
+    if (!left) return null;
+
+    while (pos < tokens.length) {
+      const token = tokens[pos];
+      if (token.type === "op" && token.op === "or") {
+        pos++;
+        const right = parseAnd();
+        if (!right) return left;
+        left = { type: "or", left, right };
+      } else {
+        break;
       }
-    } else if (token.type === "expr" || token.type === "op") {
-      processedTokens.push(token as Token & { type: "expr" | "op" });
     }
+    return left;
   }
 
-  // Build expression tree with proper precedence:
-  // 1. Implicit AND (adjacent expressions) has highest precedence
-  // 2. Explicit -a has same as implicit AND
-  // 3. -o has lowest precedence
+  // Parse AND expressions (implicit or explicit -a)
+  function parseAnd(): Expression | null {
+    let left = parseNot();
+    if (!left) return null;
 
-  // First pass: group by OR, collecting AND groups
-  const orGroups: Expression[][] = [[]];
-
-  for (const token of processedTokens) {
-    if (token.type === "op" && token.op === "or") {
-      orGroups.push([]);
-    } else if (token.type === "expr") {
-      orGroups[orGroups.length - 1].push(token.expr);
+    while (pos < tokens.length) {
+      const token = tokens[pos];
+      // Explicit AND
+      if (token.type === "op" && token.op === "and") {
+        pos++;
+        const right = parseNot();
+        if (!right) return left;
+        left = { type: "and", left, right };
+      }
+      // Implicit AND: two adjacent expressions (not OR, not rparen)
+      else if (
+        token.type === "expr" ||
+        token.type === "not" ||
+        token.type === "lparen"
+      ) {
+        const right = parseNot();
+        if (!right) return left;
+        left = { type: "and", left, right };
+      } else {
+        break;
+      }
     }
-    // Ignore explicit 'and' - it's same as implicit
+    return left;
   }
 
-  // Combine each AND group
-  const andResults: Expression[] = [];
-  for (const group of orGroups) {
-    if (group.length === 0) continue;
-    let result = group[0];
-    for (let j = 1; j < group.length; j++) {
-      result = { type: "and", left: result, right: group[j] };
+  // Parse NOT expressions
+  function parseNot(): Expression | null {
+    if (pos < tokens.length && tokens[pos].type === "not") {
+      pos++;
+      const expr = parseNot(); // NOT can chain: ! ! expr
+      if (!expr) return null;
+      return { type: "not", expr };
     }
-    andResults.push(result);
+    return parsePrimary();
   }
 
-  if (andResults.length === 0) {
-    return { expr: null, pathIndex: i, actions };
+  // Parse primary expressions (atoms and parenthesized groups)
+  function parsePrimary(): Expression | null {
+    if (pos >= tokens.length) return null;
+
+    const token = tokens[pos];
+
+    // Parenthesized group
+    if (token.type === "lparen") {
+      pos++;
+      const expr = parseOr();
+      // Consume closing paren if present
+      if (pos < tokens.length && tokens[pos].type === "rparen") {
+        pos++;
+      }
+      return expr;
+    }
+
+    // Simple expression
+    if (token.type === "expr") {
+      pos++;
+      return token.expr;
+    }
+
+    // Skip rparen (handled by lparen case)
+    if (token.type === "rparen") {
+      return null;
+    }
+
+    return null;
   }
 
-  // Combine AND results with OR
-  let result = andResults[0];
-  for (let j = 1; j < andResults.length; j++) {
-    result = { type: "or", left: result, right: andResults[j] };
-  }
-
-  return { expr: result, pathIndex: i, actions };
+  const expr = parseOr();
+  return { expr };
 }

@@ -6,10 +6,11 @@
  * keeping any writes in memory (copy-on-write behavior).
  */
 
+import { appendFileSync } from "node:fs";
 import * as path from "node:path";
 import { streamText, stepCountIs } from "ai";
-import { createBashTool } from "just-bash/ai";
-import { OverlayFs } from "just-bash";
+import { createBashTool } from "../../src/ai/index.js";
+import { OverlayFs, type BashLogger } from "../../dist/index.js";
 
 export interface AgentRunner {
   chat(
@@ -37,11 +38,22 @@ export function createAgent(options: CreateAgentOptions = {}): AgentRunner {
   // Create OverlayFs - files are mounted at /home/user/project by default
   const overlayFs = new OverlayFs({ root: projectRoot });
 
+  // Logger that appends to commands.log
+  const logFile = path.resolve(import.meta.dirname, "commands.log");
+  const logger: BashLogger = {
+    info: (msg, data) =>
+      appendFileSync(logFile, `[INFO] ${msg} ${JSON.stringify(data)}\n`),
+    debug: (msg, data) =>
+      appendFileSync(logFile, `[DEBUG] ${msg} ${JSON.stringify(data)}\n`),
+  };
+
   const bashTool = createBashTool({
+    logger,
     fs: overlayFs,
     extraInstructions: `You are exploring the just-bash project - a simulated bash environment in TypeScript.
 Use bash commands to explore:
-- ls src to see the source structure
+- All files are in the project directory. Use cd to navigate to the project directory.
+- ls ./src to see the source structure
 - cat README.md to read documentation
 - grep -r "pattern" src to search code
 - find . -name "*.ts" to find files

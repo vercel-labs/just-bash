@@ -230,6 +230,67 @@ describe("find command", () => {
     });
   });
 
+  // Parentheses grouping tests
+  describe("parentheses grouping", () => {
+    it("should group expressions with parentheses", async () => {
+      const env = createEnv();
+      // Simple parentheses around a single expression
+      const result = await env.exec('find /project \\( -name "*.ts" \\)');
+      expect(result.stdout).toBe(`/project/src/index.ts
+/project/src/utils/format.ts
+/project/src/utils/helpers.ts
+/project/tests/index.test.ts
+`);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should group OR expressions with parentheses", async () => {
+      const env = createEnv();
+      // Find .ts OR .json files
+      const result = await env.exec(
+        'find /project \\( -name "*.ts" -o -name "*.json" \\)',
+      );
+      expect(result.stdout).toContain("/project/src/index.ts");
+      expect(result.stdout).toContain("/project/package.json");
+      expect(result.stdout).toContain("/project/tsconfig.json");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should combine type with grouped OR", async () => {
+      const env = createEnv();
+      // Find files that are .ts OR .json (the common use case)
+      const result = await env.exec(
+        'find /project -type f \\( -name "*.ts" -o -name "*.json" \\)',
+      );
+      expect(result.stdout).toContain("/project/src/index.ts");
+      expect(result.stdout).toContain("/project/package.json");
+      // Should NOT contain directories
+      expect(result.stdout).not.toContain("/project/src\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle nested parentheses", async () => {
+      const env = createEnv();
+      // Complex grouping
+      const result = await env.exec(
+        'find /project \\( -type f \\( -name "*.ts" -o -name "*.json" \\) \\)',
+      );
+      expect(result.stdout).toContain("/project/src/index.ts");
+      expect(result.stdout).toContain("/project/package.json");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with -exec inside grouped expressions", async () => {
+      const env = createEnv();
+      const result = await env.exec(
+        'find /project -type f \\( -name "*.md" -o -name "*.json" \\) -exec cat {} \\;',
+      );
+      expect(result.stdout).toContain("# Project");
+      expect(result.stdout).toContain("{}");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
   // AND operator tests
   describe("-a flag (AND)", () => {
     it("should work with explicit -a flag", async () => {

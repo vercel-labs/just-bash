@@ -75,7 +75,15 @@ export const findCommand: Command = {
           i++;
         }
         // i now points to the terminator, loop will increment past it
-      } else if (!arg.startsWith("-") && arg !== ";" && arg !== "+") {
+      } else if (
+        !arg.startsWith("-") &&
+        arg !== ";" &&
+        arg !== "+" &&
+        arg !== "(" &&
+        arg !== ")" &&
+        arg !== "\\(" &&
+        arg !== "\\)"
+      ) {
         searchPath = arg;
       } else if (PREDICATES_WITH_ARGS_SET.has(arg)) {
         // Skip value arguments for predicates that take arguments

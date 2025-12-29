@@ -1,6 +1,6 @@
 import { type Tool, tool, zodSchema } from "ai";
 import { z } from "zod";
-import { Bash, type BashOptions } from "../Bash.js";
+import { Bash, type BashLogger, type BashOptions } from "../Bash.js";
 import type { CommandName } from "../commands/registry.js";
 import type { IFileSystem, InitialFiles } from "../fs/interface.js";
 
@@ -54,6 +54,12 @@ export interface CreateBashToolOptions {
    * Useful for logging or monitoring tool calls.
    */
   onCall?: (command: string) => void;
+
+  /**
+   * Optional logger for execution tracing.
+   * Logs exec commands (info), stdout (debug), stderr (info), and exit codes (info).
+   */
+  logger?: BashLogger;
 }
 
 function generateInstructions(options: CreateBashToolOptions): string {
@@ -144,6 +150,7 @@ export function createBashTool(
     cwd: options.cwd,
     network: options.network,
     commands: options.commands,
+    logger: options.logger,
   });
 
   return tool({

@@ -1,4 +1,4 @@
-export type { BashOptions, ExecOptions } from "./Bash.js";
+export type { BashLogger, BashOptions, ExecOptions } from "./Bash.js";
 export { Bash } from "./Bash.js";
 export type {
   AllCommandName,
