@@ -171,7 +171,7 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   },
   {
     name: "awk",
-    load: async () => (await import("./awk/awk.js")).awkCommand,
+    load: async () => (await import("./awk/awk2.js")).awkCommand2,
   },
   {
     name: "sort",
