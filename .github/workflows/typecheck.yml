@@ -26,6 +26,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Build
+        run: pnpm build
+
       - name: Install example dependencies
         run: pnpm install --frozen-lockfile
         working-directory: examples/bash-agent
