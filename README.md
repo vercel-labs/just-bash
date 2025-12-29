@@ -91,8 +91,8 @@ const upper = defineCommand("upper", async (args, ctx) => {
 
 const bash = new Bash({ customCommands: [hello, upper] });
 
-await bash.exec("hello Alice");              // "Hello, Alice!\n"
-await bash.exec("echo 'test' | upper");      // "TEST\n"
+await bash.exec("hello Alice"); // "Hello, Alice!\n"
+await bash.exec("echo 'test' | upper"); // "TEST\n"
 ```
 
 Custom commands receive the full `CommandContext` with access to `fs`, `cwd`, `env`, `stdin`, and `exec` for running subcommands.
@@ -121,7 +121,7 @@ await env.exec("cat package.json"); // reads from disk
 await env.exec('echo "modified" > package.json'); // stays in memory
 ```
 
-**ReadWriteFs** - Direct read-write access to a real directory (use with caution):
+**ReadWriteFs** - Direct read-write access to a real directory. Use this if you want the agent to be agle to write to your disk:
 
 ```typescript
 import { Bash } from "just-bash";

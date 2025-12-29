@@ -66,7 +66,7 @@
     "build:cli": "esbuild dist/cli/just-bash.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bin --entry-names=[name] --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node'",
     "build:shell": "esbuild dist/cli/shell.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bin/shell --entry-names=[name] --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node'",
     "prepublishOnly": "pnpm validate",
-    "validate": "pnpm build && pnpm typecheck && pnpm lint && pnpm knip && pnpm test:run && pnpm test:dist",
+    "validate": "pnpm lint && pnpm knip && pnpm typecheck &&  pnpm build && pnpm test:run && pnpm test:dist",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",

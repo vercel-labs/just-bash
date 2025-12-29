@@ -12,7 +12,7 @@ export {
 // Custom commands API
 export type { CustomCommand, LazyCommand } from "./custom-commands.js";
 export { defineCommand } from "./custom-commands.js";
-export { InMemoryFs } from "./fs/in-memory-fs/in-memory-fs.js";
+export { InMemoryFs } from "./fs/in-memory-fs/index.js";
 export type {
   BufferEncoding,
   CpOptions,
