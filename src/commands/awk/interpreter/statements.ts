@@ -47,7 +47,7 @@ function shouldBreakExecution(ctx: AwkRuntimeContext): boolean {
 /**
  * Execute a single statement.
  */
-export async function executeStmt(
+async function executeStmt(
   ctx: AwkRuntimeContext,
   stmt: AwkStmt,
 ): Promise<void> {

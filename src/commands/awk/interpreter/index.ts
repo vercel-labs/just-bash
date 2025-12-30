@@ -9,14 +9,5 @@ export {
   type CreateContextOptions,
   createRuntimeContext,
 } from "./context.js";
-export { evalExpr } from "./expressions.js";
-export {
-  isTruthy,
-  looksLikeNumber,
-  matchRegex,
-  toAwkString,
-  toNumber,
-} from "./helpers.js";
 export { AwkInterpreter } from "./interpreter.js";
-export { executeBlock, executeStmt } from "./statements.js";
 export type { AwkFileSystem, AwkValue } from "./types.js";

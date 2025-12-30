@@ -11,7 +11,7 @@ import type { AwkValue } from "./types.js";
 /**
  * Split a line into fields based on the field separator.
  */
-export function splitFields(ctx: AwkRuntimeContext, line: string): string[] {
+function splitFields(ctx: AwkRuntimeContext, line: string): string[] {
   if (ctx.FS === " ") {
     // Default FS: split on runs of whitespace, skip leading/trailing
     return line.trim().split(/\s+/).filter(Boolean);
