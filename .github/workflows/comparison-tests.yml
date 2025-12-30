@@ -29,6 +29,9 @@ jobs:
       - name: Run comparison tests in record mode
         run: pnpm test:comparison:record
 
+      - name: diff
+        run: git diff
+
       # Fail if there are any diffs
       - name: Fail if there are any diffs
         run: if [ -n "$(git diff --name-only)" ]; then exit 1; fi
