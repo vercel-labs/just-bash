@@ -11,18 +11,20 @@
     "files": {
       "test.txt": "hello world\nfoo bar\nhello again\nbaz qux\n"
     },
-    "stdout": "       2\n",
+    "stdout": "2\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "1f5358d0ff5415db": {
     "command": "grep hello test.txt | wc -l",
     "files": {
       "test.txt": "hello\nworld\nhello\n"
     },
-    "stdout": "       2\n",
+    "stdout": "2\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "3beedbeba9d2a5c4": {
     "command": "cat test.txt | cut -d: -f2 | sort -n",
@@ -120,9 +122,10 @@
     "files": {
       "input.txt": "line1\nline2\nline3\n"
     },
-    "stdout": "       3\n",
+    "stdout": "3\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "c2a3ca246a760ea3": {
     "command": "grep ^a < input.txt",

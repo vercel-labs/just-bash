@@ -20,9 +20,10 @@
     "files": {
       "test.txt": "a\nb\nc\n"
     },
-    "stdout": "   1 a\n   1 b\n   1 c\n",
+    "stdout": "      1 a\n      1 b\n      1 c\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "5de0d1af06731848": {
     "command": "sort test.txt | uniq",
@@ -36,9 +37,10 @@
   "63ad63113394243e": {
     "command": "echo -e \"a\\na\\nb\\nb\\nb\" | uniq -c",
     "files": {},
-    "stdout": "   2 a\n   3 b\n",
+    "stdout": "      2 a\n      3 b\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "740e9a36c7fe3331": {
     "command": "uniq -d test.txt",
@@ -63,9 +65,10 @@
     "files": {
       "test.txt": "apple\napple\nbanana\nbanana\nbanana\ncherry\n"
     },
-    "stdout": "   2 apple\n   3 banana\n   1 cherry\n",
+    "stdout": "      2 apple\n      3 banana\n      1 cherry\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "a300c9f1f5c05058": {
     "command": "uniq test.txt",
@@ -81,9 +84,10 @@
     "files": {
       "test.txt": "a\na\nb\nc\nc\nc\n"
     },
-    "stdout": "   2 a\n   3 c\n",
+    "stdout": "      2 a\n      3 c\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "d2218cb430d74d51": {
     "command": "uniq -u test.txt",
@@ -117,9 +121,10 @@
     "files": {
       "test.txt": "apple\nbanana\napple\ncherry\nbanana\napple\n"
     },
-    "stdout": "   3 apple\n   2 banana\n   1 cherry\n",
+    "stdout": "      3 apple\n      2 banana\n      1 cherry\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "e6ed6da7f4f2d8dd": {
     "command": "uniq -u test.txt",
