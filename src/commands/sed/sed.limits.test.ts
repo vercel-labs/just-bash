@@ -23,10 +23,7 @@ describe("SED Execution Limits", () => {
       expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
 
-    // TODO: t command with loop needs better substitution tracking
-    // The t command branches on successful substitution, but s/./&/ replaces
-    // a character with itself, which doesn't count as "successful" in our impl
-    it.skip("should protect against test loop (t command)", async () => {
+    it("should protect against test loop (t command)", async () => {
       const env = new Bash();
       // Substitution that always succeeds + t branch = infinite loop
       const result = await env.exec(
@@ -152,8 +149,7 @@ describe("SED Execution Limits", () => {
       expect(result.exitCode).toBeDefined();
     });
 
-    // TODO: Nested braces parsing not implemented in our sed
-    it.skip("should handle deeply nested braces", async () => {
+    it("should handle deeply nested braces", async () => {
       const env = new Bash();
       // Nested command blocks
       const result = await env.exec(`echo "test" | sed '{ { { p } } }'`);

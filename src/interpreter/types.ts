@@ -45,6 +45,8 @@ export interface InterpreterState {
   inCondition: boolean;
   /** Current loop nesting depth (for break/continue) */
   loopDepth: number;
+  /** True if this subshell was spawned from within a loop context (for break/continue to exit subshell) */
+  parentHasLoopContext?: boolean;
   /** Stdin available for commands in compound commands (groups, subshells, while loops with piped input) */
   groupStdin?: string;
   /** Set of variable names that are readonly */

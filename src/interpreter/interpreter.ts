@@ -73,6 +73,7 @@ import {
   isScopeExitError,
   NounsetError,
   ReturnError,
+  SubshellExitError,
 } from "./errors.js";
 import {
   expandWord,
@@ -1052,6 +1053,9 @@ export class Interpreter {
     const savedCwd = this.ctx.state.cwd;
     // Reset loopDepth in subshell - break/continue should not affect parent loops
     const savedLoopDepth = this.ctx.state.loopDepth;
+    // Track if parent has loop context - break/continue in subshell should exit subshell
+    const savedParentHasLoopContext = this.ctx.state.parentHasLoopContext;
+    this.ctx.state.parentHasLoopContext = savedLoopDepth > 0;
     this.ctx.state.loopDepth = 0;
 
     // Save any existing groupStdin and set new one from pipeline
@@ -1075,10 +1079,18 @@ export class Interpreter {
       this.ctx.state.env = savedEnv;
       this.ctx.state.cwd = savedCwd;
       this.ctx.state.loopDepth = savedLoopDepth;
+      this.ctx.state.parentHasLoopContext = savedParentHasLoopContext;
       this.ctx.state.groupStdin = savedGroupStdin;
       // ExecutionLimitError must always propagate - these are safety limits
       if (error instanceof ExecutionLimitError) {
         throw error;
+      }
+      // SubshellExitError means break/continue was called when parent had loop context
+      // This exits the subshell cleanly with exit code 0
+      if (error instanceof SubshellExitError) {
+        stdout += error.stdout;
+        stderr += error.stderr;
+        return result(stdout, stderr, 0);
       }
       // BreakError/ContinueError should NOT propagate out of subshell
       // They only affect loops within the subshell
@@ -1112,6 +1124,7 @@ export class Interpreter {
     this.ctx.state.env = savedEnv;
     this.ctx.state.cwd = savedCwd;
     this.ctx.state.loopDepth = savedLoopDepth;
+    this.ctx.state.parentHasLoopContext = savedParentHasLoopContext;
     this.ctx.state.groupStdin = savedGroupStdin;
 
     return result(stdout, stderr, exitCode);

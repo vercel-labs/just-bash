@@ -3,7 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { BreakError, ContinueError } from "../errors.js";
+import { BreakError, ContinueError, SubshellExitError } from "../errors.js";
 import { failure, OK } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -12,8 +12,12 @@ export function handleContinue(
   args: string[],
 ): ExecResult {
   // Check if we're in a loop
-  // In bash, if not in a loop, continue silently does nothing (returns 0)
   if (ctx.state.loopDepth === 0) {
+    // If we're in a subshell spawned from a loop context, exit the subshell
+    if (ctx.state.parentHasLoopContext) {
+      throw new SubshellExitError();
+    }
+    // Otherwise, continue silently does nothing (returns 0)
     return OK;
   }
 

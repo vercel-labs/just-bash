@@ -174,6 +174,18 @@ export class ExecutionLimitError extends ControlFlowError {
 }
 
 /**
+ * Error thrown when break/continue is called in a subshell that was
+ * spawned from within a loop context. Causes the subshell to exit cleanly.
+ */
+export class SubshellExitError extends ControlFlowError {
+  readonly name = "SubshellExitError";
+
+  constructor(stdout: string = "", stderr: string = "") {
+    super("subshell exit", stdout, stderr);
+  }
+}
+
+/**
  * Type guard for errors that exit the current scope (return, break, continue).
  * These need special handling vs errexit/nounset which terminate execution.
  */

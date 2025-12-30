@@ -12,6 +12,7 @@ import {
   ExecutionLimitError,
   ExitError,
   isScopeExitError,
+  SubshellExitError,
 } from "../errors.js";
 import type { InterpreterContext } from "../types.js";
 import { getErrorMessage } from "./errors.js";
@@ -48,7 +49,8 @@ export async function executeStatements(
       isScopeExitError(error) ||
       error instanceof ErrexitError ||
       error instanceof ExitError ||
-      error instanceof ExecutionLimitError
+      error instanceof ExecutionLimitError ||
+      error instanceof SubshellExitError
     ) {
       error.prependOutput(stdout, stderr);
       throw error;

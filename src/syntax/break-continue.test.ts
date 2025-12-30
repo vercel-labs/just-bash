@@ -150,8 +150,8 @@ describe("Bash Syntax - break and continue", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should work with subshells", async () => {
-      // TODO: break inside subshell should exit the subshell (no loop context)
+    it("should work with subshells", async () => {
+      // break inside subshell should exit the subshell (no loop context)
       // bash outputs: 1\n3\ndone\n (break exits subshell on i=2, no echo)
       const env = new Bash();
       const result = await env.exec(`

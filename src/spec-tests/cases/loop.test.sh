@@ -192,7 +192,7 @@ subshell status=1
 subshell status=1
 . 2
 ## END
-## OK dash/zsh STDOUT:
+## OK dash/zsh/bash STDOUT:
 > 1
 subshell status=0
 . 1
@@ -200,7 +200,7 @@ subshell status=0
 subshell status=0
 . 2
 ## END
-## BUG mksh/bash STDOUT:
+## BUG mksh STDOUT:
 > 1
 Should not print
 subshell status=0
@@ -226,6 +226,16 @@ done
 ## END
 ## status: 1
 
+## OK bash STDOUT:
+> 1
+should fail after subshell
+. 1
+> 2
+should fail after subshell
+. 2
+## END
+## OK bash status: 0
+
 ## BUG-2 dash/zsh STDOUT:
 > 1
 should fail after subshell
@@ -236,7 +246,7 @@ should fail after subshell
 ## END
 ## BUG-2 dash/zsh status: 0
 
-## BUG mksh/bash STDOUT:
+## BUG mksh STDOUT:
 > 1
 Should not print
 should fail after subshell
@@ -246,7 +256,7 @@ Should not print
 should fail after subshell
 . 2
 ## END
-## BUG mksh/bash status: 0
+## BUG mksh status: 0
 
 #### bad arg to break
 x=oops

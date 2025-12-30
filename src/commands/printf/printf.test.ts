@@ -129,12 +129,13 @@ describe("printf", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should handle non-numeric for %d", async () => {
-      // TODO: Bash returns exit 0 with warning, our shell returns exit 1
+    it("should handle non-numeric for %d", async () => {
+      // Bash returns exit 1 with warning and outputs 0
       const env = new Bash();
       const result = await env.exec('printf "%d" notanumber');
       expect(result.stdout).toBe("0");
-      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toContain("invalid number");
+      expect(result.exitCode).toBe(1);
     });
   });
 
