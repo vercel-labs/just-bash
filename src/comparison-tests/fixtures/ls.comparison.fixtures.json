@@ -91,7 +91,8 @@
     },
     "stdout": ".:\ndir\nfile.txt\n\n./dir:\nfile1.txt\nsub\n\n./dir/sub:\nfile2.txt\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "e1105146143329fe": {
     "command": "ls dir1 dir2",

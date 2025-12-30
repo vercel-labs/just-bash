@@ -32,7 +32,8 @@
     },
     "stdout": "     1\tfile a line 1\n     2\tfile a line 2\n     3\tfile b line 1\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "a0b709d7c5c60114": {
     "command": "cat empty.txt",

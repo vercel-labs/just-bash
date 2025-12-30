@@ -17,11 +17,12 @@ pnpm test:comparison
 # Run a specific test file
 pnpm test:run src/comparison-tests/ls.comparison.test.ts
 
-# Re-record all fixtures (runs real bash)
+# Re-record fixtures (runs real bash, skips locked fixtures)
 pnpm test:comparison:record
+# Or: RECORD_FIXTURES=1 pnpm test:comparison
 
-# Or with environment variable
-RECORD_FIXTURES=1 pnpm test:comparison
+# Force re-record ALL fixtures including locked ones
+RECORD_FIXTURES=force pnpm test:comparison
 ```
 
 ## Adding New Tests
@@ -86,13 +87,39 @@ The fixture system solves platform differences (macOS vs Linux):
 
 1. **Record once** on any platform
 2. **Manually adjust** the fixture to match desired behavior (usually Linux)
-3. Tests then pass on all platforms
+3. **Lock the fixture** to prevent accidental overwriting
+4. Tests then pass on all platforms
 
 Example: `ls -R` outputs differently on macOS vs Linux:
 - macOS: `dir\nfile.txt\n...`
 - Linux: `.:\ndir\nfile.txt\n...` (includes ".:" header)
 
 We record on macOS, then edit the fixture to use Linux behavior since our implementation follows Linux.
+
+## Locked Fixtures
+
+Fixtures that have been manually adjusted for platform-specific behavior should be marked as **locked** to prevent accidental overwriting when re-recording:
+
+```json
+{
+  "fixture_id": {
+    "command": "ls -R",
+    "files": { ... },
+    "stdout": ".:\ndir\nfile.txt\n...",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}
+```
+
+When recording:
+- `RECORD_FIXTURES=1` skips locked fixtures and reports them
+- `RECORD_FIXTURES=force` overwrites all fixtures including locked ones
+
+Currently locked fixtures:
+- `ls -R` - Uses Linux-style output with ".:" header
+- `cat -n` with multiple files - Uses continuous line numbering (Linux behavior)
 
 ## API Reference
 

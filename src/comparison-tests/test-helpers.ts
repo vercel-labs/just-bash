@@ -19,8 +19,18 @@ export const isLinux: boolean = os.platform() === "linux";
 
 /**
  * Check if we're in record mode (recording bash outputs to fixtures)
+ * - "1" = record mode, but skip locked fixtures
+ * - "force" = record mode, overwrite even locked fixtures
  */
-export const isRecordMode: boolean = process.env.RECORD_FIXTURES === "1";
+export const isRecordMode: boolean =
+  process.env.RECORD_FIXTURES === "1" ||
+  process.env.RECORD_FIXTURES === "force";
+
+/**
+ * Force mode overwrites even locked fixtures
+ */
+export const isForceRecordMode: boolean =
+  process.env.RECORD_FIXTURES === "force";
 
 /**
  * Fixture entry for a single test case
@@ -31,6 +41,11 @@ export interface FixtureEntry {
   stdout: string;
   stderr: string;
   exitCode: number;
+  /**
+   * If true, this fixture has been manually adjusted (e.g., for Linux behavior)
+   * and will not be overwritten during recording unless RECORD_FIXTURES=force
+   */
+  locked?: boolean;
 }
 
 /**
@@ -105,19 +120,44 @@ async function loadFixtures(testFile: string): Promise<FixturesFile> {
 }
 
 /**
- * Save a fixture entry (in record mode)
+ * Track which fixtures were skipped due to being locked
  */
-function recordFixture(
+const skippedLockedFixtures: Array<{
+  testFile: string;
+  fixtureId: string;
+  command: string;
+}> = [];
+
+/**
+ * Save a fixture entry (in record mode)
+ * Returns true if recorded, false if skipped due to lock
+ */
+async function recordFixture(
   testFile: string,
   fixtureId: string,
   entry: FixtureEntry,
-): void {
+): Promise<boolean> {
+  // Check if existing fixture is locked
+  if (!isForceRecordMode) {
+    const existingFixtures = await loadFixtures(testFile);
+    const existing = existingFixtures[fixtureId];
+    if (existing?.locked) {
+      skippedLockedFixtures.push({
+        testFile,
+        fixtureId,
+        command: entry.command,
+      });
+      return false;
+    }
+  }
+
   let fixtures = pendingFixtures.get(testFile);
   if (!fixtures) {
     fixtures = {};
     pendingFixtures.set(testFile, fixtures);
   }
   fixtures[fixtureId] = entry;
+  return true;
 }
 
 /**
@@ -139,8 +179,17 @@ export async function writeAllFixtures(): Promise<void> {
       // No existing file
     }
 
-    // Merge new fixtures (new ones overwrite old)
-    const mergedFixtures = { ...existingFixtures, ...newFixtures };
+    // Merge new fixtures (new ones overwrite old, but preserve locked status)
+    const mergedFixtures = { ...existingFixtures };
+    for (const [key, value] of Object.entries(newFixtures)) {
+      // Preserve locked status from existing fixture if not in force mode
+      const existing = existingFixtures[key];
+      if (existing?.locked && !isForceRecordMode) {
+        // Keep existing locked fixture
+        continue;
+      }
+      mergedFixtures[key] = value;
+    }
 
     // Sort by fixture ID for consistent output
     const sortedFixtures: FixturesFile = {};
@@ -150,6 +199,17 @@ export async function writeAllFixtures(): Promise<void> {
 
     await fs.writeFile(fixturesPath, JSON.stringify(sortedFixtures, null, 2));
     console.log(`Wrote fixtures to ${fixturesPath}`);
+  }
+
+  // Report skipped locked fixtures
+  if (skippedLockedFixtures.length > 0) {
+    console.log(
+      "\n⚠️  Skipped locked fixtures (use RECORD_FIXTURES=force to override):",
+    );
+    for (const { testFile, command } of skippedLockedFixtures) {
+      const basename = path.basename(testFile);
+      console.log(`   - ${basename}: "${command}"`);
+    }
   }
 }
 
@@ -387,19 +447,31 @@ async function compareOutputsInternal(
   let realBashExitCode: number;
 
   if (isRecordMode) {
-    // In record mode, run real bash and save to fixtures
-    const realBashResult = await runRealBash(command, testDir);
-    realBashStdout = realBashResult.stdout;
-    realBashStderr = realBashResult.stderr;
-    realBashExitCode = realBashResult.exitCode;
+    // Check if fixture is locked - if so, use existing fixture values
+    const existingFixtures = await loadFixtures(testFile);
+    const existingFixture = existingFixtures[fixtureId];
 
-    recordFixture(testFile, fixtureId, {
-      command,
-      files,
-      stdout: realBashStdout,
-      stderr: realBashStderr,
-      exitCode: realBashExitCode,
-    });
+    if (existingFixture?.locked && !isForceRecordMode) {
+      // Use locked fixture values, don't run real bash
+      realBashStdout = existingFixture.stdout;
+      realBashStderr = existingFixture.stderr;
+      realBashExitCode = existingFixture.exitCode;
+      skippedLockedFixtures.push({ testFile, fixtureId, command });
+    } else {
+      // Run real bash and save to fixtures
+      const realBashResult = await runRealBash(command, testDir);
+      realBashStdout = realBashResult.stdout;
+      realBashStderr = realBashResult.stderr;
+      realBashExitCode = realBashResult.exitCode;
+
+      await recordFixture(testFile, fixtureId, {
+        command,
+        files,
+        stdout: realBashStdout,
+        stderr: realBashStderr,
+        exitCode: realBashExitCode,
+      });
+    }
   } else {
     // In playback mode, load from fixtures
     const fixtures = await loadFixtures(testFile);

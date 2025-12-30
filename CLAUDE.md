@@ -157,20 +157,24 @@ Prefer comparison tests when uncertain about bash behavior. Keep test files unde
 
 ### Comparison Tests (Fixture System)
 
-Comparison tests use pre-recorded bash outputs stored in `src/comparison-tests/fixtures/`. This eliminates platform differences (macOS vs Linux).
+Comparison tests use pre-recorded bash outputs stored in `src/comparison-tests/fixtures/`. This eliminates platform differences (macOS vs Linux). See `src/comparison-tests/README.md` for details.
 
 ```bash
 # Run comparison tests (uses fixtures, no real bash needed)
 pnpm test:comparison
 
-# Re-record fixtures when adding/changing tests
+# Re-record fixtures (skips locked fixtures)
 RECORD_FIXTURES=1 pnpm test:run src/comparison-tests/mytest.comparison.test.ts
+
+# Force re-record including locked fixtures
+RECORD_FIXTURES=force pnpm test:comparison
 ```
 
 When adding comparison tests:
 1. Write the test using `setupFiles()` and `compareOutputs()`
 2. Run with `RECORD_FIXTURES=1` to generate fixtures
 3. Commit both the test file and the generated fixture JSON
+4. If manually adjusting for Linux behavior, add `"locked": true` to the fixture
 
 ## Development Guidelines
 
