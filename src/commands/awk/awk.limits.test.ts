@@ -33,8 +33,7 @@ describe("AWK Execution Limits", () => {
       expect(result.exitCode).not.toBe(0);
     });
 
-    // TODO: for(;;) requires special parsing - skip for now
-    it.skip("should protect against for(;;) infinite loop", async () => {
+    it("should protect against for(;;) infinite loop", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "test" | awk 'BEGIN { for(;;) print "x" }'`,
@@ -44,8 +43,7 @@ describe("AWK Execution Limits", () => {
       expect(result.exitCode).not.toBe(0);
     });
 
-    // TODO: do-while not implemented in our awk
-    it.skip("should protect against do-while infinite loop", async () => {
+    it("should protect against do-while infinite loop", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "test" | awk 'BEGIN { do { print "x" } while(1) }'`,
@@ -56,8 +54,7 @@ describe("AWK Execution Limits", () => {
     });
   });
 
-  // TODO: User-defined functions not implemented in our awk
-  describe.skip("recursion protection", () => {
+  describe("recursion protection", () => {
     it("should protect against recursive function calls", async () => {
       const env = new Bash();
       const result = await env.exec(
@@ -111,21 +108,6 @@ describe("AWK Execution Limits", () => {
       );
 
       // Should complete without hanging
-      expect(result.exitCode).toBeDefined();
-    });
-  });
-
-  // TODO: ReDoS protection requires a different regex engine or timeout
-  // JavaScript's regex engine is vulnerable to pathological patterns
-  describe.skip("regex limits", () => {
-    it("should handle pathological regex patterns", async () => {
-      const env = new Bash();
-      // ReDoS-style pattern
-      const result = await env.exec(
-        `echo "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaab" | awk '/^(a+)+$/'`,
-      );
-
-      // Should complete quickly
       expect(result.exitCode).toBeDefined();
     });
   });

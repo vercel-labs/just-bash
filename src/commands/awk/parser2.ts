@@ -278,6 +278,12 @@ export class AwkParser {
       return { type: "next" };
     }
 
+    // Nextfile
+    if (this.check(TokenType.NEXTFILE)) {
+      this.advance();
+      return { type: "nextfile" };
+    }
+
     // Exit
     if (this.check(TokenType.EXIT)) {
       this.advance();
@@ -441,11 +447,12 @@ export class AwkParser {
     ) {
       args.push({ type: "field", index: { type: "number", value: 0 } });
     } else {
-      // Parse print arguments
-      args.push(this.parseTernary());
+      // Parse print arguments - use parsePrintArg to stop before > and >>
+      // In AWK, > and >> at print level are redirection, not comparison
+      args.push(this.parsePrintArg());
       while (this.check(TokenType.COMMA)) {
         this.advance();
-        args.push(this.parseTernary());
+        args.push(this.parsePrintArg());
       }
     }
 
@@ -462,15 +469,145 @@ export class AwkParser {
     return { type: "print", args, output };
   }
 
+  /**
+   * Parse a print argument - same as ternary but treats > and >> at the TOP LEVEL
+   * (not inside ternary) as redirection rather than comparison operators.
+   */
+  private parsePrintArg(): AwkExpr {
+    // For ternary conditions, we need to allow > as comparison
+    // Check if there's a ? ahead (indicating ternary) - if so, parse full comparison
+    const hasTernary = this.lookAheadForTernary();
+
+    if (hasTernary) {
+      // Parse as full ternary with regular comparison (> allowed)
+      return this.parseTernary();
+    }
+
+    // No ternary - parse without > to leave room for redirection
+    return this.parsePrintOr();
+  }
+
+  /**
+   * Look ahead to see if there's a ternary ? operator before the next statement terminator.
+   * This tells us whether > is comparison (in ternary condition) or redirection.
+   */
+  private lookAheadForTernary(): boolean {
+    let depth = 0;
+    let i = this.pos;
+
+    while (i < this.tokens.length) {
+      const token = this.tokens[i];
+
+      // Track parentheses depth
+      if (token.type === TokenType.LPAREN) depth++;
+      if (token.type === TokenType.RPAREN) depth--;
+
+      // Found ? at top level - it's a ternary (even if > came before)
+      if (token.type === TokenType.QUESTION && depth === 0) {
+        return true;
+      }
+
+      // Statement terminators - stop looking (no ternary found)
+      if (
+        token.type === TokenType.NEWLINE ||
+        token.type === TokenType.SEMICOLON ||
+        token.type === TokenType.RBRACE ||
+        token.type === TokenType.COMMA ||
+        token.type === TokenType.PIPE
+      ) {
+        return false;
+      }
+
+      i++;
+    }
+
+    return false;
+  }
+
+  private parsePrintOr(): AwkExpr {
+    let left = this.parsePrintAnd();
+    while (this.check(TokenType.OR)) {
+      this.advance();
+      const right = this.parsePrintAnd();
+      left = { type: "binary", operator: "||", left, right };
+    }
+    return left;
+  }
+
+  private parsePrintAnd(): AwkExpr {
+    let left = this.parsePrintIn();
+    while (this.check(TokenType.AND)) {
+      this.advance();
+      const right = this.parsePrintIn();
+      left = { type: "binary", operator: "&&", left, right };
+    }
+    return left;
+  }
+
+  private parsePrintIn(): AwkExpr {
+    let left = this.parsePrintMatch();
+
+    if (this.check(TokenType.IN)) {
+      this.advance();
+      const arrayName = String(this.expect(TokenType.IDENT).value);
+      return { type: "in", key: left, array: arrayName };
+    }
+
+    return left;
+  }
+
+  private parsePrintMatch(): AwkExpr {
+    let left = this.parsePrintComparison();
+
+    while (this.match(TokenType.MATCH, TokenType.NOT_MATCH)) {
+      const op = this.advance().type === TokenType.MATCH ? "~" : "!~";
+      const right = this.parsePrintComparison();
+      left = { type: "binary", operator: op, left, right };
+    }
+
+    return left;
+  }
+
+  /**
+   * Like parseComparison but doesn't consume > and >> (for print redirection)
+   */
+  private parsePrintComparison(): AwkExpr {
+    let left = this.parseConcatenation();
+
+    // Only handle <, <=, >=, ==, != - NOT > or >> (those are redirection)
+    while (
+      this.match(TokenType.LT, TokenType.LE, TokenType.GE, TokenType.EQ, TokenType.NE)
+    ) {
+      const opToken = this.advance();
+      const right = this.parseConcatenation();
+      const opMap: Record<string, "<" | "<=" | ">=" | "==" | "!="> = {
+        "<": "<",
+        "<=": "<=",
+        ">=": ">=",
+        "==": "==",
+        "!=": "!=",
+      };
+      left = {
+        type: "binary",
+        operator: opMap[opToken.value as string],
+        left,
+        right,
+      };
+    }
+
+    return left;
+  }
+
   private parsePrintf(): AwkStmt {
     this.expect(TokenType.PRINTF);
 
-    const format = this.parseExpression();
+    // Use parsePrintArg to stop at > and >> (for redirection)
+    const format = this.parsePrintArg();
     const args: AwkExpr[] = [];
 
     while (this.check(TokenType.COMMA)) {
       this.advance();
-      args.push(this.parseExpression());
+      args.push(this.parsePrintArg());
     }
 
     // Check for output redirection
@@ -866,12 +1003,24 @@ export class AwkParser {
       return { type: "field", index };
     }
 
-    // Parenthesized expression
+    // Parenthesized expression or tuple (for multi-dimensional 'in' operator)
     if (this.check(TokenType.LPAREN)) {
       this.advance();
-      const expr = this.parseExpression();
+      const first = this.parseExpression();
+
+      // Check for comma tuple: (expr, expr, ...)
+      if (this.check(TokenType.COMMA)) {
+        const elements: AwkExpr[] = [first];
+        while (this.check(TokenType.COMMA)) {
+          this.advance();
+          elements.push(this.parseExpression());
+        }
+        this.expect(TokenType.RPAREN);
+        return { type: "tuple", elements };
+      }
+
       this.expect(TokenType.RPAREN);
-      return expr;
+      return first;
     }
 
     // Getline

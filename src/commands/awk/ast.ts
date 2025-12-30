@@ -23,7 +23,8 @@ export type AwkExpr =
   | AwkPostIncrement
   | AwkPostDecrement
   | AwkGetline
-  | AwkInExpr;
+  | AwkInExpr
+  | AwkTuple;
 
 export interface AwkNumberLiteral {
   type: "number";
@@ -138,6 +139,11 @@ export interface AwkGetline {
   file?: AwkExpr;
 }
 
+export interface AwkTuple {
+  type: "tuple";
+  elements: AwkExpr[];
+}
+
 // ─── Statements ────────────────────────────────────────────
 
 export type AwkStmt =
@@ -152,6 +158,7 @@ export type AwkStmt =
   | AwkBreakStmt
   | AwkContinueStmt
   | AwkNextStmt
+  | AwkNextFileStmt
   | AwkExitStmt
   | AwkReturnStmt
   | AwkDeleteStmt
@@ -222,6 +229,9 @@ export interface AwkContinueStmt {
 }
 export interface AwkNextStmt {
   type: "next";
+}
+export interface AwkNextFileStmt {
+  type: "nextfile";
 }
 export interface AwkExitStmt {
   type: "exit";

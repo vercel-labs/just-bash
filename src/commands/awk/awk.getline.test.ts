@@ -100,4 +100,115 @@ value2`,
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("key1: value1\nkey2: value2\n");
   });
+
+  it("reads from external file with getline < file", async () => {
+    const env = new Bash({
+      files: {
+        "/test/main.txt": `line1
+line2`,
+        "/test/other.txt": `external1
+external2
+external3`,
+      },
+    });
+    const result = await env.exec(
+      `awk '{ getline ext < "/test/other.txt"; print $0, ext }' /test/main.txt`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("line1 external1\nline2 external2\n");
+  });
+
+  it("reads entire file line by line with getline < file", async () => {
+    const env = new Bash({
+      files: {
+        "/test/data.txt": `a
+b
+c`,
+      },
+    });
+    const result = await env.exec(
+      `awk 'BEGIN { while ((getline line < "/test/data.txt") > 0) print "got:", line }'`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("got: a\ngot: b\ngot: c\n");
+  });
+
+  it("returns -1 for nonexistent file in getline", async () => {
+    const env = new Bash();
+    const result = await env.exec(
+      `awk 'BEGIN { ret = getline x < "/nonexistent"; print "ret:", ret }'`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("ret: -1\n");
+  });
+});
+
+describe("awk print to file", () => {
+  it("writes to file with print > file", async () => {
+    const env = new Bash({
+      files: {
+        "/test/input.txt": `hello
+world`,
+      },
+    });
+    const result = await env.exec(
+      `awk '{ print $0 > "/test/output.txt" }' /test/input.txt`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+
+    const output = await env.readFile("/test/output.txt");
+    expect(output).toBe("hello\nworld\n");
+  });
+
+  it("overwrites then appends with > on same file", async () => {
+    const env = new Bash({
+      files: {
+        "/test/input.txt": `line1
+line2
+line3`,
+      },
+    });
+    const result = await env.exec(
+      `awk '{ print $0 > "/test/out.txt" }' /test/input.txt`,
+    );
+    expect(result.exitCode).toBe(0);
+
+    const output = await env.readFile("/test/out.txt");
+    expect(output).toBe("line1\nline2\nline3\n");
+  });
+
+  it("appends with print >> file", async () => {
+    const env = new Bash({
+      files: {
+        "/test/existing.txt": "existing\n",
+        "/test/input.txt": `new1
+new2`,
+      },
+    });
+    const result = await env.exec(
+      `awk '{ print $0 >> "/test/existing.txt" }' /test/input.txt`,
+    );
+    expect(result.exitCode).toBe(0);
+
+    const output = await env.readFile("/test/existing.txt");
+    expect(output).toBe("existing\nnew1\nnew2\n");
+  });
+
+  it("printf writes to file", async () => {
+    const env = new Bash({
+      files: {
+        "/test/input.txt": `1
+2
+3`,
+      },
+    });
+    const result = await env.exec(
+      `awk '{ printf "%03d\\n", $1 > "/test/out.txt" }' /test/input.txt`,
+    );
+    expect(result.exitCode).toBe(0);
+
+    const output = await env.readFile("/test/out.txt");
+    expect(output).toBe("001\n002\n003\n");
+  });
 });

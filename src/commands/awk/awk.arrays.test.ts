@@ -68,8 +68,7 @@ describe("awk associative arrays", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should return false for missing key", async () => {
-      // TODO: if-else with 'in' operator not working correctly
+    it("should return false for missing key", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "" | awk 'BEGIN { a["x"] = 1; if ("y" in a) print "found"; else print "not found" }'`,
@@ -113,6 +112,15 @@ describe("awk associative arrays", () => {
         `echo "" | awk 'BEGIN { delete a["missing"]; print "ok" }'`,
       );
       expect(result.stdout).toBe("ok\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should delete entire array", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { a[1]=1; a[2]=2; a[3]=3; delete a; for(k in a) count++; print count+0 }'`,
+      );
+      expect(result.stdout).toBe("0\n");
       expect(result.exitCode).toBe(0);
     });
   });
@@ -242,8 +250,7 @@ describe("awk associative arrays", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should check multi-dimensional key with in", async () => {
-      // TODO: Comma syntax for multi-dimensional arrays not implemented
+    it("should check multi-dimensional key with in", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "" | awk 'BEGIN { a[1,2] = "x"; print ((1,2) in a), ((1,3) in a) }'`,

@@ -31,10 +31,38 @@ describe("awk user-defined functions", () => {
     });
   });
 
-  // Note: Multi-statement function bodies require a full statement parser.
-  // Current implementation supports single return expressions only.
-  describe("function with local variables", () => {
-    it.skip("should handle local variables in function (requires statement parser)", async () => {
+  describe("variable scoping", () => {
+    it("should make non-parameter variables global", async () => {
+      const env = new Bash();
+      // Variables assigned in function (not parameters) should persist globally
+      const result = await env.exec(
+        `echo "" | awk 'function foo() { x = 42 } BEGIN { foo(); print x }'`,
+      );
+      expect(result.stdout).toBe("42\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should make parameters local to function", async () => {
+      const env = new Bash();
+      // Parameters should not affect global variables with same name
+      const result = await env.exec(
+        `echo "" | awk 'function foo(x) { x = 99 } BEGIN { x = 1; foo(5); print x }'`,
+      );
+      expect(result.stdout).toBe("1\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should use extra parameters as local variables", async () => {
+      const env = new Bash();
+      // Extra parameters (declared but not passed) are local and initialized to ""
+      const result = await env.exec(
+        `echo "" | awk 'function foo(a,    local) { local = 100; return a + local } BEGIN { local = 5; print foo(1), local }'`,
+      );
+      expect(result.stdout).toBe("101 5\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle local variables in function", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "5" | awk 'function square(x) { result = x * x; return result } { print square($1) }'`,
@@ -44,10 +72,8 @@ describe("awk user-defined functions", () => {
     });
   });
 
-  // Note: Recursive functions with if/else conditionals require a full statement parser.
-  // Current implementation supports simple return expressions only.
   describe("recursive functions", () => {
-    it.skip("should support simple recursion (requires statement parser)", async () => {
+    it("should support simple recursion", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "5" | awk 'function fact(n) { if (n <= 1) return 1; return n * fact(n-1) } { print fact($1) }'`,
@@ -56,7 +82,7 @@ describe("awk user-defined functions", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should support fibonacci (requires statement parser)", async () => {
+    it("should support fibonacci", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "10" | awk 'function fib(n) { if (n <= 2) return 1; return fib(n-1) + fib(n-2) } { print fib($1) }'`,

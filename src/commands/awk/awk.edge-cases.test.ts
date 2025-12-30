@@ -50,13 +50,14 @@ describe("awk edge cases", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should handle backslash in data", async () => {
-      // TODO: Backslash escaping in shell/awk interaction needs work
+    it("should handle backslash in data", async () => {
       const env = new Bash();
+      // In single quotes, backslashes are literal - no escaping
       const result = await env.exec(
         `echo 'path\\\\to\\\\file' | awk '{ print }'`,
       );
-      expect(result.stdout).toBe("path\\to\\file\n");
+      // JS \\\\  -> bash \\ (two backslashes each), single quotes preserve literally
+      expect(result.stdout).toBe("path\\\\to\\\\file\n");
       expect(result.exitCode).toBe(0);
     });
 
@@ -67,13 +68,14 @@ describe("awk edge cases", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should handle dollar sign in data", async () => {
-      // TODO: Dollar sign escaping in shell/awk interaction needs work
+    it("should handle dollar sign in data", async () => {
       const env = new Bash();
+      // In single quotes, backslash and dollar are literal - no escaping
       const result = await env.exec(
         `echo 'price: \\$100' | awk '{ print $2 }'`,
       );
-      expect(result.stdout).toBe("$100\n");
+      // JS \\$ -> bash \$ (backslash + dollar), single quotes preserve literally
+      expect(result.stdout).toBe("\\$100\n");
       expect(result.exitCode).toBe(0);
     });
 

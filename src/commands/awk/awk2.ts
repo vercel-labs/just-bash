@@ -7,7 +7,11 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import type { AwkProgram } from "./ast.js";
-import { AwkInterpreter, createRuntimeContext } from "./interpreter2.js";
+import {
+  AwkInterpreter,
+  createRuntimeContext,
+  type AwkFileSystem,
+} from "./interpreter/index.js";
 import { AwkParser } from "./parser2.js";
 
 const awkHelp = {
@@ -85,88 +89,126 @@ export const awkCommand2: Command = {
       return { stdout: "", stderr: `awk: ${msg}\n`, exitCode: 1 };
     }
 
+    // Create filesystem adapter with appendFile support
+    const awkFs: AwkFileSystem = {
+      readFile: ctx.fs.readFile.bind(ctx.fs),
+      writeFile: ctx.fs.writeFile.bind(ctx.fs),
+      appendFile: async (path: string, content: string) => {
+        // Append by reading existing content and writing back
+        try {
+          const existing = await ctx.fs.readFile(path);
+          await ctx.fs.writeFile(path, existing + content);
+        } catch {
+          // File doesn't exist, just write
+          await ctx.fs.writeFile(path, content);
+        }
+      },
+      resolvePath: ctx.fs.resolvePath.bind(ctx.fs),
+    };
+
     // Create runtime context
-    const runtimeCtx = createRuntimeContext(
+    const runtimeCtx = createRuntimeContext({
       fieldSep,
-      ctx.limits?.maxAwkIterations,
-    );
+      maxIterations: ctx.limits?.maxAwkIterations,
+      fs: awkFs,
+      cwd: ctx.cwd,
+    });
     runtimeCtx.FS = fieldSepStr;
     runtimeCtx.vars = { ...vars };
+
+    // Set up ARGC/ARGV
+    // ARGV[0] is "awk", ARGV[1..n] are the input files
+    runtimeCtx.ARGC = files.length + 1;
+    runtimeCtx.ARGV = { "0": "awk" };
+    for (let i = 0; i < files.length; i++) {
+      runtimeCtx.ARGV[String(i + 1)] = files[i];
+    }
 
     // Create interpreter
     const interp = new AwkInterpreter(runtimeCtx);
     interp.execute(ast);
 
     // Execute BEGIN blocks
-    interp.executeBegin();
-    if (runtimeCtx.shouldExit) {
+    try {
+      await interp.executeBegin();
+      if (runtimeCtx.shouldExit) {
+        return {
+          stdout: interp.getOutput(),
+          stderr: "",
+          exitCode: interp.getExitCode(),
+        };
+      }
+
+      // Collect file contents
+      interface FileData {
+        filename: string;
+        lines: string[];
+      }
+      const fileDataList: FileData[] = [];
+
+      if (files.length > 0) {
+        for (const file of files) {
+          try {
+            const filePath = ctx.fs.resolvePath(ctx.cwd, file);
+            const content = await ctx.fs.readFile(filePath);
+            const lines = content.split("\n");
+            if (lines.length > 0 && lines[lines.length - 1] === "") {
+              lines.pop();
+            }
+            fileDataList.push({ filename: file, lines });
+          } catch {
+            return {
+              stdout: "",
+              stderr: `awk: ${file}: No such file or directory\n`,
+              exitCode: 1,
+            };
+          }
+        }
+      } else {
+        const lines = ctx.stdin.split("\n");
+        if (lines.length > 0 && lines[lines.length - 1] === "") {
+          lines.pop();
+        }
+        fileDataList.push({ filename: "", lines });
+      }
+
+      // Process each file
+      for (const fileData of fileDataList) {
+        runtimeCtx.FILENAME = fileData.filename;
+        runtimeCtx.FNR = 0;
+        runtimeCtx.lines = fileData.lines;
+        runtimeCtx.lineIndex = -1;
+        runtimeCtx.shouldNextFile = false;
+
+        // Use while loop with lineIndex to support getline advancing the line
+        while (runtimeCtx.lineIndex < fileData.lines.length - 1) {
+          runtimeCtx.lineIndex++;
+          await interp.executeLine(fileData.lines[runtimeCtx.lineIndex]);
+          if (runtimeCtx.shouldExit || runtimeCtx.shouldNextFile) break;
+        }
+
+        if (runtimeCtx.shouldExit) break;
+      }
+
+      // Execute END blocks
+      if (!runtimeCtx.shouldExit) {
+        await interp.executeEnd();
+      }
+
       return {
         stdout: interp.getOutput(),
         stderr: "",
         exitCode: interp.getExitCode(),
       };
+    } catch (e) {
+      // Handle file I/O errors during execution
+      const msg = e instanceof Error ? e.message : String(e);
+      return {
+        stdout: interp.getOutput(),
+        stderr: `awk: ${msg}\n`,
+        exitCode: 2,
+      };
     }
-
-    // Collect file contents
-    interface FileData {
-      filename: string;
-      lines: string[];
-    }
-    const fileDataList: FileData[] = [];
-
-    if (files.length > 0) {
-      for (const file of files) {
-        try {
-          const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-          const content = await ctx.fs.readFile(filePath);
-          const lines = content.split("\n");
-          if (lines.length > 0 && lines[lines.length - 1] === "") {
-            lines.pop();
-          }
-          fileDataList.push({ filename: file, lines });
-        } catch {
-          return {
-            stdout: "",
-            stderr: `awk: ${file}: No such file or directory\n`,
-            exitCode: 1,
-          };
-        }
-      }
-    } else {
-      const lines = ctx.stdin.split("\n");
-      if (lines.length > 0 && lines[lines.length - 1] === "") {
-        lines.pop();
-      }
-      fileDataList.push({ filename: "", lines });
-    }
-
-    // Process each file
-    for (const fileData of fileDataList) {
-      runtimeCtx.FILENAME = fileData.filename;
-      runtimeCtx.FNR = 0;
-      runtimeCtx.lines = fileData.lines;
-      runtimeCtx.lineIndex = -1;
-
-      // Use while loop with lineIndex to support getline advancing the line
-      while (runtimeCtx.lineIndex < fileData.lines.length - 1) {
-        runtimeCtx.lineIndex++;
-        interp.executeLine(fileData.lines[runtimeCtx.lineIndex]);
-        if (runtimeCtx.shouldExit) break;
-      }
-
-      if (runtimeCtx.shouldExit) break;
-    }
-
-    // Execute END blocks
-    if (!runtimeCtx.shouldExit) {
-      interp.executeEnd();
-    }
-
-    return {
-      stdout: interp.getOutput(),
-      stderr: "",
-      exitCode: interp.getExitCode(),
-    };
   },
 };
 

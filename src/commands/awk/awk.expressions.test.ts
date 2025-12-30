@@ -415,8 +415,7 @@ describe("awk complex expressions", () => {
   });
 
   describe("regex in expressions", () => {
-    it.skip("should use regex match result in arithmetic", async () => {
-      // TODO: ~ operator result not usable in arithmetic expressions
+    it("should use regex match result in arithmetic", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "hello" | awk '{ print ($0 ~ /hello/) * 100 }'`,
@@ -434,8 +433,7 @@ describe("awk complex expressions", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it.skip("should combine regex matches with logic", async () => {
-      // TODO: ~ operator in logical expressions not working
+    it("should combine regex matches with logic", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "hello world" | awk '{ print ($0 ~ /hello/ && $0 ~ /world/) }'`,
