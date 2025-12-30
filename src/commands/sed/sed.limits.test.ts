@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 
 /**
  * SED Execution Limits Tests
@@ -17,9 +18,9 @@ describe("SED Execution Limits", () => {
       // :label followed by b label creates infinite loop
       const result = await env.exec(`echo "test" | sed ':loop; b loop'`);
 
-      // Should not hang - sed should have iteration limits
-      expect(result.stderr.length).toBeGreaterThan(0);
-      expect(result.exitCode).not.toBe(0);
+      // Must hit our internal limit with correct exit code
+      expect(result.stderr).toContain("exceeded maximum iterations");
+      expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
 
     // TODO: t command with loop needs better substitution tracking
@@ -32,8 +33,8 @@ describe("SED Execution Limits", () => {
         `echo "test" | sed ':loop; s/./&/; t loop'`,
       );
 
-      expect(result.stderr.length).toBeGreaterThan(0);
-      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("exceeded maximum iterations");
+      expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
 
     it("should protect against unconditional branch at start", async () => {

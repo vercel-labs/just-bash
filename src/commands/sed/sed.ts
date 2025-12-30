@@ -1,3 +1,4 @@
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { ExecutionLimits } from "../../limits.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -365,16 +366,27 @@ export const sedCommand: Command = {
     // Read from files or stdin
     if (files.length === 0) {
       content = ctx.stdin;
-      const result = await processContent(content, commands, silent, {
-        limits: ctx.limits,
-        fs: ctx.fs,
-        cwd: ctx.cwd,
-      });
-      return {
-        stdout: result.output,
-        stderr: "",
-        exitCode: result.exitCode ?? 0,
-      };
+      try {
+        const result = await processContent(content, commands, silent, {
+          limits: ctx.limits,
+          fs: ctx.fs,
+          cwd: ctx.cwd,
+        });
+        return {
+          stdout: result.output,
+          stderr: "",
+          exitCode: result.exitCode ?? 0,
+        };
+      } catch (e) {
+        if (e instanceof ExecutionLimitError) {
+          return {
+            stdout: "",
+            stderr: `sed: ${e.message}\n`,
+            exitCode: ExecutionLimitError.EXIT_CODE,
+          };
+        }
+        throw e;
+      }
     }
 
     // Handle in-place editing
@@ -390,7 +402,14 @@ export const sedCommand: Command = {
             cwd: ctx.cwd,
           });
           await ctx.fs.writeFile(filePath, result.output);
-        } catch {
+        } catch (e) {
+          if (e instanceof ExecutionLimitError) {
+            return {
+              stdout: "",
+              stderr: `sed: ${e.message}\n`,
+              exitCode: ExecutionLimitError.EXIT_CODE,
+            };
+          }
           return {
             stdout: "",
             stderr: `sed: ${file}: No such file or directory\n`,
@@ -406,7 +425,14 @@ export const sedCommand: Command = {
       const filePath = ctx.fs.resolvePath(ctx.cwd, file);
       try {
         content += await ctx.fs.readFile(filePath);
-      } catch {
+      } catch (e) {
+        if (e instanceof ExecutionLimitError) {
+          return {
+            stdout: "",
+            stderr: `sed: ${e.message}\n`,
+            exitCode: ExecutionLimitError.EXIT_CODE,
+          };
+        }
         return {
           stdout: "",
           stderr: `sed: ${file}: No such file or directory\n`,
@@ -415,16 +441,27 @@ export const sedCommand: Command = {
       }
     }
 
-    const result = await processContent(content, commands, silent, {
-      limits: ctx.limits,
-      filename: files.length === 1 ? files[0] : undefined,
-      fs: ctx.fs,
-      cwd: ctx.cwd,
-    });
-    return {
-      stdout: result.output,
-      stderr: "",
-      exitCode: result.exitCode ?? 0,
-    };
+    try {
+      const result = await processContent(content, commands, silent, {
+        limits: ctx.limits,
+        filename: files.length === 1 ? files[0] : undefined,
+        fs: ctx.fs,
+        cwd: ctx.cwd,
+      });
+      return {
+        stdout: result.output,
+        stderr: "",
+        exitCode: result.exitCode ?? 0,
+      };
+    } catch (e) {
+      if (e instanceof ExecutionLimitError) {
+        return {
+          stdout: "",
+          stderr: `sed: ${e.message}\n`,
+          exitCode: ExecutionLimitError.EXIT_CODE,
+        };
+      }
+      throw e;
+    }
   },
 };
