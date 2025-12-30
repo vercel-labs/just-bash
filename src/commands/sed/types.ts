@@ -30,6 +30,7 @@ export type SedCommandType =
   | "next"
   | "nextAppend"
   | "quit"
+  | "quitSilent" // Q - quit without printing
   | "transliterate"
   | "lineNumber"
   | "branch"
@@ -37,7 +38,15 @@ export type SedCommandType =
   | "branchOnNoSubst" // T - branch if no substitution made
   | "label"
   | "zap" // z - zap/empty pattern space
-  | "group"; // { } - grouped commands
+  | "group" // { } - grouped commands
+  | "list" // l - list pattern space with escapes
+  | "printFilename" // F - print filename
+  | "version" // v - version check
+  | "readFile" // r - read file
+  | "readFileLine" // R - read line from file
+  | "writeFile" // w - write to file
+  | "writeFirstLine" // W - write first line to file
+  | "execute"; // e - execute command
 
 export interface SubstituteCommand {
   type: "substitute";
@@ -113,6 +122,13 @@ export interface NextCommand {
 export interface QuitCommand {
   type: "quit"; // q - quit
   address?: AddressRange;
+  exitCode?: number;
+}
+
+export interface QuitSilentCommand {
+  type: "quitSilent"; // Q - quit without printing
+  address?: AddressRange;
+  exitCode?: number;
 }
 
 export interface NextAppendCommand {
@@ -176,6 +192,52 @@ export interface GroupCommand {
   commands: SedCommand[];
 }
 
+export interface ListCommand {
+  type: "list"; // l - list pattern space with escapes
+  address?: AddressRange;
+}
+
+export interface PrintFilenameCommand {
+  type: "printFilename"; // F - print current filename
+  address?: AddressRange;
+}
+
+export interface VersionCommand {
+  type: "version"; // v - check version
+  address?: AddressRange;
+  minVersion?: string;
+}
+
+export interface ReadFileCommand {
+  type: "readFile"; // r - read file contents and append
+  address?: AddressRange;
+  filename: string;
+}
+
+export interface ReadFileLineCommand {
+  type: "readFileLine"; // R - read single line from file
+  address?: AddressRange;
+  filename: string;
+}
+
+export interface WriteFileCommand {
+  type: "writeFile"; // w - write pattern space to file
+  address?: AddressRange;
+  filename: string;
+}
+
+export interface WriteFirstLineCommand {
+  type: "writeFirstLine"; // W - write first line to file
+  address?: AddressRange;
+  filename: string;
+}
+
+export interface ExecuteCommand {
+  type: "execute"; // e - execute shell command
+  address?: AddressRange;
+  command?: string; // if undefined, execute pattern space
+}
+
 export type SedCommand =
   | SubstituteCommand
   | PrintCommand
@@ -192,6 +254,7 @@ export type SedCommand =
   | ExchangeCommand
   | NextCommand
   | QuitCommand
+  | QuitSilentCommand
   | NextAppendCommand
   | TransliterateCommand
   | LineNumberCommand
@@ -200,7 +263,15 @@ export type SedCommand =
   | BranchOnNoSubstCommand
   | LabelCommand
   | ZapCommand
-  | GroupCommand;
+  | GroupCommand
+  | ListCommand
+  | PrintFilenameCommand
+  | VersionCommand
+  | ReadFileCommand
+  | ReadFileLineCommand
+  | WriteFileCommand
+  | WriteFirstLineCommand
+  | ExecuteCommand;
 
 export interface SedState {
   patternSpace: string;
@@ -210,10 +281,26 @@ export interface SedState {
   deleted: boolean;
   printed: boolean;
   quit: boolean;
+  quitSilent: boolean; // For Q command: quit without printing
+  exitCode?: number; // Exit code from q/Q command
   appendBuffer: string[]; // Lines to append after current line
   substitutionMade: boolean; // Track if substitution was made (for 't' command)
   lineNumberOutput: string[]; // Output from '=' command
   restartCycle: boolean; // For D command: restart cycle without reading new line
+  currentFilename?: string; // For F command
+  // For file I/O commands (deferred execution)
+  pendingFileReads: Array<{ filename: string; wholeFile: boolean }>;
+  pendingFileWrites: Array<{ filename: string; content: string }>;
+  // For e command (deferred execution)
+  pendingExecute?: { command: string; replacePattern: boolean };
+  // Range state tracking for pattern ranges like /start/,/end/
+  rangeStates: Map<string, RangeState>;
+}
+
+// Range state tracking for pattern ranges like /start/,/end/
+export interface RangeState {
+  active: boolean;
+  startLine?: number;
 }
 
 export interface SedExecutionLimits {

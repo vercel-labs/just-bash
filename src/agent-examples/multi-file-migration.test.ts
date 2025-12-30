@@ -197,8 +197,9 @@ const winston = require('winston');
     const env = createEnv();
 
     // Convert a simple require to import (escape parens for regex)
+    // Use -E for ERE mode where \( and \) are literal parentheses
     await env.exec(
-      "sed \"s/const express = require\\('express'\\);/import express from 'express';/g\" /project/src/index.js > /project/src/index.js.new",
+      "sed -E \"s/const express = require\\('express'\\);/import express from 'express';/g\" /project/src/index.js > /project/src/index.js.new",
     );
     await env.exec("mv /project/src/index.js.new /project/src/index.js");
 

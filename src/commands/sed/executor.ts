@@ -18,7 +18,11 @@ import type {
 
 const DEFAULT_MAX_ITERATIONS = 10000;
 
-export function createInitialState(totalLines: number): SedState {
+export function createInitialState(
+  totalLines: number,
+  filename?: string,
+  rangeStates?: Map<string, import("./types.js").RangeState>,
+): SedState {
   return {
     patternSpace: "",
     holdSpace: "",
@@ -27,10 +31,17 @@ export function createInitialState(totalLines: number): SedState {
     deleted: false,
     printed: false,
     quit: false,
+    quitSilent: false,
+    exitCode: undefined,
     appendBuffer: [],
     substitutionMade: false,
     lineNumberOutput: [],
     restartCycle: false,
+    currentFilename: filename,
+    pendingFileReads: [],
+    pendingFileWrites: [],
+    pendingExecute: undefined,
+    rangeStates: rangeStates || new Map(),
   };
 }
 
@@ -67,11 +78,27 @@ function matchesAddress(
   return false;
 }
 
+/**
+ * Serialize an address range to a string for use as a map key.
+ */
+function serializeRange(range: AddressRange): string {
+  const serializeAddr = (addr: SedAddress | undefined): string => {
+    if (addr === undefined) return "undefined";
+    if (addr === "$") return "$";
+    if (typeof addr === "number") return String(addr);
+    if ("pattern" in addr) return `/${addr.pattern}/`;
+    if ("first" in addr) return `${addr.first}~${addr.step}`;
+    return "unknown";
+  };
+  return `${serializeAddr(range.start)},${serializeAddr(range.end)}`;
+}
+
 function isInRange(
   range: AddressRange | undefined,
   lineNum: number,
   totalLines: number,
   line: string,
+  rangeStates?: Map<string, import("./types.js").RangeState>,
 ): boolean {
   if (!range || (!range.start && !range.end)) {
     return true; // No address means match all lines
@@ -86,24 +113,156 @@ function isInRange(
   }
 
   if (start !== undefined && end !== undefined) {
-    // Address range
-    const startNum =
-      typeof start === "number" ? start : start === "$" ? totalLines : 1;
-    const endNum =
-      typeof end === "number" ? end : end === "$" ? totalLines : totalLines;
+    // Address range - needs state tracking for pattern addresses
+    const hasPatternStart = typeof start === "object" && "pattern" in start;
+    const hasPatternEnd = typeof end === "object" && "pattern" in end;
 
-    // Pattern addresses in ranges need special handling
-    if (typeof start === "object" && "pattern" in start) {
-      // For pattern ranges, check if we're in the range
-      // This is a simplified implementation - real sed tracks range state
-      const startMatches = matchesAddress(start, lineNum, totalLines, line);
-      if (startMatches) return true;
+    // If both are numeric, simple range check
+    if (!hasPatternStart && !hasPatternEnd) {
+      const startNum =
+        typeof start === "number" ? start : start === "$" ? totalLines : 1;
+      const endNum =
+        typeof end === "number" ? end : end === "$" ? totalLines : totalLines;
+      return lineNum >= startNum && lineNum <= endNum;
     }
 
-    return lineNum >= startNum && lineNum <= endNum;
+    // For pattern ranges, use state tracking
+    if (rangeStates) {
+      const rangeKey = serializeRange(range);
+      let rangeState = rangeStates.get(rangeKey);
+
+      if (!rangeState) {
+        rangeState = { active: false };
+        rangeStates.set(rangeKey, rangeState);
+      }
+
+      if (!rangeState.active) {
+        // Not in range yet - check if start matches
+        if (matchesAddress(start, lineNum, totalLines, line)) {
+          rangeState.active = true;
+          rangeState.startLine = lineNum;
+          rangeStates.set(rangeKey, rangeState);
+
+          // Check if end also matches on the same line
+          if (matchesAddress(end, lineNum, totalLines, line)) {
+            rangeState.active = false;
+            rangeStates.set(rangeKey, rangeState);
+          }
+          return true;
+        }
+        return false;
+      } else {
+        // Already in range - check if end matches
+        if (matchesAddress(end, lineNum, totalLines, line)) {
+          rangeState.active = false;
+          rangeStates.set(rangeKey, rangeState);
+        }
+        return true;
+      }
+    }
+
+    // Fallback for no range state tracking (shouldn't happen)
+    const startMatches = matchesAddress(start, lineNum, totalLines, line);
+    return startMatches;
   }
 
   return true;
+}
+
+/**
+ * Convert Basic Regular Expression (BRE) to Extended Regular Expression (ERE).
+ * In BRE: +, ?, |, (, ) are literal; \+, \?, \|, \(, \) are special
+ * In ERE: +, ?, |, (, ) are special; \+, \?, \|, \(, \) are literal
+ */
+function breToEre(pattern: string): string {
+  // This conversion handles the main differences between BRE and ERE:
+  // 1. Unescape BRE special chars (\+, \?, \|, \(, \)) to make them special in ERE
+  // 2. Escape ERE special chars (+, ?, |, (, )) that are literal in BRE
+
+  let result = "";
+  let i = 0;
+
+  while (i < pattern.length) {
+    if (pattern[i] === "\\") {
+      if (i + 1 < pattern.length) {
+        const next = pattern[i + 1];
+        // BRE escaped chars that become special in ERE
+        if (next === "+" || next === "?" || next === "|") {
+          result += next; // Remove backslash to make it special
+          i += 2;
+          continue;
+        }
+        if (next === "(" || next === ")") {
+          result += next; // Remove backslash for grouping
+          i += 2;
+          continue;
+        }
+        if (next === "{" || next === "}") {
+          result += next; // Remove backslash for quantifiers
+          i += 2;
+          continue;
+        }
+        // Keep other escaped chars as-is
+        result += pattern[i] + next;
+        i += 2;
+        continue;
+      }
+    }
+
+    // ERE special chars that should be literal in BRE (without backslash)
+    if (
+      pattern[i] === "+" ||
+      pattern[i] === "?" ||
+      pattern[i] === "|" ||
+      pattern[i] === "(" ||
+      pattern[i] === ")"
+    ) {
+      result += `\\${pattern[i]}`; // Add backslash to make it literal
+      i++;
+      continue;
+    }
+
+    result += pattern[i];
+    i++;
+  }
+
+  return result;
+}
+
+/**
+ * Escape pattern space for the `l` (list) command.
+ * Shows non-printable characters as escape sequences and ends with $.
+ */
+function escapeForList(input: string): string {
+  let result = "";
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    const code = ch.charCodeAt(0);
+
+    if (ch === "\\") {
+      result += "\\\\";
+    } else if (ch === "\t") {
+      result += "\\t";
+    } else if (ch === "\n") {
+      result += "$\n";
+    } else if (ch === "\r") {
+      result += "\\r";
+    } else if (ch === "\x07") {
+      result += "\\a";
+    } else if (ch === "\b") {
+      result += "\\b";
+    } else if (ch === "\f") {
+      result += "\\f";
+    } else if (ch === "\v") {
+      result += "\\v";
+    } else if (code < 32 || code >= 127) {
+      // Non-printable: show as octal
+      result += `\\${code.toString(8).padStart(3, "0")}`;
+    } else {
+      result += ch;
+    }
+  }
+  return `${result}$`;
 }
 
 function processReplacement(
@@ -169,7 +328,15 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
   }
 
   // Check if command applies to current line
-  if (!isInRange(cmd.address, lineNumber, totalLines, patternSpace)) {
+  if (
+    !isInRange(
+      cmd.address,
+      lineNumber,
+      totalLines,
+      patternSpace,
+      state.rangeStates,
+    )
+  ) {
     return;
   }
 
@@ -180,46 +347,56 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
       if (subCmd.global) flags += "g";
       if (subCmd.ignoreCase) flags += "i";
 
-      // Note: JavaScript RegExp always uses ERE (Extended Regular Expressions) syntax,
-      // so -E/-r flag doesn't change behavior. BRE patterns may not work as expected.
-      // This matches the most common use case since agents typically use -E anyway.
-      try {
-        const regex = new RegExp(subCmd.pattern, flags);
-        const original = state.patternSpace;
+      // Convert BRE to ERE if not using extended regex mode
+      // BRE: +, ?, |, (, ) are literal; \+, \?, \|, \(, \) are special
+      // ERE (JavaScript): +, ?, |, (, ) are special
+      const pattern = subCmd.extendedRegex
+        ? subCmd.pattern
+        : breToEre(subCmd.pattern);
 
-        // Handle Nth occurrence
-        if (
-          subCmd.nthOccurrence &&
-          subCmd.nthOccurrence > 0 &&
-          !subCmd.global
-        ) {
-          let count = 0;
-          const nth = subCmd.nthOccurrence;
-          state.patternSpace = state.patternSpace.replace(
-            new RegExp(subCmd.pattern, `g${subCmd.ignoreCase ? "i" : ""}`),
-            (match, ...args) => {
-              count++;
-              if (count === nth) {
+      try {
+        const regex = new RegExp(pattern, flags);
+
+        // Check if pattern matches FIRST - for t/T command tracking
+        // t should branch if substitution matched, even if replacement is same as original
+        const hasMatch = regex.test(state.patternSpace);
+        // Reset lastIndex after test() for global regex
+        regex.lastIndex = 0;
+
+        if (hasMatch) {
+          // Mark substitution as successful BEFORE replacement (for t/T commands)
+          state.substitutionMade = true;
+
+          // Handle Nth occurrence
+          if (
+            subCmd.nthOccurrence &&
+            subCmd.nthOccurrence > 0 &&
+            !subCmd.global
+          ) {
+            let count = 0;
+            const nth = subCmd.nthOccurrence;
+            state.patternSpace = state.patternSpace.replace(
+              new RegExp(pattern, `g${subCmd.ignoreCase ? "i" : ""}`),
+              (match, ...args) => {
+                count++;
+                if (count === nth) {
+                  const groups = args.slice(0, -2) as string[];
+                  return processReplacement(subCmd.replacement, match, groups);
+                }
+                return match;
+              },
+            );
+          } else {
+            state.patternSpace = state.patternSpace.replace(
+              regex,
+              (match, ...args) => {
+                // Extract captured groups (all args before the last two which are offset and string)
                 const groups = args.slice(0, -2) as string[];
                 return processReplacement(subCmd.replacement, match, groups);
-              }
-              return match;
-            },
-          );
-        } else {
-          state.patternSpace = state.patternSpace.replace(
-            regex,
-            (match, ...args) => {
-              // Extract captured groups (all args before the last two which are offset and string)
-              const groups = args.slice(0, -2) as string[];
-              return processReplacement(subCmd.replacement, match, groups);
-            },
-          );
-        }
+              },
+            );
+          }
 
-        const hadMatch = original !== state.patternSpace;
-        if (hadMatch) {
-          state.substitutionMade = true;
           if (subCmd.printOnMatch) {
             state.printed = true;
           }
@@ -324,6 +501,82 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
 
     case "quit":
       state.quit = true;
+      if (cmd.exitCode !== undefined) {
+        state.exitCode = cmd.exitCode;
+      }
+      break;
+
+    case "quitSilent":
+      // Q - quit without printing pattern space
+      state.quit = true;
+      state.quitSilent = true;
+      if (cmd.exitCode !== undefined) {
+        state.exitCode = cmd.exitCode;
+      }
+      break;
+
+    case "list": {
+      // l - list pattern space with escapes
+      const escaped = escapeForList(state.patternSpace);
+      state.lineNumberOutput.push(escaped);
+      break;
+    }
+
+    case "printFilename":
+      // F - print current filename
+      if (state.currentFilename) {
+        state.lineNumberOutput.push(state.currentFilename);
+      }
+      break;
+
+    case "version":
+      // v - version check (we always pass, just a no-op for compatibility)
+      break;
+
+    case "readFile":
+      // r - queue file read (deferred execution)
+      state.pendingFileReads.push({ filename: cmd.filename, wholeFile: true });
+      break;
+
+    case "readFileLine":
+      // R - queue single line file read (deferred execution)
+      state.pendingFileReads.push({ filename: cmd.filename, wholeFile: false });
+      break;
+
+    case "writeFile":
+      // w - queue file write (deferred execution)
+      state.pendingFileWrites.push({
+        filename: cmd.filename,
+        content: `${state.patternSpace}\n`,
+      });
+      break;
+
+    case "writeFirstLine": {
+      // W - queue first line file write (deferred execution)
+      const newlineIdx = state.patternSpace.indexOf("\n");
+      const firstLine =
+        newlineIdx !== -1
+          ? state.patternSpace.slice(0, newlineIdx)
+          : state.patternSpace;
+      state.pendingFileWrites.push({
+        filename: cmd.filename,
+        content: `${firstLine}\n`,
+      });
+      break;
+    }
+
+    case "execute":
+      // e - queue shell execution (deferred execution)
+      if (cmd.command) {
+        // e command - execute specified command, append output
+        state.pendingExecute = { command: cmd.command, replacePattern: false };
+      } else {
+        // e (no args) - execute pattern space, replace with output
+        state.pendingExecute = {
+          command: state.patternSpace,
+          replacePattern: true,
+        };
+      }
       break;
 
     case "transliterate":
@@ -407,7 +660,8 @@ export function executeCommands(
       );
     }
 
-    if (state.deleted || state.quit || state.restartCycle) break;
+    if (state.deleted || state.quit || state.quitSilent || state.restartCycle)
+      break;
 
     const cmd = commands[i];
 
@@ -419,6 +673,7 @@ export function executeCommands(
           state.lineNumber,
           state.totalLines,
           state.patternSpace,
+          state.rangeStates,
         )
       ) {
         if (
@@ -451,6 +706,7 @@ export function executeCommands(
           state.lineNumber,
           state.totalLines,
           state.patternSpace,
+          state.rangeStates,
         )
       ) {
         if (branchCmd.label) {
@@ -476,6 +732,7 @@ export function executeCommands(
           state.lineNumber,
           state.totalLines,
           state.patternSpace,
+          state.rangeStates,
         )
       ) {
         if (state.substitutionMade) {
@@ -505,6 +762,7 @@ export function executeCommands(
           state.lineNumber,
           state.totalLines,
           state.patternSpace,
+          state.rangeStates,
         )
       ) {
         if (!state.substitutionMade) {
@@ -532,6 +790,7 @@ export function executeCommands(
           state.lineNumber,
           state.totalLines,
           state.patternSpace,
+          state.rangeStates,
         )
       ) {
         // Execute all commands in the group
