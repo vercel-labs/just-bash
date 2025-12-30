@@ -197,7 +197,10 @@ export async function writeAllFixtures(): Promise<void> {
       sortedFixtures[key] = mergedFixtures[key];
     }
 
-    await fs.writeFile(fixturesPath, JSON.stringify(sortedFixtures, null, 2));
+    await fs.writeFile(
+      fixturesPath,
+      `${JSON.stringify(sortedFixtures, null, 2)}\n`,
+    );
     console.log(`Wrote fixtures to ${fixturesPath}`);
   }
 
