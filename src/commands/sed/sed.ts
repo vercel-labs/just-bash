@@ -7,7 +7,12 @@ import {
   executeCommands,
 } from "./executor.js";
 import { parseMultipleScripts } from "./parser.js";
-import type { SedCommand, SedExecutionLimits, SedState } from "./types.js";
+import type {
+  RangeState,
+  SedCommand,
+  SedExecutionLimits,
+  SedState,
+} from "./types.js";
 
 const sedHelp = {
   name: "sed",
@@ -37,24 +42,37 @@ const sedHelp = {
   N                             append next line to pattern space
   y/source/dest/                transliterate characters
   =                             print line number
+  l                             list pattern space (escape special chars)
   b [label]                     branch to label
   t [label]                     branch on substitution
+  T [label]                     branch if no substitution
   :label                        define label
   q                             quit
+  Q                             quit without printing
 
 Addresses:
   N                             line number
   $                             last line
   /regexp/                      lines matching regexp
-  N,M                           range from line N to M`,
+  N,M                           range from line N to M
+  first~step                    every step-th line starting at first`,
 };
 
-function processContent(
+interface ProcessContentOptions {
+  limits?: Required<ExecutionLimits>;
+  filename?: string;
+  fs?: CommandContext["fs"];
+  cwd?: string;
+}
+
+async function processContent(
   content: string,
   commands: SedCommand[],
   silent: boolean,
-  limits?: Required<ExecutionLimits>,
-): string {
+  options: ProcessContentOptions = {},
+): Promise<{ output: string; exitCode?: number }> {
+  const { limits, filename, fs, cwd } = options;
+
   const lines = content.split("\n");
   if (lines.length > 0 && lines[lines.length - 1] === "") {
     lines.pop();
@@ -62,10 +80,16 @@ function processContent(
 
   const totalLines = lines.length;
   let output = "";
+  let exitCode: number | undefined;
 
-  // Persistent hold space across all lines
+  // Persistent state across all lines
   let holdSpace = "";
-  let _substitutionMade = false;
+  const rangeStates = new Map<string, RangeState>();
+
+  // For file I/O: track line positions for R command, accumulate writes
+  const fileLineCache = new Map<string, string[]>();
+  const fileLinePositions = new Map<string, number>();
+  const fileWrites = new Map<string, string>();
 
   // Convert to SedExecutionLimits format
   const sedLimits: SedExecutionLimits | undefined = limits
@@ -74,7 +98,7 @@ function processContent(
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const state: SedState = {
-      ...createInitialState(totalLines),
+      ...createInitialState(totalLines, filename, rangeStates),
       patternSpace: lines[lineIndex],
       holdSpace: holdSpace,
       lineNumber: lineIndex + 1,
@@ -100,21 +124,64 @@ function processContent(
       }
 
       state.restartCycle = false;
+      state.pendingFileReads = [];
+      state.pendingFileWrites = [];
+
       const linesConsumed = executeCommands(commands, state, ctx, sedLimits);
       totalLinesConsumed += linesConsumed;
 
+      // Process pending file reads
+      if (fs && cwd) {
+        for (const read of state.pendingFileReads) {
+          const filePath = fs.resolvePath(cwd, read.filename);
+          try {
+            if (read.wholeFile) {
+              // r command - read entire file, append after current line
+              const fileContent = await fs.readFile(filePath);
+              state.appendBuffer.push(fileContent.replace(/\n$/, ""));
+            } else {
+              // R command - read one line from file
+              if (!fileLineCache.has(filePath)) {
+                const fileContent = await fs.readFile(filePath);
+                fileLineCache.set(filePath, fileContent.split("\n"));
+                fileLinePositions.set(filePath, 0);
+              }
+              const fileLines = fileLineCache.get(filePath);
+              const pos = fileLinePositions.get(filePath);
+              if (fileLines && pos !== undefined && pos < fileLines.length) {
+                state.appendBuffer.push(fileLines[pos]);
+                fileLinePositions.set(filePath, pos + 1);
+              }
+            }
+          } catch {
+            // File not found - silently ignore (matches GNU sed behavior)
+          }
+        }
+
+        // Accumulate file writes
+        for (const write of state.pendingFileWrites) {
+          const filePath = fs.resolvePath(cwd, write.filename);
+          const existing = fileWrites.get(filePath) || "";
+          fileWrites.set(filePath, existing + write.content);
+        }
+      }
+
       // Update context for next iteration (so N command reads from correct position)
       ctx.currentLineIndex += linesConsumed;
-    } while (state.restartCycle && !state.deleted && !state.quit);
+    } while (
+      state.restartCycle &&
+      !state.deleted &&
+      !state.quit &&
+      !state.quitSilent
+    );
 
     // Update main line index with total lines consumed
     lineIndex += totalLinesConsumed;
 
     // Preserve state for next line
     holdSpace = state.holdSpace;
-    _substitutionMade = state.substitutionMade;
 
-    // Output line numbers from = command
+    // Output line numbers from = command (and l, F commands)
     for (const ln of state.lineNumberOutput) {
       output += `${ln}\n`;
     }
@@ -135,8 +202,8 @@ function processContent(
       output += `${text}\n`;
     }
 
-    // Handle output
-    if (!state.deleted) {
+    // Handle output - Q (quitSilent) suppresses the final print
+    if (!state.deleted && !state.quitSilent) {
       if (silent) {
         if (state.printed) {
           output += `${state.patternSpace}\n`;
@@ -151,13 +218,27 @@ function processContent(
       output += `${text}\n`;
     }
 
-    // Check for quit command
-    if (state.quit) {
+    // Check for quit commands
+    if (state.quit || state.quitSilent) {
+      if (state.exitCode !== undefined) {
+        exitCode = state.exitCode;
+      }
       break;
     }
   }
 
-  return output;
+  // Flush all accumulated file writes at end
+  if (fs && cwd) {
+    for (const [filePath, fileContent] of fileWrites) {
+      try {
+        await fs.writeFile(filePath, fileContent);
+      } catch {
+        // Write error - silently ignore for now
+      }
+    }
+  }
+
+  return { output, exitCode };
 }
 
 export const sedCommand: Command = {
@@ -171,7 +252,7 @@ export const sedCommand: Command = {
     const scriptFiles: string[] = [];
     let silent = false;
     let inPlace = false;
-    let _extendedRegex = false;
+    let extendedRegex = false;
     const files: string[] = [];
 
     // Parse arguments
@@ -184,7 +265,7 @@ export const sedCommand: Command = {
       } else if (arg.startsWith("-i")) {
         inPlace = true;
       } else if (arg === "-E" || arg === "-r" || arg === "--regexp-extended") {
-        _extendedRegex = true;
+        extendedRegex = true;
       } else if (arg === "-e") {
         if (i + 1 < args.length) {
           scripts.push(args[++i]);
@@ -210,7 +291,7 @@ export const sedCommand: Command = {
         }
         if (arg.includes("n")) silent = true;
         if (arg.includes("i")) inPlace = true;
-        if (arg.includes("E") || arg.includes("r")) _extendedRegex = true;
+        if (arg.includes("E") || arg.includes("r")) extendedRegex = true;
         if (arg.includes("e") && !arg.includes("n") && !arg.includes("i")) {
           if (i + 1 < args.length) {
             scripts.push(args[++i]);
@@ -262,7 +343,7 @@ export const sedCommand: Command = {
     }
 
     // Parse all scripts
-    const { commands, error } = parseMultipleScripts(scripts, _extendedRegex);
+    const { commands, error } = parseMultipleScripts(scripts, extendedRegex);
     if (error) {
       return {
         stdout: "",
@@ -284,8 +365,16 @@ export const sedCommand: Command = {
     // Read from files or stdin
     if (files.length === 0) {
       content = ctx.stdin;
-      const output = processContent(content, commands, silent, ctx.limits);
-      return { stdout: output, stderr: "", exitCode: 0 };
+      const result = await processContent(content, commands, silent, {
+        limits: ctx.limits,
+        fs: ctx.fs,
+        cwd: ctx.cwd,
+      });
+      return {
+        stdout: result.output,
+        stderr: "",
+        exitCode: result.exitCode ?? 0,
+      };
     }
 
     // Handle in-place editing
@@ -294,13 +383,13 @@ export const sedCommand: Command = {
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
         try {
           const fileContent = await ctx.fs.readFile(filePath);
-          const output = processContent(
-            fileContent,
-            commands,
-            silent,
-            ctx.limits,
-          );
-          await ctx.fs.writeFile(filePath, output);
+          const result = await processContent(fileContent, commands, silent, {
+            limits: ctx.limits,
+            filename: file,
+            fs: ctx.fs,
+            cwd: ctx.cwd,
+          });
+          await ctx.fs.writeFile(filePath, result.output);
         } catch {
           return {
             stdout: "",
@@ -326,7 +415,16 @@ export const sedCommand: Command = {
       }
     }
 
-    const output = processContent(content, commands, silent, ctx.limits);
-    return { stdout: output, stderr: "", exitCode: 0 };
+    const result = await processContent(content, commands, silent, {
+      limits: ctx.limits,
+      filename: files.length === 1 ? files[0] : undefined,
+      fs: ctx.fs,
+      cwd: ctx.cwd,
+    });
+    return {
+      stdout: result.output,
+      stderr: "",
+      exitCode: result.exitCode ?? 0,
+    };
   },
 };

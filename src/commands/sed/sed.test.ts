@@ -507,8 +507,9 @@ describe("sed command", () => {
         files: { "/test.txt": "const x = require('foo');\n" },
         cwd: "/",
       });
+      // Use -E for ERE mode where \( and \) are literal parentheses
       const result = await env.exec(
-        "sed \"s/const x = require\\('foo'\\);/import x from 'foo';/g\" /test.txt",
+        "sed -E \"s/const x = require\\('foo'\\);/import x from 'foo';/g\" /test.txt",
       );
       expect(result.stdout).toBe("import x from 'foo';\n");
       expect(result.exitCode).toBe(0);
@@ -745,15 +746,188 @@ describe("sed command", () => {
       expect(result.stdout).toBe("a X X Xa\n");
     });
 
-    it("should work without -E flag (JS RegExp is ERE-like)", async () => {
+    it("should treat + as literal without -E flag (BRE mode)", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "aaa bbb\na+ ccc\n" },
+        cwd: "/",
+      });
+      // In BRE mode (without -E), + is a literal character
+      const result = await env.exec("sed 's/a+/X/' /test.txt");
+      // Only matches literal "a+", not one or more a's
+      expect(result.stdout).toBe("aaa bbb\nX ccc\n");
+    });
+
+    it("should treat \\+ as quantifier in BRE mode", async () => {
       const env = new Bash({
         files: { "/test.txt": "aaa bbb\n" },
         cwd: "/",
       });
-      // Note: Our implementation uses JS RegExp which is ERE-like,
-      // so ERE patterns work even without -E (unlike real sed)
-      const result = await env.exec("sed 's/a+/X/' /test.txt");
+      // In BRE mode, \+ is one-or-more quantifier
+      const result = await env.exec("sed 's/a\\+/X/' /test.txt");
       expect(result.stdout).toBe("X bbb\n");
+    });
+
+    it("should handle \\? as optional in BRE mode", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "ab\nb\n" },
+        cwd: "/",
+      });
+      // In BRE mode, \? is optional quantifier (0 or 1)
+      // a?b matches "ab" (1 a) or "b" (0 a's)
+      const result = await env.exec("sed 's/a\\?b/X/' /test.txt");
+      expect(result.stdout).toBe("X\nX\n");
+    });
+
+    it("should handle \\| as alternation in BRE mode", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "cat\ndog\nbird\n" },
+        cwd: "/",
+      });
+      // In BRE mode, \| is alternation
+      const result = await env.exec("sed 's/cat\\|dog/X/' /test.txt");
+      expect(result.stdout).toBe("X\nX\nbird\n");
+    });
+  });
+
+  describe("Q command (quit without printing)", () => {
+    it("should quit without printing current line", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "line1\nline2\nline3\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed '2Q' /test.txt");
+      expect(result.stdout).toBe("line1\n");
+    });
+
+    it("should differ from q which prints before quitting", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "line1\nline2\nline3\n" },
+        cwd: "/",
+      });
+      // q prints the line, then quits
+      const resultQ = await env.exec("sed '2q' /test.txt");
+      expect(resultQ.stdout).toBe("line1\nline2\n");
+      // Q quits without printing
+      const resultQSilent = await env.exec("sed '2Q' /test.txt");
+      expect(resultQSilent.stdout).toBe("line1\n");
+    });
+  });
+
+  describe("l command (list with escapes)", () => {
+    it("should escape special characters", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "hello\tworld\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed -n 'l' /test.txt");
+      expect(result.stdout).toBe("hello\\tworld$\n");
+    });
+
+    it("should escape backslash", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a\\b\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed -n 'l' /test.txt");
+      expect(result.stdout).toBe("a\\\\b$\n");
+    });
+
+    it("should mark end of line with $", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "test\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed -n 'l' /test.txt");
+      expect(result.stdout).toBe("test$\n");
+    });
+  });
+
+  describe("z command (zap pattern space)", () => {
+    it("should empty the pattern space", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "hello\nworld\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed 'z' /test.txt");
+      expect(result.stdout).toBe("\n\n");
+    });
+
+    it("should work with address", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "line1\nline2\nline3\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed '2z' /test.txt");
+      expect(result.stdout).toBe("line1\n\nline3\n");
+    });
+  });
+
+  describe("pattern range state tracking", () => {
+    it("should track range state across lines", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a\nSTART\nb\nc\nEND\nd\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed '/START/,/END/d' /test.txt");
+      expect(result.stdout).toBe("a\nd\n");
+    });
+
+    it("should handle multiple ranges in same file", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a\nSTART\nb\nEND\nc\nSTART\nd\nEND\ne\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed '/START/,/END/d' /test.txt");
+      expect(result.stdout).toBe("a\nc\ne\n");
+    });
+
+    it("should handle unclosed range at EOF", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a\nSTART\nb\nc\n" },
+        cwd: "/",
+      });
+      // Range starts at START, never finds END, so deletes to EOF
+      const result = await env.exec("sed '/START/,/END/d' /test.txt");
+      expect(result.stdout).toBe("a\n");
+    });
+  });
+
+  describe("substitution tracking for t/T commands", () => {
+    it("should track substitution even when pattern matches same text", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a\nb\n" },
+        cwd: "/",
+      });
+      // s/./&/ replaces char with itself, but substitution still happened
+      const result = await env.exec(
+        "sed 's/./&/;t skip;s/$/X/;:skip' /test.txt",
+      );
+      // substitution happened, so branch skips adding X
+      expect(result.stdout).toBe("a\nb\n");
+    });
+
+    it("should branch with T when no substitution made", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a\nb\n" },
+        cwd: "/",
+      });
+      // s/x/y/ doesn't match, so T branches
+      const result = await env.exec(
+        "sed 's/x/y/;T add;b end;:add;s/$/X/;:end' /test.txt",
+      );
+      expect(result.stdout).toBe("aX\nbX\n");
+    });
+
+    it("should not branch with T when substitution made", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "ax\nbx\n" },
+        cwd: "/",
+      });
+      // s/x/y/ matches, so T doesn't branch
+      const result = await env.exec(
+        "sed 's/x/y/;T add;b end;:add;s/$/X/;:end' /test.txt",
+      );
+      expect(result.stdout).toBe("ay\nby\n");
     });
   });
 });
