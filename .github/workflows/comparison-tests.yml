@@ -25,3 +25,9 @@ jobs:
 
       - name: Run comparison tests
         run: pnpm test:comparison
+
+      - name: Run comparison tests in record mode
+        run: pnpm test:comparison:record
+
+      - name: Run comparison tests after record mode
+        run: pnpm test:comparison
