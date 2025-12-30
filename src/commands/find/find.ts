@@ -1,6 +1,6 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
-import { collectNewerRefs, evaluateExpression } from "./matcher.js";
+import { collectNewerRefs, evaluateExpressionWithPrune } from "./matcher.js";
 import { parseExpressions } from "./parser.js";
 import type { EvalContext } from "./types.js";
 
@@ -13,6 +13,8 @@ const findHelp = {
     "-iname PATTERN   like -name but case insensitive",
     "-path PATTERN    file path matches shell pattern PATTERN",
     "-ipath PATTERN   like -path but case insensitive",
+    "-regex PATTERN   file path matches regular expression PATTERN",
+    "-iregex PATTERN  like -regex but case insensitive",
     "-type TYPE       file is of type: f (regular file), d (directory)",
     "-empty           file is empty or directory is empty",
     "-mtime N         file's data was modified N*24 hours ago",
@@ -23,6 +25,7 @@ const findHelp = {
     "-perm /MODE      any permission bits MODE are set",
     "-maxdepth LEVELS descend at most LEVELS directories",
     "-mindepth LEVELS do not apply tests at levels less than LEVELS",
+    "-prune           do not descend into this directory",
     "-not, !          negate the following expression",
     "-a, -and         logical AND (default)",
     "-o, -or          logical OR",
@@ -41,6 +44,8 @@ const PREDICATES_WITH_ARGS_SET = new Set([
   "-iname",
   "-path",
   "-ipath",
+  "-regex",
+  "-iregex",
   "-type",
   "-maxdepth",
   "-mindepth",
@@ -99,8 +104,11 @@ export const findCommand: Command = {
       return { stdout: "", stderr: error, exitCode: 1 };
     }
 
-    // Determine if we should print results (default) or just execute commands
-    const shouldPrint = actions.length === 0;
+    // Check if there's an explicit -print in the expression
+    const hasExplicitPrint = actions.some((a) => a.type === "print");
+
+    // Determine if we should use default printing (when no actions at all)
+    const useDefaultPrint = actions.length === 0;
 
     const basePath = ctx.fs.resolvePath(ctx.cwd, searchPath);
 
@@ -180,7 +188,9 @@ export const findCommand: Command = {
       // Only apply tests if we're at or beyond mindepth
       const atOrBeyondMinDepth = minDepth === null || depth >= minDepth;
       let matches = atOrBeyondMinDepth;
+      let shouldPrune = false;
 
+      let shouldPrint = false;
       if (matches && expr !== null) {
         const evalCtx: EvalContext = {
           name,
@@ -193,15 +203,30 @@ export const findCommand: Command = {
           mode: stat.mode ?? 0o644,
           newerRefTimes,
         };
-        matches = evaluateExpression(expr, evalCtx);
+        const evalResult = evaluateExpressionWithPrune(expr, evalCtx);
+        matches = evalResult.matches;
+        shouldPrune = evalResult.pruned;
+
+        // Determine if this path should be printed:
+        // - If there's an explicit -print, only print when it was triggered
+        // - Otherwise, use default printing (print everything that matches)
+        if (hasExplicitPrint) {
+          shouldPrint = evalResult.printed;
+        } else {
+          shouldPrint = matches;
+        }
+      } else if (matches) {
+        // No expression, default print
+        shouldPrint = true;
       }
 
-      if (matches) {
+      if (shouldPrint) {
         results.push(relativePath);
       }
 
       // Recurse into directories (reuse entries from above)
-      if (entries !== null) {
+      // Don't recurse if -prune was triggered
+      if (entries !== null && !shouldPrune) {
         for (const entry of entries) {
           const childPath =
             currentPath === "/" ? `/${entry}` : `${currentPath}/${entry}`;
@@ -221,6 +246,9 @@ export const findCommand: Command = {
       for (const action of actions) {
         switch (action.type) {
           case "print":
+            // When -print is in the expression (hasExplicitPrint), results are already
+            // populated based on when -print was triggered during evaluation.
+            // Just output them here.
             stdout += results.length > 0 ? `${results.join("\n")}\n` : "";
             break;
 
@@ -289,7 +317,7 @@ export const findCommand: Command = {
             break;
         }
       }
-    } else if (shouldPrint) {
+    } else if (useDefaultPrint) {
       // Default: print with newline separator
       stdout = results.length > 0 ? `${results.join("\n")}\n` : "";
     }

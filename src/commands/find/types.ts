@@ -4,6 +4,7 @@
 export type Expression =
   | { type: "name"; pattern: string; ignoreCase?: boolean }
   | { type: "path"; pattern: string; ignoreCase?: boolean }
+  | { type: "regex"; pattern: string; ignoreCase?: boolean }
   | { type: "type"; fileType: "f" | "d" }
   | { type: "empty" }
   | { type: "mtime"; days: number; comparison: "exact" | "more" | "less" }
@@ -19,6 +20,8 @@ export type Expression =
       mode: number;
       matchType: "exact" | "all" | "any"; // exact, -mode (all), /mode (any)
     }
+  | { type: "prune" } // Returns true and prevents descending into directories
+  | { type: "print" } // Returns true and marks path for printing
   | { type: "not"; expr: Expression }
   | { type: "and"; left: Expression; right: Expression }
   | { type: "or"; left: Expression; right: Expression };
@@ -43,6 +46,13 @@ export interface EvalContext {
   size: number; // file size in bytes
   mode: number; // file permission mode
   newerRefTimes: Map<string, number>; // reference file mtimes for -newer
+}
+
+// Evaluation result including prune and print flags
+export interface EvalResult {
+  matches: boolean;
+  pruned: boolean; // Set to true if -prune was evaluated and matched
+  printed: boolean; // Set to true if -print was evaluated and matched
 }
 
 // Parse result from expression parser

@@ -12,9 +12,11 @@ const grepHelp = {
     "-i, --ignore-case        ignore case distinctions",
     "-v, --invert-match       select non-matching lines",
     "-w, --word-regexp        match only whole words",
+    "-x, --line-regexp        match only whole lines",
     "-c, --count              print only a count of matching lines",
     "-l, --files-with-matches print only names of files with matches",
     "-L, --files-without-match print names of files with no matches",
+    "-m NUM, --max-count=NUM  stop after NUM matches",
     "-n, --line-number        print line number with output lines",
     "-h, --no-filename        suppress the file name prefix on output",
     "-o, --only-matching      show only nonempty parts of lines that match",
@@ -47,11 +49,13 @@ export const grepCommand: Command = {
     let filesWithoutMatch = false;
     let recursive = false;
     let wholeWord = false;
+    let lineRegexp = false;
     let extendedRegex = false;
     let fixedStrings = false;
     let onlyMatching = false;
     let noFilename = false;
     let quietMode = false;
+    let maxCount = 0; // 0 means unlimited
     let beforeContext = 0;
     let afterContext = 0;
     const includePatterns: string[] = [];
@@ -85,6 +89,23 @@ export const grepCommand: Command = {
         // Handle --exclude-dir=pattern (can be specified multiple times)
         if (arg.startsWith("--exclude-dir=")) {
           excludeDirPatterns.push(arg.slice("--exclude-dir=".length));
+          continue;
+        }
+
+        // Handle --max-count=N
+        if (arg.startsWith("--max-count=")) {
+          maxCount = parseInt(arg.slice("--max-count=".length), 10);
+          continue;
+        }
+
+        // Handle -m N or -mN
+        const maxCountMatch = arg.match(/^-m(\d+)$/);
+        if (maxCountMatch) {
+          maxCount = parseInt(maxCountMatch[1], 10);
+          continue;
+        }
+        if (arg === "-m" && i + 1 < args.length) {
+          maxCount = parseInt(args[++i], 10);
           continue;
         }
 
@@ -132,6 +153,7 @@ export const grepCommand: Command = {
           else if (flag === "r" || flag === "R" || flag === "--recursive")
             recursive = true;
           else if (flag === "w" || flag === "--word-regexp") wholeWord = true;
+          else if (flag === "x" || flag === "--line-regexp") lineRegexp = true;
           else if (flag === "E" || flag === "--extended-regexp")
             extendedRegex = true;
           else if (flag === "F" || flag === "--fixed-strings")
@@ -175,6 +197,9 @@ export const grepCommand: Command = {
     if (wholeWord) {
       regexPattern = `\\b${regexPattern}\\b`;
     }
+    if (lineRegexp) {
+      regexPattern = `^${regexPattern}$`;
+    }
 
     let regex: RegExp;
     try {
@@ -199,6 +224,7 @@ export const grepCommand: Command = {
         onlyMatching,
         beforeContext,
         afterContext,
+        maxCount,
       );
       if (quietMode) {
         return { stdout: "", stderr: "", exitCode: result.matched ? 0 : 1 };
@@ -307,6 +333,7 @@ export const grepCommand: Command = {
           onlyMatching,
           beforeContext,
           afterContext,
+          maxCount,
         );
 
         if (result.matched) {
@@ -415,6 +442,7 @@ function grepContent(
   onlyMatching: boolean = false,
   beforeContext: number = 0,
   afterContext: number = 0,
+  maxCount: number = 0, // 0 means unlimited
 ): { output: string; matched: boolean } {
   const lines = content.split("\n");
   const lineCount = lines.length;
@@ -441,14 +469,19 @@ function grepContent(
   if (beforeContext === 0 && afterContext === 0) {
     const outputLines: string[] = [];
     let hasMatch = false;
+    let matchCount = 0;
 
     for (let i = 0; i < lastIdx; i++) {
+      // Check if we've reached maxCount
+      if (maxCount > 0 && matchCount >= maxCount) break;
+
       const line = lines[i];
       regex.lastIndex = 0;
       const matches = regex.test(line);
 
       if (matches !== invertMatch) {
         hasMatch = true;
+        matchCount++;
         if (onlyMatching) {
           regex.lastIndex = 0;
           for (
@@ -480,9 +513,11 @@ function grepContent(
   let matchCount = 0;
   const printedLines = new Set<number>();
 
-  // First pass: find all matching lines
+  // First pass: find all matching lines (respecting maxCount)
   const matchingLineNumbers: number[] = [];
   for (let i = 0; i < lastIdx; i++) {
+    // Check if we've reached maxCount
+    if (maxCount > 0 && matchCount >= maxCount) break;
     regex.lastIndex = 0;
     if (regex.test(lines[i]) !== invertMatch) {
       matchingLineNumbers.push(i);

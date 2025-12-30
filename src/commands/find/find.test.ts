@@ -570,4 +570,119 @@ describe("find command", () => {
       expect(result.exitCode).toBe(1);
     });
   });
+
+  describe("-regex and -iregex", () => {
+    it("should match files with -regex", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/file.txt": "",
+          "/dir/file.js": "",
+          "/dir/sub/other.txt": "",
+        },
+      });
+      const result = await env.exec('find /dir -regex ".*\\.txt"');
+      expect(result.stdout).toBe("/dir/file.txt\n/dir/sub/other.txt\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should match full path with -regex", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/src/file.ts": "",
+          "/dir/test/file.ts": "",
+        },
+      });
+      // .*/src/.* requires characters after src/, so only matches the file
+      const result = await env.exec('find /dir -regex ".*/src/.*"');
+      expect(result.stdout).toBe("/dir/src/file.ts\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should match case-insensitively with -iregex", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/FILE.TXT": "",
+          "/dir/file.txt": "",
+          "/dir/other.js": "",
+        },
+      });
+      const result = await env.exec('find /dir -iregex ".*\\.txt"');
+      expect(result.stdout).toBe("/dir/FILE.TXT\n/dir/file.txt\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with complex regex patterns", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/test1.ts": "",
+          "/dir/test2.ts": "",
+          "/dir/test10.ts": "",
+          "/dir/other.ts": "",
+        },
+      });
+      const result = await env.exec('find /dir -regex ".*/test[0-9]\\.ts"');
+      expect(result.stdout).toBe("/dir/test1.ts\n/dir/test2.ts\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe("-prune", () => {
+    it("should not descend into pruned directories", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/skip/hidden.txt": "",
+          "/dir/skip/inside/nested.txt": "",
+          "/dir/include/file.txt": "",
+        },
+      });
+      const result = await env.exec(
+        "find /dir -name skip -prune -o -type f -print",
+      );
+      expect(result.stdout).toBe("/dir/include/file.txt\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should prune multiple directories", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/node_modules/pkg/index.js": "",
+          "/dir/.git/objects/abc": "",
+          "/dir/src/main.ts": "",
+        },
+      });
+      const result = await env.exec(
+        'find /dir \\( -name node_modules -o -name ".git" \\) -prune -o -type f -print',
+      );
+      expect(result.stdout).toBe("/dir/src/main.ts\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with -type d to prune specific directories", async () => {
+      const env = new Bash({
+        files: {
+          "/project/dist/bundle.js": "",
+          "/project/src/index.ts": "",
+          "/project/README.md": "",
+        },
+      });
+      const result = await env.exec(
+        "find /project -type d -name dist -prune -o -type f -print",
+      );
+      expect(result.stdout).toBe("/project/README.md\n/project/src/index.ts\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should allow finding pruned directory itself without -print", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/skip/file.txt": "",
+          "/dir/keep/file.txt": "",
+        },
+      });
+      // Without -print on right side, default print applies to all matches
+      const result = await env.exec("find /dir -name skip -prune");
+      expect(result.stdout).toBe("/dir/skip\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
 });

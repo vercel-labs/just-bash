@@ -48,6 +48,16 @@ export function parseExpressions(
         type: "expr",
         expr: { type: "path", pattern: args[++i], ignoreCase: true },
       });
+    } else if (arg === "-regex" && i + 1 < args.length) {
+      tokens.push({
+        type: "expr",
+        expr: { type: "regex", pattern: args[++i] },
+      });
+    } else if (arg === "-iregex" && i + 1 < args.length) {
+      tokens.push({
+        type: "expr",
+        expr: { type: "regex", pattern: args[++i], ignoreCase: true },
+      });
     } else if (arg === "-type" && i + 1 < args.length) {
       const fileType = args[++i];
       if (fileType === "f" || fileType === "d") {
@@ -124,6 +134,8 @@ export function parseExpressions(
           expr: { type: "perm", mode, matchType },
         });
       }
+    } else if (arg === "-prune") {
+      tokens.push({ type: "expr", expr: { type: "prune" } });
     } else if (arg === "-not" || arg === "!") {
       tokens.push({ type: "not" });
     } else if (arg === "-o" || arg === "-or") {
@@ -152,6 +164,8 @@ export function parseExpressions(
       const batchMode = args[i] === "+";
       actions.push({ type: "exec", command: commandParts, batchMode });
     } else if (arg === "-print") {
+      // -print is both an expression (returns true, marks for printing) and an action
+      tokens.push({ type: "expr", expr: { type: "print" } });
       actions.push({ type: "print" });
     } else if (arg === "-print0") {
       actions.push({ type: "print0" });

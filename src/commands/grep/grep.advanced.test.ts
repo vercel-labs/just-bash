@@ -166,6 +166,91 @@ describe("grep advanced", () => {
     });
   });
 
+  describe("-m flag (max count)", () => {
+    it("should stop after -m matches", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "line1\nline2\nline3\nline4\nline5\n" },
+      });
+      const result = await env.exec("grep -m 2 line /test.txt");
+      expect(result.stdout).toBe("line1\nline2\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with --max-count=N syntax", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a\nb\nc\nd\n" },
+      });
+      const result = await env.exec("grep --max-count=1 '[a-z]' /test.txt");
+      expect(result.stdout).toBe("a\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with -mN syntax", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "match1\nmatch2\nmatch3\n" },
+      });
+      const result = await env.exec("grep -m3 match /test.txt");
+      expect(result.stdout).toBe("match1\nmatch2\nmatch3\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with context options", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a\nmatch1\nb\nmatch2\nc\nmatch3\nd\n" },
+      });
+      const result = await env.exec("grep -m 1 -A1 match /test.txt");
+      expect(result.stdout).toBe("match1\nb\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with line numbers", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a\nb\nc\nd\ne\n" },
+      });
+      const result = await env.exec("grep -n -m 2 '[a-e]' /test.txt");
+      expect(result.stdout).toBe("1:a\n2:b\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe("-x flag (line regexp)", () => {
+    it("should match only whole lines with -x", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "foo\nfoobar\nfoo\n" },
+      });
+      const result = await env.exec("grep -x foo /test.txt");
+      expect(result.stdout).toBe("foo\nfoo\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with --line-regexp", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "test\ntesting\ntest\n" },
+      });
+      const result = await env.exec("grep --line-regexp test /test.txt");
+      expect(result.stdout).toBe("test\ntest\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with regex patterns", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "abc\nabcd\nabc\n" },
+      });
+      const result = await env.exec('grep -Ex "a.c" /test.txt');
+      expect(result.stdout).toBe("abc\nabc\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with case insensitive matching", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "Hello\nHELLO World\nhello\n" },
+      });
+      const result = await env.exec("grep -ix hello /test.txt");
+      expect(result.stdout).toBe("Hello\nhello\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
   describe("-h flag (no filename)", () => {
     it("should suppress filename with -h", async () => {
       const env = new Bash({
