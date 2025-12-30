@@ -5,17 +5,11 @@
  */
 
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
-import type {
-  AwkArrayAccess,
-  AwkBlock,
-  AwkExpr,
-  AwkStmt,
-  AwkVariable,
-} from "../ast.js";
+import type { AwkArrayAccess, AwkExpr, AwkStmt, AwkVariable } from "../ast.js";
 import { formatPrintf } from "../builtins.js";
 import type { AwkRuntimeContext } from "./context.js";
 import { evalExpr, setBlockExecutor } from "./expressions.js";
-import { isTruthy, toNumber, toString } from "./helpers.js";
+import { isTruthy, toAwkString, toNumber } from "./helpers.js";
 import { deleteArray, deleteArrayElement } from "./variables.js";
 
 // Register the block executor with expressions module (for user function calls)
@@ -138,7 +132,7 @@ async function executePrint(
 ): Promise<void> {
   const values: string[] = [];
   for (const arg of args) {
-    values.push(toString(await evalExpr(ctx, arg)));
+    values.push(toAwkString(await evalExpr(ctx, arg)));
   }
   const text = values.join(ctx.OFS) + ctx.ORS;
 
@@ -158,7 +152,7 @@ async function executePrintf(
   args: AwkExpr[],
   output?: { redirect: ">" | ">>"; file: AwkExpr },
 ): Promise<void> {
-  const formatStr = toString(await evalExpr(ctx, format));
+  const formatStr = toAwkString(await evalExpr(ctx, format));
   const values: (string | number)[] = [];
   for (const arg of args) {
     values.push(await evalExpr(ctx, arg));
@@ -187,7 +181,7 @@ async function writeToFile(
     return;
   }
 
-  const filename = toString(await evalExpr(ctx, fileExpr));
+  const filename = toAwkString(await evalExpr(ctx, fileExpr));
   const filePath = ctx.fs.resolvePath(ctx.cwd, filename);
 
   if (redirect === ">") {
@@ -367,7 +361,7 @@ async function executeDelete(
   target: AwkArrayAccess | AwkVariable,
 ): Promise<void> {
   if (target.type === "array_access") {
-    const key = toString(await evalExpr(ctx, target.key));
+    const key = toAwkString(await evalExpr(ctx, target.key));
     deleteArrayElement(ctx, target.array, key);
   } else if (target.type === "variable") {
     deleteArray(ctx, target.name);

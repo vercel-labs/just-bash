@@ -31,7 +31,7 @@ export function toNumber(val: AwkValue): number {
  * Convert an AWK value to a string.
  * Numbers are formatted without trailing zeros.
  */
-export function toString(val: AwkValue): string {
+export function toAwkString(val: AwkValue): string {
   if (typeof val === "string") return val;
   if (Number.isInteger(val)) return String(val);
   return String(val);

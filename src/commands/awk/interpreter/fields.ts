@@ -5,7 +5,7 @@
  */
 
 import type { AwkRuntimeContext } from "./context.js";
-import { toNumber, toString } from "./helpers.js";
+import { toAwkString } from "./helpers.js";
 import type { AwkValue } from "./types.js";
 
 /**
@@ -44,7 +44,7 @@ export function setField(
 ): void {
   if (index === 0) {
     // Setting $0 re-splits the line
-    ctx.line = toString(value);
+    ctx.line = toAwkString(value);
     ctx.fields = splitFields(ctx, ctx.line);
     ctx.NF = ctx.fields.length;
   } else if (index > 0) {
@@ -52,7 +52,7 @@ export function setField(
     while (ctx.fields.length < index) {
       ctx.fields.push("");
     }
-    ctx.fields[index - 1] = toString(value);
+    ctx.fields[index - 1] = toAwkString(value);
     ctx.NF = ctx.fields.length;
     // Rebuild $0 from fields
     ctx.line = ctx.fields.join(ctx.OFS);

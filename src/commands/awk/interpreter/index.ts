@@ -14,8 +14,8 @@ export {
   isTruthy,
   looksLikeNumber,
   matchRegex,
+  toAwkString,
   toNumber,
-  toString,
 } from "./helpers.js";
 export { AwkInterpreter } from "./interpreter.js";
 export { executeBlock, executeStmt } from "./statements.js";

@@ -15,13 +15,13 @@ import type {
 } from "../ast.js";
 import { awkBuiltins } from "../builtins.js";
 import type { AwkRuntimeContext } from "./context.js";
-import { getField, setCurrentLine, setField, splitFields } from "./fields.js";
+import { getField, setCurrentLine, setField } from "./fields.js";
 import {
   isTruthy,
   looksLikeNumber,
   matchRegex,
+  toAwkString,
   toNumber,
-  toString,
 } from "./helpers.js";
 import type { AwkValue } from "./types.js";
 import {
@@ -129,7 +129,7 @@ async function evalArrayAccess(
   ctx: AwkRuntimeContext,
   expr: AwkArrayAccess,
 ): Promise<AwkValue> {
-  const key = toString(await evalExpr(ctx, expr.key));
+  const key = toAwkString(await evalExpr(ctx, expr.key));
   return getArrayElement(ctx, expr.array, key);
 }
 
@@ -159,9 +159,9 @@ async function evalBinaryOp(
     const pattern =
       expr.right.type === "regex"
         ? expr.right.pattern
-        : toString(await evalExpr(ctx, expr.right));
+        : toAwkString(await evalExpr(ctx, expr.right));
     try {
-      return new RegExp(pattern).test(toString(left)) ? 1 : 0;
+      return new RegExp(pattern).test(toAwkString(left)) ? 1 : 0;
     } catch {
       return 0;
     }
@@ -171,9 +171,9 @@ async function evalBinaryOp(
     const pattern =
       expr.right.type === "regex"
         ? expr.right.pattern
-        : toString(await evalExpr(ctx, expr.right));
+        : toAwkString(await evalExpr(ctx, expr.right));
     try {
-      return new RegExp(pattern).test(toString(left)) ? 0 : 1;
+      return new RegExp(pattern).test(toAwkString(left)) ? 0 : 1;
     } catch {
       return 1;
     }
@@ -184,7 +184,7 @@ async function evalBinaryOp(
 
   // String concatenation
   if (op === " ") {
-    return toString(left) + toString(right);
+    return toAwkString(left) + toAwkString(right);
   }
 
   // Comparison operators
@@ -225,8 +225,8 @@ function evalComparison(left: AwkValue, right: AwkValue, op: string): number {
     }
   }
 
-  const l = toString(left);
-  const r = toString(right);
+  const l = toAwkString(left);
+  const r = toAwkString(right);
   switch (op) {
     case "<":
       return l < r ? 1 : 0;
@@ -362,7 +362,7 @@ async function evalAssignment(
     } else if (target.type === "variable") {
       current = getVariable(ctx, target.name);
     } else {
-      const key = toString(await evalExpr(ctx, target.key));
+      const key = toAwkString(await evalExpr(ctx, target.key));
       current = getArrayElement(ctx, target.array, key);
     }
 
@@ -400,7 +400,7 @@ async function evalAssignment(
   } else if (target.type === "variable") {
     setVariable(ctx, target.name, finalValue);
   } else {
-    const key = toString(await evalExpr(ctx, target.key));
+    const key = toAwkString(await evalExpr(ctx, target.key));
     setArrayElement(ctx, target.array, key, finalValue);
   }
 
@@ -421,7 +421,7 @@ async function evalPreIncrement(
     val = toNumber(getVariable(ctx, operand.name)) + 1;
     setVariable(ctx, operand.name, val);
   } else {
-    const key = toString(await evalExpr(ctx, operand.key));
+    const key = toAwkString(await evalExpr(ctx, operand.key));
     val = toNumber(getArrayElement(ctx, operand.array, key)) + 1;
     setArrayElement(ctx, operand.array, key, val);
   }
@@ -443,7 +443,7 @@ async function evalPreDecrement(
     val = toNumber(getVariable(ctx, operand.name)) - 1;
     setVariable(ctx, operand.name, val);
   } else {
-    const key = toString(await evalExpr(ctx, operand.key));
+    const key = toAwkString(await evalExpr(ctx, operand.key));
     val = toNumber(getArrayElement(ctx, operand.array, key)) - 1;
     setArrayElement(ctx, operand.array, key, val);
   }
@@ -465,7 +465,7 @@ async function evalPostIncrement(
     oldVal = toNumber(getVariable(ctx, operand.name));
     setVariable(ctx, operand.name, oldVal + 1);
   } else {
-    const key = toString(await evalExpr(ctx, operand.key));
+    const key = toAwkString(await evalExpr(ctx, operand.key));
     oldVal = toNumber(getArrayElement(ctx, operand.array, key));
     setArrayElement(ctx, operand.array, key, oldVal + 1);
   }
@@ -487,7 +487,7 @@ async function evalPostDecrement(
     oldVal = toNumber(getVariable(ctx, operand.name));
     setVariable(ctx, operand.name, oldVal - 1);
   } else {
-    const key = toString(await evalExpr(ctx, operand.key));
+    const key = toAwkString(await evalExpr(ctx, operand.key));
     oldVal = toNumber(getArrayElement(ctx, operand.array, key));
     setArrayElement(ctx, operand.array, key, oldVal - 1);
   }
@@ -505,11 +505,11 @@ async function evalInExpr(
     // Multi-dimensional key: join with SUBSEP
     const parts: string[] = [];
     for (const e of key.elements) {
-      parts.push(toString(await evalExpr(ctx, e)));
+      parts.push(toAwkString(await evalExpr(ctx, e)));
     }
     keyStr = parts.join(ctx.SUBSEP);
   } else {
-    keyStr = toString(await evalExpr(ctx, key));
+    keyStr = toAwkString(await evalExpr(ctx, key));
   }
   return hasArrayElement(ctx, array, keyStr) ? 1 : 0;
 }
@@ -563,13 +563,8 @@ async function evalGetlineFromFile(
     return -1; // No filesystem access
   }
 
-  const filename = toString(await evalExpr(ctx, fileExpr));
+  const filename = toAwkString(await evalExpr(ctx, fileExpr));
   const filePath = ctx.fs.resolvePath(ctx.cwd, filename);
-
-  // Check if we have this file cached
-  if (!ctx.arrays["__file_cache__"]) {
-    ctx.arrays["__file_cache__"] = {};
-  }
 
   // Use a special internal structure to track file state
   // Store as: __file_lines__[filename] = "line1\nline2\n..." (content)

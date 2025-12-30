@@ -6,7 +6,7 @@
 
 import type { AwkRuntimeContext } from "./context.js";
 import { setFieldSeparator } from "./fields.js";
-import { toNumber, toString } from "./helpers.js";
+import { toAwkString, toNumber } from "./helpers.js";
 import type { AwkValue } from "./types.js";
 
 /**
@@ -51,13 +51,13 @@ export function setVariable(
 ): void {
   switch (name) {
     case "FS":
-      setFieldSeparator(ctx, toString(value));
+      setFieldSeparator(ctx, toAwkString(value));
       return;
     case "OFS":
-      ctx.OFS = toString(value);
+      ctx.OFS = toAwkString(value);
       return;
     case "ORS":
-      ctx.ORS = toString(value);
+      ctx.ORS = toAwkString(value);
       return;
     case "NR":
       ctx.NR = Math.floor(toNumber(value));
@@ -80,7 +80,7 @@ export function setVariable(
       ctx.FNR = Math.floor(toNumber(value));
       return;
     case "FILENAME":
-      ctx.FILENAME = toString(value);
+      ctx.FILENAME = toAwkString(value);
       return;
     case "RSTART":
       ctx.RSTART = Math.floor(toNumber(value));
@@ -89,7 +89,7 @@ export function setVariable(
       ctx.RLENGTH = Math.floor(toNumber(value));
       return;
     case "SUBSEP":
-      ctx.SUBSEP = toString(value);
+      ctx.SUBSEP = toAwkString(value);
       return;
   }
 
