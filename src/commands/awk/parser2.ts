@@ -141,32 +141,47 @@ export class AwkParser {
       // No pattern, just action
       pattern = undefined;
     } else if (this.check(TokenType.REGEX)) {
-      // Regex pattern
+      // Regex pattern - but check if it's part of a larger expression
       const regexToken = this.advance();
-      const pat: AwkPattern = {
-        type: "regex_pattern",
-        pattern: regexToken.value as string,
-      };
 
-      // Check for range pattern
-      if (this.check(TokenType.COMMA)) {
-        this.advance();
-        let endPattern: AwkPattern;
-        if (this.check(TokenType.REGEX)) {
-          const endRegex = this.advance();
-          endPattern = {
-            type: "regex_pattern",
-            pattern: endRegex.value as string,
-          };
-        } else {
-          endPattern = {
-            type: "expr_pattern",
-            expression: this.parseExpression(),
-          };
-        }
-        pattern = { type: "range", start: pat, end: endPattern };
+      // Check if this regex is followed by && or || (compound pattern)
+      if (this.check(TokenType.AND) || this.check(TokenType.OR)) {
+        // Convert regex to $0 ~ /regex/ expression and parse as compound expression
+        const regexExpr: AwkExpr = {
+          type: "binary",
+          operator: "~",
+          left: { type: "field", index: { type: "number", value: 0 } },
+          right: { type: "regex", pattern: regexToken.value as string },
+        };
+        // Parse the rest of the expression starting from the && or ||
+        const fullExpr = this.parseLogicalOrRest(regexExpr);
+        pattern = { type: "expr_pattern", expression: fullExpr };
       } else {
-        pattern = pat;
+        const pat: AwkPattern = {
+          type: "regex_pattern",
+          pattern: regexToken.value as string,
+        };
+
+        // Check for range pattern
+        if (this.check(TokenType.COMMA)) {
+          this.advance();
+          let endPattern: AwkPattern;
+          if (this.check(TokenType.REGEX)) {
+            const endRegex = this.advance();
+            endPattern = {
+              type: "regex_pattern",
+              pattern: endRegex.value as string,
+            };
+          } else {
+            endPattern = {
+              type: "expr_pattern",
+              expression: this.parseExpression(),
+            };
+          }
+          pattern = { type: "range", start: pat, end: endPattern };
+        } else {
+          pattern = pat;
+        }
       }
     } else {
       // Expression pattern
@@ -545,7 +560,7 @@ export class AwkParser {
   }
 
   private parsePrintIn(): AwkExpr {
-    let left = this.parsePrintMatch();
+    const left = this.parsePrintMatch();
 
     if (this.check(TokenType.IN)) {
       this.advance();
@@ -576,7 +591,13 @@ export class AwkParser {
 
     // Only handle <, <=, >=, ==, != - NOT > or >> (those are redirection)
     while (
-      this.match(TokenType.LT, TokenType.LE, TokenType.GE, TokenType.EQ, TokenType.NE)
+      this.match(
+        TokenType.LT,
+        TokenType.LE,
+        TokenType.GE,
+        TokenType.EQ,
+        TokenType.NE,
+      )
     ) {
       const opToken = this.advance();
       const right = this.parseConcatenation();
@@ -699,6 +720,37 @@ export class AwkParser {
       this.advance();
       const right = this.parseAnd();
       left = { type: "binary", operator: "||", left, right };
+    }
+
+    return left;
+  }
+
+  /**
+   * Continue parsing a logical OR/AND expression from a given left-hand side.
+   * Used when we've already parsed part of an expression (e.g., a regex in pattern context).
+   */
+  private parseLogicalOrRest(left: AwkExpr): AwkExpr {
+    // First handle AND at the same precedence level as the left operand
+    left = this.parseLogicalAndRest(left);
+
+    // Then handle OR
+    while (this.check(TokenType.OR)) {
+      this.advance();
+      const right = this.parseAnd();
+      left = { type: "binary", operator: "||", left, right };
+    }
+
+    return left;
+  }
+
+  /**
+   * Continue parsing a logical AND expression from a given left-hand side.
+   */
+  private parseLogicalAndRest(left: AwkExpr): AwkExpr {
+    while (this.check(TokenType.AND)) {
+      this.advance();
+      const right = this.parseIn();
+      left = { type: "binary", operator: "&&", left, right };
     }
 
     return left;

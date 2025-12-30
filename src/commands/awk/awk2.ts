@@ -8,9 +8,9 @@ import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import type { AwkProgram } from "./ast.js";
 import {
+  type AwkFileSystem,
   AwkInterpreter,
   createRuntimeContext,
-  type AwkFileSystem,
 } from "./interpreter/index.js";
 import { AwkParser } from "./parser2.js";
 

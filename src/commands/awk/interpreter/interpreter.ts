@@ -64,7 +64,8 @@ export class AwkInterpreter {
     this.ctx.shouldNext = false;
 
     for (let i = 0; i < this.program.rules.length; i++) {
-      if (this.ctx.shouldExit || this.ctx.shouldNext) break;
+      if (this.ctx.shouldExit || this.ctx.shouldNext || this.ctx.shouldNextFile)
+        break;
 
       const rule = this.program.rules[i];
 
@@ -117,7 +118,10 @@ export class AwkInterpreter {
   /**
    * Check if a rule matches the current line.
    */
-  private async matchesRule(rule: AwkRule, ruleIndex: number): Promise<boolean> {
+  private async matchesRule(
+    rule: AwkRule,
+    ruleIndex: number,
+  ): Promise<boolean> {
     const pattern = rule.pattern;
 
     // No pattern - always matches

@@ -133,7 +133,9 @@ async function awkSub(
     if (targetExpr.type === "variable") {
       targetName = targetExpr.name;
     } else if (targetExpr.type === "field") {
-      const idx = Math.floor(toNumber(await evaluator.evalExpr(targetExpr.index)));
+      const idx = Math.floor(
+        toNumber(await evaluator.evalExpr(targetExpr.index)),
+      );
       targetName = `$${idx}`;
     }
   }
@@ -201,7 +203,9 @@ async function awkGsub(
     if (targetExpr.type === "variable") {
       targetName = targetExpr.name;
     } else if (targetExpr.type === "field") {
-      const idx = Math.floor(toNumber(await evaluator.evalExpr(targetExpr.index)));
+      const idx = Math.floor(
+        toNumber(await evaluator.evalExpr(targetExpr.index)),
+      );
       targetName = `$${idx}`;
     }
   }

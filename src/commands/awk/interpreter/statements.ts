@@ -293,7 +293,12 @@ async function executeDoWhile(
  */
 async function executeFor(
   ctx: AwkRuntimeContext,
-  stmt: { init?: AwkExpr; condition?: AwkExpr; update?: AwkExpr; body: AwkStmt },
+  stmt: {
+    init?: AwkExpr;
+    condition?: AwkExpr;
+    update?: AwkExpr;
+    body: AwkStmt;
+  },
 ): Promise<void> {
   if (stmt.init) {
     await evalExpr(ctx, stmt.init);

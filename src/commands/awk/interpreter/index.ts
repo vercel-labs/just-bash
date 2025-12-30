@@ -4,19 +4,19 @@
  * Re-exports the public API for the AWK interpreter.
  */
 
-export { AwkInterpreter } from "./interpreter.js";
 export {
-  createRuntimeContext,
   type AwkRuntimeContext,
   type CreateContextOptions,
+  createRuntimeContext,
 } from "./context.js";
-export { type AwkFileSystem, type AwkValue } from "./types.js";
 export { evalExpr } from "./expressions.js";
-export { executeBlock, executeStmt } from "./statements.js";
 export {
   isTruthy,
-  toNumber,
-  toString,
   looksLikeNumber,
   matchRegex,
+  toNumber,
+  toString,
 } from "./helpers.js";
+export { AwkInterpreter } from "./interpreter.js";
+export { executeBlock, executeStmt } from "./statements.js";
+export type { AwkFileSystem, AwkValue } from "./types.js";
