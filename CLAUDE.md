@@ -18,7 +18,8 @@ pnpm knip                  # Check for unused exports/dependencies
 # Testing
 pnpm test:run              # Run ALL tests (including spec tests)
 pnpm test:unit             # Run unit tests only (fast, no comparison/spec)
-pnpm test:comparison       # Run comparison tests only
+pnpm test:comparison       # Run comparison tests only (uses fixtures)
+pnpm test:comparison:record # Re-record comparison test fixtures
 
 # Excluding spec tests (spec tests have known failures)
 pnpm test:run --exclude src/spec-tests
@@ -149,10 +150,27 @@ Commands go in `src/commands/<name>/` with:
 ### Testing Strategy
 
 - **Unit tests**: Fast, isolated tests for specific functionality
-- **Comparison tests**: Run same script in just-bash and real bash, compare output
+- **Comparison tests**: Compare just-bash output against recorded bash fixtures (see `src/comparison-tests/README.md`)
 - **Spec tests** (`src/spec-tests/`): Bash specification conformance (may have known failures)
 
 Prefer comparison tests when uncertain about bash behavior. Keep test files under 300 lines.
+
+### Comparison Tests (Fixture System)
+
+Comparison tests use pre-recorded bash outputs stored in `src/comparison-tests/fixtures/`. This eliminates platform differences (macOS vs Linux).
+
+```bash
+# Run comparison tests (uses fixtures, no real bash needed)
+pnpm test:comparison
+
+# Re-record fixtures when adding/changing tests
+RECORD_FIXTURES=1 pnpm test:run src/comparison-tests/mytest.comparison.test.ts
+```
+
+When adding comparison tests:
+1. Write the test using `setupFiles()` and `compareOutputs()`
+2. Run with `RECORD_FIXTURES=1` to generate fixtures
+3. Commit both the test file and the generated fixture JSON
 
 ## Development Guidelines
 

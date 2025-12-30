@@ -1,0 +1,198 @@
+{
+  "034c1ad958ac4e81": {
+    "command": "tail -n 1 test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\nline 4\nline 5\n"
+    },
+    "stdout": "line 5\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "056423c9a1c3be0a": {
+    "command": "tail test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\nline 4\nline 5\n"
+    },
+    "stdout": "line 1\nline 2\nline 3\nline 4\nline 5\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "216b8a0800cfe5d9": {
+    "command": "head -c 100 test.txt",
+    "files": {
+      "test.txt": "short\n"
+    },
+    "stdout": "short\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2b0708aebc130c69": {
+    "command": "head -c 5 test.txt",
+    "files": {
+      "test.txt": "Hello, World!\n"
+    },
+    "stdout": "Hello",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3342a2278ef2818f": {
+    "command": "tail -n 10 test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\n"
+    },
+    "stdout": "line 1\nline 2\nline 3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4e164a360a6e2537": {
+    "command": "tail -n 5 test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\n"
+    },
+    "stdout": "line 16\nline 17\nline 18\nline 19\nline 20\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "522b5f5822ebb4ae": {
+    "command": "head test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\n"
+    },
+    "stdout": "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "70b15d1e3fefb5d3": {
+    "command": "tail -n +3 test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\n"
+    },
+    "stdout": "line 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "73aef1fb3909e95e": {
+    "command": "tail -c 100 test.txt",
+    "files": {
+      "test.txt": "short\n"
+    },
+    "stdout": "short\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "76f116b941107f5f": {
+    "command": "tail -c 5 test.txt",
+    "files": {
+      "test.txt": "Hello, World!\n"
+    },
+    "stdout": "rld!\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7b6bcefac6d2c797": {
+    "command": "echo -e \"a\\nb\\nc\\nd\\ne\" | head -n 3",
+    "files": {},
+    "stdout": "a\nb\nc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8436b406d6d6c02f": {
+    "command": "head -n 1 test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\nline 4\nline 5\n"
+    },
+    "stdout": "line 1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "84dc6e37eee2a8f7": {
+    "command": "head -n 5 test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\n"
+    },
+    "stdout": "line 1\nline 2\nline 3\nline 4\nline 5\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "877e89713050d57e": {
+    "command": "head -c 10 test.txt",
+    "files": {
+      "test.txt": "line1\nline2\nline3\n"
+    },
+    "stdout": "line1\nline",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8a7264ad93bfe725": {
+    "command": "tail -c 10 test.txt",
+    "files": {
+      "test.txt": "line1\nline2\nline3\n"
+    },
+    "stdout": "ne2\nline3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "95981fccb9696235": {
+    "command": "tail -n 2 a.txt b.txt",
+    "files": {
+      "a.txt": "line 1\nline 2\nline 3\n",
+      "b.txt": "line 1\nline 2\nline 3\n"
+    },
+    "stdout": "==> a.txt <==\nline 2\nline 3\n\n==> b.txt <==\nline 2\nline 3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a0d70a2bf1946c56": {
+    "command": "head -n 2 a.txt b.txt",
+    "files": {
+      "a.txt": "line 1\nline 2\nline 3\n",
+      "b.txt": "line 1\nline 2\nline 3\n"
+    },
+    "stdout": "==> a.txt <==\nline 1\nline 2\n\n==> b.txt <==\nline 1\nline 2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c43bf46c4255c75a": {
+    "command": "echo -e \"a\\nb\\nc\\nd\\ne\" | tail -n 2",
+    "files": {},
+    "stdout": "d\ne\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c441335822eca032": {
+    "command": "head -n 10 test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\n"
+    },
+    "stdout": "line 1\nline 2\nline 3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d99b0046180efb2b": {
+    "command": "tail test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\n"
+    },
+    "stdout": "line 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e1cf4bd4e1e39e27": {
+    "command": "head -n3 test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\n"
+    },
+    "stdout": "line 1\nline 2\nline 3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e72c50c3f9f71f29": {
+    "command": "head test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\nline 4\nline 5\n"
+    },
+    "stdout": "line 1\nline 2\nline 3\nline 4\nline 5\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

@@ -3,7 +3,6 @@ import {
   cleanupTestDir,
   compareOutputs,
   createTestDir,
-  isLinux,
   setupFiles,
 } from "./test-helpers.js";
 
@@ -71,9 +70,8 @@ describe("ls command - Real Bash Comparison", () => {
       await compareOutputs(env, testDir, "ls -A");
     });
 
-    // Linux ls -R includes ".:" header for current dir, macOS doesn't
-    // BashEnv follows Linux behavior, so skip on macOS
-    it.skipIf(!isLinux)("should match -R (recursive)", async () => {
+    // Uses recorded fixture with Linux behavior (includes ".:" header)
+    it("should match -R (recursive)", async () => {
       const env = await setupFiles(testDir, {
         "file.txt": "",
         "dir/file1.txt": "",

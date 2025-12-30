@@ -1,0 +1,142 @@
+{
+  "06b38615c4fee0b4": {
+    "command": "cat test.txt | tr -s '\\n'",
+    "files": {
+      "test.txt": "line1\n\n\nline2\n\nline3\n"
+    },
+    "stdout": "line1\nline2\nline3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "0f00e2b388db24a3": {
+    "command": "cat test.txt | tr '\\t' ' '",
+    "files": {
+      "test.txt": "hello\tworld\n"
+    },
+    "stdout": "hello world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "16fee68ec84c6781": {
+    "command": "cat test.txt | tr -d '\\n'",
+    "files": {
+      "test.txt": "line1\nline2\nline3\n"
+    },
+    "stdout": "line1line2line3",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3768a0c282f76267": {
+    "command": "cat test.txt | tr 'A-Z' 'a-z'",
+    "files": {
+      "test.txt": "HELLO WORLD\n"
+    },
+    "stdout": "hello world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "48af8d3cbc0dc282": {
+    "command": "cat test.txt | tr -s ' '",
+    "files": {
+      "test.txt": "hello    world   foo\n"
+    },
+    "stdout": "hello world foo\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "532b92338017f3e3": {
+    "command": "cat test.txt | tr -d ' '",
+    "files": {
+      "test.txt": "hello world foo bar\n"
+    },
+    "stdout": "helloworldfoobar\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5c6bf42ed3f77572": {
+    "command": "echo 'hello world' | tr -d 'lo'",
+    "files": {},
+    "stdout": "he wrd\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6568d3f3ee19db46": {
+    "command": "cat test.txt | tr -s 'lo '",
+    "files": {
+      "test.txt": "helllo   wooorld\n"
+    },
+    "stdout": "helo world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "672a7ba48d6b4c4d": {
+    "command": "cat test.txt | tr '\\n' ' '",
+    "files": {
+      "test.txt": "line1\nline2\nline3\n"
+    },
+    "stdout": "line1 line2 line3 ",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "94ea30b921ff3a8d": {
+    "command": "echo 'hello' | tr 'a-z' 'A-Z'",
+    "files": {},
+    "stdout": "HELLO\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9996c4a89e05e0da": {
+    "command": "cat test.txt | tr -d 'aeiou'",
+    "files": {
+      "test.txt": "hello world\n"
+    },
+    "stdout": "hll wrld\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9de9409449faf359": {
+    "command": "cat test.txt | tr 'a-z' 'A-Z'",
+    "files": {
+      "test.txt": "hello world\n"
+    },
+    "stdout": "HELLO WORLD\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ada03462d8dd64bd": {
+    "command": "cat test.txt | tr 'elo' 'xyz'",
+    "files": {
+      "test.txt": "hello\n"
+    },
+    "stdout": "hxyyz\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b46f146c5cab934a": {
+    "command": "cat test.txt | tr 'A-Z' 'a-z' | tr -s ' '",
+    "files": {
+      "test.txt": "HELLO   WORLD\n"
+    },
+    "stdout": "hello world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c48537396397fc11": {
+    "command": "cat test.txt | tr '0-9' 'a-j'",
+    "files": {
+      "test.txt": "12345\n"
+    },
+    "stdout": "bcdef\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e56a3c786c9fa17c": {
+    "command": "cat test.txt | tr -d '0-9'",
+    "files": {
+      "test.txt": "abc123def456\n"
+    },
+    "stdout": "abcdef\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

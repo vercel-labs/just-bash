@@ -76,6 +76,7 @@
     "test:dist": "vitest run src/cli/just-bash.bundle.test.ts",
     "test:unit": "vitest run --config vitest.unit.config.ts",
     "test:comparison": "vitest run --config vitest.comparison.config.ts",
+    "test:comparison:record": "RECORD_FIXTURES=1 vitest run --config vitest.comparison.config.ts",
     "shell": "npx tsx src/cli/shell.ts",
     "dev:exec": "npx tsx src/cli/exec.ts"
   },

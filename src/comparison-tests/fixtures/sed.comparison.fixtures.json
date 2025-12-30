@@ -1,0 +1,196 @@
+{
+  "00e1632371dda029": {
+    "command": "sed '$ d' test.txt",
+    "files": {
+      "test.txt": "line1\nline2\nline3\n"
+    },
+    "stdout": "line1\nline2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "0b3b3909e74c705c": {
+    "command": "sed 's/hello//' test.txt",
+    "files": {
+      "test.txt": "hello world\n"
+    },
+    "stdout": " world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "105c923aee90005e": {
+    "command": "sed -e 's/hello/hi/' -e 's/world/there/' test.txt",
+    "files": {
+      "test.txt": "hello world\n"
+    },
+    "stdout": "hi there\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2740f51bf2c34b7e": {
+    "command": "sed 's|/|-|g' test.txt",
+    "files": {
+      "test.txt": "a/b/c\n"
+    },
+    "stdout": "a-b-c\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "28ab150746b66692": {
+    "command": "sed '$ s/hello/hi/' test.txt",
+    "files": {
+      "test.txt": "hello\nhello\nhello\n"
+    },
+    "stdout": "hello\nhello\nhi\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "33d522291dad4a36": {
+    "command": "echo -e 'hello\\nworld' | sed 's/o/0/g'",
+    "files": {},
+    "stdout": "hell0\nw0rld\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3bdabfafbd59f654": {
+    "command": "sed 's/hello/hi/gi' test.txt",
+    "files": {
+      "test.txt": "Hello HELLO hello\n"
+    },
+    "stdout": "hi hi hi\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "40f1b2a20c3eb769": {
+    "command": "sed 's/hello/hi/g' test.txt",
+    "files": {
+      "test.txt": "hello hello hello\n"
+    },
+    "stdout": "hi hi hi\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4390f65c1a932838": {
+    "command": "sed '/delete/d' test.txt",
+    "files": {
+      "test.txt": "keep\ndelete\nkeep\n"
+    },
+    "stdout": "keep\nkeep\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4497ac2c76063386": {
+    "command": "sed 's/hello/hi/' test.txt",
+    "files": {
+      "test.txt": "hello world\n"
+    },
+    "stdout": "hi world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4b03689ded6f7203": {
+    "command": "sed 's/a/b/' test.txt",
+    "files": {
+      "test.txt": ""
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5d80ef05bb6ca3e0": {
+    "command": "sed 's#path/to#new/path#' test.txt",
+    "files": {
+      "test.txt": "path/to/file\n"
+    },
+    "stdout": "new/path/file\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "66a6e1b137ee8afe": {
+    "command": "sed 's/hello/[&]/' test.txt",
+    "files": {
+      "test.txt": "hello\n"
+    },
+    "stdout": "[hello]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "67ca047cc1bcee3d": {
+    "command": "sed 's/\\./-/g' test.txt",
+    "files": {
+      "test.txt": "hello.world\n"
+    },
+    "stdout": "hello-world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8dc8277fda7aa887": {
+    "command": "sed '2,3d' test.txt",
+    "files": {
+      "test.txt": "line1\nline2\nline3\nline4\n"
+    },
+    "stdout": "line1\nline4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "90d978b05dc721c4": {
+    "command": "sed 's/xyz/abc/' test.txt",
+    "files": {
+      "test.txt": "hello world\n"
+    },
+    "stdout": "hello world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "afd90b3a99597517": {
+    "command": "sed 's/hello/hi/' test.txt",
+    "files": {
+      "test.txt": "hello world\nhello again\n"
+    },
+    "stdout": "hi world\nhi again\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b94e2de48f9e2e33": {
+    "command": "sed '1s/hello/hi/' test.txt",
+    "files": {
+      "test.txt": "hello\nhello\nhello\n"
+    },
+    "stdout": "hi\nhello\nhello\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "dab2a9c75588cf44": {
+    "command": "echo 'hello world' | sed 's/hello/hi/'",
+    "files": {},
+    "stdout": "hi world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f14853e5d5ebb553": {
+    "command": "sed '2,3s/hello/hi/' test.txt",
+    "files": {
+      "test.txt": "hello\nhello\nhello\nhello\n"
+    },
+    "stdout": "hello\nhi\nhi\nhello\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f274c250c1fcff7b": {
+    "command": "sed '1d' test.txt",
+    "files": {
+      "test.txt": "line1\nline2\nline3\n"
+    },
+    "stdout": "line2\nline3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f3bf3f6fcf370329": {
+    "command": "sed '2s/hello/hi/' test.txt",
+    "files": {
+      "test.txt": "hello\nhello\nhello\n"
+    },
+    "stdout": "hello\nhi\nhello\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

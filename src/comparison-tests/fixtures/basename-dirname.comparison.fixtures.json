@@ -1,0 +1,107 @@
+{
+  "1050447eb8fcea43": {
+    "command": "basename -s .txt /path/to/file.txt",
+    "files": {},
+    "stdout": "file\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "34fc89ba5a1350c1": {
+    "command": "basename ./path/to/file.txt",
+    "files": {},
+    "stdout": "file.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4a36b89901f4596f": {
+    "command": "dirname /path/to/dir/",
+    "files": {},
+    "stdout": "/path/to\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6432d8d9b8f26c2a": {
+    "command": "dirname ./path/to/file.txt",
+    "files": {},
+    "stdout": "./path/to\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6c1f73fc04d44746": {
+    "command": "basename /path/to/file.txt .md",
+    "files": {},
+    "stdout": "file.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "78569eb44390ae76": {
+    "command": "basename -a /path/one.txt /path/two.txt",
+    "files": {},
+    "stdout": "one.txt\ntwo.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7b467ba5755fc78d": {
+    "command": "dirname /path/to/file1 /another/path/file2",
+    "files": {},
+    "stdout": "/path/to\n/another/path\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7e773f3d686bcf22": {
+    "command": "basename /path/to/dir/",
+    "files": {},
+    "stdout": "dir\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "980a9e04c9919a04": {
+    "command": "basename file.txt",
+    "files": {},
+    "stdout": "file.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9910476a759ea007": {
+    "command": "basename /path/to/file.txt .txt",
+    "files": {},
+    "stdout": "file\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "becbe09b8d34b057": {
+    "command": "dirname file.txt",
+    "files": {},
+    "stdout": ".\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c58fb4d57c1cf35b": {
+    "command": "basename /usr/bin/sort",
+    "files": {},
+    "stdout": "sort\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ce2679abcb4aa7be": {
+    "command": "dirname /usr/bin/sort",
+    "files": {},
+    "stdout": "/usr/bin\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f338c3acb6a9d20e": {
+    "command": "dirname /file.txt",
+    "files": {},
+    "stdout": "/\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f5d9cb2f39b2f952": {
+    "command": "basename -a -s .txt /path/one.txt /path/two.txt",
+    "files": {},
+    "stdout": "one\ntwo\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

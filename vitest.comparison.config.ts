@@ -5,5 +5,6 @@ export default defineConfig({
     globals: true,
     include: ["src/comparison-tests/**/*.test.ts"],
     exclude: ["**/node_modules/**", "**/dist/**"],
+    setupFiles: ["src/comparison-tests/vitest.setup.ts"],
   },
 });

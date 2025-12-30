@@ -1,0 +1,23 @@
+{
+  "2cab91f70ea1cb84": {
+    "command": "alias notexists || echo failed",
+    "files": {},
+    "stdout": "failed\n",
+    "stderr": "/bin/bash: line 0: alias: notexists: not found\n",
+    "exitCode": 0
+  },
+  "b7f201402670991c": {
+    "command": "alias greet='echo hi'; unalias greet; alias greet || echo removed",
+    "files": {},
+    "stdout": "removed\n",
+    "stderr": "/bin/bash: line 0: alias: greet: not found\n",
+    "exitCode": 0
+  },
+  "c2151098e11aee6e": {
+    "command": "unalias nonexistent || echo not_found",
+    "files": {},
+    "stdout": "not_found\n",
+    "stderr": "/bin/bash: line 0: unalias: nonexistent: not found\n",
+    "exitCode": 0
+  }
+}

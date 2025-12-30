@@ -1,0 +1,151 @@
+{
+  "0cba64b76da7f808": {
+    "command": "cut -d: -f2-4 test.txt",
+    "files": {
+      "test.txt": "a:b:c:d\ne:f:g:h\n"
+    },
+    "stdout": "b:c:d\nf:g:h\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "28816a80e989e492": {
+    "command": "echo \"a:b:c\" | cut -d: -f2",
+    "files": {},
+    "stdout": "b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2eb408055b7a522e": {
+    "command": "cut -c1 test.txt",
+    "files": {
+      "test.txt": "abcdefghij\n1234567890\n"
+    },
+    "stdout": "a\n1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3e2ec57dea32ba0e": {
+    "command": "cut -d: -f1,3 test.txt",
+    "files": {
+      "test.txt": "a:b:c:d\ne:f:g:h\n"
+    },
+    "stdout": "a:c\ne:g\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4dadb8bb49cd2b8f": {
+    "command": "cut -c1-5 test.txt",
+    "files": {
+      "test.txt": "abcdefghij\n1234567890\n"
+    },
+    "stdout": "abcde\n12345\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5598daa7b2921ab3": {
+    "command": "cut -d: -f3 test.txt",
+    "files": {
+      "test.txt": "a:b:c\nd:e:f\ng:h:i\n"
+    },
+    "stdout": "c\nf\ni\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5a0904ccec88b009": {
+    "command": "echo \"hello\" | cut -c1-3",
+    "files": {},
+    "stdout": "hel\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6c073b55e3ef8b55": {
+    "command": "cut -d: -f1 test.txt",
+    "files": {
+      "test.txt": "a:b:c\nd:e:f\ng:h:i\n"
+    },
+    "stdout": "a\nd\ng\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7e719d7ee4405bdb": {
+    "command": "cut -c5- test.txt",
+    "files": {
+      "test.txt": "abcdefghij\n1234567890\n"
+    },
+    "stdout": "efghij\n567890\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "82970bf54db893a1": {
+    "command": "cut -d, -f2 test.txt",
+    "files": {
+      "test.txt": "a,b,c\nd,e,f\n"
+    },
+    "stdout": "b\ne\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "89b537a138b0ab7f": {
+    "command": "cut -d: -f2 test.txt",
+    "files": {
+      "test.txt": "a::c\n:b:\n"
+    },
+    "stdout": "\nb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a5a570c75b2011a5": {
+    "command": "cut -c-5 test.txt",
+    "files": {
+      "test.txt": "abcdefghij\n1234567890\n"
+    },
+    "stdout": "abcde\n12345\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bb380ea6e3b92bfa": {
+    "command": "cut -d: -f2 test.txt",
+    "files": {
+      "test.txt": "a:b:c\nd:e:f\ng:h:i\n"
+    },
+    "stdout": "b\ne\nh\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bcabce27d2a32b75": {
+    "command": "cut -f1 test.txt",
+    "files": {
+      "test.txt": "a\tb\tc\nd\te\tf\n"
+    },
+    "stdout": "a\nd\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cdee4db0798144f5": {
+    "command": "cut -d\" \" -f2 test.txt",
+    "files": {
+      "test.txt": "one two three\nfour five six\n"
+    },
+    "stdout": "two\nfive\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f403dfb5d076f255": {
+    "command": "cut -c1,3,5 test.txt",
+    "files": {
+      "test.txt": "abcdefghij\n1234567890\n"
+    },
+    "stdout": "ace\n135\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fad0e2104d458d84": {
+    "command": "cut -d: -f3 test.txt",
+    "files": {
+      "test.txt": "a:b\nc:d:e\n"
+    },
+    "stdout": "\ne\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

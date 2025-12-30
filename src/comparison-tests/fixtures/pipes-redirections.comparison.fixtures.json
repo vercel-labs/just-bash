@@ -1,0 +1,195 @@
+{
+  "020bff53c7000330": {
+    "command": "echo \"hello\" | cat",
+    "files": {},
+    "stdout": "hello\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "182b9b5e6bfa1c28": {
+    "command": "cat test.txt | grep hello | sort | wc -l",
+    "files": {
+      "test.txt": "hello world\nfoo bar\nhello again\nbaz qux\n"
+    },
+    "stdout": "       2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1f5358d0ff5415db": {
+    "command": "grep hello test.txt | wc -l",
+    "files": {
+      "test.txt": "hello\nworld\nhello\n"
+    },
+    "stdout": "       2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3beedbeba9d2a5c4": {
+    "command": "cat test.txt | cut -d: -f2 | sort -n",
+    "files": {
+      "test.txt": "b:2\na:3\nc:1\n"
+    },
+    "stdout": "1\n2\n3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "45eaab46734d3047": {
+    "command": "cat test.txt | grep hello",
+    "files": {
+      "test.txt": "hello world\nfoo bar\nhello again\n"
+    },
+    "stdout": "hello world\nhello again\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "58a6a0ce46d73fa0": {
+    "command": "cat test.txt | sort | uniq",
+    "files": {
+      "test.txt": "cherry\napple\nbanana\napple\n"
+    },
+    "stdout": "apple\nbanana\ncherry\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "598e7cefd65169e2": {
+    "command": "echo start && cat test.txt && echo end",
+    "files": {
+      "test.txt": "hello\n"
+    },
+    "stdout": "start\nhello\nend\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5b471d065f703848": {
+    "command": "cat nonexistent.txt 2>/dev/null; echo \"still runs\"",
+    "files": {},
+    "stdout": "still runs\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "653c853d1c5ebdce": {
+    "command": "cat nonexistent.txt 2>/dev/null && echo \"never shown\"",
+    "files": {},
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "6bd0123402cec7ad": {
+    "command": "sort < input.txt",
+    "files": {
+      "input.txt": "cherry\napple\nbanana\n"
+    },
+    "stdout": "apple\nbanana\ncherry\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7086f6a3f4dc0698": {
+    "command": "echo \"a\"; echo \"b\" && echo \"c\"",
+    "files": {},
+    "stdout": "a\nb\nc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7408706d864bc70e": {
+    "command": "cat nonexistent.txt 2>/dev/null && echo \"yes\" || echo \"no\"",
+    "files": {},
+    "stdout": "no\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "911c532960333408": {
+    "command": "cat test.txt | tail -n 2",
+    "files": {
+      "test.txt": "line1\nline2\nline3\nline4\nline5\n"
+    },
+    "stdout": "line4\nline5\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "aac86b7188cd3d4b": {
+    "command": "cat test.txt | sort",
+    "files": {
+      "test.txt": "cherry\napple\nbanana\n"
+    },
+    "stdout": "apple\nbanana\ncherry\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "abe00fe64964cee1": {
+    "command": "wc -l < input.txt",
+    "files": {
+      "input.txt": "line1\nline2\nline3\n"
+    },
+    "stdout": "       3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c2a3ca246a760ea3": {
+    "command": "grep ^a < input.txt",
+    "files": {
+      "input.txt": "apple\nbanana\napricot\ncherry\n"
+    },
+    "stdout": "apple\napricot\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cf12bab95231fa03": {
+    "command": "cat nonexistent.txt 2>/dev/null || echo \"file not found\"",
+    "files": {},
+    "stdout": "file not found\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d64cf6f964b36cd8": {
+    "command": "cat test.txt | tr 'A-Z' 'a-z' | sort",
+    "files": {
+      "test.txt": "CHERRY\napple\nBANANA\n"
+    },
+    "stdout": "apple\nbanana\ncherry\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ea44840781b9f76b": {
+    "command": "echo \"success\" || echo \"never shown\"",
+    "files": {},
+    "stdout": "success\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ed9a9c9eb3f510bc": {
+    "command": "cat < input.txt",
+    "files": {
+      "input.txt": "hello world\n"
+    },
+    "stdout": "hello world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ee691337fb0fd9fb": {
+    "command": "cat test.txt | head -n 4 | tail -n 2",
+    "files": {
+      "test.txt": "line1\nline2\nline3\nline4\nline5\n"
+    },
+    "stdout": "line3\nline4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fd39ca6c0c831f40": {
+    "command": "cat test.txt | head -n 3",
+    "files": {
+      "test.txt": "line1\nline2\nline3\nline4\nline5\n"
+    },
+    "stdout": "line1\nline2\nline3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fd81fd5b0ed0f85e": {
+    "command": "echo first; cat test.txt; echo last",
+    "files": {
+      "test.txt": "content\n"
+    },
+    "stdout": "first\ncontent\nlast\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

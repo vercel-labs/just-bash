@@ -1,0 +1,196 @@
+{
+  "02bc47681bf837a6": {
+    "command": "awk 'BEGIN{print \"start\"} {print $0}' data.txt",
+    "files": {
+      "data.txt": "line1\nline2\n"
+    },
+    "stdout": "start\nline1\nline2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "0c92182419fc9d28": {
+    "command": "awk '{printf \"%s!\\n\", $1}' data.txt",
+    "files": {
+      "data.txt": "hello world\n"
+    },
+    "stdout": "hello!\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "12b6b6d5b72e83c0": {
+    "command": "awk '{print $1 + $2}' data.txt",
+    "files": {
+      "data.txt": "10 20\n5 15\n"
+    },
+    "stdout": "30\n20\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "13060f7ecbaa4d28": {
+    "command": "awk 'NR==2' data.txt",
+    "files": {
+      "data.txt": "line1\nline2\nline3\n"
+    },
+    "stdout": "line2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "144cbd2aa82098e6": {
+    "command": "awk '{printf \"num: %d\\n\", $1}' data.txt",
+    "files": {
+      "data.txt": "42\n"
+    },
+    "stdout": "num: 42\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4fc1c901f73a2fbb": {
+    "command": "awk '{print $0} END{print \"done\"}' data.txt",
+    "files": {
+      "data.txt": "line1\nline2\n"
+    },
+    "stdout": "line1\nline2\ndone\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5db7834b98767f99": {
+    "command": "awk '{print $1 \"-\" $2}' data.txt",
+    "files": {
+      "data.txt": "hello world\n"
+    },
+    "stdout": "hello-world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5fb5a4d01bc7c720": {
+    "command": "awk -F, '{print $2}' data.csv",
+    "files": {
+      "data.csv": "a,b,c\n1,2,3\n"
+    },
+    "stdout": "b\n2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6264f92b9b03799d": {
+    "command": "awk '{print $0}' data.txt",
+    "files": {
+      "data.txt": "hello world\nfoo bar\n"
+    },
+    "stdout": "hello world\nfoo bar\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "63976ead5650d0f3": {
+    "command": "awk '{print $1}' data.txt",
+    "files": {
+      "data.txt": "hello world\nfoo bar\n"
+    },
+    "stdout": "hello\nfoo\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "66c48e34e527d2ba": {
+    "command": "awk 'NR>2' data.txt",
+    "files": {
+      "data.txt": "line1\nline2\nline3\nline4\n"
+    },
+    "stdout": "line3\nline4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "69c7e20c2d98cf61": {
+    "command": "awk '/^a/' data.txt",
+    "files": {
+      "data.txt": "apple\nbanana\napricot\ncherry\n"
+    },
+    "stdout": "apple\napricot\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6db4e318ce10b410": {
+    "command": "awk -F: '{print $1}' data.txt",
+    "files": {
+      "data.txt": "root:x:0:0:root:/root:/bin/bash\n"
+    },
+    "stdout": "root\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "85e7f320bff75570": {
+    "command": "awk '{print NF}' data.txt",
+    "files": {
+      "data.txt": "one\ntwo three\na b c d\n"
+    },
+    "stdout": "1\n2\n4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8eca5dc6cd4af41b": {
+    "command": "awk -F'\\t' '{print $2}' data.tsv",
+    "files": {
+      "data.tsv": "a\tb\tc\n1\t2\t3\n"
+    },
+    "stdout": "b\n2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a3fb3f515b8a3f55": {
+    "command": "awk '{print NR, $0}' data.txt",
+    "files": {
+      "data.txt": "a\nb\nc\n"
+    },
+    "stdout": "1 a\n2 b\n3 c\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b25e52b8fe953d50": {
+    "command": "echo 'a b c' | awk '{print $2}'",
+    "files": {},
+    "stdout": "b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c08393a24070a7cf": {
+    "command": "awk '{print $1, $3}' data.txt",
+    "files": {
+      "data.txt": "a b c\n1 2 3\n"
+    },
+    "stdout": "a c\n1 3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cc47f33e4cb2516a": {
+    "command": "awk '{print $1 * $2}' data.txt",
+    "files": {
+      "data.txt": "3 4\n5 6\n"
+    },
+    "stdout": "12\n30\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d3e5d71775cfd1e6": {
+    "command": "awk '{print $1 - $2}' data.txt",
+    "files": {
+      "data.txt": "20 5\n100 30\n"
+    },
+    "stdout": "15\n70\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d4640ec4826f2d8a": {
+    "command": "printf 'a b\\nc d\\n' | awk '{print $1}'",
+    "files": {},
+    "stdout": "a\nc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d9f966d997d2cf7d": {
+    "command": "awk 'BEGIN{print \"start\"} {print $0} END{print \"end\"}' data.txt",
+    "files": {
+      "data.txt": "a\nb\n"
+    },
+    "stdout": "start\na\nb\nend\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

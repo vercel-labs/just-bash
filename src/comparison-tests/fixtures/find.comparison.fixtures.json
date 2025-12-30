@@ -1,0 +1,236 @@
+{
+  "086e8ae1736b66f7": {
+    "command": "find . -maxdepth 2 | sort",
+    "files": {
+      "a.txt": "",
+      "dir/b.txt": "",
+      "dir/sub/c.txt": "",
+      "dir/sub/deep/d.txt": ""
+    },
+    "stdout": ".\n./a.txt\n./dir\n./dir/b.txt\n./dir/sub\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "0c8920741bddf603": {
+    "command": "find . -mindepth 2 | sort",
+    "files": {
+      "a.txt": "",
+      "dir/b.txt": "",
+      "dir/sub/c.txt": ""
+    },
+    "stdout": "./dir/b.txt\n./dir/sub\n./dir/sub/c.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "232fae9317361b52": {
+    "command": "find . -name \"a?.txt\" | sort",
+    "files": {
+      "a1.txt": "",
+      "a2.txt": "",
+      "a10.txt": "",
+      "b1.txt": ""
+    },
+    "stdout": "./a1.txt\n./a2.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3182ebfbe74e11eb": {
+    "command": "find . -name \"*.txt\" -type f | sort",
+    "files": {
+      "test.txt": "",
+      "test.js": "",
+      "sub/test.txt": ""
+    },
+    "stdout": "./sub/test.txt\n./test.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3be126e17474f81d": {
+    "command": "find . -mindepth 1 -maxdepth 1 -type f | sort",
+    "files": {
+      "a.txt": "",
+      "dir/b.txt": "",
+      "dir/sub/c.txt": ""
+    },
+    "stdout": "./a.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "438d5293f370820a": {
+    "command": "find . -mindepth 1 | sort",
+    "files": {
+      "file.txt": "",
+      "dir/file.txt": ""
+    },
+    "stdout": "./dir\n./dir/file.txt\n./file.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "455d3fa3cfc7a08c": {
+    "command": "find . -type f | sort",
+    "files": {
+      "file1.txt": "",
+      "subdir/file2.txt": ""
+    },
+    "stdout": "./file1.txt\n./subdir/file2.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "46270a1ca6e475f9": {
+    "command": "find dir -name \"*.txt\" | sort",
+    "files": {
+      "dir/a.txt": "",
+      "dir/b.txt": "",
+      "other/c.txt": ""
+    },
+    "stdout": "dir/a.txt\ndir/b.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "472ef4e0c007908d": {
+    "command": "find . -maxdepth 0 | sort",
+    "files": {
+      "file.txt": "",
+      "dir/file.txt": ""
+    },
+    "stdout": ".\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "62d55c904989e7c0": {
+    "command": "find . -type d | sort",
+    "files": {
+      "dir1/file.txt": "",
+      "dir2/file.txt": ""
+    },
+    "stdout": ".\n./dir1\n./dir2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "68bf3db628040ce3": {
+    "command": "find . -name \"file.txt\" | sort",
+    "files": {
+      "a/b/c/d/file.txt": ""
+    },
+    "stdout": "./a/b/c/d/file.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "93740bb5956cc41f": {
+    "command": "find . -maxdepth 1 -type f | sort",
+    "files": {
+      "file.txt": "",
+      "dir/file.txt": "",
+      "dir/sub/file.txt": ""
+    },
+    "stdout": "./file.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a0769ee2798250e4": {
+    "command": "find . -name \".*\" | sort",
+    "files": {
+      ".hidden": "",
+      "visible.txt": "",
+      "dir/.also-hidden": ""
+    },
+    "stdout": ".\n./.hidden\n./dir/.also-hidden\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "aa6ce7e0988957a0": {
+    "command": "find . -maxdepth 2 -name \"*.txt\" | sort",
+    "files": {
+      "a.txt": "",
+      "dir/b.txt": "",
+      "dir/sub/c.txt": ""
+    },
+    "stdout": "./a.txt\n./dir/b.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ad51ad70b8844f82": {
+    "command": "find . -maxdepth 1 | sort",
+    "files": {
+      "file.txt": "",
+      "dir/file.txt": "",
+      "dir/sub/file.txt": ""
+    },
+    "stdout": ".\n./dir\n./file.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bea27b7d4d4a9d70": {
+    "command": "find . -mindepth 1 -maxdepth 2 | sort",
+    "files": {
+      "a.txt": "",
+      "dir/b.txt": "",
+      "dir/sub/c.txt": "",
+      "dir/sub/deep/d.txt": ""
+    },
+    "stdout": "./a.txt\n./dir\n./dir/b.txt\n./dir/sub\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cf4a32d064363ac4": {
+    "command": "find . -name \"*.txt\" -o -name \"*.js\" | sort",
+    "files": {
+      "file.txt": "",
+      "file.js": "",
+      "file.md": ""
+    },
+    "stdout": "./file.js\n./file.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d2bda1dc6224020d": {
+    "command": "find . -name \"*.txt\" | sort",
+    "files": {
+      "file1.txt": "",
+      "file2.js": "",
+      "subdir/file3.txt": ""
+    },
+    "stdout": "./file1.txt\n./subdir/file3.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d9fbc6fd5b3d1bdd": {
+    "command": "find . -mindepth 1 -type d | sort",
+    "files": {
+      "dir/sub/file.txt": ""
+    },
+    "stdout": "./dir\n./dir/sub\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f6a1f2b584efa25a": {
+    "command": "find . -name \"*.txt\" | sort",
+    "files": {
+      "file.txt": "",
+      "dir/file.txt": ""
+    },
+    "stdout": "./dir/file.txt\n./file.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f9d3770010e8e205": {
+    "command": "find . -name \"target.txt\" | sort",
+    "files": {
+      "target.txt": "",
+      "other.txt": "",
+      "dir/target.txt": ""
+    },
+    "stdout": "./dir/target.txt\n./target.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fd92013eb16908f1": {
+    "command": "find . -type d | sort",
+    "files": {
+      "dir/file.txt": ""
+    },
+    "stdout": ".\n./dir\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

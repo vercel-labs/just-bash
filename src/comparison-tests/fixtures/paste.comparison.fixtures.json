@@ -1,0 +1,170 @@
+{
+  "06b1074e4b8b949e": {
+    "command": "paste -d,: file1.txt file2.txt file3.txt",
+    "files": {
+      "file1.txt": "a\nb\nc\n",
+      "file2.txt": "1\n2\n3\n",
+      "file3.txt": "x\ny\nz\n"
+    },
+    "stdout": "a,1:x\nb,2:y\nc,3:z\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "41372e0b75018c1e": {
+    "command": "paste -d, file1.txt file2.txt",
+    "files": {
+      "file1.txt": "a\nb\nc\n",
+      "file2.txt": "1\n2\n3\n"
+    },
+    "stdout": "a,1\nb,2\nc,3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5f4a5c7ef6f558da": {
+    "command": "paste -sd, file1.txt",
+    "files": {
+      "file1.txt": "a\nb\nc\n"
+    },
+    "stdout": "a,b,c\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "69c1839508fc87cd": {
+    "command": "paste empty.txt file1.txt",
+    "files": {
+      "empty.txt": "",
+      "file1.txt": "a\nb\nc\n"
+    },
+    "stdout": "\ta\n\tb\n\tc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6a678644b82e8ec0": {
+    "command": "paste file1.txt file2.txt file3.txt",
+    "files": {
+      "file1.txt": "a\nb\nc\n",
+      "file2.txt": "1\n2\n3\n",
+      "file3.txt": "x\ny\nz\n"
+    },
+    "stdout": "a\t1\tx\nb\t2\ty\nc\t3\tz\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7ef3bcfe33c9aeb8": {
+    "command": "paste single.txt file1.txt",
+    "files": {
+      "single.txt": "hello\n",
+      "file1.txt": "a\nb\nc\n"
+    },
+    "stdout": "hello\ta\n\tb\n\tc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "805bea3cf126ac8d": {
+    "command": "echo -e \"a\\nb\\nc\\nd\\ne\\nf\" | paste - - -",
+    "files": {},
+    "stdout": "a\tb\tc\nd\te\tf\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "84eeee2f0f0d686d": {
+    "command": "paste file1.txt",
+    "files": {
+      "file1.txt": "a\nb\nc\n"
+    },
+    "stdout": "a\nb\nc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8cc97dd70107dd78": {
+    "command": "paste -d: file1.txt file2.txt",
+    "files": {
+      "file1.txt": "a\nb\nc\n",
+      "file2.txt": "1\n2\n3\n"
+    },
+    "stdout": "a:1\nb:2\nc:3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a5e2148668c47c1f": {
+    "command": "paste short.txt long.txt",
+    "files": {
+      "short.txt": "a\nb\n",
+      "long.txt": "1\n2\n3\n4\n"
+    },
+    "stdout": "a\t1\nb\t2\n\t3\n\t4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ae7d8e57d074fdb8": {
+    "command": "echo -e \"a\\nb\\nc\" | paste -",
+    "files": {},
+    "stdout": "a\nb\nc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b747fc649d9281b7": {
+    "command": "echo -e \"a\\nb\\nc\\nd\" | paste - -",
+    "files": {},
+    "stdout": "a\tb\nc\td\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ba1ff50043a8ac98": {
+    "command": "paste file1.txt file2.txt",
+    "files": {
+      "file1.txt": "a\nb\nc\n",
+      "file2.txt": "1\n2\n3\n"
+    },
+    "stdout": "a\t1\nb\t2\nc\t3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bf09bb9a3eef82d5": {
+    "command": "paste -s file1.txt",
+    "files": {
+      "file1.txt": "a\nb\nc\n"
+    },
+    "stdout": "a\tb\tc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c45a0ab4a6aaec31": {
+    "command": "paste -s -d, file1.txt",
+    "files": {
+      "file1.txt": "a\nb\nc\n"
+    },
+    "stdout": "a,b,c\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c45eb2b68824ef70": {
+    "command": "paste -d\" \" file1.txt file2.txt",
+    "files": {
+      "file1.txt": "a\nb\nc\n",
+      "file2.txt": "1\n2\n3\n"
+    },
+    "stdout": "a 1\nb 2\nc 3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e5f70ad0bf646f27": {
+    "command": "paste -s file1.txt file2.txt",
+    "files": {
+      "file1.txt": "a\nb\nc\n",
+      "file2.txt": "1\n2\n3\n"
+    },
+    "stdout": "a\tb\tc\n1\t2\t3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ff37127b8bf82876": {
+    "command": "echo -e \"1\\n2\\n3\" | paste - file1.txt",
+    "files": {
+      "file1.txt": "a\nb\nc\n"
+    },
+    "stdout": "1\ta\n2\tb\n3\tc\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

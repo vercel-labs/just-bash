@@ -1,0 +1,142 @@
+{
+  "08b2af999ca280b9": {
+    "command": "uniq test.txt",
+    "files": {
+      "test.txt": "apple\nbanana\napple\ncherry\nbanana\n"
+    },
+    "stdout": "apple\nbanana\napple\ncherry\nbanana\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1ed1c9beb7525bb1": {
+    "command": "echo -e \"a\\na\\nb\" | uniq",
+    "files": {},
+    "stdout": "a\nb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4baafcd0776bdda9": {
+    "command": "uniq -c test.txt",
+    "files": {
+      "test.txt": "a\nb\nc\n"
+    },
+    "stdout": "   1 a\n   1 b\n   1 c\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5de0d1af06731848": {
+    "command": "sort test.txt | uniq",
+    "files": {
+      "test.txt": "apple\nbanana\napple\ncherry\nbanana\n"
+    },
+    "stdout": "apple\nbanana\ncherry\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "63ad63113394243e": {
+    "command": "echo -e \"a\\na\\nb\\nb\\nb\" | uniq -c",
+    "files": {},
+    "stdout": "   2 a\n   3 b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "740e9a36c7fe3331": {
+    "command": "uniq -d test.txt",
+    "files": {
+      "test.txt": "a\nb\nc\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "947e03113a427ace": {
+    "command": "uniq test.txt",
+    "files": {
+      "test.txt": "same\nsame\nsame\n"
+    },
+    "stdout": "same\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9af750f90a24e236": {
+    "command": "uniq -c test.txt",
+    "files": {
+      "test.txt": "apple\napple\nbanana\nbanana\nbanana\ncherry\n"
+    },
+    "stdout": "   2 apple\n   3 banana\n   1 cherry\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a300c9f1f5c05058": {
+    "command": "uniq test.txt",
+    "files": {
+      "test.txt": "apple\nbanana\ncherry\n"
+    },
+    "stdout": "apple\nbanana\ncherry\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c904ada5e9bd622a": {
+    "command": "uniq -cd test.txt",
+    "files": {
+      "test.txt": "a\na\nb\nc\nc\nc\n"
+    },
+    "stdout": "   2 a\n   3 c\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d2218cb430d74d51": {
+    "command": "uniq -u test.txt",
+    "files": {
+      "test.txt": "a\nb\nc\n"
+    },
+    "stdout": "a\nb\nc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d56570a322584c87": {
+    "command": "uniq -u test.txt",
+    "files": {
+      "test.txt": "a\na\nb\nb\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "dde066d078d791b9": {
+    "command": "uniq -d test.txt",
+    "files": {
+      "test.txt": "apple\napple\nbanana\ncherry\ncherry\n"
+    },
+    "stdout": "apple\ncherry\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e1365a02d3cb07d7": {
+    "command": "sort test.txt | uniq -c",
+    "files": {
+      "test.txt": "apple\nbanana\napple\ncherry\nbanana\napple\n"
+    },
+    "stdout": "   3 apple\n   2 banana\n   1 cherry\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e6ed6da7f4f2d8dd": {
+    "command": "uniq -u test.txt",
+    "files": {
+      "test.txt": "apple\napple\nbanana\ncherry\ncherry\n"
+    },
+    "stdout": "banana\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f116fef97f175cad": {
+    "command": "uniq test.txt",
+    "files": {
+      "test.txt": "apple\napple\nbanana\nbanana\nbanana\ncherry\n"
+    },
+    "stdout": "apple\nbanana\ncherry\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

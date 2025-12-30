@@ -1,0 +1,72 @@
+{
+  "217dbca3c809b994": {
+    "command": "echo -n hello",
+    "files": {},
+    "stdout": "hello",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2a6325b6743f5466": {
+    "command": "echo \"hello world\"",
+    "files": {},
+    "stdout": "hello world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5f4ae12ab484e5ab": {
+    "command": "echo",
+    "files": {},
+    "stdout": "\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9f29fc77bf0e0ee5": {
+    "command": "echo \"say \\\"hello\\\"\"",
+    "files": {},
+    "stdout": "say \"hello\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b6db373a2a54b19b": {
+    "command": "echo 'single quotes'",
+    "files": {},
+    "stdout": "single quotes\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c96e83b264c545b8": {
+    "command": "echo \"hello * world\"",
+    "files": {},
+    "stdout": "hello * world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cd1f9aa10c18f518": {
+    "command": "echo -e \"col1\\tcol2\"",
+    "files": {},
+    "stdout": "col1\tcol2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d17ea61d90fa289b": {
+    "command": "echo hello",
+    "files": {},
+    "stdout": "hello\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d99299972a3e4bf7": {
+    "command": "echo one two three",
+    "files": {},
+    "stdout": "one two three\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "db1e757b6d72f5a8": {
+    "command": "echo -e \"line1\\nline2\"",
+    "files": {},
+    "stdout": "line1\nline2\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

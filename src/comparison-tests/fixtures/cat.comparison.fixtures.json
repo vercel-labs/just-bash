@@ -1,0 +1,83 @@
+{
+  "020bff53c7000330": {
+    "command": "echo \"hello\" | cat",
+    "files": {},
+    "stdout": "hello\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "42f9ff247ca8f7cd": {
+    "command": "echo \"from stdin\" | cat - test.txt",
+    "files": {
+      "test.txt": "from file\n"
+    },
+    "stdout": "from stdin\nfrom file\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "65267847ad4c8e53": {
+    "command": "cat newlines.txt",
+    "files": {
+      "newlines.txt": "\n\n\n"
+    },
+    "stdout": "\n\n\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8dd4a90d66412d09": {
+    "command": "cat -n a.txt b.txt",
+    "files": {
+      "a.txt": "file a line 1\nfile a line 2\n",
+      "b.txt": "file b line 1\n"
+    },
+    "stdout": "     1\tfile a line 1\n     2\tfile a line 2\n     3\tfile b line 1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a0b709d7c5c60114": {
+    "command": "cat empty.txt",
+    "files": {
+      "empty.txt": ""
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b4be835a35eac7c5": {
+    "command": "cat -n test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\n"
+    },
+    "stdout": "     1\tline 1\n     2\tline 2\n     3\tline 3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c84d818ff334dff2": {
+    "command": "cat test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\n"
+    },
+    "stdout": "line 1\nline 2\nline 3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cbe3ef438087c1a8": {
+    "command": "cat file1.txt file2.txt",
+    "files": {
+      "file1.txt": "content 1\n",
+      "file2.txt": "content 2\n"
+    },
+    "stdout": "content 1\ncontent 2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "db717349fcf9c635": {
+    "command": "cat test.txt",
+    "files": {
+      "test.txt": "no trailing newline"
+    },
+    "stdout": "no trailing newline",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "4a2f700bead98b5a": {
+    "command": "export NUM=10; [ $NUM -gt 5 ] && echo greater",
+    "files": {},
+    "stdout": "greater\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "662fe76a74e0d0ea": {
+    "command": "export EMPTY=; echo \"[$EMPTY]\"",
+    "files": {},
+    "stdout": "[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7b6a73a19e04e211": {
+    "command": "export X=42 && echo $X",
+    "files": {},
+    "stdout": "42\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8017835d00c5a33f": {
+    "command": "export FOO=bar; (echo $FOO)",
+    "files": {},
+    "stdout": "bar\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8f93ecc4a3a9e58d": {
+    "command": "export A=1 B=2 C=3; echo $A $B $C",
+    "files": {},
+    "stdout": "1 2 3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "dbc45ae674bf0324": {
+    "command": "export NAME=world; echo \"hello $NAME\"",
+    "files": {},
+    "stdout": "hello world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ec458e22502c7bb9": {
+    "command": "export FOO=bar; echo $FOO",
+    "files": {},
+    "stdout": "bar\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f0b31788fc824515": {
+    "command": "export VAL=yes; [ \"$VAL\" = \"yes\" ] && echo matched",
+    "files": {},
+    "stdout": "matched\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ffc9146bd57203d1": {
+    "command": "export URL='http://x.com?a=1'; echo $URL",
+    "files": {},
+    "stdout": "http://x.com?a=1\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

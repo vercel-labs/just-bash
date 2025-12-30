@@ -1,0 +1,300 @@
+{
+  "07aafaf0ae069500": {
+    "command": "grep -r --include=\"*.ts\" hello dir",
+    "files": {
+      "dir/test.ts": "hello ts\n",
+      "dir/test.js": "hello js\n",
+      "dir/test.txt": "hello txt\n"
+    },
+    "stdout": "dir/test.ts:hello ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "08c5cca4c0651e81": {
+    "command": "grep -A 2 match test.txt",
+    "files": {
+      "test.txt": "line1\nmatch\nline3\nline4\n"
+    },
+    "stdout": "match\nline3\nline4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1025e358d7a34e01": {
+    "command": "grep \"[ch]at\" test.txt",
+    "files": {
+      "test.txt": "cat\nhat\nbat\nrat\n"
+    },
+    "stdout": "cat\nhat\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "154ea3241b3487b2": {
+    "command": "grep -F \".\" test.txt",
+    "files": {
+      "test.txt": "a.b\naXb\na..b\n"
+    },
+    "stdout": "a.b\na..b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "185ed628b5425dc6": {
+    "command": "grep -Fi \"hello.world\" test.txt",
+    "files": {
+      "test.txt": "Hello.World\nhello.world\nHELLO.WORLD\n"
+    },
+    "stdout": "Hello.World\nhello.world\nHELLO.WORLD\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1b39c1945ca0d7ae": {
+    "command": "grep -r hello dir",
+    "files": {
+      "dir/file1.txt": "hello from file1\n",
+      "dir/file2.txt": "goodbye from file2\n",
+      "dir/sub/file3.txt": "hello from file3\n"
+    },
+    "stdout": "dir/file1.txt:hello from file1\ndir/sub/file3.txt:hello from file3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "36f9ac8925c0108b": {
+    "command": "grep -B 2 match test.txt",
+    "files": {
+      "test.txt": "line1\nline2\nmatch\nline4\n"
+    },
+    "stdout": "line1\nline2\nmatch\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "387f744404b105ca": {
+    "command": "grep -c hello test.txt",
+    "files": {
+      "test.txt": "hello world\nfoo bar\nhello again\n"
+    },
+    "stdout": "2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3a66482f45995ea4": {
+    "command": "grep \"world$\" test.txt",
+    "files": {
+      "test.txt": "hello world\nworld hello\n"
+    },
+    "stdout": "hello world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "406fd22c6934415f": {
+    "command": "grep -o hello test.txt",
+    "files": {
+      "test.txt": "hello world hello\nfoo hello bar\n"
+    },
+    "stdout": "hello\nhello\nhello\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "426c49b200ec05fc": {
+    "command": "grep -l hello a.txt b.txt c.txt",
+    "files": {
+      "a.txt": "hello world\n",
+      "b.txt": "no match\n",
+      "c.txt": "hello there\n"
+    },
+    "stdout": "a.txt\nc.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "45aa0fe09d422b8b": {
+    "command": "grep \"^hello\" test.txt",
+    "files": {
+      "test.txt": "hello world\nworld hello\n"
+    },
+    "stdout": "hello world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4acb0878b7c7321a": {
+    "command": "grep \"c.t\" test.txt",
+    "files": {
+      "test.txt": "cat\ncut\ncot\ncart\n"
+    },
+    "stdout": "cat\ncut\ncot\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "51eb3a9e5a93c353": {
+    "command": "grep -q notfound test.txt || echo \"not found\"",
+    "files": {
+      "test.txt": "hello world\n"
+    },
+    "stdout": "not found\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5c8ae50b50d2af09": {
+    "command": "grep -E \"ca+t\" test.txt",
+    "files": {
+      "test.txt": "ct\ncat\ncaat\ncaaat\n"
+    },
+    "stdout": "cat\ncaat\ncaaat\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "60b5f71f1ea8f004": {
+    "command": "grep notfound test.txt || true",
+    "files": {
+      "test.txt": "hello world\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "739577ab79356d8c": {
+    "command": "grep -c hello a.txt b.txt c.txt",
+    "files": {
+      "a.txt": "hello\nhello\n",
+      "b.txt": "hello\n",
+      "c.txt": "world\n"
+    },
+    "stdout": "a.txt:2\nb.txt:1\nc.txt:0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7704b65434a86bb4": {
+    "command": "echo \"hello world\" | grep -q hello && echo matched",
+    "files": {},
+    "stdout": "matched\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7c10aa0a80b826a4": {
+    "command": "grep -C 1 match test.txt",
+    "files": {
+      "test.txt": "line1\nline2\nmatch\nline4\nline5\n"
+    },
+    "stdout": "line2\nmatch\nline4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7ce150b1d31c7157": {
+    "command": "grep -i hello test.txt",
+    "files": {
+      "test.txt": "Hello World\nHELLO AGAIN\nhello there\n"
+    },
+    "stdout": "Hello World\nHELLO AGAIN\nhello there\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "96c3aa3ddb21f038": {
+    "command": "grep \"ca*t\" test.txt",
+    "files": {
+      "test.txt": "ct\ncat\ncaat\ncaaat\n"
+    },
+    "stdout": "ct\ncat\ncaat\ncaaat\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9e3dd0958d208f3e": {
+    "command": "grep -q hello test.txt",
+    "files": {
+      "test.txt": "hello world\nfoo bar\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a2abcfaed619014a": {
+    "command": "grep -v hello test.txt",
+    "files": {
+      "test.txt": "hello world\nfoo bar\nhello again\n"
+    },
+    "stdout": "foo bar\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b004d9dd542ae06b": {
+    "command": "grep hello test.txt",
+    "files": {
+      "test.txt": "hello world\nfoo bar\nhello again\n"
+    },
+    "stdout": "hello world\nhello again\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b83506e9397f4339": {
+    "command": "grep -F \"[test]\" test.txt",
+    "files": {
+      "test.txt": "[test]\ntest\n[another]\n"
+    },
+    "stdout": "[test]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bd0c258c0ab3c71b": {
+    "command": "grep -h hello a.txt b.txt",
+    "files": {
+      "a.txt": "hello a\n",
+      "b.txt": "hello b\n"
+    },
+    "stdout": "hello a\nhello b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bf613f70adc0289f": {
+    "command": "grep -n hello test.txt",
+    "files": {
+      "test.txt": "hello world\nfoo bar\nhello again\n"
+    },
+    "stdout": "1:hello world\n3:hello again\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e082fd2315ac5a21": {
+    "command": "grep hello a.txt b.txt",
+    "files": {
+      "a.txt": "hello a\n",
+      "b.txt": "hello b\n"
+    },
+    "stdout": "a.txt:hello a\nb.txt:hello b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e970360545cfd7e7": {
+    "command": "grep -F \".*\" test.txt",
+    "files": {
+      "test.txt": "hello.*world\ntest pattern\nhello.world\n"
+    },
+    "stdout": "hello.*world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f62342a3de049a90": {
+    "command": "grep -q hello test.txt && echo found",
+    "files": {
+      "test.txt": "hello world\n"
+    },
+    "stdout": "found\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fd1559b5e557cb7a": {
+    "command": "grep -rl hello dir | sort",
+    "files": {
+      "dir/a.txt": "hello\n",
+      "dir/b.txt": "world\n",
+      "dir/sub/c.txt": "hello\n"
+    },
+    "stdout": "dir/a.txt\ndir/sub/c.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ff06d4155ef88658": {
+    "command": "grep -w hello test.txt",
+    "files": {
+      "test.txt": "hello world\nhelloworld\nworld hello\n"
+    },
+    "stdout": "hello world\nworld hello\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

@@ -1,0 +1,307 @@
+{
+  "07ecf5d06aae1d01": {
+    "command": "test \"abc\" != \"abc\" && echo notequal || echo equal",
+    "files": {},
+    "stdout": "equal\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "142b3be2490b21d9": {
+    "command": "test -f a.txt -a -f nonexistent && echo both || echo notboth",
+    "files": {
+      "a.txt": "a"
+    },
+    "stdout": "notboth\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2a3886087954312e": {
+    "command": "test 5 -eq 6 && echo equal || echo notequal",
+    "files": {},
+    "stdout": "notequal\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2b1ca9a19ec4652d": {
+    "command": "test -f a.txt -a -f b.txt && echo both || echo notboth",
+    "files": {
+      "a.txt": "a",
+      "b.txt": "b"
+    },
+    "stdout": "both\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2bf51f02f0d8319b": {
+    "command": "test \"abc\" = \"abc\" && echo equal || echo notequal",
+    "files": {},
+    "stdout": "equal\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "32e9bb0492159c86": {
+    "command": "VAR=\"\"; test -z \"$VAR\" && echo empty || echo notempty",
+    "files": {},
+    "stdout": "empty\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "362f18b1f969f0c4": {
+    "command": "VAR=hello; test -n \"$VAR\" && echo set || echo unset",
+    "files": {},
+    "stdout": "set\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3806c4e0bb27fc8a": {
+    "command": "test -z \"\" && echo empty || echo nonempty",
+    "files": {},
+    "stdout": "empty\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3bc0563368211125": {
+    "command": "test -n \"hello\" && echo nonempty || echo empty",
+    "files": {},
+    "stdout": "nonempty\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "40d7a6d3001fa4df": {
+    "command": "test \"abc\" = \"def\" && echo equal || echo notequal",
+    "files": {},
+    "stdout": "notequal\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "45a90c59ab9f56a7": {
+    "command": "test 5 -gt 3 && echo greater || echo notgreater",
+    "files": {},
+    "stdout": "greater\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "477d1feb1d665e03": {
+    "command": "test -n \"\" && echo nonempty || echo empty",
+    "files": {},
+    "stdout": "empty\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4bb9ae673513f981": {
+    "command": "test -s file.txt && echo nonempty || echo empty",
+    "files": {
+      "file.txt": "content"
+    },
+    "stdout": "nonempty\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4bfdda5779eb22aa": {
+    "command": "[ ] && echo true || echo false",
+    "files": {},
+    "stdout": "false\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4e936e4cb3221fa0": {
+    "command": "test \"\" && echo nonempty || echo empty",
+    "files": {},
+    "stdout": "empty\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "559d18b007565907": {
+    "command": "test -f dir && echo file || echo not",
+    "files": {
+      "dir/file.txt": "content"
+    },
+    "stdout": "not\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "59e6197f30e2c6f9": {
+    "command": "test -d dir && echo dir || echo not",
+    "files": {
+      "dir/file.txt": "content"
+    },
+    "stdout": "dir\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "64e1d835faf934fd": {
+    "command": "test -s empty.txt && echo nonempty || echo empty",
+    "files": {
+      "empty.txt": ""
+    },
+    "stdout": "empty\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "67cec0b058f75b10": {
+    "command": "NUM=10; test $NUM -gt 5 && echo greater || echo notgreater",
+    "files": {},
+    "stdout": "greater\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7d3cfdb988f34f1f": {
+    "command": "test 5 -lt 3 && echo less || echo notless",
+    "files": {},
+    "stdout": "notless\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8ff8e6ec3f4f9aa5": {
+    "command": "test 5 -ge 5 && echo greatereq || echo notgreatereq",
+    "files": {},
+    "stdout": "greatereq\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9645cc27f0443e75": {
+    "command": "test && echo true || echo false",
+    "files": {},
+    "stdout": "false\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9897cd58b4c36e89": {
+    "command": "test -f a -o -f b && echo either || echo neither",
+    "files": {},
+    "stdout": "neither\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "999638a8d4a7e5f3": {
+    "command": "test -z \"hello\" && echo empty || echo nonempty",
+    "files": {},
+    "stdout": "nonempty\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9b4d17ccee3c3959": {
+    "command": "[ -f file.txt ] && echo file || echo notfile",
+    "files": {
+      "file.txt": "content"
+    },
+    "stdout": "file\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9f128e60a6c2032e": {
+    "command": "[ 10 -gt 5 ] && echo greater || echo notgreater",
+    "files": {},
+    "stdout": "greater\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b96acf39a07f04fc": {
+    "command": "test -e file.txt && echo exists",
+    "files": {
+      "file.txt": "content"
+    },
+    "stdout": "exists\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "be851b706cc0a780": {
+    "command": "test 5 -ne 6 && echo notequal || echo equal",
+    "files": {},
+    "stdout": "notequal\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c0bd6d6e23f92c4d": {
+    "command": "test -e nonexistent && echo exists || echo missing",
+    "files": {},
+    "stdout": "missing\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cc25be4d71e0e788": {
+    "command": "test \"abc\" != \"def\" && echo notequal || echo equal",
+    "files": {},
+    "stdout": "notequal\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cee2a2252e72be35": {
+    "command": "test ! -z \"hello\" && echo notempty || echo empty",
+    "files": {},
+    "stdout": "notempty\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d51751d648290898": {
+    "command": "test 5 -eq 5 && echo equal || echo notequal",
+    "files": {},
+    "stdout": "equal\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d7090ed20fb46e42": {
+    "command": "test -f nonexistent -o -f a.txt && echo either || echo neither",
+    "files": {
+      "a.txt": "a"
+    },
+    "stdout": "either\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "dab99a504d50a7a0": {
+    "command": "test 5 -le 5 && echo lesseq || echo notlesseq",
+    "files": {},
+    "stdout": "lesseq\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e242b0275b3369a6": {
+    "command": "test \"hello\" && echo nonempty || echo empty",
+    "files": {},
+    "stdout": "nonempty\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e3524ab9bf872049": {
+    "command": "test -d file.txt && echo dir || echo not",
+    "files": {
+      "file.txt": "content"
+    },
+    "stdout": "not\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e87af379741409a8": {
+    "command": "[ -d dir -a -f dir/file ] && echo both || echo notboth",
+    "files": {
+      "dir/file": "x"
+    },
+    "stdout": "both\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ed94aed584f0e297": {
+    "command": "[ \"foo\" = \"foo\" ] && echo equal || echo notequal",
+    "files": {},
+    "stdout": "equal\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f7b39a0f7cb047a2": {
+    "command": "test 3 -lt 5 && echo less || echo notless",
+    "files": {},
+    "stdout": "less\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ff9e0673004daf1a": {
+    "command": "test -f file.txt && echo file || echo not",
+    "files": {
+      "file.txt": "content"
+    },
+    "stdout": "file\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

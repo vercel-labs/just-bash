@@ -1,0 +1,127 @@
+{
+  "12c80cbc8d61a75e": {
+    "command": "ls file.txt dir",
+    "files": {
+      "file.txt": "",
+      "dir/nested.txt": ""
+    },
+    "stdout": "file.txt\n\ndir:\nnested.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3b7d8ce2d6992be7": {
+    "command": "ls subdir",
+    "files": {
+      "subdir/.gitkeep": ""
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3ff2b49021e0b8df": {
+    "command": "ls -1",
+    "files": {
+      "Apple.txt": "",
+      "banana.txt": "",
+      "cherry.txt": ""
+    },
+    "stdout": "Apple.txt\nbanana.txt\ncherry.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4123d9b2a8de2d7c": {
+    "command": "ls -A",
+    "files": {
+      ".hidden": "",
+      "visible.txt": ""
+    },
+    "stdout": ".hidden\nvisible.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "537fc7f40660ced4": {
+    "command": "ls -1r",
+    "files": {
+      "aaa.txt": "",
+      "bbb.txt": "",
+      "ccc.txt": ""
+    },
+    "stdout": "ccc.txt\nbbb.txt\naaa.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7ae1c663742d227c": {
+    "command": "ls subdir",
+    "files": {
+      "subdir/file1.txt": "",
+      "subdir/file2.txt": ""
+    },
+    "stdout": "file1.txt\nfile2.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "893bb7f655a1464e": {
+    "command": "ls -1",
+    "files": {
+      "zebra.txt": "",
+      "apple.txt": "",
+      "banana.txt": ""
+    },
+    "stdout": "apple.txt\nbanana.txt\nzebra.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a7c8be4092c3fc30": {
+    "command": "ls",
+    "files": {
+      "file1.txt": "content",
+      "file2.txt": "content",
+      "subdir/file3.txt": "content"
+    },
+    "stdout": "file1.txt\nfile2.txt\nsubdir\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ad7e0e863a30ec68": {
+    "command": "ls -R",
+    "files": {
+      "file.txt": "",
+      "dir/file1.txt": "",
+      "dir/sub/file2.txt": ""
+    },
+    "stdout": ".:\ndir\nfile.txt\n\n./dir:\nfile1.txt\nsub\n\n./dir/sub:\nfile2.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e1105146143329fe": {
+    "command": "ls dir1 dir2",
+    "files": {
+      "dir1/a.txt": "",
+      "dir2/b.txt": ""
+    },
+    "stdout": "dir1:\na.txt\n\ndir2:\nb.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ed09e77729197e0d": {
+    "command": "ls -1",
+    "files": {
+      "aaa.txt": "",
+      "bbb.txt": "",
+      "ccc.txt": ""
+    },
+    "stdout": "aaa.txt\nbbb.txt\nccc.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ed367bb71e17d454": {
+    "command": "ls -a",
+    "files": {
+      ".hidden": "",
+      "visible.txt": ""
+    },
+    "stdout": ".\n..\n.hidden\nvisible.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "7742179701e72ad0": {
+    "command": "cat <<EOF\nhello\nEOF",
+    "files": {},
+    "stdout": "hello\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7e3226eae423951e": {
+    "command": "NAME=World; cat <<'EOF'\nHello, $NAME!\nEOF",
+    "files": {},
+    "stdout": "Hello, $NAME!\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "90e07df1af8bd75c": {
+    "command": "cat <<EOF\nline1\nline2\nline3\nEOF",
+    "files": {},
+    "stdout": "line1\nline2\nline3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a31acf5a1a7b5949": {
+    "command": "NAME=World; cat <<EOF\nHello, $NAME!\nEOF",
+    "files": {},
+    "stdout": "Hello, World!\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "dedf34103c400a8e": {
+    "command": "if [[ 1 -eq 1 ]]; then\ncat <<EOF\nhello from if\nEOF\nfi",
+    "files": {},
+    "stdout": "hello from if\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "2781fd7f7094c9bf": {
+    "command": "wc empty.txt",
+    "files": {
+      "empty.txt": ""
+    },
+    "stdout": "       0       0       0 empty.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2e29f667ec186395": {
+    "command": "echo \"hello world\" | wc",
+    "files": {},
+    "stdout": "       1       2      12\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3930727afae9c7c9": {
+    "command": "wc -l a.txt b.txt",
+    "files": {
+      "a.txt": "line 1\nline 2\n",
+      "b.txt": "line 1\nline 2\nline 3\n"
+    },
+    "stdout": "       2 a.txt\n       3 b.txt\n       5 total\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "594a6fe99828eb5f": {
+    "command": "wc -l test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\n"
+    },
+    "stdout": "       3 test.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5eb262adb739302b": {
+    "command": "wc test.txt",
+    "files": {
+      "test.txt": "no newline"
+    },
+    "stdout": "       0       2      10 test.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8a1eb6d6618bfd8e": {
+    "command": "wc test.txt",
+    "files": {
+      "test.txt": "line 1\nline 2\nline 3\n"
+    },
+    "stdout": "       3       6      21 test.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "945a3b5788f1e741": {
+    "command": "wc a.txt b.txt",
+    "files": {
+      "a.txt": "file a\n",
+      "b.txt": "file b line 1\nfile b line 2\n"
+    },
+    "stdout": "       1       2       7 a.txt\n       2       8      28 b.txt\n       3      10      35 total\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c4733e52e24d2f84": {
+    "command": "wc -wc test.txt",
+    "files": {
+      "test.txt": "hello world\n"
+    },
+    "stdout": "       2      12 test.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c5297724c7668b58": {
+    "command": "wc -w test.txt",
+    "files": {
+      "test.txt": "one two three\nfour five\n"
+    },
+    "stdout": "       5 test.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cf23334f3ce26e2e": {
+    "command": "wc -c test.txt",
+    "files": {
+      "test.txt": "hello world\n"
+    },
+    "stdout": "      12 test.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d2264eab88bb30ee": {
+    "command": "wc -lw test.txt",
+    "files": {
+      "test.txt": "one two three\nfour five\n"
+    },
+    "stdout": "       2       5 test.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f28f0e694e2f5746": {
+    "command": "wc -w test.txt",
+    "files": {
+      "test.txt": "one    two   three\n"
+    },
+    "stdout": "       3 test.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fbae9795c34391b6": {
+    "command": "echo -e \"a\\nb\\nc\" | wc -l",
+    "files": {},
+    "stdout": "       3\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
