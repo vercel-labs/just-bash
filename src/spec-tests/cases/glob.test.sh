@@ -153,7 +153,7 @@ echo -* hello zzzz?
 ## stdout-json: "hello zzzzz"
 
 #### set -o noglob
-## SKIP: noglob (set -f) not implemented
+## SKIP: Test requires real filesystem and $REPO_ROOT
 cd $REPO_ROOT
 touch _tmp/spec-tmp/a.zz _tmp/spec-tmp/b.zz
 echo _tmp/spec-tmp/*.zz

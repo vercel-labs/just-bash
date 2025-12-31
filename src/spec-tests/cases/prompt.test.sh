@@ -133,7 +133,6 @@ $
 ## END
 
 #### hostname
-## SKIP: hostname command not implemented
 
 # NOTE: This test is not hermetic.  On my machine the short and long host name
 # are the same.

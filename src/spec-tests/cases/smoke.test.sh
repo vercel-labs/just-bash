@@ -17,7 +17,6 @@ echo $(echo hi)
 ## stdout: hi
 
 #### pipeline
-## SKIP: hostname command not implemented
 hostname | wc -l
 ## stdout: 1
 
@@ -43,7 +42,6 @@ D
 ## END
 
 #### here doc with var
-## SKIP: tac command not implemented
 v=one
 tac <<EOF
 $v
@@ -52,7 +50,6 @@ EOF
 ## stdout-json: "\"two\none\n"
 
 #### here doc without var
-## SKIP: Here-doc edge cases not implemented
 tac <<"EOF"
 $v
 "two

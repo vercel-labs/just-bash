@@ -45,7 +45,7 @@ echo status=$?
 ## OK mksh status: 1
 
 #### Command sub with here doc
-## SKIP: tac command not implemented
+## SKIP: Here-doc as command prefix (<<EOF cmd) not supported
 echo $(<<EOF tac
 one
 two
@@ -54,7 +54,7 @@ EOF
 ## stdout: two one
 
 #### Here doc with pipeline
-## SKIP: tac command not implemented
+## SKIP: Here-doc as command prefix (<<EOF cmd) not supported
 <<EOF tac | tr '\n' 'X'
 one
 two

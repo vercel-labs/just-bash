@@ -154,7 +154,7 @@ EOF2
 ## stdout: there
 
 #### Here doc with line continuation, then pipe.  Syntax error.
-## SKIP: tac command not implemented
+## SKIP: Here-doc line continuation syntax error detection differs
 cat <<EOF \
 1
 2
@@ -165,7 +165,6 @@ EOF
 ## OK mksh status: 1
 
 #### Here doc with pipe on first line
-## SKIP: tac command not implemented
 cat <<EOF | tac
 1
 2
@@ -178,7 +177,6 @@ EOF
 ## END
 
 #### Here doc with pipe continued on last line
-## SKIP: tac command not implemented
 cat <<EOF |
 1
 2
@@ -311,7 +309,6 @@ after
 ## END
 
 #### Here doc as command prefix
-## SKIP: tac command not implemented
 <<EOF tac
 1
 2

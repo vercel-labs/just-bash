@@ -53,8 +53,7 @@ describe("read builtin", () => {
       expect(result.stdout).toBe("test\n");
     });
 
-    // Skip: arrays are not fully implemented
-    it.skip("should support -a to read into array", async () => {
+    it("should support -a to read into array", async () => {
       const env = new Bash();
       const result = await env.exec(`
         echo "a b c" | { read -a ARR; echo "\${ARR[0]} \${ARR[1]} \${ARR[2]}"; }

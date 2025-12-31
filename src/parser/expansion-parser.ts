@@ -691,7 +691,8 @@ export function parseWordParts(
     // Handle single quotes
     // When inside double-quoted context (singleQuotesAreLiteral=true), single quotes
     // are literal characters, not quote delimiters
-    if (char === "'" && !singleQuotesAreLiteral) {
+    // In here-docs, quotes are NOT special - they're literal characters
+    if (char === "'" && !singleQuotesAreLiteral && !hereDoc) {
       flushLiteral();
       const closeQuote = value.indexOf("'", i + 1);
       if (closeQuote === -1) {
@@ -704,7 +705,9 @@ export function parseWordParts(
     }
 
     // Handle double quotes
-    if (char === '"') {
+    // In here-docs, quotes are NOT special - they're literal characters
+    // Only $, `, and \ are special in heredocs (for expansion and escaping)
+    if (char === '"' && !hereDoc) {
       flushLiteral();
       const { part, endIndex } = parseDoubleQuoted(p, value, i + 1);
       parts.push(part);
