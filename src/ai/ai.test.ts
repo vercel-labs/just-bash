@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { defineCommand } from "../custom-commands.js";
 import { createBashTool } from "./index.js";
 
 type BashResult = { stdout: string; stderr: string; exitCode: number };
@@ -179,5 +180,43 @@ describe("createBashTool", () => {
     await exec(tool, "echo world");
 
     expect(calls).toEqual(["echo hello", "echo world"]);
+  });
+
+  it("supports custom commands via customCommands option", async () => {
+    const hello = defineCommand("hello", async (args) => ({
+      stdout: `Hello, ${args[0] || "world"}!\n`,
+      stderr: "",
+      exitCode: 0,
+    }));
+
+    const tool = createBashTool({
+      customCommands: [hello],
+    });
+
+    const result = await exec(tool, "hello Alice");
+    expect(result).toEqual({
+      stdout: "Hello, Alice!\n",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
+  it("custom commands override built-in commands", async () => {
+    const customEcho = defineCommand("echo", async (args) => ({
+      stdout: `custom: ${args.join(" ")}\n`,
+      stderr: "",
+      exitCode: 0,
+    }));
+
+    const tool = createBashTool({
+      customCommands: [customEcho],
+    });
+
+    const result = await exec(tool, "echo test");
+    expect(result).toEqual({
+      stdout: "custom: test\n",
+      stderr: "",
+      exitCode: 0,
+    });
   });
 });

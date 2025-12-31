@@ -34,6 +34,12 @@ export interface CreateBashToolOptions {
   commands?: CommandName[];
 
   /**
+   * Custom commands to register alongside built-in commands.
+   * These take precedence over built-ins with the same name.
+   */
+  customCommands?: BashOptions["customCommands"];
+
+  /**
    * Network configuration for commands like curl.
    * Disabled by default for security.
    */
@@ -150,6 +156,7 @@ export function createBashTool(
     cwd: options.cwd,
     network: options.network,
     commands: options.commands,
+    customCommands: options.customCommands,
     logger: options.logger,
   });
 
