@@ -520,6 +520,7 @@ if
 
 
 #### trap RETURN
+## SKIP: Test data directory not available
 profile() {
   echo "profile [$@]"
 }

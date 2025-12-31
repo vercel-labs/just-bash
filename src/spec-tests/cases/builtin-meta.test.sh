@@ -38,6 +38,7 @@ for
 ## END
 
 #### command -v executable, builtin
+## SKIP: egrep not implemented
 
 #command -v grep ls
 
@@ -87,6 +88,7 @@ status=1
 ## END
 
 #### command -v doesn't find non-executable file
+## SKIP: chmod command not implemented
 # PATH resolution is different
 
 mkdir -p _tmp
@@ -294,6 +296,7 @@ command command -v seq
 ## N-I zsh status: 127
 
 #### command -p (override existing program)
+## SKIP: chmod command not implemented
 # Tests whether command -p overrides the path
 # tr chosen because we need a simple non-builtin
 mkdir -p $TMP/bin
@@ -309,6 +312,7 @@ bbb
 ## END
 
 #### command -p (hide tool in custom path)
+## SKIP: chmod command not implemented
 mkdir -p $TMP/bin
 echo "echo hello" > $TMP/bin/hello
 chmod +x $TMP/bin/hello

@@ -196,6 +196,7 @@ echo DONE
 ## OK dash status: 2
 
 #### Redirect to file descriptor that's not open
+## SKIP: egrep not implemented
 # Notes:
 # - 7/2021: descriptor 7 seems to work on all CI systems.  The process state
 #   isn't clean, but we could probably close it in OSH?

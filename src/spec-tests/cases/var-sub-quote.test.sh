@@ -44,13 +44,11 @@ argv.py "$s"
 ## END
 
 #### :-
-## SKIP: Right brace in parameter default value not implemented
 empty=''
 argv.py ${empty:-a} ${Unset:-b}
 ## stdout: ['a', 'b']
 
 #### -
-## SKIP: Right brace in parameter default value not implemented
 empty=''
 argv.py ${empty-a} ${Unset-b}
 # empty one is still elided!
@@ -112,7 +110,6 @@ argv.py ${a:-${a:-"1 2" "3 4"}5 "6 7"}
 ## stdout: ['1 2', '3 45', '6 7']
 
 #### part_value tree on RHS
-## SKIP: Right brace in parameter default value not implemented
 v=${a:-${a:-"1 2" "3 4"}5 "6 7"}
 argv.py "${v}"
 ## stdout: ['1 2 3 45 6 7']
@@ -187,7 +184,6 @@ argv.py "${foo%d'}"
 ## OK mksh status: 1
 
 #### "${undef-'c d'}" and "${foo%'c d'}" are parsed differently
-## SKIP: Right brace in parameter default value not implemented
 
 # quotes are LITERAL here
 argv.py "${undef-'c d'}" "${undef-'c  d'}"

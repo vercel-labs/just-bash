@@ -9,6 +9,7 @@
 #                  | Bang pipe_sequence
 
 #### Brace group in pipeline
+## SKIP: tac command not implemented
 { echo one; echo two; } | tac
 ## STDOUT:
 two
@@ -16,6 +17,7 @@ one
 ## END
 
 #### For loop starts pipeline
+## SKIP: tac command not implemented
 for w in one two; do
   echo $w
 done | tac
@@ -51,7 +53,6 @@ echo a | egrep '[0-9]+'
 ## status: 1
 
 #### Initial value of PIPESTATUS is empty string
-## SKIP: PIPESTATUS variable not implemented
 case $SH in dash|zsh) exit ;; esac
 
 echo pipestatus ${PIPESTATUS[@]}
@@ -65,7 +66,6 @@ pipestatus 0
 ## END
 
 #### PIPESTATUS
-## SKIP: PIPESTATUS variable not implemented
 return3() {
   return 3
 }
@@ -100,7 +100,6 @@ pipestatus 0
 ## END
 
 #### PIPESTATUS with shopt -s lastpipe
-## SKIP: PIPESTATUS variable not implemented
 shopt -s lastpipe
 return3() {
   return 3
@@ -128,13 +127,11 @@ STDOUT
 ## N-I osh status: 1
 
 #### ! turns non-zero into zero
-## SKIP: Interactive shell invocation not implemented
 ! $SH -c 'exit 42'; echo $?
 ## stdout: 0
 ## status: 0
 
 #### ! turns zero into 1
-## SKIP: Interactive shell invocation not implemented
 ! $SH -c 'exit 0'; echo $?
 ## stdout: 1
 ## status: 0

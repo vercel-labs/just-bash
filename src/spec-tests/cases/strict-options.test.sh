@@ -35,6 +35,7 @@ shopt -s strict_arith
 ## N-I dash/mksh status: 127
 
 #### Sourcing a script that returns at the top level
+## SKIP: Test data directory not available
 echo one
 . $REPO_ROOT/spec/testdata/return-helper.sh
 echo $?
@@ -47,6 +48,7 @@ two
 ## END
 
 #### top level control flow
+## SKIP: Test data directory not available
 $SH $REPO_ROOT/spec/testdata/top-level-control-flow.sh
 ## status: 0
 ## STDOUT:
@@ -63,6 +65,7 @@ DONE
 ## END
 
 #### errexit and top-level control flow
+## SKIP: Test data directory not available
 $SH -o errexit $REPO_ROOT/spec/testdata/top-level-control-flow.sh
 ## status: 2
 ## OK bash status: 1
@@ -195,7 +198,6 @@ argv.py "${undef[@]}"
 ## N-I dash stdout-json: ""
 
 #### automatically creating arrays are INDEXED, not associative
-## SKIP: which command not implemented
 shopt -u strict_arith || true
 
 undef[2]=x

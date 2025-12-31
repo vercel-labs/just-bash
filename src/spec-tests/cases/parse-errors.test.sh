@@ -2,6 +2,7 @@
 ## compare_shells: bash dash mksh
 
 #### Long Token - 65535 bytes
+## SKIP: python2 not available
 
 python2 -c 'print("echo -n %s" % ("x" * 65535))' > tmp.sh
 $SH tmp.sh > out
@@ -12,6 +13,7 @@ wc --bytes out
 ## END
 
 #### Token that's too long for Oils - 65536 bytes
+## SKIP: python2 not available
 
 python2 -c 'print("echo -n %s" % ("x" * 65536))' > tmp.sh
 $SH tmp.sh > out

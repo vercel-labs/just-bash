@@ -244,6 +244,7 @@ _μ_ and _μ_
 ## END
 
 #### When LC_ALL=C, pattern ? doesn't match multibyte character
+## SKIP: Locale settings not supported
 export LC_ALL='C'
 
 s='_μ_ and _μ_'

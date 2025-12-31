@@ -3,6 +3,7 @@
 ## oils_cpp_failures_allowed: 1
 
 #### NUL bytes with echo -e
+## SKIP: od command not implemented
 case $SH in dash) exit ;; esac
 
 show_hex() { od -A n -t c -t x1; }
@@ -25,6 +26,7 @@ echo -e '\0-' | show_hex
 ## END
 
 #### printf - literal NUL in format string
+## SKIP: od command not implemented
 case $SH in dash|ash) return ;; esac
 
 # Show both printable and hex
@@ -60,6 +62,7 @@ printf $'\U0z' | show_hex
 ## END
 
 #### printf - \0 escape shows NUL byte
+## SKIP: od command not implemented
 show_hex() { od -A n -t c -t x1; }
 
 printf '\0\n' | show_hex
@@ -69,6 +72,7 @@ printf '\0\n' | show_hex
 ## END
 
 #### printf - NUL byte in value (OSH and zsh agree)
+## SKIP: od command not implemented
 case $SH in dash) exit ;; esac
 show_hex() { od -A n -t c -t x1; }
 
@@ -92,6 +96,7 @@ printf '%s\n' "$nul" | show_hex
 ## N-I dash stdout-json: ""
 
 #### NUL bytes with echo $'\0' (OSH and zsh agree)
+## SKIP: od command not implemented
 case $SH in dash) exit ;; esac
 show_hex() { od -A n -t c -t x1; }
 
@@ -228,6 +233,7 @@ nul=1
 ## END
 
 #### Compare \x00 byte versus \x01 byte - command sub
+## SKIP: od command not implemented
 
 # https://stackoverflow.com/questions/32722007/is-skipping-ignoring-nul-bytes-on-process-substitution-standardized
 # bash contains a warning!
@@ -266,6 +272,7 @@ len=1
 ## END
 
 #### Compare \x00 byte versus \x01 byte - read builtin
+## SKIP: od command not implemented
 
 # Hm same odd behavior
 
@@ -371,6 +378,7 @@ len=2
 ## END
 
 #### Strip ops # ## % %% with NUL bytes
+## SKIP: od command not implemented
 
 show_bytes() {
   echo -n "$1" | od -A n -t x1
@@ -423,6 +431,7 @@ len=2
 ## END
 
 #### Issue 2269 Reduction
+## SKIP: od command not implemented
 
 show_bytes() {
   echo -n "$1" | od -A n -t x1

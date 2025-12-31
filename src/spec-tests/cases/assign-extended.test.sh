@@ -67,6 +67,7 @@ declare -f ek
 ## N-I mksh status: 127
 
 #### declare -F with shopt -s extdebug prints more info
+## SKIP: Test data directory not available
 case $SH in mksh) exit ;; esac
 
 source $REPO_ROOT/spec/testdata/bash-source-2.sh
@@ -93,6 +94,7 @@ g 3 ROOT/spec/testdata/bash-source-2.sh
 ## END
 
 #### declare -F with shopt -s extdebug and main file
+## SKIP: Test data directory not available
 case $SH in mksh) exit ;; esac
 
 $SH $REPO_ROOT/spec/testdata/extdebug.sh | sed "s;$REPO_ROOT;ROOT;g"
@@ -253,6 +255,7 @@ typeset test_var5=555
 ## END
 
 #### declare -p doesn't print binary data, but can be loaded into bash
+## SKIP: od command not implemented
 
 # bash prints binary data!
 case $SH in bash*|mksh) exit ;; esac

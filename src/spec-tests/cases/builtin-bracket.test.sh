@@ -242,6 +242,7 @@ status=1
 ## END
 
 #### -x
+## SKIP: chmod command not implemented
 rm -f $TMP/x
 echo 'echo hi' > $TMP/x
 test -x $TMP/x || echo 'no'
@@ -255,6 +256,7 @@ bad
 ## END
 
 #### -r
+## SKIP: chmod command not implemented
 echo '1' > $TMP/testr_yes
 echo '2' > $TMP/testr_no
 chmod -r $TMP/testr_no  # remove read permission
@@ -266,6 +268,7 @@ no
 ## END
 
 #### -w
+## SKIP: chmod command not implemented
 rm -f $TMP/testw_*
 echo '1' > $TMP/testw_yes
 echo '2' > $TMP/testw_no
@@ -407,6 +410,7 @@ status=1
 
 
 #### test -p named pipe
+## SKIP: Named pipes not implemented
 mkfifo $TMP/fifo
 test -p $TMP/fifo
 echo status=$?
@@ -441,6 +445,7 @@ status=1
 ## END
 
 #### -u for setuid, -g too
+## SKIP: chmod command not implemented
 
 touch $TMP/setuid $TMP/setgid
 chmod u+s $TMP/setuid

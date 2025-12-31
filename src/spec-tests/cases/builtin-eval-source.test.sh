@@ -176,6 +176,7 @@ echo status=$?
 ## N-I dash stdout: status=127
 
 #### Source with arguments
+## SKIP: Test data directory not available
 . $REPO_ROOT/spec/testdata/show-argv.sh foo bar  # dash doesn't have source
 ## STDOUT:
 show-argv: foo bar

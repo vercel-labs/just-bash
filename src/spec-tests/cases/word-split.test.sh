@@ -448,7 +448,6 @@ echo $var
 ## END
 
 #### Bug #1664, \\ with noglob
-## SKIP: noglob (set -f) not implemented
 
 # Note that we're not changing IFS
 
@@ -621,6 +620,7 @@ argv.py ' "$@" ' "$@"
 ## END
 
 #### 4 x 3 table - with for loop
+## SKIP: zsh setopt not supported
 case $SH in yash) exit ;; esac  # no echo -n
 
 setopt SH_WORD_SPLIT  # for zsh

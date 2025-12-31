@@ -182,6 +182,7 @@ col3
 ## END
 
 #### $'' octal escapes don't have leading 0
+## SKIP: od command not implemented
 # echo -e syntax is echo -e \0377
 echo -n $'\001' $'\377' | od -A n -c | sed 's/ \+/ /g'
 ## STDOUT:
@@ -192,6 +193,7 @@ echo -n $'\001' $'\377' | od -A n -c | sed 's/ \+/ /g'
 ## END
 
 #### $'' octal escapes with fewer than 3 chars
+## SKIP: od command not implemented
 echo $'\1 \11 \11 \111' | od -A n -c | sed 's/ \+/ /g'
 ## STDOUT:
  001 \t \t I \n
@@ -240,6 +242,7 @@ printf "c1\tc2\nc3\tc4\n"
 ## stdout-json: "c1\tc2\nc3\tc4\n"
 
 #### $'' supports \cA escape for Ctrl-A - mask with 0x1f
+## SKIP: od command not implemented
 
 # note: AT&T ksh supports this too
 
@@ -283,6 +286,7 @@ echo -n $'\c-\c+\c"' | show_bytes
 ## END
 
 #### \c' is an escape, unlike bash
+## SKIP: od command not implemented
 
 # mksh and ksh agree this is an esacpe
 

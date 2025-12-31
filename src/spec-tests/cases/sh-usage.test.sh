@@ -73,6 +73,7 @@ echo foo
 ## END
 
 #### shell obeys --help (regression for OSH)
+## SKIP: Shell invocation not supported
 n=$($SH --help | wc -l)
 if test $n -gt 0; then
   echo yes
@@ -109,6 +110,7 @@ exit
 ## status: 1
 
 #### --rcfile in non-interactive shell prints warnings
+## SKIP: Shell invocation not supported
 echo 'echo rc' > rc
 
 $SH --rcfile rc -i </dev/null 2>interactive.txt
@@ -136,6 +138,7 @@ $SH -l -c 'exit 0'
 
 
 #### accepts --login flag (dash and mksh don't accept long flags)
+## SKIP: Shell invocation not supported
 $SH --login -c 'exit 0'
 ## status: 0
 ## OK dash status: 2
@@ -143,6 +146,7 @@ $SH --login -c 'exit 0'
 
 
 #### osh --eval 
+## SKIP: Shell invocation not supported
 case $SH in bash|dash|mksh|zsh) exit ;; esac
 
 echo 'echo one "$@"' > one.sh

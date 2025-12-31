@@ -214,9 +214,7 @@ describe("Oils Spec Tests", () => {
         const testName = `[L${testCase.lineNumber}] ${testCase.name}: ${scriptPreview}`;
 
         it(testName, async () => {
-          const result = await runTestCase(testCase, {
-            skipExternal: true,
-          });
+          const result = await runTestCase(testCase);
 
           if (result.skipped) {
             return;

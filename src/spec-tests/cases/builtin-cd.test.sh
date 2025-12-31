@@ -170,7 +170,6 @@ PWD=
 ## END
 
 #### 'unset PWD; pwd' before any cd (tickles a rare corner case)
-## SKIP: Interactive shell invocation not implemented
 dir=/tmp/oil-spec-test/pwd-2
 mkdir -p $dir
 cd $dir
@@ -183,7 +182,6 @@ $SH -c 'unset PWD; pwd'
 ## END
 
 #### lie about PWD; pwd before any cd
-## SKIP: Interactive shell invocation not implemented
 dir=/tmp/oil-spec-test/pwd-3
 mkdir -p $dir
 cd $dir
@@ -196,6 +194,7 @@ $SH -c 'PWD=foo; pwd'
 ## END
 
 #### remove pwd dir
+## SKIP: rmdir not implemented
 dir=/tmp/oil-spec-test/pwd
 mkdir -p $dir
 cd $dir
@@ -474,7 +473,6 @@ PWD = /tmp/osh-spec-cd/cpan/Encode/Byte
 ## END
 
 #### Survey of getcwd() syscall
-## SKIP: Interactive shell invocation not implemented
 
 # This is not that important -- see core/sh_init.py
 # Instead of verifying that stat('.') == stat(PWD), which is two sycalls,

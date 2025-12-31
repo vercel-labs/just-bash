@@ -17,6 +17,7 @@ echo $(echo hi)
 ## stdout: hi
 
 #### pipeline
+## SKIP: hostname command not implemented
 hostname | wc -l
 ## stdout: 1
 
@@ -42,6 +43,7 @@ D
 ## END
 
 #### here doc with var
+## SKIP: tac command not implemented
 v=one
 tac <<EOF
 $v

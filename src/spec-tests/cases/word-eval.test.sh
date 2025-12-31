@@ -16,7 +16,6 @@ argv.py bare 'sq'
 ## stdout: ['bare', 'sq']
 
 #### Evaluation of each part
-## SKIP: noglob (set -f) not implemented
 #set -o noglob
 HOME=/home/bob
 str=s
@@ -48,7 +47,6 @@ argv.py $s1 - "$s1"
 ## stdout: ['-', '']
 
 #### Default values -- more cases
-## SKIP: Right brace in parameter default value not implemented
 argv.py ${undef:-hi} ${undef:-'a b'} "${undef:-c d}" "${un:-"e f"}" "${un:-'g h'}"
 ## stdout: ['hi', 'a b', 'c d', 'e f', "'g h'"]
 

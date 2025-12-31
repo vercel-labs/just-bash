@@ -17,6 +17,7 @@ echo ${#v}
 ## N-I mksh stdout: 4
 
 #### Unicode string length (spec/testdata/utf8-chars.txt)
+## SKIP: Test data directory not available
 v=$(cat $REPO_ROOT/spec/testdata/utf8-chars.txt)
 echo ${#v}
 ## stdout: 7
@@ -24,6 +25,7 @@ echo ${#v}
 ## N-I mksh stdout: 13
 
 #### String length with incomplete utf-8
+## SKIP: Test data directory not available
 for num_bytes in 0 1 2 3 4 5 6 7 8 9 10 11 12 13; do
   s=$(head -c $num_bytes $REPO_ROOT/spec/testdata/utf8-chars.txt)
   echo ${#s}
@@ -91,6 +93,7 @@ true  # exit 0
 ## END
 
 #### String length with invalid utf-8 continuation bytes
+## SKIP: Test data directory not available
 for num_bytes in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14; do
   s=$(head -c $num_bytes $REPO_ROOT/spec/testdata/utf8-chars.txt)$(echo -e "\xFF")
   echo ${#s}
@@ -221,6 +224,7 @@ echo ${#x-default}
 ## END
 
 #### ${#s} respects LC_ALL - length in bytes or code points
+## SKIP: Locale settings not supported
 case $SH in dash) exit ;; esac
 
 # This test case is sorta "infected" because spec-common.sh sets LC_ALL=C.UTF-8

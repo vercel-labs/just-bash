@@ -2,6 +2,7 @@
 ## compare_shells: bash mksh zsh
 
 #### OSH source code doesn't have to be valid Unicode (like other shells)
+## SKIP: od command not implemented
 
 # Should YSH be different?  It would be nice.
 # We would have to validate all Lit_Chars tokens, and the like.
@@ -58,6 +59,7 @@ printf '\u03bc \U000003bc\n'
 ## END
 
 #### Max code point U+10ffff can escaped with $''  printf  echo -e
+## SKIP: python2 not available
 
 case $SH in dash|ash) exit ;; esac
 
@@ -87,6 +89,7 @@ py-repr $(printf '\U0010ffff')
 ## END
 
 #### $'' does NOT check that 0x110000 is too big at parse time
+## SKIP: python2 not available
 
 py-repr() {
   python2 -c 'import sys; print repr(sys.argv[1])'  "$@"
@@ -103,6 +106,7 @@ py-repr $'\U00110000'
 ## END
 
 #### $'' does not check for surrogate range at parse time
+## SKIP: python2 not available
 
 py-repr() {
   python2 -c 'import sys; print repr(sys.argv[1])'  "$@"
@@ -123,6 +127,7 @@ py-repr $'\U0000dc00'
 
 
 #### printf / echo -e do NOT check max code point at runtime
+## SKIP: python2 not available
 case $SH in mksh) exit ;; esac
 
 py-repr() {
@@ -148,6 +153,7 @@ status=0
 ## END
 
 #### printf / echo -e do NOT check surrogates at runtime
+## SKIP: python2 not available
 case $SH in mksh) exit ;; esac
 
 py-repr() {

@@ -82,7 +82,6 @@ status=2
 ## N-I ash/mksh/zsh stdout: -vstatus=0
 
 #### dynamic declare instead of %s
-## SKIP: Dynamic declare not implemented
 var=foo
 declare $var='hello there'
 argv.py "$foo"
@@ -418,7 +417,6 @@ printf '%d\n' \"
 ## END
 
 #### Unicode char with ' 
-## SKIP: 64-bit printf unsigned/octal/hex not implemented
 case $SH in mksh) echo 'weird bug'; exit ;; esac
 
 # the mu character is U+03BC
@@ -502,6 +500,7 @@ weird bug
 ## END
 
 #### Invalid UTF-8
+## SKIP: python2 not available
 
 echo bytes1
 not_utf8=$(python2 -c 'print("\xce\xce")')
@@ -559,6 +558,7 @@ e0
 
 
 #### Too large
+## SKIP: python2 not available
 case $SH in mksh) echo 'weird bug'; exit ;; esac
 
 echo too large
@@ -759,6 +759,7 @@ AZ
 ## END
 
 #### printf %c unicode - prints the first BYTE of a string - it does not respect UTF-8
+## SKIP: od command not implemented
 
 # TODO: in YSH, this should be deprecated
 case $SH in dash|ash) exit ;; esac
@@ -1061,6 +1062,7 @@ xz
 ## END
 
 #### bash truncates long strftime string at 128
+## SKIP: strftime not implemented
 
 case $SH in ash|dash|mksh|zsh) exit ;; esac
 
@@ -1380,6 +1382,7 @@ a9
 ## END
 
 #### printf %b with truncated octal escapes
+## SKIP: od command not implemented
 
 # 8 is not a valid octal digit
 

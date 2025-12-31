@@ -58,6 +58,7 @@ L áé
 ## END
 
 #### Case folding - multi code point
+## SKIP: python2 not available
 
 echo shell
 small=$'\u00DF'
@@ -116,6 +117,7 @@ python2
 ## END
 
 #### Case folding that depends on locale (not enabled, requires Turkish locale)
+## SKIP: Locale settings not supported
 
 # Hm this works in demo/survey-case-fold.sh
 # Is this a bash 4.4 thing?

@@ -29,7 +29,6 @@ echo status=$?
 ## BUG mksh stdout: status=1
 
 #### $PATH is set if unset at startup
-## SKIP: which command not implemented
 
 # WORKAROUND for Python version of bin/osh -- we can't run bin/oils_for_unix.py
 # because it a shebang #!/usr/bin/env python2
@@ -96,6 +95,7 @@ zsh sets HOME
 ## END
 
 #### Vars set interactively only: $HISTFILE
+## SKIP: Shell invocation not supported
 case $SH in dash|mksh|zsh) exit ;; esac
 
 $SH --norc --rcfile /dev/null -c 'echo histfile=${HISTFILE:+yes}'
@@ -353,7 +353,6 @@ echo $PPID | egrep '[0-9]+'
 # NOTE: There is also $BASHPID
 
 #### $PIPESTATUS
-## SKIP: PIPESTATUS variable not implemented
 echo hi | sh -c 'cat; exit 33' | wc -l >/dev/null
 argv.py "${PIPESTATUS[@]}"
 ## status: 0
@@ -367,12 +366,14 @@ argv.py "${PIPESTATUS[@]}"
 ## END
 
 #### $RANDOM
+## SKIP: egrep not implemented
 expr $0 : '.*/osh$' && exit 99  # Disabled because of spec-runner.sh issue
 echo $RANDOM | egrep '[0-9]+'
 ## status: 0
 ## N-I dash status: 1
 
 #### $UID and $EUID
+## SKIP: egrep not implemented
 # These are both bash-specific.
 set -o errexit
 echo $UID | egrep -o '[0-9]+' >/dev/null
@@ -777,6 +778,7 @@ status=0
 ## N-I dash stdout-json: ""
 
 #### BASH_VERSION / OILS_VERSION
+## SKIP: egrep not implemented
 case $SH in
   bash*)
     # BASH_VERSION=zz

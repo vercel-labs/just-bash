@@ -200,6 +200,7 @@ f
 ## END
 
 #### ${BASH_SOURCE[@]} with line numbers
+## SKIP: Test data directory not available
 cd $REPO_ROOT
 
 $SH spec/testdata/bash-source.sh
@@ -274,6 +275,7 @@ STACK:spec/testdata/bash-source-pushtemp.sh:source:2
 ## END
 
 #### Sourcing inside function grows the debug stack
+## SKIP: Test data directory not available
 
 cd $REPO_ROOT
 

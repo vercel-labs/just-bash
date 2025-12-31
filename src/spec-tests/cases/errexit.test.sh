@@ -71,7 +71,6 @@ echo status=$?
 ## status: 1
 
 #### More && || 
-## SKIP: Interactive shell invocation not implemented
 
 $SH -c 'set -e; false || { echo group; false; }; echo bad'
 echo status=$?
@@ -345,7 +344,6 @@ status=2
 ## END
 
 #### simple command that's an alias - redir failure checked
-## SKIP: Interactive shell invocation not implemented
 
 # bash 5.2 fixed bash 4.4 bug: this is now checked
 

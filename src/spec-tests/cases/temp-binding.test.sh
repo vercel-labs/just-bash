@@ -5,6 +5,7 @@
 # the IFS= eval 'local x' bug
 
 #### More eval 'local v='
+## SKIP: Test data directory not available
 case $SH in mksh) exit ;; esac
 
 set -u
@@ -82,7 +83,6 @@ ty=
 ## END
 
 #### Temp bindings with unset 
-## SKIP: Temp binding edge cases not implemented
 
 # key point:
 # unset looks up the stack

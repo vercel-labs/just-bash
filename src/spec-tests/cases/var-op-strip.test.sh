@@ -60,6 +60,7 @@ echo ${v%[[:alpha:]]}
 ## N-I mksh stdout: abc
 
 #### Strip unicode prefix
+## SKIP: od command not implemented
 
 show_hex() { od -A n -t c -t x1; }
 
@@ -116,7 +117,6 @@ echo ${v%%?} | show_hex
 ## END
 
 #### Bug fix: Test that you can remove everything with glob
-## SKIP: Right brace in parameter default value not implemented
 s='--x--'
 argv.py "${s%%-*}" "${s%-*}" "${s#*-}" "${s##*-}"
 ## STDOUT:

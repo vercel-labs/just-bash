@@ -209,6 +209,7 @@ PA_FILE
 ## END
 
 #### compgen with actions: alias, setopt
+## SKIP: zsh setopt not supported
 alias v_alias='ls'
 alias v_alias2='ls'
 alias a1='ls'
@@ -233,6 +234,7 @@ false___
 ## END
 
 #### compgen -A directory
+## SKIP: Test data directory not available
 cd $REPO_ROOT
 compgen -A directory c | sort
 ## STDOUT:
@@ -242,6 +244,7 @@ cpp
 ## END
 
 #### compgen -A file
+## SKIP: Test data directory not available
 cd $REPO_ROOT
 compgen -A file o | sort
 ## STDOUT:
@@ -343,6 +346,7 @@ while
 ## END
 
 #### compgen -k shows Oils keywords too
+## SKIP: egrep not implemented
 
 # YSH has a superset of keywords:
 # const var
@@ -393,6 +397,7 @@ build
 ## END
 
 #### -o plusdirs and -o dirnames with compgen
+## SKIP: Test data directory not available
 cd $REPO_ROOT
 compgen -o plusdirs -W 'a b1 b2' b | sort
 echo ---
@@ -412,6 +417,7 @@ builtin
 ## END
 
 #### compgen -o default completes files and dirs
+## SKIP: Test data directory not available
 cd $REPO_ROOT
 compgen -o default spec/t | sort
 ## STDOUT:
@@ -492,6 +498,7 @@ foo'bar
 ## END
 
 #### compgen -W 'one two three'
+## SKIP: Test data directory not available
 cd $REPO_ROOT
 compgen -W 'one two three'
 echo --

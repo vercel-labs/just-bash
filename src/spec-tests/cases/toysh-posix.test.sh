@@ -308,6 +308,7 @@ onextwoxxthree
 ## END
 
 #### IFS 4
+## SKIP: zsh setopt not supported
 
 setopt SH_WORD_SPLIT
 

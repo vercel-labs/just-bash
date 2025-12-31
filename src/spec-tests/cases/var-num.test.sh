@@ -6,7 +6,6 @@
 # ignored comment
 
 #### Normal and braced
-## SKIP: Interactive shell invocation not implemented
 $SH -c 'echo $0 $1 ${2}' a b c d
 ## stdout: a b c
 
@@ -18,17 +17,14 @@ myfunc a b c d
 ## stdout: a b
 
 #### $0 with -c
-## SKIP: Interactive shell invocation not implemented
 $SH -c 'echo $0' | grep -o 'sh$'
 ## stdout: sh
 
 #### $0 with stdin
-## SKIP: $0 in stdin context not implemented
 echo 'echo $0' | $SH | grep -o 'sh$'
 ## stdout: sh
 
 #### $0 with -i
-## SKIP: Interactive shell invocation not implemented
 echo 'echo $0' | $SH -i | grep -o 'sh$'
 ## stdout: sh
 

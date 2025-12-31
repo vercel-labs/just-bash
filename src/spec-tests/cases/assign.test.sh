@@ -111,6 +111,7 @@ None
 ## END
 
 #### Escaped = in command name
+## SKIP: Weird filename test
 # foo=bar is in the 'spec/bin' dir.
 foo\=bar
 ## stdout: HI

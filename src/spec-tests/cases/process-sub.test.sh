@@ -14,6 +14,7 @@ cat <(head -n 2 $f) <(tail -n 2 $f)
 ## END
 
 #### Process sub from external process to stdin
+## SKIP: tac command not implemented
 seq 3 > >(tac)
 ## STDOUT:
 3
@@ -22,6 +23,7 @@ seq 3 > >(tac)
 ## END
 
 #### Process sub from shell to stdin
+## SKIP: tac command not implemented
 { echo 1; echo 2; echo 3; } > >(tac)
 ## STDOUT:
 3
@@ -30,6 +32,7 @@ seq 3 > >(tac)
 ## END
 
 #### Non-linear pipeline with >()
+## SKIP: tac command not implemented
 stdout_stderr() {
   echo o1
   echo o2

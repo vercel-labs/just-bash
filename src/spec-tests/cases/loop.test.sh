@@ -360,6 +360,7 @@ f
 ## END
 
 #### break/continue within source
+## SKIP: Test data directory not available
 # NOTE: This changes things
 # set -e
 

@@ -382,6 +382,7 @@ status=1
 
 
 #### getopts bug #1523
+## SKIP: Test data directory not available
 
 $SH $REPO_ROOT/spec/testdata/getopts-1523.sh -abcdef -abcde
 
@@ -396,6 +397,7 @@ opt:c arg:de
 ## END
 
 #### More regression for #1523
+## SKIP: Test data directory not available
 
 $SH $REPO_ROOT/spec/testdata/getopts-1523.sh -abcdef -xyz
 

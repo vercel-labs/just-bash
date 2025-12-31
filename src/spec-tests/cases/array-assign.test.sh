@@ -159,6 +159,7 @@ typeset b[2]=zzz
 ## END
 
 #### file named a[ is  not executed
+## SKIP: chmod command not implemented
 case $SH in zsh|ash) exit ;; esac
 
 PATH=".:$PATH"

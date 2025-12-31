@@ -2,6 +2,7 @@
 ## oils_failures_allowed: 8
 
 #### sh -i
+## SKIP: Shell invocation not supported
 # Notes:
 # - OSH prompt goes to stdout and bash goes to stderr
 # - This test seems to fail on the system bash, but succeeds with spec-bin/bash
@@ -132,6 +133,7 @@ $
 ## END
 
 #### hostname
+## SKIP: hostname command not implemented
 
 # NOTE: This test is not hermetic.  On my machine the short and long host name
 # are the same.
@@ -173,6 +175,7 @@ status=0
 ## END
 
 #### \t for 24h time (HH:MM:SS)
+## SKIP: egrep not implemented
 PS1='foo \t bar'
 echo "${PS1@P}" | egrep -q 'foo [0-2][0-9]:[0-5][0-9]:[0-5][0-9] bar'
 echo matched=$?
@@ -182,6 +185,7 @@ matched=0
 ## END
 
 #### \T for 12h time (HH:MM:SS)
+## SKIP: egrep not implemented
 PS1='foo \T bar'
 echo "${PS1@P}" | egrep -q 'foo [0-1][0-9]:[0-5][0-9]:[0-5][0-9] bar'
 echo matched=$?
@@ -191,6 +195,7 @@ matched=0
 ## END
 
 #### \@ for 12h time (HH:MM AM/PM)
+## SKIP: egrep not implemented
 PS1='foo \@ bar'
 echo "${PS1@P}" | egrep -q 'foo [0-1][0-9]:[0-5][0-9] (A|P)M bar'
 echo matched=$?
@@ -200,6 +205,7 @@ matched=0
 ## END
 
 #### \A for 24h time (HH:MM)
+## SKIP: egrep not implemented
 PS1='foo \A bar'
 echo "${PS1@P}" | egrep -q 'foo [0-2][0-9]:[0-5][0-9] bar'
 echo matched=$?
@@ -208,6 +214,7 @@ matched=0
 ## END
 
 #### \d for date
+## SKIP: egrep not implemented
 PS1='foo \d bar'
 echo "${PS1@P}" | egrep -q 'foo [A-Z][a-z]+ [A-Z][a-z]+ [0-9]+ bar'
 echo matched=$?
@@ -217,6 +224,7 @@ matched=0
 ## END
 
 #### \D{%H:%M} for strftime
+## SKIP: egrep not implemented
 PS1='foo \D{%H:%M} bar'
 echo "${PS1@P}" | egrep -q 'foo [0-9][0-9]:[0-9][0-9] bar'
 echo matched=$?
@@ -231,6 +239,7 @@ matched=0
 ## END
 
 #### \D{} for locale specific strftime
+## SKIP: egrep not implemented
 
 # In bash y.tab.c uses %X when string is empty
 # This doesn't seem to match exactly, but meh for now.
@@ -243,6 +252,7 @@ matched=0
 ## END
 
 #### \s for shell, \v for major.minor version, and \V for full version
+## SKIP: egrep not implemented
 PS1='foo \s bar'
 echo "${PS1@P}" | egrep -q '^foo (bash|osh) bar$'
 echo match=$?
@@ -263,6 +273,7 @@ match=0
 
 
 #### \j for number of jobs
+## SKIP: egrep not implemented
 set -m # enable job control
 PS1='foo \j bar'
 echo "${PS1@P}" | egrep -q 'foo 0 bar'
@@ -283,6 +294,7 @@ matched=0
 ## END
 
 #### \l for TTY device basename
+## SKIP: egrep not implemented
 PS1='foo \l bar'
 # FIXME this never an actual TTY when using ./test/spec.sh
 tty="$(tty)"
@@ -314,6 +326,7 @@ matched=0
 ## END
 
 #### \# for command number
+## SKIP: egrep not implemented
 PS1='foo \# bar'
 prev_cmd_num="$(echo "${PS1@P}" | egrep -o 'foo [0-9]+ bar' | sed -E 's/foo ([0-9]+) bar/\1/')"
 echo "${PS1@P}" | egrep -q "foo $((prev_cmd_num + 1)) bar"
@@ -341,6 +354,7 @@ status=0
 ## END
 
 #### default PS1
+## SKIP: Shell startup options not supported
 #flags='--norc --noprofile'
 flags='--rcfile /dev/null'
 

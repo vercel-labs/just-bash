@@ -6,6 +6,7 @@
 # See spec/stateful/bind.py for the remaining tests.
 
 #### bind -l should report readline functions
+## SKIP: Test data directory not available
 
 # This test depends on the exact version
 # bind -l | sort > _tmp/this-shell-bind-l.txt

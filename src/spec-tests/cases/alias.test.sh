@@ -93,6 +93,7 @@ status=1
 ## END
 
 #### unalias -a
+## SKIP: egrep not implemented
 
 alias foo=bar
 alias spam=eggs

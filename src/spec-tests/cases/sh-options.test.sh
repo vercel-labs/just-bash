@@ -78,6 +78,7 @@ echo $?
 ## END
 
 #### vi and emacs are mutually exclusive
+## SKIP: egrep not implemented
 show() {
   shopt -o -p | egrep 'emacs$|vi$'
   echo ___
@@ -189,6 +190,7 @@ echo $?
 ## N-I dash status: 2
 
 #### shopt -p -o prints 'set' options
+## SKIP: egrep not implemented
 case $SH in dash|mksh) exit ;; esac
 
 shopt -po nounset
@@ -211,6 +213,7 @@ nounset
 ## END
 
 #### shopt -o prints 'set' options
+## SKIP: egrep not implemented
 case $SH in dash|mksh) exit ;; esac
 
 shopt -o | egrep -o 'errexit|noglob|nounset'

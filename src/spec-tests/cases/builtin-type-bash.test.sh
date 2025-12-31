@@ -88,6 +88,7 @@ status=1
 ## END
 
 #### type -p and -P builtin -> file
+## SKIP: chmod command not implemented
 touch /tmp/{mv,tar,grep}
 chmod +x /tmp/{mv,tar,grep}
 PATH=/tmp:$PATH
@@ -106,6 +107,7 @@ type -P mv tar grep
 ## END
 
 #### type -a -P gives multiple files
+## SKIP: chmod command not implemented
 
 touch _tmp/pwd
 chmod +x _tmp/pwd
@@ -142,6 +144,7 @@ type -P cd type builtin command
 ## END
 
 #### type -P builtin -> not a file but file found
+## SKIP: chmod command not implemented
 touch _tmp/{mv,tar,grep}
 chmod +x _tmp/{mv,tar,grep}
 PATH=_tmp:$PATH
@@ -162,6 +165,7 @@ type -f FOO BAR NOT FOUND
 ## status: 1
 
 #### type -f builtin -> function and file exists
+## SKIP: chmod command not implemented
 touch /tmp/{mv,tar,grep}
 chmod +x /tmp/{mv,tar,grep}
 PATH=/tmp:$PATH
@@ -238,6 +242,7 @@ type -a while
 ## stdout: while is a shell keyword
 
 #### type -a -> file
+## SKIP: chmod command not implemented
 touch _tmp/date
 chmod +x _tmp/date
 PATH=/bin:_tmp  # control output
@@ -250,6 +255,7 @@ date is _tmp/date
 ## END
 
 #### type -ap -> file; abbreviated
+## SKIP: chmod command not implemented
 touch _tmp/date
 chmod +x _tmp/date
 PATH=/bin:_tmp  # control output
@@ -261,6 +267,7 @@ _tmp/date
 ## END
 
 #### type -a -> builtin and file
+## SKIP: chmod command not implemented
 touch _tmp/pwd
 chmod +x _tmp/pwd
 PATH=/bin:_tmp  # control output
@@ -273,6 +280,7 @@ pwd is _tmp/pwd
 ## END
 
 #### type -a -> builtin and file and shell function
+## SKIP: chmod command not implemented
 touch _tmp/pwd
 chmod +x _tmp/pwd
 PATH=/bin:_tmp  # control output
@@ -314,6 +322,7 @@ pwd is _tmp/pwd
 ## END
 
 #### type -ap -> builtin and file; doesn't print builtin or function
+## SKIP: chmod command not implemented
 touch _tmp/pwd
 chmod +x _tmp/pwd
 PATH=/bin:_tmp  # control output
@@ -333,6 +342,7 @@ _tmp/pwd
 ## END
 
 #### type -a -> executable not in PATH
+## SKIP: chmod command not implemented
 touch _tmp/executable
 chmod +x _tmp/executable
 type -a executable

@@ -397,7 +397,6 @@ ls foo=(1 2)
 ## OK bash status: 2
 
 #### Single array with :-
-## SKIP: Right brace in parameter default value not implemented
 
 # 2024-06 - bash 5.2 and mksh now match, bash 4.4 differed.
 # Could change OSH

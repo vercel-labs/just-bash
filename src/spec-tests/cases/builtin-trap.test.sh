@@ -479,6 +479,7 @@ wait status 0
 ## END
 
 #### trap USR1, sleep, SIGINT: non-interactively
+## SKIP: Test data directory not available
 
 $REPO_ROOT/spec/testdata/builtin-trap-usr1.sh
 
@@ -488,6 +489,7 @@ status=0
 ## END
 
 #### trap INT, sleep, SIGINT: non-interactively
+## SKIP: Test data directory not available
 
 # mksh behaves differently in CI -- maybe when it's not connected to a
 # terminal?
@@ -512,6 +514,7 @@ status=0
 ## END
 
 #### trap EXIT, sleep, SIGINT: non-interactively
+## SKIP: Test data directory not available
 
 $REPO_ROOT/spec/testdata/builtin-trap-exit.sh
 

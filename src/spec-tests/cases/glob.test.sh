@@ -15,6 +15,7 @@ echo \*.sh
 ## stdout: *.sh
 
 #### 1 char glob
+## SKIP: Test data directory not available
 cd $REPO_ROOT
 echo [b]in
 ## stdout: bin
@@ -34,6 +35,7 @@ echo [!bin
 ## stdout: [!bin
 
 #### glob can expand to command and arg
+## SKIP: Test data directory not available
 cd $REPO_ROOT
 spec/testdata/echo.s[hz]
 ## stdout: spec/testdata/echo.sz
@@ -172,6 +174,7 @@ echo $var
 ## END
 
 #### Splitting/Globbing doesn't happen on local assignment
+## SKIP: Test data directory not available
 cd $REPO_ROOT
 
 f() {
@@ -354,7 +357,6 @@ echo $v
 
 
 #### \ in unquoted substitutions is preserved without glob matching
-## SKIP: Glob with escaped special characters not implemented
 mkdir x
 touch \
   'x/test.ifs.\.txt' \
