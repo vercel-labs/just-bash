@@ -208,6 +208,7 @@ export class Bash {
       lastArg: "", // $_ is initially empty (or could be shell name)
       startTime: Date.now(),
       lastBackgroundPid: 0,
+      currentLine: 1, // $LINENO starts at 1
       options: {
         errexit: false,
         pipefail: false,

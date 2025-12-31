@@ -43,6 +43,8 @@ export interface InterpreterState {
   startTime: number;
   /** PID of last background job (for $!) */
   lastBackgroundPid: number;
+  /** Current line number being executed (for $LINENO) */
+  currentLine: number;
   /** Shell options (set -e, etc.) */
   options: ShellOptions;
   /** True when executing condition for if/while/until (errexit doesn't apply) */

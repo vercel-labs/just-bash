@@ -105,6 +105,9 @@ function parseHeredocStart(
 }
 
 export function parseSimpleCommand(p: Parser): SimpleCommandNode {
+  // Capture line number at the start of the command for $LINENO
+  const startLine = p.current().line;
+
   const assignments: AssignmentNode[] = [];
   let name: WordNode | null = null;
   const args: WordNode[] = [];
@@ -185,7 +188,9 @@ export function parseSimpleCommand(p: Parser): SimpleCommandNode {
     }
   }
 
-  return AST.simpleCommand(name, args, assignments, redirections);
+  const node = AST.simpleCommand(name, args, assignments, redirections);
+  node.line = startLine;
+  return node;
 }
 
 function parseAssignment(p: Parser): AssignmentNode {

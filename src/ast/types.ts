@@ -18,6 +18,8 @@
 /** Base interface for all AST nodes */
 export interface ASTNode {
   type: string;
+  /** Source line number (1-based) for $LINENO tracking. May be 0 or undefined for synthesized nodes. */
+  line?: number;
 }
 
 /** Position information for error reporting */

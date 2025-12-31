@@ -402,7 +402,6 @@ status=1
 ## END
 
 #### $LINENO is the current line, not line of function call
-## SKIP: $LINENO variable not implemented
 echo $LINENO  # first line
 g() {
   argv.py $LINENO  # line 3
@@ -447,7 +446,6 @@ written
 ## END
 
 #### $LINENO in redirect arg (bug regression)
-## SKIP: $LINENO tracking in complex contexts not implemented
 filename=$TMP/lineno_regression3
 rm -f $filename
 echo x > $TMP/lineno_regression$LINENO
@@ -486,7 +484,6 @@ one
 ## END
 
 #### $LINENO in for loop
-## SKIP: $LINENO tracking in complex contexts not implemented
 # hm bash doesn't take into account the word break.  That's OK; we won't either.
 echo one
 for x in \
@@ -505,7 +502,6 @@ zzz
 ## END
 
 #### $LINENO in other for loops
-## SKIP: $LINENO tracking in complex contexts not implemented
 set -- a b c
 for x; do
   echo $LINENO $x
@@ -535,7 +531,6 @@ one
 ## BUG mksh status: 1
 
 #### $LINENO for assignment
-## SKIP: $LINENO tracking in complex contexts not implemented
 a1=$LINENO a2=$LINENO
 b1=$LINENO b2=$LINENO
 echo $a1 $a2
@@ -546,7 +541,6 @@ echo $b1 $b2
 ## END
 
 #### $LINENO in case
-## SKIP: $LINENO tracking in complex contexts not implemented
 case $LINENO in
   1) echo 'got line 1' ;;
   *) echo line=$LINENO

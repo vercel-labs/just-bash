@@ -635,33 +635,104 @@ export async function expandWordWithGlob(
     }
   }
 
-  // Handle unquoted $@ and $* specially - they should expand to individual args
-  // without IFS-based word splitting
-  if (!hasQuoted && hasArrayVar) {
-    // Check if this is purely $@ or $* (not part of a larger word)
-    if (wordParts.length === 1 && wordParts[0].type === "ParameterExpansion") {
-      const param = wordParts[0].parameter;
-      if (param === "@" || param === "*") {
-        // Get individual positional parameters
-        const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
-        if (numParams === 0) {
-          return { values: [], quoted: false };
-        }
-        const params: string[] = [];
-        for (let i = 1; i <= numParams; i++) {
-          params.push(ctx.state.env[String(i)] || "");
-        }
-        return { values: params, quoted: false };
+  // Handle "$@" and "$*" with adjacent text inside double quotes, e.g., "-$@-"
+  // "$@": Each positional parameter becomes a separate word, with prefix joined to first
+  //       and suffix joined to last. If no params, produces nothing (or just prefix+suffix if present)
+  // "$*": All params joined with IFS as ONE word. If no params, produces one empty word.
+  if (wordParts.length === 1 && wordParts[0].type === "DoubleQuoted") {
+    const dqPart = wordParts[0];
+    // Find if there's a $@ or $* inside
+    let atIndex = -1;
+    let isStar = false;
+    for (let i = 0; i < dqPart.parts.length; i++) {
+      const p = dqPart.parts[i];
+      if (
+        p.type === "ParameterExpansion" &&
+        (p.parameter === "@" || p.parameter === "*")
+      ) {
+        atIndex = i;
+        isStar = p.parameter === "*";
+        break;
       }
     }
+
+    if (atIndex !== -1) {
+      // Check if this is a simple $@ or $* without operations like ${*-default}
+      const paramPart = dqPart.parts[atIndex];
+      if (paramPart.type === "ParameterExpansion" && paramPart.operation) {
+        // Has an operation - let normal expansion handle it
+        atIndex = -1;
+      }
+    }
+
+    if (atIndex !== -1) {
+      // Get positional parameters
+      const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+
+      // Expand prefix (parts before $@/$*)
+      let prefix = "";
+      for (let i = 0; i < atIndex; i++) {
+        prefix += await expandPart(ctx, dqPart.parts[i]);
+      }
+
+      // Expand suffix (parts after $@/$*)
+      let suffix = "";
+      for (let i = atIndex + 1; i < dqPart.parts.length; i++) {
+        suffix += await expandPart(ctx, dqPart.parts[i]);
+      }
+
+      if (numParams === 0) {
+        if (isStar) {
+          // "$*" with no params -> one empty word (prefix + suffix)
+          return { values: [prefix + suffix], quoted: true };
+        }
+        // "$@" with no params -> no words (unless there's prefix/suffix)
+        const combined = prefix + suffix;
+        return { values: combined ? [combined] : [], quoted: true };
+      }
+
+      // Get individual positional parameters
+      const params: string[] = [];
+      for (let i = 1; i <= numParams; i++) {
+        params.push(ctx.state.env[String(i)] || "");
+      }
+
+      if (isStar) {
+        // "$*" - join all params with IFS into one word
+        const ifsSep = getIfsSeparator(ctx.state.env);
+        return {
+          values: [prefix + params.join(ifsSep) + suffix],
+          quoted: true,
+        };
+      }
+
+      // "$@" - each param is a separate word
+      // Join prefix with first, suffix with last
+      if (params.length === 1) {
+        return { values: [prefix + params[0] + suffix], quoted: true };
+      }
+
+      const result = [
+        prefix + params[0],
+        ...params.slice(1, -1),
+        params[params.length - 1] + suffix,
+      ];
+      return { values: result, quoted: true };
+    }
   }
+
+  // Note: Unquoted $@ and $* are handled by normal expansion + word splitting.
+  // They expand to positional parameters joined by space, then split on IFS.
+  // The special handling above is only for quoted "$@" and "$*" inside double quotes.
 
   // No brace expansion or single value - use original logic
   // Word splitting based on IFS
   // If IFS is set to empty string, no word splitting occurs
   // Word splitting applies to results of parameter expansion, command substitution, and arithmetic expansion
+  // Note: hasQuoted being true does NOT prevent word splitting - unquoted expansions like $a in $a"$b"
+  // should still be split. The smartWordSplit function handles this by treating quoted parts as
+  // non-splittable segments that join with adjacent fields.
   if (
-    !hasQuoted &&
     (hasCommandSub || hasArrayVar || hasParamExpansion) &&
     !isIfsEmpty(ctx.state.env)
   ) {

@@ -145,6 +145,9 @@ export function getVariable(
     case "!":
       // PID of most recent background job (0 if none)
       return String(ctx.state.lastBackgroundPid);
+    case "LINENO":
+      // Current line number being executed
+      return String(ctx.state.currentLine);
   }
 
   // Check for empty subscript: varName[] is invalid

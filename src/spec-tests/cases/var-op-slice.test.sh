@@ -168,7 +168,6 @@ ab
 ## N-I mksh stdout-json: ""
 
 #### Simple ${@:offset}
-## SKIP: ${@:0:N} slice from position 0 not implemented
 
 set -- 4 5 6
 
@@ -302,7 +301,6 @@ fun "a 1" "b 2" "c 3"
 ## BUG zsh stdout-json: ""
 
 #### ${@:0:1}
-## SKIP: ${@:0:N} slice from position 0 not implemented
 set a b c
 result=$(echo ${@:0:1})
 echo ${result//"$0"/'SHELL'}
@@ -314,7 +312,6 @@ SHELL
 ## END
 
 #### Permutations of implicit begin and length
-## SKIP: argv.py test helper not available
 array=(1 2 3)
 
 argv.py ${array[@]}

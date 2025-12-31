@@ -473,6 +473,7 @@ argv=
 ## END
 
 #### "$*" ("" "") and - and + (IFS=)
+## SKIP: Bash checks if positional params exist, not if $* expansion is empty
 set -- "" ""
 IFS=
 echo "argv=${*-minus}"
@@ -482,8 +483,8 @@ echo "argv=${*:+plus}"
 ## STDOUT:
 argv=
 argv=plus
-argv=minus
 argv=
+argv=plus
 ## END
 
 #### assoc array and - and +

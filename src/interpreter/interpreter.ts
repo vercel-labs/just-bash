@@ -400,6 +400,11 @@ export class Interpreter {
     node: SimpleCommandNode,
     stdin: string,
   ): Promise<ExecResult> {
+    // Update currentLine for $LINENO
+    if (node.line !== undefined) {
+      this.ctx.state.currentLine = node.line;
+    }
+
     // Clear expansion stderr at the start
     this.ctx.state.expansionStderr = "";
     const tempAssignments: Record<string, string | undefined> = {};

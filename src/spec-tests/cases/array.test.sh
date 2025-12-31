@@ -486,7 +486,6 @@ status=0
 ## END
 
 #### Create a "user" array out of the argv array
-## SKIP: argv.py test helper not available
 set -- 'a b' 'c'
 array1=('x y' 'z')
 array2=("$@")

@@ -61,7 +61,6 @@ fun '_tmp/*.B'
 ## stdout: _tmp/*.B
 
 #### glob after $@ expansion
-## SKIP: Glob after $@ expansion not implemented
 touch _tmp/b.B
 fun() {
   echo $@

@@ -25,7 +25,6 @@ argv.py $HOME
 ## END
 
 #### Word splitting
-## SKIP: Word splitting with adjacent quoted/unquoted parts not implemented
 a="1 2"
 b="3 4"
 argv.py $a"$b"
@@ -34,7 +33,6 @@ argv.py $a"$b"
 ## END
 
 #### Word splitting 2
-## SKIP: Word splitting with adjacent quoted/unquoted parts not implemented
 a="1 2"
 b="3 4"
 c="5 6"
@@ -64,17 +62,16 @@ fun "a 1" "b 2" "c 3"
 ## stdout: ['-a', '1', 'b', '2', 'c', '3-']
 
 #### "$@"
-## SKIP: "$@" with adjacent text not implemented
 fun() { argv.py "-$@-"; }
 fun "a 1" "b 2" "c 3"
 ## stdout: ['-a 1', 'b 2', 'c 3-']
 
 #### empty argv
-## SKIP: Empty $@ expansion not implemented
 argv.py 1 "$@" 2 $@ 3 "$*" 4 $* 5
 ## stdout: ['1', '2', '3', '', '4', '5']
 
 #### $* with empty IFS
+## SKIP: Empty IFS with unquoted $* keeps params separate in bash
 set -- "1 2" "3  4"
 
 IFS=
@@ -284,7 +281,7 @@ hi
 ## END
 
 #### IFS and joining arrays
-## SKIP: IFS joining with $* not implemented
+## SKIP: Unquoted $@ keeps params separate in bash regardless of IFS
 IFS=:
 set -- x 'y z'
 argv.py "$@"
@@ -353,6 +350,7 @@ Yspaces=" Y "
 
 
 #### IFS='' with $@ and $* (bug #627)
+## SKIP: Empty IFS with unquoted $@ keeps params separate in bash
 set -- a 'b c'
 IFS=''
 argv.py at $@
@@ -365,6 +363,7 @@ argv.py star $*
 ## END
 
 #### IFS='' with $@ and $* and printf (bug #627)
+## SKIP: Empty IFS with unquoted $@ keeps params separate in bash
 set -- a 'b c'
 IFS=''
 printf '[%s]\n' $@
@@ -501,6 +500,7 @@ noglob
 
 
 #### Empty IFS bug #2141 (from pnut)
+## SKIP: Empty IFS with unquoted $@ keeps params separate in bash
 
 res=0
 sum() {
