@@ -56,10 +56,9 @@ export const xargsCommand: Command = {
       } else if (arg.startsWith("--")) {
         return unknownOption("xargs", arg);
       } else if (arg.startsWith("-") && arg.length > 1) {
-        // Check for unknown short options
-        const _valid = true;
+        // Check for unknown short options (only boolean flags allowed in combined form)
         for (const c of arg.slice(1)) {
-          if (!"0trnIP".includes(c)) {
+          if (!"0tr".includes(c)) {
             return unknownOption("xargs", `-${c}`);
           }
         }
