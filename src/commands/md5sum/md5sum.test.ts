@@ -108,6 +108,52 @@ describe("sha1sum", () => {
   });
 });
 
+describe("binary files", () => {
+  it("should hash binary file with invalid UTF-8 bytes correctly", async () => {
+    // PNG magic bytes include 0x89 which is invalid UTF-8
+    // If read as UTF-8, it would be corrupted and produce wrong hash
+    const env = new Bash({
+      files: {
+        "/binary.dat": new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]),
+      },
+    });
+    const result = await env.exec("md5sum /binary.dat");
+    // MD5 of bytes [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A]
+    expect(result.stdout).toBe(
+      "8eece9cc616084e69299f7f1a53a6404  /binary.dat\n",
+    );
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("should hash binary file with null bytes correctly", async () => {
+    const env = new Bash({
+      files: {
+        "/nulls.dat": new Uint8Array([0x00, 0x00, 0x00, 0x00]),
+      },
+    });
+    const result = await env.exec("md5sum /nulls.dat");
+    // MD5 of 4 null bytes
+    expect(result.stdout).toBe(
+      "f1d3ff8443297732862df21dc4e57262  /nulls.dat\n",
+    );
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("should hash binary file with sha256sum correctly", async () => {
+    const env = new Bash({
+      files: {
+        "/binary.dat": new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      },
+    });
+    const result = await env.exec("sha256sum /binary.dat");
+    // SHA256 of bytes [0x89, 0x50, 0x4E, 0x47]
+    expect(result.stdout).toBe(
+      "0f4636c78f65d3639ece5a064b5ae753e3408614a14fb18ab4d7540d2c248543  /binary.dat\n",
+    );
+    expect(result.exitCode).toBe(0);
+  });
+});
+
 describe("sha256sum", () => {
   it("should hash a simple string", async () => {
     const env = new Bash();

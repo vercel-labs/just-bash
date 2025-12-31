@@ -4,7 +4,6 @@
 
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
-import { readAndConcat } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const base64Help = {
@@ -23,6 +22,52 @@ const argDefs = {
   wrap: { short: "w", long: "wrap", type: "number" as const, default: 76 },
 };
 
+// Helper to read file as binary
+async function readBinary(
+  ctx: CommandContext,
+  files: string[],
+  cmdName: string,
+): Promise<{ ok: true; data: Uint8Array } | { ok: false; error: ExecResult }> {
+  // No files - read from stdin
+  if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
+    return { ok: true, data: new TextEncoder().encode(ctx.stdin) };
+  }
+
+  // Read and concatenate all files as binary
+  const chunks: Uint8Array[] = [];
+  for (const file of files) {
+    if (file === "-") {
+      chunks.push(new TextEncoder().encode(ctx.stdin));
+      continue;
+    }
+    try {
+      const filePath = ctx.fs.resolvePath(ctx.cwd, file);
+      const data = await ctx.fs.readFileBuffer(filePath);
+      chunks.push(data);
+    } catch {
+      return {
+        ok: false,
+        error: {
+          stdout: "",
+          stderr: `${cmdName}: ${file}: No such file or directory\n`,
+          exitCode: 1,
+        },
+      };
+    }
+  }
+
+  // Concatenate all chunks
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  return { ok: true, data: result };
+}
+
 export const base64Command: Command = {
   name: "base64",
 
@@ -38,18 +83,26 @@ export const base64Command: Command = {
     const wrapCols = parsed.result.flags.wrap;
     const files = parsed.result.positional;
 
-    // Read input from files or stdin
-    const readResult = await readAndConcat(ctx, files, { cmdName: "base64" });
-    if (!readResult.ok) return readResult.error;
-    const input = readResult.content;
-
     try {
       if (decode) {
+        // For decoding, read as text and strip whitespace
+        const readResult = await readBinary(ctx, files, "base64");
+        if (!readResult.ok) return readResult.error;
+        const input = new TextDecoder().decode(readResult.data);
         const cleaned = input.replace(/\s/g, "");
-        const decoded = Buffer.from(cleaned, "base64").toString("utf-8");
+        // Decode base64 to bytes, then to UTF-8 string for output
+        const bytes = Uint8Array.from(atob(cleaned), (c) => c.charCodeAt(0));
+        const decoded = new TextDecoder().decode(bytes);
         return { stdout: decoded, stderr: "", exitCode: 0 };
       }
-      let encoded = Buffer.from(input).toString("base64");
+
+      // Encoding: read as binary
+      const readResult = await readBinary(ctx, files, "base64");
+      if (!readResult.ok) return readResult.error;
+
+      // Convert binary to base64
+      let encoded = btoa(String.fromCharCode(...readResult.data));
+
       if (wrapCols > 0) {
         const lines: string[] = [];
         for (let i = 0; i < encoded.length; i += wrapCols) {

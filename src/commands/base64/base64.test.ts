@@ -151,4 +151,44 @@ describe("base64", () => {
       expect(result.exitCode).toBe(0);
     });
   });
+
+  describe("binary files", () => {
+    it("should encode binary data with invalid UTF-8 bytes", async () => {
+      // PNG magic bytes include 0x89 which is invalid UTF-8
+      // If read as UTF-8, it would be corrupted to replacement char
+      const env = new Bash({
+        files: {
+          "/binary.dat": new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]),
+        },
+      });
+      const result = await env.exec("base64 /binary.dat");
+      // Base64 of bytes [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A] is "iVBORw0K"
+      expect(result.stdout).toBe("iVBORw0K\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should encode binary file with null bytes", async () => {
+      const env = new Bash({
+        files: {
+          "/nulls.dat": new Uint8Array([0x00, 0x00, 0x00, 0x00]),
+        },
+      });
+      const result = await env.exec("base64 /nulls.dat");
+      // Base64 of 4 null bytes is "AAAAAA=="
+      expect(result.stdout).toBe("AAAAAA==\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should encode binary file with high bytes", async () => {
+      const env = new Bash({
+        files: {
+          "/high.dat": new Uint8Array([0xff, 0xfe, 0xfd, 0xfc]),
+        },
+      });
+      const result = await env.exec("base64 /high.dat");
+      // Base64 of [0xFF, 0xFE, 0xFD, 0xFC] is "//79/A=="
+      expect(result.stdout).toBe("//79/A==\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
 });

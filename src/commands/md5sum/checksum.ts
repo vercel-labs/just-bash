@@ -14,10 +14,7 @@ const WEBCRYPTO_ALGORITHMS: Record<string, string> = {
 };
 
 // Pure JS MD5 implementation (WebCrypto doesn't support MD5)
-function md5(str: string): string {
-  const encoder = new TextEncoder();
-  const bytes = encoder.encode(str);
-
+function md5(bytes: Uint8Array): string {
   function rotateLeft(x: number, n: number): number {
     return (x << n) | (x >>> (32 - n));
   }
@@ -109,17 +106,15 @@ function md5(str: string): string {
 
 async function computeHash(
   algorithm: HashAlgorithm,
-  data: string,
+  data: Uint8Array,
 ): Promise<string> {
   if (algorithm === "md5") {
     return md5(data);
   }
 
-  const encoder = new TextEncoder();
-  const dataBuffer = encoder.encode(data);
   const hashBuffer = await globalThis.crypto.subtle.digest(
     WEBCRYPTO_ALGORITHMS[algorithm],
-    dataBuffer,
+    data,
   );
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -165,11 +160,25 @@ export function createChecksumCommand(
 
       if (files.length === 0) files.push("-");
 
+      // Helper to read file as binary
+      const readBinary = async (file: string): Promise<Uint8Array | null> => {
+        if (file === "-") {
+          // stdin is a string, convert to bytes
+          return new TextEncoder().encode(ctx.stdin);
+        }
+        try {
+          return await ctx.fs.readFileBuffer(ctx.fs.resolvePath(ctx.cwd, file));
+        } catch {
+          return null;
+        }
+      };
+
       if (check) {
         let failed = 0;
         let output = "";
 
         for (const file of files) {
+          // For check mode, we read the checksum file as text
           const content =
             file === "-"
               ? ctx.stdin
@@ -188,19 +197,17 @@ export function createChecksumCommand(
             if (!match) continue;
 
             const [, expectedHash, targetFile] = match;
-            try {
-              const fileContent = await ctx.fs.readFile(
-                ctx.fs.resolvePath(ctx.cwd, targetFile),
-              );
-              const ok =
-                (await computeHash(algorithm, fileContent)) ===
-                expectedHash.toLowerCase();
-              output += `${targetFile}: ${ok ? "OK" : "FAILED"}\n`;
-              if (!ok) failed++;
-            } catch {
+            const fileContent = await readBinary(targetFile);
+            if (fileContent === null) {
               output += `${targetFile}: FAILED open or read\n`;
               failed++;
+              continue;
             }
+            const ok =
+              (await computeHash(algorithm, fileContent)) ===
+              expectedHash.toLowerCase();
+            output += `${targetFile}: ${ok ? "OK" : "FAILED"}\n`;
+            if (!ok) failed++;
           }
         }
 
@@ -213,16 +220,13 @@ export function createChecksumCommand(
       let exitCode = 0;
 
       for (const file of files) {
-        try {
-          const content =
-            file === "-"
-              ? ctx.stdin
-              : await ctx.fs.readFile(ctx.fs.resolvePath(ctx.cwd, file));
-          output += `${await computeHash(algorithm, content)}  ${file}\n`;
-        } catch {
+        const content = await readBinary(file);
+        if (content === null) {
           output += `${name}: ${file}: No such file or directory\n`;
           exitCode = 1;
+          continue;
         }
+        output += `${await computeHash(algorithm, content)}  ${file}\n`;
       }
 
       return { stdout: output, stderr: "", exitCode };
