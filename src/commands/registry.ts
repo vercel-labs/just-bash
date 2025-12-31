@@ -36,6 +36,7 @@ export type CommandName =
   | "awk"
   | "sort"
   | "uniq"
+  | "comm"
   | "cut"
   | "paste"
   | "tr"
@@ -64,6 +65,10 @@ export type CommandName =
   | "timeout"
   | "seq"
   | "expr"
+  | "md5sum"
+  | "sha1sum"
+  | "sha256sum"
+  | "file"
   | "html-to-markdown"
   | "help"
   | "which";
@@ -180,6 +185,10 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "uniq",
     load: async () => (await import("./uniq/uniq.js")).uniqCommand,
+  },
+  {
+    name: "comm",
+    load: async () => (await import("./comm/comm.js")).commCommand,
   },
   {
     name: "cut",
@@ -306,6 +315,26 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "expr",
     load: async () => (await import("./expr/expr.js")).exprCommand,
+  },
+
+  // Checksums
+  {
+    name: "md5sum",
+    load: async () => (await import("./md5sum/md5sum.js")).md5sumCommand,
+  },
+  {
+    name: "sha1sum",
+    load: async () => (await import("./md5sum/sha1sum.js")).sha1sumCommand,
+  },
+  {
+    name: "sha256sum",
+    load: async () => (await import("./md5sum/sha256sum.js")).sha256sumCommand,
+  },
+
+  // File type detection
+  {
+    name: "file",
+    load: async () => (await import("./file/file.js")).fileCommand,
   },
 
   // HTML processing

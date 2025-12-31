@@ -237,6 +237,242 @@ function evalFilter(v: JqValue, filter: string): JqValue[] {
   if (f === "not") {
     return [!v];
   }
+  if (f === "to_entries") {
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      return [
+        Object.entries(v as Record<string, unknown>).map(([key, value]) => ({
+          key,
+          value,
+        })),
+      ];
+    }
+    return [null];
+  }
+  if (f === "from_entries") {
+    if (Array.isArray(v)) {
+      const obj: Record<string, unknown> = {};
+      for (const item of v) {
+        if (item && typeof item === "object") {
+          const entry = item as Record<string, unknown>;
+          // Support both {key, value} and {name, value} and {k, v} formats
+          const key = entry.key ?? entry.name ?? entry.k;
+          const value = entry.value ?? entry.v;
+          if (key !== undefined) {
+            obj[String(key)] = value;
+          }
+        }
+      }
+      return [obj];
+    }
+    return [null];
+  }
+  if (f === "with_entries") {
+    // with_entries(f) is shorthand for to_entries | map(f) | from_entries
+    // For now, just return to_entries since we don't support inline functions yet
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      return [
+        Object.entries(v as Record<string, unknown>).map(([key, value]) => ({
+          key,
+          value,
+        })),
+      ];
+    }
+    return [null];
+  }
+  if (f === "has") {
+    // .has requires an argument, handle basic case
+    return [v !== null && v !== undefined];
+  }
+  if (f === "in") {
+    // .in requires an argument
+    return [false];
+  }
+  if (f === "getpath") {
+    return [v];
+  }
+  if (f === "paths") {
+    // Return all paths in the object
+    const paths: unknown[][] = [];
+    const walk = (val: unknown, path: unknown[]) => {
+      if (val && typeof val === "object") {
+        if (Array.isArray(val)) {
+          for (let i = 0; i < val.length; i++) {
+            paths.push([...path, i]);
+            walk(val[i], [...path, i]);
+          }
+        } else {
+          for (const key of Object.keys(val)) {
+            paths.push([...path, key]);
+            walk((val as Record<string, unknown>)[key], [...path, key]);
+          }
+        }
+      }
+    };
+    walk(v, []);
+    return [paths];
+  }
+  if (f === "leaf_paths") {
+    const paths: unknown[][] = [];
+    const walk = (val: unknown, path: unknown[]) => {
+      if (val && typeof val === "object") {
+        if (Array.isArray(val)) {
+          if (val.length === 0) {
+            paths.push(path);
+          } else {
+            for (let i = 0; i < val.length; i++) {
+              walk(val[i], [...path, i]);
+            }
+          }
+        } else {
+          const keys = Object.keys(val);
+          if (keys.length === 0) {
+            paths.push(path);
+          } else {
+            for (const key of keys) {
+              walk((val as Record<string, unknown>)[key], [...path, key]);
+            }
+          }
+        }
+      } else {
+        paths.push(path);
+      }
+    };
+    walk(v, []);
+    return [paths];
+  }
+  if (f === "any") {
+    if (Array.isArray(v)) return [v.some(Boolean)];
+    return [false];
+  }
+  if (f === "all") {
+    if (Array.isArray(v)) return [v.every(Boolean)];
+    return [true];
+  }
+  if (f === "group_by") {
+    // Basic implementation - needs argument
+    if (Array.isArray(v)) return [[v]];
+    return [null];
+  }
+  if (f === "unique_by") {
+    if (Array.isArray(v)) return [v];
+    return [null];
+  }
+  if (f === "join") {
+    // Needs argument
+    if (Array.isArray(v)) return [v.join("")];
+    return [null];
+  }
+  if (f === "splits" || f === "split") {
+    // Needs argument
+    if (typeof v === "string") return [[v]];
+    return [null];
+  }
+  if (f === "ascii_downcase" || f === "ascii_upcase") {
+    if (typeof v === "string") {
+      return [f === "ascii_downcase" ? v.toLowerCase() : v.toUpperCase()];
+    }
+    return [null];
+  }
+  if (f === "ltrimstr" || f === "rtrimstr") {
+    // Needs argument
+    return [v];
+  }
+  if (f === "startswith" || f === "endswith") {
+    // Needs argument
+    return [false];
+  }
+  if (f === "contains") {
+    // Needs argument
+    return [false];
+  }
+  if (f === "inside") {
+    // Needs argument
+    return [false];
+  }
+  if (f === "indices") {
+    // Needs argument
+    return [[]];
+  }
+  if (f === "index" || f === "rindex") {
+    // Needs argument
+    return [null];
+  }
+  if (f === "test" || f === "match" || f === "capture") {
+    // Needs argument
+    return [null];
+  }
+  if (f === "floor") {
+    if (typeof v === "number") return [Math.floor(v)];
+    return [null];
+  }
+  if (f === "ceil") {
+    if (typeof v === "number") return [Math.ceil(v)];
+    return [null];
+  }
+  if (f === "round") {
+    if (typeof v === "number") return [Math.round(v)];
+    return [null];
+  }
+  if (f === "sqrt") {
+    if (typeof v === "number") return [Math.sqrt(v)];
+    return [null];
+  }
+  if (f === "fabs" || f === "abs") {
+    if (typeof v === "number") return [Math.abs(v)];
+    return [null];
+  }
+  if (f === "tostring") {
+    if (typeof v === "string") return [v];
+    return [JSON.stringify(v)];
+  }
+  if (f === "tonumber") {
+    if (typeof v === "number") return [v];
+    if (typeof v === "string") {
+      const n = Number(v);
+      return [Number.isNaN(n) ? null : n];
+    }
+    return [null];
+  }
+  if (f === "infinite") {
+    return [!Number.isFinite(v as number)];
+  }
+  if (f === "nan") {
+    return [Number.isNaN(v as number)];
+  }
+  if (f === "isinfinite") {
+    return [typeof v === "number" && !Number.isFinite(v)];
+  }
+  if (f === "isnan") {
+    return [typeof v === "number" && Number.isNaN(v)];
+  }
+  if (f === "isnormal") {
+    return [typeof v === "number" && Number.isFinite(v) && v !== 0];
+  }
+  if (f === "env") {
+    return [{}]; // No env access in sandbox
+  }
+  if (f === "now") {
+    return [Date.now() / 1000];
+  }
+
+  // Handle recursive descent ..
+  if (f === "..") {
+    const results: JqValue[] = [];
+    const walk = (val: JqValue) => {
+      results.push(val);
+      if (Array.isArray(val)) {
+        for (const item of val) {
+          walk(item);
+        }
+      } else if (val && typeof val === "object") {
+        for (const key of Object.keys(val)) {
+          walk((val as Record<string, unknown>)[key]);
+        }
+      }
+    };
+    walk(v);
+    return results;
+  }
 
   // Path access
   return accessPath(v, f);

@@ -8,6 +8,7 @@ const grepHelp = {
   usage: "grep [OPTION]... PATTERN [FILE]...",
   options: [
     "-E, --extended-regexp    PATTERN is an extended regular expression",
+    "-P, --perl-regexp        PATTERN is a Perl regular expression",
     "-F, --fixed-strings      PATTERN is a set of newline-separated strings",
     "-i, --ignore-case        ignore case distinctions",
     "-v, --invert-match       select non-matching lines",
@@ -51,6 +52,7 @@ export const grepCommand: Command = {
     let wholeWord = false;
     let lineRegexp = false;
     let extendedRegex = false;
+    let perlRegex = false;
     let fixedStrings = false;
     let onlyMatching = false;
     let noFilename = false;
@@ -156,6 +158,7 @@ export const grepCommand: Command = {
           else if (flag === "x" || flag === "--line-regexp") lineRegexp = true;
           else if (flag === "E" || flag === "--extended-regexp")
             extendedRegex = true;
+          else if (flag === "P" || flag === "--perl-regexp") perlRegex = true;
           else if (flag === "F" || flag === "--fixed-strings")
             fixedStrings = true;
           else if (flag === "o" || flag === "--only-matching")
@@ -189,7 +192,8 @@ export const grepCommand: Command = {
     if (fixedStrings) {
       // -F: escape all regex special characters for literal match
       regexPattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    } else if (extendedRegex) {
+    } else if (extendedRegex || perlRegex) {
+      // -E and -P: use pattern as-is (JavaScript regex is mostly PCRE-compatible)
       regexPattern = pattern;
     } else {
       regexPattern = escapeRegexForBasicGrep(pattern);

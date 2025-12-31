@@ -237,7 +237,7 @@ pnpm shell --no-network
 
 ### Text Processing
 
-`awk`, `base64`, `cut`, `diff`, `grep`, `head`, `jq`, `printf`, `sed`, `sort`, `tail`, `tr`, `uniq`, `wc`, `xargs`
+`awk`, `base64`, `comm`, `cut`, `diff`, `grep`, `head`, `jq`, `md5sum`, `printf`, `sed`, `sha1sum`, `sha256sum`, `sort`, `tail`, `tr`, `uniq`, `wc`, `xargs`
 
 ### Navigation & Environment
 
