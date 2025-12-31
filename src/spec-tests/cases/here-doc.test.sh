@@ -311,7 +311,6 @@ after
 ## END
 
 #### Here doc as command prefix
-## SKIP: which command not implemented
 <<EOF tac
 1
 2

@@ -192,7 +192,6 @@ typeset test_var5
 ## END
 
 #### declare -p
-## SKIP: which command not implemented
 # BUG: bash doesn't output flags with "local -p", which seems to contradict
 #   with manual.
 test_var1=111
@@ -301,7 +300,6 @@ bash=0
 
 
 #### declare -p var
-## SKIP: which command not implemented
 # BUG? bash doesn't output anything for 'local/readonly -p var', which seems to
 #   contradict with manual.  Besides, 'export -p var' is not described in
 #   manual

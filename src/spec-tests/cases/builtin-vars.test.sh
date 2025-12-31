@@ -485,7 +485,6 @@ status=0
 ## END
 
 #### Unset wrong type
-## SKIP: which command not implemented
 case $SH in mksh) exit ;; esac
 
 declare undef

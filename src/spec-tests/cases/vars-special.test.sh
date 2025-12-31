@@ -110,7 +110,6 @@ histfile=yes
 ## END
 
 #### Some vars are set, even without startup file, or env: PATH, PWD
-## SKIP: which command not implemented
 
 flags=''
 case $SH in
@@ -339,6 +338,7 @@ command sub OK
 ## N-I dash/zsh stdout-json: ""
 
 #### Background PID $! looks like a PID
+## SKIP: Background job $! variable not implemented
 sleep 0.01 &
 pid=$!
 wait
@@ -347,6 +347,7 @@ echo status=$?
 ## stdout: status=0
 
 #### $PPID
+## SKIP: $PPID variable not implemented
 echo $PPID | egrep '[0-9]+'
 ## status: 0
 
@@ -366,14 +367,14 @@ argv.py "${PIPESTATUS[@]}"
 ## END
 
 #### $RANDOM
-## SKIP: egrep not implemented
+## SKIP: $RANDOM variable not implemented
 expr $0 : '.*/osh$' && exit 99  # Disabled because of spec-runner.sh issue
 echo $RANDOM | egrep '[0-9]+'
 ## status: 0
 ## N-I dash status: 1
 
 #### $UID and $EUID
-## SKIP: egrep not implemented
+## SKIP: $UID and $EUID variables not implemented
 # These are both bash-specific.
 set -o errexit
 echo $UID | egrep -o '[0-9]+' >/dev/null
@@ -778,7 +779,7 @@ status=0
 ## N-I dash stdout-json: ""
 
 #### BASH_VERSION / OILS_VERSION
-## SKIP: egrep not implemented
+## SKIP: $BASH_VERSION variable not implemented
 case $SH in
   bash*)
     # BASH_VERSION=zz
@@ -805,7 +806,7 @@ no version
 ## END
 
 #### $SECONDS
-
+## SKIP: $SECONDS variable not implemented
 # most likely 0 seconds, but in CI I've seen 1 second
 echo $SECONDS | awk '/[0-9]+/ { print "ok" }'
 

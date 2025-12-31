@@ -346,7 +346,6 @@ while
 ## END
 
 #### compgen -k shows Oils keywords too
-## SKIP: egrep not implemented
 
 # YSH has a superset of keywords:
 # const var

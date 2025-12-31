@@ -158,7 +158,6 @@ echo '1 2' \' \" \\
 ## END
 
 #### xtrace with newlines
-## SKIP: which command not implemented
 # bash and dash trace this badly.  They print literal newlines, which I don't
 # want.
 set -x

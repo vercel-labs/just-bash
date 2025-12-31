@@ -101,7 +101,6 @@ end
 ## END
 
 #### < file in pipeline and subshell doesn't work
-## SKIP: which command not implemented
 echo FOO > file2
 
 # This only happens in command subs, which is weird
@@ -153,7 +152,6 @@ foo
 ## END
 
 #### Redirect in assignment
-## SKIP: which command not implemented
 # dash captures stderr to a file here, which seems correct.  Bash doesn't and
 # just lets it go to actual stderr.
 # For now we agree with dash/mksh, since it involves fewer special cases in the

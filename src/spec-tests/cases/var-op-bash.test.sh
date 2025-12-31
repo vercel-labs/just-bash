@@ -364,7 +364,6 @@ fail
 ## END
 
 #### ${!A@a} and ${!A[@]@a}
-## SKIP: which command not implemented
 declare -A A=(["x"]=y)
 echo x=${!A[@]@a}
 echo invalid=${!A@a}

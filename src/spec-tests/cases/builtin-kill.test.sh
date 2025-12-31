@@ -343,7 +343,6 @@ echo $?
 ## END
 
 #### Numeric signal out of range - OSH may send it anyway
-## SKIP: which command not implemented
 
 sleep 0.1 &
 

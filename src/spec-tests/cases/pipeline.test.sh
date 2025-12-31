@@ -217,7 +217,6 @@ echo i=$i
 
 
 #### SIGPIPE causes pipeline to die (regression for issue #295)
-## SKIP: which command not implemented
 cat /dev/urandom | sleep 0.1
 echo ${PIPESTATUS[@]}
 

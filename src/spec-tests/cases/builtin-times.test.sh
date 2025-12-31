@@ -1,7 +1,6 @@
 ## compare_shells: bash zsh
 
 #### times shows two formatted lines
-## SKIP: egrep not implemented
 output=$(times)
 echo "$output" | while read line
 do

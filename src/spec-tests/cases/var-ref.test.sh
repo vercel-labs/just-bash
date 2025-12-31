@@ -411,7 +411,6 @@ works: a[$(( 3 - 2 ))]
 ## END
 
 #### Bizarre tilde expansion in array index
-## SKIP: which command not implemented
 a=(x y)
 PWD=1
 ref='a[~+]'

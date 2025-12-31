@@ -17,7 +17,6 @@ wait
 ## status: 0
 
 #### wait -n with arguments - arguments are respected
-## SKIP: which command not implemented
 case $SH in dash|mksh) exit ;; esac
 
 echo x &

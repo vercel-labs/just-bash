@@ -56,7 +56,6 @@ two
 ## END
 
 #### Changing PATH will invalidate PATH cache
-## SKIP: chmod command not implemented
 
 mkdir -p _tmp/bin
 mkdir -p _tmp/bin2

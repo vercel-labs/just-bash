@@ -137,7 +137,6 @@ bye
 ## END
 
 #### $((which example - command sub versus arith sub - gnunet-gtk package
-## SKIP: which command not implemented
 
         gtk_update_icon_cache_bin="$((which gtk-update-icon-cache ||
 echo /opt/gnome/bin/gtk-update-icon-cache)2>/dev/null)"

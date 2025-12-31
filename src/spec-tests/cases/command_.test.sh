@@ -40,7 +40,7 @@ $SH -c '$TMP/no-shebang'
 ## status: 0
 
 #### File with relative path and no shebang is executed
-## SKIP: chmod command not implemented
+## SKIP: $SH invocation for script execution not supported
 cd $TMP
 echo 'echo hi' > no-shebang
 chmod +x no-shebang
@@ -49,7 +49,7 @@ chmod +x no-shebang
 ## status: 0
 
 #### File in relative subdirectory and no shebang is executed
-## SKIP: chmod command not implemented
+## SKIP: $SH invocation for script execution not supported
 cd $TMP
 mkdir -p test-no-shebang
 echo 'echo hi' > test-no-shebang/script
@@ -59,7 +59,7 @@ chmod +x test-no-shebang/script
 ## status: 0
 
 #### $PATH lookup
-## SKIP: chmod command not implemented
+## SKIP: External command $PATH execution not supported
 cd $TMP
 mkdir -p one two
 echo 'echo one' > one/mycmd
@@ -73,7 +73,7 @@ one
 ## END
 
 #### filling $PATH cache, then insert the same command earlier in cache
-## SKIP: chmod command not implemented
+## SKIP: External command $PATH execution not supported
 cd $TMP
 PATH="one:two:$PATH"
 mkdir -p one two
@@ -105,7 +105,7 @@ one
 ## END
 
 #### filling $PATH cache, then deleting command
-## SKIP: chmod command not implemented
+## SKIP: External command $PATH execution not supported
 cd $TMP
 PATH="one:two:$PATH"
 mkdir -p one two
@@ -138,8 +138,7 @@ status=0
 ## END
 
 #### Non-executable on $PATH
-## SKIP: chmod command not implemented
-
+## SKIP: External command $PATH execution not supported
 # shells differ in whether they actually execve('one/cmd') and get EPERM
 
 mkdir -p one two
@@ -206,8 +205,7 @@ echo status=$?
 ## BUG dash/bash stdout: status=0
 
 #### Executing command with same name as directory in PATH (#2429)
-## SKIP: chmod command not implemented
-
+## SKIP: External command $PATH execution not supported
 # Make the following directory structure. File type and permission bits are
 # given on the left.
 # [drwxr-xr-x]  _tmp
