@@ -24,8 +24,8 @@ describe("rm", () => {
     });
     await env.exec("rm /a.txt /b.txt /c.txt");
     const ls = await env.exec("ls /");
-    // /bin and /usr always exist for PATH-based command resolution
-    expect(ls.stdout).toBe("bin\nusr\n");
+    // /bin, /usr, /dev, /proc always exist
+    expect(ls.stdout).toBe("bin\ndev\nproc\nusr\n");
   });
 
   it("should error on missing file", async () => {

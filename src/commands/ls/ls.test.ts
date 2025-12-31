@@ -21,8 +21,8 @@ describe("ls", () => {
       cwd: "/",
     });
     const result = await env.exec("ls");
-    // /bin and /usr always exist for PATH-based command resolution
-    expect(result.stdout).toBe("bin\nfile.txt\nusr\n");
+    // /bin, /usr, /dev, /proc always exist for PATH-based command resolution and system compatibility
+    expect(result.stdout).toBe("bin\ndev\nfile.txt\nproc\nusr\n");
     expect(result.stderr).toBe("");
   });
 

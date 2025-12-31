@@ -9,16 +9,16 @@ describe("mkdir", () => {
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
     const ls = await env.exec("ls /");
-    // /bin and /usr always exist for PATH-based command resolution
-    expect(ls.stdout).toBe("bin\nnewdir\nusr\n");
+    // /bin, /usr, /dev, /proc always exist
+    expect(ls.stdout).toBe("bin\ndev\nnewdir\nproc\nusr\n");
   });
 
   it("should create multiple directories", async () => {
     const env = new Bash({ cwd: "/" });
     await env.exec("mkdir /dir1 /dir2 /dir3");
     const ls = await env.exec("ls /");
-    // /bin and /usr always exist for PATH-based command resolution
-    expect(ls.stdout).toBe("bin\ndir1\ndir2\ndir3\nusr\n");
+    // /bin, /usr, /dev, /proc always exist
+    expect(ls.stdout).toBe("bin\ndev\ndir1\ndir2\ndir3\nproc\nusr\n");
   });
 
   it("should create nested directories with -p", async () => {

@@ -39,6 +39,10 @@ export interface InterpreterState {
   lastExitCode: number;
   /** Last argument of previous command, for $_ expansion */
   lastArg: string;
+  /** Time when shell started (for $SECONDS) */
+  startTime: number;
+  /** PID of last background job (for $!) */
+  lastBackgroundPid: number;
   /** Shell options (set -e, etc.) */
   options: ShellOptions;
   /** True when executing condition for if/while/until (errexit doesn't apply) */

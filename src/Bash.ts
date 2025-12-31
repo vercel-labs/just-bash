@@ -20,6 +20,7 @@ import {
   isLazyCommand,
 } from "./custom-commands.js";
 import { InMemoryFs } from "./fs/in-memory-fs/in-memory-fs.js";
+import { initFilesystem } from "./fs/init.js";
 import type { IFileSystem, InitialFiles } from "./fs/interface.js";
 import {
   ArithmeticError,
@@ -205,6 +206,8 @@ export class Bash {
       commandCount: 0,
       lastExitCode: 0,
       lastArg: "", // $_ is initially empty (or could be shell name)
+      startTime: Date.now(),
+      lastBackgroundPid: 0,
       options: {
         errexit: false,
         pipefail: false,
@@ -216,21 +219,9 @@ export class Bash {
       loopDepth: 0,
     };
 
-    // Create essential directories for InMemoryFs
-    if (fs instanceof InMemoryFs) {
-      try {
-        // Always create /bin for PATH-based command resolution
-        fs.mkdirSync("/bin", { recursive: true });
-        fs.mkdirSync("/usr/bin", { recursive: true });
-        // Create additional directories only for default layout
-        if (this.useDefaultLayout) {
-          fs.mkdirSync("/home/user", { recursive: true });
-          fs.mkdirSync("/tmp", { recursive: true });
-        }
-      } catch {
-        // Ignore errors - directories may already exist
-      }
-    }
+    // Initialize filesystem with standard directories and device files
+    // Only applies to InMemoryFs - other filesystems use real directories
+    initFilesystem(fs, this.useDefaultLayout);
 
     if (cwd !== "/" && fs instanceof InMemoryFs) {
       try {
@@ -265,10 +256,14 @@ export class Bash {
 
   registerCommand(command: Command): void {
     this.commands.set(command.name, command);
-    // Always create command stubs in /bin for PATH-based resolution
-    if (this.fs instanceof InMemoryFs) {
+    // Create command stubs in /bin for PATH-based resolution
+    // Works for both InMemoryFs and OverlayFs (both have writeFileSync)
+    const fs = this.fs as {
+      writeFileSync?: (path: string, content: string) => void;
+    };
+    if (typeof fs.writeFileSync === "function") {
       try {
-        this.fs.writeFileSync(
+        fs.writeFileSync(
           `/bin/${command.name}`,
           `#!/bin/bash\n# Built-in command: ${command.name}\n`,
         );

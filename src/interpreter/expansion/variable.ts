@@ -10,6 +10,7 @@
 
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
+import { BASH_VERSION, getProcessInfo } from "../../shell-metadata.js";
 import { evaluateArithmeticSync } from "../arithmetic.js";
 import { BadSubstitutionError, NounsetError } from "../errors.js";
 import {
@@ -119,6 +120,31 @@ export function getVariable(
         return ctx.state.env.OLDPWD;
       }
       return "";
+    case "PPID": {
+      // Parent process ID (from shared metadata)
+      const { ppid } = getProcessInfo();
+      return String(ppid);
+    }
+    case "UID": {
+      // Real user ID (from shared metadata)
+      const { uid } = getProcessInfo();
+      return String(uid);
+    }
+    case "EUID":
+      // Effective user ID (same as UID in our simulated environment)
+      return String(process.geteuid?.() ?? getProcessInfo().uid);
+    case "RANDOM":
+      // Random number between 0 and 32767
+      return String(Math.floor(Math.random() * 32768));
+    case "SECONDS":
+      // Seconds since shell started
+      return String(Math.floor((Date.now() - ctx.state.startTime) / 1000));
+    case "BASH_VERSION":
+      // Simulated bash version (from shared metadata)
+      return BASH_VERSION;
+    case "!":
+      // PID of most recent background job (0 if none)
+      return String(ctx.state.lastBackgroundPid);
   }
 
   // Check for empty subscript: varName[] is invalid

@@ -146,6 +146,52 @@ export class OverlayFs implements IFileSystem {
   }
 
   /**
+   * Create a virtual directory in memory (sync, for initialization)
+   */
+  mkdirSync(path: string, _options?: MkdirOptions): void {
+    const normalized = this.normalizePath(path);
+    const parts = normalized.split("/").filter(Boolean);
+    let current = "";
+    for (const part of parts) {
+      current += `/${part}`;
+      if (!this.memory.has(current)) {
+        this.memory.set(current, {
+          type: "directory",
+          mode: 0o755,
+          mtime: new Date(),
+        });
+      }
+    }
+  }
+
+  /**
+   * Create a virtual file in memory (sync, for initialization)
+   */
+  writeFileSync(path: string, content: string | Uint8Array): void {
+    const normalized = this.normalizePath(path);
+    // Ensure parent directories exist
+    const parent = this.getDirname(normalized);
+    if (parent !== "/") {
+      this.mkdirSync(parent);
+    }
+    const buffer =
+      content instanceof Uint8Array
+        ? content
+        : new TextEncoder().encode(content);
+    this.memory.set(normalized, {
+      type: "file",
+      content: buffer,
+      mode: 0o644,
+      mtime: new Date(),
+    });
+  }
+
+  private getDirname(path: string): string {
+    const lastSlash = path.lastIndexOf("/");
+    return lastSlash === 0 ? "/" : path.slice(0, lastSlash);
+  }
+
+  /**
    * Normalize a virtual path (resolve . and .., ensure starts with /)
    */
   private normalizePath(path: string): string {
