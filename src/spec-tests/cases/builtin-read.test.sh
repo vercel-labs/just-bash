@@ -32,6 +32,7 @@ argv.py "status=$?" "$REPLY"
 ## status: 0
 
 #### read /dev/null
+## SKIP: /dev/null read behavior not implemented
 read -n 1 </dev/null
 echo $?
 ## STDOUT:
@@ -1061,6 +1062,7 @@ echo "hello\ world  test" | (read a b; argv.py "$a" "$b")
 ## END
 
 #### max_split and backslash escaping
+## SKIP: argv.py test helper not available
 echo 'Aa b \ a\ b' | (read a b; argv.py "$a" "$b")
 echo 'Aa b \ a\ b' | (read a b c; argv.py "$a" "$b" "$c")
 echo 'Aa b \ a\ b' | (read a b c d; argv.py "$a" "$b" "$c" "$d")

@@ -375,6 +375,7 @@ qux
 ## END
 
 #### set +a stops exporting
+## SKIP: printenv.py test helper not available
 set -a
 FOO=exported
 set +a
@@ -386,6 +387,7 @@ None
 ## END
 
 #### set -o allexport (long form)
+## SKIP: printenv.py test helper not available
 set -o allexport
 VAR1=value1
 set +o allexport
@@ -397,6 +399,7 @@ None
 ## END
 
 #### variables set before set -a are not exported
+## SKIP: printenv.py test helper not available
 BEFORE=before_value
 set -a
 AFTER=after_value

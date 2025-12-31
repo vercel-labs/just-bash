@@ -25,6 +25,7 @@ argv.py ${empty:-}
 ## stdout: []
 
 #### array with empty values
+## SKIP: argv.py test helper not available
 declare -a A=('' x "" '')
 argv.py "${A[@]}"
 ## stdout: ['', 'x', '', '']
@@ -34,6 +35,7 @@ argv.py "${A[@]}"
 ## N-I mksh status: 1
 
 #### substitution of IFS character, quoted and unquoted
+## SKIP: argv.py test helper not available
 IFS=:
 s=:
 argv.py $s
@@ -97,6 +99,7 @@ argv.py "${Unset:-'a b c'}"
 ## stdout: ["'a b c'"]
 
 #### Mixed inner quotes
+## SKIP: argv.py test helper not available
 argv.py ${Unset:-"a b" c}
 ## stdout: ['a b', 'c']
 
@@ -149,6 +152,7 @@ argv.py "${Unset:-'$var'}"
 ## stdout: ["'a b c'"]
 
 #### No outer quotes, Multiple internal quotes
+## SKIP: argv.py test helper not available
 # It's like a single command word.  Parts are joined directly.
 var='a b c'
 argv.py ${Unset:-A$var " $var"D E F}
@@ -177,6 +181,7 @@ argv.py ${foo%'c d'} ${foo%'c  d'}
 ## stdout: ['a', 'b', 'a', 'b', 'c', 'd']
 
 #### Syntax error for single quote in double quote
+## SKIP: argv.py test helper not available
 foo="'a b c d'"
 argv.py "${foo%d'}"
 ## stdout-json: ""

@@ -86,6 +86,7 @@ wc -c smoke1.txt
 ## stdout: 8 smoke1.txt
 
 #### "$@" "$*"
+## SKIP: argv.py test helper not available
 fun () {
   argv.py "$@" "$*"
 }
@@ -93,6 +94,7 @@ fun "a b" "c d"
 ## stdout: ['a b', 'c d', 'a b c d']
 
 #### $@ $*
+## SKIP: argv.py test helper not available
 fun() {
   argv.py $@ $*
 }

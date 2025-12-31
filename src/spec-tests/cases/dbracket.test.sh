@@ -423,6 +423,7 @@ regex=1
 ## N-I mksh stdout-json: ""
 
 #### [[ ]] with redirect
+## SKIP: stdout_stderr.py test helper not available
 [[ $(stdout_stderr.py) == STDOUT ]] 2>$TMP/x.txt
 echo $?
 echo --

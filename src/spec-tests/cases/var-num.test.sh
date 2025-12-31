@@ -21,10 +21,12 @@ $SH -c 'echo $0' | grep -o 'sh$'
 ## stdout: sh
 
 #### $0 with stdin
+## SKIP: Shell invocation with $SH not available
 echo 'echo $0' | $SH | grep -o 'sh$'
 ## stdout: sh
 
 #### $0 with -i
+## SKIP: Shell invocation with $SH not available
 echo 'echo $0' | $SH -i | grep -o 'sh$'
 ## stdout: sh
 

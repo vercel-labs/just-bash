@@ -314,6 +314,7 @@ SHELL
 ## END
 
 #### Permutations of implicit begin and length
+## SKIP: argv.py test helper not available
 array=(1 2 3)
 
 argv.py ${array[@]}

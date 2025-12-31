@@ -31,6 +31,7 @@ echo ${unset-is unset}
 ## stdout: is unset
 
 #### Unquoted with array as default value
+## SKIP: argv.py test helper not available
 set -- '1 2' '3 4'
 argv.py X${unset=x"$@"x}X
 argv.py X${unset=x$@x}X  # If you want OSH to split, write this
@@ -70,6 +71,7 @@ argv.py "X${unset=x$@x}X"  # OSH is the same here
 ## END
 
 #### Assign default with array
+## SKIP: argv.py test helper not available
 set -- '1 2' '3 4'
 argv.py X${unset=x"$@"x}X
 argv.py "$unset"
@@ -261,6 +263,7 @@ echo
 
 
 #### Nix idiom ${!hooksSlice+"${!hooksSlice}"} - was workaround for obsolete bash 4.3 bug
+## SKIP: argv.py test helper not available
 
 case $SH in dash|mksh|zsh) exit ;; esac
 

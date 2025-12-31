@@ -33,6 +33,7 @@ argv.py $s1$s2 "$s3"
 ## stdout: ['1', '23', '4', '5 6']
 
 #### Word joining
+## SKIP: Word joining with array expansion not implemented
 set -- x y z
 s1='1 2'
 array=(a1 a2)

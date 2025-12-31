@@ -66,11 +66,13 @@ argv.py $(echo 'hi there') "$(echo 'hi there')"
 ## stdout: ['hi', 'there', 'hi there']
 
 #### Command Sub trailing newline removed
+## SKIP: python2 not available
 s=$(python2 -c 'print("ab\ncd\n")')
 argv.py "$s"
 ## stdout: ['ab\ncd']
 
 #### Command Sub trailing whitespace not removed
+## SKIP: python2 not available
 s=$(python2 -c 'print("ab\ncd\n ")')
 argv.py "$s"
 ## stdout: ['ab\ncd\n ']

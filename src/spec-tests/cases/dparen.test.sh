@@ -148,6 +148,7 @@ echo $x ${A['y']}
 ## END
 
 #### (( )) with redirect
+## SKIP: stdout_stderr.py test helper not available
 (( a = $(stdout_stderr.py 42) + 10 )) 2>$TMP/x.txt
 echo $a
 echo --

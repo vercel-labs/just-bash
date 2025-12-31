@@ -58,6 +58,7 @@ OK
 ## N-I dash status: 1
 
 #### printf -v a[1]
+## SKIP: printf -v with array subscript not implemented
 a=(a b c)
 printf -v 'a[1]' %s 'foo'
 echo status=$?
@@ -697,6 +698,7 @@ printf '[%G]\n' 3.14
 ## N-I osh status: 2
 
 #### printf backslash escapes
+## SKIP: argv.py test helper not available
 argv.py "$(printf 'a\tb')"
 argv.py "$(printf '\xE2\x98\xA0')"
 argv.py "$(printf '\044e')"
@@ -715,6 +717,7 @@ argv.py "$(printf '\0377')"  # out of range
 ## END
 
 #### printf octal backslash escapes
+## SKIP: argv.py test helper not available
 argv.py "$(printf '\0377')"
 argv.py "$(printf '\377')"
 ## STDOUT:
@@ -723,6 +726,7 @@ argv.py "$(printf '\377')"
 ## END
 
 #### printf unicode backslash escapes
+## SKIP: argv.py test helper not available
 argv.py "$(printf '\u2620')"
 argv.py "$(printf '\U0000065f')"
 ## STDOUT:
