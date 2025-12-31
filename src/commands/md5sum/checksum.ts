@@ -114,7 +114,7 @@ async function computeHash(
 
   const hashBuffer = await globalThis.crypto.subtle.digest(
     WEBCRYPTO_ALGORITHMS[algorithm],
-    data,
+    new Uint8Array(data).buffer as ArrayBuffer,
   );
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, "0"))
