@@ -44,6 +44,8 @@ describe("od command", () => {
     const env = new Bash();
     const result = await env.exec("od /nonexistent/file.txt");
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toBe("od: /nonexistent/file.txt: No such file or directory\n");
+    expect(result.stderr).toBe(
+      "od: /nonexistent/file.txt: No such file or directory\n",
+    );
   });
 });

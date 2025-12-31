@@ -8,7 +8,9 @@ describe("tail", () => {
       files: { "/test.txt": lines },
     });
     const result = await env.exec("tail /test.txt");
-    expect(result.stdout).toBe("line11\nline12\nline13\nline14\nline15\nline16\nline17\nline18\nline19\nline20\n");
+    expect(result.stdout).toBe(
+      "line11\nline12\nline13\nline14\nline15\nline16\nline17\nline18\nline19\nline20\n",
+    );
     expect(result.exitCode).toBe(0);
   });
 

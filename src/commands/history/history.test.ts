@@ -32,10 +32,7 @@ describe("history command", () => {
       env: { BASH_HISTORY: '["echo hello","ls -la"]' },
     });
     const result = await env.exec("history");
-    expect(result.stdout).toContain("1");
-    expect(result.stdout).toContain("echo hello");
-    expect(result.stdout).toContain("2");
-    expect(result.stdout).toContain("ls -la");
+    expect(result.stdout).toBe("    1  echo hello\n    2  ls -la\n");
     expect(result.exitCode).toBe(0);
   });
 
@@ -44,9 +41,7 @@ describe("history command", () => {
       env: { BASH_HISTORY: '["cmd1","cmd2","cmd3","cmd4","cmd5"]' },
     });
     const result = await env.exec("history 2");
-    expect(result.stdout).toContain("cmd4");
-    expect(result.stdout).toContain("cmd5");
-    expect(result.stdout).not.toContain("cmd1");
+    expect(result.stdout).toBe("    4  cmd4\n    5  cmd5\n");
     expect(result.exitCode).toBe(0);
   });
 });
