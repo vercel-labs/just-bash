@@ -192,6 +192,46 @@ describe("xargs command", () => {
     });
   });
 
+  describe("-P option (parallel execution)", () => {
+    it("should run commands in parallel with -P", async () => {
+      const env = new Bash();
+      const result = await env.exec('echo "a b c" | xargs -P 2 -n 1 echo item:');
+      expect(result.stdout).toBe("item: a\nitem: b\nitem: c\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle -P with -I replacement", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        'echo -e "x\\ny\\nz" | xargs -P 3 -I {} echo file-{}',
+      );
+      expect(result.stdout).toBe("file-x\nfile-y\nfile-z\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle -P 1 as sequential", async () => {
+      const env = new Bash();
+      const result = await env.exec('echo "1 2 3" | xargs -P 1 -n 1 echo');
+      expect(result.stdout).toBe("1\n2\n3\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should batch parallel execution correctly", async () => {
+      const env = new Bash({
+        files: {
+          "/a.txt": "content-a",
+          "/b.txt": "content-b",
+          "/c.txt": "content-c",
+        },
+      });
+      const result = await env.exec(
+        'echo "/a.txt /b.txt /c.txt" | xargs -P 2 -n 1 cat',
+      );
+      expect(result.stdout).toBe("content-acontent-bcontent-c");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
   describe("exit codes", () => {
     it("should propagate command failure exit code", async () => {
       const env = new Bash();
