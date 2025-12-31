@@ -12,7 +12,7 @@ import {
   type ParsedSpecFile,
   type TestCase,
 } from "./parser.js";
-import { testHelperCommands } from "./test-helpers.js";
+import { testHelperCommands } from "./spec-helpers.js";
 
 export interface TestResult {
   testCase: TestCase;

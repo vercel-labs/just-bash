@@ -145,7 +145,6 @@ three
 ## END
 
 #### Two here docs -- first is ignored; second ones wins!
-## SKIP: Here-doc edge cases not implemented
 <<EOF1 cat <<EOF2
 hello
 EOF1
