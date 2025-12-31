@@ -5,8 +5,7 @@ describe("clear command", () => {
   it("should output ANSI clear sequence", async () => {
     const env = new Bash();
     const result = await env.exec("clear");
-    expect(result.stdout).toContain("\x1B[2J");
-    expect(result.stdout).toContain("\x1B[H");
+    expect(result.stdout).toBe("\x1B[2J\x1B[H");
     expect(result.exitCode).toBe(0);
   });
 

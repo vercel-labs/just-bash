@@ -29,6 +29,7 @@ export { handleExit } from "./exit.js";
 export { handleExport } from "./export.js";
 export { handleLet } from "./let.js";
 export { handleLocal } from "./local.js";
+export { handleMapfile } from "./mapfile.js";
 export { handleRead } from "./read.js";
 export { handleReturn } from "./return.js";
 export { handleSet } from "./set.js";

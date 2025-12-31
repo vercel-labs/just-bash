@@ -209,9 +209,7 @@ describe("jq", () => {
     it("should get unique values", async () => {
       const env = new Bash();
       const result = await env.exec("echo '[1,2,1,3,2]' | jq 'unique'");
-      expect(result.stdout).toContain("1");
-      expect(result.stdout).toContain("2");
-      expect(result.stdout).toContain("3");
+      expect(result.stdout).toBe("[\n  1,\n  2,\n  3\n]\n");
       expect(result.exitCode).toBe(0);
     });
 

@@ -8,9 +8,9 @@ describe("head", () => {
       files: { "/test.txt": lines },
     });
     const result = await env.exec("head /test.txt");
-    expect(result.stdout).toContain("line1");
-    expect(result.stdout).toContain("line10");
-    expect(result.stdout).not.toContain("line11");
+    expect(result.stdout).toBe(
+      "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\n",
+    );
     expect(result.exitCode).toBe(0);
   });
 
@@ -54,10 +54,7 @@ describe("head", () => {
       },
     });
     const result = await env.exec("head /a.txt /b.txt");
-    expect(result.stdout).toContain("==> /a.txt <==");
-    expect(result.stdout).toContain("==> /b.txt <==");
-    expect(result.stdout).toContain("aaa");
-    expect(result.stdout).toContain("bbb");
+    expect(result.stdout).toBe("==> /a.txt <==\naaa\n\n==> /b.txt <==\nbbb\n");
   });
 
   it("should error on missing file", async () => {
@@ -72,9 +69,7 @@ describe("head", () => {
   it("should read from stdin", async () => {
     const env = new Bash();
     const result = await env.exec('echo -e "a\\nb\\nc\\nd\\ne" | head -n 2');
-    expect(result.stdout).toContain("a");
-    expect(result.stdout).toContain("b");
-    expect(result.stdout).not.toContain("c");
+    expect(result.stdout).toBe("a\nb\n");
   });
 
   it("should handle empty file", async () => {
@@ -98,7 +93,7 @@ describe("head", () => {
       files: { "/test.txt": "no newline" },
     });
     const result = await env.exec("head -n 1 /test.txt");
-    expect(result.stdout).toContain("no newline");
+    expect(result.stdout).toBe("no newline\n");
   });
 
   it("should show first line only with -n 1", async () => {

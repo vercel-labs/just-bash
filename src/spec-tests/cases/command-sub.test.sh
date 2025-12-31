@@ -45,7 +45,6 @@ echo status=$?
 ## OK mksh status: 1
 
 #### Command sub with here doc
-## SKIP: tac command not implemented
 echo $(<<EOF tac
 one
 two
@@ -54,7 +53,6 @@ EOF
 ## stdout: two one
 
 #### Here doc with pipeline
-## SKIP: tac command not implemented
 <<EOF tac | tr '\n' 'X'
 one
 two

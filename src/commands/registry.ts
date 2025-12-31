@@ -71,7 +71,10 @@ export type CommandName =
   | "file"
   | "html-to-markdown"
   | "help"
-  | "which";
+  | "which"
+  | "tac"
+  | "hostname"
+  | "od";
 
 /** Network command names (only available when network is configured) */
 export type NetworkCommandName = "curl";
@@ -355,6 +358,20 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "which",
     load: async () => (await import("./which/which.js")).whichCommand,
+  },
+
+  // Misc utilities
+  {
+    name: "tac",
+    load: async () => (await import("./tac/tac.js")).tac,
+  },
+  {
+    name: "hostname",
+    load: async () => (await import("./hostname/hostname.js")).hostname,
+  },
+  {
+    name: "od",
+    load: async () => (await import("./od/od.js")).od,
   },
 ];
 

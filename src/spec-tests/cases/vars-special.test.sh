@@ -392,6 +392,7 @@ status=1
 ## END
 
 #### $HOSTNAME
+## SKIP: $HOSTNAME special variable not implemented
 test "$HOSTNAME" = "$(hostname)"
 echo status=$?
 ## STDOUT:

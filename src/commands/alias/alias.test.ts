@@ -13,7 +13,7 @@ describe("alias command", () => {
   it("should set and list an alias within same exec", async () => {
     const env = new Bash();
     const result = await env.exec("alias ll='ls -la'; alias");
-    expect(result.stdout).toContain("alias ll='ls -la'");
+    expect(result.stdout).toBe("alias ll='ls -la'\n");
     expect(result.exitCode).toBe(0);
   });
 
@@ -34,8 +34,7 @@ describe("alias command", () => {
   it("should set multiple aliases within same exec", async () => {
     const env = new Bash();
     const result = await env.exec("alias ll='ls -la' la='ls -a'; alias");
-    expect(result.stdout).toContain("alias ll='ls -la'");
-    expect(result.stdout).toContain("alias la='ls -a'");
+    expect(result.stdout).toBe("alias ll='ls -la'\nalias la='ls -a'\n");
   });
 
   it("should show help with --help", async () => {

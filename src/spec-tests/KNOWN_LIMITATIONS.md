@@ -2,6 +2,51 @@
 
 This document describes bash features that are intentionally not implemented in bash-env. Tests for these features are marked with `## SKIP:` in the spec test files.
 
+---
+
+## AI Agent Priority List
+
+Features prioritized for AI agent use cases. These are the most impactful gaps for agents running scripts in sandboxed environments.
+
+### Critical (Implement First)
+
+| Feature | Tests | AI Agent Use Case | Status |
+|---------|-------|-------------------|--------|
+| **PIPESTATUS** | 7 | Agents chain commands (`cmd1 | cmd2 | cmd3`) and need to know which stage failed | ✅ Done |
+| **read -a array** | ~3 | Parse output into arrays: `read -a parts <<< "$line"` | ✅ Done |
+| **mapfile/readarray** | 13 | Process multi-line output into arrays: `mapfile -t lines < <(find ...)` | ✅ Done |
+| **errexit in compound commands** | 9 | Scripts with `set -e` must fail properly in `{ }` blocks and pipelines | Pending |
+
+### High (Implement Second)
+
+| Feature | Tests | AI Agent Use Case | Status |
+|---------|-------|-------------------|--------|
+| **read -d delim** | ~3 | Parse NUL-separated output from `find -print0`, handle CSV data | ✅ Done |
+| **read -n** | ~2 | Read fixed-length fields | ✅ Done |
+| **printf %q** | 14 | Safely quote strings when generating shell commands programmatically | ✅ Done |
+| **set -f (noglob)** | 2 | Disable glob expansion when handling untrusted input safely | ✅ Done |
+| **read -N** | ~2 | Read exact N chars ignoring delimiters | Pending |
+
+### Medium (Nice to Have)
+
+| Feature | Tests | AI Agent Use Case | Status |
+|---------|-------|-------------------|--------|
+| **IFS edge cases** | ~8 | Complex text parsing scenarios | Pending |
+| **Here-doc edge cases** | ~5 | Multi-line string handling in scripts | Partial ✅ |
+| **Right brace in default** | 46 | Complex parameter expansions | Pending |
+
+### Low Priority for Agents
+
+| Feature | Tests | Reason |
+|---------|-------|--------|
+| **read -t timeout** | ~2 | Less relevant in non-interactive sandbox |
+| **read -s silent** | ~2 | No TTY in sandboxed environment |
+| **extglob** | 50 | Basic globs usually sufficient |
+| **hash** | 3 | Command caching irrelevant in sandbox |
+| **history** | 29 | Interactive feature, out of scope |
+
+---
+
 ## Recently Implemented
 
 The following features were recently added and are now working:
@@ -20,45 +65,86 @@ Word splitting now correctly handles:
 - `"$*"` vs `"$@"` semantics (different behavior with empty params)
 - Unquoted `$@`/`$*` going through IFS splitting
 
+### PIPESTATUS Variable ✅
+The `PIPESTATUS` array containing exit statuses of pipeline commands is now implemented:
+- `${PIPESTATUS[@]}` returns all exit codes from most recent pipeline
+- `${PIPESTATUS[0]}`, `${PIPESTATUS[1]}`, etc. for individual access
+- Note: Initial value differs slightly (set to `[0]` after first command vs empty in bash)
+
+### read Builtin Options ✅
+Several `read` options are now working:
+- `-a array` - read words into array
+- `-d delim` - use custom delimiter instead of newline
+- `-n N` - read up to N characters (stops at delimiter)
+- Note: `-N` (exact count ignoring delimiters) not yet implemented
+
+### printf %q Format ✅
+The `%q` format for shell quoting is implemented:
+- Safely quotes strings for use in shell commands
+- Handles special characters, control characters, and spaces
+
+### set -f (noglob) ✅
+The `set -f` / `set -o noglob` option to disable pathname expansion is implemented:
+- Prevents `*`, `?`, `[` from being expanded as globs
+
+### mapfile/readarray ✅
+The `mapfile` and `readarray` builtins for reading lines into an array are implemented:
+- `mapfile -t arr` - read lines into array, trimming newlines
+- `readarray arr` - alias for mapfile
+- Supports `-n count`, `-s skip`, `-O origin`, `-d delim` options
+
+### Here-doc Fixes ✅
+Several here-doc edge cases are now fixed:
+- **Unmatched quotes in heredoc**: Quotes are now literal in heredoc content (e.g., `"two` preserves the `"`)
+- **Heredoc as command prefix**: `<<EOF cmd` syntax now works (redirections before command name)
+- Remaining: multiple heredocs on same line, heredoc after function definition
+
 ---
 
 ## Summary by Category
 
-| Category | Tests | Priority |
-|----------|-------|----------|
-| Interactive/Shell invocation | ~85 | Out of scope |
-| Test helpers not available | ~70 | Infrastructure |
-| extglob patterns | 50 | Low |
-| Right brace in default value | 46 | Medium |
-| Test data/external deps | ~55 | Infrastructure |
-| Advanced read options | 22 | Low |
-| History builtin | 29 | Out of scope |
-| Printf %q format | 14 | Low |
-| mapfile/readarray | 13 | Low |
-| Here-doc edge cases | 11 | Medium |
-| errexit in compound commands | 9 | High |
-| IFS edge cases | ~8 | High |
-| File descriptor operations | ~15 | Low |
-| Other | ~100 | Various |
+| Category | Tests | Priority | AI Agent Priority | Status |
+|----------|-------|----------|-------------------|--------|
+| **PIPESTATUS variable** | 7 | High | Critical | ✅ Done |
+| **read -a array** | ~3 | Medium | Critical | ✅ Done |
+| **read -d/-n options** | ~4 | Medium | High | ✅ Done |
+| **printf %q format** | 14 | Low | High | ✅ Done |
+| **set -f (noglob)** | 2 | Low | High | ✅ Done |
+| **mapfile/readarray** | 13 | Medium | Critical | ✅ Done |
+| **errexit in compound commands** | 9 | High | Critical | Pending |
+| **read -N option** | ~2 | Medium | High | Pending |
+| IFS edge cases | ~8 | High | Medium | Pending |
+| Here-doc edge cases | ~5 | Medium | Medium | Partial ✅ |
+| Right brace in default value | 46 | Medium | Medium | Pending |
+| extglob patterns | 50 | Low | Low | - |
+| File descriptor operations | ~15 | Low | Low | - |
+| Interactive/Shell invocation | ~85 | Out of scope | Out of scope | - |
+| History builtin | 29 | Out of scope | Out of scope | - |
+| Test helpers not available | ~70 | Infrastructure | - | - |
+| Test data/external deps | ~55 | Infrastructure | - | - |
+| Other | ~100 | Various | - | - |
 
 ---
 
 ## High Priority (Core functionality gaps)
+
+### PIPESTATUS Variable (7 tests) ⭐ AI Critical
+The `PIPESTATUS` array containing exit statuses of pipeline commands is not implemented.
+- **AI Use Case**: Agents frequently chain commands and need to identify which stage failed
+- Example: `cmd1 | cmd2 | cmd3; echo "${PIPESTATUS[@]}"` to get `0 1 0`
+
+### errexit in Compound Commands (9 tests) ⭐ AI Critical
+`set -e` (errexit) doesn't interact correctly with:
+- Brace groups `{ }`
+- Pipelines
+- Subshells
+- **AI Use Case**: Scripts must fail reliably on errors for agent error handling
 
 ### IFS Edge Cases (~8 tests)
 Complex IFS handling edge cases remain:
 - Empty IFS with positional parameter existence checks (bash checks if params exist, not if expansion is empty)
 - IFS with backslash in certain contexts
 - Some `$*` joining edge cases with empty IFS
-
-### errexit in Compound Commands (9 tests)
-`set -e` (errexit) doesn't interact correctly with:
-- Brace groups `{ }`
-- Pipelines
-- Subshells
-
-### PIPESTATUS Variable (7 tests)
-The `PIPESTATUS` array containing exit statuses of pipeline commands is not implemented.
 
 ---
 
@@ -90,8 +176,10 @@ Extended glob patterns like `@(foo|bar)`, `+(pattern)`, `?(pattern)`, `!(pattern
 #### noclobber / set -C (6 tests)
 The `set -C` option to prevent overwriting files with `>` is not implemented.
 
-#### noglob / set -f (2 tests)
+#### noglob / set -f (2 tests) ⭐ AI High
 The `set -f` option to disable pathname expansion is not implemented.
+- **AI Use Case**: Safely handle untrusted input containing glob characters (`*`, `?`, `[`)
+- Example: `set -f; echo $untrusted_var; set +f`
 
 #### noexec / set -n (1 test)
 The `set -n` option to parse but not execute commands is not implemented.
@@ -104,24 +192,28 @@ The `shopt -s globskipdots` option is not implemented.
 
 ### Builtins
 
+#### mapfile/readarray (13 tests) ⭐ AI Critical
+The `mapfile` and `readarray` builtins for reading lines into an array are not implemented.
+- **AI Use Case**: Essential for processing multi-line command output
+- Example: `mapfile -t files < <(find . -name "*.ts")`
+
 #### read Options (22 tests)
 Advanced `read` options are not implemented:
-- `-n N` / `-N N` - read N characters
-- `-d delim` - custom delimiter
-- `-t timeout` - timeout
+- `-a array` - read into array ⭐ **AI Critical** - parse line into array fields
+- `-d delim` - custom delimiter ⭐ **AI High** - handle NUL-separated `find -print0` output
+- `-n N` / `-N N` - read N characters ⭐ **AI High** - read fixed-length fields
+- `-t timeout` - timeout (low priority for sandboxed agents)
 - `-u fd` - read from file descriptor
-- `-s` - silent mode
-- `-e` - use readline
+- `-s` - silent mode (no TTY in sandbox)
+- `-e` - use readline (no TTY in sandbox)
 - `-i text` - default text
-- `-a array` - read into array
 - `-p prompt` - prompt string
 - `-P` - physical path
 
-#### mapfile/readarray (13 tests)
-The `mapfile` and `readarray` builtins for reading lines into an array are not implemented.
-
-#### printf %q Format (14 tests)
+#### printf %q Format (14 tests) ⭐ AI High
 The `%q` format for shell quoting and `set` output format are not implemented.
+- **AI Use Case**: Safely quote strings when agents generate shell commands programmatically
+- Example: `printf '%q ' "$untrusted_input"` for safe command construction
 
 #### printf strftime (4 tests)
 The `%(format)T` strftime format is not implemented.
@@ -253,19 +345,19 @@ ZSH-specific `setopt` options.
 
 ## Infrastructure (Test Environment)
 
-### Test Helpers Not Available (~70 tests)
+### Test Helpers Not Available (~14 tests)
 Python test helpers used by upstream tests:
-- `argv.py` (42 tests) - Now implemented
-- `printenv.py` (7 tests) - Now implemented
-- `stdout_stderr.py` (7 tests) - Now implemented
-- `read_from_fd.py` (4 tests)
-- `python2` command (14 tests)
+- `argv.py` (42 tests) - ✅ Implemented
+- `printenv.py` (7 tests) - ✅ Implemented
+- `stdout_stderr.py` (7 tests) - ✅ Implemented
+- `read_from_fd.py` (4 tests) - ✅ Implemented
+- `python2` command (14 tests) - Not implemented (requires Python)
 
-### External Commands (~40 tests)
-Commands not implemented:
-- `od` (27 tests)
-- `tac` (12 tests)
-- `hostname` (2 tests)
+### External Commands
+Commands implemented as test helpers:
+- `od` (27 tests) - ✅ Basic implementation
+- `tac` (12 tests) - ✅ Implemented
+- `hostname` (2 tests) - ✅ Implemented
 
 ### Test Data Directory (29 tests)
 Tests requiring `$REPO_ROOT/spec/testdata/` files.

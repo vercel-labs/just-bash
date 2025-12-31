@@ -3,7 +3,6 @@
  */
 
 import { Bash } from "../Bash.js";
-import { defineCommand } from "../custom-commands.js";
 import {
   getAcceptableStatuses,
   getExpectedStatus,
@@ -13,48 +12,7 @@ import {
   type ParsedSpecFile,
   type TestCase,
 } from "./parser.js";
-
-/**
- * Test helper commands for spec tests
- * These replace the Python scripts used in the original Oil shell tests
- */
-
-// argv.py - prints arguments in Python repr() format: ['arg1', "arg with '"]
-// Python uses single quotes by default, double quotes when string contains single quotes
-const argvCommand = defineCommand("argv.py", async (args) => {
-  const formatted = args.map((arg) => {
-    const hasSingleQuote = arg.includes("'");
-    const hasDoubleQuote = arg.includes('"');
-
-    if (hasSingleQuote && !hasDoubleQuote) {
-      // Use double quotes when string contains single quotes but no double quotes
-      const escaped = arg.replace(/\\/g, "\\\\");
-      return `"${escaped}"`;
-    }
-    // Default: use single quotes (escape single quotes and backslashes)
-    const escaped = arg.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    return `'${escaped}'`;
-  });
-  return { stdout: `[${formatted.join(", ")}]\n`, stderr: "", exitCode: 0 };
-});
-
-// printenv.py - prints environment variable values, one per line
-// Prints "None" for variables that are not set (matching Python's printenv.py)
-const printenvCommand = defineCommand("printenv.py", async (args, ctx) => {
-  const output = args.map((name) => ctx.env[name] ?? "None").join("\n");
-  return {
-    stdout: output ? `${output}\n` : "",
-    stderr: "",
-    exitCode: 0,
-  };
-});
-
-// stdout_stderr.py - outputs to both stdout and stderr
-const stdoutStderrCommand = defineCommand("stdout_stderr.py", async () => {
-  return { stdout: "STDOUT\n", stderr: "STDERR\n", exitCode: 0 };
-});
-
-const testHelperCommands = [argvCommand, printenvCommand, stdoutStderrCommand];
+import { testHelperCommands } from "./spec-helpers.js";
 
 export interface TestResult {
   testCase: TestCase;

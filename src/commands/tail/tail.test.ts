@@ -8,9 +8,9 @@ describe("tail", () => {
       files: { "/test.txt": lines },
     });
     const result = await env.exec("tail /test.txt");
-    expect(result.stdout).not.toContain("line10\n");
-    expect(result.stdout).toContain("line11");
-    expect(result.stdout).toContain("line20");
+    expect(result.stdout).toBe(
+      "line11\nline12\nline13\nline14\nline15\nline16\nline17\nline18\nline19\nline20\n",
+    );
     expect(result.exitCode).toBe(0);
   });
 
@@ -54,10 +54,7 @@ describe("tail", () => {
       },
     });
     const result = await env.exec("tail /a.txt /b.txt");
-    expect(result.stdout).toContain("==> /a.txt <==");
-    expect(result.stdout).toContain("==> /b.txt <==");
-    expect(result.stdout).toContain("aaa");
-    expect(result.stdout).toContain("bbb");
+    expect(result.stdout).toBe("==> /a.txt <==\naaa\n\n==> /b.txt <==\nbbb\n");
   });
 
   it("should error on missing file", async () => {
@@ -72,9 +69,7 @@ describe("tail", () => {
   it("should read from stdin", async () => {
     const env = new Bash();
     const result = await env.exec('echo -e "a\\nb\\nc\\nd\\ne" | tail -n 2');
-    expect(result.stdout).toContain("d");
-    expect(result.stdout).toContain("e");
-    expect(result.stdout).not.toContain("c\n");
+    expect(result.stdout).toBe("d\ne\n");
   });
 
   it("should handle empty file", async () => {

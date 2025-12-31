@@ -45,6 +45,7 @@ import {
   handleExport,
   handleLet,
   handleLocal,
+  handleMapfile,
   handleRead,
   handleReadonly,
   handleReturn,
@@ -759,6 +760,9 @@ export class Interpreter {
     }
     if (commandName === "read") {
       return handleRead(this.ctx, args, stdin);
+    }
+    if (commandName === "mapfile" || commandName === "readarray") {
+      return handleMapfile(this.ctx, args, stdin);
     }
     if (commandName === "declare" || commandName === "typeset") {
       return handleDeclare(this.ctx, args);
