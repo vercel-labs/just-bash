@@ -195,7 +195,9 @@ describe("xargs command", () => {
   describe("-P option (parallel execution)", () => {
     it("should run commands in parallel with -P", async () => {
       const env = new Bash();
-      const result = await env.exec('echo "a b c" | xargs -P 2 -n 1 echo item:');
+      const result = await env.exec(
+        'echo "a b c" | xargs -P 2 -n 1 echo item:',
+      );
       expect(result.stdout).toBe("item: a\nitem: b\nitem: c\n");
       expect(result.exitCode).toBe(0);
     });
