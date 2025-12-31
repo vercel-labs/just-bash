@@ -372,15 +372,14 @@ function detectTextType(content: string, filename: string): FileType {
 
 async function detectFileType(
   filename: string,
-  content: string,
+  buffer: Uint8Array,
 ): Promise<FileType> {
   // Empty file
-  if (content.length === 0) {
+  if (buffer.length === 0) {
     return { description: "empty", mime: "inode/x-empty" };
   }
 
-  // Convert string to buffer for file-type detection
-  const buffer = Buffer.from(content, "binary");
+  // Use file-type for binary detection (needs raw bytes)
   const result = await fileTypeFromBuffer(buffer);
 
   if (result) {
@@ -388,7 +387,8 @@ async function detectFileType(
     return { description, mime: result.mime };
   }
 
-  // Fall back to text detection
+  // Fall back to text detection (convert buffer to string)
+  const content = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
   return detectTextType(content, filename);
 }
 
@@ -445,8 +445,8 @@ export const fileCommand: Command = {
           continue;
         }
 
-        const content = await ctx.fs.readFile(path);
-        const fileType = await detectFileType(file, content);
+        const buffer = await ctx.fs.readFileBuffer(path);
+        const fileType = await detectFileType(file, buffer);
         const result = mimeMode ? fileType.mime : fileType.description;
         output += brief ? `${result}\n` : `${file}: ${result}\n`;
       } catch {
