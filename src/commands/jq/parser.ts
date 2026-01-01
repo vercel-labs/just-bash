@@ -1,0 +1,1019 @@
+/**
+ * jq filter parser
+ *
+ * Tokenizes and parses jq filter expressions into an AST.
+ */
+
+// ============================================================================
+// Token Types
+// ============================================================================
+
+export type TokenType =
+  | "DOT"
+  | "PIPE"
+  | "COMMA"
+  | "COLON"
+  | "SEMICOLON"
+  | "LPAREN"
+  | "RPAREN"
+  | "LBRACKET"
+  | "RBRACKET"
+  | "LBRACE"
+  | "RBRACE"
+  | "QUESTION"
+  | "PLUS"
+  | "MINUS"
+  | "STAR"
+  | "SLASH"
+  | "PERCENT"
+  | "EQ"
+  | "NE"
+  | "LT"
+  | "LE"
+  | "GT"
+  | "GE"
+  | "AND"
+  | "OR"
+  | "NOT"
+  | "ALT"
+  | "ASSIGN"
+  | "UPDATE_ADD"
+  | "UPDATE_SUB"
+  | "UPDATE_MUL"
+  | "UPDATE_DIV"
+  | "UPDATE_MOD"
+  | "UPDATE_ALT"
+  | "IDENT"
+  | "NUMBER"
+  | "STRING"
+  | "IF"
+  | "THEN"
+  | "ELIF"
+  | "ELSE"
+  | "END"
+  | "AS"
+  | "TRY"
+  | "CATCH"
+  | "TRUE"
+  | "FALSE"
+  | "NULL"
+  | "DOTDOT"
+  | "EOF";
+
+export interface Token {
+  type: TokenType;
+  value?: string | number;
+  pos: number;
+}
+
+// ============================================================================
+// Tokenizer
+// ============================================================================
+
+const KEYWORDS: Record<string, TokenType> = {
+  and: "AND",
+  or: "OR",
+  not: "NOT",
+  if: "IF",
+  // biome-ignore lint/suspicious/noThenProperty: jq keyword
+  then: "THEN",
+  elif: "ELIF",
+  else: "ELSE",
+  end: "END",
+  as: "AS",
+  try: "TRY",
+  catch: "CATCH",
+  true: "TRUE",
+  false: "FALSE",
+  null: "NULL",
+};
+
+function tokenize(input: string): Token[] {
+  const tokens: Token[] = [];
+  let pos = 0;
+
+  const peek = (offset = 0) => input[pos + offset];
+  const advance = () => input[pos++];
+  const isEof = () => pos >= input.length;
+  const isDigit = (c: string) => c >= "0" && c <= "9";
+  const isAlpha = (c: string) =>
+    (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c === "_";
+  const isAlnum = (c: string) => isAlpha(c) || isDigit(c);
+
+  while (!isEof()) {
+    const start = pos;
+    const c = advance();
+
+    // Whitespace
+    if (c === " " || c === "\t" || c === "\n" || c === "\r") {
+      continue;
+    }
+
+    // Comments
+    if (c === "#") {
+      while (!isEof() && peek() !== "\n") advance();
+      continue;
+    }
+
+    // Two-character operators
+    if (c === "." && peek() === ".") {
+      advance();
+      tokens.push({ type: "DOTDOT", pos: start });
+      continue;
+    }
+    if (c === "=" && peek() === "=") {
+      advance();
+      tokens.push({ type: "EQ", pos: start });
+      continue;
+    }
+    if (c === "!" && peek() === "=") {
+      advance();
+      tokens.push({ type: "NE", pos: start });
+      continue;
+    }
+    if (c === "<" && peek() === "=") {
+      advance();
+      tokens.push({ type: "LE", pos: start });
+      continue;
+    }
+    if (c === ">" && peek() === "=") {
+      advance();
+      tokens.push({ type: "GE", pos: start });
+      continue;
+    }
+    if (c === "/" && peek() === "/") {
+      advance();
+      if (peek() === "=") {
+        advance();
+        tokens.push({ type: "UPDATE_ALT", pos: start });
+      } else {
+        tokens.push({ type: "ALT", pos: start });
+      }
+      continue;
+    }
+    if (c === "+" && peek() === "=") {
+      advance();
+      tokens.push({ type: "UPDATE_ADD", pos: start });
+      continue;
+    }
+    if (c === "-" && peek() === "=") {
+      advance();
+      tokens.push({ type: "UPDATE_SUB", pos: start });
+      continue;
+    }
+    if (c === "*" && peek() === "=") {
+      advance();
+      tokens.push({ type: "UPDATE_MUL", pos: start });
+      continue;
+    }
+    if (c === "/" && peek() === "=") {
+      advance();
+      tokens.push({ type: "UPDATE_DIV", pos: start });
+      continue;
+    }
+    if (c === "%" && peek() === "=") {
+      advance();
+      tokens.push({ type: "UPDATE_MOD", pos: start });
+      continue;
+    }
+    if (c === "=" && peek() !== "=") {
+      tokens.push({ type: "ASSIGN", pos: start });
+      continue;
+    }
+
+    // Single-character tokens
+    if (c === ".") {
+      tokens.push({ type: "DOT", pos: start });
+      continue;
+    }
+    if (c === "|") {
+      tokens.push({ type: "PIPE", pos: start });
+      continue;
+    }
+    if (c === ",") {
+      tokens.push({ type: "COMMA", pos: start });
+      continue;
+    }
+    if (c === ":") {
+      tokens.push({ type: "COLON", pos: start });
+      continue;
+    }
+    if (c === ";") {
+      tokens.push({ type: "SEMICOLON", pos: start });
+      continue;
+    }
+    if (c === "(") {
+      tokens.push({ type: "LPAREN", pos: start });
+      continue;
+    }
+    if (c === ")") {
+      tokens.push({ type: "RPAREN", pos: start });
+      continue;
+    }
+    if (c === "[") {
+      tokens.push({ type: "LBRACKET", pos: start });
+      continue;
+    }
+    if (c === "]") {
+      tokens.push({ type: "RBRACKET", pos: start });
+      continue;
+    }
+    if (c === "{") {
+      tokens.push({ type: "LBRACE", pos: start });
+      continue;
+    }
+    if (c === "}") {
+      tokens.push({ type: "RBRACE", pos: start });
+      continue;
+    }
+    if (c === "?") {
+      tokens.push({ type: "QUESTION", pos: start });
+      continue;
+    }
+    if (c === "+") {
+      tokens.push({ type: "PLUS", pos: start });
+      continue;
+    }
+    if (c === "-") {
+      // Could be negative number or minus operator
+      if (isDigit(peek())) {
+        let num = c;
+        while (!isEof() && (isDigit(peek()) || peek() === ".")) {
+          num += advance();
+        }
+        tokens.push({ type: "NUMBER", value: Number(num), pos: start });
+        continue;
+      }
+      tokens.push({ type: "MINUS", pos: start });
+      continue;
+    }
+    if (c === "*") {
+      tokens.push({ type: "STAR", pos: start });
+      continue;
+    }
+    if (c === "/") {
+      tokens.push({ type: "SLASH", pos: start });
+      continue;
+    }
+    if (c === "%") {
+      tokens.push({ type: "PERCENT", pos: start });
+      continue;
+    }
+    if (c === "<") {
+      tokens.push({ type: "LT", pos: start });
+      continue;
+    }
+    if (c === ">") {
+      tokens.push({ type: "GT", pos: start });
+      continue;
+    }
+
+    // Numbers
+    if (isDigit(c)) {
+      let num = c;
+      while (
+        !isEof() &&
+        (isDigit(peek()) || peek() === "." || peek() === "e" || peek() === "E")
+      ) {
+        if (
+          (peek() === "e" || peek() === "E") &&
+          (input[pos + 1] === "+" || input[pos + 1] === "-")
+        ) {
+          num += advance();
+          num += advance();
+        } else {
+          num += advance();
+        }
+      }
+      tokens.push({ type: "NUMBER", value: Number(num), pos: start });
+      continue;
+    }
+
+    // Strings
+    if (c === '"') {
+      let str = "";
+      while (!isEof() && peek() !== '"') {
+        if (peek() === "\\") {
+          advance();
+          if (isEof()) break;
+          const escaped = advance();
+          switch (escaped) {
+            case "n":
+              str += "\n";
+              break;
+            case "r":
+              str += "\r";
+              break;
+            case "t":
+              str += "\t";
+              break;
+            case "\\":
+              str += "\\";
+              break;
+            case '"':
+              str += '"';
+              break;
+            case "(":
+              str += "\\(";
+              break; // Keep for string interpolation
+            default:
+              str += escaped;
+          }
+        } else {
+          str += advance();
+        }
+      }
+      if (!isEof()) advance(); // closing quote
+      tokens.push({ type: "STRING", value: str, pos: start });
+      continue;
+    }
+
+    // Identifiers and keywords
+    if (isAlpha(c) || c === "$" || c === "@") {
+      let ident = c;
+      while (!isEof() && isAlnum(peek())) {
+        ident += advance();
+      }
+      const keyword = KEYWORDS[ident];
+      if (keyword) {
+        tokens.push({ type: keyword, pos: start });
+      } else {
+        tokens.push({ type: "IDENT", value: ident, pos: start });
+      }
+      continue;
+    }
+
+    throw new Error(`Unexpected character '${c}' at position ${start}`);
+  }
+
+  tokens.push({ type: "EOF", pos: pos });
+  return tokens;
+}
+
+// ============================================================================
+// AST Node Types
+// ============================================================================
+
+export type AstNode =
+  | IdentityNode
+  | FieldNode
+  | IndexNode
+  | SliceNode
+  | IterateNode
+  | PipeNode
+  | CommaNode
+  | LiteralNode
+  | ArrayNode
+  | ObjectNode
+  | ParenNode
+  | BinaryOpNode
+  | UnaryOpNode
+  | CondNode
+  | TryNode
+  | CallNode
+  | VarBindNode
+  | VarRefNode
+  | RecurseNode
+  | OptionalNode
+  | StringInterpNode
+  | UpdateOpNode;
+
+export interface IdentityNode {
+  type: "Identity";
+}
+
+export interface FieldNode {
+  type: "Field";
+  name: string;
+  base?: AstNode;
+}
+
+export interface IndexNode {
+  type: "Index";
+  index: AstNode;
+  base?: AstNode;
+}
+
+export interface SliceNode {
+  type: "Slice";
+  start?: AstNode;
+  end?: AstNode;
+  base?: AstNode;
+}
+
+export interface IterateNode {
+  type: "Iterate";
+  base?: AstNode;
+}
+
+export interface PipeNode {
+  type: "Pipe";
+  left: AstNode;
+  right: AstNode;
+}
+
+export interface CommaNode {
+  type: "Comma";
+  left: AstNode;
+  right: AstNode;
+}
+
+export interface LiteralNode {
+  type: "Literal";
+  value: unknown;
+}
+
+export interface ArrayNode {
+  type: "Array";
+  elements?: AstNode;
+}
+
+export interface ObjectNode {
+  type: "Object";
+  entries: { key: AstNode | string; value: AstNode }[];
+}
+
+export interface ParenNode {
+  type: "Paren";
+  expr: AstNode;
+}
+
+export interface BinaryOpNode {
+  type: "BinaryOp";
+  op:
+    | "+"
+    | "-"
+    | "*"
+    | "/"
+    | "%"
+    | "=="
+    | "!="
+    | "<"
+    | "<="
+    | ">"
+    | ">="
+    | "and"
+    | "or"
+    | "//";
+  left: AstNode;
+  right: AstNode;
+}
+
+export interface UnaryOpNode {
+  type: "UnaryOp";
+  op: "-" | "not";
+  operand: AstNode;
+}
+
+export interface CondNode {
+  type: "Cond";
+  cond: AstNode;
+  then: AstNode;
+  elifs: { cond: AstNode; then: AstNode }[];
+  else?: AstNode;
+}
+
+export interface TryNode {
+  type: "Try";
+  body: AstNode;
+  catch?: AstNode;
+}
+
+export interface CallNode {
+  type: "Call";
+  name: string;
+  args: AstNode[];
+}
+
+export interface VarBindNode {
+  type: "VarBind";
+  name: string;
+  value: AstNode;
+  body: AstNode;
+}
+
+export interface VarRefNode {
+  type: "VarRef";
+  name: string;
+}
+
+export interface RecurseNode {
+  type: "Recurse";
+}
+
+export interface OptionalNode {
+  type: "Optional";
+  expr: AstNode;
+}
+
+export interface StringInterpNode {
+  type: "StringInterp";
+  parts: (string | AstNode)[];
+}
+
+export interface UpdateOpNode {
+  type: "UpdateOp";
+  op: "+=" | "-=" | "*=" | "/=" | "%=" | "//=" | "=";
+  path: AstNode;
+  value: AstNode;
+}
+
+// ============================================================================
+// Parser
+// ============================================================================
+
+class Parser {
+  private tokens: Token[];
+  private pos = 0;
+
+  constructor(tokens: Token[]) {
+    this.tokens = tokens;
+  }
+
+  private peek(offset = 0): Token {
+    return this.tokens[this.pos + offset] ?? { type: "EOF", pos: -1 };
+  }
+
+  private advance(): Token {
+    return this.tokens[this.pos++];
+  }
+
+  private check(type: TokenType): boolean {
+    return this.peek().type === type;
+  }
+
+  private match(...types: TokenType[]): Token | null {
+    for (const type of types) {
+      if (this.check(type)) {
+        return this.advance();
+      }
+    }
+    return null;
+  }
+
+  private expect(type: TokenType, msg: string): Token {
+    if (!this.check(type)) {
+      throw new Error(
+        `${msg} at position ${this.peek().pos}, got ${this.peek().type}`,
+      );
+    }
+    return this.advance();
+  }
+
+  parse(): AstNode {
+    const expr = this.parseExpr();
+    if (!this.check("EOF")) {
+      throw new Error(
+        `Unexpected token ${this.peek().type} at position ${this.peek().pos}`,
+      );
+    }
+    return expr;
+  }
+
+  private parseExpr(): AstNode {
+    return this.parsePipe();
+  }
+
+  private parsePipe(): AstNode {
+    let left = this.parseComma();
+    while (this.match("PIPE")) {
+      const right = this.parseComma();
+      left = { type: "Pipe", left, right };
+    }
+    return left;
+  }
+
+  private parseComma(): AstNode {
+    let left = this.parseVarBind();
+    while (this.match("COMMA")) {
+      const right = this.parseVarBind();
+      left = { type: "Comma", left, right };
+    }
+    return left;
+  }
+
+  private parseVarBind(): AstNode {
+    const expr = this.parseUpdate();
+    if (this.match("AS")) {
+      const varToken = this.expect(
+        "IDENT",
+        "Expected variable name after 'as'",
+      );
+      const varName = varToken.value as string;
+      if (!varName.startsWith("$")) {
+        throw new Error(
+          `Variable name must start with $ at position ${varToken.pos}`,
+        );
+      }
+      this.expect("PIPE", "Expected '|' after variable binding");
+      const body = this.parseExpr();
+      return { type: "VarBind", name: varName, value: expr, body };
+    }
+    return expr;
+  }
+
+  private parseUpdate(): AstNode {
+    const left = this.parseAlt();
+    const opMap: Record<string, UpdateOpNode["op"]> = {
+      ASSIGN: "=",
+      UPDATE_ADD: "+=",
+      UPDATE_SUB: "-=",
+      UPDATE_MUL: "*=",
+      UPDATE_DIV: "/=",
+      UPDATE_MOD: "%=",
+      UPDATE_ALT: "//=",
+    };
+    const tok = this.match(
+      "ASSIGN",
+      "UPDATE_ADD",
+      "UPDATE_SUB",
+      "UPDATE_MUL",
+      "UPDATE_DIV",
+      "UPDATE_MOD",
+      "UPDATE_ALT",
+    );
+    if (tok) {
+      const value = this.parseVarBind();
+      return { type: "UpdateOp", op: opMap[tok.type], path: left, value };
+    }
+    return left;
+  }
+
+  private parseAlt(): AstNode {
+    let left = this.parseOr();
+    while (this.match("ALT")) {
+      const right = this.parseOr();
+      left = { type: "BinaryOp", op: "//", left, right };
+    }
+    return left;
+  }
+
+  private parseOr(): AstNode {
+    let left = this.parseAnd();
+    while (this.match("OR")) {
+      const right = this.parseAnd();
+      left = { type: "BinaryOp", op: "or", left, right };
+    }
+    return left;
+  }
+
+  private parseAnd(): AstNode {
+    let left = this.parseNot();
+    while (this.match("AND")) {
+      const right = this.parseNot();
+      left = { type: "BinaryOp", op: "and", left, right };
+    }
+    return left;
+  }
+
+  private parseNot(): AstNode {
+    return this.parseComparison();
+  }
+
+  private parseComparison(): AstNode {
+    let left = this.parseAddSub();
+    const opMap: Record<string, BinaryOpNode["op"]> = {
+      EQ: "==",
+      NE: "!=",
+      LT: "<",
+      LE: "<=",
+      GT: ">",
+      GE: ">=",
+    };
+    const tok = this.match("EQ", "NE", "LT", "LE", "GT", "GE");
+    if (tok) {
+      const right = this.parseAddSub();
+      left = { type: "BinaryOp", op: opMap[tok.type], left, right };
+    }
+    return left;
+  }
+
+  private parseAddSub(): AstNode {
+    let left = this.parseMulDiv();
+    while (true) {
+      if (this.match("PLUS")) {
+        const right = this.parseMulDiv();
+        left = { type: "BinaryOp", op: "+", left, right };
+      } else if (this.match("MINUS")) {
+        const right = this.parseMulDiv();
+        left = { type: "BinaryOp", op: "-", left, right };
+      } else {
+        break;
+      }
+    }
+    return left;
+  }
+
+  private parseMulDiv(): AstNode {
+    let left = this.parseUnary();
+    while (true) {
+      if (this.match("STAR")) {
+        const right = this.parseUnary();
+        left = { type: "BinaryOp", op: "*", left, right };
+      } else if (this.match("SLASH")) {
+        const right = this.parseUnary();
+        left = { type: "BinaryOp", op: "/", left, right };
+      } else if (this.match("PERCENT")) {
+        const right = this.parseUnary();
+        left = { type: "BinaryOp", op: "%", left, right };
+      } else {
+        break;
+      }
+    }
+    return left;
+  }
+
+  private parseUnary(): AstNode {
+    if (this.match("MINUS")) {
+      const operand = this.parseUnary();
+      return { type: "UnaryOp", op: "-", operand };
+    }
+    return this.parsePostfix();
+  }
+
+  private parsePostfix(): AstNode {
+    let expr = this.parsePrimary();
+
+    while (true) {
+      if (this.match("QUESTION")) {
+        expr = { type: "Optional", expr };
+      } else if (this.check("DOT") && this.peek(1).type === "IDENT") {
+        this.advance(); // consume DOT
+        const name = this.expect("IDENT", "Expected field name")
+          .value as string;
+        expr = { type: "Field", name, base: expr };
+      } else if (this.check("LBRACKET")) {
+        this.advance();
+        if (this.match("RBRACKET")) {
+          expr = { type: "Iterate", base: expr };
+        } else if (this.check("COLON")) {
+          this.advance();
+          const end = this.check("RBRACKET") ? undefined : this.parseExpr();
+          this.expect("RBRACKET", "Expected ']'");
+          expr = { type: "Slice", end, base: expr };
+        } else {
+          const indexExpr = this.parseExpr();
+          if (this.match("COLON")) {
+            const end = this.check("RBRACKET") ? undefined : this.parseExpr();
+            this.expect("RBRACKET", "Expected ']'");
+            expr = { type: "Slice", start: indexExpr, end, base: expr };
+          } else {
+            this.expect("RBRACKET", "Expected ']'");
+            expr = { type: "Index", index: indexExpr, base: expr };
+          }
+        }
+      } else {
+        break;
+      }
+    }
+
+    return expr;
+  }
+
+  private parsePrimary(): AstNode {
+    // Recursive descent (..)
+    if (this.match("DOTDOT")) {
+      return { type: "Recurse" };
+    }
+
+    // Identity or field access starting with dot
+    if (this.match("DOT")) {
+      // Check for .[] or .[n] or .[n:m]
+      if (this.check("LBRACKET")) {
+        this.advance();
+        if (this.match("RBRACKET")) {
+          return { type: "Iterate" };
+        }
+        if (this.check("COLON")) {
+          this.advance();
+          const end = this.check("RBRACKET") ? undefined : this.parseExpr();
+          this.expect("RBRACKET", "Expected ']'");
+          return { type: "Slice", end };
+        }
+        const indexExpr = this.parseExpr();
+        if (this.match("COLON")) {
+          const end = this.check("RBRACKET") ? undefined : this.parseExpr();
+          this.expect("RBRACKET", "Expected ']'");
+          return { type: "Slice", start: indexExpr, end };
+        }
+        this.expect("RBRACKET", "Expected ']'");
+        return { type: "Index", index: indexExpr };
+      }
+      // .field
+      if (this.check("IDENT")) {
+        const name = this.advance().value as string;
+        return { type: "Field", name };
+      }
+      // Just identity
+      return { type: "Identity" };
+    }
+
+    // Literals
+    if (this.match("TRUE")) {
+      return { type: "Literal", value: true };
+    }
+    if (this.match("FALSE")) {
+      return { type: "Literal", value: false };
+    }
+    if (this.match("NULL")) {
+      return { type: "Literal", value: null };
+    }
+    if (this.check("NUMBER")) {
+      const tok = this.advance();
+      return { type: "Literal", value: tok.value };
+    }
+    if (this.check("STRING")) {
+      const tok = this.advance();
+      const str = tok.value as string;
+      // Check for string interpolation
+      if (str.includes("\\(")) {
+        return this.parseStringInterpolation(str);
+      }
+      return { type: "Literal", value: str };
+    }
+
+    // Array construction
+    if (this.match("LBRACKET")) {
+      if (this.match("RBRACKET")) {
+        return { type: "Array" };
+      }
+      const elements = this.parseExpr();
+      this.expect("RBRACKET", "Expected ']'");
+      return { type: "Array", elements };
+    }
+
+    // Object construction
+    if (this.match("LBRACE")) {
+      return this.parseObjectConstruction();
+    }
+
+    // Parentheses
+    if (this.match("LPAREN")) {
+      const expr = this.parseExpr();
+      this.expect("RPAREN", "Expected ')'");
+      return { type: "Paren", expr };
+    }
+
+    // if-then-else
+    if (this.match("IF")) {
+      return this.parseIf();
+    }
+
+    // try-catch
+    if (this.match("TRY")) {
+      const body = this.parsePostfix();
+      let catchExpr: AstNode | undefined;
+      if (this.match("CATCH")) {
+        catchExpr = this.parsePostfix();
+      }
+      return { type: "Try", body, catch: catchExpr };
+    }
+
+    // not as a standalone filter (when used as a function, not unary operator)
+    if (this.match("NOT")) {
+      return { type: "Call", name: "not", args: [] };
+    }
+
+    // Variable reference or function call
+    if (this.check("IDENT")) {
+      const tok = this.advance();
+      const name = tok.value as string;
+
+      // Variable reference
+      if (name.startsWith("$")) {
+        return { type: "VarRef", name };
+      }
+
+      // Function call with args
+      if (this.match("LPAREN")) {
+        const args: AstNode[] = [];
+        if (!this.check("RPAREN")) {
+          args.push(this.parseExpr());
+          while (this.match("SEMICOLON")) {
+            args.push(this.parseExpr());
+          }
+        }
+        this.expect("RPAREN", "Expected ')'");
+        return { type: "Call", name, args };
+      }
+
+      // Builtin without parens
+      return { type: "Call", name, args: [] };
+    }
+
+    throw new Error(
+      `Unexpected token ${this.peek().type} at position ${this.peek().pos}`,
+    );
+  }
+
+  private parseObjectConstruction(): ObjectNode {
+    const entries: ObjectNode["entries"] = [];
+
+    if (!this.check("RBRACE")) {
+      do {
+        let key: string | AstNode;
+        let value: AstNode;
+
+        // Check for ({(.key): .value}) dynamic key
+        if (this.match("LPAREN")) {
+          key = this.parseExpr();
+          this.expect("RPAREN", "Expected ')'");
+          this.expect("COLON", "Expected ':'");
+          value = this.parseVarBind();
+        } else if (this.check("IDENT")) {
+          const ident = this.advance().value as string;
+          if (this.match("COLON")) {
+            // {key: value}
+            key = ident;
+            value = this.parseVarBind();
+          } else {
+            // {key} shorthand for {key: .key}
+            key = ident;
+            value = { type: "Field", name: ident };
+          }
+        } else if (this.check("STRING")) {
+          key = this.advance().value as string;
+          this.expect("COLON", "Expected ':'");
+          value = this.parseVarBind();
+        } else {
+          throw new Error(`Expected object key at position ${this.peek().pos}`);
+        }
+
+        entries.push({ key, value });
+      } while (this.match("COMMA"));
+    }
+
+    this.expect("RBRACE", "Expected '}'");
+    return { type: "Object", entries };
+  }
+
+  private parseIf(): CondNode {
+    const cond = this.parseExpr();
+    this.expect("THEN", "Expected 'then'");
+    const then = this.parseExpr();
+
+    const elifs: CondNode["elifs"] = [];
+    while (this.match("ELIF")) {
+      const elifCond = this.parseExpr();
+      this.expect("THEN", "Expected 'then' after elif");
+      const elifThen = this.parseExpr();
+      // biome-ignore lint/suspicious/noThenProperty: jq AST node
+      elifs.push({ cond: elifCond, then: elifThen });
+    }
+
+    let elseExpr: AstNode | undefined;
+    if (this.match("ELSE")) {
+      elseExpr = this.parseExpr();
+    }
+
+    this.expect("END", "Expected 'end'");
+    return { type: "Cond", cond, then, elifs, else: elseExpr };
+  }
+
+  private parseStringInterpolation(str: string): StringInterpNode {
+    const parts: (string | AstNode)[] = [];
+    let current = "";
+    let i = 0;
+
+    while (i < str.length) {
+      if (str[i] === "\\" && str[i + 1] === "(") {
+        if (current) {
+          parts.push(current);
+          current = "";
+        }
+        i += 2;
+        // Find matching paren
+        let depth = 1;
+        let exprStr = "";
+        while (i < str.length && depth > 0) {
+          if (str[i] === "(") depth++;
+          else if (str[i] === ")") depth--;
+          if (depth > 0) exprStr += str[i];
+          i++;
+        }
+        const tokens = tokenize(exprStr);
+        const parser = new Parser(tokens);
+        parts.push(parser.parse());
+      } else {
+        current += str[i];
+        i++;
+      }
+    }
+
+    if (current) {
+      parts.push(current);
+    }
+
+    return { type: "StringInterp", parts };
+  }
+}
+
+// ============================================================================
+// Convenience function
+// ============================================================================
+
+export function parse(input: string): AstNode {
+  const tokens = tokenize(input);
+  const parser = new Parser(tokens);
+  return parser.parse();
+}
