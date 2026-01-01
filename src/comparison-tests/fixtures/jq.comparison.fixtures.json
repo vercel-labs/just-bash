@@ -1,0 +1,250 @@
+{
+  "0c29bfa5bb213ca7": {
+    "command": "jq 'add' data.json",
+    "files": {
+      "data.json": "[1,2,3,4]"
+    },
+    "stdout": "10\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "10c509b3ce6cdbb2": {
+    "command": "jq '.[]' data.json",
+    "files": {
+      "data.json": "[1,2,3]"
+    },
+    "stdout": "1\n2\n3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1eee3b8ed9a28b4d": {
+    "command": "jq 'keys' data.json",
+    "files": {
+      "data.json": "{\"b\":1,\"a\":2}"
+    },
+    "stdout": "[\n  \"a\",\n  \"b\"\n]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "22ace437afb05029": {
+    "command": "jq -r '.name' data.json",
+    "files": {
+      "data.json": "{\"name\":\"test\"}"
+    },
+    "stdout": "test\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "23c97b80a1a55790": {
+    "command": "jq '.data | .value' data.json",
+    "files": {
+      "data.json": "{\"data\":{\"value\":42}}"
+    },
+    "stdout": "42\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2ae5488e94cb05cc": {
+    "command": "jq 'split(\",\")' data.json",
+    "files": {
+      "data.json": "\"a,b,c\""
+    },
+    "stdout": "[\n  \"a\",\n  \"b\",\n  \"c\"\n]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3276c73f2ae560a6": {
+    "command": "jq '.missing' data.json",
+    "files": {
+      "data.json": "{\"a\":1}"
+    },
+    "stdout": "null\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3a5bd13032387ef1": {
+    "command": "jq 'reverse' data.json",
+    "files": {
+      "data.json": "[1,2,3]"
+    },
+    "stdout": "[\n  3,\n  2,\n  1\n]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "71b1316136a76f95": {
+    "command": "jq 'map(. * 2)' data.json",
+    "files": {
+      "data.json": "[1,2,3]"
+    },
+    "stdout": "[\n  2,\n  4,\n  6\n]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7520876197cdc6be": {
+    "command": "jq '.name' data.json",
+    "files": {
+      "data.json": "{\"name\":\"test\",\"value\":42}"
+    },
+    "stdout": "\"test\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "784cdf05d7bd0991": {
+    "command": "jq '[.[] | select(. > 3)]' data.json",
+    "files": {
+      "data.json": "[1,2,3,4,5]"
+    },
+    "stdout": "[\n  4,\n  5\n]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7b7456943760154c": {
+    "command": "jq 'length' data.json",
+    "files": {
+      "data.json": "[1,2,3,4,5]"
+    },
+    "stdout": "5\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8105f346b43748a2": {
+    "command": "jq 'sort' data.json",
+    "files": {
+      "data.json": "[3,1,2]"
+    },
+    "stdout": "[\n  1,\n  2,\n  3\n]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "91c885f22f4323a6": {
+    "command": "jq '.' data.json",
+    "files": {
+      "data.json": "{\"a\":1,\"b\":2}"
+    },
+    "stdout": "{\n  \"a\": 1,\n  \"b\": 2\n}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "937a32a880c8c8cd": {
+    "command": "jq -c '.' data.json",
+    "files": {
+      "data.json": "{\"a\":1,\"b\":2}"
+    },
+    "stdout": "{\"a\":1,\"b\":2}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a20be29f72c20715": {
+    "command": "jq '.[0]' data.json",
+    "files": {
+      "data.json": "[\"a\",\"b\",\"c\"]"
+    },
+    "stdout": "\"a\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "aac68dc54a55fad2": {
+    "command": "jq -s '.' data.json",
+    "files": {
+      "data.json": "1\n2\n3"
+    },
+    "stdout": "[\n  1,\n  2,\n  3\n]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b8e1ebdad148a952": {
+    "command": "jq -n '[range(5)]'",
+    "files": {},
+    "stdout": "[\n  0,\n  1,\n  2,\n  3,\n  4\n]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b9af66a6586c6d00": {
+    "command": "jq '.[]' data.json",
+    "files": {
+      "data.json": "{\"a\":1,\"b\":2}"
+    },
+    "stdout": "1\n2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bf18a612e809e249": {
+    "command": "jq '. + 3' data.json",
+    "files": {
+      "data.json": "5"
+    },
+    "stdout": "8\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c0f228f8add71471": {
+    "command": "jq '.a.b' data.json",
+    "files": {
+      "data.json": "{\"a\":{\"b\":\"nested\"}}"
+    },
+    "stdout": "\"nested\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "de6ea82b7109ba1d": {
+    "command": "jq '.[-1]' data.json",
+    "files": {
+      "data.json": "[\"a\",\"b\",\"c\"]"
+    },
+    "stdout": "\"c\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e433b214be1f80db": {
+    "command": "jq 'type' data.json",
+    "files": {
+      "data.json": "{\"a\":1}"
+    },
+    "stdout": "\"object\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e808cfbdc52662c0": {
+    "command": "jq '. * 7' data.json",
+    "files": {
+      "data.json": "6"
+    },
+    "stdout": "42\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "eecd9132c8f55a66": {
+    "command": "jq 'join(\"-\")' data.json",
+    "files": {
+      "data.json": "[\"a\",\"b\",\"c\"]"
+    },
+    "stdout": "\"a-b-c\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "eed67a538c8414f7": {
+    "command": "jq -n 'null'",
+    "files": {},
+    "stdout": "null\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f1149342c3f0e494": {
+    "command": "jq 'if . > 3 then \"big\" else \"small\" end' data.json",
+    "files": {
+      "data.json": "5"
+    },
+    "stdout": "\"big\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ff7f24721da0b6cc": {
+    "command": "jq '.' data.json",
+    "files": {
+      "data.json": "[1,2,3]"
+    },
+    "stdout": "[\n  1,\n  2,\n  3\n]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

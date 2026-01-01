@@ -231,53 +231,34 @@ export function evaluate(
     }
 
     case "UpdateOp": {
-      const pathResults = evaluate(value, ast.path, ctx);
-      const valueResults = evaluate(value, ast.value, ctx);
+      return [applyUpdate(value, ast.path, ast.op, ast.value, ctx)];
+    }
 
-      return pathResults.flatMap((current) =>
-        valueResults.map((newVal) => {
-          switch (ast.op) {
-            case "=":
-              return newVal;
-            case "+=":
-              if (typeof current === "number" && typeof newVal === "number")
-                return current + newVal;
-              if (typeof current === "string" && typeof newVal === "string")
-                return current + newVal;
-              if (Array.isArray(current) && Array.isArray(newVal))
-                return [...current, ...newVal];
-              if (
-                current &&
-                newVal &&
-                typeof current === "object" &&
-                typeof newVal === "object"
-              ) {
-                return { ...current, ...newVal };
-              }
-              return newVal;
-            case "-=":
-              if (typeof current === "number" && typeof newVal === "number")
-                return current - newVal;
-              return current;
-            case "*=":
-              if (typeof current === "number" && typeof newVal === "number")
-                return current * newVal;
-              return current;
-            case "/=":
-              if (typeof current === "number" && typeof newVal === "number")
-                return current / newVal;
-              return current;
-            case "%=":
-              if (typeof current === "number" && typeof newVal === "number")
-                return current % newVal;
-              return current;
-            case "//=":
-              return current === null || current === false ? newVal : current;
-            default:
-              return newVal;
-          }
-        }),
-      );
+    case "Reduce": {
+      const items = evaluate(value, ast.expr, ctx);
+      let accumulator = evaluate(value, ast.init, ctx)[0];
+      for (const item of items) {
+        const newCtx = withVar(ctx, ast.varName, item);
+        accumulator = evaluate(accumulator, ast.update, newCtx)[0];
+      }
+      return [accumulator];
+    }
+
+    case "Foreach": {
+      const items = evaluate(value, ast.expr, ctx);
+      let state = evaluate(value, ast.init, ctx)[0];
+      const results: JqValue[] = [];
+      for (const item of items) {
+        const newCtx = withVar(ctx, ast.varName, item);
+        state = evaluate(state, ast.update, newCtx)[0];
+        if (ast.extract) {
+          const extracted = evaluate(state, ast.extract, newCtx);
+          results.push(...extracted);
+        } else {
+          results.push(state);
+        }
+      }
+      return results;
     }
 
     default: {
@@ -292,6 +273,241 @@ export function evaluate(
 function normalizeIndex(idx: number, len: number): number {
   if (idx < 0) return Math.max(0, len + idx);
   return Math.min(idx, len);
+}
+
+function applyUpdate(
+  root: JqValue,
+  pathExpr: AstNode,
+  op: string,
+  valueExpr: AstNode,
+  ctx: EvalContext,
+): JqValue {
+  function computeNewValue(current: JqValue, newVal: JqValue): JqValue {
+    switch (op) {
+      case "=":
+        return newVal;
+      case "|=": {
+        const results = evaluate(current, valueExpr, ctx);
+        return results[0] ?? null;
+      }
+      case "+=":
+        if (typeof current === "number" && typeof newVal === "number")
+          return current + newVal;
+        if (typeof current === "string" && typeof newVal === "string")
+          return current + newVal;
+        if (Array.isArray(current) && Array.isArray(newVal))
+          return [...current, ...newVal];
+        if (
+          current &&
+          newVal &&
+          typeof current === "object" &&
+          typeof newVal === "object"
+        ) {
+          return { ...current, ...newVal };
+        }
+        return newVal;
+      case "-=":
+        if (typeof current === "number" && typeof newVal === "number")
+          return current - newVal;
+        return current;
+      case "*=":
+        if (typeof current === "number" && typeof newVal === "number")
+          return current * newVal;
+        return current;
+      case "/=":
+        if (typeof current === "number" && typeof newVal === "number")
+          return current / newVal;
+        return current;
+      case "%=":
+        if (typeof current === "number" && typeof newVal === "number")
+          return current % newVal;
+        return current;
+      case "//=":
+        return current === null || current === false ? newVal : current;
+      default:
+        return newVal;
+    }
+  }
+
+  function updateRecursive(
+    val: JqValue,
+    path: AstNode,
+    transform: (current: JqValue) => JqValue,
+  ): JqValue {
+    switch (path.type) {
+      case "Identity":
+        return transform(val);
+
+      case "Field": {
+        if (path.base) {
+          return updateRecursive(val, path.base, (baseVal) => {
+            if (
+              baseVal &&
+              typeof baseVal === "object" &&
+              !Array.isArray(baseVal)
+            ) {
+              const obj = { ...baseVal } as Record<string, unknown>;
+              obj[path.name] = transform(obj[path.name]);
+              return obj;
+            }
+            return baseVal;
+          });
+        }
+        if (val && typeof val === "object" && !Array.isArray(val)) {
+          const obj = { ...val } as Record<string, unknown>;
+          obj[path.name] = transform(obj[path.name]);
+          return obj;
+        }
+        return val;
+      }
+
+      case "Index": {
+        const indices = evaluate(root, path.index, ctx);
+        const idx = indices[0];
+
+        if (path.base) {
+          return updateRecursive(val, path.base, (baseVal) => {
+            if (typeof idx === "number" && Array.isArray(baseVal)) {
+              const arr = [...baseVal];
+              const i = idx < 0 ? arr.length + idx : idx;
+              if (i >= 0 && i < arr.length) {
+                arr[i] = transform(arr[i]);
+              }
+              return arr;
+            }
+            if (
+              typeof idx === "string" &&
+              baseVal &&
+              typeof baseVal === "object" &&
+              !Array.isArray(baseVal)
+            ) {
+              const obj = { ...baseVal } as Record<string, unknown>;
+              obj[idx] = transform(obj[idx]);
+              return obj;
+            }
+            return baseVal;
+          });
+        }
+
+        if (typeof idx === "number" && Array.isArray(val)) {
+          const arr = [...val];
+          const i = idx < 0 ? arr.length + idx : idx;
+          if (i >= 0 && i < arr.length) {
+            arr[i] = transform(arr[i]);
+          }
+          return arr;
+        }
+        if (
+          typeof idx === "string" &&
+          val &&
+          typeof val === "object" &&
+          !Array.isArray(val)
+        ) {
+          const obj = { ...val } as Record<string, unknown>;
+          obj[idx] = transform(obj[idx]);
+          return obj;
+        }
+        return val;
+      }
+
+      case "Iterate": {
+        const applyToContainer = (container: JqValue): JqValue => {
+          if (Array.isArray(container)) {
+            return container.map((item) => transform(item));
+          }
+          if (container && typeof container === "object") {
+            const obj: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(container)) {
+              obj[k] = transform(v);
+            }
+            return obj;
+          }
+          return container;
+        };
+
+        if (path.base) {
+          return updateRecursive(val, path.base, applyToContainer);
+        }
+        return applyToContainer(val);
+      }
+
+      case "Pipe": {
+        const leftResult = updateRecursive(val, path.left, (x) => x);
+        return updateRecursive(leftResult, path.right, transform);
+      }
+
+      default:
+        return transform(val);
+    }
+  }
+
+  const transformer = (current: JqValue): JqValue => {
+    if (op === "|=") {
+      return computeNewValue(current, current);
+    }
+    const newVals = evaluate(root, valueExpr, ctx);
+    return computeNewValue(current, newVals[0] ?? null);
+  };
+
+  return updateRecursive(root, pathExpr, transformer);
+}
+
+function applyDel(root: JqValue, pathExpr: AstNode, ctx: EvalContext): JqValue {
+  function deleteAt(val: JqValue, path: AstNode): JqValue {
+    switch (path.type) {
+      case "Identity":
+        return null;
+
+      case "Field": {
+        if (val && typeof val === "object" && !Array.isArray(val)) {
+          const obj = { ...val } as Record<string, unknown>;
+          delete obj[path.name];
+          return obj;
+        }
+        return val;
+      }
+
+      case "Index": {
+        const indices = evaluate(root, path.index, ctx);
+        const idx = indices[0];
+
+        if (typeof idx === "number" && Array.isArray(val)) {
+          const arr = [...val];
+          const i = idx < 0 ? arr.length + idx : idx;
+          if (i >= 0 && i < arr.length) {
+            arr.splice(i, 1);
+          }
+          return arr;
+        }
+        if (
+          typeof idx === "string" &&
+          val &&
+          typeof val === "object" &&
+          !Array.isArray(val)
+        ) {
+          const obj = { ...val } as Record<string, unknown>;
+          delete obj[idx];
+          return obj;
+        }
+        return val;
+      }
+
+      case "Iterate": {
+        if (Array.isArray(val)) {
+          return [];
+        }
+        if (val && typeof val === "object") {
+          return {};
+        }
+        return val;
+      }
+
+      default:
+        return val;
+    }
+  }
+
+  return deleteAt(root, pathExpr);
 }
 
 function isTruthy(v: JqValue): boolean {
@@ -326,7 +542,9 @@ function evalBinaryOp(
 
   if (op === "//") {
     const leftVals = evaluate(value, left, ctx);
-    const nonNull = leftVals.filter((v) => v !== null && v !== false);
+    const nonNull = leftVals.filter(
+      (v) => v !== null && v !== undefined && v !== false,
+    );
     if (nonNull.length > 0) return nonNull;
     return evaluate(value, right, ctx);
   }
@@ -655,7 +873,9 @@ function evalBuiltin(
     case "flatten": {
       if (!Array.isArray(value)) return [null];
       const depth =
-        args.length > 0 ? (evaluate(value, args[0], ctx)[0] as number) : 1;
+        args.length > 0
+          ? (evaluate(value, args[0], ctx)[0] as number)
+          : Number.POSITIVE_INFINITY;
       return [value.flat(depth)];
     }
 
@@ -813,6 +1033,48 @@ function evalBuiltin(
       if (args.length === 0) return [[]];
       const paths: (string | number)[][] = [];
       collectPaths(value, args[0], ctx, [], paths);
+      return paths;
+    }
+
+    case "del": {
+      if (args.length === 0) return [value];
+      return [applyDel(value, args[0], ctx)];
+    }
+
+    case "paths": {
+      const paths: (string | number)[][] = [];
+      const walk = (v: JqValue, path: (string | number)[]) => {
+        if (v && typeof v === "object") {
+          if (Array.isArray(v)) {
+            for (let i = 0; i < v.length; i++) {
+              paths.push([...path, i]);
+              walk(v[i], [...path, i]);
+            }
+          } else {
+            for (const key of Object.keys(v)) {
+              paths.push([...path, key]);
+              walk((v as Record<string, unknown>)[key], [...path, key]);
+            }
+          }
+        }
+      };
+      walk(value, []);
+      if (args.length > 0) {
+        return paths.filter((p) => {
+          let v: JqValue = value;
+          for (const k of p) {
+            if (Array.isArray(v) && typeof k === "number") {
+              v = v[k];
+            } else if (v && typeof v === "object" && typeof k === "string") {
+              v = (v as Record<string, unknown>)[k];
+            } else {
+              return false;
+            }
+          }
+          const results = evaluate(v, args[0], ctx);
+          return results.some(isTruthy);
+        });
+      }
       return paths;
     }
 

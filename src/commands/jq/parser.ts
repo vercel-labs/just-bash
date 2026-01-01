@@ -43,6 +43,7 @@ export type TokenType =
   | "UPDATE_DIV"
   | "UPDATE_MOD"
   | "UPDATE_ALT"
+  | "UPDATE_PIPE"
   | "IDENT"
   | "NUMBER"
   | "STRING"
@@ -57,6 +58,8 @@ export type TokenType =
   | "TRUE"
   | "FALSE"
   | "NULL"
+  | "REDUCE"
+  | "FOREACH"
   | "DOTDOT"
   | "EOF";
 
@@ -86,6 +89,8 @@ const KEYWORDS: Record<string, TokenType> = {
   true: "TRUE",
   false: "FALSE",
   null: "NULL",
+  reduce: "REDUCE",
+  foreach: "FOREACH",
 };
 
 function tokenize(input: string): Token[] {
@@ -187,7 +192,12 @@ function tokenize(input: string): Token[] {
       continue;
     }
     if (c === "|") {
-      tokens.push({ type: "PIPE", pos: start });
+      if (peek() === "=") {
+        advance();
+        tokens.push({ type: "UPDATE_PIPE", pos: start });
+      } else {
+        tokens.push({ type: "PIPE", pos: start });
+      }
       continue;
     }
     if (c === ",") {
@@ -376,7 +386,9 @@ export type AstNode =
   | RecurseNode
   | OptionalNode
   | StringInterpNode
-  | UpdateOpNode;
+  | UpdateOpNode
+  | ReduceNode
+  | ForeachNode;
 
 export interface IdentityNode {
   type: "Identity";
@@ -513,9 +525,26 @@ export interface StringInterpNode {
 
 export interface UpdateOpNode {
   type: "UpdateOp";
-  op: "+=" | "-=" | "*=" | "/=" | "%=" | "//=" | "=";
+  op: "+=" | "-=" | "*=" | "/=" | "%=" | "//=" | "=" | "|=";
   path: AstNode;
   value: AstNode;
+}
+
+export interface ReduceNode {
+  type: "Reduce";
+  expr: AstNode;
+  varName: string;
+  init: AstNode;
+  update: AstNode;
+}
+
+export interface ForeachNode {
+  type: "Foreach";
+  expr: AstNode;
+  varName: string;
+  init: AstNode;
+  update: AstNode;
+  extract?: AstNode;
 }
 
 // ============================================================================
@@ -622,6 +651,7 @@ class Parser {
       UPDATE_DIV: "/=",
       UPDATE_MOD: "%=",
       UPDATE_ALT: "//=",
+      UPDATE_PIPE: "|=",
     };
     const tok = this.match(
       "ASSIGN",
@@ -631,6 +661,7 @@ class Parser {
       "UPDATE_DIV",
       "UPDATE_MOD",
       "UPDATE_ALT",
+      "UPDATE_PIPE",
     );
     if (tok) {
       const value = this.parseVarBind();
@@ -869,6 +900,48 @@ class Parser {
       return { type: "Try", body, catch: catchExpr };
     }
 
+    // reduce EXPR as $VAR (INIT; UPDATE)
+    if (this.match("REDUCE")) {
+      const expr = this.parsePostfix();
+      this.expect("AS", "Expected 'as' after reduce expression");
+      const varToken = this.expect("IDENT", "Expected variable name");
+      const varName = varToken.value as string;
+      if (!varName.startsWith("$")) {
+        throw new Error(
+          `Variable name must start with $ at position ${varToken.pos}`,
+        );
+      }
+      this.expect("LPAREN", "Expected '(' after variable");
+      const init = this.parseExpr();
+      this.expect("SEMICOLON", "Expected ';' after init expression");
+      const update = this.parseExpr();
+      this.expect("RPAREN", "Expected ')' after update expression");
+      return { type: "Reduce", expr, varName, init, update };
+    }
+
+    // foreach EXPR as $VAR (INIT; UPDATE) or (INIT; UPDATE; EXTRACT)
+    if (this.match("FOREACH")) {
+      const expr = this.parsePostfix();
+      this.expect("AS", "Expected 'as' after foreach expression");
+      const varToken = this.expect("IDENT", "Expected variable name");
+      const varName = varToken.value as string;
+      if (!varName.startsWith("$")) {
+        throw new Error(
+          `Variable name must start with $ at position ${varToken.pos}`,
+        );
+      }
+      this.expect("LPAREN", "Expected '(' after variable");
+      const init = this.parseExpr();
+      this.expect("SEMICOLON", "Expected ';' after init expression");
+      const update = this.parseExpr();
+      let extract: AstNode | undefined;
+      if (this.match("SEMICOLON")) {
+        extract = this.parseExpr();
+      }
+      this.expect("RPAREN", "Expected ')' after expressions");
+      return { type: "Foreach", expr, varName, init, update, extract };
+    }
+
     // not as a standalone filter (when used as a function, not unary operator)
     if (this.match("NOT")) {
       return { type: "Call", name: "not", args: [] };
@@ -919,13 +992,13 @@ class Parser {
           key = this.parseExpr();
           this.expect("RPAREN", "Expected ')'");
           this.expect("COLON", "Expected ':'");
-          value = this.parseVarBind();
+          value = this.parseObjectValue();
         } else if (this.check("IDENT")) {
           const ident = this.advance().value as string;
           if (this.match("COLON")) {
             // {key: value}
             key = ident;
-            value = this.parseVarBind();
+            value = this.parseObjectValue();
           } else {
             // {key} shorthand for {key: .key}
             key = ident;
@@ -934,7 +1007,7 @@ class Parser {
         } else if (this.check("STRING")) {
           key = this.advance().value as string;
           this.expect("COLON", "Expected ':'");
-          value = this.parseVarBind();
+          value = this.parseObjectValue();
         } else {
           throw new Error(`Expected object key at position ${this.peek().pos}`);
         }
@@ -945,6 +1018,17 @@ class Parser {
 
     this.expect("RBRACE", "Expected '}'");
     return { type: "Object", entries };
+  }
+
+  // Parse object value - allows pipes but stops at comma or rbrace
+  // Uses parsePipe level to avoid consuming comma as part of expression
+  private parseObjectValue(): AstNode {
+    let left = this.parseVarBind();
+    while (this.match("PIPE")) {
+      const right = this.parseVarBind();
+      left = { type: "Pipe", left, right };
+    }
+    return left;
   }
 
   private parseIf(): CondNode {
