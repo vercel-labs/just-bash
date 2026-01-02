@@ -24,6 +24,9 @@ export interface ExecutionLimits {
 
   /** Maximum command iterations for SED (branch loops) (default: 10000) */
   maxSedIterations?: number;
+
+  /** Maximum iterations for jq loops (until, while, repeat) (default: 10000) */
+  maxJqIterations?: number;
 }
 
 /**
@@ -37,6 +40,7 @@ const DEFAULT_LIMITS: Required<ExecutionLimits> = {
   maxLoopIterations: 10000,
   maxAwkIterations: 10000,
   maxSedIterations: 10000,
+  maxJqIterations: 10000,
 };
 
 /**
@@ -58,5 +62,7 @@ export function resolveLimits(
       userLimits.maxAwkIterations ?? DEFAULT_LIMITS.maxAwkIterations,
     maxSedIterations:
       userLimits.maxSedIterations ?? DEFAULT_LIMITS.maxSedIterations,
+    maxJqIterations:
+      userLimits.maxJqIterations ?? DEFAULT_LIMITS.maxJqIterations,
   };
 }

@@ -4,29 +4,50 @@
  * Evaluates a parsed jq AST against a JSON value.
  */
 
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { AstNode } from "./parser.js";
 
 export type JqValue = unknown;
 
-export interface EvalContext {
-  vars: Map<string, JqValue>;
+const DEFAULT_MAX_JQ_ITERATIONS = 10000;
+
+export interface JqExecutionLimits {
+  maxIterations?: number;
 }
 
-function createContext(): EvalContext {
-  return { vars: new Map() };
+export interface EvalContext {
+  vars: Map<string, JqValue>;
+  limits: Required<JqExecutionLimits>;
+}
+
+function createContext(limits?: JqExecutionLimits): EvalContext {
+  return {
+    vars: new Map(),
+    limits: {
+      maxIterations: limits?.maxIterations ?? DEFAULT_MAX_JQ_ITERATIONS,
+    },
+  };
 }
 
 function withVar(ctx: EvalContext, name: string, value: JqValue): EvalContext {
   const newVars = new Map(ctx.vars);
   newVars.set(name, value);
-  return { vars: newVars };
+  return { vars: newVars, limits: ctx.limits };
+}
+
+export interface EvaluateOptions {
+  limits?: JqExecutionLimits;
 }
 
 export function evaluate(
   value: JqValue,
   ast: AstNode,
-  ctx: EvalContext = createContext(),
+  ctxOrOptions?: EvalContext | EvaluateOptions,
 ): JqValue[] {
+  const ctx: EvalContext =
+    ctxOrOptions && "vars" in ctxOrOptions
+      ? ctxOrOptions
+      : createContext((ctxOrOptions as EvaluateOptions | undefined)?.limits);
   switch (ast.type) {
     case "Identity":
       return [value];
@@ -197,7 +218,12 @@ export function evaluate(
 
     case "Recurse": {
       const results: JqValue[] = [];
+      const seen = new WeakSet<object>();
       const walk = (val: JqValue) => {
+        if (val && typeof val === "object") {
+          if (seen.has(val as object)) return;
+          seen.add(val as object);
+        }
         results.push(val);
         if (Array.isArray(val)) {
           for (const item of val) walk(item);
@@ -1184,20 +1210,26 @@ function evalBuiltin(
       try {
         const flags =
           args.length > 1 ? String(evaluate(value, args[1], ctx)[0]) : "";
-        const re = new RegExp(pattern, flags);
-        const m = value.match(re);
+        const re = new RegExp(pattern, `${flags}d`);
+        const m = re.exec(value);
         if (!m) return [];
+        const indices = (
+          m as RegExpExecArray & { indices?: [number, number][] }
+        ).indices;
         return [
           {
             offset: m.index,
             length: m[0].length,
             string: m[0],
-            captures: m.slice(1).map((c) => ({
-              offset: (m.index ?? 0) + (m[0].indexOf(c) || 0),
-              length: c?.length ?? 0,
-              string: c ?? "",
-              name: null,
-            })),
+            captures: m.slice(1).map((c, i) => {
+              const captureIndices = indices?.[i + 1];
+              return {
+                offset: captureIndices?.[0] ?? null,
+                length: c?.length ?? 0,
+                string: c ?? "",
+                name: null,
+              };
+            }),
           },
         ];
       } catch {
@@ -1521,7 +1553,12 @@ function evalBuiltin(
 
     case "walk": {
       if (args.length === 0) return [value];
+      const seen = new WeakSet<object>();
       const walkFn = (v: JqValue): JqValue => {
+        if (v && typeof v === "object") {
+          if (seen.has(v as object)) return v;
+          seen.add(v as object);
+        }
         let transformed: JqValue;
         if (Array.isArray(v)) {
           transformed = v.map(walkFn);
@@ -1597,7 +1634,7 @@ function evalBuiltin(
     case "until": {
       if (args.length < 2) return [value];
       let current = value;
-      const maxIterations = 10000;
+      const maxIterations = ctx.limits.maxIterations;
       for (let i = 0; i < maxIterations; i++) {
         const conds = evaluate(current, args[0], ctx);
         if (conds.some(isTruthy)) return [current];
@@ -1605,14 +1642,17 @@ function evalBuiltin(
         if (next.length === 0) return [current];
         current = next[0];
       }
-      return [current];
+      throw new ExecutionLimitError(
+        `jq until: too many iterations (${maxIterations}), increase executionLimits.maxJqIterations`,
+        "iterations",
+      );
     }
 
     case "while": {
       if (args.length < 2) return [value];
       const results: JqValue[] = [];
       let current = value;
-      const maxIterations = 10000;
+      const maxIterations = ctx.limits.maxIterations;
       for (let i = 0; i < maxIterations; i++) {
         const conds = evaluate(current, args[0], ctx);
         if (!conds.some(isTruthy)) break;
@@ -1621,6 +1661,12 @@ function evalBuiltin(
         if (next.length === 0) break;
         current = next[0];
       }
+      if (results.length >= maxIterations) {
+        throw new ExecutionLimitError(
+          `jq while: too many iterations (${maxIterations}), increase executionLimits.maxJqIterations`,
+          "iterations",
+        );
+      }
       return results;
     }
 
@@ -1628,18 +1674,23 @@ function evalBuiltin(
       if (args.length === 0) return [value];
       const results: JqValue[] = [];
       let current = value;
-      const maxIterations = 10000;
+      const maxIterations = ctx.limits.maxIterations;
       for (let i = 0; i < maxIterations; i++) {
         results.push(current);
         const next = evaluate(current, args[0], ctx);
         if (next.length === 0) break;
         current = next[0];
       }
+      if (results.length >= maxIterations) {
+        throw new ExecutionLimitError(
+          `jq repeat: too many iterations (${maxIterations}), increase executionLimits.maxJqIterations`,
+          "iterations",
+        );
+      }
       return results;
     }
 
     case "debug":
-      console.error("DEBUG:", value);
       return [value];
 
     case "input_line_number":

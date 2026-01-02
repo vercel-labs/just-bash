@@ -4,9 +4,10 @@
  * Full jq implementation with proper parser and evaluator.
  */
 
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
-import { evaluate, type JqValue } from "./evaluator.js";
+import { type EvaluateOptions, evaluate, type JqValue } from "./evaluator.js";
 import { parse } from "./parser.js";
 
 const jqHelp = {
@@ -168,23 +169,29 @@ export const jqCommand: Command = {
       const ast = parse(filter);
       let values: JqValue[];
 
+      const evalOptions: EvaluateOptions = {
+        limits: ctx.limits
+          ? { maxIterations: ctx.limits.maxJqIterations }
+          : undefined,
+      };
+
       if (nullInput) {
-        values = evaluate(null, ast);
+        values = evaluate(null, ast, evalOptions);
       } else if (slurp) {
         const items: JqValue[] = [];
         for (const line of input.trim().split("\n")) {
           if (line.trim()) items.push(JSON.parse(line));
         }
-        values = evaluate(items, ast);
+        values = evaluate(items, ast, evalOptions);
       } else {
         const trimmed = input.trim();
         if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-          values = evaluate(JSON.parse(trimmed), ast);
+          values = evaluate(JSON.parse(trimmed), ast, evalOptions);
         } else {
           values = [];
           for (const line of trimmed.split("\n")) {
             if (line.trim()) {
-              values.push(...evaluate(JSON.parse(line), ast));
+              values.push(...evaluate(JSON.parse(line), ast, evalOptions));
             }
           }
         }
@@ -208,6 +215,13 @@ export const jqCommand: Command = {
         exitCode,
       };
     } catch (e) {
+      if (e instanceof ExecutionLimitError) {
+        return {
+          stdout: "",
+          stderr: `jq: ${e.message}\n`,
+          exitCode: ExecutionLimitError.EXIT_CODE,
+        };
+      }
       const msg = (e as Error).message;
       if (msg.includes("Unknown function")) {
         return {
