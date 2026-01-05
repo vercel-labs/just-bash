@@ -294,5 +294,18 @@ describe("find basic", () => {
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
+
+    it("should normalize trailing slashes in search path", async () => {
+      const env = new Bash({
+        files: {
+          "/project/src/index.ts": "content",
+        },
+        cwd: "/project",
+      });
+      const result = await env.exec('find /project/ -name "*.ts"');
+      expect(result.stdout).toBe("/project/src/index.ts\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
   });
 });

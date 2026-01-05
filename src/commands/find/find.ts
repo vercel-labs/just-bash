@@ -174,7 +174,11 @@ export const findCommand: Command = {
     }
 
     // Process each search path
-    for (const searchPath of searchPaths) {
+    for (let searchPath of searchPaths) {
+      // Normalize trailing slashes (except for root "/")
+      if (searchPath.length > 1 && searchPath.endsWith("/")) {
+        searchPath = searchPath.slice(0, -1);
+      }
       const basePath = ctx.fs.resolvePath(ctx.cwd, searchPath);
 
       // Check if path exists
