@@ -74,7 +74,10 @@ export type CommandName =
   | "which"
   | "tac"
   | "hostname"
-  | "od";
+  | "od"
+  | "gzip"
+  | "gunzip"
+  | "zcat";
 
 /** Network command names (only available when network is configured) */
 export type NetworkCommandName = "curl";
@@ -372,6 +375,20 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "od",
     load: async () => (await import("./od/od.js")).od,
+  },
+
+  // Compression
+  {
+    name: "gzip",
+    load: async () => (await import("./gzip/gzip.js")).gzipCommand,
+  },
+  {
+    name: "gunzip",
+    load: async () => (await import("./gzip/gzip.js")).gunzipCommand,
+  },
+  {
+    name: "zcat",
+    load: async () => (await import("./gzip/gzip.js")).zcatCommand,
   },
 ];
 
