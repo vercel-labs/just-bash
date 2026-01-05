@@ -39,14 +39,31 @@ export {
   RedirectNotAllowedError,
   TooManyRedirectsError,
 } from "./network/index.js";
+// Legacy Sandbox API (deprecated)
 export type {
   CommandFinished as SandboxCommandFinished,
   OutputMessage,
   SandboxOptions,
   WriteFilesInput,
 } from "./sandbox/index.js";
-// Vercel Sandbox API compatible exports
-export { Command as SandboxCommand, Sandbox } from "./sandbox/index.js";
+// New Sandbox API
+/** @deprecated Use BashSandbox instead */
+export {
+  BashProvider,
+  type BashProviderOptions,
+  BashSandbox,
+  type BashSandboxOptions,
+  Command as SandboxCommand,
+  type FileContent as SandboxFileContent,
+  type FileInput as SandboxFileInput,
+  Sandbox,
+  type SandboxExecOptions,
+  type SandboxExecResult,
+  type SandboxProvider,
+  type ToolOptions,
+  VercelProvider,
+  type VercelProviderOptions,
+} from "./sandbox/index.js";
 export type {
   BashExecResult,
   Command,

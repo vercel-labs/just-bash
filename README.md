@@ -141,14 +141,26 @@ Creates a bash tool for use with the [AI SDK](https://ai-sdk.dev/), because [age
 import { createBashTool } from "just-bash/ai";
 import { generateText } from "ai";
 
-const bashTool = createBashTool({
+const { tool, filesystem } = createBashTool({
   files: { "/data/users.json": '[{"name": "Alice"}, {"name": "Bob"}]' },
 });
 
 const result = await generateText({
   model: "anthropic/claude-haiku-4.5",
-  tools: { bash: bashTool },
+  tools: { bash: tool },
   prompt: "Count the users in /data/users.json",
+});
+
+// Read files the AI created
+const output = await filesystem.readFile("/output.txt");
+```
+
+To run commands in a real VM with full binary support (node, python, etc.), just add `fullVM: true`:
+
+```typescript
+const { tool, filesystem } = createBashTool({
+  files: { "/data/users.json": '[{"name": "Alice"}]' },
+  fullVM: true, // Uses @vercel/sandbox under the hood
 });
 ```
 
