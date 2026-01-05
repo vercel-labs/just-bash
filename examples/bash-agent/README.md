@@ -16,10 +16,12 @@ An interactive AI agent that lets you chat about the just-bash codebase using na
    npm install
    ```
 
-2. Set your Anthropic API key:
+2. Set your Anthropic API and your Vercel AI Gateway API key:
 
    ```bash
    export ANTHROPIC_API_KEY=your-key-here
+   export AI_GATEWAY_API_KEY=your-key-here
+
    ```
 
 3. Run:
