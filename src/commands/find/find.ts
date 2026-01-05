@@ -217,7 +217,7 @@ export const findCommand: Command = {
           currentPath === basePath
             ? searchPath
             : searchPath === "."
-              ? `./${currentPath.slice(basePath.length + 1)}`
+              ? `./${currentPath.slice(basePath === "/" ? basePath.length : basePath.length + 1)}`
               : searchPath + currentPath.slice(basePath.length);
 
         // For directories, get entries once and reuse for both isEmpty check and recursion

@@ -261,4 +261,38 @@ describe("find basic", () => {
       expect(result.exitCode).toBe(0);
     });
   });
+
+  describe("root directory search", () => {
+    it("should find files from root without cutting first character (issue #28)", async () => {
+      const env = new Bash({
+        files: {
+          "src/index.ts": "console.log(1)",
+          "src/lib/util.ts": "export const x = 1;",
+          "bin/script.sh": "#!/bin/bash",
+        },
+        cwd: "/",
+      });
+      const result = await env.exec(
+        "find . -type f -path './src/*' -o -type f -path './bin/script.sh' | sort",
+      );
+      expect(result.stdout).toBe(
+        "./bin/script.sh\n./src/index.ts\n./src/lib/util.ts\n",
+      );
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should preserve full paths when searching from root with dot", async () => {
+      const env = new Bash({
+        files: {
+          "abc/file.txt": "content",
+        },
+        cwd: "/",
+      });
+      const result = await env.exec('find . -name "file.txt"');
+      expect(result.stdout).toBe("./abc/file.txt\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+  });
 });
