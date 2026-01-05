@@ -239,6 +239,10 @@ pnpm shell --no-network
 
 `awk`, `base64`, `comm`, `cut`, `diff`, `grep` (+ `egrep`, `fgrep`), `head`, `jq`, `md5sum`, `od`, `paste`, `printf`, `sed`, `sha1sum`, `sha256sum`, `sort`, `tac`, `tail`, `tr`, `uniq`, `wc`, `xargs`
 
+### Compression
+
+`gzip` (+ `gunzip`, `zcat`)
+
 ### Navigation & Environment
 
 `basename`, `cd`, `dirname`, `du`, `echo`, `env`, `export`, `find`, `hostname`, `printenv`, `pwd`, `tee`
