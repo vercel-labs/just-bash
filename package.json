@@ -16,7 +16,12 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "browser": "./dist/bundle/browser.js",
       "import": "./dist/bundle/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/bundle/browser.js"
     },
     "./ai": {
       "types": "./dist/ai/index.d.ts",
@@ -60,9 +65,10 @@
     "access": "public"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc && pnpm build:lib && pnpm build:ai && pnpm build:cli && pnpm build:shell && pnpm build:clean && sed '1,/^-->/d' AGENTS.npm.md > dist/AGENTS.md",
+    "build": "rm -rf dist && tsc && pnpm build:lib && pnpm build:browser && pnpm build:ai && pnpm build:cli && pnpm build:shell && pnpm build:clean && sed '1,/^-->/d' AGENTS.npm.md > dist/AGENTS.md",
     "build:clean": "find dist -name '*.test.js' -delete && find dist -name '*.test.d.ts' -delete",
     "build:lib": "esbuild dist/index.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bundle --chunk-names=chunks/[name]-[hash] --external:diff --external:minimatch --external:sprintf-js --external:turndown",
+    "build:browser": "esbuild dist/browser.js --bundle --platform=browser --format=esm --minify --outfile=dist/bundle/browser.js --external:diff --external:minimatch --external:sprintf-js --external:turndown --external:node:*",
     "build:ai": "esbuild dist/ai/index.js --bundle --platform=node --format=esm --minify --outfile=dist/bundle/ai/index.js --external:ai --external:zod --external:diff --external:minimatch --external:sprintf-js --external:turndown",
     "build:cli": "esbuild dist/cli/just-bash.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bin --entry-names=[name] --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node'",
     "build:shell": "esbuild dist/cli/shell.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bin/shell --entry-names=[name] --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node'",
