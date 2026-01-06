@@ -42,8 +42,9 @@ Use bash commands to explore:
 - find /workspace -name "*.ts" to find files
 
 Help the user understand the codebase, find code, and answer questions.`,
-    onBeforeBashCall: (command) => {
-      options.onToolCall?.(command);
+    onBeforeBashCall: (input) => {
+      options.onToolCall?.(input.command);
+      return undefined;
     },
   });
 
