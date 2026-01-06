@@ -4,9 +4,6 @@ import { Bash, type BashLogger, type BashOptions } from "../Bash.js";
 import type { CommandName } from "../commands/registry.js";
 import type { IFileSystem, InitialFiles } from "../fs/interface.js";
 
-type BashToolInput = { command: string };
-type BashToolOutput = { stdout: string; stderr: string; exitCode: number };
-
 export interface CreateBashToolOptions {
   /**
    * Initial files to populate the virtual filesystem.
@@ -145,8 +142,11 @@ const bashToolSchema = z.object({
   command: z.string().describe("The bash command to execute"),
 });
 
-export function createBashTool(
-  options: CreateBashToolOptions = {},
+type BashToolInput = { command: string };
+type BashToolOutput = { stdout: string; stderr: string; exitCode: number };
+
+function _createBashToolImpl(
+  options: CreateBashToolOptions,
 ): Tool<BashToolInput, BashToolOutput> {
   // Create a shared Bash instance with optional command filtering
   const bashEnv = new Bash({
@@ -176,4 +176,8 @@ export function createBashTool(
   });
 }
 
-export type BashTool = ReturnType<typeof createBashTool>;
+export type BashTool = Tool<BashToolInput, BashToolOutput>;
+
+export function createBashTool(options: CreateBashToolOptions = {}): BashTool {
+  return _createBashToolImpl(options);
+}
