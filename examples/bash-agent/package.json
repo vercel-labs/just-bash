@@ -9,7 +9,8 @@
   },
   "dependencies": {
     "ai": "^6.0.11",
+    "bash-tool": "^1.0.0",
     "glob": "^11.0.0",
-    "just-bash": "^1.0.1"
+    "just-bash": "^2.0.0"
   }
 }

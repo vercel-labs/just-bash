@@ -9,8 +9,8 @@
 import { appendFileSync } from "node:fs";
 import * as path from "node:path";
 import { streamText, stepCountIs } from "ai";
-import { createBashTool } from "../../src/ai/index.js";
-import { OverlayFs, type BashLogger } from "../../dist/index.js";
+import { createBashTool } from "bash-tool";
+import { OverlayFs, type BashLogger } from "just-bash";
 
 export interface AgentRunner {
   chat(
