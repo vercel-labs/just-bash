@@ -135,10 +135,14 @@ await env.exec('echo "hello" > file.txt'); // writes to real filesystem
 
 ### AI SDK Tool
 
-Creates a bash tool for use with the [AI SDK](https://ai-sdk.dev/), because [agents love bash](https://vercel.com/blog/we-removed-80-percent-of-our-agents-tools).
+For AI agents, use [`bash-tool`](https://github.com/vercel-labs/bash-tool) which is optimized for just-bash and provides a ready-to-use [AI SDK](https://ai-sdk.dev/) tool:
+
+```bash
+npm install bash-tool
+```
 
 ```typescript
-import { createBashTool } from "just-bash/ai";
+import { createBashTool } from "bash-tool";
 import { generateText } from "ai";
 
 const bashTool = createBashTool({
@@ -146,13 +150,13 @@ const bashTool = createBashTool({
 });
 
 const result = await generateText({
-  model: "anthropic/claude-haiku-4.5",
+  model: "anthropic/claude-sonnet-4",
   tools: { bash: bashTool },
   prompt: "Count the users in /data/users.json",
 });
 ```
 
-See [`examples/bash-agent`](./examples/bash-agent) for a full implementation.
+See the [bash-tool documentation](https://github.com/vercel-labs/bash-tool) for more details and examples.
 
 ### Vercel Sandbox Compatible API
 
@@ -367,13 +371,11 @@ pnpm shell       # Run interactive shell
 
 ## AI Agent Instructions
 
-For AI agents working with just-bash, additional guidance is available in `AGENTS.md`:
+For AI agents, we recommend using [`bash-tool`](https://github.com/vercel-labs/bash-tool) which is optimized for just-bash and provides additional guidance in its `AGENTS.md`:
 
 ```bash
-cat node_modules/just-bash/dist/AGENTS.md
+cat node_modules/bash-tool/dist/AGENTS.md
 ```
-
-This file contains quick reference patterns, common pitfalls, and debugging tips specifically for AI agents.
 
 ## License
 

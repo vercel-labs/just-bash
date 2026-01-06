@@ -14,9 +14,33 @@ Instructions for AI agents using just-bash in projects.
 A sandboxed bash interpreter with an in-memory virtual filesystem. Use it when you need to:
 
 - Execute shell commands without real filesystem access
-- Provide a bash tool for AI agents
 - Run untrusted scripts safely
 - Process text with standard Unix tools (grep, sed, awk, jq, etc.)
+
+## For AI Agents
+
+If you're building an AI agent that needs a bash tool, use [`bash-tool`](https://github.com/vercel-labs/bash-tool) which is optimized for just-bash:
+
+```sh
+npm install bash-tool
+```
+
+```typescript
+import { createBashTool } from "bash-tool";
+import { generateText } from "ai";
+
+const bashTool = createBashTool({
+  files: { "/data/users.json": '[{"name": "Alice"}, {"name": "Bob"}]' },
+});
+
+const result = await generateText({
+  model: "anthropic/claude-sonnet-4",
+  tools: { bash: bashTool },
+  prompt: "Count the users in /data/users.json",
+});
+```
+
+See the [bash-tool documentation](https://github.com/vercel-labs/bash-tool) for more details.
 
 ## Quick Reference
 
@@ -33,91 +57,6 @@ const result = await bash.exec("cat input.txt | grep pattern");
 // result.stderr  - error output
 // result.exitCode - 0 = success, non-zero = failure
 ```
-
-## Building an AI Agent
-
-just-bash integrates with the [AI SDK](https://ai-sdk.dev/) to provide a bash tool for AI agents.
-
-### Basic Agent Setup
-
-```typescript
-import { createBashTool } from "just-bash/ai";
-import { generateText } from "ai";
-
-const bashTool = createBashTool({
-  files: {
-    "/data/users.json": '[{"name": "Alice"}, {"name": "Bob"}]',
-    "/data/config.yaml": "debug: true\nport: 3000",
-  },
-});
-
-const result = await generateText({
-  model: "anthropic/claude-haiku-4.5",
-  tools: { bash: bashTool },
-  prompt: "Count the users in /data/users.json",
-});
-```
-
-### With ToolLoopAgent
-
-For multi-step tasks, use `ToolLoopAgent` which automatically loops until completion:
-
-```typescript
-import { ToolLoopAgent } from "ai";
-import { createBashTool } from "just-bash/ai";
-
-const bashTool = createBashTool({
-  files: {
-    "/project/src/index.ts": "export const version = '1.0.0';",
-    "/project/src/utils.ts": "// TODO: implement\nexport function helper() {}",
-    "/project/package.json": '{"name": "my-app", "version": "1.0.0"}',
-  },
-});
-
-const agent = new ToolLoopAgent({
-  model: "anthropic/claude-haiku-4.5",
-  tools: { bash: bashTool },
-});
-
-const result = await agent.generate({
-  prompt: "Find all TODO comments in the project and list the files containing them",
-});
-```
-
-### With Network Access
-
-```typescript
-import { createBashTool } from "just-bash/ai";
-
-const bashTool = createBashTool({
-  network: {
-    allowedUrlPrefixes: ["https://api.github.com/"],
-  },
-});
-```
-
-### With Real Filesystem (Read-Only)
-
-```typescript
-import { createBashTool } from "just-bash/ai";
-import { OverlayFs } from "just-bash/fs/overlay-fs";
-
-const overlay = new OverlayFs({ root: "/path/to/project" });
-const bashTool = createBashTool({
-  fs: overlay,
-  cwd: overlay.getMountPoint(),
-});
-```
-
-### Tool Options
-
-- `files` - Initial virtual files
-- `fs` - Custom filesystem (e.g., OverlayFs)
-- `network` - URL allowlist for curl
-- `commands` - Restrict available commands
-- `customCommands` - Add custom commands
-- `onCall` - Callback before each execution
-- `logger` - Execution tracing
 
 ## Key Behaviors
 
@@ -221,9 +160,6 @@ cat node_modules/just-bash/dist/index.d.ts
 # View Bash class options
 grep -A 30 "interface BashOptions" node_modules/just-bash/dist/Bash.d.ts
 
-# View AI tool options
-cat node_modules/just-bash/dist/ai/index.d.ts
-
 # Search for specific types
 grep -r "interface.*Options" node_modules/just-bash/dist/*.d.ts
 ```
@@ -231,5 +167,4 @@ grep -r "interface.*Options" node_modules/just-bash/dist/*.d.ts
 Key types to explore:
 - `BashOptions` - Constructor options for `new Bash()`
 - `ExecResult` - Return type of `bash.exec()`
-- `CreateBashToolOptions` - Options for `createBashTool()`
 - `InitialFiles` - File specification format
