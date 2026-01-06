@@ -10,7 +10,6 @@
   "dependencies": {
     "ai": "^6.0.11",
     "bash-tool": "^1.0.0",
-    "glob": "^11.0.0",
-    "just-bash": "file:../.."
+    "glob": "^11.0.0"
   }
 }

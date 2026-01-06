@@ -12,7 +12,7 @@ import { runShell } from "./shell.js";
 
 let lastWasToolCall = false;
 
-const agent = createAgent({
+const agent = await createAgent({
   onToolCall: (command) => {
     const prefix = lastWasToolCall ? "" : "\n";
     console.log(

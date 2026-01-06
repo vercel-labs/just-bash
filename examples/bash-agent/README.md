@@ -2,10 +2,12 @@
 
 An interactive AI agent that lets you chat about the just-bash codebase using natural language.
 
+Uses [bash-tool](https://github.com/vercel-labs/bash-tool) for the AI SDK integration.
+
 ## Files
 
 - `main.ts` - Entry point
-- `agent.ts` - Agent logic (createBashTool + AI SDK)
+- `agent.ts` - Agent logic (bash-tool + AI SDK)
 - `shell.ts` - Interactive readline shell
 
 ## Setup
@@ -26,16 +28,6 @@ An interactive AI agent that lets you chat about the just-bash codebase using na
    ```bash
    npm start
    ```
-
-## Logging
-
-All bash commands are logged to `commands.log` with execution details:
-
-```
-[INFO] exec {"command":"ls src"}
-[DEBUG] stdout {"output":"Bash.ts\ncommands\n..."}
-[INFO] exit {"exitCode":0}
-```
 
 ## Usage
 
