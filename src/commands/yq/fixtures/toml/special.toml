@@ -1,0 +1,50 @@
+# TOML edge cases
+
+# Basic types
+string_value = "hello world"
+integer_value = 42
+float_value = 3.14
+boolean_true = true
+boolean_false = false
+
+# Datetime values
+date_value = 2024-01-15
+datetime_value = 2024-01-15T10:30:00Z
+
+# Arrays
+simple_array = [1, 2, 3, 4, 5]
+string_array = ["apple", "banana", "cherry"]
+nested_array = [[1, 2], [3, 4], [5, 6]]
+
+# Multiline strings
+multiline_basic = """
+This is a
+multiline string
+spanning multiple lines"""
+
+multiline_literal = '''
+Line 1
+Line 2
+Line 3'''
+
+# Inline table
+inline = { name = "inline", value = 123 }
+
+# Dotted keys (must be before [[products]] to be root-level)
+dotted.key.value = "nested via dots"
+
+# Unicode (must be before [[products]] to be root-level)
+unicode = "Hello 世界 🌍"
+
+# Array of tables (must come last since it affects all subsequent keys)
+[[products]]
+name = "Widget"
+price = 19.99
+
+[[products]]
+name = "Gadget"
+price = 29.99
+
+[[products]]
+name = "Doodad"
+price = 49.99

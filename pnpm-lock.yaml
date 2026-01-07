@@ -23,6 +23,9 @@ dependencies:
   papaparse:
     specifier: ^5.5.3
     version: 5.5.3
+  smol-toml:
+    specifier: ^1.6.0
+    version: 1.6.0
   sprintf-js:
     specifier: ^1.1.3
     version: 1.1.3
@@ -1318,7 +1321,6 @@ packages:
   /smol-toml@1.6.0:
     resolution: {integrity: sha512-4zemZi0HvTnYwLfrpk/CF9LOd9Lt87kAt50GnqhMpyF9U3poDAP2+iukq2bZsO/ufegbYehBkqINbsWxj4l4cw==}
     engines: {node: '>= 18'}
-    dev: true
 
   /source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}

@@ -1,17 +1,18 @@
 /**
  * Format parsing and output for yq command
  *
- * Supports YAML, JSON, XML, INI, and CSV formats with conversion between them.
+ * Supports YAML, JSON, XML, INI, CSV, and TOML formats with conversion between them.
  */
 
 import { XMLBuilder, XMLParser } from "fast-xml-parser";
 import * as ini from "ini";
 import Papa from "papaparse";
+import * as TOML from "smol-toml";
 import YAML from "yaml";
 import type { QueryValue } from "../query-engine/index.js";
 
-export type InputFormat = "yaml" | "xml" | "json" | "ini" | "csv";
-export type OutputFormat = "yaml" | "json" | "xml" | "ini" | "csv";
+export type InputFormat = "yaml" | "xml" | "json" | "ini" | "csv" | "toml";
+export type OutputFormat = "yaml" | "json" | "xml" | "ini" | "csv" | "toml";
 
 export interface FormatOptions {
   /** Input format (default: yaml) */
@@ -82,6 +83,8 @@ export function detectFormatFromExtension(
     case ".csv":
     case ".tsv":
       return "csv";
+    case ".toml":
+      return "toml";
     default:
       return null;
   }
@@ -149,6 +152,9 @@ export function parseInput(input: string, options: FormatOptions): QueryValue {
 
     case "csv":
       return parseCsv(trimmed, options.csvDelimiter, options.csvHeader);
+
+    case "toml":
+      return TOML.parse(trimmed) as QueryValue;
   }
 }
 
@@ -158,6 +164,58 @@ export function parseInput(input: string, options: FormatOptions): QueryValue {
 export function parseAllYamlDocuments(input: string): QueryValue[] {
   const docs = YAML.parseAllDocuments(input);
   return docs.map((doc) => doc.toJSON());
+}
+
+/**
+ * Extract front-matter from content
+ * Front-matter is YAML/TOML/JSON at the start of a file between --- or +++ delimiters
+ * Returns { frontMatter: parsed data, content: remaining content } or null if no front-matter
+ */
+export function extractFrontMatter(
+  input: string,
+): { frontMatter: QueryValue; content: string } | null {
+  const trimmed = input.trimStart();
+
+  // YAML front-matter: starts with ---
+  if (trimmed.startsWith("---")) {
+    const endMatch = trimmed.slice(3).match(/\n---(\n|$)/);
+    if (endMatch && endMatch.index !== undefined) {
+      const yamlContent = trimmed.slice(3, endMatch.index + 3);
+      const remaining = trimmed.slice(endMatch.index + 3 + endMatch[0].length);
+      return {
+        frontMatter: YAML.parse(yamlContent),
+        content: remaining,
+      };
+    }
+  }
+
+  // TOML front-matter: starts with +++
+  if (trimmed.startsWith("+++")) {
+    const endMatch = trimmed.slice(3).match(/\n\+\+\+(\n|$)/);
+    if (endMatch && endMatch.index !== undefined) {
+      const tomlContent = trimmed.slice(3, endMatch.index + 3);
+      const remaining = trimmed.slice(endMatch.index + 3 + endMatch[0].length);
+      return {
+        frontMatter: TOML.parse(tomlContent) as QueryValue,
+        content: remaining,
+      };
+    }
+  }
+
+  // JSON front-matter: starts with {{{ (less common)
+  if (trimmed.startsWith("{{{")) {
+    const endMatch = trimmed.slice(3).match(/\n}}}(\n|$)/);
+    if (endMatch && endMatch.index !== undefined) {
+      const jsonContent = trimmed.slice(3, endMatch.index + 3);
+      const remaining = trimmed.slice(endMatch.index + 3 + endMatch[0].length);
+      return {
+        frontMatter: JSON.parse(jsonContent),
+        content: remaining,
+      };
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -205,5 +263,15 @@ export function formatOutput(
 
     case "csv":
       return formatCsv(value, options.csvDelimiter);
+
+    case "toml": {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return "";
+      }
+      return TOML.stringify(value as Record<string, unknown>);
+    }
+
+    default:
+      throw new Error(`Unknown output format: ${options.outputFormat}`);
   }
 }

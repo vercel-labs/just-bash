@@ -1,0 +1,23 @@
+[server]
+host = "localhost"
+port = 8080
+debug = false
+
+[database]
+url = "postgres://localhost:5432/mydb"
+max_connections = 100
+timeout = 30
+
+[database.pool]
+min_size = 10
+max_size = 50
+
+[logging]
+level = "info"
+format = "json"
+output = "stdout"
+
+[features]
+dark_mode = true
+notifications = true
+analytics = false

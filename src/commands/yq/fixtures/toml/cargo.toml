@@ -1,0 +1,17 @@
+[package]
+name = "my-rust-app"
+version = "1.2.3"
+edition = "2021"
+authors = ["Alice <alice@example.com>", "Bob <bob@example.com>"]
+description = "A sample Rust application"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1.0", features = ["full"] }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[profile.release]
+opt-level = 3
+lto = true

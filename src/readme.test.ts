@@ -464,6 +464,22 @@ describe("AGENTS.npm.md Bash examples", () => {
           '<root><users><user><name>alice</name></user></users><item id="123">test</item></root>',
         "/data/config.ini": "[database]\nhost=localhost\nport=5432\n",
         "/data/page.html": "<h1>Title</h1><p>Some text content</p>",
+        // TOML files
+        "/data/Cargo.toml":
+          '[package]\nname = "my-project"\nversion = "1.0.0"\n\n[dependencies]\nserde = "1.0"\n',
+        "/data/pyproject.toml":
+          '[tool.poetry]\nname = "my-package"\nversion = "2.0.0"\n\n[tool.poetry.dependencies]\npython = "^3.9"\n',
+        "/data/config.toml":
+          '[server]\nhost = "localhost"\nport = 8080\n\n[database]\nurl = "postgres://localhost/db"\n',
+        // TSV file
+        "/data/data.tsv": "name\tcategory\tvalue\nalice\tA\t10\nbob\tB\t20\n",
+        // Front-matter files
+        "/data/post.md":
+          "---\ntitle: My Post\nauthor: Alice\ntags:\n  - coding\n  - tutorial\n---\n\n# Content here\n\nThis is the body of the post.\n",
+        "/data/blog-post.md":
+          "---\ntitle: Blog Post\ntags:\n  - tech\n  - news\n---\n\n# Blog content\n",
+        "/data/hugo-post.md":
+          '+++\ntitle = "Hugo Post"\ndate = "2024-01-01"\ndraft = false\n+++\n\n# Hugo content\n',
         "/src/app.ts": "// TODO: implement\nexport const x = 1;",
         "/src/lib.ts": "// helper\nexport const y = 2;",
         // Mock type definition files for "Discovering Types" examples

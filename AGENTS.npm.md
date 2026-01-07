@@ -107,19 +107,48 @@ yq -o json '.' config.yaml
 
 # Filter with jq syntax
 yq '.users[] | select(.role == "admin")' users.yaml
+
+# Modify file in-place
+yq -i '.version = "2.0"' config.yaml
 ```
 
-### CSV - `yq -p csv`
+### TOML - `yq`
 
 ```bash
-# Read CSV (auto-detects from .csv extension)
+# Read TOML (auto-detected from .toml extension)
+yq '.package.name' Cargo.toml
+yq '.tool.poetry.version' pyproject.toml
+
+# Convert TOML to JSON
+yq -o json '.' config.toml
+
+# Convert YAML to TOML
+yq -o toml '.' config.yaml
+```
+
+### CSV/TSV - `yq -p csv`
+
+```bash
+# Read CSV (auto-detects from .csv/.tsv extension)
 yq '.[0].name' data.csv
+yq '.[0].name' data.tsv
 
 # Filter rows
 yq '[.[] | select(.status == "active")]' data.csv
 
 # Convert CSV to JSON
 yq -o json '.' data.csv
+```
+
+### Front-matter - `yq --front-matter`
+
+```bash
+# Extract YAML front-matter from markdown
+yq --front-matter '.title' post.md
+yq -f '.tags[]' blog-post.md
+
+# Works with TOML front-matter (+++) too
+yq -f '.date' hugo-post.md
 ```
 
 ### XML - `yq -p xml`
@@ -163,6 +192,12 @@ yq -p json '.' data.json
 
 # YAML to JSON
 yq -o json '.' data.yaml
+
+# YAML to TOML
+yq -o toml '.' config.yaml
+
+# TOML to JSON
+yq -o json '.' Cargo.toml
 
 # CSV to JSON
 yq -p csv -o json '.' data.csv

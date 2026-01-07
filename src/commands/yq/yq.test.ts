@@ -464,6 +464,371 @@ database:
     });
   });
 
+  describe("join-output mode", () => {
+    it("should not print newlines with -j", async () => {
+      const bash = new Bash({
+        files: {
+          "/data.yaml": "items:\n  - a\n  - b\n  - c\n",
+        },
+      });
+      const result = await bash.exec("yq -j '.items[]' /data.yaml");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("abc");
+    });
+  });
+
+  describe("exit-status mode", () => {
+    it("should exit 0 for truthy output with -e", async () => {
+      const bash = new Bash({
+        files: { "/data.yaml": "value: true\n" },
+      });
+      const result = await bash.exec("yq -e '.value' /data.yaml");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should exit 1 for null output with -e", async () => {
+      const bash = new Bash({
+        files: { "/data.yaml": "value: 42\n" },
+      });
+      const result = await bash.exec("yq -e '.missing' /data.yaml");
+      expect(result.exitCode).toBe(1);
+    });
+
+    it("should exit 1 for false output with -e", async () => {
+      const bash = new Bash({
+        files: { "/data.yaml": "value: false\n" },
+      });
+      const result = await bash.exec("yq -e '.value' /data.yaml");
+      expect(result.exitCode).toBe(1);
+    });
+  });
+
+  describe("indent option", () => {
+    it("should use custom indent with -I", async () => {
+      const bash = new Bash({
+        files: { "/data.yaml": "items:\n  - a\n  - b\n" },
+      });
+      const result = await bash.exec("yq -o json -I 4 '.' /data.yaml");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('    "a"');
+    });
+  });
+
+  describe("combined short options", () => {
+    it("should handle -rc for raw compact json", async () => {
+      const bash = new Bash({
+        files: { "/data.yaml": "msg: hello\n" },
+      });
+      const result = await bash.exec("yq -rc -o json '.msg' /data.yaml");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("hello\n");
+    });
+
+    it("should handle -cej for compact exit-status join", async () => {
+      const bash = new Bash({
+        files: { "/data.yaml": "items:\n  - 1\n  - 2\n" },
+      });
+      const result = await bash.exec("yq -cej -o json '.items[]' /data.yaml");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("12");
+    });
+  });
+
+  describe("jq builtin functions", () => {
+    it("should support first", async () => {
+      const bash = new Bash({
+        files: { "/data.yaml": "items:\n  - a\n  - b\n  - c\n" },
+      });
+      const result = await bash.exec("yq '.items | first' /data.yaml");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("a\n");
+    });
+
+    it("should support last", async () => {
+      const bash = new Bash({
+        files: { "/data.yaml": "items:\n  - a\n  - b\n  - c\n" },
+      });
+      const result = await bash.exec("yq '.items | last' /data.yaml");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("c\n");
+    });
+
+    it("should support add for numbers", async () => {
+      const bash = new Bash({
+        files: { "/data.yaml": "nums:\n  - 1\n  - 2\n  - 3\n" },
+      });
+      const result = await bash.exec("yq '.nums | add' /data.yaml");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("6\n");
+    });
+
+    it("should support min", async () => {
+      const bash = new Bash({
+        files: { "/data.yaml": "nums:\n  - 5\n  - 2\n  - 8\n" },
+      });
+      const result = await bash.exec("yq '.nums | min' /data.yaml");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("2\n");
+    });
+
+    it("should support max", async () => {
+      const bash = new Bash({
+        files: { "/data.yaml": "nums:\n  - 5\n  - 2\n  - 8\n" },
+      });
+      const result = await bash.exec("yq '.nums | max' /data.yaml");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("8\n");
+    });
+
+    it("should support unique", async () => {
+      const bash = new Bash({
+        files: { "/data.yaml": "items:\n  - a\n  - b\n  - a\n  - c\n  - b\n" },
+      });
+      const result = await bash.exec("yq '.items | unique' /data.yaml -o json");
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual(["a", "b", "c"]);
+    });
+
+    it("should support sort_by", async () => {
+      const bash = new Bash({
+        files: {
+          "/data.yaml":
+            "items:\n  - name: b\n    val: 2\n  - name: a\n    val: 1\n",
+        },
+      });
+      const result = await bash.exec(
+        "yq '.items | sort_by(.name) | .[0].name' /data.yaml",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("a\n");
+    });
+
+    it("should support reverse", async () => {
+      const bash = new Bash({
+        files: { "/data.yaml": "items:\n  - 1\n  - 2\n  - 3\n" },
+      });
+      const result = await bash.exec(
+        "yq '.items | reverse' /data.yaml -o json",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual([3, 2, 1]);
+    });
+
+    it("should support group_by", async () => {
+      const bash = new Bash({
+        files: {
+          "/data.yaml":
+            "items:\n  - type: a\n    v: 1\n  - type: b\n    v: 2\n  - type: a\n    v: 3\n",
+        },
+      });
+      const result = await bash.exec(
+        "yq '.items | group_by(.type) | length' /data.yaml",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("2\n");
+    });
+  });
+
+  describe("CSV options", () => {
+    it("should handle --no-csv-header", async () => {
+      const bash = new Bash({
+        files: { "/data.csv": "alice,30\nbob,25\n" },
+      });
+      const result = await bash.exec(
+        "yq -p csv --no-csv-header '.[0][0]' /data.csv",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("alice\n");
+    });
+  });
+
+  describe("XML options", () => {
+    it("should use custom attribute prefix", async () => {
+      const bash = new Bash({
+        files: { "/data.xml": '<item id="123"/>' },
+      });
+      const result = await bash.exec(
+        "yq -p xml --xml-attribute-prefix='@' '.item[\"@id\"]' /data.xml -o json -r",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("123\n");
+    });
+  });
+
+  describe("TOML format", () => {
+    it("should read TOML and extract values", async () => {
+      const bash = new Bash({
+        files: {
+          "/Cargo.toml": `[package]
+name = "my-app"
+version = "1.0.0"
+
+[dependencies]
+serde = "1.0"
+`,
+        },
+      });
+      const result = await bash.exec("yq '.package.name' /Cargo.toml");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("my-app\n");
+    });
+
+    it("should auto-detect TOML from .toml extension", async () => {
+      const bash = new Bash({
+        files: {
+          "/config.toml": `[server]
+host = "localhost"
+port = 8080
+`,
+        },
+      });
+      const result = await bash.exec("yq '.server.port' /config.toml");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("8080\n");
+    });
+
+    it("should output as TOML", async () => {
+      const bash = new Bash({
+        files: {
+          "/data.yaml": "server:\n  host: localhost\n  port: 8080\n",
+        },
+      });
+      const result = await bash.exec("yq -o toml '.' /data.yaml");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("[server]");
+      expect(result.stdout).toContain('host = "localhost"');
+      expect(result.stdout).toContain("port = 8080");
+    });
+
+    it("should convert JSON to TOML", async () => {
+      const bash = new Bash({
+        files: {
+          "/data.json": '{"app": {"name": "test", "version": "2.0"}}',
+        },
+      });
+      const result = await bash.exec("yq -p json -o toml '.' /data.json");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("[app]");
+      expect(result.stdout).toContain('name = "test"');
+    });
+  });
+
+  describe("TSV format", () => {
+    it("should auto-detect TSV from .tsv extension", async () => {
+      const bash = new Bash({
+        files: {
+          "/data.tsv": "name\tage\tcity\nalice\t30\tNYC\nbob\t25\tLA\n",
+        },
+      });
+      const result = await bash.exec("yq '.[0].name' /data.tsv");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("alice\n");
+    });
+
+    it("should read all TSV rows", async () => {
+      const bash = new Bash({
+        files: {
+          "/data.tsv": "name\tvalue\na\t1\nb\t2\n",
+        },
+      });
+      const result = await bash.exec("yq '.[].name' /data.tsv");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("a\nb\n");
+    });
+  });
+
+  describe("inplace mode", () => {
+    it("should modify file in-place with -i", async () => {
+      const bash = new Bash({
+        files: {
+          "/data.yaml": "version: 1.0\nname: test\n",
+        },
+      });
+      const result = await bash.exec("yq -i '.version = \"2.0\"' /data.yaml");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("");
+
+      const readResult = await bash.exec("cat /data.yaml");
+      expect(readResult.stdout).toContain('version: "2.0"');
+    });
+
+    it("should error when -i used without file", async () => {
+      const bash = new Bash();
+      const result = await bash.exec("echo 'x: 1' | yq -i '.x'");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("requires a file");
+    });
+  });
+
+  describe("front-matter", () => {
+    it("should extract YAML front-matter from markdown", async () => {
+      const bash = new Bash({
+        files: {
+          "/post.md": `---
+title: My Post
+date: 2024-01-01
+tags:
+  - tech
+  - web
+---
+
+# Content here
+
+This is the post body.
+`,
+        },
+      });
+      const result = await bash.exec("yq --front-matter '.title' /post.md");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("My Post\n");
+    });
+
+    it("should extract front-matter tags array", async () => {
+      const bash = new Bash({
+        files: {
+          "/post.md": `---
+title: Test
+tags:
+  - a
+  - b
+---
+Content`,
+        },
+      });
+      const result = await bash.exec("yq --front-matter '.tags[]' /post.md");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("a\nb\n");
+    });
+
+    it("should extract TOML front-matter with +++", async () => {
+      const bash = new Bash({
+        files: {
+          "/post.md": `+++
+title = "Hugo Post"
+date = "2024-01-01"
++++
+
+Content here.
+`,
+        },
+      });
+      const result = await bash.exec("yq -f '.title' /post.md");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("Hugo Post\n");
+    });
+
+    it("should error when no front-matter found", async () => {
+      const bash = new Bash({
+        files: {
+          "/plain.md": "# Just a heading\n\nNo front-matter here.",
+        },
+      });
+      const result = await bash.exec("yq --front-matter '.title' /plain.md");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("no front-matter found");
+    });
+  });
+
   describe("format auto-detection", () => {
     it("should auto-detect JSON from .json extension", async () => {
       const bash = new Bash({

@@ -15,7 +15,7 @@ import { Bash } from "../../Bash.js";
 
 const fixturesDir = path.join(import.meta.dirname, "fixtures");
 
-type Format = "yaml" | "json" | "xml" | "ini" | "csv";
+type Format = "yaml" | "json" | "xml" | "ini" | "csv" | "toml";
 
 interface FixtureFile {
   format: Format;
@@ -35,7 +35,7 @@ function loadFixtures(): {
   const files: Record<string, string> = {};
   const fixtures: FixtureFile[] = [];
 
-  const formats: Format[] = ["yaml", "json", "xml", "ini", "csv"];
+  const formats: Format[] = ["yaml", "json", "xml", "ini", "csv", "toml"];
 
   for (const format of formats) {
     const formatDir = path.join(fixturesDir, format);
@@ -317,6 +317,121 @@ describe("yq fixtures", () => {
     });
   });
 
+  describe("TOML fixtures", () => {
+    it("should get package name from cargo.toml", async () => {
+      const bash = new Bash({ files });
+      const result = await bash.exec(
+        "yq '.package.name' /fixtures/toml/cargo.toml",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("my-rust-app\n");
+    });
+
+    it("should get package version from cargo.toml", async () => {
+      const bash = new Bash({ files });
+      const result = await bash.exec(
+        "yq '.package.version' /fixtures/toml/cargo.toml",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("1.2.3\n");
+    });
+
+    it("should get dependency versions from cargo.toml", async () => {
+      const bash = new Bash({ files });
+      const result = await bash.exec(
+        "yq '.dependencies.serde.version' /fixtures/toml/cargo.toml -o json -r",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("1.0\n");
+    });
+
+    it("should get project name from pyproject.toml", async () => {
+      const bash = new Bash({ files });
+      const result = await bash.exec(
+        "yq '.project.name' /fixtures/toml/pyproject.toml",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("my-python-app\n");
+    });
+
+    it("should get author emails from pyproject.toml", async () => {
+      const bash = new Bash({ files });
+      const result = await bash.exec(
+        "yq '.project.authors[].email' /fixtures/toml/pyproject.toml",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("alice@example.com");
+      expect(result.stdout).toContain("bob@example.com");
+    });
+
+    it("should get database settings from config.toml", async () => {
+      const bash = new Bash({ files });
+      const result = await bash.exec(
+        "yq '.database.max_connections' /fixtures/toml/config.toml",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("100\n");
+    });
+
+    it("should get nested pool settings from config.toml", async () => {
+      const bash = new Bash({ files });
+      const result = await bash.exec(
+        "yq '.database.pool.max_size' /fixtures/toml/config.toml",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("50\n");
+    });
+
+    it("should get feature flags from config.toml", async () => {
+      const bash = new Bash({ files });
+      const result = await bash.exec(
+        "yq '.features' /fixtures/toml/config.toml -o json",
+      );
+      expect(result.exitCode).toBe(0);
+      const features = JSON.parse(result.stdout);
+      expect(features.dark_mode).toBe(true);
+      expect(features.analytics).toBe(false);
+    });
+
+    it("should handle array of tables from special.toml", async () => {
+      const bash = new Bash({ files });
+      const result = await bash.exec(
+        "yq '.products[].name' /fixtures/toml/special.toml",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("Widget\nGadget\nDoodad\n");
+    });
+
+    it("should handle inline tables from special.toml", async () => {
+      const bash = new Bash({ files });
+      const result = await bash.exec(
+        "yq '.inline.name' /fixtures/toml/special.toml",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("inline\n");
+    });
+
+    it("should handle unicode from special.toml", async () => {
+      const bash = new Bash({ files });
+      const result = await bash.exec(
+        "yq '.unicode' /fixtures/toml/special.toml",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Hello");
+    });
+
+    it("should convert TOML to JSON", async () => {
+      const bash = new Bash({ files });
+      const result = await bash.exec(
+        "yq '.server' /fixtures/toml/config.toml -o json",
+      );
+      expect(result.exitCode).toBe(0);
+      const server = JSON.parse(result.stdout);
+      expect(server.host).toBe("localhost");
+      expect(server.port).toBe(8080);
+    });
+  });
+
   describe("format conversion", () => {
     it("should convert YAML to JSON", async () => {
       const bash = new Bash({ files });
@@ -386,6 +501,24 @@ describe("yq fixtures", () => {
       );
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toBe("The Great Adventure\n");
+    });
+
+    it("should convert YAML to TOML", async () => {
+      const bash = new Bash({ files });
+      const result = await bash.exec(
+        "yq '.' /fixtures/yaml/simple.yaml -o toml",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('title = "Simple Document"');
+      expect(result.stdout).toContain("count = 42");
+    });
+
+    it("should convert TOML to YAML", async () => {
+      const bash = new Bash({ files });
+      const result = await bash.exec("yq '.' /fixtures/toml/config.toml");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("server:");
+      expect(result.stdout).toContain("host: localhost");
     });
   });
 
