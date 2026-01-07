@@ -13,7 +13,8 @@
     "files": {},
     "stdout": "a  b  c\nd  e\nf\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "2ff081cd7851ca57": {
     "command": "printf 'a,b,c\\nd,e,f\\n' | column -t -s ','",

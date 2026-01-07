@@ -74,7 +74,8 @@
     "files": {},
     "stdout": "     1\ta\n      \t\n     2\tb\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "72406a722f214749": {
     "command": "printf 'a\\nb\\n' | nl -w 3",
