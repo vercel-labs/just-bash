@@ -40,6 +40,15 @@ export type CommandName =
   | "cut"
   | "paste"
   | "tr"
+  | "rev"
+  | "nl"
+  | "fold"
+  | "expand"
+  | "unexpand"
+  | "strings"
+  | "split"
+  | "column"
+  | "join"
   | "tee"
   | "find"
   | "basename"
@@ -208,6 +217,42 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "tr",
     load: async () => (await import("./tr/tr.js")).trCommand,
+  },
+  {
+    name: "rev",
+    load: async () => (await import("./rev/rev.js")).rev,
+  },
+  {
+    name: "nl",
+    load: async () => (await import("./nl/nl.js")).nl,
+  },
+  {
+    name: "fold",
+    load: async () => (await import("./fold/fold.js")).fold,
+  },
+  {
+    name: "expand",
+    load: async () => (await import("./expand/expand.js")).expand,
+  },
+  {
+    name: "unexpand",
+    load: async () => (await import("./expand/unexpand.js")).unexpand,
+  },
+  {
+    name: "strings",
+    load: async () => (await import("./strings/strings.js")).strings,
+  },
+  {
+    name: "split",
+    load: async () => (await import("./split/split.js")).split,
+  },
+  {
+    name: "column",
+    load: async () => (await import("./column/column.js")).column,
+  },
+  {
+    name: "join",
+    load: async () => (await import("./join/join.js")).join,
   },
   {
     name: "tee",

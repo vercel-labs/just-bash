@@ -237,11 +237,11 @@ pnpm shell --no-network
 
 ### File Operations
 
-`cat`, `cp`, `file`, `ln`, `ls`, `mkdir`, `mv`, `readlink`, `rm`, `stat`, `touch`, `tree`
+`cat`, `cp`, `file`, `ln`, `ls`, `mkdir`, `mv`, `readlink`, `rm`, `split`, `stat`, `touch`, `tree`
 
 ### Text Processing
 
-`awk`, `base64`, `comm`, `cut`, `diff`, `grep` (+ `egrep`, `fgrep`), `head`, `jq`, `md5sum`, `od`, `paste`, `printf`, `sed`, `sha1sum`, `sha256sum`, `sort`, `tac`, `tail`, `tr`, `uniq`, `wc`, `xargs`, `yq`
+`awk`, `base64`, `column`, `comm`, `cut`, `diff`, `expand`, `fold`, `grep` (+ `egrep`, `fgrep`), `head`, `join`, `jq`, `md5sum`, `nl`, `od`, `paste`, `printf`, `rev`, `sed`, `sha1sum`, `sha256sum`, `sort`, `strings`, `tac`, `tail`, `tr`, `unexpand`, `uniq`, `wc`, `xargs`, `yq`
 
 ### Compression
 

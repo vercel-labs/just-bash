@@ -1,0 +1,212 @@
+{
+  "0cfefbef7bf4267f": {
+    "command": "echo 'a b c' | rev",
+    "files": {},
+    "stdout": "c b a\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "0f396624a5b2b29c": {
+    "command": "printf '                hello' | unexpand",
+    "files": {},
+    "stdout": "\t\thello",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "15702cf2412cbcc3": {
+    "command": "echo 'hello' | rev",
+    "files": {},
+    "stdout": "olleh\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1a4e936cd929caf5": {
+    "command": "printf '    hello' | unexpand -t 4",
+    "files": {},
+    "stdout": "\thello",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3651d6faa9e80653": {
+    "command": "echo 'hello world test' | fold -w 5",
+    "files": {},
+    "stdout": "hello\n worl\nd tes\nt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3de1ee32396abc0e": {
+    "command": "echo 'hello world foo bar' | fold -sw 10",
+    "files": {},
+    "stdout": "hello \nworld foo \nbar\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "48dd3be4c49723be": {
+    "command": "printf 'hello world' | expand",
+    "files": {},
+    "stdout": "hello world",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "584e1b15ac3ed9aa": {
+    "command": "printf 'hello   world' | unexpand -a",
+    "files": {},
+    "stdout": "hello\tworld",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5d9f552f3cc612ea": {
+    "command": "printf 'a\\nb\\n' | nl -v 10",
+    "files": {},
+    "stdout": "    10\ta\n    11\tb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "66aa74e407fbbdcc": {
+    "command": "printf 'a\\tb' | expand -t 4",
+    "files": {},
+    "stdout": "a   b",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6e61839db2810b92": {
+    "command": "printf 'a\\n\\nb\\n' | nl",
+    "files": {},
+    "stdout": "     1\ta\n      \t\n     2\tb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "72406a722f214749": {
+    "command": "printf 'a\\nb\\n' | nl -w 3",
+    "files": {},
+    "stdout": "  1\ta\n  2\tb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "724584ed73f472ff": {
+    "command": "printf 'hello        world' | unexpand",
+    "files": {},
+    "stdout": "hello        world",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7a14e885fabc92c7": {
+    "command": "printf 'abc\\ndef\\nghi\\n' | rev",
+    "files": {},
+    "stdout": "cba\nfed\nihg\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8831689a8d5430a4": {
+    "command": "printf '12345678901234567890\\nabcdefghij\\n' | fold -w 10",
+    "files": {},
+    "stdout": "1234567890\n1234567890\nabcdefghij\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8a585e752e20d3d4": {
+    "command": "printf 'a\\nb\\nc\\n' | nl",
+    "files": {},
+    "stdout": "     1\ta\n     2\tb\n     3\tc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8d27daf615a55f3b": {
+    "command": "printf '' | rev",
+    "files": {},
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "90784bbe93f4ce8e": {
+    "command": "printf 'a\\nb\\nc\\n' | nl -i 5",
+    "files": {},
+    "stdout": "     1\ta\n     6\tb\n    11\tc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "90964b06e217425d": {
+    "command": "printf 'a\\nb\\n' | nl -s ': '",
+    "files": {},
+    "stdout": "     1: a\n     2: b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9fbb4426ebfe4dca": {
+    "command": "printf '' | fold",
+    "files": {},
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a054cde6fbd7cfc0": {
+    "command": "printf 'a\\nb\\n' | nl -n ln",
+    "files": {},
+    "stdout": "1     \ta\n2     \tb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a9809e9702814446": {
+    "command": "echo 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' | fold",
+    "files": {},
+    "stdout": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\naaaaaaaaaaaaaaaaaaaa\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b559afb3b984f7ed": {
+    "command": "printf '        hello' | unexpand",
+    "files": {},
+    "stdout": "\thello",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bf352979f91a2354": {
+    "command": "printf 'a\\n\\nb\\n' | nl -ba",
+    "files": {},
+    "stdout": "     1\ta\n     2\t\n     3\tb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c2062183ce068c73": {
+    "command": "printf 'a\\nb\\n' | nl -n rz",
+    "files": {},
+    "stdout": "000001\ta\n000002\tb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c213b401b3ff4612": {
+    "command": "printf 'a\\tb\\tc' | expand",
+    "files": {},
+    "stdout": "a       b       c",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c875af8a344da85e": {
+    "command": "printf '    hello' | unexpand",
+    "files": {},
+    "stdout": "    hello",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c8afd3988b088a74": {
+    "command": "printf '\\thello' | expand",
+    "files": {},
+    "stdout": "        hello",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cfa173ca06ac324b": {
+    "command": "echo 'a' | rev",
+    "files": {},
+    "stdout": "a\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e94e9ea341c95519": {
+    "command": "printf 'a\\tb' | expand",
+    "files": {},
+    "stdout": "a       b",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

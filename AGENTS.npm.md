@@ -70,9 +70,9 @@ const result = await bash.exec("cat input.txt | grep pattern");
 
 ## Available Commands
 
-**Text processing**: `awk`, `cat`, `comm`, `cut`, `egrep`, `fgrep`, `grep`, `head`, `jq`, `paste`, `sed`, `sort`, `tac`, `tail`, `tr`, `uniq`, `wc`, `xargs`, `yq`
+**Text processing**: `awk`, `cat`, `column`, `comm`, `cut`, `egrep`, `expand`, `fgrep`, `fold`, `grep`, `head`, `join`, `jq`, `nl`, `paste`, `rev`, `sed`, `sort`, `strings`, `tac`, `tail`, `tr`, `unexpand`, `uniq`, `wc`, `xargs`, `yq`
 
-**File operations**: `basename`, `chmod`, `cp`, `dirname`, `du`, `file`, `find`, `ln`, `ls`, `mkdir`, `mv`, `od`, `pwd`, `readlink`, `rm`, `stat`, `touch`, `tree`
+**File operations**: `basename`, `chmod`, `cp`, `dirname`, `du`, `file`, `find`, `ln`, `ls`, `mkdir`, `mv`, `od`, `pwd`, `readlink`, `rm`, `split`, `stat`, `touch`, `tree`
 
 **Utilities**: `alias`, `base64`, `bash`, `clear`, `curl`, `date`, `diff`, `echo`, `env`, `expr`, `false`, `gzip`, `gunzip`, `help`, `history`, `hostname`, `html-to-markdown`, `md5sum`, `printenv`, `printf`, `seq`, `sh`, `sha1sum`, `sha256sum`, `sleep`, `tee`, `timeout`, `true`, `unalias`, `which`, `zcat`
 
