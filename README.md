@@ -121,7 +121,7 @@ await env.exec("cat package.json"); // reads from disk
 await env.exec('echo "modified" > package.json'); // stays in memory
 ```
 
-**ReadWriteFs** - Direct read-write access to a real directory. Use this if you want the agent to be agle to write to your disk:
+**ReadWriteFs** - Direct read-write access to a real directory. Use this if you want the agent to be able to write to your disk:
 
 ```typescript
 import { Bash } from "just-bash";
