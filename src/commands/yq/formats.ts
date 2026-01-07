@@ -14,6 +14,43 @@ import type { QueryValue } from "../query-engine/index.js";
 export type InputFormat = "yaml" | "xml" | "json" | "ini" | "csv" | "toml";
 export type OutputFormat = "yaml" | "json" | "xml" | "ini" | "csv" | "toml";
 
+const validInputFormats = [
+  "yaml",
+  "xml",
+  "json",
+  "ini",
+  "csv",
+  "toml",
+] as const;
+const validOutputFormats = [
+  "yaml",
+  "json",
+  "xml",
+  "ini",
+  "csv",
+  "toml",
+] as const;
+
+/**
+ * Type guard to validate input format strings at runtime
+ */
+export function isValidInputFormat(value: unknown): value is InputFormat {
+  return (
+    typeof value === "string" &&
+    validInputFormats.includes(value as InputFormat)
+  );
+}
+
+/**
+ * Type guard to validate output format strings at runtime
+ */
+export function isValidOutputFormat(value: unknown): value is OutputFormat {
+  return (
+    typeof value === "string" &&
+    validOutputFormats.includes(value as OutputFormat)
+  );
+}
+
 export interface FormatOptions {
   /** Input format (default: yaml) */
   inputFormat: InputFormat;
@@ -155,6 +192,11 @@ export function parseInput(input: string, options: FormatOptions): QueryValue {
 
     case "toml":
       return TOML.parse(trimmed) as QueryValue;
+
+    default: {
+      const _exhaustive: never = options.inputFormat;
+      throw new Error(`Invalid input format: ${_exhaustive}`);
+    }
   }
 }
 

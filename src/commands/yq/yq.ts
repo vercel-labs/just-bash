@@ -23,8 +23,8 @@ import {
   extractFrontMatter,
   type FormatOptions,
   formatOutput,
-  type InputFormat,
-  type OutputFormat,
+  isValidInputFormat,
+  isValidOutputFormat,
   parseAllYamlDocuments,
   parseInput,
 } from "./formats.js";
@@ -154,10 +154,18 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
 
     // Long options with values
     if (a.startsWith("--input-format=")) {
-      options.inputFormat = a.slice(15) as InputFormat;
+      const format = a.slice(15);
+      if (!isValidInputFormat(format)) {
+        return unknownOption("yq", `--input-format=${format}`);
+      }
+      options.inputFormat = format;
       inputFormatExplicit = true;
     } else if (a.startsWith("--output-format=")) {
-      options.outputFormat = a.slice(16) as OutputFormat;
+      const format = a.slice(16);
+      if (!isValidOutputFormat(format)) {
+        return unknownOption("yq", `--output-format=${format}`);
+      }
+      options.outputFormat = format;
     } else if (a.startsWith("--indent=")) {
       options.indent = Number.parseInt(a.slice(9), 10);
     } else if (a.startsWith("--xml-attribute-prefix=")) {
@@ -171,10 +179,18 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
     } else if (a === "--no-csv-header") {
       options.csvHeader = false;
     } else if (a === "-p" || a === "--input-format") {
-      options.inputFormat = args[++i] as InputFormat;
+      const format = args[++i];
+      if (!isValidInputFormat(format)) {
+        return unknownOption("yq", `${a} ${format}`);
+      }
+      options.inputFormat = format;
       inputFormatExplicit = true;
     } else if (a === "-o" || a === "--output-format") {
-      options.outputFormat = args[++i] as OutputFormat;
+      const format = args[++i];
+      if (!isValidOutputFormat(format)) {
+        return unknownOption("yq", `${a} ${format}`);
+      }
+      options.outputFormat = format;
     } else if (a === "-I" || a === "--indent") {
       options.indent = Number.parseInt(args[++i], 10);
     } else if (a === "-r" || a === "--raw-output") {

@@ -320,6 +320,59 @@ items:
     });
   });
 
+  describe("format validation", () => {
+    it("should reject invalid input format with --input-format=", async () => {
+      const bash = new Bash();
+      const result = await bash.exec("echo '{}' | yq --input-format=badformat");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("unrecognized option");
+    });
+
+    it("should reject invalid output format with --output-format=", async () => {
+      const bash = new Bash();
+      const result = await bash.exec(
+        "echo '{}' | yq --output-format=badformat",
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("unrecognized option");
+    });
+
+    it("should reject invalid input format with -p", async () => {
+      const bash = new Bash();
+      const result = await bash.exec("echo '{}' | yq -p badformat");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("invalid option");
+    });
+
+    it("should reject invalid output format with -o", async () => {
+      const bash = new Bash();
+      const result = await bash.exec("echo '{}' | yq -o badformat");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("invalid option");
+    });
+
+    it("should accept valid input formats", async () => {
+      const bash = new Bash();
+      // Test yaml and json which can parse {}
+      for (const format of ["yaml", "json"]) {
+        const result = await bash.exec(
+          `echo '{}' | yq --input-format=${format} --output-format=json`,
+        );
+        expect(result.exitCode).toBe(0);
+      }
+    });
+
+    it("should accept valid output formats", async () => {
+      const bash = new Bash();
+      for (const format of ["yaml", "json", "xml", "ini", "csv", "toml"]) {
+        const result = await bash.exec(
+          `echo '{}' | yq --output-format=${format}`,
+        );
+        expect(result.exitCode).toBe(0);
+      }
+    });
+  });
+
   describe("INI format", () => {
     it("should read INI and extract values", async () => {
       const bash = new Bash({
