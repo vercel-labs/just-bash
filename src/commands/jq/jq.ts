@@ -177,6 +177,7 @@ export const jqCommand: Command = {
         limits: ctx.limits
           ? { maxIterations: ctx.limits.maxJqIterations }
           : undefined,
+        env: ctx.env,
       };
 
       if (nullInput) {

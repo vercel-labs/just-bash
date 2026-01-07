@@ -19,14 +19,21 @@ export interface QueryExecutionLimits {
 export interface EvalContext {
   vars: Map<string, QueryValue>;
   limits: Required<QueryExecutionLimits>;
+  env?: Record<string, string | undefined>;
+  /** Original document root for parent/root navigation */
+  root?: QueryValue;
+  /** Current path from root for parent navigation */
+  currentPath?: (string | number)[];
 }
 
-function createContext(limits?: QueryExecutionLimits): EvalContext {
+function createContext(options?: EvaluateOptions): EvalContext {
   return {
     vars: new Map(),
     limits: {
-      maxIterations: limits?.maxIterations ?? DEFAULT_MAX_JQ_ITERATIONS,
+      maxIterations:
+        options?.limits?.maxIterations ?? DEFAULT_MAX_JQ_ITERATIONS,
     },
+    env: options?.env,
   };
 }
 
@@ -37,11 +44,131 @@ function withVar(
 ): EvalContext {
   const newVars = new Map(ctx.vars);
   newVars.set(name, value);
-  return { vars: newVars, limits: ctx.limits };
+  return {
+    vars: newVars,
+    limits: ctx.limits,
+    env: ctx.env,
+    root: ctx.root,
+    currentPath: ctx.currentPath,
+  };
+}
+
+function getValueAtPath(
+  root: QueryValue,
+  path: (string | number)[],
+): QueryValue {
+  let v = root;
+  for (const key of path) {
+    if (v && typeof v === "object") {
+      v = (v as Record<string, unknown>)[key as string];
+    } else {
+      return undefined;
+    }
+  }
+  return v;
+}
+
+/**
+ * Extract a simple path from an AST node (e.g., .a.b.c -> ["a", "b", "c"])
+ * Returns null if the AST is not a simple path expression.
+ * Handles Pipe nodes with parent/root to track path adjustments.
+ */
+function extractPathFromAst(ast: AstNode): (string | number)[] | null {
+  if (ast.type === "Identity") return [];
+  if (ast.type === "Field") {
+    const basePath = ast.base ? extractPathFromAst(ast.base) : [];
+    if (basePath === null) return null;
+    return [...basePath, ast.name];
+  }
+  if (ast.type === "Index" && ast.index.type === "Literal") {
+    const basePath = ast.base ? extractPathFromAst(ast.base) : [];
+    if (basePath === null) return null;
+    const idx = ast.index.value;
+    if (typeof idx === "number" || typeof idx === "string") {
+      return [...basePath, idx];
+    }
+    return null;
+  }
+  // Handle Pipe nodes to track path through parent/root calls
+  if (ast.type === "Pipe") {
+    const leftPath = extractPathFromAst(ast.left);
+    if (leftPath === null) return null;
+    // Apply right side transformation to the path
+    return applyPathTransform(leftPath, ast.right);
+  }
+  // Handle parent/root builtins for path adjustment
+  if (ast.type === "Call") {
+    if (ast.name === "parent") {
+      // parent without context returns null (needs base path from pipe)
+      return null;
+    }
+    if (ast.name === "root") {
+      // root resets to document root
+      return null;
+    }
+  }
+  // For other node types, we can't extract a simple path
+  return null;
+}
+
+/**
+ * Apply a path transformation (like parent or root) to a base path.
+ */
+function applyPathTransform(
+  basePath: (string | number)[],
+  ast: AstNode,
+): (string | number)[] | null {
+  if (ast.type === "Call") {
+    if (ast.name === "parent") {
+      // Get levels - default is 1, or extract from literal arg
+      let levels = 1;
+      if (ast.args.length > 0 && ast.args[0].type === "Literal") {
+        const arg = ast.args[0].value;
+        if (typeof arg === "number") levels = arg;
+      }
+      if (levels >= 0) {
+        // Positive: go up n levels
+        return basePath.slice(0, Math.max(0, basePath.length - levels));
+      } else {
+        // Negative: index from root (-1 = root, -2 = one below root)
+        const targetLen = -levels - 1;
+        return basePath.slice(0, Math.min(targetLen, basePath.length));
+      }
+    }
+    if (ast.name === "root") {
+      return [];
+    }
+  }
+  // For Field/Index on right side, extend the path
+  if (ast.type === "Field") {
+    const rightPath = extractPathFromAst(ast);
+    if (rightPath !== null) {
+      return [...basePath, ...rightPath];
+    }
+  }
+  if (ast.type === "Index" && ast.index.type === "Literal") {
+    const rightPath = extractPathFromAst(ast);
+    if (rightPath !== null) {
+      return [...basePath, ...rightPath];
+    }
+  }
+  // For nested pipes, recurse
+  if (ast.type === "Pipe") {
+    const afterLeft = applyPathTransform(basePath, ast.left);
+    if (afterLeft === null) return null;
+    return applyPathTransform(afterLeft, ast.right);
+  }
+  // Identity doesn't change path
+  if (ast.type === "Identity") {
+    return basePath;
+  }
+  // For other transformations, we lose path tracking
+  return null;
 }
 
 export interface EvaluateOptions {
   limits?: QueryExecutionLimits;
+  env?: Record<string, string | undefined>;
 }
 
 export function evaluate(
@@ -49,10 +176,16 @@ export function evaluate(
   ast: AstNode,
   ctxOrOptions?: EvalContext | EvaluateOptions,
 ): QueryValue[] {
-  const ctx: EvalContext =
+  let ctx: EvalContext =
     ctxOrOptions && "vars" in ctxOrOptions
       ? ctxOrOptions
-      : createContext((ctxOrOptions as EvaluateOptions | undefined)?.limits);
+      : createContext(ctxOrOptions as EvaluateOptions | undefined);
+
+  // Initialize root if not set (first evaluation)
+  if (ctx.root === undefined) {
+    ctx = { ...ctx, root: value, currentPath: [] };
+  }
+
   switch (ast.type) {
     case "Identity":
       return [value];
@@ -61,7 +194,8 @@ export function evaluate(
       const bases = ast.base ? evaluate(value, ast.base, ctx) : [value];
       return bases.flatMap((v) => {
         if (v && typeof v === "object" && !Array.isArray(v)) {
-          return [(v as Record<string, unknown>)[ast.name]];
+          const result = (v as Record<string, unknown>)[ast.name];
+          return [result === undefined ? null : result];
         }
         return [null];
       });
@@ -117,7 +251,19 @@ export function evaluate(
 
     case "Pipe": {
       const leftResults = evaluate(value, ast.left, ctx);
-      return leftResults.flatMap((v) => evaluate(v, ast.right, ctx));
+      // Extract path from left side for parent/parents/root navigation
+      const leftPath = extractPathFromAst(ast.left);
+      return leftResults.flatMap((v) => {
+        // If left side was a simple path, update context for right side
+        if (leftPath !== null) {
+          const newCtx = {
+            ...ctx,
+            currentPath: [...(ctx.currentPath ?? []), ...leftPath],
+          };
+          return evaluate(v, ast.right, newCtx);
+        }
+        return evaluate(v, ast.right, ctx);
+      });
     }
 
     case "Comma": {
@@ -217,6 +363,11 @@ export function evaluate(
     }
 
     case "VarRef": {
+      // Special case: $ENV returns environment variables
+      // Note: ast.name includes the $ prefix (e.g., "$ENV")
+      if (ast.name === "$ENV") {
+        return [ctx.env ?? {}];
+      }
       const v = ctx.vars.get(ast.name);
       return v !== undefined ? [v] : [null];
     }
@@ -1526,7 +1677,7 @@ function evalBuiltin(
       return [Date.now() / 1000];
 
     case "env":
-      return [{}];
+      return [ctx.env ?? {}];
 
     case "recurse": {
       if (args.length === 0) {
@@ -1707,6 +1858,127 @@ function evalBuiltin(
 
     case "input_line_number":
       return [1];
+
+    // Format strings
+    case "@base64":
+      if (typeof value === "string") {
+        // Use Buffer for Node.js, btoa for browser
+        if (typeof Buffer !== "undefined") {
+          return [Buffer.from(value, "utf-8").toString("base64")];
+        }
+        return [btoa(value)];
+      }
+      return [null];
+
+    case "@base64d":
+      if (typeof value === "string") {
+        // Use Buffer for Node.js, atob for browser
+        if (typeof Buffer !== "undefined") {
+          return [Buffer.from(value, "base64").toString("utf-8")];
+        }
+        return [atob(value)];
+      }
+      return [null];
+
+    case "@uri":
+      if (typeof value === "string") {
+        return [encodeURIComponent(value)];
+      }
+      return [null];
+
+    case "@csv": {
+      if (!Array.isArray(value)) return [null];
+      const csvEscaped = value.map((v) => {
+        const s = String(v ?? "");
+        // CSV standard: escape quotes by doubling them, wrap in quotes if needed
+        if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      });
+      return [csvEscaped.join(",")];
+    }
+
+    case "@tsv": {
+      if (!Array.isArray(value)) return [null];
+      return [
+        value
+          .map((v) =>
+            String(v ?? "")
+              .replace(/\t/g, "\\t")
+              .replace(/\n/g, "\\n"),
+          )
+          .join("\t"),
+      ];
+    }
+
+    case "@json":
+      return [JSON.stringify(value)];
+
+    case "@html":
+      if (typeof value === "string") {
+        return [
+          value
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;"),
+        ];
+      }
+      return [null];
+
+    case "@sh":
+      if (typeof value === "string") {
+        // Shell escape: wrap in single quotes, escape any single quotes
+        return [`'${value.replace(/'/g, "'\\''")}'`];
+      }
+      return [null];
+
+    case "@text":
+      if (typeof value === "string") return [value];
+      if (value === null || value === undefined) return [""];
+      return [String(value)];
+
+    // Navigation operators
+    case "parent": {
+      if (ctx.root === undefined || ctx.currentPath === undefined) return [];
+      const path = ctx.currentPath;
+      if (path.length === 0) return []; // At root, no parent
+
+      // Get levels argument (default: 1)
+      const levels =
+        args.length > 0 ? (evaluate(value, args[0], ctx)[0] as number) : 1;
+
+      if (levels >= 0) {
+        // Positive: go up n levels
+        if (levels > path.length) return []; // Beyond root
+        const parentPath = path.slice(0, path.length - levels);
+        return [getValueAtPath(ctx.root, parentPath)];
+      } else {
+        // Negative: index from root (-1 = root, -2 = one below root, etc.)
+        // -1 means path length 0 (root)
+        // -2 means path length 1 (one level below root)
+        const targetLen = -levels - 1;
+        if (targetLen >= path.length) return [value]; // Beyond current
+        const parentPath = path.slice(0, targetLen);
+        return [getValueAtPath(ctx.root, parentPath)];
+      }
+    }
+
+    case "parents": {
+      if (ctx.root === undefined || ctx.currentPath === undefined) return [[]];
+      const path = ctx.currentPath;
+      const parents: QueryValue[] = [];
+      // Build array of parents from immediate parent to root
+      for (let i = path.length - 1; i >= 0; i--) {
+        parents.push(getValueAtPath(ctx.root, path.slice(0, i)));
+      }
+      return [parents];
+    }
+
+    case "root":
+      return ctx.root !== undefined ? [ctx.root] : [];
 
     default:
       throw new Error(`Unknown function: ${name}`);
