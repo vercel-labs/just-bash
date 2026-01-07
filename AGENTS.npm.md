@@ -70,13 +70,106 @@ const result = await bash.exec("cat input.txt | grep pattern");
 
 ## Available Commands
 
-**Text processing**: `awk`, `cat`, `cut`, `grep`, `head`, `jq`, `sed`, `sort`, `tail`, `tr`, `uniq`, `wc`, `xargs`
+**Text processing**: `awk`, `cat`, `comm`, `cut`, `egrep`, `fgrep`, `grep`, `head`, `jq`, `paste`, `sed`, `sort`, `tac`, `tail`, `tr`, `uniq`, `wc`, `xargs`, `yq`
 
-**File operations**: `cp`, `find`, `ls`, `mkdir`, `mv`, `rm`, `touch`, `tree`
+**File operations**: `basename`, `chmod`, `cp`, `dirname`, `du`, `file`, `find`, `ln`, `ls`, `mkdir`, `mv`, `od`, `pwd`, `readlink`, `rm`, `stat`, `touch`, `tree`
 
-**Utilities**: `base64`, `date`, `diff`, `echo`, `env`, `printf`, `seq`, `tee`
+**Utilities**: `alias`, `base64`, `bash`, `clear`, `curl`, `date`, `diff`, `echo`, `env`, `expr`, `false`, `gzip`, `gunzip`, `help`, `history`, `hostname`, `html-to-markdown`, `md5sum`, `printenv`, `printf`, `seq`, `sh`, `sha1sum`, `sha256sum`, `sleep`, `tee`, `timeout`, `true`, `unalias`, `which`, `zcat`
 
 All commands support `--help` for usage details.
+
+## Tools by File Format
+
+### JSON - `jq`
+
+```bash
+# Extract field
+jq '.name' data.json
+
+# Filter array
+jq '.users[] | select(.active == true)' data.json
+
+# Transform structure
+jq '[.items[] | {id, name}]' data.json
+
+# From stdin
+echo '{"x":1}' | jq '.x'
+```
+
+### YAML - `yq`
+
+```bash
+# Extract value
+yq '.config.database.host' config.yaml
+
+# Output as JSON
+yq -o json '.' config.yaml
+
+# Filter with jq syntax
+yq '.users[] | select(.role == "admin")' users.yaml
+```
+
+### CSV - `yq -p csv`
+
+```bash
+# Read CSV (auto-detects from .csv extension)
+yq '.[0].name' data.csv
+
+# Filter rows
+yq '[.[] | select(.status == "active")]' data.csv
+
+# Convert CSV to JSON
+yq -o json '.' data.csv
+```
+
+### XML - `yq -p xml`
+
+```bash
+# Extract element
+yq '.root.users.user[0].name' data.xml
+
+# Access attributes (use +@ prefix)
+yq '.root.item["+@id"]' data.xml
+
+# Convert XML to JSON
+yq -p xml -o json '.' data.xml
+```
+
+### INI - `yq -p ini`
+
+```bash
+# Read INI section value
+yq '.database.host' config.ini
+
+# Convert INI to JSON
+yq -p ini -o json '.' config.ini
+```
+
+### HTML - `html-to-markdown`
+
+```bash
+# Convert HTML to markdown
+html-to-markdown page.html
+
+# From stdin
+echo '<h1>Title</h1><p>Text</p>' | html-to-markdown
+```
+
+### Format Conversion with yq
+
+```bash
+# JSON to YAML
+yq -p json '.' data.json
+
+# YAML to JSON
+yq -o json '.' data.yaml
+
+# CSV to JSON
+yq -p csv -o json '.' data.csv
+
+# XML to YAML
+yq -p xml '.' data.xml
+```
 
 ## Common Patterns
 
