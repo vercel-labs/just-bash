@@ -58,10 +58,8 @@ function splitLine(line: string, separator: string | null): string[] {
   if (separator) {
     return line.split(separator);
   }
-  // Whitespace: split on runs of whitespace
-  return line
-    .split(/[ \t]+/)
-    .filter((f) => f.length > 0 || line.startsWith(" "));
+  // Whitespace: split on runs of whitespace, filtering empty strings
+  return line.split(/[ \t]+/).filter((f) => f.length > 0);
 }
 
 /**

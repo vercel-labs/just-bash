@@ -327,7 +327,8 @@ describe("split", () => {
       });
       const result = await bash.exec("split -l 1 /test.txt && cat xab");
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toBe("line2\n");
+      // Last chunk preserves original trailing newline behavior (no newline)
+      expect(result.stdout).toBe("line2");
     });
   });
 

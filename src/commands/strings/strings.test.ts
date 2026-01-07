@@ -87,6 +87,13 @@ describe("strings", () => {
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("invalid minimum string length");
     });
+
+    it("errors on zero minimum length with -N shorthand", async () => {
+      const bash = new Bash();
+      const result = await bash.exec("echo 'test' | strings -0");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("invalid minimum string length");
+    });
   });
 
   describe("-t option", () => {

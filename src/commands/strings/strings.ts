@@ -147,14 +147,16 @@ export const strings: Command = {
         }
         options.minLength = min;
         i++;
-      } else if (arg.startsWith("-") && arg.length === 2 && /\d/.test(arg[1])) {
-        // Handle -N shorthand (e.g., -8)
-        const min = Number.parseInt(arg.slice(1), 10);
-        options.minLength = min;
-        i++;
       } else if (arg.match(/^-\d+$/)) {
-        // Handle longer -N shorthand (e.g., -10)
+        // Handle -N shorthand (e.g., -8, -10)
         const min = Number.parseInt(arg.slice(1), 10);
+        if (Number.isNaN(min) || min < 1) {
+          return {
+            exitCode: 1,
+            stdout: "",
+            stderr: `strings: invalid minimum string length: '${arg.slice(1)}'\n`,
+          };
+        }
         options.minLength = min;
         i++;
       } else if (arg === "-t" && i + 1 < args.length) {

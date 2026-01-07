@@ -122,7 +122,12 @@ function splitByLines(
 
   for (let i = 0; i < lines.length; i += linesPerFile) {
     const chunkLines = lines.slice(i, i + linesPerFile);
-    const chunkContent = `${chunkLines.join("\n")}\n`;
+    const isLastChunk = i + linesPerFile >= lines.length;
+    // Add newline after each line, but for the last chunk only if original had trailing newline
+    const chunkContent =
+      isLastChunk && !hasTrailingNewline
+        ? chunkLines.join("\n")
+        : `${chunkLines.join("\n")}\n`;
     chunks.push({ content: chunkContent, hasContent: true });
   }
 
