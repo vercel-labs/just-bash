@@ -1,0 +1,38 @@
+# YAML special cases
+empty_string: ""
+null_value: null
+multiline: |
+  This is a
+  multiline string
+  with preserved newlines
+folded: >
+  This is a folded
+  string that will be
+  joined into one line
+unicode: "Hello \u4e16\u754c"
+special_chars: "quotes: \"nested\" and 'single'"
+numbers:
+  integer: 42
+  float: 3.14159
+  negative: -17
+  scientific: 1.5e10
+  infinity: .inf
+  nan: .nan
+booleans:
+  yes_value: yes
+  no_value: no
+  on_value: on
+  off_value: off
+  true_value: true
+  false_value: false
+dates:
+  iso_date: 2024-01-15
+  datetime: 2024-01-15T10:30:00Z
+nested_arrays:
+  - - 1
+    - 2
+  - - 3
+    - 4
+anchor: &anchor_name
+  shared: data
+reference: *anchor_name

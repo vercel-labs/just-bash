@@ -1,0 +1,16 @@
+users:
+  - name: alice
+    age: 30
+    email: alice@example.com
+    active: true
+  - name: bob
+    age: 25
+    email: bob@example.com
+    active: false
+  - name: charlie
+    age: 35
+    email: charlie@example.com
+    active: true
+metadata:
+  version: 1.0
+  generated: "2024-01-01"

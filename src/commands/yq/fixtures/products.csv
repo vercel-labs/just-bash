@@ -1,0 +1,6 @@
+id,name,price,category,in_stock
+1,Widget,19.99,electronics,true
+2,Gadget,29.99,electronics,true
+3,Gizmo,9.99,accessories,false
+4,Doodad,49.99,electronics,true
+5,Thingamajig,14.99,accessories,true

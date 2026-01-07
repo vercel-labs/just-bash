@@ -241,7 +241,7 @@ pnpm shell --no-network
 
 ### Text Processing
 
-`awk`, `base64`, `comm`, `cut`, `diff`, `grep` (+ `egrep`, `fgrep`), `head`, `jq`, `md5sum`, `od`, `paste`, `printf`, `sed`, `sha1sum`, `sha256sum`, `sort`, `tac`, `tail`, `tr`, `uniq`, `wc`, `xargs`
+`awk`, `base64`, `comm`, `cut`, `diff`, `grep` (+ `egrep`, `fgrep`), `head`, `jq`, `md5sum`, `od`, `paste`, `printf`, `sed`, `sha1sum`, `sha256sum`, `sort`, `tac`, `tail`, `tr`, `uniq`, `wc`, `xargs`, `yq`
 
 ### Compression
 

@@ -1,7 +1,8 @@
 /**
- * jq filter parser
+ * Query expression parser
  *
- * Tokenizes and parses jq filter expressions into an AST.
+ * Tokenizes and parses jq-style filter expressions into an AST.
+ * Used by jq, yq, and other query-based commands.
  */
 
 // ============================================================================

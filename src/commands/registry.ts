@@ -77,7 +77,8 @@ export type CommandName =
   | "od"
   | "gzip"
   | "gunzip"
-  | "zcat";
+  | "zcat"
+  | "yq";
 
 /** Network command names (only available when network is configured) */
 export type NetworkCommandName = "curl";
@@ -293,6 +294,10 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "jq",
     load: async () => (await import("./jq/jq.js")).jqCommand,
+  },
+  {
+    name: "yq",
+    load: async () => (await import("./yq/yq.js")).yqCommand,
   },
   {
     name: "base64",

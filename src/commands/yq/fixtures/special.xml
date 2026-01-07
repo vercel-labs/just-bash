@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root xmlns:custom="http://example.com/custom">
+  <!-- XML special cases -->
+  <empty></empty>
+  <self-closing/>
+  <whitespace>  trimmed  </whitespace>
+  <cdata><![CDATA[<script>alert("test")</script>]]></cdata>
+  <entities>&lt;tag&gt; &amp; &quot;quotes&quot;</entities>
+  <unicode>Hello &#19990;&#30028;</unicode>
+  <mixed-content>Text <b>bold</b> more text</mixed-content>
+  <multiple-attrs id="1" class="item" data-value="test" enabled="true"/>
+  <namespaced custom:attr="value">namespaced content</namespaced>
+  <numbers>
+    <int>42</int>
+    <float>3.14</float>
+    <negative>-17</negative>
+  </numbers>
+  <nested>
+    <level1>
+      <level2>
+        <level3>deep value</level3>
+      </level2>
+    </level1>
+  </nested>
+  <repeated>
+    <item>first</item>
+    <item>second</item>
+    <item>third</item>
+  </repeated>
+</root>

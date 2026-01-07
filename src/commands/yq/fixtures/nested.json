@@ -1,0 +1,22 @@
+{
+  "company": {
+    "name": "Acme Corp",
+    "departments": [
+      {
+        "name": "Engineering",
+        "employees": 50,
+        "budget": 500000
+      },
+      {
+        "name": "Sales",
+        "employees": 30,
+        "budget": 300000
+      },
+      {
+        "name": "Marketing",
+        "employees": 20,
+        "budget": 200000
+      }
+    ]
+  }
+}

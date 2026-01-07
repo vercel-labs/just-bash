@@ -1,0 +1,20 @@
+<library>
+  <book id="1" genre="fiction">
+    <title>The Great Adventure</title>
+    <author>Jane Smith</author>
+    <year>2020</year>
+    <price>24.99</price>
+  </book>
+  <book id="2" genre="non-fiction">
+    <title>Learning TypeScript</title>
+    <author>John Doe</author>
+    <year>2023</year>
+    <price>39.99</price>
+  </book>
+  <book id="3" genre="fiction">
+    <title>Mystery Manor</title>
+    <author>Alice Johnson</author>
+    <year>2021</year>
+    <price>19.99</price>
+  </book>
+</library>

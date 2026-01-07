@@ -1,0 +1,23 @@
+<root>
+  <users>
+    <user active="true">
+      <name>alice</name>
+      <age>30</age>
+      <email>alice@example.com</email>
+    </user>
+    <user active="false">
+      <name>bob</name>
+      <age>25</age>
+      <email>bob@example.com</email>
+    </user>
+    <user active="true">
+      <name>charlie</name>
+      <age>35</age>
+      <email>charlie@example.com</email>
+    </user>
+  </users>
+  <metadata>
+    <version>1.0</version>
+    <generated>2024-01-01</generated>
+  </metadata>
+</root>

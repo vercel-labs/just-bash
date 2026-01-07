@@ -1,0 +1,37 @@
+{
+  "empty_string": "",
+  "null_value": null,
+  "unicode": "Hello \u4e16\u754c",
+  "escaped": "quotes: \"nested\" and backslash: \\path",
+  "numbers": {
+    "integer": 42,
+    "float": 3.14159,
+    "negative": -17,
+    "scientific": 1.5e10,
+    "zero": 0,
+    "max_safe": 9007199254740991
+  },
+  "booleans": {
+    "true_val": true,
+    "false_val": false
+  },
+  "arrays": {
+    "empty": [],
+    "mixed": [1, "two", true, null, { "nested": "object" }],
+    "nested": [[1, 2], [3, 4], [5, 6]]
+  },
+  "objects": {
+    "empty": {},
+    "with-dash": "value",
+    "with.dot": "value",
+    "with space": "value",
+    "123numeric": "starts with number"
+  },
+  "deeply": {
+    "nested": {
+      "structure": {
+        "value": "found it"
+      }
+    }
+  }
+}

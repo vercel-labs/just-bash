@@ -7,8 +7,12 @@
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
-import { type EvaluateOptions, evaluate, type JqValue } from "./evaluator.js";
-import { parse } from "./parser.js";
+import {
+  type EvaluateOptions,
+  evaluate,
+  parse,
+  type QueryValue,
+} from "../query-engine/index.js";
 
 const jqHelp = {
   name: "jq",
@@ -31,7 +35,7 @@ const jqHelp = {
 };
 
 function formatValue(
-  v: JqValue,
+  v: QueryValue,
   compact: boolean,
   raw: boolean,
   sortKeys: boolean,
@@ -167,7 +171,7 @@ export const jqCommand: Command = {
 
     try {
       const ast = parse(filter);
-      let values: JqValue[];
+      let values: QueryValue[];
 
       const evalOptions: EvaluateOptions = {
         limits: ctx.limits
@@ -178,7 +182,7 @@ export const jqCommand: Command = {
       if (nullInput) {
         values = evaluate(null, ast, evalOptions);
       } else if (slurp) {
-        const items: JqValue[] = [];
+        const items: QueryValue[] = [];
         for (const line of input.trim().split("\n")) {
           if (line.trim()) items.push(JSON.parse(line));
         }

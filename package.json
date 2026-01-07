@@ -74,7 +74,9 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@biomejs/biome": "^2.3.10",
+    "@types/ini": "^4.1.1",
     "@types/node": "^25.0.3",
+    "@types/papaparse": "^5.5.2",
     "@types/sprintf-js": "^1.1.4",
     "@types/turndown": "^5.0.6",
     "esbuild": "^0.27.2",
@@ -84,10 +86,14 @@
   },
   "dependencies": {
     "diff": "^8.0.2",
+    "fast-xml-parser": "^5.3.3",
     "file-type": "^21.2.0",
+    "ini": "^6.0.0",
     "minimatch": "^10.1.1",
+    "papaparse": "^5.5.3",
     "sprintf-js": "^1.1.3",
-    "turndown": "^7.2.2"
+    "turndown": "^7.2.2",
+    "yaml": "^2.8.2"
   },
   "packageManager": "pnpm@8.15.9+sha512.499434c9d8fdd1a2794ebf4552b3b25c0a633abcee5bb15e7b5de90f32f47b513aca98cd5cfd001c31f0db454bc3804edccd578501e4ca293a6816166bbd9f81"
 }

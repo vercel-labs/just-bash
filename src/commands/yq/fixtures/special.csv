@@ -1,0 +1,9 @@
+name,description,value,enabled
+"Simple","A simple value",100,true
+"With, comma","Value with comma in name",200,false
+"With ""quotes""","Escaped quotes inside",300,true
+"With
+newline","Multiline value",400,true
+"Empty","",0,false
+"Unicode","Hello 世界",500,true
+"Special chars","Tab:	Backslash:\",600,false
