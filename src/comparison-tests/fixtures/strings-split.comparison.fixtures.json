@@ -1,0 +1,87 @@
+{
+  "178886a259dcce51": {
+    "command": "printf 'ab\\x00cde\\x00fghi' | strings -n 3",
+    "files": {},
+    "stdout": "cde\nfghi\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "31e4f21777c03a4c": {
+    "command": "echo 'hello world' | strings",
+    "files": {},
+    "stdout": "hello world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "40725d32be75a856": {
+    "command": "printf 'ab\\x00cd\\x00efgh' | strings",
+    "files": {},
+    "stdout": "efgh\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "75c89a5f8b50e573": {
+    "command": "split -l 2 test.txt && cat xab",
+    "files": {
+      "test.txt": "1\n2\n3\n4\n5\n"
+    },
+    "stdout": "3\n4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "89796601f0abcc5f": {
+    "command": "split -b 4 test.txt && cat xaa",
+    "files": {
+      "test.txt": "abcdefghij"
+    },
+    "stdout": "abcd",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "899bac38cd056fb1": {
+    "command": "printf '' | split",
+    "files": {},
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "98f5ea03a4827540": {
+    "command": "printf 'hello\\x00\\x00world\\x00\\x00test' | strings",
+    "files": {},
+    "stdout": "hello\nworld\ntest\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ce1a3c68c8be39ff": {
+    "command": "printf 'a\\nb\\nc\\n' | split -l 1 && cat xaa",
+    "files": {},
+    "stdout": "a\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d5aa452734b08d3f": {
+    "command": "strings test.bin",
+    "files": {
+      "test.bin": "hello\u0000\u0000\u0000world"
+    },
+    "stdout": "hello\nworld\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e40f769b12974c79": {
+    "command": "split -l 2 test.txt && cat xaa",
+    "files": {
+      "test.txt": "1\n2\n3\n4\n5\n"
+    },
+    "stdout": "1\n2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f71fa7029dbebaf8": {
+    "command": "printf 'hello' | strings",
+    "files": {},
+    "stdout": "hello\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

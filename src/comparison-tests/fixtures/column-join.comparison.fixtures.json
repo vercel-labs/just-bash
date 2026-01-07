@@ -1,0 +1,126 @@
+{
+  "0524985c8beefde3": {
+    "command": "column -t data.txt",
+    "files": {
+      "data.txt": "name age\nalice 30\nbob 25\n"
+    },
+    "stdout": "name   age\nalice  30\nbob    25\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2f59c89728536647": {
+    "command": "printf 'a b c\\nd e\\nf\\n' | column -t",
+    "files": {},
+    "stdout": "a  b  c\nd  e\nf\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2ff081cd7851ca57": {
+    "command": "printf 'a,b,c\\nd,e,f\\n' | column -t -s ','",
+    "files": {},
+    "stdout": "a  b  c\nd  e  f\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3a7789d02b09547c": {
+    "command": "printf 'short long\\nlonger x\\n' | column -t",
+    "files": {},
+    "stdout": "short   long\nlonger  x\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4d0490f433ee62c2": {
+    "command": "join -t ',' a.csv b.csv",
+    "files": {
+      "a.csv": "1,apple,fruit\n2,banana,fruit\n",
+      "b.csv": "1,red\n2,yellow\n"
+    },
+    "stdout": "1,apple,fruit,red\n2,banana,fruit,yellow\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "63fae6fd2eee8db5": {
+    "command": "join -1 2 -2 1 a.txt b.txt",
+    "files": {
+      "a.txt": "apple 1\nbanana 2\n",
+      "b.txt": "1 red\n2 yellow\n"
+    },
+    "stdout": "1 apple red\n2 banana yellow\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "82a79335873131ff": {
+    "command": "join -a 1 a.txt b.txt",
+    "files": {
+      "a.txt": "1 apple\n2 banana\n3 cherry\n",
+      "b.txt": "1 red\n3 red\n"
+    },
+    "stdout": "1 apple red\n2 banana\n3 cherry red\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8467ada46417268e": {
+    "command": "join -a 2 a.txt b.txt",
+    "files": {
+      "a.txt": "1 apple\n",
+      "b.txt": "1 red\n2 yellow\n"
+    },
+    "stdout": "1 apple red\n2 yellow\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8ec225a20118589e": {
+    "command": "join -v 1 a.txt b.txt",
+    "files": {
+      "a.txt": "1 apple\n2 banana\n3 cherry\n",
+      "b.txt": "1 red\n3 red\n"
+    },
+    "stdout": "2 banana\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8ee4bfe255d1d78c": {
+    "command": "printf 'a b c\\nd e f\\n' | column -t",
+    "files": {},
+    "stdout": "a  b  c\nd  e  f\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9271dbf528b40e0b": {
+    "command": "join a.txt b.txt",
+    "files": {
+      "a.txt": "",
+      "b.txt": "1 x\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "af7a9f54e7595751": {
+    "command": "join a.txt b.txt",
+    "files": {
+      "a.txt": "1 apple\n2 banana\n",
+      "b.txt": "2 yellow\n3 red\n"
+    },
+    "stdout": "2 banana yellow\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bcbfc8bea3165e36": {
+    "command": "printf '' | column",
+    "files": {},
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f8c3bb2cceb3dfb6": {
+    "command": "join a.txt b.txt",
+    "files": {
+      "a.txt": "1 apple\n2 banana\n3 cherry\n",
+      "b.txt": "1 red\n2 yellow\n3 red\n"
+    },
+    "stdout": "1 apple red\n2 banana yellow\n3 cherry red\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
