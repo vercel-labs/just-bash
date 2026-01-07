@@ -5,10 +5,6 @@
  * Shares the query engine with jq for consistent filtering behavior.
  */
 
-import { XMLBuilder, XMLParser } from "fast-xml-parser";
-import * as ini from "ini";
-import Papa from "papaparse";
-import YAML from "yaml";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -18,6 +14,16 @@ import {
   parse,
   type QueryValue,
 } from "../query-engine/index.js";
+import {
+  defaultFormatOptions,
+  detectFormatFromExtension,
+  type FormatOptions,
+  formatOutput,
+  type InputFormat,
+  type OutputFormat,
+  parseAllYamlDocuments,
+  parseInput,
+} from "./formats.js";
 
 const yqHelp = {
   name: "yq",
@@ -46,9 +52,9 @@ EXAMPLES:
   yq -o json '.' config.yaml
   yq -o json -c '.' config.yaml  # compact JSON
 
-  # Parse XML
+  # Parse XML (attributes use +@ prefix, text uses +content)
   yq -p xml '.root.items.item[].name' data.xml
-  yq -p xml '.root.user["@_id"]' data.xml  # XML attributes
+  yq -p xml '.root.user["+@id"]' data.xml  # XML attributes
 
   # Parse INI config files
   yq -p ini '.database.host' config.ini
@@ -86,137 +92,109 @@ EXAMPLES:
     "-j, --join-output        don't print newlines after each output",
     "-P, --prettyPrint        pretty print output",
     "-I, --indent=N           set indent level (default: 2)",
-    "    --xml-attribute-prefix=STR  XML attribute prefix (default: @_)",
-    "    --xml-text-node=STR  XML text node name (default: #text)",
+    "    --xml-attribute-prefix=STR  XML attribute prefix (default: +@)",
+    "    --xml-content-name=STR  XML text content name (default: +content)",
     "    --csv-delimiter=CHAR CSV delimiter (default: auto-detect)",
     "    --csv-header         CSV has header row (default: true)",
     "    --help               display this help and exit",
   ],
 };
 
-type InputFormat = "yaml" | "xml" | "json" | "ini" | "csv";
-type OutputFormat = "yaml" | "json" | "xml" | "ini" | "csv";
-
-interface YqOptions {
-  inputFormat: InputFormat;
-  outputFormat: OutputFormat;
-  raw: boolean;
-  compact: boolean;
+interface YqOptions extends FormatOptions {
   exitStatus: boolean;
   slurp: boolean;
   nullInput: boolean;
   joinOutput: boolean;
-  prettyPrint: boolean;
-  indent: number;
-  xmlAttributePrefix: string;
-  xmlTextNode: string;
-  csvDelimiter: string;
-  csvHeader: boolean;
 }
 
-/**
- * Parse CSV into array of objects (if header) or array of arrays
- * If delimiter is empty string, PapaParse will auto-detect
- */
-function parseCsv(
-  input: string,
-  delimiter: string,
-  hasHeader: boolean,
-): unknown[] {
-  const result = Papa.parse(input, {
-    delimiter: delimiter || undefined, // undefined triggers auto-detection
-    header: hasHeader,
-    dynamicTyping: true,
-    skipEmptyLines: true,
-  });
-  return result.data;
+interface ParsedArgs {
+  options: YqOptions;
+  filter: string;
+  files: string[];
+  inputFormatExplicit: boolean;
 }
 
-/**
- * Format data as CSV
- */
-function formatCsv(value: unknown, delimiter: string): string {
-  if (!Array.isArray(value)) {
-    value = [value];
-  }
-  // Use comma as default for output (empty means auto-detect for input only)
-  return Papa.unparse(value as unknown[], { delimiter: delimiter || "," });
-}
+function parseArgs(args: string[]): ParsedArgs | ExecResult {
+  const options: YqOptions = {
+    ...defaultFormatOptions,
+    exitStatus: false,
+    slurp: false,
+    nullInput: false,
+    joinOutput: false,
+  };
+  let inputFormatExplicit = false;
 
-function parseInput(
-  input: string,
-  format: InputFormat,
-  options: YqOptions,
-): QueryValue {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
+  let filter = ".";
+  let filterSet = false;
+  const files: string[] = [];
 
-  switch (format) {
-    case "yaml":
-      return YAML.parse(trimmed);
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
 
-    case "json":
-      return JSON.parse(trimmed);
-
-    case "xml": {
-      const parser = new XMLParser({
-        ignoreAttributes: false,
-        attributeNamePrefix: options.xmlAttributePrefix,
-        textNodeName: options.xmlTextNode,
-        parseAttributeValue: true,
-        parseTagValue: true,
-      });
-      return parser.parse(trimmed);
-    }
-
-    case "ini":
-      return ini.parse(trimmed);
-
-    case "csv":
-      return parseCsv(trimmed, options.csvDelimiter, options.csvHeader);
-  }
-}
-
-function formatOutput(value: QueryValue, options: YqOptions): string {
-  if (value === undefined) return "";
-
-  switch (options.outputFormat) {
-    case "yaml":
-      return YAML.stringify(value, {
-        indent: options.indent,
-      }).trimEnd();
-
-    case "json": {
-      if (options.raw && typeof value === "string") {
-        return value;
+    // Long options with values
+    if (a.startsWith("--input-format=")) {
+      options.inputFormat = a.slice(15) as InputFormat;
+      inputFormatExplicit = true;
+    } else if (a.startsWith("--output-format=")) {
+      options.outputFormat = a.slice(16) as OutputFormat;
+    } else if (a.startsWith("--indent=")) {
+      options.indent = Number.parseInt(a.slice(9), 10);
+    } else if (a.startsWith("--xml-attribute-prefix=")) {
+      options.xmlAttributePrefix = a.slice(23);
+    } else if (a.startsWith("--xml-content-name=")) {
+      options.xmlContentName = a.slice(19);
+    } else if (a.startsWith("--csv-delimiter=")) {
+      options.csvDelimiter = a.slice(16);
+    } else if (a === "--csv-header") {
+      options.csvHeader = true;
+    } else if (a === "--no-csv-header") {
+      options.csvHeader = false;
+    } else if (a === "-p" || a === "--input-format") {
+      options.inputFormat = args[++i] as InputFormat;
+      inputFormatExplicit = true;
+    } else if (a === "-o" || a === "--output-format") {
+      options.outputFormat = args[++i] as OutputFormat;
+    } else if (a === "-I" || a === "--indent") {
+      options.indent = Number.parseInt(args[++i], 10);
+    } else if (a === "-r" || a === "--raw-output") {
+      options.raw = true;
+    } else if (a === "-c" || a === "--compact") {
+      options.compact = true;
+    } else if (a === "-e" || a === "--exit-status") {
+      options.exitStatus = true;
+    } else if (a === "-s" || a === "--slurp") {
+      options.slurp = true;
+    } else if (a === "-n" || a === "--null-input") {
+      options.nullInput = true;
+    } else if (a === "-j" || a === "--join-output") {
+      options.joinOutput = true;
+    } else if (a === "-P" || a === "--prettyPrint") {
+      options.prettyPrint = true;
+    } else if (a === "-") {
+      files.push("-");
+    } else if (a.startsWith("--")) {
+      return unknownOption("yq", a);
+    } else if (a.startsWith("-")) {
+      // Handle combined short options like -rc
+      for (const c of a.slice(1)) {
+        if (c === "r") options.raw = true;
+        else if (c === "c") options.compact = true;
+        else if (c === "e") options.exitStatus = true;
+        else if (c === "s") options.slurp = true;
+        else if (c === "n") options.nullInput = true;
+        else if (c === "j") options.joinOutput = true;
+        else if (c === "P") options.prettyPrint = true;
+        else return unknownOption("yq", `-${c}`);
       }
-      if (options.compact) {
-        return JSON.stringify(value);
-      }
-      return JSON.stringify(value, null, options.indent);
+    } else if (!filterSet) {
+      filter = a;
+      filterSet = true;
+    } else {
+      files.push(a);
     }
-
-    case "xml": {
-      const builder = new XMLBuilder({
-        ignoreAttributes: false,
-        attributeNamePrefix: options.xmlAttributePrefix,
-        textNodeName: options.xmlTextNode,
-        format: options.prettyPrint || !options.compact,
-        indentBy: " ".repeat(options.indent),
-      });
-      return builder.build(value);
-    }
-
-    case "ini": {
-      if (!value || typeof value !== "object" || Array.isArray(value)) {
-        return "";
-      }
-      return ini.stringify(value as Record<string, unknown>);
-    }
-
-    case "csv":
-      return formatCsv(value, options.csvDelimiter);
   }
+
+  return { options, filter, files, inputFormatExplicit };
 }
 
 export const yqCommand: Command = {
@@ -225,88 +203,16 @@ export const yqCommand: Command = {
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
     if (hasHelpFlag(args)) return showHelp(yqHelp);
 
-    const options: YqOptions = {
-      inputFormat: "yaml",
-      outputFormat: "yaml",
-      raw: false,
-      compact: false,
-      exitStatus: false,
-      slurp: false,
-      nullInput: false,
-      joinOutput: false,
-      prettyPrint: false,
-      indent: 2,
-      xmlAttributePrefix: "@_",
-      xmlTextNode: "#text",
-      csvDelimiter: "", // empty = auto-detect
-      csvHeader: true,
-    };
+    const parsed = parseArgs(args);
+    if ("exitCode" in parsed) return parsed;
 
-    let filter = ".";
-    let filterSet = false;
-    const files: string[] = [];
+    const { options, filter, files, inputFormatExplicit } = parsed;
 
-    for (let i = 0; i < args.length; i++) {
-      const a = args[i];
-
-      // Long options with values
-      if (a.startsWith("--input-format=")) {
-        options.inputFormat = a.slice(15) as InputFormat;
-      } else if (a.startsWith("--output-format=")) {
-        options.outputFormat = a.slice(16) as OutputFormat;
-      } else if (a.startsWith("--indent=")) {
-        options.indent = Number.parseInt(a.slice(9), 10);
-      } else if (a.startsWith("--xml-attribute-prefix=")) {
-        options.xmlAttributePrefix = a.slice(23);
-      } else if (a.startsWith("--xml-text-node=")) {
-        options.xmlTextNode = a.slice(16);
-      } else if (a.startsWith("--csv-delimiter=")) {
-        options.csvDelimiter = a.slice(16);
-      } else if (a === "--csv-header") {
-        options.csvHeader = true;
-      } else if (a === "--no-csv-header") {
-        options.csvHeader = false;
-      } else if (a === "-p" || a === "--input-format") {
-        options.inputFormat = args[++i] as InputFormat;
-      } else if (a === "-o" || a === "--output-format") {
-        options.outputFormat = args[++i] as OutputFormat;
-      } else if (a === "-I" || a === "--indent") {
-        options.indent = Number.parseInt(args[++i], 10);
-      } else if (a === "-r" || a === "--raw-output") {
-        options.raw = true;
-      } else if (a === "-c" || a === "--compact") {
-        options.compact = true;
-      } else if (a === "-e" || a === "--exit-status") {
-        options.exitStatus = true;
-      } else if (a === "-s" || a === "--slurp") {
-        options.slurp = true;
-      } else if (a === "-n" || a === "--null-input") {
-        options.nullInput = true;
-      } else if (a === "-j" || a === "--join-output") {
-        options.joinOutput = true;
-      } else if (a === "-P" || a === "--prettyPrint") {
-        options.prettyPrint = true;
-      } else if (a === "-") {
-        files.push("-");
-      } else if (a.startsWith("--")) {
-        return unknownOption("yq", a);
-      } else if (a.startsWith("-")) {
-        // Handle combined short options like -rc
-        for (const c of a.slice(1)) {
-          if (c === "r") options.raw = true;
-          else if (c === "c") options.compact = true;
-          else if (c === "e") options.exitStatus = true;
-          else if (c === "s") options.slurp = true;
-          else if (c === "n") options.nullInput = true;
-          else if (c === "j") options.joinOutput = true;
-          else if (c === "P") options.prettyPrint = true;
-          else return unknownOption("yq", `-${c}`);
-        }
-      } else if (!filterSet) {
-        filter = a;
-        filterSet = true;
-      } else {
-        files.push(a);
+    // Auto-detect format from file extension if not explicitly set
+    if (!inputFormatExplicit && files.length > 0 && files[0] !== "-") {
+      const detected = detectFormatFromExtension(files[0]);
+      if (detected) {
+        options.inputFormat = detected;
       }
     }
 
@@ -343,19 +249,16 @@ export const yqCommand: Command = {
         values = evaluate(null, ast, evalOptions);
       } else if (options.slurp) {
         // Parse all documents into array
-        const items: QueryValue[] = [];
+        let items: QueryValue[];
         if (options.inputFormat === "yaml") {
           // YAML supports multiple documents separated by ---
-          const docs = YAML.parseAllDocuments(input);
-          for (const doc of docs) {
-            items.push(doc.toJSON());
-          }
+          items = parseAllYamlDocuments(input);
         } else {
-          items.push(parseInput(input, options.inputFormat, options));
+          items = [parseInput(input, options)];
         }
         values = evaluate(items, ast, evalOptions);
       } else {
-        const parsed = parseInput(input, options.inputFormat, options);
+        const parsed = parseInput(input, options);
         values = evaluate(parsed, ast, evalOptions);
       }
 

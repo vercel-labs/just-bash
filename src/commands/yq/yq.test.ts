@@ -163,9 +163,12 @@ users:
           "/data.xml": '<item id="123" name="test"/>',
         },
       });
-      const result = await bash.exec("yq -p xml '.item[\"@_id\"]' /data.xml");
+      // Attributes are strings in XML; use -o json to verify string value
+      const result = await bash.exec(
+        "yq -p xml '.item[\"+@id\"]' /data.xml -o json",
+      );
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toBe("123\n");
+      expect(result.stdout).toBe('"123"\n');
     });
 
     it("should output as XML", async () => {
@@ -458,6 +461,66 @@ database:
       );
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toBe("alice\n");
+    });
+  });
+
+  describe("format auto-detection", () => {
+    it("should auto-detect JSON from .json extension", async () => {
+      const bash = new Bash({
+        files: {
+          "/data.json": '{"name": "test", "value": 42}',
+        },
+      });
+      // No -p flag, should auto-detect from extension
+      const result = await bash.exec("yq '.name' /data.json");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("test\n");
+    });
+
+    it("should auto-detect XML from .xml extension", async () => {
+      const bash = new Bash({
+        files: {
+          "/data.xml": "<root><name>test</name></root>",
+        },
+      });
+      const result = await bash.exec("yq '.root.name' /data.xml");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("test\n");
+    });
+
+    it("should auto-detect CSV from .csv extension", async () => {
+      const bash = new Bash({
+        files: {
+          "/data.csv": "name,age\nalice,30\nbob,25\n",
+        },
+      });
+      const result = await bash.exec("yq '.[0].name' /data.csv");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("alice\n");
+    });
+
+    it("should auto-detect INI from .ini extension", async () => {
+      const bash = new Bash({
+        files: {
+          "/config.ini": "[database]\nhost=localhost\n",
+        },
+      });
+      const result = await bash.exec("yq '.database.host' /config.ini");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("localhost\n");
+    });
+
+    it("should prefer explicit -p over auto-detection", async () => {
+      const bash = new Bash({
+        files: {
+          // File named .json but contains YAML
+          "/data.json": "name: yaml-content\n",
+        },
+      });
+      // Explicit -p yaml should override .json extension
+      const result = await bash.exec("yq -p yaml '.name' /data.json");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("yaml-content\n");
     });
   });
 });

@@ -12,3 +12,4 @@ profile-*.mjs
 *.cpuprofile
 bench-*.mjs
 todo/
+*.parsed.json
