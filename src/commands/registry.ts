@@ -88,7 +88,8 @@ export type CommandName =
   | "gunzip"
   | "zcat"
   | "yq"
-  | "xan";
+  | "xan"
+  | "git";
 
 /** Network command names (only available when network is configured) */
 export type NetworkCommandName = "curl";
@@ -436,6 +437,12 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "zcat",
     load: async () => (await import("./gzip/gzip.js")).zcatCommand,
+  },
+
+  // Version control
+  {
+    name: "git",
+    load: async () => (await import("./git/git.js")).gitCommand,
   },
 ];
 
