@@ -554,6 +554,9 @@ export class Parser {
       t === TokenType.DONE ||
       t === TokenType.ESAC ||
       t === TokenType.IN ||
+      t === TokenType.SELECT ||
+      t === TokenType.TIME ||
+      t === TokenType.COPROC ||
       // Operators that can appear as words in command arguments (e.g., "[ ! -z foo ]")
       t === TokenType.BANG
     );

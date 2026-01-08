@@ -1,0 +1,21 @@
+emp_id,name,department,team,title,manager_id,salary,hire_date,is_remote,performance_score
+E001,Alice Chen,Engineering,Platform,Senior Engineer,E010,145000,2019-03-15,true,4.5
+E002,Bob Martinez,Engineering,Platform,Engineer,E001,95000,2021-06-01,false,3.8
+E003,Carol White,Engineering,Frontend,Senior Engineer,E010,140000,2018-11-20,true,4.2
+E004,David Kim,Engineering,Frontend,Engineer,E003,92000,2022-01-10,false,4.0
+E005,Eva Brown,Sales,Enterprise,Account Executive,E011,85000,2020-04-22,false,4.7
+E006,Frank Lee,Sales,Enterprise,Senior Account Executive,E011,110000,2017-08-30,true,3.9
+E007,Grace Liu,Sales,SMB,Account Executive,E012,78000,2021-09-15,false,4.1
+E008,Henry Park,Marketing,Content,Content Manager,E013,72000,2020-02-28,true,3.5
+E009,Ivy Johnson,Marketing,Growth,Growth Lead,E013,95000,2019-07-12,false,4.4
+E010,James Wilson,Engineering,Platform,Engineering Manager,E015,175000,2016-01-05,false,4.3
+E011,Karen Davis,Sales,Enterprise,Sales Director,E015,165000,2015-09-18,false,4.6
+E012,Leo Thompson,Sales,SMB,Sales Manager,E011,125000,2018-03-25,true,4.0
+E013,Maria Garcia,Marketing,Content,Marketing Director,E015,155000,2017-11-08,false,4.1
+E014,Noah Adams,Engineering,Backend,Engineer,E010,98000,2022-08-01,true,3.6
+E015,Olivia Scott,Executive,Leadership,VP Operations,E016,220000,2014-06-15,false,4.8
+E016,Peter Zhang,Executive,Leadership,CEO,,350000,2012-01-01,false,4.9
+E017,Quinn Roberts,Engineering,Backend,Senior Engineer,E010,142000,2019-10-20,false,4.4
+E018,Rachel Moore,HR,Recruiting,Recruiter,E019,65000,2021-04-05,true,3.7
+E019,Sam Taylor,HR,Recruiting,HR Manager,E015,105000,2018-12-01,false,4.2
+E020,Tina Wang,Engineering,Frontend,Tech Lead,E010,160000,2017-05-22,true,4.6

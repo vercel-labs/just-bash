@@ -87,7 +87,8 @@ export type CommandName =
   | "gzip"
   | "gunzip"
   | "zcat"
-  | "yq";
+  | "yq"
+  | "xan";
 
 /** Network command names (only available when network is configured) */
 export type NetworkCommandName = "curl";
@@ -445,6 +446,10 @@ if (typeof __BROWSER__ === "undefined" || !__BROWSER__) {
   commandLoaders.push({
     name: "yq" as CommandName,
     load: async () => (await import("./yq/yq.js")).yqCommand,
+  });
+  commandLoaders.push({
+    name: "xan" as CommandName,
+    load: async () => (await import("./xan/xan.js")).xanCommand,
   });
 }
 

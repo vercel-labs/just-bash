@@ -1471,6 +1471,10 @@ function evalBuiltin(
       return [value.endsWith(suffix) ? value.slice(0, -suffix.length) : value];
     }
 
+    case "trim":
+      if (typeof value === "string") return [value.trim()];
+      return [value];
+
     case "startswith": {
       if (typeof value !== "string" || args.length === 0) return [false];
       const prefixes = evaluate(value, args[0], ctx);

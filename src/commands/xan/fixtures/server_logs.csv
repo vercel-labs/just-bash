@@ -1,0 +1,21 @@
+timestamp,level,service,endpoint,response_time_ms,status_code,user_agent,error_message
+2024-01-20T08:00:01Z,INFO,api-gateway,/api/users,45,200,Mozilla/5.0,
+2024-01-20T08:00:02Z,DEBUG,auth-service,/auth/login,120,200,curl/7.68.0,
+2024-01-20T08:00:03Z,ERROR,payment-service,/payments/process,5200,500,Mozilla/5.0,Database connection timeout
+2024-01-20T08:00:04Z,WARN,api-gateway,/api/products,890,200,PostmanRuntime/7.29,Slow response detected
+2024-01-20T08:00:05Z,INFO,user-service,/users/profile,67,200,Mozilla/5.0,
+2024-01-20T08:00:06Z,ERROR,auth-service,/auth/verify,150,401,curl/7.68.0,Invalid token
+2024-01-20T08:00:07Z,INFO,api-gateway,/api/orders,234,200,Mozilla/5.0,
+2024-01-20T08:00:08Z,DEBUG,cache-service,/cache/invalidate,12,200,internal,
+2024-01-20T08:00:09Z,ERROR,payment-service,/payments/refund,3400,503,Mozilla/5.0,Service unavailable
+2024-01-20T08:00:10Z,INFO,user-service,/users/list,456,200,PostmanRuntime/7.29,
+2024-01-20T08:00:11Z,WARN,api-gateway,/api/search,1200,200,Mozilla/5.0,Query too broad
+2024-01-20T08:00:12Z,INFO,auth-service,/auth/logout,34,200,curl/7.68.0,
+2024-01-20T08:00:13Z,ERROR,inventory-service,/inventory/update,890,500,internal,Stock sync failed
+2024-01-20T08:00:14Z,INFO,api-gateway,/api/users,52,200,Mozilla/5.0,
+2024-01-20T08:00:15Z,DEBUG,payment-service,/payments/status,78,200,Mozilla/5.0,
+2024-01-20T08:00:16Z,WARN,user-service,/users/bulk,2300,200,PostmanRuntime/7.29,Rate limit approaching
+2024-01-20T08:00:17Z,INFO,api-gateway,/api/health,8,200,k8s-probe,
+2024-01-20T08:00:18Z,ERROR,auth-service,/auth/login,450,429,Mozilla/5.0,Too many requests
+2024-01-20T08:00:19Z,INFO,cache-service,/cache/stats,23,200,internal,
+2024-01-20T08:00:20Z,INFO,api-gateway,/api/products,167,200,Mozilla/5.0,

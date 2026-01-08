@@ -1,0 +1,21 @@
+id,date,customer_id,amount,currency,category,subcategory,status,refund_amount,notes
+1,2024-01-15,C001,1250.00,USD,Electronics,Computers,completed,0,
+2,2024-01-15,C002,89.99,USD,Clothing,Shoes,completed,0,
+3,2024-01-16,C001,450.00,EUR,Electronics,Phones,pending,0,Awaiting verification
+4,2024-01-16,C003,2100.50,USD,Electronics,Computers,completed,0,
+5,2024-01-17,C002,35.00,USD,Clothing,Accessories,refunded,35.00,Customer return
+6,2024-01-17,C004,899.99,GBP,Electronics,Tablets,completed,0,
+7,2024-01-18,C001,125.00,USD,Books,Technical,completed,0,
+8,2024-01-18,C005,3500.00,USD,Electronics,Computers,failed,0,Payment declined
+9,2024-01-19,C003,67.50,EUR,Clothing,Shirts,completed,0,
+10,2024-01-19,C002,1899.00,USD,Electronics,Phones,completed,189.90,Partial refund - damaged box
+11,2024-01-20,C006,45.00,USD,Books,Fiction,completed,0,
+12,2024-01-20,C004,220.00,GBP,Clothing,Jackets,pending,0,
+13,2024-01-21,C001,599.99,USD,Electronics,Tablets,completed,0,
+14,2024-01-21,C007,15.99,USD,Books,Fiction,completed,0,
+15,2024-01-22,C003,3200.00,EUR,Electronics,Computers,completed,0,
+16,2024-01-22,C005,78.50,USD,Clothing,Shoes,refunded,78.50,Wrong size
+17,2024-01-23,C002,145.00,USD,Books,Technical,completed,0,
+18,2024-01-23,C008,950.00,USD,Electronics,Phones,pending,0,
+19,2024-01-24,C006,29.99,USD,Clothing,Accessories,completed,0,
+20,2024-01-24,C001,4500.00,USD,Electronics,Computers,completed,450.00,Loyalty discount applied

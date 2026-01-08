@@ -1,0 +1,12 @@
+id,name,description,tags,price,quantity
+1,"O'Brien, Patrick","A ""special"" item with quotes",electronics;gadgets,29.99,100
+2,Müller Straße,German address with ümläuts,international;shipping,45.00,50
+3,日本語テスト,Japanese characters test,unicode;asian,1250.00,25
+4,"Smith, Jr., John","Name with multiple, commas",legacy;vip,0.99,1000
+5,Café & Bistro,Ampersand and accent test,food;beverage,15.50,200
+6,"Line1
+Line2",Multiline value in quotes,multiline;test,99.99,10
+7,Tab	Here,Contains a tab character,whitespace;test,5.00,500
+8,émoji 🎉 test,Unicode emoji in data,emoji;fun,12.34,75
+9,"Backslash\\Path",Windows-style path test,path;windows,0.00,0
+10,<html>&nbsp;</html>,HTML entities in data,html;escaped,19.95,150
