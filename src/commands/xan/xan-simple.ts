@@ -232,7 +232,17 @@ export async function cmdSearch(
   if (error) return error;
 
   const searchCols = selectCols.length > 0 ? selectCols : headers;
-  const regex = new RegExp(pattern, ignoreCase ? "i" : "");
+
+  let regex: RegExp;
+  try {
+    regex = new RegExp(pattern, ignoreCase ? "i" : "");
+  } catch {
+    return {
+      stdout: "",
+      stderr: `xan search: invalid regex pattern '${pattern}'\n`,
+      exitCode: 1,
+    };
+  }
 
   const filtered = data.filter((row) => {
     const matches = searchCols.some((col) => {

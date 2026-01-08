@@ -146,6 +146,22 @@ describe("xan join", () => {
     );
   });
 
+  it("deduplicates shared column names", async () => {
+    const bash = new Bash({
+      files: {
+        "/left.csv": "id,name,status\n1,alice,active\n2,bob,inactive\n",
+        "/right.csv": "id,status,score\n1,verified,100\n2,pending,85\n",
+      },
+    });
+    const result = await bash.exec("xan join id /left.csv id /right.csv");
+    expect(result.exitCode).toBe(0);
+    // 'status' appears in both files - should only appear once (from left file)
+    // 'id' is the join key - should only appear once
+    expect(result.stdout).toBe(
+      "id,name,status,score\n1,alice,active,100\n2,bob,inactive,85\n",
+    );
+  });
+
   it("errors on missing key column", async () => {
     const bash = new Bash({
       files: {
@@ -157,7 +173,9 @@ describe("xan join", () => {
       "xan join nonexistent /a.csv user_id /b.csv",
     );
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("not found");
+    expect(result.stderr).toBe(
+      "xan join: column 'nonexistent' not found in first file\n",
+    );
   });
 });
 

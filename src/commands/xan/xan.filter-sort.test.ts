@@ -181,4 +181,13 @@ describe("xan search", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("name\nFOO\nfoo\n");
   });
+
+  it("errors on invalid regex pattern", async () => {
+    const bash = new Bash({
+      files: { "/data.csv": "name\nalice\n" },
+    });
+    const result = await bash.exec("xan search '[' /data.csv");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("xan search: invalid regex pattern '['\n");
+  });
 });

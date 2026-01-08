@@ -59,6 +59,16 @@ describe("xan select", () => {
       "name,age\nalice,30\nbob,25\ncharlie,35\ndiana,28\n",
     );
   });
+
+  it("works with file paths without slashes", async () => {
+    const bash = new Bash({
+      files: { "/home/user/data.csv": "a,b,c\n1,2,3\n" },
+      cwd: "/home/user",
+    });
+    const result = await bash.exec("xan select a,b data.csv");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("a,b\n1,2\n");
+  });
 });
 
 describe("xan drop", () => {
@@ -78,6 +88,16 @@ describe("xan drop", () => {
     expect(result.stdout).toBe(
       "name,age\nalice,30\nbob,25\ncharlie,35\ndiana,28\n",
     );
+  });
+
+  it("works with file paths without slashes", async () => {
+    const bash = new Bash({
+      files: { "/home/user/data.csv": "a,b,c\n1,2,3\n" },
+      cwd: "/home/user",
+    });
+    const result = await bash.exec("xan drop c data.csv");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("a,b\n1,2\n");
   });
 });
 

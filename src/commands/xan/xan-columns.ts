@@ -10,8 +10,18 @@ export async function cmdSelect(
   args: string[],
   ctx: CommandContext,
 ): Promise<ExecResult> {
-  const colSpec = args.find((a) => !a.startsWith("-") && !a.includes("/"));
-  const fileArgs = args.filter((a) => a !== colSpec);
+  // First positional arg is column spec, rest are files
+  let colSpec = "";
+  const fileArgs: string[] = [];
+
+  for (const arg of args) {
+    if (arg.startsWith("-")) continue;
+    if (!colSpec) {
+      colSpec = arg;
+    } else {
+      fileArgs.push(arg);
+    }
+  }
 
   if (!colSpec) {
     return {
@@ -41,8 +51,18 @@ export async function cmdDrop(
   args: string[],
   ctx: CommandContext,
 ): Promise<ExecResult> {
-  const colSpec = args.find((a) => !a.startsWith("-") && !a.includes("/"));
-  const fileArgs = args.filter((a) => a !== colSpec);
+  // First positional arg is column spec, rest are files
+  let colSpec = "";
+  const fileArgs: string[] = [];
+
+  for (const arg of args) {
+    if (arg.startsWith("-")) continue;
+    if (!colSpec) {
+      colSpec = arg;
+    } else {
+      fileArgs.push(arg);
+    }
+  }
 
   if (!colSpec) {
     return {

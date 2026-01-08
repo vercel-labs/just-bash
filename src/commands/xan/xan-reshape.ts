@@ -276,8 +276,11 @@ export async function cmdJoin(
     index2.get(keyVal)?.push(row);
   }
 
-  // Combined headers
-  const newHeaders = [...headers1, ...headers2];
+  // Combined headers - deduplicate columns from second file
+  // Keep all headers from file1, add only unique headers from file2
+  const headers1Set = new Set(headers1);
+  const headers2Unique = headers2.filter((h) => !headers1Set.has(h));
+  const newHeaders = [...headers1, ...headers2Unique];
   const newData: CsvData = [];
   const matched2Keys = new Set<string>();
 
@@ -293,7 +296,7 @@ export async function cmdJoin(
         for (const h of headers1) {
           newRow[h] = row1[h];
         }
-        for (const h of headers2) {
+        for (const h of headers2Unique) {
           newRow[h] = row2[h];
         }
         newData.push(newRow);
@@ -304,13 +307,8 @@ export async function cmdJoin(
       for (const h of headers1) {
         newRow[h] = row1[h];
       }
-      for (const h of headers2) {
-        // Keep the key value from left table if it's the join key
-        if (h === key2) {
-          newRow[h] = defaultValue;
-        } else {
-          newRow[h] = defaultValue;
-        }
+      for (const h of headers2Unique) {
+        newRow[h] = defaultValue;
       }
       newData.push(newRow);
     }
@@ -323,9 +321,10 @@ export async function cmdJoin(
       if (!matched2Keys.has(keyVal)) {
         const newRow: CsvRow = {};
         for (const h of headers1) {
-          newRow[h] = defaultValue;
+          // Use value from row2 if it exists in headers2, else default
+          newRow[h] = headers2.includes(h) ? row2[h] : defaultValue;
         }
-        for (const h of headers2) {
+        for (const h of headers2Unique) {
           newRow[h] = row2[h];
         }
         newData.push(newRow);
