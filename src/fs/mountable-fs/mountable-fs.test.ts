@@ -55,8 +55,8 @@ describe("MountableFs", () => {
     });
 
     it("should use provided baseFs", async () => {
-      const baseFs = new InMemoryFs({ "/base.txt": "base content" });
-      const fs = new MountableFs({ baseFs });
+      const base = new InMemoryFs({ "/base.txt": "base content" });
+      const fs = new MountableFs({ base });
 
       const content = await fs.readFile("/base.txt");
       expect(content).toBe("base content");
@@ -134,8 +134,8 @@ describe("MountableFs", () => {
     });
 
     it("should route to base filesystem for unmounted paths", async () => {
-      const baseFs = new InMemoryFs({ "/base.txt": "base content" });
-      const fs = new MountableFs({ baseFs });
+      const base = new InMemoryFs({ "/base.txt": "base content" });
+      const fs = new MountableFs({ base });
 
       const content = await fs.readFile("/base.txt");
       expect(content).toBe("base content");
@@ -177,12 +177,12 @@ describe("MountableFs", () => {
     });
 
     it("should merge mount points with base fs entries", async () => {
-      const baseFs = new InMemoryFs();
-      await baseFs.mkdir("/mnt", { recursive: true });
-      await baseFs.writeFile("/mnt/base.txt", "base");
+      const base = new InMemoryFs();
+      await base.mkdir("/mnt", { recursive: true });
+      await base.writeFile("/mnt/base.txt", "base");
 
       const mounted = new InMemoryFs({ "/mounted.txt": "mounted" });
-      const fs = new MountableFs({ baseFs });
+      const fs = new MountableFs({ base });
       fs.mount("/mnt/data", mounted);
 
       const entries = await fs.readdir("/mnt");
@@ -266,20 +266,20 @@ describe("MountableFs", () => {
   describe("cross-mount copy", () => {
     it("should copy file from mounted to base", async () => {
       const mounted = new InMemoryFs({ "/src.txt": "content" });
-      const baseFs = new InMemoryFs();
-      const fs = new MountableFs({ baseFs });
+      const base = new InMemoryFs();
+      const fs = new MountableFs({ base });
       fs.mount("/mnt/data", mounted);
 
       await fs.cp("/mnt/data/src.txt", "/dest.txt");
 
-      const content = await baseFs.readFile("/dest.txt");
+      const content = await base.readFile("/dest.txt");
       expect(content).toBe("content");
     });
 
     it("should copy file from base to mounted", async () => {
       const mounted = new InMemoryFs();
-      const baseFs = new InMemoryFs({ "/src.txt": "content" });
-      const fs = new MountableFs({ baseFs });
+      const base = new InMemoryFs({ "/src.txt": "content" });
+      const fs = new MountableFs({ base });
       fs.mount("/mnt/data", mounted);
 
       await fs.cp("/src.txt", "/mnt/data/dest.txt");
@@ -384,11 +384,11 @@ describe("MountableFs", () => {
 
   describe("getAllPaths", () => {
     it("should return paths from base filesystem", () => {
-      const baseFs = new InMemoryFs({
+      const base = new InMemoryFs({
         "/a.txt": "a",
         "/b.txt": "b",
       });
-      const fs = new MountableFs({ baseFs });
+      const fs = new MountableFs({ base });
 
       const paths = fs.getAllPaths();
       expect(paths).toContain("/a.txt");

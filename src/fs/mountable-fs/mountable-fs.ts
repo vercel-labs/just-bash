@@ -26,7 +26,7 @@ export interface MountConfig {
  */
 export interface MountableFsOptions {
   /** Base filesystem used for unmounted paths (defaults to InMemoryFs) */
-  baseFs?: IFileSystem;
+  base?: IFileSystem;
   /** Initial mounts to configure */
   mounts?: MountConfig[];
 }
@@ -48,7 +48,7 @@ interface MountEntry {
  *
  * @example
  * ```typescript
- * const fs = new MountableFs({ baseFs: new InMemoryFs() });
+ * const fs = new MountableFs({ base: new InMemoryFs() });
  * fs.mount('/mnt/knowledge', new OverlayFs({ root: "/path/to/knowledge", readOnly: true }));
  * fs.mount('/home/agent', new ReadWriteFs({ root: "/path/to/workspace" }));
  * ```
@@ -58,7 +58,7 @@ export class MountableFs implements IFileSystem {
   private mounts: Map<string, MountEntry> = new Map();
 
   constructor(options?: MountableFsOptions) {
-    this.baseFs = options?.baseFs ?? new InMemoryFs();
+    this.baseFs = options?.base ?? new InMemoryFs();
 
     // Add initial mounts
     if (options?.mounts) {
