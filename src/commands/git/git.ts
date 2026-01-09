@@ -2206,8 +2206,9 @@ async function gitClone(
   };
 
   // Copy remote branches to remote tracking branches
+  const remoteBranches = localRepo.remoteBranches as Record<string, string>;
   for (const [branchName, commitHash] of Object.entries(remoteRepo.branches)) {
-    localRepo.remoteBranches[`origin/${branchName}`] = commitHash;
+    remoteBranches[`origin/${branchName}`] = commitHash;
   }
 
   // Set local branch to track remote
