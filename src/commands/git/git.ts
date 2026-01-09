@@ -457,6 +457,9 @@ async function gitStatus(
       output +=
         '\nnothing to commit (create/copy files and use "git add" to track)\n';
     }
+  } else if (!hasStaged && hasUntracked) {
+    output +=
+      '\nnothing added to commit but untracked files present (use "git add" to track)\n';
   }
 
   return { stdout: output, stderr: "", exitCode: 0 };
@@ -690,7 +693,7 @@ async function gitCommit(
     return {
       stdout: "",
       stderr: "error: switch `m' requires a value\n",
-      exitCode: 128,
+      exitCode: 129,
     };
   }
 
@@ -710,14 +713,28 @@ async function gitCommit(
 
   // Check if there's anything to commit
   const trackedFiles = getTrackedFiles(repo);
+  const branch = getCurrentBranch(repo);
+  const currentCommit = getCurrentCommit(repo);
   const hasChanges =
     Object.keys(repo.index).length > 0 ||
     Object.keys(repo.index).some((k) => repo.index[k] !== trackedFiles[k]);
 
   if (!hasChanges && !allowEmpty && !amendFlag) {
+    // Real git shows status-like output to stdout, not stderr
+    let output = `On branch ${branch || "HEAD"}\n`;
+    if (!currentCommit) {
+      output += "\nInitial commit\n";
+    }
+    output += "\nnothing to commit";
+    if (!currentCommit) {
+      output += ' (create/copy files and use "git add" to track)';
+    } else {
+      output += ", working tree clean";
+    }
+    output += "\n";
     return {
-      stdout: "",
-      stderr: "nothing to commit, working tree clean\n",
+      stdout: output,
+      stderr: "",
       exitCode: 1,
     };
   }
@@ -727,8 +744,6 @@ async function gitCommit(
   for (const [path, hash] of Object.entries(repo.index)) {
     tree[path] = hash;
   }
-
-  const currentCommit = getCurrentCommit(repo);
   const author = repo.config["user.name"] || "User";
   const email = repo.config["user.email"] || "user@localhost";
   const timestamp = Date.now();
@@ -764,8 +779,7 @@ async function gitCommit(
   // Store commit
   repo.commits[commit.hash] = commit;
 
-  // Update branch pointer
-  const branch = getCurrentBranch(repo);
+  // Update branch pointer (branch was already retrieved above)
   if (branch) {
     repo.branches[branch] = commit.hash;
   } else {
@@ -779,10 +793,62 @@ async function gitCommit(
   await saveRepo(ctx, repo);
 
   const shortHash = commit.hash.slice(0, 7);
-  const filesChanged = Object.keys(tree).length;
+  const isRootCommit = !commit.parent;
+
+  // Calculate stats
+  const parentTree = commit.parent
+    ? repo.commits[commit.parent]?.tree || {}
+    : {};
+  let insertions = 0;
+  let deletions = 0;
+  const newFiles: string[] = [];
+
+  for (const [path, contentHash] of Object.entries(tree)) {
+    const content = repo.objects[contentHash] || "";
+    const oldHash = parentTree[path];
+    if (!oldHash) {
+      // New file
+      newFiles.push(path);
+      insertions += content.split("\n").filter((l) => l !== "").length || 1;
+    } else if (oldHash !== contentHash) {
+      // Modified file
+      const oldContent = repo.objects[oldHash] || "";
+      const diff = Diff.diffLines(oldContent, content);
+      for (const part of diff) {
+        if (part.added) insertions += part.count || 0;
+        if (part.removed) deletions += part.count || 0;
+      }
+    }
+  }
+
+  // Format output to match git
+  const rootIndicator = isRootCommit ? " (root-commit)" : "";
+  let output = `[${branch || "HEAD"}${rootIndicator} ${shortHash}] ${message}\n`;
+
+  // Count actual file changes
+  let changedCount = 0;
+  for (const path of Object.keys(tree)) {
+    if (!parentTree[path] || parentTree[path] !== tree[path]) {
+      changedCount++;
+    }
+  }
+
+  output += ` ${changedCount} file${changedCount !== 1 ? "s" : ""} changed`;
+  if (insertions > 0) {
+    output += `, ${insertions} insertion${insertions !== 1 ? "s" : ""}(+)`;
+  }
+  if (deletions > 0) {
+    output += `, ${deletions} deletion${deletions !== 1 ? "s" : ""}(-)`;
+  }
+  output += "\n";
+
+  // Show create mode for new files
+  for (const file of newFiles) {
+    output += ` create mode 100644 ${file}\n`;
+  }
 
   return {
-    stdout: `[${branch || "HEAD"} ${shortHash}] ${message}\n ${filesChanged} file${filesChanged !== 1 ? "s" : ""} changed\n`,
+    stdout: output,
     stderr: "",
     exitCode: 0,
   };
@@ -832,11 +898,12 @@ async function gitLog(
     }
   }
 
+  const branch = getCurrentBranch(repo);
   const currentCommit = getCurrentCommit(repo);
   if (!currentCommit) {
     return {
       stdout: "",
-      stderr: "fatal: your current branch does not have any commits yet\n",
+      stderr: `fatal: your current branch '${branch || "HEAD"}' does not have any commits yet\n`,
       exitCode: 128,
     };
   }
@@ -949,7 +1016,7 @@ async function gitBranch(
     if (branchName === currentBranch) {
       return {
         stdout: "",
-        stderr: `error: Cannot delete branch '${branchName}' checked out\n`,
+        stderr: `error: cannot delete branch '${branchName}' used by worktree at '${ctx.cwd}'\n`,
         exitCode: 1,
       };
     }
@@ -1114,8 +1181,8 @@ async function gitCheckout(
     repo.HEAD = `refs/heads/${target}`;
     await saveRepo(ctx, repo);
     return {
-      stdout: `Switched to a new branch '${target}'\n`,
-      stderr: "",
+      stdout: "",
+      stderr: `Switched to a new branch '${target}'\n`,
       exitCode: 0,
     };
   }
@@ -1145,8 +1212,8 @@ async function gitCheckout(
     repo.index = {};
     await saveRepo(ctx, repo);
     return {
-      stdout: `Switched to branch '${target}'\n`,
-      stderr: "",
+      stdout: "",
+      stderr: `Switched to branch '${target}'\n`,
       exitCode: 0,
     };
   }

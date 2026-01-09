@@ -236,14 +236,15 @@ describe("git", () => {
       await env.exec("git init");
       const result = await env.exec("git commit");
       expect(result.stderr).toContain("switch `m' requires a value");
-      expect(result.exitCode).toBe(128);
+      expect(result.exitCode).toBe(129);
     });
 
     it("should error when nothing to commit", async () => {
       const env = new Bash();
       await env.exec("git init");
       const result = await env.exec('git commit -m "test"');
-      expect(result.stderr).toContain("nothing to commit");
+      // Real git outputs status-like info to stdout
+      expect(result.stdout).toContain("nothing to commit");
       expect(result.exitCode).toBe(1);
     });
 
@@ -444,7 +445,7 @@ describe("git", () => {
       await env.exec("git add test.txt");
       await env.exec('git commit -m "Initial"');
       const result = await env.exec("git branch -d main");
-      expect(result.stderr).toContain("Cannot delete");
+      expect(result.stderr).toContain("cannot delete branch");
       expect(result.exitCode).toBe(1);
     });
 
@@ -497,7 +498,8 @@ describe("git", () => {
       await env.exec('git commit -m "Initial"');
       await env.exec("git branch feature");
       const result = await env.exec("git checkout feature");
-      expect(result.stdout).toContain("Switched to branch 'feature'");
+      // Real git outputs to stderr, not stdout
+      expect(result.stderr).toContain("Switched to branch 'feature'");
       expect(result.exitCode).toBe(0);
     });
 
@@ -509,7 +511,8 @@ describe("git", () => {
       await env.exec("git add test.txt");
       await env.exec('git commit -m "Initial"');
       const result = await env.exec("git checkout -b feature");
-      expect(result.stdout).toContain("Switched to a new branch 'feature'");
+      // Real git outputs to stderr, not stdout
+      expect(result.stderr).toContain("Switched to a new branch 'feature'");
       expect(result.exitCode).toBe(0);
 
       const branchResult = await env.exec("git branch");
