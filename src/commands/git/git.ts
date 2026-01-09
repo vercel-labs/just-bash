@@ -20,6 +20,11 @@ interface GitCommit {
   tree: Record<string, string>; // path -> content hash
 }
 
+interface GitRemote {
+  url: string;
+  fetch: string; // refspec, e.g., "+refs/heads/*:refs/remotes/origin/*"
+}
+
 interface GitRepository {
   HEAD: string; // Current branch name or commit hash (detached)
   branches: Record<string, string>; // branch name -> commit hash
@@ -27,6 +32,8 @@ interface GitRepository {
   index: Record<string, string>; // staged files: path -> content hash
   objects: Record<string, string>; // content hash -> content
   config: Record<string, string>; // config key -> value
+  remotes?: Record<string, GitRemote>; // remote name -> remote config
+  remoteBranches?: Record<string, string>; // "origin/main" -> commit hash
 }
 
 // Simple hash function for content addressing
@@ -60,7 +67,7 @@ const gitHelp = {
   usage: "git [--version] [--help] <command> [<args>]",
   description: [
     "A simulated git for just-bash virtual filesystem.",
-    "Supports basic repository operations.",
+    "Supports basic repository operations and remote operations.",
   ],
   options: [
     "    --version   print git version",
@@ -76,6 +83,11 @@ const gitHelp = {
     "git checkout <branch>     Switch branches",
     "git diff                  Show changes",
     "git config                Get and set options",
+    "git remote                Manage remotes",
+    "git clone <url>           Clone a repository",
+    "git fetch                 Download objects from remote",
+    "git pull                  Fetch and merge from remote",
+    "git push                  Upload local commits to remote",
   ],
 };
 
@@ -1877,6 +1889,938 @@ async function gitShow(
   return { stdout: output, stderr: "", exitCode: 0 };
 }
 
+// ============= REMOTE OPERATIONS =============
+
+async function gitRemote(
+  args: string[],
+  ctx: CommandContext,
+): Promise<ExecResult> {
+  if (args.includes("--help")) {
+    return showHelp({
+      name: "git remote",
+      summary: "Manage set of tracked repositories",
+      usage: "git remote [-v | --verbose]",
+      options: [
+        "-v, --verbose    Show remote url after name",
+        "add <name> <url> Add a remote",
+        "remove <name>    Remove a remote",
+        "get-url <name>   Get the URL for a remote",
+        "set-url <name> <url>  Set the URL for a remote",
+      ],
+    });
+  }
+
+  const repo = await loadRepo(ctx);
+  if (!repo) {
+    return {
+      stdout: "",
+      stderr:
+        "fatal: not a git repository (or any of the parent directories): .git\n",
+      exitCode: 128,
+    };
+  }
+
+  // Initialize remotes if not present
+  if (!repo.remotes) {
+    repo.remotes = {};
+  }
+
+  const verbose = args.includes("-v") || args.includes("--verbose");
+  const subcommand = args.find((a) => !a.startsWith("-"));
+
+  // Check for unknown options (but allow subcommands)
+  for (const arg of args) {
+    if (arg.startsWith("-") && arg !== "-v" && arg !== "--verbose") {
+      return {
+        stdout: "",
+        stderr: `error: unknown option '${arg}'\n`,
+        exitCode: 129,
+      };
+    }
+  }
+
+  if (subcommand === "add") {
+    const addArgs = args.filter((a) => a !== "add" && !a.startsWith("-"));
+    if (addArgs.length < 2) {
+      return {
+        stdout: "",
+        stderr: "error: usage: git remote add <name> <url>\n",
+        exitCode: 1,
+      };
+    }
+    const [name, url] = addArgs;
+    if (repo.remotes[name]) {
+      return {
+        stdout: "",
+        stderr: `fatal: remote ${name} already exists.\n`,
+        exitCode: 3,
+      };
+    }
+    repo.remotes[name] = {
+      url,
+      fetch: `+refs/heads/*:refs/remotes/${name}/*`,
+    };
+    await saveRepo(ctx, repo);
+    return { stdout: "", stderr: "", exitCode: 0 };
+  }
+
+  if (subcommand === "remove" || subcommand === "rm") {
+    const removeArgs = args.filter(
+      (a) => a !== "remove" && a !== "rm" && !a.startsWith("-"),
+    );
+    if (removeArgs.length < 1) {
+      return {
+        stdout: "",
+        stderr: "error: usage: git remote remove <name>\n",
+        exitCode: 1,
+      };
+    }
+    const name = removeArgs[0];
+    if (!repo.remotes[name]) {
+      return {
+        stdout: "",
+        stderr: `fatal: No such remote: '${name}'\n`,
+        exitCode: 2,
+      };
+    }
+    delete repo.remotes[name];
+    // Also remove remote branches
+    if (repo.remoteBranches) {
+      for (const key of Object.keys(repo.remoteBranches)) {
+        if (key.startsWith(`${name}/`)) {
+          delete repo.remoteBranches[key];
+        }
+      }
+    }
+    await saveRepo(ctx, repo);
+    return { stdout: "", stderr: "", exitCode: 0 };
+  }
+
+  if (subcommand === "get-url") {
+    const getUrlArgs = args.filter(
+      (a) => a !== "get-url" && !a.startsWith("-"),
+    );
+    if (getUrlArgs.length < 1) {
+      return {
+        stdout: "",
+        stderr: "error: usage: git remote get-url <name>\n",
+        exitCode: 1,
+      };
+    }
+    const name = getUrlArgs[0];
+    if (!repo.remotes[name]) {
+      return {
+        stdout: "",
+        stderr: `fatal: No such remote '${name}'\n`,
+        exitCode: 2,
+      };
+    }
+    return {
+      stdout: `${repo.remotes[name].url}\n`,
+      stderr: "",
+      exitCode: 0,
+    };
+  }
+
+  if (subcommand === "set-url") {
+    const setUrlArgs = args.filter(
+      (a) => a !== "set-url" && !a.startsWith("-"),
+    );
+    if (setUrlArgs.length < 2) {
+      return {
+        stdout: "",
+        stderr: "error: usage: git remote set-url <name> <url>\n",
+        exitCode: 1,
+      };
+    }
+    const [name, url] = setUrlArgs;
+    if (!repo.remotes[name]) {
+      return {
+        stdout: "",
+        stderr: `fatal: No such remote '${name}'\n`,
+        exitCode: 2,
+      };
+    }
+    repo.remotes[name].url = url;
+    await saveRepo(ctx, repo);
+    return { stdout: "", stderr: "", exitCode: 0 };
+  }
+
+  // List remotes
+  let output = "";
+  for (const [name, remote] of Object.entries(repo.remotes)) {
+    if (verbose) {
+      output += `${name}\t${remote.url} (fetch)\n`;
+      output += `${name}\t${remote.url} (push)\n`;
+    } else {
+      output += `${name}\n`;
+    }
+  }
+
+  return { stdout: output, stderr: "", exitCode: 0 };
+}
+
+async function gitClone(
+  args: string[],
+  ctx: CommandContext,
+): Promise<ExecResult> {
+  if (args.includes("--help")) {
+    return showHelp({
+      name: "git clone",
+      summary: "Clone a repository into a new directory",
+      usage: "git clone [<options>] <repository> [<directory>]",
+      description: [
+        "Clones a just-bash git repository from a URL.",
+        "The URL should point to a repo.json file.",
+      ],
+      options: [
+        "-q, --quiet     Operate quietly",
+        "-b <branch>     Checkout <branch> instead of default",
+      ],
+    });
+  }
+
+  if (!ctx.fetch) {
+    return {
+      stdout: "",
+      stderr: "fatal: git clone requires network access\n",
+      exitCode: 128,
+    };
+  }
+
+  const quiet = args.includes("-q") || args.includes("--quiet");
+
+  // Parse -b branch
+  let branch: string | null = null;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "-b" && i + 1 < args.length) {
+      branch = args[i + 1];
+    }
+  }
+
+  // Check for unknown options
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (
+      arg.startsWith("-") &&
+      arg !== "-q" &&
+      arg !== "--quiet" &&
+      arg !== "-b"
+    ) {
+      if (args[i - 1] !== "-b") {
+        return {
+          stdout: "",
+          stderr: `error: unknown option '${arg}'\n`,
+          exitCode: 129,
+        };
+      }
+    }
+  }
+
+  // Get positional arguments (URL and optional directory)
+  const positionalArgs = args.filter((a, i) => {
+    if (a.startsWith("-")) return false;
+    if (args[i - 1] === "-b") return false;
+    return true;
+  });
+
+  if (positionalArgs.length < 1) {
+    return {
+      stdout: "",
+      stderr: "fatal: You must specify a repository to clone.\n",
+      exitCode: 128,
+    };
+  }
+
+  const repoUrl = positionalArgs[0];
+  // Extract directory name from URL or use provided one
+  let targetDir = positionalArgs[1];
+  if (!targetDir) {
+    // Extract name from URL: https://example.com/repo.json -> repo
+    // or https://example.com/myrepo -> myrepo
+    const urlPath = repoUrl.split("/").pop() || "repo";
+    targetDir = urlPath.replace(/\.json$/, "").replace(/\.git$/, "");
+  }
+
+  // Fetch the remote repository
+  let remoteRepo: GitRepository;
+  try {
+    const response = await ctx.fetch(repoUrl);
+    if (response.status !== 200) {
+      return {
+        stdout: "",
+        stderr: `fatal: repository '${repoUrl}' not found\n`,
+        exitCode: 128,
+      };
+    }
+    remoteRepo = JSON.parse(response.body) as GitRepository;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown error";
+    return {
+      stdout: "",
+      stderr: `fatal: unable to access '${repoUrl}': ${message}\n`,
+      exitCode: 128,
+    };
+  }
+
+  // Create target directory
+  const fullTargetDir = ctx.fs.resolvePath(ctx.cwd, targetDir);
+  try {
+    await ctx.fs.mkdir(fullTargetDir, { recursive: true });
+  } catch {
+    return {
+      stdout: "",
+      stderr: `fatal: destination path '${targetDir}' already exists\n`,
+      exitCode: 128,
+    };
+  }
+
+  // Create .git directory
+  const gitDir = `${fullTargetDir}/.git`;
+  await ctx.fs.mkdir(gitDir, { recursive: true });
+
+  // Determine which branch to checkout
+  const remoteBranch = getCurrentBranch(remoteRepo);
+  const checkoutBranch = branch || remoteBranch || "main";
+
+  // Create local repository
+  const localRepo: GitRepository = {
+    HEAD: `refs/heads/${checkoutBranch}`,
+    branches: {},
+    commits: { ...remoteRepo.commits },
+    index: {},
+    objects: { ...remoteRepo.objects },
+    config: {
+      "core.bare": "false",
+      "user.name": ctx.env.GIT_AUTHOR_NAME || ctx.env.USER || "User",
+      "user.email":
+        ctx.env.GIT_AUTHOR_EMAIL || `${ctx.env.USER || "user"}@localhost`,
+    },
+    remotes: {
+      origin: {
+        url: repoUrl,
+        fetch: "+refs/heads/*:refs/remotes/origin/*",
+      },
+    },
+    remoteBranches: {},
+  };
+
+  // Copy remote branches to remote tracking branches
+  for (const [branchName, commitHash] of Object.entries(remoteRepo.branches)) {
+    localRepo.remoteBranches[`origin/${branchName}`] = commitHash;
+  }
+
+  // Set local branch to track remote
+  const remoteCommit = remoteRepo.branches[checkoutBranch];
+  if (remoteCommit) {
+    localRepo.branches[checkoutBranch] = remoteCommit;
+  }
+
+  // Save repository
+  await ctx.fs.writeFile(
+    `${gitDir}/repo.json`,
+    JSON.stringify(localRepo, null, 2),
+  );
+
+  // Checkout files from the commit
+  const commit = remoteCommit ? localRepo.commits[remoteCommit] : null;
+  if (commit) {
+    for (const [path, contentHash] of Object.entries(commit.tree)) {
+      const content = localRepo.objects[contentHash];
+      if (content !== undefined) {
+        const fullPath = `${fullTargetDir}/${path}`;
+        // Ensure directory exists
+        const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
+        if (dir && dir !== fullTargetDir) {
+          await ctx.fs.mkdir(dir, { recursive: true });
+        }
+        await ctx.fs.writeFile(fullPath, content);
+      }
+    }
+  }
+
+  if (!quiet) {
+    return {
+      stdout: "",
+      stderr: `Cloning into '${targetDir}'...\n`,
+      exitCode: 0,
+    };
+  }
+  return { stdout: "", stderr: "", exitCode: 0 };
+}
+
+async function gitFetch(
+  args: string[],
+  ctx: CommandContext,
+): Promise<ExecResult> {
+  if (args.includes("--help")) {
+    return showHelp({
+      name: "git fetch",
+      summary: "Download objects and refs from another repository",
+      usage: "git fetch [<options>] [<repository>]",
+      options: [
+        "-q, --quiet     Operate quietly",
+        "--all           Fetch all remotes",
+      ],
+    });
+  }
+
+  if (!ctx.fetch) {
+    return {
+      stdout: "",
+      stderr: "fatal: git fetch requires network access\n",
+      exitCode: 128,
+    };
+  }
+
+  const repo = await loadRepo(ctx);
+  if (!repo) {
+    return {
+      stdout: "",
+      stderr:
+        "fatal: not a git repository (or any of the parent directories): .git\n",
+      exitCode: 128,
+    };
+  }
+
+  const quiet = args.includes("-q") || args.includes("--quiet");
+  const fetchAll = args.includes("--all");
+
+  // Check for unknown options
+  for (const arg of args) {
+    if (
+      arg.startsWith("-") &&
+      arg !== "-q" &&
+      arg !== "--quiet" &&
+      arg !== "--all"
+    ) {
+      return {
+        stdout: "",
+        stderr: `error: unknown option '${arg}'\n`,
+        exitCode: 129,
+      };
+    }
+  }
+
+  if (!repo.remotes || Object.keys(repo.remotes).length === 0) {
+    return {
+      stdout: "",
+      stderr: "fatal: No remote repository configured\n",
+      exitCode: 128,
+    };
+  }
+
+  // Initialize remoteBranches if not present
+  if (!repo.remoteBranches) {
+    repo.remoteBranches = {};
+  }
+
+  // Get remote name from args or default to "origin"
+  const positionalArgs = args.filter((a) => !a.startsWith("-"));
+  const remoteName = positionalArgs[0] || "origin";
+
+  // Determine which remotes to fetch
+  const remotesToFetch = fetchAll ? Object.keys(repo.remotes) : [remoteName];
+
+  let output = "";
+
+  for (const remote of remotesToFetch) {
+    if (!repo.remotes[remote]) {
+      return {
+        stdout: "",
+        stderr: `fatal: '${remote}' does not appear to be a git repository\n`,
+        exitCode: 128,
+      };
+    }
+
+    const remoteUrl = repo.remotes[remote].url;
+
+    // Fetch the remote repository
+    let remoteRepo: GitRepository;
+    try {
+      const response = await ctx.fetch(remoteUrl);
+      if (response.status !== 200) {
+        return {
+          stdout: "",
+          stderr: `fatal: Could not read from remote repository '${remote}'.\n`,
+          exitCode: 128,
+        };
+      }
+      remoteRepo = JSON.parse(response.body) as GitRepository;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown error";
+      return {
+        stdout: "",
+        stderr: `fatal: unable to access '${remoteUrl}': ${message}\n`,
+        exitCode: 128,
+      };
+    }
+
+    // Merge commits and objects
+    for (const [hash, commit] of Object.entries(remoteRepo.commits)) {
+      if (!repo.commits[hash]) {
+        repo.commits[hash] = commit;
+      }
+    }
+    for (const [hash, content] of Object.entries(remoteRepo.objects)) {
+      if (!repo.objects[hash]) {
+        repo.objects[hash] = content;
+      }
+    }
+
+    // Update remote tracking branches
+    for (const [branchName, commitHash] of Object.entries(
+      remoteRepo.branches,
+    )) {
+      const oldCommit = repo.remoteBranches[`${remote}/${branchName}`];
+      repo.remoteBranches[`${remote}/${branchName}`] = commitHash;
+      if (!quiet && oldCommit !== commitHash) {
+        if (oldCommit) {
+          output += ` * ${remote}/${branchName} ${oldCommit.slice(0, 7)}..${commitHash.slice(0, 7)}\n`;
+        } else {
+          output += ` * [new branch] ${branchName} -> ${remote}/${branchName}\n`;
+        }
+      }
+    }
+  }
+
+  await saveRepo(ctx, repo);
+
+  if (!quiet && output) {
+    return {
+      stdout: "",
+      stderr: `From ${repo.remotes[remotesToFetch[0]].url}\n${output}`,
+      exitCode: 0,
+    };
+  }
+  return { stdout: "", stderr: "", exitCode: 0 };
+}
+
+async function gitPull(
+  args: string[],
+  ctx: CommandContext,
+): Promise<ExecResult> {
+  if (args.includes("--help")) {
+    return showHelp({
+      name: "git pull",
+      summary: "Fetch from and integrate with another repository",
+      usage: "git pull [<options>] [<repository> [<refspec>]]",
+      description: [
+        "Fetches from a remote and fast-forwards the current branch.",
+        "Only fast-forward merges are supported.",
+      ],
+      options: [
+        "-q, --quiet     Operate quietly",
+        "--ff-only       Only fast-forward (default, only mode supported)",
+      ],
+    });
+  }
+
+  if (!ctx.fetch) {
+    return {
+      stdout: "",
+      stderr: "fatal: git pull requires network access\n",
+      exitCode: 128,
+    };
+  }
+
+  const repo = await loadRepo(ctx);
+  if (!repo) {
+    return {
+      stdout: "",
+      stderr:
+        "fatal: not a git repository (or any of the parent directories): .git\n",
+      exitCode: 128,
+    };
+  }
+
+  const quiet = args.includes("-q") || args.includes("--quiet");
+
+  // Check for unknown options
+  for (const arg of args) {
+    if (
+      arg.startsWith("-") &&
+      arg !== "-q" &&
+      arg !== "--quiet" &&
+      arg !== "--ff-only"
+    ) {
+      return {
+        stdout: "",
+        stderr: `error: unknown option '${arg}'\n`,
+        exitCode: 129,
+      };
+    }
+  }
+
+  const currentBranch = getCurrentBranch(repo);
+  if (!currentBranch) {
+    return {
+      stdout: "",
+      stderr: "fatal: You are not currently on a branch.\n",
+      exitCode: 128,
+    };
+  }
+
+  // Get remote and branch from args or infer from current branch
+  const positionalArgs = args.filter((a) => !a.startsWith("-"));
+  const remoteName = positionalArgs[0] || "origin";
+  const remoteBranch = positionalArgs[1] || currentBranch;
+
+  if (!repo.remotes || !repo.remotes[remoteName]) {
+    return {
+      stdout: "",
+      stderr: `fatal: '${remoteName}' does not appear to be a git repository\n`,
+      exitCode: 128,
+    };
+  }
+
+  // First, fetch
+  const fetchResult = await gitFetch(
+    quiet ? ["-q", remoteName] : [remoteName],
+    ctx,
+  );
+  if (fetchResult.exitCode !== 0) {
+    return fetchResult;
+  }
+
+  // Reload repo after fetch
+  const updatedRepo = await loadRepo(ctx);
+  if (!updatedRepo) {
+    return {
+      stdout: "",
+      stderr: "fatal: internal error: repo disappeared after fetch\n",
+      exitCode: 128,
+    };
+  }
+
+  // Get remote tracking branch
+  const remoteRef = `${remoteName}/${remoteBranch}`;
+  const remoteCommitHash = updatedRepo.remoteBranches?.[remoteRef];
+
+  if (!remoteCommitHash) {
+    return {
+      stdout: "",
+      stderr: `fatal: couldn't find remote ref ${remoteBranch}\n`,
+      exitCode: 128,
+    };
+  }
+
+  const localCommitHash = getCurrentCommit(updatedRepo);
+
+  // Check if we're already up to date
+  if (localCommitHash === remoteCommitHash) {
+    return {
+      stdout: quiet ? "" : "Already up to date.\n",
+      stderr: fetchResult.stderr,
+      exitCode: 0,
+    };
+  }
+
+  // Check if this is a fast-forward (remote commit is descendant of local)
+  // For simplicity, we just check if remote has local in its history
+  if (localCommitHash) {
+    let isAncestor = false;
+    let commit: GitCommit | null = updatedRepo.commits[remoteCommitHash];
+    while (commit) {
+      if (
+        commit.hash === localCommitHash ||
+        commit.parent === localCommitHash
+      ) {
+        isAncestor = true;
+        break;
+      }
+      commit = commit.parent ? updatedRepo.commits[commit.parent] : null;
+    }
+    if (!isAncestor) {
+      return {
+        stdout: "",
+        stderr: "fatal: Not possible to fast-forward, aborting.\n",
+        exitCode: 128,
+      };
+    }
+  }
+
+  // Fast-forward: update local branch
+  updatedRepo.branches[currentBranch] = remoteCommitHash;
+
+  // Update working tree
+  const commit = updatedRepo.commits[remoteCommitHash];
+  if (commit) {
+    for (const [path, contentHash] of Object.entries(commit.tree)) {
+      const content = updatedRepo.objects[contentHash];
+      if (content !== undefined) {
+        const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
+        const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
+        if (dir) {
+          await ctx.fs.mkdir(dir, { recursive: true });
+        }
+        await ctx.fs.writeFile(fullPath, content);
+      }
+    }
+  }
+
+  updatedRepo.index = {};
+  await saveRepo(ctx, updatedRepo);
+
+  const shortOld = localCommitHash ? localCommitHash.slice(0, 7) : "0000000";
+  const shortNew = remoteCommitHash.slice(0, 7);
+
+  let output = fetchResult.stderr;
+  if (!quiet) {
+    output += `Updating ${shortOld}..${shortNew}\nFast-forward\n`;
+  }
+
+  return { stdout: "", stderr: output, exitCode: 0 };
+}
+
+async function gitPush(
+  args: string[],
+  ctx: CommandContext,
+): Promise<ExecResult> {
+  if (args.includes("--help")) {
+    return showHelp({
+      name: "git push",
+      summary: "Update remote refs along with associated objects",
+      usage: "git push [<options>] [<repository> [<refspec>]]",
+      description: [
+        "Pushes local commits to a remote repository.",
+        "The remote must accept POST requests with the repo.json format.",
+      ],
+      options: [
+        "-q, --quiet     Operate quietly",
+        "-u, --set-upstream  Set upstream for the current branch",
+        "-f, --force     Force push (overwrite remote)",
+      ],
+    });
+  }
+
+  if (!ctx.fetch) {
+    return {
+      stdout: "",
+      stderr: "fatal: git push requires network access\n",
+      exitCode: 128,
+    };
+  }
+
+  const repo = await loadRepo(ctx);
+  if (!repo) {
+    return {
+      stdout: "",
+      stderr:
+        "fatal: not a git repository (or any of the parent directories): .git\n",
+      exitCode: 128,
+    };
+  }
+
+  const quiet = args.includes("-q") || args.includes("--quiet");
+  const setUpstream = args.includes("-u") || args.includes("--set-upstream");
+  const force = args.includes("-f") || args.includes("--force");
+
+  // Check for unknown options
+  for (const arg of args) {
+    if (
+      arg.startsWith("-") &&
+      arg !== "-q" &&
+      arg !== "--quiet" &&
+      arg !== "-u" &&
+      arg !== "--set-upstream" &&
+      arg !== "-f" &&
+      arg !== "--force"
+    ) {
+      return {
+        stdout: "",
+        stderr: `error: unknown option '${arg}'\n`,
+        exitCode: 129,
+      };
+    }
+  }
+
+  const currentBranch = getCurrentBranch(repo);
+  if (!currentBranch) {
+    return {
+      stdout: "",
+      stderr: "fatal: You are not currently on a branch.\n",
+      exitCode: 128,
+    };
+  }
+
+  // Get remote and branch from args
+  const positionalArgs = args.filter((a) => !a.startsWith("-"));
+  const remoteName = positionalArgs[0] || "origin";
+  const remoteBranch = positionalArgs[1] || currentBranch;
+
+  if (!repo.remotes || !repo.remotes[remoteName]) {
+    return {
+      stdout: "",
+      stderr: `fatal: '${remoteName}' does not appear to be a git repository\n`,
+      exitCode: 128,
+    };
+  }
+
+  const localCommitHash = getCurrentCommit(repo);
+  if (!localCommitHash) {
+    return {
+      stdout: "",
+      stderr: "error: src refspec does not match any.\n",
+      exitCode: 1,
+    };
+  }
+
+  const remoteUrl = repo.remotes[remoteName].url;
+
+  // Fetch current remote state first
+  let remoteRepo: GitRepository;
+  try {
+    const response = await ctx.fetch(remoteUrl);
+    if (response.status === 200) {
+      remoteRepo = JSON.parse(response.body) as GitRepository;
+    } else if (response.status === 404) {
+      // Remote repo doesn't exist yet, create empty structure
+      remoteRepo = {
+        HEAD: `refs/heads/${remoteBranch}`,
+        branches: {},
+        commits: {},
+        index: {},
+        objects: {},
+        config: {},
+      };
+    } else {
+      return {
+        stdout: "",
+        stderr: `fatal: Could not read from remote repository.\n`,
+        exitCode: 128,
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown error";
+    return {
+      stdout: "",
+      stderr: `fatal: unable to access '${remoteUrl}': ${message}\n`,
+      exitCode: 128,
+    };
+  }
+
+  // Check if this is a fast-forward (unless force)
+  const remoteCommitHash = remoteRepo.branches[remoteBranch];
+  if (remoteCommitHash && remoteCommitHash !== localCommitHash && !force) {
+    // Check if local is ancestor of remote (would need to pull first)
+    let localIsAncestor = false;
+    let commit: GitCommit | null = remoteRepo.commits[remoteCommitHash];
+    while (commit) {
+      if (
+        commit.hash === localCommitHash ||
+        commit.parent === localCommitHash
+      ) {
+        localIsAncestor = true;
+        break;
+      }
+      commit = commit.parent ? remoteRepo.commits[commit.parent] : null;
+    }
+
+    // Check if remote is ancestor of local (fast-forward is possible)
+    let remoteIsAncestor = false;
+    let localCommit: GitCommit | null = repo.commits[localCommitHash];
+    while (localCommit) {
+      if (
+        localCommit.hash === remoteCommitHash ||
+        localCommit.parent === remoteCommitHash
+      ) {
+        remoteIsAncestor = true;
+        break;
+      }
+      localCommit = localCommit.parent
+        ? repo.commits[localCommit.parent]
+        : null;
+    }
+
+    if (!remoteIsAncestor && !localIsAncestor) {
+      return {
+        stdout: "",
+        stderr: `To ${remoteUrl}\n ! [rejected]        ${currentBranch} -> ${remoteBranch} (non-fast-forward)\nerror: failed to push some refs\nhint: Updates were rejected because the tip of your current branch is behind\nhint: its remote counterpart.\n`,
+        exitCode: 1,
+      };
+    }
+
+    if (localIsAncestor && !remoteIsAncestor) {
+      return {
+        stdout: "",
+        stderr: `To ${remoteUrl}\n ! [rejected]        ${currentBranch} -> ${remoteBranch} (fetch first)\nerror: failed to push some refs\n`,
+        exitCode: 1,
+      };
+    }
+  }
+
+  // Prepare updated remote repository
+  // Copy all commits and objects that remote doesn't have
+  for (const [hash, commit] of Object.entries(repo.commits)) {
+    if (!remoteRepo.commits[hash]) {
+      remoteRepo.commits[hash] = commit;
+    }
+  }
+  for (const [hash, content] of Object.entries(repo.objects)) {
+    if (!remoteRepo.objects[hash]) {
+      remoteRepo.objects[hash] = content;
+    }
+  }
+
+  // Update remote branch
+  remoteRepo.branches[remoteBranch] = localCommitHash;
+
+  // Push to remote
+  try {
+    const response = await ctx.fetch(remoteUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(remoteRepo, null, 2),
+    });
+
+    if (response.status >= 400) {
+      return {
+        stdout: "",
+        stderr: `fatal: failed to push to '${remoteUrl}': ${response.status}\n`,
+        exitCode: 128,
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown error";
+    return {
+      stdout: "",
+      stderr: `fatal: unable to push to '${remoteUrl}': ${message}\n`,
+      exitCode: 128,
+    };
+  }
+
+  // Update local remote tracking branch
+  if (!repo.remoteBranches) {
+    repo.remoteBranches = {};
+  }
+  repo.remoteBranches[`${remoteName}/${remoteBranch}`] = localCommitHash;
+
+  // Set upstream if requested
+  if (setUpstream) {
+    repo.config[`branch.${currentBranch}.remote`] = remoteName;
+    repo.config[`branch.${currentBranch}.merge`] = `refs/heads/${remoteBranch}`;
+  }
+
+  await saveRepo(ctx, repo);
+
+  let output = "";
+  if (!quiet) {
+    const shortOld = remoteCommitHash
+      ? remoteCommitHash.slice(0, 7)
+      : "0000000";
+    const shortNew = localCommitHash.slice(0, 7);
+    output = `To ${remoteUrl}\n   ${shortOld}..${shortNew}  ${currentBranch} -> ${remoteBranch}\n`;
+    if (setUpstream) {
+      output += `branch '${currentBranch}' set up to track '${remoteName}/${remoteBranch}'.\n`;
+    }
+  }
+
+  return { stdout: "", stderr: output, exitCode: 0 };
+}
+
 // ============= MAIN COMMAND =============
 
 export const gitCommand: Command = {
@@ -1925,6 +2869,16 @@ export const gitCommand: Command = {
         return gitRevParse(subArgs, ctx);
       case "show":
         return gitShow(subArgs, ctx);
+      case "remote":
+        return gitRemote(subArgs, ctx);
+      case "clone":
+        return gitClone(subArgs, ctx);
+      case "fetch":
+        return gitFetch(subArgs, ctx);
+      case "pull":
+        return gitPull(subArgs, ctx);
+      case "push":
+        return gitPush(subArgs, ctx);
       case undefined:
         return showHelp(gitHelp);
       default:

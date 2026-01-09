@@ -452,4 +452,146 @@ describe("git comparison tests", () => {
       expect(ourResult.exitCode).toBe(realResult.exitCode);
     });
   });
+
+  describe("git remote", () => {
+    it("should list no remotes in new repo", async () => {
+      const env = await setupFiles(testDir, {});
+
+      await runRealBash("git init -q", testDir);
+      const realResult = await runRealBash("git remote", testDir);
+
+      await env.exec("git init -q");
+      const ourResult = await env.exec("git remote");
+
+      console.log("Real remote stdout:", JSON.stringify(realResult.stdout));
+      console.log("Our remote stdout:", JSON.stringify(ourResult.stdout));
+
+      expect(ourResult.stdout).toBe(realResult.stdout);
+      expect(ourResult.exitCode).toBe(realResult.exitCode);
+    });
+
+    it("should add and list a remote", async () => {
+      const env = await setupFiles(testDir, {});
+
+      await runRealBash("git init -q", testDir);
+      await runRealBash(
+        "git remote add origin https://example.com/repo.git",
+        testDir,
+      );
+      const realResult = await runRealBash("git remote", testDir);
+
+      await env.exec("git init -q");
+      await env.exec("git remote add origin https://example.com/repo.git");
+      const ourResult = await env.exec("git remote");
+
+      console.log("Real remote add stdout:", JSON.stringify(realResult.stdout));
+      console.log("Our remote add stdout:", JSON.stringify(ourResult.stdout));
+
+      expect(ourResult.stdout).toBe(realResult.stdout);
+      expect(ourResult.exitCode).toBe(realResult.exitCode);
+    });
+
+    it("should error adding duplicate remote", async () => {
+      const env = await setupFiles(testDir, {});
+
+      await runRealBash("git init -q", testDir);
+      await runRealBash(
+        "git remote add origin https://example.com/repo.git",
+        testDir,
+      );
+      const realResult = await runRealBash(
+        "git remote add origin https://other.com/repo.git",
+        testDir,
+      );
+
+      await env.exec("git init -q");
+      await env.exec("git remote add origin https://example.com/repo.git");
+      const ourResult = await env.exec(
+        "git remote add origin https://other.com/repo.git",
+      );
+
+      console.log("Real remote dup stderr:", JSON.stringify(realResult.stderr));
+      console.log("Our remote dup stderr:", JSON.stringify(ourResult.stderr));
+
+      expect(ourResult.exitCode).toBe(realResult.exitCode);
+    });
+
+    it("should remove a remote", async () => {
+      const env = await setupFiles(testDir, {});
+
+      await runRealBash("git init -q", testDir);
+      await runRealBash(
+        "git remote add origin https://example.com/repo.git",
+        testDir,
+      );
+      const realResult = await runRealBash("git remote remove origin", testDir);
+
+      await env.exec("git init -q");
+      await env.exec("git remote add origin https://example.com/repo.git");
+      const ourResult = await env.exec("git remote remove origin");
+
+      console.log(
+        "Real remote remove stdout:",
+        JSON.stringify(realResult.stdout),
+      );
+      console.log(
+        "Our remote remove stdout:",
+        JSON.stringify(ourResult.stdout),
+      );
+
+      expect(ourResult.stdout).toBe(realResult.stdout);
+      expect(ourResult.exitCode).toBe(realResult.exitCode);
+    });
+
+    it("should error removing non-existent remote", async () => {
+      const env = await setupFiles(testDir, {});
+
+      await runRealBash("git init -q", testDir);
+      const realResult = await runRealBash("git remote remove origin", testDir);
+
+      await env.exec("git init -q");
+      const ourResult = await env.exec("git remote remove origin");
+
+      console.log(
+        "Real remote remove nonexistent stderr:",
+        JSON.stringify(realResult.stderr),
+      );
+      console.log(
+        "Our remote remove nonexistent stderr:",
+        JSON.stringify(ourResult.stderr),
+      );
+
+      expect(ourResult.exitCode).toBe(realResult.exitCode);
+    });
+
+    it("should get remote URL", async () => {
+      const env = await setupFiles(testDir, {});
+
+      await runRealBash("git init -q", testDir);
+      await runRealBash(
+        "git remote add origin https://example.com/repo.git",
+        testDir,
+      );
+      const realResult = await runRealBash(
+        "git remote get-url origin",
+        testDir,
+      );
+
+      await env.exec("git init -q");
+      await env.exec("git remote add origin https://example.com/repo.git");
+      const ourResult = await env.exec("git remote get-url origin");
+
+      console.log(
+        "Real remote get-url stdout:",
+        JSON.stringify(realResult.stdout),
+      );
+      console.log(
+        "Our remote get-url stdout:",
+        JSON.stringify(ourResult.stdout),
+      );
+
+      expect(ourResult.stdout).toBe(realResult.stdout);
+      expect(ourResult.exitCode).toBe(realResult.exitCode);
+    });
+  });
 });

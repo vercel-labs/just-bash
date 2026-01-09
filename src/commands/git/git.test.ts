@@ -946,4 +946,274 @@ describe("git", () => {
       expect(cleanStatus.stdout).toBe("");
     });
   });
+
+  describe("git remote", () => {
+    it("should error when not in a repository", async () => {
+      const env = new Bash();
+      const result = await env.exec("git remote");
+      expect(result.stderr).toContain("not a git repository");
+      expect(result.exitCode).toBe(128);
+    });
+
+    it("should list no remotes in new repo", async () => {
+      const env = new Bash();
+      await env.exec("git init");
+      const result = await env.exec("git remote");
+      expect(result.stdout).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should add a remote", async () => {
+      const env = new Bash();
+      await env.exec("git init");
+      const result = await env.exec(
+        "git remote add origin https://example.com/repo.json",
+      );
+      expect(result.exitCode).toBe(0);
+
+      const listResult = await env.exec("git remote");
+      expect(listResult.stdout).toBe("origin\n");
+    });
+
+    it("should show remote URLs with -v", async () => {
+      const env = new Bash();
+      await env.exec("git init");
+      await env.exec("git remote add origin https://example.com/repo.json");
+      const result = await env.exec("git remote -v");
+      expect(result.stdout).toContain("origin");
+      expect(result.stdout).toContain("https://example.com/repo.json");
+      expect(result.stdout).toContain("(fetch)");
+      expect(result.stdout).toContain("(push)");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should error adding duplicate remote", async () => {
+      const env = new Bash();
+      await env.exec("git init");
+      await env.exec("git remote add origin https://example.com/repo.json");
+      const result = await env.exec(
+        "git remote add origin https://other.com/repo.json",
+      );
+      expect(result.stderr).toContain("already exists");
+      expect(result.exitCode).toBe(3);
+    });
+
+    it("should remove a remote", async () => {
+      const env = new Bash();
+      await env.exec("git init");
+      await env.exec("git remote add origin https://example.com/repo.json");
+      const result = await env.exec("git remote remove origin");
+      expect(result.exitCode).toBe(0);
+
+      const listResult = await env.exec("git remote");
+      expect(listResult.stdout).toBe("");
+    });
+
+    it("should error removing non-existent remote", async () => {
+      const env = new Bash();
+      await env.exec("git init");
+      const result = await env.exec("git remote remove origin");
+      expect(result.stderr).toContain("No such remote");
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should get remote URL", async () => {
+      const env = new Bash();
+      await env.exec("git init");
+      await env.exec("git remote add origin https://example.com/repo.json");
+      const result = await env.exec("git remote get-url origin");
+      expect(result.stdout).toBe("https://example.com/repo.json\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should set remote URL", async () => {
+      const env = new Bash();
+      await env.exec("git init");
+      await env.exec("git remote add origin https://example.com/repo.json");
+      await env.exec("git remote set-url origin https://new.com/repo.json");
+      const result = await env.exec("git remote get-url origin");
+      expect(result.stdout).toBe("https://new.com/repo.json\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should show help with --help", async () => {
+      const env = new Bash();
+      const result = await env.exec("git remote --help");
+      expect(result.stdout).toContain("Manage set of tracked repositories");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should error on unknown option", async () => {
+      const env = new Bash();
+      await env.exec("git init");
+      const result = await env.exec("git remote --unknown");
+      expect(result.stderr).toContain("unknown option");
+      expect(result.exitCode).toBe(129);
+    });
+  });
+
+  describe("git clone", () => {
+    it("should error without network access", async () => {
+      const env = new Bash();
+      const result = await env.exec("git clone https://example.com/repo.json");
+      expect(result.stderr).toContain("requires network access");
+      expect(result.exitCode).toBe(128);
+    });
+
+    it("should error without URL", async () => {
+      const env = new Bash({
+        network: { dangerouslyAllowFullInternetAccess: true },
+      });
+      const result = await env.exec("git clone");
+      expect(result.stderr).toContain("must specify a repository");
+      expect(result.exitCode).toBe(128);
+    });
+
+    it("should show help with --help", async () => {
+      const env = new Bash();
+      const result = await env.exec("git clone --help");
+      expect(result.stdout).toContain("Clone a repository");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should error on unknown option", async () => {
+      const env = new Bash({
+        network: { dangerouslyAllowFullInternetAccess: true },
+      });
+      const result = await env.exec(
+        "git clone --unknown https://example.com/repo.json",
+      );
+      expect(result.stderr).toContain("unknown option");
+      expect(result.exitCode).toBe(129);
+    });
+  });
+
+  describe("git fetch", () => {
+    it("should error without network access", async () => {
+      const env = new Bash();
+      await env.exec("git init");
+      const result = await env.exec("git fetch");
+      expect(result.stderr).toContain("requires network access");
+      expect(result.exitCode).toBe(128);
+    });
+
+    it("should error when not in a repository", async () => {
+      const env = new Bash({
+        network: { dangerouslyAllowFullInternetAccess: true },
+      });
+      const result = await env.exec("git fetch");
+      expect(result.stderr).toContain("not a git repository");
+      expect(result.exitCode).toBe(128);
+    });
+
+    it("should error without remotes configured", async () => {
+      const env = new Bash({
+        network: { dangerouslyAllowFullInternetAccess: true },
+      });
+      await env.exec("git init");
+      const result = await env.exec("git fetch");
+      expect(result.stderr).toContain("No remote repository configured");
+      expect(result.exitCode).toBe(128);
+    });
+
+    it("should show help with --help", async () => {
+      const env = new Bash();
+      const result = await env.exec("git fetch --help");
+      expect(result.stdout).toContain("Download objects and refs");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should error on unknown option", async () => {
+      const env = new Bash({
+        network: { dangerouslyAllowFullInternetAccess: true },
+      });
+      await env.exec("git init");
+      const result = await env.exec("git fetch --unknown");
+      expect(result.stderr).toContain("unknown option");
+      expect(result.exitCode).toBe(129);
+    });
+  });
+
+  describe("git pull", () => {
+    it("should error without network access", async () => {
+      const env = new Bash();
+      await env.exec("git init");
+      const result = await env.exec("git pull");
+      expect(result.stderr).toContain("requires network access");
+      expect(result.exitCode).toBe(128);
+    });
+
+    it("should error when not in a repository", async () => {
+      const env = new Bash({
+        network: { dangerouslyAllowFullInternetAccess: true },
+      });
+      const result = await env.exec("git pull");
+      expect(result.stderr).toContain("not a git repository");
+      expect(result.exitCode).toBe(128);
+    });
+
+    it("should show help with --help", async () => {
+      const env = new Bash();
+      const result = await env.exec("git pull --help");
+      expect(result.stdout).toContain("Fetch from and integrate");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should error on unknown option", async () => {
+      const env = new Bash({
+        network: { dangerouslyAllowFullInternetAccess: true },
+      });
+      await env.exec("git init");
+      const result = await env.exec("git pull --unknown");
+      expect(result.stderr).toContain("unknown option");
+      expect(result.exitCode).toBe(129);
+    });
+  });
+
+  describe("git push", () => {
+    it("should error without network access", async () => {
+      const env = new Bash();
+      await env.exec("git init");
+      const result = await env.exec("git push");
+      expect(result.stderr).toContain("requires network access");
+      expect(result.exitCode).toBe(128);
+    });
+
+    it("should error when not in a repository", async () => {
+      const env = new Bash({
+        network: { dangerouslyAllowFullInternetAccess: true },
+      });
+      const result = await env.exec("git push");
+      expect(result.stderr).toContain("not a git repository");
+      expect(result.exitCode).toBe(128);
+    });
+
+    it("should error without commits", async () => {
+      const env = new Bash({
+        network: { dangerouslyAllowFullInternetAccess: true },
+      });
+      await env.exec("git init");
+      await env.exec("git remote add origin https://example.com/repo.json");
+      const result = await env.exec("git push");
+      expect(result.stderr).toContain("src refspec does not match");
+      expect(result.exitCode).toBe(1);
+    });
+
+    it("should show help with --help", async () => {
+      const env = new Bash();
+      const result = await env.exec("git push --help");
+      expect(result.stdout).toContain("Update remote refs");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should error on unknown option", async () => {
+      const env = new Bash({
+        network: { dangerouslyAllowFullInternetAccess: true },
+      });
+      await env.exec("git init");
+      const result = await env.exec("git push --unknown");
+      expect(result.stderr).toContain("unknown option");
+      expect(result.exitCode).toBe(129);
+    });
+  });
 });
