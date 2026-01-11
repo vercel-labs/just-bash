@@ -30,6 +30,11 @@ export type {
   RmOptions,
   SymlinkEntry,
 } from "./fs/interface.js";
+export {
+  MountableFs,
+  type MountableFsOptions,
+  type MountConfig,
+} from "./fs/mountable-fs/index.js";
 export { OverlayFs, type OverlayFsOptions } from "./fs/overlay-fs/index.js";
 export {
   ReadWriteFs,

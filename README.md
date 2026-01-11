@@ -99,7 +99,7 @@ Custom commands receive the full `CommandContext` with access to `fs`, `cwd`, `e
 
 ### Filesystem Options
 
-Three filesystem implementations are available:
+Four filesystem implementations are available:
 
 **InMemoryFs** (default) - Pure in-memory filesystem, no disk access:
 
@@ -131,6 +131,39 @@ const rwfs = new ReadWriteFs({ root: "/path/to/sandbox" });
 const env = new Bash({ fs: rwfs });
 
 await env.exec('echo "hello" > file.txt'); // writes to real filesystem
+```
+
+**MountableFs** - Mount multiple filesystems at different paths. Combines read-only and read-write filesystems into a unified namespace:
+
+```typescript
+import { Bash } from "just-bash";
+import { MountableFs, InMemoryFs, OverlayFs, ReadWriteFs } from "just-bash";
+
+const fs = new MountableFs({ baseFs: new InMemoryFs() });
+
+// Mount read-only knowledge base
+fs.mount("/mnt/knowledge", new OverlayFs({ root: "/path/to/knowledge", readOnly: true }));
+
+// Mount read-write workspace
+fs.mount("/home/agent", new ReadWriteFs({ root: "/path/to/workspace" }));
+
+const bash = new Bash({ fs, cwd: "/home/agent" });
+
+await bash.exec("ls /mnt/knowledge"); // reads from knowledge base
+await bash.exec("cp /mnt/knowledge/doc.txt ./"); // cross-mount copy
+await bash.exec('echo "notes" > notes.txt'); // writes to workspace
+```
+
+You can also configure mounts in the constructor:
+
+```typescript
+const fs = new MountableFs({
+  baseFs: new InMemoryFs(),
+  mounts: [
+    { mountPoint: "/data", filesystem: new OverlayFs({ root: "/shared/data" }) },
+    { mountPoint: "/workspace", filesystem: new ReadWriteFs({ root: "/tmp/work" }) },
+  ],
+});
 ```
 
 ### AI SDK Tool
