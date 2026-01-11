@@ -29,6 +29,14 @@ describe("sqlite3", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it("should show help with -help (single dash)", async () => {
+      const env = new Bash();
+      const result = await env.exec("sqlite3 -help");
+      expect(result.stdout).toContain("sqlite3");
+      expect(result.stdout).toContain("DATABASE");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should execute multiple statements", async () => {
       const env = new Bash();
       const result = await env.exec(
@@ -90,7 +98,9 @@ describe("sqlite3", () => {
     it("should error on unknown option", async () => {
       const env = new Bash();
       const result = await env.exec('sqlite3 -unknown :memory: "SELECT 1"');
-      expect(result.stderr).toContain("unknown option: -unknown");
+      expect(result.stderr).toBe(
+        "sqlite3: Error: unknown option: -unknown\nUse -help for a list of options.\n",
+      );
       expect(result.exitCode).toBe(1);
     });
 

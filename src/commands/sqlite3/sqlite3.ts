@@ -207,8 +207,14 @@ function splitStatements(sql: string): string[] {
 
     if (inString) {
       current += char;
-      if (char === stringChar && sql[i - 1] !== "\\") {
-        inString = false;
+      if (char === stringChar) {
+        // SQL uses doubled quotes for escaping (e.g., 'it''s' or "he said ""hi""")
+        if (sql[i + 1] === stringChar) {
+          // Include the escaped quote and skip past it
+          current += sql[++i];
+        } else {
+          inString = false;
+        }
       }
     } else if (char === "'" || char === '"') {
       current += char;
@@ -246,7 +252,9 @@ export const sqlite3Command: Command = {
   name: "sqlite3",
 
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
-    if (hasHelpFlag(args)) return showHelp(sqlite3Help);
+    // Real sqlite3 accepts both -help and --help
+    if (hasHelpFlag(args) || args.includes("-help"))
+      return showHelp(sqlite3Help);
 
     const parsed = parseArgs(args);
     if ("exitCode" in parsed) return parsed;
@@ -341,8 +349,7 @@ export const sqlite3Command: Command = {
             const columns = columnInfo.map((c) => c.name);
 
             // Use raw mode to get arrays instead of objects
-            prepared.raw(true);
-            const rows = prepared.all() as unknown[][];
+            const rows = prepared.raw(true).all() as unknown[][];
 
             if (rows.length > 0 || options.header) {
               stdout += formatOutput(columns, rows, formatOptions);

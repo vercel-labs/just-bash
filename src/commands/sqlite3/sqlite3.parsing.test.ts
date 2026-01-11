@@ -54,6 +54,36 @@ describe("sqlite3 SQL parsing", () => {
       expect(result.stdout).toBe("1\n2\n");
       expect(result.exitCode).toBe(0);
     });
+
+    it("should handle SQL doubled-quote escaping with semicolons", async () => {
+      // This tests the SQL '' escaping - the semicolon inside should NOT split
+      const env = new Bash();
+      const result = await env.exec(
+        "sqlite3 :memory: \"CREATE TABLE t(x); INSERT INTO t VALUES('it''s;weird'); SELECT * FROM t\"",
+      );
+      expect(result.stdout).toBe("it's;weird\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle multiple SQL doubled quotes with semicolon", async () => {
+      // Multiple '' escapes, semicolon inside should NOT split
+      const env = new Bash();
+      const result = await env.exec(
+        "sqlite3 :memory: \"CREATE TABLE t(x); INSERT INTO t VALUES('a''b;c''d'); SELECT * FROM t\"",
+      );
+      expect(result.stdout).toBe("a'b;c'd\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle doubled quote at end of string followed by semicolon", async () => {
+      // Edge case: '' at end of string, then semicolon outside
+      const env = new Bash();
+      const result = await env.exec(
+        "sqlite3 :memory: \"CREATE TABLE t(x); INSERT INTO t VALUES('test'''); SELECT * FROM t\"",
+      );
+      expect(result.stdout).toBe("test'\n");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("quoted values", () => {

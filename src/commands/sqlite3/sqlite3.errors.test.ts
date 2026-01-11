@@ -6,28 +6,34 @@ describe("sqlite3 error handling", () => {
     it("should error when -separator is last argument", async () => {
       const env = new Bash();
       const result = await env.exec("sqlite3 :memory: -separator");
-      expect(result.stderr).toContain("missing argument to -separator");
+      expect(result.stderr).toBe(
+        "sqlite3: Error: missing argument to -separator\n",
+      );
       expect(result.exitCode).toBe(1);
     });
 
     it("should error when -newline is last argument", async () => {
       const env = new Bash();
       const result = await env.exec("sqlite3 :memory: -newline");
-      expect(result.stderr).toContain("missing argument to -newline");
+      expect(result.stderr).toBe(
+        "sqlite3: Error: missing argument to -newline\n",
+      );
       expect(result.exitCode).toBe(1);
     });
 
     it("should error when -nullvalue is last argument", async () => {
       const env = new Bash();
       const result = await env.exec("sqlite3 :memory: -nullvalue");
-      expect(result.stderr).toContain("missing argument to -nullvalue");
+      expect(result.stderr).toBe(
+        "sqlite3: Error: missing argument to -nullvalue\n",
+      );
       expect(result.exitCode).toBe(1);
     });
 
     it("should error when -cmd is last argument", async () => {
       const env = new Bash();
       const result = await env.exec("sqlite3 :memory: -cmd");
-      expect(result.stderr).toContain("missing argument to -cmd");
+      expect(result.stderr).toBe("sqlite3: Error: missing argument to -cmd\n");
       expect(result.exitCode).toBe(1);
     });
   });
@@ -98,8 +104,9 @@ describe("sqlite3 error handling", () => {
     it("should error on unknown short option", async () => {
       const env = new Bash();
       const result = await env.exec('sqlite3 -xyz :memory: "SELECT 1"');
-      // Real sqlite3 format: "unknown option: -xyz"
-      expect(result.stderr).toContain("unknown option: -xyz");
+      expect(result.stderr).toBe(
+        "sqlite3: Error: unknown option: -xyz\nUse -help for a list of options.\n",
+      );
       expect(result.exitCode).toBe(1);
     });
 
@@ -107,7 +114,9 @@ describe("sqlite3 error handling", () => {
       const env = new Bash();
       const result = await env.exec('sqlite3 --xyz :memory: "SELECT 1"');
       // Real sqlite3 treats --xyz as -xyz
-      expect(result.stderr).toContain("unknown option: -xyz");
+      expect(result.stderr).toBe(
+        "sqlite3: Error: unknown option: -xyz\nUse -help for a list of options.\n",
+      );
       expect(result.exitCode).toBe(1);
     });
   });
