@@ -88,7 +88,8 @@ export type CommandName =
   | "gunzip"
   | "zcat"
   | "yq"
-  | "xan";
+  | "xan"
+  | "sqlite3";
 
 /** Network command names (only available when network is configured) */
 export type NetworkCommandName = "curl";
@@ -450,6 +451,10 @@ if (typeof __BROWSER__ === "undefined" || !__BROWSER__) {
   commandLoaders.push({
     name: "xan" as CommandName,
     load: async () => (await import("./xan/xan.js")).xanCommand,
+  });
+  commandLoaders.push({
+    name: "sqlite3" as CommandName,
+    load: async () => (await import("./sqlite3/sqlite3.js")).sqlite3Command,
   });
 }
 

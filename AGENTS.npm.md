@@ -70,7 +70,9 @@ const result = await bash.exec("cat input.txt | grep pattern");
 
 ## Available Commands
 
-**Text processing**: `awk`, `cat`, `column`, `comm`, `cut`, `egrep`, `expand`, `fgrep`, `fold`, `grep`, `head`, `join`, `jq`, `nl`, `paste`, `rev`, `sed`, `sort`, `strings`, `tac`, `tail`, `tr`, `unexpand`, `uniq`, `wc`, `xan`, `xargs`, `yq`
+**Text processing**: `awk`, `cat`, `column`, `comm`, `cut`, `egrep`, `expand`, `fgrep`, `fold`, `grep`, `head`, `join`, `nl`, `paste`, `rev`, `sed`, `sort`, `strings`, `tac`, `tail`, `tr`, `unexpand`, `uniq`, `wc`, `xargs`
+
+**Data processing**: `jq` (JSON), `sqlite3` (SQLite), `xan` (CSV), `yq` (YAML/XML/TOML/CSV)
 
 **File operations**: `basename`, `chmod`, `cp`, `dirname`, `du`, `file`, `find`, `ln`, `ls`, `mkdir`, `mv`, `od`, `pwd`, `readlink`, `rm`, `split`, `stat`, `touch`, `tree`
 

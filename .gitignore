@@ -13,3 +13,4 @@ profile-*.mjs
 bench-*.mjs
 todo/
 *.parsed.json
+.pnpm-store
