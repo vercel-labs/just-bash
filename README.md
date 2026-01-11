@@ -136,10 +136,11 @@ await env.exec('echo "hello" > file.txt'); // writes to real filesystem
 **MountableFs** - Mount multiple filesystems at different paths. Combines read-only and read-write filesystems into a unified namespace:
 
 ```typescript
-import { Bash } from "just-bash";
-import { MountableFs, InMemoryFs, OverlayFs, ReadWriteFs } from "just-bash";
+import { Bash, MountableFs, InMemoryFs } from "just-bash";
+import { OverlayFs } from "just-bash/fs/overlay-fs";
+import { ReadWriteFs } from "just-bash/fs/read-write-fs";
 
-const fs = new MountableFs({ baseFs: new InMemoryFs() });
+const fs = new MountableFs({ base: new InMemoryFs() });
 
 // Mount read-only knowledge base
 fs.mount("/mnt/knowledge", new OverlayFs({ root: "/path/to/knowledge", readOnly: true }));
@@ -157,8 +158,12 @@ await bash.exec('echo "notes" > notes.txt'); // writes to workspace
 You can also configure mounts in the constructor:
 
 ```typescript
+import { MountableFs, InMemoryFs } from "just-bash";
+import { OverlayFs } from "just-bash/fs/overlay-fs";
+import { ReadWriteFs } from "just-bash/fs/read-write-fs";
+
 const fs = new MountableFs({
-  baseFs: new InMemoryFs(),
+  base: new InMemoryFs(),
   mounts: [
     { mountPoint: "/data", filesystem: new OverlayFs({ root: "/shared/data" }) },
     { mountPoint: "/workspace", filesystem: new ReadWriteFs({ root: "/tmp/work" }) },
