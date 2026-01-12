@@ -2,6 +2,12 @@ import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { matchGlob } from "../../utils/glob.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
+/** File entry with optional type info from glob expansion */
+interface FileEntry {
+  path: string;
+  isFile?: boolean; // undefined means we need to stat
+}
+
 const grepHelp = {
   name: "grep",
   summary: "print lines that match patterns",
@@ -254,19 +260,21 @@ export const grepCommand: Command = {
     let anyError = false;
 
     // Collect all files to search (expand globs first)
-    const filesToSearch: string[] = [];
+    // FileEntry includes type info when available to skip stat calls
+    const filesToSearch: FileEntry[] = [];
     for (const file of files) {
       // Check if this is a glob pattern
       if (file.includes("*") || file.includes("?") || file.includes("[")) {
-        const expanded = await expandGlobPattern(file, ctx);
+        const expanded = await expandGlobPatternWithTypes(file, ctx);
         if (recursive) {
           for (const f of expanded) {
-            const recursiveExpanded = await expandRecursive(
-              f,
+            const recursiveExpanded = await expandRecursiveWithTypes(
+              f.path,
               ctx,
               includePatterns,
               excludePatterns,
               excludeDirPatterns,
+              f.isFile,
             );
             filesToSearch.push(...recursiveExpanded);
           }
@@ -274,7 +282,7 @@ export const grepCommand: Command = {
           filesToSearch.push(...expanded);
         }
       } else if (recursive) {
-        const expanded = await expandRecursive(
+        const expanded = await expandRecursiveWithTypes(
           file,
           ctx,
           includePatterns,
@@ -283,63 +291,101 @@ export const grepCommand: Command = {
         );
         filesToSearch.push(...expanded);
       } else {
-        filesToSearch.push(file);
+        filesToSearch.push({ path: file });
       }
     }
 
     // Determine if we should show filename (after glob expansion)
     const showFilename = (filesToSearch.length > 1 || recursive) && !noFilename;
 
-    for (const file of filesToSearch) {
-      const basename = file.split("/").pop() || file;
+    // Process files in parallel batches for better performance
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < filesToSearch.length; i += BATCH_SIZE) {
+      const batch = filesToSearch.slice(i, i + BATCH_SIZE);
 
-      // Check exclude patterns for non-recursive case
-      if (excludePatterns.length > 0 && !recursive) {
-        if (
-          excludePatterns.some((p) =>
-            matchGlob(basename, p, { stripQuotes: true }),
-          )
-        ) {
-          continue;
-        }
-      }
+      // Process batch in parallel
+      const results = await Promise.all(
+        batch.map(async (fileEntry) => {
+          const file = fileEntry.path;
+          const basename = file.split("/").pop() || file;
 
-      // Check include patterns for non-recursive case
-      if (includePatterns.length > 0 && !recursive) {
-        if (
-          !includePatterns.some((p) =>
-            matchGlob(basename, p, { stripQuotes: true }),
-          )
-        ) {
-          continue;
-        }
-      }
+          // Check exclude patterns for non-recursive case
+          if (excludePatterns.length > 0 && !recursive) {
+            if (
+              excludePatterns.some((p) =>
+                matchGlob(basename, p, { stripQuotes: true }),
+              )
+            ) {
+              return null;
+            }
+          }
 
-      try {
-        const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-        const stat = await ctx.fs.stat(filePath);
+          // Check include patterns for non-recursive case
+          if (includePatterns.length > 0 && !recursive) {
+            if (
+              !includePatterns.some((p) =>
+                matchGlob(basename, p, { stripQuotes: true }),
+              )
+            ) {
+              return null;
+            }
+          }
 
-        if (stat.isDirectory) {
-          if (!recursive) {
-            stderr += `grep: ${file}: Is a directory\n`;
+          try {
+            const filePath = ctx.fs.resolvePath(ctx.cwd, file);
+
+            // Skip stat if we already know it's a file from glob expansion
+            let isDirectory = false;
+            if (fileEntry.isFile === undefined) {
+              const stat = await ctx.fs.stat(filePath);
+              isDirectory = stat.isDirectory;
+            } else {
+              isDirectory = !fileEntry.isFile;
+            }
+
+            if (isDirectory) {
+              if (!recursive) {
+                return { error: `grep: ${file}: Is a directory\n` };
+              }
+              return null;
+            }
+
+            const content = await ctx.fs.readFile(filePath);
+            const result = grepContent(
+              content,
+              regex,
+              invertMatch,
+              showLineNumbers,
+              countOnly,
+              showFilename ? file : "",
+              onlyMatching,
+              beforeContext,
+              afterContext,
+              maxCount,
+            );
+
+            return { file, result };
+          } catch {
+            return { error: `grep: ${file}: No such file or directory\n` };
+          }
+        }),
+      );
+
+      // Process results from batch
+      for (const res of results) {
+        if (res === null) continue;
+
+        if ("error" in res && res.error) {
+          stderr += res.error;
+          if (!res.error.includes("Is a directory")) {
+            anyError = true;
           }
           continue;
         }
 
-        const content = await ctx.fs.readFile(filePath);
-        const result = grepContent(
-          content,
-          regex,
-          invertMatch,
-          showLineNumbers,
-          countOnly,
-          showFilename ? file : "",
-          onlyMatching,
-          beforeContext,
-          afterContext,
-          maxCount,
-        );
+        if (!("file" in res) || !res.result) continue;
 
+        const { file, result } = res;
         if (result.matched) {
           anyMatch = true;
           if (quietMode) {
@@ -359,9 +405,6 @@ export const grepCommand: Command = {
             stdout += result.output;
           }
         }
-      } catch {
-        stderr += `grep: ${file}: No such file or directory\n`;
-        anyError = true;
       }
     }
 
@@ -584,128 +627,6 @@ function grepContent(
   };
 }
 
-async function expandRecursive(
-  path: string,
-  ctx: CommandContext,
-  includePatterns: string[] = [],
-  excludePatterns: string[] = [],
-  excludeDirPatterns: string[] = [],
-): Promise<string[]> {
-  const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
-  const result: string[] = [];
-
-  try {
-    const stat = await ctx.fs.stat(fullPath);
-
-    if (!stat.isDirectory) {
-      const basename = path.split("/").pop() || path;
-
-      // Check exclude patterns - skip if file matches any exclude pattern
-      if (excludePatterns.length > 0) {
-        if (
-          excludePatterns.some((p) =>
-            matchGlob(basename, p, { stripQuotes: true }),
-          )
-        ) {
-          return [];
-        }
-      }
-
-      // Check include patterns - file must match at least one pattern (if any are specified)
-      if (includePatterns.length > 0) {
-        if (
-          !includePatterns.some((p) =>
-            matchGlob(basename, p, { stripQuotes: true }),
-          )
-        ) {
-          return [];
-        }
-      }
-      return [path];
-    }
-
-    // Check if directory should be excluded
-    const dirName = path.split("/").pop() || path;
-    if (excludeDirPatterns.length > 0) {
-      if (
-        excludeDirPatterns.some((p) =>
-          matchGlob(dirName, p, { stripQuotes: true }),
-        )
-      ) {
-        return [];
-      }
-    }
-
-    const entries = await ctx.fs.readdir(fullPath);
-    for (const entry of entries) {
-      if (entry.startsWith(".")) continue; // Skip hidden files
-
-      const entryPath = path === "." ? entry : `${path}/${entry}`;
-      const expanded = await expandRecursive(
-        entryPath,
-        ctx,
-        includePatterns,
-        excludePatterns,
-        excludeDirPatterns,
-      );
-      result.push(...expanded);
-    }
-  } catch {
-    // Ignore errors
-  }
-
-  return result;
-}
-
-async function expandGlobPattern(
-  pattern: string,
-  ctx: CommandContext,
-): Promise<string[]> {
-  const result: string[] = [];
-
-  // Find the directory part and the glob part
-  const lastSlash = pattern.lastIndexOf("/");
-  let dirPath: string;
-  let globPart: string;
-
-  if (lastSlash === -1) {
-    dirPath = ctx.cwd;
-    globPart = pattern;
-  } else {
-    dirPath = pattern.slice(0, lastSlash) || "/";
-    globPart = pattern.slice(lastSlash + 1);
-  }
-
-  // Handle ** (recursive glob)
-  if (pattern.includes("**")) {
-    // Split pattern at **
-    const parts = pattern.split("**");
-    const baseDir = parts[0].replace(/\/$/, "") || ".";
-    const afterGlob = parts[1] || "";
-
-    await expandRecursiveGlob(baseDir, afterGlob, ctx, result);
-    return result;
-  }
-
-  // Resolve the directory path
-  const fullDirPath = ctx.fs.resolvePath(ctx.cwd, dirPath);
-
-  try {
-    const entries = await ctx.fs.readdir(fullDirPath);
-
-    for (const entry of entries) {
-      if (matchGlob(entry, globPart, { stripQuotes: true })) {
-        const fullPath = lastSlash === -1 ? entry : `${dirPath}/${entry}`;
-        result.push(fullPath);
-      }
-    }
-  } catch {
-    // Directory doesn't exist - return empty
-  }
-
-  return result.sort();
-}
-
 async function expandRecursiveGlob(
   baseDir: string,
   afterGlob: string,
@@ -750,6 +671,185 @@ async function expandRecursiveGlob(
   } catch {
     // Ignore errors
   }
+}
+
+/**
+ * Optimized glob expansion that returns FileEntry with type info
+ * Uses readdirWithFileTypes when available to avoid stat calls
+ */
+async function expandGlobPatternWithTypes(
+  pattern: string,
+  ctx: CommandContext,
+): Promise<FileEntry[]> {
+  const result: FileEntry[] = [];
+
+  // Find the directory part and the glob part
+  const lastSlash = pattern.lastIndexOf("/");
+  let dirPath: string;
+  let globPart: string;
+
+  if (lastSlash === -1) {
+    dirPath = ctx.cwd;
+    globPart = pattern;
+  } else {
+    dirPath = pattern.slice(0, lastSlash) || "/";
+    globPart = pattern.slice(lastSlash + 1);
+  }
+
+  // Handle ** (recursive glob) - fall back to old method
+  if (pattern.includes("**")) {
+    const oldResult: string[] = [];
+    const parts = pattern.split("**");
+    const baseDir = parts[0].replace(/\/$/, "") || ".";
+    const afterGlob = parts[1] || "";
+    await expandRecursiveGlob(baseDir, afterGlob, ctx, oldResult);
+    return oldResult.map((p) => ({ path: p }));
+  }
+
+  // Resolve the directory path
+  const fullDirPath = ctx.fs.resolvePath(ctx.cwd, dirPath);
+
+  try {
+    // Use readdirWithFileTypes if available for better performance
+    if (ctx.fs.readdirWithFileTypes) {
+      const entries = await ctx.fs.readdirWithFileTypes(fullDirPath);
+      for (const entry of entries) {
+        if (matchGlob(entry.name, globPart, { stripQuotes: true })) {
+          const fullPath =
+            lastSlash === -1 ? entry.name : `${dirPath}/${entry.name}`;
+          result.push({
+            path: fullPath,
+            isFile: entry.isFile,
+          });
+        }
+      }
+    } else {
+      // Fall back to regular readdir
+      const entries = await ctx.fs.readdir(fullDirPath);
+      for (const entry of entries) {
+        if (matchGlob(entry, globPart, { stripQuotes: true })) {
+          const fullPath = lastSlash === -1 ? entry : `${dirPath}/${entry}`;
+          result.push({ path: fullPath });
+        }
+      }
+    }
+  } catch {
+    // Directory doesn't exist - return empty
+  }
+
+  return result.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * Optimized recursive expansion that returns FileEntry with type info
+ * Uses readdirWithFileTypes when available to avoid stat calls
+ */
+async function expandRecursiveWithTypes(
+  path: string,
+  ctx: CommandContext,
+  includePatterns: string[] = [],
+  excludePatterns: string[] = [],
+  excludeDirPatterns: string[] = [],
+  knownIsFile?: boolean,
+): Promise<FileEntry[]> {
+  const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
+  const result: FileEntry[] = [];
+
+  try {
+    // Determine if it's a file or directory
+    let isFile: boolean;
+    let isDirectory: boolean;
+
+    if (knownIsFile !== undefined) {
+      isFile = knownIsFile;
+      isDirectory = !knownIsFile;
+    } else {
+      const stat = await ctx.fs.stat(fullPath);
+      isFile = stat.isFile;
+      isDirectory = stat.isDirectory;
+    }
+
+    if (isFile) {
+      const basename = path.split("/").pop() || path;
+
+      // Check exclude patterns
+      if (excludePatterns.length > 0) {
+        if (
+          excludePatterns.some((p) =>
+            matchGlob(basename, p, { stripQuotes: true }),
+          )
+        ) {
+          return [];
+        }
+      }
+
+      // Check include patterns
+      if (includePatterns.length > 0) {
+        if (
+          !includePatterns.some((p) =>
+            matchGlob(basename, p, { stripQuotes: true }),
+          )
+        ) {
+          return [];
+        }
+      }
+      return [{ path, isFile: true }];
+    }
+
+    if (!isDirectory) {
+      return [];
+    }
+
+    // Check if directory should be excluded
+    const dirName = path.split("/").pop() || path;
+    if (excludeDirPatterns.length > 0) {
+      if (
+        excludeDirPatterns.some((p) =>
+          matchGlob(dirName, p, { stripQuotes: true }),
+        )
+      ) {
+        return [];
+      }
+    }
+
+    // Use readdirWithFileTypes if available
+    if (ctx.fs.readdirWithFileTypes) {
+      const entries = await ctx.fs.readdirWithFileTypes(fullPath);
+      for (const entry of entries) {
+        if (entry.name.startsWith(".")) continue; // Skip hidden files
+
+        const entryPath = path === "." ? entry.name : `${path}/${entry.name}`;
+        const expanded = await expandRecursiveWithTypes(
+          entryPath,
+          ctx,
+          includePatterns,
+          excludePatterns,
+          excludeDirPatterns,
+          entry.isFile,
+        );
+        result.push(...expanded);
+      }
+    } else {
+      const entries = await ctx.fs.readdir(fullPath);
+      for (const entry of entries) {
+        if (entry.startsWith(".")) continue; // Skip hidden files
+
+        const entryPath = path === "." ? entry : `${path}/${entry}`;
+        const expanded = await expandRecursiveWithTypes(
+          entryPath,
+          ctx,
+          includePatterns,
+          excludePatterns,
+          excludeDirPatterns,
+        );
+        result.push(...expanded);
+      }
+    }
+  } catch {
+    // Ignore errors
+  }
+
+  return result;
 }
 
 // fgrep is equivalent to grep -F

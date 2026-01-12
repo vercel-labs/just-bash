@@ -6,6 +6,7 @@
 
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { readFiles } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import {
   type EvaluateOptions,
@@ -151,27 +152,34 @@ export const jqCommand: Command = {
       }
     }
 
-    let input: string;
+    // Build list of inputs: stdin or files
+    let inputs: { source: string; content: string }[] = [];
     if (nullInput) {
-      input = "";
+      // No input
     } else if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-      input = ctx.stdin;
+      inputs.push({ source: "stdin", content: ctx.stdin });
     } else {
-      try {
-        const filePath = ctx.fs.resolvePath(ctx.cwd, files[0]);
-        input = await ctx.fs.readFile(filePath);
-      } catch {
+      // Read all files in parallel using shared utility
+      const result = await readFiles(ctx, files, {
+        cmdName: "jq",
+        stopOnError: true,
+      });
+      if (result.exitCode !== 0) {
         return {
           stdout: "",
-          stderr: `jq: ${files[0]}: No such file or directory\n`,
-          exitCode: 2,
+          stderr: result.stderr,
+          exitCode: 2, // jq uses exit code 2 for file errors
         };
       }
+      inputs = result.files.map((f) => ({
+        source: f.filename || "stdin",
+        content: f.content,
+      }));
     }
 
     try {
       const ast = parse(filter);
-      let values: QueryValue[];
+      let values: QueryValue[] = [];
 
       const evalOptions: EvaluateOptions = {
         limits: ctx.limits
@@ -183,21 +191,39 @@ export const jqCommand: Command = {
       if (nullInput) {
         values = evaluate(null, ast, evalOptions);
       } else if (slurp) {
+        // Slurp mode: combine all inputs into single array
         const items: QueryValue[] = [];
-        for (const line of input.trim().split("\n")) {
-          if (line.trim()) items.push(JSON.parse(line));
+        for (const { content } of inputs) {
+          for (const line of content.trim().split("\n")) {
+            if (line.trim()) items.push(JSON.parse(line));
+          }
         }
         values = evaluate(items, ast, evalOptions);
       } else {
-        const trimmed = input.trim();
-        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-          values = evaluate(JSON.parse(trimmed), ast, evalOptions);
-        } else {
-          values = [];
+        // Helper to parse content line by line (for NDJSON or non-JSON-object/array files)
+        const parseLineByLine = (trimmed: string): void => {
           for (const line of trimmed.split("\n")) {
             if (line.trim()) {
               values.push(...evaluate(JSON.parse(line), ast, evalOptions));
             }
+          }
+        };
+
+        // Process each input file separately
+        for (const { content } of inputs) {
+          const trimmed = content.trim();
+          if (!trimmed) continue;
+
+          if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            // Try to parse as single JSON value first
+            try {
+              values.push(...evaluate(JSON.parse(trimmed), ast, evalOptions));
+            } catch {
+              // If that fails (e.g., NDJSON file), parse line by line
+              parseLineByLine(trimmed);
+            }
+          } else {
+            parseLineByLine(trimmed);
           }
         }
       }

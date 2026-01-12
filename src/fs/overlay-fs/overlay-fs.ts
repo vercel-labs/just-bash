@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import type {
   CpOptions,
+  DirentEntry,
   FsStat,
   IFileSystem,
   MkdirOptions,
@@ -612,14 +613,19 @@ export class OverlayFs implements IFileSystem {
     this.deleted.delete(normalized);
   }
 
-  async readdir(path: string): Promise<string[]> {
-    const normalized = this.normalizePath(path);
-
+  /**
+   * Core readdir implementation that returns entries with file types.
+   * Both readdir and readdirWithFileTypes use this shared implementation.
+   */
+  private async readdirCore(
+    path: string,
+    normalized: string,
+  ): Promise<Map<string, DirentEntry>> {
     if (this.deleted.has(normalized)) {
       throw new Error(`ENOENT: no such file or directory, scandir '${path}'`);
     }
 
-    const entries = new Set<string>();
+    const entriesMap = new Map<string, DirentEntry>();
     const deletedChildren = new Set<string>();
 
     // Collect deleted entries that are direct children of this path
@@ -634,26 +640,42 @@ export class OverlayFs implements IFileSystem {
       }
     }
 
-    // Add entries from memory layer
-    for (const memPath of this.memory.keys()) {
+    // Add entries from memory layer (with type info)
+    for (const [memPath, entry] of this.memory) {
       if (memPath === normalized) continue;
       if (memPath.startsWith(prefix)) {
         const rest = memPath.slice(prefix.length);
         const name = rest.split("/")[0];
-        if (name && !deletedChildren.has(name)) {
-          entries.add(name);
+        if (name && !deletedChildren.has(name) && !rest.includes("/", 1)) {
+          // Direct child
+          entriesMap.set(name, {
+            name,
+            isFile: entry.type === "file",
+            isDirectory: entry.type === "directory",
+            isSymbolicLink: entry.type === "symlink",
+          });
         }
       }
     }
 
-    // Add entries from real filesystem
+    // Add entries from real filesystem with file types
     const realPath = this.toRealPath(normalized);
     if (realPath) {
       try {
-        const realEntries = await fs.promises.readdir(realPath);
-        for (const name of realEntries) {
-          if (!deletedChildren.has(name)) {
-            entries.add(name);
+        const realEntries = await fs.promises.readdir(realPath, {
+          withFileTypes: true,
+        });
+        for (const dirent of realEntries) {
+          if (
+            !deletedChildren.has(dirent.name) &&
+            !entriesMap.has(dirent.name)
+          ) {
+            entriesMap.set(dirent.name, {
+              name: dirent.name,
+              isFile: dirent.isFile(),
+              isDirectory: dirent.isDirectory(),
+              isSymbolicLink: dirent.isSymbolicLink(),
+            });
           }
         }
       } catch (e) {
@@ -670,7 +692,25 @@ export class OverlayFs implements IFileSystem {
       }
     }
 
-    return Array.from(entries).sort();
+    return entriesMap;
+  }
+
+  async readdir(path: string): Promise<string[]> {
+    const normalized = this.normalizePath(path);
+    const entriesMap = await this.readdirCore(path, normalized);
+    // Sort using case-sensitive comparison to match native behavior
+    return Array.from(entriesMap.keys()).sort((a, b) =>
+      a < b ? -1 : a > b ? 1 : 0,
+    );
+  }
+
+  async readdirWithFileTypes(path: string): Promise<DirentEntry[]> {
+    const normalized = this.normalizePath(path);
+    const entriesMap = await this.readdirCore(path, normalized);
+    // Sort using case-sensitive comparison to match native behavior
+    return Array.from(entriesMap.values()).sort((a, b) =>
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+    );
   }
 
   async rm(path: string, options?: RmOptions): Promise<void> {

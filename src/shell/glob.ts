@@ -9,6 +9,7 @@
  */
 
 import type { IFileSystem } from "../fs/interface.js";
+import { DEFAULT_BATCH_SIZE } from "../utils/constants.js";
 
 export class GlobExpander {
   constructor(
@@ -29,23 +30,33 @@ export class GlobExpander {
    * @param quotedFlags - Optional array indicating which args were quoted (should not expand)
    */
   async expandArgs(args: string[], quotedFlags?: boolean[]): Promise<string[]> {
-    const result: string[] = [];
-
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      const isQuoted = quotedFlags?.[i] ?? false;
-
-      // Skip glob expansion for quoted arguments
-      if (isQuoted || !this.isGlobPattern(arg)) {
-        result.push(arg);
-      } else {
-        const expanded = await this.expand(arg);
-        if (expanded.length > 0) {
-          result.push(...expanded);
-        } else {
-          // If no matches, keep the original pattern (bash default behavior)
-          result.push(arg);
+    // Identify which args need glob expansion
+    const expansionPromises: (Promise<string[]> | null)[] = args.map(
+      (arg, i) => {
+        const isQuoted = quotedFlags?.[i] ?? false;
+        if (isQuoted || !this.isGlobPattern(arg)) {
+          return null; // No expansion needed
         }
+        return this.expand(arg);
+      },
+    );
+
+    // Run all glob expansions in parallel
+    const expandedResults = await Promise.all(
+      expansionPromises.map((p) => (p ? p : Promise.resolve(null))),
+    );
+
+    // Build result array preserving order
+    const result: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const expanded = expandedResults[i];
+      if (expanded === null) {
+        result.push(args[i]);
+      } else if (expanded.length > 0) {
+        result.push(...expanded);
+      } else {
+        // If no matches, keep the original pattern (bash default behavior)
+        result.push(args[i]);
       }
     }
 
@@ -133,26 +144,91 @@ export class GlobExpander {
     const fullPath = this.fs.resolvePath(this.cwd, dir);
 
     try {
-      const entries = await this.fs.readdir(fullPath);
+      // Use readdirWithFileTypes if available to avoid stat calls
+      if (this.fs.readdirWithFileTypes) {
+        const entriesWithTypes = await this.fs.readdirWithFileTypes(fullPath);
 
-      for (const entry of entries) {
-        const entryPath = dir === "." ? entry : `${dir}/${entry}`;
-        const fullEntryPath = this.fs.resolvePath(this.cwd, entryPath);
+        // Separate files and directories
+        const files: string[] = [];
+        const dirs: string[] = [];
 
-        try {
-          const stat = await this.fs.stat(fullEntryPath);
+        for (const entry of entriesWithTypes) {
+          const entryPath = dir === "." ? entry.name : `${dir}/${entry.name}`;
+          if (entry.isDirectory) {
+            dirs.push(entryPath);
+          } else if (
+            filePattern &&
+            this.matchPattern(entry.name, filePattern)
+          ) {
+            files.push(entryPath);
+          }
+        }
 
-          if (stat.isDirectory) {
-            // Recurse into subdirectories
-            await this.walkDirectory(entryPath, filePattern, results);
-          } else if (filePattern) {
-            // Check if file matches pattern
-            if (this.matchPattern(entry, filePattern)) {
-              results.push(entryPath);
+        // Add matched files to results
+        results.push(...files);
+
+        // Process directories in parallel batches
+        for (let i = 0; i < dirs.length; i += DEFAULT_BATCH_SIZE) {
+          const batch = dirs.slice(i, i + DEFAULT_BATCH_SIZE);
+          await Promise.all(
+            batch.map((dirPath) =>
+              this.walkDirectory(dirPath, filePattern, results),
+            ),
+          );
+        }
+      } else {
+        // Fall back to readdir + parallel stat
+        const entries = await this.fs.readdir(fullPath);
+
+        // Get entry info in parallel batches
+        interface EntryInfo {
+          name: string;
+          path: string;
+          isDirectory: boolean;
+        }
+        const entryInfos: EntryInfo[] = [];
+
+        for (let i = 0; i < entries.length; i += DEFAULT_BATCH_SIZE) {
+          const batch = entries.slice(i, i + DEFAULT_BATCH_SIZE);
+          const batchResults = await Promise.all(
+            batch.map(async (entry) => {
+              const entryPath = dir === "." ? entry : `${dir}/${entry}`;
+              const fullEntryPath = this.fs.resolvePath(this.cwd, entryPath);
+              try {
+                const stat = await this.fs.stat(fullEntryPath);
+                return {
+                  name: entry,
+                  path: entryPath,
+                  isDirectory: stat.isDirectory,
+                };
+              } catch {
+                return null;
+              }
+            }),
+          );
+          entryInfos.push(
+            ...(batchResults.filter((r) => r !== null) as EntryInfo[]),
+          );
+        }
+
+        // Process files
+        for (const entry of entryInfos) {
+          if (!entry.isDirectory && filePattern) {
+            if (this.matchPattern(entry.name, filePattern)) {
+              results.push(entry.path);
             }
           }
-        } catch {
-          // Ignore errors for individual entries
+        }
+
+        // Recurse into directories in parallel batches
+        const dirs = entryInfos.filter((e) => e.isDirectory);
+        for (let i = 0; i < dirs.length; i += DEFAULT_BATCH_SIZE) {
+          const batch = dirs.slice(i, i + DEFAULT_BATCH_SIZE);
+          await Promise.all(
+            batch.map((entry) =>
+              this.walkDirectory(entry.path, filePattern, results),
+            ),
+          );
         }
       }
     } catch {

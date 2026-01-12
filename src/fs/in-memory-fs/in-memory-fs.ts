@@ -2,6 +2,7 @@ import type {
   BufferEncoding,
   CpOptions,
   DirectoryEntry,
+  DirentEntry,
   FileContent,
   FileEntry,
   FileInit,
@@ -368,6 +369,11 @@ export class InMemoryFs implements IFileSystem {
   }
 
   async readdir(path: string): Promise<string[]> {
+    const entries = await this.readdirWithFileTypes(path);
+    return entries.map((e) => e.name);
+  }
+
+  async readdirWithFileTypes(path: string): Promise<DirentEntry[]> {
     const normalized = this.normalizePath(path);
     const entry = this.data.get(normalized);
 
@@ -379,20 +385,29 @@ export class InMemoryFs implements IFileSystem {
     }
 
     const prefix = normalized === "/" ? "/" : `${normalized}/`;
-    const entries: string[] = [];
+    const entriesMap = new Map<string, DirentEntry>();
 
-    for (const p of this.data.keys()) {
+    for (const [p, fsEntry] of this.data.entries()) {
       if (p === normalized) continue;
       if (p.startsWith(prefix)) {
         const rest = p.slice(prefix.length);
         const name = rest.split("/")[0];
-        if (name && !entries.includes(name)) {
-          entries.push(name);
+        // Only add direct children (no nested paths)
+        if (name && !rest.includes("/", name.length) && !entriesMap.has(name)) {
+          entriesMap.set(name, {
+            name,
+            isFile: fsEntry.type === "file",
+            isDirectory: fsEntry.type === "directory",
+            isSymbolicLink: fsEntry.type === "symlink",
+          });
         }
       }
     }
 
-    return entries.sort();
+    // Sort using default string comparison (case-sensitive) to match readdir behavior
+    return Array.from(entriesMap.values()).sort((a, b) =>
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+    );
   }
 
   async rm(path: string, options?: RmOptions): Promise<void> {

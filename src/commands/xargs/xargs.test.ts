@@ -90,6 +90,104 @@ describe("xargs command", () => {
     });
   });
 
+  describe("-d option (custom delimiter)", () => {
+    it("should split on custom delimiter", async () => {
+      const env = new Bash();
+      const result = await env.exec('echo "a:b:c" | xargs -d : echo');
+      expect(result.stdout).toBe("a b c\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle newline delimiter with escape sequence", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo -e \"file1.txt\\nfile2.txt\\nfile3.txt\" | xargs -d '\\n' echo",
+      );
+      expect(result.stdout).toBe("file1.txt file2.txt file3.txt\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle tab delimiter with escape sequence", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "printf \"a\\tb\\tc\" | xargs -d '\\t' echo",
+      );
+      expect(result.stdout).toBe("a b c\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with -n option for batching", async () => {
+      const env = new Bash();
+      const result = await env.exec('echo "a:b:c:d:e" | xargs -d : -n 2 echo');
+      expect(result.stdout).toBe("a b\nc d\ne\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with -I option for replacement", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        'echo "x:y:z" | xargs -d : -I {} echo "item: {}"',
+      );
+      expect(result.stdout).toBe("item: x\nitem: y\nitem: z\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should preserve spaces in items when using delimiter", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        'echo "hello world:foo bar:test" | xargs -d : -n 1 echo',
+      );
+      expect(result.stdout).toBe("hello world\nfoo bar\ntest\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle empty items", async () => {
+      const env = new Bash();
+      const result = await env.exec('echo "a::b" | xargs -d : echo');
+      // Empty items are filtered out
+      expect(result.stdout).toBe("a b\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle backslash escape", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo \"a\\\\b\\\\c\" | xargs -d '\\\\' echo",
+      );
+      expect(result.stdout).toBe("a b c\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with file operations", async () => {
+      const env = new Bash({
+        files: {
+          "/data/file1.txt": "content1",
+          "/data/file2.txt": "content2",
+          "/data/file3.txt": "content3",
+        },
+      });
+      const result = await env.exec(
+        'echo "/data/file1.txt:/data/file2.txt:/data/file3.txt" | xargs -d : cat',
+      );
+      expect(result.stdout).toBe("content1content2content3");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with find output (newline separated)", async () => {
+      const env = new Bash({
+        files: {
+          "/src/a.ts": "const a = 1;",
+          "/src/b.ts": "const b = 2;",
+        },
+      });
+      const result = await env.exec(
+        "find /src -name '*.ts' | xargs -d '\\n' wc -l",
+      );
+      expect(result.stdout).toContain("total");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
   describe("-t option (verbose)", () => {
     it("should print commands to stderr", async () => {
       const env = new Bash();

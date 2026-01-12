@@ -224,3 +224,89 @@ describe("InMemoryFs Buffer and Encoding Support", () => {
     });
   });
 });
+
+describe("InMemoryFs readdirWithFileTypes", () => {
+  it("should return entries with correct type info", async () => {
+    const fs = new InMemoryFs({
+      "/dir/file.txt": "content",
+      "/dir/subdir/nested.txt": "nested",
+    });
+
+    const entries = await fs.readdirWithFileTypes("/dir");
+
+    expect(entries).toHaveLength(2);
+
+    const file = entries.find((e) => e.name === "file.txt");
+    expect(file).toBeDefined();
+    expect(file?.isFile).toBe(true);
+    expect(file?.isDirectory).toBe(false);
+    expect(file?.isSymbolicLink).toBe(false);
+
+    const subdir = entries.find((e) => e.name === "subdir");
+    expect(subdir).toBeDefined();
+    expect(subdir?.isFile).toBe(false);
+    expect(subdir?.isDirectory).toBe(true);
+    expect(subdir?.isSymbolicLink).toBe(false);
+  });
+
+  it("should return entries sorted case-sensitively", async () => {
+    const fs = new InMemoryFs({
+      "/dir/Zebra.txt": "z",
+      "/dir/apple.txt": "a",
+      "/dir/Banana.txt": "b",
+    });
+
+    const entries = await fs.readdirWithFileTypes("/dir");
+    const names = entries.map((e) => e.name);
+
+    // Case-sensitive sort: uppercase before lowercase
+    expect(names).toEqual(["Banana.txt", "Zebra.txt", "apple.txt"]);
+  });
+
+  it("should identify symlinks correctly", async () => {
+    const fs = new InMemoryFs({
+      "/dir/real.txt": "content",
+    });
+    await fs.symlink("/dir/real.txt", "/dir/link.txt");
+
+    const entries = await fs.readdirWithFileTypes("/dir");
+
+    const link = entries.find((e) => e.name === "link.txt");
+    expect(link).toBeDefined();
+    expect(link?.isFile).toBe(false);
+    expect(link?.isDirectory).toBe(false);
+    expect(link?.isSymbolicLink).toBe(true);
+  });
+
+  it("should throw ENOENT for non-existent directory", async () => {
+    const fs = new InMemoryFs();
+
+    await expect(fs.readdirWithFileTypes("/nonexistent")).rejects.toThrow(
+      "ENOENT",
+    );
+  });
+
+  it("should throw ENOTDIR for file path", async () => {
+    const fs = new InMemoryFs({
+      "/file.txt": "content",
+    });
+
+    await expect(fs.readdirWithFileTypes("/file.txt")).rejects.toThrow(
+      "ENOTDIR",
+    );
+  });
+
+  it("should return same names as readdir", async () => {
+    const fs = new InMemoryFs({
+      "/dir/a.txt": "a",
+      "/dir/b.txt": "b",
+      "/dir/sub/c.txt": "c",
+    });
+
+    const namesFromReaddir = await fs.readdir("/dir");
+    const entriesWithTypes = await fs.readdirWithFileTypes("/dir");
+    const namesFromWithTypes = entriesWithTypes.map((e) => e.name);
+
+    expect(namesFromWithTypes).toEqual(namesFromReaddir);
+  });
+});

@@ -76,6 +76,166 @@ describe("jq", () => {
     });
   });
 
+  describe("multi-file input", () => {
+    it("should process multiple files", async () => {
+      const env = new Bash({
+        files: {
+          "/a.json": '{"name":"alice"}',
+          "/b.json": '{"name":"bob"}',
+          "/c.json": '{"name":"charlie"}',
+        },
+      });
+      const result = await env.exec("jq '.name' /a.json /b.json /c.json");
+      expect(result.stdout).toBe('"alice"\n"bob"\n"charlie"\n');
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should process many files in parallel", async () => {
+      // Create 10 files to test batched parallel reading
+      const files: Record<string, string> = {};
+      for (let i = 0; i < 10; i++) {
+        files[`/data/file${i}.json`] = JSON.stringify({ id: i, value: i * 10 });
+      }
+      const env = new Bash({ files });
+
+      const filePaths = Object.keys(files).join(" ");
+      const result = await env.exec(`jq '.id' ${filePaths}`);
+      expect(result.stdout).toBe("0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should error on first missing file", async () => {
+      const env = new Bash({
+        files: {
+          "/a.json": '{"x":1}',
+          "/c.json": '{"x":3}',
+        },
+      });
+      const result = await env.exec("jq '.x' /a.json /missing.json /c.json");
+      expect(result.stderr).toBe(
+        "jq: /missing.json: No such file or directory\n",
+      );
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should handle files with different JSON structures", async () => {
+      const env = new Bash({
+        files: {
+          "/obj.json": '{"type":"object","value":42}',
+          "/arr.json": "[1,2,3]",
+          "/str.json": '"hello"',
+        },
+      });
+      const result = await env.exec("jq 'type' /obj.json /arr.json /str.json");
+      expect(result.stdout).toBe('"object"\n"array"\n"string"\n');
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle NDJSON files with multiple JSON values per file", async () => {
+      const env = new Bash({
+        files: {
+          "/file1.ndjson": '{"id":1}\n{"id":2}',
+          "/file2.ndjson": '{"id":3}\n{"id":4}',
+        },
+      });
+      const result = await env.exec("jq '.id' /file1.ndjson /file2.ndjson");
+      expect(result.stdout).toBe("1\n2\n3\n4\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with -r flag across multiple files", async () => {
+      const env = new Bash({
+        files: {
+          "/a.json": '{"msg":"hello"}',
+          "/b.json": '{"msg":"world"}',
+        },
+      });
+      const result = await env.exec("jq -r '.msg' /a.json /b.json");
+      expect(result.stdout).toBe("hello\nworld\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with -c flag across multiple files", async () => {
+      const env = new Bash({
+        files: {
+          "/a.json": '{"x":1,"y":2}',
+          "/b.json": '{"a":"b","c":"d"}',
+        },
+      });
+      const result = await env.exec("jq -c '.' /a.json /b.json");
+      expect(result.stdout).toBe('{"x":1,"y":2}\n{"a":"b","c":"d"}\n');
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with filter that produces multiple outputs per file", async () => {
+      const env = new Bash({
+        files: {
+          "/a.json": '{"items":["x","y"]}',
+          "/b.json": '{"items":["z"]}',
+        },
+      });
+      const result = await env.exec("jq '.items[]' /a.json /b.json");
+      expect(result.stdout).toBe('"x"\n"y"\n"z"\n');
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle stdin marker with other files", async () => {
+      const env = new Bash({
+        files: {
+          "/file.json": '{"from":"file"}',
+        },
+      });
+      const result = await env.exec(
+        'echo \'{"from":"stdin"}\' | jq ".from" - /file.json',
+      );
+      expect(result.stdout).toBe('"stdin"\n"file"\n');
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with glob patterns via shell expansion", async () => {
+      const env = new Bash({
+        files: {
+          "/data/a.json": '{"n":1}',
+          "/data/b.json": '{"n":2}',
+          "/data/c.json": '{"n":3}',
+        },
+      });
+      const result = await env.exec("jq '.n' /data/*.json");
+      // Files are processed in glob order (usually alphabetical)
+      expect(result.stdout).toBe("1\n2\n3\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with find | xargs pattern", async () => {
+      const env = new Bash({
+        files: {
+          "/repo/issues/1.json": '{"author":"alice"}',
+          "/repo/issues/2.json": '{"author":"bob"}',
+          "/repo/pulls/1.json": '{"author":"charlie"}',
+        },
+      });
+      const result = await env.exec(
+        "find /repo -name '*.json' | sort | xargs jq -r '.author'",
+      );
+      expect(result.stdout).toBe("alice\nbob\ncharlie\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle empty files gracefully", async () => {
+      const env = new Bash({
+        files: {
+          "/a.json": '{"x":1}',
+          "/empty.json": "",
+          "/b.json": '{"x":2}',
+        },
+      });
+      // Empty files should be skipped (no output, no error)
+      const result = await env.exec("jq '.x' /a.json /empty.json /b.json");
+      expect(result.stdout).toBe("1\n2\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
   describe("error handling", () => {
     it("should error on invalid JSON", async () => {
       const env = new Bash();

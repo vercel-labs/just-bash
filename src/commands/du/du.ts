@@ -1,5 +1,6 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
+import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const duHelp = {
@@ -120,49 +121,123 @@ async function calculateSize(
       return result;
     }
 
-    // Directory
-    const entries = await ctx.fs.readdir(fullPath);
+    // Directory - use readdirWithFileTypes if available for better performance
     let dirSize = 0;
 
-    for (const entry of entries) {
-      const entryPath = fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
-      const entryDisplayPath =
-        displayPath === "." ? entry : `${displayPath}/${entry}`;
+    // Get entries with type info if possible
+    interface EntryInfo {
+      name: string;
+      isDirectory: boolean;
+      size?: number;
+    }
+    const entryInfos: EntryInfo[] = [];
 
-      try {
-        const entryStat = await ctx.fs.stat(entryPath);
+    if (ctx.fs.readdirWithFileTypes) {
+      const entriesWithTypes = await ctx.fs.readdirWithFileTypes(fullPath);
+      // For files, we still need stat to get size, but we know directories
+      const fileEntries = entriesWithTypes.filter((e) => e.isFile);
+      const dirEntries = entriesWithTypes.filter((e) => e.isDirectory);
 
-        if (entryStat.isDirectory) {
-          const subResult = await calculateSize(
-            ctx,
-            entryPath,
-            entryDisplayPath,
-            options,
-            depth + 1,
-          );
-          dirSize += subResult.totalSize;
-
-          // Only output subdirectories if not summarizing and within depth limit
-          if (!options.summarize) {
-            if (options.maxDepth === null || depth + 1 <= options.maxDepth) {
-              result.output += subResult.output;
-            } else {
-              // Still need to count the size even if not displaying
-              dirSize += 0; // Size already counted
+      // Parallel stat for files to get sizes
+      for (let i = 0; i < fileEntries.length; i += DEFAULT_BATCH_SIZE) {
+        const batch = fileEntries.slice(i, i + DEFAULT_BATCH_SIZE);
+        const stats = await Promise.all(
+          batch.map(async (e) => {
+            const entryPath =
+              fullPath === "/" ? `/${e.name}` : `${fullPath}/${e.name}`;
+            try {
+              const s = await ctx.fs.stat(entryPath);
+              return { name: e.name, isDirectory: false, size: s.size };
+            } catch {
+              return { name: e.name, isDirectory: false, size: 0 };
             }
-          }
-        } else {
-          dirSize += entryStat.size;
-          if (options.allFiles && !options.summarize) {
-            result.output +=
-              formatSize(entryStat.size, options.humanReadable) +
-              "\t" +
-              entryDisplayPath +
-              "\n";
+          }),
+        );
+        entryInfos.push(...stats);
+      }
+
+      // Add directory entries (size will be calculated recursively)
+      entryInfos.push(
+        ...dirEntries.map((e) => ({ name: e.name, isDirectory: true })),
+      );
+    } else {
+      // Fall back to readdir + parallel stat
+      const entries = await ctx.fs.readdir(fullPath);
+      for (let i = 0; i < entries.length; i += DEFAULT_BATCH_SIZE) {
+        const batch = entries.slice(i, i + DEFAULT_BATCH_SIZE);
+        const stats = await Promise.all(
+          batch.map(async (entry) => {
+            const entryPath =
+              fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
+            try {
+              const s = await ctx.fs.stat(entryPath);
+              return {
+                name: entry,
+                isDirectory: s.isDirectory,
+                size: s.isDirectory ? undefined : s.size,
+              };
+            } catch {
+              return { name: entry, isDirectory: false, size: 0 };
+            }
+          }),
+        );
+        entryInfos.push(...stats);
+      }
+    }
+
+    // Sort entries for consistent output
+    entryInfos.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Process files first (simple size addition)
+    const fileInfos = entryInfos.filter((e) => !e.isDirectory);
+    for (const file of fileInfos) {
+      const size = file.size ?? 0;
+      dirSize += size;
+      if (options.allFiles && !options.summarize) {
+        const entryDisplayPath =
+          displayPath === "." ? file.name : `${displayPath}/${file.name}`;
+        result.output +=
+          formatSize(size, options.humanReadable) +
+          "\t" +
+          entryDisplayPath +
+          "\n";
+      }
+    }
+
+    // Process directories in parallel batches
+    const dirInfos = entryInfos.filter((e) => e.isDirectory);
+    for (let i = 0; i < dirInfos.length; i += DEFAULT_BATCH_SIZE) {
+      const batch = dirInfos.slice(i, i + DEFAULT_BATCH_SIZE);
+      const subResults = await Promise.all(
+        batch.map(async (dir) => {
+          const entryPath =
+            fullPath === "/" ? `/${dir.name}` : `${fullPath}/${dir.name}`;
+          const entryDisplayPath =
+            displayPath === "." ? dir.name : `${displayPath}/${dir.name}`;
+          return {
+            name: dir.name,
+            result: await calculateSize(
+              ctx,
+              entryPath,
+              entryDisplayPath,
+              options,
+              depth + 1,
+            ),
+          };
+        }),
+      );
+
+      // Sort results for consistent order
+      subResults.sort((a, b) => a.name.localeCompare(b.name));
+
+      for (const { result: subResult } of subResults) {
+        dirSize += subResult.totalSize;
+        // Only output subdirectories if not summarizing and within depth limit
+        if (!options.summarize) {
+          if (options.maxDepth === null || depth + 1 <= options.maxDepth) {
+            result.output += subResult.output;
           }
         }
-      } catch {
-        // Skip entries we can't read
       }
     }
 

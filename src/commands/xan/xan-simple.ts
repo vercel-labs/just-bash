@@ -3,8 +3,15 @@
  */
 
 import type { CommandContext, ExecResult } from "../../types.js";
+import { readFiles } from "../../utils/file-reader.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
-import { type CsvData, type CsvRow, formatCsv, readCsvInput } from "./csv.js";
+import {
+  type CsvData,
+  type CsvRow,
+  formatCsv,
+  parseCsv,
+  readCsvInput,
+} from "./csv.js";
 import { parseNamedExpressions } from "./moonblade-parser.js";
 import { moonbladeToJq } from "./moonblade-to-jq.js";
 
@@ -137,17 +144,25 @@ export async function cmdCat(
     };
   }
 
-  // Read all files
+  // Read all files in parallel
+  const result = await readFiles(ctx, fileArgs, {
+    cmdName: "xan cat",
+    stopOnError: true,
+  });
+  if (result.exitCode !== 0) {
+    return { stdout: "", stderr: result.stderr, exitCode: result.exitCode };
+  }
+
+  // Parse CSVs and collect headers
   const allFiles: { headers: string[]; data: CsvData }[] = [];
   let allHeaders: string[] = [];
 
-  for (const file of fileArgs) {
-    const result = await readCsvInput([file], ctx);
-    if (result.error) return result.error;
-    allFiles.push({ headers: result.headers, data: result.data });
+  for (const { content } of result.files) {
+    const { headers, data } = parseCsv(content);
+    allFiles.push({ headers, data });
 
     // Collect all unique headers
-    for (const h of result.headers) {
+    for (const h of headers) {
       if (!allHeaders.includes(h)) {
         allHeaders.push(h);
       }

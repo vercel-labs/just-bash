@@ -9,8 +9,10 @@
  *   cat script.sh | pnpm dev:exec
  *
  * Options:
- *   --no-ast      Disable AST output
+ *   --print-ast   Show the parsed AST
  *   --real-bash   Also run the script with real bash for comparison
+ *   --root <path> Use OverlayFS with specified root directory
+ *   --no-limit    Remove execution limits (for large scripts)
  *
  * Output:
  *   - AST: The parsed Abstract Syntax Tree as JSON (unless --no-ast)
@@ -21,11 +23,21 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 import { Bash } from "../Bash.js";
+import { OverlayFs } from "../fs/overlay-fs/index.js";
 import { parse } from "../parser/parser.js";
 
 const showAst = process.argv.includes("--print-ast");
 const runRealBash = process.argv.includes("--real-bash");
+const noLimit = process.argv.includes("--no-limit");
+
+// Parse --root option
+let rootPath: string | undefined;
+const rootIndex = process.argv.indexOf("--root");
+if (rootIndex !== -1 && rootIndex + 1 < process.argv.length) {
+  rootPath = resolve(process.argv[rootIndex + 1]);
+}
 
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
@@ -66,7 +78,27 @@ if (showAst) {
   console.log("AST: Request with --print-ast");
 }
 
-const env = new Bash();
+// Create Bash environment with optional OverlayFS
+// Use high limits for dev:exec (typical use is exploration of large filesystems)
+const executionLimits = noLimit
+  ? {
+      maxCommandCount: Number.MAX_SAFE_INTEGER,
+      maxLoopIterations: Number.MAX_SAFE_INTEGER,
+    }
+  : {
+      maxCommandCount: 100000, // Higher default for dev:exec
+      maxLoopIterations: 100000,
+    };
+
+let env: Bash;
+if (rootPath) {
+  const fs = new OverlayFs({ root: rootPath });
+  const mountPoint = fs.getMountPoint();
+  env = new Bash({ fs, cwd: mountPoint, executionLimits });
+  console.log(`OverlayFS: ${rootPath} mounted at ${mountPoint}`);
+} else {
+  env = new Bash({ executionLimits });
+}
 const r = await env.exec(script);
 console.log("exitCode:", r.exitCode);
 console.log("stderr:", JSON.stringify(r.stderr));
