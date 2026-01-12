@@ -1,5 +1,6 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
+import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const duHelp = {
@@ -122,7 +123,6 @@ async function calculateSize(
 
     // Directory - use readdirWithFileTypes if available for better performance
     let dirSize = 0;
-    const BATCH_SIZE = 100;
 
     // Get entries with type info if possible
     interface EntryInfo {
@@ -139,8 +139,8 @@ async function calculateSize(
       const dirEntries = entriesWithTypes.filter((e) => e.isDirectory);
 
       // Parallel stat for files to get sizes
-      for (let i = 0; i < fileEntries.length; i += BATCH_SIZE) {
-        const batch = fileEntries.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < fileEntries.length; i += DEFAULT_BATCH_SIZE) {
+        const batch = fileEntries.slice(i, i + DEFAULT_BATCH_SIZE);
         const stats = await Promise.all(
           batch.map(async (e) => {
             const entryPath =
@@ -163,8 +163,8 @@ async function calculateSize(
     } else {
       // Fall back to readdir + parallel stat
       const entries = await ctx.fs.readdir(fullPath);
-      for (let i = 0; i < entries.length; i += BATCH_SIZE) {
-        const batch = entries.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < entries.length; i += DEFAULT_BATCH_SIZE) {
+        const batch = entries.slice(i, i + DEFAULT_BATCH_SIZE);
         const stats = await Promise.all(
           batch.map(async (entry) => {
             const entryPath =
@@ -206,8 +206,8 @@ async function calculateSize(
 
     // Process directories in parallel batches
     const dirInfos = entryInfos.filter((e) => e.isDirectory);
-    for (let i = 0; i < dirInfos.length; i += BATCH_SIZE) {
-      const batch = dirInfos.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < dirInfos.length; i += DEFAULT_BATCH_SIZE) {
+      const batch = dirInfos.slice(i, i + DEFAULT_BATCH_SIZE);
       const subResults = await Promise.all(
         batch.map(async (dir) => {
           const entryPath =

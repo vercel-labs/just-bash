@@ -9,6 +9,7 @@
  */
 
 import type { IFileSystem } from "../fs/interface.js";
+import { DEFAULT_BATCH_SIZE } from "../utils/constants.js";
 
 export class GlobExpander {
   constructor(
@@ -141,7 +142,6 @@ export class GlobExpander {
     results: string[],
   ): Promise<void> {
     const fullPath = this.fs.resolvePath(this.cwd, dir);
-    const BATCH_SIZE = 100;
 
     try {
       // Use readdirWithFileTypes if available to avoid stat calls
@@ -168,8 +168,8 @@ export class GlobExpander {
         results.push(...files);
 
         // Process directories in parallel batches
-        for (let i = 0; i < dirs.length; i += BATCH_SIZE) {
-          const batch = dirs.slice(i, i + BATCH_SIZE);
+        for (let i = 0; i < dirs.length; i += DEFAULT_BATCH_SIZE) {
+          const batch = dirs.slice(i, i + DEFAULT_BATCH_SIZE);
           await Promise.all(
             batch.map((dirPath) =>
               this.walkDirectory(dirPath, filePattern, results),
@@ -188,8 +188,8 @@ export class GlobExpander {
         }
         const entryInfos: EntryInfo[] = [];
 
-        for (let i = 0; i < entries.length; i += BATCH_SIZE) {
-          const batch = entries.slice(i, i + BATCH_SIZE);
+        for (let i = 0; i < entries.length; i += DEFAULT_BATCH_SIZE) {
+          const batch = entries.slice(i, i + DEFAULT_BATCH_SIZE);
           const batchResults = await Promise.all(
             batch.map(async (entry) => {
               const entryPath = dir === "." ? entry : `${dir}/${entry}`;
@@ -222,8 +222,8 @@ export class GlobExpander {
 
         // Recurse into directories in parallel batches
         const dirs = entryInfos.filter((e) => e.isDirectory);
-        for (let i = 0; i < dirs.length; i += BATCH_SIZE) {
-          const batch = dirs.slice(i, i + BATCH_SIZE);
+        for (let i = 0; i < dirs.length; i += DEFAULT_BATCH_SIZE) {
+          const batch = dirs.slice(i, i + DEFAULT_BATCH_SIZE);
           await Promise.all(
             batch.map((entry) =>
               this.walkDirectory(entry.path, filePattern, results),

@@ -6,7 +6,7 @@
 
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { batchReadFiles } from "../../utils/batched-read.js";
+import { readFiles } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import {
   type EvaluateOptions,
@@ -160,11 +160,21 @@ export const jqCommand: Command = {
       inputs.push({ source: "stdin", content: ctx.stdin });
     } else {
       // Read all files in parallel using shared utility
-      const { results, error } = await batchReadFiles(files, ctx, {
+      const result = await readFiles(ctx, files, {
         cmdName: "jq",
+        stopOnError: true,
       });
-      if (error) return error;
-      inputs = results.map((r) => ({ source: r.source, content: r.content }));
+      if (result.exitCode !== 0) {
+        return {
+          stdout: "",
+          stderr: result.stderr,
+          exitCode: 2, // jq uses exit code 2 for file errors
+        };
+      }
+      inputs = result.files.map((f) => ({
+        source: f.filename || "stdin",
+        content: f.content,
+      }));
     }
 
     try {
@@ -190,19 +200,19 @@ export const jqCommand: Command = {
         }
         values = evaluate(items, ast, evalOptions);
       } else {
+        // Helper to parse content line by line (for NDJSON or non-JSON-object/array files)
+        const parseLineByLine = (trimmed: string): void => {
+          for (const line of trimmed.split("\n")) {
+            if (line.trim()) {
+              values.push(...evaluate(JSON.parse(line), ast, evalOptions));
+            }
+          }
+        };
+
         // Process each input file separately
         for (const { content } of inputs) {
           const trimmed = content.trim();
           if (!trimmed) continue;
-
-          // Helper to parse file line by line (for NDJSON or non-JSON-object/array files)
-          const parseLineByLine = () => {
-            for (const line of trimmed.split("\n")) {
-              if (line.trim()) {
-                values.push(...evaluate(JSON.parse(line), ast, evalOptions));
-              }
-            }
-          };
 
           if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
             // Try to parse as single JSON value first
@@ -210,10 +220,10 @@ export const jqCommand: Command = {
               values.push(...evaluate(JSON.parse(trimmed), ast, evalOptions));
             } catch {
               // If that fails (e.g., NDJSON file), parse line by line
-              parseLineByLine();
+              parseLineByLine(trimmed);
             }
           } else {
-            parseLineByLine();
+            parseLineByLine(trimmed);
           }
         }
       }

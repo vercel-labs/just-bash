@@ -1,10 +1,12 @@
 /**
  * File reading utilities for command implementations.
  *
- * Provides common patterns for reading from files or stdin.
+ * Provides common patterns for reading from files or stdin,
+ * including parallel batch reading for performance.
  */
 
 import type { CommandContext, ExecResult } from "../types.js";
+import { DEFAULT_BATCH_SIZE } from "./constants.js";
 
 export interface ReadFilesOptions {
   /** Command name for error messages */
@@ -13,6 +15,8 @@ export interface ReadFilesOptions {
   allowStdinMarker?: boolean;
   /** If true, stop on first error. If false, collect errors and continue */
   stopOnError?: boolean;
+  /** Number of files to read in parallel (default: 100). Set to 1 for sequential. */
+  batchSize?: number;
 }
 
 export interface FileContent {
@@ -51,7 +55,12 @@ export async function readFiles(
   files: string[],
   options: ReadFilesOptions,
 ): Promise<ReadFilesResult> {
-  const { cmdName, allowStdinMarker = true, stopOnError = false } = options;
+  const {
+    cmdName,
+    allowStdinMarker = true,
+    stopOnError = false,
+    batchSize = DEFAULT_BATCH_SIZE,
+  } = options;
 
   // No files - read from stdin
   if (files.length === 0) {
@@ -66,21 +75,38 @@ export async function readFiles(
   let stderr = "";
   let exitCode = 0;
 
-  for (const file of files) {
-    if (allowStdinMarker && file === "-") {
-      result.push({ filename: "-", content: ctx.stdin });
-      continue;
-    }
+  // Process files in parallel batches for better performance
+  for (let i = 0; i < files.length; i += batchSize) {
+    const batch = files.slice(i, i + batchSize);
+    const batchResults = await Promise.all(
+      batch.map(async (file) => {
+        if (allowStdinMarker && file === "-") {
+          return { filename: "-", content: ctx.stdin, error: null };
+        }
+        try {
+          const filePath = ctx.fs.resolvePath(ctx.cwd, file);
+          const content = await ctx.fs.readFile(filePath);
+          return { filename: file, content, error: null };
+        } catch {
+          return {
+            filename: file,
+            content: "",
+            error: `${cmdName}: ${file}: No such file or directory\n`,
+          };
+        }
+      }),
+    );
 
-    try {
-      const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-      const content = await ctx.fs.readFile(filePath);
-      result.push({ filename: file, content });
-    } catch {
-      stderr += `${cmdName}: ${file}: No such file or directory\n`;
-      exitCode = 1;
-      if (stopOnError) {
-        return { files: result, stderr, exitCode };
+    // Process results in order
+    for (const r of batchResults) {
+      if (r.error) {
+        stderr += r.error;
+        exitCode = 1;
+        if (stopOnError) {
+          return { files: result, stderr, exitCode };
+        }
+      } else {
+        result.push({ filename: r.filename, content: r.content });
       }
     }
   }

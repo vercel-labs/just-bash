@@ -613,4 +613,115 @@ describe("OverlayFs", () => {
       expect(result.stdout).toContain("memory.txt");
     });
   });
+
+  describe("readdirWithFileTypes", () => {
+    it("should return entries with correct type info from real fs", async () => {
+      fs.writeFileSync(path.join(tempDir, "file.txt"), "content");
+      fs.mkdirSync(path.join(tempDir, "subdir"));
+
+      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const entries = await overlay.readdirWithFileTypes("/");
+
+      const file = entries.find((e) => e.name === "file.txt");
+      expect(file).toBeDefined();
+      expect(file?.isFile).toBe(true);
+      expect(file?.isDirectory).toBe(false);
+
+      const subdir = entries.find((e) => e.name === "subdir");
+      expect(subdir).toBeDefined();
+      expect(subdir?.isFile).toBe(false);
+      expect(subdir?.isDirectory).toBe(true);
+    });
+
+    it("should include memory layer entries with correct types", async () => {
+      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+
+      await overlay.writeFile("/memory.txt", "memory content");
+      await overlay.mkdir("/memdir");
+
+      const entries = await overlay.readdirWithFileTypes("/");
+
+      const file = entries.find((e) => e.name === "memory.txt");
+      expect(file).toBeDefined();
+      expect(file?.isFile).toBe(true);
+
+      const dir = entries.find((e) => e.name === "memdir");
+      expect(dir).toBeDefined();
+      expect(dir?.isDirectory).toBe(true);
+    });
+
+    it("should merge real and memory entries", async () => {
+      fs.writeFileSync(path.join(tempDir, "real.txt"), "real");
+
+      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      await overlay.writeFile("/memory.txt", "memory");
+
+      const entries = await overlay.readdirWithFileTypes("/");
+      const names = entries.map((e) => e.name);
+
+      expect(names).toContain("real.txt");
+      expect(names).toContain("memory.txt");
+    });
+
+    it("should hide deleted files", async () => {
+      fs.writeFileSync(path.join(tempDir, "a.txt"), "a");
+      fs.writeFileSync(path.join(tempDir, "b.txt"), "b");
+
+      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      await overlay.rm("/a.txt");
+
+      const entries = await overlay.readdirWithFileTypes("/");
+      const names = entries.map((e) => e.name);
+
+      expect(names).not.toContain("a.txt");
+      expect(names).toContain("b.txt");
+    });
+
+    it("should return entries sorted case-sensitively", async () => {
+      fs.writeFileSync(path.join(tempDir, "Zebra.txt"), "z");
+      fs.writeFileSync(path.join(tempDir, "apple.txt"), "a");
+      fs.writeFileSync(path.join(tempDir, "Banana.txt"), "b");
+
+      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const entries = await overlay.readdirWithFileTypes("/");
+      const names = entries.map((e) => e.name);
+
+      // Case-sensitive sort: uppercase before lowercase
+      expect(names).toEqual(["Banana.txt", "Zebra.txt", "apple.txt"]);
+    });
+
+    it("should identify symlinks in memory layer", async () => {
+      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      await overlay.writeFile("/real.txt", "content");
+      await overlay.symlink("/real.txt", "/link.txt");
+
+      const entries = await overlay.readdirWithFileTypes("/");
+
+      const link = entries.find((e) => e.name === "link.txt");
+      expect(link).toBeDefined();
+      expect(link?.isSymbolicLink).toBe(true);
+    });
+
+    it("should throw ENOENT for non-existent directory", async () => {
+      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+
+      await expect(
+        overlay.readdirWithFileTypes("/nonexistent"),
+      ).rejects.toThrow("ENOENT");
+    });
+
+    it("should return same names as readdir", async () => {
+      fs.writeFileSync(path.join(tempDir, "a.txt"), "a");
+      fs.mkdirSync(path.join(tempDir, "sub"));
+
+      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      await overlay.writeFile("/b.txt", "b");
+
+      const namesFromReaddir = await overlay.readdir("/");
+      const entriesWithTypes = await overlay.readdirWithFileTypes("/");
+      const namesFromWithTypes = entriesWithTypes.map((e) => e.name);
+
+      expect(namesFromWithTypes).toEqual(namesFromReaddir);
+    });
+  });
 });

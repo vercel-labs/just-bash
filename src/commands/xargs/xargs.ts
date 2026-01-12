@@ -126,9 +126,11 @@ export const xargsCommand: Command = {
     // Helper to quote an argument if it contains special characters
     const quoteArg = (arg: string): string => {
       // If arg contains spaces, quotes, or shell metacharacters, quote it
-      if (/[\s"'\\$`!*?[\]{}();&|<>]/.test(arg)) {
-        // Use double quotes and escape internal double quotes and backslashes
-        return `"${arg.replace(/([\\"])/g, "\\$1")}"`;
+      // Note: \s includes spaces, tabs, and newlines
+      if (/[\s"'\\$`!*?[\]{}();&|<>#]/.test(arg)) {
+        // Use double quotes and escape characters that are special inside double quotes:
+        // backslash, double quote, dollar sign, and backtick
+        return `"${arg.replace(/([\\"`$])/g, "\\$1")}"`;
       }
       return arg;
     };

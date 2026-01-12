@@ -511,4 +511,90 @@ describe("ReadWriteFs", () => {
       expect(content).toBe("Hello");
     });
   });
+
+  describe("readdirWithFileTypes", () => {
+    it("should return entries with correct type info", async () => {
+      const rwfs = new ReadWriteFs({ root: tempDir });
+
+      fs.writeFileSync(path.join(tempDir, "file.txt"), "content");
+      fs.mkdirSync(path.join(tempDir, "subdir"));
+
+      const entries = await rwfs.readdirWithFileTypes("/");
+
+      const file = entries.find((e) => e.name === "file.txt");
+      expect(file).toBeDefined();
+      expect(file?.isFile).toBe(true);
+      expect(file?.isDirectory).toBe(false);
+      expect(file?.isSymbolicLink).toBe(false);
+
+      const subdir = entries.find((e) => e.name === "subdir");
+      expect(subdir).toBeDefined();
+      expect(subdir?.isFile).toBe(false);
+      expect(subdir?.isDirectory).toBe(true);
+      expect(subdir?.isSymbolicLink).toBe(false);
+    });
+
+    it("should return entries sorted case-sensitively", async () => {
+      const rwfs = new ReadWriteFs({ root: tempDir });
+
+      fs.writeFileSync(path.join(tempDir, "Zebra.txt"), "z");
+      fs.writeFileSync(path.join(tempDir, "apple.txt"), "a");
+      fs.writeFileSync(path.join(tempDir, "Banana.txt"), "b");
+
+      const entries = await rwfs.readdirWithFileTypes("/");
+      const names = entries.map((e) => e.name);
+
+      // Case-sensitive sort: uppercase before lowercase
+      expect(names).toEqual(["Banana.txt", "Zebra.txt", "apple.txt"]);
+    });
+
+    it("should identify symlinks correctly", async () => {
+      const rwfs = new ReadWriteFs({ root: tempDir });
+
+      fs.writeFileSync(path.join(tempDir, "real.txt"), "content");
+      fs.symlinkSync(
+        path.join(tempDir, "real.txt"),
+        path.join(tempDir, "link.txt"),
+      );
+
+      const entries = await rwfs.readdirWithFileTypes("/");
+
+      const link = entries.find((e) => e.name === "link.txt");
+      expect(link).toBeDefined();
+      expect(link?.isFile).toBe(false);
+      expect(link?.isDirectory).toBe(false);
+      expect(link?.isSymbolicLink).toBe(true);
+    });
+
+    it("should throw ENOENT for non-existent directory", async () => {
+      const rwfs = new ReadWriteFs({ root: tempDir });
+
+      await expect(rwfs.readdirWithFileTypes("/nonexistent")).rejects.toThrow(
+        "ENOENT",
+      );
+    });
+
+    it("should throw ENOTDIR for file path", async () => {
+      const rwfs = new ReadWriteFs({ root: tempDir });
+      fs.writeFileSync(path.join(tempDir, "file.txt"), "content");
+
+      await expect(rwfs.readdirWithFileTypes("/file.txt")).rejects.toThrow(
+        "ENOTDIR",
+      );
+    });
+
+    it("should return same names as readdir", async () => {
+      const rwfs = new ReadWriteFs({ root: tempDir });
+
+      fs.writeFileSync(path.join(tempDir, "a.txt"), "a");
+      fs.writeFileSync(path.join(tempDir, "b.txt"), "b");
+      fs.mkdirSync(path.join(tempDir, "sub"));
+
+      const namesFromReaddir = await rwfs.readdir("/");
+      const entriesWithTypes = await rwfs.readdirWithFileTypes("/");
+      const namesFromWithTypes = entriesWithTypes.map((e) => e.name);
+
+      expect(namesFromWithTypes).toEqual(namesFromReaddir);
+    });
+  });
 });

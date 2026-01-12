@@ -1,5 +1,6 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
+import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const treeHelp = {
@@ -139,9 +140,8 @@ async function buildTree(
     } else {
       // Fall back to readdir + parallel stat
       const entries = await ctx.fs.readdir(fullPath);
-      const BATCH_SIZE = 100;
-      for (let i = 0; i < entries.length; i += BATCH_SIZE) {
-        const batch = entries.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < entries.length; i += DEFAULT_BATCH_SIZE) {
+        const batch = entries.slice(i, i + DEFAULT_BATCH_SIZE);
         const stats = await Promise.all(
           batch.map(async (entry) => {
             const entryPath =
@@ -246,9 +246,8 @@ async function buildTreeRecursive(
     } else {
       // Fall back to readdir + parallel stat
       const entries = await ctx.fs.readdir(path);
-      const BATCH_SIZE = 100;
-      for (let i = 0; i < entries.length; i += BATCH_SIZE) {
-        const batch = entries.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < entries.length; i += DEFAULT_BATCH_SIZE) {
+        const batch = entries.slice(i, i + DEFAULT_BATCH_SIZE);
         const stats = await Promise.all(
           batch.map(async (entry) => {
             const entryPath = path === "/" ? `/${entry}` : `${path}/${entry}`;

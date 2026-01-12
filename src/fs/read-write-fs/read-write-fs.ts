@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import type {
   CpOptions,
+  DirentEntry,
   FsStat,
   IFileSystem,
   MkdirOptions,
@@ -216,11 +217,25 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async readdir(path: string): Promise<string[]> {
+    const entries = await this.readdirWithFileTypes(path);
+    return entries.map((e) => e.name);
+  }
+
+  async readdirWithFileTypes(path: string): Promise<DirentEntry[]> {
     const realPath = this.toRealPath(path);
 
     try {
-      const entries = await fs.promises.readdir(realPath);
-      return entries.sort();
+      const entries = await fs.promises.readdir(realPath, {
+        withFileTypes: true,
+      });
+      return entries
+        .map((dirent) => ({
+          name: dirent.name,
+          isFile: dirent.isFile(),
+          isDirectory: dirent.isDirectory(),
+          isSymbolicLink: dirent.isSymbolicLink(),
+        }))
+        .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err.code === "ENOENT") {

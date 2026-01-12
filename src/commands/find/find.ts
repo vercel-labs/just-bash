@@ -1,5 +1,6 @@
 import type { DirentEntry } from "../../fs/interface.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import {
   applyWidth,
@@ -148,10 +149,8 @@ export const findCommand: Command = {
     // Determine if we should use default printing (when no actions at all)
     const useDefaultPrint = actions.length === 0;
 
-    const results: string[] = [];
-    // Extended results for -printf (stores metadata for each result)
-    const hasPrintfAction = actions.some((a) => a.type === "printf");
-    const printfResults: Array<{
+    // Result type for find entries
+    interface FindResult {
       path: string;
       name: string;
       size: number;
@@ -160,7 +159,12 @@ export const findCommand: Command = {
       isDirectory: boolean;
       depth: number;
       startingPoint: string;
-    }> = [];
+    }
+
+    const results: string[] = [];
+    // Extended results for -printf (stores metadata for each result)
+    const hasPrintfAction = actions.some((a) => a.type === "printf");
+    const printfResults: FindResult[] = [];
     let stderr = "";
     let exitCode = 0;
 
@@ -203,41 +207,59 @@ export const findCommand: Command = {
         continue;
       }
 
-      // Recursive function to find files
-      // typeInfo is optional - if provided, we can skip stat call for basic type checks
-      async function findRecursive(
-        currentPath: string,
-        depth: number,
-        typeInfo?: { isFile: boolean; isDirectory: boolean },
-      ): Promise<void> {
-        // Check maxdepth - don't descend beyond this depth
+      // Work item for iterative traversal
+      interface WorkItem {
+        path: string;
+        depth: number;
+        typeInfo?: { isFile: boolean; isDirectory: boolean };
+        // For ordered results: index where this item's results go
+        resultIndex: number;
+      }
+
+      // Processed node info
+      interface ProcessedNode {
+        relativePath: string;
+        name: string;
+        isFile: boolean;
+        isDirectory: boolean;
+        isEmpty: boolean;
+        stat?: Awaited<ReturnType<typeof ctx.fs.stat>>;
+        depth: number;
+        children: WorkItem[];
+        pruned: boolean;
+      }
+
+      // Process a single node: get stat, children, check prune
+      async function processNode(
+        item: WorkItem,
+      ): Promise<ProcessedNode | null> {
+        const { path: currentPath, depth, typeInfo } = item;
+
+        // Check maxdepth
         if (maxDepth !== null && depth > maxDepth) {
-          return;
+          return null;
         }
 
-        // Get type info - either from passed-in typeInfo or from stat
+        // Get type info
         let isFile: boolean;
         let isDirectory: boolean;
         let stat: Awaited<ReturnType<typeof ctx.fs.stat>> | undefined;
 
         if (typeInfo && !needsStatMetadata) {
-          // We have type info and don't need full metadata - skip stat
           isFile = typeInfo.isFile;
           isDirectory = typeInfo.isDirectory;
         } else {
-          // Need full stat or don't have type info
           try {
             stat = await ctx.fs.stat(currentPath);
           } catch {
-            return;
+            return null;
           }
-          if (!stat) return;
+          if (!stat) return null;
           isFile = stat.isFile;
           isDirectory = stat.isDirectory;
         }
 
-        // For the starting directory, use the search path itself as the name
-        // (e.g., when searching from '.', the name should be '.')
+        // Compute name and relative path
         let name: string;
         if (currentPath === basePath) {
           name = searchPath.split("/").pop() || searchPath;
@@ -252,136 +274,44 @@ export const findCommand: Command = {
               ? `./${currentPath.slice(basePath === "/" ? basePath.length : basePath.length + 1)}`
               : searchPath + currentPath.slice(basePath.length);
 
-        // For directories, get entries with type info when available
-        let entries: string[] | null = null;
+        // Get children for directories
+        let children: WorkItem[] = [];
         let entriesWithTypes: DirentEntry[] | null = null;
+        let entries: string[] | null = null;
+
         if (isDirectory) {
           if (hasReaddirWithFileTypes && ctx.fs.readdirWithFileTypes) {
             entriesWithTypes = await ctx.fs.readdirWithFileTypes(currentPath);
+            children = entriesWithTypes.map((entry, idx) => ({
+              path:
+                currentPath === "/"
+                  ? `/${entry.name}`
+                  : `${currentPath}/${entry.name}`,
+              depth: depth + 1,
+              typeInfo: {
+                isFile: entry.isFile,
+                isDirectory: entry.isDirectory,
+              },
+              resultIndex: idx,
+            }));
             entries = entriesWithTypes.map((e) => e.name);
           } else {
             entries = await ctx.fs.readdir(currentPath);
+            children = entries.map((entry, idx) => ({
+              path:
+                currentPath === "/" ? `/${entry}` : `${currentPath}/${entry}`,
+              depth: depth + 1,
+              resultIndex: idx,
+            }));
           }
         }
 
-        // Determine if entry is empty
         const isEmpty = isFile
           ? (stat?.size ?? 0) === 0
           : entries !== null && entries.length === 0;
 
-        // Helper to process current entry
-        const processEntry = (): void => {
-          // Check if this entry matches our criteria
-          // Only apply tests if we're at or beyond mindepth
-          const atOrBeyondMinDepth = minDepth === null || depth >= minDepth;
-          let matches = atOrBeyondMinDepth;
-
-          let shouldPrint = false;
-          if (matches && expr !== null) {
-            const evalCtx: EvalContext = {
-              name,
-              relativePath,
-              isFile,
-              isDirectory,
-              isEmpty,
-              mtime: stat?.mtime?.getTime() ?? Date.now(),
-              size: stat?.size ?? 0,
-              mode: stat?.mode ?? 0o644,
-              newerRefTimes,
-            };
-            const evalResult = evaluateExpressionWithPrune(expr, evalCtx);
-            matches = evalResult.matches;
-
-            // Determine if this path should be printed:
-            // - If there's an explicit -print, only print when it was triggered
-            // - Otherwise, use default printing (print everything that matches)
-            if (hasExplicitPrint) {
-              shouldPrint = evalResult.printed;
-            } else {
-              shouldPrint = matches;
-            }
-          } else if (matches) {
-            // No expression, default print
-            shouldPrint = true;
-          }
-
-          if (shouldPrint) {
-            results.push(relativePath);
-            if (hasPrintfAction) {
-              printfResults.push({
-                path: relativePath,
-                name,
-                size: stat?.size ?? 0,
-                mtime: stat?.mtime?.getTime() ?? Date.now(),
-                mode: stat?.mode ?? 0o644,
-                isDirectory,
-                depth,
-                startingPoint: searchPath,
-              });
-            }
-          }
-        };
-
-        // Helper to recurse into children - parallel processing in batches
-        // For -depth mode, use sequential processing to preserve order
-        const recurseChildren = async (): Promise<void> => {
-          const BATCH_SIZE = 100;
-
-          if (depthFirst) {
-            // Sequential for -depth mode to preserve children-before-parent order
-            if (entriesWithTypes !== null) {
-              for (const entry of entriesWithTypes) {
-                const childPath =
-                  currentPath === "/"
-                    ? `/${entry.name}`
-                    : `${currentPath}/${entry.name}`;
-                await findRecursive(childPath, depth + 1, {
-                  isFile: entry.isFile,
-                  isDirectory: entry.isDirectory,
-                });
-              }
-            } else if (entries !== null) {
-              for (const entry of entries) {
-                const childPath =
-                  currentPath === "/" ? `/${entry}` : `${currentPath}/${entry}`;
-                await findRecursive(childPath, depth + 1);
-              }
-            }
-          } else if (entriesWithTypes !== null) {
-            // Process in parallel batches for better performance
-            for (let i = 0; i < entriesWithTypes.length; i += BATCH_SIZE) {
-              const batch = entriesWithTypes.slice(i, i + BATCH_SIZE);
-              await Promise.all(
-                batch.map((entry) => {
-                  const childPath =
-                    currentPath === "/"
-                      ? `/${entry.name}`
-                      : `${currentPath}/${entry.name}`;
-                  return findRecursive(childPath, depth + 1, {
-                    isFile: entry.isFile,
-                    isDirectory: entry.isDirectory,
-                  });
-                }),
-              );
-            }
-          } else if (entries !== null) {
-            for (let i = 0; i < entries.length; i += BATCH_SIZE) {
-              const batch = entries.slice(i, i + BATCH_SIZE);
-              await Promise.all(
-                batch.map((entry) => {
-                  const childPath =
-                    currentPath === "/"
-                      ? `/${entry}`
-                      : `${currentPath}/${entry}`;
-                  return findRecursive(childPath, depth + 1);
-                }),
-              );
-            }
-          }
-        };
-
-        // Check for pruning (only when not in depth-first mode)
-        let shouldPrune = false;
+        // Check for pruning (only in pre-order mode)
+        let pruned = false;
         if (!depthFirst && expr !== null) {
           const evalCtx: EvalContext = {
             name,
@@ -395,32 +325,242 @@ export const findCommand: Command = {
             newerRefTimes,
           };
           const evalResult = evaluateExpressionWithPrune(expr, evalCtx);
-          shouldPrune = evalResult.pruned;
+          pruned = evalResult.pruned;
         }
+
+        return {
+          relativePath,
+          name,
+          isFile,
+          isDirectory,
+          isEmpty,
+          stat,
+          depth,
+          children: pruned ? [] : children,
+          pruned,
+        };
+      }
+
+      // Check if node matches and should be printed
+      function shouldPrintNode(node: ProcessedNode): {
+        print: boolean;
+        printfData: FindResult | null;
+      } {
+        const atOrBeyondMinDepth = minDepth === null || node.depth >= minDepth;
+        let matches = atOrBeyondMinDepth;
+        let shouldPrint = false;
+
+        if (matches && expr !== null) {
+          const evalCtx: EvalContext = {
+            name: node.name,
+            relativePath: node.relativePath,
+            isFile: node.isFile,
+            isDirectory: node.isDirectory,
+            isEmpty: node.isEmpty,
+            mtime: node.stat?.mtime?.getTime() ?? Date.now(),
+            size: node.stat?.size ?? 0,
+            mode: node.stat?.mode ?? 0o644,
+            newerRefTimes,
+          };
+          const evalResult = evaluateExpressionWithPrune(expr, evalCtx);
+          matches = evalResult.matches;
+          shouldPrint = hasExplicitPrint ? evalResult.printed : matches;
+        } else if (matches) {
+          shouldPrint = true;
+        }
+
+        if (!shouldPrint) {
+          return { print: false, printfData: null };
+        }
+
+        const printfData = hasPrintfAction
+          ? {
+              path: node.relativePath,
+              name: node.name,
+              size: node.stat?.size ?? 0,
+              mtime: node.stat?.mtime?.getTime() ?? Date.now(),
+              mode: node.stat?.mode ?? 0o644,
+              isDirectory: node.isDirectory,
+              depth: node.depth,
+              startingPoint: searchPath,
+            }
+          : null;
+
+        return { print: true, printfData };
+      }
+
+      // Result collection for ordered results
+      interface NodeResult {
+        paths: string[];
+        printfData: FindResult[];
+      }
+
+      // Iterative depth-first traversal with parallel processing
+      // Uses work array with slot-based result collection for ordering
+      async function findIterative(): Promise<NodeResult> {
+        const finalResult: NodeResult = { paths: [], printfData: [] };
+
+        // For depth-first (post-order), we use a different strategy:
+        // 1. Discover all nodes level by level (BFS with parallel batches)
+        // 2. Track parent-child relationships
+        // 3. Build results bottom-up maintaining tree order
 
         if (depthFirst) {
-          // Process children first, then this entry
-          await recurseChildren();
-          processEntry();
-        } else {
-          // Process this entry first, then children (if not pruned)
-          processEntry();
-          if (!shouldPrune) {
-            await recurseChildren();
+          // Phase 1: Discover all nodes (BFS to get structure)
+          interface DiscoveredNode {
+            node: ProcessedNode;
+            parentIndex: number; // -1 for root
+            childIndices: number[]; // filled in after all children discovered
           }
+
+          const discovered: DiscoveredNode[] = [];
+
+          // Queue item includes parent index for tracking
+          interface QueueItem {
+            item: WorkItem;
+            parentIndex: number;
+            childOrderInParent: number; // which child of parent this is
+          }
+
+          const workQueue: QueueItem[] = [
+            {
+              item: { path: basePath, depth: 0, resultIndex: 0 },
+              parentIndex: -1,
+              childOrderInParent: 0,
+            },
+          ];
+
+          // Track which discovered index each queue item will become
+          const parentChildMap = new Map<number, number[]>(); // parentIdx -> [childIdx in order]
+
+          // BFS to discover all nodes with parallel processing
+          while (workQueue.length > 0) {
+            const batch = workQueue.splice(0, DEFAULT_BATCH_SIZE);
+            const nodes = await Promise.all(
+              batch.map((q) => processNode(q.item)),
+            );
+
+            for (let i = 0; i < batch.length; i++) {
+              const node = nodes[i];
+              const queueItem = batch[i];
+              if (!node) continue;
+
+              const thisIndex = discovered.length;
+
+              // Register this node with its parent
+              if (queueItem.parentIndex >= 0) {
+                const siblings =
+                  parentChildMap.get(queueItem.parentIndex) || [];
+                siblings.push(thisIndex);
+                parentChildMap.set(queueItem.parentIndex, siblings);
+              }
+
+              discovered.push({
+                node,
+                parentIndex: queueItem.parentIndex,
+                childIndices: [], // will be filled from parentChildMap
+              });
+
+              // Add children to work queue
+              for (let j = 0; j < node.children.length; j++) {
+                workQueue.push({
+                  item: node.children[j],
+                  parentIndex: thisIndex,
+                  childOrderInParent: j,
+                });
+              }
+            }
+          }
+
+          // Fill in childIndices from parentChildMap
+          for (const [parentIdx, childIndices] of parentChildMap) {
+            if (parentIdx >= 0 && parentIdx < discovered.length) {
+              discovered[parentIdx].childIndices = childIndices;
+            }
+          }
+
+          // Phase 2: Build result in post-order using recursive collection
+          // This ensures children come before parent in the correct sibling order
+          function collectPostOrder(index: number): NodeResult {
+            const result: NodeResult = { paths: [], printfData: [] };
+            const entry = discovered[index];
+            if (!entry) return result;
+
+            // First, collect all children's results (in order)
+            for (const childIndex of entry.childIndices) {
+              const childResult = collectPostOrder(childIndex);
+              result.paths.push(...childResult.paths);
+              result.printfData.push(...childResult.printfData);
+            }
+
+            // Then, add this node's result
+            const { print, printfData } = shouldPrintNode(entry.node);
+            if (print) {
+              result.paths.push(entry.node.relativePath);
+              if (printfData) {
+                result.printfData.push(printfData);
+              }
+            }
+
+            return result;
+          }
+
+          // Start from root (index 0)
+          if (discovered.length > 0) {
+            const rootResult = collectPostOrder(0);
+            finalResult.paths.push(...rootResult.paths);
+            finalResult.printfData.push(...rootResult.printfData);
+          }
+        } else {
+          // Pre-order traversal: parent before children
+          // Use recursive approach with parallel batching (already optimal)
+
+          async function findRecursivePreOrder(
+            item: WorkItem,
+          ): Promise<NodeResult> {
+            const result: NodeResult = { paths: [], printfData: [] };
+            const node = await processNode(item);
+            if (!node) return result;
+
+            // Add this node first (pre-order)
+            const { print, printfData } = shouldPrintNode(node);
+            if (print) {
+              result.paths.push(node.relativePath);
+              if (printfData) {
+                result.printfData.push(printfData);
+              }
+            }
+
+            // Then process children in parallel batches
+            for (let i = 0; i < node.children.length; i += DEFAULT_BATCH_SIZE) {
+              const batch = node.children.slice(i, i + DEFAULT_BATCH_SIZE);
+              const childResults = await Promise.all(
+                batch.map(findRecursivePreOrder),
+              );
+              for (const childResult of childResults) {
+                result.paths.push(...childResult.paths);
+                result.printfData.push(...childResult.printfData);
+              }
+            }
+
+            return result;
+          }
+
+          const rootResult = await findRecursivePreOrder({
+            path: basePath,
+            depth: 0,
+            resultIndex: 0,
+          });
+          finalResult.paths.push(...rootResult.paths);
+          finalResult.printfData.push(...rootResult.printfData);
         }
+
+        return finalResult;
       }
 
-      await findRecursive(basePath, 0);
-    }
-
-    // Sort results for consistent output order (parallel processing may reorder)
-    // Skip sorting for -depth mode which requires specific traversal order
-    if (!depthFirst) {
-      results.sort();
-      if (printfResults.length > 0) {
-        printfResults.sort((a, b) => a.path.localeCompare(b.path));
-      }
+      const searchResult = await findIterative();
+      results.push(...searchResult.paths);
+      printfResults.push(...searchResult.printfData);
     }
 
     let stdout = "";
