@@ -12,7 +12,7 @@ export interface CsvRow {
 export type CsvData = CsvRow[];
 
 /** Parse CSV input string to array of row objects */
-function parseCsv(input: string): { headers: string[]; data: CsvData } {
+export function parseCsv(input: string): { headers: string[]; data: CsvData } {
   const result = Papa.parse<CsvRow>(input.trim(), {
     header: true,
     dynamicTyping: true,

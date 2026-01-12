@@ -7,6 +7,7 @@ const xargsHelp = {
   usage: "xargs [OPTION]... [COMMAND [INITIAL-ARGS]]",
   options: [
     "-I REPLACE   replace occurrences of REPLACE with input",
+    "-d DELIM     use DELIM as input delimiter (e.g., -d '\\n' for newline)",
     "-n NUM       use at most NUM arguments per command line",
     "-P NUM       run at most NUM processes at a time",
     "-0, --null   items are separated by null, not whitespace",
@@ -25,6 +26,7 @@ export const xargsCommand: Command = {
     }
 
     let replaceStr: string | null = null;
+    let delimiter: string | null = null;
     let maxArgs: number | null = null;
     let maxProcs: number | null = null;
     let nullSeparator = false;
@@ -37,6 +39,16 @@ export const xargsCommand: Command = {
       const arg = args[i];
       if (arg === "-I" && i + 1 < args.length) {
         replaceStr = args[++i];
+        commandStart = i + 1;
+      } else if (arg === "-d" && i + 1 < args.length) {
+        // Parse delimiter - handle escape sequences like \n, \t
+        const delimArg = args[++i];
+        delimiter = delimArg
+          .replace(/\\n/g, "\n")
+          .replace(/\\t/g, "\t")
+          .replace(/\\r/g, "\r")
+          .replace(/\\0/g, "\0")
+          .replace(/\\\\/g, "\\");
         commandStart = i + 1;
       } else if (arg === "-n" && i + 1 < args.length) {
         maxArgs = parseInt(args[++i], 10);
@@ -80,11 +92,22 @@ export const xargsCommand: Command = {
     }
 
     // Parse input
-    const separator = nullSeparator ? "\0" : /\s+/;
-    const items = ctx.stdin
-      .split(separator)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+    // Priority: -0 (null) > -d (custom delimiter) > default (whitespace)
+    let items: string[];
+    if (nullSeparator) {
+      items = ctx.stdin.split("\0").filter((s) => s.length > 0);
+    } else if (delimiter !== null) {
+      // Custom delimiter - split on exact string
+      // Strip trailing newline from input before splitting (echo adds trailing newlines)
+      const input = ctx.stdin.replace(/\n$/, "");
+      items = input.split(delimiter).filter((s) => s.length > 0);
+    } else {
+      // Default: split on whitespace and trim
+      items = ctx.stdin
+        .split(/\s+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+    }
 
     if (items.length === 0) {
       if (noRunIfEmpty) {
@@ -100,10 +123,20 @@ export const xargsCommand: Command = {
     let stderr = "";
     let exitCode = 0;
 
+    // Helper to quote an argument if it contains special characters
+    const quoteArg = (arg: string): string => {
+      // If arg contains spaces, quotes, or shell metacharacters, quote it
+      if (/[\s"'\\$`!*?[\]{}();&|<>]/.test(arg)) {
+        // Use double quotes and escape internal double quotes and backslashes
+        return `"${arg.replace(/([\\"])/g, "\\$1")}"`;
+      }
+      return arg;
+    };
+
     // Helper to execute a single command via the shell
     const executeCommand = async (cmdArgs: string[]): Promise<ExecResult> => {
-      // Build the command string for execution
-      const cmdLine = cmdArgs.join(" ");
+      // Build the command string for execution, properly quoting arguments
+      const cmdLine = cmdArgs.map(quoteArg).join(" ");
       if (verbose) {
         stderr += `${cmdLine}\n`;
       }

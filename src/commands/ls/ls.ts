@@ -361,50 +361,117 @@ async function listPath(
 
     if (longFormat) {
       stdout += `total ${entries.length}\n`;
-      for (const entry of entries) {
-        // Handle . and .. specially
-        if (entry === "." || entry === "..") {
-          stdout += `drwxr-xr-x 1 user user     0 Jan  1 00:00 ${entry}\n`;
-          continue;
-        }
-        const entryPath =
-          fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
-        try {
-          const entryStat = await ctx.fs.stat(entryPath);
-          const mode = entryStat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
-          const suffix = entryStat.isDirectory ? "/" : "";
-          const size = entryStat.size ?? 0;
-          const sizeStr = humanReadable
-            ? formatHumanSize(size).padStart(5)
-            : String(size).padStart(5);
-          const mtime = entryStat.mtime ?? new Date(0);
-          const dateStr = formatDate(mtime);
-          stdout += `${mode} 1 user user ${sizeStr} ${dateStr} ${entry}${suffix}\n`;
-        } catch {
-          stdout += `-rw-r--r-- 1 user user     0 Jan  1 00:00 ${entry}\n`;
-        }
+
+      // Separate special entries (. and ..) from regular entries
+      const specialEntries = entries.filter((e) => e === "." || e === "..");
+      const regularEntries = entries.filter((e) => e !== "." && e !== "..");
+
+      // Add special entries first
+      for (const entry of specialEntries) {
+        stdout += `drwxr-xr-x 1 user user     0 Jan  1 00:00 ${entry}\n`;
+      }
+
+      // Parallelize stat calls for regular entries
+      const BATCH_SIZE = 100;
+      const entryStats: {
+        name: string;
+        line: string;
+      }[] = [];
+
+      for (let i = 0; i < regularEntries.length; i += BATCH_SIZE) {
+        const batch = regularEntries.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.all(
+          batch.map(async (entry) => {
+            const entryPath =
+              fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
+            try {
+              const entryStat = await ctx.fs.stat(entryPath);
+              const mode = entryStat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
+              const suffix = entryStat.isDirectory ? "/" : "";
+              const size = entryStat.size ?? 0;
+              const sizeStr = humanReadable
+                ? formatHumanSize(size).padStart(5)
+                : String(size).padStart(5);
+              const mtime = entryStat.mtime ?? new Date(0);
+              const dateStr = formatDate(mtime);
+              return {
+                name: entry,
+                line: `${mode} 1 user user ${sizeStr} ${dateStr} ${entry}${suffix}\n`,
+              };
+            } catch {
+              return {
+                name: entry,
+                line: `-rw-r--r-- 1 user user     0 Jan  1 00:00 ${entry}\n`,
+              };
+            }
+          }),
+        );
+        entryStats.push(...batchResults);
+      }
+
+      // Sort to maintain original order (entries were already sorted)
+      const entryOrder = new Map(regularEntries.map((e, i) => [e, i]));
+      entryStats.sort(
+        (a, b) => (entryOrder.get(a.name) ?? 0) - (entryOrder.get(b.name) ?? 0),
+      );
+
+      for (const { line } of entryStats) {
+        stdout += line;
       }
     } else {
       stdout += entries.join("\n") + (entries.length ? "\n" : "");
     }
 
-    // Handle recursive
+    // Handle recursive - parallel processing for better performance
     if (recursive) {
-      for (const entry of entries) {
-        // Skip . and .. for recursive listing
-        if (entry === "." || entry === "..") {
-          continue;
+      // Filter out . and .. and get directory entries
+      const filteredEntries = entries.filter((e) => e !== "." && e !== "..");
+
+      // Use readdirWithFileTypes if available to avoid stat calls
+      let dirEntries: { name: string; isDirectory: boolean }[] = [];
+
+      if (ctx.fs.readdirWithFileTypes) {
+        const entriesWithTypes = await ctx.fs.readdirWithFileTypes(fullPath);
+        dirEntries = entriesWithTypes
+          .filter((e) => e.isDirectory && filteredEntries.includes(e.name))
+          .map((e) => ({ name: e.name, isDirectory: true }));
+      } else {
+        // Fall back to stat calls - parallelize them
+        const BATCH_SIZE = 100;
+        for (let i = 0; i < filteredEntries.length; i += BATCH_SIZE) {
+          const batch = filteredEntries.slice(i, i + BATCH_SIZE);
+          const results = await Promise.all(
+            batch.map(async (entry) => {
+              const entryPath =
+                fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
+              try {
+                const entryStat = await ctx.fs.stat(entryPath);
+                return { name: entry, isDirectory: entryStat.isDirectory };
+              } catch {
+                return { name: entry, isDirectory: false };
+              }
+            }),
+          );
+          dirEntries.push(...results.filter((r) => r.isDirectory));
         }
-        const entryPath =
-          fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
-        try {
-          const entryStat = await ctx.fs.stat(entryPath);
-          if (entryStat.isDirectory) {
-            stdout += "\n";
-            // Build subPath with proper format:
-            // - From '.', subdirs become './subdir'
-            // - From '/dir', subdirs become '/dir/subdir'
-            const subPath = path === "." ? `./${entry}` : `${path}/${entry}`;
+      }
+
+      // Sort directory entries to maintain order
+      dirEntries.sort((a, b) => a.name.localeCompare(b.name));
+      if (reverse) {
+        dirEntries.reverse();
+      }
+
+      // Process subdirectories in parallel batches
+      const BATCH_SIZE = 50;
+      const subResults: { name: string; result: ExecResult }[] = [];
+
+      for (let i = 0; i < dirEntries.length; i += BATCH_SIZE) {
+        const batch = dirEntries.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.all(
+          batch.map(async (dir) => {
+            const subPath =
+              path === "." ? `./${dir.name}` : `${path}/${dir.name}`;
             const result = await listPath(
               subPath,
               ctx,
@@ -418,11 +485,22 @@ async function listPath(
               sortBySize,
               true,
             );
-            stdout += result.stdout;
-          }
-        } catch {
-          // Skip
-        }
+            return { name: dir.name, result };
+          }),
+        );
+        subResults.push(...batchResults);
+      }
+
+      // Sort results to maintain consistent order
+      subResults.sort((a, b) => a.name.localeCompare(b.name));
+      if (reverse) {
+        subResults.reverse();
+      }
+
+      // Append results
+      for (const { result } of subResults) {
+        stdout += "\n";
+        stdout += result.stdout;
       }
     }
 

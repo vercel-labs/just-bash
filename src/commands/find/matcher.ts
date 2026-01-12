@@ -148,6 +148,43 @@ export function evaluateExpressionWithPrune(
   }
 }
 
+/**
+ * Check if an expression needs full stat metadata (size, mtime, mode)
+ * vs just type info (isFile/isDirectory) which can come from dirent
+ */
+export function expressionNeedsStatMetadata(expr: Expression | null): boolean {
+  if (!expr) return false;
+
+  switch (expr.type) {
+    // These only need name/path/type - available without stat
+    case "name":
+    case "path":
+    case "regex":
+    case "type":
+    case "prune":
+    case "print":
+      return false;
+
+    // These need stat metadata
+    case "empty": // needs size for files
+    case "mtime":
+    case "newer":
+    case "size":
+    case "perm":
+      return true;
+
+    // Compound expressions - check children
+    case "not":
+      return expressionNeedsStatMetadata(expr.expr);
+    case "and":
+    case "or":
+      return (
+        expressionNeedsStatMetadata(expr.left) ||
+        expressionNeedsStatMetadata(expr.right)
+      );
+  }
+}
+
 // Helper to collect and resolve -newer reference file mtimes
 export function collectNewerRefs(expr: Expression | null): string[] {
   const refs: string[] = [];

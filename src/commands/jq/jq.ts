@@ -6,6 +6,7 @@
 
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { batchReadFiles } from "../../utils/batched-read.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import {
   type EvaluateOptions,
@@ -151,27 +152,24 @@ export const jqCommand: Command = {
       }
     }
 
-    let input: string;
+    // Build list of inputs: stdin or files
+    let inputs: { source: string; content: string }[] = [];
     if (nullInput) {
-      input = "";
+      // No input
     } else if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-      input = ctx.stdin;
+      inputs.push({ source: "stdin", content: ctx.stdin });
     } else {
-      try {
-        const filePath = ctx.fs.resolvePath(ctx.cwd, files[0]);
-        input = await ctx.fs.readFile(filePath);
-      } catch {
-        return {
-          stdout: "",
-          stderr: `jq: ${files[0]}: No such file or directory\n`,
-          exitCode: 2,
-        };
-      }
+      // Read all files in parallel using shared utility
+      const { results, error } = await batchReadFiles(files, ctx, {
+        cmdName: "jq",
+      });
+      if (error) return error;
+      inputs = results.map((r) => ({ source: r.source, content: r.content }));
     }
 
     try {
       const ast = parse(filter);
-      let values: QueryValue[];
+      let values: QueryValue[] = [];
 
       const evalOptions: EvaluateOptions = {
         limits: ctx.limits
@@ -183,21 +181,39 @@ export const jqCommand: Command = {
       if (nullInput) {
         values = evaluate(null, ast, evalOptions);
       } else if (slurp) {
+        // Slurp mode: combine all inputs into single array
         const items: QueryValue[] = [];
-        for (const line of input.trim().split("\n")) {
-          if (line.trim()) items.push(JSON.parse(line));
+        for (const { content } of inputs) {
+          for (const line of content.trim().split("\n")) {
+            if (line.trim()) items.push(JSON.parse(line));
+          }
         }
         values = evaluate(items, ast, evalOptions);
       } else {
-        const trimmed = input.trim();
-        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-          values = evaluate(JSON.parse(trimmed), ast, evalOptions);
-        } else {
-          values = [];
-          for (const line of trimmed.split("\n")) {
-            if (line.trim()) {
-              values.push(...evaluate(JSON.parse(line), ast, evalOptions));
+        // Process each input file separately
+        for (const { content } of inputs) {
+          const trimmed = content.trim();
+          if (!trimmed) continue;
+
+          // Helper to parse file line by line (for NDJSON or non-JSON-object/array files)
+          const parseLineByLine = () => {
+            for (const line of trimmed.split("\n")) {
+              if (line.trim()) {
+                values.push(...evaluate(JSON.parse(line), ast, evalOptions));
+              }
             }
+          };
+
+          if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            // Try to parse as single JSON value first
+            try {
+              values.push(...evaluate(JSON.parse(trimmed), ast, evalOptions));
+            } catch {
+              // If that fails (e.g., NDJSON file), parse line by line
+              parseLineByLine();
+            }
+          } else {
+            parseLineByLine();
           }
         }
       }

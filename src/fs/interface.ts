@@ -55,6 +55,17 @@ export interface SymlinkEntry {
 export type FsEntry = FileEntry | DirectoryEntry | SymlinkEntry;
 
 /**
+ * Directory entry with type information (similar to Node's Dirent)
+ * Used by readdirWithFileTypes for efficient directory listing without stat calls
+ */
+export interface DirentEntry {
+  name: string;
+  isFile: boolean;
+  isDirectory: boolean;
+  isSymbolicLink: boolean;
+}
+
+/**
  * Stat result from the filesystem
  */
 export interface FsStat {
@@ -153,6 +164,14 @@ export interface IFileSystem {
    * @throws Error if path doesn't exist or is not a directory
    */
   readdir(path: string): Promise<string[]>;
+
+  /**
+   * Read directory contents with file type information (optional)
+   * This is more efficient than readdir + stat for each entry
+   * @returns Array of DirentEntry objects with name and type
+   * @throws Error if path doesn't exist or is not a directory
+   */
+  readdirWithFileTypes?(path: string): Promise<DirentEntry[]>;
 
   /**
    * Remove a file or directory

@@ -1,3 +1,4 @@
+import type { DirentEntry } from "../../fs/interface.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import {
@@ -5,7 +6,11 @@ import {
   parseWidthPrecision,
   processEscapes,
 } from "../printf/escapes.js";
-import { collectNewerRefs, evaluateExpressionWithPrune } from "./matcher.js";
+import {
+  collectNewerRefs,
+  evaluateExpressionWithPrune,
+  expressionNeedsStatMetadata,
+} from "./matcher.js";
 import { parseExpressions } from "./parser.js";
 import type { EvalContext } from "./types.js";
 
@@ -173,6 +178,14 @@ export const findCommand: Command = {
       }
     }
 
+    // Check if expression needs full stat metadata (optimization)
+    const needsStatMetadata =
+      expressionNeedsStatMetadata(expr) || hasPrintfAction;
+
+    // Check if readdirWithFileTypes is available (for optimization)
+    const hasReaddirWithFileTypes =
+      typeof ctx.fs.readdirWithFileTypes === "function";
+
     // Process each search path
     for (let searchPath of searchPaths) {
       // Normalize trailing slashes (except for root "/")
@@ -191,22 +204,37 @@ export const findCommand: Command = {
       }
 
       // Recursive function to find files
+      // typeInfo is optional - if provided, we can skip stat call for basic type checks
       async function findRecursive(
         currentPath: string,
         depth: number,
+        typeInfo?: { isFile: boolean; isDirectory: boolean },
       ): Promise<void> {
         // Check maxdepth - don't descend beyond this depth
         if (maxDepth !== null && depth > maxDepth) {
           return;
         }
 
+        // Get type info - either from passed-in typeInfo or from stat
+        let isFile: boolean;
+        let isDirectory: boolean;
         let stat: Awaited<ReturnType<typeof ctx.fs.stat>> | undefined;
-        try {
-          stat = await ctx.fs.stat(currentPath);
-        } catch {
-          return;
+
+        if (typeInfo && !needsStatMetadata) {
+          // We have type info and don't need full metadata - skip stat
+          isFile = typeInfo.isFile;
+          isDirectory = typeInfo.isDirectory;
+        } else {
+          // Need full stat or don't have type info
+          try {
+            stat = await ctx.fs.stat(currentPath);
+          } catch {
+            return;
+          }
+          if (!stat) return;
+          isFile = stat.isFile;
+          isDirectory = stat.isDirectory;
         }
-        if (!stat) return;
 
         // For the starting directory, use the search path itself as the name
         // (e.g., when searching from '.', the name should be '.')
@@ -224,15 +252,21 @@ export const findCommand: Command = {
               ? `./${currentPath.slice(basePath === "/" ? basePath.length : basePath.length + 1)}`
               : searchPath + currentPath.slice(basePath.length);
 
-        // For directories, get entries once and reuse for both isEmpty check and recursion
+        // For directories, get entries with type info when available
         let entries: string[] | null = null;
-        if (stat.isDirectory) {
-          entries = await ctx.fs.readdir(currentPath);
+        let entriesWithTypes: DirentEntry[] | null = null;
+        if (isDirectory) {
+          if (hasReaddirWithFileTypes && ctx.fs.readdirWithFileTypes) {
+            entriesWithTypes = await ctx.fs.readdirWithFileTypes(currentPath);
+            entries = entriesWithTypes.map((e) => e.name);
+          } else {
+            entries = await ctx.fs.readdir(currentPath);
+          }
         }
 
         // Determine if entry is empty
-        const isEmpty = stat.isFile
-          ? stat.size === 0
+        const isEmpty = isFile
+          ? (stat?.size ?? 0) === 0
           : entries !== null && entries.length === 0;
 
         // Helper to process current entry
@@ -247,12 +281,12 @@ export const findCommand: Command = {
             const evalCtx: EvalContext = {
               name,
               relativePath,
-              isFile: stat.isFile,
-              isDirectory: stat.isDirectory,
+              isFile,
+              isDirectory,
               isEmpty,
-              mtime: stat.mtime?.getTime() ?? Date.now(),
-              size: stat.size ?? 0,
-              mode: stat.mode ?? 0o644,
+              mtime: stat?.mtime?.getTime() ?? Date.now(),
+              size: stat?.size ?? 0,
+              mode: stat?.mode ?? 0o644,
               newerRefTimes,
             };
             const evalResult = evaluateExpressionWithPrune(expr, evalCtx);
@@ -277,10 +311,10 @@ export const findCommand: Command = {
               printfResults.push({
                 path: relativePath,
                 name,
-                size: stat.size ?? 0,
-                mtime: stat.mtime?.getTime() ?? Date.now(),
-                mode: stat.mode ?? 0o644,
-                isDirectory: stat.isDirectory,
+                size: stat?.size ?? 0,
+                mtime: stat?.mtime?.getTime() ?? Date.now(),
+                mode: stat?.mode ?? 0o644,
+                isDirectory,
                 depth,
                 startingPoint: searchPath,
               });
@@ -288,13 +322,60 @@ export const findCommand: Command = {
           }
         };
 
-        // Helper to recurse into children
+        // Helper to recurse into children - parallel processing in batches
+        // For -depth mode, use sequential processing to preserve order
         const recurseChildren = async (): Promise<void> => {
-          if (entries !== null) {
-            for (const entry of entries) {
-              const childPath =
-                currentPath === "/" ? `/${entry}` : `${currentPath}/${entry}`;
-              await findRecursive(childPath, depth + 1);
+          const BATCH_SIZE = 100;
+
+          if (depthFirst) {
+            // Sequential for -depth mode to preserve children-before-parent order
+            if (entriesWithTypes !== null) {
+              for (const entry of entriesWithTypes) {
+                const childPath =
+                  currentPath === "/"
+                    ? `/${entry.name}`
+                    : `${currentPath}/${entry.name}`;
+                await findRecursive(childPath, depth + 1, {
+                  isFile: entry.isFile,
+                  isDirectory: entry.isDirectory,
+                });
+              }
+            } else if (entries !== null) {
+              for (const entry of entries) {
+                const childPath =
+                  currentPath === "/" ? `/${entry}` : `${currentPath}/${entry}`;
+                await findRecursive(childPath, depth + 1);
+              }
+            }
+          } else if (entriesWithTypes !== null) {
+            // Process in parallel batches for better performance
+            for (let i = 0; i < entriesWithTypes.length; i += BATCH_SIZE) {
+              const batch = entriesWithTypes.slice(i, i + BATCH_SIZE);
+              await Promise.all(
+                batch.map((entry) => {
+                  const childPath =
+                    currentPath === "/"
+                      ? `/${entry.name}`
+                      : `${currentPath}/${entry.name}`;
+                  return findRecursive(childPath, depth + 1, {
+                    isFile: entry.isFile,
+                    isDirectory: entry.isDirectory,
+                  });
+                }),
+              );
+            }
+          } else if (entries !== null) {
+            for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+              const batch = entries.slice(i, i + BATCH_SIZE);
+              await Promise.all(
+                batch.map((entry) => {
+                  const childPath =
+                    currentPath === "/"
+                      ? `/${entry}`
+                      : `${currentPath}/${entry}`;
+                  return findRecursive(childPath, depth + 1);
+                }),
+              );
             }
           }
         };
@@ -305,12 +386,12 @@ export const findCommand: Command = {
           const evalCtx: EvalContext = {
             name,
             relativePath,
-            isFile: stat.isFile,
-            isDirectory: stat.isDirectory,
+            isFile,
+            isDirectory,
             isEmpty,
-            mtime: stat.mtime?.getTime() ?? Date.now(),
-            size: stat.size ?? 0,
-            mode: stat.mode ?? 0o644,
+            mtime: stat?.mtime?.getTime() ?? Date.now(),
+            size: stat?.size ?? 0,
+            mode: stat?.mode ?? 0o644,
             newerRefTimes,
           };
           const evalResult = evaluateExpressionWithPrune(expr, evalCtx);
@@ -331,6 +412,15 @@ export const findCommand: Command = {
       }
 
       await findRecursive(basePath, 0);
+    }
+
+    // Sort results for consistent output order (parallel processing may reorder)
+    // Skip sorting for -depth mode which requires specific traversal order
+    if (!depthFirst) {
+      results.sort();
+      if (printfResults.length > 0) {
+        printfResults.sort((a, b) => a.path.localeCompare(b.path));
+      }
     }
 
     let stdout = "";

@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import type {
   CpOptions,
+  DirentEntry,
   FsStat,
   IFileSystem,
   MkdirOptions,
@@ -671,6 +672,85 @@ export class OverlayFs implements IFileSystem {
     }
 
     return Array.from(entries).sort();
+  }
+
+  async readdirWithFileTypes(path: string): Promise<DirentEntry[]> {
+    const normalized = this.normalizePath(path);
+
+    if (this.deleted.has(normalized)) {
+      throw new Error(`ENOENT: no such file or directory, scandir '${path}'`);
+    }
+
+    const entriesMap = new Map<string, DirentEntry>();
+    const deletedChildren = new Set<string>();
+
+    // Collect deleted entries that are direct children of this path
+    const prefix = normalized === "/" ? "/" : `${normalized}/`;
+    for (const deletedPath of this.deleted) {
+      if (deletedPath.startsWith(prefix)) {
+        const rest = deletedPath.slice(prefix.length);
+        const name = rest.split("/")[0];
+        if (name && !rest.includes("/", name.length)) {
+          deletedChildren.add(name);
+        }
+      }
+    }
+
+    // Add entries from memory layer (with type info)
+    for (const [memPath, entry] of this.memory) {
+      if (memPath === normalized) continue;
+      if (memPath.startsWith(prefix)) {
+        const rest = memPath.slice(prefix.length);
+        const name = rest.split("/")[0];
+        if (name && !deletedChildren.has(name) && !rest.includes("/", 1)) {
+          // Direct child
+          entriesMap.set(name, {
+            name,
+            isFile: entry.type === "file",
+            isDirectory: entry.type === "directory",
+            isSymbolicLink: entry.type === "symlink",
+          });
+        }
+      }
+    }
+
+    // Add entries from real filesystem with file types
+    const realPath = this.toRealPath(normalized);
+    if (realPath) {
+      try {
+        const realEntries = await fs.promises.readdir(realPath, {
+          withFileTypes: true,
+        });
+        for (const dirent of realEntries) {
+          if (
+            !deletedChildren.has(dirent.name) &&
+            !entriesMap.has(dirent.name)
+          ) {
+            entriesMap.set(dirent.name, {
+              name: dirent.name,
+              isFile: dirent.isFile(),
+              isDirectory: dirent.isDirectory(),
+              isSymbolicLink: dirent.isSymbolicLink(),
+            });
+          }
+        }
+      } catch (e) {
+        // If it's ENOENT and we don't have it in memory, throw
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+          if (!this.memory.has(normalized)) {
+            throw new Error(
+              `ENOENT: no such file or directory, scandir '${path}'`,
+            );
+          }
+        } else if ((e as NodeJS.ErrnoException).code !== "ENOTDIR") {
+          throw e;
+        }
+      }
+    }
+
+    return Array.from(entriesMap.values()).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
   }
 
   async rm(path: string, options?: RmOptions): Promise<void> {

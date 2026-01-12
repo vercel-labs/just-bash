@@ -123,52 +123,84 @@ async function buildTree(
   }
 
   try {
-    const entries = await ctx.fs.readdir(fullPath);
+    // Use readdirWithFileTypes if available for better performance
+    interface EntryInfo {
+      name: string;
+      isDirectory: boolean;
+    }
+    let entryInfos: EntryInfo[] = [];
+
+    if (ctx.fs.readdirWithFileTypes) {
+      const entriesWithTypes = await ctx.fs.readdirWithFileTypes(fullPath);
+      entryInfos = entriesWithTypes.map((e) => ({
+        name: e.name,
+        isDirectory: e.isDirectory,
+      }));
+    } else {
+      // Fall back to readdir + parallel stat
+      const entries = await ctx.fs.readdir(fullPath);
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+        const batch = entries.slice(i, i + BATCH_SIZE);
+        const stats = await Promise.all(
+          batch.map(async (entry) => {
+            const entryPath =
+              fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
+            try {
+              const s = await ctx.fs.stat(entryPath);
+              return { name: entry, isDirectory: s.isDirectory };
+            } catch {
+              return null;
+            }
+          }),
+        );
+        entryInfos.push(...(stats.filter((s) => s !== null) as EntryInfo[]));
+      }
+    }
 
     // Filter and sort entries
-    const filteredEntries = entries.filter((e) => {
-      if (!options.showHidden && e.startsWith(".")) {
+    const filteredEntries = entryInfos.filter((e) => {
+      if (!options.showHidden && e.name.startsWith(".")) {
+        return false;
+      }
+      if (options.directoriesOnly && !e.isDirectory) {
         return false;
       }
       return true;
     });
-    filteredEntries.sort();
+    filteredEntries.sort((a, b) => a.name.localeCompare(b.name));
 
+    // Process entries in order (required for tree output format)
     for (let i = 0; i < filteredEntries.length; i++) {
       const entry = filteredEntries[i];
-      const entryPath = fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
+      const entryPath =
+        fullPath === "/" ? `/${entry.name}` : `${fullPath}/${entry.name}`;
       const isLast = i === filteredEntries.length - 1;
       const connector = isLast ? "`-- " : "|-- ";
       const childPrefix = prefix + (isLast ? "    " : "|   ");
 
-      try {
-        const entryStat = await ctx.fs.stat(entryPath);
+      if (entry.isDirectory) {
+        result.dirCount++;
+        const displayName = options.fullPath ? entryPath : entry.name;
+        result.output += `${prefix + connector + displayName}\n`;
 
-        if (entryStat.isDirectory) {
-          result.dirCount++;
-          const displayName = options.fullPath ? entryPath : entry;
-          result.output += `${prefix + connector + displayName}\n`;
-
-          // Recurse into directory
-          if (options.maxDepth === null || depth + 1 < options.maxDepth) {
-            const subResult = await buildTreeRecursive(
-              ctx,
-              entryPath,
-              options,
-              childPrefix,
-              depth + 1,
-            );
-            result.output += subResult.output;
-            result.dirCount += subResult.dirCount;
-            result.fileCount += subResult.fileCount;
-          }
-        } else if (!options.directoriesOnly) {
-          result.fileCount++;
-          const displayName = options.fullPath ? entryPath : entry;
-          result.output += `${prefix + connector + displayName}\n`;
+        // Recurse into directory
+        if (options.maxDepth === null || depth + 1 < options.maxDepth) {
+          const subResult = await buildTreeRecursive(
+            ctx,
+            entryPath,
+            options,
+            childPrefix,
+            depth + 1,
+          );
+          result.output += subResult.output;
+          result.dirCount += subResult.dirCount;
+          result.fileCount += subResult.fileCount;
         }
-      } catch {
-        // Skip entries we can't stat
+      } else {
+        result.fileCount++;
+        const displayName = options.fullPath ? entryPath : entry.name;
+        result.output += `${prefix + connector + displayName}\n`;
       }
     }
   } catch (_error) {
@@ -198,50 +230,81 @@ async function buildTreeRecursive(
   }
 
   try {
-    const entries = await ctx.fs.readdir(path);
+    // Use readdirWithFileTypes if available for better performance
+    interface EntryInfo {
+      name: string;
+      isDirectory: boolean;
+    }
+    let entryInfos: EntryInfo[] = [];
+
+    if (ctx.fs.readdirWithFileTypes) {
+      const entriesWithTypes = await ctx.fs.readdirWithFileTypes(path);
+      entryInfos = entriesWithTypes.map((e) => ({
+        name: e.name,
+        isDirectory: e.isDirectory,
+      }));
+    } else {
+      // Fall back to readdir + parallel stat
+      const entries = await ctx.fs.readdir(path);
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+        const batch = entries.slice(i, i + BATCH_SIZE);
+        const stats = await Promise.all(
+          batch.map(async (entry) => {
+            const entryPath = path === "/" ? `/${entry}` : `${path}/${entry}`;
+            try {
+              const s = await ctx.fs.stat(entryPath);
+              return { name: entry, isDirectory: s.isDirectory };
+            } catch {
+              return null;
+            }
+          }),
+        );
+        entryInfos.push(...(stats.filter((s) => s !== null) as EntryInfo[]));
+      }
+    }
 
     // Filter and sort entries
-    const filteredEntries = entries.filter((e) => {
-      if (!options.showHidden && e.startsWith(".")) {
+    const filteredEntries = entryInfos.filter((e) => {
+      if (!options.showHidden && e.name.startsWith(".")) {
+        return false;
+      }
+      if (options.directoriesOnly && !e.isDirectory) {
         return false;
       }
       return true;
     });
-    filteredEntries.sort();
+    filteredEntries.sort((a, b) => a.name.localeCompare(b.name));
 
+    // Process entries in order (required for tree output format)
     for (let i = 0; i < filteredEntries.length; i++) {
       const entry = filteredEntries[i];
-      const entryPath = path === "/" ? `/${entry}` : `${path}/${entry}`;
+      const entryPath =
+        path === "/" ? `/${entry.name}` : `${path}/${entry.name}`;
       const isLast = i === filteredEntries.length - 1;
       const connector = isLast ? "`-- " : "|-- ";
       const childPrefix = prefix + (isLast ? "    " : "|   ");
 
-      try {
-        const entryStat = await ctx.fs.stat(entryPath);
+      if (entry.isDirectory) {
+        result.dirCount++;
+        const displayName = options.fullPath ? entryPath : entry.name;
+        result.output += `${prefix + connector + displayName}\n`;
 
-        if (entryStat.isDirectory) {
-          result.dirCount++;
-          const displayName = options.fullPath ? entryPath : entry;
-          result.output += `${prefix + connector + displayName}\n`;
-
-          // Recurse into directory
-          const subResult = await buildTreeRecursive(
-            ctx,
-            entryPath,
-            options,
-            childPrefix,
-            depth + 1,
-          );
-          result.output += subResult.output;
-          result.dirCount += subResult.dirCount;
-          result.fileCount += subResult.fileCount;
-        } else if (!options.directoriesOnly) {
-          result.fileCount++;
-          const displayName = options.fullPath ? entryPath : entry;
-          result.output += `${prefix + connector + displayName}\n`;
-        }
-      } catch {
-        // Skip entries we can't stat
+        // Recurse into directory
+        const subResult = await buildTreeRecursive(
+          ctx,
+          entryPath,
+          options,
+          childPrefix,
+          depth + 1,
+        );
+        result.output += subResult.output;
+        result.dirCount += subResult.dirCount;
+        result.fileCount += subResult.fileCount;
+      } else {
+        result.fileCount++;
+        const displayName = options.fullPath ? entryPath : entry.name;
+        result.output += `${prefix + connector + displayName}\n`;
       }
     }
   } catch {
