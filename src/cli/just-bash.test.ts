@@ -292,33 +292,29 @@ describe("just-bash CLI", () => {
   });
 
   describe("mount point behavior", () => {
-    it("should mount files at /home/user/project", () => {
+    it("should mount files at /", () => {
       fs.writeFileSync(path.join(tempDir, "test.txt"), "mounted");
-      const result = runCli([
-        "-c",
-        "'cat /home/user/project/test.txt'",
-        "--root",
-        tempDir,
-      ]);
+      const result = runCli(["-c", "'cat /test.txt'", "--root", tempDir]);
       expect(result.stdout).toBe("mounted");
       expect(result.exitCode).toBe(0);
     });
 
     it("should set cwd to mount point by default", () => {
       const result = runCli(["-c", "'pwd'", "--root", tempDir]);
-      expect(result.stdout.trim()).toBe("/home/user/project");
+      expect(result.stdout.trim()).toBe("/");
     });
 
     it("should allow --cwd to override working directory", () => {
+      fs.mkdirSync(path.join(tempDir, "subdir"));
       const result = runCli([
         "-c",
         "'pwd'",
         "--root",
         tempDir,
         "--cwd",
-        "/tmp",
+        "/subdir",
       ]);
-      expect(result.stdout.trim()).toBe("/tmp");
+      expect(result.stdout.trim()).toBe("/subdir");
     });
   });
 
