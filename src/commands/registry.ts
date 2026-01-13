@@ -32,6 +32,7 @@ export type CommandName =
   | "grep"
   | "fgrep"
   | "egrep"
+  | "rg"
   | "sed"
   | "awk"
   | "sort"
@@ -188,6 +189,10 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "egrep",
     load: async () => (await import("./grep/grep.js")).egrepCommand,
+  },
+  {
+    name: "rg",
+    load: async () => (await import("./rg/rg.js")).rgCommand,
   },
   {
     name: "sed",

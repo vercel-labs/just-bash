@@ -1,6 +1,7 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { matchGlob } from "../../utils/glob.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { buildRegex, searchContent } from "../search-engine/index.js";
 
 /** File entry with optional type info from glob expansion */
 interface FileEntry {
@@ -193,27 +194,23 @@ export const grepCommand: Command = {
       };
     }
 
-    // Build regex
-    let regexPattern: string;
-    if (fixedStrings) {
-      // -F: escape all regex special characters for literal match
-      regexPattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    } else if (extendedRegex || perlRegex) {
-      // -E and -P: use pattern as-is (JavaScript regex is mostly PCRE-compatible)
-      regexPattern = pattern;
-    } else {
-      regexPattern = escapeRegexForBasicGrep(pattern);
-    }
-    if (wholeWord) {
-      regexPattern = `\\b${regexPattern}\\b`;
-    }
-    if (lineRegexp) {
-      regexPattern = `^${regexPattern}$`;
-    }
+    // Build regex using shared search-engine
+    const regexMode = fixedStrings
+      ? "fixed"
+      : extendedRegex
+        ? "extended"
+        : perlRegex
+          ? "perl"
+          : "basic";
 
     let regex: RegExp;
     try {
-      regex = new RegExp(regexPattern, ignoreCase ? "gi" : "g");
+      regex = buildRegex(pattern, {
+        mode: regexMode,
+        ignoreCase,
+        wholeWord,
+        lineRegexp,
+      });
     } catch {
       return {
         stdout: "",
@@ -224,18 +221,16 @@ export const grepCommand: Command = {
 
     // If no files and no stdin, read from stdin
     if (files.length === 0 && ctx.stdin) {
-      const result = grepContent(
-        ctx.stdin,
-        regex,
+      const result = searchContent(ctx.stdin, regex, {
         invertMatch,
         showLineNumbers,
         countOnly,
-        "",
+        filename: "",
         onlyMatching,
         beforeContext,
         afterContext,
         maxCount,
-      );
+      });
       if (quietMode) {
         return { stdout: "", stderr: "", exitCode: result.matched ? 0 : 1 };
       }
@@ -351,18 +346,16 @@ export const grepCommand: Command = {
             }
 
             const content = await ctx.fs.readFile(filePath);
-            const result = grepContent(
-              content,
-              regex,
+            const result = searchContent(content, regex, {
               invertMatch,
               showLineNumbers,
               countOnly,
-              showFilename ? file : "",
+              filename: showFilename ? file : "",
               onlyMatching,
               beforeContext,
               afterContext,
               maxCount,
-            );
+            });
 
             return { file, result };
           } catch {
@@ -430,202 +423,6 @@ export const grepCommand: Command = {
     };
   },
 };
-
-function escapeRegexForBasicGrep(str: string): string {
-  // Basic grep (BRE) uses different escaping than JavaScript regex
-  // In BRE: \| is alternation, \( \) are groups, \{ \} are quantifiers
-  // We need to convert BRE to JavaScript regex
-
-  let result = "";
-  let i = 0;
-
-  while (i < str.length) {
-    const char = str[i];
-
-    if (char === "\\" && i + 1 < str.length) {
-      const nextChar = str[i + 1];
-      // BRE: \| becomes | (alternation)
-      // BRE: \( \) become ( ) (grouping)
-      // BRE: \{ \} become { } (quantifiers) - but we'll treat as literal for simplicity
-      if (nextChar === "|" || nextChar === "(" || nextChar === ")") {
-        result += nextChar;
-        i += 2;
-        continue;
-      } else if (nextChar === "{" || nextChar === "}") {
-        // Keep as escaped for now (literal)
-        result += `\\${nextChar}`;
-        i += 2;
-        continue;
-      }
-    }
-
-    // Escape characters that are special in JavaScript regex but not in BRE
-    if (
-      char === "+" ||
-      char === "?" ||
-      char === "|" ||
-      char === "(" ||
-      char === ")" ||
-      char === "{" ||
-      char === "}"
-    ) {
-      result += `\\${char}`;
-    } else {
-      result += char;
-    }
-    i++;
-  }
-
-  return result;
-}
-
-function grepContent(
-  content: string,
-  regex: RegExp,
-  invertMatch: boolean,
-  showLineNumbers: boolean,
-  countOnly: boolean,
-  filename: string,
-  onlyMatching: boolean = false,
-  beforeContext: number = 0,
-  afterContext: number = 0,
-  maxCount: number = 0, // 0 means unlimited
-): { output: string; matched: boolean } {
-  const lines = content.split("\n");
-  const lineCount = lines.length;
-  // Handle trailing empty line from split if content ended with newline
-  const lastIdx =
-    lineCount > 0 && lines[lineCount - 1] === "" ? lineCount - 1 : lineCount;
-
-  // Fast path: count only mode
-  if (countOnly) {
-    let matchCount = 0;
-    for (let i = 0; i < lastIdx; i++) {
-      regex.lastIndex = 0;
-      if (regex.test(lines[i]) !== invertMatch) {
-        matchCount++;
-      }
-    }
-    const countStr = filename
-      ? `${filename}:${matchCount}`
-      : String(matchCount);
-    return { output: `${countStr}\n`, matched: matchCount > 0 };
-  }
-
-  // Fast path: no context needed (most common case)
-  if (beforeContext === 0 && afterContext === 0) {
-    const outputLines: string[] = [];
-    let hasMatch = false;
-    let matchCount = 0;
-
-    for (let i = 0; i < lastIdx; i++) {
-      // Check if we've reached maxCount
-      if (maxCount > 0 && matchCount >= maxCount) break;
-
-      const line = lines[i];
-      regex.lastIndex = 0;
-      const matches = regex.test(line);
-
-      if (matches !== invertMatch) {
-        hasMatch = true;
-        matchCount++;
-        if (onlyMatching) {
-          regex.lastIndex = 0;
-          for (
-            let match = regex.exec(line);
-            match !== null;
-            match = regex.exec(line)
-          ) {
-            outputLines.push(filename ? `${filename}:${match[0]}` : match[0]);
-            if (match[0].length === 0) regex.lastIndex++;
-          }
-        } else if (showLineNumbers) {
-          outputLines.push(
-            filename ? `${filename}:${i + 1}:${line}` : `${i + 1}:${line}`,
-          );
-        } else {
-          outputLines.push(filename ? `${filename}:${line}` : line);
-        }
-      }
-    }
-
-    return {
-      output: outputLines.length > 0 ? `${outputLines.join("\n")}\n` : "",
-      matched: hasMatch,
-    };
-  }
-
-  // Slow path: context lines needed
-  const outputLines: string[] = [];
-  let matchCount = 0;
-  const printedLines = new Set<number>();
-
-  // First pass: find all matching lines (respecting maxCount)
-  const matchingLineNumbers: number[] = [];
-  for (let i = 0; i < lastIdx; i++) {
-    // Check if we've reached maxCount
-    if (maxCount > 0 && matchCount >= maxCount) break;
-    regex.lastIndex = 0;
-    if (regex.test(lines[i]) !== invertMatch) {
-      matchingLineNumbers.push(i);
-      matchCount++;
-    }
-  }
-
-  // Second pass: output with context
-  for (const lineNum of matchingLineNumbers) {
-    // Before context
-    for (let i = Math.max(0, lineNum - beforeContext); i < lineNum; i++) {
-      if (!printedLines.has(i)) {
-        printedLines.add(i);
-        let outputLine = lines[i];
-        if (showLineNumbers) outputLine = `${i + 1}-${outputLine}`;
-        if (filename) outputLine = `${filename}-${outputLine}`;
-        outputLines.push(outputLine);
-      }
-    }
-
-    // The matching line
-    if (!printedLines.has(lineNum)) {
-      printedLines.add(lineNum);
-      const line = lines[lineNum];
-
-      if (onlyMatching) {
-        regex.lastIndex = 0;
-        for (
-          let match = regex.exec(line);
-          match !== null;
-          match = regex.exec(line)
-        ) {
-          outputLines.push(filename ? `${filename}:${match[0]}` : match[0]);
-          if (match[0].length === 0) regex.lastIndex++;
-        }
-      } else {
-        let outputLine = line;
-        if (showLineNumbers) outputLine = `${lineNum + 1}:${outputLine}`;
-        if (filename) outputLine = `${filename}:${outputLine}`;
-        outputLines.push(outputLine);
-      }
-    }
-
-    // After context
-    const maxAfter = Math.min(lastIdx - 1, lineNum + afterContext);
-    for (let i = lineNum + 1; i <= maxAfter; i++) {
-      if (!printedLines.has(i)) {
-        printedLines.add(i);
-        let outputLine = lines[i];
-        if (showLineNumbers) outputLine = `${i + 1}-${outputLine}`;
-        if (filename) outputLine = `${filename}-${outputLine}`;
-        outputLines.push(outputLine);
-      }
-    }
-  }
-
-  return {
-    output: outputLines.length > 0 ? `${outputLines.join("\n")}\n` : "",
-    matched: matchCount > 0,
-  };
-}
 
 async function expandRecursiveGlob(
   baseDir: string,
