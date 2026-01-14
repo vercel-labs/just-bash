@@ -180,6 +180,11 @@ describe("rg json: multiple matches", () => {
   });
 });
 
+// ============================================================================
+// SKIPPED TESTS - Features not implemented
+// ============================================================================
+it.skip("r1412_look_behind_match_missing: PCRE2 look-behind not supported", () => {});
+
 describe("rg json: edge cases", () => {
   it("should output summary even with no matches", async () => {
     const bash = new Bash({

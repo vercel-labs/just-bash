@@ -4,8 +4,12 @@
 
 import { gunzipSync } from "node:zlib";
 import type { CommandContext, ExecResult } from "../../types.js";
-import { buildRegex, searchContent } from "../search-engine/index.js";
-import { matchesType } from "./file-types.js";
+import {
+  buildRegex,
+  convertReplacement,
+  searchContent,
+} from "../search-engine/index.js";
+import { FileTypeRegistry } from "./file-types.js";
 import { GitignoreManager, loadGitignores } from "./gitignore.js";
 import type { RgOptions } from "./rg-options.js";
 
@@ -14,6 +18,27 @@ import type { RgOptions } from "./rg-options.js";
  */
 function isGzip(data: Uint8Array): boolean {
   return data.length >= 2 && data[0] === 0x1f && data[1] === 0x8b;
+}
+
+/**
+ * Validate glob pattern for errors (e.g., unclosed character class)
+ * Returns error message if invalid, null if valid
+ */
+function validateGlob(glob: string): string | null {
+  // Check for unclosed character class
+  let inClass = false;
+  for (let i = 0; i < glob.length; i++) {
+    const char = glob[i];
+    if (char === "[" && !inClass) {
+      inClass = true;
+    } else if (char === "]" && inClass) {
+      inClass = false;
+    }
+  }
+  if (inClass) {
+    return `rg: glob '${glob}' has an unclosed character class`;
+  }
+  return null;
 }
 
 export interface SearchContext {
@@ -31,9 +56,20 @@ export async function executeSearch(
 ): Promise<ExecResult> {
   const { ctx, options, paths: inputPaths, explicitLineNumbers } = searchCtx;
 
+  // Validate glob patterns for errors
+  for (const glob of options.globs) {
+    const globToValidate = glob.startsWith("!") ? glob.slice(1) : glob;
+    const error = validateGlob(globToValidate);
+    if (error) {
+      return { stdout: "", stderr: `${error}\n`, exitCode: 1 };
+    }
+  }
+
   // Handle --files mode: list files without searching
+  // In --files mode, positional args (including what would be the pattern) are paths
   if (options.files) {
-    return listFiles(ctx, inputPaths, options);
+    const filesPaths = [...options.patterns, ...inputPaths];
+    return listFiles(ctx, filesPaths, options);
   }
 
   // Combine -e patterns with patterns from files
@@ -42,8 +78,14 @@ export async function executeSearch(
   // Read patterns from files (-f/--file)
   for (const patternFile of options.patternFiles) {
     try {
-      const filePath = ctx.fs.resolvePath(ctx.cwd, patternFile);
-      const content = await ctx.fs.readFile(filePath);
+      let content: string;
+      if (patternFile === "-") {
+        // Read from stdin
+        content = ctx.stdin;
+      } else {
+        const filePath = ctx.fs.resolvePath(ctx.cwd, patternFile);
+        content = await ctx.fs.readFile(filePath);
+      }
       const filePatterns = content
         .split("\n")
         .filter((line) => line.length > 0);
@@ -58,6 +100,11 @@ export async function executeSearch(
   }
 
   if (patterns.length === 0) {
+    // If patterns came from files but all were empty, return no-match (exit 1)
+    // Otherwise return error for no pattern given (exit 2)
+    if (options.patternFiles.length > 0) {
+      return { stdout: "", stderr: "", exitCode: 1 };
+    }
     return {
       stdout: "",
       stderr: "rg: no pattern given\n",
@@ -86,7 +133,22 @@ export async function executeSearch(
   // Load gitignore files
   let gitignore: GitignoreManager | null = null;
   if (!options.noIgnore) {
-    gitignore = await loadGitignores(ctx.fs, ctx.cwd);
+    gitignore = await loadGitignores(
+      ctx.fs,
+      ctx.cwd,
+      options.noIgnoreDot,
+      options.noIgnoreVcs,
+      options.ignoreFiles,
+    );
+  }
+
+  // Create file type registry and apply --type-clear and --type-add
+  const typeRegistry = new FileTypeRegistry();
+  for (const name of options.typeClear) {
+    typeRegistry.clearType(name);
+  }
+  for (const spec of options.typeAdd) {
+    typeRegistry.addType(spec);
   }
 
   // Collect files to search
@@ -95,6 +157,7 @@ export async function executeSearch(
     paths,
     options,
     gitignore,
+    typeRegistry,
   );
 
   if (files.length === 0) {
@@ -103,7 +166,8 @@ export async function executeSearch(
 
   // Determine output settings
   const showFilename =
-    !options.noFilename && (!singleExplicitFile || files.length > 1);
+    !options.noFilename &&
+    (options.withFilename || !singleExplicitFile || files.length > 1);
 
   let effectiveLineNumbers = options.lineNumber;
   if (!explicitLineNumbers) {
@@ -169,6 +233,7 @@ function buildSearchRegex(
     wholeWord: options.wordRegexp,
     lineRegexp: options.lineRegexp,
     multiline: options.multiline,
+    multilineDotall: options.multilineDotall,
   });
 }
 
@@ -185,6 +250,7 @@ async function collectFiles(
   paths: string[],
   options: RgOptions,
   gitignore: GitignoreManager | null,
+  typeRegistry: FileTypeRegistry,
 ): Promise<CollectFilesResult> {
   const files: string[] = [];
   let explicitFileCount = 0;
@@ -198,12 +264,27 @@ async function collectFiles(
 
       if (stat.isFile) {
         explicitFileCount++;
-        if (shouldIncludeFile(path, options, gitignore, fullPath)) {
+        // Check max filesize
+        if (options.maxFilesize > 0 && stat.size > options.maxFilesize) {
+          continue;
+        }
+        if (
+          shouldIncludeFile(path, options, gitignore, fullPath, typeRegistry)
+        ) {
           files.push(path);
         }
       } else if (stat.isDirectory) {
         directoryCount++;
-        await walkDirectory(ctx, path, fullPath, 0, options, gitignore, files);
+        await walkDirectory(
+          ctx,
+          path,
+          fullPath,
+          0,
+          options,
+          gitignore,
+          typeRegistry,
+          files,
+        );
       }
     } catch {
       // Path doesn't exist - skip silently
@@ -228,10 +309,16 @@ async function walkDirectory(
   depth: number,
   options: RgOptions,
   gitignore: GitignoreManager | null,
+  typeRegistry: FileTypeRegistry,
   files: string[],
 ): Promise<void> {
   if (depth >= options.maxDepth) {
     return;
+  }
+
+  // Load ignore files for this directory (per-directory ignore loading)
+  if (gitignore) {
+    await gitignore.loadForDirectory(absolutePath);
   }
 
   try {
@@ -245,16 +332,23 @@ async function walkDirectory(
     for (const entry of entries) {
       const name = entry.name;
 
-      if (!options.hidden && name.startsWith(".")) {
-        continue;
-      }
-
+      // Skip common ignored directories (VCS, node_modules, etc.)
       if (!options.noIgnore && GitignoreManager.isCommonIgnored(name)) {
         continue;
       }
 
+      // Hidden file check is done after gitignore to allow negation patterns
+      // to whitelist specific hidden files (e.g., "!.foo" in .gitignore)
+      const isHidden = name.startsWith(".");
+
       const entryRelativePath =
-        relativePath === "." ? name : `${relativePath}/${name}`;
+        relativePath === "."
+          ? name
+          : relativePath === "./"
+            ? `./${name}`
+            : relativePath.endsWith("/")
+              ? `${relativePath}${name}`
+              : `${relativePath}/${name}`;
       const entryAbsolutePath = ctx.fs.resolvePath(absolutePath, name);
 
       let isFile: boolean;
@@ -315,8 +409,26 @@ async function walkDirectory(
         }
       }
 
-      if (gitignore?.matches(entryAbsolutePath, isDirectory)) {
+      // Check gitignore patterns first
+      const gitignoreIgnored = gitignore?.matches(
+        entryAbsolutePath,
+        isDirectory,
+      );
+      if (gitignoreIgnored) {
         continue;
+      }
+
+      // Skip hidden files unless:
+      // - --hidden is set, OR
+      // - gitignore explicitly whitelists this file with a negation pattern (e.g., "!.foo")
+      if (isHidden && !options.hidden) {
+        const isWhitelisted = gitignore?.isWhitelisted(
+          entryAbsolutePath,
+          isDirectory,
+        );
+        if (!isWhitelisted) {
+          continue;
+        }
       }
 
       if (isDirectory) {
@@ -327,15 +439,28 @@ async function walkDirectory(
           depth + 1,
           options,
           gitignore,
+          typeRegistry,
           files,
         );
       } else if (isFile) {
+        // Check max filesize
+        if (options.maxFilesize > 0) {
+          try {
+            const fileStat = await ctx.fs.stat(entryAbsolutePath);
+            if (fileStat.size > options.maxFilesize) {
+              continue;
+            }
+          } catch {
+            continue;
+          }
+        }
         if (
           shouldIncludeFile(
             entryRelativePath,
             options,
             gitignore,
             entryAbsolutePath,
+            typeRegistry,
           )
         ) {
           files.push(entryRelativePath);
@@ -355,6 +480,7 @@ function shouldIncludeFile(
   options: RgOptions,
   gitignore: GitignoreManager | null,
   absolutePath: string,
+  typeRegistry: FileTypeRegistry,
 ): boolean {
   const filename = relativePath.split("/").pop() || relativePath;
 
@@ -362,15 +488,22 @@ function shouldIncludeFile(
     return false;
   }
 
-  if (options.types.length > 0 && !matchesType(filename, options.types)) {
+  if (
+    options.types.length > 0 &&
+    !typeRegistry.matchesType(filename, options.types)
+  ) {
     return false;
   }
 
-  if (options.typesNot.length > 0 && matchesType(filename, options.typesNot)) {
+  if (
+    options.typesNot.length > 0 &&
+    typeRegistry.matchesType(filename, options.typesNot)
+  ) {
     return false;
   }
 
   if (options.globs.length > 0) {
+    const ignoreCase = options.globCaseInsensitive;
     const positiveGlobs = options.globs.filter((g) => !g.startsWith("!"));
     const negativeGlobs = options.globs
       .filter((g) => g.startsWith("!"))
@@ -379,7 +512,10 @@ function shouldIncludeFile(
     if (positiveGlobs.length > 0) {
       let matchesPositive = false;
       for (const glob of positiveGlobs) {
-        if (matchGlob(filename, glob) || matchGlob(relativePath, glob)) {
+        if (
+          matchGlob(filename, glob, ignoreCase) ||
+          matchGlob(relativePath, glob, ignoreCase)
+        ) {
           matchesPositive = true;
           break;
         }
@@ -392,10 +528,51 @@ function shouldIncludeFile(
     for (const glob of negativeGlobs) {
       if (glob.startsWith("/")) {
         const rootedGlob = glob.slice(1);
-        if (matchGlob(relativePath, rootedGlob)) {
+        if (matchGlob(relativePath, rootedGlob, ignoreCase)) {
           return false;
         }
-      } else if (matchGlob(filename, glob) || matchGlob(relativePath, glob)) {
+      } else if (
+        matchGlob(filename, glob, ignoreCase) ||
+        matchGlob(relativePath, glob, ignoreCase)
+      ) {
+        return false;
+      }
+    }
+  }
+
+  // Handle iglobs (case-insensitive globs)
+  if (options.iglobs.length > 0) {
+    const positiveIglobs = options.iglobs.filter((g) => !g.startsWith("!"));
+    const negativeIglobs = options.iglobs
+      .filter((g) => g.startsWith("!"))
+      .map((g) => g.slice(1));
+
+    if (positiveIglobs.length > 0) {
+      let matchesPositive = false;
+      for (const glob of positiveIglobs) {
+        if (
+          matchGlob(filename, glob, true) ||
+          matchGlob(relativePath, glob, true)
+        ) {
+          matchesPositive = true;
+          break;
+        }
+      }
+      if (!matchesPositive) {
+        return false;
+      }
+    }
+
+    for (const glob of negativeIglobs) {
+      if (glob.startsWith("/")) {
+        const rootedGlob = glob.slice(1);
+        if (matchGlob(relativePath, rootedGlob, true)) {
+          return false;
+        }
+      } else if (
+        matchGlob(filename, glob, true) ||
+        matchGlob(relativePath, glob, true)
+      ) {
         return false;
       }
     }
@@ -407,7 +584,7 @@ function shouldIncludeFile(
 /**
  * Simple glob matching
  */
-function matchGlob(str: string, pattern: string): boolean {
+function matchGlob(str: string, pattern: string, ignoreCase = false): boolean {
   let regexStr = "^";
   for (let i = 0; i < pattern.length; i++) {
     const char = pattern[i];
@@ -441,7 +618,7 @@ function matchGlob(str: string, pattern: string): boolean {
   }
   regexStr += "$";
 
-  return new RegExp(regexStr).test(str);
+  return new RegExp(regexStr, ignoreCase ? "i" : "").test(str);
 }
 
 /**
@@ -455,17 +632,43 @@ async function listFiles(
   // Load gitignore files
   let gitignore: GitignoreManager | null = null;
   if (!options.noIgnore) {
-    gitignore = await loadGitignores(ctx.fs, ctx.cwd);
+    gitignore = await loadGitignores(
+      ctx.fs,
+      ctx.cwd,
+      options.noIgnoreDot,
+      options.noIgnoreVcs,
+      options.ignoreFiles,
+    );
+  }
+
+  // Create file type registry and apply --type-clear and --type-add
+  const typeRegistry = new FileTypeRegistry();
+  for (const name of options.typeClear) {
+    typeRegistry.clearType(name);
+  }
+  for (const spec of options.typeAdd) {
+    typeRegistry.addType(spec);
   }
 
   // Default to current directory
   const paths = inputPaths.length === 0 ? ["."] : inputPaths;
 
   // Collect files
-  const { files } = await collectFiles(ctx, paths, options, gitignore);
+  const { files } = await collectFiles(
+    ctx,
+    paths,
+    options,
+    gitignore,
+    typeRegistry,
+  );
 
   if (files.length === 0) {
     return { stdout: "", stderr: "", exitCode: 1 };
+  }
+
+  // In quiet mode, just indicate success without output
+  if (options.quiet) {
+    return { stdout: "", stderr: "", exitCode: 0 };
   }
 
   // Output file list
@@ -476,7 +679,21 @@ async function listFiles(
 }
 
 /**
- * Read file content, handling gzip decompression if needed
+ * Check if a file matches any pre-glob patterns
+ */
+function matchesPreGlob(filename: string, preGlobs: string[]): boolean {
+  if (preGlobs.length === 0) return true; // No patterns = match all
+
+  for (const glob of preGlobs) {
+    if (matchGlob(filename, glob, false)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Read file content, handling preprocessing and gzip decompression if needed
  */
 async function readFileContent(
   ctx: CommandContext,
@@ -485,6 +702,22 @@ async function readFileContent(
   options: RgOptions,
 ): Promise<{ content: string; isBinary: boolean } | null> {
   try {
+    // Check for preprocessing with --pre
+    if (options.preprocessor && ctx.exec) {
+      const filename = file.split("/").pop() || file;
+      if (matchesPreGlob(filename, options.preprocessorGlobs)) {
+        // Run preprocessor on this file
+        const result = await ctx.exec(`${options.preprocessor} "${filePath}"`, {
+          cwd: ctx.cwd,
+        });
+        if (result.exitCode === 0 && result.stdout) {
+          const sample = result.stdout.slice(0, 8192);
+          return { content: result.stdout, isBinary: sample.includes("\0") };
+        }
+        // Preprocessing failed, fall through to normal file read
+      }
+    }
+
     // For -z option, try to decompress gzip files
     if (options.searchZip && file.endsWith(".gz")) {
       const buffer = await ctx.fs.readFileBuffer(filePath);
@@ -585,7 +818,10 @@ async function searchFiles(
           showColumn: options.column,
           vimgrep: options.vimgrep,
           showByteOffset: options.byteOffset,
-          replace: options.replace,
+          replace:
+            options.replace !== null
+              ? convertReplacement(options.replace)
+              : null,
           passthru: options.passthru,
           multiline: options.multiline,
         });
@@ -685,7 +921,8 @@ async function searchFiles(
           const sep = options.nullSeparator ? "\0" : "\n";
           stdout += `${file}${sep}`;
         } else if (!options.filesWithoutMatch) {
-          if (options.heading && showFilename) {
+          // In heading mode, always show filename header (even for single files)
+          if (options.heading && !options.noFilename) {
             stdout += `${file}\n`;
           }
           stdout += result.output;

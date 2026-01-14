@@ -76,3 +76,30 @@ and exhibited clearly, with a label attached.
 // - vimgrep
 // - stdin
 // - context
+
+// ============================================================================
+// SKIPPED TESTS - Features not implemented
+// ============================================================================
+
+// Requires --multiline-dotall flag
+describe("rg multiline: dot_all", () => {
+  it("should make dot match newlines with --multiline-dotall", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/test": "foo\nbar\n",
+      },
+    });
+    const result = await bash.exec("rg --multiline-dotall 'foo.bar' test");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("foo");
+  });
+});
+
+// Uses \p{Any} Unicode property not supported in JavaScript
+it.skip("only_matching: \\p{Any} Unicode property not supported", () => {});
+it.skip("vimgrep: \\p{Any} Unicode property not supported", () => {});
+it.skip("context: \\p{Any} Unicode property not supported", () => {});
+
+// Requires stdin piping
+it.skip("stdin: stdin piping not supported", () => {});

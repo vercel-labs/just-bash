@@ -216,6 +216,63 @@ describe("rg feature: issue #89 - files with matches", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(".hidden\nvisible\n");
   });
+
+  // Ported from ripgrep r64
+  it("should list files in specific directory with --files dir", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/dir/abc": "content\n",
+        "/home/user/foo/abc": "content\n",
+      },
+    });
+    const result = await bash.exec("rg --files foo");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("foo/abc\n");
+  });
+
+  // Ported from ripgrep r352
+  it("should combine --files with --glob", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/file.py": "python\n",
+        "/home/user/file.rs": "rust\n",
+        "/home/user/file.txt": "text\n",
+      },
+    });
+    const result = await bash.exec("rg --files --glob '*.py'");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("file.py\n");
+  });
+
+  // Ported from ripgrep r444
+  it("should work with --quiet --files", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/file.py": "python\n",
+        "/home/user/file.rs": "rust\n",
+      },
+    });
+    // --quiet with --files suppresses output but indicates success
+    const result = await bash.exec("rg --quiet --files --glob '*.py'");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+  });
+
+  // Ported from ripgrep - path prefix preservation
+  it("should preserve ./ prefix when given", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/sub/file.txt": "content\n",
+      },
+    });
+    const result = await bash.exec("rg --files ./sub");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("./sub/file.txt\n");
+  });
 });
 
 describe("rg feature: issue #109 - max depth", () => {
@@ -899,3 +956,92 @@ describe("rg feature: PCRE2 not supported", () => {
     );
   });
 });
+
+// ============================================================================
+// SKIPPED TESTS - Features not implemented
+// ============================================================================
+
+// f1_* tests - Encoding support (Shift-JIS, UTF-16, EUC-JP)
+it.skip("f1_sjis: Shift-JIS encoding not supported", () => {});
+it.skip("f1_utf16_auto: UTF-16 auto-detection not supported", () => {});
+it.skip("f1_utf16_explicit: UTF-16 explicit encoding not supported", () => {});
+it.skip("f1_eucjp: EUC-JP encoding not supported", () => {});
+it.skip("f1_unknown_encoding: -E flag not supported", () => {});
+it.skip("f1_replacement_encoding: encoding replacement not supported", () => {});
+
+// f7_* tests - Pattern file with stdin
+describe("rg feature: f7_stdin", () => {
+  it("should read patterns from stdin with -f-", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/test.txt": "foo\nbar\nbaz\n",
+      },
+    });
+    // Simulate stdin containing the pattern
+    const result = await bash.exec("echo 'bar' | rg -f- test.txt");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("bar\n");
+  });
+});
+
+// f45_* tests - --ignore-file flag
+describe("rg feature: f45_ignore_file", () => {
+  it("f45_relative_cwd: should apply patterns from --ignore-file", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/my-ignore": "ignored.txt\n",
+        "/home/user/ignored.txt": "test content\n",
+        "/home/user/included.txt": "test content\n",
+      },
+    });
+    const result = await bash.exec("rg --ignore-file my-ignore test");
+    expect(result.exitCode).toBe(0);
+    // Should only find included.txt, not ignored.txt
+    expect(result.stdout).toContain("included.txt");
+    expect(result.stdout).not.toContain("ignored.txt");
+  });
+
+  it("f45_precedence_with_others: --ignore-file patterns applied", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/custom-ignore": "*.log\n",
+        "/home/user/test.txt": "test\n",
+        "/home/user/test.log": "test\n",
+      },
+    });
+    const result = await bash.exec("rg --ignore-file custom-ignore test");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("test.txt");
+    expect(result.stdout).not.toContain("test.log");
+  });
+});
+
+// f68 - --no-ignore-vcs
+describe("rg feature: f68_no_ignore_vcs", () => {
+  it("should skip .gitignore with --no-ignore-vcs", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/.gitignore": "ignored.txt\n",
+        "/home/user/ignored.txt": "Sherlock\n",
+        "/home/user/visible.txt": "Sherlock\n",
+      },
+    });
+    // Without --no-ignore-vcs, ignored.txt should be excluded
+    const result1 = await bash.exec("rg Sherlock");
+    expect(result1.exitCode).toBe(0);
+    expect(result1.stdout).toBe("visible.txt:1:Sherlock\n");
+
+    // With --no-ignore-vcs, .gitignore is skipped, so ignored.txt is searched
+    const result2 = await bash.exec("rg --no-ignore-vcs Sherlock");
+    expect(result2.exitCode).toBe(0);
+    expect(result2.stdout).toContain("ignored.txt");
+    expect(result2.stdout).toContain("visible.txt");
+  });
+});
+
+// f129 - Max columns
+it.skip("f129_matches: -M max columns not implemented", () => {});

@@ -12,6 +12,7 @@ export interface RgOptions {
   lineRegexp: boolean;
   invertMatch: boolean;
   multiline: boolean;
+  multilineDotall: boolean;
   patterns: string[];
   patternFiles: string[];
 
@@ -26,6 +27,7 @@ export interface RgOptions {
   maxCount: number;
   lineNumber: boolean;
   noFilename: boolean;
+  withFilename: boolean;
   nullSeparator: boolean;
   byteOffset: boolean;
   column: boolean;
@@ -43,14 +45,24 @@ export interface RgOptions {
 
   // File selection
   globs: string[];
+  iglobs: string[]; // case-insensitive globs
+  globCaseInsensitive: boolean; // make all globs case-insensitive
   types: string[];
   typesNot: string[];
+  typeAdd: string[]; // runtime type additions (name:pattern)
+  typeClear: string[]; // runtime type clearing
   hidden: boolean;
   noIgnore: boolean;
+  noIgnoreDot: boolean;
+  noIgnoreVcs: boolean;
+  ignoreFiles: string[]; // custom ignore files via --ignore-file
   maxDepth: number;
+  maxFilesize: number; // in bytes, 0 = unlimited
   followSymlinks: boolean;
   searchZip: boolean;
   searchBinary: boolean;
+  preprocessor: string | null; // --pre command
+  preprocessorGlobs: string[]; // --pre-glob patterns
 }
 
 export function createDefaultOptions(): RgOptions {
@@ -63,6 +75,7 @@ export function createDefaultOptions(): RgOptions {
     lineRegexp: false,
     invertMatch: false,
     multiline: false,
+    multilineDotall: false,
     patterns: [],
     patternFiles: [],
     count: false,
@@ -75,6 +88,7 @@ export function createDefaultOptions(): RgOptions {
     maxCount: 0,
     lineNumber: true,
     noFilename: false,
+    withFilename: false,
     nullSeparator: false,
     byteOffset: false,
     column: false,
@@ -90,13 +104,23 @@ export function createDefaultOptions(): RgOptions {
     sort: "path",
     json: false,
     globs: [],
+    iglobs: [],
+    globCaseInsensitive: false,
     types: [],
     typesNot: [],
+    typeAdd: [],
+    typeClear: [],
     hidden: false,
     noIgnore: false,
+    noIgnoreDot: false,
+    noIgnoreVcs: false,
+    ignoreFiles: [],
     maxDepth: Infinity,
+    maxFilesize: 0,
     followSymlinks: false,
     searchZip: false,
     searchBinary: false,
+    preprocessor: null,
+    preprocessorGlobs: [],
   };
 }

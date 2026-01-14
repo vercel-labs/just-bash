@@ -283,3 +283,23 @@ describe("rg binary: subdirectories", () => {
     );
   });
 });
+
+// ============================================================================
+// SKIPPED TESTS - Features not implemented or require special handling
+// ============================================================================
+
+// Memory-mapped file tests - mmap not supported
+it.skip("mmap_match_implicit: memory map not supported", () => {});
+it.skip("mmap_match_explicit: memory map not supported", () => {});
+it.skip("mmap_match_near_nul: memory map not supported", () => {});
+it.skip("mmap_match_count: memory map not supported", () => {});
+it.skip("mmap_match_multiple: memory map not supported", () => {});
+it.skip("mmap_binary_flag: memory map not supported", () => {});
+it.skip("mmap_text_flag: memory map not supported", () => {});
+it.skip("mmap_after_nul_match: memory map not supported", () => {});
+
+// Stdin tests - requires stdin piping
+it.skip("after_match1_stdin: stdin piping not supported", () => {});
+
+// Binary file warning message test
+it.skip("matching_files_inconsistent_with_count: complex binary filtering not implemented", () => {});

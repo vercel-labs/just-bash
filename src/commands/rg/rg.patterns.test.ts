@@ -95,14 +95,16 @@ describe("rg multiple patterns", () => {
     expect(result.stderr).toBe("");
   });
 
-  it("should combine -e patterns with positional pattern", async () => {
+  it("should combine multiple -e patterns", async () => {
+    // Note: When -e is used, all positional args are paths (ripgrep behavior)
+    // Use multiple -e flags to search for multiple patterns
     const bash = new Bash({
       cwd: "/home/user",
       files: {
         "/home/user/file.txt": "foo\nbar\nbaz\n",
       },
     });
-    const result = await bash.exec("rg -e foo bar");
+    const result = await bash.exec("rg -e foo -e bar");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("file.txt:1:foo\nfile.txt:2:bar\n");
     expect(result.stderr).toBe("");

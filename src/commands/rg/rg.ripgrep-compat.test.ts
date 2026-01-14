@@ -713,10 +713,11 @@ describe("rg ripgrep-compat: patterns from file (-f)", () => {
       },
     });
     // Use hidden file for patterns to avoid it being searched
+    // When searching a single file, rg doesn't show filename by default
     const result = await bash.exec("rg -f .patterns sherlock");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "sherlock:1:For the Doctor Watsons of this world, as opposed to the Sherlock\nsherlock:2:Holmeses, success in the province of detective work must always\nsherlock:3:be, to a very large extent, the result of luck. Sherlock Holmes\n",
+      "For the Doctor Watsons of this world, as opposed to the Sherlock\nHolmeses, success in the province of detective work must always\nbe, to a very large extent, the result of luck. Sherlock Holmes\n",
     );
   });
 });

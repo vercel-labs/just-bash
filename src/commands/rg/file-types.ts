@@ -14,7 +14,7 @@ export interface FileType {
  * Built-in file type definitions
  * Use `rg --type-list` to see all types in real ripgrep
  */
-export const FILE_TYPES: Record<string, FileType> = {
+const FILE_TYPES: Record<string, FileType> = {
   // Web languages
   js: { extensions: [".js", ".mjs", ".cjs", ".jsx"], globs: [] },
   ts: { extensions: [".ts", ".tsx", ".mts", ".cts"], globs: [] },
@@ -86,37 +86,157 @@ export const FILE_TYPES: Record<string, FileType> = {
 };
 
 /**
- * Check if a filename matches any of the specified types
+ * Mutable file type registry for runtime type modifications
+ * Supports --type-add and --type-clear flags
  */
-export function matchesType(filename: string, types: string[]): boolean {
-  const lowerFilename = filename.toLowerCase();
+export class FileTypeRegistry {
+  private types: Map<string, FileType>;
 
-  for (const typeName of types) {
-    const fileType = FILE_TYPES[typeName];
-    if (!fileType) continue;
+  constructor() {
+    // Clone default types
+    this.types = new Map(
+      Object.entries(FILE_TYPES).map(([name, type]) => [
+        name,
+        { extensions: [...type.extensions], globs: [...type.globs] },
+      ]),
+    );
+  }
 
-    // Check extensions
-    for (const ext of fileType.extensions) {
-      if (lowerFilename.endsWith(ext)) {
-        return true;
+  /**
+   * Add a type definition
+   * Format: "name:pattern" where pattern can be:
+   * - "*.ext" - glob pattern
+   * - "include:other" - include patterns from another type
+   */
+  addType(spec: string): void {
+    const colonIdx = spec.indexOf(":");
+    if (colonIdx === -1) return;
+
+    const name = spec.slice(0, colonIdx);
+    const pattern = spec.slice(colonIdx + 1);
+
+    if (pattern.startsWith("include:")) {
+      // Include patterns from another type
+      const otherName = pattern.slice(8);
+      const other = this.types.get(otherName);
+      if (other) {
+        const existing = this.types.get(name) || { extensions: [], globs: [] };
+        existing.extensions.push(...other.extensions);
+        existing.globs.push(...other.globs);
+        this.types.set(name, existing);
       }
-    }
-
-    // Check globs (simple exact match for now)
-    for (const glob of fileType.globs) {
-      if (glob.includes("*")) {
-        // Simple glob matching
-        const pattern = glob.replace(/\./g, "\\.").replace(/\*/g, ".*");
-        if (new RegExp(`^${pattern}$`, "i").test(filename)) {
-          return true;
+    } else {
+      // Add glob pattern
+      const existing = this.types.get(name) || { extensions: [], globs: [] };
+      // If pattern is like "*.ext", add to extensions
+      if (pattern.startsWith("*.") && !pattern.slice(2).includes("*")) {
+        const ext = pattern.slice(1); // Keep the dot
+        if (!existing.extensions.includes(ext)) {
+          existing.extensions.push(ext);
         }
-      } else if (lowerFilename === glob.toLowerCase()) {
-        return true;
+      } else {
+        // Add as glob pattern
+        if (!existing.globs.includes(pattern)) {
+          existing.globs.push(pattern);
+        }
       }
+      this.types.set(name, existing);
     }
   }
 
-  return false;
+  /**
+   * Clear all patterns from a type
+   */
+  clearType(name: string): void {
+    const existing = this.types.get(name);
+    if (existing) {
+      existing.extensions = [];
+      existing.globs = [];
+    }
+  }
+
+  /**
+   * Get a type by name
+   */
+  getType(name: string): FileType | undefined {
+    return this.types.get(name);
+  }
+
+  /**
+   * Get all type names
+   */
+  getAllTypes(): Map<string, FileType> {
+    return this.types;
+  }
+
+  /**
+   * Check if a filename matches any of the specified types
+   */
+  matchesType(filename: string, typeNames: string[]): boolean {
+    const lowerFilename = filename.toLowerCase();
+
+    for (const typeName of typeNames) {
+      // Special case: 'all' matches any file with a recognized type
+      if (typeName === "all") {
+        if (this.matchesAnyType(filename)) {
+          return true;
+        }
+        continue;
+      }
+
+      const fileType = this.types.get(typeName);
+      if (!fileType) continue;
+
+      // Check extensions
+      for (const ext of fileType.extensions) {
+        if (lowerFilename.endsWith(ext)) {
+          return true;
+        }
+      }
+
+      // Check globs
+      for (const glob of fileType.globs) {
+        if (glob.includes("*")) {
+          const pattern = glob.replace(/\./g, "\\.").replace(/\*/g, ".*");
+          if (new RegExp(`^${pattern}$`, "i").test(filename)) {
+            return true;
+          }
+        } else if (lowerFilename === glob.toLowerCase()) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if a filename matches any recognized type
+   */
+  private matchesAnyType(filename: string): boolean {
+    const lowerFilename = filename.toLowerCase();
+
+    for (const fileType of this.types.values()) {
+      for (const ext of fileType.extensions) {
+        if (lowerFilename.endsWith(ext)) {
+          return true;
+        }
+      }
+
+      for (const glob of fileType.globs) {
+        if (glob.includes("*")) {
+          const pattern = glob.replace(/\./g, "\\.").replace(/\*/g, ".*");
+          if (new RegExp(`^${pattern}$`, "i").test(filename)) {
+            return true;
+          }
+        } else if (lowerFilename === glob.toLowerCase()) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
 }
 
 /**

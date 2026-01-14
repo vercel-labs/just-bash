@@ -194,6 +194,35 @@ export class GitignoreParser {
   }
 
   /**
+   * Check if a path is explicitly whitelisted by a negation pattern
+   *
+   * @param relativePath Path relative to the gitignore location
+   * @param isDirectory Whether the path is a directory
+   * @returns true if the path is whitelisted by a negation pattern
+   */
+  isWhitelisted(relativePath: string, isDirectory: boolean): boolean {
+    // Normalize path - remove leading ./
+    let path = relativePath.replace(/^\.\//, "");
+
+    // Ensure path starts without /
+    path = path.replace(/^\//, "");
+
+    for (const pattern of this.patterns) {
+      // Skip directory-only patterns for files
+      if (pattern.directoryOnly && !isDirectory) {
+        continue;
+      }
+
+      // Check if a negation pattern matches
+      if (pattern.negated && pattern.regex.test(path)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Get the base path for this gitignore
    */
   getBasePath(): string {
@@ -210,32 +239,51 @@ export class GitignoreParser {
 export class GitignoreManager {
   private parsers: GitignoreParser[] = [];
   private fs: IFileSystem;
-  private rootPath: string;
+  private skipDotIgnore: boolean;
+  private skipVcsIgnore: boolean;
+  private loadedDirs = new Set<string>();
 
-  constructor(fs: IFileSystem, rootPath: string) {
+  constructor(
+    fs: IFileSystem,
+    _rootPath: string,
+    skipDotIgnore = false,
+    skipVcsIgnore = false,
+  ) {
     this.fs = fs;
-    this.rootPath = rootPath;
+    this.skipDotIgnore = skipDotIgnore;
+    this.skipVcsIgnore = skipVcsIgnore;
   }
 
   /**
    * Load all .gitignore and .ignore files from root to the specified path
    */
   async load(targetPath: string): Promise<void> {
-    // Build list of directories from root to target
+    // Build list of directories from filesystem root to target
+    // ripgrep loads ignore files from all parent directories
     const dirs: string[] = [];
     let current = targetPath;
 
-    while (current.startsWith(this.rootPath) || current === this.rootPath) {
+    while (true) {
       dirs.unshift(current);
       const parent = this.fs.resolvePath(current, "..");
-      if (parent === current) break;
+      if (parent === current) break; // Reached filesystem root
       current = parent;
     }
 
-    // Load .gitignore and .ignore from each directory
-    // ripgrep loads them in order: .gitignore, then .ignore (ignore can override)
+    // Load ignore files from each directory
+    // ripgrep loads them in order: .gitignore, then .rgignore, then .ignore
+    // --no-ignore-dot skips .rgignore and .ignore
+    // --no-ignore-vcs skips .gitignore
+    const ignoreFiles: string[] = [];
+    if (!this.skipVcsIgnore) {
+      ignoreFiles.push(".gitignore");
+    }
+    if (!this.skipDotIgnore) {
+      ignoreFiles.push(".rgignore", ".ignore");
+    }
     for (const dir of dirs) {
-      for (const filename of [".gitignore", ".ignore"]) {
+      this.loadedDirs.add(dir);
+      for (const filename of ignoreFiles) {
         const ignorePath = this.fs.resolvePath(dir, filename);
         try {
           const content = await this.fs.readFile(ignorePath);
@@ -247,6 +295,45 @@ export class GitignoreManager {
         }
       }
     }
+  }
+
+  /**
+   * Load ignore files for a directory during traversal.
+   * Only loads if the directory hasn't been loaded before.
+   */
+  async loadForDirectory(dir: string): Promise<void> {
+    if (this.loadedDirs.has(dir)) return;
+    this.loadedDirs.add(dir);
+
+    const ignoreFiles: string[] = [];
+    if (!this.skipVcsIgnore) {
+      ignoreFiles.push(".gitignore");
+    }
+    if (!this.skipDotIgnore) {
+      ignoreFiles.push(".rgignore", ".ignore");
+    }
+
+    for (const filename of ignoreFiles) {
+      const ignorePath = this.fs.resolvePath(dir, filename);
+      try {
+        const content = await this.fs.readFile(ignorePath);
+        const parser = new GitignoreParser(dir);
+        parser.parse(content);
+        this.parsers.push(parser);
+      } catch {
+        // No ignore file in this directory
+      }
+    }
+  }
+
+  /**
+   * Add patterns from raw content at the specified base path.
+   * Used for --ignore-file flag.
+   */
+  addPatternsFromContent(content: string, basePath: string): void {
+    const parser = new GitignoreParser(basePath);
+    parser.parse(content);
+    this.parsers.push(parser);
   }
 
   /**
@@ -273,10 +360,37 @@ export class GitignoreManager {
   }
 
   /**
+   * Check if a path is explicitly whitelisted by a negation pattern.
+   * Used to include hidden files that have negation patterns like "!.foo"
+   *
+   * @param absolutePath Absolute path to check
+   * @param isDirectory Whether the path is a directory
+   * @returns true if the path is whitelisted by a negation pattern
+   */
+  isWhitelisted(absolutePath: string, isDirectory: boolean): boolean {
+    for (const parser of this.parsers) {
+      // Get path relative to the gitignore location
+      const basePath = parser.getBasePath();
+      if (!absolutePath.startsWith(basePath)) continue;
+
+      const relativePath = absolutePath
+        .slice(basePath.length)
+        .replace(/^\//, "");
+      if (parser.isWhitelisted(relativePath, isDirectory)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Quick check for common ignored directories
    * Used for early pruning during traversal
    */
   static isCommonIgnored(name: string): boolean {
+    // Only include VCS directories and very common dependency directories
+    // that are almost never searched. Don't include build/dist/target
+    // as these are often legitimately searched or have negation patterns.
     const common = new Set([
       "node_modules",
       ".git",
@@ -287,11 +401,8 @@ export class GitignoreManager {
       ".mypy_cache",
       "venv",
       ".venv",
-      "dist",
-      "build",
       ".next",
       ".nuxt",
-      "target",
       ".cargo",
     ]);
     return common.has(name);
@@ -304,8 +415,29 @@ export class GitignoreManager {
 export async function loadGitignores(
   fs: IFileSystem,
   startPath: string,
+  skipDotIgnore = false,
+  skipVcsIgnore = false,
+  customIgnoreFiles: string[] = [],
 ): Promise<GitignoreManager> {
-  const manager = new GitignoreManager(fs, startPath);
+  const manager = new GitignoreManager(
+    fs,
+    startPath,
+    skipDotIgnore,
+    skipVcsIgnore,
+  );
   await manager.load(startPath);
+
+  // Load custom ignore files (--ignore-file)
+  for (const ignoreFile of customIgnoreFiles) {
+    try {
+      const absolutePath = fs.resolvePath(startPath, ignoreFile);
+      const content = await fs.readFile(absolutePath);
+      // Add patterns from custom ignore file at the root level
+      manager.addPatternsFromContent(content, startPath);
+    } catch {
+      // Ignore missing files
+    }
+  }
+
   return manager;
 }

@@ -12,4 +12,9 @@ export {
   type SearchResult,
   searchContent,
 } from "./matcher.js";
-export { buildRegex, type RegexMode, type RegexOptions } from "./regex.js";
+export {
+  buildRegex,
+  convertReplacement,
+  type RegexMode,
+  type RegexOptions,
+} from "./regex.js";

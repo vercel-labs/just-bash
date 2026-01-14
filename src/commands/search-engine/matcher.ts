@@ -2,6 +2,28 @@
  * Core content matching logic for search commands
  */
 
+/**
+ * Apply a replacement pattern using capture groups from a regex match
+ * Supports: $& (full match), $1-$9 (numbered groups), $<name> (named groups)
+ */
+function applyReplacement(replacement: string, match: RegExpExecArray): string {
+  return replacement.replace(
+    /\$(&|\d+|<([^>]+)>)/g,
+    (_, ref: string, namedGroup: string | undefined) => {
+      if (ref === "&") {
+        return match[0];
+      }
+      if (namedGroup !== undefined) {
+        // Named group: $<name>
+        return match.groups?.[namedGroup] ?? "";
+      }
+      // Numbered group: $1, $2, etc.
+      const groupNum = parseInt(ref, 10);
+      return match[groupNum] ?? "";
+    },
+  );
+}
+
 export interface SearchOptions {
   /** Select non-matching lines */
   invertMatch?: boolean;
@@ -109,20 +131,22 @@ export function searchContent(
   // Fast path: count only mode
   if (countOnly || countMatches) {
     let matchCount = 0;
+    // --count --only-matching behaves like --count-matches
+    const shouldCountMatches = (countMatches || onlyMatching) && !invertMatch;
     for (let i = 0; i < lastIdx; i++) {
       regex.lastIndex = 0;
-      if (countMatches) {
+      if (shouldCountMatches) {
         // Count individual matches on the line
         for (
           let match = regex.exec(lines[i]);
           match !== null;
           match = regex.exec(lines[i])
         ) {
-          if (!invertMatch) matchCount++;
+          matchCount++;
           if (match[0].length === 0) regex.lastIndex++;
         }
       } else {
-        // Count lines with matches
+        // Count lines (with matches, or without matches if inverted)
         if (regex.test(lines[i]) !== invertMatch) {
           matchCount++;
         }
@@ -159,7 +183,8 @@ export function searchContent(
             match !== null;
             match = regex.exec(line)
           ) {
-            const matchText = replace !== null ? replace : match[0];
+            const matchText =
+              replace !== null ? applyReplacement(replace, match) : match[0];
             let prefix = filename ? `${filename}:` : "";
             if (showByteOffset) prefix += `${byteOffset + match.index}:`;
             if (showLineNumbers) prefix += `${i + 1}:`;
@@ -192,7 +217,28 @@ export function searchContent(
           let outputLine = line;
           if (replace !== null) {
             regex.lastIndex = 0;
-            outputLine = line.replace(regex, replace);
+            // Use replacer function to skip empty matches (ripgrep behavior)
+            outputLine = line.replace(regex, (...args) => {
+              const matchText = args[0] as string;
+              // Skip empty matches to avoid double replacement with patterns like .*
+              if (matchText.length === 0) return "";
+              // Build match object for applyReplacement
+              // String.replace args: match, p1, p2, ..., offset, string, [groups]
+              const match = args as unknown as RegExpExecArray;
+              // Check if last arg is groups object (string input is always a string)
+              const lastArg = args[args.length - 1];
+              if (typeof lastArg === "object" && lastArg !== null) {
+                // Has named groups
+                match.groups = lastArg as Record<string, string>;
+                match.input = args[args.length - 2] as string;
+                match.index = args[args.length - 3] as number;
+              } else {
+                // No named groups
+                match.input = args[args.length - 1] as string;
+                match.index = args[args.length - 2] as number;
+              }
+              return applyReplacement(replace, match);
+            });
           }
 
           let prefix = filename ? `${filename}:` : "";

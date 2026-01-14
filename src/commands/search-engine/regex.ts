@@ -27,8 +27,8 @@ export function buildRegex(pattern: string, options: RegexOptions): RegExp {
       break;
     case "extended":
     case "perl":
-      // Use pattern as-is (JavaScript regex is mostly PCRE-compatible)
-      regexPattern = pattern;
+      // Convert (?P<name>...) to JavaScript's (?<name>...) syntax
+      regexPattern = pattern.replace(/\(\?P<([^>]+)>/g, "(?<$1>");
       break;
     default:
       regexPattern = escapeRegexForBasicGrep(pattern);
@@ -46,8 +46,40 @@ export function buildRegex(pattern: string, options: RegexOptions): RegExp {
     regexPattern = `^${regexPattern}$`;
   }
 
-  const flags = `g${options.ignoreCase ? "i" : ""}${options.multilineDotall ? "s" : ""}`;
+  // Build flags:
+  // - g: global matching
+  // - i: case insensitive
+  // - m: multiline (^ and $ match at line boundaries)
+  // - s: dotall (. matches newlines)
+  const flags =
+    "g" +
+    (options.ignoreCase ? "i" : "") +
+    (options.multiline ? "m" : "") +
+    (options.multilineDotall ? "s" : "");
   return new RegExp(regexPattern, flags);
+}
+
+/**
+ * Convert replacement string syntax to JavaScript's String.replace format
+ *
+ * Conversions:
+ * - $0 and ${0} -> $& (full match)
+ * - $name -> $<name> (named capture groups)
+ * - ${name} -> $<name> (braced named capture groups)
+ * - Preserves $1, $2, etc. for numbered groups
+ */
+export function convertReplacement(replacement: string): string {
+  // First, convert $0 and ${0} to $& (use $$& to produce literal $& in output)
+  let result = replacement.replace(/\$\{0\}|\$0(?![0-9])/g, "$$&");
+
+  // Convert ${name} to $<name> for non-numeric names
+  result = result.replace(/\$\{([^0-9}][^}]*)\}/g, "$$<$1>");
+
+  // Convert $name to $<name> for non-numeric names (not followed by > which would already be converted)
+  // Match $name where name starts with letter or underscore and contains word chars
+  result = result.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)(?![>0-9])/g, "$$<$1>");
+
+  return result;
 }
 
 /**
