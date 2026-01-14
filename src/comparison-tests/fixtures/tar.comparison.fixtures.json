@@ -1,0 +1,85 @@
+{
+  "1eefde366bd2d5f4": {
+    "command": "tar -cf archive.tar deep/path/file.txt && mkdir out && tar -xf archive.tar -C out --strip-components=2 && cat out/file.txt",
+    "files": {
+      "deep/path/file.txt": "Deep content\n"
+    },
+    "stdout": "Deep content\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2ba72b80d7e2315e": {
+    "command": "tar -cf archive.tar mydir && rm -rf mydir && tar -xf archive.tar && cat mydir/nested.txt",
+    "files": {
+      "mydir/nested.txt": "Nested content\n"
+    },
+    "stdout": "Nested content\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4e2cbf2e913c29c9": {
+    "command": "tar -czf archive.tar.gz compress.txt && tar -tzf archive.tar.gz",
+    "files": {
+      "compress.txt": "Content to compress\n"
+    },
+    "stdout": "compress.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "53ef5bd7218ab0f6": {
+    "command": "tar -czf archive.tar.gz compress.txt && rm compress.txt && tar -xzf archive.tar.gz && cat compress.txt",
+    "files": {
+      "compress.txt": "Compressed content\n"
+    },
+    "stdout": "Compressed content\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "76755482c30f6729": {
+    "command": "tar -cf archive.tar hello.txt && tar -tf archive.tar",
+    "files": {
+      "hello.txt": "Hello, World!\n"
+    },
+    "stdout": "hello.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "87cc3d174c5bf2cd": {
+    "command": "tar -cf archive.tar source.txt && mkdir dest && tar -xf archive.tar -C dest && cat dest/source.txt",
+    "files": {
+      "source.txt": "Source content\n"
+    },
+    "stdout": "Source content\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c0f8ce57cb363e70": {
+    "command": "tar -cf archive.tar mydir && tar -tf archive.tar | sort",
+    "files": {
+      "mydir/file1.txt": "Content 1\n",
+      "mydir/file2.txt": "Content 2\n"
+    },
+    "stdout": "mydir/\nmydir/file1.txt\nmydir/file2.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cdaa68944a83396b": {
+    "command": "tar -cf archive.tar original.txt && rm original.txt && tar -xf archive.tar && cat original.txt",
+    "files": {
+      "original.txt": "Original content\n"
+    },
+    "stdout": "Original content\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ea3d17f6c34f860d": {
+    "command": "tar -cf archive.tar file1.txt file2.txt && tar -tf archive.tar | sort",
+    "files": {
+      "file1.txt": "Content 1\n",
+      "file2.txt": "Content 2\n"
+    },
+    "stdout": "file1.txt\nfile2.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

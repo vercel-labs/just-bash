@@ -86,11 +86,15 @@
     "vitest": "^4.0.16"
   },
   "dependencies": {
+    "@mongodb-js/zstd": "^7.0.0",
+    "compressjs": "^1.0.3",
     "diff": "^8.0.2",
     "fast-xml-parser": "^5.3.3",
     "file-type": "^21.2.0",
     "ini": "^6.0.0",
     "minimatch": "^10.1.1",
+    "modern-tar": "^0.7.3",
+    "node-liblzma": "^2.0.3",
     "papaparse": "^5.5.3",
     "smol-toml": "^1.6.0",
     "sprintf-js": "^1.1.3",

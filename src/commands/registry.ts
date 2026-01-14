@@ -87,6 +87,7 @@ export type CommandName =
   | "gzip"
   | "gunzip"
   | "zcat"
+  | "tar"
   | "yq"
   | "xan"
   | "sqlite3";
@@ -437,6 +438,12 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "zcat",
     load: async () => (await import("./gzip/gzip.js")).zcatCommand,
+  },
+
+  // Archives
+  {
+    name: "tar",
+    load: async () => (await import("./tar/tar.js")).tarCommand,
   },
 ];
 

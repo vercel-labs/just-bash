@@ -247,9 +247,9 @@ pnpm shell --no-network
 
 `jq` (JSON), `sqlite3` (SQLite), `xan` (CSV), `yq` (YAML/XML/TOML/CSV)
 
-### Compression
+### Compression & Archives
 
-`gzip` (+ `gunzip`, `zcat`)
+`gzip` (+ `gunzip`, `zcat`), `tar`
 
 ### Navigation & Environment
 
