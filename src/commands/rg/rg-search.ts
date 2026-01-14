@@ -691,9 +691,20 @@ async function searchFiles(
   // In non-JSON quiet mode, output nothing
   const finalStdout = options.quiet && !options.json ? "" : stdout;
 
+  // Exit codes:
+  // - For --files-without-match: 0 if files without matches found, 1 otherwise
+  // - For normal mode: 0 if any matches found, 1 otherwise
+  let exitCode: number;
+  if (options.filesWithoutMatch) {
+    // Success means we found files without matches (stdout has content)
+    exitCode = stdout.length > 0 ? 0 : 1;
+  } else {
+    exitCode = anyMatch ? 0 : 1;
+  }
+
   return {
     stdout: finalStdout,
     stderr: "",
-    exitCode: anyMatch ? 0 : 1,
+    exitCode,
   };
 }

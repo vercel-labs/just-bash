@@ -295,7 +295,6 @@ status=1
 ## END
 
 #### -h and -L test for symlink
-## SKIP: Symbolic links (ln -s) not implemented
 tmp=$TMP/builtin-test-1
 mkdir -p $tmp
 touch $tmp/zz
