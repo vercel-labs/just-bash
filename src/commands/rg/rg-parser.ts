@@ -65,7 +65,7 @@ const VALUE_OPTS: ValueOptDef[] = [
   { short: "e", long: "regexp", target: "patterns", multi: true },
   { short: "f", long: "file", target: "patternFiles", multi: true },
   { short: "r", long: "replace", target: "replace" },
-  { long: "max-depth", target: "maxDepth", parse: parseInt },
+  { short: "d", long: "max-depth", target: "maxDepth", parse: parseInt },
   { long: "context-separator", target: "contextSeparator" },
 ];
 
@@ -150,11 +150,17 @@ const BOOL_FLAGS: Record<string, BoolFlagHandler> = {
   l: (o) => {
     o.filesWithMatches = true;
   },
+  "--files": (o) => {
+    o.files = true;
+  },
   "--files-with-matches": (o) => {
     o.filesWithMatches = true;
   },
   "--files-without-match": (o) => {
     o.filesWithoutMatch = true;
+  },
+  "--stats": (o) => {
+    o.stats = true;
   },
   o: (o) => {
     o.onlyMatching = true;
@@ -452,6 +458,19 @@ export function parseArgs(args: string[]): ParseArgsResult {
         if (flag === "u" || flag === "--unrestricted") {
           handleUnrestricted(options);
           continue;
+        }
+
+        // PCRE2 not supported
+        if (flag === "P" || flag === "--pcre2") {
+          return {
+            success: false,
+            error: {
+              stdout: "",
+              stderr:
+                "rg: PCRE2 is not supported. Use standard regex syntax instead.\n",
+              exitCode: 1,
+            },
+          };
         }
 
         // Try boolean flags

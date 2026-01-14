@@ -110,6 +110,112 @@ describe("rg feature: issue #89 - files with matches", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("sherlock:2\n");
   });
+
+  it("should list searchable files with --files", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/sherlock": SHERLOCK,
+      },
+    });
+    const result = await bash.exec("rg --files");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("sherlock\n");
+  });
+
+  it("should list searchable files with --files and -0", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/sherlock": SHERLOCK,
+      },
+    });
+    const result = await bash.exec("rg --files -0");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("sherlock\x00");
+  });
+
+  it("should list multiple files sorted with --files", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/zebra.txt": "z\n",
+        "/home/user/alpha.txt": "a\n",
+        "/home/user/beta.txt": "b\n",
+      },
+    });
+    const result = await bash.exec("rg --files");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("alpha.txt\nbeta.txt\nzebra.txt\n");
+  });
+
+  it("should respect type filter with --files -t", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/code.js": "js\n",
+        "/home/user/code.py": "py\n",
+        "/home/user/code.ts": "ts\n",
+      },
+    });
+    const result = await bash.exec("rg --files -t js");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("code.js\n");
+  });
+
+  it("should respect glob filter with --files -g", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/test.txt": "txt\n",
+        "/home/user/test.log": "log\n",
+        "/home/user/other.txt": "txt\n",
+      },
+    });
+    const result = await bash.exec("rg --files -g 'test.*'");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("test.log\ntest.txt\n");
+  });
+
+  it("should respect max-depth with --files -d", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/top.txt": "top\n",
+        "/home/user/sub/deep.txt": "deep\n",
+        "/home/user/sub/deeper/bottom.txt": "bottom\n",
+      },
+    });
+    const result = await bash.exec("rg --files -d 2");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("sub/deep.txt\ntop.txt\n");
+  });
+
+  it("should return exit code 1 when no files found with --files", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/.hidden": "hidden\n",
+      },
+    });
+    // Hidden files are excluded by default
+    const result = await bash.exec("rg --files");
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+  });
+
+  it("should include hidden files with --files --hidden", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/.hidden": "hidden\n",
+        "/home/user/visible": "visible\n",
+      },
+    });
+    const result = await bash.exec("rg --files --hidden");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe(".hidden\nvisible\n");
+  });
 });
 
 describe("rg feature: issue #109 - max depth", () => {
@@ -124,6 +230,58 @@ describe("rg feature: issue #109 - max depth", () => {
     const result = await bash.exec("rg --max-depth 2 far");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("one/pass:1:far\n");
+  });
+
+  it("should accept -d as alias for --max-depth", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/one/pass": "far\n",
+        "/home/user/one/too/many": "far\n",
+      },
+    });
+    const result = await bash.exec("rg -d 2 far");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("one/pass:1:far\n");
+  });
+
+  it("should search only current directory with -d 1", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/top.txt": "match\n",
+        "/home/user/sub/nested.txt": "match\n",
+      },
+    });
+    const result = await bash.exec("rg -d 1 match");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("top.txt:1:match\n");
+  });
+
+  it("should search deeper with higher -d value", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/a/b/c/deep.txt": "found\n",
+      },
+    });
+    const result = await bash.exec("rg -d 4 found");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("a/b/c/deep.txt:1:found\n");
+  });
+
+  it("should combine -d with type filter", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/top.js": "test\n",
+        "/home/user/sub/nested.js": "test\n",
+        "/home/user/top.py": "test\n",
+      },
+    });
+    const result = await bash.exec("rg -d 1 -t js test");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("top.js:1:test\n");
   });
 });
 
@@ -352,6 +510,71 @@ describe("rg feature: type filtering", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("code.py:1:test\n");
   });
+
+  it("should accept markdown as type alias", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/README.md": "test\n",
+        "/home/user/code.py": "test\n",
+      },
+    });
+    const result = await bash.exec("rg -t markdown test");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("README.md:1:test\n");
+  });
+
+  it("should match .markdown extension with -t markdown", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/doc.markdown": "content\n",
+        "/home/user/code.js": "content\n",
+      },
+    });
+    const result = await bash.exec("rg -t markdown content");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("doc.markdown:1:content\n");
+  });
+
+  it("should match .mdown extension with -t markdown", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/notes.mdown": "info\n",
+        "/home/user/code.py": "info\n",
+      },
+    });
+    const result = await bash.exec("rg -t markdown info");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("notes.mdown:1:info\n");
+  });
+
+  it("should match both md and markdown types equivalently", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/doc.md": "text\n",
+        "/home/user/other.txt": "text\n",
+      },
+    });
+    const mdResult = await bash.exec("rg -t md text");
+    const markdownResult = await bash.exec("rg -t markdown text");
+    expect(mdResult.stdout).toBe(markdownResult.stdout);
+  });
+
+  it("should exclude markdown with -T markdown", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/README.md": "test\n",
+        "/home/user/code.py": "test\n",
+      },
+    });
+    const result = await bash.exec("rg -T markdown test");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("code.py:1:test\n");
+  });
 });
 
 describe("rg feature: glob filtering", () => {
@@ -573,5 +796,106 @@ describe("rg feature: combined flags", () => {
     const result = await bash.exec("rg -li foo");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("a.txt\n");
+  });
+});
+
+describe("rg feature: --stats", () => {
+  it("should output search statistics with --stats", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/file": "foo\nbar\nfoo\n",
+      },
+    });
+    const result = await bash.exec("rg --stats foo");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("2 matches");
+    expect(result.stdout).toContain("1 files contained matches");
+    expect(result.stdout).toContain("1 files searched");
+  });
+
+  it("should show stats for multiple files", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/a.txt": "foo\n",
+        "/home/user/b.txt": "foo\nfoo\n",
+        "/home/user/c.txt": "bar\n",
+      },
+    });
+    const result = await bash.exec("rg --stats foo");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("3 matches");
+    expect(result.stdout).toContain("2 files contained matches");
+    expect(result.stdout).toContain("3 files searched");
+  });
+
+  it("should show stats even with no matches", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/file": "hello\n",
+      },
+    });
+    const result = await bash.exec("rg --stats notfound");
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain("0 matches");
+    expect(result.stdout).toContain("0 files contained matches");
+    expect(result.stdout).toContain("1 files searched");
+  });
+
+  it("should include search results before stats", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/file": "test\n",
+      },
+    });
+    const result = await bash.exec("rg --stats test");
+    expect(result.exitCode).toBe(0);
+    // Results should appear before stats
+    expect(result.stdout).toMatch(/file:1:test[\s\S]*1 matches/);
+  });
+
+  it("should show bytes searched in stats", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/file": "test content here\n",
+      },
+    });
+    const result = await bash.exec("rg --stats test");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("bytes searched");
+  });
+});
+
+describe("rg feature: PCRE2 not supported", () => {
+  it("should error on -P flag", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/file": "test\n",
+      },
+    });
+    const result = await bash.exec("rg -P test");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe(
+      "rg: PCRE2 is not supported. Use standard regex syntax instead.\n",
+    );
+  });
+
+  it("should error on --pcre2 flag", async () => {
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/file": "test\n",
+      },
+    });
+    const result = await bash.exec("rg --pcre2 test");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe(
+      "rg: PCRE2 is not supported. Use standard regex syntax instead.\n",
+    );
   });
 });

@@ -31,6 +31,11 @@ export async function executeSearch(
 ): Promise<ExecResult> {
   const { ctx, options, paths: inputPaths, explicitLineNumbers } = searchCtx;
 
+  // Handle --files mode: list files without searching
+  if (options.files) {
+    return listFiles(ctx, inputPaths, options);
+  }
+
   // Combine -e patterns with patterns from files
   const patterns = [...options.patterns];
 
@@ -440,6 +445,37 @@ function matchGlob(str: string, pattern: string): boolean {
 }
 
 /**
+ * List files that would be searched (--files mode)
+ */
+async function listFiles(
+  ctx: CommandContext,
+  inputPaths: string[],
+  options: RgOptions,
+): Promise<ExecResult> {
+  // Load gitignore files
+  let gitignore: GitignoreManager | null = null;
+  if (!options.noIgnore) {
+    gitignore = await loadGitignores(ctx.fs, ctx.cwd);
+  }
+
+  // Default to current directory
+  const paths = inputPaths.length === 0 ? ["."] : inputPaths;
+
+  // Collect files
+  const { files } = await collectFiles(ctx, paths, options, gitignore);
+
+  if (files.length === 0) {
+    return { stdout: "", stderr: "", exitCode: 1 };
+  }
+
+  // Output file list
+  const sep = options.nullSeparator ? "\0" : "\n";
+  const stdout = files.map((f) => f + sep).join("");
+
+  return { stdout, stderr: "", exitCode: 0 };
+}
+
+/**
  * Read file content, handling gzip decompression if needed
  */
 async function readFileContent(
@@ -690,7 +726,20 @@ async function searchFiles(
 
   // In JSON + quiet mode, output only the summary (already built above)
   // In non-JSON quiet mode, output nothing
-  const finalStdout = options.quiet && !options.json ? "" : stdout;
+  let finalStdout = options.quiet && !options.json ? "" : stdout;
+
+  // Add stats output if requested
+  if (options.stats && !options.json) {
+    const statsOutput = [
+      "",
+      `${totalMatches} matches`,
+      `${totalMatches} matched lines`,
+      `${filesWithMatch} files contained matches`,
+      `${files.length} files searched`,
+      `${bytesSearched} bytes searched`,
+    ].join("\n");
+    finalStdout += `${statsOutput}\n`;
+  }
 
   // Exit codes:
   // - For --files-without-match: 0 if files without matches found, 1 otherwise

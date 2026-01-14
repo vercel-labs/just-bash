@@ -18,8 +18,10 @@ export interface RgOptions {
   // Output control
   count: boolean;
   countMatches: boolean;
+  files: boolean;
   filesWithMatches: boolean;
   filesWithoutMatch: boolean;
+  stats: boolean;
   onlyMatching: boolean;
   maxCount: number;
   lineNumber: boolean;
@@ -65,8 +67,10 @@ export function createDefaultOptions(): RgOptions {
     patternFiles: [],
     count: false,
     countMatches: false,
+    files: false,
     filesWithMatches: false,
     filesWithoutMatch: false,
+    stats: false,
     onlyMatching: false,
     maxCount: 0,
     lineNumber: true,
