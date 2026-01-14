@@ -204,7 +204,7 @@ export class GitignoreParser {
 /**
  * Hierarchical gitignore manager
  *
- * Loads .gitignore files from the root down to the current directory,
+ * Loads .gitignore and .ignore files from the root down to the current directory,
  * applying patterns in order (child patterns override parent patterns).
  */
 export class GitignoreManager {
@@ -218,7 +218,7 @@ export class GitignoreManager {
   }
 
   /**
-   * Load all .gitignore files from root to the specified path
+   * Load all .gitignore and .ignore files from root to the specified path
    */
   async load(targetPath: string): Promise<void> {
     // Build list of directories from root to target
@@ -232,16 +232,19 @@ export class GitignoreManager {
       current = parent;
     }
 
-    // Load .gitignore from each directory
+    // Load .gitignore and .ignore from each directory
+    // ripgrep loads them in order: .gitignore, then .ignore (ignore can override)
     for (const dir of dirs) {
-      const gitignorePath = this.fs.resolvePath(dir, ".gitignore");
-      try {
-        const content = await this.fs.readFile(gitignorePath);
-        const parser = new GitignoreParser(dir);
-        parser.parse(content);
-        this.parsers.push(parser);
-      } catch {
-        // No .gitignore in this directory
+      for (const filename of [".gitignore", ".ignore"]) {
+        const ignorePath = this.fs.resolvePath(dir, filename);
+        try {
+          const content = await this.fs.readFile(ignorePath);
+          const parser = new GitignoreParser(dir);
+          parser.parse(content);
+          this.parsers.push(parser);
+        } catch {
+          // No ignore file in this directory
+        }
       }
     }
   }

@@ -150,7 +150,8 @@ describe("grep advanced", () => {
         },
       });
       const result = await env.exec("grep -A1 match /test.txt");
-      expect(result.stdout).toBe("match1\nb\nmatch2\nd\n");
+      // Separator between non-contiguous groups (GNU grep behavior)
+      expect(result.stdout).toBe("match1\nb\n--\nmatch2\nd\n");
       expect(result.exitCode).toBe(0);
     });
 

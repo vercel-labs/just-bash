@@ -695,8 +695,78 @@ export class OverlayFs implements IFileSystem {
     return entriesMap;
   }
 
+  /**
+   * Follow symlinks to resolve the final directory path.
+   * Returns outsideOverlay: true if the symlink points outside the overlay or
+   * the resolved target doesn't exist (security - broken symlinks return []).
+   */
+  private async resolveForReaddir(
+    path: string,
+    followedSymlink = false,
+  ): Promise<{ normalized: string; outsideOverlay: boolean }> {
+    let normalized = this.normalizePath(path);
+    const seen = new Set<string>();
+    let didFollowSymlink = followedSymlink;
+
+    // Check memory layer first
+    let entry = this.memory.get(normalized);
+    while (entry && entry.type === "symlink") {
+      if (seen.has(normalized)) {
+        throw new Error(
+          `ELOOP: too many levels of symbolic links, scandir '${path}'`,
+        );
+      }
+      seen.add(normalized);
+      didFollowSymlink = true;
+      normalized = this.resolveSymlink(normalized, entry.target);
+      entry = this.memory.get(normalized);
+    }
+
+    // If in memory and not a symlink, we're done
+    if (entry) {
+      return { normalized, outsideOverlay: false };
+    }
+
+    // Check if the resolved path is within the overlay's mount point
+    const relativePath = this.getRelativeToMount(normalized);
+    if (relativePath === null) {
+      // Path is outside the overlay - return indicator for secure handling
+      return { normalized, outsideOverlay: true };
+    }
+
+    // Check real filesystem
+    const realPath = this.toRealPath(normalized);
+    if (!realPath) {
+      // Path doesn't map to real filesystem (security check failed)
+      return { normalized, outsideOverlay: true };
+    }
+
+    try {
+      const stat = await fs.promises.lstat(realPath);
+      if (stat.isSymbolicLink()) {
+        const target = await fs.promises.readlink(realPath);
+        const resolvedTarget = this.resolveSymlink(normalized, target);
+        return this.resolveForReaddir(resolvedTarget, true);
+      }
+      // Path exists on real filesystem
+      return { normalized, outsideOverlay: false };
+    } catch {
+      // Path doesn't exist on real fs
+      if (didFollowSymlink) {
+        // Followed a symlink but target doesn't exist - broken symlink, return []
+        return { normalized, outsideOverlay: true };
+      }
+      // No symlink was followed, let readdirCore handle the ENOENT
+      return { normalized, outsideOverlay: false };
+    }
+  }
+
   async readdir(path: string): Promise<string[]> {
-    const normalized = this.normalizePath(path);
+    const { normalized, outsideOverlay } = await this.resolveForReaddir(path);
+    if (outsideOverlay) {
+      // Security: symlink points outside overlay, return empty
+      return [];
+    }
     const entriesMap = await this.readdirCore(path, normalized);
     // Sort using case-sensitive comparison to match native behavior
     return Array.from(entriesMap.keys()).sort((a, b) =>
@@ -705,7 +775,11 @@ export class OverlayFs implements IFileSystem {
   }
 
   async readdirWithFileTypes(path: string): Promise<DirentEntry[]> {
-    const normalized = this.normalizePath(path);
+    const { normalized, outsideOverlay } = await this.resolveForReaddir(path);
+    if (outsideOverlay) {
+      // Security: symlink points outside overlay, return empty
+      return [];
+    }
     const entriesMap = await this.readdirCore(path, normalized);
     // Sort using case-sensitive comparison to match native behavior
     return Array.from(entriesMap.values()).sort((a, b) =>

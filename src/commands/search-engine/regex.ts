@@ -9,6 +9,7 @@ export interface RegexOptions {
   ignoreCase?: boolean;
   wholeWord?: boolean;
   lineRegexp?: boolean;
+  multiline?: boolean;
 }
 
 /**
@@ -33,13 +34,18 @@ export function buildRegex(pattern: string, options: RegexOptions): RegExp {
   }
 
   if (options.wholeWord) {
-    regexPattern = `\\b${regexPattern}\\b`;
+    // Wrap in non-capturing group to handle alternation properly
+    // e.g., min|max should become \b(?:min|max)\b, not \bmin|max\b
+    // Use (?<!\w) and (?!\w) instead of \b to handle non-word characters
+    // This ensures patterns like '.' match individual non-word chars correctly
+    regexPattern = `(?<![\\w])(?:${regexPattern})(?![\\w])`;
   }
   if (options.lineRegexp) {
     regexPattern = `^${regexPattern}$`;
   }
 
-  return new RegExp(regexPattern, options.ignoreCase ? "gi" : "g");
+  const flags = `g${options.ignoreCase ? "i" : ""}${options.multiline ? "s" : ""}`;
+  return new RegExp(regexPattern, flags);
 }
 
 /**
