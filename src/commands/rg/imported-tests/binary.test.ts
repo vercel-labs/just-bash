@@ -247,7 +247,9 @@ describe("rg binary: with other flags", () => {
     });
     const result = await bash.exec("rg -C1 match");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("text.txt-1-before\ntext.txt:2:match\ntext.txt-3-after\n");
+    expect(result.stdout).toBe(
+      "text.txt-1-before\ntext.txt:2:match\ntext.txt-3-after\n",
+    );
   });
 
   it("should work with -m flag", async () => {
