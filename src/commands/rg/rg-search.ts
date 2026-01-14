@@ -476,6 +476,13 @@ async function readFileContent(
 /**
  * Format a single match for JSON output
  */
+interface JsonSubmatch {
+  match: { text: string };
+  start: number;
+  end: number;
+  replacement?: { text: string };
+}
+
 interface JsonMatch {
   type: "match";
   data: {
@@ -483,11 +490,7 @@ interface JsonMatch {
     lines: { text: string };
     line_number: number;
     absolute_offset: number;
-    submatches: Array<{
-      match: { text: string };
-      start: number;
-      end: number;
-    }>;
+    submatches: JsonSubmatch[];
   };
 }
 
@@ -569,12 +572,13 @@ async function searchFiles(
         filesWithMatch++;
         totalMatches += result.matchCount;
 
-        if (options.quiet) {
+        if (options.quiet && !options.json) {
+          // Quiet mode without JSON: exit early on first match
           break outer;
         }
 
-        if (options.json) {
-          // JSON output mode
+        if (options.json && !options.quiet) {
+          // JSON mode without quiet: output begin/match/end messages
           const content = (res as { content?: string }).content || "";
           jsonMessages.push(
             JSON.stringify({ type: "begin", data: { path: { text: file } } }),
@@ -587,22 +591,22 @@ async function searchFiles(
           for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
             const line = lines[lineIdx];
             regex.lastIndex = 0;
-            const submatches: Array<{
-              match: { text: string };
-              start: number;
-              end: number;
-            }> = [];
+            const submatches: JsonSubmatch[] = [];
 
             for (
               let match = regex.exec(line);
               match !== null;
               match = regex.exec(line)
             ) {
-              submatches.push({
+              const submatch: JsonSubmatch = {
                 match: { text: match[0] },
                 start: match.index,
                 end: match.index + match[0].length,
-              });
+              };
+              if (options.replace !== null) {
+                submatch.replacement = { text: options.replace };
+              }
+              submatches.push(submatch);
               if (match[0].length === 0) regex.lastIndex++;
             }
 
@@ -683,8 +687,12 @@ async function searchFiles(
     stdout = `${jsonMessages.join("\n")}\n`;
   }
 
+  // In JSON + quiet mode, output only the summary (already built above)
+  // In non-JSON quiet mode, output nothing
+  const finalStdout = options.quiet && !options.json ? "" : stdout;
+
   return {
-    stdout: options.quiet ? "" : stdout,
+    stdout: finalStdout,
     stderr: "",
     exitCode: anyMatch ? 0 : 1,
   };

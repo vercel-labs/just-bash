@@ -13,20 +13,30 @@ Tests were imported from the ripgrep test suite:
 |------|--------|-------------|
 | `binary.test.ts` | `tests/binary.rs` | Binary file detection and handling |
 | `feature.test.ts` | `tests/feature.rs` | Feature tests from GitHub issues |
-| `misc.test.ts` | `tests/misc.rs` | Miscellaneous behavior tests |
+| `json.test.ts` | `tests/json.rs` | JSON output format |
+| `misc.test.ts` | `tests/misc.rs` | Miscellaneous behavior tests + gzip |
+| `multiline.test.ts` | `tests/multiline.rs` | Multiline matching tests |
 | `regression.test.ts` | `tests/regression.rs` | Regression tests from bug reports |
 
-## Skipped Test Files
-
-- `json.rs` - JSON output format not implemented
-- `multiline.rs` - Multiline matching not implemented
-
-## Skipped Individual Tests
+## Skipped Tests
 
 Some tests are skipped due to implementation differences:
+
+### json.rs
+- `notutf8`, `notutf8_file` - Non-UTF8 file handling not supported
+- `crlf`, `r1095_*` - `--crlf` flag not implemented
+- `r1412_*` - Requires PCRE2 look-behind
+
+### multiline.rs
+- Tests using `\p{Any}` Unicode property (not supported in JavaScript regex)
+- `--multiline-dotall` flag (not implemented)
+
+### misc.rs
+- `compressed_*` for bzip2, xz, lz4, lzma, brotli, zstd, compress (only gzip supported)
+
+### General
 - `.ignore` file support (we only support `.gitignore`)
-- Complex `-A/-B/-C` flag precedence rules
-- Word boundary behavior with non-word characters
+- Context messages in JSON output (`-A/-B/-C` context not output as separate messages)
 
 ## License
 

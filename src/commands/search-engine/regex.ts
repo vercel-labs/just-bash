@@ -10,6 +10,8 @@ export interface RegexOptions {
   wholeWord?: boolean;
   lineRegexp?: boolean;
   multiline?: boolean;
+  /** Makes . match newlines in multiline mode (ripgrep --multiline-dotall) */
+  multilineDotall?: boolean;
 }
 
 /**
@@ -44,7 +46,7 @@ export function buildRegex(pattern: string, options: RegexOptions): RegExp {
     regexPattern = `^${regexPattern}$`;
   }
 
-  const flags = `g${options.ignoreCase ? "i" : ""}${options.multiline ? "s" : ""}`;
+  const flags = `g${options.ignoreCase ? "i" : ""}${options.multilineDotall ? "s" : ""}`;
   return new RegExp(regexPattern, flags);
 }
 

@@ -547,3 +547,56 @@ describe("rg misc: smart case", () => {
     expect(result.stdout).not.toContain("Test\n");
   });
 });
+
+// Gzip tests from ripgrep misc.rs (compressed_gzip, etc.)
+// Note: Only gzip is supported, not bzip2, xz, lz4, lzma, brotli, zstd, or compress
+describe("rg misc: compressed files (-z)", () => {
+  // Dynamically import gzipSync to avoid issues
+  const { gzipSync } = require("node:zlib");
+
+  it("compressed_gzip: should search in gzip compressed files with -z", async () => {
+    const compressed = gzipSync(Buffer.from(SHERLOCK));
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/sherlock.gz": compressed,
+      },
+    });
+    const result = await bash.exec("rg -z Sherlock sherlock.gz");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Sherlock");
+  });
+
+  it("should search gzip files recursively with -z", async () => {
+    const compressed = gzipSync(Buffer.from("hello world\n"));
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/test.gz": compressed,
+        "/home/user/plain.txt": "hello there\n",
+      },
+    });
+    const result = await bash.exec("rg -z hello");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("test.gz");
+    expect(result.stdout).toContain("plain.txt");
+  });
+
+  it("should not decompress without -z flag", async () => {
+    const compressed = gzipSync(Buffer.from("hello world\n"));
+    const bash = new Bash({
+      cwd: "/home/user",
+      files: {
+        "/home/user/test.gz": compressed,
+        "/home/user/plain.txt": "hello there\n",
+      },
+    });
+    const result = await bash.exec("rg hello");
+    expect(result.exitCode).toBe(0);
+    // Should only find the plain text file
+    expect(result.stdout).toBe("plain.txt:1:hello there\n");
+  });
+
+  // Note: compressed_failing_gzip test not implemented - we don't validate gzip magic bytes
+  // before attempting decompression
+});
