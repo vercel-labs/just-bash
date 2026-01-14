@@ -30,14 +30,19 @@ async function readBinary(
 ): Promise<{ ok: true; data: Uint8Array } | { ok: false; error: ExecResult }> {
   // No files - read from stdin
   if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-    return { ok: true, data: new TextEncoder().encode(ctx.stdin) };
+    // Convert binary string directly to bytes without UTF-8 re-encoding
+    return {
+      ok: true,
+      data: Uint8Array.from(ctx.stdin, (c) => c.charCodeAt(0)),
+    };
   }
 
   // Read and concatenate all files as binary
   const chunks: Uint8Array[] = [];
   for (const file of files) {
     if (file === "-") {
-      chunks.push(new TextEncoder().encode(ctx.stdin));
+      // Convert binary string directly to bytes without UTF-8 re-encoding
+      chunks.push(Uint8Array.from(ctx.stdin, (c) => c.charCodeAt(0)));
       continue;
     }
     try {
@@ -88,11 +93,11 @@ export const base64Command: Command = {
         // For decoding, read as text and strip whitespace
         const readResult = await readBinary(ctx, files, "base64");
         if (!readResult.ok) return readResult.error;
-        const input = new TextDecoder().decode(readResult.data);
+        // Use binary string (latin1) to preserve bytes for input
+        const input = String.fromCharCode(...readResult.data);
         const cleaned = input.replace(/\s/g, "");
-        // Decode base64 to bytes, then to UTF-8 string for output
-        const bytes = Uint8Array.from(atob(cleaned), (c) => c.charCodeAt(0));
-        const decoded = new TextDecoder().decode(bytes);
+        // Decode base64 to binary string (each char code = byte value)
+        const decoded = atob(cleaned);
         return { stdout: decoded, stderr: "", exitCode: 0 };
       }
 

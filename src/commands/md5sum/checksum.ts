@@ -163,8 +163,8 @@ export function createChecksumCommand(
       // Helper to read file as binary
       const readBinary = async (file: string): Promise<Uint8Array | null> => {
         if (file === "-") {
-          // stdin is a string, convert to bytes
-          return new TextEncoder().encode(ctx.stdin);
+          // Convert binary string directly to bytes without UTF-8 re-encoding
+          return Uint8Array.from(ctx.stdin, (c) => c.charCodeAt(0));
         }
         try {
           return await ctx.fs.readFileBuffer(ctx.fs.resolvePath(ctx.cwd, file));

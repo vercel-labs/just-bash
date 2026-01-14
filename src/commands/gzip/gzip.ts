@@ -258,7 +258,7 @@ async function processFile(
 
   // Handle stdin
   if (file === "-" || file === "") {
-    inputData = new TextEncoder().encode(ctx.stdin);
+    inputData = Uint8Array.from(ctx.stdin, (c) => c.charCodeAt(0));
     if (decompress) {
       if (!isGzip(inputData)) {
         if (!flags.quiet) {
@@ -272,8 +272,9 @@ async function processFile(
       }
       try {
         const decompressed = gunzipSync(inputData);
+        // Use binary string (latin1) to preserve bytes
         return {
-          stdout: new TextDecoder().decode(decompressed),
+          stdout: String.fromCharCode(...decompressed),
           stderr: "",
           exitCode: 0,
         };
@@ -382,9 +383,9 @@ async function processFile(
     }
 
     if (toStdout) {
-      // Output to stdout
+      // Output to stdout using binary string (latin1) to preserve bytes
       return {
-        stdout: new TextDecoder().decode(decompressed),
+        stdout: String.fromCharCode(...decompressed),
         stderr: "",
         exitCode: 0,
       };
@@ -578,7 +579,7 @@ async function listFile(
   let inputData: Uint8Array;
 
   if (file === "-" || file === "") {
-    inputData = new TextEncoder().encode(ctx.stdin);
+    inputData = Uint8Array.from(ctx.stdin, (c) => c.charCodeAt(0));
   } else {
     const inputPath = ctx.fs.resolvePath(ctx.cwd, file);
     try {
@@ -629,7 +630,7 @@ async function testFile(
   let inputData: Uint8Array;
 
   if (file === "-" || file === "") {
-    inputData = new TextEncoder().encode(ctx.stdin);
+    inputData = Uint8Array.from(ctx.stdin, (c) => c.charCodeAt(0));
   } else {
     const inputPath = ctx.fs.resolvePath(ctx.cwd, file);
     try {

@@ -1279,4 +1279,77 @@ describe("tar", () => {
       expect(result.stdout).toContain("file2.txt");
     });
   });
+
+  describe("binary stdin handling", () => {
+    it("should correctly handle binary archive data from stdin for list", async () => {
+      const env = new Bash({
+        files: {
+          "/file1.txt": "content one",
+          "/file2.txt": "content two",
+        },
+      });
+
+      // Create archive
+      await env.exec("tar -cf /test.tar /file1.txt /file2.txt");
+
+      // Read archive and pipe to tar -t (tests stdin binary handling)
+      // The tar archive itself contains binary header data with bytes > 127
+      const result = await env.exec("cat /test.tar | tar -t");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("file1.txt");
+      expect(result.stdout).toContain("file2.txt");
+    });
+
+    it("should correctly handle binary archive data from stdin for extract", async () => {
+      const env = new Bash({
+        files: {
+          "/src/file.txt": "test content 12345",
+        },
+      });
+
+      // Create archive
+      await env.exec("tar -cf /test.tar -C /src file.txt");
+
+      // Extract from stdin (tests binary stdin handling)
+      // The tar archive format includes binary header bytes that would be
+      // corrupted by UTF-8 re-encoding if stdin is not handled correctly
+      const result = await env.exec("cat /test.tar | tar -x -C /dest");
+      expect(result.exitCode).toBe(0);
+
+      // Verify the extracted file exists and has correct content
+      const catResult = await env.exec("cat /dest/file.txt");
+      expect(catResult.exitCode).toBe(0);
+      expect(catResult.stdout).toBe("test content 12345");
+    });
+
+    it("should handle gzip-compressed archive from stdin", async () => {
+      const env = new Bash({
+        files: {
+          "/src/data.txt": "Hello World",
+        },
+      });
+
+      // Create compressed archive (gzip includes binary header bytes)
+      const createResult = await env.exec(
+        "tar -czf /test.tar.gz -C /src data.txt",
+      );
+      expect(createResult.exitCode).toBe(0);
+
+      // Verify the archive exists and can be listed
+      const listResult = await env.exec("tar -tzf /test.tar.gz");
+      expect(listResult.exitCode).toBe(0);
+      expect(listResult.stdout).toContain("data.txt");
+
+      // Extract from stdin - this would fail if binary stdin handling
+      // corrupts the gzip magic bytes (0x1f 0x8b)
+      const result = await env.exec("cat /test.tar.gz | tar -xz -C /dest");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+
+      // Verify extraction worked
+      const catResult = await env.exec("cat /dest/data.txt");
+      expect(catResult.exitCode).toBe(0);
+      expect(catResult.stdout).toBe("Hello World");
+    });
+  });
 });

@@ -46,7 +46,8 @@ export async function applyRedirections(
           } catch {
             // File doesn't exist, that's ok - we'll create it
           }
-          await ctx.fs.writeFile(filePath, stdout);
+          // Use binary encoding to preserve bytes in stdout (e.g., gzip output)
+          await ctx.fs.writeFile(filePath, stdout, "binary");
           stdout = "";
         } else if (fd === 2) {
           if (target === "/dev/null") {
@@ -64,7 +65,8 @@ export async function applyRedirections(
             } catch {
               // File doesn't exist, that's ok
             }
-            await ctx.fs.writeFile(filePath, stderr);
+            // Use binary encoding to preserve bytes in stderr
+            await ctx.fs.writeFile(filePath, stderr, "binary");
             stderr = "";
           }
         }
@@ -87,7 +89,8 @@ export async function applyRedirections(
           } catch {
             // File doesn't exist, that's ok
           }
-          await ctx.fs.appendFile(filePath, stdout);
+          // Use binary encoding to preserve bytes in stdout
+          await ctx.fs.appendFile(filePath, stdout, "binary");
           stdout = "";
         } else if (fd === 2) {
           const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
@@ -102,7 +105,8 @@ export async function applyRedirections(
           } catch {
             // File doesn't exist, that's ok
           }
-          await ctx.fs.appendFile(filePath, stderr);
+          // Use binary encoding to preserve bytes in stderr
+          await ctx.fs.appendFile(filePath, stderr, "binary");
           stderr = "";
         }
         break;
@@ -145,7 +149,8 @@ export async function applyRedirections(
         } catch {
           // File doesn't exist, that's ok
         }
-        await ctx.fs.writeFile(filePath, stdout + stderr);
+        // Use binary encoding to preserve bytes
+        await ctx.fs.writeFile(filePath, stdout + stderr, "binary");
         stdout = "";
         stderr = "";
         break;
@@ -165,7 +170,8 @@ export async function applyRedirections(
         } catch {
           // File doesn't exist, that's ok
         }
-        await ctx.fs.appendFile(filePath, stdout + stderr);
+        // Use binary encoding to preserve bytes
+        await ctx.fs.appendFile(filePath, stdout + stderr, "binary");
         stdout = "";
         stderr = "";
         break;

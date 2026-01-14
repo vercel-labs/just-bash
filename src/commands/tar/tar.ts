@@ -1009,8 +1009,8 @@ async function extractTarArchive(
       };
     }
   } else {
-    // Read from stdin
-    archiveData = new TextEncoder().encode(ctx.stdin);
+    // Read from stdin - convert binary string directly to bytes without UTF-8 re-encoding
+    archiveData = Uint8Array.from(ctx.stdin, (c) => c.charCodeAt(0));
   }
 
   // Parse archive - auto-detect compression or use flags
@@ -1223,8 +1223,8 @@ async function listTarArchive(
       };
     }
   } else {
-    // Read from stdin
-    archiveData = new TextEncoder().encode(ctx.stdin);
+    // Read from stdin - convert binary string directly to bytes without UTF-8 re-encoding
+    archiveData = Uint8Array.from(ctx.stdin, (c) => c.charCodeAt(0));
   }
 
   // Parse archive - auto-detect compression or use flags

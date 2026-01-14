@@ -25,23 +25,21 @@ export function toBuffer(
     return content;
   }
 
-  switch (encoding) {
-    case "base64":
-      return Uint8Array.from(atob(content), (c) => c.charCodeAt(0));
-    case "hex": {
-      const bytes = new Uint8Array(content.length / 2);
-      for (let i = 0; i < content.length; i += 2) {
-        bytes[i / 2] = parseInt(content.slice(i, i + 2), 16);
-      }
-      return bytes;
-    }
-    case "binary":
-    case "latin1":
-      return Uint8Array.from(content, (c) => c.charCodeAt(0));
-    default:
-      // utf8 or utf-8 or ascii
-      return textEncoder.encode(content);
+  if (encoding === "base64") {
+    return Uint8Array.from(atob(content), (c) => c.charCodeAt(0));
   }
+  if (encoding === "hex") {
+    const bytes = new Uint8Array(content.length / 2);
+    for (let i = 0; i < content.length; i += 2) {
+      bytes[i / 2] = parseInt(content.slice(i, i + 2), 16);
+    }
+    return bytes;
+  }
+  if (encoding === "binary" || encoding === "latin1") {
+    return Uint8Array.from(content, (c) => c.charCodeAt(0));
+  }
+  // Default to UTF-8 for text content
+  return textEncoder.encode(content);
 }
 
 /**
@@ -51,20 +49,19 @@ export function fromBuffer(
   buffer: Uint8Array,
   encoding?: BufferEncoding | null,
 ): string {
-  switch (encoding) {
-    case "base64":
-      return btoa(String.fromCharCode(...buffer));
-    case "hex":
-      return Array.from(buffer)
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-    case "binary":
-    case "latin1":
-      return String.fromCharCode(...buffer);
-    default:
-      // utf8 or utf-8 or ascii or null
-      return textDecoder.decode(buffer);
+  if (encoding === "base64") {
+    return btoa(String.fromCharCode(...buffer));
   }
+  if (encoding === "hex") {
+    return Array.from(buffer)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+  if (encoding === "binary" || encoding === "latin1") {
+    return String.fromCharCode(...buffer);
+  }
+  // Default to UTF-8 for text content
+  return textDecoder.decode(buffer);
 }
 
 /**
