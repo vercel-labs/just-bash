@@ -94,13 +94,15 @@
     "ini": "^6.0.0",
     "minimatch": "^10.1.1",
     "modern-tar": "^0.7.3",
-    "node-liblzma": "^2.0.3",
     "papaparse": "^5.5.3",
     "smol-toml": "^1.6.0",
     "sprintf-js": "^1.1.3",
     "sql.js": "^1.13.0",
     "turndown": "^7.2.2",
     "yaml": "^2.8.2"
+  },
+  "optionalDependencies": {
+    "node-liblzma": "^2.0.3"
   },
   "packageManager": "pnpm@8.15.9+sha512.499434c9d8fdd1a2794ebf4552b3b25c0a633abcee5bb15e7b5de90f32f47b513aca98cd5cfd001c31f0db454bc3804edccd578501e4ca293a6816166bbd9f81"
 }

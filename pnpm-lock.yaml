@@ -29,9 +29,6 @@ dependencies:
   modern-tar:
     specifier: ^0.7.3
     version: 0.7.3
-  node-liblzma:
-    specifier: ^2.0.3
-    version: 2.0.3
   papaparse:
     specifier: ^5.5.3
     version: 5.5.3
@@ -50,6 +47,11 @@ dependencies:
   yaml:
     specifier: ^2.8.2
     version: 2.8.2
+
+optionalDependencies:
+  node-liblzma:
+    specifier: ^2.0.3
+    version: 2.0.3
 
 devDependencies:
   '@biomejs/biome':
@@ -1368,7 +1370,9 @@ packages:
   /node-gyp-build@4.8.4:
     resolution: {integrity: sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ==}
     hasBin: true
+    requiresBuild: true
     dev: false
+    optional: true
 
   /node-liblzma@2.0.3:
     resolution: {integrity: sha512-BZTOQtHTFiq9FNAXeRJI25P7ZFzudXK1K72HJ/XXuVNwZsLIK6zHLCjIFZWEIfdPKrnLtEUhZ0+TelXvVCDnvQ==}
@@ -1378,6 +1382,7 @@ packages:
       node-addon-api: 8.5.0
       node-gyp-build: 4.8.4
     dev: false
+    optional: true
 
   /obug@2.1.1:
     resolution: {integrity: sha512-uTqF9MuPraAQ+IsnPf366RG4cP9RtUi7MLO1N3KEc+wb0a6yKpeL0lmk2IB1jY5KHPAlTc6T/JRdC/YqxHNwkQ==}

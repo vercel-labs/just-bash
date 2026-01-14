@@ -17,7 +17,26 @@ import {
   type TarHeader,
   unpackTar,
 } from "modern-tar";
-import * as lzma from "node-liblzma";
+
+// Lazy load node-liblzma since it requires native compilation
+// that may fail on some systems (e.g., missing liblzma-dev)
+let lzma: typeof import("node-liblzma") | null = null;
+let lzmaLoadError: Error | null = null;
+
+async function getLzma(): Promise<typeof import("node-liblzma")> {
+  if (lzma) return lzma;
+  if (lzmaLoadError) throw lzmaLoadError;
+  try {
+    lzma = await import("node-liblzma");
+    return lzma;
+  } catch {
+    lzmaLoadError = new Error(
+      "xz compression requires node-liblzma which failed to load. " +
+        "Install liblzma-dev (apt) or xz (brew) and reinstall dependencies.",
+    );
+    throw lzmaLoadError;
+  }
+}
 
 // Re-export types from modern-tar
 export type { TarEntry, TarHeader, ParsedTarEntryWithData };
@@ -316,7 +335,8 @@ async function compressBzip2(data: Uint8Array): Promise<Uint8Array> {
  * xz/lzma decompression using node-liblzma
  */
 async function decompressXz(data: Uint8Array): Promise<Uint8Array> {
-  const decompressed = lzma.unxzSync(Buffer.from(data));
+  const lzmaModule = await getLzma();
+  const decompressed = lzmaModule.unxzSync(Buffer.from(data));
   return new Uint8Array(decompressed);
 }
 
@@ -324,7 +344,8 @@ async function decompressXz(data: Uint8Array): Promise<Uint8Array> {
  * xz/lzma compression using node-liblzma
  */
 async function compressXz(data: Uint8Array): Promise<Uint8Array> {
-  const compressed = lzma.xzSync(Buffer.from(data));
+  const lzmaModule = await getLzma();
+  const compressed = lzmaModule.xzSync(Buffer.from(data));
   return new Uint8Array(compressed);
 }
 
