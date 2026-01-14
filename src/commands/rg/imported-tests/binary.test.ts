@@ -27,7 +27,6 @@ describe("rg binary: basic detection", () => {
     expect(result.exitCode).toBe(0);
     // Should only find match in text file, not binary
     expect(result.stdout).toBe("text.txt:1:hello world\n");
-    expect(result.stdout).not.toContain("binary.bin");
   });
 
   it("should skip binary files when searching single explicit file", async () => {
@@ -64,7 +63,7 @@ describe("rg binary: basic detection", () => {
     });
     const result = await bash.exec("rg pattern");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("pattern");
+    expect(result.stdout).toBe("late.txt:1:pattern\n");
   });
 });
 
@@ -108,11 +107,11 @@ describe("rg binary: mixed content", () => {
         "/home/user/script.sh": "echo documentation\n",
       },
     });
-    const result = await bash.exec("rg documentation");
+    const result = await bash.exec("rg --sort path documentation");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("readme.md");
-    expect(result.stdout).toContain("script.sh");
-    expect(result.stdout).not.toContain("image.png");
+    expect(result.stdout).toBe(
+      "readme.md:1:documentation\nscript.sh:1:echo documentation\n",
+    );
   });
 
   it("should handle multiple binary and text files", async () => {
@@ -248,10 +247,7 @@ describe("rg binary: with other flags", () => {
     });
     const result = await bash.exec("rg -C1 match");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("before");
-    expect(result.stdout).toContain("match");
-    expect(result.stdout).toContain("after");
-    expect(result.stdout).not.toContain("binary.bin");
+    expect(result.stdout).toBe("text.txt-1-before\ntext.txt:2:match\ntext.txt-3-after\n");
   });
 
   it("should work with -m flag", async () => {
@@ -278,10 +274,10 @@ describe("rg binary: subdirectories", () => {
         "/home/user/lib/util.ts": "export function foo() {}\n",
       },
     });
-    const result = await bash.exec("rg export");
+    const result = await bash.exec("rg --sort path export");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("src/code.ts");
-    expect(result.stdout).toContain("lib/util.ts");
-    expect(result.stdout).not.toContain("assets/image.bin");
+    expect(result.stdout).toBe(
+      "lib/util.ts:1:export function foo() {}\nsrc/code.ts:1:export const x = 1;\n",
+    );
   });
 });

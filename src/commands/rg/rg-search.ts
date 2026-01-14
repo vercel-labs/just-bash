@@ -547,6 +547,7 @@ async function searchFiles(
           maxCount: options.maxCount,
           contextSeparator: options.contextSeparator,
           showColumn: options.column,
+          vimgrep: options.vimgrep,
           showByteOffset: options.byteOffset,
           replace: options.replace,
           passthru: options.passthru,

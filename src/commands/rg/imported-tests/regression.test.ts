@@ -377,10 +377,9 @@ describe("rg regression: issue #693 - context in count mode", () => {
         "/home/user/foo": "xyz\n",
       },
     });
-    const result = await bash.exec("rg -C1 -c xyz");
+    const result = await bash.exec("rg -C1 -c --sort path xyz");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("bar:1");
-    expect(result.stdout).toContain("foo:1");
+    expect(result.stdout).toBe("bar:1\nfoo:1\n");
   });
 });
 
@@ -410,9 +409,7 @@ describe("rg regression: misc patterns", () => {
     });
     const result = await bash.exec("rg '[a-z]+@[a-z]+\\.[a-z]+' email.txt");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("test@example.com");
-    expect(result.stdout).toContain("foo@bar.org");
-    expect(result.stdout).not.toContain("invalid\n");
+    expect(result.stdout).toBe("test@example.com\nfoo@bar.org\n");
   });
 
   it("should match multiple patterns on same line", async () => {
@@ -450,7 +447,6 @@ describe("rg regression: edge cases", () => {
     });
     const result = await bash.exec("rg -e foo -e bar");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("foo");
-    expect(result.stdout).toContain("bar");
+    expect(result.stdout).toBe("file:1:foo\nfile:2:bar\n");
   });
 });

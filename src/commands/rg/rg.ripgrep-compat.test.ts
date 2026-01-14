@@ -41,8 +41,9 @@ describe("rg ripgrep-compat: basic search", () => {
     });
     const result = await bash.exec("rg Sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("sherlock:");
-    expect(result.stdout).toContain("Sherlock");
+    expect(result.stdout).toBe(
+      "sherlock:1:For the Doctor Watsons of this world, as opposed to the Sherlock\nsherlock:3:be, to a very large extent, the result of luck. Sherlock Holmes\n",
+    );
   });
 
   it("should show line numbers with -n", async () => {
@@ -85,11 +86,9 @@ describe("rg ripgrep-compat: inverted match", () => {
     const result = await bash.exec("rg -v Sherlock sherlock");
     expect(result.exitCode).toBe(0);
     // Lines NOT containing "Sherlock"
-    expect(result.stdout).toContain("Holmeses");
-    expect(result.stdout).toContain("can extract");
-    expect(result.stdout).toContain("Doctor Watson");
-    expect(result.stdout).toContain("exhibited clearly");
-    expect(result.stdout).not.toContain("the Sherlock");
+    expect(result.stdout).toBe(
+      "Holmeses, success in the province of detective work must always\ncan extract a clew from a wisp of straw or a flake of cigar ash;\nbut Doctor Watson has to have it taken out for him and dusted,\nand exhibited clearly, with a label attached.\n",
+    );
   });
 
   it("should show line numbers with inverted match", async () => {
@@ -101,10 +100,9 @@ describe("rg ripgrep-compat: inverted match", () => {
     });
     const result = await bash.exec("rg -n -v Sherlock sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("2:");
-    expect(result.stdout).toContain("4:");
-    expect(result.stdout).toContain("5:");
-    expect(result.stdout).toContain("6:");
+    expect(result.stdout).toBe(
+      "2:Holmeses, success in the province of detective work must always\n4:can extract a clew from a wisp of straw or a flake of cigar ash;\n5:but Doctor Watson has to have it taken out for him and dusted,\n6:and exhibited clearly, with a label attached.\n",
+    );
   });
 });
 
@@ -118,8 +116,10 @@ describe("rg ripgrep-compat: case sensitivity", () => {
     });
     const result = await bash.exec("rg -i sherlock sherlock");
     expect(result.exitCode).toBe(0);
-    // Should match both "Sherlock" and "sherlock" (if any)
-    expect(result.stdout).toContain("Sherlock");
+    // Should match "Sherlock" case-insensitively
+    expect(result.stdout).toBe(
+      "For the Doctor Watsons of this world, as opposed to the Sherlock\nbe, to a very large extent, the result of luck. Sherlock Holmes\n",
+    );
   });
 
   it("should use smart case with lowercase pattern", async () => {
@@ -173,7 +173,9 @@ describe("rg ripgrep-compat: word matching", () => {
     const result = await bash.exec("rg -w as sherlock");
     expect(result.exitCode).toBe(0);
     // "as" as a word appears in first line
-    expect(result.stdout).toContain("as opposed");
+    expect(result.stdout).toBe(
+      "For the Doctor Watsons of this world, as opposed to the Sherlock\n",
+    );
   });
 
   it("should match words with -w", async () => {
@@ -371,9 +373,9 @@ describe("rg ripgrep-compat: context lines", () => {
     });
     const result = await bash.exec("rg -A 1 Sherlock sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Sherlock");
-    expect(result.stdout).toContain("Holmeses");
-    expect(result.stdout).toContain("can extract");
+    expect(result.stdout).toBe(
+      "For the Doctor Watsons of this world, as opposed to the Sherlock\nHolmeses, success in the province of detective work must always\nbe, to a very large extent, the result of luck. Sherlock Holmes\ncan extract a clew from a wisp of straw or a flake of cigar ash;\n",
+    );
   });
 
   it("should show before context with -B", async () => {
@@ -385,8 +387,9 @@ describe("rg ripgrep-compat: context lines", () => {
     });
     const result = await bash.exec("rg -B 1 Sherlock sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Sherlock");
-    expect(result.stdout).toContain("Holmeses");
+    expect(result.stdout).toBe(
+      "For the Doctor Watsons of this world, as opposed to the Sherlock\nHolmeses, success in the province of detective work must always\nbe, to a very large extent, the result of luck. Sherlock Holmes\n",
+    );
   });
 
   it("should show context with -C", async () => {
@@ -398,8 +401,9 @@ describe("rg ripgrep-compat: context lines", () => {
     });
     const result = await bash.exec("rg -C 1 'world|attached' sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("world");
-    expect(result.stdout).toContain("attached");
+    expect(result.stdout).toBe(
+      "For the Doctor Watsons of this world, as opposed to the Sherlock\nHolmeses, success in the province of detective work must always\n--\nbut Doctor Watson has to have it taken out for him and dusted,\nand exhibited clearly, with a label attached.\n",
+    );
   });
 });
 
@@ -424,7 +428,9 @@ describe("rg ripgrep-compat: hidden files", () => {
     });
     const result = await bash.exec("rg --hidden Sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain(".sherlock:");
+    expect(result.stdout).toBe(
+      ".sherlock:1:For the Doctor Watsons of this world, as opposed to the Sherlock\n.sherlock:3:be, to a very large extent, the result of luck. Sherlock Holmes\n",
+    );
   });
 });
 
@@ -451,7 +457,9 @@ describe("rg ripgrep-compat: gitignore", () => {
     });
     const result = await bash.exec("rg --no-ignore Sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Sherlock");
+    expect(result.stdout).toBe(
+      "sherlock:1:For the Doctor Watsons of this world, as opposed to the Sherlock\nsherlock:3:be, to a very large extent, the result of luck. Sherlock Holmes\n",
+    );
   });
 });
 
@@ -480,8 +488,7 @@ describe("rg ripgrep-compat: multiple patterns", () => {
     });
     const result = await bash.exec("rg -e foo -e bar");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("foo");
-    expect(result.stdout).toContain("bar");
+    expect(result.stdout).toBe("file.txt:1:foo\nfile.txt:2:bar\n");
   });
 
   it("should handle -e with dash pattern", async () => {
@@ -688,10 +695,11 @@ describe("rg ripgrep-compat: column numbers (--column)", () => {
         "/home/user/sherlock": SHERLOCK,
       },
     });
-    const result = await bash.exec("rg --column Sherlock sherlock");
+    const result = await bash.exec("rg -n --column Sherlock sherlock");
     expect(result.exitCode).toBe(0);
-    // Expected: 1:57:For the Doctor...
-    expect(result.stdout).toContain(":57:");
+    expect(result.stdout).toBe(
+      "1:57:For the Doctor Watsons of this world, as opposed to the Sherlock\n3:49:be, to a very large extent, the result of luck. Sherlock Holmes\n",
+    );
   });
 });
 
@@ -701,13 +709,15 @@ describe("rg ripgrep-compat: patterns from file (-f)", () => {
       cwd: "/home/user",
       files: {
         "/home/user/sherlock": SHERLOCK,
-        "/home/user/pat": "Sherlock\nHolmes\n",
+        "/home/user/.patterns": "Sherlock\nHolmes\n",
       },
     });
-    const result = await bash.exec("rg -f pat sherlock");
+    // Use hidden file for patterns to avoid it being searched
+    const result = await bash.exec("rg -f .patterns sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Sherlock");
-    expect(result.stdout).toContain("Holmes");
+    expect(result.stdout).toBe(
+      "sherlock:1:For the Doctor Watsons of this world, as opposed to the Sherlock\nsherlock:2:Holmeses, success in the province of detective work must always\nsherlock:3:be, to a very large extent, the result of luck. Sherlock Holmes\n",
+    );
   });
 });
 
@@ -721,8 +731,9 @@ describe("rg ripgrep-compat: replace (-r)", () => {
     });
     const result = await bash.exec("rg -r FooBar Sherlock sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("FooBar");
-    expect(result.stdout).not.toContain("Sherlock");
+    expect(result.stdout).toBe(
+      "For the Doctor Watsons of this world, as opposed to the FooBar\nbe, to a very large extent, the result of luck. FooBar Holmes\n",
+    );
   });
 });
 
@@ -734,11 +745,12 @@ describe("rg ripgrep-compat: vimgrep format (--vimgrep)", () => {
         "/home/user/sherlock": SHERLOCK,
       },
     });
-    const result = await bash.exec("rg --vimgrep 'Sherlock|Watson'");
+    const result = await bash.exec("rg --vimgrep 'Sherlock|Watson' sherlock");
     expect(result.exitCode).toBe(0);
-    // Expected: sherlock:1:16:For the Doctor Watsons...
-    expect(result.stdout).toContain(":1:");
-    expect(result.stdout).toContain("sherlock:");
+    // Each match on separate line (line 1 appears twice for Watson and Sherlock)
+    expect(result.stdout).toBe(
+      "1:16:For the Doctor Watsons of this world, as opposed to the Sherlock\n1:57:For the Doctor Watsons of this world, as opposed to the Sherlock\n3:49:be, to a very large extent, the result of luck. Sherlock Holmes\n5:12:but Doctor Watson has to have it taken out for him and dusted,\n",
+    );
   });
 });
 
@@ -810,7 +822,7 @@ describe("rg ripgrep-compat: byte offset (-b)", () => {
     });
     const result = await bash.exec("rg -b -o Sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain(":56:");
+    expect(result.stdout).toBe("sherlock:56:Sherlock\nsherlock:177:Sherlock\n");
   });
 });
 
@@ -824,7 +836,7 @@ describe("rg ripgrep-compat: context separator (--context-separator)", () => {
     });
     const result = await bash.exec("rg -A1 --context-separator AAA foo test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("AAA");
+    expect(result.stdout).toBe("foo\nctx\nAAA\nfoo\nctx\n");
   });
 });
 
@@ -852,8 +864,7 @@ describe("rg ripgrep-compat: passthrough (--passthru)", () => {
     const result = await bash.exec("rg -n --passthru foo file");
     expect(result.exitCode).toBe(0);
     // All lines printed, matches marked with :, non-matches with -
-    expect(result.stdout).toContain("2:foo");
-    expect(result.stdout).toContain("3-bar");
+    expect(result.stdout).toBe("1-\n2:foo\n3-bar\n4:foobar\n5-\n6-baz\n");
   });
 });
 
@@ -887,7 +898,9 @@ describe("rg ripgrep-compat: no-filename (-I)", () => {
     });
     const result = await bash.exec("rg --no-filename Sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).not.toContain("sherlock:");
+    expect(result.stdout).toBe(
+      "1:For the Doctor Watsons of this world, as opposed to the Sherlock\n3:be, to a very large extent, the result of luck. Sherlock Holmes\n",
+    );
   });
 
   it("should hide filename with -I", async () => {
@@ -899,8 +912,9 @@ describe("rg ripgrep-compat: no-filename (-I)", () => {
     });
     const result = await bash.exec("rg -I Sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).not.toContain("sherlock:");
-    expect(result.stdout).toContain("Sherlock");
+    expect(result.stdout).toBe(
+      "1:For the Doctor Watsons of this world, as opposed to the Sherlock\n3:be, to a very large extent, the result of luck. Sherlock Holmes\n",
+    );
   });
 });
 

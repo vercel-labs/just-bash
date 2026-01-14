@@ -44,7 +44,6 @@ describe("rg -L (follow symlinks)", () => {
     const result = await bash.exec("rg hello");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("real.txt:1:hello\n");
-    expect(result.stdout).not.toContain("link.txt");
   });
 
   it("should follow symlinks with -L in directory search", async () => {
@@ -56,10 +55,9 @@ describe("rg -L (follow symlinks)", () => {
     });
     await bash.exec("ln -s real.txt /home/user/link.txt");
 
-    const result = await bash.exec("rg -L hello");
+    const result = await bash.exec("rg -L --sort path hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("real.txt");
-    expect(result.stdout).toContain("link.txt");
+    expect(result.stdout).toBe("link.txt:1:hello\nreal.txt:1:hello\n");
   });
 
   it("should follow symlinks to directories with -L", async () => {
@@ -77,10 +75,11 @@ describe("rg -L (follow symlinks)", () => {
     expect(result.stdout).toBe("subdir/file.txt:1:hello\n");
 
     // With -L, should find file through both paths
-    result = await bash.exec("rg -L hello");
+    result = await bash.exec("rg -L --sort path hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("subdir/file.txt");
-    expect(result.stdout).toContain("linkdir/file.txt");
+    expect(result.stdout).toBe(
+      "linkdir/file.txt:1:hello\nsubdir/file.txt:1:hello\n",
+    );
   });
 });
 
@@ -99,9 +98,8 @@ describe("rg -u (unrestricted)", () => {
     expect(result.stdout).toBe("visible.txt:1:hello\n");
 
     // With -u, ignored.txt should be searched
-    result = await bash.exec("rg -u hello");
-    expect(result.stdout).toContain("ignored.txt");
-    expect(result.stdout).toContain("visible.txt");
+    result = await bash.exec("rg -u --sort path hello");
+    expect(result.stdout).toBe("ignored.txt:1:hello\nvisible.txt:1:hello\n");
   });
 
   it("should search hidden files with -uu", async () => {
@@ -117,9 +115,8 @@ describe("rg -u (unrestricted)", () => {
     expect(result.stdout).toBe("visible.txt:1:hello\n");
 
     // With -uu (--no-ignore --hidden), .hidden should be searched
-    result = await bash.exec("rg -uu hello");
-    expect(result.stdout).toContain(".hidden");
-    expect(result.stdout).toContain("visible.txt");
+    result = await bash.exec("rg -uu --sort path hello");
+    expect(result.stdout).toBe(".hidden:1:hello\nvisible.txt:1:hello\n");
   });
 
   it("-u should be equivalent to --no-ignore", async () => {
@@ -164,6 +161,6 @@ describe("rg -a (text/binary)", () => {
     // With -a, binary should be searched
     result = await bash.exec("rg -a hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("binary.bin");
+    expect(result.stdout).toBe("binary.bin:1:hello\x00world\n");
   });
 });

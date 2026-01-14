@@ -25,6 +25,8 @@ export interface SearchOptions {
   contextSeparator?: string;
   /** Show column number of first match */
   showColumn?: boolean;
+  /** Output each match separately (vimgrep format) */
+  vimgrep?: boolean;
   /** Show byte offset of each match */
   showByteOffset?: boolean;
   /** Replace matched text with this string */
@@ -72,6 +74,7 @@ export function searchContent(
     maxCount = 0,
     contextSeparator = "--",
     showColumn = false,
+    vimgrep = false,
     showByteOffset = false,
     replace = null,
     passthru = false,
@@ -162,6 +165,21 @@ export function searchContent(
             if (showLineNumbers) prefix += `${i + 1}:`;
             if (showColumn) prefix += `${match.index + 1}:`;
             outputLines.push(prefix + matchText);
+            if (match[0].length === 0) regex.lastIndex++;
+          }
+        } else if (vimgrep) {
+          // Vimgrep mode: output each match separately with full line
+          regex.lastIndex = 0;
+          for (
+            let match = regex.exec(line);
+            match !== null;
+            match = regex.exec(line)
+          ) {
+            let prefix = filename ? `${filename}:` : "";
+            if (showByteOffset) prefix += `${byteOffset + match.index}:`;
+            if (showLineNumbers) prefix += `${i + 1}:`;
+            if (showColumn) prefix += `${match.index + 1}:`;
+            outputLines.push(prefix + line);
             if (match[0].length === 0) regex.lastIndex++;
           }
         } else {
@@ -281,7 +299,11 @@ export function searchContent(
           match !== null;
           match = regex.exec(line)
         ) {
-          outputLines.push(filename ? `${filename}:${match[0]}` : match[0]);
+          const matchText = replace !== null ? replace : match[0];
+          let prefix = filename ? `${filename}:` : "";
+          if (showLineNumbers) prefix += `${lineNum + 1}:`;
+          if (showColumn) prefix += `${match.index + 1}:`;
+          outputLines.push(prefix + matchText);
           if (match[0].length === 0) regex.lastIndex++;
         }
       } else {

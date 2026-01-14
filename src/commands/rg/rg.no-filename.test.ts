@@ -17,7 +17,6 @@ describe("rg -I/--no-filename basic functionality", () => {
     const result = await bash.exec("rg -I hello");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("1:hello world\n");
-    expect(result.stdout).not.toContain("file.txt");
   });
 
   it("should hide filename with --no-filename in directory search", async () => {
@@ -30,7 +29,6 @@ describe("rg -I/--no-filename basic functionality", () => {
     const result = await bash.exec("rg --no-filename test");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("1:test line\n");
-    expect(result.stdout).not.toContain("data.txt");
   });
 
   it("should work without line numbers when combined with -N", async () => {
@@ -56,7 +54,6 @@ describe("rg -I/--no-filename basic functionality", () => {
     const result = await bash.exec("rg -I foo test.txt");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("foo bar\n");
-    expect(result.stdout).not.toContain("test.txt");
   });
 });
 
@@ -73,9 +70,6 @@ describe("rg -I with multiple files", () => {
     const result = await bash.exec("rg -I found");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("1:found\n1:found\n1:found\n");
-    expect(result.stdout).not.toContain("a.txt");
-    expect(result.stdout).not.toContain("b.txt");
-    expect(result.stdout).not.toContain("c.txt");
   });
 
   it("should still show line numbers with multiple files", async () => {
@@ -86,12 +80,9 @@ describe("rg -I with multiple files", () => {
         "/home/user/second.txt": "line three\n",
       },
     });
-    const result = await bash.exec("rg -I line");
+    const result = await bash.exec("rg -I --sort path line");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("1:");
-    expect(result.stdout).toContain("2:");
-    expect(result.stdout).not.toContain("first.txt");
-    expect(result.stdout).not.toContain("second.txt");
+    expect(result.stdout).toBe("1:line one\n2:line two\n1:line three\n");
   });
 
   it("should hide filenames in subdirectories", async () => {
@@ -107,10 +98,6 @@ describe("rg -I with multiple files", () => {
     expect(result.stdout).toBe(
       "1:export const y = 2;\n1:export const x = 1;\n",
     );
-    expect(result.stdout).not.toContain("app.ts");
-    expect(result.stdout).not.toContain("util.ts");
-    expect(result.stdout).not.toContain("src/");
-    expect(result.stdout).not.toContain("lib/");
   });
 });
 
@@ -139,8 +126,6 @@ describe("rg -I with other flags", () => {
     const result = await bash.exec("rg -I -c x");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("2\n3\n");
-    expect(result.stdout).not.toContain("a.txt");
-    expect(result.stdout).not.toContain("b.txt");
   });
 
   it("should work with -o (only matching)", async () => {
@@ -153,7 +138,6 @@ describe("rg -I with other flags", () => {
     const result = await bash.exec("rg -I -o '[0-9]+'");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("123\n456\n");
-    expect(result.stdout).not.toContain("nums.txt");
   });
 
   it("should work with -v (invert match)", async () => {
@@ -166,7 +150,6 @@ describe("rg -I with other flags", () => {
     const result = await bash.exec("rg -I -v remove");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("1:keep\n3:keep\n");
-    expect(result.stdout).not.toContain("file.txt");
   });
 
   it("should work with -i (case insensitive)", async () => {
@@ -179,7 +162,6 @@ describe("rg -I with other flags", () => {
     const result = await bash.exec("rg -I -i hello");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("1:Hello\n2:HELLO\n3:hello\n");
-    expect(result.stdout).not.toContain("file.txt");
   });
 
   it("should work with -w (word match)", async () => {
@@ -192,7 +174,6 @@ describe("rg -I with other flags", () => {
     const result = await bash.exec("rg -I -w foo");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("1:foo bar\n3:bar foo baz\n");
-    expect(result.stdout).not.toContain("file.txt");
   });
 
   it("should work with -m (max count)", async () => {
@@ -205,7 +186,6 @@ describe("rg -I with other flags", () => {
     const result = await bash.exec("rg -I -m2 test");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("1:test\n2:test\n");
-    expect(result.stdout).not.toContain("file.txt");
   });
 
   it("should NOT affect -l (files with matches)", async () => {
@@ -249,7 +229,6 @@ describe("rg -I with context lines", () => {
     const result = await bash.exec("rg -I -A1 match");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("2:match\n3-after\n");
-    expect(result.stdout).not.toContain("file.txt");
   });
 
   it("should hide filename with -B (before context)", async () => {
@@ -262,7 +241,6 @@ describe("rg -I with context lines", () => {
     const result = await bash.exec("rg -I -B1 match");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("1-before\n2:match\n");
-    expect(result.stdout).not.toContain("file.txt");
   });
 
   it("should hide filename with -C (context)", async () => {
@@ -275,7 +253,6 @@ describe("rg -I with context lines", () => {
     const result = await bash.exec("rg -I -C1 match");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("2-b\n3:match\n4-c\n");
-    expect(result.stdout).not.toContain("file.txt");
   });
 
   it("should hide filename in context across multiple files", async () => {
@@ -286,11 +263,12 @@ describe("rg -I with context lines", () => {
         "/home/user/b.txt": "ctx\nmatch\nctx\n",
       },
     });
-    const result = await bash.exec("rg -I -C1 match");
+    const result = await bash.exec("rg -I -C1 --sort path match");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).not.toContain("a.txt");
-    expect(result.stdout).not.toContain("b.txt");
-    expect(result.stdout).toContain("match");
+    // No separator between files when -I is used since there's no filename prefix
+    expect(result.stdout).toBe(
+      "1-ctx\n2:match\n3-ctx\n1-ctx\n2:match\n3-ctx\n",
+    );
   });
 });
 
@@ -306,7 +284,6 @@ describe("rg -I with file filters", () => {
     const result = await bash.exec("rg -I -t js const");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("1:const x = 1;\n");
-    expect(result.stdout).not.toContain("code.js");
   });
 
   it("should work with -g (glob filter)", async () => {
@@ -320,7 +297,6 @@ describe("rg -I with file filters", () => {
     const result = await bash.exec("rg -I -g '*.log' error");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("1:error occurred\n");
-    expect(result.stdout).not.toContain("test.log");
   });
 });
 
@@ -359,7 +335,6 @@ describe("rg -I edge cases", () => {
     const result = await bash.exec("rg -I --hidden secret");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("1:secret\n");
-    expect(result.stdout).not.toContain(".hidden");
   });
 
   it("should work combined with other short flags", async () => {
@@ -373,7 +348,6 @@ describe("rg -I edge cases", () => {
     const result = await bash.exec("rg -Iin test");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("1:Test\n2:test\n3:TEST\n");
-    expect(result.stdout).not.toContain("file.txt");
   });
 
   it("should output just line numbers with -In", async () => {

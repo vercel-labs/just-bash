@@ -263,8 +263,7 @@ describe("rg feature: multiple patterns", () => {
     });
     const result = await bash.exec("rg -e foo -e bar");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("foo");
-    expect(result.stdout).toContain("bar");
+    expect(result.stdout).toBe("file:1:foo\nfile:2:bar\n");
   });
 });
 
@@ -292,10 +291,9 @@ describe("rg feature: gitignore handling", () => {
         "/home/user/ignored.txt": "test\n",
       },
     });
-    const result = await bash.exec("rg --no-ignore test");
+    const result = await bash.exec("rg --no-ignore --sort path test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("visible.txt");
-    expect(result.stdout).toContain("ignored.txt");
+    expect(result.stdout).toBe("ignored.txt:1:test\nvisible.txt:1:test\n");
   });
 });
 
@@ -321,10 +319,9 @@ describe("rg feature: hidden files", () => {
         "/home/user/visible": "test\n",
       },
     });
-    const result = await bash.exec("rg --hidden test");
+    const result = await bash.exec("rg --hidden --sort path test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain(".hidden");
-    expect(result.stdout).toContain("visible");
+    expect(result.stdout).toBe(".hidden:1:test\nvisible:1:test\n");
   });
 });
 
@@ -550,7 +547,7 @@ describe("rg feature: combined flags", () => {
     });
     const result = await bash.exec("rg -iw foo");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("FOO");
+    expect(result.stdout).toBe("file:1:FOO foobar\n");
   });
 
   it("should combine -c and -i", async () => {
