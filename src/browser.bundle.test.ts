@@ -43,6 +43,12 @@ describe("browser bundle safety", () => {
       expect(bundleContent).not.toContain("xanCommand");
     });
 
+    it("should not contain tar command registration", () => {
+      const bundleContent = readFileSync(browserBundlePath, "utf-8");
+      expect(bundleContent).not.toContain('name:"tar"');
+      expect(bundleContent).not.toContain("tarCommand");
+    });
+
     it("should not contain direct node: protocol imports in bundle code", () => {
       const bundleContent = readFileSync(browserBundlePath, "utf-8");
       // The browser bundle should externalize all node: imports
@@ -54,9 +60,24 @@ describe("browser bundle safety", () => {
       expect(bundleContent).not.toMatch(/from\s*["']node:path["']/);
       expect(bundleContent).not.toMatch(/from\s*["']node:child_process["']/);
     });
+
+    it("should not contain native module artifacts", () => {
+      const bundleContent = readFileSync(browserBundlePath, "utf-8");
+      // Native modules (.node files) cannot work in browsers
+      // This catches any native dependency that gets accidentally bundled
+      expect(bundleContent).not.toMatch(/\.node["']/); // .node file references
+      expect(bundleContent).not.toMatch(/prebuild-install/); // native module installer
+      expect(bundleContent).not.toMatch(/node-gyp/); // native build tool
+      expect(bundleContent).not.toMatch(/napi_/); // N-API bindings
+      expect(bundleContent).not.toMatch(/\.binding\(/); // native binding loader
+    });
   });
 
   describe("browser-excluded commands list", () => {
+    it("should include tar in browser-excluded commands", () => {
+      expect(BROWSER_EXCLUDED_COMMANDS).toContain("tar");
+    });
+
     it("should include yq in browser-excluded commands", () => {
       expect(BROWSER_EXCLUDED_COMMANDS).toContain("yq");
     });
@@ -91,7 +112,34 @@ describe("browser bundle safety", () => {
     });
   });
 
+  describe("tar in Node.js", () => {
+    it("tar should be available by default in Node.js", async () => {
+      const bash = new Bash();
+      const result = await bash.exec("tar --help");
+
+      expect(result.stdout).toContain("Usage:");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
   describe("helpful error messages for excluded commands", () => {
+    it("should show helpful error when tar is used but not available", async () => {
+      const availableCommands = getCommandNames().filter(
+        (cmd) => cmd !== "tar",
+      ) as import("./commands/registry.js").CommandName[];
+
+      const bash = new Bash({
+        commands: availableCommands,
+      });
+
+      const result = await bash.exec("tar -tf archive.tar");
+
+      expect(result.stderr).toContain("tar");
+      expect(result.stderr).toContain("not available in browser");
+      expect(result.stderr).toContain("Exclude");
+      expect(result.exitCode).toBe(127);
+    });
+
     it("should show helpful error when yq is used but not available", async () => {
       const availableCommands = getCommandNames().filter(
         (cmd) => cmd !== "yq",

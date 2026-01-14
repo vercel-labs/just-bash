@@ -10,6 +10,7 @@
  * is not available.
  */
 export const BROWSER_EXCLUDED_COMMANDS: readonly string[] = [
+  "tar", // Uses native compression modules (@mongodb-js/zstd, node-liblzma, compressjs)
   "yq", // Requires fast-xml-parser and other Node.js-specific parsing
   "xan", // Complex CSV/data processing with Node.js dependencies
   "sqlite3", // Uses sql.js (WASM) which requires Node.js worker threads
