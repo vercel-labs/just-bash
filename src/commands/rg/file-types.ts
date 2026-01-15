@@ -64,8 +64,11 @@ const FILE_TYPES: Record<string, FileType> = {
   csv: { extensions: [".csv", ".tsv"], globs: [] },
 
   // Documentation
-  md: { extensions: [".md", ".markdown", ".mdown", ".mkd"], globs: [] },
-  markdown: { extensions: [".md", ".markdown", ".mdown", ".mkd"], globs: [] },
+  md: { extensions: [".md", ".mdx", ".markdown", ".mdown", ".mkd"], globs: [] },
+  markdown: {
+    extensions: [".md", ".mdx", ".markdown", ".mdown", ".mkd"],
+    globs: [],
+  },
   rst: { extensions: [".rst"], globs: [] },
   txt: { extensions: [".txt", ".text"], globs: [] },
   tex: { extensions: [".tex", ".ltx", ".sty", ".cls"], globs: [] },
