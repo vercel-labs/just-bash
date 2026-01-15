@@ -38,9 +38,9 @@ describe("OverlayFs", () => {
   });
 
   describe("mount point", () => {
-    it("should default to /home/user/project", () => {
+    it("should default to /", () => {
       const overlay = new OverlayFs({ root: tempDir });
-      expect(overlay.getMountPoint()).toBe("/home/user/project");
+      expect(overlay.getMountPoint()).toBe("/");
     });
 
     it("should allow custom mount point", () => {
@@ -52,13 +52,16 @@ describe("OverlayFs", () => {
       fs.writeFileSync(path.join(tempDir, "test.txt"), "content");
       const overlay = new OverlayFs({ root: tempDir });
 
-      const content = await overlay.readFile("/home/user/project/test.txt");
+      const content = await overlay.readFile("/test.txt");
       expect(content).toBe("content");
     });
 
-    it("should not read files outside mount point", async () => {
+    it("should not read files outside custom mount point", async () => {
       fs.writeFileSync(path.join(tempDir, "test.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/home/user/project",
+      });
 
       await expect(overlay.readFile("/test.txt")).rejects.toThrow("ENOENT");
     });
@@ -68,13 +71,16 @@ describe("OverlayFs", () => {
       fs.writeFileSync(path.join(tempDir, "b.txt"), "b");
       const overlay = new OverlayFs({ root: tempDir });
 
-      const entries = await overlay.readdir("/home/user/project");
+      const entries = await overlay.readdir("/");
       expect(entries).toContain("a.txt");
       expect(entries).toContain("b.txt");
     });
 
-    it("should create mount point parent directories", async () => {
-      const overlay = new OverlayFs({ root: tempDir });
+    it("should create mount point parent directories for custom mount", async () => {
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/home/user/project",
+      });
 
       expect(await overlay.exists("/home")).toBe(true);
       expect(await overlay.exists("/home/user")).toBe(true);

@@ -79,7 +79,7 @@ Security:
   - No network access
 
 Filesystem:
-  The root directory is mounted at /home/user/project in the virtual filesystem.
+  The root directory is mounted at / in the virtual filesystem.
   The working directory starts at this mount point.
 
 Examples:
@@ -264,7 +264,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // Create OverlayFS - files are mounted at /home/user/project by default
+  // Create OverlayFS - files are mounted at / by default
   // Read-only by default for security (use --allow-write to enable writes)
   const fs = new OverlayFs({
     root: options.root,

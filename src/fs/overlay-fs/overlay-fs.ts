@@ -55,7 +55,7 @@ export interface OverlayFsOptions {
 
   /**
    * The virtual mount point where the root directory appears.
-   * Defaults to "/home/user/project".
+   * Defaults to "/".
    */
   mountPoint?: string;
 
@@ -68,7 +68,7 @@ export interface OverlayFsOptions {
 }
 
 /** Default mount point for OverlayFs */
-const DEFAULT_MOUNT_POINT = "/home/user/project";
+const DEFAULT_MOUNT_POINT = "/";
 
 export class OverlayFs implements IFileSystem {
   private readonly root: string;
