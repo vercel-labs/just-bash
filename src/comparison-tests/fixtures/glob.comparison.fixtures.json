@@ -1,0 +1,111 @@
+{
+  "1aa828f0cab48e15": {
+    "command": "echo */*/test.ts",
+    "files": {
+      "src/a/test.ts": "test a",
+      "src/b/test.ts": "test b",
+      "lib/c/test.ts": "test c"
+    },
+    "stdout": "lib/c/test.ts src/a/test.ts src/b/test.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "34061471e21f2f7b": {
+    "command": "cat data/*/config.json",
+    "files": {
+      "data/v1/config.json": "v1 config",
+      "data/v2/config.json": "v2 config",
+      "data/v1/settings.json": "v1 settings"
+    },
+    "stdout": "v1 configv2 config",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "36e1a6fc5c546c4a": {
+    "command": "grep hello */*.txt",
+    "files": {
+      "dir1/file.txt": "hello world",
+      "dir2/file.txt": "hello there",
+      "dir3/other.txt": "goodbye"
+    },
+    "stdout": "dir1/file.txt:hello world\ndir2/file.txt:hello there\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "63d9a4a8524ef1c5": {
+    "command": "cat dm/*/*.json",
+    "files": {
+      "dm/folder1/data.json": "{\"a\":1}",
+      "dm/folder2/data.json": "{\"b\":2}",
+      "dm/folder3/other.txt": "text"
+    },
+    "stdout": "{\"a\":1}{\"b\":2}",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "71ed22308ca718e0": {
+    "command": "echo */*/*/*.txt",
+    "files": {
+      "a/b/c/file.txt": "abc",
+      "a/d/e/file.txt": "ade",
+      "x/y/z/file.txt": "xyz"
+    },
+    "stdout": "a/b/c/file.txt a/d/e/file.txt x/y/z/file.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "78341dea8687b9df": {
+    "command": "echo file?.txt",
+    "files": {
+      "file1.txt": "1",
+      "file2.txt": "2",
+      "file10.txt": "10"
+    },
+    "stdout": "file1.txt file2.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bfa75a70c606b65d": {
+    "command": "echo *.txt",
+    "files": {
+      "file1.txt": "content 1",
+      "file2.txt": "content 2",
+      "file3.json": "{}"
+    },
+    "stdout": "file1.txt file2.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e71d5efd2763b87f": {
+    "command": "echo *.xyz",
+    "files": {
+      "file.txt": "content"
+    },
+    "stdout": "*.xyz\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f21fa1e2a2f364fd": {
+    "command": "echo */*.json",
+    "files": {
+      "folder1/data.json": "{\"a\":1}",
+      "folder2/data.json": "{\"b\":2}",
+      "folder3/other.txt": "text"
+    },
+    "stdout": "folder1/data.json folder2/data.json\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f39742739256f25c": {
+    "command": "echo file[12].txt",
+    "files": {
+      "file1.txt": "1",
+      "file2.txt": "2",
+      "file3.txt": "3",
+      "filea.txt": "a"
+    },
+    "stdout": "file1.txt file2.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

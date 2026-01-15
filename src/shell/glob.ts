@@ -76,41 +76,200 @@ export class GlobExpander {
   }
 
   /**
-   * Expand a simple glob pattern (no **)
+   * Check if a path segment contains glob characters
+   */
+  private hasGlobChars(str: string): boolean {
+    return str.includes("*") || str.includes("?") || /\[.*\]/.test(str);
+  }
+
+  /**
+   * Expand a simple glob pattern (no **).
+   * Handles multi-segment patterns like /dm/star/star.json
    */
   private async expandSimple(pattern: string): Promise<string[]> {
-    const results: string[] = [];
+    // Split pattern into segments
+    const isAbsolute = pattern.startsWith("/");
+    const segments = pattern.split("/").filter((s) => s !== "");
 
-    // Find the directory part and the glob part
-    const lastSlash = pattern.lastIndexOf("/");
-    let dirPath: string;
-    let globPart: string;
-
-    if (lastSlash === -1) {
-      dirPath = this.cwd;
-      globPart = pattern;
-    } else {
-      dirPath = pattern.slice(0, lastSlash) || "/";
-      globPart = pattern.slice(lastSlash + 1);
+    // Find the first segment with glob characters
+    let firstGlobIndex = -1;
+    for (let i = 0; i < segments.length; i++) {
+      if (this.hasGlobChars(segments[i])) {
+        firstGlobIndex = i;
+        break;
+      }
     }
 
-    // Resolve the directory path
-    const fullDirPath = this.fs.resolvePath(this.cwd, dirPath);
+    // No glob characters - return pattern as-is (shouldn't happen but be safe)
+    if (firstGlobIndex === -1) {
+      return [pattern];
+    }
+
+    // Build the base path for filesystem operations (may include cwd for relative paths)
+    // Also track the result prefix (what appears in the output)
+    let fsBasePath: string;
+    let resultPrefix: string;
+
+    if (firstGlobIndex === 0) {
+      if (isAbsolute) {
+        fsBasePath = "/";
+        resultPrefix = "/";
+      } else {
+        fsBasePath = this.cwd;
+        resultPrefix = ""; // Results should be relative, no prefix
+      }
+    } else {
+      const baseSegments = segments.slice(0, firstGlobIndex);
+      if (isAbsolute) {
+        fsBasePath = `/${baseSegments.join("/")}`;
+        resultPrefix = `/${baseSegments.join("/")}`;
+      } else {
+        fsBasePath = this.fs.resolvePath(this.cwd, baseSegments.join("/"));
+        resultPrefix = baseSegments.join("/");
+      }
+    }
+
+    // Get the remaining segments to match (from firstGlobIndex onwards)
+    const remainingSegments = segments.slice(firstGlobIndex);
+
+    // Recursively expand the pattern
+    const results = await this.expandSegments(
+      fsBasePath,
+      resultPrefix,
+      remainingSegments,
+    );
+
+    return results.sort();
+  }
+
+  /**
+   * Recursively expand path segments with glob patterns
+   * @param fsPath - The actual filesystem path to read from
+   * @param resultPrefix - The prefix to use when building result paths
+   * @param segments - Remaining glob segments to match
+   */
+  private async expandSegments(
+    fsPath: string,
+    resultPrefix: string,
+    segments: string[],
+  ): Promise<string[]> {
+    if (segments.length === 0) {
+      return [resultPrefix];
+    }
+
+    const [currentSegment, ...remainingSegments] = segments;
+    const results: string[] = [];
 
     try {
-      const entries = await this.fs.readdir(fullDirPath);
+      // Use readdirWithFileTypes if available to avoid stat calls
+      if (this.fs.readdirWithFileTypes) {
+        const entriesWithTypes = await this.fs.readdirWithFileTypes(fsPath);
+        const matchPromises: Promise<string[]>[] = [];
 
-      for (const entry of entries) {
-        if (this.matchPattern(entry, globPart)) {
-          const fullPath = lastSlash === -1 ? entry : `${dirPath}/${entry}`;
-          results.push(fullPath);
+        for (const entry of entriesWithTypes) {
+          // Skip hidden files unless pattern explicitly matches them
+          if (entry.name.startsWith(".") && !currentSegment.startsWith(".")) {
+            continue;
+          }
+
+          if (this.matchPattern(entry.name, currentSegment)) {
+            // Build the new filesystem path
+            const newFsPath =
+              fsPath === "/" ? `/${entry.name}` : `${fsPath}/${entry.name}`;
+
+            // Build the new result prefix
+            let newResultPrefix: string;
+            if (resultPrefix === "") {
+              newResultPrefix = entry.name;
+            } else if (resultPrefix === "/") {
+              newResultPrefix = `/${entry.name}`;
+            } else {
+              newResultPrefix = `${resultPrefix}/${entry.name}`;
+            }
+
+            if (remainingSegments.length === 0) {
+              // No more segments - add this path to results
+              matchPromises.push(Promise.resolve([newResultPrefix]));
+            } else if (entry.isDirectory) {
+              // More segments to match and this is a directory - recurse
+              matchPromises.push(
+                this.expandSegments(
+                  newFsPath,
+                  newResultPrefix,
+                  remainingSegments,
+                ),
+              );
+            }
+            // If not a directory and more segments remain, skip this entry
+          }
+        }
+
+        const allResults = await Promise.all(matchPromises);
+        for (const pathList of allResults) {
+          results.push(...pathList);
+        }
+      } else {
+        // Fall back to readdir + stat
+        const entries = await this.fs.readdir(fsPath);
+        const matchPromises: Promise<string[]>[] = [];
+
+        for (const entry of entries) {
+          // Skip hidden files unless pattern explicitly matches them
+          if (entry.startsWith(".") && !currentSegment.startsWith(".")) {
+            continue;
+          }
+
+          if (this.matchPattern(entry, currentSegment)) {
+            // Build the new filesystem path
+            const newFsPath =
+              fsPath === "/" ? `/${entry}` : `${fsPath}/${entry}`;
+
+            // Build the new result prefix
+            let newResultPrefix: string;
+            if (resultPrefix === "") {
+              newResultPrefix = entry;
+            } else if (resultPrefix === "/") {
+              newResultPrefix = `/${entry}`;
+            } else {
+              newResultPrefix = `${resultPrefix}/${entry}`;
+            }
+
+            if (remainingSegments.length === 0) {
+              // No more segments - add this path to results
+              matchPromises.push(Promise.resolve([newResultPrefix]));
+            } else {
+              // More segments to match - check if this is a directory and recurse
+              matchPromises.push(
+                (async (): Promise<string[]> => {
+                  try {
+                    const stat = await this.fs.stat(newFsPath);
+                    if (stat.isDirectory) {
+                      return this.expandSegments(
+                        newFsPath,
+                        newResultPrefix,
+                        remainingSegments,
+                      );
+                    }
+                  } catch {
+                    // Entry doesn't exist or can't be stat'd
+                  }
+                  return [];
+                })(),
+              );
+            }
+          }
+        }
+
+        const allResults = await Promise.all(matchPromises);
+        for (const pathList of allResults) {
+          results.push(...pathList);
         }
       }
     } catch {
       // Directory doesn't exist - return empty
     }
 
-    return results.sort();
+    return results;
   }
 
   /**
