@@ -125,4 +125,51 @@ echo done`);
     expect(result.stdout).toBe("hello\ndone\n");
     expect(result.exitCode).toBe(0);
   });
+
+  describe("whitespace preservation", () => {
+    it("should preserve leading spaces in here document content", async () => {
+      const env = new Bash();
+      const result = await env.exec(`cat <<EOF
+    four spaces at start
+  two spaces at start
+no spaces
+EOF`);
+      expect(result.stdout).toBe("    four spaces at start\n  two spaces at start\nno spaces\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should preserve leading tabs in here document content (not <<-)", async () => {
+      const env = new Bash();
+      const result = await env.exec(`cat <<EOF
+\tleading tab
+no tab
+EOF`);
+      expect(result.stdout).toBe("\tleading tab\nno tab\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should preserve mixed whitespace in here document", async () => {
+      const env = new Bash();
+      const result = await env.exec(`cat <<EOF
+  spaces
+\ttab
+  \tmixed
+EOF`);
+      expect(result.stdout).toBe("  spaces\n\ttab\n  \tmixed\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should preserve whitespace even when script is indented", async () => {
+      const env = new Bash();
+      // This tests that the script normalization doesn't strip heredoc content
+      const result = await env.exec(`
+        cat <<EOF
+    indented content
+        more indented
+EOF
+      `);
+      expect(result.stdout).toBe("    indented content\n        more indented\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
 });

@@ -351,12 +351,11 @@ export class Bash {
     };
 
     // Normalize indented multi-line scripts (unless rawScript is true)
+    // This allows writing indented bash scripts in template literals
+    // BUT we must preserve whitespace inside heredoc content
     let normalized = commandLine;
     if (!options?.rawScript) {
-      const normalizedLines = commandLine
-        .split("\n")
-        .map((line) => line.trimStart());
-      normalized = normalizedLines.join("\n");
+      normalized = normalizeScript(commandLine);
     }
 
     try {
@@ -448,4 +447,66 @@ export class Bash {
   getEnv(): Record<string, string> {
     return { ...this.state.env };
   }
+}
+
+/**
+ * Normalize a script by stripping leading whitespace from lines,
+ * while preserving whitespace inside heredoc content.
+ *
+ * This allows writing indented bash scripts in template literals:
+ * ```
+ * await bash.exec(`
+ *   if [ -f foo ]; then
+ *     echo "yes"
+ *   fi
+ * `);
+ * ```
+ *
+ * Heredocs are detected by looking for << or <<- operators and their delimiters.
+ */
+function normalizeScript(script: string): string {
+  const lines = script.split("\n");
+  const result: string[] = [];
+
+  // Stack of pending heredoc delimiters (for nested heredocs)
+  const pendingDelimiters: { delimiter: string; stripTabs: boolean }[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // If we're inside a heredoc, check if this line ends it
+    if (pendingDelimiters.length > 0) {
+      const current = pendingDelimiters[pendingDelimiters.length - 1];
+      // For <<-, strip leading tabs when checking delimiter, but preserve content whitespace
+      const lineToCheck = current.stripTabs
+        ? line.replace(/^\t+/, "")
+        : line.trimStart();
+      if (lineToCheck === current.delimiter) {
+        // End of heredoc - this line can be normalized
+        result.push(line.trimStart());
+        pendingDelimiters.pop();
+        continue;
+      }
+      // Inside heredoc - preserve the line exactly as-is
+      result.push(line);
+      continue;
+    }
+
+    // Not inside a heredoc - normalize the line and check for heredoc starts
+    const normalizedLine = line.trimStart();
+    result.push(normalizedLine);
+
+    // Check for heredoc operators in this line
+    // Match: <<DELIM, <<-DELIM, << 'DELIM', <<- "DELIM", etc.
+    // Multiple heredocs on one line are possible: cmd <<EOF1 <<EOF2
+    const heredocPattern = /<<(-?)\s*(['"]?)(\w+)\2/g;
+    let match;
+    while ((match = heredocPattern.exec(normalizedLine)) !== null) {
+      const stripTabs = match[1] === "-";
+      const delimiter = match[3];
+      pendingDelimiters.push({ delimiter, stripTabs });
+    }
+  }
+
+  return result.join("\n");
 }
