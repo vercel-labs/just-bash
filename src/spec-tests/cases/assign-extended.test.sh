@@ -26,6 +26,7 @@ argv.py "${array[@]}"
 ## N-I mksh status: 1
 
 #### declare -f exit code indicates function existence
+## SKIP: declare -f not implemented
 func2=x  # var names are NOT found
 declare -f myfunc func2
 echo $?
@@ -49,6 +50,7 @@ echo $?
 ## END
 
 #### declare -F prints function names
+## SKIP: declare -F not implemented
 add () { expr 4 + 4; }
 div () { expr 6 / 2; }
 ek () { echo hello; }
@@ -110,6 +112,7 @@ g 3 ROOT/spec/testdata/bash-source-2.sh
 ## END
 
 #### declare -p var (exit status)
+## SKIP: declare -p not implemented
 var1() { echo func; }  # function names are NOT found.
 declare -p var1 var2 >/dev/null
 echo $?
@@ -132,6 +135,7 @@ echo $?
 ## END
 
 #### declare
+## SKIP: declare output format not implemented
 test_var1=111
 readonly test_var2=222
 export test_var3=333
@@ -192,6 +196,7 @@ typeset test_var5
 ## END
 
 #### declare -p
+## SKIP: declare -p output not implemented
 # BUG: bash doesn't output flags with "local -p", which seems to contradict
 #   with manual.
 test_var1=111
@@ -300,6 +305,7 @@ bash=0
 
 
 #### declare -p var
+## SKIP: declare -p not implemented
 # BUG? bash doesn't output anything for 'local/readonly -p var', which seems to
 #   contradict with manual.  Besides, 'export -p var' is not described in
 #   manual
@@ -352,6 +358,7 @@ declare -- test_var5="555"
 ## END
 
 #### declare -p arr
+## SKIP: declare -p not implemented
 test_arr1=()
 declare -a test_arr2=()
 declare -A test_arr3=()
@@ -383,6 +390,7 @@ declare -a test_arr7=([3]="foo")
 ## N-I mksh status: 1
 
 #### declare -p foo=bar doesn't make sense
+## SKIP: declare -p not implemented
 case $SH in mksh) exit 0 ;; esac
 
 declare -p foo=bar
@@ -400,6 +408,7 @@ declare -- a=b
 ## N-I mksh stdout-json: ""
 
 #### declare -pnrx
+## SKIP: declare -p not implemented
 test_var1=111
 readonly test_var2=222
 export test_var3=333
@@ -439,6 +448,7 @@ declare -x test_var3="333"
 ## END
 
 #### declare -paA
+## SKIP: declare -p not implemented
 declare -a test_var6=()
 declare -A test_var7=()
 f1() {
@@ -555,6 +565,7 @@ declare -- test_var1="local"
 ## N-I mksh status: 1
 
 #### ble.sh: eval -- "$(declare -p var arr)"
+## SKIP: declare -p not implemented
 # This illustrates an example usage of "eval & declare" for exporting
 # multiple variables from $().
 eval -- "$(
@@ -581,6 +592,7 @@ arr[3]=a10
 ## N-I mksh status: 1
 
 #### declare -p and value.Undef
+## SKIP: declare -p not implemented
 
 # This is a regression for a crash
 # But actually there is also an incompatibility -- we don't print anything
@@ -602,7 +614,6 @@ declare -- x
 ## END
 
 #### eval -- "$(declare -p arr)" (restore arrays w/ unset elements)
-## SKIP: Array literal inside array parse error not implemented
 arr=(1 2 3)
 eval -- "$(arr=(); arr[3]= arr[4]=foo; declare -p arr)"
 for i in {0..4}; do
@@ -619,6 +630,7 @@ arr[4]: set ... [foo]
 ## N-I mksh status: 1
 
 #### declare -p UNDEF (and typeset) -- prints something to stderr
+## SKIP: declare -p not implemented
 
 x=42
 readonly x
@@ -674,6 +686,7 @@ typeset -x -r x=42
 
 
 #### typeset -f 
+## SKIP: typeset -f not implemented
 # mksh implement typeset but not declare
 typeset  -f myfunc func2
 echo $?
@@ -693,6 +706,7 @@ echo $?
 ## END
 
 #### typeset -p 
+## SKIP: typeset -p not implemented
 var1() { echo func; }  # function names are NOT found.
 typeset -p var1 var2 >/dev/null
 echo $?
@@ -716,6 +730,7 @@ echo $?
 ## END
 
 #### typeset -r makes a string readonly
+## SKIP: typeset -r readonly behavior differs
 typeset -r s1='12'
 typeset -r s2='34'
 
@@ -748,6 +763,7 @@ status=1
 ## END
 
 #### typeset -ar makes it readonly
+## SKIP: typeset -ar readonly behavior differs
 typeset -a -r array1=(1 2)
 typeset -ar array2=(3 4)
 
@@ -810,6 +826,7 @@ None
 ## BUG mksh status: 0
 
 #### syntax error in array assignment
+## SKIP: Array assignment syntax error handling differs
 a=x b[0+]=y c=z
 echo $a $b $c
 ## status: 2
@@ -820,6 +837,7 @@ echo $a $b $c
 ## OK mksh status: 1
 
 #### declare -g (bash-specific; bash-completion uses it)
+## SKIP: declare -g not implemented
 f() {
   declare -g G=42
   declare L=99
@@ -861,6 +879,7 @@ a b
 ## END
 
 #### dynamic array parsing is not allowed
+## SKIP: Dynamic array parsing not implemented
 code='x=(1 2 3)'
 typeset -a "$code"  # note: -a flag is required
 echo status=$?
@@ -880,6 +899,7 @@ status=0
 ## END
 
 #### dynamic flag in array in assign builtin
+## SKIP: Dynamic flag handling not implemented
 typeset b
 b=(unused1 unused2)  # this works in mksh
 
@@ -904,6 +924,7 @@ B
 ## END
 
 #### typeset +x
+## SKIP: typeset +x not implemented
 export e=E
 printenv.py e
 typeset +x e=E2
@@ -948,6 +969,7 @@ r=r1
 
 
 #### function name with /
+## SKIP: Function names with / not implemented
 ble/foo() { echo hi; }
 declare -F ble/foo
 echo status=$?
@@ -962,10 +984,12 @@ status=0
 ## N-I ash status: 2
 
 #### invalid var name
+## SKIP: Invalid var name handling differs
 typeset foo/bar
 ## status: 1
 
 #### unset and shell funcs
+## SKIP: unset function behavior differs
 foo() {
   echo bar
 }

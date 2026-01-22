@@ -177,6 +177,7 @@ export class Bash {
       HOSTTYPE: "x86_64",
       PWD: cwd,
       OLDPWD: cwd,
+      OPTIND: "1", // getopts option index
       ...options.env,
     };
 

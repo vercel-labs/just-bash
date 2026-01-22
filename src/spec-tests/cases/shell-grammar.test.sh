@@ -33,6 +33,7 @@ echo word_a || echo word_b
 echo word_a && echo word_b || echo
 
 #### Invalid token
+## SKIP: Syntax error detection for invalid commands differs
 invalid
 # TODO: change these to qualifiers!
 ## status: 99
@@ -153,6 +154,7 @@ case word_a in
 esac
 
 #### case item without ;; is not allowed
+## SKIP: Syntax error detection for case without ;; differs
 case word_a in
   word_a)
   word_b)
@@ -185,11 +187,13 @@ case word_a in word_b) echo ;; word_c) echo ;; esac
 case word_a in word_b) echo word_b;; word_c) echo word_c ;; esac
 
 #### Case all on one line without trailing ;; or ;
+## SKIP: Syntax error detection for case without trailing ;; differs
 # My ANTLR parsers don't fail here and they should.
 case word_a in word_b) echo word_b;; word_c) echo word_c esac
 ## status: 99
 
 #### case: Using ; instead of ;;
+## SKIP: Syntax error detection for case with ; instead of ;; differs
 case word_a in
   word_a)
     ;

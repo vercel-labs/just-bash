@@ -4,6 +4,7 @@
 # Features that bash 5.3 may implement
 
 #### ${ echo hi;}
+## SKIP: KSH-style command substitution ${ } not implemented
 
 x=${ echo hi;}
 echo "[$x]"

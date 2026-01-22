@@ -2,6 +2,7 @@
  * Array helper functions for the interpreter.
  */
 
+import type { WordNode } from "../../ast/types.js";
 import type { InterpreterContext } from "../types.js";
 
 /**
@@ -74,4 +75,71 @@ export function unquoteKey(key: string): string {
     return key.slice(1, -1);
   }
   return key;
+}
+
+/**
+ * Parse associative array element from a string like "[key]=value"
+ * Returns [key, value] if it matches, null otherwise.
+ */
+export function parseAssocArrayElement(str: string): [string, string] | null {
+  // Match [key]=value pattern
+  const match = str.match(/^\[(.+?)\]=(.*)$/);
+  if (!match) return null;
+
+  const key = unquoteKey(match[1]);
+  const value = match[2];
+
+  return [key, value];
+}
+
+/**
+ * Extract literal string content from a Word node (without expansion).
+ * This is used for parsing associative array element syntax like [key]=value
+ * where the [key] part may be parsed as a Glob.
+ */
+export function wordToLiteralString(word: WordNode): string {
+  let result = "";
+  for (const part of word.parts) {
+    switch (part.type) {
+      case "Literal":
+        result += part.value;
+        break;
+      case "Glob":
+        // Glob patterns in assoc array syntax are actually literal keys
+        result += part.pattern;
+        break;
+      case "SingleQuoted":
+        result += part.value;
+        break;
+      case "DoubleQuoted":
+        // For double-quoted parts, recursively extract literals
+        for (const inner of part.parts) {
+          if (inner.type === "Literal") {
+            result += inner.value;
+          } else if (inner.type === "Escaped") {
+            result += inner.value;
+          }
+          // Skip variable expansions etc. for now
+        }
+        break;
+      case "Escaped":
+        result += part.value;
+        break;
+      case "BraceExpansion":
+        // For brace expansions in array element context, convert to literal
+        // e.g., {a,b} becomes literal "{a,b}"
+        result += "{";
+        result += part.items
+          .map((item) =>
+            item.type === "Range"
+              ? `${item.startStr}..${item.endStr}${item.step ? `..${item.step}` : ""}`
+              : wordToLiteralString(item.word),
+          )
+          .join(",");
+        result += "}";
+        break;
+      // Skip other types (parameter expansions, command substitutions, etc.)
+    }
+  }
+  return result;
 }

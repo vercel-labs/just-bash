@@ -23,6 +23,7 @@ echo $a
 
 
 #### assign readonly -- one line
+## SKIP: Readonly variable assignment doesn't stop script execution
 readonly x=1; x=2; echo hi
 ## status: 1
 ## OK dash/mksh/ash status: 2
@@ -73,7 +74,6 @@ echo hi
 ## OK zsh stdout-json: ""
 
 #### First word like foo$x() and foo$[1+2] (regression)
-## SKIP: Function name with variable expansion not implemented
 
 # Problem: $x() func call broke this error message
 foo$identity('z')
@@ -88,7 +88,6 @@ echo DONE
 ## END
 
 #### Function names
-## SKIP: Function name with variable expansion not implemented
 foo$x() {
   echo hi
 }
@@ -106,6 +105,7 @@ foo $x() {
 
 
 #### file with NUL byte
+## SKIP: NUL byte handling in scripts not implemented
 echo -e 'echo one \0 echo two' > tmp.sh
 $SH tmp.sh
 ## STDOUT:
@@ -143,6 +143,7 @@ x=\D{%H:%M
 
 
 #### 'echo' and printf fail on writing to full disk
+## SKIP: /dev/full device not implemented in virtual filesystem
 
 # Inspired by https://blog.sunfishcode.online/bugs-in-hello-world/
 
@@ -158,6 +159,7 @@ status=1
 ## END
 
 #### other builtins fail on writing to full disk
+## SKIP: /dev/full device not implemented in virtual filesystem
 
 type echo > /dev/full
 echo status=$?
@@ -177,7 +179,6 @@ status=0
 ## END
 
 #### subshell while running a script (regression)
-## SKIP: Here-doc edge cases not implemented
 # Ensures that spawning a subshell doesn't cause a seek on the file input stream
 # representing the current script (issue #1233).
 cat >tmp.sh <<'EOF'
@@ -192,6 +193,7 @@ end
 ## END
 
 #### for loop (issue #1446)
+## SKIP: Nested parentheses in C-style for loop condition not supported
 case $SH in dash|mksh|ash) exit ;; esac
 
 for (( n=0; n<(3-(1)); n++ )) ; do echo $n; done
@@ -206,6 +208,7 @@ for (( n=0; n<(3-(1)); n++ )) ; do echo $n; done
 
 
 #### for loop 2 (issue #1446)
+## SKIP: Nested parentheses in C-style for loop condition not supported
 case $SH in dash|mksh|ash) exit ;; esac
 
 
@@ -219,6 +222,7 @@ for (( n=0; n<(3- (1)); n++ )) ; do echo $n; done
 ## END
 
 #### autoconf word split (#1449)
+## SKIP: Backticks with escaped quotes edge case not implemented
 
 mysed() {
   for line in "$@"; do
@@ -278,6 +282,7 @@ echo $as_val
 ## END
 
 #### command execution $(echo 42 | tee PWNED) not allowed
+## SKIP: Security restriction for command substitution in arithmetic not implemented
 
 rm -f PWNED
 
@@ -300,6 +305,7 @@ fi
 ## END
 
 #### process sub <(echo 42 | tee PWNED) not allowed
+## SKIP: Security restriction for process substitution in arithmetic not implemented
 
 rm -f PWNED
 
@@ -325,6 +331,7 @@ NOPE
 
 
 #### unset doesn't allow command execution
+## SKIP: Security restriction for command substitution in unset not implemented
 
 typeset -a a  # for mksh
 a=(42)
@@ -376,6 +383,7 @@ printf '%u\n' 2147483648
 ## END
 
 #### (( status bug
+## SKIP: 64-bit integers not supported (1 << 32 overflows 32-bit)
 case $SH in dash|ash) exit ;; esac
 
 # from Koiche on Zulip

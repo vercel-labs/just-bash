@@ -17,7 +17,6 @@ status=0
 ## BUG mksh status: 1
 
 #### local array
-## SKIP: argv.py test helper not available
 # mksh support local variables, but not local arrays, oddly.
 f() {
   local a=(1 '2 3')

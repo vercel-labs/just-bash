@@ -6,6 +6,7 @@
  * - Array access (${arr[0]}, ${arr[@]}, ${arr[*]})
  * - Positional parameters ($1, $2, ...)
  * - Regular variables
+ * - Nameref resolution
  */
 
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
@@ -19,6 +20,7 @@ import {
   unquoteKey,
 } from "../helpers/array.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
+import { isNameref, resolveNameref } from "../helpers/nameref.js";
 import type { InterpreterContext } from "../types.js";
 
 /**
@@ -158,8 +160,25 @@ export function getVariable(
   // Check for array subscript: varName[subscript]
   const bracketMatch = name.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
   if (bracketMatch) {
-    const arrayName = bracketMatch[1];
+    let arrayName = bracketMatch[1];
     const subscript = bracketMatch[2];
+
+    // Check if arrayName is a nameref - if so, resolve it
+    if (isNameref(ctx, arrayName)) {
+      const resolved = resolveNameref(ctx, arrayName);
+      if (resolved && resolved !== arrayName) {
+        // Check if resolved target itself has array subscript
+        const resolvedBracket = resolved.match(
+          /^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/,
+        );
+        if (resolvedBracket) {
+          // Nameref points to an array element like arr[2], so ref[0] is invalid
+          // Return empty string (bash behavior)
+          return "";
+        }
+        arrayName = resolved;
+      }
+    }
 
     if (subscript === "@" || subscript === "*") {
       // Get all array elements joined with space
@@ -253,10 +272,117 @@ export function getVariable(
     return value || "";
   }
 
+  // Check if this is a nameref - resolve and get target's value
+  if (isNameref(ctx, name)) {
+    const resolved = resolveNameref(ctx, name);
+    if (resolved === undefined) {
+      // Circular nameref - error in bash, but we return empty string
+      return "";
+    }
+    if (resolved !== name) {
+      // Recursively get the target variable's value
+      // (this handles if target is also a nameref, array, etc.)
+      return getVariable(ctx, resolved, checkNounset, _insideDoubleQuotes);
+    }
+    // Nameref points to invalid target, return its raw value
+    const value = ctx.state.env[name];
+    return value || "";
+  }
+
   // Regular variables - check nounset
   const value = ctx.state.env[name];
   if (value === undefined && checkNounset && ctx.state.options.nounset) {
     throw new NounsetError(name);
   }
   return value || "";
+}
+
+/**
+ * Check if a variable is set (exists in the environment).
+ * Properly handles array subscripts (e.g., arr[0] -> arr_0).
+ * @param ctx - The interpreter context
+ * @param name - The variable name (possibly with array subscript)
+ */
+export function isVariableSet(ctx: InterpreterContext, name: string): boolean {
+  // Check for array subscript: varName[subscript]
+  const bracketMatch = name.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
+  if (bracketMatch) {
+    let arrayName = bracketMatch[1];
+    const subscript = bracketMatch[2];
+
+    // Check if arrayName is a nameref - if so, resolve it
+    if (isNameref(ctx, arrayName)) {
+      const resolved = resolveNameref(ctx, arrayName);
+      if (resolved && resolved !== arrayName) {
+        const resolvedBracket = resolved.match(
+          /^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/,
+        );
+        if (resolvedBracket) {
+          // Nameref points to an array element - treat as unset
+          return false;
+        }
+        arrayName = resolved;
+      }
+    }
+
+    // For @ or *, check if array has any elements
+    if (subscript === "@" || subscript === "*") {
+      const elements = getArrayElements(ctx, arrayName);
+      if (elements.length > 0) return true;
+      // Also check if scalar variable exists
+      return arrayName in ctx.state.env;
+    }
+
+    const isAssoc = ctx.state.associativeArrays?.has(arrayName);
+
+    if (isAssoc) {
+      // For associative arrays, use subscript as string key (remove quotes if present)
+      const key = unquoteKey(subscript);
+      return `${arrayName}_${key}` in ctx.state.env;
+    }
+
+    // Evaluate subscript as arithmetic expression for indexed arrays
+    let index: number;
+    if (/^-?\d+$/.test(subscript)) {
+      index = Number.parseInt(subscript, 10);
+    } else {
+      try {
+        const parser = new Parser();
+        const arithAst = parseArithmeticExpression(parser, subscript);
+        index = evaluateArithmeticSync(ctx, arithAst.expression);
+      } catch {
+        const evalValue = ctx.state.env[subscript];
+        index = evalValue ? Number.parseInt(evalValue, 10) : 0;
+        if (Number.isNaN(index)) index = 0;
+      }
+    }
+
+    // Handle negative indices
+    if (index < 0) {
+      const elements = getArrayElements(ctx, arrayName);
+      if (elements.length === 0) return false;
+      const maxIndex = Math.max(
+        ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
+      );
+      const actualIdx = maxIndex + 1 + index;
+      if (actualIdx < 0) return false;
+      return `${arrayName}_${actualIdx}` in ctx.state.env;
+    }
+
+    return `${arrayName}_${index}` in ctx.state.env;
+  }
+
+  // Check if this is a nameref - resolve and check target
+  if (isNameref(ctx, name)) {
+    const resolved = resolveNameref(ctx, name);
+    if (resolved === undefined || resolved === name) {
+      // Circular or invalid nameref
+      return name in ctx.state.env;
+    }
+    // Recursively check the target
+    return isVariableSet(ctx, resolved);
+  }
+
+  // Regular variable
+  return name in ctx.state.env;
 }

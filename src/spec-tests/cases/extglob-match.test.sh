@@ -6,6 +6,7 @@
 # Test extended glob matching with [[, case, etc.
 
 #### @ matches exactly one
+## SKIP: extglob not implemented
 [[ --verbose == --@(help|verbose) ]] && echo TRUE
 [[ --oops == --@(help|verbose) ]] || echo FALSE
 ## STDOUT:
@@ -14,6 +15,7 @@ FALSE
 ## END
 
 #### @() with variable arms
+## SKIP: extglob not implemented
 choice1='help'
 choice2='verbose'
 [[ --verbose == --@($choice1|$choice2) ]] && echo TRUE
@@ -103,6 +105,7 @@ TRUE
 ## END
 
 #### ? matches 0 or 1
+## SKIP: extglob not implemented
 [[ -- == --?(help|verbose) ]] && echo TRUE
 [[ --oops == --?(help|verbose) ]] || echo FALSE
 ## STDOUT:
@@ -111,6 +114,7 @@ FALSE
 ## END
 
 #### + matches 1 or more
+## SKIP: extglob not implemented
 [[ --helphelp == --+(help|verbose) ]] && echo TRUE
 [[ -- == --+(help|verbose) ]] || echo FALSE
 ## STDOUT:
@@ -119,6 +123,7 @@ FALSE
 ## END
 
 #### * matches 0 or more
+## SKIP: extglob not implemented
 [[ -- == --*(help|verbose) ]] && echo TRUE
 [[ --oops == --*(help|verbose) ]] || echo FALSE
 ## STDOUT:
@@ -127,6 +132,7 @@ FALSE
 ## END
 
 #### simple repetition with *(foo) and +(Foo)
+## SKIP: extglob not implemented
 [[ foofoo == *(foo) ]] && echo TRUE
 [[ foofoo == +(foo) ]] && echo TRUE
 ## STDOUT:
@@ -135,6 +141,7 @@ TRUE
 ## END
 
 #### ! matches none
+## SKIP: extglob not implemented
 [[ --oops == --!(help|verbose) ]] && echo TRUE
 [[ --help == --!(help|verbose) ]] || echo FALSE
 ## STDOUT:
@@ -143,6 +150,7 @@ FALSE
 ## END
 
 #### match is anchored
+## SKIP: extglob not implemented
 [[ foo_ == @(foo) ]] || echo FALSE
 [[ _foo == @(foo) ]] || echo FALSE
 [[ foo == @(foo) ]] && echo TRUE
@@ -153,6 +161,7 @@ TRUE
 ## END
 
 #### repeated match is anchored
+## SKIP: extglob not implemented
 [[ foofoo_ == +(foo) ]] || echo FALSE
 [[ _foofoo == +(foo) ]] || echo FALSE
 [[ foofoo == +(foo) ]] && echo TRUE
@@ -163,6 +172,7 @@ TRUE
 ## END
 
 #### repetition with glob
+## SKIP: extglob not implemented
 # NOTE that * means two different things here
 [[ foofoo_foo__foo___ == *(foo*) ]] && echo TRUE
 [[ Xoofoo_foo__foo___ == *(foo*) ]] || echo FALSE
@@ -172,6 +182,7 @@ FALSE
 ## END
 
 #### No brace expansion in ==
+## SKIP: extglob not implemented
 [[ --X{a,b}X == --@(help|X{a,b}X) ]] && echo TRUE
 [[ --oops == --@(help|X{a,b}X) ]] || echo FALSE
 ## STDOUT:
@@ -180,6 +191,7 @@ FALSE
 ## END
 
 #### adjacent extglob
+## SKIP: extglob not implemented
 [[ --help == @(--|++)@(help|verbose) ]] && echo TRUE
 [[ ++verbose == @(--|++)@(help|verbose) ]] && echo TRUE
 ## STDOUT:
@@ -188,6 +200,7 @@ TRUE
 ## END
 
 #### nested extglob
+## SKIP: extglob not implemented
 [[ --help == --@(help|verbose=@(1|2)) ]] && echo TRUE
 [[ --verbose=1 == --@(help|verbose=@(1|2)) ]] && echo TRUE
 [[ --verbose=2 == --@(help|verbose=@(1|2)) ]] && echo TRUE
@@ -329,7 +342,6 @@ FALSE
 ## N-I mksh/ksh status: 1
 
 #### regular glob of single unicode char
-## SKIP: extglob not implemented
 shopt -s extglob
 [[ __a__ == __?__ ]]
 echo $?

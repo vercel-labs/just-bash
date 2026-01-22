@@ -27,7 +27,6 @@ fail
 ## END
 
 #### continue 1 extra, break, etc.
-## SKIP: Interactive shell invocation not implemented
 $SH -c '
 for i in foo; do
   continue 1 extra

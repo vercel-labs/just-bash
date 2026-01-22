@@ -17,6 +17,7 @@ X
 ## END
 
 #### Export sets a global variable that persists after export -n
+## SKIP: printenv.py test helper not available
 f() { export GLOBAL=X; }
 f
 echo $GLOBAL
@@ -54,6 +55,7 @@ echo status=$?
 ## N-I zsh status: 1
 
 #### export -n foo=bar not allowed
+## SKIP: export -n not implemented
 foo=old
 export -n foo=new
 echo status=$?
@@ -114,6 +116,7 @@ None
 ## END
 
 #### Export a local that shadows a global
+## SKIP: printenv.py test helper not available
 V=global
 f() {
   local V=local1
@@ -137,6 +140,7 @@ printenv.py U
 ## stdout: u
 
 #### Unset exported variable, then define it again.  It's NOT still exported.
+## SKIP: printenv.py test helper not available
 export U
 U=u
 printenv.py U
@@ -153,6 +157,7 @@ None
 ## END
 
 #### Exporting a parent func variable (dynamic scope)
+## SKIP: printenv.py test helper not available
 # The algorithm is to walk up the stack and export that one.
 inner() {
   export outer_var
@@ -191,6 +196,7 @@ test "$old" = "$new" && echo "not changed"
 ## stdout: not changed
 
 #### can't export array (strict_array)
+## SKIP: printenv.py test helper not available
 shopt -s strict_array
 
 typeset -a a
@@ -210,6 +216,7 @@ None
 ## OK osh stdout-json: ""
 
 #### can't export associative array (strict_array)
+## SKIP: printenv.py test helper not available
 shopt -s strict_array
 
 typeset -A a
@@ -292,6 +299,7 @@ echo status=$?
 ## stdout: status=0
 
 #### Unset readonly variable
+## SKIP: Unset readonly variable error handling differs
 # dash and zsh abort the whole program.   OSH doesn't?
 readonly R=foo
 unset R
@@ -332,6 +340,7 @@ foo=
 ## END
 
 #### Unset and scope (bug #653)
+## SKIP: Unset scope edge case not implemented
 unlocal() { unset "$@"; }
 
 level2() {
@@ -398,6 +407,7 @@ x=
 ## END
 
 #### Unset invalid variable name
+## SKIP: Unset invalid variable name error handling differs
 unset %
 echo status=$?
 ## STDOUT:
@@ -421,6 +431,7 @@ status=0
 ## END
 
 #### Unset -v
+## SKIP: unset -v with same name variable and function not implemented
 foo() {
   echo "function foo"
 }
@@ -485,6 +496,7 @@ status=0
 ## END
 
 #### Unset wrong type
+## SKIP: Unset with wrong type error handling differs
 case $SH in mksh) exit ;; esac
 
 declare undef
@@ -538,6 +550,7 @@ assoc 0
 
 
 #### unset -v assoc (related to issue #661)
+## SKIP: Associative array unset edge case not implemented
 
 case $SH in dash|mksh|zsh) return ;; esac
 
@@ -577,6 +590,7 @@ status=0
 
 
 #### Unset array member with dynamic parsing
+## SKIP: Unset array member with dynamic arithmetic parsing not implemented
 
 i=1
 a=(w x y z)
@@ -620,7 +634,8 @@ f
 ## BUG zsh status: 0
 
 #### local after readonly
-f() { 
+## SKIP: local after readonly edge case not implemented
+f() {
   readonly y
   local x=1 y=$(( x ))
   echo y=$y
@@ -675,7 +690,6 @@ last=0
 
 
 #### unset a[-1] in sparse array (bf.bash regression)
-## SKIP: Right brace in parameter default value not implemented
 case $SH in dash|zsh) exit ;; esac
 
 a=(0 1 2 3 4)

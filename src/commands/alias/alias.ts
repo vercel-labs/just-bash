@@ -33,7 +33,9 @@ export const aliasCommand: Command = {
     }
 
     // Process alias definitions
-    for (const arg of args) {
+    // Skip "--" option separator (POSIX standard)
+    const processArgs = args[0] === "--" ? args.slice(1) : args;
+    for (const arg of processArgs) {
       const eqIdx = arg.indexOf("=");
       if (eqIdx === -1) {
         // Show single alias
@@ -104,9 +106,12 @@ export const unaliasCommand: Command = {
       return { stdout: "", stderr: "", exitCode: 0 };
     }
 
+    // Skip "--" option separator (POSIX standard)
+    const processArgs = args[0] === "--" ? args.slice(1) : args;
+
     let anyError = false;
     let stderr = "";
-    for (const name of args) {
+    for (const name of processArgs) {
       const key = ALIAS_PREFIX + name;
       if (ctx.env[key]) {
         delete ctx.env[key];

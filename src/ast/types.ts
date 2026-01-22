@@ -477,6 +477,7 @@ export interface ArithmeticExpressionNode extends ASTNode {
 export type ArithExpr =
   | ArithNumberNode
   | ArithVariableNode
+  | ArithSpecialVarNode
   | ArithBinaryNode
   | ArithUnaryNode
   | ArithTernaryNode
@@ -548,6 +549,12 @@ export interface ArithNumberNode extends ASTNode {
 export interface ArithVariableNode extends ASTNode {
   type: "ArithVariable";
   name: string;
+}
+
+/** Special variable node: $*, $@, $#, $?, $-, $!, $$ */
+export interface ArithSpecialVarNode extends ASTNode {
+  type: "ArithSpecialVar";
+  name: string; // The special var character: *, @, #, ?, -, !, $
 }
 
 export interface ArithBinaryNode extends ASTNode {

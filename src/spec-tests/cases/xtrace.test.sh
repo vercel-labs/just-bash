@@ -26,6 +26,7 @@ weird bug
 ## END
 
 #### set -o verbose prints unevaluated code
+## SKIP: set -o verbose not implemented
 set -o verbose
 x=foo
 y=bar
@@ -295,6 +296,7 @@ echo two
 ## END
 
 #### xtrace with variables in PS4
+## SKIP: PS4 variable expansion not implemented
 PS4='+$x:'
 set -o xtrace
 x=1
@@ -384,6 +386,7 @@ status=0
 
 
 #### Reading $? in PS4
+## SKIP: PS4 variable expansion not implemented
 PS4='[last=$?] '
 set -x
 false

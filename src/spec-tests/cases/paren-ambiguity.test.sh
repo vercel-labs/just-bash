@@ -2,7 +2,7 @@
 ## oils_failures_allowed: 3
 
 #### (( closed with ) ) after multiple lines is command - #2337
-
+## SKIP: Multiline (( )) subshell not implemented
 (( echo 1
 echo 2
 (( x ))
@@ -17,7 +17,7 @@ echo 3
 ## END
 
 #### $(( closed with ) ) after multiple lines is command - #2337
-
+## SKIP: Multiline $(( )) subshell not implemented
 echo $(( echo 1
 echo 2
 (( x ))
@@ -34,8 +34,6 @@ echo 3
 ## END
 
 #### (( closed with )) after multiple lines is parse error - #2337
-## SKIP: Interactive shell invocation not implemented
-
 $SH -c '
 (( echo 1
 echo 2
@@ -115,7 +113,7 @@ bye
 ## END
 
 #### ((pkg-config example - postfix package - #2337
-
+## SKIP: Nested (( )) in backtick command substitution parsing differs
 icu_cppflags=`((pkg-config --cflags icu-uc icu-i18n) ||
                   (pkgconf --cflags icu-uc icu-i18n) ||
                   (icu-config --cppflags)) 2>/dev/null`
@@ -126,7 +124,7 @@ bye
 ## END
 
 #### ((test example - liblo package - #2337
-
+## SKIP: Nested (( )) in conditional parsing differs
 if ! ((test x"$i" = x-g) || (test x"$i" = x-O2)); then
     CF="$CF $i"
 fi

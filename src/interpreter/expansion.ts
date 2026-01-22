@@ -37,6 +37,7 @@ import {
   getArrayElements,
   getVariable,
   isArray,
+  isVariableSet,
 } from "./expansion/variable.js";
 import { smartWordSplit } from "./expansion/word-split.js";
 import {
@@ -45,6 +46,7 @@ import {
   getIfsSeparator,
   isIfsEmpty,
 } from "./helpers/ifs.js";
+import { getNamerefTarget, isNameref } from "./helpers/nameref.js";
 import { escapeRegex } from "./helpers/regex.js";
 import { getLiteralValue, isQuotedPart } from "./helpers/word-parts.js";
 import type { InterpreterContext } from "./types.js";
@@ -908,7 +910,7 @@ function expandParameter(
     return value;
   }
 
-  const isUnset = !(parameter in ctx.state.env);
+  const isUnset = !isVariableSet(ctx, parameter);
   const isEmpty = value === "";
 
   switch (operation.type) {
@@ -1290,6 +1292,12 @@ function expandParameter(
     }
 
     case "Indirection": {
+      // For namerefs, ${!ref} returns the name of the target variable (inverted behavior)
+      // For regular variables, ${!ref} returns the value of the variable named by $ref
+      if (isNameref(ctx, parameter)) {
+        // Return the target name, not the value
+        return getNamerefTarget(ctx, parameter) || "";
+      }
       return getVariable(ctx, value);
     }
 
@@ -1350,7 +1358,7 @@ async function expandParameterAsync(
     return value;
   }
 
-  const isUnset = !(parameter in ctx.state.env);
+  const isUnset = !isVariableSet(ctx, parameter);
   const isEmpty = value === "";
 
   switch (operation.type) {

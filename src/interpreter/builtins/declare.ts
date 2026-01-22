@@ -14,6 +14,12 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import {
+  isNameref,
+  markNameref,
+  resolveNameref,
+  unmarkNameref,
+} from "../helpers/nameref.js";
 import { checkReadonlyError, markReadonly } from "../helpers/readonly.js";
 import { OK, success } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
@@ -29,6 +35,8 @@ export function handleDeclare(
   let declareReadonly = false;
   let _declareExport = false;
   let printMode = false;
+  let declareNameref = false;
+  let removeNameref = false;
   const processedArgs: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -43,10 +51,19 @@ export function handleDeclare(
       _declareExport = true;
     } else if (arg === "-p") {
       printMode = true;
+    } else if (arg === "-n") {
+      declareNameref = true;
+    } else if (arg === "+n") {
+      removeNameref = true;
     } else if (arg === "--") {
       // End of options, rest are arguments
       processedArgs.push(...args.slice(i + 1));
       break;
+    } else if (arg.startsWith("+")) {
+      // Handle +n (remove nameref)
+      for (const flag of arg.slice(1)) {
+        if (flag === "n") removeNameref = true;
+      }
     } else if (arg.startsWith("-")) {
       // Handle combined flags like -ar
       for (const flag of arg.slice(1)) {
@@ -55,6 +72,7 @@ export function handleDeclare(
         else if (flag === "r") declareReadonly = true;
         else if (flag === "x") _declareExport = true;
         else if (flag === "p") printMode = true;
+        else if (flag === "n") declareNameref = true;
       }
     } else {
       processedArgs.push(arg);
@@ -125,6 +143,16 @@ export function handleDeclare(
       continue;
     }
 
+    // Handle nameref removal (+n)
+    if (removeNameref) {
+      const name = arg.includes("=") ? arg.slice(0, arg.indexOf("=")) : arg;
+      unmarkNameref(ctx, name);
+      // After removing nameref, the value stays as-is (it's now a regular variable)
+      if (!arg.includes("=")) {
+        continue;
+      }
+    }
+
     // Check for scalar assignment: name=value
     if (arg.includes("=")) {
       const eqIdx = arg.indexOf("=");
@@ -135,13 +163,43 @@ export function handleDeclare(
       const error = checkReadonlyError(ctx, name);
       if (error) return error;
 
-      ctx.state.env[name] = value;
+      // For namerefs being declared with a value, store the target name
+      // (don't follow the reference, just store what variable it points to)
+      if (declareNameref) {
+        ctx.state.env[name] = value;
+        markNameref(ctx, name);
+        if (declareReadonly) {
+          markReadonly(ctx, name);
+        }
+        continue;
+      }
+
+      // If this is an existing nameref (not being declared as one), write through it
+      if (isNameref(ctx, name)) {
+        const resolved = resolveNameref(ctx, name);
+        if (resolved && resolved !== name) {
+          ctx.state.env[resolved] = value;
+        } else {
+          ctx.state.env[name] = value;
+        }
+      } else {
+        ctx.state.env[name] = value;
+      }
       if (declareReadonly) {
         markReadonly(ctx, name);
       }
     } else {
       // Just declare without value
       const name = arg;
+
+      // For declare -n without a value, just mark as nameref
+      if (declareNameref) {
+        markNameref(ctx, name);
+        if (declareReadonly) {
+          markReadonly(ctx, name);
+        }
+        continue;
+      }
 
       // Track associative array declaration
       if (declareAssoc) {

@@ -5,6 +5,7 @@
 # Test options to set, shopt, $SH.
 
 #### $- with -c
+## SKIP: $SH invocation not implemented
 # dash's behavior seems most sensible here?
 $SH -o nounset -c 'echo $-'
 ## stdout: u
@@ -13,6 +14,7 @@ $SH -o nounset -c 'echo $-'
 ## status: 0
 
 #### $- with pipefail
+## SKIP: pipefail not implemented
 set -o pipefail -o nounset
 echo $-
 ## stdout: u
@@ -23,6 +25,7 @@ echo $-
 ## N-I dash status: 2
 
 #### $- and more options
+## SKIP: $- variable options not fully implemented
 set -efuC
 o=$-
 [[ $o == *e* ]]; echo yes
@@ -47,16 +50,19 @@ FALSE
 TRUE
 ## END
 #### pass short options like sh -e
+## SKIP: $SH invocation not implemented
 $SH -e -c 'false; echo status=$?'
 ## stdout-json: ""
 ## status: 1
 
 #### pass long options like sh -o errexit
+## SKIP: $SH invocation not implemented
 $SH -o errexit -c 'false; echo status=$?'
 ## stdout-json: ""
 ## status: 1
 
 #### pass shopt options like sh -O nullglob
+## SKIP: $SH invocation not implemented
 $SH +O nullglob -c 'echo foo *.nonexistent bar'
 $SH -O nullglob -c 'echo foo *.nonexistent bar'
 ## STDOUT:
@@ -78,6 +84,7 @@ echo $?
 ## END
 
 #### vi and emacs are mutually exclusive
+## SKIP: shopt -o -p not implemented
 show() {
   shopt -o -p | egrep 'emacs$|vi$'
   echo ___
@@ -108,6 +115,7 @@ ___
 ## END
 
 #### interactive shell starts with emacs mode on
+## SKIP: Interactive shell mode detection not implemented
 case $SH in dash) exit ;; esac
 case $SH in bash|*osh) flag='--rcfile /dev/null' ;; esac
 
@@ -170,7 +178,6 @@ echo 3
 ## status: 0
 
 #### pipefail
-## SKIP: PIPESTATUS variable not implemented
 # NOTE: the sleeps are because osh can fail non-deterministically because of a
 # bug.  Same problem as PIPESTATUS.
 { sleep 0.01; exit 9; } | { sleep 0.02; exit 2; } | { sleep 0.03; }
@@ -189,6 +196,7 @@ echo $?
 ## N-I dash status: 2
 
 #### shopt -p -o prints 'set' options
+## SKIP: shopt -po not implemented
 case $SH in dash|mksh) exit ;; esac
 
 shopt -po nounset
@@ -211,6 +219,7 @@ nounset
 ## END
 
 #### shopt -o prints 'set' options
+## SKIP: shopt -o not implemented
 case $SH in dash|mksh) exit ;; esac
 
 shopt -o | egrep -o 'errexit|noglob|nounset'
@@ -225,6 +234,7 @@ nounset
 ## END
 
 #### shopt -p prints 'shopt' options
+## SKIP: shopt -p not implemented
 shopt -p nullglob
 shopt -s nullglob
 shopt -p nullglob
@@ -236,6 +246,7 @@ shopt -s nullglob
 ## N-I dash/mksh status: 127
 
 #### shopt with no flags prints options
+## SKIP: shopt output format not implemented
 cd $TMP
 
 # print specific options.  OSH does it in a different format.
@@ -326,7 +337,6 @@ f.o
 ## END
 
 #### noclobber on >>
-## SKIP: noclobber (set -C) not implemented
 rm -f $TMP/no-clobber
 
 set -C
@@ -371,7 +381,6 @@ baz
 ## END
 
 #### noclobber on &>> >>
-## SKIP: noclobber (set -C) not implemented
 case $SH in dash) echo 'flaky'; exit ;; esac
 
 set -C
@@ -477,6 +486,7 @@ __assoc=([a]="b" ["k e y"]="v a l" )
 ## N-I osh status: 1
 
 #### shopt -q
+## SKIP: shopt -q not implemented
 shopt -q nullglob
 echo nullglob=$?
 
@@ -508,6 +518,7 @@ nullglob,failglob=127
 ## END
 
 #### shopt -q invalid
+## SKIP: shopt -q not implemented
 shopt -q invalidZZ
 echo invalidZZ=$?
 ## STDOUT:
@@ -553,6 +564,7 @@ shopt -u strict_argv
 ## END
 
 #### shopt allows for backward compatibility like bash
+## SKIP: shopt -p not implemented
 
 # doesn't have to be on, but just for testing
 set -o errexit
@@ -576,6 +588,7 @@ status=0
 ## N-I dash/mksh status: 0
 
 #### shopt -p validates option names
+## SKIP: shopt -p not implemented
 shopt -p nullglob invalid failglob
 echo status=$?
 # same thing as -p, slightly different format in bash
@@ -601,6 +614,7 @@ status=127
 ## END
 
 #### shopt -p -o validates option names
+## SKIP: shopt -p -o not implemented
 shopt -p -o errexit invalid nounset
 echo status=$?
 ## STDOUT:
@@ -617,6 +631,7 @@ status=127
 ## END
 
 #### stubbed out bash options
+## SKIP: ignore_shopt_not_impl option not implemented
 shopt -s ignore_shopt_not_impl
 for name in foo autocd cdable_vars checkwinsize; do
   shopt -s $name
@@ -642,6 +657,7 @@ done
 ## END
 
 #### shopt -s nounset works in YSH, not in bash
+## SKIP: shopt -s nounset not implemented
 case $SH in
   *dash|*mksh)
     echo N-I
@@ -667,6 +683,7 @@ N-I
 ## END
 
 #### Unimplemented options - print, query, set, unset
+## SKIP: xpg_echo option not implemented
 case $SH in dash|mksh) exit ;; esac
 
 opt_name=xpg_echo
@@ -708,6 +725,7 @@ set=1
 ## END
 
 #### Unimplemented options - OSH shopt -s ignore_shopt_not_impl
+## SKIP: ignore_shopt_not_impl option not implemented
 case $SH in dash|mksh) exit ;; esac
 
 shopt -s ignore_shopt_not_impl
@@ -757,6 +775,7 @@ status=0
 ## END
 
 #### no-ops not shown by shopt -p
+## SKIP: shopt -p not implemented
 
 shopt -p | grep xpg
 echo --

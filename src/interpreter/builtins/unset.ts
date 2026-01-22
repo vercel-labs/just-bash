@@ -10,6 +10,7 @@
 
 import type { ExecResult } from "../../types.js";
 import { getArrayElements } from "../expansion.js";
+import { isNameref, resolveNameref } from "../helpers/nameref.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -93,8 +94,15 @@ export function handleUnset(
       continue;
     }
 
-    // Regular variable
-    delete ctx.state.env[arg];
+    // Regular variable - check if it's a nameref and unset the target
+    let targetName = arg;
+    if (isNameref(ctx, arg)) {
+      const resolved = resolveNameref(ctx, arg);
+      if (resolved && resolved !== arg) {
+        targetName = resolved;
+      }
+    }
+    delete ctx.state.env[targetName];
     ctx.state.functions.delete(arg);
   }
   return result("", stderr, exitCode);

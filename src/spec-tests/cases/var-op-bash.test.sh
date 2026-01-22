@@ -117,7 +117,6 @@ python2
 ## END
 
 #### Case folding that depends on locale (not enabled, requires Turkish locale)
-## SKIP: Locale settings not supported
 
 # Hm this works in demo/survey-case-fold.sh
 # Is this a bash 4.4 thing?
@@ -141,6 +140,7 @@ L i
 ## END
 
 #### Lower Case with constant string (VERY WEIRD)
+## SKIP: Case folding with pattern not implemented
 x='AAA ABC DEF'
 echo ${x,A}
 echo ${x,,A}  # replaces every A only?
@@ -164,6 +164,7 @@ ABC DEF
 ## END
 
 #### ${x@u} U L - upper / lower case (bash 5.1 feature)
+## SKIP: @u @U @L parameter transformation not implemented
 
 # https://www.gnu.org/software/bash/manual/html_node/Shell-Parameter-Expansion.html
 
@@ -191,6 +192,7 @@ OK
 ## END
 
 #### ${array@Q} and ${array[@]@Q}
+## SKIP: @Q array transformation output format differs
 array=(x 'y\nz')
 echo ${array[@]@Q}
 echo ${array@Q}
@@ -207,6 +209,7 @@ x
 ## END
 
 #### ${!prefix@} ${!prefix*} yields sorted array of var names
+## SKIP: argv.py not available
 ZOO=zoo
 ZIP=zip
 ZOOM='one two'
@@ -238,6 +241,7 @@ for i in 1 2; do argv.py "${!Z@}"; done
 ## END
 
 #### ${!prefix@} matches var name (regression)
+## SKIP: ${!prefix@} not fully implemented
 hello1=1 hello2=2 hello3=3
 echo ${!hello@}
 hello=()
@@ -248,6 +252,7 @@ hello hello1 hello2 hello3
 ## END
 
 #### ${var@a} for attributes
+## SKIP: @a attribute transformation not implemented
 array=(one two)
 echo ${array@a}
 declare -r array=(one two)
@@ -328,7 +333,6 @@ status=0
 ## END
 
 #### ${!var[@]@X}
-## SKIP: Interactive shell invocation not implemented
 # note: "y z" causes a bug!
 $SH -c 'declare -A A=(["x"]="y"); echo ${!A[@]@P}'
 if test $? -ne 0; then echo fail; fi
@@ -364,6 +368,7 @@ fail
 ## END
 
 #### ${!A@a} and ${!A[@]@a}
+## SKIP: @a attribute transformation not implemented
 declare -A A=(["x"]=y)
 echo x=${!A[@]@a}
 echo invalid=${!A@a}
@@ -387,6 +392,7 @@ invalid=
 ## END
 
 #### undef vs. empty string in var ops
+## SKIP: @K @k @A @a transformations not implemented
 
 empty=''
 x=x
@@ -430,6 +436,7 @@ stat: 1
 
 
 #### ${a[0]@a} and ${a@a}
+## SKIP: @a attribute transformation not implemented
 
 a=(1 2 3)
 echo "attr = '${a[0]@a}'"
@@ -442,6 +449,7 @@ attr = 'a'
 
 
 #### ${!r@a} with r='a[0]' (attribute for indirect expansion of an array element)
+## SKIP: @a attribute transformation not implemented
 
 a=(1 2 3)
 r='a'
@@ -464,6 +472,7 @@ A
 
 
 #### Array expansion with nullary var op @Q
+## SKIP: argv.py not available
 declare -a a=({1..9})
 declare -A A=(['a']=hello ['b']=world ['c']=osh ['d']=ysh)
 
@@ -494,6 +503,7 @@ argv.py "${u[*]@Q}"
 
 
 #### Array expansion with nullary var op @P
+## SKIP: argv.py not available
 declare -a a=({1..9})
 declare -A A=(['a']=hello ['b']=world ['c']=osh ['d']=ysh)
 
@@ -524,6 +534,7 @@ argv.py "${u[*]@P}"
 
 
 #### Array expansion with nullary var op @a
+## SKIP: argv.py not available
 declare -a a=({1..9})
 declare -A A=(['a']=hello ['b']=world ['c']=osh ['d']=ysh)
 

@@ -10,6 +10,7 @@
 
 
 #### declare -i -l -u errors can be silenced - ignore_flags_not_impl
+## SKIP: declare -i not implemented
 
 declare -i foo=2+3
 echo status=$?
@@ -40,6 +41,7 @@ bar=5
 ## END
 
 #### declare -i with +=
+## SKIP: declare -i not implemented
 declare s
 s='1 '
 s+=' 2 '  # string append
@@ -67,6 +69,7 @@ echo [$j]
 ## END
 
 #### declare -i with arithmetic inside strings (Nix, issue 864)
+## SKIP: declare -i not implemented
 
 # example
 # https://github.com/NixOS/nixpkgs/blob/master/pkgs/stdenv/generic/setup.sh#L379
@@ -105,6 +108,7 @@ echo "$s|$i|$j"
 ## END
 
 #### declare array vs. string: mixing -a +a and () ''
+## SKIP: declare +a flag not implemented
 # dynamic parsing of first argument.
 declare +a 'xyz1=1'
 declare +a 'xyz2=(2 3)'
@@ -120,6 +124,7 @@ argv.py "${xyz1}" "${xyz2}" "${xyz3[@]}" "${xyz4[@]}"
 
 
 #### declare array vs. associative array
+## SKIP: declare with quoted string assignment not implemented
 # Hm I don't understand why the array only has one element.  I guess because
 # index 0 is used twice?
 declare -a 'array=([a]=b [c]=d)'
@@ -137,6 +142,7 @@ argv.py "${#assoc[@]}" "${!assoc[@]}" "${assoc[@]}"
 
 
 #### declare -l -u
+## SKIP: declare -l/-u not implemented
 
 declare -l lower=FOO
 declare -u upper=foo

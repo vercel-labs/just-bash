@@ -19,7 +19,27 @@ export function evaluateVariableTest(
     const arrayName = arrayMatch[1];
     let indexExpr = arrayMatch[2];
 
-    // Expand variables in index
+    // Check if this is an associative array
+    const isAssoc = ctx.state.associativeArrays?.has(arrayName);
+
+    if (isAssoc) {
+      // For associative arrays, use the key as-is (strip quotes if present)
+      let key = indexExpr;
+      // Remove surrounding quotes if present
+      if (
+        (key.startsWith("'") && key.endsWith("'")) ||
+        (key.startsWith('"') && key.endsWith('"'))
+      ) {
+        key = key.slice(1, -1);
+      }
+      // Expand variables in key
+      key = key.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, varName) => {
+        return ctx.state.env[varName] || "";
+      });
+      return `${arrayName}_${key}` in ctx.state.env;
+    }
+
+    // For indexed arrays, expand variables in index
     indexExpr = indexExpr.replace(
       /\$([a-zA-Z_][a-zA-Z0-9_]*)/g,
       (_, varName) => {

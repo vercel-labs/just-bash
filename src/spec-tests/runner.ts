@@ -28,6 +28,8 @@ export interface TestResult {
   expectedStderr?: string | null;
   expectedStatus?: number | null;
   error?: string;
+  /** File path for the test file (used for UNEXPECTED PASS fix commands) */
+  filePath?: string;
 }
 
 export interface RunOptions {
@@ -35,6 +37,8 @@ export interface RunOptions {
   filter?: RegExp;
   /** Custom Bash options */
   bashEnvOptions?: ConstructorParameters<typeof Bash>[0];
+  /** File path for the test file */
+  filePath?: string;
 }
 
 /**
@@ -159,6 +163,9 @@ export async function runTestCase(
     if (expectedToFail) {
       if (passed) {
         // Test was expected to fail but passed - report as failure so we can unskip it
+        // The SKIP marker is typically on the line after the test name
+        const skipLineNumber = testCase.lineNumber + 1;
+        const filePath = options.filePath || "<unknown>";
         return {
           testCase,
           passed: false,
@@ -170,7 +177,8 @@ export async function runTestCase(
           expectedStdout,
           expectedStderr,
           expectedStatus,
-          error: `UNEXPECTED PASS: This test was marked ## SKIP (${skipReason}) but now passes. Please remove the ## SKIP directive.`,
+          filePath,
+          error: `UNEXPECTED PASS: This test was marked ## SKIP (${skipReason}) but now passes. Remove with: sed -i '' '${skipLineNumber}d' ${filePath}`,
         };
       }
       // Test was expected to fail and did fail - that's fine, mark as skipped

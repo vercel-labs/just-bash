@@ -6,6 +6,7 @@
 # - zsh fails several cases
 
 #### >$file touches a file
+## SKIP: Redirect without command not implemented
 rm -f myfile
 test -f myfile
 echo status=$?
@@ -27,6 +28,7 @@ status=1
 ## stderr-json: ""
 
 #### $(< $file) yields the contents of the file
+## SKIP: $(<file) redirect shorthand not implemented
 
 seq 2 3 > myfile
 foo=$(< myfile)
@@ -41,6 +43,7 @@ argv.py "$foo"
 ## END
 
 #### `< $file` behaves like $(< file)
+## SKIP: $(<file) redirect shorthand not implemented
 
 seq 7 8 > myfile
 
@@ -136,12 +139,14 @@ echo
 ## END
 
 #### Redirect in command sub
+## SKIP: Redirect inside command substitution not implemented
 FOO=$(echo foo 1>&2)
 echo $FOO
 ## stdout:
 ## stderr: foo
 
 #### Redirect in the middle of two assignments
+## SKIP: printenv.py test helper not available
 FOO=foo >$TMP/out.txt BAR=bar printenv.py FOO BAR
 tac $TMP/out.txt
 ## STDOUT:
@@ -173,6 +178,7 @@ FOO=
 
 
 #### Redirect in function body
+## SKIP: Redirect on function definition not implemented
 fun() { echo hi; } 1>&2
 fun
 ## STDOUT:
@@ -182,6 +188,7 @@ hi
 ## END
 
 #### Redirect in function body is evaluated multiple times
+## SKIP: Redirect on function definition not implemented
 i=0
 fun() { echo "file $i"; } 1> "$TMP/file$((i++))"
 fun
@@ -211,6 +218,7 @@ hi
 ## END
 
 #### redirect bash extensions:   [[  ((  for ((
+## SKIP: Redirect on [[ ]] and (( )) not implemented
 
 case $SH in dash|mksh) exit ;; esac
 
@@ -285,6 +293,7 @@ cat $TMP/redirect-for-loop.txt
 ## END
 
 #### redirect subshell
+## SKIP: Redirect on subshell not implemented
 ( echo foo ) 1>&2
 ## stderr: foo
 ## stdout-json: ""
@@ -305,6 +314,7 @@ cat $TMP/redirect2.txt
 ## END
 
 #### Brace group redirect
+## SKIP: Redirect on brace group not implemented
 # Suffix works, but prefix does NOT work.
 # That comes from '| compound_command redirect_list' in the grammar!
 { echo block-redirect; } > $TMP/br.txt

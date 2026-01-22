@@ -273,7 +273,6 @@ echo '  a b  \
 ## END
 
 #### read -n vs. -N
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 # dash, ash and zsh do not implement read -N
 # mksh treats -N exactly the same as -n
 case $SH in dash|ash|zsh) exit ;; esac
@@ -311,7 +310,6 @@ read -N
 ## END
 
 #### read -N ignores delimiters
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in dash|ash|zsh) exit ;; esac
 
 echo $'a\nb\nc' > $TMP/read-lines.txt
@@ -479,7 +477,7 @@ ref: refs/heads/dev/andy
 ## END
 
 #### read -a reads into array
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
+## SKIP: read -a doesn't handle backslash-escaped spaces correctly
 
 # read -a is used in bash-completion
 # none of these shells implement it
@@ -716,7 +714,6 @@ reply=ab
 
 
 #### read -N doesn't respect delimiter, while read -n does
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in dash|zsh|ash) exit ;; esac
 
 echo foobar | { read -n 5 -d b; echo $REPLY; }

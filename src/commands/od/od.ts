@@ -13,15 +13,40 @@ async function odExecute(
   args: string[],
   ctx: CommandContext,
 ): Promise<ExecResult> {
-  const charMode = args.includes("-c");
-  const addressMode = args.includes("-An") ? "none" : "octal";
+  // Parse options
+  let charMode = false;
+  let addressMode: "octal" | "none" = "octal";
+  let outputFormat: "octal" | "hex" | "char" = "octal";
+  const fileArgs: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "-c") {
+      charMode = true;
+      outputFormat = "char";
+    } else if (arg === "-An" || (arg === "-A" && args[i + 1] === "n")) {
+      addressMode = "none";
+      if (arg === "-A") i++; // Skip the "n" argument
+    } else if (arg === "-t" && args[i + 1]) {
+      const format = args[++i];
+      if (format === "x1") {
+        outputFormat = "hex";
+      } else if (format === "c") {
+        outputFormat = "char";
+        charMode = true;
+      } else if (format.startsWith("o")) {
+        outputFormat = "octal";
+      }
+    } else if (!arg.startsWith("-") || arg === "-") {
+      fileArgs.push(arg);
+    }
+  }
 
   // Get input - from file or stdin
   let input = ctx.stdin;
 
-  // Check for file argument (non-option args)
-  const fileArgs = args.filter((a) => !a.startsWith("-") && a !== "-");
-  if (fileArgs.length > 0) {
+  // Check for file argument
+  if (fileArgs.length > 0 && fileArgs[0] !== "-") {
     const filePath = fileArgs[0].startsWith("/")
       ? fileArgs[0]
       : `${ctx.cwd}/${fileArgs[0]}`;
@@ -64,15 +89,21 @@ async function odExecute(
     return { stdout: `${lines.join("\n")}\n`, stderr: "", exitCode: 0 };
   }
 
-  // Default: octal dump
+  // Hex or octal dump
   const bytes: string[] = [];
   for (const char of input) {
-    bytes.push(char.charCodeAt(0).toString(8).padStart(3, "0"));
+    const code = char.charCodeAt(0);
+    if (outputFormat === "hex") {
+      bytes.push(code.toString(16).padStart(2, "0"));
+    } else {
+      bytes.push(code.toString(8).padStart(3, "0"));
+    }
   }
 
+  const bytesPerLine = outputFormat === "hex" ? 16 : 8;
   const lines: string[] = [];
-  for (let i = 0; i < bytes.length; i += 8) {
-    const chunk = bytes.slice(i, i + 8);
+  for (let i = 0; i < bytes.length; i += bytesPerLine) {
+    const chunk = bytes.slice(i, i + bytesPerLine);
     const prefix =
       addressMode === "none" ? "" : `${i.toString(8).padStart(7, "0")} `;
     lines.push(prefix + chunk.join(" "));

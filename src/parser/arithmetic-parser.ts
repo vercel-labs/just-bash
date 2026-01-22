@@ -507,6 +507,76 @@ function parseArithPrimary(
     return { expr: { type: "ArithNested", expression: expr }, pos: currentPos };
   }
 
+  // ANSI-C quoting: $'...' - evaluates to the string's numeric value
+  if (input.slice(currentPos, currentPos + 2) === "$'") {
+    currentPos += 2; // Skip $'
+    let content = "";
+    while (currentPos < input.length && input[currentPos] !== "'") {
+      if (input[currentPos] === "\\" && currentPos + 1 < input.length) {
+        // Handle escape sequences
+        const nextChar = input[currentPos + 1];
+        switch (nextChar) {
+          case "n":
+            content += "\n";
+            break;
+          case "t":
+            content += "\t";
+            break;
+          case "r":
+            content += "\r";
+            break;
+          case "\\":
+            content += "\\";
+            break;
+          case "'":
+            content += "'";
+            break;
+          default:
+            content += nextChar;
+        }
+        currentPos += 2;
+      } else {
+        content += input[currentPos];
+        currentPos++;
+      }
+    }
+    if (input[currentPos] === "'") currentPos++; // Skip closing '
+    // In bash arithmetic, a quoted string evaluates to its numeric value
+    // e.g., $'3' evaluates to 3
+    const numValue = Number.parseInt(content, 10);
+    return {
+      expr: {
+        type: "ArithNumber",
+        value: Number.isNaN(numValue) ? 0 : numValue,
+      },
+      pos: currentPos,
+    };
+  }
+
+  // Localization quoting: $"..." - same as double quotes in our context
+  if (input.slice(currentPos, currentPos + 2) === '$"') {
+    currentPos += 2; // Skip $"
+    let content = "";
+    while (currentPos < input.length && input[currentPos] !== '"') {
+      if (input[currentPos] === "\\" && currentPos + 1 < input.length) {
+        content += input[currentPos + 1];
+        currentPos += 2;
+      } else {
+        content += input[currentPos];
+        currentPos++;
+      }
+    }
+    if (input[currentPos] === '"') currentPos++; // Skip closing "
+    const numValue = Number.parseInt(content, 10);
+    return {
+      expr: {
+        type: "ArithNumber",
+        value: Number.isNaN(numValue) ? 0 : numValue,
+      },
+      pos: currentPos,
+    };
+  }
+
   // Command substitution: $(cmd)
   if (
     input.slice(currentPos, currentPos + 2) === "$(" &&
@@ -551,6 +621,49 @@ function parseArithPrimary(
     currentPos = skipArithWhitespace(input, p2);
     if (input[currentPos] === ")") currentPos++;
     return { expr: { type: "ArithGroup", expression: expr }, pos: currentPos };
+  }
+
+  // Single-quoted string: '...' - evaluates to its numeric value
+  if (input[currentPos] === "'") {
+    currentPos++; // Skip opening '
+    let content = "";
+    while (currentPos < input.length && input[currentPos] !== "'") {
+      content += input[currentPos];
+      currentPos++;
+    }
+    if (input[currentPos] === "'") currentPos++; // Skip closing '
+    const numValue = Number.parseInt(content, 10);
+    return {
+      expr: {
+        type: "ArithNumber",
+        value: Number.isNaN(numValue) ? 0 : numValue,
+      },
+      pos: currentPos,
+    };
+  }
+
+  // Double-quoted string: "..." - evaluates to its numeric value
+  if (input[currentPos] === '"') {
+    currentPos++; // Skip opening "
+    let content = "";
+    while (currentPos < input.length && input[currentPos] !== '"') {
+      if (input[currentPos] === "\\" && currentPos + 1 < input.length) {
+        content += input[currentPos + 1];
+        currentPos += 2;
+      } else {
+        content += input[currentPos];
+        currentPos++;
+      }
+    }
+    if (input[currentPos] === '"') currentPos++; // Skip closing "
+    const numValue = Number.parseInt(content, 10);
+    return {
+      expr: {
+        type: "ArithNumber",
+        value: Number.isNaN(numValue) ? 0 : numValue,
+      },
+      pos: currentPos,
+    };
   }
 
   // Number
@@ -671,6 +784,16 @@ function parseArithPrimary(
       currentPos++;
     }
     return { expr: { type: "ArithVariable", name }, pos: currentPos };
+  }
+  // Handle special variables: $*, $@, $#, $?, $-, $!, $$
+  if (
+    input[currentPos] === "$" &&
+    currentPos + 1 < input.length &&
+    /[*@#?\-!$]/.test(input[currentPos + 1])
+  ) {
+    const name = input[currentPos + 1];
+    currentPos += 2; // Skip $X
+    return { expr: { type: "ArithSpecialVar", name }, pos: currentPos };
   }
   // Handle $name (regular variables with $ prefix)
   if (

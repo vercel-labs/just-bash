@@ -488,7 +488,6 @@ argv=plus
 ## END
 
 #### assoc array and - and +
-## SKIP: Right brace in parameter default value not implemented
 case $SH in dash|mksh) exit ;; esac
 
 declare -A empty=()

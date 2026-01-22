@@ -42,12 +42,16 @@ import {
   handleCd,
   handleContinue,
   handleDeclare,
+  handleDirs,
   handleEval,
   handleExit,
   handleExport,
+  handleGetopts,
   handleLet,
   handleLocal,
   handleMapfile,
+  handlePopd,
+  handlePushd,
   handleRead,
   handleReadonly,
   handleReturn,
@@ -84,7 +88,12 @@ import {
   getArrayElements,
 } from "./expansion.js";
 import { callFunction, executeFunctionDef } from "./functions.js";
+import {
+  parseAssocArrayElement,
+  wordToLiteralString,
+} from "./helpers/array.js";
 import { getErrorMessage } from "./helpers/errors.js";
+import { isNameref, resolveNameref } from "./helpers/nameref.js";
 import { checkReadonlyError } from "./helpers/readonly.js";
 import {
   failure,
@@ -434,38 +443,131 @@ export class Interpreter {
         // Check if array variable is readonly
         const readonlyError = checkReadonlyError(this.ctx, name);
         if (readonlyError) return readonlyError;
-        const allElements: string[] = [];
-        for (const element of assignment.array) {
-          const expanded = await expandWordWithGlob(this.ctx, element);
-          allElements.push(...expanded.values);
-        }
 
-        // For append mode (+=), find the max existing index and start after it
-        let startIndex = 0;
-        if (assignment.append) {
-          const elements = getArrayElements(this.ctx, name);
-          if (elements.length > 0) {
-            const maxIndex = Math.max(
-              ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
+        // Check if this is an associative array
+        const isAssoc = this.ctx.state.associativeArrays?.has(name);
+
+        // Check if elements use [key]=value syntax
+        // This is detected by looking at the Word structure:
+        // - First part is Glob with pattern like "[key]"
+        // - Second part is Literal starting with "="
+        const hasKeyedElements = assignment.array.some((element) => {
+          if (element.parts.length >= 2) {
+            const first = element.parts[0];
+            const second = element.parts[1];
+            return (
+              first.type === "Glob" &&
+              first.pattern.startsWith("[") &&
+              first.pattern.endsWith("]") &&
+              second.type === "Literal" &&
+              second.value.startsWith("=")
             );
-            startIndex = maxIndex + 1;
           }
-        } else {
-          // For regular assignment, clear existing array elements
+          return false;
+        });
+
+        // Helper to clear existing array elements (called after expansion)
+        const clearExistingElements = () => {
           const prefix = `${name}_`;
           for (const key of Object.keys(this.ctx.state.env)) {
             if (key.startsWith(prefix) && !key.includes("__")) {
               delete this.ctx.state.env[key];
             }
           }
-        }
+        };
 
-        for (let i = 0; i < allElements.length; i++) {
-          this.ctx.state.env[`${name}_${startIndex + i}`] = allElements[i];
-        }
-        // Update length only for non-append (length tracking is not reliable with sparse arrays)
-        if (!assignment.append) {
-          this.ctx.state.env[`${name}__length`] = String(allElements.length);
+        if (isAssoc && hasKeyedElements) {
+          // For associative arrays with keyed elements, expand first then clear
+          // (keyed elements don't reference the array being assigned)
+          if (!assignment.append) {
+            clearExistingElements();
+          }
+          // Handle associative array with [key]=value syntax
+          for (const element of assignment.array) {
+            const literalStr = wordToLiteralString(element);
+            const parsed = parseAssocArrayElement(literalStr);
+            if (parsed) {
+              const [key, value] = parsed;
+              this.ctx.state.env[`${name}_${key}`] = value;
+            } else {
+              // Fall back to treating as regular element (shouldn't happen for assoc)
+              const expanded = await expandWordWithGlob(this.ctx, element);
+              for (const val of expanded.values) {
+                this.ctx.state.env[`${name}_${val}`] = "";
+              }
+            }
+          }
+        } else if (hasKeyedElements) {
+          // Handle indexed array with [index]=value syntax (sparse array)
+          // Clear existing elements first (keyed elements don't reference the array)
+          if (!assignment.append) {
+            clearExistingElements();
+          }
+          for (const element of assignment.array) {
+            const literalStr = wordToLiteralString(element);
+            const parsed = parseAssocArrayElement(literalStr);
+            if (parsed) {
+              const [indexStr, value] = parsed;
+              // Evaluate index as arithmetic expression
+              let index: number;
+              if (/^-?\d+$/.test(indexStr)) {
+                index = Number.parseInt(indexStr, 10);
+              } else {
+                // Try to evaluate as variable or expression
+                const varValue = this.ctx.state.env[indexStr];
+                index = varValue ? Number.parseInt(varValue, 10) : 0;
+                if (Number.isNaN(index)) index = 0;
+              }
+              this.ctx.state.env[`${name}_${index}`] = value;
+            } else {
+              // Fall back to sequential assignment
+              const expanded = await expandWordWithGlob(this.ctx, element);
+              const elements = getArrayElements(this.ctx, name);
+              let nextIdx =
+                elements.length > 0
+                  ? Math.max(
+                      ...elements.map(([idx]) =>
+                        typeof idx === "number" ? idx : 0,
+                      ),
+                    ) + 1
+                  : 0;
+              for (const val of expanded.values) {
+                this.ctx.state.env[`${name}_${nextIdx++}`] = val;
+              }
+            }
+          }
+        } else {
+          // Regular array assignment without keyed elements
+          // IMPORTANT: Expand elements FIRST (they may reference the current array)
+          // then clear, then assign. e.g., a=(0 "${a[@]}" 1) should see old a[@]
+          const allElements: string[] = [];
+          for (const element of assignment.array) {
+            const expanded = await expandWordWithGlob(this.ctx, element);
+            allElements.push(...expanded.values);
+          }
+
+          // For append mode (+=), find the max existing index BEFORE clearing
+          let startIndex = 0;
+          if (assignment.append) {
+            const elements = getArrayElements(this.ctx, name);
+            if (elements.length > 0) {
+              const maxIndex = Math.max(
+                ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
+              );
+              startIndex = maxIndex + 1;
+            }
+          } else {
+            // Clear existing elements AFTER expansion (self-reference already read)
+            clearExistingElements();
+          }
+
+          for (let i = 0; i < allElements.length; i++) {
+            this.ctx.state.env[`${name}_${startIndex + i}`] = allElements[i];
+          }
+          // Update length only for non-append (length tracking is not reliable with sparse arrays)
+          if (!assignment.append) {
+            this.ctx.state.env[`${name}__length`] = String(allElements.length);
+          }
         }
         continue;
       }
@@ -483,8 +585,16 @@ export class Interpreter {
       // Check for array subscript assignment: a[subscript]=value
       const subscriptMatch = name.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
       if (subscriptMatch) {
-        const arrayName = subscriptMatch[1];
+        let arrayName = subscriptMatch[1];
         const subscriptExpr = subscriptMatch[2];
+
+        // Check if arrayName is a nameref - if so, resolve it
+        if (isNameref(this.ctx, arrayName)) {
+          const resolved = resolveNameref(this.ctx, arrayName);
+          if (resolved && resolved !== arrayName) {
+            arrayName = resolved;
+          }
+        }
 
         // Check if array variable is readonly
         const readonlyError = checkReadonlyError(this.ctx, arrayName);
@@ -587,20 +697,33 @@ export class Interpreter {
         continue;
       }
 
+      // Resolve nameref: if name is a nameref, write to the target variable
+      let targetName = name;
+      if (isNameref(this.ctx, name)) {
+        const resolved = resolveNameref(this.ctx, name);
+        if (resolved === undefined) {
+          // Circular nameref detected
+          return result("", `bash: ${name}: circular name reference\n`, 1);
+        }
+        if (resolved !== name) {
+          targetName = resolved;
+        }
+      }
+
       // Check if variable is readonly (for scalar assignment)
-      const readonlyError = checkReadonlyError(this.ctx, name);
+      const readonlyError = checkReadonlyError(this.ctx, targetName);
       if (readonlyError) return readonlyError;
 
       // Handle append mode (+=)
       const finalValue = assignment.append
-        ? (this.ctx.state.env[name] || "") + value
+        ? (this.ctx.state.env[targetName] || "") + value
         : value;
 
       if (node.name) {
-        tempAssignments[name] = this.ctx.state.env[name];
-        this.ctx.state.env[name] = finalValue;
+        tempAssignments[targetName] = this.ctx.state.env[targetName];
+        this.ctx.state.env[targetName] = finalValue;
       } else {
-        this.ctx.state.env[name] = finalValue;
+        this.ctx.state.env[targetName] = finalValue;
       }
     }
 
@@ -654,12 +777,34 @@ export class Interpreter {
     const args: string[] = [];
     const quotedArgs: boolean[] = [];
 
-    // Expand args even if command name is empty (they may have side effects)
-    for (const arg of node.args) {
-      const expanded = await expandWordWithGlob(this.ctx, arg);
-      for (const value of expanded.values) {
-        args.push(value);
-        quotedArgs.push(expanded.quoted);
+    // Handle local/declare array assignments specially to preserve quote structure
+    // For `local a=(1 "2 3")`, we need to process array elements from AST to keep quotes
+    if (
+      commandName === "local" ||
+      commandName === "declare" ||
+      commandName === "typeset"
+    ) {
+      for (const arg of node.args) {
+        const arrayAssignResult = await this.expandLocalArrayAssignment(arg);
+        if (arrayAssignResult) {
+          args.push(arrayAssignResult);
+          quotedArgs.push(true);
+        } else {
+          const expanded = await expandWordWithGlob(this.ctx, arg);
+          for (const value of expanded.values) {
+            args.push(value);
+            quotedArgs.push(expanded.quoted);
+          }
+        }
+      }
+    } else {
+      // Expand args even if command name is empty (they may have side effects)
+      for (const arg of node.args) {
+        const expanded = await expandWordWithGlob(this.ctx, arg);
+        for (const value of expanded.values) {
+          args.push(value);
+          quotedArgs.push(expanded.quoted);
+        }
       }
     }
 
@@ -719,6 +864,99 @@ export class Interpreter {
     return cmdResult;
   }
 
+  /**
+   * Check if a Word represents an array assignment (name=(...)) and expand it
+   * while preserving quote structure for elements.
+   * Returns the expanded string like "name=(elem1 elem2 ...)" or null if not an array assignment.
+   */
+  private async expandLocalArrayAssignment(
+    word: WordNode,
+  ): Promise<string | null> {
+    // First, join all parts to check if this looks like an array assignment
+    const fullLiteral = word.parts
+      .map((p) => (p.type === "Literal" ? p.value : "\x00"))
+      .join("");
+    const arrayMatch = fullLiteral.match(/^([a-zA-Z_][a-zA-Z0-9_]*)=\(/);
+    if (!arrayMatch || !fullLiteral.endsWith(")")) {
+      return null;
+    }
+
+    const name = arrayMatch[1];
+    const elements: string[] = [];
+    let inArrayContent = false;
+    let pendingLiteral = "";
+
+    for (const part of word.parts) {
+      if (part.type === "Literal") {
+        let value = part.value;
+        if (!inArrayContent) {
+          // Look for =( to start array content
+          const idx = value.indexOf("=(");
+          if (idx !== -1) {
+            inArrayContent = true;
+            value = value.slice(idx + 2);
+          }
+        }
+
+        if (inArrayContent) {
+          // Check for closing )
+          if (value.endsWith(")")) {
+            value = value.slice(0, -1);
+          }
+
+          // Process literal content: split by whitespace
+          // But handle the case where this literal is adjacent to a quoted part
+          const tokens = value.split(/(\s+)/);
+          for (const token of tokens) {
+            if (/^\s+$/.test(token)) {
+              // Whitespace - push pending element
+              if (pendingLiteral) {
+                elements.push(pendingLiteral);
+                pendingLiteral = "";
+              }
+            } else if (token) {
+              // Non-empty token - accumulate
+              pendingLiteral += token;
+            }
+          }
+        }
+      } else if (inArrayContent) {
+        // Quoted/expansion part - expand it and accumulate as single element
+        const expanded = await expandWord(this.ctx, {
+          type: "Word",
+          parts: [part],
+        });
+        pendingLiteral += expanded;
+      }
+    }
+
+    // Push final element
+    if (pendingLiteral) {
+      elements.push(pendingLiteral);
+    }
+
+    // Build result string with proper quoting
+    const quotedElements = elements.map((elem) => {
+      // Don't quote keyed elements like ['key']=value or [index]=value
+      // These need to be parsed by the declare builtin as-is
+      if (/^\[.+\]=/.test(elem)) {
+        return elem;
+      }
+      // If element contains whitespace or special chars, quote it
+      if (
+        /[\s"'\\$`!*?[\]{}|&;<>()]/.test(elem) &&
+        !elem.startsWith("'") &&
+        !elem.startsWith('"')
+      ) {
+        // Use single quotes, escaping existing single quotes
+        return `'${elem.replace(/'/g, "'\\''")}'`;
+      }
+      return elem;
+    });
+
+    return `${name}=(${quotedElements.join(" ")})`;
+  }
+
   private async runCommand(
     commandName: string,
     args: string[],
@@ -759,6 +997,18 @@ export class Interpreter {
     }
     if (commandName === "shift") {
       return handleShift(this.ctx, args);
+    }
+    if (commandName === "getopts") {
+      return handleGetopts(this.ctx, args);
+    }
+    if (commandName === "pushd") {
+      return await handlePushd(this.ctx, args);
+    }
+    if (commandName === "popd") {
+      return handlePopd(this.ctx, args);
+    }
+    if (commandName === "dirs") {
+      return handleDirs(this.ctx, args);
     }
     if (commandName === "source" || commandName === ".") {
       return handleSource(this.ctx, args);
@@ -1040,23 +1290,98 @@ export class Interpreter {
       "type",
       "[",
       "test",
+      "echo",
+      "printf",
+      "getopts",
+      "hash",
+      "ulimit",
+      "umask",
+      "alias",
+      "unalias",
+      "dirs",
+      "pushd",
+      "popd",
+      "mapfile",
+      "readarray",
     ]);
+
+    // Parse options
+    let typeOnly = false; // -t flag: print only the type word
+    let pathOnly = false; // -p/-P flag: print only paths to executables
+    const names: string[] = [];
+
+    for (const arg of args) {
+      if (arg.startsWith("-") && arg.length > 1) {
+        // Handle combined options like -ap, -tP, etc.
+        for (const char of arg.slice(1)) {
+          if (char === "t") {
+            typeOnly = true;
+          } else if (char === "p" || char === "P") {
+            pathOnly = true;
+          }
+          // Ignore -a, -f flags (not fully implemented)
+        }
+      } else {
+        names.push(arg);
+      }
+    }
 
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
 
-    for (const name of args) {
-      if (keywords.has(name)) {
-        stdout += `${name} is a shell keyword\n`;
+    for (const name of names) {
+      // Check aliases first (before other checks)
+      // Aliases are stored in env with BASH_ALIAS_ prefix
+      const alias = this.ctx.state.env[`BASH_ALIAS_${name}`];
+      if (alias !== undefined) {
+        // -p/-P: print nothing for aliases (no path)
+        if (pathOnly) {
+          // Do nothing
+        } else if (typeOnly) {
+          stdout += "alias\n";
+        } else {
+          stdout += `${name} is aliased to \`${alias}'\n`;
+        }
+      } else if (keywords.has(name)) {
+        // -p/-P: print nothing for keywords (no path)
+        if (pathOnly) {
+          // Do nothing
+        } else if (typeOnly) {
+          stdout += "keyword\n";
+        } else {
+          stdout += `${name} is a shell keyword\n`;
+        }
       } else if (builtins.has(name)) {
-        stdout += `${name} is a shell builtin\n`;
+        // -p/-P: print nothing for builtins (no path)
+        if (pathOnly) {
+          // Do nothing
+        } else if (typeOnly) {
+          stdout += "builtin\n";
+        } else {
+          stdout += `${name} is a shell builtin\n`;
+        }
       } else if (this.ctx.state.functions.has(name)) {
-        stdout += `${name} is a function\n`;
+        // -p/-P: print nothing for functions (no path)
+        if (pathOnly) {
+          // Do nothing
+        } else if (typeOnly) {
+          stdout += "function\n";
+        } else {
+          stdout += `${name} is a function\n`;
+        }
       } else if (this.ctx.commands.has(name)) {
-        stdout += `${name} is /bin/${name}\n`;
+        if (pathOnly) {
+          stdout += `/bin/${name}\n`;
+        } else if (typeOnly) {
+          stdout += "file\n";
+        } else {
+          stdout += `${name} is /bin/${name}\n`;
+        }
       } else {
-        stderr += `bash: type: ${name}: not found\n`;
+        if (!typeOnly && !pathOnly) {
+          stderr += `bash: type: ${name}: not found\n`;
+        }
         exitCode = 1;
       }
     }

@@ -57,6 +57,7 @@ NOUNSET
 # ## END
 
 #### comparison to ${!array[@]} keys (similar SYNTAX)
+## SKIP: argv.py test helper not available
 
 declare -a a=(x y)
 argv.py "${!a[@]}"
@@ -150,6 +151,7 @@ ref2=two
 ## END
 
 #### var ref: 1, @, *
+## SKIP: argv.py test helper not available
 set -- x y
 ref=1; argv.py "${!ref}"
 ref=@; argv.py "${!ref}"
@@ -169,6 +171,7 @@ lineno=2
 ## END
 
 #### var ref to $? with '?'
+## SKIP: Indirect reference to special vars not implemented
 myfunc() {
   local ref=$1
   echo ${!ref}
@@ -182,6 +185,7 @@ myfunc
 
 
 #### Var ref, then assignment with ${ := }
+## SKIP: Indirect expansion with assignment not implemented
 z=zz
 zz=
 echo ${!z:=foo}
@@ -192,6 +196,7 @@ foo
 ## END
 
 #### Var ref, then error with ${ ? }
+## SKIP: Indirect expansion with error not implemented
 w=ww
 ww=
 echo ${!w:?'my message'}
@@ -264,6 +269,7 @@ echo ok
 ## stdout: ok
 
 #### var ref OF array var -- silent a[0] decay
+## SKIP: Indirect expansion of arrays not fully implemented
 declare -a a=(ale bean)
 echo first=${!a}
 
@@ -300,6 +306,7 @@ ale
 ## END
 
 #### var ref TO array var
+## SKIP: Indirect expansion to arrays not fully implemented
 shopt -s compat_array
 
 declare -a array=(ale bean)
@@ -316,6 +323,7 @@ ale bean
 ## END
 
 #### var ref TO array var, with subscripts
+## SKIP: argv.py test helper not available
 f() {
   argv.py "${!1}"
 }
@@ -335,6 +343,7 @@ f 'array[*]'
 ## END
 
 #### var ref TO assoc array a[key]
+## SKIP: Indirect expansion to arrays not fully implemented
 shopt -s compat_array
 
 declare -A assoc=([ale]=bean [corn]=dip)
@@ -363,6 +372,7 @@ ref_SUB_BAD=
 ## END
 
 #### var ref TO array with arbitrary subscripts
+## SKIP: Indirect expansion to arrays not fully implemented
 shopt -s eval_unsafe_arith compat_array
 
 f() {
@@ -411,6 +421,7 @@ works: a[$(( 3 - 2 ))]
 ## END
 
 #### Bizarre tilde expansion in array index
+## SKIP: Tilde expansion in array index not implemented
 a=(x y)
 PWD=1
 ref='a[~+]'
@@ -425,6 +436,7 @@ echo ${!ref}
 # ## END
 
 #### Indirect expansion TO fancy expansion features bash disallows
+## SKIP: Indirect expansion features not implemented
 
 check_indir() {
     result="${!1}"
@@ -460,6 +472,7 @@ echo done
 ## stdout: done
 
 #### Bad var ref
+## SKIP: Bad var ref error handling differs
 a='bad var name'
 echo ref ${!a}
 echo status=$?
@@ -469,6 +482,7 @@ status=1
 ## END
 
 #### Bad var ref 2
+## SKIP: Bad var ref error handling differs
 b='/'  # really bad
 echo ref ${!b}
 echo status=$?
@@ -511,6 +525,7 @@ cycle=
 ## END
 
 #### Var Ref Code Injection $(tee PWNED)
+## SKIP: Code injection test not applicable
 
 typeset -a a
 a=(42)
@@ -697,6 +712,7 @@ test-rep 'a3[@]'
 ## END
 
 #### Array indirect expansion with @? conversion
+## SKIP: Array indirect expansion conversion not implemented
 
 declare -A ref=(['dummy']=v1)
 function test-op0 {

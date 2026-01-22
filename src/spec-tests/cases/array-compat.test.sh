@@ -36,6 +36,7 @@ argv.py "${c[@]}"
 ## END
 
 #### strict_array: $array is not valid in OSH, is ${array[0]} in ksh/bash
+## SKIP: strict_array shopt not implemented
 shopt -s strict_array
 
 a=(1 '2 3')
@@ -47,6 +48,7 @@ echo $a
 ## OK osh stdout-json: ""
 
 #### strict_array: ${array} is not valid in OSH, is ${array[0]} in ksh/bash
+## SKIP: strict_array shopt not implemented
 shopt -s strict_array
 
 a=(1 '2 3')
@@ -82,6 +84,7 @@ EQUAL
 ## END
 
 #### ++ on a whole array increments the first element (disallowed with strict_array)
+## SKIP: strict_array shopt not implemented
 shopt -s strict_array
 
 a=(1 10)
@@ -92,6 +95,7 @@ echo "${a[@]}"
 ## OK osh stdout-json: ""
 
 #### Apply vectorized operations on ${a[*]}
+## SKIP: argv.py test helper not available
 a=('-x-' 'y-y' '-z-')
 
 # This does the prefix stripping FIRST, and then it joins.
@@ -103,7 +107,7 @@ argv.py "${a[*]#-}"
 ## N-I mksh stdout-json: ""
 
 #### value.BashArray internal representation - Indexed
-
+## SKIP: declare -a listing format differs
 case $SH in mksh) exit ;; esac
 
 z=()
@@ -156,7 +160,7 @@ status=1
 ## END
 
 #### value.BashArray internal representation - Assoc (ordering is a problem)
-
+## SKIP: declare -A listing format differs
 case $SH in mksh) exit ;; esac
 
 declare -A A=([k]=v)

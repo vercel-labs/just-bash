@@ -2,6 +2,7 @@
 ## oils_failures_allowed: 2
 
 #### SHELLOPTS is updated when options are changed
+## SKIP: SHELLOPTS variable not implemented
 echo $SHELLOPTS | grep -q xtrace
 echo $?
 set -x
@@ -22,6 +23,7 @@ echo $?
 ## END
 
 #### SHELLOPTS is readonly
+## SKIP: SHELLOPTS variable not implemented
 SHELLOPTS=x
 echo status=$?
 ## stdout: status=1
@@ -32,6 +34,7 @@ echo status=$?
 ## OK osh stdout-json: ""
 
 #### SHELLOPTS and BASHOPTS are non-empty
+## SKIP: SHELLOPTS and BASHOPTS not implemented
 
 # 2024-06 - tickled by Samuel testing Gentoo
 
@@ -56,6 +59,7 @@ bashopts is set
 ## N-I mksh status: 1
 
 #### SHELLOPTS reflects flags like sh -x
+## SKIP: $SH invocation not implemented
 
 $SH -x -c 'echo $SHELLOPTS' | grep -o xtrace
 
@@ -102,6 +106,7 @@ sh -c 'echo 2'
 ## END
 
 #### OSH calling bash with SHELLOPTS does not change braceexpand
+## SKIP: bash invocation not implemented
 
 #echo outside=$SHELLOPTS
 

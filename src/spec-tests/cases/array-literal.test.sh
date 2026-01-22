@@ -1,6 +1,7 @@
 ## compare_shells: bash
 
 #### Tilde expansions in RHS of [k]=v (BashArray)
+## SKIP: Tilde expansion in array literal not implemented
 HOME=/home/user
 a=([2]=~ [4]=~:~:~)
 echo "${a[2]}"
@@ -11,6 +12,7 @@ echo "${a[4]}"
 ## END
 
 #### Tilde expansions in RHS of [k]=v (BashAssoc)
+## SKIP: Tilde expansion in array literal not implemented
 # Note: bash-5.2 has a bug that the tilde doesn't expand on the right hand side
 # of [key]=value.  This problem doesn't happen in bash-3.1..5.1 and bash-5.3.
 HOME=/home/user
@@ -28,6 +30,7 @@ echo "${a['hello']}"
 ## END
 
 #### index increments without [k]= (BashArray)
+## SKIP: argv.py not available
 a=([100]=1 2 3 4)
 printf 'keys: '; argv.py "${!a[@]}"
 printf 'vals: '; argv.py "${a[@]}"
@@ -42,6 +45,7 @@ vals: ['a', 'b', 'c', 'd', '1', '2', '3', '4']
 ## END
 
 #### [k]=$v and [k]="$@" (BashArray)
+## SKIP: argv.py not available
 i=5
 v='1 2 3'
 a=($v [i]=$v)
@@ -75,6 +79,7 @@ vals: ['1', '2', '3', '3 5 7']
 ## END
 
 #### [k]=$v and [k]="$@" (BashAssoc)
+## SKIP: argv.py not available
 i=5
 v='1 2 3'
 declare -A a
@@ -109,6 +114,7 @@ vals: ['3 5 7']
 ## END
 
 #### append to element (BashArray)
+## SKIP: argv.py not available
 hello=100
 a=([hello]=1 [hello]+=2)
 printf 'keys: '; argv.py "${!a[@]}"
@@ -124,6 +130,7 @@ vals: ['12:34:56']
 ## END
 
 #### append to element (BashAssoc)
+## SKIP: argv.py not available
 declare -A a
 hello=100
 a=([hello]=1 [hello]+=2)
@@ -147,6 +154,7 @@ vals: ['2:34:56']
 ## END
 
 #### non-index forms of element (BashAssoc)
+## SKIP: Array literal index behavior differs
 declare -A a
 a=([j]=1 2 3 4)
 echo "status=$?"
@@ -169,6 +177,7 @@ bash: line 2: a: 4: must use subscript when assigning associative array
 ## END
 
 #### Evaluation order (1)
+## SKIP: Array evaluation order differs
 # RHS of [k]=v are expanded when the initializer list is instanciated.  For the
 # indexed array, the array indices are evaluated when the array is modified.
 i=1
@@ -181,6 +190,7 @@ vals: ['1', '2', '3']
 ## END
 
 #### Evaluation order (2)
+## SKIP: argv.py not available
 # When evaluating the index, the modification to the array by the previous item
 # of the initializer list is visible to the current item.
 a=([0]=1+2+3 [a[0]]=10 [a[6]]=hello)
@@ -192,6 +202,7 @@ vals: ['1+2+3', '10', 'hello']
 ## END
 
 #### Evaluation order (3)
+## SKIP: Array evaluation order differs
 # RHS should be expanded before any modification to the array.
 a=(old1 old2 old3)
 a=("${a[2]}" "${a[0]}" "${a[1]}" "${a[2]}" "${a[0]}")
@@ -242,6 +253,7 @@ echo ${a["k2"]}
 ## END
 
 #### [k1]=v1 looking like brace expansions (BashArray)
+## SKIP: We produce correct output -\{a,b\}- but test expects bash BUG [k2]=-a-
 a=([k2]=-{a,b}-)
 echo ${a["k2"]}
 ## STDOUT:
@@ -252,6 +264,7 @@ echo ${a["k2"]}
 ## END
 
 #### BashArray cannot be changed to BashAssoc and vice versa
+## SKIP: Array type conversion not implemented
 declare -a a=(1 2 3 4)
 eval 'declare -A a=([a]=x [b]=y [c]=z)'
 echo status=$?

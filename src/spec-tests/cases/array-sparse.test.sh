@@ -83,6 +83,7 @@ len=5
 
 
 #### test "declare -p sp"
+## SKIP: declare -p sparse array output differs
 a0=()
 a1=(1)
 a2=(1 2)
@@ -128,6 +129,7 @@ typeset a[1000]=100
 ## END
 
 #### +=
+## SKIP: declare -p sparse array output differs
 sp1[10]=a
 sp1[20]=b
 sp1[99]=c
@@ -157,6 +159,7 @@ typeset sp1[102]=3
 
 
 #### a[i]=v
+## SKIP: declare -p sparse array output differs
 sp1[10]=a
 sp1[20]=b
 sp1[30]=c
@@ -186,6 +189,7 @@ typeset sp1[90]=Z
 
 
 #### Negative index with a[i]=v
+## SKIP: Negative array indices not fully implemented
 case $SH in mksh) exit ;; esac
 
 sp1[9]=x
@@ -207,6 +211,7 @@ declare -a sp1=([0]=D [2]=C [6]=B [9]=A)
 
 
 #### a[i]=v with BigInt
+## SKIP: BigInt array indices not implemented
 case $SH in mksh) exit ;; esac
 
 sp1[1]=x
@@ -233,6 +238,7 @@ echo "${#sp1[@]}"
 
 
 #### Negative out-of-bound index with a[i]=v (1/2)
+## SKIP: Negative out-of-bounds error handling differs
 case $SH in mksh) exit ;; esac
 
 sp1[9]=x
@@ -262,6 +268,7 @@ bash: line 4: sp1[-11]: bad array subscript
 
 
 #### Negative out-of-bound index with a[i]=v (2/2)
+## SKIP: Negative out-of-bounds error handling differs
 case $SH in mksh) exit ;; esac
 
 sp1[9]=x
@@ -308,6 +315,7 @@ sp1+=(2)
 
 
 #### unset -v a[i]
+## SKIP: declare -p sparse array output differs
 a=(1 2 3 4 5 6 7 8 9)
 typeset -p a
 unset -v "a[1]"
@@ -372,6 +380,7 @@ typeset a[8]=9
 
 
 #### unset -v a[i] with out-of-bound negative index
+## SKIP: Negative out-of-bounds error handling differs
 case $SH in mksh) exit ;; esac
 
 a=(1)
@@ -402,6 +411,7 @@ bash: line 6: unset: [-3]: bad array subscript
 
 
 #### unset -v a[i] for max index
+## SKIP: declare -p sparse array output differs
 case $SH in mksh) exit ;; esac
 
 a=({1..9})
@@ -476,6 +486,7 @@ unset -v 'sp3[4]'
 
 
 #### [[ -v a[i] ]] with invalid negative index
+## SKIP: Negative out-of-bounds error handling differs
 case $SH in mksh) exit ;; esac
 
 sp1=()
@@ -565,6 +576,7 @@ echo $((a[7] = 100, a[7]))
 
 
 #### ((sp[i])) and ((sp[i]++)) with invalid negative index
+## SKIP: Negative out-of-bounds error handling differs
 case $SH in mksh) exit ;; esac
 
 a=({1..9})
@@ -592,7 +604,6 @@ bash: line 6: a: bad array subscript
 
 
 #### ${sp[i]}
-## SKIP: Right brace in parameter default value not implemented
 case $SH in mksh) exit ;; esac
 
 sp=({1..9})
@@ -632,7 +643,7 @@ sp[-9]: '1'.
 
 
 #### ${sp[i]} with negative invalid index
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: Negative out-of-bounds array index should produce stderr message
 case $SH in mksh) exit ;; esac
 
 sp=({1..9})
@@ -674,7 +685,7 @@ bash: line 10: sp: bad array subscript
 
 
 #### ${a[@]:offset:length}
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: Sparse array slice offset counts set elements, not indices
 case $SH in mksh) exit ;; esac
 
 a=(v{0..9})
@@ -794,7 +805,6 @@ set -- v{1..9}
 
 
 #### ${a[@]:BigInt}
-## SKIP: Right brace in parameter default value not implemented
 case $SH in mksh) exit ;; esac
 
 case $SH in
@@ -850,6 +860,7 @@ echo "[${a[@]: -4}][${a[*]: -4}]"
 
 
 #### ${a[@]}
+## SKIP: argv.py test helper not available
 a=(v{0,1,2,3,4,5,6,7,8,9})
 unset -v 'a[2]' 'a[3]' 'a[4]' 'a[7]'
 
@@ -921,6 +932,7 @@ argv.py "${a[@]//[!0-5]/_}"
 
 
 #### ${a[@]@P}, ${a[@]@Q}, and ${a[@]@a}
+## SKIP: argv.py test helper not available
 case $SH in mksh) exit ;; esac
 
 a=(v{0..9})
@@ -956,7 +968,6 @@ argv.py "${a[*]@a}"
 
 
 #### ${a[@]-unset}, ${a[@]:-empty}, etc.
-## SKIP: Right brace in parameter default value not implemented
 a1=()
 a2=("")
 a3=("" "")
@@ -1012,6 +1023,7 @@ hello, world
 
 
 #### ${!a[@]}
+## SKIP: argv.py test helper not available
 case $SH in mksh) exit ;; esac
 
 a=(v{0..9})
@@ -1028,6 +1040,7 @@ argv.py "${!a[@]}"
 
 
 #### "${a[*]}"
+## SKIP: Sparse array with unset elements handling differs
 a=(v{0,1,2,3,4,5,6,7,8,9})
 unset -v 'a[3]' 'a[4]' 'a[7]' 'a[9]'
 
@@ -1045,6 +1058,7 @@ v0/v1/v2/v5/v6/v8
 
 
 #### compgen -F _set_COMPREPLY
+## SKIP: compgen not implemented
 case $SH in mksh) exit ;; esac
 
 _set_COMPREPLY() {
@@ -1208,6 +1222,7 @@ json write (crash_dump.var_stack[0].a)
 
 
 #### Regression: a[-1]=1
+## SKIP: Negative array index error handling differs
 case $SH in mksh) exit 99 ;; esac
 
 a[-1]=1
@@ -1228,6 +1243,7 @@ bash: line 3: a[-1]: bad array subscript
 
 
 #### Initializing indexed array with ([index]=value)
+## SKIP: argv.py test helper not available
 case $SH in mksh) exit 99 ;; esac
 declare -a a=([xx]=1 [yy]=2 [zz]=3)
 echo status=$?

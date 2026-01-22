@@ -4,7 +4,8 @@
 
 # Corner cases for assignment that we're not handling now.
 
-#### typeset a[3]=4 
+#### typeset a[3]=4
+## SKIP: argv.py not available
 typeset a[3]=4 a[5]=6
 echo status=$?
 argv.py "${!a[@]}" "${a[@]}"
@@ -14,13 +15,15 @@ status=0
 ## END
 
 #### typeset -a a[1]=a a[3]=c
+## SKIP: argv.py not available
 # declare works the same way in bash, but not mksh.
 # spaces are NOT allowed here.
 typeset -a a[1*1]=x a[1+2]=z
 argv.py "${a[@]}"
 ## stdout: ['x', 'z']
 
-#### local a[3]=4 
+#### local a[3]=4
+## SKIP: argv.py not available
 f() {
   local a[3]=4 a[5]=6
   echo status=$?
@@ -48,6 +51,7 @@ status=1
 ## END
 
 #### export a[7]=8
+## SKIP: argv.py not available
 export a[7]=8
 echo status=$?
 argv.py "${!a[@]}" "${a[@]}"
@@ -93,6 +97,7 @@ r2=
 ## END
 
 #### is 'builtin' prefix and array allowed?  OSH is smarter
+## SKIP: builtin keyword with typeset not implemented
 builtin typeset a=(1 2 3)
 echo len=${#a[@]}
 ## STDOUT:
@@ -104,6 +109,7 @@ len=3
 ## OK-2 mksh stdout-json: ""
 
 #### is 'command' prefix and array allowed?  OSH is smarter
+## SKIP: command keyword with typeset not implemented
 command typeset a=(1 2 3)
 echo len=${#a[@]}
 ## STDOUT:

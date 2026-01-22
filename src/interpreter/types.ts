@@ -63,6 +63,10 @@ export interface InterpreterState {
   expansionStderr?: string;
   /** Set of variable names that are associative arrays */
   associativeArrays?: Set<string>;
+  /** Directory stack for pushd/popd/dirs */
+  directoryStack?: string[];
+  /** Set of variable names that are namerefs (declare -n) */
+  namerefs?: Set<string>;
 }
 
 export interface InterpreterContext {

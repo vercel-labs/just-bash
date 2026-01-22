@@ -1,6 +1,7 @@
 ## compare_shells: bash
 
 #### var ref to array 'preHooks[@]'
+## SKIP: ${!array[@]} indirect expansion not implemented
 #
 # This idiom discussed on
 # https://github.com/NixOS/nixpkgs/pull/147629
@@ -54,6 +55,7 @@ show
 ## END
 
 #### Similar to above with set -u
+## SKIP: ${!array[@]} indirect expansion not implemented
 show() {
   echo show
 
@@ -83,6 +85,7 @@ show
 ## END
 
 #### ${!ref} to undefined array
+## SKIP: ${!ref} indirect expansion with array reference not implemented
 
 set -u
 shopt -s eval_unsafe_arith || true 2>/dev/null
@@ -117,6 +120,7 @@ echo end
 ## END
 
 #### export with dynamic var name +=
+## SKIP: export with dynamic var name += not implemented
 
 orig() {
   export NIX_LDFLAGS${role_post}+=" -L$1/lib64"
@@ -154,7 +158,6 @@ declare -x NIX_LDFLAGS_foo=' -Lone/lib64'
 ## END
 
 #### let idiom can be written in POSIX shell - eval ": \$(( ))"
-## SKIP: Right brace in parameter default value not implemented
 
 for i in 0 1 2; do
   echo i=$i

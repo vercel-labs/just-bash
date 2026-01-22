@@ -283,6 +283,20 @@ function evaluateArithmeticSyncWithVisited(
     case "ArithVariable": {
       return resolveArithVariable(ctx, expr.name, visited);
     }
+    case "ArithSpecialVar": {
+      // Get the special variable value (e.g., $*, $@, $#) and parse as arithmetic
+      const value = getVariable(ctx, expr.name);
+      // For arithmetic, parse the resulting string
+      const trimmed = value.trim();
+      if (!trimmed) return 0;
+      // Try to parse as a simple integer first (must be all digits, not "1 + 1")
+      const num = Number.parseInt(trimmed, 10);
+      if (!Number.isNaN(num) && /^-?\d+$/.test(trimmed)) return num;
+      // If not a simple number, evaluate as arithmetic expression
+      const parser = new Parser();
+      const { expr: parsed } = parseArithExpr(parser, trimmed, 0);
+      return evaluateArithmeticSyncWithVisited(ctx, parsed, visited);
+    }
     case "ArithBinary": {
       // Short-circuit evaluation for logical operators
       if (expr.operator === "||") {
@@ -424,6 +438,19 @@ export function evaluateArithmeticSync(
     case "ArithVariable": {
       // Use recursive resolution - bash evaluates variable names recursively
       return resolveArithVariable(ctx, expr.name);
+    }
+    case "ArithSpecialVar": {
+      // Get the special variable value and parse as arithmetic
+      const value = getVariable(ctx, expr.name);
+      const trimmed = value.trim();
+      if (!trimmed) return 0;
+      // Try to parse as a simple integer first (must be all digits, not "1 + 1")
+      const num = Number.parseInt(trimmed, 10);
+      if (!Number.isNaN(num) && /^-?\d+$/.test(trimmed)) return num;
+      // If not a simple number, evaluate as arithmetic expression
+      const parser = new Parser();
+      const { expr: parsed } = parseArithExpr(parser, trimmed, 0);
+      return evaluateArithmeticSync(ctx, parsed);
     }
     case "ArithNested":
       return evaluateArithmeticSync(ctx, expr.expression);
@@ -662,6 +689,8 @@ function evalPartToStringSync(
       return String(expr.value);
     case "ArithVariable":
       return getVariable(ctx, expr.name);
+    case "ArithSpecialVar":
+      return getVariable(ctx, expr.name);
     case "ArithBracedExpansion":
       return expandBracedContent(ctx, expr.content);
     case "ArithCommandSubst":
@@ -693,6 +722,20 @@ export async function evaluateArithmetic(
     case "ArithVariable": {
       // Use recursive resolution - bash evaluates variable names recursively
       return resolveArithVariable(ctx, expr.name);
+    }
+
+    case "ArithSpecialVar": {
+      // Get the special variable value and parse as arithmetic
+      const value = getVariable(ctx, expr.name);
+      const trimmed = value.trim();
+      if (!trimmed) return 0;
+      // Try to parse as a simple integer first (must be all digits, not "1 + 1")
+      const num = Number.parseInt(trimmed, 10);
+      if (!Number.isNaN(num) && /^-?\d+$/.test(trimmed)) return num;
+      // If not a simple number, evaluate as arithmetic expression
+      const parser = new Parser();
+      const { expr: parsed } = parseArithExpr(parser, trimmed, 0);
+      return evaluateArithmetic(ctx, parsed);
     }
 
     case "ArithNested":
@@ -926,6 +969,8 @@ async function evalPartToStringAsync(
     case "ArithNumber":
       return String(expr.value);
     case "ArithVariable":
+      return getVariable(ctx, expr.name);
+    case "ArithSpecialVar":
       return getVariable(ctx, expr.name);
     case "ArithBracedExpansion":
       return expandBracedContent(ctx, expr.content);

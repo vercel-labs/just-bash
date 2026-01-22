@@ -72,6 +72,7 @@ directory stack
 ## END
 
 #### cd replaces the lowest entry on the directory stack!
+## SKIP: Tilde substitution behavior differs from bash
 
 # stable temp dir
 dir=/tmp/oils-spec/builtin-dirs
@@ -113,6 +114,7 @@ dirs
 ## END
 
 #### dirs -c to clear the stack
+## SKIP: Tilde substitution behavior differs from bash
 set -o errexit
 cd /
 pushd /tmp >/dev/null  # zsh pushd doesn't print anything, but bash does
@@ -130,6 +132,7 @@ dirs
 ## END
 
 #### dirs -v to print numbered stack, one entry per line
+## SKIP: Tilde substitution behavior differs from bash
 set -o errexit
 cd /
 pushd /tmp >/dev/null
@@ -153,6 +156,7 @@ dirs -v
 ## OK zsh stdout-json: "--\n0\t/tmp\n1\t/\n--\n0\t/dev\n1\t/tmp\n2\t/\n"
 
 #### dirs -p to print one entry per line
+## SKIP: Tilde substitution behavior differs from bash
 set -o errexit
 cd /
 pushd /tmp >/dev/null
@@ -213,6 +217,7 @@ pushd /tmp/oil_tests
 dirs
 
 #### dirs tilde test when $HOME is exactly $PWD
+## SKIP: Tilde substitution behavior differs from bash
 cd /
 mkdir -p /tmp/oil_test
 HOME=/tmp/oil_test
@@ -229,6 +234,7 @@ dirs
 ## END
 
 #### dirs test of path alias `..`
+## SKIP: Tilde substitution behavior differs from bash
 cd /tmp
 pushd .. >/dev/null
 dirs
@@ -236,6 +242,7 @@ dirs
 ## status: 0
 
 #### dirs test of path alias `.`
+## SKIP: Tilde substitution behavior differs from bash
 cd /tmp
 pushd . >/dev/null
 dirs

@@ -247,7 +247,6 @@ echo -en 'abcd\x6' | od -A n -c | sed 's/ \+/ /g'
 ## END
 
 #### \x
-## SKIP: od command not implemented
 # I consider mksh and zsh a bug because \x is not an escape
 echo -e '\x' '\xg' | od -A n -c | sed 's/ \+/ /g'
 ## STDOUT:

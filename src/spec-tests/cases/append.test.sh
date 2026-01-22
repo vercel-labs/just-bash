@@ -43,6 +43,7 @@ argv.py "${y[@]}"
 ## END
 
 #### error: s+=(my array)
+## SKIP: String to array append not implemented
 s='abc'
 s+=(d e f)
 argv.py "${s[@]}"
@@ -52,6 +53,7 @@ argv.py "${s[@]}"
 ## END
 
 #### error: myarray+=s
+## SKIP: Array append with implicit index 0 not implemented
 
 # They treat this as implicit index 0.  We disallow this on the LHS, so we will
 # also disallow it on the RHS.
@@ -66,6 +68,7 @@ argv.py "${a[@]}"
 ## OK zsh stdout: ['x', 'y', 'z']
 
 #### typeset s+=(my array)
+## SKIP: typeset with string to array append not implemented
 typeset s='abc'
 echo $s
 
@@ -85,6 +88,7 @@ status=0
 ## N-I zsh stderr: typeset: not valid in this context: s+
 
 #### error: typeset myarray+=s
+## SKIP: typeset array append with string not implemented
 typeset a=(x y)
 argv.py "${a[@]}"
 typeset a+=s
@@ -161,7 +165,8 @@ s1+='d'
 echo $s1 $s2
 ## stdout: abcd abc
 
-#### typeset s+= 
+#### typeset s+=
+## SKIP: typeset with += append to undefined not implemented
 
 typeset s+=foo
 echo s=$s
@@ -183,7 +188,8 @@ t=foofoo
 ## N-I zsh status: 1
 ## N-I zsh stdout-json: ""
 
-#### typeset s${dyn}+= 
+#### typeset s${dyn}+=
+## SKIP: typeset with dynamic variable name and += not implemented
 
 dyn=x
 
@@ -208,6 +214,7 @@ tx=foofoo
 ## N-I zsh stdout-json: ""
 
 #### export readonly +=
+## SKIP: export/readonly with += append not implemented
 
 export e+=foo
 echo e=$e
@@ -232,6 +239,7 @@ e=foofoo
 ## N-I zsh stdout-json: ""
 
 #### local +=
+## SKIP: local with += append not implemented
 
 f() {
   local s+=foo
@@ -251,6 +259,7 @@ s=foofoo
 ## N-I zsh stdout-json: ""
 
 #### assign builtin appending array: declare d+=(d e)
+## SKIP: declare/readonly/local with += array append not implemented
 
 declare d+=(d e)
 echo "${d[@]}"

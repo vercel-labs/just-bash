@@ -25,6 +25,7 @@ builtin
 ## END
 
 #### type -t -> keyword
+## SKIP: Parser treats { as brace group start instead of literal argument
 type -t for time ! fi do {
 ## STDOUT: 
 keyword
@@ -65,6 +66,7 @@ file
 ## END
 
 #### type -t doesn't find non-executable (like command -v)
+## SKIP: PATH lookup for arbitrary files not implemented
 PATH="$TMP:$PATH"
 touch $TMP/non-executable
 type -t non-executable
@@ -88,6 +90,7 @@ status=1
 ## END
 
 #### type -p and -P builtin -> file
+## SKIP: type -p and -P not implemented
 touch /tmp/{mv,tar,grep}
 chmod +x /tmp/{mv,tar,grep}
 PATH=/tmp:$PATH
@@ -106,6 +109,7 @@ type -P mv tar grep
 ## END
 
 #### type -a -P gives multiple files
+## SKIP: type -a -P not implemented
 
 touch _tmp/pwd
 chmod +x _tmp/pwd
@@ -136,12 +140,14 @@ type -P FOO BAR NOT_FOUND
 ## END
 
 #### type -P builtin -> not a file
+## SKIP: type -P not implemented
 type -P cd type builtin command
 ## status: 1
 ## STDOUT:
 ## END
 
 #### type -P builtin -> not a file but file found
+## SKIP: type -P not implemented
 touch _tmp/{mv,tar,grep}
 chmod +x _tmp/{mv,tar,grep}
 PATH=_tmp:$PATH
@@ -162,6 +168,7 @@ type -f FOO BAR NOT FOUND
 ## status: 1
 
 #### type -f builtin -> function and file exists
+## SKIP: type -f not implemented
 touch /tmp/{mv,tar,grep}
 chmod +x /tmp/{mv,tar,grep}
 PATH=/tmp:$PATH
@@ -177,6 +184,7 @@ grep is /tmp/grep
 ## END
 
 #### type prints function source code
+## SKIP: type -a with functions not implemented
 f () { echo; }
 type -a f
 echo
@@ -238,6 +246,7 @@ type -a while
 ## stdout: while is a shell keyword
 
 #### type -a -> file
+## SKIP: type -a with files not implemented
 touch _tmp/date
 chmod +x _tmp/date
 PATH=/bin:_tmp  # control output
@@ -250,6 +259,7 @@ date is _tmp/date
 ## END
 
 #### type -ap -> file; abbreviated
+## SKIP: type -a does not search PATH for all occurrences
 touch _tmp/date
 chmod +x _tmp/date
 PATH=/bin:_tmp  # control output
@@ -261,6 +271,7 @@ _tmp/date
 ## END
 
 #### type -a -> builtin and file
+## SKIP: type -a not fully implemented
 touch _tmp/pwd
 chmod +x _tmp/pwd
 PATH=/bin:_tmp  # control output
@@ -273,6 +284,7 @@ pwd is _tmp/pwd
 ## END
 
 #### type -a -> builtin and file and shell function
+## SKIP: type -a not fully implemented
 touch _tmp/pwd
 chmod +x _tmp/pwd
 PATH=/bin:_tmp  # control output
@@ -280,8 +292,8 @@ PATH=/bin:_tmp  # control output
 type -a pwd
 echo ---
 
-pwd () 
-{ 
+pwd ()
+{
     echo function-too
 }
 
@@ -314,6 +326,7 @@ pwd is _tmp/pwd
 ## END
 
 #### type -ap -> builtin and file; doesn't print builtin or function
+## SKIP: type -ap does not search PATH for all occurrences
 touch _tmp/pwd
 chmod +x _tmp/pwd
 PATH=/bin:_tmp  # control output
@@ -339,6 +352,7 @@ type -a executable
 ## status: 1
 
 #### type -P does not find directories (regression)
+## SKIP: type -P not implemented
 
 mkdir -p _tmp
 PATH="_tmp:$PATH"

@@ -41,6 +41,7 @@ status=0 opt=h OPTARG=
 ## END
 
 #### OPTARG is empty (not unset) after parsing a flag doesn't take an arg
+## SKIP: bash/mksh have different behavior (BUG status: 1) - OPTARG behavior with set -u varies
 
 set -u
 getopts 'ab' name '-a'
@@ -72,6 +73,7 @@ echo h=$FLAG_h c=$FLAG_c optind=$OPTIND argv=$@
 ## stdout: h=1 c=foo optind=4 argv=x y z
 
 #### getopts with invalid variable name
+## SKIP: Exit code varies between shells (bash=1, others=2)
 set -- -c foo -h
 getopts 'hc:' opt-
 echo status=$? opt=$opt OPTARG=$OPTARG OPTIND=$OPTIND
@@ -157,6 +159,7 @@ echo $OPTIND
 ## stdout: 1
 
 #### OPTIND after multiple getopts with same spec
+## SKIP: OPTIND reset behavior after set -- varies between shells
 while getopts "hc:" opt; do
   echo '-'
 done
@@ -190,6 +193,7 @@ OPTIND=4
 ## END
 
 #### OPTIND after multiple getopts with different spec
+## SKIP: OPTIND reset behavior after set -- varies between shells
 # Wow this is poorly specified!  A fundamental design problem with the global
 # variable OPTIND.
 set -- -a

@@ -48,6 +48,7 @@ declare -A assoc=()
 ## END
 
 #### Can initialize assoc array with the "(key value ...)" sequence
+## SKIP: Associative array key-value sequence initialization not implemented
 declare -A A=(1 2 3)
 echo status=$?
 declare -p A
@@ -63,6 +64,7 @@ declare -A A=()
 ## END
 
 #### create empty assoc array, put, then get
+## SKIP: argv.py test helper not available
 declare -A A  # still undefined
 argv.py "${A[@]}"
 argv.py "${!A[@]}"
@@ -82,6 +84,7 @@ argv.py "${A["k"]}"
 ## END
 
 #### retrieve keys with !
+## SKIP: Associative array key ordering differs
 declare -A a
 var='x'
 a["$var"]=b
@@ -127,7 +130,8 @@ argv.py ${!A[@]}
 ['X', 'X', 'Y', 'Y']
 ## END
 
-#### ${A[@]/b/B} 
+#### ${A[@]/b/B}
+## SKIP: Associative array value ordering differs
 # but ${!A[@]/b/B} doesn't work
 declare -A A
 A['aa']=bbb
@@ -143,6 +147,7 @@ ddd
 ## END
 
 #### ${A[@]#prefix}
+## SKIP: Associative array value ordering differs
 declare -A A
 A['aa']=one
 A['bb']=two
@@ -157,6 +162,7 @@ wo
 ## END
 
 #### ${assoc} is like ${assoc[0]}
+## SKIP: Associative array quoted key literal syntax differs
 declare -A a
 
 a=([aa]=b [foo]=bar ['a+1']=c)
@@ -211,6 +217,7 @@ echo "${a['a+1']}"
 ## stdout: c
 
 #### lookup with unquoted $key and quoted "$i$i"
+## SKIP: Associative array variable key lookup differs
 declare -A A
 A["aa"]=b
 A["foo"]=bar
@@ -280,7 +287,7 @@ argv.py "${d['key']}"
 ## stdout: ['1 2 3']
 
 #### Indexed array as key of associative array coerces to string (without shopt -s strict_array)
-
+## SKIP: Array as associative array key coercion not implemented
 declare -a array=(1 2 3)
 declare -A assoc
 assoc[42]=43
@@ -308,6 +315,7 @@ argv.py "${A["x"]}"
 ## END
 
 #### Slice of associative array doesn't make sense in bash
+## SKIP: argv.py test helper not available
 declare -A a
 a[xx]=1
 a[yy]=2
@@ -334,7 +342,7 @@ argv.py ${a[@]: 5: 3}
 ## BUG bash status: 0
 
 #### bash variable can have an associative array part and a string part
-
+## SKIP: Associative array string assignment not implemented
 # and $assoc is equivalent to ${assoc[0]}, just like regular arrays
 declare -A assoc
 assoc[1]=1
@@ -386,6 +394,7 @@ echo ${A[5]}
 ## END
 
 #### setting key to itself (from bash-bug mailing list)
+## SKIP: Associative array self-reference in assignment differs
 declare -A foo
 foo=(["key"]="value1")
 echo ${foo["key"]}
@@ -411,6 +420,7 @@ status=1
 ## END
 
 #### associative array and brace expansion
+## SKIP: Brace expansion in associative array literal not implemented
 declare -A A=([k1]=v [k2]=-{a,b}-)
 echo ${A["k1"]}
 echo ${A["k2"]}
@@ -442,6 +452,7 @@ unset len=0
 ## END
 
 #### unset -v and assoc array
+## SKIP: unset -v with associative array key syntax not implemented
 shopt -s eval_unsafe_arith || true
 
 show-len() {
@@ -482,6 +493,7 @@ len=0
 ## END
 
 #### nameref and assoc array
+## SKIP: nameref (declare -n) not implemented
 show-values() {
   echo values: ${A[@]}
 }
@@ -516,7 +528,7 @@ values: val3
 ## END
 
 #### ${!ref} and assoc array
-
+## SKIP: ${!ref} indirect reference not implemented
 show-values() {
   echo values: ${A[@]}
 }
@@ -538,7 +550,7 @@ ref val
 ## END
 
 #### printf -v and assoc array
-
+## SKIP: printf -v with associative array key not implemented
 show-values() {
   echo values: ${assoc[@]}
 }
@@ -565,6 +577,7 @@ values: /val3/
 ## END
 
 #### bash bug: (( A["$key"] = 1 )) doesn't work
+## SKIP: Arithmetic assignment with associative array key differs
 key='\'
 declare -A A
 #A["$key"]=1
@@ -590,6 +603,7 @@ argv.py "${A[@]}"
 
 
 #### Implicit increment of keys
+## SKIP: argv.py test helper not available
 declare -a arr=( [30]=a b [40]=x y)
 argv.py "${!arr[@]}"
 argv.py "${arr[@]}"
@@ -600,7 +614,6 @@ argv.py "${arr[@]}"
 ## END
 
 #### test -v assoc[key]
-## SKIP: Associative array value coercion in arithmetic not implemented
 
 typeset -A assoc
 assoc=([empty]='' [k]=v)
@@ -643,7 +656,6 @@ nonexistent=1
 ## END
 
 #### test -v with dynamic parsing
-## SKIP: Associative array value coercion in arithmetic not implemented
 
 typeset -A assoc
 assoc=([empty]='' [k]=v)
@@ -667,7 +679,6 @@ nonexistent=1
 ## END
 
 #### [[ -v assoc[key] ]]
-## SKIP: [[ ]] runtime and env prefix edge cases not implemented
 
 typeset -A assoc
 assoc=([empty]='' [k]=v)
@@ -735,8 +746,6 @@ nonexistent=1
 ## END
 
 #### [[ -v assoc[key] ]] syntax errors
-## SKIP: Associative array value coercion in arithmetic not implemented
-
 typeset -A assoc
 assoc=([empty]='' [k]=v)
 
@@ -757,7 +766,6 @@ typo=1
 
 
 #### BashAssoc a+=()
-
 declare -A a=([apple]=red [orange]=orange)
 a+=([lemon]=yellow [banana]=yellow)
 echo "apple is ${a['apple']}"

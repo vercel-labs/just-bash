@@ -40,9 +40,7 @@ const SKIP_FILES = new Set([
   "process-sub.test.sh",
 
   // Shell-specific features not implemented
-  "alias.test.sh",
-  "xtrace.test.sh",
-  "builtin-dirs.test.sh",
+  // "builtin-dirs.test.sh", // Unskipped - tests added with SKIP markers
   "sh-usage.test.sh",
 
   // ZSH-specific tests
@@ -55,7 +53,7 @@ const SKIP_FILES = new Set([
   "ble-unset.test.sh",
 
   // Tests that require external commands or real filesystem
-  "nul-bytes.test.sh",
+  // "nul-bytes.test.sh", // Testing
   "unicode.test.sh",
 
   // Meta/introspection tests
@@ -79,63 +77,45 @@ const SKIP_FILES = new Set([
   "explore-parsing.test.sh",
 
   // Extended globbing - not implemented
-  "extglob-match.test.sh",
-  "extglob-files.test.sh",
-  "globstar.test.sh",
-  "globignore.test.sh",
-  "nocasematch-match.test.sh",
+  // "extglob-match.test.sh", // Testing
+  // "extglob-files.test.sh", // Testing
+  // "globstar.test.sh", // Testing
+  // "globignore.test.sh", // Testing
+  // "nocasematch-match.test.sh", // Testing
 
   // Advanced features not implemented
-  "builtin-getopts.test.sh", // getopts builtin
-  "nameref.test.sh", // nameref/declare -n
-  "var-ref.test.sh", // ${!var} indirect references
-  "regex.test.sh", // =~ regex matching
-  "sh-options.test.sh", // shopt options
-  "sh-options-bash.test.sh",
+  // "builtin-getopts.test.sh", // Unskipped - tests added with SKIP markers
+  // "nameref.test.sh", // Unskipped - tests added with SKIP markers
+  // "sh-options-bash.test.sh", // Unskipped - tests added with SKIP markers
 
   // Bash-specific builtins not implemented
-  "builtin-bash.test.sh",
-  "builtin-type-bash.test.sh",
-  "builtin-vars.test.sh",
-  "builtin-meta.test.sh",
-  "builtin-meta-assign.test.sh",
 
   // Advanced array features
-  "array-assoc.test.sh", // associative arrays
-  "array-sparse.test.sh", // sparse arrays
-  "array-compat.test.sh",
-  "array-literal.test.sh",
-  "array-assign.test.sh",
+  // "array-literal.test.sh", // Unskipped - tests added with SKIP markers
+  // "array-assign.test.sh", // Unskipped - tests added with SKIP markers
 
   // Complex assignment features
-  "assign-extended.test.sh",
-  "assign-deferred.test.sh",
-  "assign-dialects.test.sh",
+  // "assign-extended.test.sh", // Unskipped - tests added with SKIP markers
+  // "assign-deferred.test.sh", // Unskipped - tests added with SKIP markers
+  // "assign-dialects.test.sh", // Unskipped - tests added with SKIP markers
 
   // Advanced arithmetic
-  "arith-dynamic.test.sh",
 
   // Complex redirect features
-  "redirect-multi.test.sh",
-  "redirect-command.test.sh",
-  "redir-order.test.sh",
+  // "redirect-multi.test.sh", // Unskipped - tests added with SKIP markers
+  // "redir-order.test.sh", // Unskipped - tests added with SKIP markers
 
   // Other advanced features
-  "command-sub-ksh.test.sh",
-  "vars-bash.test.sh",
-  "var-op-bash.test.sh",
-  "type-compat.test.sh",
-  "shell-grammar.test.sh",
-  "shell-bugs.test.sh",
-  "nix-idioms.test.sh",
-  "paren-ambiguity.test.sh",
-  "fatal-errors.test.sh",
-  "for-expr.test.sh",
-  "glob-bash.test.sh",
-  "bool-parse.test.sh",
-  "arg-parse.test.sh",
-  "append.test.sh",
-  "bugs.test.sh",
+  // "command-sub-ksh.test.sh", // Unskipped - tests added with SKIP markers
+  // "vars-bash.test.sh", // Unskipped - 100% pass rate
+  // "var-op-bash.test.sh", // Unskipped - tests added with SKIP markers
+  // "type-compat.test.sh", // Testing
+  // "shell-bugs.test.sh", // Testing
+  // "nix-idioms.test.sh", // Testing
+  // "fatal-errors.test.sh", // Unskipped - 100% pass rate
+  // "for-expr.test.sh", // Unskipped - tests added with SKIP markers
+  // "glob-bash.test.sh", // Testing
+  // "bugs.test.sh", // Testing
 ]);
 
 const TEST_FILES = ALL_TEST_FILES.filter((f) => !SKIP_FILES.has(f));
@@ -214,7 +194,7 @@ describe("Oils Spec Tests", () => {
         const testName = `[L${testCase.lineNumber}] ${testCase.name}: ${scriptPreview}`;
 
         it(testName, async () => {
-          const result = await runTestCase(testCase);
+          const result = await runTestCase(testCase, { filePath });
 
           if (result.skipped) {
             return;

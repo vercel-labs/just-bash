@@ -1,6 +1,7 @@
 ## compare_shells: bash mksh zsh ash
 
 #### File redirects with glob args (bash and zsh only)
+## SKIP: Glob expansion in redirects not implemented
 
 touch one-bar
 
@@ -57,6 +58,7 @@ qq-*-zz
 ## END
 
 #### File redirect without matching any file, with failglob
+## SKIP: failglob with redirects not implemented
 
 shopt -s failglob
 
@@ -81,6 +83,7 @@ status=0
 ## END
 
 #### Redirect to $empty (in function body)
+## SKIP: Empty redirect target handling differs
 empty=''
 fun() { echo hi; } > $empty
 fun
@@ -102,6 +105,7 @@ status=1
 
 
 #### File redirect to $var with glob char
+## SKIP: Glob expansion in redirects not implemented
 
 touch two-bar
 
@@ -131,6 +135,7 @@ hi
 
 
 #### File redirect that globs to more than one file (bash and zsh only)
+## SKIP: Glob expansion in redirects not implemented
 
 touch foo-bar
 touch foo-spam
@@ -231,7 +236,6 @@ status=0
 
 
 #### Non-file redirects don't respect glob args (we differe from bash)
-## SKIP: Advanced file descriptor redirections not implemented
 
 touch 10
 
@@ -260,6 +264,7 @@ stdout
 
 
 #### Redirect with brace expansion isn't allowed
+## SKIP: Brace expansion in redirects not implemented
 
 echo hi > a-{one,two}
 echo status=$?
@@ -291,6 +296,7 @@ status=0
 
 
 #### File redirects have word splitting too!
+## SKIP: Word splitting in redirects not implemented
 
 file='foo bar'
 

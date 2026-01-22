@@ -17,7 +17,8 @@ export function handleRead(
   let raw = false;
   let delimiter = "\n";
   let _prompt = "";
-  let nchars = -1; // -n option: number of characters to read
+  let nchars = -1; // -n option: number of characters to read (with IFS splitting)
+  let ncharsExact = -1; // -N option: read exactly N characters (no processing)
   let arrayName: string | null = null; // -a option: read into array
   const varNames: string[] = [];
 
@@ -38,6 +39,13 @@ export function handleRead(
       if (Number.isNaN(nchars) || nchars < 0) {
         invalidNArg = true;
         nchars = 0;
+      }
+      i++;
+    } else if (arg === "-N" && i + 1 < args.length) {
+      ncharsExact = Number.parseInt(args[i + 1], 10);
+      if (Number.isNaN(ncharsExact) || ncharsExact < 0) {
+        invalidNArg = true;
+        ncharsExact = 0;
       }
       i++;
     } else if (arg === "-a" && i + 1 < args.length) {
@@ -79,8 +87,28 @@ export function handleRead(
   let consumed = 0;
   let foundDelimiter = true; // Assume found unless no newline at end
 
-  if (nchars >= 0) {
-    // Read exactly N characters (or until delimiter/EOF)
+  if (ncharsExact >= 0) {
+    // -N: Read exactly N characters (ignores delimiters, no IFS splitting)
+    const toRead = Math.min(ncharsExact, effectiveStdin.length);
+    line = effectiveStdin.substring(0, toRead);
+    consumed = toRead;
+    foundDelimiter = toRead >= ncharsExact;
+
+    // Consume from groupStdin
+    if (ctx.state.groupStdin !== undefined && !stdin) {
+      ctx.state.groupStdin = effectiveStdin.substring(consumed);
+    }
+
+    // With -N, assign entire content to first variable (no IFS splitting)
+    const varName = varNames[0] || "REPLY";
+    ctx.state.env[varName] = line;
+    // Set remaining variables to empty
+    for (let j = 1; j < varNames.length; j++) {
+      ctx.state.env[varNames[j]] = "";
+    }
+    return result("", "", foundDelimiter ? 0 : 1);
+  } else if (nchars >= 0) {
+    // -n: Read at most N characters (or until delimiter/EOF), then apply IFS splitting
     for (let c = 0; c < effectiveStdin.length && c < nchars; c++) {
       const char = effectiveStdin[c];
       if (char === delimiter) {
