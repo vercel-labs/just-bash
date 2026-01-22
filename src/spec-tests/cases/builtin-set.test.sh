@@ -157,7 +157,7 @@ noexec
 ## END
 
 #### 'set' and 'eval' round trip
-## SKIP: printf %q / set output format not implemented
+## SKIP: set output format for special chars differs from bash (quoting style mismatch)
 
 # NOTE: not testing arrays and associative arrays!
 _space='[ ]'
@@ -375,7 +375,7 @@ qux
 ## END
 
 #### set +a stops exporting
-## SKIP: printenv.py test helper not available
+## SKIP: set +a does not clear allexport flag, variables remain exported after set +a
 set -a
 FOO=exported
 set +a
@@ -387,7 +387,7 @@ None
 ## END
 
 #### set -o allexport (long form)
-## SKIP: printenv.py test helper not available
+## SKIP: set +o allexport does not clear allexport flag, variables remain exported
 set -o allexport
 VAR1=value1
 set +o allexport
@@ -399,7 +399,7 @@ None
 ## END
 
 #### variables set before set -a are not exported
-## SKIP: printenv.py test helper not available
+## SKIP: set -a incorrectly exports variables that were set before set -a was enabled
 BEFORE=before_value
 set -a
 AFTER=after_value

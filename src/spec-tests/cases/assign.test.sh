@@ -146,8 +146,7 @@ argv.py "$a"
 ## stdout: ['_tmp/*.Z']
 
 #### Env binding in readonly/declare is NOT exported!  (pitfall)
-## SKIP: printenv.py test helper not available
-
+## SKIP: env bindings before readonly/declare incorrectly exported to command substitution
 # All shells agree on this, but it's very confusing behavior.
 FOO=foo readonly v=$(printenv.py FOO)
 echo "v=$v"
@@ -431,7 +430,7 @@ x=local
 ## END
 
 #### static assignment doesn't split
-## SKIP: argv.py test helper not available
+## SKIP: Word splitting incorrectly occurs in export/readonly var=$value assignments
 words='a b c'
 export ex=$words
 glo=$words
@@ -447,7 +446,7 @@ argv.py "$ex" "$glo" "$ro"
 
 
 #### aliased assignment doesn't split
-## SKIP: argv.py test helper not available
+## SKIP: Word splitting incorrectly occurs in aliased export/readonly var=$value assignments
 shopt -s expand_aliases || true
 words='a b c'
 alias e=export
@@ -511,7 +510,7 @@ argv.py "$ex2" "$ro2"
 ## END
 
 #### assign and glob
-## SKIP: argv.py test helper not available
+## SKIP: Glob expansion incorrectly occurs in export var=* assignment
 cd $TMP
 touch foo=a foo=b
 foo=*
@@ -532,7 +531,7 @@ unset foo
 ## END
 
 #### declare and glob
-## SKIP: argv.py test helper not available
+## SKIP: Glob expansion incorrectly occurs in typeset var=* assignment
 cd $TMP
 touch foo=a foo=b
 typeset foo=*
@@ -586,7 +585,7 @@ foo
 ## END
 
 #### local a=loc $var c=loc
-## SKIP: argv.py test helper not available
+## SKIP: local $var does not create local variable with empty value shadowing global
 var='b'
 b=global
 echo $b
@@ -605,7 +604,7 @@ global
 ## END
 
 #### redirect after assignment builtin (eval redirects after evaluating arguments)
-## SKIP: stdout_stderr.py test helper not available
+## SKIP: Redirect timing - command sub stderr should output before redirect is applied
 
 # See also: spec/redir-order.test.sh (#2307)
 # The $(stdout_stderr.py) is evaluated *before* the 2>/dev/null redirection
@@ -621,7 +620,7 @@ STDERR
 ## BUG zsh stderr-json: ""
 
 #### redirect after command sub (like case above but without assignment builtin)
-## SKIP: stdout_stderr.py test helper not available
+## SKIP: Redirect timing - command sub stderr should output before redirect is applied
 echo stdout=$(stdout_stderr.py) 2>/dev/null
 ## STDOUT:
 stdout=STDOUT
@@ -631,7 +630,7 @@ STDERR
 ## END
 
 #### redirect after bare assignment
-## SKIP: stdout_stderr.py test helper not available
+## SKIP: Redirect timing - redirect behavior differs between bash and other shells
 x=$(stdout_stderr.py) 2>/dev/null
 echo done
 ## STDOUT:

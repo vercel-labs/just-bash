@@ -95,7 +95,7 @@ echo "${a[@]}"
 ## OK osh stdout-json: ""
 
 #### Apply vectorized operations on ${a[*]}
-## SKIP: argv.py test helper not available
+## SKIP: vectorized strip on ${a[*]} not applying to all elements correctly
 a=('-x-' 'y-y' '-z-')
 
 # This does the prefix stripping FIRST, and then it joins.

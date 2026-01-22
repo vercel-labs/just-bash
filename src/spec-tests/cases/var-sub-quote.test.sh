@@ -25,7 +25,7 @@ argv.py ${empty:-}
 ## stdout: []
 
 #### array with empty values
-## SKIP: argv.py test helper not available
+## SKIP: Empty strings in array literal not preserved
 declare -a A=('' x "" '')
 argv.py "${A[@]}"
 ## stdout: ['', 'x', '', '']
@@ -35,7 +35,7 @@ argv.py "${A[@]}"
 ## N-I mksh status: 1
 
 #### substitution of IFS character, quoted and unquoted
-## SKIP: argv.py test helper not available
+## SKIP: Unquoted IFS-only value should produce empty string arg
 IFS=:
 s=:
 argv.py $s
@@ -99,7 +99,7 @@ argv.py "${Unset:-'a b c'}"
 ## stdout: ["'a b c'"]
 
 #### Mixed inner quotes
-## SKIP: argv.py test helper not available
+## SKIP: Word splitting in default value with mixed quotes not implemented
 argv.py ${Unset:-"a b" c}
 ## stdout: ['a b', 'c']
 
@@ -152,7 +152,7 @@ argv.py "${Unset:-'$var'}"
 ## stdout: ["'a b c'"]
 
 #### No outer quotes, Multiple internal quotes
-## SKIP: argv.py test helper not available
+## SKIP: Word splitting in default value with multiple parts not implemented
 # It's like a single command word.  Parts are joined directly.
 var='a b c'
 argv.py ${Unset:-A$var " $var"D E F}
@@ -181,7 +181,7 @@ argv.py ${foo%'c d'} ${foo%'c  d'}
 ## stdout: ['a', 'b', 'a', 'b', 'c', 'd']
 
 #### Syntax error for single quote in double quote
-## SKIP: argv.py test helper not available
+## SKIP: Unmatched single quote in ${var%pattern} should be syntax error
 foo="'a b c d'"
 argv.py "${foo%d'}"
 ## stdout-json: ""

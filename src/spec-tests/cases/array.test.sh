@@ -51,7 +51,7 @@ argv.py "${a[@]}"
 ## status: 0
 
 #### array with invalid token
-## SKIP: argv.py test helper not available
+## SKIP: Invalid token & in array literal should error but is accepted
 a=(
 1
 &
@@ -168,13 +168,13 @@ argv.py "${a[i-4]}"
 ## stdout: ['2 3']
 
 #### Retrieve index that is a command sub
-## SKIP: argv.py test helper not available
+## SKIP: Command substitution in array index returns wrong element
 a=(1 '2 3')
 argv.py "${a[$(echo 1)]}"
 ## stdout: ['2 3']
 
 #### Retrieve array indices with ${!a}
-## SKIP: argv.py test helper not available
+## SKIP: ${!a[@]} array indices not expanded as separate elements
 a=(1 '2 3')
 argv.py "${!a[@]}"
 ## stdout: ['0', '1']
@@ -236,7 +236,7 @@ argv.py "${a[@]}"
 ## stdout: ['0', '1', '2 3', '4 5']
 
 #### Exporting array doesn't do anything, not even first element
-## SKIP: printenv.py test helper not available
+## SKIP: after export + array reassignment, printenv incorrectly shows previous value
 # bash parses, but doesn't execute.
 # mksh gives syntax error -- parses differently with 'export'
 # osh no longer parses this statically.
@@ -277,7 +277,7 @@ None
 ## END
 
 #### Arrays can't be used as env bindings
-## SKIP: printenv.py test helper not available
+## SKIP: array env bindings should pass stringified array to command, not None
 # Hm bash it treats it as a string!
 A=a B=(b b) printenv.py A B
 ## status: 2
@@ -290,7 +290,7 @@ a
 ## OK mksh status: 1
 
 #### Associative arrays can't be used as env bindings either
-## SKIP: printenv.py test helper not available
+## SKIP: assoc array env bindings should pass stringified array to command, not None
 A=a B=([k]=v) printenv.py A B
 ## status: 2
 ## stdout-json: ""
@@ -333,7 +333,7 @@ echo "status=$?"
 ## BUG bash status: 0
 
 #### Slice of array with [@]
-## SKIP: argv.py test helper not available
+## SKIP: Array slice ${a[@]:n:m} returns single element instead of multiple
 # mksh doesn't support this syntax!  It's a bash extension.
 a=(1 2 3)
 argv.py "${a[@]:1:2}"
@@ -342,7 +342,7 @@ argv.py "${a[@]:1:2}"
 ## N-I mksh stdout-json: ""
 
 #### Negative slice begin
-## SKIP: argv.py test helper not available
+## SKIP: Array slice ${a[@]:n} returns single element instead of multiple
 # mksh doesn't support this syntax!  It's a bash extension.
 # NOTE: for some reason -2) has to be in parens?  Ah that's because it
 # conflicts with :-!  That's silly.  You can also add a space.
@@ -353,14 +353,14 @@ argv.py "${a[@]:(-4)}"
 ## N-I mksh stdout-json: ""
 
 #### Negative slice length
-## SKIP: argv.py test helper not available
+## SKIP: Negative slice length should error but returns data
 a=(1 2 3 4 5)
 argv.py "${a[@]: 1: -3}"
 ## status: 1
 ## stdout-json: ""
 
 #### Slice with arithmetic
-## SKIP: argv.py test helper not available
+## SKIP: Array slice ${a[@]:expr:n} returns single element instead of multiple
 a=(1 2 3)
 i=5
 argv.py "${a[@]:i-4:2}"
@@ -418,7 +418,7 @@ argv.py ${single[@]:-none} x "${single[@]:-none}"
 ## stdout: ['none', 'x', 'none']
 
 #### Stripping a whole array unquoted
-## SKIP: argv.py test helper not available
+## SKIP: Unquoted ${array[@]%pattern} strip not applied to first element
 # Problem: it joins it first.
 files=('foo.c' 'sp ace.h' 'bar.c')
 argv.py ${files[@]%.c}
@@ -428,7 +428,7 @@ argv.py ${files[@]%.c}
 ## N-I mksh stdout-json: ""
 
 #### Stripping a whole array quoted
-## SKIP: argv.py test helper not available
+## SKIP: Quoted "${array[@]%pattern}" returns single element, strip not applied
 files=('foo.c' 'sp ace.h' 'bar.c')
 argv.py "${files[@]%.c}"
 ## status: 0
@@ -437,7 +437,7 @@ argv.py "${files[@]%.c}"
 ## N-I mksh stdout-json: ""
 
 #### Multiple subscripts not allowed
-## SKIP: argv.py test helper not available
+## SKIP: Multiple subscripts ${a[0][0]} should error but is accepted
 # NOTE: bash 4.3 had a bug where it ignored the bad subscript, but now it is
 # fixed.
 a=('123' '456')
@@ -535,7 +535,7 @@ echo ${#c[@]} ${#d[@]}
 ## END
 
 #### declare -a / local -a is empty array
-## SKIP: argv.py test helper not available
+## SKIP: local -a inside function does not create new local array scope
 declare -a myarray
 argv.py "${myarray[@]}"
 myarray+=('x')
@@ -597,7 +597,7 @@ argv.py "${a[99]}" "${a[100]}" "${a[101]}"
 ## END
 
 #### Slice of sparse array with [@]
-## SKIP: argv.py test helper not available
+## SKIP: Sparse array slicing ${a[@]:offset:len} returns empty
 # mksh doesn't support this syntax!  It's a bash extension.
 (( a[33]=1 ))
 (( a[66]=2 ))
@@ -646,7 +646,7 @@ foo
 
 
 #### Dynamic parsing of LHS a[$code]=value
-## SKIP: argv.py test helper not available
+## SKIP: Assignment expression in array index array[x=1]=v not parsed correctly
 
 declare -a array
 array[x=1]='one'

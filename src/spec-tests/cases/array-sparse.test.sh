@@ -860,7 +860,7 @@ echo "[${a[@]: -4}][${a[*]: -4}]"
 
 
 #### ${a[@]}
-## SKIP: argv.py test helper not available
+## SKIP: "${prefix}${array[@]}${suffix}" should produce multiple args with prefix/suffix on first/last
 a=(v{0,1,2,3,4,5,6,7,8,9})
 unset -v 'a[2]' 'a[3]' 'a[4]' 'a[7]'
 
@@ -932,7 +932,7 @@ argv.py "${a[@]//[!0-5]/_}"
 
 
 #### ${a[@]@P}, ${a[@]@Q}, and ${a[@]@a}
-## SKIP: argv.py test helper not available
+## SKIP: ${array[@]@P} and ${array[@]@a} do not produce per-element results
 case $SH in mksh) exit ;; esac
 
 a=(v{0..9})
@@ -1023,7 +1023,7 @@ hello, world
 
 
 #### ${!a[@]}
-## SKIP: argv.py test helper not available
+## SKIP: "${!array[@]}" should produce separate args per key
 case $SH in mksh) exit ;; esac
 
 a=(v{0..9})
@@ -1243,7 +1243,7 @@ bash: line 3: a[-1]: bad array subscript
 
 
 #### Initializing indexed array with ([index]=value)
-## SKIP: argv.py test helper not available
+## SKIP: Array literal [index]=value syntax treated as literal strings
 case $SH in mksh) exit 99 ;; esac
 declare -a a=([xx]=1 [yy]=2 [zz]=3)
 echo status=$?

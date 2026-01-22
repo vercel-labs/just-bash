@@ -1048,14 +1048,43 @@ export class Interpreter {
       if (args.length === 0) {
         return OK;
       }
+      // Parse options
+      let useDefaultPath = false; // -p flag
+      let verboseDescribe = false; // -V flag (like type)
+      let showPath = false; // -v flag (show path/name)
       let cmdArgs = args;
-      // Skip -v, -V, -p options for now (just run the command)
+
       while (cmdArgs.length > 0 && cmdArgs[0].startsWith("-")) {
+        const opt = cmdArgs[0];
+        if (opt === "--") {
+          cmdArgs = cmdArgs.slice(1);
+          break;
+        }
+        // Handle combined options like -pv, -vV, etc.
+        for (const char of opt.slice(1)) {
+          if (char === "p") {
+            useDefaultPath = true;
+          } else if (char === "V") {
+            verboseDescribe = true;
+          } else if (char === "v") {
+            showPath = true;
+          }
+        }
         cmdArgs = cmdArgs.slice(1);
       }
+
       if (cmdArgs.length === 0) {
         return OK;
       }
+
+      // Handle -v and -V: describe commands without executing
+      if (showPath || verboseDescribe) {
+        return this.handleCommandV(cmdArgs, showPath, verboseDescribe);
+      }
+
+      // -p flag: use default PATH (not fully implemented, just run command)
+      void useDefaultPath;
+
       // Run command without checking functions, but builtins are still available
       const [cmd, ...rest] = cmdArgs;
       return this.runCommand(cmd, rest, [], stdin, true);
@@ -1387,6 +1416,138 @@ export class Interpreter {
     }
 
     return result(stdout, stderr, exitCode);
+  }
+
+  /**
+   * Handle `command -v` and `command -V` flags
+   * -v: print the name or path of the command (simple output)
+   * -V: print a description like `type` does (verbose output)
+   */
+  private handleCommandV(
+    names: string[],
+    _showPath: boolean,
+    verboseDescribe: boolean,
+  ): ExecResult {
+    // Shell keywords
+    const keywords = new Set([
+      "if",
+      "then",
+      "else",
+      "elif",
+      "fi",
+      "case",
+      "esac",
+      "for",
+      "select",
+      "while",
+      "until",
+      "do",
+      "done",
+      "in",
+      "function",
+      "{",
+      "}",
+      "time",
+      "[[",
+      "]]",
+      "!",
+    ]);
+
+    // Shell builtins
+    const builtins = new Set([
+      "cd",
+      "export",
+      "unset",
+      "exit",
+      "local",
+      "set",
+      "break",
+      "continue",
+      "return",
+      "eval",
+      "shift",
+      "source",
+      ".",
+      "read",
+      "declare",
+      "typeset",
+      "readonly",
+      ":",
+      "true",
+      "false",
+      "let",
+      "command",
+      "builtin",
+      "shopt",
+      "exec",
+      "wait",
+      "type",
+      "[",
+      "test",
+      "echo",
+      "printf",
+      "getopts",
+      "hash",
+      "ulimit",
+      "umask",
+      "alias",
+      "unalias",
+      "dirs",
+      "pushd",
+      "popd",
+      "mapfile",
+      "readarray",
+    ]);
+
+    let stdout = "";
+    let exitCode = 0;
+
+    for (const name of names) {
+      // Empty name is not found
+      if (!name) {
+        exitCode = 1;
+        continue;
+      }
+
+      // Check aliases first (before other checks)
+      const alias = this.ctx.state.env[`BASH_ALIAS_${name}`];
+      if (alias !== undefined) {
+        if (verboseDescribe) {
+          stdout += `${name} is aliased to \`${alias}'\n`;
+        } else {
+          stdout += `alias ${name}='${alias}'\n`;
+        }
+      } else if (keywords.has(name)) {
+        if (verboseDescribe) {
+          stdout += `${name} is a shell keyword\n`;
+        } else {
+          stdout += `${name}\n`;
+        }
+      } else if (builtins.has(name)) {
+        if (verboseDescribe) {
+          stdout += `${name} is a shell builtin\n`;
+        } else {
+          stdout += `${name}\n`;
+        }
+      } else if (this.ctx.state.functions.has(name)) {
+        if (verboseDescribe) {
+          stdout += `${name} is a function\n`;
+        } else {
+          stdout += `${name}\n`;
+        }
+      } else if (this.ctx.commands.has(name)) {
+        if (verboseDescribe) {
+          stdout += `${name} is /bin/${name}\n`;
+        } else {
+          stdout += `/bin/${name}\n`;
+        }
+      } else {
+        // Not found - don't print anything for -v, print error to stderr for -V
+        exitCode = 1;
+      }
+    }
+
+    return result(stdout, "", exitCode);
   }
 
   // ===========================================================================

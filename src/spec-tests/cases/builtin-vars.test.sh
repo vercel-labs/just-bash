@@ -17,7 +17,7 @@ X
 ## END
 
 #### Export sets a global variable that persists after export -n
-## SKIP: printenv.py test helper not available
+## SKIP: export -n unsets the variable value instead of just removing export attribute
 f() { export GLOBAL=X; }
 f
 echo $GLOBAL
@@ -116,7 +116,7 @@ None
 ## END
 
 #### Export a local that shadows a global
-## SKIP: printenv.py test helper not available
+## SKIP: local variables are incorrectly exported to child processes before export
 V=global
 f() {
   local V=local1
@@ -140,7 +140,7 @@ printenv.py U
 ## stdout: u
 
 #### Unset exported variable, then define it again.  It's NOT still exported.
-## SKIP: printenv.py test helper not available
+## SKIP: unset does not clear export attribute, variable remains exported after unset
 export U
 U=u
 printenv.py U
@@ -157,7 +157,7 @@ None
 ## END
 
 #### Exporting a parent func variable (dynamic scope)
-## SKIP: printenv.py test helper not available
+## SKIP: local variables are incorrectly exported to child processes before export
 # The algorithm is to walk up the stack and export that one.
 inner() {
   export outer_var
@@ -196,7 +196,7 @@ test "$old" = "$new" && echo "not changed"
 ## stdout: not changed
 
 #### can't export array (strict_array)
-## SKIP: printenv.py test helper not available
+## SKIP: shopt strict_array not implemented, printenv.py returns empty instead of None
 shopt -s strict_array
 
 typeset -a a
@@ -216,7 +216,7 @@ None
 ## OK osh stdout-json: ""
 
 #### can't export associative array (strict_array)
-## SKIP: printenv.py test helper not available
+## SKIP: shopt strict_array not implemented, printenv.py returns empty instead of None
 shopt -s strict_array
 
 typeset -A a

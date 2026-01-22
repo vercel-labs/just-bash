@@ -64,7 +64,7 @@ declare -A A=()
 ## END
 
 #### create empty assoc array, put, then get
-## SKIP: argv.py test helper not available
+## SKIP: Associative array key expansion returns empty string for empty array
 declare -A A  # still undefined
 argv.py "${A[@]}"
 argv.py "${!A[@]}"
@@ -315,7 +315,7 @@ argv.py "${A["x"]}"
 ## END
 
 #### Slice of associative array doesn't make sense in bash
-## SKIP: argv.py test helper not available
+## SKIP: Associative array slice behavior differs from bash
 declare -A a
 a[xx]=1
 a[yy]=2
@@ -603,7 +603,7 @@ argv.py "${A[@]}"
 
 
 #### Implicit increment of keys
-## SKIP: argv.py test helper not available
+## SKIP: Array literal with sparse index assignment [n]=value not implemented
 declare -a arr=( [30]=a b [40]=x y)
 argv.py "${!arr[@]}"
 argv.py "${arr[@]}"

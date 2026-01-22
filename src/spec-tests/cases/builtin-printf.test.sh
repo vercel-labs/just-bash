@@ -698,7 +698,7 @@ printf '[%G]\n' 3.14
 ## N-I osh status: 2
 
 #### printf backslash escapes
-## SKIP: argv.py test helper not available
+## SKIP: argv.py doesn't escape non-printable/unicode chars like Python repr()
 argv.py "$(printf 'a\tb')"
 argv.py "$(printf '\xE2\x98\xA0')"
 argv.py "$(printf '\044e')"
@@ -717,7 +717,7 @@ argv.py "$(printf '\0377')"  # out of range
 ## END
 
 #### printf octal backslash escapes
-## SKIP: argv.py test helper not available
+## SKIP: argv.py doesn't escape non-printable/unicode chars like Python repr()
 argv.py "$(printf '\0377')"
 argv.py "$(printf '\377')"
 ## STDOUT:
@@ -726,7 +726,7 @@ argv.py "$(printf '\377')"
 ## END
 
 #### printf unicode backslash escapes
-## SKIP: argv.py test helper not available
+## SKIP: argv.py doesn't escape non-printable/unicode chars like Python repr()
 argv.py "$(printf '\u2620')"
 argv.py "$(printf '\U0000065f')"
 ## STDOUT:

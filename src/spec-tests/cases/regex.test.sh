@@ -37,7 +37,7 @@
 # they can be UNQUOTED in BASH_REGEX state.  In fact they can't be quoted!
 
 #### BASH_REMATCH
-## SKIP: argv.py test helper not available
+## SKIP: regex with unquoted () groups causes parse error
 [[ foo123 =~ ([a-z]+)([0-9]+) ]]
 echo status=$?
 argv.py "${BASH_REMATCH[@]}"
@@ -280,7 +280,7 @@ status=0
 ## END
 
 #### Escaped {
-## SKIP: argv.py test helper not available
+## SKIP: regex with unquoted () groups causes parse error
 # from bash-completion
 [[ '$PA' =~ ^(\$\{?)([A-Za-z0-9_]*)$ ]] && argv.py "${BASH_REMATCH[@]}"
 ## STDOUT:
@@ -290,7 +290,7 @@ status=0
 ## BUG zsh status: 1
 
 #### Escaped { stored in variable first
-## SKIP: argv.py test helper not available
+## SKIP: regex with () groups in variable causes parse error
 # from bash-completion
 pat='^(\$\{?)([A-Za-z0-9_]*)$'
 [[ '$PA' =~ $pat ]] && argv.py "${BASH_REMATCH[@]}"

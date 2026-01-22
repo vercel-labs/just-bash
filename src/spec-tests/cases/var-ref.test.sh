@@ -57,7 +57,7 @@ NOUNSET
 # ## END
 
 #### comparison to ${!array[@]} keys (similar SYNTAX)
-## SKIP: argv.py test helper not available
+## SKIP: "${!array[@]}" should produce separate args per key
 
 declare -a a=(x y)
 argv.py "${!a[@]}"
@@ -151,7 +151,7 @@ ref2=two
 ## END
 
 #### var ref: 1, @, *
-## SKIP: argv.py test helper not available
+## SKIP: ${!ref} where ref=@ should produce separate args like "$@"
 set -- x y
 ref=1; argv.py "${!ref}"
 ref=@; argv.py "${!ref}"
@@ -323,7 +323,7 @@ ale bean
 ## END
 
 #### var ref TO array var, with subscripts
-## SKIP: argv.py test helper not available
+## SKIP: indirect expansion of array[@] via ${!var} doesn't split into multiple args
 f() {
   argv.py "${!1}"
 }

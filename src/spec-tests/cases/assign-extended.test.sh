@@ -112,7 +112,7 @@ g 3 ROOT/spec/testdata/bash-source-2.sh
 ## END
 
 #### declare -p var (exit status)
-## SKIP: declare -p not implemented
+## SKIP: declare -p returns 0 even for undefined variables (should return 1)
 var1() { echo func; }  # function names are NOT found.
 declare -p var1 var2 >/dev/null
 echo $?
@@ -196,7 +196,7 @@ typeset test_var5
 ## END
 
 #### declare -p
-## SKIP: declare -p output not implemented
+## SKIP: declare -p without args doesn't list all variables, export -p outputs all vars as exported
 # BUG: bash doesn't output flags with "local -p", which seems to contradict
 #   with manual.
 test_var1=111
@@ -305,7 +305,7 @@ bash=0
 
 
 #### declare -p var
-## SKIP: declare -p not implemented
+## SKIP: declare -p var doesn't show -r/-x/-n flags for readonly/export/nameref variables
 # BUG? bash doesn't output anything for 'local/readonly -p var', which seems to
 #   contradict with manual.  Besides, 'export -p var' is not described in
 #   manual
@@ -358,7 +358,7 @@ declare -- test_var5="555"
 ## END
 
 #### declare -p arr
-## SKIP: declare -p not implemented
+## SKIP: declare -p doesn't output array variables
 test_arr1=()
 declare -a test_arr2=()
 declare -A test_arr3=()
@@ -390,7 +390,7 @@ declare -a test_arr7=([3]="foo")
 ## N-I mksh status: 1
 
 #### declare -p foo=bar doesn't make sense
-## SKIP: declare -p not implemented
+## SKIP: declare -p foo=bar should return status=1 but returns status=0
 case $SH in mksh) exit 0 ;; esac
 
 declare -p foo=bar
@@ -408,7 +408,7 @@ declare -- a=b
 ## N-I mksh stdout-json: ""
 
 #### declare -pnrx
-## SKIP: declare -p not implemented
+## SKIP: declare -pn/-pr/-px filtering flags not implemented (outputs nothing for filtered list)
 test_var1=111
 readonly test_var2=222
 export test_var3=333
@@ -448,7 +448,7 @@ declare -x test_var3="333"
 ## END
 
 #### declare -paA
-## SKIP: declare -p not implemented
+## SKIP: declare -pa/-pA filtering flags not implemented (outputs nothing for filtered list)
 declare -a test_var6=()
 declare -A test_var7=()
 f1() {
@@ -565,7 +565,7 @@ declare -- test_var1="local"
 ## N-I mksh status: 1
 
 #### ble.sh: eval -- "$(declare -p var arr)"
-## SKIP: declare -p not implemented
+## SKIP: declare -p in pipeline subshell with eval - outputs nothing
 # This illustrates an example usage of "eval & declare" for exporting
 # multiple variables from $().
 eval -- "$(
@@ -592,7 +592,7 @@ arr[3]=a10
 ## N-I mksh status: 1
 
 #### declare -p and value.Undef
-## SKIP: declare -p not implemented
+## SKIP: declare -p outputs x="" instead of x for declared-but-unset variables; also local var shadowing issue
 
 # This is a regression for a crash
 # But actually there is also an incompatibility -- we don't print anything
@@ -630,7 +630,7 @@ arr[4]: set ... [foo]
 ## N-I mksh status: 1
 
 #### declare -p UNDEF (and typeset) -- prints something to stderr
-## SKIP: declare -p not implemented
+## SKIP: declare -p missing -r/-x flags in output; missing stderr for undefined variables
 
 x=42
 readonly x

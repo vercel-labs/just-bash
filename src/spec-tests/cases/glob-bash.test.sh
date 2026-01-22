@@ -15,7 +15,7 @@ argv.py _tmp/spec-tmp/*.nonexistent
 ## END
 
 #### shopt -s failglob in command context
-## SKIP: failglob shopt not implemented
+## SKIP: failglob does not abort command execution when glob fails to match
 argv.py *.ZZ
 shopt -s failglob
 argv.py *.ZZ  # nothing is printed, not []
@@ -31,7 +31,7 @@ status=0
 ## END
 
 #### shopt -s failglob in loop context
-## SKIP: failglob shopt not implemented
+## SKIP: failglob does not abort loop execution when glob fails to match
 for x in *.ZZ; do echo $x; done
 echo status=$?
 shopt -s failglob
@@ -50,7 +50,7 @@ status=0
 ## END
 
 #### shopt -s failglob in array literal context
-## SKIP: failglob shopt not implemented
+## SKIP: failglob does not abort array assignment when glob fails to match
 myarr=(*.ZZ)
 echo "${myarr[@]}"
 shopt -s failglob
@@ -68,7 +68,7 @@ status=0
 ## N-I dash/ash status: 2
 
 #### shopt -s failglob exits properly in command context with set -e
-## SKIP: failglob shopt not implemented
+## SKIP: failglob does not exit with set -e when glob fails to match
 set -e
 argv.py *.ZZ
 shopt -s failglob
@@ -84,7 +84,7 @@ echo status=$?
 ## N-I dash/mksh/ash status: 127
 
 #### shopt -s failglob exits properly in loop context with set -e
-## SKIP: failglob shopt not implemented
+## SKIP: failglob does not exit with set -e when glob in loop fails to match
 set -e
 for x in *.ZZ; do echo $x; done
 echo status=$?
@@ -106,7 +106,7 @@ status=0
 ## END
 
 #### shopt -s failglob behavior on single line with semicolon
-## SKIP: failglob shopt not implemented
+## SKIP: failglob does not abort execution when glob fails to match
 # bash behaves differently when commands are separated by a semicolon than when
 # separated by a newline. This behavior doesn't make sense or seem to be
 # intentional, so osh does not mimic it.

@@ -146,7 +146,7 @@ echo $FOO
 ## stderr: foo
 
 #### Redirect in the middle of two assignments
-## SKIP: printenv.py test helper not available
+## SKIP: redirect in the middle of assignments not fully supported, output file not created
 FOO=foo >$TMP/out.txt BAR=bar printenv.py FOO BAR
 tac $TMP/out.txt
 ## STDOUT:

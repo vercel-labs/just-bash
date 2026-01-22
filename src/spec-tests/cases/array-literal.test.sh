@@ -30,7 +30,7 @@ echo "${a['hello']}"
 ## END
 
 #### index increments without [k]= (BashArray)
-## SKIP: argv.py not available
+## SKIP: array index auto-increment after [n]= and ${!a[@]} not word-splitting properly
 a=([100]=1 2 3 4)
 printf 'keys: '; argv.py "${!a[@]}"
 printf 'vals: '; argv.py "${a[@]}"
@@ -45,7 +45,7 @@ vals: ['a', 'b', 'c', 'd', '1', '2', '3', '4']
 ## END
 
 #### [k]=$v and [k]="$@" (BashArray)
-## SKIP: argv.py not available
+## SKIP: [k]=$v syntax in array literals and ${!a[@]} word-splitting not implemented
 i=5
 v='1 2 3'
 a=($v [i]=$v)
@@ -79,7 +79,7 @@ vals: ['1', '2', '3', '3 5 7']
 ## END
 
 #### [k]=$v and [k]="$@" (BashAssoc)
-## SKIP: argv.py not available
+## SKIP: [k]=$v syntax in assoc array literals not implemented correctly
 i=5
 v='1 2 3'
 declare -A a
@@ -114,7 +114,7 @@ vals: ['3 5 7']
 ## END
 
 #### append to element (BashArray)
-## SKIP: argv.py not available
+## SKIP: [key]+=value append syntax in array literals not implemented
 hello=100
 a=([hello]=1 [hello]+=2)
 printf 'keys: '; argv.py "${!a[@]}"
@@ -130,7 +130,7 @@ vals: ['12:34:56']
 ## END
 
 #### append to element (BashAssoc)
-## SKIP: argv.py not available
+## SKIP: [key]+=value append syntax in assoc array literals not implemented
 declare -A a
 hello=100
 a=([hello]=1 [hello]+=2)
@@ -190,7 +190,7 @@ vals: ['1', '2', '3']
 ## END
 
 #### Evaluation order (2)
-## SKIP: argv.py not available
+## SKIP: nested array index like [a[0]] in literals not implemented
 # When evaluating the index, the modification to the array by the previous item
 # of the initializer list is visible to the current item.
 a=([0]=1+2+3 [a[0]]=10 [a[6]]=hello)

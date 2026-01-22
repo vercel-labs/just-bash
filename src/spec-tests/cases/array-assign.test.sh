@@ -334,7 +334,7 @@ declare -a a=([0]="2" [1]="X" [2]="3X" [3]="Y")
 ## END
 
 #### argv.py a[1 + 2]=
-## SKIP: argv.py not available
+## SKIP: array assignment with spaces in index as env prefix (a[1 + 2]= cmd) not implemented
 case $SH in zsh|ash) exit ;; esac
 
 # This tests that the worse parser doesn't unconditinoally treat a[ as special

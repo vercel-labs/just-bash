@@ -209,7 +209,7 @@ x
 ## END
 
 #### ${!prefix@} ${!prefix*} yields sorted array of var names
-## SKIP: argv.py not available
+## SKIP: ${!prefix@} vs ${!prefix*} not splitting correctly in for loops
 ZOO=zoo
 ZIP=zip
 ZOOM='one two'
@@ -472,7 +472,7 @@ A
 
 
 #### Array expansion with nullary var op @Q
-## SKIP: argv.py not available
+## SKIP: brace expansion {1..9} returning literal; ${arr[@]@Q} not working on arrays
 declare -a a=({1..9})
 declare -A A=(['a']=hello ['b']=world ['c']=osh ['d']=ysh)
 
@@ -503,7 +503,7 @@ argv.py "${u[*]@Q}"
 
 
 #### Array expansion with nullary var op @P
-## SKIP: argv.py not available
+## SKIP: brace expansion {1..9} returning literal; ${arr[@]@P} not working on arrays
 declare -a a=({1..9})
 declare -A A=(['a']=hello ['b']=world ['c']=osh ['d']=ysh)
 
@@ -534,7 +534,7 @@ argv.py "${u[*]@P}"
 
 
 #### Array expansion with nullary var op @a
-## SKIP: argv.py not available
+## SKIP: brace expansion {1..9} returning literal; ${arr[@]@a} not working on arrays
 declare -a a=({1..9})
 declare -A A=(['a']=hello ['b']=world ['c']=osh ['d']=ysh)
 

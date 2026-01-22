@@ -1,7 +1,6 @@
 ## compare_shells: dash bash mksh zsh ash
 
 #### command -v
-## SKIP: command -v not implemented
 myfunc() { echo x; }
 command -v echo
 echo $?
@@ -39,7 +38,6 @@ for
 ## END
 
 #### command -v executable, builtin
-## SKIP: command -v not implemented
 
 #command -v grep ls
 
@@ -60,7 +58,7 @@ eval
 
 
 #### command -v with multiple names
-## SKIP: command -v not implemented
+## SKIP: exit code differs - bash returns 0 even when some names not found
 # ALL FOUR SHELLS behave differently here!
 #
 # bash chooses to swallow the error!  We agree with zsh if ANY word lookup
@@ -90,7 +88,7 @@ status=1
 ## END
 
 #### command -v doesn't find non-executable file
-## SKIP: command -v not implemented
+## SKIP: command -v with filesystem paths not implemented
 # PATH resolution is different
 
 mkdir -p _tmp
@@ -118,7 +116,7 @@ status=0
 ## END
 
 #### command -v doesn't find executable dir
-## SKIP: command -v not implemented
+## SKIP: expected /usr/bin/cat but got /bin/cat
 
 mkdir -p _tmp
 PATH="_tmp:$PATH"
@@ -149,7 +147,7 @@ status=0
 ## END
 
 #### command -V
-## SKIP: command -V not implemented
+## SKIP: parse error with backtick escaping
 myfunc() { echo x; }
 
 shopt -s expand_aliases
@@ -240,7 +238,7 @@ status=0
 ## END
 
 #### command -V nonexistent
-## SKIP: command -V not implemented
+## SKIP: command -V error output should go to stderr, not stdout
 command -V nonexistent 2>err.txt
 echo status=$?
 fgrep -o 'nonexistent: not found' err.txt || true
@@ -292,7 +290,6 @@ command command seq 3
 ## N-I zsh status: 127
 
 #### command command -v seq
-## SKIP: command -v not implemented
 seq() {
   echo 3
 }

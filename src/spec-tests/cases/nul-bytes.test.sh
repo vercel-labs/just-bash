@@ -119,7 +119,7 @@ echo $'\0' | show_hex
 
 
 #### NUL bytes and IFS splitting
-## SKIP: argv.py test helper not available
+## SKIP: NUL bytes are preserved instead of being stripped from strings
 case $SH in dash) exit ;; esac
 
 argv.py $(echo -e '\0')

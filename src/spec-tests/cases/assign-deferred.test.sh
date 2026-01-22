@@ -5,7 +5,7 @@
 # Corner cases for assignment that we're not handling now.
 
 #### typeset a[3]=4
-## SKIP: argv.py not available
+## SKIP: typeset with array index assignment (a[n]=val) not implemented
 typeset a[3]=4 a[5]=6
 echo status=$?
 argv.py "${!a[@]}" "${a[@]}"
@@ -15,7 +15,7 @@ status=0
 ## END
 
 #### typeset -a a[1]=a a[3]=c
-## SKIP: argv.py not available
+## SKIP: typeset with array index assignment (a[n]=val) not implemented
 # declare works the same way in bash, but not mksh.
 # spaces are NOT allowed here.
 typeset -a a[1*1]=x a[1+2]=z
@@ -23,7 +23,7 @@ argv.py "${a[@]}"
 ## stdout: ['x', 'z']
 
 #### local a[3]=4
-## SKIP: argv.py not available
+## SKIP: local with array index assignment (a[n]=val) not implemented
 f() {
   local a[3]=4 a[5]=6
   echo status=$?
@@ -51,7 +51,7 @@ status=1
 ## END
 
 #### export a[7]=8
-## SKIP: argv.py not available
+## SKIP: export with array index assignment (a[n]=val) not implemented
 export a[7]=8
 echo status=$?
 argv.py "${!a[@]}" "${a[@]}"
