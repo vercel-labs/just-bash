@@ -244,11 +244,8 @@ export class Lexer {
     const pendingHeredocs = this.pendingHeredocs;
 
     while (this.pos < len) {
-      this.skipWhitespace();
-
-      if (this.pos >= len) break;
-
-      // Check for pending here-documents after newline
+      // Check for pending here-documents after newline BEFORE skipping whitespace
+      // to preserve leading whitespace in heredoc content
       if (
         pendingHeredocs.length > 0 &&
         tokens.length > 0 &&
@@ -257,6 +254,10 @@ export class Lexer {
         this.readHeredocContent();
         continue;
       }
+
+      this.skipWhitespace();
+
+      if (this.pos >= len) break;
 
       const token = this.nextToken();
       if (token) {
