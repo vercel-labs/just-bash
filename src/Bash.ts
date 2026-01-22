@@ -477,10 +477,9 @@ function normalizeScript(script: string): string {
     // If we're inside a heredoc, check if this line ends it
     if (pendingDelimiters.length > 0) {
       const current = pendingDelimiters[pendingDelimiters.length - 1];
-      // For <<-, strip leading tabs when checking delimiter, but preserve content whitespace
-      const lineToCheck = current.stripTabs
-        ? line.replace(/^\t+/, "")
-        : line.trimStart();
+      // For <<-, strip leading tabs when checking delimiter
+      // For <<, require exact match (no leading whitespace allowed)
+      const lineToCheck = current.stripTabs ? line.replace(/^\t+/, "") : line;
       if (lineToCheck === current.delimiter) {
         // End of heredoc - this line can be normalized
         result.push(line.trimStart());
@@ -499,9 +498,8 @@ function normalizeScript(script: string): string {
     // Check for heredoc operators in this line
     // Match: <<DELIM, <<-DELIM, << 'DELIM', <<- "DELIM", etc.
     // Multiple heredocs on one line are possible: cmd <<EOF1 <<EOF2
-    const heredocPattern = /<<(-?)\s*(['"]?)(\w+)\2/g;
-    let match;
-    while ((match = heredocPattern.exec(normalizedLine)) !== null) {
+    const heredocPattern = /<<(-?)\s*(['"]?)([\w-]+)\2/g;
+    for (const match of normalizedLine.matchAll(heredocPattern)) {
       const stripTabs = match[1] === "-";
       const delimiter = match[3];
       pendingDelimiters.push({ delimiter, stripTabs });

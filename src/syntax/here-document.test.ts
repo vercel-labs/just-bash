@@ -134,7 +134,9 @@ echo done`);
   two spaces at start
 no spaces
 EOF`);
-      expect(result.stdout).toBe("    four spaces at start\n  two spaces at start\nno spaces\n");
+      expect(result.stdout).toBe(
+        "    four spaces at start\n  two spaces at start\nno spaces\n",
+      );
       expect(result.exitCode).toBe(0);
     });
 
@@ -168,7 +170,9 @@ EOF`);
         more indented
 EOF
       `);
-      expect(result.stdout).toBe("    indented content\n        more indented\n");
+      expect(result.stdout).toBe(
+        "    indented content\n        more indented\n",
+      );
       expect(result.exitCode).toBe(0);
     });
 
@@ -201,6 +205,27 @@ EOF`);
           *                   *
          *********************
 `);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should not treat indented delimiter as end of heredoc", async () => {
+      const env = new Bash();
+      // A line with "  EOF" (spaces before EOF) should be content, not delimiter
+      const result = await env.exec(`cat <<EOF
+line 1
+  EOF
+line 2
+EOF`);
+      expect(result.stdout).toBe("line 1\n  EOF\nline 2\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle delimiter with hyphen", async () => {
+      const env = new Bash();
+      const result = await env.exec(`cat <<END-TEST
+  content with spaces
+END-TEST`);
+      expect(result.stdout).toBe("  content with spaces\n");
       expect(result.exitCode).toBe(0);
     });
   });
