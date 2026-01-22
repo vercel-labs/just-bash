@@ -416,7 +416,6 @@ b
 ## N-I dash/zsh stdout-json: ""
 
 #### read with IFS=$'\n'
-## SKIP: IFS with newline character not implemented
 # The leading spaces are stripped if they appear in IFS.
 IFS=$(echo -e '\n')
 read var <<EOF
@@ -444,7 +443,6 @@ printf "%s\n" "[$a|$b|$c|$d]"
 ## stdout: [  \a |b: c|d  e|]
 
 #### read with IFS=''
-## SKIP: Read with special IFS values not implemented
 IFS=''
 read x y <<EOF
   a b c d
