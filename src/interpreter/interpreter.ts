@@ -60,6 +60,7 @@ import {
   handleShift,
   handleSource,
   handleUnset,
+  applyCaseTransform,
   isInteger,
 } from "./builtins/index.js";
 import { handleShopt } from "./builtins/shopt.js";

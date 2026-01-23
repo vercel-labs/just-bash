@@ -702,6 +702,23 @@ export function handleReadonly(
   }
 
   for (const arg of processedArgs) {
+    // Check for += append syntax: readonly NAME+=value
+    const appendMatch = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\+=(.*)$/);
+    if (appendMatch) {
+      const name = appendMatch[1];
+      const appendValue = expandTildesInValue(ctx, appendMatch[2]);
+
+      // Check if variable is already readonly
+      const error = checkReadonlyError(ctx, name);
+      if (error) return error;
+
+      // Append to existing value (or set if not defined)
+      const existing = ctx.state.env[name] ?? "";
+      ctx.state.env[name] = existing + appendValue;
+      markReadonly(ctx, name);
+      continue;
+    }
+
     const assignment = parseAssignment(arg);
 
     // If no value provided, just mark as readonly

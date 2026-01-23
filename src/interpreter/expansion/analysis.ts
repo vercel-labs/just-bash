@@ -155,6 +155,7 @@ export function analyzeWordParts(parts: WordPart[]): WordPartsAnalysis {
   let hasArrayVar = false;
   let hasArrayAtExpansion = false;
   let hasParamExpansion = false;
+  let hasVarNamePrefixExpansion = false;
 
   for (const part of parts) {
     if (part.type === "SingleQuoted" || part.type === "DoubleQuoted") {
@@ -170,6 +171,13 @@ export function analyzeWordParts(parts: WordPart[]): WordPartsAnalysis {
             );
             if (match && !inner.operation) {
               hasArrayAtExpansion = true;
+            }
+            // Check for ${!prefix@} or ${!prefix*} inside double quotes
+            if (
+              inner.operation?.type === "VarNamePrefix" ||
+              inner.operation?.type === "ArrayKeys"
+            ) {
+              hasVarNamePrefixExpansion = true;
             }
           }
         }
@@ -188,6 +196,13 @@ export function analyzeWordParts(parts: WordPart[]): WordPartsAnalysis {
       if (hasQuotedOperationWord(part)) {
         hasQuoted = true;
       }
+      // Check for unquoted ${!prefix@} or ${!prefix*}
+      if (
+        part.operation?.type === "VarNamePrefix" ||
+        part.operation?.type === "ArrayKeys"
+      ) {
+        hasVarNamePrefixExpansion = true;
+      }
     }
   }
 
@@ -197,5 +212,6 @@ export function analyzeWordParts(parts: WordPart[]): WordPartsAnalysis {
     hasArrayVar,
     hasArrayAtExpansion,
     hasParamExpansion,
+    hasVarNamePrefixExpansion,
   };
 }

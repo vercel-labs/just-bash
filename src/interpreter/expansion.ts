@@ -780,6 +780,7 @@ export async function expandWordWithGlob(
     hasArrayVar,
     hasArrayAtExpansion,
     hasParamExpansion,
+    hasVarNamePrefixExpansion,
   } = analyzeWordParts(wordParts);
 
   // Handle brace expansion first (produces multiple values)

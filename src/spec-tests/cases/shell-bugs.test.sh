@@ -15,7 +15,6 @@
 # - weird shopt -s lastpipe issue on bash
 
 #### ./configure idiom
-## SKIP: time command not implemented
 set -o errexit
 
 if command time -f '%e %M' true; then
