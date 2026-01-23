@@ -407,7 +407,6 @@ status=2
 
 
 #### brace group - redir failure checked
-## SKIP: errexit in compound commands/pipelines not implemented
 
 # bash 5.2 fixed bash 4.4 bug: this is now checked
 

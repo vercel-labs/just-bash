@@ -395,7 +395,6 @@ echo $(( 0XAA ))
 ## stdout: 170
 
 #### Dynamic var names - result of runtime parse/eval
-## SKIP: Dynamic variable names in arithmetic not implemented
 foo=5
 x=oo
 echo $(( foo + f$x + 1 ))
@@ -586,7 +585,6 @@ echo $(( 2**-1 * 5 ))
 ## N-I dash status: 2
 
 #### Comment not allowed in the middle of multiline arithmetic
-## SKIP: Comments in arithmetic expansion not implemented
 echo $((
 1 +
 2 + \
@@ -703,7 +701,6 @@ last=6
 
 
 #### assignment with dynamic var name
-## SKIP: Dynamic variable names in arithmetic not implemented
 foo=bar
 echo $(( x$foo = 42 ))
 echo xbar=$xbar
@@ -713,10 +710,9 @@ xbar=42
 ## END
 
 #### array assignment with dynamic array name
-## SKIP: Dynamic variable names in arithmetic not implemented
 foo=bar
 echo $(( x$foo[5] = 42 ))
-echo 'xbar[5]='${xbar[5]}
+echo "xbar[5]="${xbar[5]}
 ## STDOUT:
 42
 xbar[5]=42
@@ -729,7 +725,6 @@ xbar[5]=
 ## N-I dash stdout-json: ""
 
 #### unary assignment with dynamic var name
-## SKIP: Dynamic variable names in arithmetic not implemented
 foo=bar
 xbar=42
 echo $(( x$foo++ ))
@@ -742,11 +737,10 @@ xbar=43
 ## BUG dash stdout-json: ""
 
 #### unary array assignment with dynamic var name
-## SKIP: Dynamic variable names in arithmetic not implemented
 foo=bar
 xbar[5]=42
 echo $(( x$foo[5]++ ))
-echo 'xbar[5]='${xbar[5]}
+echo "xbar[5]="${xbar[5]}
 ## STDOUT:
 42
 xbar[5]=43

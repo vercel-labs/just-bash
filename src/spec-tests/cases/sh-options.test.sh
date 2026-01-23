@@ -234,7 +234,6 @@ nounset
 ## END
 
 #### shopt -p prints 'shopt' options
-## SKIP: shopt -p not implemented
 shopt -p nullglob
 shopt -s nullglob
 shopt -p nullglob
@@ -246,7 +245,6 @@ shopt -s nullglob
 ## N-I dash/mksh status: 127
 
 #### shopt with no flags prints options
-## SKIP: shopt output format not implemented
 cd $TMP
 
 # print specific options.  OSH does it in a different format.
@@ -291,8 +289,6 @@ foo
 ## END
 
 #### noclobber on
-## SKIP: noclobber (set -C) not implemented
-
 rm -f no-clobber
 set -C
 
@@ -350,7 +346,6 @@ foo
 ## END
 
 #### noclobber on &> >
-## SKIP: noclobber (set -C) not implemented
 case $SH in dash) exit ;; esac
 
 set -C
@@ -486,7 +481,6 @@ __assoc=([a]="b" ["k e y"]="v a l" )
 ## N-I osh status: 1
 
 #### shopt -q
-## SKIP: shopt -q not implemented
 shopt -q nullglob
 echo nullglob=$?
 
@@ -518,7 +512,6 @@ nullglob,failglob=127
 ## END
 
 #### shopt -q invalid
-## SKIP: shopt -q not implemented
 shopt -q invalidZZ
 echo invalidZZ=$?
 ## STDOUT:
@@ -564,8 +557,6 @@ shopt -u strict_argv
 ## END
 
 #### shopt allows for backward compatibility like bash
-## SKIP: shopt -p not implemented
-
 # doesn't have to be on, but just for testing
 set -o errexit
 
@@ -588,7 +579,6 @@ status=0
 ## N-I dash/mksh status: 0
 
 #### shopt -p validates option names
-## SKIP: shopt -p not implemented
 shopt -p nullglob invalid failglob
 echo status=$?
 # same thing as -p, slightly different format in bash
@@ -614,7 +604,6 @@ status=127
 ## END
 
 #### shopt -p -o validates option names
-## SKIP: shopt -p -o not implemented
 shopt -p -o errexit invalid nounset
 echo status=$?
 ## STDOUT:
@@ -631,7 +620,6 @@ status=127
 ## END
 
 #### stubbed out bash options
-## SKIP: ignore_shopt_not_impl option not implemented
 shopt -s ignore_shopt_not_impl
 for name in foo autocd cdable_vars checkwinsize; do
   shopt -s $name
@@ -776,7 +764,6 @@ status=0
 
 #### no-ops not shown by shopt -p
 ## SKIP: shopt -p not implemented
-
 shopt -p | grep xpg
 echo --
 ## STDOUT:

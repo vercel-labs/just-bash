@@ -59,7 +59,9 @@ import {
   handleShift,
   handleSource,
   handleUnset,
+  isInteger,
 } from "./builtins/index.js";
+import { handleShopt } from "./builtins/shopt.js";
 import { evaluateConditional, evaluateTestArgs } from "./conditionals.js";
 import {
   executeCase,
@@ -69,6 +71,38 @@ import {
   executeUntil,
   executeWhile,
 } from "./control-flow.js";
+
+/**
+ * POSIX special built-in commands.
+ * In POSIX mode, these have special behaviors:
+ * - Prefix assignments persist after the command
+ * - Cannot be redefined as functions
+ * - Errors may be fatal
+ */
+const POSIX_SPECIAL_BUILTINS = new Set([
+  ":",
+  ".",
+  "break",
+  "continue",
+  "eval",
+  "exec",
+  "exit",
+  "export",
+  "readonly",
+  "return",
+  "set",
+  "shift",
+  "trap",
+  "unset",
+]);
+
+/**
+ * Check if a command name is a POSIX special built-in
+ */
+function isPosixSpecialBuiltin(name: string): boolean {
+  return POSIX_SPECIAL_BUILTINS.has(name);
+}
+
 import {
   ArithmeticError,
   BadSubstitutionError,
@@ -77,6 +111,7 @@ import {
   ErrexitError,
   ExecutionLimitError,
   ExitError,
+  GlobError,
   isScopeExitError,
   NounsetError,
   ReturnError,
@@ -102,7 +137,8 @@ import {
   testResult,
   throwExecutionLimit,
 } from "./helpers/result.js";
-import { applyRedirections } from "./redirections.js";
+import { expandTildesInValue } from "./helpers/tilde.js";
+import { applyRedirections, preOpenOutputRedirects } from "./redirections.js";
 import type { InterpreterContext, InterpreterState } from "./types.js";
 
 export type { InterpreterContext, InterpreterState } from "./types.js";
@@ -407,6 +443,10 @@ export class Interpreter {
         // Just return exit code 1 with the error message on stderr
         return failure(error.stderr);
       }
+      if (error instanceof GlobError) {
+        // GlobError from failglob should return exit code 1 with error message
+        return failure(error.stderr);
+      }
       throw error;
     }
   }
@@ -487,7 +527,9 @@ export class Interpreter {
             const literalStr = wordToLiteralString(element);
             const parsed = parseAssocArrayElement(literalStr);
             if (parsed) {
-              const [key, value] = parsed;
+              const [key, rawValue] = parsed;
+              // Apply tilde expansion to the value (e.g., ~ becomes $HOME)
+              const value = expandTildesInValue(this.ctx, rawValue);
               this.ctx.state.env[`${name}_${key}`] = value;
             } else {
               // Fall back to treating as regular element (shouldn't happen for assoc)
@@ -507,7 +549,9 @@ export class Interpreter {
             const literalStr = wordToLiteralString(element);
             const parsed = parseAssocArrayElement(literalStr);
             if (parsed) {
-              const [indexStr, value] = parsed;
+              const [indexStr, rawValue] = parsed;
+              // Apply tilde expansion to the value (e.g., ~ becomes $HOME)
+              const value = expandTildesInValue(this.ctx, rawValue);
               // Evaluate index as arithmetic expression
               let index: number;
               if (/^-?\d+$/.test(indexStr)) {
@@ -714,10 +758,36 @@ export class Interpreter {
       const readonlyError = checkReadonlyError(this.ctx, targetName);
       if (readonlyError) return readonlyError;
 
-      // Handle append mode (+=)
-      const finalValue = assignment.append
-        ? (this.ctx.state.env[targetName] || "") + value
-        : value;
+      // Handle append mode (+=) and integer attribute
+      let finalValue: string;
+      if (isInteger(this.ctx, targetName)) {
+        // For integer variables, evaluate as arithmetic
+        try {
+          const parser = new Parser();
+          if (assignment.append) {
+            // += for integers: add the values arithmetically
+            const currentVal = this.ctx.state.env[targetName] || "0";
+            const expr = `(${currentVal}) + (${value})`;
+            const arithAst = parseArithmeticExpression(parser, expr);
+            finalValue = String(
+              evaluateArithmeticSync(this.ctx, arithAst.expression),
+            );
+          } else {
+            const arithAst = parseArithmeticExpression(parser, value);
+            finalValue = String(
+              evaluateArithmeticSync(this.ctx, arithAst.expression),
+            );
+          }
+        } catch {
+          // If parsing fails, return 0 (bash behavior for invalid expressions)
+          finalValue = "0";
+        }
+      } else {
+        // Normal string handling
+        finalValue = assignment.append
+          ? (this.ctx.state.env[targetName] || "") + value
+          : value;
+      }
 
       if (node.name) {
         tempAssignments[targetName] = this.ctx.state.env[targetName];
@@ -747,7 +817,16 @@ export class Interpreter {
             .map((line) => line.replace(/^\t+/, ""))
             .join("\n");
         }
-        stdin = content;
+        // If this is a non-standard fd (not 0), store in fileDescriptors for -u option
+        const fd = redir.fd ?? 0;
+        if (fd !== 0) {
+          if (!this.ctx.state.fileDescriptors) {
+            this.ctx.state.fileDescriptors = new Map();
+          }
+          this.ctx.state.fileDescriptors.set(fd, content);
+        } else {
+          stdin = content;
+        }
         continue;
       }
 
@@ -768,6 +847,18 @@ export class Interpreter {
             else this.ctx.state.env[name] = value;
           }
           return failure(`bash: ${target}: No such file or directory\n`);
+        }
+      }
+
+      // Handle <& input redirection from file descriptor
+      if (redir.operator === "<&" && redir.target.type === "Word") {
+        const target = await expandWord(this.ctx, redir.target as WordNode);
+        const sourceFd = Number.parseInt(target, 10);
+        if (!Number.isNaN(sourceFd) && this.ctx.state.fileDescriptors) {
+          const content = this.ctx.state.fileDescriptors.get(sourceFd);
+          if (content !== undefined) {
+            stdin = content;
+          }
         }
       }
     }
@@ -847,9 +938,23 @@ export class Interpreter {
     this.ctx.state.lastArg =
       args.length > 0 ? args[args.length - 1] : commandName;
 
-    for (const [name, value] of Object.entries(tempAssignments)) {
-      if (value === undefined) delete this.ctx.state.env[name];
-      else this.ctx.state.env[name] = value;
+    // In POSIX mode, prefix assignments persist after special builtins
+    // e.g., `foo=bar :` leaves foo=bar in the environment
+    // Exception: `unset` and `eval` - bash doesn't apply POSIX temp binding persistence
+    // for these builtins when they modify the same variable as the temp binding
+    // In non-POSIX mode (bash default), temp assignments are always restored
+    const isPosixSpecialWithPersistence =
+      isPosixSpecialBuiltin(commandName) &&
+      commandName !== "unset" &&
+      commandName !== "eval";
+    const shouldRestoreTempAssignments =
+      !this.ctx.state.options.posix || !isPosixSpecialWithPersistence;
+
+    if (shouldRestoreTempAssignments) {
+      for (const [name, value] of Object.entries(tempAssignments)) {
+        if (value === undefined) delete this.ctx.state.env[name];
+        else this.ctx.state.env[name] = value;
+      }
     }
 
     // Include any stderr from expansion errors
@@ -963,11 +1068,9 @@ export class Interpreter {
     _quotedArgs: boolean[],
     stdin: string,
     skipFunctions = false,
+    useDefaultPath = false,
   ): Promise<ExecResult> {
-    // Built-in commands
-    if (commandName === "cd") {
-      return await handleCd(this.ctx, args);
-    }
+    // Built-in commands (special builtins that cannot be overridden by functions)
     if (commandName === "export") {
       return handleExport(this.ctx, args);
     }
@@ -1034,6 +1137,9 @@ export class Interpreter {
       }
     }
     // Simple builtins (can be overridden by functions)
+    if (commandName === "cd") {
+      return await handleCd(this.ctx, args);
+    }
     if (commandName === ":" || commandName === "true") {
       return OK;
     }
@@ -1082,26 +1188,94 @@ export class Interpreter {
         return this.handleCommandV(cmdArgs, showPath, verboseDescribe);
       }
 
-      // -p flag: use default PATH (not fully implemented, just run command)
-      void useDefaultPath;
-
       // Run command without checking functions, but builtins are still available
+      // Pass useDefaultPath to use /bin:/usr/bin instead of $PATH
       const [cmd, ...rest] = cmdArgs;
-      return this.runCommand(cmd, rest, [], stdin, true);
+      return this.runCommand(cmd, rest, [], stdin, true, useDefaultPath);
     }
     if (commandName === "builtin") {
       // builtin command [arg...] - run builtin command
       if (args.length === 0) {
         return OK;
       }
-      const [cmd, ...rest] = args;
-      // Run as builtin (recursive call, but skip function lookup)
-      return this.runCommand(cmd, rest, [], stdin);
+      // Handle -- option terminator
+      let cmdArgs = args;
+      if (cmdArgs[0] === "--") {
+        cmdArgs = cmdArgs.slice(1);
+        if (cmdArgs.length === 0) {
+          return OK;
+        }
+      }
+      const cmd = cmdArgs[0];
+      // Check if the command is a shell builtin
+      const builtins = new Set([
+        ":",
+        "true",
+        "false",
+        "cd",
+        "export",
+        "unset",
+        "exit",
+        "local",
+        "set",
+        "break",
+        "continue",
+        "return",
+        "eval",
+        "shift",
+        "getopts",
+        "pushd",
+        "popd",
+        "dirs",
+        "source",
+        ".",
+        "read",
+        "mapfile",
+        "readarray",
+        "declare",
+        "typeset",
+        "readonly",
+        "let",
+        "command",
+        "shopt",
+        "exec",
+        "test",
+        "[",
+        "echo",
+        "printf",
+        "pwd",
+        "alias",
+        "unalias",
+        "type",
+        "hash",
+        "ulimit",
+        "umask",
+        "trap",
+        "times",
+        "wait",
+        "kill",
+        "jobs",
+        "fg",
+        "bg",
+        "disown",
+        "suspend",
+        "fc",
+        "history",
+        "help",
+        "enable",
+        "builtin",
+        "caller",
+      ]);
+      if (!builtins.has(cmd)) {
+        // Not a builtin - return error
+        return failure(`bash: builtin: ${cmd}: not a shell builtin\n`);
+      }
+      const [, ...rest] = cmdArgs;
+      // Run as builtin (recursive call, skip function lookup)
+      return this.runCommand(cmd, rest, [], stdin, true);
     }
     if (commandName === "shopt") {
-      // shopt - shell options (stub implementation)
-      // Accept -s (set) and -u (unset) but don't actually change behavior
-      return OK;
+      return handleShopt(this.ctx, args);
     }
     if (commandName === "exec") {
       // exec - replace shell with command (stub: just run the command)
@@ -1120,14 +1294,11 @@ export class Interpreter {
       return this.handleType(args);
     }
     // Test commands
-    if (commandName === "[[") {
-      const endIdx = args.lastIndexOf("]]");
-      if (endIdx !== -1) {
-        const testArgs = args.slice(0, endIdx);
-        return evaluateTestArgs(this.ctx, testArgs);
-      }
-      return failure("bash: [[: missing `]]'\n", 2);
-    }
+    // Note: [[ is NOT handled here because it's a keyword, not a command.
+    // When [[ appears as a simple command name (e.g., after prefix assignments
+    // like "FOO=bar [[ ... ]]" or via variable expansion like "$x" where x='[['),
+    // it should fail with "command not found" because bash doesn't recognize
+    // [[ as a keyword in those contexts.
     if (commandName === "[" || commandName === "test") {
       let testArgs = args;
       if (commandName === "[") {
@@ -1140,7 +1311,12 @@ export class Interpreter {
     }
 
     // External commands - resolve via PATH
-    const resolved = await this.resolveCommand(commandName);
+    // For command -p, use default PATH /bin:/usr/bin instead of $PATH
+    const defaultPath = "/bin:/usr/bin";
+    const resolved = await this.resolveCommand(
+      commandName,
+      useDefaultPath ? defaultPath : undefined,
+    );
     if (!resolved) {
       // Check if this is a browser-excluded command for a more helpful error
       if (isBrowserExcludedCommand(commandName)) {
@@ -1191,6 +1367,7 @@ export class Interpreter {
    */
   private async resolveCommand(
     commandName: string,
+    pathOverride?: string,
   ): Promise<{ cmd: Command; path: string } | null> {
     // If command contains "/", it's a path - resolve directly
     if (commandName.includes("/")) {
@@ -1209,8 +1386,8 @@ export class Interpreter {
       return { cmd, path: resolvedPath };
     }
 
-    // Search PATH directories
-    const pathEnv = this.ctx.state.env.PATH || "/bin:/usr/bin";
+    // Search PATH directories (use override if provided, for command -p)
+    const pathEnv = pathOverride ?? this.ctx.state.env.PATH ?? "/bin:/usr/bin";
     const pathDirs = pathEnv.split(":");
 
     for (const dir of pathDirs) {
@@ -1500,6 +1677,7 @@ export class Interpreter {
     ]);
 
     let stdout = "";
+    let stderr = "";
     let exitCode = 0;
 
     for (const name of names) {
@@ -1543,11 +1721,14 @@ export class Interpreter {
         }
       } else {
         // Not found - don't print anything for -v, print error to stderr for -V
+        if (verboseDescribe) {
+          stderr += `bash: ${name}: not found\n`;
+        }
         exitCode = 1;
       }
     }
 
-    return result(stdout, "", exitCode);
+    return result(stdout, stderr, exitCode);
   }
 
   // ===========================================================================
@@ -1558,6 +1739,17 @@ export class Interpreter {
     node: SubshellNode,
     stdin = "",
   ): Promise<ExecResult> {
+    // Pre-open output redirects to truncate files BEFORE executing body
+    // This matches bash behavior where redirect files are opened before
+    // any command substitutions in the subshell body are evaluated
+    const preOpenError = await preOpenOutputRedirects(
+      this.ctx,
+      node.redirections,
+    );
+    if (preOpenError) {
+      return preOpenError;
+    }
+
     const savedEnv = { ...this.ctx.state.env };
     const savedCwd = this.ctx.state.cwd;
     // Reset loopDepth in subshell - break/continue should not affect parent loops
@@ -1579,10 +1771,10 @@ export class Interpreter {
 
     try {
       for (const stmt of node.body) {
-        const result = await this.executeStatement(stmt);
-        stdout += result.stdout;
-        stderr += result.stderr;
-        exitCode = result.exitCode;
+        const res = await this.executeStatement(stmt);
+        stdout += res.stdout;
+        stderr += res.stderr;
+        exitCode = res.exitCode;
       }
     } catch (error) {
       this.ctx.state.env = savedEnv;
@@ -1599,35 +1791,53 @@ export class Interpreter {
       if (error instanceof SubshellExitError) {
         stdout += error.stdout;
         stderr += error.stderr;
-        return result(stdout, stderr, 0);
+        // Apply output redirections before returning
+        const bodyResult = result(stdout, stderr, 0);
+        return applyRedirections(this.ctx, bodyResult, node.redirections);
       }
       // BreakError/ContinueError should NOT propagate out of subshell
       // They only affect loops within the subshell
       if (error instanceof BreakError || error instanceof ContinueError) {
         stdout += error.stdout;
         stderr += error.stderr;
-        return result(stdout, stderr, 0);
+        // Apply output redirections before returning
+        const bodyResult = result(stdout, stderr, 0);
+        return applyRedirections(this.ctx, bodyResult, node.redirections);
       }
       // ExitError in subshell should NOT propagate - just return the exit code
       // (subshells are like separate processes)
       if (error instanceof ExitError) {
         stdout += error.stdout;
         stderr += error.stderr;
-        return result(stdout, stderr, error.exitCode);
+        // Apply output redirections before returning
+        const bodyResult = result(stdout, stderr, error.exitCode);
+        return applyRedirections(this.ctx, bodyResult, node.redirections);
       }
       // ReturnError in subshell (e.g., f() ( return 42; )) should also just exit
       // with the given code, since subshells are like separate processes
       if (error instanceof ReturnError) {
         stdout += error.stdout;
         stderr += error.stderr;
-        return result(stdout, stderr, error.exitCode);
+        // Apply output redirections before returning
+        const bodyResult = result(stdout, stderr, error.exitCode);
+        return applyRedirections(this.ctx, bodyResult, node.redirections);
       }
       if (error instanceof ErrexitError) {
-        error.stdout = stdout + error.stdout;
-        error.stderr = stderr + error.stderr;
-        throw error;
+        // Apply output redirections before propagating
+        const bodyResult = result(
+          stdout + error.stdout,
+          stderr + error.stderr,
+          error.exitCode,
+        );
+        return applyRedirections(this.ctx, bodyResult, node.redirections);
       }
-      return result(stdout, `${stderr}${getErrorMessage(error)}\n`, 1);
+      // Apply output redirections before returning
+      const bodyResult = result(
+        stdout,
+        `${stderr}${getErrorMessage(error)}\n`,
+        1,
+      );
+      return applyRedirections(this.ctx, bodyResult, node.redirections);
     }
 
     this.ctx.state.env = savedEnv;
@@ -1636,7 +1846,9 @@ export class Interpreter {
     this.ctx.state.parentHasLoopContext = savedParentHasLoopContext;
     this.ctx.state.groupStdin = savedGroupStdin;
 
-    return result(stdout, stderr, exitCode);
+    // Apply output redirections
+    const bodyResult = result(stdout, stderr, exitCode);
+    return applyRedirections(this.ctx, bodyResult, node.redirections);
   }
 
   private async executeGroup(node: GroupNode, stdin = ""): Promise<ExecResult> {
@@ -1644,10 +1856,49 @@ export class Interpreter {
     let stderr = "";
     let exitCode = 0;
 
+    // Process heredoc and input redirections to get stdin content
+    let effectiveStdin = stdin;
+    for (const redir of node.redirections) {
+      if (
+        (redir.operator === "<<" || redir.operator === "<<-") &&
+        redir.target.type === "HereDoc"
+      ) {
+        const hereDoc = redir.target as HereDocNode;
+        let content = await expandWord(this.ctx, hereDoc.content);
+        if (hereDoc.stripTabs) {
+          content = content
+            .split("\n")
+            .map((line) => line.replace(/^\t+/, ""))
+            .join("\n");
+        }
+        // If this is a non-standard fd (not 0), store in fileDescriptors for -u option
+        const fd = redir.fd ?? 0;
+        if (fd !== 0) {
+          if (!this.ctx.state.fileDescriptors) {
+            this.ctx.state.fileDescriptors = new Map();
+          }
+          this.ctx.state.fileDescriptors.set(fd, content);
+        } else {
+          effectiveStdin = content;
+        }
+      } else if (redir.operator === "<<<" && redir.target.type === "Word") {
+        effectiveStdin = `${await expandWord(this.ctx, redir.target as WordNode)}\n`;
+      } else if (redir.operator === "<" && redir.target.type === "Word") {
+        try {
+          const target = await expandWord(this.ctx, redir.target as WordNode);
+          const filePath = this.ctx.fs.resolvePath(this.ctx.state.cwd, target);
+          effectiveStdin = await this.ctx.fs.readFile(filePath);
+        } catch {
+          const target = await expandWord(this.ctx, redir.target as WordNode);
+          return result("", `bash: ${target}: No such file or directory\n`, 1);
+        }
+      }
+    }
+
     // Save any existing groupStdin and set new one from pipeline
     const savedGroupStdin = this.ctx.state.groupStdin;
-    if (stdin) {
-      this.ctx.state.groupStdin = stdin;
+    if (effectiveStdin) {
+      this.ctx.state.groupStdin = effectiveStdin;
     }
 
     try {
@@ -1678,7 +1929,9 @@ export class Interpreter {
     // Restore groupStdin
     this.ctx.state.groupStdin = savedGroupStdin;
 
-    return result(stdout, stderr, exitCode);
+    // Apply output redirections
+    const bodyResult = result(stdout, stderr, exitCode);
+    return applyRedirections(this.ctx, bodyResult, node.redirections);
   }
 
   // ===========================================================================
@@ -1704,14 +1957,29 @@ export class Interpreter {
   private async executeConditionalCommand(
     node: ConditionalCommandNode,
   ): Promise<ExecResult> {
+    // Pre-open output redirects to truncate files BEFORE evaluating expression
+    // This matches bash behavior where redirect files are opened before
+    // any command substitutions in the conditional expression are evaluated
+    const preOpenError = await preOpenOutputRedirects(
+      this.ctx,
+      node.redirections,
+    );
+    if (preOpenError) {
+      return preOpenError;
+    }
+
     try {
       const condResult = await evaluateConditional(this.ctx, node.expression);
-      return testResult(condResult);
+      // Apply output redirections
+      const bodyResult = testResult(condResult);
+      return applyRedirections(this.ctx, bodyResult, node.redirections);
     } catch (error) {
-      return failure(
+      // Apply output redirections before returning
+      const bodyResult = failure(
         `bash: conditional expression: ${(error as Error).message}\n`,
         2,
       );
+      return applyRedirections(this.ctx, bodyResult, node.redirections);
     }
   }
 }

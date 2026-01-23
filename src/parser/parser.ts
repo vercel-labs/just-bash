@@ -880,7 +880,22 @@ export class Parser {
         exprStr += ")";
         this.advance();
       } else {
-        exprStr += this.current().value;
+        const value = this.current().value;
+        // Add space between tokens, but not before operators that can form compounds
+        // (like | followed by = to form |=) or after operators that form compounds
+        const lastChar = exprStr.length > 0 ? exprStr[exprStr.length - 1] : "";
+        const needsSpace =
+          exprStr.length > 0 &&
+          !exprStr.endsWith(" ") &&
+          // Don't add space before = after operators that can form compound assignments
+          !(value === "=" && /[|&^+\-*/%<>]$/.test(exprStr)) &&
+          // Don't add space before second < or > (for << or >>)
+          !(value === "<" && lastChar === "<") &&
+          !(value === ">" && lastChar === ">");
+        if (needsSpace) {
+          exprStr += " ";
+        }
+        exprStr += value;
         this.advance();
       }
     }

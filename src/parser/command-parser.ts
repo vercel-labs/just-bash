@@ -128,6 +128,16 @@ export function parseSimpleCommand(p: Parser): SimpleCommandNode {
   // Parse command name
   if (p.isWord()) {
     name = p.parseWord();
+  } else if (
+    assignments.length > 0 &&
+    (p.check(TokenType.DBRACK_START) || p.check(TokenType.DPAREN_START))
+  ) {
+    // When we have prefix assignments (e.g., FOO=bar [[ ... ]]), compound command
+    // keywords are NOT recognized as keywords - they're treated as command names.
+    // In bash, this results in "command not found" because [[ and (( are looked up
+    // as regular commands (not special shell keywords).
+    const token = p.advance();
+    name = AST.word([AST.literal(token.value)]);
   }
 
   // Parse arguments and redirections
@@ -143,6 +153,11 @@ export function parseSimpleCommand(p: Parser): SimpleCommandNode {
       redirections.push(parseRedirection(p));
     } else if (p.check(TokenType.RBRACE)) {
       // } can be an argument like "echo }" - parse it as a word
+      const token = p.advance();
+      args.push(p.parseWordFromString(token.value, false, false));
+    } else if (p.check(TokenType.DBRACK_END)) {
+      // ]] can be an argument when [[ is parsed as a regular command
+      // (e.g., FOO=bar [[ foo == foo ]] where [[ is not recognized as keyword)
       const token = p.advance();
       args.push(p.parseWordFromString(token.value, false, false));
     } else if (p.isWord()) {

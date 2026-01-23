@@ -28,7 +28,6 @@ foo=bar
 # https://www.reddit.com/r/oilshell/comments/5ykpi3/oildev_is_alive/
 
 #### Prefix assignments persist after special builtins, like : (set -o posix)
-## SKIP: POSIX mode (set -o posix) not implemented
 case $SH in
   bash) set -o posix ;;
 esac
@@ -51,8 +50,7 @@ z=
 ## END
 
 #### Prefix assignments persist after readonly, but NOT exported (set -o posix)
-## SKIP: POSIX mode (set -o posix) not implemented
-
+## SKIP: POSIX mode export behavior needs more work
 # Bash only implements it behind the posix option
 case $SH in
   bash) set -o posix ;;
@@ -133,7 +131,6 @@ eval func echo hi
 
 
 #### Special builtins can't be redefined as shell functions (set -o posix)
-## SKIP: POSIX mode (set -o posix) not implemented
 case $SH in
   bash) set -o posix ;;
 esac

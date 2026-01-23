@@ -2,7 +2,10 @@
  * Variable assignment helpers for declare, readonly, local, export builtins.
  */
 
+import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
+import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
+import { evaluateArithmeticSync } from "../arithmetic.js";
 import { checkReadonlyError, markReadonly } from "../helpers/readonly.js";
 import type { InterpreterContext } from "../types.js";
 import { parseArrayElements } from "./declare.js";
@@ -15,10 +18,12 @@ export interface ParsedAssignment {
   isArray: boolean;
   arrayElements?: string[];
   value?: string;
+  /** For array index assignment: a[index]=value */
+  arrayIndex?: string;
 }
 
 /**
- * Parse an assignment argument like "name=value" or "name=(a b c)".
+ * Parse an assignment argument like "name=value", "name=(a b c)", or "name[index]=value".
  */
 export function parseAssignment(arg: string): ParsedAssignment {
   // Check for array assignment: name=(...)
@@ -28,6 +33,18 @@ export function parseAssignment(arg: string): ParsedAssignment {
       name: arrayMatch[1],
       isArray: true,
       arrayElements: parseArrayElements(arrayMatch[2]),
+    };
+  }
+
+  // Check for array index assignment: name[index]=value
+  // The index can be an arithmetic expression like 1*1 or 1+2
+  const indexMatch = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[([^\]]+)\]=(.*)$/s);
+  if (indexMatch) {
+    return {
+      name: indexMatch[1],
+      isArray: false,
+      arrayIndex: indexMatch[2],
+      value: indexMatch[3],
     };
   }
 
@@ -57,6 +74,24 @@ export interface SetVariableOptions {
 }
 
 /**
+ * Evaluate an array index expression (can be arithmetic).
+ */
+function evaluateArrayIndex(
+  ctx: InterpreterContext,
+  indexExpr: string,
+): number {
+  try {
+    const parser = new Parser();
+    const arithAst = parseArithmeticExpression(parser, indexExpr);
+    return evaluateArithmeticSync(ctx, arithAst.expression);
+  } catch {
+    // If parsing fails, try to parse as simple number
+    const num = parseInt(indexExpr, 10);
+    return Number.isNaN(num) ? 0 : num;
+  }
+}
+
+/**
  * Set a variable from a parsed assignment.
  * Returns an error result if the variable is readonly, otherwise null.
  */
@@ -65,7 +100,7 @@ export function setVariable(
   assignment: ParsedAssignment,
   options: SetVariableOptions = {},
 ): ExecResult | null {
-  const { name, isArray, arrayElements, value } = assignment;
+  const { name, isArray, arrayElements, value, arrayIndex } = assignment;
   const { makeReadonly = false, checkReadonly = true } = options;
 
   // Check if variable is readonly (if checking is enabled)
@@ -80,6 +115,15 @@ export function setVariable(
       ctx.state.env[`${name}_${i}`] = arrayElements[i];
     }
     ctx.state.env[`${name}__length`] = String(arrayElements.length);
+  } else if (arrayIndex !== undefined && value !== undefined) {
+    // Array index assignment: a[index]=value
+    const index = evaluateArrayIndex(ctx, arrayIndex);
+    ctx.state.env[`${name}_${index}`] = value;
+    // Update array length if needed (sparse arrays may have gaps)
+    const currentLength = parseInt(ctx.state.env[`${name}__length`] ?? "0", 10);
+    if (index >= currentLength) {
+      ctx.state.env[`${name}__length`] = String(index + 1);
+    }
   } else if (value !== undefined) {
     // Set scalar value
     ctx.state.env[name] = value;

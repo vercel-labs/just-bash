@@ -11,17 +11,203 @@
 import type { IFileSystem } from "../fs/interface.js";
 import { DEFAULT_BATCH_SIZE } from "../utils/constants.js";
 
+export interface GlobOptions {
+  globstar?: boolean;
+  nullglob?: boolean;
+  failglob?: boolean;
+  dotglob?: boolean;
+  extglob?: boolean;
+}
+
 export class GlobExpander {
+  private globignorePatterns: string[] = [];
+  private hasGlobignore = false;
+  private globstar = false;
+  private nullglob = false;
+  private failglob = false;
+  private dotglob = false;
+  private extglob = false;
+
   constructor(
     private fs: IFileSystem,
     private cwd: string,
-  ) {}
+    env?: Record<string, string>,
+    options?: GlobOptions | boolean, // boolean for backwards compatibility (globstar)
+  ) {
+    if (typeof options === "boolean") {
+      this.globstar = options;
+    } else if (options) {
+      this.globstar = options.globstar ?? false;
+      this.nullglob = options.nullglob ?? false;
+      this.failglob = options.failglob ?? false;
+      this.dotglob = options.dotglob ?? false;
+      this.extglob = options.extglob ?? false;
+    }
+    // Parse GLOBIGNORE if set
+    const globignore = env?.GLOBIGNORE;
+    if (globignore !== undefined && globignore !== "") {
+      this.hasGlobignore = true;
+      this.globignorePatterns = globignore.split(":");
+    }
+  }
+
+  /**
+   * Check if nullglob is enabled (return empty for non-matching patterns)
+   */
+  hasNullglob(): boolean {
+    return this.nullglob;
+  }
+
+  /**
+   * Check if failglob is enabled (throw error for non-matching patterns)
+   */
+  hasFailglob(): boolean {
+    return this.failglob;
+  }
+
+  /**
+   * Filter results based on GLOBIGNORE patterns
+   * When GLOBIGNORE is set, . and .. are always filtered
+   */
+  private filterGlobignore(results: string[]): string[] {
+    if (!this.hasGlobignore) {
+      return results;
+    }
+
+    return results.filter((path) => {
+      // Get the basename for matching
+      const basename = path.split("/").pop() || path;
+
+      // Always filter . and .. when GLOBIGNORE is set
+      if (basename === "." || basename === "..") {
+        return false;
+      }
+
+      // Check if path matches any GLOBIGNORE pattern
+      for (const ignorePattern of this.globignorePatterns) {
+        if (this.matchGlobignorePattern(path, ignorePattern)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }
+
+  /**
+   * Match a path against a GLOBIGNORE pattern
+   * GLOBIGNORE patterns are matched against the complete result path.
+   * Unlike regular glob matching, * does NOT match / in GLOBIGNORE patterns.
+   * This means *.txt filters "foo.txt" but NOT "dir/foo.txt".
+   */
+  private matchGlobignorePattern(path: string, pattern: string): boolean {
+    const regex = this.globignorePatternToRegex(pattern);
+    return regex.test(path);
+  }
+
+  /**
+   * Convert a GLOBIGNORE pattern to a RegExp.
+   * Unlike regular glob patterns, * does NOT match /.
+   */
+  private globignorePatternToRegex(pattern: string): RegExp {
+    let regex = "^";
+
+    for (let i = 0; i < pattern.length; i++) {
+      const c = pattern[i];
+
+      if (c === "*") {
+        // In GLOBIGNORE, * does NOT match /
+        regex += "[^/]*";
+      } else if (c === "?") {
+        // ? matches any single character except /
+        regex += "[^/]";
+      } else if (c === "[") {
+        // Character class - find the closing bracket
+        let j = i + 1;
+        let classContent = "[";
+
+        // Handle negation
+        if (j < pattern.length && (pattern[j] === "^" || pattern[j] === "!")) {
+          classContent += "^";
+          j++;
+        }
+
+        // Handle ] as first character (literal])
+        if (j < pattern.length && pattern[j] === "]") {
+          classContent += "\\]";
+          j++;
+        }
+
+        // Parse until closing ]
+        while (j < pattern.length && pattern[j] !== "]") {
+          // Check for POSIX character class [[:name:]]
+          if (
+            pattern[j] === "[" &&
+            j + 1 < pattern.length &&
+            pattern[j + 1] === ":"
+          ) {
+            const posixEnd = pattern.indexOf(":]", j + 2);
+            if (posixEnd !== -1) {
+              const posixClass = pattern.slice(j + 2, posixEnd);
+              const regexClass = this.posixClassToRegex(posixClass);
+              classContent += regexClass;
+              j = posixEnd + 2;
+              continue;
+            }
+          }
+
+          // Handle escaped characters in character class
+          if (pattern[j] === "\\" && j + 1 < pattern.length) {
+            classContent += `\\${pattern[j + 1]}`;
+            j += 2;
+            continue;
+          }
+
+          // Handle - as literal if at start/end
+          if (pattern[j] === "-") {
+            classContent += "\\-";
+          } else {
+            classContent += pattern[j];
+          }
+          j++;
+        }
+
+        classContent += "]";
+        regex += classContent;
+        i = j;
+      } else if (c === "\\" && i + 1 < pattern.length) {
+        // Escaped character - treat next char as literal
+        const nextChar = pattern[i + 1];
+        if (/[.+^${}()|\\*?[\]]/.test(nextChar)) {
+          regex += `\\${nextChar}`;
+        } else {
+          regex += nextChar;
+        }
+        i++;
+      } else if (/[.+^${}()|]/.test(c)) {
+        // Escape regex special characters
+        regex += `\\${c}`;
+      } else {
+        regex += c;
+      }
+    }
+
+    regex += "$";
+    return new RegExp(regex);
+  }
 
   /**
    * Check if a string contains glob characters
    */
   isGlobPattern(str: string): boolean {
-    return str.includes("*") || str.includes("?") || /\[.*\]/.test(str);
+    if (str.includes("*") || str.includes("?") || /\[.*\]/.test(str)) {
+      return true;
+    }
+    // Check for extglob patterns: @(...), *(...), +(...), ?(...), !(...)
+    if (this.extglob && /[@*+?!]\(/.test(str)) {
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -67,19 +253,65 @@ export class GlobExpander {
    * Expand a single glob pattern
    */
   async expand(pattern: string): Promise<string[]> {
-    // Handle ** (recursive) patterns
-    if (pattern.includes("**")) {
-      return this.expandRecursive(pattern);
+    let results: string[];
+
+    // Handle ** (recursive) patterns - only when globstar is enabled
+    // ** must be a complete path segment (surrounded by / or at boundaries)
+    if (
+      pattern.includes("**") &&
+      this.globstar &&
+      this.isGlobstarValid(pattern)
+    ) {
+      results = await this.expandRecursive(pattern);
+    } else {
+      // When globstar is disabled or ** is not a complete segment, treat ** as *
+      const normalizedPattern = pattern.replace(/\*\*+/g, "*");
+      results = await this.expandSimple(normalizedPattern);
     }
 
-    return this.expandSimple(pattern);
+    // Apply GLOBIGNORE filtering
+    return this.filterGlobignore(results);
+  }
+
+  /**
+   * Check if ** is used as a complete path segment (not adjacent to other chars).
+   * ** only recurses when it appears as a standalone segment like:
+   *   - ** at start
+   *   - / ** / in middle (no spaces)
+   *   - / ** at end (no spaces)
+   * NOT when adjacent to other characters like d** or **y
+   */
+  private isGlobstarValid(pattern: string): boolean {
+    // Check if all ** occurrences are valid complete segments
+    // A ** is valid if it's:
+    //   - At the start and followed by / or end
+    //   - In the middle surrounded by /
+    //   - At the end preceded by /
+    const segments = pattern.split("/");
+    for (const segment of segments) {
+      if (segment.includes("**")) {
+        // If segment is not exactly ** (possibly with more *), it's invalid
+        // e.g., "d**" or "**y" or "d**y" are invalid
+        if (segment !== "**") {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   /**
    * Check if a path segment contains glob characters
    */
   private hasGlobChars(str: string): boolean {
-    return str.includes("*") || str.includes("?") || /\[.*\]/.test(str);
+    if (str.includes("*") || str.includes("?") || /\[.*\]/.test(str)) {
+      return true;
+    }
+    // Check for extglob patterns: @(...), *(...), +(...), ?(...), !(...)
+    if (this.extglob && /[@*+?!]\(/.test(str)) {
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -167,8 +399,12 @@ export class GlobExpander {
         const matchPromises: Promise<string[]>[] = [];
 
         for (const entry of entriesWithTypes) {
-          // Skip hidden files unless pattern explicitly matches them
-          if (entry.name.startsWith(".") && !currentSegment.startsWith(".")) {
+          // Skip hidden files unless pattern explicitly matches them or dotglob is enabled
+          if (
+            entry.name.startsWith(".") &&
+            !currentSegment.startsWith(".") &&
+            !this.dotglob
+          ) {
             continue;
           }
 
@@ -214,8 +450,12 @@ export class GlobExpander {
         const matchPromises: Promise<string[]>[] = [];
 
         for (const entry of entries) {
-          // Skip hidden files unless pattern explicitly matches them
-          if (entry.startsWith(".") && !currentSegment.startsWith(".")) {
+          // Skip hidden files unless pattern explicitly matches them or dotglob is enabled
+          if (
+            entry.startsWith(".") &&
+            !currentSegment.startsWith(".") &&
+            !this.dotglob
+          ) {
             continue;
           }
 
@@ -407,10 +647,60 @@ export class GlobExpander {
    * Convert a glob pattern to a RegExp
    */
   private patternToRegex(pattern: string): RegExp {
-    let regex = "^";
+    const regex = this.patternToRegexStr(pattern);
+    return new RegExp(`^${regex}$`);
+  }
+
+  /**
+   * Convert a glob pattern to a regex string (without anchors)
+   */
+  private patternToRegexStr(pattern: string): string {
+    let regex = "";
 
     for (let i = 0; i < pattern.length; i++) {
       const c = pattern[i];
+
+      // Check for extglob patterns: @(...), *(...), +(...), ?(...), !(...)
+      if (
+        this.extglob &&
+        (c === "@" || c === "*" || c === "+" || c === "?" || c === "!") &&
+        i + 1 < pattern.length &&
+        pattern[i + 1] === "("
+      ) {
+        // Find the matching closing paren (handle nesting)
+        const closeIdx = this.findMatchingParen(pattern, i + 1);
+        if (closeIdx !== -1) {
+          const content = pattern.slice(i + 2, closeIdx);
+          // Split on | but handle nested extglob patterns
+          const alternatives = this.splitExtglobAlternatives(content);
+          // Convert each alternative recursively
+          const altRegexes = alternatives.map((alt) =>
+            this.patternToRegexStr(alt),
+          );
+          const altGroup =
+            altRegexes.length > 0 ? altRegexes.join("|") : "(?:)";
+
+          if (c === "@") {
+            // @(...) - match exactly one of the patterns
+            regex += `(?:${altGroup})`;
+          } else if (c === "*") {
+            // *(...) - match zero or more occurrences
+            regex += `(?:${altGroup})*`;
+          } else if (c === "+") {
+            // +(...) - match one or more occurrences
+            regex += `(?:${altGroup})+`;
+          } else if (c === "?") {
+            // ?(...) - match zero or one occurrence
+            regex += `(?:${altGroup})?`;
+          } else if (c === "!") {
+            // !(...) - match anything except the patterns
+            // This is tricky - we need a negative lookahead anchored to the end
+            regex += `(?!(?:${altGroup})$).*`;
+          }
+          i = closeIdx;
+          continue;
+        }
+      }
 
       if (c === "*") {
         regex += ".*";
@@ -489,8 +779,72 @@ export class GlobExpander {
       }
     }
 
-    regex += "$";
-    return new RegExp(regex);
+    return regex;
+  }
+
+  /**
+   * Find the matching closing parenthesis, handling nesting
+   */
+  private findMatchingParen(pattern: string, openIdx: number): number {
+    let depth = 1;
+    let i = openIdx + 1;
+    while (i < pattern.length && depth > 0) {
+      const c = pattern[i];
+      if (c === "\\") {
+        i += 2; // Skip escaped char
+        continue;
+      }
+      if (c === "(") {
+        depth++;
+      } else if (c === ")") {
+        depth--;
+        if (depth === 0) {
+          return i;
+        }
+      }
+      i++;
+    }
+    return -1;
+  }
+
+  /**
+   * Split extglob pattern content on | handling nested patterns
+   */
+  private splitExtglobAlternatives(content: string): string[] {
+    const alternatives: string[] = [];
+    let current = "";
+    let depth = 0;
+    let i = 0;
+
+    while (i < content.length) {
+      const c = content[i];
+      if (c === "\\") {
+        // Escaped character
+        current += c;
+        if (i + 1 < content.length) {
+          current += content[i + 1];
+          i += 2;
+        } else {
+          i++;
+        }
+        continue;
+      }
+      if (c === "(") {
+        depth++;
+        current += c;
+      } else if (c === ")") {
+        depth--;
+        current += c;
+      } else if (c === "|" && depth === 0) {
+        alternatives.push(current);
+        current = "";
+      } else {
+        current += c;
+      }
+      i++;
+    }
+    alternatives.push(current);
+    return alternatives;
   }
 
   /**

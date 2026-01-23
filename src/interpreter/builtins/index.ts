@@ -23,7 +23,7 @@
 export { handleBreak } from "./break.js";
 export { handleCd } from "./cd.js";
 export { handleContinue } from "./continue.js";
-export { handleDeclare, handleReadonly } from "./declare.js";
+export { handleDeclare, handleReadonly, isInteger } from "./declare.js";
 export { handleDirs, handlePopd, handlePushd } from "./dirs.js";
 export { handleEval } from "./eval.js";
 export { handleExit } from "./exit.js";

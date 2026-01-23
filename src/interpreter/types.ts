@@ -24,6 +24,35 @@ export interface ShellOptions {
   xtrace: boolean;
   /** set -v: Print shell input lines as they are read (verbose) */
   verbose: boolean;
+  /** set -o posix: POSIX mode for stricter compliance */
+  posix: boolean;
+  /** set -a: Export all variables */
+  allexport: boolean;
+  /** set -C: Prevent overwriting files with redirection */
+  noclobber: boolean;
+  /** set -f: Disable filename expansion (globbing) */
+  noglob: boolean;
+}
+
+export interface ShoptOptions {
+  /** shopt -s extglob: Enable extended globbing patterns @(), *(), +(), ?(), !() */
+  extglob: boolean;
+  /** shopt -s dotglob: Include dotfiles in glob expansion */
+  dotglob: boolean;
+  /** shopt -s nullglob: Return empty for non-matching globs instead of literal pattern */
+  nullglob: boolean;
+  /** shopt -s failglob: Fail if glob pattern has no matches */
+  failglob: boolean;
+  /** shopt -s globstar: Enable ** recursive glob patterns */
+  globstar: boolean;
+  /** shopt -s nocaseglob: Case-insensitive glob matching */
+  nocaseglob: boolean;
+  /** shopt -s nocasematch: Case-insensitive pattern matching in [[ ]] and case */
+  nocasematch: boolean;
+  /** shopt -s expand_aliases: Enable alias expansion */
+  expand_aliases: boolean;
+  /** shopt -s lastpipe: Run last command of pipeline in current shell context */
+  lastpipe: boolean;
 }
 
 export interface InterpreterState {
@@ -47,6 +76,8 @@ export interface InterpreterState {
   currentLine: number;
   /** Shell options (set -e, etc.) */
   options: ShellOptions;
+  /** Shopt options (shopt -s, etc.) */
+  shoptOptions: ShoptOptions;
   /** True when executing condition for if/while/until (errexit doesn't apply) */
   inCondition: boolean;
   /** Current loop nesting depth (for break/continue) */
@@ -67,6 +98,16 @@ export interface InterpreterState {
   directoryStack?: string[];
   /** Set of variable names that are namerefs (declare -n) */
   namerefs?: Set<string>;
+  /** Set of variable names that have integer attribute (declare -i) */
+  integerVars?: Set<string>;
+  /** Hash table for PATH command lookup caching */
+  hashTable?: Map<string, string>;
+  /** Set of exported variable names */
+  exportedVars?: Set<string>;
+  /** Stack of call line numbers for BASH_LINENO */
+  callLineStack?: number[];
+  /** File descriptors for process substitution and here-docs */
+  fileDescriptors?: Map<number, string>;
 }
 
 export interface InterpreterContext {

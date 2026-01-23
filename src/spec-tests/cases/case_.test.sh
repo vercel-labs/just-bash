@@ -209,7 +209,6 @@ sum=255
 ## END
 
 #### \(\) in pattern (regression)
-## SKIP: extglob not implemented
 s='foo()'
 
 case $s in

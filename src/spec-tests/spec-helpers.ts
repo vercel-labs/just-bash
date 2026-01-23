@@ -10,18 +10,25 @@ import type { Command } from "../types.js";
 
 // argv.py - prints arguments in Python repr() format: ['arg1', "arg with '"]
 // Python uses single quotes by default, double quotes when string contains single quotes
+// Special characters like \n, \r, \t are escaped in repr format
 export const argvCommand: Command = defineCommand("argv.py", async (args) => {
   const formatted = args.map((arg) => {
+    // First escape special characters in Python repr format
+    let escaped = arg
+      .replace(/\\/g, "\\\\")
+      .replace(/\n/g, "\\n")
+      .replace(/\r/g, "\\r")
+      .replace(/\t/g, "\\t");
+
     const hasSingleQuote = arg.includes("'");
     const hasDoubleQuote = arg.includes('"');
 
     if (hasSingleQuote && !hasDoubleQuote) {
       // Use double quotes when string contains single quotes but no double quotes
-      const escaped = arg.replace(/\\/g, "\\\\");
       return `"${escaped}"`;
     }
-    // Default: use single quotes (escape single quotes and backslashes)
-    const escaped = arg.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    // Default: use single quotes (escape single quotes)
+    escaped = escaped.replace(/'/g, "\\'");
     return `'${escaped}'`;
   });
   return { stdout: `[${formatted.join(", ")}]\n`, stderr: "", exitCode: 0 };

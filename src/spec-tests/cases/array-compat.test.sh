@@ -36,7 +36,6 @@ argv.py "${c[@]}"
 ## END
 
 #### strict_array: $array is not valid in OSH, is ${array[0]} in ksh/bash
-## SKIP: strict_array shopt not implemented
 shopt -s strict_array
 
 a=(1 '2 3')
@@ -48,7 +47,6 @@ echo $a
 ## OK osh stdout-json: ""
 
 #### strict_array: ${array} is not valid in OSH, is ${array[0]} in ksh/bash
-## SKIP: strict_array shopt not implemented
 shopt -s strict_array
 
 a=(1 '2 3')

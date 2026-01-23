@@ -41,7 +41,6 @@ done
 ## END
 
 #### Accepts { } syntax too
-## SKIP: Brace syntax for C-style for loops not implemented
 for ((a=1; a <= 3; a++)) {
   echo $a
 }

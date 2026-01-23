@@ -15,7 +15,6 @@ echo ref ${!a} ${a}
 ## stdout: ref c b
 
 #### ${!ref-default}
-## SKIP: Right brace in parameter default value not implemented
 ref=x
 echo x=${!ref-default}
 
@@ -185,7 +184,6 @@ myfunc
 
 
 #### Var ref, then assignment with ${ := }
-## SKIP: Indirect expansion with assignment not implemented
 z=zz
 zz=
 echo ${!z:=foo}
@@ -196,7 +194,6 @@ foo
 ## END
 
 #### Var ref, then error with ${ ? }
-## SKIP: Indirect expansion with error not implemented
 w=ww
 ww=
 echo ${!w:?'my message'}
@@ -269,7 +266,6 @@ echo ok
 ## stdout: ok
 
 #### var ref OF array var -- silent a[0] decay
-## SKIP: Indirect expansion of arrays not fully implemented
 declare -a a=(ale bean)
 echo first=${!a}
 
@@ -306,7 +302,6 @@ ale
 ## END
 
 #### var ref TO array var
-## SKIP: Indirect expansion to arrays not fully implemented
 shopt -s compat_array
 
 declare -a array=(ale bean)

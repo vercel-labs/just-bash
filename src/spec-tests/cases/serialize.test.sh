@@ -10,7 +10,6 @@
 # TODO: Also see spec/xtrace for another use case.
 
 #### printf %q newline
-## SKIP: printf %q / set output format not implemented
 case $SH in ash) return ;; esac  # yash and ash don't implement this
 
 newline=$'one\ntwo'
@@ -35,7 +34,6 @@ roundtrip-ok
 ## N-I ash stdout-json: ""
 
 #### printf %q spaces
-## SKIP: printf %q / set output format not implemented
 case $SH in ash) return ;; esac  # yash and ash don't implement this
 
 # bash does a weird thing and uses \
@@ -52,7 +50,6 @@ one\ two
 ## N-I ash stdout-json: ""
 
 #### printf %q quotes
-## SKIP: printf %q / set output format not implemented
 case $SH in ash) return ;; esac  # yash and ash don't implement %q
 
 quotes=\'\"

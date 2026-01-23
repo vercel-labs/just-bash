@@ -2,42 +2,15 @@
  * local - Declare local variables in functions builtin
  */
 
+import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
+import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
+import { evaluateArithmeticSync } from "../arithmetic.js";
 import { markNameref } from "../helpers/nameref.js";
 import { failure, result } from "../helpers/result.js";
+import { expandTildesInValue } from "../helpers/tilde.js";
 import type { InterpreterContext } from "../types.js";
 import { parseArrayElements } from "./declare.js";
-
-/**
- * Expand tildes in assignment values (PATH-like expansion)
- * - ~ at start expands to HOME
- * - ~ after : expands to HOME (for PATH-like values)
- * - ~username expands to user's home (only root supported)
- */
-function expandTildesInValue(ctx: InterpreterContext, value: string): string {
-  const home = ctx.state.env.HOME || "/home/user";
-
-  // Split by : to handle PATH-like values
-  const parts = value.split(":");
-  const expanded = parts.map((part) => {
-    if (part === "~") {
-      return home;
-    }
-    if (part === "~root") {
-      return "/root";
-    }
-    if (part.startsWith("~/")) {
-      return home + part.slice(1);
-    }
-    if (part.startsWith("~root/")) {
-      return `/root${part.slice(5)}`;
-    }
-    // ~otheruser stays literal (can't verify user exists)
-    return part;
-  });
-
-  return expanded.join(":");
-}
 
 export function handleLocal(
   ctx: InterpreterContext,
@@ -51,16 +24,20 @@ export function handleLocal(
   let stderr = "";
   let exitCode = 0;
   let declareNameref = false;
+  let declareArray = false;
 
   // Parse flags
   const processedArgs: string[] = [];
   for (const arg of args) {
     if (arg === "-n") {
       declareNameref = true;
+    } else if (arg === "-a") {
+      declareArray = true;
     } else if (arg.startsWith("-") && !arg.includes("=")) {
-      // Handle combined flags like -n
+      // Handle combined flags like -na
       for (const flag of arg.slice(1)) {
         if (flag === "n") declareNameref = true;
+        else if (flag === "a") declareArray = true;
         // Other flags are ignored for now
       }
     } else {
@@ -121,6 +98,89 @@ export function handleLocal(
       continue;
     }
 
+    // Check for += append syntax
+    const appendMatch = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\+=(.*)$/);
+    if (appendMatch) {
+      name = appendMatch[1];
+      const appendValue = expandTildesInValue(ctx, appendMatch[2]);
+
+      // Save previous value for scope restoration
+      if (!currentScope.has(name)) {
+        currentScope.set(name, ctx.state.env[name]);
+      }
+
+      // Append to existing value (or set if not defined)
+      const existing = ctx.state.env[name] ?? "";
+      ctx.state.env[name] = existing + appendValue;
+
+      // Mark as nameref if -n flag was used
+      if (declareNameref) {
+        markNameref(ctx, name);
+      }
+      continue;
+    }
+
+    // Check for array index assignment: name[index]=value
+    const indexMatch = arg.match(
+      /^([a-zA-Z_][a-zA-Z0-9_]*)\[([^\]]+)\]=(.*)$/s,
+    );
+    if (indexMatch) {
+      name = indexMatch[1];
+      const indexExpr = indexMatch[2];
+      const indexValue = expandTildesInValue(ctx, indexMatch[3]);
+
+      // Save previous array values for scope restoration
+      if (!currentScope.has(name)) {
+        currentScope.set(name, ctx.state.env[name]);
+        // Also save array elements
+        const prefix = `${name}_`;
+        for (const key of Object.keys(ctx.state.env)) {
+          if (key.startsWith(prefix) && !key.includes("__")) {
+            if (!currentScope.has(key)) {
+              currentScope.set(key, ctx.state.env[key]);
+            }
+          }
+        }
+        const lengthKey = `${name}__length`;
+        if (
+          ctx.state.env[lengthKey] !== undefined &&
+          !currentScope.has(lengthKey)
+        ) {
+          currentScope.set(lengthKey, ctx.state.env[lengthKey]);
+        }
+      }
+
+      // Evaluate the index (can be arithmetic expression)
+      let index: number;
+      try {
+        const parser = new Parser();
+        const arithAst = parseArithmeticExpression(parser, indexExpr);
+        index = evaluateArithmeticSync(ctx, arithAst.expression);
+      } catch {
+        // If parsing fails, try to parse as simple number
+        const num = parseInt(indexExpr, 10);
+        index = Number.isNaN(num) ? 0 : num;
+      }
+
+      // Set the array element
+      ctx.state.env[`${name}_${index}`] = indexValue;
+
+      // Update array length if needed
+      const currentLength = parseInt(
+        ctx.state.env[`${name}__length`] ?? "0",
+        10,
+      );
+      if (index >= currentLength) {
+        ctx.state.env[`${name}__length`] = String(index + 1);
+      }
+
+      // Mark as nameref if -n flag was used
+      if (declareNameref) {
+        markNameref(ctx, name);
+      }
+      continue;
+    }
+
     if (arg.includes("=")) {
       const eqIdx = arg.indexOf("=");
       name = arg.slice(0, eqIdx);
@@ -138,8 +198,39 @@ export function handleLocal(
 
     if (!currentScope.has(name)) {
       currentScope.set(name, ctx.state.env[name]);
+      // Also save array elements if -a flag is used
+      if (declareArray) {
+        const prefix = `${name}_`;
+        for (const key of Object.keys(ctx.state.env)) {
+          if (key.startsWith(prefix) && !key.includes("__")) {
+            if (!currentScope.has(key)) {
+              currentScope.set(key, ctx.state.env[key]);
+            }
+          }
+        }
+        // Save length metadata too
+        const lengthKey = `${name}__length`;
+        if (
+          ctx.state.env[lengthKey] !== undefined &&
+          !currentScope.has(lengthKey)
+        ) {
+          currentScope.set(lengthKey, ctx.state.env[lengthKey]);
+        }
+      }
     }
-    if (value !== undefined) {
+
+    // If -a flag is used, create an empty local array
+    if (declareArray && value === undefined) {
+      // Clear existing array elements
+      const prefix = `${name}_`;
+      for (const key of Object.keys(ctx.state.env)) {
+        if (key.startsWith(prefix) && !key.includes("__")) {
+          delete ctx.state.env[key];
+        }
+      }
+      // Mark as empty array
+      ctx.state.env[`${name}__length`] = "0";
+    } else if (value !== undefined) {
       ctx.state.env[name] = value;
     }
 

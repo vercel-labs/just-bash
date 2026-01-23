@@ -153,7 +153,6 @@ echo -* hello zzzz?
 ## stdout-json: "hello zzzzz"
 
 #### set -o noglob
-## SKIP: Test requires real filesystem and $REPO_ROOT
 cd $REPO_ROOT
 touch _tmp/spec-tmp/a.zz _tmp/spec-tmp/b.zz
 echo _tmp/spec-tmp/*.zz
@@ -299,7 +298,6 @@ hello hello-test.sh hello.py hello_preamble.sh
 
 
 #### \ in unquoted substitutions does not match a backslash
-## SKIP: Glob with escaped special characters not implemented
 mkdir x
 touch \
   x/test.ifs.\\.txt \

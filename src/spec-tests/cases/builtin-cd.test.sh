@@ -119,7 +119,7 @@ dir-one
 ## END
 
 #### pwd with symlink and -P
-## SKIP: Symbolic links (ln -s) not implemented
+## SKIP: pwd -P symlink resolution to physical path not implemented
 tmp=$TMP/builtins-pwd-1
 mkdir -p $tmp/target
 ln -s -f $tmp/target $tmp/symlink
@@ -216,7 +216,7 @@ status=1
 ## END
 
 #### pwd in symlinked dir on shell initialization
-## SKIP: Symbolic links (ln -s) not implemented
+## SKIP: pwd -P symlink resolution to physical path not implemented
 tmp=$TMP/builtins-pwd-2
 mkdir -p $tmp
 mkdir -p $tmp/target
@@ -286,7 +286,7 @@ echo $PWD
 ## stdout: /
 
 #### cd to symlink with -L and -P
-## SKIP: Symbolic links (ln -s) not implemented
+## SKIP: cd -P symlink resolution to physical path not implemented
 targ=$TMP/cd-symtarget
 lnk=$TMP/cd-symlink
 mkdir -p $targ
@@ -308,7 +308,7 @@ OK
 ## END
 
 #### cd to relative path with -L and -P
-## SKIP: Symbolic links (ln -s) not implemented
+## SKIP: cd -P symlink resolution to physical path not implemented
 die() { echo "$@"; exit 1; }
 
 targ=$TMP/cd-symtarget/subdir

@@ -1,7 +1,6 @@
 ## compare_shells: bash
 
 #### Tilde expansions in RHS of [k]=v (BashArray)
-## SKIP: Tilde expansion in array literal not implemented
 HOME=/home/user
 a=([2]=~ [4]=~:~:~)
 echo "${a[2]}"
@@ -12,7 +11,7 @@ echo "${a[4]}"
 ## END
 
 #### Tilde expansions in RHS of [k]=v (BashAssoc)
-## SKIP: Tilde expansion in array literal not implemented
+## SKIP: We produce correct output but test expects bash BUG output (bash-5.2 tilde bug)
 # Note: bash-5.2 has a bug that the tilde doesn't expand on the right hand side
 # of [key]=value.  This problem doesn't happen in bash-3.1..5.1 and bash-5.3.
 HOME=/home/user
@@ -253,7 +252,7 @@ echo ${a["k2"]}
 ## END
 
 #### [k1]=v1 looking like brace expansions (BashArray)
-## SKIP: We produce correct output -\{a,b\}- but test expects bash BUG [k2]=-a-
+## SKIP: We produce correct output -{a,b}- but test expects bash BUG [k2]=-a-
 a=([k2]=-{a,b}-)
 echo ${a["k2"]}
 ## STDOUT:

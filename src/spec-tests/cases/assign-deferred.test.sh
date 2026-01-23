@@ -15,7 +15,6 @@ status=0
 ## END
 
 #### typeset -a a[1]=a a[3]=c
-## SKIP: typeset with array index assignment (a[n]=val) not implemented
 # declare works the same way in bash, but not mksh.
 # spaces are NOT allowed here.
 typeset -a a[1*1]=x a[1+2]=z

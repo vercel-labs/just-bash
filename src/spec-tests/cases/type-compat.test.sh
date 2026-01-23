@@ -10,8 +10,6 @@
 
 
 #### declare -i -l -u errors can be silenced - ignore_flags_not_impl
-## SKIP: declare -i not implemented
-
 declare -i foo=2+3
 echo status=$?
 echo foo=$foo
@@ -41,7 +39,6 @@ bar=5
 ## END
 
 #### declare -i with +=
-## SKIP: declare -i not implemented
 declare s
 s='1 '
 s+=' 2 '  # string append
@@ -69,8 +66,6 @@ echo [$j]
 ## END
 
 #### declare -i with arithmetic inside strings (Nix, issue 864)
-## SKIP: declare -i not implemented
-
 # example
 # https://github.com/NixOS/nixpkgs/blob/master/pkgs/stdenv/generic/setup.sh#L379
 

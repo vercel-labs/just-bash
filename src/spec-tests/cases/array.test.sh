@@ -353,7 +353,6 @@ argv.py "${a[@]:(-4)}"
 ## N-I mksh stdout-json: ""
 
 #### Negative slice length
-## SKIP: Negative slice length should error but returns data
 a=(1 2 3 4 5)
 argv.py "${a[@]: 1: -3}"
 ## status: 1
@@ -535,7 +534,6 @@ echo ${#c[@]} ${#d[@]}
 ## END
 
 #### declare -a / local -a is empty array
-## SKIP: local -a inside function does not create new local array scope
 declare -a myarray
 argv.py "${myarray[@]}"
 myarray+=('x')
@@ -776,7 +774,6 @@ dbracket
 
 
 #### More arith expressions in [[ -v array[expr]] ]] 
-## SKIP: [[ ]] runtime and env prefix edge cases not implemented
 
 typeset -a array
 array=('' nonempty)

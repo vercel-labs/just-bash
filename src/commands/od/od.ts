@@ -9,37 +9,41 @@
 
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 
+type OutputFormat = "octal" | "hex" | "char";
+
 async function odExecute(
   args: string[],
   ctx: CommandContext,
 ): Promise<ExecResult> {
   // Parse options
-  let charMode = false;
   let addressMode: "octal" | "none" = "octal";
-  let outputFormat: "octal" | "hex" | "char" = "octal";
+  const outputFormats: OutputFormat[] = [];
   const fileArgs: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "-c") {
-      charMode = true;
-      outputFormat = "char";
+      outputFormats.push("char");
     } else if (arg === "-An" || (arg === "-A" && args[i + 1] === "n")) {
       addressMode = "none";
       if (arg === "-A") i++; // Skip the "n" argument
     } else if (arg === "-t" && args[i + 1]) {
       const format = args[++i];
       if (format === "x1") {
-        outputFormat = "hex";
+        outputFormats.push("hex");
       } else if (format === "c") {
-        outputFormat = "char";
-        charMode = true;
+        outputFormats.push("char");
       } else if (format.startsWith("o")) {
-        outputFormat = "octal";
+        outputFormats.push("octal");
       }
     } else if (!arg.startsWith("-") || arg === "-") {
       fileArgs.push(arg);
     }
+  }
+
+  // Default to octal if no format specified
+  if (outputFormats.length === 0) {
+    outputFormats.push("octal");
   }
 
   // Get input - from file or stdin
@@ -61,56 +65,81 @@ async function odExecute(
     }
   }
 
-  if (charMode) {
-    // Character mode: show each character with escapes for special chars
-    const chars: string[] = [];
-    for (const char of input) {
-      const code = char.charCodeAt(0);
-      if (code === 0) chars.push("\\0");
-      else if (code === 9) chars.push("\\t");
-      else if (code === 10) chars.push("\\n");
-      else if (code === 13) chars.push("\\r");
-      else if (code === 32) chars.push(" ");
-      else if (code >= 32 && code < 127) chars.push(` ${char}`);
-      else chars.push(`\\${code.toString(8).padStart(3, "0")}`);
+  // Format a single byte for character mode
+  function formatCharByte(code: number): string {
+    if (code === 0) return "\\0";
+    if (code === 7) return "\\a";
+    if (code === 8) return "\\b";
+    if (code === 9) return "\\t";
+    if (code === 10) return "\\n";
+    if (code === 11) return "\\v";
+    if (code === 12) return "\\f";
+    if (code === 13) return "\\r";
+    if (code >= 32 && code < 127) {
+      // Printable ASCII - right-align in 3-char field
+      return ` ${String.fromCharCode(code)}`;
     }
-
-    // Format in groups of 16
-    const lines: string[] = [];
-    for (let i = 0; i < chars.length; i += 16) {
-      const chunk = chars.slice(i, i + 16);
-      const prefix =
-        addressMode === "none" ? "" : `${i.toString(8).padStart(7, "0")} `;
-      lines.push(prefix + chunk.join(" "));
-    }
-    if (addressMode !== "none") {
-      lines.push(input.length.toString(8).padStart(7, "0"));
-    }
-    return { stdout: `${lines.join("\n")}\n`, stderr: "", exitCode: 0 };
+    // Non-printable - use octal
+    return `\\${code.toString(8).padStart(3, "0")}`;
   }
 
-  // Hex or octal dump
-  const bytes: string[] = [];
+  // Format a single byte for hex mode
+  function formatHexByte(code: number): string {
+    return code.toString(16).padStart(2, "0");
+  }
+
+  // Format a single byte for octal mode
+  function formatOctalByte(code: number): string {
+    return code.toString(8).padStart(3, "0");
+  }
+
+  // Get bytes from input
+  const bytes: number[] = [];
   for (const char of input) {
-    const code = char.charCodeAt(0);
-    if (outputFormat === "hex") {
-      bytes.push(code.toString(16).padStart(2, "0"));
-    } else {
-      bytes.push(code.toString(8).padStart(3, "0"));
+    bytes.push(char.charCodeAt(0));
+  }
+
+  // Determine bytes per line (use 16 for hex/char compatibility)
+  const bytesPerLine = 16;
+
+  // Build output lines
+  const lines: string[] = [];
+
+  for (let offset = 0; offset < bytes.length; offset += bytesPerLine) {
+    const chunkBytes = bytes.slice(offset, offset + bytesPerLine);
+
+    // For each output format, generate a line
+    for (let formatIdx = 0; formatIdx < outputFormats.length; formatIdx++) {
+      const format = outputFormats[formatIdx];
+      let formatted: string[];
+
+      if (format === "char") {
+        formatted = chunkBytes.map(formatCharByte);
+      } else if (format === "hex") {
+        formatted = chunkBytes.map(formatHexByte);
+      } else {
+        formatted = chunkBytes.map(formatOctalByte);
+      }
+
+      // Add address prefix only for the first format of each offset
+      let prefix = "";
+      if (formatIdx === 0 && addressMode !== "none") {
+        prefix = `${offset.toString(8).padStart(7, "0")} `;
+      } else if (formatIdx > 0 || addressMode === "none") {
+        // For subsequent formats or no-address mode, just use spaces
+        prefix = addressMode === "none" ? "" : "        ";
+      }
+
+      // Use single space for most modes, but different spacing may be needed
+      lines.push(prefix + formatted.join(" "));
     }
   }
 
-  const bytesPerLine = outputFormat === "hex" ? 16 : 8;
-  const lines: string[] = [];
-  for (let i = 0; i < bytes.length; i += bytesPerLine) {
-    const chunk = bytes.slice(i, i + bytesPerLine);
-    const prefix =
-      addressMode === "none" ? "" : `${i.toString(8).padStart(7, "0")} `;
-    lines.push(prefix + chunk.join(" "));
-  }
+  // Add final address
   if (addressMode !== "none" && bytes.length > 0) {
-    lines.push(input.length.toString(8).padStart(7, "0"));
+    lines.push(bytes.length.toString(8).padStart(7, "0"));
   }
+
   return {
     stdout: lines.length > 0 ? `${lines.join("\n")}\n` : "",
     stderr: "",

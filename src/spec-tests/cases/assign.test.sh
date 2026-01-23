@@ -172,7 +172,6 @@ a=1 echo b[0]=2 c=3
 ## OK zsh status: 1
 
 #### dynamic local variables (and splitting)
-## SKIP: Dynamic local variable names not implemented
 f() {
   local "$1"  # Only x is assigned here
   echo x=\'$x\'

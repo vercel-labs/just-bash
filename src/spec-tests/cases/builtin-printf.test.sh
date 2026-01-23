@@ -58,7 +58,6 @@ OK
 ## N-I dash status: 1
 
 #### printf -v a[1]
-## SKIP: printf -v with array subscript not implemented
 a=(a b c)
 printf -v 'a[1]' %s 'foo'
 echo status=$?
@@ -974,7 +973,6 @@ status=1
 ## END
 
 #### %(strftime format)T
-## SKIP: Printf strftime format (%(...)T) not implemented
 # The result depends on timezone
 export TZ=Asia/Tokyo
 printf '%(%Y-%m-%d)T\n' 1557978599
@@ -994,7 +992,7 @@ status=2
 ## END
 
 #### %(strftime format)T doesn't respect TZ if not exported
-## SKIP: Printf strftime format (%(...)T) not implemented
+## SKIP: JavaScript Date API cannot differentiate exported vs non-exported TZ
 
 # note: this test leaks!  It assumes that /etc/localtime is NOT Portugal.
 
@@ -1017,7 +1015,6 @@ not equal
 ## N-I mksh/zsh/ash/dash stdout-json: ""
 
 #### %(strftime format)T TZ in environ but not in shell's memory
-## SKIP: Printf strftime format (%(...)T) not implemented
 
 # note: this test leaks!  It assumes that /etc/localtime is NOT Portugal.
 
@@ -1039,7 +1036,6 @@ not equal
 ## N-I mksh/zsh/ash/dash stdout-json: ""
 
 #### %10.5(strftime format)T
-## SKIP: Printf strftime format (%(...)T) not implemented
 # The result depends on timezone
 export TZ=Asia/Tokyo
 printf '[%10.5(%Y-%m-%d)T]\n' 1557978599
@@ -1066,7 +1062,7 @@ xz
 ## END
 
 #### bash truncates long strftime string at 128
-## SKIP: strftime not implemented
+## SKIP: Bash-specific 128-byte strftime buffer truncation not implemented
 
 case $SH in ash|dash|mksh|zsh) exit ;; esac
 

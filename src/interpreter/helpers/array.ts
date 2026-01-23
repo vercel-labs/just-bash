@@ -138,6 +138,14 @@ export function wordToLiteralString(word: WordNode): string {
           .join(",");
         result += "}";
         break;
+      case "TildeExpansion":
+        // Convert TildeExpansion node back to ~ or ~user literal
+        // The caller will handle actual tilde expansion
+        result += "~";
+        if (part.user) {
+          result += part.user;
+        }
+        break;
       // Skip other types (parameter expansions, command substitutions, etc.)
     }
   }

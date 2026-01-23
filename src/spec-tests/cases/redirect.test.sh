@@ -93,7 +93,6 @@ echo "status=$?"
 ## OK dash status: 2
 
 #### Redirect echo to stderr, and then redirect all of stdout somewhere.
-## SKIP: Stderr output inside command block with stdout redirect not working
 { echo foo52 1>&2; echo 012345789; } > $TMP/block-stdout.txt
 cat $TMP/block-stdout.txt |  wc -c 
 ## stderr: foo52
@@ -243,7 +242,6 @@ four
 ## status: 0
 
 #### >| to clobber
-## SKIP: noclobber (set -C) not implemented
 echo XX >| $TMP/c.txt
 
 set -o noclobber
@@ -519,7 +517,6 @@ cat file1
 ## N-I mksh/dash status: 1
 
 #### noclobber can still write to non-regular files like /dev/null
-## SKIP: noclobber (set -C) not implemented
 set -C  # noclobber
 set -e  # errexit (raise any redirection errors)
 

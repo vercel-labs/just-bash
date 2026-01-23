@@ -37,7 +37,6 @@ str=2
 ## END
 
 #### test -v with arrays
-## SKIP: test -v with arrays not fully implemented
 
 typeset -a a
 
@@ -88,7 +87,6 @@ a[x]=2
 ## END
 
 #### test -v with assoc arrays
-## SKIP: Associative array value coercion in arithmetic not implemented
 
 typeset -A A
 

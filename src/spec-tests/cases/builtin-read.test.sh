@@ -531,7 +531,6 @@ v1= v2= v3=
 ## END
 
 #### read -d '' (null-separated records)
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 printf 'a,b,c\0d,e,f\0g,h,i' | {
   IFS=,
   read -d '' v1
@@ -553,7 +552,6 @@ v1= v2= v3=
 ## END
 
 #### read -rd
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 read -rd '' var <<EOF
 foo
 bar
@@ -568,7 +566,6 @@ bar
 ## END
 
 #### read -d when there's no delimiter
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 { read -d : part
   echo $part $?
   read -d : part
@@ -639,7 +636,6 @@ echo $?
 ## BUG zsh status: 1
 
 #### read -u
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in dash|mksh) exit ;; esac
 
 # file descriptor
@@ -663,7 +659,6 @@ status=1
 ## END
 
 #### read -u -s
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in dash|mksh) exit ;; esac
 
 # file descriptor
@@ -677,7 +672,6 @@ reply=hi
 ## N-I dash/mksh stdout-json: ""
 
 #### read -u 3 -d 5
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in dash|mksh) exit ;; esac
 
 # file descriptor
@@ -691,7 +685,6 @@ reply=1234
 ## N-I dash/mksh stdout-json: ""
 
 #### read -u 3 -d b -N 6
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in ash|zsh) exit ;; esac
 
 # file descriptor
@@ -757,7 +750,6 @@ status=2
 ## BUG zsh status: 1
 
 #### read with smooshed args
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 echo hi | { read -rn1 var; echo var=$var; }
 ## STDOUT:
 var=h
@@ -767,9 +759,6 @@ var=
 ## END
 
 #### read -r -d '' for NUL strings, e.g. find -print0
-## SKIP: Glob with escaped special characters not implemented
-
-
 case $SH in dash|zsh|mksh) exit ;; esac  # NOT IMPLEMENTED
 
 mkdir -p read0

@@ -238,7 +238,6 @@ status=0
 ## END
 
 #### command -V nonexistent
-## SKIP: command -V error output should go to stderr, not stdout
 command -V nonexistent 2>err.txt
 echo status=$?
 fgrep -o 'nonexistent: not found' err.txt || true
@@ -299,7 +298,7 @@ command command -v seq
 ## N-I zsh status: 127
 
 #### command -p (override existing program)
-## SKIP: command -p not implemented
+## SKIP: user scripts in PATH not executable (command shadowing)
 # Tests whether command -p overrides the path
 # tr chosen because we need a simple non-builtin
 mkdir -p $TMP/bin
@@ -347,7 +346,6 @@ status=1
 ## END
 
 #### builtin
-## SKIP: builtin keyword not implemented
 cd () { echo "hi"; }
 cd
 builtin cd / && pwd
@@ -361,13 +359,11 @@ hi
 ## END
 
 #### builtin ls not found
-## SKIP: builtin keyword not implemented
 builtin ls
 ## status: 1
 ## N-I dash/ash status: 127
 
 #### builtin usage
-## SKIP: builtin keyword not implemented
 
 builtin
 echo status=$?

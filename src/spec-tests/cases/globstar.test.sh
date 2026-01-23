@@ -2,7 +2,6 @@
 ## compare_shells: bash zsh
 
 #### globstar is off -> ** is treated like *
-## SKIP: globstar (shopt -s globstar) not implemented
 case $SH in zsh) exit ;; esac
 
 shopt -u globstar
@@ -18,7 +17,7 @@ c/leaf.md
 ## END
 
 #### each occurrence of ** recurses through all depths
-## SKIP: globstar (shopt -s globstar) not implemented
+## SKIP: multiple ** in single pattern not implemented
 shopt -s globstar
 
 mkdir -p c/subdir
@@ -62,7 +61,6 @@ c/subdir/leaf.md
 ## END
 
 #### ** behaves like * if adjacent to anything other than /
-## SKIP: globstar (shopt -s globstar) not implemented
 shopt -s globstar
 
 mkdir directory
@@ -83,7 +81,6 @@ directory/leaf.md
 ## END
 
 #### in zsh, ***/ follows symlinked directories, while **/ does not
-## SKIP: Symbolic links (ln -s) not implemented
 case $SH in bash) exit ;; esac
 
 mkdir directory-1

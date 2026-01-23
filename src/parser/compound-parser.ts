@@ -185,9 +185,17 @@ function parseCStyleFor(p: Parser): CStyleForNode {
   }
   p.skipNewlines();
 
-  p.expect(TokenType.DO);
-  const body = p.parseCompoundList();
-  p.expect(TokenType.DONE);
+  // Accept either do...done or { } for body (bash allows both)
+  let body: ReturnType<typeof p.parseCompoundList>;
+  if (p.check(TokenType.LBRACE)) {
+    p.advance();
+    body = p.parseCompoundList();
+    p.expect(TokenType.RBRACE);
+  } else {
+    p.expect(TokenType.DO);
+    body = p.parseCompoundList();
+    p.expect(TokenType.DONE);
+  }
 
   const redirections = p.parseOptionalRedirections();
 

@@ -154,6 +154,19 @@ export class BadSubstitutionError extends ControlFlowError {
 }
 
 /**
+ * Error thrown when failglob is enabled and a glob pattern has no matches.
+ * Returns exit code 1.
+ */
+export class GlobError extends ControlFlowError {
+  readonly name = "GlobError";
+
+  constructor(pattern: string, stdout: string = "", stderr: string = "") {
+    super(`no match: ${pattern}`, stdout, stderr);
+    this.stderr = stderr || `bash: no match: ${pattern}\n`;
+  }
+}
+
+/**
  * Error thrown when execution limits are exceeded (recursion depth, command count, loop iterations).
  * This should ALWAYS be thrown before JavaScript's native RangeError kicks in.
  * Exit code 126 indicates a limit was exceeded.

@@ -21,9 +21,11 @@ import { Parser } from "../parser/parser.js";
 import { GlobExpander } from "../shell/glob.js";
 import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
 import {
+  ArithmeticError,
   BadSubstitutionError,
   ExecutionLimitError,
   ExitError,
+  GlobError,
 } from "./errors.js";
 import {
   analyzeWordParts,
@@ -53,6 +55,21 @@ import type { InterpreterContext } from "./types.js";
 
 // Re-export for backward compatibility
 export { getArrayElements, getVariable } from "./expansion/variable.js";
+
+/**
+ * Check if a string contains glob patterns, including extglob when enabled.
+ */
+function hasGlobPattern(value: string, extglob: boolean): boolean {
+  // Standard glob characters
+  if (/[*?[]/.test(value)) {
+    return true;
+  }
+  // Extglob patterns: @(...), *(...), +(...), ?(...), !(...)
+  if (extglob && /[@*+?!]\(/.test(value)) {
+    return true;
+  }
+  return false;
+}
 
 /**
  * Quote a value for safe reuse as shell input (${var@Q} transformation)
@@ -90,7 +107,8 @@ function quoteValue(value: string): string {
         // Check for control characters
         const code = char.charCodeAt(0);
         if (code < 32 || code === 127) {
-          result += `\\x${code.toString(16).padStart(2, "0")}`;
+          // Use octal escapes like bash does (not hex)
+          result += `\\${code.toString(8).padStart(3, "0")}`;
         } else {
           result += char;
         }
@@ -585,12 +603,35 @@ export async function expandWordWithGlob(
     // Brace expansion produced multiple values - apply glob to each
     const allValues: string[] = [];
     for (const value of braceExpanded) {
-      if (!hasQuoted && /[*?[]/.test(value)) {
-        const globExpander = new GlobExpander(ctx.fs, ctx.state.cwd);
+      // Skip glob expansion if noglob is set (set -f)
+      if (
+        !hasQuoted &&
+        !ctx.state.options.noglob &&
+        hasGlobPattern(value, ctx.state.shoptOptions.extglob)
+      ) {
+        const globExpander = new GlobExpander(
+          ctx.fs,
+          ctx.state.cwd,
+          ctx.state.env,
+          {
+            globstar: ctx.state.shoptOptions.globstar,
+            nullglob: ctx.state.shoptOptions.nullglob,
+            failglob: ctx.state.shoptOptions.failglob,
+            dotglob: ctx.state.shoptOptions.dotglob,
+            extglob: ctx.state.shoptOptions.extglob,
+          },
+        );
         const matches = await globExpander.expand(value);
         if (matches.length > 0) {
           allValues.push(...matches);
+        } else if (globExpander.hasFailglob()) {
+          // failglob: throw error when pattern has no matches
+          throw new GlobError(value);
+        } else if (globExpander.hasNullglob()) {
+          // nullglob: don't add anything when pattern has no matches
+          // (skip adding this value)
         } else {
+          // Default: keep the original pattern
           allValues.push(value);
         }
       } else {
@@ -751,14 +792,33 @@ export async function expandWordWithGlob(
       ifsPattern,
       expandPart,
     );
-    // Perform glob expansion on each split value
+    // Perform glob expansion on each split value (skip if noglob is set)
     const expandedValues: string[] = [];
-    const globExpander = new GlobExpander(ctx.fs, ctx.state.cwd);
+    if (ctx.state.options.noglob) {
+      // noglob is set - skip glob expansion entirely
+      return { values: splitResult, quoted: false };
+    }
+    const globExpander = new GlobExpander(
+      ctx.fs,
+      ctx.state.cwd,
+      ctx.state.env,
+      {
+        globstar: ctx.state.shoptOptions.globstar,
+        nullglob: ctx.state.shoptOptions.nullglob,
+        failglob: ctx.state.shoptOptions.failglob,
+        dotglob: ctx.state.shoptOptions.dotglob,
+        extglob: ctx.state.shoptOptions.extglob,
+      },
+    );
     for (const sv of splitResult) {
-      if (/[*?[]/.test(sv)) {
+      if (hasGlobPattern(sv, ctx.state.shoptOptions.extglob)) {
         const matches = await globExpander.expand(sv);
         if (matches.length > 0) {
           expandedValues.push(...matches);
+        } else if (globExpander.hasFailglob()) {
+          throw new GlobError(sv);
+        } else if (globExpander.hasNullglob()) {
+          // nullglob: skip this value
         } else {
           expandedValues.push(sv);
         }
@@ -774,11 +834,31 @@ export async function expandWordWithGlob(
     ? await expandWordAsync(ctx, word)
     : expandWordSync(ctx, word);
 
-  if (!hasQuoted && /[*?[]/.test(value)) {
-    const globExpander = new GlobExpander(ctx.fs, ctx.state.cwd);
+  // Skip glob expansion if noglob is set (set -f)
+  if (
+    !hasQuoted &&
+    !ctx.state.options.noglob &&
+    hasGlobPattern(value, ctx.state.shoptOptions.extglob)
+  ) {
+    const globExpander = new GlobExpander(
+      ctx.fs,
+      ctx.state.cwd,
+      ctx.state.env,
+      {
+        globstar: ctx.state.shoptOptions.globstar,
+        nullglob: ctx.state.shoptOptions.nullglob,
+        failglob: ctx.state.shoptOptions.failglob,
+        dotglob: ctx.state.shoptOptions.dotglob,
+        extglob: ctx.state.shoptOptions.extglob,
+      },
+    );
     const matches = await globExpander.expand(value);
     if (matches.length > 0) {
       return { values: matches, quoted: false };
+    } else if (globExpander.hasFailglob()) {
+      throw new GlobError(value);
+    } else if (globExpander.hasNullglob()) {
+      return { values: [], quoted: false };
     }
   }
 
@@ -789,6 +869,68 @@ export async function expandWordWithGlob(
   }
 
   return { values: [value], quoted: hasQuoted };
+}
+
+/**
+ * Expand a redirect target with glob handling.
+ *
+ * For redirects:
+ * - If glob matches 0 files with failglob → error (returns { error: ... })
+ * - If glob matches 0 files without failglob → use literal pattern
+ * - If glob matches 1 file → use that file
+ * - If glob matches 2+ files → "ambiguous redirect" error
+ *
+ * Returns { target: string } on success or { error: string } on failure.
+ */
+export async function expandRedirectTarget(
+  ctx: InterpreterContext,
+  word: WordNode,
+): Promise<{ target: string } | { error: string }> {
+  const wordParts = word.parts;
+  const { hasQuoted } = analyzeWordParts(wordParts);
+
+  const needsAsync = wordNeedsAsync(word);
+  const value = needsAsync
+    ? await expandWordAsync(ctx, word)
+    : expandWordSync(ctx, word);
+
+  // Skip glob expansion if noglob is set (set -f) or if the word was quoted
+  if (
+    hasQuoted ||
+    ctx.state.options.noglob ||
+    !hasGlobPattern(value, ctx.state.shoptOptions.extglob)
+  ) {
+    return { target: value };
+  }
+
+  // Perform glob expansion for redirect targets
+  const globExpander = new GlobExpander(ctx.fs, ctx.state.cwd, ctx.state.env, {
+    globstar: ctx.state.shoptOptions.globstar,
+    nullglob: ctx.state.shoptOptions.nullglob,
+    failglob: ctx.state.shoptOptions.failglob,
+    dotglob: ctx.state.shoptOptions.dotglob,
+    extglob: ctx.state.shoptOptions.extglob,
+  });
+
+  const matches = await globExpander.expand(value);
+
+  if (matches.length === 0) {
+    // No matches
+    if (globExpander.hasFailglob()) {
+      // failglob: error on no match
+      return { error: `bash: no match: ${value}\n` };
+    }
+    // Without failglob, use the literal pattern
+    return { target: value };
+  }
+
+  if (matches.length === 1) {
+    // Exactly one match - use it
+    return { target: matches[0] };
+  }
+
+  // Multiple matches - ambiguous redirect error
+  return { error: `bash: ${value}: ambiguous redirect\n` };
 }
 
 // Async version of expandWord (internal)
@@ -1060,9 +1202,10 @@ function expandParameter(
         }
         if (length !== undefined) {
           if (length < 0) {
-            // Negative length means end position from end
-            const endPos = values.length + length;
-            return values.slice(start, Math.max(start, endPos)).join(" ");
+            // Negative length is an error for array slicing in bash
+            throw new ArithmeticError(
+              `${arrayMatch[1]}[@]: substring expression < 0`,
+            );
           }
           return values.slice(start, start + length).join(" ");
         }
@@ -1298,7 +1441,22 @@ function expandParameter(
         // Return the target name, not the value
         return getNamerefTarget(ctx, parameter) || "";
       }
-      return getVariable(ctx, value);
+
+      // value contains the name of the parameter, get the target variable name
+      const targetName = value;
+
+      // If there's an inner operation (e.g., ${!ref-default}), apply it
+      if (operation.innerOp) {
+        // Create a synthetic part to recursively expand with the inner operation
+        const syntheticPart: ParameterExpansionPart = {
+          type: "ParameterExpansion",
+          parameter: targetName,
+          operation: operation.innerOp,
+        };
+        return expandParameter(ctx, syntheticPart, inDoubleQuotes);
+      }
+
+      return getVariable(ctx, targetName);
     }
 
     case "ArrayKeys": {

@@ -25,7 +25,24 @@ export function parseArithmeticExpression(
   _p: Parser,
   input: string,
 ): ArithmeticExpressionNode {
-  const expression = parseArithExpr(_p, input, 0).expr;
+  const { expr: expression, pos } = parseArithExpr(_p, input, 0);
+  // Validate that all input was consumed (skip trailing whitespace first)
+  const finalPos = skipArithWhitespace(input, pos);
+  if (finalPos < input.length) {
+    // There's remaining content that wasn't parsed - create an error node
+    // that will be evaluated at runtime to produce the error
+    const remaining = input.slice(finalPos).trim();
+    if (remaining) {
+      return {
+        type: "ArithmeticExpression",
+        expression: {
+          type: "ArithSyntaxError",
+          errorToken: remaining,
+          message: `${remaining}: syntax error: invalid arithmetic operator (error token is "${remaining}")`,
+        },
+      };
+    }
+  }
   return { type: "ArithmeticExpression", expression };
 }
 
@@ -435,16 +452,19 @@ function parseArithPostfix(
   input: string,
   pos: number,
 ): { expr: ArithExpr; pos: number } {
-  let { expr, pos: currentPos } = parseArithPrimary(p, input, pos);
+  let { expr, pos: currentPos } = parseArithPrimary(p, input, pos, false);
 
   // Check for adjacent primaries without whitespace (concatenation)
   // e.g., $(echo 1)${undefined:-3} → "13"
+  // When collecting parts for concatenation, skip assignment checking
+  // because assignment applies to the full concatenated name
   const parts: ArithExpr[] = [expr];
   while (canStartConcatPrimary(input, currentPos)) {
     const { expr: nextExpr, pos: nextPos } = parseArithPrimary(
       p,
       input,
       currentPos,
+      true, // Skip assignment check for concat parts
     );
     parts.push(nextExpr);
     currentPos = nextPos;
@@ -454,7 +474,95 @@ function parseArithPostfix(
     expr = { type: "ArithConcat", parts };
   }
 
+  // Check for array subscript on concatenated expression: x$foo[5]
+  // This handles dynamic array names where subscript applies to the full concatenated name
+  let subscript: ArithExpr | undefined;
+  if (input[currentPos] === "[" && expr.type === "ArithConcat") {
+    currentPos++; // Skip [
+    const { expr: indexExpr, pos: p2 } = parseArithExpr(p, input, currentPos);
+    subscript = indexExpr;
+    currentPos = p2;
+    if (input[currentPos] === "]") currentPos++; // Skip ]
+  }
+
+  // If we have a subscript on a concat, wrap it in ArithDynamicElement
+  // This allows unary operators to properly handle dynamic array elements
+  if (subscript && expr.type === "ArithConcat") {
+    expr = { type: "ArithDynamicElement" as const, nameExpr: expr, subscript };
+    subscript = undefined; // Clear so we don't use it again for assignment
+  }
+
   currentPos = skipArithWhitespace(input, currentPos);
+
+  // Check for assignment operators after building full expression
+  // This handles dynamic variable names like x$foo = 42 or x$foo[5] = 42
+  if (
+    expr.type === "ArithConcat" ||
+    expr.type === "ArithVariable" ||
+    expr.type === "ArithDynamicElement"
+  ) {
+    const assignOps = [
+      "=",
+      "+=",
+      "-=",
+      "*=",
+      "/=",
+      "%=",
+      "<<=",
+      ">>=",
+      "&=",
+      "|=",
+      "^=",
+    ];
+    for (const op of assignOps) {
+      if (
+        input.slice(currentPos, currentPos + op.length) === op &&
+        input.slice(currentPos, currentPos + op.length + 1) !== "=="
+      ) {
+        currentPos += op.length;
+        const { expr: value, pos: p2 } = parseArithTernary(
+          p,
+          input,
+          currentPos,
+        );
+        // For dynamic element (x$foo[5]), create dynamic assignment with subscript from the element
+        if (expr.type === "ArithDynamicElement") {
+          return {
+            expr: {
+              type: "ArithDynamicAssignment" as const,
+              operator: op as ArithAssignmentOperator,
+              target: expr.nameExpr,
+              subscript: expr.subscript,
+              value,
+            },
+            pos: p2,
+          };
+        }
+        // For concat (without subscript), create a dynamic assignment
+        if (expr.type === "ArithConcat") {
+          return {
+            expr: {
+              type: "ArithDynamicAssignment" as const,
+              operator: op as ArithAssignmentOperator,
+              target: expr,
+              value,
+            },
+            pos: p2,
+          };
+        }
+        // For simple variable, create regular assignment
+        return {
+          expr: {
+            type: "ArithAssignment",
+            operator: op as ArithAssignmentOperator,
+            variable: (expr as { name: string }).name,
+            value,
+          },
+          pos: p2,
+        };
+      }
+    }
+  }
 
   // Postfix operators: ++ --
   if (
@@ -481,6 +589,7 @@ function parseArithPrimary(
   p: Parser,
   input: string,
   pos: number,
+  skipAssignment = false,
 ): { expr: ArithExpr; pos: number } {
   let currentPos = skipArithWhitespace(input, pos);
 
@@ -783,7 +892,10 @@ function parseArithPrimary(
       name += input[currentPos];
       currentPos++;
     }
-    return { expr: { type: "ArithVariable", name }, pos: currentPos };
+    return {
+      expr: { type: "ArithVariable", name, hasDollarPrefix: true },
+      pos: currentPos,
+    };
   }
   // Handle special variables: $*, $@, $#, $?, $-, $!, $$
   if (
@@ -796,11 +908,13 @@ function parseArithPrimary(
     return { expr: { type: "ArithSpecialVar", name }, pos: currentPos };
   }
   // Handle $name (regular variables with $ prefix)
+  let hasDollarPrefix = false;
   if (
     input[currentPos] === "$" &&
     currentPos + 1 < input.length &&
     /[a-zA-Z_]/.test(input[currentPos + 1])
   ) {
+    hasDollarPrefix = true;
     currentPos++; // Skip the $ prefix
   }
   if (/[a-zA-Z_]/.test(input[currentPos])) {
@@ -814,7 +928,8 @@ function parseArithPrimary(
     }
 
     // Check for array indexing: array[index]
-    if (input[currentPos] === "[") {
+    // Skip if in concat context - subscript should be handled at postfix level for dynamic names
+    if (input[currentPos] === "[" && !skipAssignment) {
       currentPos++; // Skip [
 
       // Check for quoted string key: array['key'] or array["key"]
@@ -851,7 +966,64 @@ function parseArithPrimary(
         };
       }
 
-      // Check for assignment operators after array subscript
+      // Check for assignment operators after array subscript (skip if in concat context)
+      if (!skipAssignment) {
+        const assignOps = [
+          "=",
+          "+=",
+          "-=",
+          "*=",
+          "/=",
+          "%=",
+          "<<=",
+          ">>=",
+          "&=",
+          "|=",
+          "^=",
+        ];
+        for (const op of assignOps) {
+          if (
+            input.slice(currentPos, currentPos + op.length) === op &&
+            input.slice(currentPos, currentPos + op.length + 1) !== "=="
+          ) {
+            currentPos += op.length;
+            const { expr: value, pos: p2 } = parseArithTernary(
+              p,
+              input,
+              currentPos,
+            );
+            return {
+              expr: {
+                type: "ArithAssignment",
+                operator: op as ArithAssignmentOperator,
+                variable: name,
+                subscript: indexExpr,
+                stringKey,
+                value,
+              },
+              pos: p2,
+            };
+          }
+        }
+      }
+
+      return {
+        expr: {
+          type: "ArithArrayElement",
+          array: name,
+          index: indexExpr,
+          stringKey,
+        },
+        pos: currentPos,
+      };
+    }
+
+    currentPos = skipArithWhitespace(input, currentPos);
+
+    // Check for assignment operators (skip if in concat context)
+    // Assignment has higher precedence than comma, so parse RHS with parseArithTernary
+    // This makes `a = b, c` parse as `(a = b), c` not `a = (b, c)`
+    if (!skipAssignment) {
       const assignOps = [
         "=",
         "+=",
@@ -871,6 +1043,7 @@ function parseArithPrimary(
           input.slice(currentPos, currentPos + op.length + 1) !== "=="
         ) {
           currentPos += op.length;
+          // Use parseArithTernary instead of parseArithExpr to give assignment higher precedence than comma
           const { expr: value, pos: p2 } = parseArithTernary(
             p,
             input,
@@ -881,69 +1054,39 @@ function parseArithPrimary(
               type: "ArithAssignment",
               operator: op as ArithAssignmentOperator,
               variable: name,
-              subscript: indexExpr,
-              stringKey,
               value,
             },
             pos: p2,
           };
         }
       }
-
-      return {
-        expr: {
-          type: "ArithArrayElement",
-          array: name,
-          index: indexExpr,
-          stringKey,
-        },
-        pos: currentPos,
-      };
     }
 
-    currentPos = skipArithWhitespace(input, currentPos);
+    return {
+      expr: { type: "ArithVariable", name, hasDollarPrefix },
+      pos: currentPos,
+    };
+  }
 
-    // Check for assignment operators
-    // Assignment has higher precedence than comma, so parse RHS with parseArithTernary
-    // This makes `a = b, c` parse as `(a = b), c` not `a = (b, c)`
-    const assignOps = [
-      "=",
-      "+=",
-      "-=",
-      "*=",
-      "/=",
-      "%=",
-      "<<=",
-      ">>=",
-      "&=",
-      "|=",
-      "^=",
-    ];
-    for (const op of assignOps) {
-      if (
-        input.slice(currentPos, currentPos + op.length) === op &&
-        input.slice(currentPos, currentPos + op.length + 1) !== "=="
-      ) {
-        currentPos += op.length;
-        // Use parseArithTernary instead of parseArithExpr to give assignment higher precedence than comma
-        const { expr: value, pos: p2 } = parseArithTernary(
-          p,
-          input,
-          currentPos,
-        );
-        return {
-          expr: {
-            type: "ArithAssignment",
-            operator: op as ArithAssignmentOperator,
-            variable: name,
-            value,
-          },
-          pos: p2,
-        };
-      }
+  // Check for invalid characters like # that would cause syntax errors in bash
+  // The # character is only valid as part of base notation (e.g., 2#1010) which is
+  // handled in the number parsing above. A bare # is a syntax error in bash arithmetic.
+  // We return an error node so the error happens at runtime, not parse time.
+  if (input[currentPos] === "#") {
+    // Find what comes after for error message
+    let errorEnd = currentPos + 1;
+    while (errorEnd < input.length && input[errorEnd] !== "\n") {
+      errorEnd++;
     }
-
-    return { expr: { type: "ArithVariable", name }, pos: currentPos };
+    const errorToken = input.slice(currentPos, errorEnd).trim() || "#";
+    return {
+      expr: {
+        type: "ArithSyntaxError" as const,
+        errorToken,
+        message: `${errorToken}: syntax error: invalid arithmetic operator (error token is "${errorToken}")`,
+      },
+      pos: input.length, // Consume the rest
+    };
   }
 
   // Default: 0

@@ -16,6 +16,7 @@ import { Parser } from "../parser/parser.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmeticSync } from "./arithmetic.js";
 import { expandWord } from "./expansion.js";
+import { clearArray } from "./helpers/array.js";
 import {
   evaluateBinaryFileTest,
   evaluateFileTest,
@@ -50,7 +51,16 @@ export async function evaluateConditional(
 
       // String comparisons (with pattern matching support in [[ ]])
       if (isStringCompareOp(expr.operator)) {
-        return compareStrings(expr.operator, left, right, !isRhsQuoted);
+        const nocasematch = ctx.state.shoptOptions.nocasematch;
+        const extglob = ctx.state.shoptOptions.extglob;
+        return compareStrings(
+          expr.operator,
+          left,
+          right,
+          !isRhsQuoted,
+          nocasematch,
+          extglob,
+        );
       }
 
       // Numeric comparisons
@@ -70,11 +80,14 @@ export async function evaluateConditional(
       switch (expr.operator) {
         case "=~": {
           try {
-            const regex = new RegExp(right);
+            const nocasematch = ctx.state.shoptOptions.nocasematch;
+            const regex = new RegExp(right, nocasematch ? "i" : "");
             const match = left.match(regex);
+            // Always clear BASH_REMATCH first (bash clears it on failed match)
+            clearArray(ctx, "BASH_REMATCH");
             if (match) {
-              ctx.state.env.BASH_REMATCH = match[0];
-              for (let i = 1; i < match.length; i++) {
+              // Store full match at index 0, capture groups at indices 1, 2, ...
+              for (let i = 0; i < match.length; i++) {
                 ctx.state.env[`BASH_REMATCH_${i}`] = match[i] || "";
               }
             }
@@ -422,10 +435,70 @@ async function evaluateTestPrimary(
   return { value: token !== undefined && token !== "", pos: pos + 1 };
 }
 
-export function matchPattern(value: string, pattern: string): boolean {
-  let regex = "^";
+export function matchPattern(
+  value: string,
+  pattern: string,
+  nocasematch = false,
+  extglob = false,
+): boolean {
+  const regex = `^${patternToRegexStr(pattern, extglob)}$`;
+  return new RegExp(regex, nocasematch ? "i" : "").test(value);
+}
+
+/**
+ * Convert a glob pattern to a regex string (without anchors).
+ * Supports extglob patterns: @(...), *(...), +(...), ?(...), !(...)
+ */
+function patternToRegexStr(pattern: string, extglob: boolean): string {
+  let regex = "";
   for (let i = 0; i < pattern.length; i++) {
     const char = pattern[i];
+
+    // Check for extglob patterns: @(...), *(...), +(...), ?(...), !(...)
+    if (
+      extglob &&
+      (char === "@" ||
+        char === "*" ||
+        char === "+" ||
+        char === "?" ||
+        char === "!") &&
+      i + 1 < pattern.length &&
+      pattern[i + 1] === "("
+    ) {
+      // Find the matching closing paren (handle nesting)
+      const closeIdx = findMatchingParen(pattern, i + 1);
+      if (closeIdx !== -1) {
+        const content = pattern.slice(i + 2, closeIdx);
+        // Split on | but handle nested extglob patterns
+        const alternatives = splitExtglobAlternatives(content);
+        // Convert each alternative recursively
+        const altRegexes = alternatives.map((alt) =>
+          patternToRegexStr(alt, extglob),
+        );
+        const altGroup = altRegexes.length > 0 ? altRegexes.join("|") : "(?:)";
+
+        if (char === "@") {
+          // @(...) - match exactly one of the patterns
+          regex += `(?:${altGroup})`;
+        } else if (char === "*") {
+          // *(...) - match zero or more occurrences
+          regex += `(?:${altGroup})*`;
+        } else if (char === "+") {
+          // +(...) - match one or more occurrences
+          regex += `(?:${altGroup})+`;
+        } else if (char === "?") {
+          // ?(...) - match zero or one occurrence
+          regex += `(?:${altGroup})?`;
+        } else if (char === "!") {
+          // !(...) - match anything except the patterns
+          // This is tricky - we need a negative lookahead anchored to the end
+          regex += `(?!(?:${altGroup})$).*`;
+        }
+        i = closeIdx;
+        continue;
+      }
+    }
+
     // Handle backslash escapes - next char is literal
     if (char === "\\") {
       if (i + 1 < pattern.length) {
@@ -458,9 +531,72 @@ export function matchPattern(value: string, pattern: string): boolean {
       regex += char;
     }
   }
-  regex += "$";
+  return regex;
+}
 
-  return new RegExp(regex).test(value);
+/**
+ * Find the matching closing parenthesis, handling nesting
+ */
+function findMatchingParen(pattern: string, openIdx: number): number {
+  let depth = 1;
+  let i = openIdx + 1;
+  while (i < pattern.length && depth > 0) {
+    const c = pattern[i];
+    if (c === "\\") {
+      i += 2; // Skip escaped char
+      continue;
+    }
+    if (c === "(") {
+      depth++;
+    } else if (c === ")") {
+      depth--;
+      if (depth === 0) {
+        return i;
+      }
+    }
+    i++;
+  }
+  return -1;
+}
+
+/**
+ * Split extglob pattern content on | handling nested patterns
+ */
+function splitExtglobAlternatives(content: string): string[] {
+  const alternatives: string[] = [];
+  let current = "";
+  let depth = 0;
+  let i = 0;
+
+  while (i < content.length) {
+    const c = content[i];
+    if (c === "\\") {
+      // Escaped character
+      current += c;
+      if (i + 1 < content.length) {
+        current += content[i + 1];
+        i += 2;
+      } else {
+        i++;
+      }
+      continue;
+    }
+    if (c === "(") {
+      depth++;
+      current += c;
+    } else if (c === ")") {
+      depth--;
+      current += c;
+    } else if (c === "|" && depth === 0) {
+      alternatives.push(current);
+      current = "";
+    } else {
+      current += c;
+    }
+    i++;
+  }
+  alternatives.push(current);
+  return alternatives;
 }
 
 /**

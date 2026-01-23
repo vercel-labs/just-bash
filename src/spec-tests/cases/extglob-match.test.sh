@@ -26,7 +26,6 @@ FALSE
 ## END
 
 #### extglob in variable
-## SKIP: extglob not implemented
 shopt -s extglob
 
 # this syntax requires extglob in bash!!
@@ -77,7 +76,6 @@ status=1
 ## END
 
 #### nested @()
-## SKIP: extglob not implemented
 shopt -s extglob
 pat='--@(help|verbose|no-@(long|short)-option)'
 [[ --no-long-option == $pat ]] && echo TRUE
@@ -213,7 +211,6 @@ FALSE
 ## END
 
 #### extglob empty string
-## SKIP: extglob not implemented
 shopt -s extglob
 [[ '' == @(foo|bar) ]] || echo FALSE
 [[ '' == @(foo||bar) ]] && echo TRUE
@@ -223,7 +220,6 @@ TRUE
 ## END
 
 #### extglob empty pattern
-## SKIP: extglob not implemented
 shopt -s extglob
 [[ '' == @() ]] && echo TRUE
 [[ '' == @(||) ]] && echo TRUE
@@ -237,7 +233,6 @@ FALSE
 ## END
 
 #### case with extglob
-## SKIP: extglob not implemented
 shopt -s extglob
 for word in --help --verbose --unmatched -- -zxzx -; do
   case $word in
@@ -316,7 +311,6 @@ TRUE
 ## END
 
 #### extglob inside arg word
-## SKIP: extglob not implemented
 shopt -s extglob
 [[ foo == @(foo|bar) ]] && echo rhs
 [[ foo == ${unset:-@(foo|bar)} ]] && echo 'rhs arg'
@@ -332,7 +326,6 @@ nope
 ## END
 
 #### extglob is not detected in regex!
-## SKIP: extglob not implemented
 shopt -s extglob
 [[ foo =~ ^@(foo|bar)$ ]] || echo FALSE
 ## STDOUT:
@@ -357,7 +350,6 @@ echo $?
 ## END
 
 #### extended glob of single unicode char
-## SKIP: extglob not implemented
 shopt -s extglob
 [[ __a__ == @(__?__) ]]
 echo $?

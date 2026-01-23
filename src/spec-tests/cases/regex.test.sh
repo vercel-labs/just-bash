@@ -37,7 +37,6 @@
 # they can be UNQUOTED in BASH_REGEX state.  In fact they can't be quoted!
 
 #### BASH_REMATCH
-## SKIP: regex with unquoted () groups causes parse error
 [[ foo123 =~ ([a-z]+)([0-9]+) ]]
 echo status=$?
 argv.py "${BASH_REMATCH[@]}"
@@ -69,7 +68,6 @@ status=1
 ## stdout-json: ""
 
 #### Regex quoted with \ -- preferred in bash
-## SKIP: Regex backslash escaping in pattern not implemented
 [[ 'a b' =~ ^(a\ b)$ ]] && echo true
 ## stdout: true
 
@@ -290,7 +288,6 @@ status=0
 ## BUG zsh status: 1
 
 #### Escaped { stored in variable first
-## SKIP: regex with () groups in variable causes parse error
 # from bash-completion
 pat='^(\$\{?)([A-Za-z0-9_]*)$'
 [[ '$PA' =~ $pat ]] && argv.py "${BASH_REMATCH[@]}"
@@ -327,7 +324,6 @@ status=1
 ## END
 
 #### pattern $f(x)  -- regression
-## SKIP: [[ ]] runtime and env prefix edge cases not implemented
 f=fff
 [[ fffx =~ $f(x) ]]
 echo status=$?
@@ -354,7 +350,6 @@ status=0
 ## END
 
 #### pattern @f(x)
-## SKIP: shopt -s parse_at not implemented
 shopt -s parse_at
 [[ @fx =~ @f(x) ]]
 echo status=$?

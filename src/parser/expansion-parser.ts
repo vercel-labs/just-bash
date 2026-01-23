@@ -6,6 +6,7 @@
 
 import {
   AST,
+  type InnerParameterOperation,
   type ParameterExpansionPart,
   type ParameterOperation,
   type WordNode,
@@ -14,6 +15,39 @@ import {
 import { parseArithmeticExpression } from "./arithmetic-parser.js";
 import type { Parser } from "./parser.js";
 import * as WordParser from "./word-parser.js";
+
+/**
+ * Find the closing parenthesis for an extglob pattern starting at openIdx.
+ * Handles nested extglob patterns and escaped characters.
+ */
+function findExtglobClose(value: string, openIdx: number): number {
+  let depth = 1;
+  let i = openIdx + 1;
+  while (i < value.length && depth > 0) {
+    const c = value[i];
+    if (c === "\\") {
+      i += 2; // Skip escaped char
+      continue;
+    }
+    // Handle nested extglob patterns
+    if ("@*+?!".includes(c) && i + 1 < value.length && value[i + 1] === "(") {
+      i++; // Skip the extglob operator
+      depth++;
+      i++; // Skip the (
+      continue;
+    }
+    if (c === "(") {
+      depth++;
+    } else if (c === ")") {
+      depth--;
+      if (depth === 0) {
+        return i;
+      }
+    }
+    i++;
+  }
+  return -1;
+}
 
 function parseSimpleParameter(
   _p: Parser,
@@ -122,7 +156,27 @@ function parseParameterExpansion(
       // Clear name so it doesn't get treated as a variable
       name = "";
     } else {
-      operation = { type: "Indirection" };
+      // Simple indirection ${!ref} - but may have inner operation like ${!ref-default}
+      // Check for additional operations after the variable name
+      if (
+        i < value.length &&
+        value[i] !== "}" &&
+        /[:=\-+?#%/^,@]/.test(value[i])
+      ) {
+        const opResult = parseParameterOperation(p, value, i, name, quoted);
+        if (opResult.operation) {
+          // Cast to InnerParameterOperation - parseParameterOperation only returns inner ops
+          operation = {
+            type: "Indirection",
+            innerOp: opResult.operation as InnerParameterOperation,
+          };
+          i = opResult.endIndex;
+        } else {
+          operation = { type: "Indirection" };
+        }
+      } else {
+        operation = { type: "Indirection" };
+      }
     }
   } else if (lengthOp) {
     // ${#var:...} is invalid - you can't take length of a substring
@@ -677,6 +731,7 @@ export function parseWordParts(
           next === "`" ||
           next === "\\" ||
           next === '"' ||
+          next === "'" ||
           next === "\n";
       if (isEscapable) {
         literal += next;
@@ -762,6 +817,26 @@ export function parseWordParts(
           i = tildeEnd;
           continue;
         }
+      }
+    }
+
+    // Handle extglob patterns: @(...), *(...), +(...), ?(...), !(...)
+    // These must be checked BEFORE regular glob patterns because * and ? are both
+    // extglob operators and glob characters
+    if (
+      "@*+?!".includes(char) &&
+      i + 1 < value.length &&
+      value[i + 1] === "("
+    ) {
+      // Find the matching closing paren
+      const closeIdx = findExtglobClose(value, i + 1);
+      if (closeIdx !== -1) {
+        flushLiteral();
+        // Include the entire extglob pattern including the operator and parens
+        const pattern = value.slice(i, closeIdx + 1);
+        parts.push({ type: "Glob", pattern });
+        i = closeIdx + 1;
+        continue;
       }
     }
 

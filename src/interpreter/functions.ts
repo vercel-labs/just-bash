@@ -8,14 +8,40 @@
 
 import type { FunctionDefNode } from "../ast/types.js";
 import type { ExecResult } from "../types.js";
-import { ReturnError } from "./errors.js";
+import { ExitError, ReturnError } from "./errors.js";
 import { OK, result, throwExecutionLimit } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
+
+/**
+ * POSIX special built-in commands that cannot be redefined as functions in POSIX mode.
+ */
+const POSIX_SPECIAL_BUILTINS = new Set([
+  ":",
+  ".",
+  "break",
+  "continue",
+  "eval",
+  "exec",
+  "exit",
+  "export",
+  "readonly",
+  "return",
+  "set",
+  "shift",
+  "trap",
+  "unset",
+]);
 
 export function executeFunctionDef(
   ctx: InterpreterContext,
   node: FunctionDefNode,
 ): ExecResult {
+  // In POSIX mode, special built-ins cannot be redefined as functions
+  // This is a fatal error that exits the script
+  if (ctx.state.options.posix && POSIX_SPECIAL_BUILTINS.has(node.name)) {
+    const stderr = `bash: line ${ctx.state.currentLine}: \`${node.name}': is a special builtin\n`;
+    throw new ExitError(2, "", stderr);
+  }
   ctx.state.functions.set(node.name, node);
   return OK;
 }

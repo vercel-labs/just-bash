@@ -299,7 +299,6 @@ echo status=$?
 ## stdout: status=0
 
 #### Unset readonly variable
-## SKIP: Unset readonly variable error handling differs
 # dash and zsh abort the whole program.   OSH doesn't?
 readonly R=foo
 unset R
@@ -431,7 +430,6 @@ status=0
 ## END
 
 #### Unset -v
-## SKIP: unset -v with same name variable and function not implemented
 foo() {
   echo "function foo"
 }

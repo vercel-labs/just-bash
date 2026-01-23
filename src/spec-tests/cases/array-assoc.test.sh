@@ -162,7 +162,6 @@ wo
 ## END
 
 #### ${assoc} is like ${assoc[0]}
-## SKIP: Associative array quoted key literal syntax differs
 declare -A a
 
 a=([aa]=b [foo]=bar ['a+1']=c)
@@ -342,7 +341,6 @@ argv.py ${a[@]: 5: 3}
 ## BUG bash status: 0
 
 #### bash variable can have an associative array part and a string part
-## SKIP: Associative array string assignment not implemented
 # and $assoc is equivalent to ${assoc[0]}, just like regular arrays
 declare -A assoc
 assoc[1]=1
@@ -550,7 +548,6 @@ ref val
 ## END
 
 #### printf -v and assoc array
-## SKIP: printf -v with associative array key not implemented
 show-values() {
   echo values: ${assoc[@]}
 }

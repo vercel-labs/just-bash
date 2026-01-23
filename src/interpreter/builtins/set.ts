@@ -43,12 +43,13 @@ const SHORT_OPTION_MAP: Record<string, keyof ShellOptions | null> = {
   u: "nounset",
   x: "xtrace",
   v: "verbose",
+  // Implemented options
+  f: "noglob",
+  C: "noclobber",
+  a: "allexport",
   // No-ops (accepted for compatibility)
-  f: null,
   h: null,
-  C: null,
   n: null,
-  a: null,
   b: null,
   m: null,
   B: null,
@@ -67,11 +68,12 @@ const LONG_OPTION_MAP: Record<string, keyof ShellOptions | null> = {
   nounset: "nounset",
   xtrace: "xtrace",
   verbose: "verbose",
+  // Implemented options
+  noclobber: "noclobber",
+  noglob: "noglob",
+  allexport: "allexport",
   // No-ops (accepted for compatibility)
-  noclobber: null,
-  noglob: null,
   noexec: null,
-  allexport: null,
   notify: null,
   monitor: null,
   braceexpand: null,
@@ -81,7 +83,7 @@ const LONG_OPTION_MAP: Record<string, keyof ShellOptions | null> = {
   errtrace: null,
   privileged: null,
   hashall: null,
-  posix: null,
+  posix: "posix",
   vi: null,
   emacs: null,
   ignoreeof: null,
@@ -97,11 +99,14 @@ const DISPLAY_OPTIONS: (keyof ShellOptions)[] = [
   "pipefail",
   "verbose",
   "xtrace",
+  "posix",
+  "allexport",
+  "noclobber",
+  "noglob",
 ];
 
 // List of no-op options to display (always off, for compatibility)
 const NOOP_DISPLAY_OPTIONS: string[] = [
-  "allexport",
   "braceexpand",
   "emacs",
   "errtrace",
@@ -113,14 +118,11 @@ const NOOP_DISPLAY_OPTIONS: string[] = [
   "interactive-comments",
   "keyword",
   "monitor",
-  "noclobber",
   "noexec",
-  "noglob",
   "nolog",
   "notify",
   "onecmd",
   "physical",
-  "posix",
   "privileged",
   "vi",
 ];

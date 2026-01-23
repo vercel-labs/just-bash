@@ -186,13 +186,11 @@ empty=''
 ## stdout: true
 
 #### [[ at runtime doesn't work
-## SKIP: [[ ]] via variable expansion at runtime not implemented
 dbracket=[[
 $dbracket foo == foo ]]
 ## status: 127
 
 #### [[ with env prefix doesn't work
-## SKIP: [[ ]] runtime and env prefix edge cases not implemented
 FOO=bar [[ foo == foo ]]
 ## status: 127
 
@@ -393,7 +391,7 @@ fnmatch=0
 ## END
 
 #### tilde expansion with =~ (confusing)
-## SKIP: [[ ]] runtime and env prefix edge cases not implemented
+## SKIP: tilde expansion behavior on RHS of =~ is bash-version dependent
 case $SH in mksh) exit ;; esac
 
 HOME=foo

@@ -8,6 +8,8 @@ import type {
   CondBinaryOperator,
   ConditionalExpressionNode,
   CondUnaryOperator,
+  WordNode,
+  WordPart,
 } from "../ast/types.js";
 import { TokenType } from "./lexer.js";
 import type { Parser } from "./parser.js";
@@ -152,7 +154,9 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
     // Check for binary operators
     if (p.isWord() && BINARY_OPS.includes(p.current().value)) {
       const operator = p.advance().value;
-      const right = p.parseWord();
+      // For =~ operator, the RHS can include unquoted ( and ) for regex grouping
+      // Parse until we hit ]], &&, ||, or newline
+      const right = operator === "=~" ? parseRegexPattern(p) : p.parseWord();
       return {
         type: "CondBinary",
         operator: operator as CondBinaryOperator,
@@ -200,4 +204,84 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
   }
 
   p.error("Expected conditional expression");
+}
+
+/**
+ * Parse a regex pattern for the =~ operator.
+ * In bash, the RHS of =~ can include unquoted ( and ) for regex grouping.
+ * We collect tokens until we hit ]], &&, ||, or newline.
+ *
+ * Important rules:
+ * - Track parenthesis depth to distinguish between regex grouping and conditional grouping
+ * - At the top level (parenDepth === 0), tokens must be adjacent (no spaces)
+ * - Inside parentheses (parenDepth > 0), spaces are allowed
+ * - This matches bash behavior: "[[ a =~ c a ]]" is a syntax error,
+ *   but "[[ a =~ (c a) ]]" is valid
+ */
+function parseRegexPattern(p: Parser): WordNode {
+  const parts: WordPart[] = [];
+  let parenDepth = 0; // Track nested parens in the regex pattern
+  let lastTokenEnd = -1; // Track end position of last consumed token
+
+  // Helper to check if we're at a pattern terminator
+  const isTerminator = () =>
+    p.check(TokenType.DBRACK_END) ||
+    p.check(TokenType.AND_AND) ||
+    p.check(TokenType.OR_OR) ||
+    p.check(TokenType.NEWLINE) ||
+    p.check(TokenType.EOF);
+
+  while (!isTerminator()) {
+    const currentToken = p.current();
+    const hasGap = lastTokenEnd >= 0 && currentToken.start > lastTokenEnd;
+
+    // At top level (outside parens), tokens must be adjacent (no space gap)
+    // Inside parens, spaces are allowed (regex groups can contain spaces)
+    if (parenDepth === 0 && hasGap) {
+      // There's a gap (whitespace) between the last token and this one
+      // Stop parsing - remaining tokens will cause a syntax error
+      break;
+    }
+
+    // Inside parens, preserve the space as a literal space in the pattern
+    if (parenDepth > 0 && hasGap) {
+      parts.push({ type: "Literal", value: " " });
+    }
+
+    if (p.isWord()) {
+      // Parse word parts (this handles $var, etc.)
+      const word = p.parseWord();
+      parts.push(...word.parts);
+      // After parseWord, position has advanced - get the consumed token's end
+      lastTokenEnd = p.peek(-1).end;
+    } else if (p.check(TokenType.LPAREN)) {
+      // Unquoted ( in regex pattern - part of regex grouping
+      const token = p.advance();
+      parts.push({ type: "Literal", value: "(" });
+      parenDepth++;
+      lastTokenEnd = token.end;
+    } else if (p.check(TokenType.RPAREN)) {
+      // Unquoted ) - could be regex grouping or conditional expression grouping
+      if (parenDepth > 0) {
+        // We have an open paren from the regex, this ) closes it
+        const token = p.advance();
+        parts.push({ type: "Literal", value: ")" });
+        parenDepth--;
+        lastTokenEnd = token.end;
+      } else {
+        // No open regex parens - this ) is part of the conditional expression
+        // Stop parsing the regex pattern here
+        break;
+      }
+    } else {
+      // Unknown token, stop parsing
+      break;
+    }
+  }
+
+  if (parts.length === 0) {
+    p.error("Expected regex pattern after =~");
+  }
+
+  return { type: "Word", parts };
 }

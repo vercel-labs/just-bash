@@ -13,7 +13,11 @@
  * Also aliased as 'typeset'
  */
 
+import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
+import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
+import { evaluateArithmeticSync } from "../arithmetic.js";
+import { getArrayIndices, getAssocArrayKeys } from "../helpers/array.js";
 import {
   isNameref,
   markNameref,
@@ -21,9 +25,41 @@ import {
   unmarkNameref,
 } from "../helpers/nameref.js";
 import { checkReadonlyError, markReadonly } from "../helpers/readonly.js";
-import { OK, success } from "../helpers/result.js";
+import { OK, result, success } from "../helpers/result.js";
+import { expandTildesInValue } from "../helpers/tilde.js";
 import type { InterpreterContext } from "../types.js";
 import { parseAssignment, setVariable } from "./variable-helpers.js";
+
+/**
+ * Mark a variable as having the integer attribute.
+ */
+function markInteger(ctx: InterpreterContext, name: string): void {
+  ctx.state.integerVars ??= new Set();
+  ctx.state.integerVars.add(name);
+}
+
+/**
+ * Check if a variable has the integer attribute.
+ */
+export function isInteger(ctx: InterpreterContext, name: string): boolean {
+  return ctx.state.integerVars?.has(name) ?? false;
+}
+
+/**
+ * Evaluate a value as arithmetic if the variable has integer attribute.
+ * Returns the evaluated string value.
+ */
+function evaluateIntegerValue(ctx: InterpreterContext, value: string): string {
+  try {
+    const parser = new Parser();
+    const arithAst = parseArithmeticExpression(parser, value);
+    const result = evaluateArithmeticSync(ctx, arithAst.expression);
+    return String(result);
+  } catch {
+    // If parsing fails, return 0 (bash behavior for invalid expressions)
+    return "0";
+  }
+}
 
 export function handleDeclare(
   ctx: InterpreterContext,
@@ -37,6 +73,9 @@ export function handleDeclare(
   let printMode = false;
   let declareNameref = false;
   let removeNameref = false;
+  let declareInteger = false;
+  let functionMode = false; // -f flag: function definitions
+  let functionNamesOnly = false; // -F flag: function names only
   const processedArgs: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -64,6 +103,12 @@ export function handleDeclare(
       for (const flag of arg.slice(1)) {
         if (flag === "n") removeNameref = true;
       }
+    } else if (arg === "-i") {
+      declareInteger = true;
+    } else if (arg === "-f") {
+      functionMode = true;
+    } else if (arg === "-F") {
+      functionNamesOnly = true;
     } else if (arg.startsWith("-")) {
       // Handle combined flags like -ar
       for (const flag of arg.slice(1)) {
@@ -73,24 +118,115 @@ export function handleDeclare(
         else if (flag === "x") _declareExport = true;
         else if (flag === "p") printMode = true;
         else if (flag === "n") declareNameref = true;
+        else if (flag === "i") declareInteger = true;
+        else if (flag === "f") functionMode = true;
+        else if (flag === "F") functionNamesOnly = true;
       }
     } else {
       processedArgs.push(arg);
     }
   }
 
+  // Handle declare -F (function names only)
+  if (functionNamesOnly) {
+    if (processedArgs.length === 0) {
+      // List all function names in sorted order
+      const funcNames = Array.from(ctx.state.functions.keys()).sort();
+      let stdout = "";
+      for (const name of funcNames) {
+        stdout += `declare -f ${name}\n`;
+      }
+      return success(stdout);
+    }
+    // With args, check if functions exist (similar to -f)
+    let allExist = true;
+    for (const name of processedArgs) {
+      if (!ctx.state.functions.has(name)) {
+        allExist = false;
+      }
+    }
+    return result("", "", allExist ? 0 : 1);
+  }
+
+  // Handle declare -f (function definitions)
+  if (functionMode) {
+    if (processedArgs.length === 0) {
+      // List all function definitions - we don't store source, so just list names
+      let stdout = "";
+      const funcNames = Array.from(ctx.state.functions.keys()).sort();
+      for (const name of funcNames) {
+        // Without source tracking, we can't print the full definition
+        // Just print the function name declaration
+        stdout += `${name} ()\n{\n    # function body\n}\n`;
+      }
+      return success(stdout);
+    }
+    // Check if all specified functions exist (exit code is the main use case)
+    let allExist = true;
+    for (const name of processedArgs) {
+      if (!ctx.state.functions.has(name)) {
+        allExist = false;
+      }
+    }
+    return result("", "", allExist ? 0 : 1);
+  }
+
   // Print mode with specific variable names: declare -p varname
   if (printMode && processedArgs.length > 0) {
     let stdout = "";
+    let anyNotFound = false;
     for (const name of processedArgs) {
+      // Check if this is an associative array
+      const isAssoc = ctx.state.associativeArrays?.has(name);
+      if (isAssoc) {
+        const keys = getAssocArrayKeys(ctx, name);
+        if (keys.length === 0) {
+          stdout += `declare -A ${name}=()\n`;
+        } else {
+          const elements = keys.map((key) => {
+            const value = ctx.state.env[`${name}_${key}`] ?? "";
+            const escapedValue = value
+              .replace(/\\/g, "\\\\")
+              .replace(/"/g, '\\"');
+            return `['${key}']="${escapedValue}"`;
+          });
+          stdout += `declare -A ${name}=(${elements.join(" ")})\n`;
+        }
+        continue;
+      }
+
+      // Check if this is an indexed array (has array elements)
+      const arrayIndices = getArrayIndices(ctx, name);
+      if (arrayIndices.length > 0) {
+        const elements = arrayIndices.map((index) => {
+          const value = ctx.state.env[`${name}_${index}`] ?? "";
+          const escapedValue = value
+            .replace(/\\/g, "\\\\")
+            .replace(/"/g, '\\"');
+          return `[${index}]="${escapedValue}"`;
+        });
+        stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
+        continue;
+      }
+
+      // Check if this is an empty array (has __length marker but no elements)
+      if (ctx.state.env[`${name}__length`] !== undefined) {
+        stdout += `declare -a ${name}=()\n`;
+        continue;
+      }
+
+      // Regular scalar variable
       const value = ctx.state.env[name];
       if (value !== undefined) {
         // Use double quotes and escape properly for bash compatibility
         const escapedValue = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
         stdout += `declare -- ${name}="${escapedValue}"\n`;
+      } else {
+        // Variable not found - set flag for exit code 1
+        anyNotFound = true;
       }
     }
-    return success(stdout);
+    return result(stdout, "", anyNotFound ? 1 : 0);
   }
 
   // No args: list all variables
@@ -124,7 +260,9 @@ export function handleDeclare(
       // Check if this is associative array literal syntax: (['key']=value ...)
       if (declareAssoc && content.includes("[")) {
         const entries = parseAssocArrayLiteral(content);
-        for (const [key, value] of entries) {
+        for (const [key, rawValue] of entries) {
+          // Apply tilde expansion to the value
+          const value = expandTildesInValue(ctx, rawValue);
           ctx.state.env[`${name}_${key}`] = value;
         }
       } else {
@@ -153,11 +291,54 @@ export function handleDeclare(
       }
     }
 
+    // Check for array index assignment: name[index]=value
+    const indexMatch = arg.match(
+      /^([a-zA-Z_][a-zA-Z0-9_]*)\[([^\]]+)\]=(.*)$/s,
+    );
+    if (indexMatch) {
+      const name = indexMatch[1];
+      const indexExpr = indexMatch[2];
+      const value = indexMatch[3];
+
+      // Check if variable is readonly
+      const error = checkReadonlyError(ctx, name);
+      if (error) return error;
+
+      // Evaluate the index (can be arithmetic expression)
+      let index: number;
+      try {
+        const parser = new Parser();
+        const arithAst = parseArithmeticExpression(parser, indexExpr);
+        index = evaluateArithmeticSync(ctx, arithAst.expression);
+      } catch {
+        // If parsing fails, try to parse as simple number
+        const num = parseInt(indexExpr, 10);
+        index = Number.isNaN(num) ? 0 : num;
+      }
+
+      // Set the array element
+      ctx.state.env[`${name}_${index}`] = value;
+
+      // Update array length if needed
+      const currentLength = parseInt(
+        ctx.state.env[`${name}__length`] ?? "0",
+        10,
+      );
+      if (index >= currentLength) {
+        ctx.state.env[`${name}__length`] = String(index + 1);
+      }
+
+      if (declareReadonly) {
+        markReadonly(ctx, name);
+      }
+      continue;
+    }
+
     // Check for scalar assignment: name=value
     if (arg.includes("=")) {
       const eqIdx = arg.indexOf("=");
       const name = arg.slice(0, eqIdx);
-      const value = arg.slice(eqIdx + 1);
+      let value = arg.slice(eqIdx + 1);
 
       // Check if variable is readonly
       const error = checkReadonlyError(ctx, name);
@@ -172,6 +353,16 @@ export function handleDeclare(
           markReadonly(ctx, name);
         }
         continue;
+      }
+
+      // Mark as integer if -i flag was used
+      if (declareInteger) {
+        markInteger(ctx, name);
+      }
+
+      // If variable has integer attribute (either just declared or previously), evaluate as arithmetic
+      if (isInteger(ctx, name)) {
+        value = evaluateIntegerValue(ctx, value);
       }
 
       // If this is an existing nameref (not being declared as one), write through it
@@ -199,6 +390,11 @@ export function handleDeclare(
           markReadonly(ctx, name);
         }
         continue;
+      }
+
+      // Mark as integer if -i flag was used
+      if (declareInteger) {
+        markInteger(ctx, name);
       }
 
       // Track associative array declaration

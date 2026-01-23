@@ -324,7 +324,8 @@ export interface ParameterExpansionPart extends ASTNode {
   operation: ParameterOperation | null;
 }
 
-export type ParameterOperation =
+/** Operations that can be used as inner operations for indirection (${!ref-default}) */
+export type InnerParameterOperation =
   | DefaultValueOp
   | AssignDefaultOp
   | ErrorIfUnsetOp
@@ -335,7 +336,10 @@ export type ParameterOperation =
   | PatternRemovalOp
   | PatternReplacementOp
   | CaseModificationOp
-  | TransformOp
+  | TransformOp;
+
+export type ParameterOperation =
+  | InnerParameterOperation
   | IndirectionOp
   | ArrayKeysOp
   | VarNamePrefixOp;
@@ -423,9 +427,11 @@ export interface TransformOp {
   operator: "Q" | "P" | "a" | "A" | "E" | "K";
 }
 
-/** ${!VAR} - indirect expansion */
+/** ${!VAR} - indirect expansion, optionally combined with another operation like ${!ref-default} */
 export interface IndirectionOp {
   type: "Indirection";
+  /** Additional operation to apply after indirection (e.g., ${!ref-default}) */
+  innerOp?: InnerParameterOperation;
 }
 
 /** ${!arr[@]} or ${!arr[*]} - array keys/indices */
@@ -482,6 +488,8 @@ export type ArithExpr =
   | ArithUnaryNode
   | ArithTernaryNode
   | ArithAssignmentNode
+  | ArithDynamicAssignmentNode
+  | ArithDynamicElementNode
   | ArithGroupNode
   | ArithNestedNode
   | ArithCommandSubstNode
@@ -491,7 +499,8 @@ export type ArithExpr =
   | ArithDynamicNumberNode
   | ArithConcatNode
   | ArithDoubleSubscriptNode
-  | ArithNumberSubscriptNode;
+  | ArithNumberSubscriptNode
+  | ArithSyntaxErrorNode;
 
 export interface ArithBracedExpansionNode extends ASTNode {
   type: "ArithBracedExpansion";
@@ -541,6 +550,13 @@ export interface ArithNumberSubscriptNode extends ASTNode {
   errorToken: string; // The error token for the error message
 }
 
+/** Syntax error in arithmetic expression - evaluated to error at runtime */
+export interface ArithSyntaxErrorNode extends ASTNode {
+  type: "ArithSyntaxError";
+  errorToken: string; // The invalid token that caused the error
+  message: string; // The error message
+}
+
 export interface ArithNumberNode extends ASTNode {
   type: "ArithNumber";
   value: number;
@@ -549,6 +565,8 @@ export interface ArithNumberNode extends ASTNode {
 export interface ArithVariableNode extends ASTNode {
   type: "ArithVariable";
   name: string;
+  /** True if the variable was written with $ prefix (e.g., $x vs x) */
+  hasDollarPrefix?: boolean;
 }
 
 /** Special variable node: $*, $@, $#, $?, $-, $!, $$ */
@@ -621,6 +639,26 @@ export interface ArithAssignmentNode extends ASTNode {
   /** For associative arrays: literal string key (e.g., 'key' or "key") */
   stringKey?: string;
   value: ArithExpr;
+}
+
+/** Dynamic assignment where variable name is built from concatenation: x$foo = 42 or x$foo[5] = 42 */
+export interface ArithDynamicAssignmentNode extends ASTNode {
+  type: "ArithDynamicAssignment";
+  operator: ArithAssignmentOperator;
+  /** The target expression (ArithConcat) that evaluates to the variable name */
+  target: ArithExpr;
+  /** For array element assignment: the subscript expression */
+  subscript?: ArithExpr;
+  value: ArithExpr;
+}
+
+/** Dynamic array element where array name is built from concatenation: x$foo[5] */
+export interface ArithDynamicElementNode extends ASTNode {
+  type: "ArithDynamicElement";
+  /** The expression (ArithConcat) that evaluates to the array name */
+  nameExpr: ArithExpr;
+  /** The subscript expression */
+  subscript: ArithExpr;
 }
 
 export interface ArithGroupNode extends ASTNode {

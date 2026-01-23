@@ -181,7 +181,6 @@ ifs 0
 ## END
 
 #### UID EUID PPID can't be changed
-## SKIP: Interactive shell invocation not implemented
 
 # bash makes these 3 read-only
 {
@@ -392,7 +391,6 @@ status=1
 ## END
 
 #### $HOSTNAME
-## SKIP: $HOSTNAME special variable not implemented
 test "$HOSTNAME" = "$(hostname)"
 echo status=$?
 ## STDOUT:

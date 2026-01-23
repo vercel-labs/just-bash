@@ -197,7 +197,7 @@ abcd\U00000065f
 ## END
 
 #### \0377 is the highest octal byte
-## SKIP: od command not implemented
+## SKIP: od command output format differs (no leading space)
 echo -en '\03777' | od -A n -t x1 | sed 's/ \+/ /g'
 ## STDOUT:
  ff 37

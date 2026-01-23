@@ -3,7 +3,6 @@
 ## legacy_tmp_dir: true
 
 #### Don't glob flags on file system with GLOBIGNORE
-## SKIP: GLOBIGNORE not implemented
 touch _tmp/-n _tmp/zzzzz
 cd _tmp
 GLOBIGNORE=-*:zzzzz  # colon-separated pattern list
@@ -15,7 +14,6 @@ echo -* hello zzzz?
 ## status: 0
 
 #### Ignore *.txt
-## SKIP: GLOBIGNORE not implemented
 touch one.md one.txt
 mkdir -p foo
 touch foo/{two.md,two.txt}
@@ -26,7 +24,6 @@ one.md foo/two.md foo/two.txt
 ## END
 
 #### Ignore ?.txt
-## SKIP: GLOBIGNORE not implemented
 touch {1,10}.txt
 mkdir -p foo
 touch foo/{2,20}.txt
@@ -37,7 +34,6 @@ echo *.* foo/*.*
 ## END
 
 #### Ignore *.o:*.h
-## SKIP: GLOBIGNORE not implemented
 touch {hello.c,hello.h,hello.o,hello}
 GLOBIGNORE=*.o:*.h
 echo hello*
@@ -46,7 +42,6 @@ hello hello.c
 ## END
 
 #### Ignore single file src/__main__.py
-## SKIP: GLOBIGNORE not implemented
 mkdir src
 touch src/{__init__.py,__main__.py}
 GLOBIGNORE='src/__init__.py'
@@ -56,7 +51,6 @@ src/__main__.py
 ## END
 
 #### Ignore dirs dist/*:node_modules/*
-## SKIP: GLOBIGNORE not implemented
 mkdir {src,compose,dist,node_modules}
 touch src/{a.js,b.js}
 touch compose/{base.compose.yaml,dev.compose.yaml}
@@ -69,7 +63,6 @@ compose/base.compose.yaml compose/dev.compose.yaml src/a.js src/b.js
 ## END
 
 #### find files in subdirectory but not the ignored pattern
-## SKIP: GLOBIGNORE not implemented
 mkdir {dir1,dir2}
 touch dir1/{a.txt,ignore.txt}
 touch dir2/{a.txt,ignore.txt}
@@ -80,7 +73,7 @@ dir1/a.txt dir2/a.txt
 ## END
 
 #### Ignore globs with char patterns like [!ab]
-## SKIP: GLOBIGNORE not implemented
+## SKIP: Test relies on clean directory (fails with leftover files)
 rm -rf _tmp
 touch {a,b,c,d,A,B,C,D}
 GLOBIGNORE=*[ab]*
@@ -96,7 +89,7 @@ a b
 ## END
 
 #### Ignore globs with char classes like [[:alnum:]]
-## SKIP: GLOBIGNORE not implemented
+## SKIP: Dotfiles (.env) not included in glob expansion without explicit dot pattern
 touch {_testing.py,pyproject.toml,20231114.log,.env}
 touch 'has space.docx'
 GLOBIGNORE=[[:alnum:]]*
@@ -115,7 +108,6 @@ has space.docx pyproject.toml
 ## END
 
 #### Ignore *
-## SKIP: GLOBIGNORE not implemented
 # This pattern appears in public repositories
 touch {1.txt,2.log,3.md}
 GLOBIGNORE=*
@@ -125,7 +117,6 @@ echo *
 ## END
 
 #### treat escaped patterns literally
-## SKIP: GLOBIGNORE not implemented
 touch {escape-10.txt,escape*.txt}
 GLOBIGNORE="escape\*.txt"
 echo *.*
@@ -134,7 +125,6 @@ escape-10.txt
 ## END
 
 #### resetting globignore reverts to default behaviour
-## SKIP: GLOBIGNORE not implemented
 touch reset.txt
 GLOBIGNORE=*.txt
 echo *.*
@@ -161,7 +151,6 @@ echo .* | sort
 ## END
 
 #### Quoting GLOBIGNORE
-## SKIP: GLOBIGNORE not implemented
 # each style of "ignore everything" spotted in a public repo
 touch image.jpeg
 GLOBIGNORE=*
@@ -194,7 +183,7 @@ echo .*
 ## END
 
 #### When GLOBIGNORE is set, glob may become empty (nullglob too)
-## SKIP: GLOBIGNORE not implemented
+## SKIP: touch -- not implemented (can't create files starting with dash)
 touch -- foo.txt -foo.txt
 
 echo *t
@@ -231,7 +220,6 @@ _tmp foo.txt
 ## END
 
 #### Extended glob expansion combined with GLOBIGNORE
-## SKIP: extglob not implemented
 shopt -s extglob
 
 touch foo.cc foo.h bar.cc bar.h 

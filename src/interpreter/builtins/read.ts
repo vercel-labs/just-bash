@@ -20,48 +20,167 @@ export function handleRead(
   let nchars = -1; // -n option: number of characters to read (with IFS splitting)
   let ncharsExact = -1; // -N option: read exactly N characters (no processing)
   let arrayName: string | null = null; // -a option: read into array
+  let fileDescriptor = -1; // -u option: read from file descriptor
+  let timeout = -1; // -t option: timeout in seconds
   const varNames: string[] = [];
 
   let i = 0;
   let invalidNArg = false;
+
+  // Helper to parse smooshed options like -rn1 or -rd ''
+  const parseOption = (
+    opt: string,
+    argIndex: number,
+  ): { nextArgIndex: number } => {
+    let j = 1; // skip the '-'
+    while (j < opt.length) {
+      const ch = opt[j];
+      if (ch === "r") {
+        raw = true;
+        j++;
+      } else if (ch === "s") {
+        // Silent - ignore in non-interactive mode
+        j++;
+      } else if (ch === "d") {
+        // -d requires value: either rest of this arg or next arg
+        if (j + 1 < opt.length) {
+          delimiter = opt.substring(j + 1);
+          return { nextArgIndex: argIndex + 1 };
+        } else if (argIndex + 1 < args.length) {
+          delimiter = args[argIndex + 1];
+          return { nextArgIndex: argIndex + 2 };
+        }
+        return { nextArgIndex: argIndex + 1 };
+      } else if (ch === "n") {
+        // -n requires value: either rest of this arg or next arg
+        if (j + 1 < opt.length) {
+          const numStr = opt.substring(j + 1);
+          nchars = Number.parseInt(numStr, 10);
+          if (Number.isNaN(nchars) || nchars < 0) {
+            invalidNArg = true;
+            nchars = 0;
+          }
+          return { nextArgIndex: argIndex + 1 };
+        } else if (argIndex + 1 < args.length) {
+          nchars = Number.parseInt(args[argIndex + 1], 10);
+          if (Number.isNaN(nchars) || nchars < 0) {
+            invalidNArg = true;
+            nchars = 0;
+          }
+          return { nextArgIndex: argIndex + 2 };
+        }
+        return { nextArgIndex: argIndex + 1 };
+      } else if (ch === "N") {
+        // -N requires value: either rest of this arg or next arg
+        if (j + 1 < opt.length) {
+          const numStr = opt.substring(j + 1);
+          ncharsExact = Number.parseInt(numStr, 10);
+          if (Number.isNaN(ncharsExact) || ncharsExact < 0) {
+            invalidNArg = true;
+            ncharsExact = 0;
+          }
+          return { nextArgIndex: argIndex + 1 };
+        } else if (argIndex + 1 < args.length) {
+          ncharsExact = Number.parseInt(args[argIndex + 1], 10);
+          if (Number.isNaN(ncharsExact) || ncharsExact < 0) {
+            invalidNArg = true;
+            ncharsExact = 0;
+          }
+          return { nextArgIndex: argIndex + 2 };
+        }
+        return { nextArgIndex: argIndex + 1 };
+      } else if (ch === "a") {
+        // -a requires value: either rest of this arg or next arg
+        if (j + 1 < opt.length) {
+          arrayName = opt.substring(j + 1);
+          return { nextArgIndex: argIndex + 1 };
+        } else if (argIndex + 1 < args.length) {
+          arrayName = args[argIndex + 1];
+          return { nextArgIndex: argIndex + 2 };
+        }
+        return { nextArgIndex: argIndex + 1 };
+      } else if (ch === "p") {
+        // -p requires value: either rest of this arg or next arg
+        if (j + 1 < opt.length) {
+          _prompt = opt.substring(j + 1);
+          return { nextArgIndex: argIndex + 1 };
+        } else if (argIndex + 1 < args.length) {
+          _prompt = args[argIndex + 1];
+          return { nextArgIndex: argIndex + 2 };
+        }
+        return { nextArgIndex: argIndex + 1 };
+      } else if (ch === "u") {
+        // -u requires value: file descriptor number
+        if (j + 1 < opt.length) {
+          const numStr = opt.substring(j + 1);
+          fileDescriptor = Number.parseInt(numStr, 10);
+          if (Number.isNaN(fileDescriptor) || fileDescriptor < 0) {
+            return { nextArgIndex: -2 }; // signal error (return exit code 1)
+          }
+          return { nextArgIndex: argIndex + 1 };
+        } else if (argIndex + 1 < args.length) {
+          fileDescriptor = Number.parseInt(args[argIndex + 1], 10);
+          if (Number.isNaN(fileDescriptor) || fileDescriptor < 0) {
+            return { nextArgIndex: -2 }; // signal error (return exit code 1)
+          }
+          return { nextArgIndex: argIndex + 2 };
+        }
+        return { nextArgIndex: argIndex + 1 };
+      } else if (ch === "t") {
+        // -t requires value: timeout in seconds (can be float)
+        if (j + 1 < opt.length) {
+          const numStr = opt.substring(j + 1);
+          timeout = Number.parseFloat(numStr);
+          if (Number.isNaN(timeout)) {
+            timeout = 0;
+          }
+          return { nextArgIndex: argIndex + 1 };
+        } else if (argIndex + 1 < args.length) {
+          timeout = Number.parseFloat(args[argIndex + 1]);
+          if (Number.isNaN(timeout)) {
+            timeout = 0;
+          }
+          return { nextArgIndex: argIndex + 2 };
+        }
+        return { nextArgIndex: argIndex + 1 };
+      } else if (ch === "e" || ch === "i" || ch === "P") {
+        // Interactive options - skip (with potential argument for -i)
+        if (ch === "i" && argIndex + 1 < args.length) {
+          return { nextArgIndex: argIndex + 2 };
+        }
+        j++;
+      } else {
+        // Unknown option, skip
+        j++;
+      }
+    }
+    return { nextArgIndex: argIndex + 1 };
+  };
+
   while (i < args.length) {
     const arg = args[i];
-    if (arg === "-r") {
-      raw = true;
-    } else if (arg === "-d" && i + 1 < args.length) {
-      delimiter = args[i + 1];
-      i++;
-    } else if (arg === "-p" && i + 1 < args.length) {
-      _prompt = args[i + 1];
-      i++;
-    } else if (arg === "-n" && i + 1 < args.length) {
-      nchars = Number.parseInt(args[i + 1], 10);
-      if (Number.isNaN(nchars) || nchars < 0) {
-        invalidNArg = true;
-        nchars = 0;
+    if (arg.startsWith("-") && arg.length > 1 && arg !== "--") {
+      const parseResult = parseOption(arg, i);
+      if (parseResult.nextArgIndex === -1) {
+        // Invalid argument (e.g., unknown option) - return exit code 2
+        return { stdout: "", stderr: "", exitCode: 2 };
       }
-      i++;
-    } else if (arg === "-N" && i + 1 < args.length) {
-      ncharsExact = Number.parseInt(args[i + 1], 10);
-      if (Number.isNaN(ncharsExact) || ncharsExact < 0) {
-        invalidNArg = true;
-        ncharsExact = 0;
+      if (parseResult.nextArgIndex === -2) {
+        // Invalid argument value (e.g., -u with negative number) - return exit code 1
+        return { stdout: "", stderr: "", exitCode: 1 };
       }
+      i = parseResult.nextArgIndex;
+    } else if (arg === "--") {
       i++;
-    } else if (arg === "-a" && i + 1 < args.length) {
-      arrayName = args[i + 1];
-      i++;
-    } else if (arg === "-t") {
-      // Timeout - skip the argument, we don't support it
-      if (i + 1 < args.length && !args[i + 1].startsWith("-")) {
+      // Rest are variable names
+      while (i < args.length) {
+        varNames.push(args[i]);
         i++;
       }
-    } else if (arg === "-s") {
-      // Silent - ignore in non-interactive mode
-    } else if (!arg.startsWith("-")) {
+    } else {
       varNames.push(arg);
+      i++;
     }
-    i++;
   }
 
   // Return error if -n had invalid argument
@@ -76,16 +195,65 @@ export function handleRead(
 
   // Note: prompt (-p) would typically output to terminal, but we ignore it in non-interactive mode
 
+  // Handle -t 0: check if input is available without reading
+  if (timeout === 0) {
+    // In non-interactive mode, check if there's stdin available
+    const effectiveStdin = stdin || ctx.state.groupStdin || "";
+    // If -u is used, check from fileDescriptors map
+    if (fileDescriptor >= 0 && ctx.state.fileDescriptors) {
+      const fdContent = ctx.state.fileDescriptors.get(fileDescriptor);
+      if (fdContent && fdContent.length > 0) {
+        return result("", "", 0); // Input available
+      }
+      return result("", "", 1); // No input
+    }
+    // Check regular stdin
+    if (effectiveStdin.length > 0) {
+      return result("", "", 0); // Input available
+    }
+    return result("", "", 1); // No input
+  }
+
+  // Handle negative timeout - bash returns exit code 1
+  if (timeout < 0 && timeout !== -1) {
+    return result("", "", 1);
+  }
+
   // Use stdin from parameter, or fall back to groupStdin (for piped groups/while loops)
+  // If -u is specified, use the file descriptor content instead
   let effectiveStdin = stdin;
-  if (!effectiveStdin && ctx.state.groupStdin !== undefined) {
+
+  if (fileDescriptor >= 0) {
+    // Read from specified file descriptor
+    if (ctx.state.fileDescriptors) {
+      effectiveStdin = ctx.state.fileDescriptors.get(fileDescriptor) || "";
+    } else {
+      effectiveStdin = "";
+    }
+  } else if (!effectiveStdin && ctx.state.groupStdin !== undefined) {
     effectiveStdin = ctx.state.groupStdin;
   }
+
+  // Handle -d '' (empty delimiter) - reads until NUL byte
+  // Empty string delimiter means read until NUL byte (\0)
+  const effectiveDelimiter = delimiter === "" ? "\0" : delimiter;
 
   // Get input
   let line = "";
   let consumed = 0;
   let foundDelimiter = true; // Assume found unless no newline at end
+
+  // Helper to consume from the appropriate source
+  const consumeInput = (bytesConsumed: number) => {
+    if (fileDescriptor >= 0 && ctx.state.fileDescriptors) {
+      ctx.state.fileDescriptors.set(
+        fileDescriptor,
+        effectiveStdin.substring(bytesConsumed),
+      );
+    } else if (ctx.state.groupStdin !== undefined && !stdin) {
+      ctx.state.groupStdin = effectiveStdin.substring(bytesConsumed);
+    }
+  };
 
   if (ncharsExact >= 0) {
     // -N: Read exactly N characters (ignores delimiters, no IFS splitting)
@@ -94,10 +262,8 @@ export function handleRead(
     consumed = toRead;
     foundDelimiter = toRead >= ncharsExact;
 
-    // Consume from groupStdin
-    if (ctx.state.groupStdin !== undefined && !stdin) {
-      ctx.state.groupStdin = effectiveStdin.substring(consumed);
-    }
+    // Consume from appropriate source
+    consumeInput(consumed);
 
     // With -N, assign entire content to first variable (no IFS splitting)
     const varName = varNames[0] || "REPLY";
@@ -111,31 +277,30 @@ export function handleRead(
     // -n: Read at most N characters (or until delimiter/EOF), then apply IFS splitting
     for (let c = 0; c < effectiveStdin.length && c < nchars; c++) {
       const char = effectiveStdin[c];
-      if (char === delimiter) {
+      if (char === effectiveDelimiter) {
         consumed = c + 1;
         break;
       }
       line += char;
       consumed = c + 1;
     }
-    // Consume from groupStdin
-    if (ctx.state.groupStdin !== undefined && !stdin) {
-      ctx.state.groupStdin = effectiveStdin.substring(consumed);
-    }
+    // Consume from appropriate source
+    consumeInput(consumed);
   } else {
     // Read until delimiter, handling line continuation (backslash-newline) if not raw mode
     let remaining = effectiveStdin;
     consumed = 0;
 
     while (true) {
-      const delimIndex = remaining.indexOf(delimiter);
+      const delimIndex = remaining.indexOf(effectiveDelimiter);
       if (delimIndex !== -1) {
         const segment = remaining.substring(0, delimIndex);
-        consumed += delimIndex + delimiter.length;
-        remaining = remaining.substring(delimIndex + delimiter.length);
+        consumed += delimIndex + effectiveDelimiter.length;
+        remaining = remaining.substring(delimIndex + effectiveDelimiter.length);
 
         // Check for line continuation: if line ends with \ and not in raw mode
-        if (!raw && segment.endsWith("\\")) {
+        // But only for newline delimiter (line continuation doesn't apply to other delimiters)
+        if (!raw && effectiveDelimiter === "\n" && segment.endsWith("\\")) {
           // Remove trailing backslash and continue reading
           line += segment.slice(0, -1);
           continue;
@@ -168,14 +333,12 @@ export function handleRead(
       }
     }
 
-    // Consume from groupStdin
-    if (ctx.state.groupStdin !== undefined && !stdin) {
-      ctx.state.groupStdin = effectiveStdin.substring(consumed);
-    }
+    // Consume from appropriate source
+    consumeInput(consumed);
   }
 
   // Remove trailing newline if present and delimiter is newline
-  if (delimiter === "\n" && line.endsWith("\n")) {
+  if (effectiveDelimiter === "\n" && line.endsWith("\n")) {
     line = line.slice(0, -1);
   }
 

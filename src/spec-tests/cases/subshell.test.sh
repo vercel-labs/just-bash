@@ -7,7 +7,6 @@ echo $?
 ## status: 0
 
 #### Subshell with redirects
-## SKIP: Subshell with redirects edge case not implemented
 ( echo 1 ) > a.txt
 ( env echo 2 ) > b.txt
 ( env echo 3; ) > c.txt  # Sentence in LST

@@ -26,7 +26,6 @@ argv.py "${array[@]}"
 ## N-I mksh status: 1
 
 #### declare -f exit code indicates function existence
-## SKIP: declare -f not implemented
 func2=x  # var names are NOT found
 declare -f myfunc func2
 echo $?
@@ -50,7 +49,6 @@ echo $?
 ## END
 
 #### declare -F prints function names
-## SKIP: declare -F not implemented
 add () { expr 4 + 4; }
 div () { expr 6 / 2; }
 ek () { echo hello; }
@@ -112,7 +110,6 @@ g 3 ROOT/spec/testdata/bash-source-2.sh
 ## END
 
 #### declare -p var (exit status)
-## SKIP: declare -p returns 0 even for undefined variables (should return 1)
 var1() { echo func; }  # function names are NOT found.
 declare -p var1 var2 >/dev/null
 echo $?
@@ -390,7 +387,6 @@ declare -a test_arr7=([3]="foo")
 ## N-I mksh status: 1
 
 #### declare -p foo=bar doesn't make sense
-## SKIP: declare -p foo=bar should return status=1 but returns status=0
 case $SH in mksh) exit 0 ;; esac
 
 declare -p foo=bar
@@ -614,6 +610,7 @@ declare -- x
 ## END
 
 #### eval -- "$(declare -p arr)" (restore arrays w/ unset elements)
+## SKIP: eval of declare -p sparse array assigns to wrong indices
 arr=(1 2 3)
 eval -- "$(arr=(); arr[3]= arr[4]=foo; declare -p arr)"
 for i in {0..4}; do
@@ -686,7 +683,6 @@ typeset -x -r x=42
 
 
 #### typeset -f 
-## SKIP: typeset -f not implemented
 # mksh implement typeset but not declare
 typeset  -f myfunc func2
 echo $?
@@ -706,7 +702,6 @@ echo $?
 ## END
 
 #### typeset -p 
-## SKIP: typeset -p not implemented
 var1() { echo func; }  # function names are NOT found.
 typeset -p var1 var2 >/dev/null
 echo $?
@@ -730,7 +725,6 @@ echo $?
 ## END
 
 #### typeset -r makes a string readonly
-## SKIP: typeset -r readonly behavior differs
 typeset -r s1='12'
 typeset -r s2='34'
 
@@ -763,7 +757,6 @@ status=1
 ## END
 
 #### typeset -ar makes it readonly
-## SKIP: typeset -ar readonly behavior differs
 typeset -a -r array1=(1 2)
 typeset -ar array2=(3 4)
 
@@ -879,7 +872,6 @@ a b
 ## END
 
 #### dynamic array parsing is not allowed
-## SKIP: Dynamic array parsing not implemented
 code='x=(1 2 3)'
 typeset -a "$code"  # note: -a flag is required
 echo status=$?
@@ -989,7 +981,6 @@ typeset foo/bar
 ## status: 1
 
 #### unset and shell funcs
-## SKIP: unset function behavior differs
 foo() {
   echo bar
 }

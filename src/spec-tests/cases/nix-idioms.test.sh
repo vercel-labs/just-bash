@@ -85,7 +85,6 @@ show
 ## END
 
 #### ${!ref} to undefined array
-## SKIP: ${!ref} indirect expansion with array reference not implemented
 
 set -u
 shopt -s eval_unsafe_arith || true 2>/dev/null

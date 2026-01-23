@@ -56,7 +56,6 @@ ok
 ## END
 
 #### $(( closed with )) after multiple lines is parse error - #2337
-## SKIP: Interactive shell invocation not implemented
 
 $SH -c '
 echo $(( echo 1

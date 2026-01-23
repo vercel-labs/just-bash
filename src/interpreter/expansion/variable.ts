@@ -291,10 +291,28 @@ export function getVariable(
 
   // Regular variables - check nounset
   const value = ctx.state.env[name];
-  if (value === undefined && checkNounset && ctx.state.options.nounset) {
+  if (value !== undefined) {
+    // Scalar value exists - return it
+    return value;
+  }
+
+  // Check if plain variable name refers to an array (no scalar exists)
+  // In bash, $a where a is an array returns ${a[0]} (first element)
+  if (isArray(ctx, name)) {
+    // Return the first element (index 0)
+    const firstValue = ctx.state.env[`${name}_0`];
+    if (firstValue !== undefined) {
+      return firstValue;
+    }
+    // Array exists but no element at index 0 - return empty string
+    return "";
+  }
+
+  // No value found - check nounset
+  if (checkNounset && ctx.state.options.nounset) {
     throw new NounsetError(name);
   }
-  return value || "";
+  return "";
 }
 
 /**
@@ -383,6 +401,17 @@ export function isVariableSet(ctx: InterpreterContext, name: string): boolean {
     return isVariableSet(ctx, resolved);
   }
 
-  // Regular variable
-  return name in ctx.state.env;
+  // Regular variable - check if scalar value exists
+  if (name in ctx.state.env) {
+    return true;
+  }
+
+  // Check if plain variable name refers to an array (no scalar exists)
+  // In bash, plain array name is "set" if array has elements
+  if (isArray(ctx, name)) {
+    // Array with elements is considered "set"
+    return true;
+  }
+
+  return false;
 }

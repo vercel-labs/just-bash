@@ -83,7 +83,6 @@ len=5
 
 
 #### test "declare -p sp"
-## SKIP: declare -p sparse array output differs
 a0=()
 a1=(1)
 a2=(1 2)
@@ -129,7 +128,6 @@ typeset a[1000]=100
 ## END
 
 #### +=
-## SKIP: declare -p sparse array output differs
 sp1[10]=a
 sp1[20]=b
 sp1[99]=c
@@ -159,7 +157,6 @@ typeset sp1[102]=3
 
 
 #### a[i]=v
-## SKIP: declare -p sparse array output differs
 sp1[10]=a
 sp1[20]=b
 sp1[30]=c
@@ -189,7 +186,6 @@ typeset sp1[90]=Z
 
 
 #### Negative index with a[i]=v
-## SKIP: Negative array indices not fully implemented
 case $SH in mksh) exit ;; esac
 
 sp1[9]=x
@@ -315,7 +311,6 @@ sp1+=(2)
 
 
 #### unset -v a[i]
-## SKIP: declare -p sparse array output differs
 a=(1 2 3 4 5 6 7 8 9)
 typeset -p a
 unset -v "a[1]"
@@ -411,7 +406,6 @@ bash: line 6: unset: [-3]: bad array subscript
 
 
 #### unset -v a[i] for max index
-## SKIP: declare -p sparse array output differs
 case $SH in mksh) exit ;; esac
 
 a=({1..9})
@@ -990,7 +984,6 @@ a3 empty: [ ]
 
 
 #### ${a-}
-## SKIP: Right brace in parameter default value not implemented
 a1=()
 a2=("" "")
 a3=(foo bar)

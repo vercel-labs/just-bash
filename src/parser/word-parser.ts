@@ -563,6 +563,12 @@ export function wordToString(_p: Parser, word: WordNode): string {
       case "Glob":
         result += part.pattern;
         break;
+      case "TildeExpansion":
+        result += "~";
+        if (part.user) {
+          result += part.user;
+        }
+        break;
       default:
         // For complex parts, just use a placeholder
         result += part.type;

@@ -1,7 +1,6 @@
 ## compare_shells: bash mksh zsh ash
 
 #### File redirects with glob args (bash and zsh only)
-## SKIP: Glob expansion in redirects not implemented
 
 touch one-bar
 
@@ -58,7 +57,6 @@ qq-*-zz
 ## END
 
 #### File redirect without matching any file, with failglob
-## SKIP: failglob with redirects not implemented
 
 shopt -s failglob
 
@@ -83,7 +81,6 @@ status=0
 ## END
 
 #### Redirect to $empty (in function body)
-## SKIP: Empty redirect target handling differs
 empty=''
 fun() { echo hi; } > $empty
 fun
@@ -135,7 +132,6 @@ hi
 
 
 #### File redirect that globs to more than one file (bash and zsh only)
-## SKIP: Glob expansion in redirects not implemented
 
 touch foo-bar
 touch foo-spam
@@ -169,7 +165,6 @@ hi
 ## END
 
 #### File redirect with extended glob
-## SKIP: extglob not implemented
 
 shopt -s extglob
 
@@ -198,7 +193,6 @@ status=0
 ## END
 
 #### Extended glob that doesn't match anything
-## SKIP: extglob not implemented
 shopt -s extglob
 rm bad_*
 

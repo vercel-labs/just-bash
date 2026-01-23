@@ -561,6 +561,10 @@ export function evaluateArithmeticSync(
         `${expr.number}${expr.errorToken}: syntax error: invalid arithmetic operator (error token is "${expr.errorToken}")`,
       );
     }
+    case "ArithSyntaxError": {
+      // Syntax error node - throw at evaluation time so script can parse successfully
+      throw new ArithmeticError(expr.message);
+    }
     case "ArithBinary": {
       // Short-circuit evaluation for logical operators
       if (expr.operator === "||") {
@@ -610,6 +614,42 @@ export function evaluateArithmeticSync(
           const newValue = expr.operator === "++" ? current + 1 : current - 1;
           ctx.state.env[envKey] = String(newValue);
           return expr.prefix ? newValue : current;
+        }
+        if (expr.operand.type === "ArithConcat") {
+          // Handle dynamic variable name increment/decrement: x$foo++
+          let varName = "";
+          for (const part of expr.operand.parts) {
+            varName += evalConcatPartToStringSync(ctx, part);
+          }
+          if (varName && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
+            const current =
+              Number.parseInt(ctx.state.env[varName] || "0", 10) || 0;
+            const newValue = expr.operator === "++" ? current + 1 : current - 1;
+            ctx.state.env[varName] = String(newValue);
+            return expr.prefix ? newValue : current;
+          }
+        }
+        if (expr.operand.type === "ArithDynamicElement") {
+          // Handle dynamic array element increment/decrement: x$foo[5]++
+          let varName = "";
+          if (expr.operand.nameExpr.type === "ArithConcat") {
+            for (const part of expr.operand.nameExpr.parts) {
+              varName += evalConcatPartToStringSync(ctx, part);
+            }
+          } else if (expr.operand.nameExpr.type === "ArithVariable") {
+            varName = expr.operand.nameExpr.hasDollarPrefix
+              ? getVariable(ctx, expr.operand.nameExpr.name)
+              : expr.operand.nameExpr.name;
+          }
+          if (varName && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
+            const index = evaluateArithmeticSync(ctx, expr.operand.subscript);
+            const envKey = `${varName}_${index}`;
+            const current =
+              Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
+            const newValue = expr.operator === "++" ? current + 1 : current - 1;
+            ctx.state.env[envKey] = String(newValue);
+            return expr.prefix ? newValue : current;
+          }
         }
         return operand;
       }
@@ -665,12 +705,69 @@ export function evaluateArithmeticSync(
     case "ArithGroup":
       return evaluateArithmeticSync(ctx, expr.expression);
     case "ArithConcat": {
-      // Concatenate all parts as strings, then parse as number
+      // Concatenate all parts to form a dynamic variable name or number
+      // For ArithVariable without $, use the literal name; with $, use the value
       let concatenated = "";
       for (const part of expr.parts) {
-        concatenated += evalPartToStringSync(ctx, part);
+        concatenated += evalConcatPartToStringSync(ctx, part);
       }
+      // If the result is a valid identifier, look it up as a variable
+      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(concatenated)) {
+        return resolveArithVariable(ctx, concatenated);
+      }
+      // Otherwise parse as a number
       return Number.parseInt(concatenated, 10) || 0;
+    }
+    case "ArithDynamicAssignment": {
+      // Dynamic assignment: x$foo = 42 or x$foo[5] = 42 assigns to variable built from concatenation
+      let varName = "";
+      // Build the variable name from the target expression
+      if (expr.target.type === "ArithConcat") {
+        for (const part of expr.target.parts) {
+          varName += evalConcatPartToStringSync(ctx, part);
+        }
+      } else if (expr.target.type === "ArithVariable") {
+        varName = expr.target.hasDollarPrefix
+          ? getVariable(ctx, expr.target.name)
+          : expr.target.name;
+      }
+      if (!varName || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
+        return 0; // Invalid variable name
+      }
+      // Build the env key - include subscript for array assignment
+      let envKey = varName;
+      if (expr.subscript) {
+        const index = evaluateArithmeticSync(ctx, expr.subscript);
+        envKey = `${varName}_${index}`;
+      }
+      const current = Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
+      const value = evaluateArithmeticSync(ctx, expr.value);
+      const newValue = applyAssignmentOp(current, value, expr.operator);
+      ctx.state.env[envKey] = String(newValue);
+      return newValue;
+    }
+    case "ArithDynamicElement": {
+      // Dynamic array element: x$foo[5] - build array name from concat, then access element
+      let varName = "";
+      if (expr.nameExpr.type === "ArithConcat") {
+        for (const part of expr.nameExpr.parts) {
+          varName += evalConcatPartToStringSync(ctx, part);
+        }
+      } else if (expr.nameExpr.type === "ArithVariable") {
+        varName = expr.nameExpr.hasDollarPrefix
+          ? getVariable(ctx, expr.nameExpr.name)
+          : expr.nameExpr.name;
+      }
+      if (!varName || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
+        return 0; // Invalid variable name
+      }
+      const index = evaluateArithmeticSync(ctx, expr.subscript);
+      const envKey = `${varName}_${index}`;
+      const value = ctx.state.env[envKey];
+      if (value !== undefined) {
+        return parseArithValue(value);
+      }
+      return 0;
     }
     default:
       return 0;
@@ -678,9 +775,11 @@ export function evaluateArithmeticSync(
 }
 
 /**
- * Evaluate an arithmetic expression part to its string representation (sync)
+ * Evaluate an arithmetic expression part for concatenation purposes (sync).
+ * For ArithVariable without $ prefix, returns the literal name.
+ * For ArithVariable with $ prefix, returns the variable's value.
  */
-function evalPartToStringSync(
+function evalConcatPartToStringSync(
   ctx: InterpreterContext,
   expr: ArithExpr,
 ): string {
@@ -688,7 +787,12 @@ function evalPartToStringSync(
     case "ArithNumber":
       return String(expr.value);
     case "ArithVariable":
-      return getVariable(ctx, expr.name);
+      // If no $ prefix, use the literal name for building dynamic var names
+      // If has $ prefix, expand to the variable's value
+      if (expr.hasDollarPrefix) {
+        return getVariable(ctx, expr.name);
+      }
+      return expr.name;
     case "ArithSpecialVar":
       return getVariable(ctx, expr.name);
     case "ArithBracedExpansion":
@@ -699,7 +803,7 @@ function evalPartToStringSync(
     case "ArithConcat": {
       let result = "";
       for (const part of expr.parts) {
-        result += evalPartToStringSync(ctx, part);
+        result += evalConcatPartToStringSync(ctx, part);
       }
       return result;
     }
@@ -835,6 +939,11 @@ export async function evaluateArithmetic(
       );
     }
 
+    case "ArithSyntaxError": {
+      // Syntax error node - throw at evaluation time so script can parse successfully
+      throw new ArithmeticError(expr.message);
+    }
+
     case "ArithBinary": {
       // Short-circuit evaluation for logical operators
       if (expr.operator === "||") {
@@ -886,6 +995,42 @@ export async function evaluateArithmetic(
           const newValue = expr.operator === "++" ? current + 1 : current - 1;
           ctx.state.env[envKey] = String(newValue);
           return expr.prefix ? newValue : current;
+        }
+        if (expr.operand.type === "ArithConcat") {
+          // Handle dynamic variable name increment/decrement: x$foo++
+          let varName = "";
+          for (const part of expr.operand.parts) {
+            varName += await evalConcatPartToStringAsync(ctx, part);
+          }
+          if (varName && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
+            const current =
+              Number.parseInt(ctx.state.env[varName] || "0", 10) || 0;
+            const newValue = expr.operator === "++" ? current + 1 : current - 1;
+            ctx.state.env[varName] = String(newValue);
+            return expr.prefix ? newValue : current;
+          }
+        }
+        if (expr.operand.type === "ArithDynamicElement") {
+          // Handle dynamic array element increment/decrement: x$foo[5]++
+          let varName = "";
+          if (expr.operand.nameExpr.type === "ArithConcat") {
+            for (const part of expr.operand.nameExpr.parts) {
+              varName += await evalConcatPartToStringAsync(ctx, part);
+            }
+          } else if (expr.operand.nameExpr.type === "ArithVariable") {
+            varName = expr.operand.nameExpr.hasDollarPrefix
+              ? getVariable(ctx, expr.operand.nameExpr.name)
+              : expr.operand.nameExpr.name;
+          }
+          if (varName && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
+            const index = await evaluateArithmetic(ctx, expr.operand.subscript);
+            const envKey = `${varName}_${index}`;
+            const current =
+              Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
+            const newValue = expr.operator === "++" ? current + 1 : current - 1;
+            ctx.state.env[envKey] = String(newValue);
+            return expr.prefix ? newValue : current;
+          }
         }
         return operand;
       }
@@ -945,12 +1090,71 @@ export async function evaluateArithmetic(
       return await evaluateArithmetic(ctx, expr.expression);
 
     case "ArithConcat": {
-      // Concatenate all parts as strings, then parse as number
+      // Concatenate all parts to form a dynamic variable name or number
+      // For ArithVariable without $, use the literal name; with $, use the value
       let concatenated = "";
       for (const part of expr.parts) {
-        concatenated += await evalPartToStringAsync(ctx, part);
+        concatenated += await evalConcatPartToStringAsync(ctx, part);
       }
+      // If the result is a valid identifier, look it up as a variable
+      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(concatenated)) {
+        return resolveArithVariable(ctx, concatenated);
+      }
+      // Otherwise parse as a number
       return Number.parseInt(concatenated, 10) || 0;
+    }
+
+    case "ArithDynamicAssignment": {
+      // Dynamic assignment: x$foo = 42 or x$foo[5] = 42 assigns to variable built from concatenation
+      let varName = "";
+      // Build the variable name from the target expression
+      if (expr.target.type === "ArithConcat") {
+        for (const part of expr.target.parts) {
+          varName += await evalConcatPartToStringAsync(ctx, part);
+        }
+      } else if (expr.target.type === "ArithVariable") {
+        varName = expr.target.hasDollarPrefix
+          ? getVariable(ctx, expr.target.name)
+          : expr.target.name;
+      }
+      if (!varName || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
+        return 0; // Invalid variable name
+      }
+      // Build the env key - include subscript for array assignment
+      let envKey = varName;
+      if (expr.subscript) {
+        const index = await evaluateArithmetic(ctx, expr.subscript);
+        envKey = `${varName}_${index}`;
+      }
+      const current = Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
+      const value = await evaluateArithmetic(ctx, expr.value);
+      const newValue = applyAssignmentOp(current, value, expr.operator);
+      ctx.state.env[envKey] = String(newValue);
+      return newValue;
+    }
+
+    case "ArithDynamicElement": {
+      // Dynamic array element: x$foo[5] - build array name from concat, then access element
+      let varName = "";
+      if (expr.nameExpr.type === "ArithConcat") {
+        for (const part of expr.nameExpr.parts) {
+          varName += await evalConcatPartToStringAsync(ctx, part);
+        }
+      } else if (expr.nameExpr.type === "ArithVariable") {
+        varName = expr.nameExpr.hasDollarPrefix
+          ? getVariable(ctx, expr.nameExpr.name)
+          : expr.nameExpr.name;
+      }
+      if (!varName || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
+        return 0; // Invalid variable name
+      }
+      const index = await evaluateArithmetic(ctx, expr.subscript);
+      const envKey = `${varName}_${index}`;
+      const value = ctx.state.env[envKey];
+      if (value !== undefined) {
+        return parseArithValue(value);
+      }
+      return 0;
     }
 
     default:
@@ -959,9 +1163,11 @@ export async function evaluateArithmetic(
 }
 
 /**
- * Evaluate an arithmetic expression part to its string representation (async)
+ * Evaluate an arithmetic expression part for concatenation purposes (async).
+ * For ArithVariable without $ prefix, returns the literal name.
+ * For ArithVariable with $ prefix, returns the variable's value.
  */
-async function evalPartToStringAsync(
+async function evalConcatPartToStringAsync(
   ctx: InterpreterContext,
   expr: ArithExpr,
 ): Promise<string> {
@@ -969,7 +1175,12 @@ async function evalPartToStringAsync(
     case "ArithNumber":
       return String(expr.value);
     case "ArithVariable":
-      return getVariable(ctx, expr.name);
+      // If no $ prefix, use the literal name for building dynamic var names
+      // If has $ prefix, expand to the variable's value
+      if (expr.hasDollarPrefix) {
+        return getVariable(ctx, expr.name);
+      }
+      return expr.name;
     case "ArithSpecialVar":
       return getVariable(ctx, expr.name);
     case "ArithBracedExpansion":
@@ -984,7 +1195,7 @@ async function evalPartToStringAsync(
     case "ArithConcat": {
       let result = "";
       for (const part of expr.parts) {
-        result += await evalPartToStringAsync(ctx, part);
+        result += await evalConcatPartToStringAsync(ctx, part);
       }
       return result;
     }

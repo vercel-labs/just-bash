@@ -229,6 +229,9 @@ export class Lexer {
     stripTabs: boolean;
     quoted: boolean;
   }[] = [];
+  // Track depth inside (( )) for C-style for loops and arithmetic commands
+  // When > 0, we're inside (( )) and need to track nested parens
+  private dparenDepth = 0;
 
   constructor(input: string) {
     this.input = input;
@@ -314,8 +317,8 @@ export class Lexer {
     const c1 = input[pos + 1];
     const c2 = input[pos + 2];
 
-    // Comments
-    if (c0 === "#") {
+    // Comments - but NOT inside (( )) arithmetic context where # is part of base notation
+    if (c0 === "#" && this.dparenDepth === 0) {
       return this.readComment(pos, startLine, startColumn);
     }
 
@@ -371,8 +374,77 @@ export class Lexer {
       this.registerHeredocFromLookahead(false);
       return this.makeToken(TokenType.DLESS, "<<", pos, startLine, startColumn);
     }
-    // Table-driven two-char operators
+    // Special handling for (( and )) to track nested parentheses in arithmetic contexts
+    // This is needed for C-style for loops: for (( n=0; n<(3-(1)); n++ ))
+    if (c0 === "(" && c1 === "(") {
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      this.dparenDepth = 1; // Enter arithmetic context
+      return this.makeToken(
+        TokenType.DPAREN_START,
+        "((",
+        pos,
+        startLine,
+        startColumn,
+      );
+    }
+    if (c0 === ")" && c1 === ")") {
+      if (this.dparenDepth === 1) {
+        // Closing the arithmetic context
+        this.pos = pos + 2;
+        this.column = startColumn + 2;
+        this.dparenDepth = 0;
+        return this.makeToken(
+          TokenType.DPAREN_END,
+          "))",
+          pos,
+          startLine,
+          startColumn,
+        );
+      } else if (this.dparenDepth > 1) {
+        // Inside arithmetic context with nested parens - emit single RPAREN
+        this.pos = pos + 1;
+        this.column = startColumn + 1;
+        this.dparenDepth--;
+        return this.makeToken(
+          TokenType.RPAREN,
+          ")",
+          pos,
+          startLine,
+          startColumn,
+        );
+      }
+      // dparenDepth === 0: not in arithmetic context, use normal )) handling
+      this.pos = pos + 2;
+      this.column = startColumn + 2;
+      return this.makeToken(
+        TokenType.DPAREN_END,
+        "))",
+        pos,
+        startLine,
+        startColumn,
+      );
+    }
+
+    // Table-driven two-char operators (excluding (( and )) which are handled above)
     for (const [first, second, type] of TWO_CHAR_OPS) {
+      // Skip (( and )) since they're handled above with depth tracking
+      if (
+        (first === "(" && second === "(") ||
+        (first === ")" && second === ")")
+      ) {
+        continue;
+      }
+      // Skip ;; and ;;& inside (( )) context - they're separate semicolons for C-style for
+      if (
+        this.dparenDepth > 0 &&
+        first === ";" &&
+        (type === TokenType.DSEMI ||
+          type === TokenType.SEMI_AND ||
+          type === TokenType.SEMI_SEMI_AND)
+      ) {
+        continue;
+      }
       if (c0 === first && c1 === second) {
         this.pos = pos + 2;
         this.column = startColumn + 2;
@@ -387,6 +459,20 @@ export class Lexer {
     }
 
     // Single-character operators
+    // Track parentheses depth when inside (( )) arithmetic context
+    if (c0 === "(" && this.dparenDepth > 0) {
+      this.pos = pos + 1;
+      this.column = startColumn + 1;
+      this.dparenDepth++;
+      return this.makeToken(TokenType.LPAREN, "(", pos, startLine, startColumn);
+    }
+    if (c0 === ")" && this.dparenDepth > 1) {
+      // Inside arithmetic context with nested parens
+      this.pos = pos + 1;
+      this.column = startColumn + 1;
+      this.dparenDepth--;
+      return this.makeToken(TokenType.RPAREN, ")", pos, startLine, startColumn);
+    }
     // Table-driven simple single-char operators
     const singleCharType = SINGLE_CHAR_OPS[c0];
     if (singleCharType) {
@@ -551,8 +637,12 @@ export class Lexer {
     // If we consumed characters and hit a word boundary (not a special char needing processing)
     if (pos > fastStart) {
       const c = input[pos];
-      // If we hit end or a simple delimiter, we can use the fast path result
-      if (
+      // Check for extglob pattern: if we hit ( and previous char is extglob operator, bail to slow path
+      if (c === "(" && pos > fastStart && "@*+?!".includes(input[pos - 1])) {
+        // Extglob pattern - need slow path to handle it properly
+        // Fall through to slow path below
+      } else if (
+        // If we hit end or a simple delimiter, we can use the fast path result
         pos >= len ||
         c === " " ||
         c === "\t" ||
@@ -652,6 +742,22 @@ export class Lexer {
 
       // Check for word boundaries
       if (!inSingleQuote && !inDoubleQuote) {
+        // Check for extglob pattern: @(...), *(...), +(...), ?(...), !(...)
+        // If the last character is an extglob operator and we hit (, consume the extglob group
+        if (
+          char === "(" &&
+          value.length > 0 &&
+          "@*+?!".includes(value[value.length - 1])
+        ) {
+          // Extglob pattern - consume the parenthesized content
+          const extglobResult = this.scanExtglobPattern(pos);
+          if (extglobResult !== null) {
+            value += extglobResult.content;
+            pos = extglobResult.end;
+            col += extglobResult.content.length;
+            continue;
+          }
+        }
         if (
           char === " " ||
           char === "\t" ||
@@ -1501,6 +1607,62 @@ export class Lexer {
       } else {
         pos++;
       }
+    }
+
+    return null;
+  }
+
+  /**
+   * Scan an extglob pattern starting at the opening parenthesis.
+   * Extglob patterns are: @(...), *(...), +(...), ?(...), !(...)
+   * The operator (@, *, +, ?, !) is already consumed; we start at the (.
+   * Returns the content including parentheses, or null if not a valid extglob.
+   */
+  private scanExtglobPattern(
+    startPos: number,
+  ): { content: string; end: number } | null {
+    const input = this.input;
+    const len = input.length;
+    let pos = startPos + 1; // Skip the opening (
+    let depth = 1;
+
+    while (pos < len && depth > 0) {
+      const c = input[pos];
+
+      // Handle escapes
+      if (c === "\\" && pos + 1 < len) {
+        pos += 2;
+        continue;
+      }
+
+      // Handle nested extglob patterns
+      if ("@*+?!".includes(c) && pos + 1 < len && input[pos + 1] === "(") {
+        pos++; // Skip the extglob operator
+        depth++;
+        pos++; // Skip the (
+        continue;
+      }
+
+      if (c === "(") {
+        depth++;
+        pos++;
+      } else if (c === ")") {
+        depth--;
+        pos++;
+      } else if (c === "\n") {
+        // Newline inside extglob is not allowed (bash behavior)
+        return null;
+      } else {
+        pos++;
+      }
+    }
+
+    // Must have balanced parentheses
+    if (depth === 0) {
+      return {
+        content: input.slice(startPos, pos),
+        end: pos,
+      };
     }
 
     return null;

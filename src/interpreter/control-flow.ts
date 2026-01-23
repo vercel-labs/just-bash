@@ -24,7 +24,7 @@ import type {
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import { matchPattern } from "./conditionals.js";
-import { BreakError, ContinueError } from "./errors.js";
+import { BreakError, ContinueError, GlobError } from "./errors.js";
 import {
   escapeGlobChars,
   expandWord,
@@ -35,6 +35,7 @@ import { executeCondition } from "./helpers/condition.js";
 import { handleLoopError } from "./helpers/loop.js";
 import { failure, result, throwExecutionLimit } from "./helpers/result.js";
 import { executeStatements } from "./helpers/statements.js";
+import { applyRedirections, preOpenOutputRedirects } from "./redirections.js";
 import type { InterpreterContext } from "./types.js";
 
 export async function executeIf(
@@ -66,6 +67,14 @@ export async function executeFor(
   ctx: InterpreterContext,
   node: ForNode,
 ): Promise<ExecResult> {
+  // Pre-open output redirects to truncate files BEFORE expanding words
+  // This matches bash behavior where redirect files are opened before
+  // any command substitutions in the word list are evaluated
+  const preOpenError = await preOpenOutputRedirects(ctx, node.redirections);
+  if (preOpenError) {
+    return preOpenError;
+  }
+
   let stdout = "";
   let stderr = "";
   let exitCode = 0;
@@ -82,9 +91,17 @@ export async function executeFor(
   } else if (node.words.length === 0) {
     words = [];
   } else {
-    for (const word of node.words) {
-      const expanded = await expandWordWithGlob(ctx, word);
-      words.push(...expanded.values);
+    try {
+      for (const word of node.words) {
+        const expanded = await expandWordWithGlob(ctx, word);
+        words.push(...expanded.values);
+      }
+    } catch (e) {
+      if (e instanceof GlobError) {
+        // failglob: return error with exit code 1
+        return { stdout: "", stderr: e.stderr, exitCode: 1 };
+      }
+      throw e;
     }
   }
 
@@ -122,7 +139,9 @@ export async function executeFor(
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") continue;
         if (loopResult.action === "error") {
-          return result(stdout, stderr, loopResult.exitCode ?? 1);
+          // Apply output redirections before returning
+          const bodyResult = result(stdout, stderr, loopResult.exitCode ?? 1);
+          return applyRedirections(ctx, bodyResult, node.redirections);
         }
         throw loopResult.error;
       }
@@ -134,7 +153,9 @@ export async function executeFor(
   // Note: In bash, the loop variable persists after the loop with its last value
   // Do NOT delete ctx.state.env[node.variable] here
 
-  return result(stdout, stderr, exitCode);
+  // Apply output redirections
+  const bodyResult = result(stdout, stderr, exitCode);
+  return applyRedirections(ctx, bodyResult, node.redirections);
 }
 
 export async function executeCStyleFor(
@@ -417,6 +438,14 @@ export async function executeCase(
   ctx: InterpreterContext,
   node: CaseNode,
 ): Promise<ExecResult> {
+  // Pre-open output redirects to truncate files BEFORE expanding case word
+  // This matches bash behavior where redirect files are opened before
+  // any command substitutions in the case word are evaluated
+  const preOpenError = await preOpenOutputRedirects(ctx, node.redirections);
+  if (preOpenError) {
+    return preOpenError;
+  }
+
   let stdout = "";
   let stderr = "";
   let exitCode = 0;
@@ -439,7 +468,9 @@ export async function executeCase(
         if (isWordFullyQuoted(pattern)) {
           patternStr = escapeGlobChars(patternStr);
         }
-        if (matchPattern(value, patternStr)) {
+        const nocasematch = ctx.state.shoptOptions.nocasematch;
+        const extglob = ctx.state.shoptOptions.extglob;
+        if (matchPattern(value, patternStr, nocasematch, extglob)) {
           matched = true;
           break;
         }
@@ -474,5 +505,7 @@ export async function executeCase(
     }
   }
 
-  return result(stdout, stderr, exitCode);
+  // Apply output redirections
+  const bodyResult = result(stdout, stderr, exitCode);
+  return applyRedirections(ctx, bodyResult, node.redirections);
 }

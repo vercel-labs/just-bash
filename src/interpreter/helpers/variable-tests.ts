@@ -1,5 +1,8 @@
+import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
+import { Parser } from "../../parser/parser.js";
+import { evaluateArithmeticSync } from "../arithmetic.js";
 import type { InterpreterContext } from "../types.js";
-import { getArrayIndices } from "./array.js";
+import { getArrayIndices, getAssocArrayKeys } from "./array.js";
 
 /**
  * Evaluates the -v (variable is set) test.
@@ -17,7 +20,7 @@ export function evaluateVariableTest(
 
   if (arrayMatch) {
     const arrayName = arrayMatch[1];
-    let indexExpr = arrayMatch[2];
+    const indexExpr = arrayMatch[2];
 
     // Check if this is an associative array
     const isAssoc = ctx.state.associativeArrays?.has(arrayName);
@@ -39,24 +42,18 @@ export function evaluateVariableTest(
       return `${arrayName}_${key}` in ctx.state.env;
     }
 
-    // For indexed arrays, expand variables in index
-    indexExpr = indexExpr.replace(
-      /\$([a-zA-Z_][a-zA-Z0-9_]*)/g,
-      (_, varName) => {
-        return ctx.state.env[varName] || "";
-      },
-    );
-
-    // Evaluate as arithmetic or number
+    // Evaluate as arithmetic expression (handles variables like zero+0)
     let index: number;
-    if (/^-?\d+$/.test(indexExpr)) {
-      index = Number.parseInt(indexExpr, 10);
-    } else {
-      // Try to evaluate as arithmetic expression
-      try {
-        const result = Function(`"use strict"; return (${indexExpr})`)();
-        index = typeof result === "number" ? Math.floor(result) : 0;
-      } catch {
+    try {
+      const parser = new Parser();
+      const arithAst = parseArithmeticExpression(parser, indexExpr);
+      index = evaluateArithmeticSync(ctx, arithAst.expression);
+    } catch {
+      // If parsing fails, try simple numeric
+      if (/^-?\d+$/.test(indexExpr)) {
+        index = Number.parseInt(indexExpr, 10);
+      } else {
+        // Last resort: try looking up as variable
         const varValue = ctx.state.env[indexExpr];
         index = varValue ? Number.parseInt(varValue, 10) : 0;
       }
@@ -78,5 +75,17 @@ export function evaluateVariableTest(
     return `${arrayName}_${index}` in ctx.state.env;
   }
 
-  return operand in ctx.state.env;
+  // Check if it's a regular variable
+  if (operand in ctx.state.env) {
+    return true;
+  }
+
+  // Check if it's an array with elements (test -v arrayname without subscript)
+  // For associative arrays, check if there are any keys
+  if (ctx.state.associativeArrays?.has(operand)) {
+    return getAssocArrayKeys(ctx, operand).length > 0;
+  }
+
+  // For indexed arrays, check if there are any indices
+  return getArrayIndices(ctx, operand).length > 0;
 }

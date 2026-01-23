@@ -136,7 +136,6 @@ n=3
 ## END
 
 #### mapfile -t doesn't remove \r
-## SKIP: mapfile -t with \r handling not implemented
 type mapfile >/dev/null 2>&1 || exit 0
 printf '%s\r\n' {1..5..2} | {
   mapfile -t arr
@@ -172,7 +171,6 @@ len=2
 ## END
 
 #### mapfile (store position): -O start
-## SKIP: mapfile -O (offset/store position) not implemented
 type mapfile >/dev/null 2>&1 || exit 0
 printf '%s\n' a{0..2} | {
   arr=(x y z)

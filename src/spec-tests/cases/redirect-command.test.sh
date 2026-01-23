@@ -178,7 +178,6 @@ FOO=
 
 
 #### Redirect in function body
-## SKIP: Redirect on function definition not implemented
 fun() { echo hi; } 1>&2
 fun
 ## STDOUT:
@@ -293,7 +292,6 @@ cat $TMP/redirect-for-loop.txt
 ## END
 
 #### redirect subshell
-## SKIP: Redirect on subshell not implemented
 ( echo foo ) 1>&2
 ## stderr: foo
 ## stdout-json: ""
@@ -314,7 +312,6 @@ cat $TMP/redirect2.txt
 ## END
 
 #### Brace group redirect
-## SKIP: Redirect on brace group not implemented
 # Suffix works, but prefix does NOT work.
 # That comes from '| compound_command redirect_list' in the grammar!
 { echo block-redirect; } > $TMP/br.txt

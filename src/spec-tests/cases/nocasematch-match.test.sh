@@ -4,7 +4,6 @@
 # Tests nocasematch matching
 
 #### [[ equality matching
-## SKIP: nocasematch shopt not implemented
 shopt -s nocasematch
 [[ a == A ]]; echo $?
 [[ A == a ]]; echo $?
@@ -18,7 +17,6 @@ shopt -s nocasematch
 ## END
 
 #### [[ regex matching
-## SKIP: nocasematch shopt not implemented
 shopt -s nocasematch
 [[ a =~ A ]]; echo $?
 [[ A =~ a ]]; echo $?
@@ -41,7 +39,6 @@ shopt -s nocasematch
 ## END
 
 #### case matching
-## SKIP: nocasematch shopt not implemented
 shopt -s nocasematch
 case a in A) echo 0 ;; *) echo 1 ;; esac
 case A in a) echo 0 ;; *) echo 1 ;; esac

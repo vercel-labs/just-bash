@@ -239,7 +239,6 @@ e=foofoo
 ## N-I zsh stdout-json: ""
 
 #### local +=
-## SKIP: local with += append not implemented
 
 f() {
   local s+=foo

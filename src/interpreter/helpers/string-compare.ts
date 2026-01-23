@@ -24,6 +24,8 @@ export function isStringCompareOp(op: string): op is StringCompareOp {
  * @param left - Left operand
  * @param right - Right operand
  * @param usePattern - If true, use glob pattern matching for equality (default: false)
+ * @param nocasematch - If true, use case-insensitive comparison (default: false)
+ * @param extglob - If true, enable extended glob patterns @(), *(), +(), ?(), !() (default: false)
  * @returns True if the comparison succeeds
  */
 export function compareStrings(
@@ -31,7 +33,17 @@ export function compareStrings(
   left: string,
   right: string,
   usePattern = false,
+  nocasematch = false,
+  extglob = false,
 ): boolean {
-  const isEqual = usePattern ? matchPattern(left, right) : left === right;
+  if (usePattern) {
+    const isEqual = matchPattern(left, right, nocasematch, extglob);
+    return op === "!=" ? !isEqual : isEqual;
+  }
+  if (nocasematch) {
+    const isEqual = left.toLowerCase() === right.toLowerCase();
+    return op === "!=" ? !isEqual : isEqual;
+  }
+  const isEqual = left === right;
   return op === "!=" ? !isEqual : isEqual;
 }

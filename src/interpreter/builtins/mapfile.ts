@@ -110,17 +110,25 @@ export function handleMapfile(
     lineCount++;
   }
 
-  // Clear existing array and store lines
-  clearArray(ctx, arrayName);
+  // Clear existing array ONLY if not using -O (offset) option
+  // When using -O, we want to preserve existing elements and append starting at origin
+  if (origin === 0) {
+    clearArray(ctx, arrayName);
+  }
 
   for (let j = 0; j < lines.length; j++) {
     ctx.state.env[`${arrayName}_${origin + j}`] = lines[j];
   }
 
-  // Set array length metadata
-  if (lines.length > 0) {
-    ctx.state.env[`${arrayName}__length`] = String(origin + lines.length);
-  }
+  // Set array length metadata to be the max of existing length and new end position
+  const existingLength = parseInt(
+    ctx.state.env[`${arrayName}__length`] || "0",
+    10,
+  );
+  const newEndIndex = origin + lines.length;
+  ctx.state.env[`${arrayName}__length`] = String(
+    Math.max(existingLength, newEndIndex),
+  );
 
   // Consume from groupStdin if we used it
   if (ctx.state.groupStdin !== undefined && !stdin) {
