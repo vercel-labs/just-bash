@@ -5,7 +5,6 @@
 # Corner cases for assignment that we're not handling now.
 
 #### typeset a[3]=4
-## SKIP: typeset with array index assignment (a[n]=val) not implemented
 typeset a[3]=4 a[5]=6
 echo status=$?
 argv.py "${!a[@]}" "${a[@]}"
@@ -22,7 +21,6 @@ argv.py "${a[@]}"
 ## stdout: ['x', 'z']
 
 #### local a[3]=4
-## SKIP: local with array index assignment (a[n]=val) not implemented
 f() {
   local a[3]=4 a[5]=6
   echo status=$?
@@ -50,7 +48,6 @@ status=1
 ## END
 
 #### export a[7]=8
-## SKIP: export with array index assignment (a[n]=val) not implemented
 export a[7]=8
 echo status=$?
 argv.py "${!a[@]}" "${a[@]}"

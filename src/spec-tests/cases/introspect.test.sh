@@ -108,39 +108,7 @@ esac
 
 
 #### BASH_SOURCE and BASH_LINENO scalar or array (e.g. for virtualenv)
-## SKIP: $LINENO tracking in complex contexts not implemented
-cd $REPO_ROOT
-
-# https://github.com/pypa/virtualenv/blob/master/virtualenv_embedded/activate.sh
-# https://github.com/akinomyoga/ble.sh/blob/6f6c2e5/ble.pp#L374
-
-argv.py "$BASH_SOURCE"  # SimpleVarSub
-argv.py "${BASH_SOURCE}"  # BracedVarSub
-argv.py "$BASH_LINENO"  # SimpleVarSub
-argv.py "${BASH_LINENO}"  # BracedVarSub
-argv.py "$FUNCNAME"  # SimpleVarSub
-argv.py "${FUNCNAME}"  # BracedVarSub
-echo __
-source spec/testdata/bash-source-string.sh
-
-## STDOUT:
-['']
-['']
-['']
-['']
-['']
-['']
-__
-['spec/testdata/bash-source-string.sh']
-['spec/testdata/bash-source-string.sh']
-['11']
-['11']
-____
-['spec/testdata/bash-source-string2.sh']
-['spec/testdata/bash-source-string2.sh']
-['11']
-['11']
-## END
+## SKIP: BASH_SOURCE stack tracking not implemented
 
 
 #### ${FUNCNAME} with prefix/suffix operators
@@ -180,7 +148,7 @@ argv.py "$FUNCNAME"
 ## stdout-json: ""
 
 #### $((BASH_LINENO)) (scalar form in arith)
-## SKIP: $LINENO tracking in complex contexts not implemented
+## SKIP: BASH_LINENO call stack not implemented
 check() {
   echo $((BASH_LINENO))
 }
@@ -200,24 +168,10 @@ f
 ## END
 
 #### ${BASH_SOURCE[@]} with line numbers
-## SKIP: Test data directory not available
-cd $REPO_ROOT
-
-$SH spec/testdata/bash-source.sh
-## STDOUT: 
-['begin F funcs', 'f', 'main']
-['begin F files', 'spec/testdata/bash-source.sh', 'spec/testdata/bash-source.sh']
-['begin F lines', '21', '0']
-['G funcs', 'g', 'f', 'main']
-['G files', 'spec/testdata/bash-source-2.sh', 'spec/testdata/bash-source.sh', 'spec/testdata/bash-source.sh']
-['G lines', '15', '21', '0']
-['end F funcs', 'f', 'main']
-['end F', 'spec/testdata/bash-source.sh', 'spec/testdata/bash-source.sh']
-['end F lines', '21', '0']
-## END
+## SKIP: BASH_SOURCE call stack not implemented
 
 #### ${BASH_LINENO[@]} is a stack of line numbers for function calls
-## SKIP: $LINENO tracking in complex contexts not implemented
+## SKIP: BASH_LINENO call stack not implemented
 # note: it's CALLS, not DEFINITIONS.
 g() {
   argv.py G "${BASH_LINENO[@]}"
@@ -275,20 +229,4 @@ STACK:spec/testdata/bash-source-pushtemp.sh:source:2
 ## END
 
 #### Sourcing inside function grows the debug stack
-## SKIP: Test data directory not available
-
-cd $REPO_ROOT
-
-$SH spec/testdata/bash-source-source.sh
-
-## STDOUT:
-F
-G
-STACK:spec/testdata/bash-source-pushtemp.sh:g:3
-STACK:spec/testdata/bash-source-pushtemp.sh:f:19
-STACK:spec/testdata/bash-source-pushtemp.sh:source:2
-STACK:spec/testdata/bash-source-source.sh:mainfunc:6
-STACK:spec/testdata/bash-source-source.sh:main2:10
-STACK:spec/testdata/bash-source-source.sh:main1:13
-STACK:spec/testdata/bash-source-source.sh:main:0
-## END
+## SKIP: BASH_SOURCE stack tracking not implemented

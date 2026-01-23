@@ -1010,7 +1010,6 @@ hello, world
 
 
 #### ${!a[@]}
-## SKIP: "${!array[@]}" should produce separate args per key
 case $SH in mksh) exit ;; esac
 
 a=(v{0..9})

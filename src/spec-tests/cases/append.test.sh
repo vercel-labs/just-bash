@@ -214,7 +214,6 @@ tx=foofoo
 ## N-I zsh stdout-json: ""
 
 #### export readonly +=
-## SKIP: export/readonly with += append not implemented
 
 export e+=foo
 echo e=$e

@@ -28,8 +28,6 @@ export {
   handleDeclare,
   handleReadonly,
   isInteger,
-  isLowercase,
-  isUppercase,
 } from "./declare.js";
 export { handleDirs, handlePopd, handlePushd } from "./dirs.js";
 export { handleEval } from "./eval.js";

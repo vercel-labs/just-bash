@@ -67,47 +67,10 @@ declare -f ek
 ## N-I mksh status: 127
 
 #### declare -F with shopt -s extdebug prints more info
-## SKIP: Test data directory not available
-case $SH in mksh) exit ;; esac
-
-source $REPO_ROOT/spec/testdata/bash-source-2.sh
-
-shopt -s extdebug
-
-add () { expr 4 + 4; }
-
-declare -F 
-echo
-
-declare -F add
-# in bash-source-2
-declare -F g | sed "s;$REPO_ROOT;ROOT;g"
-
-## STDOUT:
-declare -f add
-declare -f g
-
-add 7 main
-g 3 ROOT/spec/testdata/bash-source-2.sh
-## END
-## N-I mksh STDOUT:
-## END
+## SKIP: extdebug not implemented
 
 #### declare -F with shopt -s extdebug and main file
-## SKIP: Test data directory not available
-case $SH in mksh) exit ;; esac
-
-$SH $REPO_ROOT/spec/testdata/extdebug.sh | sed "s;$REPO_ROOT;ROOT;g"
-
-## STDOUT:
-declare -f add
-declare -f g
-
-add 5 ROOT/spec/testdata/extdebug.sh
-g 3 ROOT/spec/testdata/bash-source-2.sh
-## END
-## N-I mksh STDOUT:
-## END
+## SKIP: extdebug not implemented
 
 #### declare -p var (exit status)
 var1() { echo func; }  # function names are NOT found.
@@ -301,7 +264,6 @@ bash=0
 
 
 #### declare -p var
-## SKIP: declare -p var doesn't show -r/-x/-n flags for readonly/export/nameref variables
 # BUG? bash doesn't output anything for 'local/readonly -p var', which seems to
 #   contradict with manual.  Besides, 'export -p var' is not described in
 #   manual
@@ -626,7 +588,7 @@ arr[4]: set ... [foo]
 ## N-I mksh status: 1
 
 #### declare -p UNDEF (and typeset) -- prints something to stderr
-## SKIP: declare -p missing -r/-x flags in output; missing stderr for undefined variables
+## SKIP: wc -l output format differs (no leading spaces)
 
 x=42
 readonly x
@@ -915,7 +877,6 @@ B
 ## END
 
 #### typeset +x
-## SKIP: typeset +x not implemented
 export e=E
 printenv.py e
 typeset +x e=E2

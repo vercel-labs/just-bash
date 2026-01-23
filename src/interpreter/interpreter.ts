@@ -14,6 +14,7 @@ import type {
   ArithmeticCommandNode,
   CommandNode,
   ConditionalCommandNode,
+  FunctionDefNode,
   GroupNode,
   HereDocNode,
   PipelineNode,
@@ -38,6 +39,7 @@ import type {
 } from "../types.js";
 import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
 import {
+  applyCaseTransform,
   handleBreak,
   handleCd,
   handleContinue,
@@ -60,7 +62,6 @@ import {
   handleShift,
   handleSource,
   handleUnset,
-  applyCaseTransform,
   isInteger,
 } from "./builtins/index.js";
 import { handleShopt } from "./builtins/shopt.js";
@@ -185,6 +186,45 @@ export class Interpreter {
     };
   }
 
+  /**
+   * Build environment record containing only exported variables.
+   * In bash, only exported variables are passed to child processes.
+   * This includes both permanently exported variables (via export/declare -x)
+   * and temporarily exported variables (prefix assignments like FOO=bar cmd).
+   */
+  private buildExportedEnv(): Record<string, string> {
+    const exportedVars = this.ctx.state.exportedVars;
+    const tempExportedVars = this.ctx.state.tempExportedVars;
+
+    // Combine both exported and temp exported vars
+    const allExported = new Set<string>();
+    if (exportedVars) {
+      for (const name of exportedVars) {
+        allExported.add(name);
+      }
+    }
+    if (tempExportedVars) {
+      for (const name of tempExportedVars) {
+        allExported.add(name);
+      }
+    }
+
+    if (allExported.size === 0) {
+      // No exported vars - return empty env
+      // This matches bash behavior where variables must be exported to be visible to children
+      return {};
+    }
+
+    const env: Record<string, string> = {};
+    for (const name of allExported) {
+      const value = this.ctx.state.env[name];
+      if (value !== undefined) {
+        env[name] = value;
+      }
+    }
+    return env;
+  }
+
   // ===========================================================================
   // AST EXECUTION
   // ===========================================================================
@@ -208,6 +248,16 @@ export class Interpreter {
         if (error instanceof ExitError) {
           error.prependOutput(stdout, stderr);
           throw error;
+        }
+        // PosixFatalError terminates the script in POSIX mode
+        // POSIX 2.8.1: special builtins cause shell to exit on error
+        if (error instanceof PosixFatalError) {
+          stdout += error.stdout;
+          stderr += error.stderr;
+          exitCode = error.exitCode;
+          this.ctx.state.lastExitCode = exitCode;
+          this.ctx.state.env["?"] = String(exitCode);
+          return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
         }
         // ExecutionLimitError must always propagate - these are safety limits
         if (error instanceof ExecutionLimitError) {
@@ -270,6 +320,12 @@ export class Interpreter {
       );
     }
 
+    // noexec mode (set -n): parse commands but do not execute them
+    // This is used for syntax checking scripts without actually running them
+    if (this.ctx.state.options.noexec) {
+      return OK;
+    }
+
     // Reset errexitSafe at the start of each statement
     // It will be set by inner compound command executions if needed
     this.ctx.state.errexitSafe = false;
@@ -329,6 +385,9 @@ export class Interpreter {
   }
 
   private async executePipeline(node: PipelineNode): Promise<ExecResult> {
+    // Record start time for timed pipelines
+    const startTime = node.timed ? performance.now() : 0;
+
     let stdin = "";
     let lastResult: ExecResult = OK;
     let pipefailExitCode = 0; // Track rightmost failing command
@@ -417,6 +476,29 @@ export class Interpreter {
       lastResult = {
         ...lastResult,
         exitCode: lastResult.exitCode === 0 ? 1 : 0,
+      };
+    }
+
+    // Output timing info for timed pipelines
+    if (node.timed) {
+      const endTime = performance.now();
+      const elapsedSeconds = (endTime - startTime) / 1000;
+      const minutes = Math.floor(elapsedSeconds / 60);
+      const seconds = elapsedSeconds % 60;
+
+      let timingOutput: string;
+      if (node.timePosix) {
+        // POSIX format (-p): decimal format without leading zeros
+        timingOutput = `real ${elapsedSeconds.toFixed(2)}\nuser 0.00\nsys 0.00\n`;
+      } else {
+        // Default bash format: real/user/sys with XmY.YYYs
+        const realStr = `${minutes}m${seconds.toFixed(3)}s`;
+        timingOutput = `\nreal\t${realStr}\nuser\t0m0.000s\nsys\t0m0.000s\n`;
+      }
+
+      lastResult = {
+        ...lastResult,
+        stderr: lastResult.stderr + timingOutput,
       };
     }
 
@@ -821,11 +903,20 @@ export class Interpreter {
           : value;
       }
 
+      // Apply case transformation based on variable attributes (declare -l/-u)
+      finalValue = applyCaseTransform(this.ctx, targetName, finalValue);
+
       if (node.name) {
         tempAssignments[targetName] = this.ctx.state.env[targetName];
         this.ctx.state.env[targetName] = finalValue;
       } else {
         this.ctx.state.env[targetName] = finalValue;
+        // If allexport is enabled (set -a), auto-export the variable
+        if (this.ctx.state.options.allexport) {
+          this.ctx.state.exportedVars =
+            this.ctx.state.exportedVars || new Set();
+          this.ctx.state.exportedVars.add(targetName);
+        }
       }
     }
 
@@ -833,6 +924,17 @@ export class Interpreter {
       // Assignment-only command: preserve the exit code from command substitution
       // e.g., x=$(false) should set $? to 1, not 0
       return result("", "", this.ctx.state.lastExitCode);
+    }
+
+    // Mark prefix assignment variables as temporarily exported for this command
+    // In bash, FOO=bar cmd makes FOO visible in cmd's environment
+    const tempExportedVars = Object.keys(tempAssignments);
+    if (tempExportedVars.length > 0) {
+      this.ctx.state.tempExportedVars =
+        this.ctx.state.tempExportedVars || new Set();
+      for (const name of tempExportedVars) {
+        this.ctx.state.tempExportedVars.add(name);
+      }
     }
 
     // Process FD variable redirections ({varname}>file syntax)
@@ -901,9 +1003,24 @@ export class Interpreter {
         const target = await expandWord(this.ctx, redir.target as WordNode);
         const sourceFd = Number.parseInt(target, 10);
         if (!Number.isNaN(sourceFd) && this.ctx.state.fileDescriptors) {
-          const content = this.ctx.state.fileDescriptors.get(sourceFd);
-          if (content !== undefined) {
-            stdin = content;
+          const fdContent = this.ctx.state.fileDescriptors.get(sourceFd);
+          if (fdContent !== undefined) {
+            // Handle different FD content formats
+            if (fdContent.startsWith("__rw__:")) {
+              // Read/write mode: format is __rw__:path:content
+              const colonIdx = fdContent.indexOf(":", 7);
+              if (colonIdx !== -1) {
+                stdin = fdContent.slice(colonIdx + 1);
+              }
+            } else if (
+              fdContent.startsWith("__file__:") ||
+              fdContent.startsWith("__file_append__:")
+            ) {
+              // These are output-only, can't read from them
+            } else {
+              // Plain content (from exec N< file or here-docs)
+              stdin = fdContent;
+            }
           }
         }
       }
@@ -976,6 +1093,120 @@ export class Interpreter {
       return failure("bash: : command not found\n", 127);
     }
 
+    // Special handling for 'exec' with only redirections (no command to run)
+    // In this case, the redirections apply persistently to the shell
+    if (commandName === "exec" && (args.length === 0 || args[0] === "--")) {
+      // Process persistent FD redirections
+      // Note: {var}>file redirections are already handled by processFdVariableRedirections
+      // which sets up the FD mapping persistently. We only need to handle explicit fd redirections here.
+      for (const redir of node.redirections) {
+        if (redir.target.type === "HereDoc") continue;
+
+        // Skip FD variable redirections - already handled by processFdVariableRedirections
+        if (redir.fdVariable) continue;
+
+        const target = await expandWord(this.ctx, redir.target as WordNode);
+        const fd =
+          redir.fd ??
+          (redir.operator === "<" || redir.operator === "<>" ? 0 : 1);
+
+        if (!this.ctx.state.fileDescriptors) {
+          this.ctx.state.fileDescriptors = new Map();
+        }
+
+        switch (redir.operator) {
+          case ">":
+          case ">|": {
+            // Open file for writing (truncate)
+            const filePath = this.ctx.fs.resolvePath(
+              this.ctx.state.cwd,
+              target,
+            );
+            await this.ctx.fs.writeFile(filePath, "", "utf8"); // truncate
+            this.ctx.state.fileDescriptors.set(fd, `__file__:${filePath}`);
+            break;
+          }
+          case ">>": {
+            // Open file for appending
+            const filePath = this.ctx.fs.resolvePath(
+              this.ctx.state.cwd,
+              target,
+            );
+            this.ctx.state.fileDescriptors.set(
+              fd,
+              `__file_append__:${filePath}`,
+            );
+            break;
+          }
+          case "<": {
+            // Open file for reading - store its content
+            const filePath = this.ctx.fs.resolvePath(
+              this.ctx.state.cwd,
+              target,
+            );
+            try {
+              const content = await this.ctx.fs.readFile(filePath);
+              this.ctx.state.fileDescriptors.set(fd, content);
+            } catch {
+              return failure(`bash: ${target}: No such file or directory\n`);
+            }
+            break;
+          }
+          case "<>": {
+            // Open file for read/write
+            const filePath = this.ctx.fs.resolvePath(
+              this.ctx.state.cwd,
+              target,
+            );
+            try {
+              const content = await this.ctx.fs.readFile(filePath);
+              this.ctx.state.fileDescriptors.set(
+                fd,
+                `__rw__:${filePath}:${content}`,
+              );
+            } catch {
+              // File doesn't exist - create empty
+              await this.ctx.fs.writeFile(filePath, "", "utf8");
+              this.ctx.state.fileDescriptors.set(fd, `__rw__:${filePath}:`);
+            }
+            break;
+          }
+          case ">&": {
+            // Duplicate output FD: N>&M means N now writes to same place as M
+            if (target === "-") {
+              // Close the FD
+              this.ctx.state.fileDescriptors.delete(fd);
+            } else {
+              const sourceFd = Number.parseInt(target, 10);
+              if (!Number.isNaN(sourceFd)) {
+                // Store FD duplication: fd N points to fd M
+                this.ctx.state.fileDescriptors.set(
+                  fd,
+                  `__dupout__:${sourceFd}`,
+                );
+              }
+            }
+            break;
+          }
+          case "<&": {
+            // Duplicate input FD: N<&M means N now reads from same place as M
+            if (target === "-") {
+              // Close the FD
+              this.ctx.state.fileDescriptors.delete(fd);
+            } else {
+              const sourceFd = Number.parseInt(target, 10);
+              if (!Number.isNaN(sourceFd)) {
+                // Store FD duplication for input
+                this.ctx.state.fileDescriptors.set(fd, `__dupin__:${sourceFd}`);
+              }
+            }
+            break;
+          }
+        }
+      }
+      return OK;
+    }
+
     let cmdResult = await this.runCommand(commandName, args, quotedArgs, stdin);
     cmdResult = await applyRedirections(this.ctx, cmdResult, node.redirections);
 
@@ -1000,6 +1231,13 @@ export class Interpreter {
       for (const [name, value] of Object.entries(tempAssignments)) {
         if (value === undefined) delete this.ctx.state.env[name];
         else this.ctx.state.env[name] = value;
+      }
+    }
+
+    // Clear temp exported vars after command execution
+    if (this.ctx.state.tempExportedVars) {
+      for (const name of Object.keys(tempAssignments)) {
+        this.ctx.state.tempExportedVars.delete(name);
       }
     }
 
@@ -1385,10 +1623,15 @@ export class Interpreter {
     // This is needed for commands inside groups/functions that receive stdin via heredoc
     const effectiveStdin = stdin || this.ctx.state.groupStdin || "";
 
+    // Build exported environment for commands that need it (printenv, env, etc.)
+    // Most builtins need access to the full env to modify state
+    const exportedEnv = this.buildExportedEnv();
+
     const cmdCtx: CommandContext = {
       fs: this.ctx.fs,
       cwd: this.ctx.state.cwd,
       env: this.ctx.state.env,
+      exportedEnv,
       stdin: effectiveStdin,
       limits: this.ctx.limits,
       exec: this.ctx.execFn,
@@ -1480,9 +1723,23 @@ export class Interpreter {
 
     for (const dir of pathDirs) {
       if (!dir) continue;
-      const fullPath = `${dir}/${commandName}`;
+      // Resolve relative PATH entries relative to cwd
+      const resolvedDir = dir.startsWith("/")
+        ? dir
+        : this.ctx.fs.resolvePath(this.ctx.state.cwd, dir);
+      const fullPath = `${resolvedDir}/${commandName}`;
       if (await this.ctx.fs.exists(fullPath)) {
-        paths.push(fullPath);
+        // Check if it's a directory - skip directories
+        try {
+          const stat = await this.ctx.fs.stat(fullPath);
+          if (stat.isDirectory) {
+            continue;
+          }
+        } catch {
+          continue;
+        }
+        // Return the original path format (relative if relative was given)
+        paths.push(dir.startsWith("/") ? fullPath : `${dir}/${commandName}`);
       }
     }
 
@@ -1563,12 +1820,15 @@ export class Interpreter {
       "popd",
       "mapfile",
       "readarray",
+      "pwd",
     ]);
 
     // Parse options
     let typeOnly = false; // -t flag: print only the type word
     let pathOnly = false; // -p flag: print only paths to executables (respects aliases/functions/builtins)
     let forcePathSearch = false; // -P flag: force PATH search (ignores aliases/functions/builtins)
+    let showAll = false; // -a flag: show all definitions
+    let suppressFunctions = false; // -f flag: suppress function lookup
     const names: string[] = [];
 
     for (const arg of args) {
@@ -1581,8 +1841,11 @@ export class Interpreter {
             pathOnly = true;
           } else if (char === "P") {
             forcePathSearch = true;
+          } else if (char === "a") {
+            showAll = true;
+          } else if (char === "f") {
+            suppressFunctions = true;
           }
-          // Ignore -a, -f flags (not fully implemented)
         }
       } else {
         names.push(arg);
@@ -1592,25 +1855,79 @@ export class Interpreter {
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
-    let anyFound = false; // Track if any name was found (for -p/-P exit code)
+    let anyFileFound = false; // Track if any name was found as a file (for -p exit code)
+    let anyNotFound = false; // Track if any name wasn't found
 
     for (const name of names) {
+      let foundAny = false;
+
       // -P flag: force PATH search, ignoring aliases/functions/builtins
       if (forcePathSearch) {
-        const pathResult = await this.findFirstInPath(name);
-        if (pathResult) {
-          stdout += `${pathResult}\n`;
-          anyFound = true;
+        // -a -P: show all paths
+        if (showAll) {
+          const allPaths = await this.findCommandInPath(name);
+          if (allPaths.length > 0) {
+            for (const p of allPaths) {
+              stdout += `${p}\n`;
+            }
+            anyFileFound = true;
+            foundAny = true;
+          }
+        } else {
+          const pathResult = await this.findFirstInPath(name);
+          if (pathResult) {
+            stdout += `${pathResult}\n`;
+            anyFileFound = true;
+            foundAny = true;
+          }
+        }
+        if (!foundAny) {
+          anyNotFound = true;
         }
         // For -P, don't print anything if not found in PATH
         continue;
       }
 
-      // Check aliases first (before other checks)
+      // Check functions first (unless -f suppresses them)
+      // Note: In bash, with -a, functions are checked first, then aliases, keywords, builtins, files
+      // But without -a, the order is: alias, keyword, function, builtin, file
+      // With -f, we skip function lookup entirely
+
+      // When showing all (-a), we need to show in this order:
+      // 1. function (unless -f)
+      // 2. alias
+      // 3. keyword
+      // 4. builtin
+      // 5. all file paths
+
+      // Without -a, we stop at the first match (in order: alias, keyword, builtin, function, file)
+
+      // Check functions (unless -f suppresses them)
+      const hasFunction =
+        !suppressFunctions && this.ctx.state.functions.has(name);
+      if (showAll && hasFunction) {
+        // -p: print nothing for functions (no path)
+        if (pathOnly) {
+          // Do nothing - functions have no path
+        } else if (typeOnly) {
+          stdout += "function\n";
+        } else {
+          // Get the function body for display
+          const funcDef = this.ctx.state.functions.get(name);
+          const funcSource = funcDef
+            ? this.formatFunctionSource(name, funcDef)
+            : `${name} is a function\n`;
+          stdout += funcSource;
+        }
+        foundAny = true;
+      }
+
+      // Check aliases
       // Aliases are stored in env with BASH_ALIAS_ prefix
       const alias = this.ctx.state.env[`BASH_ALIAS_${name}`];
-      if (alias !== undefined) {
-        // -p: print nothing for aliases (no path)
+      const hasAlias = alias !== undefined;
+      if (hasAlias && (showAll || !foundAny)) {
+        // -p: print nothing for aliases (no path), but count as "found"
         if (pathOnly) {
           // Do nothing - aliases have no path
         } else if (typeOnly) {
@@ -1618,9 +1935,17 @@ export class Interpreter {
         } else {
           stdout += `${name} is aliased to \`${alias}'\n`;
         }
-        anyFound = true;
-      } else if (keywords.has(name)) {
-        // -p: print nothing for keywords (no path)
+        foundAny = true;
+        if (!showAll) {
+          // Not showing all, continue to next name
+          continue;
+        }
+      }
+
+      // Check keywords
+      const hasKeyword = keywords.has(name);
+      if (hasKeyword && (showAll || !foundAny)) {
+        // -p: print nothing for keywords (no path), but count as "found"
         if (pathOnly) {
           // Do nothing - keywords have no path
         } else if (typeOnly) {
@@ -1628,9 +1953,16 @@ export class Interpreter {
         } else {
           stdout += `${name} is a shell keyword\n`;
         }
-        anyFound = true;
-      } else if (builtins.has(name)) {
-        // -p: print nothing for builtins (no path)
+        foundAny = true;
+        if (!showAll) {
+          continue;
+        }
+      }
+
+      // Check builtins
+      const hasBuiltin = builtins.has(name);
+      if (hasBuiltin && (showAll || !foundAny)) {
+        // -p: print nothing for builtins (no path), but count as "found"
         if (pathOnly) {
           // Do nothing - builtins have no path
         } else if (typeOnly) {
@@ -1638,19 +1970,48 @@ export class Interpreter {
         } else {
           stdout += `${name} is a shell builtin\n`;
         }
-        anyFound = true;
-      } else if (this.ctx.state.functions.has(name)) {
-        // -p: print nothing for functions (no path)
+        foundAny = true;
+        if (!showAll) {
+          continue;
+        }
+      }
+
+      // Check functions (for non-showAll case, it comes after alias/keyword/builtin)
+      // Note: This is the original bash order for non -a case
+      if (!showAll && hasFunction && !foundAny) {
+        // -p: print nothing for functions (no path), but count as "found"
         if (pathOnly) {
           // Do nothing - functions have no path
         } else if (typeOnly) {
           stdout += "function\n";
         } else {
-          stdout += `${name} is a function\n`;
+          const funcDef = this.ctx.state.functions.get(name);
+          const funcSource = funcDef
+            ? this.formatFunctionSource(name, funcDef)
+            : `${name} is a function\n`;
+          stdout += funcSource;
         }
-        anyFound = true;
-      } else {
-        // Check PATH for external command
+        foundAny = true;
+        continue;
+      }
+
+      // Check PATH for external command(s)
+      if (showAll) {
+        // Show all file paths
+        const allPaths = await this.findCommandInPath(name);
+        for (const pathResult of allPaths) {
+          if (pathOnly) {
+            stdout += `${pathResult}\n`;
+          } else if (typeOnly) {
+            stdout += "file\n";
+          } else {
+            stdout += `${name} is ${pathResult}\n`;
+          }
+          anyFileFound = true;
+          foundAny = true;
+        }
+      } else if (!foundAny) {
+        // Just find first
         const pathResult = await this.findFirstInPath(name);
         if (pathResult) {
           if (pathOnly) {
@@ -1660,26 +2021,142 @@ export class Interpreter {
           } else {
             stdout += `${name} is ${pathResult}\n`;
           }
-          anyFound = true;
-        } else {
-          if (!typeOnly && !pathOnly) {
-            stderr += `bash: type: ${name}: not found\n`;
-          }
+          anyFileFound = true;
+          foundAny = true;
+        }
+      }
+
+      if (!foundAny) {
+        // Name not found anywhere
+        anyNotFound = true;
+        if (!typeOnly && !pathOnly) {
+          stderr += `bash: type: ${name}: not found\n`;
         }
       }
     }
 
-    // Set exit code based on whether anything was found
-    // For -p and -P: exit code 1 if no files were found
-    // For regular type: exit code 1 if any name wasn't found
-    if (pathOnly || forcePathSearch) {
-      exitCode = anyFound ? 0 : 1;
+    // Set exit code based on results
+    // For -p: exit 1 only if no files were found AND there was something not found
+    // For -P: exit 1 if any name wasn't found in PATH
+    // For regular type and type -t: exit 1 if any name wasn't found
+    if (pathOnly) {
+      // -p: exit 1 only if no files were found AND there was something not found
+      exitCode = anyNotFound && !anyFileFound ? 1 : 0;
+    } else if (forcePathSearch) {
+      // -P: exit 1 if any name wasn't found in PATH
+      exitCode = anyNotFound ? 1 : 0;
     } else {
-      // Check if any names were not found (stderr will have errors for them)
-      exitCode = stderr ? 1 : 0;
+      // Regular type or type -t: exit 1 if any name wasn't found
+      exitCode = anyNotFound ? 1 : 0;
     }
 
     return result(stdout, stderr, exitCode);
+  }
+
+  /**
+   * Format a function definition for type output.
+   * Produces bash-style output like:
+   * f is a function
+   * f ()
+   * {
+   *     echo
+   * }
+   */
+  private formatFunctionSource(name: string, funcDef: FunctionDefNode): string {
+    // For function bodies that are Group nodes, unwrap them since we add { } ourselves
+    let bodyStr: string;
+    if (funcDef.body.type === "Group") {
+      const group = funcDef.body as GroupNode;
+      bodyStr = group.body
+        .map((s) => this.serializeCompoundCommand(s))
+        .join("; ");
+    } else {
+      bodyStr = this.serializeCompoundCommand(funcDef.body);
+    }
+    return `${name} is a function\n${name} () \n{ \n    ${bodyStr}\n}\n`;
+  }
+
+  /**
+   * Serialize a compound command to its source representation.
+   * This is a simplified serializer for function body display.
+   */
+  private serializeCompoundCommand(
+    node: CommandNode | StatementNode | StatementNode[],
+  ): string {
+    if (Array.isArray(node)) {
+      return node.map((s) => this.serializeCompoundCommand(s)).join("; ");
+    }
+
+    if (node.type === "Statement") {
+      const parts: string[] = [];
+      for (let i = 0; i < node.pipelines.length; i++) {
+        const pipeline = node.pipelines[i];
+        parts.push(this.serializePipeline(pipeline));
+        if (node.operators[i]) {
+          parts.push(node.operators[i]);
+        }
+      }
+      return parts.join(" ");
+    }
+
+    if (node.type === "SimpleCommand") {
+      const cmd = node as SimpleCommandNode;
+      const parts: string[] = [];
+      if (cmd.name) {
+        parts.push(this.serializeWord(cmd.name));
+      }
+      for (const arg of cmd.args) {
+        parts.push(this.serializeWord(arg));
+      }
+      return parts.join(" ");
+    }
+
+    if (node.type === "Group") {
+      const group = node as GroupNode;
+      const body = group.body
+        .map((s) => this.serializeCompoundCommand(s))
+        .join("; ");
+      return `{ ${body}; }`;
+    }
+
+    // For other compound commands, return a placeholder
+    return "...";
+  }
+
+  private serializePipeline(pipeline: PipelineNode): string {
+    const parts = pipeline.commands.map((cmd) =>
+      this.serializeCompoundCommand(cmd),
+    );
+    return (pipeline.negated ? "! " : "") + parts.join(" | ");
+  }
+
+  private serializeWord(word: WordNode): string {
+    // Simple serialization - just concatenate parts
+    let result = "";
+    for (const part of word.parts) {
+      if (part.type === "Literal") {
+        result += part.value;
+      } else if (part.type === "DoubleQuoted") {
+        result += `"${part.parts.map((p) => this.serializeWordPart(p)).join("")}"`;
+      } else if (part.type === "SingleQuoted") {
+        result += `'${part.value}'`;
+      } else {
+        result += this.serializeWordPart(part);
+      }
+    }
+    return result;
+  }
+
+  private serializeWordPart(part: unknown): string {
+    const p = part as { type: string; value?: string; name?: string };
+    if (p.type === "Literal") {
+      return p.value ?? "";
+    }
+    if (p.type === "Variable") {
+      return `$${p.name}`;
+    }
+    // For other part types, return empty or placeholder
+    return "";
   }
 
   /**
@@ -1695,7 +2172,7 @@ export class Interpreter {
         // Check if it's a directory
         try {
           const stat = await this.ctx.fs.stat(resolvedPath);
-          if (stat.isDirectory()) {
+          if (stat.isDirectory) {
             return null;
           }
         } catch {
@@ -1713,25 +2190,37 @@ export class Interpreter {
 
     for (const dir of pathDirs) {
       if (!dir) continue;
-      const fullPath = `${dir}/${name}`;
+      // Resolve relative PATH entries relative to cwd
+      const resolvedDir = dir.startsWith("/")
+        ? dir
+        : this.ctx.fs.resolvePath(this.ctx.state.cwd, dir);
+      const fullPath = `${resolvedDir}/${name}`;
       if (await this.ctx.fs.exists(fullPath)) {
         // Check if it's a directory
         try {
           const stat = await this.ctx.fs.stat(fullPath);
-          if (stat.isDirectory()) {
+          if (stat.isDirectory) {
             continue; // Skip directories
           }
         } catch {
           // If stat fails, skip this path
           continue;
         }
-        return fullPath;
+        // Return the path as specified in PATH (not resolved) to match bash behavior
+        return `${dir}/${name}`;
       }
     }
 
-    // Fallback: check if command exists in registry (for OverlayFs compatibility)
-    const binExists = await this.ctx.fs.exists("/bin");
-    if (!binExists && this.ctx.commands.has(name)) {
+    // Fallback: check if command exists in registry
+    // This handles virtual filesystems where commands are registered but
+    // not necessarily present as individual files in /bin
+    if (this.ctx.commands.has(name)) {
+      // Return path in the first PATH directory that contains /bin, or default to /bin
+      for (const dir of pathDirs) {
+        if (dir === "/bin" || dir === "/usr/bin") {
+          return `${dir}/${name}`;
+        }
+      }
       return `/bin/${name}`;
     }
 
@@ -2097,6 +2586,11 @@ export class Interpreter {
   private async executeArithmeticCommand(
     node: ArithmeticCommandNode,
   ): Promise<ExecResult> {
+    // Update currentLine for $LINENO
+    if (node.line !== undefined) {
+      this.ctx.state.currentLine = node.line;
+    }
+
     try {
       const arithResult = await evaluateArithmetic(
         this.ctx,

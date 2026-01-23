@@ -65,6 +65,10 @@ export interface PipelineNode extends ASTNode {
   commands: CommandNode[];
   /** Negate exit status with ! */
   negated: boolean;
+  /** Time the pipeline with 'time' keyword */
+  timed?: boolean;
+  /** Use POSIX format for time output (-p flag) */
+  timePosix?: boolean;
 }
 
 /** Union of all command types */
@@ -338,6 +342,7 @@ export type InnerParameterOperation =
   | UseAlternativeOp
   | LengthOp
   | LengthSliceErrorOp
+  | BadSubstitutionOp
   | SubstringOp
   | PatternRemovalOp
   | PatternReplacementOp
@@ -353,6 +358,13 @@ export type ParameterOperation =
 /** ${#VAR:...} - invalid syntax, length cannot have substring */
 export interface LengthSliceErrorOp {
   type: "LengthSliceError";
+}
+
+/** Bad substitution - parsed but errors at runtime (e.g., ${(x)foo} zsh syntax) */
+export interface BadSubstitutionOp {
+  type: "BadSubstitution";
+  /** The raw text that caused the error (for error message) */
+  text: string;
 }
 
 /** ${VAR:-default} or ${VAR-default} */
@@ -848,8 +860,13 @@ export const AST = {
     return { type: "Statement", pipelines, operators, background };
   },
 
-  pipeline(commands: CommandNode[], negated = false): PipelineNode {
-    return { type: "Pipeline", commands, negated };
+  pipeline(
+    commands: CommandNode[],
+    negated = false,
+    timed = false,
+    timePosix = false,
+  ): PipelineNode {
+    return { type: "Pipeline", commands, negated, timed, timePosix };
   },
 
   simpleCommand(
@@ -1014,7 +1031,8 @@ export const AST = {
   arithmeticCommand(
     expression: ArithmeticExpressionNode,
     redirections: RedirectionNode[] = [],
+    line?: number,
   ): ArithmeticCommandNode {
-    return { type: "ArithmeticCommand", expression, redirections };
+    return { type: "ArithmeticCommand", expression, redirections, line };
   },
 };

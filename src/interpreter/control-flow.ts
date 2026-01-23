@@ -162,6 +162,12 @@ export async function executeCStyleFor(
   ctx: InterpreterContext,
   node: CStyleForNode,
 ): Promise<ExecResult> {
+  // Update currentLine for $LINENO - set to loop header line
+  const loopLine = node.line;
+  if (loopLine !== undefined) {
+    ctx.state.currentLine = loopLine;
+  }
+
   let stdout = "";
   let stderr = "";
   let exitCode = 0;
@@ -185,6 +191,10 @@ export async function executeCStyleFor(
       }
 
       if (node.condition) {
+        // Set LINENO to loop header line for condition evaluation
+        if (loopLine !== undefined) {
+          ctx.state.currentLine = loopLine;
+        }
         const condResult = await evaluateArithmetic(
           ctx,
           node.condition.expression,

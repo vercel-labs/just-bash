@@ -19,13 +19,63 @@
  * Convert a shell glob pattern to a regex string.
  * @param pattern - The glob pattern (*, ?, [...])
  * @param greedy - Whether * should be greedy (true for suffix matching, false for prefix)
+ * @param extglob - Whether to support extended glob patterns (@(...), *(...), +(...), ?(...), !(...))
  */
-export function patternToRegex(pattern: string, greedy: boolean): string {
+export function patternToRegex(
+  pattern: string,
+  greedy: boolean,
+  extglob = false,
+): string {
   let regex = "";
   let i = 0;
 
   while (i < pattern.length) {
     const char = pattern[i];
+
+    // Check for extglob patterns: @(...), *(...), +(...), ?(...), !(...)
+    if (
+      extglob &&
+      (char === "@" ||
+        char === "*" ||
+        char === "+" ||
+        char === "?" ||
+        char === "!") &&
+      i + 1 < pattern.length &&
+      pattern[i + 1] === "("
+    ) {
+      // Find the matching closing paren (handle nesting)
+      const closeIdx = findMatchingParen(pattern, i + 1);
+      if (closeIdx !== -1) {
+        const content = pattern.slice(i + 2, closeIdx);
+        // Split on | but handle nested extglob patterns
+        const alternatives = splitExtglobAlternatives(content);
+        // Convert each alternative recursively
+        const altRegexes = alternatives.map((alt) =>
+          patternToRegex(alt, greedy, extglob),
+        );
+        const altGroup = altRegexes.length > 0 ? altRegexes.join("|") : "(?:)";
+
+        if (char === "@") {
+          // @(...) - match exactly one of the patterns
+          regex += `(?:${altGroup})`;
+        } else if (char === "*") {
+          // *(...) - match zero or more occurrences
+          regex += `(?:${altGroup})*`;
+        } else if (char === "+") {
+          // +(...) - match one or more occurrences
+          regex += `(?:${altGroup})+`;
+        } else if (char === "?") {
+          // ?(...) - match zero or one occurrence
+          regex += `(?:${altGroup})?`;
+        } else if (char === "!") {
+          // !(...) - match anything except the patterns
+          // This is tricky - we need a negative lookahead anchored to the end
+          regex += `(?!(?:${altGroup})$).*`;
+        }
+        i = closeIdx + 1;
+        continue;
+      }
+    }
 
     if (char === "\\") {
       // Shell escape: \X means literal X
@@ -72,6 +122,71 @@ export function patternToRegex(pattern: string, greedy: boolean): string {
     }
   }
   return regex;
+}
+
+/**
+ * Find the matching closing parenthesis, handling nesting
+ */
+function findMatchingParen(pattern: string, openIdx: number): number {
+  let depth = 1;
+  let i = openIdx + 1;
+  while (i < pattern.length && depth > 0) {
+    const c = pattern[i];
+    if (c === "\\") {
+      i += 2; // Skip escaped char
+      continue;
+    }
+    if (c === "(") {
+      depth++;
+    } else if (c === ")") {
+      depth--;
+      if (depth === 0) {
+        return i;
+      }
+    }
+    i++;
+  }
+  return -1;
+}
+
+/**
+ * Split extglob pattern content on | handling nested patterns
+ */
+function splitExtglobAlternatives(content: string): string[] {
+  const alternatives: string[] = [];
+  let current = "";
+  let depth = 0;
+  let i = 0;
+
+  while (i < content.length) {
+    const c = content[i];
+    if (c === "\\") {
+      // Escaped character
+      current += c;
+      if (i + 1 < content.length) {
+        current += content[i + 1];
+        i += 2;
+      } else {
+        i++;
+      }
+      continue;
+    }
+    if (c === "(") {
+      depth++;
+      current += c;
+    } else if (c === ")") {
+      depth--;
+      current += c;
+    } else if (c === "|" && depth === 0) {
+      alternatives.push(current);
+      current = "";
+    } else {
+      current += c;
+    }
+    i++;
+  }
+  alternatives.push(current);
+  return alternatives;
 }
 
 /**

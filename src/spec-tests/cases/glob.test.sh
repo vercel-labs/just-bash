@@ -15,8 +15,8 @@ echo \*.sh
 ## stdout: *.sh
 
 #### 1 char glob
-## SKIP: Test data directory not available
-cd $REPO_ROOT
+mkdir -p /tmp/testdir/bin
+cd /tmp/testdir
 echo [b]in
 ## stdout: bin
 

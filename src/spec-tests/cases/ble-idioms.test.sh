@@ -207,7 +207,7 @@ len=1048576
 
 
 #### shift unshift reverse
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: complex dynamic array manipulation with eval not implemented
 
 case $SH in mksh|ash) exit ;; esac
 

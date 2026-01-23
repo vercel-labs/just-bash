@@ -189,7 +189,6 @@ argv.py ${@:2}
 
 
 #### ${@:offset} and ${*:offset}
-## SKIP: ${@:0:N} slice from position 0 not implemented
 case $SH in zsh) return ;; esac  # zsh is very different
 
 argv.shell-name-checked () {
@@ -245,7 +244,6 @@ fun "a 1" "b 2" "c 3"
 ## BUG zsh stdout-json: ""
 
 #### ${@:offset:length} and ${*:offset:length}
-## SKIP: ${@:0:N} slice from position 0 not implemented
 case $SH in zsh) return ;; esac  # zsh is very different
 
 argv.shell-name-checked () {
@@ -386,7 +384,6 @@ $SH -c 's=123; argv.py space ${s: }'
 ## END
 
 #### ${array[@]::} has implicit length of zero - for ble.sh
-## SKIP: ${@:0:N} slice from position 0 not implemented
 
 # https://oilshell.zulipchat.com/#narrow/stream/121540-oil-discuss/topic/.24.7Barr.5B.40.5D.3A.3A.7D.20in.20bash.20-.20is.20it.20documented.3F
 

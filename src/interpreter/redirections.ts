@@ -363,9 +363,12 @@ export async function applyRedirections(
         break;
       }
 
-      case ">&": {
+      case ">&":
+      case "<&": {
+        // In bash, <& and >& are essentially the same for FD duplication
+        // 1<&2 and 1>&2 both make fd 1 point to where fd 2 points
         const fd = redir.fd ?? 1; // Default to stdout (fd 1)
-        // Handle >&- close operation
+        // Handle >&- or <&- close operation
         if (target === "-") {
           // Close the FD - remove from fileDescriptors
           if (ctx.state.fileDescriptors) {
@@ -373,14 +376,14 @@ export async function applyRedirections(
           }
           break;
         }
-        // >&2 or 1>&2: redirect stdout to stderr
+        // >&2, 1>&2, 1<&2: redirect stdout to stderr
         if (target === "2" || target === "&2") {
           if (fd === 1) {
             stderr += stdout;
             stdout = "";
           }
         }
-        // 2>&1: redirect stderr to stdout
+        // 2>&1, 2<&1: redirect stderr to stdout
         else if (target === "1" || target === "&1") {
           if (fd === 2) {
             stdout += stderr;
@@ -407,6 +410,19 @@ export async function applyRedirections(
               } else if (fd === 2) {
                 await ctx.fs.appendFile(resolvedPath, stderr, "binary");
                 stderr = "";
+              }
+            } else if (fdInfo?.startsWith("__rw__:")) {
+              // Read/write FD - extract path and append to file
+              const colonIdx = fdInfo.indexOf(":", 7);
+              if (colonIdx !== -1) {
+                const resolvedPath = fdInfo.slice(7, colonIdx);
+                if (fd === 1) {
+                  await ctx.fs.appendFile(resolvedPath, stdout, "binary");
+                  stdout = "";
+                } else if (fd === 2) {
+                  await ctx.fs.appendFile(resolvedPath, stderr, "binary");
+                  stderr = "";
+                }
               }
             } else if (targetFd >= 10) {
               // User-allocated FD range (>=10) but FD not found - bad file descriptor
@@ -467,6 +483,44 @@ export async function applyRedirections(
         stderr = "";
         break;
       }
+    }
+  }
+
+  // Apply persistent FD redirections (from exec)
+  // Check if fd 1 (stdout) is redirected to fd 2 (stderr) via exec 1>&2
+  const fd1Info = ctx.state.fileDescriptors?.get(1);
+  if (fd1Info) {
+    if (fd1Info === "__dupout__:2") {
+      // fd 1 is duplicated to fd 2 - stdout goes to stderr
+      stderr += stdout;
+      stdout = "";
+    } else if (fd1Info.startsWith("__file__:")) {
+      // fd 1 is redirected to a file
+      const filePath = fd1Info.slice(9);
+      await ctx.fs.appendFile(filePath, stdout, "binary");
+      stdout = "";
+    } else if (fd1Info.startsWith("__file_append__:")) {
+      const filePath = fd1Info.slice(16);
+      await ctx.fs.appendFile(filePath, stdout, "binary");
+      stdout = "";
+    }
+  }
+
+  // Check if fd 2 (stderr) is redirected
+  const fd2Info = ctx.state.fileDescriptors?.get(2);
+  if (fd2Info) {
+    if (fd2Info === "__dupout__:1") {
+      // fd 2 is duplicated to fd 1 - stderr goes to stdout
+      stdout += stderr;
+      stderr = "";
+    } else if (fd2Info.startsWith("__file__:")) {
+      const filePath = fd2Info.slice(9);
+      await ctx.fs.appendFile(filePath, stderr, "binary");
+      stderr = "";
+    } else if (fd2Info.startsWith("__file_append__:")) {
+      const filePath = fd2Info.slice(16);
+      await ctx.fs.appendFile(filePath, stderr, "binary");
+      stderr = "";
     }
   }
 

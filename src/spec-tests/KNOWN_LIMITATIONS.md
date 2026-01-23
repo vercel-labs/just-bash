@@ -181,9 +181,6 @@ The `set -f` option to disable pathname expansion is not implemented.
 - **AI Use Case**: Safely handle untrusted input containing glob characters (`*`, `?`, `[`)
 - Example: `set -f; echo $untrusted_var; set +f`
 
-#### noexec / set -n (1 test)
-The `set -n` option to parse but not execute commands is not implemented.
-
 #### globskipdots (3 tests)
 The `shopt -s globskipdots` option is not implemented.
 

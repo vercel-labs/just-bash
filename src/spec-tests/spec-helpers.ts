@@ -36,10 +36,13 @@ export const argvCommand: Command = defineCommand("argv.py", async (args) => {
 
 // printenv.py - prints environment variable values, one per line
 // Prints "None" for variables that are not set (matching Python's printenv.py)
+// Uses exportedEnv (only exported variables) to match bash behavior
 export const printenvCommand: Command = defineCommand(
   "printenv.py",
   async (args, ctx) => {
-    const output = args.map((name) => ctx.env[name] ?? "None").join("\n");
+    // Use exportedEnv if available (only exported vars), fall back to full env
+    const env = ctx.exportedEnv || ctx.env;
+    const output = args.map((name) => env[name] ?? "None").join("\n");
     return {
       stdout: output ? `${output}\n` : "",
       stderr: "",

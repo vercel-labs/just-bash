@@ -209,7 +209,6 @@ x
 ## END
 
 #### ${!prefix@} ${!prefix*} yields sorted array of var names
-## SKIP: ${!prefix@} vs ${!prefix*} not splitting correctly in for loops
 ZOO=zoo
 ZIP=zip
 ZOOM='one two'
@@ -241,7 +240,6 @@ for i in 1 2; do argv.py "${!Z@}"; done
 ## END
 
 #### ${!prefix@} matches var name (regression)
-## SKIP: ${!prefix@} not fully implemented
 hello1=1 hello2=2 hello3=3
 echo ${!hello@}
 hello=()

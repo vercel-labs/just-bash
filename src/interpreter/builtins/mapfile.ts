@@ -35,7 +35,8 @@ export function handleMapfile(
   while (i < args.length) {
     const arg = args[i];
     if (arg === "-d" && i + 1 < args.length) {
-      delimiter = args[i + 1] || "\n"; // Empty string defaults to newline
+      // In bash, -d '' means use NUL byte as delimiter
+      delimiter = args[i + 1] === "" ? "\0" : args[i + 1] || "\n";
       i += 2;
     } else if (arg === "-n" && i + 1 < args.length) {
       maxCount = Number.parseInt(args[i + 1], 10) || 0;
@@ -91,7 +92,9 @@ export function handleMapfile(
 
     // Found delimiter
     let line = remaining.substring(0, delimIndex);
-    if (!trimDelimiter) {
+    // NUL bytes cannot be stored in bash variables, so they are always stripped
+    // For other delimiters, include unless -t flag is set
+    if (!trimDelimiter && delimiter !== "\0") {
       line += delimiter;
     }
 

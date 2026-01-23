@@ -13,6 +13,7 @@
 import type {
   ArithExpr,
   ParameterExpansionPart,
+  SubstringOp,
   WordNode,
   WordPart,
 } from "../ast/types.js";
@@ -57,6 +58,39 @@ import type { InterpreterContext } from "./types.js";
 
 // Re-export for backward compatibility
 export { getArrayElements, getVariable } from "./expansion/variable.js";
+
+/**
+ * Get variable names that match a given prefix.
+ * Used for ${!prefix*} and ${!prefix@} expansions.
+ * Handles arrays properly - includes array base names from __length markers,
+ * excludes internal storage keys like arr_0, arr__length.
+ */
+function getVarNamesWithPrefix(
+  ctx: InterpreterContext,
+  prefix: string,
+): string[] {
+  const envKeys = Object.keys(ctx.state.env);
+  const matchingVars = new Set<string>();
+
+  for (const k of envKeys) {
+    if (k.startsWith(prefix)) {
+      // Check if this is an internal array storage key
+      if (k.includes("__")) {
+        // For __length markers, add the base array name
+        const lengthMatch = k.match(/^([a-zA-Z_][a-zA-Z0-9_]*)__length$/);
+        if (lengthMatch?.[1].startsWith(prefix)) {
+          matchingVars.add(lengthMatch[1]);
+        }
+        // Skip other internal markers
+      } else if (!/_\d+$/.test(k)) {
+        // Regular variable (not array element like arr_0)
+        matchingVars.add(k);
+      }
+    }
+  }
+
+  return [...matchingVars].sort();
+}
 
 /**
  * Check if a string contains glob patterns, including extglob when enabled.
@@ -282,6 +316,64 @@ export function escapeGlobChars(str: string): string {
 }
 
 /**
+ * Expand variables within a glob/extglob pattern string.
+ * This handles patterns like @($var|$other) where variables need expansion.
+ * Preserves pattern metacharacters while expanding $var and ${var} references.
+ */
+function expandVariablesInPattern(
+  ctx: InterpreterContext,
+  pattern: string,
+): string {
+  let result = "";
+  let i = 0;
+
+  while (i < pattern.length) {
+    const c = pattern[i];
+
+    // Handle variable references: $var or ${var}
+    if (c === "$") {
+      if (i + 1 < pattern.length) {
+        const next = pattern[i + 1];
+        if (next === "{") {
+          // ${var} form - find matching }
+          const closeIdx = pattern.indexOf("}", i + 2);
+          if (closeIdx !== -1) {
+            const varName = pattern.slice(i + 2, closeIdx);
+            // Simple variable expansion (no complex operations)
+            result += ctx.state.env[varName] ?? "";
+            i = closeIdx + 1;
+            continue;
+          }
+        } else if (/[a-zA-Z_]/.test(next)) {
+          // $var form - read variable name
+          let end = i + 1;
+          while (end < pattern.length && /[a-zA-Z0-9_]/.test(pattern[end])) {
+            end++;
+          }
+          const varName = pattern.slice(i + 1, end);
+          result += ctx.state.env[varName] ?? "";
+          i = end;
+          continue;
+        }
+      }
+    }
+
+    // Handle backslash escapes - preserve them
+    if (c === "\\" && i + 1 < pattern.length) {
+      result += c + pattern[i + 1];
+      i += 2;
+      continue;
+    }
+
+    // All other characters pass through unchanged
+    result += c;
+    i++;
+  }
+
+  return result;
+}
+
+/**
  * Handle simple part types that don't require recursion or async.
  * Returns the expanded string, or null if the part type needs special handling.
  * inDoubleQuotes flag suppresses tilde expansion (tilde is literal inside "...")
@@ -314,7 +406,8 @@ function expandSimplePart(
       }
       return `~${part.user}`;
     case "Glob":
-      return part.pattern;
+      // Expand variables within extglob patterns (e.g., @($var|$other))
+      return expandVariablesInPattern(ctx, part.pattern);
     default:
       return null; // Needs special handling (DoubleQuoted, BraceExpansion, ArithmeticExpansion, CommandSubstitution)
   }
@@ -871,6 +964,311 @@ export async function expandWordWithGlob(
     }
   }
 
+  // Handle "${!prefix@}" and "${!prefix*}" - variable name prefix expansion
+  // "${!prefix@}": Each variable name becomes a separate word (like "$@")
+  // "${!prefix*}": All names joined with IFS[0] into one word (like "$*")
+  if (
+    hasVarNamePrefixExpansion &&
+    wordParts.length === 1 &&
+    wordParts[0].type === "DoubleQuoted"
+  ) {
+    const dqPart = wordParts[0];
+    if (
+      dqPart.parts.length === 1 &&
+      dqPart.parts[0].type === "ParameterExpansion" &&
+      dqPart.parts[0].operation?.type === "VarNamePrefix"
+    ) {
+      const op = dqPart.parts[0].operation;
+      const matchingVars = getVarNamesWithPrefix(ctx, op.prefix);
+
+      if (op.star) {
+        // "${!prefix*}" - join with first char of IFS into one word
+        return {
+          values: [matchingVars.join(getIfsSeparator(ctx.state.env))],
+          quoted: true,
+        };
+      }
+      // "${!prefix@}" - each name as a separate word
+      return { values: matchingVars, quoted: true };
+    }
+
+    // Handle "${!arr[@]}" and "${!arr[*]}" - array keys/indices expansion
+    // "${!arr[@]}": Each key/index becomes a separate word (like "$@")
+    // "${!arr[*]}": All keys joined with IFS[0] into one word (like "$*")
+    if (
+      dqPart.parts.length === 1 &&
+      dqPart.parts[0].type === "ParameterExpansion" &&
+      dqPart.parts[0].operation?.type === "ArrayKeys"
+    ) {
+      const op = dqPart.parts[0].operation;
+      const elements = getArrayElements(ctx, op.array);
+      const keys = elements.map(([k]) => String(k));
+
+      if (op.star) {
+        // "${!arr[*]}" - join with first char of IFS into one word
+        return {
+          values: [keys.join(getIfsSeparator(ctx.state.env))],
+          quoted: true,
+        };
+      }
+      // "${!arr[@]}" - each key as a separate word
+      return { values: keys, quoted: true };
+    }
+  }
+
+  // Handle "${@:offset}" and "${*:offset}" with Substring operations inside double quotes
+  // "${@:offset}": Each sliced positional parameter becomes a separate word
+  // "${*:offset}": All sliced params joined with IFS as ONE word
+  if (wordParts.length === 1 && wordParts[0].type === "DoubleQuoted") {
+    const dqPart = wordParts[0];
+    // Find if there's a ${@:offset} or ${*:offset} inside
+    let sliceAtIndex = -1;
+    let sliceIsStar = false;
+    for (let i = 0; i < dqPart.parts.length; i++) {
+      const p = dqPart.parts[i];
+      if (
+        p.type === "ParameterExpansion" &&
+        (p.parameter === "@" || p.parameter === "*") &&
+        p.operation?.type === "Substring"
+      ) {
+        sliceAtIndex = i;
+        sliceIsStar = p.parameter === "*";
+        break;
+      }
+    }
+
+    if (sliceAtIndex !== -1) {
+      const paramPart = dqPart.parts[sliceAtIndex] as ParameterExpansionPart;
+      const operation = paramPart.operation as SubstringOp;
+
+      // Evaluate offset and length
+      const offset = operation.offset
+        ? evaluateArithmeticSync(ctx, operation.offset.expression)
+        : 0;
+      const length = operation.length
+        ? evaluateArithmeticSync(ctx, operation.length.expression)
+        : undefined;
+
+      // Get positional parameters
+      const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+      const allParams: string[] = [];
+      for (let i = 1; i <= numParams; i++) {
+        allParams.push(ctx.state.env[String(i)] || "");
+      }
+
+      const shellName = ctx.state.env["0"] || "bash";
+
+      // Build sliced params array
+      let slicedParams: string[];
+      if (offset <= 0) {
+        // offset 0: include $0 at position 0
+        const withZero = [shellName, ...allParams];
+        const startIdx = offset < 0 ? Math.max(0, withZero.length + offset) : 0;
+        if (length !== undefined) {
+          const endIdx =
+            length < 0 ? withZero.length + length : startIdx + length;
+          slicedParams = withZero.slice(startIdx, Math.max(startIdx, endIdx));
+        } else {
+          slicedParams = withZero.slice(startIdx);
+        }
+      } else {
+        // offset > 0: start from $<offset>
+        const startIdx = offset - 1;
+        if (startIdx >= allParams.length) {
+          slicedParams = [];
+        } else if (length !== undefined) {
+          const endIdx =
+            length < 0 ? allParams.length + length : startIdx + length;
+          slicedParams = allParams.slice(startIdx, Math.max(startIdx, endIdx));
+        } else {
+          slicedParams = allParams.slice(startIdx);
+        }
+      }
+
+      // Expand prefix (parts before ${@:...})
+      let prefix = "";
+      for (let i = 0; i < sliceAtIndex; i++) {
+        prefix += await expandPart(ctx, dqPart.parts[i]);
+      }
+
+      // Expand suffix (parts after ${@:...})
+      let suffix = "";
+      for (let i = sliceAtIndex + 1; i < dqPart.parts.length; i++) {
+        suffix += await expandPart(ctx, dqPart.parts[i]);
+      }
+
+      if (slicedParams.length === 0) {
+        // No params after slicing -> prefix + suffix as one word
+        const combined = prefix + suffix;
+        return { values: combined ? [combined] : [], quoted: true };
+      }
+
+      if (sliceIsStar) {
+        // "${*:offset}" - join all sliced params with IFS into one word
+        const ifsSep = getIfsSeparator(ctx.state.env);
+        return {
+          values: [prefix + slicedParams.join(ifsSep) + suffix],
+          quoted: true,
+        };
+      }
+
+      // "${@:offset}" - each sliced param is a separate word
+      if (slicedParams.length === 1) {
+        return {
+          values: [prefix + slicedParams[0] + suffix],
+          quoted: true,
+        };
+      }
+
+      const result = [
+        prefix + slicedParams[0],
+        ...slicedParams.slice(1, -1),
+        slicedParams[slicedParams.length - 1] + suffix,
+      ];
+      return { values: result, quoted: true };
+    }
+  }
+
+  // Handle "${@/pattern/replacement}" and "${*/pattern/replacement}" with PatternReplacement inside double quotes
+  // "${@/pattern/replacement}": Each positional parameter has pattern replaced, each becomes a separate word
+  // "${*/pattern/replacement}": All params joined with IFS, pattern replaced, becomes ONE word
+  if (wordParts.length === 1 && wordParts[0].type === "DoubleQuoted") {
+    const dqPart = wordParts[0];
+    // Find if there's a ${@/...} or ${*/...} inside
+    let patReplAtIndex = -1;
+    let patReplIsStar = false;
+    for (let i = 0; i < dqPart.parts.length; i++) {
+      const p = dqPart.parts[i];
+      if (
+        p.type === "ParameterExpansion" &&
+        (p.parameter === "@" || p.parameter === "*") &&
+        p.operation?.type === "PatternReplacement"
+      ) {
+        patReplAtIndex = i;
+        patReplIsStar = p.parameter === "*";
+        break;
+      }
+    }
+
+    if (patReplAtIndex !== -1) {
+      const paramPart = dqPart.parts[patReplAtIndex] as ParameterExpansionPart;
+      const operation = paramPart.operation as {
+        type: "PatternReplacement";
+        pattern: WordNode;
+        replacement: WordNode | null;
+        all: boolean;
+        anchor: "start" | "end" | null;
+      };
+
+      // Get positional parameters
+      const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+      const params: string[] = [];
+      for (let i = 1; i <= numParams; i++) {
+        params.push(ctx.state.env[String(i)] || "");
+      }
+
+      // Expand prefix (parts before ${@/...})
+      let prefix = "";
+      for (let i = 0; i < patReplAtIndex; i++) {
+        prefix += await expandPart(ctx, dqPart.parts[i]);
+      }
+
+      // Expand suffix (parts after ${@/...})
+      let suffix = "";
+      for (let i = patReplAtIndex + 1; i < dqPart.parts.length; i++) {
+        suffix += await expandPart(ctx, dqPart.parts[i]);
+      }
+
+      if (numParams === 0) {
+        const combined = prefix + suffix;
+        return { values: combined ? [combined] : [], quoted: true };
+      }
+
+      // Build the replacement regex
+      let regex = "";
+      if (operation.pattern) {
+        for (const part of operation.pattern.parts) {
+          if (part.type === "Glob") {
+            regex += patternToRegex(
+              part.pattern,
+              true,
+              ctx.state.shoptOptions.extglob,
+            );
+          } else if (part.type === "Literal") {
+            regex += patternToRegex(
+              part.value,
+              true,
+              ctx.state.shoptOptions.extglob,
+            );
+          } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
+            regex += escapeRegex(part.value);
+          } else if (part.type === "DoubleQuoted") {
+            const expanded = await expandWordPartsAsync(ctx, part.parts);
+            regex += escapeRegex(expanded);
+          } else if (part.type === "ParameterExpansion") {
+            const expanded = await expandPart(ctx, part);
+            regex += patternToRegex(
+              expanded,
+              true,
+              ctx.state.shoptOptions.extglob,
+            );
+          } else {
+            const expanded = await expandPart(ctx, part);
+            regex += escapeRegex(expanded);
+          }
+        }
+      }
+
+      const replacement = operation.replacement
+        ? await expandWordPartsAsync(ctx, operation.replacement.parts)
+        : "";
+
+      // Apply anchor modifiers
+      let regexPattern = regex;
+      if (operation.anchor === "start") {
+        regexPattern = `^${regex}`;
+      } else if (operation.anchor === "end") {
+        regexPattern = `${regex}$`;
+      }
+
+      // Apply replacement to each param
+      const replacedParams: string[] = [];
+      try {
+        const re = new RegExp(regexPattern, operation.all ? "g" : "");
+        for (const param of params) {
+          replacedParams.push(param.replace(re, replacement));
+        }
+      } catch {
+        // Invalid regex - return params unchanged
+        replacedParams.push(...params);
+      }
+
+      if (patReplIsStar) {
+        // "${*/...}" - join all params with IFS into one word
+        const ifsSep = getIfsSeparator(ctx.state.env);
+        return {
+          values: [prefix + replacedParams.join(ifsSep) + suffix],
+          quoted: true,
+        };
+      }
+
+      // "${@/...}" - each param is a separate word
+      if (replacedParams.length === 1) {
+        return {
+          values: [prefix + replacedParams[0] + suffix],
+          quoted: true,
+        };
+      }
+
+      const result = [
+        prefix + replacedParams[0],
+        ...replacedParams.slice(1, -1),
+        replacedParams[replacedParams.length - 1] + suffix,
+      ];
+      return { values: result, quoted: true };
+    }
+  }
+
   // Handle "$@" and "$*" with adjacent text inside double quotes, e.g., "-$@-"
   // "$@": Each positional parameter becomes a separate word, with prefix joined to first
   //       and suffix joined to last. If no params, produces nothing (or just prefix+suffix if present)
@@ -954,6 +1352,197 @@ export async function expandWordWithGlob(
         params[params.length - 1] + suffix,
       ];
       return { values: result, quoted: true };
+    }
+  }
+
+  // Special handling for unquoted ${@:offset} and ${*:offset} (with potential prefix/suffix)
+  // Find if there's a ${@:offset} or ${*:offset} in the word parts
+  {
+    let unquotedSliceAtIndex = -1;
+    let unquotedSliceIsStar = false;
+    for (let i = 0; i < wordParts.length; i++) {
+      const p = wordParts[i];
+      // console.log('DEBUG checking part', i, ':', JSON.stringify(p));
+      if (
+        p.type === "ParameterExpansion" &&
+        (p.parameter === "@" || p.parameter === "*") &&
+        p.operation?.type === "Substring"
+      ) {
+        unquotedSliceAtIndex = i;
+        unquotedSliceIsStar = p.parameter === "*";
+        // console.log('DEBUG: Found unquoted slice at index', i, 'isStar:', unquotedSliceIsStar);
+        break;
+      }
+    }
+
+    if (unquotedSliceAtIndex !== -1) {
+      // console.log("DEBUG: Entering unquoted slice handler");
+      const paramPart = wordParts[
+        unquotedSliceAtIndex
+      ] as ParameterExpansionPart;
+      const operation = paramPart.operation as SubstringOp;
+
+      // Evaluate offset and length
+      const offset = operation.offset
+        ? evaluateArithmeticSync(ctx, operation.offset.expression)
+        : 0;
+      const length = operation.length
+        ? evaluateArithmeticSync(ctx, operation.length.expression)
+        : undefined;
+
+      // Get positional parameters
+      const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+      const allParams: string[] = [];
+      for (let i = 1; i <= numParams; i++) {
+        allParams.push(ctx.state.env[String(i)] || "");
+      }
+
+      const shellName = ctx.state.env["0"] || "bash";
+
+      // Build sliced params array
+      let slicedParams: string[];
+      if (offset <= 0) {
+        // offset 0: include $0 at position 0
+        const withZero = [shellName, ...allParams];
+        const startIdx = offset < 0 ? Math.max(0, withZero.length + offset) : 0;
+        if (length !== undefined) {
+          const endIdx =
+            length < 0 ? withZero.length + length : startIdx + length;
+          slicedParams = withZero.slice(startIdx, Math.max(startIdx, endIdx));
+        } else {
+          slicedParams = withZero.slice(startIdx);
+        }
+      } else {
+        // offset > 0: start from $<offset>
+        const startIdx = offset - 1;
+        if (startIdx >= allParams.length) {
+          slicedParams = [];
+        } else if (length !== undefined) {
+          const endIdx =
+            length < 0 ? allParams.length + length : startIdx + length;
+          slicedParams = allParams.slice(startIdx, Math.max(startIdx, endIdx));
+        } else {
+          slicedParams = allParams.slice(startIdx);
+        }
+      }
+
+      // Expand prefix (parts before ${@:...})
+      let prefix = "";
+      for (let i = 0; i < unquotedSliceAtIndex; i++) {
+        prefix += await expandPart(ctx, wordParts[i]);
+      }
+
+      // Expand suffix (parts after ${@:...})
+      let suffix = "";
+      for (let i = unquotedSliceAtIndex + 1; i < wordParts.length; i++) {
+        suffix += await expandPart(ctx, wordParts[i]);
+      }
+
+      // For unquoted, we need to IFS-split the result
+      const ifsChars = getIfs(ctx.state.env);
+      const ifsEmpty = isIfsEmpty(ctx.state.env);
+
+      if (slicedParams.length === 0) {
+        // No params after slicing -> prefix + suffix as one word (may still need splitting)
+        const combined = prefix + suffix;
+        if (!combined) {
+          return { values: [], quoted: false };
+        }
+        if (ifsEmpty) {
+          return { values: [combined], quoted: false };
+        }
+        return {
+          values: splitByIfsForExpansion(combined, ifsChars),
+          quoted: false,
+        };
+      }
+
+      let allWords: string[];
+
+      if (unquotedSliceIsStar) {
+        // ${*:offset} unquoted - join all sliced params with IFS, then split result
+        const ifsSep = getIfsSeparator(ctx.state.env);
+        const joined = prefix + slicedParams.join(ifsSep) + suffix;
+        // console.log('DEBUG: slicedParams:', JSON.stringify(slicedParams));
+        // console.log('DEBUG: prefix:', JSON.stringify(prefix), 'suffix:', JSON.stringify(suffix));
+        // console.log('DEBUG: joined:', JSON.stringify(joined));
+        // console.log('DEBUG: ifsEmpty:', ifsEmpty, 'ifsChars:', JSON.stringify(ifsChars));
+
+        if (ifsEmpty) {
+          allWords = joined ? [joined] : [];
+        } else {
+          allWords = splitByIfsForExpansion(joined, ifsChars);
+          // console.log('DEBUG: allWords after split:', JSON.stringify(allWords));
+        }
+      } else {
+        // ${@:offset} unquoted - each sliced param is separate, then IFS-split each
+        // Prefix attaches to first, suffix attaches to last
+        if (ifsEmpty) {
+          // No splitting - just attach prefix/suffix
+          if (slicedParams.length === 1) {
+            allWords = [prefix + slicedParams[0] + suffix];
+          } else {
+            allWords = [
+              prefix + slicedParams[0],
+              ...slicedParams.slice(1, -1),
+              slicedParams[slicedParams.length - 1] + suffix,
+            ];
+          }
+        } else {
+          // IFS-split each parameter
+          allWords = [];
+          for (let i = 0; i < slicedParams.length; i++) {
+            let param = slicedParams[i];
+            if (i === 0) param = prefix + param;
+            if (i === slicedParams.length - 1) param = param + suffix;
+
+            if (param === "") {
+              allWords.push("");
+            } else {
+              const parts = splitByIfsForExpansion(param, ifsChars);
+              allWords.push(...parts);
+            }
+          }
+        }
+      }
+
+      // Apply glob expansion to each word
+      if (ctx.state.options.noglob) {
+        return { values: allWords, quoted: false };
+      }
+
+      const globExpander = new GlobExpander(
+        ctx.fs,
+        ctx.state.cwd,
+        ctx.state.env,
+        {
+          globstar: ctx.state.shoptOptions.globstar,
+          nullglob: ctx.state.shoptOptions.nullglob,
+          failglob: ctx.state.shoptOptions.failglob,
+          dotglob: ctx.state.shoptOptions.dotglob,
+          extglob: ctx.state.shoptOptions.extglob,
+        },
+      );
+
+      const expandedValues: string[] = [];
+      for (const w of allWords) {
+        if (hasGlobPattern(w, ctx.state.shoptOptions.extglob)) {
+          const matches = await globExpander.expand(w);
+          if (matches.length > 0) {
+            expandedValues.push(...matches);
+          } else if (globExpander.hasFailglob()) {
+            throw new GlobError(w);
+          } else if (globExpander.hasNullglob()) {
+            // skip
+          } else {
+            expandedValues.push(w);
+          }
+        } else {
+          expandedValues.push(w);
+        }
+      }
+      // console.log("DEBUG: returning values:", JSON.stringify(expandedValues));
+      return { values: expandedValues, quoted: false };
     }
   }
 
@@ -1494,6 +2083,12 @@ function expandParameter(
       throw new BadSubstitutionError(parameter);
     }
 
+    case "BadSubstitution": {
+      // Invalid parameter expansion syntax (e.g., ${(x)foo} zsh syntax)
+      // Error was deferred from parse time to runtime
+      throw new BadSubstitutionError(operation.text);
+    }
+
     case "Substring": {
       // Evaluate arithmetic expressions in offset and length
       const offset = operation.offset
@@ -1505,12 +2100,42 @@ function expandParameter(
 
       // Handle special case for ${@:offset} and ${*:offset}
       // When offset is 0, it includes $0 (the shell name)
+      // When offset > 0, it starts from positional parameters ($1, $2, etc.)
       if (parameter === "@" || parameter === "*") {
-        const args = (ctx.state.env["@"] || "").split(" ").filter((a) => a);
+        // Get positional parameters properly (not by splitting joined string)
+        const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+        const params: string[] = [];
+        for (let i = 1; i <= numParams; i++) {
+          params.push(ctx.state.env[String(i)] || "");
+        }
+
         const shellName = ctx.state.env["0"] || "bash";
-        // At offset 0, include $0
-        const allArgs = offset === 0 ? [shellName, ...args] : args;
-        const startIdx = offset === 0 ? 0 : offset - 1;
+
+        // Build the array to slice from
+        // When offset is 0, include $0 at position 0, then $1, $2, etc.
+        // When offset > 0, $1 is at position 1, $2 at position 2, etc.
+        // So for offset 1, we start at params[0] (which is $1)
+        // For offset 0, we include shellName, then params
+        let allArgs: string[];
+        let startIdx: number;
+
+        if (offset <= 0) {
+          // offset 0: include $0 at position 0
+          // offset negative: count from end (not typical for @/*, but handle it)
+          allArgs = [shellName, ...params];
+          if (offset < 0) {
+            startIdx = allArgs.length + offset;
+            if (startIdx < 0) startIdx = 0;
+          } else {
+            startIdx = 0;
+          }
+        } else {
+          // offset > 0: start from $<offset> (e.g., offset 1 starts at $1)
+          // $1 is params[0], $2 is params[1], etc.
+          allArgs = params;
+          startIdx = offset - 1;
+        }
+
         if (startIdx < 0 || startIdx >= allArgs.length) {
           return "";
         }
@@ -1564,14 +2189,15 @@ function expandParameter(
     case "PatternRemoval": {
       // Build regex pattern from parts, preserving literal vs glob distinction
       let regexStr = "";
+      const extglob = ctx.state.shoptOptions.extglob;
       if (operation.pattern) {
         for (const part of operation.pattern.parts) {
           if (part.type === "Glob") {
             // Glob pattern - convert * and ? to regex equivalents
-            regexStr += patternToRegex(part.pattern, operation.greedy);
+            regexStr += patternToRegex(part.pattern, operation.greedy, extglob);
           } else if (part.type === "Literal") {
             // Unquoted literal - treat as glob pattern (may contain *, ?, [...])
-            regexStr += patternToRegex(part.value, operation.greedy);
+            regexStr += patternToRegex(part.value, operation.greedy, extglob);
           } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
             // Quoted text - escape all special regex and glob characters
             regexStr += escapeRegex(part.value);
@@ -1582,7 +2208,7 @@ function expandParameter(
           } else if (part.type === "ParameterExpansion") {
             // Unquoted parameter expansion - treat expanded value as glob pattern
             const expanded = expandPartSync(ctx, part);
-            regexStr += patternToRegex(expanded, operation.greedy);
+            regexStr += patternToRegex(expanded, operation.greedy, extglob);
           } else {
             // Other parts - expand and escape (command substitution, etc.)
             const expanded = expandPartSync(ctx, part);
@@ -1615,14 +2241,15 @@ function expandParameter(
     case "PatternReplacement": {
       // Build regex pattern from parts, preserving literal vs glob distinction
       let regex = "";
+      const extglobRepl = ctx.state.shoptOptions.extglob;
       if (operation.pattern) {
         for (const part of operation.pattern.parts) {
           if (part.type === "Glob") {
             // Glob pattern - convert * and ? to regex equivalents
-            regex += patternToRegex(part.pattern, true);
+            regex += patternToRegex(part.pattern, true, extglobRepl);
           } else if (part.type === "Literal") {
             // Unquoted literal - treat as glob pattern (may contain *, ?, [...], \X)
-            regex += patternToRegex(part.value, true);
+            regex += patternToRegex(part.value, true, extglobRepl);
           } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
             // Quoted text - escape all special regex and glob characters
             regex += escapeRegex(part.value);
@@ -1634,7 +2261,7 @@ function expandParameter(
             // Unquoted parameter expansion - treat expanded value as glob pattern
             // In bash, ${v//$pat/x} where pat='*' treats * as a glob
             const expanded = expandPartSync(ctx, part);
-            regex += patternToRegex(expanded, true);
+            regex += patternToRegex(expanded, true, extglobRepl);
           } else {
             // Other parts - expand and escape (command substitution, etc.)
             const expanded = expandPartSync(ctx, part);
@@ -1820,14 +2447,7 @@ function expandParameter(
 
     case "VarNamePrefix": {
       // ${!prefix*} or ${!prefix@} - list variable names with prefix
-      const matchingVars = Object.keys(ctx.state.env)
-        .filter(
-          (k) =>
-            k.startsWith(operation.prefix) &&
-            // Exclude internal array storage keys (contain _ after the prefix)
-            !k.includes("__"),
-        )
-        .sort();
+      const matchingVars = getVarNamesWithPrefix(ctx, operation.prefix);
       if (operation.star) {
         // ${!prefix*} - join with first char of IFS
         return matchingVars.join(getIfsSeparator(ctx.state.env));
@@ -1948,13 +2568,22 @@ async function expandParameterAsync(
     case "PatternRemoval": {
       // Build regex pattern from parts, preserving literal vs glob distinction
       let regexStr = "";
+      const extglobAsync = ctx.state.shoptOptions.extglob;
       if (operation.pattern) {
         for (const part of operation.pattern.parts) {
           if (part.type === "Glob") {
-            regexStr += patternToRegex(part.pattern, operation.greedy);
+            regexStr += patternToRegex(
+              part.pattern,
+              operation.greedy,
+              extglobAsync,
+            );
           } else if (part.type === "Literal") {
             // Unquoted literal - treat as glob pattern (may contain *, ?, [...])
-            regexStr += patternToRegex(part.value, operation.greedy);
+            regexStr += patternToRegex(
+              part.value,
+              operation.greedy,
+              extglobAsync,
+            );
           } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
             regexStr += escapeRegex(part.value);
           } else if (part.type === "DoubleQuoted") {
@@ -1962,7 +2591,11 @@ async function expandParameterAsync(
             regexStr += escapeRegex(expanded);
           } else if (part.type === "ParameterExpansion") {
             const expanded = await expandPart(ctx, part);
-            regexStr += patternToRegex(expanded, operation.greedy);
+            regexStr += patternToRegex(
+              expanded,
+              operation.greedy,
+              extglobAsync,
+            );
           } else {
             const expanded = await expandPart(ctx, part);
             regexStr += escapeRegex(expanded);
@@ -1988,13 +2621,14 @@ async function expandParameterAsync(
 
     case "PatternReplacement": {
       let regex = "";
+      const extglobReplAsync = ctx.state.shoptOptions.extglob;
       if (operation.pattern) {
         for (const part of operation.pattern.parts) {
           if (part.type === "Glob") {
-            regex += patternToRegex(part.pattern, true);
+            regex += patternToRegex(part.pattern, true, extglobReplAsync);
           } else if (part.type === "Literal") {
             // Unquoted literal - treat as glob pattern (may contain *, ?, [...], \X)
-            regex += patternToRegex(part.value, true);
+            regex += patternToRegex(part.value, true, extglobReplAsync);
           } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
             regex += escapeRegex(part.value);
           } else if (part.type === "DoubleQuoted") {
@@ -2002,7 +2636,7 @@ async function expandParameterAsync(
             regex += escapeRegex(expanded);
           } else if (part.type === "ParameterExpansion") {
             const expanded = await expandPart(ctx, part);
-            regex += patternToRegex(expanded, true);
+            regex += patternToRegex(expanded, true, extglobReplAsync);
           } else {
             const expanded = await expandPart(ctx, part);
             regex += escapeRegex(expanded);

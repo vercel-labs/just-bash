@@ -56,7 +56,6 @@ NOUNSET
 # ## END
 
 #### comparison to ${!array[@]} keys (similar SYNTAX)
-## SKIP: "${!array[@]}" should produce separate args per key
 
 declare -a a=(x y)
 argv.py "${!a[@]}"

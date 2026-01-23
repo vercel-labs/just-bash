@@ -6,7 +6,6 @@
 # Test extended glob matching with [[, case, etc.
 
 #### @ matches exactly one
-## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ --verbose == --@(help|verbose) ]] && echo TRUE
 [[ --oops == --@(help|verbose) ]] || echo FALSE
 ## STDOUT:
@@ -15,7 +14,6 @@ FALSE
 ## END
 
 #### @() with variable arms
-## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 choice1='help'
 choice2='verbose'
 [[ --verbose == --@($choice1|$choice2) ]] && echo TRUE
@@ -53,8 +51,6 @@ FALSE
 ## END
 
 #### Matching literal '@(cc)'
-## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
-
 # extglob is OFF.  Doesn't affect bash or mksh!
 [[ cc == @(cc) ]] 
 echo status=$?
@@ -103,7 +99,6 @@ TRUE
 ## END
 
 #### ? matches 0 or 1
-## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ -- == --?(help|verbose) ]] && echo TRUE
 [[ --oops == --?(help|verbose) ]] || echo FALSE
 ## STDOUT:
@@ -112,7 +107,6 @@ FALSE
 ## END
 
 #### + matches 1 or more
-## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ --helphelp == --+(help|verbose) ]] && echo TRUE
 [[ -- == --+(help|verbose) ]] || echo FALSE
 ## STDOUT:
@@ -121,7 +115,6 @@ FALSE
 ## END
 
 #### * matches 0 or more
-## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ -- == --*(help|verbose) ]] && echo TRUE
 [[ --oops == --*(help|verbose) ]] || echo FALSE
 ## STDOUT:
@@ -130,7 +123,6 @@ FALSE
 ## END
 
 #### simple repetition with *(foo) and +(Foo)
-## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ foofoo == *(foo) ]] && echo TRUE
 [[ foofoo == +(foo) ]] && echo TRUE
 ## STDOUT:
@@ -139,7 +131,6 @@ TRUE
 ## END
 
 #### ! matches none
-## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ --oops == --!(help|verbose) ]] && echo TRUE
 [[ --help == --!(help|verbose) ]] || echo FALSE
 ## STDOUT:
@@ -148,7 +139,6 @@ FALSE
 ## END
 
 #### match is anchored
-## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ foo_ == @(foo) ]] || echo FALSE
 [[ _foo == @(foo) ]] || echo FALSE
 [[ foo == @(foo) ]] && echo TRUE
@@ -159,7 +149,6 @@ TRUE
 ## END
 
 #### repeated match is anchored
-## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ foofoo_ == +(foo) ]] || echo FALSE
 [[ _foofoo == +(foo) ]] || echo FALSE
 [[ foofoo == +(foo) ]] && echo TRUE
@@ -170,7 +159,6 @@ TRUE
 ## END
 
 #### repetition with glob
-## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 # NOTE that * means two different things here
 [[ foofoo_foo__foo___ == *(foo*) ]] && echo TRUE
 [[ Xoofoo_foo__foo___ == *(foo*) ]] || echo FALSE
@@ -180,7 +168,6 @@ FALSE
 ## END
 
 #### No brace expansion in ==
-## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ --X{a,b}X == --@(help|X{a,b}X) ]] && echo TRUE
 [[ --oops == --@(help|X{a,b}X) ]] || echo FALSE
 ## STDOUT:
@@ -189,7 +176,6 @@ FALSE
 ## END
 
 #### adjacent extglob
-## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ --help == @(--|++)@(help|verbose) ]] && echo TRUE
 [[ ++verbose == @(--|++)@(help|verbose) ]] && echo TRUE
 ## STDOUT:
@@ -198,7 +184,6 @@ TRUE
 ## END
 
 #### nested extglob
-## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ --help == --@(help|verbose=@(1|2)) ]] && echo TRUE
 [[ --verbose=1 == --@(help|verbose=@(1|2)) ]] && echo TRUE
 [[ --verbose=2 == --@(help|verbose=@(1|2)) ]] && echo TRUE
@@ -365,7 +350,6 @@ echo $?
 ## END
 
 #### Extended glob in ${x//pat/replace}
-## SKIP: extglob in parameter expansion patterns not implemented
 # not supported in OSH due to GlobToERE() strategy for positional info
 
 shopt -s extglob
@@ -378,7 +362,6 @@ foZ
 ## N-I osh stdout-json: ""
 
 #### Extended glob in ${x%PATTERN}
-## SKIP: extglob in parameter expansion patterns not implemented
 
 shopt -s extglob
 x=foo.py

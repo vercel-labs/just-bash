@@ -69,6 +69,12 @@ export interface CommandContext {
   cwd: string;
   /** Environment variables */
   env: Record<string, string>;
+  /**
+   * Exported environment variables only.
+   * Used by commands like printenv and env that should only show exported vars.
+   * In bash, only exported variables are passed to child processes.
+   */
+  exportedEnv?: Record<string, string>;
   /** Standard input content */
   stdin: string;
   /**

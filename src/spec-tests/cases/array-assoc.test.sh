@@ -64,7 +64,6 @@ declare -A A=()
 ## END
 
 #### create empty assoc array, put, then get
-## SKIP: Associative array key expansion returns empty string for empty array
 declare -A A  # still undefined
 argv.py "${A[@]}"
 argv.py "${!A[@]}"
@@ -84,7 +83,6 @@ argv.py "${A["k"]}"
 ## END
 
 #### retrieve keys with !
-## SKIP: Associative array key ordering differs
 declare -A a
 var='x'
 a["$var"]=b

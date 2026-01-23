@@ -103,7 +103,6 @@ echo "$s|$i|$j"
 ## END
 
 #### declare array vs. string: mixing -a +a and () ''
-## SKIP: declare +a flag not implemented
 # dynamic parsing of first argument.
 declare +a 'xyz1=1'
 declare +a 'xyz2=(2 3)'
@@ -137,7 +136,6 @@ argv.py "${#assoc[@]}" "${!assoc[@]}" "${assoc[@]}"
 
 
 #### declare -l -u
-## SKIP: declare -l/-u not implemented
 
 declare -l lower=FOO
 declare -u upper=foo

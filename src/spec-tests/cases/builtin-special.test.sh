@@ -173,7 +173,6 @@ status=0
 ## END
 
 #### Shift is special and fails whole script
-## SKIP: POSIX mode (set -o posix) not implemented
 
 # https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html#tag_18_14
 #
@@ -205,7 +204,6 @@ status=1
 ## END
 
 #### set is special and fails whole script, even if using || true
-## SKIP: POSIX mode (set -o posix) not implemented
 $SH -c '
 if test -n "$BASH_VERSION"; then
   set -o posix

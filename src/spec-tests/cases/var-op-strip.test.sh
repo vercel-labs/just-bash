@@ -387,7 +387,6 @@ echo 4 ${x##*\(\)}
 ## END
 
 #### extglob in pattern
-## SKIP: extglob in parameter expansion patterns not implemented
 case $SH in dash|zsh|ash) exit ;; esac
 
 shopt -s extglob

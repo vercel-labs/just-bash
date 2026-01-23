@@ -176,8 +176,12 @@ echo status=$?
 ## N-I dash stdout: status=127
 
 #### Source with arguments
-## SKIP: Test data directory not available
-. $REPO_ROOT/spec/testdata/show-argv.sh foo bar  # dash doesn't have source
+# Create test script inline - echoes "show-argv:" followed by args
+cat > /tmp/show-argv.sh <<'SCRIPT'
+echo "show-argv: $*"
+SCRIPT
+
+. /tmp/show-argv.sh foo bar  # dash doesn't have source
 ## STDOUT:
 show-argv: foo bar
 ## END

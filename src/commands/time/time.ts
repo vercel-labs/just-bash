@@ -102,6 +102,13 @@ export const timeCommand: Command = {
     let result: ExecResult;
 
     try {
+      if (!ctx.exec) {
+        return {
+          stdout: "",
+          stderr: "time: exec not available\n",
+          exitCode: 1,
+        };
+      }
       result = await ctx.exec(commandString, { env: ctx.env, cwd: ctx.cwd });
     } catch (error) {
       result = {

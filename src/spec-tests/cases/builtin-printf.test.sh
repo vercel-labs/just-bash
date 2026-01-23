@@ -992,7 +992,7 @@ status=2
 ## END
 
 #### %(strftime format)T doesn't respect TZ if not exported
-## SKIP: JavaScript Date API cannot differentiate exported vs non-exported TZ
+## SKIP: TZ export semantics differ - our interpreter runs in same process so TZ affects libc regardless
 
 # note: this test leaks!  It assumes that /etc/localtime is NOT Portugal.
 

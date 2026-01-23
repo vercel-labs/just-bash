@@ -41,7 +41,7 @@ RCFILE
 ## END
 
 #### --rcfile with parse error - shell is executed anyway
-## SKIP: Parse error detection edge cases not implemented
+## SKIP: Shell invocation with --rcfile and interactive mode not supported
 cat >$TMP/rcfile <<EOF
 echo RCFILE; ( echo
 EOF
@@ -170,7 +170,7 @@ PROMPT
 
 
 #### parse error in PROMPT_COMMAND
-## SKIP: Parse error detection edge cases not implemented
+## SKIP: Interactive shell with PROMPT_COMMAND not supported
 export PS1=''  # OSH prints prompt to stdout
 
 case $SH in

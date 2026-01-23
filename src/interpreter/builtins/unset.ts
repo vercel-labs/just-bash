@@ -6,6 +6,10 @@
  * - unset -v VAR - remove variable (explicit)
  * - unset -f FUNC - remove function
  * - unset 'a[i]' - remove array element (with arithmetic index support)
+ *
+ * Bash-specific unset scoping:
+ * - local-unset (same scope): value-unset - clears value but keeps local cell
+ * - dynamic-unset (different scope): cell-unset - removes local cell, exposes outer value
  */
 
 import type { ExecResult } from "../../types.js";
@@ -14,6 +18,35 @@ import { isNameref, resolveNameref } from "../helpers/nameref.js";
 import { isReadonly } from "../helpers/readonly.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
+import { clearLocalVarDepth, getLocalVarDepth } from "./variable-helpers.js";
+
+/**
+ * Perform cell-unset for a local variable (dynamic-unset).
+ * This removes the local cell and exposes the outer scope's value.
+ * Returns true if a cell-unset was performed, false otherwise.
+ */
+function performCellUnset(ctx: InterpreterContext, varName: string): boolean {
+  // Find the scope where this variable was declared
+  // Search from innermost scope outward
+  for (let i = ctx.state.localScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.state.localScopes[i];
+    if (scope.has(varName)) {
+      // Found the scope - restore the outer value
+      const outerValue = scope.get(varName);
+      if (outerValue === undefined) {
+        delete ctx.state.env[varName];
+      } else {
+        ctx.state.env[varName] = outerValue;
+      }
+      // Remove from this scope so future lookups find the outer value
+      scope.delete(varName);
+      // Clear the local variable depth tracking
+      clearLocalVarDepth(ctx, varName);
+      return true;
+    }
+  }
+  return false;
+}
 
 export function handleUnset(
   ctx: InterpreterContext,
@@ -105,7 +138,16 @@ export function handleUnset(
         continue;
       }
 
-      delete ctx.state.env[targetName];
+      // Bash-specific unset scoping: check if this is a dynamic-unset
+      const localDepth = getLocalVarDepth(ctx, targetName);
+      if (localDepth !== undefined && localDepth !== ctx.state.callDepth) {
+        // Dynamic-unset: called from a different scope than where local was declared
+        // Perform cell-unset to expose outer value
+        performCellUnset(ctx, targetName);
+      } else {
+        // Local-unset or not a local variable: just delete the value
+        delete ctx.state.env[targetName];
+      }
       continue;
     }
 
@@ -182,7 +224,16 @@ export function handleUnset(
       continue;
     }
 
-    delete ctx.state.env[targetName];
+    // Bash-specific unset scoping: check if this is a dynamic-unset
+    const localDepth = getLocalVarDepth(ctx, targetName);
+    if (localDepth !== undefined && localDepth !== ctx.state.callDepth) {
+      // Dynamic-unset: called from a different scope than where local was declared
+      // Perform cell-unset to expose outer value
+      performCellUnset(ctx, targetName);
+    } else {
+      // Local-unset or not a local variable: just delete the value
+      delete ctx.state.env[targetName];
+    }
     ctx.state.functions.delete(arg);
   }
   return result("", stderr, exitCode);

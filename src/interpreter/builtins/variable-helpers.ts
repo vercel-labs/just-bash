@@ -136,3 +136,34 @@ export function setVariable(
 
   return null; // Success
 }
+
+/**
+ * Mark a variable as being declared at the current call depth.
+ * Used for bash-specific unset scoping behavior.
+ */
+export function markLocalVarDepth(ctx: InterpreterContext, name: string): void {
+  ctx.state.localVarDepth = ctx.state.localVarDepth || new Map();
+  ctx.state.localVarDepth.set(name, ctx.state.callDepth);
+}
+
+/**
+ * Get the call depth at which a local variable was declared.
+ * Returns undefined if the variable is not a local variable.
+ */
+export function getLocalVarDepth(
+  ctx: InterpreterContext,
+  name: string,
+): number | undefined {
+  return ctx.state.localVarDepth?.get(name);
+}
+
+/**
+ * Clear the local variable depth tracking for a variable.
+ * Called when a local variable is cell-unset (dynamic-unset).
+ */
+export function clearLocalVarDepth(
+  ctx: InterpreterContext,
+  name: string,
+): void {
+  ctx.state.localVarDepth?.delete(name);
+}

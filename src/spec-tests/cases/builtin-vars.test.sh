@@ -157,7 +157,6 @@ None
 ## END
 
 #### Exporting a parent func variable (dynamic scope)
-## SKIP: local variables are incorrectly exported to child processes before export
 # The algorithm is to walk up the stack and export that one.
 inner() {
   export outer_var

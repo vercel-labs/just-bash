@@ -386,9 +386,19 @@ status=1
 
 
 #### getopts bug #1523
-## SKIP: Test data directory not available
+# Create test script inline - getopts with abc: optspec
+cat > /tmp/getopts-1523.sh <<'SCRIPT'
+while getopts "abc:" opt; do
+  case $opt in
+    a|b) echo "opt:$opt" ;;
+    c) echo "opt:$opt arg:$OPTARG" ;;
+    '?') echo "err:$opt" ;;
+  esac
+done
+exit 1
+SCRIPT
 
-$SH $REPO_ROOT/spec/testdata/getopts-1523.sh -abcdef -abcde
+$SH /tmp/getopts-1523.sh -abcdef -abcde
 
 ## status: 1
 ## STDOUT:
@@ -401,9 +411,8 @@ opt:c arg:de
 ## END
 
 #### More regression for #1523
-## SKIP: Test data directory not available
-
-$SH $REPO_ROOT/spec/testdata/getopts-1523.sh -abcdef -xyz
+# Uses /tmp/getopts-1523.sh from previous test
+$SH /tmp/getopts-1523.sh -abcdef -xyz
 
 ## status: 1
 ## STDOUT:

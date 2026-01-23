@@ -94,8 +94,7 @@ bad
 ## END
 
 #### ((gzip example - zdiff package - #2337
-## SKIP: File descriptor close/move syntax (>&-) not implemented
-
+## SKIP: Complex fd close/move syntax in subshells not fully working
 # https://github.com/git-for-windows/git-sdk-64/blob/main/usr/bin/zdiff#L136
 
 gzip_status=$(

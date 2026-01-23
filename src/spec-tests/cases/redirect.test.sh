@@ -2,7 +2,6 @@
 ## compare_shells: bash dash mksh
 
 #### >& and <& are the same
-## SKIP: Advanced file descriptor redirections not implemented
 
 echo one 1>&2
 
@@ -15,7 +14,6 @@ two
 
 
 #### <&
-## SKIP: Advanced file descriptor redirections not implemented
 # Is there a simpler test case for this?
 echo foo51 > $TMP/lessamp.txt
 
@@ -108,7 +106,6 @@ cat $TMP/named-fd.txt
 ## N-I dash/mksh status: 127
 
 #### Double digit fd (20> file)
-## SKIP: Persistent numeric FD allocation (exec N>file) not implemented
 exec 20> "$TMP/double-digit-fd.txt"
 echo hello20 >&20
 cat "$TMP/double-digit-fd.txt"
@@ -304,7 +301,7 @@ STDERR
 ## N-I dash/mksh stdout-json: ""
 
 #### 1>&- to close file descriptor
-## SKIP: File descriptor close/move syntax (>&-) not implemented
+## SKIP: File descriptor close (>&-) not properly closing the fd
 exec 5> "$TMP/f.txt"
 echo hello >&5
 exec 5>&-
@@ -315,7 +312,7 @@ hello
 ## END
 
 #### 1>&2- to move file descriptor
-## SKIP: File descriptor close/move syntax (>&-) not implemented
+## SKIP: File descriptor move (>&N-) not properly closing source fd after duplication
 exec 5> "$TMP/f.txt"
 echo hello5 >&5
 exec 6>&5-
@@ -333,8 +330,7 @@ world6
 ## N-I mksh stdout-json: ""
 
 #### 1>&2- (Bash bug: fail to restore closed fd)
-## SKIP: File descriptor close/move syntax (>&-) not implemented
-
+## SKIP: File descriptor close/move not properly working in complex scenarios
 # 7/2021: descriptor 8 is open on Github Actions, so use descriptor 6 instead
 
 # Fix for CI systems where process state isn't clean: Close descriptors 6 and 7.
@@ -369,7 +365,6 @@ cat "$TMP/f.txt"
 ## BUG bash stdout: hello
 
 #### <> for read/write
-## SKIP: Advanced file descriptor redirections not implemented
 echo first >$TMP/rw.txt
 exec 8<>$TMP/rw.txt
 read line <&8
@@ -385,7 +380,7 @@ second
 ## END
 
 #### <> for read/write named pipes
-## SKIP: File descriptor close/move syntax (>&-) not implemented
+## SKIP: Named pipes (mkfifo) not implemented and fd read/write with pipes not working
 rm -f "$TMP/f.pipe"
 mkfifo "$TMP/f.pipe"
 exec 8<> "$TMP/f.pipe"
@@ -421,7 +416,6 @@ ok
 ## N-I dash status: 1
 
 #### exec redirect then various builtins
-## SKIP: Advanced file descriptor redirections not implemented
 exec 5>$TMP/log.txt
 echo hi >&5
 set -o >&5

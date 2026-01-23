@@ -32,6 +32,8 @@ export interface ShellOptions {
   noclobber: boolean;
   /** set -f: Disable filename expansion (globbing) */
   noglob: boolean;
+  /** set -n: Read commands but do not execute them (syntax check mode) */
+  noexec: boolean;
 }
 
 export interface ShoptOptions {
@@ -108,6 +110,8 @@ export interface InterpreterState {
   hashTable?: Map<string, string>;
   /** Set of exported variable names */
   exportedVars?: Set<string>;
+  /** Set of temporarily exported variable names (for prefix assignments like FOO=bar cmd) */
+  tempExportedVars?: Set<string>;
   /** Stack of call line numbers for BASH_LINENO */
   callLineStack?: number[];
   /** File descriptors for process substitution and here-docs */
@@ -117,6 +121,13 @@ export interface InterpreterState {
   /** True when the last executed statement's exit code is "safe" for errexit purposes
    *  (e.g., from a &&/|| chain where the failure wasn't the final command) */
   errexitSafe?: boolean;
+  /**
+   * Tracks at which call depth each local variable was declared.
+   * Used for bash-specific unset scoping behavior:
+   * - local-unset (same scope): value-unset (clears value, keeps local cell)
+   * - dynamic-unset (different scope): cell-unset (removes local cell, exposes outer value)
+   */
+  localVarDepth?: Map<string, number>;
 }
 
 export interface InterpreterContext {

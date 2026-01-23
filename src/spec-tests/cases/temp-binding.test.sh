@@ -5,10 +5,14 @@
 # the IFS= eval 'local x' bug
 
 #### More eval 'local v='
-## SKIP: Test data directory not available
 case $SH in mksh) exit ;; esac
 
 set -u
+
+# Create temp script inline
+cat > /tmp/define-local-var-z.sh <<'SCRIPT'
+local z=z
+SCRIPT
 
 f() {
   # The temp env messes it up
@@ -16,7 +20,7 @@ f() {
   tmp2= eval 'local y=y'
 
   # similar to eval
-  tmp3= . $REPO_ROOT/spec/testdata/define-local-var-z.sh
+  tmp3= . /tmp/define-local-var-z.sh
 
   # Bug does not appear with only eval
   #eval 'local v=hello'
@@ -27,7 +31,7 @@ f() {
   echo z=$z
 }
 
-f 
+f
 
 ## STDOUT:
 x=x

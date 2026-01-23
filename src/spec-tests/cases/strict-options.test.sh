@@ -35,9 +35,14 @@ shopt -s strict_arith
 ## N-I dash/mksh status: 127
 
 #### Sourcing a script that returns at the top level
-## SKIP: Test data directory not available
+# Create temp script inline - echoes its name and returns 42
+cat > /tmp/return-helper.sh <<'SCRIPT'
+echo return-helper.sh
+return 42
+SCRIPT
+
 echo one
-. $REPO_ROOT/spec/testdata/return-helper.sh
+. /tmp/return-helper.sh
 echo $?
 echo two
 ## STDOUT:
@@ -48,30 +53,10 @@ two
 ## END
 
 #### top level control flow
-## SKIP: Test data directory not available
-$SH $REPO_ROOT/spec/testdata/top-level-control-flow.sh
-## status: 0
-## STDOUT:
-SUBSHELL
-BREAK
-CONTINUE
-RETURN
-## OK bash STDOUT:
-SUBSHELL
-BREAK
-CONTINUE
-RETURN
-DONE
-## END
+## SKIP: Requires running $SH as external subprocess
 
 #### errexit and top-level control flow
-## SKIP: Test data directory not available
-$SH -o errexit $REPO_ROOT/spec/testdata/top-level-control-flow.sh
-## status: 2
-## OK bash status: 1
-## STDOUT:
-SUBSHELL
-## END
+## SKIP: Requires running $SH as external subprocess with -o option
 
 #### shopt -s strict_control_flow
 shopt -s strict_control_flow || true

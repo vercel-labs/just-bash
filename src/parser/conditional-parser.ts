@@ -139,7 +139,7 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
         p.error(`Expected operand after ${first}`);
       }
       if (p.isWord()) {
-        const operand = p.parseWord();
+        const operand = p.parseWordNoBraceExpansion();
         return {
           type: "CondUnary",
           operator: first as CondUnaryOperator,
@@ -149,14 +149,17 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
     }
 
     // Parse as word, then check for binary operator
-    const left = p.parseWord();
+    const left = p.parseWordNoBraceExpansion();
 
     // Check for binary operators
     if (p.isWord() && BINARY_OPS.includes(p.current().value)) {
       const operator = p.advance().value;
       // For =~ operator, the RHS can include unquoted ( and ) for regex grouping
       // Parse until we hit ]], &&, ||, or newline
-      const right = operator === "=~" ? parseRegexPattern(p) : p.parseWord();
+      const right =
+        operator === "=~"
+          ? parseRegexPattern(p)
+          : p.parseWordNoBraceExpansion();
       return {
         type: "CondBinary",
         operator: operator as CondBinaryOperator,
@@ -168,7 +171,7 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
     // Check for < and > which are tokenized as LESS and GREAT
     if (p.check(TokenType.LESS)) {
       p.advance();
-      const right = p.parseWord();
+      const right = p.parseWordNoBraceExpansion();
       return {
         type: "CondBinary",
         operator: "<",
@@ -178,7 +181,7 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
     }
     if (p.check(TokenType.GREAT)) {
       p.advance();
-      const right = p.parseWord();
+      const right = p.parseWordNoBraceExpansion();
       return {
         type: "CondBinary",
         operator: ">",
@@ -190,7 +193,7 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
     // Check for = (assignment/equality in test)
     if (p.isWord() && p.current().value === "=") {
       p.advance();
-      const right = p.parseWord();
+      const right = p.parseWordNoBraceExpansion();
       return {
         type: "CondBinary",
         operator: "==",
@@ -250,7 +253,7 @@ function parseRegexPattern(p: Parser): WordNode {
 
     if (p.isWord()) {
       // Parse word parts (this handles $var, etc.)
-      const word = p.parseWord();
+      const word = p.parseWordNoBraceExpansion();
       parts.push(...word.parts);
       // After parseWord, position has advanced - get the consumed token's end
       lastTokenEnd = p.peek(-1).end;

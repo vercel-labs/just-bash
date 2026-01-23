@@ -9,17 +9,26 @@ exec echo hi
 ## stdout: hi
 
 #### exec builtin with redirects
-## SKIP: Advanced file descriptor redirections not implemented
 exec 1>&2
 echo 'to stderr'
 ## stdout-json: ""
 ## stderr: to stderr
 
 #### exec builtin with here doc
-## SKIP: Test data directory not available
-# This has in a separate file because both code and data can be read from
-# stdin.
-$SH $REPO_ROOT/spec/bin/builtins-exec-here-doc-helper.sh
+# Create the helper script inline - it uses exec to redirect stdin from here-doc
+cat > /tmp/builtins-exec-here-doc-helper.sh <<'SCRIPT'
+exec 0<<EOF
+one
+two
+EOF
+read x
+read y
+echo "x=$x"
+echo "y=$y"
+echo DONE
+SCRIPT
+
+$SH /tmp/builtins-exec-here-doc-helper.sh
 ## STDOUT:
 x=one
 y=two

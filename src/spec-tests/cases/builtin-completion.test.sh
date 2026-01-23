@@ -234,8 +234,9 @@ false___
 ## END
 
 #### compgen -A directory
-## SKIP: Test data directory not available
-cd $REPO_ROOT
+# Create test directories inline
+mkdir -p /tmp/completion-test/client /tmp/completion-test/core /tmp/completion-test/cpp
+cd /tmp/completion-test
 compgen -A directory c | sort
 ## STDOUT:
 client
@@ -244,8 +245,10 @@ cpp
 ## END
 
 #### compgen -A file
-## SKIP: Test data directory not available
-cd $REPO_ROOT
+# Create test files/directories inline
+mkdir -p /tmp/completion-test2/opy /tmp/completion-test2/osh
+touch /tmp/completion-test2/oils-version.txt
+cd /tmp/completion-test2
 compgen -A file o | sort
 ## STDOUT:
 oils-version.txt
@@ -396,8 +399,9 @@ build
 ## END
 
 #### -o plusdirs and -o dirnames with compgen
-## SKIP: Test data directory not available
-cd $REPO_ROOT
+# Create test directories inline
+mkdir -p /tmp/plusdirs-test/benchmarks /tmp/plusdirs-test/bin /tmp/plusdirs-test/build /tmp/plusdirs-test/builtin
+cd /tmp/plusdirs-test
 compgen -o plusdirs -W 'a b1 b2' b | sort
 echo ---
 compgen -o dirnames b | sort
@@ -416,8 +420,14 @@ builtin
 ## END
 
 #### compgen -o default completes files and dirs
-## SKIP: Test data directory not available
-cd $REPO_ROOT
+# Create test structure inline
+mkdir -p /tmp/compgen-default-test/spec/testdata
+touch /tmp/compgen-default-test/spec/temp-binding.test.sh
+touch /tmp/compgen-default-test/spec/tilde.test.sh
+touch /tmp/compgen-default-test/spec/toysh-posix.test.sh
+touch /tmp/compgen-default-test/spec/toysh.test.sh
+touch /tmp/compgen-default-test/spec/type-compat.test.sh
+cd /tmp/compgen-default-test
 compgen -o default spec/t | sort
 ## STDOUT:
 spec/temp-binding.test.sh
@@ -429,7 +439,7 @@ spec/type-compat.test.sh
 ## END
 
 #### compgen doesn't respect -X for user-defined functions
-## SKIP: extglob not implemented
+## SKIP: compgen not implemented
 # WORKAROUND: wrap in bash -i -c because non-interactive bash behaves
 # differently!
 case $SH in
@@ -453,7 +463,7 @@ bin
 ## END
 
 #### compgen -W words -X filter
-## SKIP: extglob not implemented
+## SKIP: compgen not implemented
 # WORKAROUND: wrap in bash -i -c because non-interactive bash behaves
 # differently!
 case $SH in
@@ -466,7 +476,7 @@ three
 ## END
 
 #### compgen -f -X filter -- $cur
-## SKIP: extglob not implemented
+## SKIP: compgen not implemented
 cd $TMP
 touch spam.py spam.sh
 compgen -f -- sp | sort
@@ -497,8 +507,9 @@ foo'bar
 ## END
 
 #### compgen -W 'one two three'
-## SKIP: Test data directory not available
-cd $REPO_ROOT
+# Create test structure inline - needs vendor directory
+mkdir -p /tmp/compgen-w-test/vendor
+cd /tmp/compgen-w-test
 compgen -W 'one two three'
 echo --
 compgen -W 'v1 v2 three' -A directory v
@@ -537,7 +548,7 @@ ham cheese:colon
 ## END
 
 #### Parse errors for compgen -W and complete -W
-## SKIP: Parse error detection edge cases not implemented
+## SKIP: compgen/complete -W with parse error detection not implemented
 # bash doesn't detect as many errors because it lacks static parsing.
 compgen -W '${'
 echo status=$?

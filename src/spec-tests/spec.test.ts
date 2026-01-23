@@ -45,12 +45,12 @@ const SKIP_FILES = new Set([
 
   // ZSH-specific tests
   "zsh-assoc.test.sh",
-  "zsh-idioms.test.sh",
+  // "zsh-idioms.test.sh", // Unskipped - now passes (zsh syntax rejection works)
 
   // BLE (bash line editor) specific
-  "ble-features.test.sh",
+  // "ble-features.test.sh", // Testing - some tests may now pass with unset scoping
   "ble-idioms.test.sh",
-  "ble-unset.test.sh",
+  // "ble-unset.test.sh", // Testing - some tests may now pass with unset scoping
 
   // Tests that require external commands or real filesystem
   // "nul-bytes.test.sh", // Testing

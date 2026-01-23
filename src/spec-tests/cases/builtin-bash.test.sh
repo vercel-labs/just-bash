@@ -102,7 +102,6 @@ n=3
 ## END
 
 #### mapfile (delimiter): -d '' (null-separated)
-## SKIP: mapfile -d '' (null separator) not implemented
 # Note: Bash-4.4+
 type mapfile >/dev/null 2>&1 || exit 0
 printf '%s\0' {1..5..2} | {

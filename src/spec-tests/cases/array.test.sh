@@ -174,7 +174,6 @@ argv.py "${a[$(echo 1)]}"
 ## stdout: ['2 3']
 
 #### Retrieve array indices with ${!a}
-## SKIP: ${!a[@]} array indices not expanded as separate elements
 a=(1 '2 3')
 argv.py "${!a[@]}"
 ## stdout: ['0', '1']

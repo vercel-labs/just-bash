@@ -269,6 +269,7 @@ function requiresXtrace(testCase: TestCase): boolean {
 
 /**
  * Normalize output for comparison
+ * - Strip comment lines (starting with #) - these are metadata in spec test STDOUT sections
  * - Trim trailing whitespace from each line
  * - Ensure consistent line endings
  * - Trim trailing newline
@@ -276,6 +277,7 @@ function requiresXtrace(testCase: TestCase): boolean {
 function normalizeOutput(output: string): string {
   return output
     .split("\n")
+    .filter((line) => !line.startsWith("#")) // Strip comment lines
     .map((line) => line.trimEnd())
     .join("\n")
     .replace(/\n+$/, "");

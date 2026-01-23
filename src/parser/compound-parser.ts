@@ -93,11 +93,11 @@ export function parseFor(
   p: Parser,
   options?: { skipRedirections?: boolean },
 ): ForNode | CStyleForNode {
-  p.expect(TokenType.FOR);
+  const forToken = p.expect(TokenType.FOR);
 
   // Check for C-style for: for (( ... ))
   if (p.check(TokenType.DPAREN_START)) {
-    return parseCStyleFor(p, options);
+    return parseCStyleFor(p, options, forToken.line);
   }
 
   // Regular for: for VAR in WORDS
@@ -154,6 +154,7 @@ export function parseFor(
 function parseCStyleFor(
   p: Parser,
   options?: { skipRedirections?: boolean },
+  startLine?: number,
 ): CStyleForNode {
   p.expect(TokenType.DPAREN_START);
 
@@ -221,6 +222,7 @@ function parseCStyleFor(
     update,
     body,
     redirections,
+    line: startLine,
   };
 }
 

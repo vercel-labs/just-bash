@@ -408,7 +408,7 @@ line=10
 ## END
 
 #### trap ERR with "atoms": assignment (( [[
-## SKIP: $LINENO in conditional/arithmetic context not implemented
+## SKIP: trap builtin not implemented
 
 trap 'echo line=$LINENO' ERR
 

@@ -431,7 +431,7 @@ f
 ## END
 
 #### $LINENO in "bare" redirect arg (bug regression)
-## SKIP: $LINENO tracking in complex contexts not implemented
+## SKIP: Bare redirects (without command) not supported
 filename=$TMP/bare3
 rm -f $filename
 > $TMP/bare$LINENO
@@ -468,7 +468,6 @@ OK
 ## N-I mksh stdout: one
 
 #### $LINENO in ((
-## SKIP: LINENO in arithmetic context not implemented
 echo one
 (( x = LINENO ))
 echo $x
@@ -511,9 +510,6 @@ done
 ## END
 
 #### $LINENO in for (( loop
-## SKIP: $LINENO tracking in complex contexts not implemented
-# This is a real edge case that I'm not sure we care about.  We would have to
-# change the span ID inside the loop to make it really correct.
 echo one
 for (( i = 0; i < $LINENO; i++ )); do
   echo $i

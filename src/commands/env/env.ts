@@ -97,7 +97,22 @@ export const envCommand: Command = {
     }
 
     // Build command line
-    const command = args.slice(commandStart).join(" ");
+    // Use 'command' prefix to bypass shell keywords (like 'time')
+    // This ensures we run the actual command, not the shell keyword
+    const cmdArgs = args.slice(commandStart);
+    const cmdName = cmdArgs[0];
+    const cmdRest = cmdArgs.slice(1);
+
+    // Quote arguments that contain spaces or special characters
+    const quotedArgs = cmdRest.map((arg) => {
+      if (/[\s"'\\$`!*?[\]{}|&;<>()]/.test(arg)) {
+        // Use single quotes, escaping existing single quotes
+        return `'${arg.replace(/'/g, "'\\''")}'`;
+      }
+      return arg;
+    });
+
+    const command = [`command`, cmdName, ...quotedArgs].join(" ");
 
     // Create a modified context and execute
     // Note: We can't directly modify the context for exec, so we pass the env vars as prefix

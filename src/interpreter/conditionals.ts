@@ -73,14 +73,15 @@ export async function evaluateConditional(
       // String comparisons (with pattern matching support in [[ ]])
       if (isStringCompareOp(expr.operator)) {
         const nocasematch = ctx.state.shoptOptions.nocasematch;
-        const extglob = ctx.state.shoptOptions.extglob;
+        // In [[ ]], extglob patterns are always recognized regardless of shopt setting
+        // The extglob shopt only affects filename globbing and variable assignment syntax
         return compareStrings(
           expr.operator,
           left,
           right,
           !isRhsQuoted,
           nocasematch,
-          extglob,
+          true, // Always enable extglob in [[ ]] pattern matching
         );
       }
 

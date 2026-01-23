@@ -14,6 +14,7 @@ import {
 } from "../ast/types.js";
 import { parseArithmeticExpression } from "./arithmetic-parser.js";
 import type { Parser } from "./parser.js";
+import { ParseException } from "./types.js";
 import * as WordParser from "./word-parser.js";
 
 /**
@@ -126,9 +127,35 @@ function parseParameterExpansion(
   }
 
   // Check for invalid parameter expansion with empty name and operator
-  // e.g., ${%} - there's no parameter before the %
+  // e.g., ${%} or ${(x)foo} - there's no valid parameter before the operator
+  // Instead of erroring at parse time, create a BadSubstitution operation
+  // so the error is deferred to runtime (matching bash behavior where
+  // code inside `if false; then ... fi` doesn't error)
   if (name === "" && !indirection && !lengthOp && value[i] !== "}") {
-    p.error(`\${${value[i]}}: bad substitution`);
+    // Find the closing } to get the full invalid text
+    let depth = 1;
+    let j = i;
+    while (j < value.length && depth > 0) {
+      if (value[j] === "{") depth++;
+      else if (value[j] === "}") depth--;
+      if (depth > 0) j++;
+    }
+    // If we didn't find a closing }, this is an unterminated expansion - throw parse error
+    if (depth > 0) {
+      throw new ParseException(
+        "unexpected EOF while looking for matching '}'",
+        0,
+        0,
+      );
+    }
+    const badText = value.slice(start + 2, j); // Content between ${ and }
+    return {
+      part: AST.parameterExpansion("", {
+        type: "BadSubstitution",
+        text: badText,
+      }),
+      endIndex: j + 1,
+    };
   }
 
   let operation: ParameterOperation | null = null;
@@ -331,9 +358,12 @@ function parseParameterOperation(
       operation: {
         type: "Substring",
         offset: WordParser.parseArithExprFromString(p, offsetStr),
-        length: lengthStr
-          ? WordParser.parseArithExprFromString(p, lengthStr)
-          : null,
+        // Note: lengthStr can be "" (empty string after second colon like ${a::})
+        // which should be treated as length 0, not "no length specified"
+        length:
+          lengthStr !== null
+            ? WordParser.parseArithExprFromString(p, lengthStr)
+            : null,
       },
       endIndex: wordEnd,
     };
@@ -692,6 +722,8 @@ export function parseWordParts(
   hereDoc = false,
   /** When true, single quotes are treated as literal characters, not quote delimiters */
   singleQuotesAreLiteral = false,
+  /** When true, brace expansion is disabled (used in [[ ]] conditionals) */
+  noBraceExpansion = false,
 ): WordPart[] {
   if (singleQuoted) {
     // Single quotes: no expansion
@@ -885,8 +917,8 @@ export function parseWordParts(
       continue;
     }
 
-    // Handle brace expansion (but NOT on the RHS of assignments)
-    if (char === "{" && !isAssignment) {
+    // Handle brace expansion (but NOT on the RHS of assignments or in [[ ]] conditionals)
+    if (char === "{" && !isAssignment && !noBraceExpansion) {
       const braceResult = WordParser.tryParseBraceExpansion(
         p,
         value,

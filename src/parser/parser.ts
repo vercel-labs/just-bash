@@ -291,6 +291,8 @@ export class Parser {
       t === TokenType.DBRACK_START ||
       t === TokenType.FUNCTION ||
       t === TokenType.BANG ||
+      // 'time' is a pipeline prefix that can start a command
+      t === TokenType.TIME ||
       // 'in' can appear as a command name (e.g., 'in' is not reserved outside for/case)
       t === TokenType.IN ||
       // Redirections can appear before command name (e.g., <<EOF tac)
@@ -438,6 +440,23 @@ export class Parser {
   // ===========================================================================
 
   private parsePipeline(): PipelineNode {
+    // Check for 'time' keyword at the beginning of pipeline
+    // time [-p] pipeline
+    let timed = false;
+    let timePosix = false;
+    if (this.check(TokenType.TIME)) {
+      this.advance();
+      timed = true;
+      // Check for -p option (POSIX format)
+      if (
+        this.check(TokenType.WORD, TokenType.NAME) &&
+        this.current().value === "-p"
+      ) {
+        this.advance();
+        timePosix = true;
+      }
+    }
+
     let negationCount = 0;
 
     // Check for ! (negation) - multiple ! tokens can appear
@@ -476,7 +495,7 @@ export class Parser {
       commands.push(nextCmd);
     }
 
-    return AST.pipeline(commands, negated);
+    return AST.pipeline(commands, negated, timed, timePosix);
   }
 
   // ===========================================================================
@@ -571,12 +590,29 @@ export class Parser {
     );
   }
 
+  /**
+   * Parse a word without brace expansion (for [[ ]] conditionals).
+   * In bash, brace expansion does not occur inside [[ ]].
+   */
+  parseWordNoBraceExpansion(): WordNode {
+    const token = this.advance();
+    return this.parseWordFromString(
+      token.value,
+      token.quoted,
+      token.singleQuoted,
+      false, // isAssignment
+      false, // hereDoc
+      true, // noBraceExpansion
+    );
+  }
+
   parseWordFromString(
     value: string,
     quoted = false,
     singleQuoted = false,
     isAssignment = false,
     hereDoc = false,
+    noBraceExpansion = false,
   ): WordNode {
     const parts = ExpParser.parseWordParts(
       this,
@@ -585,6 +621,8 @@ export class Parser {
       singleQuoted,
       isAssignment,
       hereDoc,
+      false, // singleQuotesAreLiteral
+      noBraceExpansion,
     );
     return AST.word(parts);
   }
@@ -803,7 +841,7 @@ export class Parser {
   }
 
   private parseArithmeticCommand(): ArithmeticCommandNode {
-    this.expect(TokenType.DPAREN_START);
+    const startToken = this.expect(TokenType.DPAREN_START);
 
     // Read expression until )) at paren depth 0
     // We need to track single paren depth to handle cases like ((a=1 + (2*3)))
@@ -908,7 +946,7 @@ export class Parser {
     const expression = this.parseArithmeticExpression(exprStr.trim());
     const redirections = this.parseOptionalRedirections();
 
-    return AST.arithmeticCommand(expression, redirections);
+    return AST.arithmeticCommand(expression, redirections, startToken.line);
   }
 
   private parseConditionalCommand(): ConditionalCommandNode {

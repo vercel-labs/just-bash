@@ -164,7 +164,6 @@ echo end  # never reached
 ## OK dash status: 2
 
 #### -n for no execution (useful with --ast-output)
-## SKIP: noexec (set -n) not implemented
 # NOTE: set +n doesn't work because nothing is executed!
 echo 1
 set -n

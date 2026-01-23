@@ -35,7 +35,6 @@ echo ${%}
 ## OK bash/mksh status: 1
 
 #### Bad var sub caught at parse time
-## SKIP: Parse error detection edge cases not implemented
 if test -f /; then
   echo ${%}
 else
@@ -156,13 +155,13 @@ echo 1 ;; echo 2
 ## OK mksh status: 1
 
 #### interactive parse error (regression)
-## SKIP: Parse error detection edge cases not implemented
+## SKIP: Shell self-invocation ($SH -i -c ...) not supported
 flags=''
 case $SH in
   bash*|*osh)
     flags='--rcfile /dev/null'
     ;;
-esac  
+esac
 $SH $flags -i -c 'var=)'
 
 ## status: 2

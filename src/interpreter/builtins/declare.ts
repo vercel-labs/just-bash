@@ -26,13 +26,58 @@ import {
 } from "../helpers/nameref.js";
 import {
   checkReadonlyError,
+  isReadonly,
   markExported,
   markReadonly,
+  unmarkExported,
 } from "../helpers/readonly.js";
 import { OK, result, success } from "../helpers/result.js";
 import { expandTildesInValue } from "../helpers/tilde.js";
 import type { InterpreterContext } from "../types.js";
 import { parseAssignment, setVariable } from "./variable-helpers.js";
+
+/**
+ * Get the attribute flags string for a variable (e.g., "-r", "-x", "-rx", "--")
+ * Order follows bash convention: a/A (array), i (integer), l (lowercase), n (nameref), r (readonly), u (uppercase), x (export)
+ */
+function getVariableFlags(ctx: InterpreterContext, name: string): string {
+  let flags = "";
+
+  // Note: array flags (-a/-A) are handled separately in the caller
+  // since they require different output format
+
+  // Integer attribute
+  if (ctx.state.integerVars?.has(name)) {
+    flags += "i";
+  }
+
+  // Lowercase attribute
+  if (ctx.state.lowercaseVars?.has(name)) {
+    flags += "l";
+  }
+
+  // Nameref attribute
+  if (isNameref(ctx, name)) {
+    flags += "n";
+  }
+
+  // Readonly attribute
+  if (isReadonly(ctx, name)) {
+    flags += "r";
+  }
+
+  // Uppercase attribute
+  if (ctx.state.uppercaseVars?.has(name)) {
+    flags += "u";
+  }
+
+  // Export attribute
+  if (ctx.state.exportedVars?.has(name)) {
+    flags += "x";
+  }
+
+  return flags === "" ? "--" : `-${flags}`;
+}
 
 /**
  * Mark a variable as having the integer attribute.
@@ -62,7 +107,7 @@ function markLowercase(ctx: InterpreterContext, name: string): void {
 /**
  * Check if a variable has the lowercase attribute.
  */
-export function isLowercase(ctx: InterpreterContext, name: string): boolean {
+function isLowercase(ctx: InterpreterContext, name: string): boolean {
   return ctx.state.lowercaseVars?.has(name) ?? false;
 }
 
@@ -79,7 +124,7 @@ function markUppercase(ctx: InterpreterContext, name: string): void {
 /**
  * Check if a variable has the uppercase attribute.
  */
-export function isUppercase(ctx: InterpreterContext, name: string): boolean {
+function isUppercase(ctx: InterpreterContext, name: string): boolean {
   return ctx.state.uppercaseVars?.has(name) ?? false;
 }
 
@@ -129,6 +174,8 @@ export function handleDeclare(
   let printMode = false;
   let declareNameref = false;
   let removeNameref = false;
+  let removeArray = false; // +a flag: remove array attribute, treat value as scalar
+  let removeExport = false; // +x flag: remove export attribute
   let declareInteger = false;
   let declareLowercase = false;
   let declareUppercase = false;
@@ -152,14 +199,20 @@ export function handleDeclare(
       declareNameref = true;
     } else if (arg === "+n") {
       removeNameref = true;
+    } else if (arg === "+a") {
+      removeArray = true;
+    } else if (arg === "+x") {
+      removeExport = true;
     } else if (arg === "--") {
       // End of options, rest are arguments
       processedArgs.push(...args.slice(i + 1));
       break;
     } else if (arg.startsWith("+")) {
-      // Handle +n (remove nameref)
+      // Handle +n (remove nameref), +a (remove array), +x (remove export)
       for (const flag of arg.slice(1)) {
         if (flag === "n") removeNameref = true;
+        else if (flag === "a") removeArray = true;
+        else if (flag === "x") removeExport = true;
       }
     } else if (arg === "-i") {
       declareInteger = true;
@@ -238,8 +291,12 @@ export function handleDeclare(
   // Print mode with specific variable names: declare -p varname
   if (printMode && processedArgs.length > 0) {
     let stdout = "";
+    let stderr = "";
     let anyNotFound = false;
     for (const name of processedArgs) {
+      // Get the variable's attribute flags (for scalar variables)
+      const flags = getVariableFlags(ctx, name);
+
       // Check if this is an associative array
       const isAssoc = ctx.state.associativeArrays?.has(name);
       if (isAssoc) {
@@ -284,13 +341,14 @@ export function handleDeclare(
       if (value !== undefined) {
         // Use double quotes and escape properly for bash compatibility
         const escapedValue = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-        stdout += `declare -- ${name}="${escapedValue}"\n`;
+        stdout += `declare ${flags} ${name}="${escapedValue}"\n`;
       } else {
-        // Variable not found - set flag for exit code 1
+        // Variable not found - add error to stderr and set flag for exit code 1
+        stderr += `bash: declare: ${name}: not found\n`;
         anyNotFound = true;
       }
     }
-    return result(stdout, "", anyNotFound ? 1 : 0);
+    return result(stdout, stderr, anyNotFound ? 1 : 0);
   }
 
   // No args: list all variables
@@ -310,8 +368,9 @@ export function handleDeclare(
   // Process each argument
   for (const arg of processedArgs) {
     // Check for array assignment: name=(...)
+    // When +a (removeArray) is set, don't interpret (...) as array syntax - treat it as a literal string
     const arrayMatch = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)=\((.*)\)$/s);
-    if (arrayMatch) {
+    if (arrayMatch && !removeArray) {
       const name = arrayMatch[1];
       const content = arrayMatch[2];
 
@@ -353,6 +412,16 @@ export function handleDeclare(
       const name = arg.includes("=") ? arg.slice(0, arg.indexOf("=")) : arg;
       unmarkNameref(ctx, name);
       // After removing nameref, the value stays as-is (it's now a regular variable)
+      if (!arg.includes("=")) {
+        continue;
+      }
+    }
+
+    // Handle export removal (+x)
+    if (removeExport) {
+      const name = arg.includes("=") ? arg.slice(0, arg.indexOf("=")) : arg;
+      unmarkExported(ctx, name);
+      // After removing export, continue processing to set any value if provided
       if (!arg.includes("=")) {
         continue;
       }
@@ -467,6 +536,11 @@ export function handleDeclare(
       }
       if (declareExport) {
         markExported(ctx, name);
+      }
+      // If allexport is enabled (set -a), auto-export the variable
+      if (ctx.state.options.allexport && !removeExport) {
+        ctx.state.exportedVars = ctx.state.exportedVars || new Set();
+        ctx.state.exportedVars.add(name);
       }
     } else {
       // Just declare without value

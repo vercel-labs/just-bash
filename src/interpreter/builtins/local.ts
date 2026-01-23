@@ -11,6 +11,7 @@ import { failure, result } from "../helpers/result.js";
 import { expandTildesInValue } from "../helpers/tilde.js";
 import type { InterpreterContext } from "../types.js";
 import { parseArrayElements } from "./declare.js";
+import { markLocalVarDepth } from "./variable-helpers.js";
 
 export function handleLocal(
   ctx: InterpreterContext,
@@ -91,6 +92,9 @@ export function handleLocal(
       }
       ctx.state.env[`${name}__length`] = String(elements.length);
 
+      // Track local variable depth for bash-specific unset scoping
+      markLocalVarDepth(ctx, name);
+
       // Mark as nameref if -n flag was used
       if (declareNameref) {
         markNameref(ctx, name);
@@ -112,6 +116,9 @@ export function handleLocal(
       // Append to existing value (or set if not defined)
       const existing = ctx.state.env[name] ?? "";
       ctx.state.env[name] = existing + appendValue;
+
+      // Track local variable depth for bash-specific unset scoping
+      markLocalVarDepth(ctx, name);
 
       // Mark as nameref if -n flag was used
       if (declareNameref) {
@@ -174,6 +181,9 @@ export function handleLocal(
         ctx.state.env[`${name}__length`] = String(index + 1);
       }
 
+      // Track local variable depth for bash-specific unset scoping
+      markLocalVarDepth(ctx, name);
+
       // Mark as nameref if -n flag was used
       if (declareNameref) {
         markNameref(ctx, name);
@@ -232,7 +242,15 @@ export function handleLocal(
       ctx.state.env[`${name}__length`] = "0";
     } else if (value !== undefined) {
       ctx.state.env[name] = value;
+      // If allexport is enabled (set -a), auto-export the variable
+      if (ctx.state.options.allexport) {
+        ctx.state.exportedVars = ctx.state.exportedVars || new Set();
+        ctx.state.exportedVars.add(name);
+      }
     }
+
+    // Track local variable depth for bash-specific unset scoping
+    markLocalVarDepth(ctx, name);
 
     // Mark as nameref if -n flag was used
     if (declareNameref) {

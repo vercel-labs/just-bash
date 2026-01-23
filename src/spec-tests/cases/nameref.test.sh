@@ -338,7 +338,6 @@ ref=x
 ## END
 
 #### exported nameref
-## SKIP: Export of namerefs not implemented
 x=foo
 typeset -n -x ref=x
 

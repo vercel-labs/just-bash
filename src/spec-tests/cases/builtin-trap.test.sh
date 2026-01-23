@@ -380,7 +380,7 @@ trap 'cleanup x y z' EXIT
 ## status: 0
 
 #### trap EXIT with PARSE error
-## SKIP: Parse error detection edge cases not implemented
+## SKIP: EXIT trap execution on parse error not implemented
 trap 'echo FAILED' EXIT
 for
 ## stdout: FAILED
@@ -388,7 +388,7 @@ for
 ## OK mksh status: 1
 
 #### trap EXIT with PARSE error and explicit exit
-## SKIP: Parse error detection edge cases not implemented
+## SKIP: EXIT trap execution on parse error not implemented
 trap 'echo FAILED; exit 0' EXIT
 for
 ## stdout: FAILED
@@ -479,49 +479,13 @@ wait status 0
 ## END
 
 #### trap USR1, sleep, SIGINT: non-interactively
-## SKIP: Test data directory not available
-
-$REPO_ROOT/spec/testdata/builtin-trap-usr1.sh
-
-## STDOUT:
-usr1
-status=0
-## END
+## SKIP: Signal handling during sleep requires external processes
 
 #### trap INT, sleep, SIGINT: non-interactively
-## SKIP: Test data directory not available
-
-# mksh behaves differently in CI -- maybe when it's not connected to a
-# terminal?
-case $SH in mksh) echo mksh; exit ;; esac
-
-$REPO_ROOT/spec/testdata/builtin-trap-int.sh
-
-## STDOUT:
-status=0
-## END
-
-## OK mksh STDOUT:
-mksh
-## END
-
-# Not sure why other shells differ here, but running the trap is consistent
-# with interactive cases in test/bugs.sh
-
-## OK osh STDOUT:
-int
-status=0
-## END
+## SKIP: Signal handling during sleep requires external processes
 
 #### trap EXIT, sleep, SIGINT: non-interactively
-## SKIP: Test data directory not available
-
-$REPO_ROOT/spec/testdata/builtin-trap-exit.sh
-
-## STDOUT:
-on exit
-status=0
-## END
+## SKIP: Signal handling during sleep requires external processes
 
 #### Remove trap with an unsigned integer
 

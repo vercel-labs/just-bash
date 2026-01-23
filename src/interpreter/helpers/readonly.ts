@@ -60,3 +60,11 @@ export function markExported(ctx: InterpreterContext, name: string): void {
   ctx.state.exportedVars = ctx.state.exportedVars || new Set();
   ctx.state.exportedVars.add(name);
 }
+
+/**
+ * Remove the export attribute from a variable.
+ * The variable value is preserved, just no longer exported to child processes.
+ */
+export function unmarkExported(ctx: InterpreterContext, name: string): void {
+  ctx.state.exportedVars?.delete(name);
+}

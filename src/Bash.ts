@@ -26,6 +26,7 @@ import {
   ArithmeticError,
   ExecutionLimitError,
   ExitError,
+  PosixFatalError,
 } from "./interpreter/errors.js";
 import {
   Interpreter,
@@ -237,6 +238,7 @@ export class Bash {
         allexport: false,
         noclobber: false,
         noglob: false,
+        noexec: false,
       },
       shoptOptions: {
         extglob: false,
@@ -251,6 +253,16 @@ export class Bash {
       },
       inCondition: false,
       loopDepth: 0,
+      // Export standard shell variables by default (matches bash behavior)
+      // These variables are typically inherited from the parent shell environment
+      exportedVars: new Set([
+        "HOME",
+        "PATH",
+        "PWD",
+        "OLDPWD",
+        // Also export any user-provided environment variables
+        ...Object.keys(options.env || {}),
+      ]),
     };
 
     // Initialize filesystem with standard directories and device files
@@ -397,6 +409,15 @@ export class Bash {
     } catch (error) {
       // ExitError propagates from 'exit' builtin (including via eval/source)
       if (error instanceof ExitError) {
+        return this.logResult({
+          stdout: error.stdout,
+          stderr: error.stderr,
+          exitCode: error.exitCode,
+          env: { ...this.state.env, ...options?.env },
+        });
+      }
+      // PosixFatalError propagates from special builtins in POSIX mode
+      if (error instanceof PosixFatalError) {
         return this.logResult({
           stdout: error.stdout,
           stderr: error.stderr,

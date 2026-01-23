@@ -51,9 +51,9 @@ const SHORT_OPTION_MAP: Record<string, keyof ShellOptions | null> = {
   f: "noglob",
   C: "noclobber",
   a: "allexport",
+  n: "noexec",
   // No-ops (accepted for compatibility)
   h: null,
-  n: null,
   b: null,
   m: null,
   B: null,
@@ -76,8 +76,8 @@ const LONG_OPTION_MAP: Record<string, keyof ShellOptions | null> = {
   noclobber: "noclobber",
   noglob: "noglob",
   allexport: "allexport",
+  noexec: "noexec",
   // No-ops (accepted for compatibility)
-  noexec: null,
   notify: null,
   monitor: null,
   braceexpand: null,
@@ -107,6 +107,7 @@ const DISPLAY_OPTIONS: (keyof ShellOptions)[] = [
   "allexport",
   "noclobber",
   "noglob",
+  "noexec",
 ];
 
 // List of no-op options to display (always off, for compatibility)
@@ -122,7 +123,6 @@ const NOOP_DISPLAY_OPTIONS: string[] = [
   "interactive-comments",
   "keyword",
   "monitor",
-  "noexec",
   "nolog",
   "notify",
   "onecmd",
