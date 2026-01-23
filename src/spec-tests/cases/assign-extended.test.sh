@@ -256,7 +256,6 @@ typeset test_var5=555
 ## END
 
 #### declare -p doesn't print binary data, but can be loaded into bash
-## SKIP: od command not implemented
 
 # bash prints binary data!
 case $SH in bash*|mksh) exit ;; esac

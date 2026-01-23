@@ -493,11 +493,12 @@ export function evaluateArithmeticSync(
         // Handle negative indices - bash counts from max_index + 1
         if (index < 0) {
           const elements = getArrayElements(ctx, expr.array);
+          const lineNum = ctx.state.currentLine;
           if (elements.length === 0) {
             // Empty array with negative index - output error to stderr and return 0
             ctx.state.expansionStderr =
               (ctx.state.expansionStderr || "") +
-              `bash: ${expr.array}: bad array subscript\n`;
+              `bash: line ${lineNum}: ${expr.array}: bad array subscript\n`;
             return 0;
           }
           // Find the maximum index
@@ -510,7 +511,7 @@ export function evaluateArithmeticSync(
             // Out of bounds negative index - output error to stderr and return 0
             ctx.state.expansionStderr =
               (ctx.state.expansionStderr || "") +
-              `bash: ${expr.array}: bad array subscript\n`;
+              `bash: line ${lineNum}: ${expr.array}: bad array subscript\n`;
             return 0;
           }
           index = actualIdx;

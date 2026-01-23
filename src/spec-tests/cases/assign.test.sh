@@ -280,7 +280,7 @@ x after  = 6
 ## END
 
 #### Reveal existence of "temp frame" (All shells disagree here!!!)
-## SKIP: Temp frame mutation edge cases not implemented
+## SKIP: Bash behavior varies by version; we match bash 3.2/dash/zsh not older bash behavior
 f() {
   echo "x=$x"
 
@@ -338,7 +338,7 @@ x=
 ## END
 
 #### Test above without 'local' (which is not POSIX)
-## SKIP: Temp frame mutation edge cases not implemented
+## SKIP: Bash behavior varies by version; we match dash/zsh not older bash behavior
 f() {
   echo "x=$x"
 
@@ -398,7 +398,7 @@ x=local
 ## END
 
 #### Using ${x-default} after unsetting a temp binding shadowing a global
-## SKIP: Temp frame mutation edge cases not implemented
+## SKIP: Bash behavior varies by version; we match dash/zsh not older bash behavior
 f() {
   echo "x=$x"
   local x='local'

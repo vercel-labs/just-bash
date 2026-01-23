@@ -154,7 +154,7 @@ compgen -v __nonexistent__
 ## stdout-json: ""
 
 #### compgen -v P
-## SKIP: PIPESTATUS variable not implemented
+## SKIP: compgen builtin not implemented
 cd > /dev/null  # for some reason in bash, this makes PIPESTATUS appear!
 compgen -v P | grep -E '^PATH|PWD' | sort
 ## STDOUT:
@@ -187,7 +187,7 @@ compgen -e __nonexistent__
 ## stdout-json: ""
 
 #### compgen -e P
-## SKIP: PIPESTATUS variable not implemented
+## SKIP: compgen builtin not implemented
 cd > /dev/null  # for some reason in bash, this makes PIPESTATUS appear!
 compgen -e P | grep -E '^PATH|PWD' | sort
 ## STDOUT:

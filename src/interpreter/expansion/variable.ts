@@ -231,11 +231,12 @@ export function getVariable(
     // So a[-1] = a[max_index], a[-2] = a[max_index - 1], etc.
     if (index < 0) {
       const elements = getArrayElements(ctx, arrayName);
+      const lineNum = ctx.state.currentLine;
       if (elements.length === 0) {
         // Empty array with negative index - output error to stderr and return empty
         ctx.state.expansionStderr =
           (ctx.state.expansionStderr || "") +
-          `bash: ${arrayName}: bad array subscript\n`;
+          `bash: line ${lineNum}: ${arrayName}: bad array subscript\n`;
         return "";
       }
       // Find the maximum index
@@ -248,7 +249,7 @@ export function getVariable(
         // Out of bounds negative index - output error to stderr and return empty
         ctx.state.expansionStderr =
           (ctx.state.expansionStderr || "") +
-          `bash: ${arrayName}: bad array subscript\n`;
+          `bash: line ${lineNum}: ${arrayName}: bad array subscript\n`;
         return "";
       }
       // Look up by actual index, not position

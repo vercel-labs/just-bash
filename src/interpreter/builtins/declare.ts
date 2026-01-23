@@ -24,7 +24,11 @@ import {
   resolveNameref,
   unmarkNameref,
 } from "../helpers/nameref.js";
-import { checkReadonlyError, markReadonly } from "../helpers/readonly.js";
+import {
+  checkReadonlyError,
+  markExported,
+  markReadonly,
+} from "../helpers/readonly.js";
 import { OK, result, success } from "../helpers/result.js";
 import { expandTildesInValue } from "../helpers/tilde.js";
 import type { InterpreterContext } from "../types.js";
@@ -69,7 +73,7 @@ export function handleDeclare(
   let declareArray = false;
   let declareAssoc = false;
   let declareReadonly = false;
-  let _declareExport = false;
+  let declareExport = false;
   let printMode = false;
   let declareNameref = false;
   let removeNameref = false;
@@ -87,7 +91,7 @@ export function handleDeclare(
     } else if (arg === "-r") {
       declareReadonly = true;
     } else if (arg === "-x") {
-      _declareExport = true;
+      declareExport = true;
     } else if (arg === "-p") {
       printMode = true;
     } else if (arg === "-n") {
@@ -115,7 +119,7 @@ export function handleDeclare(
         if (flag === "a") declareArray = true;
         else if (flag === "A") declareAssoc = true;
         else if (flag === "r") declareReadonly = true;
-        else if (flag === "x") _declareExport = true;
+        else if (flag === "x") declareExport = true;
         else if (flag === "p") printMode = true;
         else if (flag === "n") declareNameref = true;
         else if (flag === "i") declareInteger = true;
@@ -278,6 +282,9 @@ export function handleDeclare(
       if (declareReadonly) {
         markReadonly(ctx, name);
       }
+      if (declareExport) {
+        markExported(ctx, name);
+      }
       continue;
     }
 
@@ -331,6 +338,9 @@ export function handleDeclare(
       if (declareReadonly) {
         markReadonly(ctx, name);
       }
+      if (declareExport) {
+        markExported(ctx, name);
+      }
       continue;
     }
 
@@ -351,6 +361,9 @@ export function handleDeclare(
         markNameref(ctx, name);
         if (declareReadonly) {
           markReadonly(ctx, name);
+        }
+        if (declareExport) {
+          markExported(ctx, name);
         }
         continue;
       }
@@ -379,6 +392,9 @@ export function handleDeclare(
       if (declareReadonly) {
         markReadonly(ctx, name);
       }
+      if (declareExport) {
+        markExported(ctx, name);
+      }
     } else {
       // Just declare without value
       const name = arg;
@@ -388,6 +404,9 @@ export function handleDeclare(
         markNameref(ctx, name);
         if (declareReadonly) {
           markReadonly(ctx, name);
+        }
+        if (declareExport) {
+          markExported(ctx, name);
         }
         continue;
       }
@@ -418,6 +437,9 @@ export function handleDeclare(
       }
       if (declareReadonly) {
         markReadonly(ctx, name);
+      }
+      if (declareExport) {
+        markExported(ctx, name);
       }
     }
   }

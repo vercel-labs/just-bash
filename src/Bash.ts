@@ -38,6 +38,7 @@ import {
   type NetworkConfig,
   type SecureFetch,
 } from "./network/index.js";
+import { LexerError } from "./parser/lexer.js";
 import { type ParseException, parse } from "./parser/parser.js";
 import type {
   BashExecResult,
@@ -425,6 +426,15 @@ export class Bash {
         return this.logResult({
           stdout: "",
           stderr: `bash: syntax error: ${(error as Error).message}\n`,
+          exitCode: 2,
+          env: { ...this.state.env, ...options?.env },
+        });
+      }
+      // LexerError is thrown for lexer-level issues like unterminated quotes
+      if (error instanceof LexerError) {
+        return this.logResult({
+          stdout: "",
+          stderr: `bash: ${error.message}\n`,
           exitCode: 2,
           env: { ...this.state.env, ...options?.env },
         });

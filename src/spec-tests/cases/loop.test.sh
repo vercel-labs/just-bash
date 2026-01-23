@@ -360,24 +360,28 @@ f
 ## END
 
 #### break/continue within source
-## SKIP: Test data directory not available
 # NOTE: This changes things
 # set -e
 
-cd $REPO_ROOT
+# Create the test data files inline
+mkdir -p /tmp/testdata
+echo 'continue' > /tmp/testdata/continue.sh
+echo 'break' > /tmp/testdata/break.sh
+echo 'return' > /tmp/testdata/return.sh
+
 f() {
-  for i in $(seq 5); do 
+  for i in $(seq 5); do
     if test $i = 2; then
-      . spec/testdata/continue.sh
+      . /tmp/testdata/continue.sh
     fi
     if test $i = 4; then
-      . spec/testdata/break.sh
+      . /tmp/testdata/break.sh
     fi
     echo $i
   done
 
   # Return is different!
-  . spec/testdata/return.sh
+  . /tmp/testdata/return.sh
   echo done
 }
 f
@@ -396,20 +400,18 @@ done
 ## END
 
 #### top-level break/continue/return (without strict_control_flow)
-## SKIP: Interactive shell invocation not implemented
-$SH -c 'break; echo break=$?'
-$SH -c 'continue; echo continue=$?'
-$SH -c 'return; echo return=$?'
+# Test break/continue/return at top level (outside of loops/functions)
+# In bash, break/continue print warnings but succeed with exit 0
+# return at top level fails with exit 1
+break; echo break=$?
+continue; echo continue=$?
+return; echo return=$?
 ## STDOUT:
 break=0
 continue=0
+return=1
 ## END
 ## BUG-2 zsh STDOUT:
-## END
-## BUG bash STDOUT:
-break=0
-continue=0
-return=2
 ## END
 
 

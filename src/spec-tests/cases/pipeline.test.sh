@@ -114,7 +114,7 @@ echo ${PIPESTATUS[@]}
 ## END
 
 #### |&
-## SKIP: stdout_stderr.py test helper not available
+## SKIP: |& pipeline does not pipe stderr to next command
 stdout_stderr.py |& cat
 ## STDOUT:
 STDERR
@@ -232,7 +232,6 @@ echo ${PIPESTATUS[@]}
 ## N-I dash stdout-json: ""
 
 #### Nested pipelines
-## SKIP: Nested pipeline timing and output ordering not implemented
 { sleep 0.1 | seq 3; } | cat
 { sleep 0.1 | seq 10; } | { cat | cat; } | wc -l
 ## STDOUT:

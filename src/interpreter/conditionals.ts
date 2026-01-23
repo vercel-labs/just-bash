@@ -15,7 +15,11 @@ import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmeticSync } from "./arithmetic.js";
-import { expandWord } from "./expansion.js";
+import {
+  expandWord,
+  expandWordForPattern,
+  expandWordForRegex,
+} from "./expansion.js";
 import { clearArray } from "./helpers/array.js";
 import {
   evaluateBinaryFileTest,
@@ -37,17 +41,34 @@ export async function evaluateConditional(
   switch (expr.type) {
     case "CondBinary": {
       const left = await expandWord(ctx, expr.left);
-      const right = await expandWord(ctx, expr.right);
 
       // Check if RHS is fully quoted (should be treated literally, not as pattern)
+      // For regex (=~), Escaped parts are NOT considered "quoted" because they need
+      // backslash preservation for the regex engine. For == and !=, Escaped parts
+      // should be treated as literal characters (quoted).
       const isRhsQuoted =
         expr.right.parts.length > 0 &&
         expr.right.parts.every(
           (p) =>
             p.type === "SingleQuoted" ||
             p.type === "DoubleQuoted" ||
-            p.type === "Escaped",
+            // Escaped counts as quoted for pattern matching, but NOT for regex
+            (p.type === "Escaped" && expr.operator !== "=~"),
         );
+
+      // For pattern comparisons (== and !=), use expandWordForPattern to preserve
+      // backslash escapes for pattern metacharacters like \( and \)
+      // This ensures *\(\) matches "foo()" by treating \( and \) as literal
+      // For regex (=~), use expandWordForRegex to preserve all backslash escapes
+      // so \[\] works as a regex to match literal []
+      let right: string;
+      if (expr.operator === "=~" && !isRhsQuoted) {
+        right = await expandWordForRegex(ctx, expr.right);
+      } else if (isStringCompareOp(expr.operator) && !isRhsQuoted) {
+        right = await expandWordForPattern(ctx, expr.right);
+      } else {
+        right = await expandWord(ctx, expr.right);
+      }
 
       // String comparisons (with pattern matching support in [[ ]])
       if (isStringCompareOp(expr.operator)) {

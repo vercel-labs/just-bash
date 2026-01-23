@@ -34,9 +34,12 @@ export const bashCommand: Command = {
       return executeScript(command, scriptName, scriptArgs, ctx);
     }
 
-    // No arguments - in real bash this would be interactive mode
-    // In our implementation, we just return success
+    // No arguments - read script from stdin if available
     if (args.length === 0) {
+      if (ctx.stdin?.trim()) {
+        return executeScript(ctx.stdin, "bash", [], ctx);
+      }
+      // No stdin - return success (interactive mode not supported)
       return { stdout: "", stderr: "", exitCode: 0 };
     }
 
@@ -81,7 +84,12 @@ export const shCommand: Command = {
       return executeScript(command, scriptName, scriptArgs, ctx);
     }
 
+    // No arguments - read script from stdin if available
     if (args.length === 0) {
+      if (ctx.stdin?.trim()) {
+        return executeScript(ctx.stdin, "sh", [], ctx);
+      }
+      // No stdin - return success (interactive mode not supported)
       return { stdout: "", stderr: "", exitCode: 0 };
     }
 

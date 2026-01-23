@@ -65,32 +65,43 @@ async function odExecute(
     }
   }
 
-  // Format a single byte for character mode
+  // Check if char format is included (affects field width)
+  const hasCharFormat = outputFormats.includes("char");
+
+  // Format a single byte for character mode (4-char field, right-aligned)
+  // Real od uses backslash only for named escape sequences, not for generic octal
   function formatCharByte(code: number): string {
-    if (code === 0) return "\\0";
-    if (code === 7) return "\\a";
-    if (code === 8) return "\\b";
-    if (code === 9) return "\\t";
-    if (code === 10) return "\\n";
-    if (code === 11) return "\\v";
-    if (code === 12) return "\\f";
-    if (code === 13) return "\\r";
+    // Named escape sequences (2 chars, padded with 2 leading spaces)
+    if (code === 0) return "  \\0";
+    if (code === 7) return "  \\a";
+    if (code === 8) return "  \\b";
+    if (code === 9) return "  \\t";
+    if (code === 10) return "  \\n";
+    if (code === 11) return "  \\v";
+    if (code === 12) return "  \\f";
+    if (code === 13) return "  \\r";
     if (code >= 32 && code < 127) {
-      // Printable ASCII - right-align in 3-char field
-      return ` ${String.fromCharCode(code)}`;
+      // Printable ASCII - 3 leading spaces + char = 4 chars total
+      return `   ${String.fromCharCode(code)}`;
     }
-    // Non-printable - use octal
-    return `\\${code.toString(8).padStart(3, "0")}`;
+    // Non-printable - use 3-digit octal WITHOUT backslash (this is real od behavior)
+    return ` ${code.toString(8).padStart(3, "0")}`;
   }
 
   // Format a single byte for hex mode
+  // Field width depends on whether char format is also used
   function formatHexByte(code: number): string {
-    return code.toString(16).padStart(2, "0");
+    if (hasCharFormat) {
+      // 4-char field: 2 spaces + 2 hex digits
+      return `  ${code.toString(16).padStart(2, "0")}`;
+    }
+    // 3-char field: 1 space + 2 hex digits
+    return ` ${code.toString(16).padStart(2, "0")}`;
   }
 
-  // Format a single byte for octal mode
+  // Format a single byte for octal mode (right-aligned)
   function formatOctalByte(code: number): string {
-    return code.toString(8).padStart(3, "0");
+    return ` ${code.toString(8).padStart(3, "0")}`;
   }
 
   // Get bytes from input
@@ -130,8 +141,8 @@ async function odExecute(
         prefix = addressMode === "none" ? "" : "        ";
       }
 
-      // Use single space for most modes, but different spacing may be needed
-      lines.push(prefix + formatted.join(" "));
+      // No separator needed - each field already includes leading spaces
+      lines.push(prefix + formatted.join(""));
     }
   }
 

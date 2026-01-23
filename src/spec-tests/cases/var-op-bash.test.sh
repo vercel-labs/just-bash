@@ -252,7 +252,6 @@ hello hello1 hello2 hello3
 ## END
 
 #### ${var@a} for attributes
-## SKIP: @a attribute transformation not implemented
 array=(one two)
 echo ${array@a}
 declare -r array=(one two)
@@ -368,7 +367,7 @@ fail
 ## END
 
 #### ${!A@a} and ${!A[@]@a}
-## SKIP: @a attribute transformation not implemented
+## SKIP: indirect array key expansion with @a transformation not implemented
 declare -A A=(["x"]=y)
 echo x=${!A[@]@a}
 echo invalid=${!A@a}
@@ -436,7 +435,6 @@ stat: 1
 
 
 #### ${a[0]@a} and ${a@a}
-## SKIP: @a attribute transformation not implemented
 
 a=(1 2 3)
 echo "attr = '${a[0]@a}'"
@@ -449,7 +447,7 @@ attr = 'a'
 
 
 #### ${!r@a} with r='a[0]' (attribute for indirect expansion of an array element)
-## SKIP: @a attribute transformation not implemented
+## SKIP: indirect variable expansion with @a transformation not implemented
 
 a=(1 2 3)
 r='a'

@@ -425,7 +425,6 @@ echo "[$var]"
 ## N-I dash stdout: [a b c]
 
 #### read multiple lines with IFS=:
-## SKIP: Here-doc edge cases not implemented
 # The leading spaces are stripped if they appear in IFS.
 # IFS chars are escaped with :.
 tmp=$TMP/$(basename $SH)-read-ifs.txt
@@ -477,7 +476,6 @@ ref: refs/heads/dev/andy
 ## END
 
 #### read -a reads into array
-## SKIP: read -a doesn't handle backslash-escaped spaces correctly
 
 # read -a is used in bash-completion
 # none of these shells implement it
@@ -583,7 +581,7 @@ bar 1
 ## END
 
 #### read -t 0 tests if input is available
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
+## SKIP: read -t 0 returns 1 instead of 0 when no input is available
 case $SH in dash|zsh|mksh) exit ;; esac
 
 # is there input available?
@@ -842,7 +840,7 @@ echo 'a\b\c\d\e\f' | (read -n 0; argv.py "$REPLY")
 ## END
 
 #### read -n and backslash escape
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
+## SKIP: read -n backslash escape handling differs from bash
 case $SH in zsh) exit 99;; esac  # read -n not implemented
 
 echo 'a\b\c\d\e\f' | (read -n 5; argv.py "$REPLY")
@@ -865,7 +863,7 @@ echo 'a\ \ \ \ \ ' | (read -n 5; argv.py "$REPLY")
 ## END
 
 #### read -n 4 with incomplete backslash
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
+## SKIP: read -n backslash escape handling differs from bash
 case $SH in zsh) exit 99;; esac  # read -n not implemented
 
 echo 'abc\def\ghijklmn' | (read -n 4; argv.py "$REPLY")
@@ -892,7 +890,7 @@ echo '   \xxx\xxxxxxxx' | (read -n 4; argv.py "$REPLY")
 ## END
 
 #### read -n 4 with backslash + delim
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
+## SKIP: read -n backslash escape handling differs from bash
 case $SH in zsh) exit 99;; esac  # read -n not implemented
 
 echo $'abc\\\ndefg' | (read -n 4; argv.py "$REPLY")
@@ -909,7 +907,7 @@ echo $'abc\\\ndefg' | (read -n 4; argv.py "$REPLY")
 ## END
 
 #### "backslash + newline" should be swallowed regardless of "-d <delim>"
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
+## SKIP: read -d backslash+newline handling differs from bash
 
 printf '%s\n' 'a b\' 'c d' | (read; argv.py "$REPLY")
 printf '%s\n' 'a b\,c d'   | (read; argv.py "$REPLY")
@@ -931,7 +929,7 @@ printf '%s\n' 'a b\,c d'   | (read -d ,; argv.py "$REPLY")
 ## END
 
 #### empty input and splitting
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
+## SKIP: read -a with empty IFS produces empty element instead of empty array
 case $SH in mksh|ash|dash|zsh) exit 99; esac
 echo '' | (read -a a; argv.py "${a[@]}")
 IFS=x
@@ -948,7 +946,7 @@ echo '' | (read -a a; argv.py "${a[@]}")
 ## END
 
 #### IFS='x ' read -a: trailing spaces (unlimited split)
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
+## SKIP: read -a trailing delimiter handling differs from bash
 case $SH in mksh|ash|dash|zsh) exit 99; esac
 IFS='x '
 echo 'a b'     | (read -a a; argv.py "${a[@]}")
@@ -973,7 +971,6 @@ echo 'a b x x' | (read -a a; argv.py "${a[@]}")
 ## END
 
 #### IFS='x ' read a b: trailing spaces (with max_split)
-## SKIP: Read with special IFS values not implemented
 echo 'hello world  test   ' | (read a b; argv.py "$a" "$b")
 echo '-- IFS=x --'
 IFS='x '
@@ -991,7 +988,6 @@ echo 'a ax  x  x  a' | (read a b; argv.py "$a" "$b")
 ## END
 
 #### IFS='x ' read -a: intermediate spaces (unlimited split)
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
 case $SH in mksh|ash|dash|zsh) exit 99; esac
 IFS='x '
 echo 'a x b'   | (read -a a; argv.py "${a[@]}")
@@ -1030,7 +1026,6 @@ echo $'a ax  x    \\\nhello' | (read a b; argv.py "$a" "$b")
 ## END
 
 #### IFS='\ ' and backslash escaping
-## SKIP: Read with special IFS values not implemented
 IFS='\ '
 echo "hello\ world  test" | (read a b; argv.py "$a" "$b")
 IFS='\'
@@ -1046,7 +1041,6 @@ echo "hello\ world  test" | (read a b; argv.py "$a" "$b")
 ## END
 
 #### max_split and backslash escaping
-## SKIP: read backslash escaping with max_split not handling escaped spaces correctly
 echo 'Aa b \ a\ b' | (read a b; argv.py "$a" "$b")
 echo 'Aa b \ a\ b' | (read a b c; argv.py "$a" "$b" "$c")
 echo 'Aa b \ a\ b' | (read a b c d; argv.py "$a" "$b" "$c" "$d")
@@ -1057,7 +1051,6 @@ echo 'Aa b \ a\ b' | (read a b c d; argv.py "$a" "$b" "$c" "$d")
 ## END
 
 #### IFS=x read a b <<< xxxxxx
-## SKIP: Read with special IFS values not implemented
 IFS='x '
 echo x     | (read a b; argv.py "$a" "$b")
 echo xx    | (read a b; argv.py "$a" "$b")
@@ -1116,7 +1109,6 @@ echo 'xaxxxx' | (read a b; argv.py "$a" "$b")
 ## END
 
 #### read and "\ "
-## SKIP: Read with special IFS values not implemented
 
 IFS='x '
 check() { echo "$1" | (read a b; argv.py "$a" "$b"); }
@@ -1181,7 +1173,7 @@ check 'x\    '
 ## END
 
 #### read bash bug
-## SKIP: Read with special IFS values not implemented
+## SKIP: We intentionally don't reproduce this bash bug - our output is the correct behavior
 IFS='x '
 echo 'x\  \ ' | (read a b; argv.py "$a" "$b")
 ## STDOUT:

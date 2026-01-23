@@ -839,7 +839,6 @@ two=1
 
 
 #### Regression: Assigning with out-of-range negative index
-## SKIP: Array negative index error messages with line numbers not implemented
 a=()
 a[-1]=1
 
@@ -885,7 +884,6 @@ a has -11
 
 
 #### Regression: Negative out-of-range index in [[ -v a[index] ]]
-## SKIP: Array negative index error messages with line numbers not implemented
 e=()
 [[ -v e[-1] ]] && echo 'e has -1'
 
@@ -925,7 +923,6 @@ mksh: <stdin>[2]: syntax error: 'e[-1]' unexpected operator/operand
 
 
 #### Regression: unset a[-2]: out-of-bound negative index should cause error
-## SKIP: Array negative index error messages with line numbers not implemented
 case $SH in mksh) exit ;; esac
 
 a=(1)
@@ -1014,7 +1011,6 @@ quoted = ('x' 'y')
 
 
 #### Regression: silent out-of-bound negative index in ${a[-2]} and $((a[-2]))
-## SKIP: Array negative index error messages with line numbers not implemented
 case $SH in mksh) exit ;; esac
 
 a=(x)

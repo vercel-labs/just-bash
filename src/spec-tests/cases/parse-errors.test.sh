@@ -88,7 +88,7 @@ echo "status=$?"
 ## OK mksh status: 1
 
 #### } on the second line
-## SKIP: errexit in compound commands/pipelines not implemented
+## SKIP: {ls; is parsed as syntax error rather than command not found
 set -o errexit
 {ls;
 }

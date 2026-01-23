@@ -178,7 +178,7 @@ export async function runTestCase(
           expectedStderr,
           expectedStatus,
           filePath,
-          error: `Fail becaus of UNEXPECTED PASS: This test was marked ## SKIP (${skipReason}) but now passes. Remove with: sed -i '' '${skipLineNumber}d' ${filePath}`,
+          error: `FAIL because of UNEXPECTED PASS: This test was marked ## SKIP (${skipReason}) but now passes. Remove with: sed -i '' '${skipLineNumber}d' ${filePath}`,
         };
       }
       // Test was expected to fail and did fail - that's fine, mark as skipped

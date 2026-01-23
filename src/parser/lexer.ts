@@ -103,6 +103,20 @@ export interface Token {
 }
 
 /**
+ * Error thrown when the lexer encounters invalid input
+ */
+export class LexerError extends Error {
+  constructor(
+    message: string,
+    public line: number,
+    public column: number,
+  ) {
+    super(`line ${line}: ${message}`);
+    this.name = "LexerError";
+  }
+}
+
+/**
  * Reserved words in bash
  */
 const RESERVED_WORDS: Record<string, TokenType> = {
@@ -213,6 +227,24 @@ const SINGLE_CHAR_OPS: Record<string, TokenType> = {
  */
 function isValidName(s: string): boolean {
   return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s);
+}
+
+/**
+ * Check if a character is a word boundary (ends a word token)
+ */
+function isWordBoundary(char: string): boolean {
+  return (
+    char === " " ||
+    char === "\t" ||
+    char === "\n" ||
+    char === ";" ||
+    char === "&" ||
+    char === "|" ||
+    char === "(" ||
+    char === ")" ||
+    char === "<" ||
+    char === ">"
+  );
 }
 
 /**
@@ -736,6 +768,8 @@ export class Lexer {
     // Track if the token STARTS with a quote (for assignment detection)
     // This can be set later when handling $"..." to treat it like a quoted start
     let startsWithQuote = input[pos] === '"' || input[pos] === "'";
+    // Track if there's unquoted content after a quoted section (makes it partially quoted)
+    let hasContentAfterQuote = false;
 
     while (pos < len) {
       const char = input[pos];
@@ -831,20 +865,36 @@ export class Lexer {
       }
 
       // Handle quotes
-      // For partially quoted words (not starting with a quote), preserve the quotes in value
-      // and don't set the quoted/singleQuoted flags. This allows parseWordParts to properly
-      // handle mixed quoting and brace expansion.
+      // For fully quoted words (word is just a quoted string), strip the quotes and set flags.
+      // For partially quoted words (not starting with quote), preserve quotes in value for parseWordParts.
+      // Track whether there's non-quote content after the closing quote (hasContentAfterQuote).
       if (char === "'" && !inDoubleQuote) {
         if (inSingleQuote) {
           inSingleQuote = false;
           if (!startsWithQuote) {
             // Preserve closing quote for partially quoted words
             value += char;
+          } else {
+            // Check if there's non-quote content after this quote
+            const nextChar = pos + 1 < len ? input[pos + 1] : "";
+            if (
+              nextChar &&
+              !isWordBoundary(nextChar) &&
+              nextChar !== '"' &&
+              nextChar !== "'"
+            ) {
+              // There's non-quote content after - this is a partially quoted word
+              // like '_tmp/[bc]'*.mm - need to add the closing quote
+              hasContentAfterQuote = true;
+              value += char;
+            }
+            // If next char is a quote, don't set hasContentAfterQuote - let the parser handle
+            // adjacent quotes like 'hello''world'
           }
         } else {
           inSingleQuote = true;
-          if (startsWithQuote) {
-            // Only set flags if word starts with quote
+          if (startsWithQuote && !hasContentAfterQuote) {
+            // Only set flags if word starts with quote AND no content after quote yet
             singleQuoted = true;
             quoted = true;
           } else {
@@ -863,11 +913,25 @@ export class Lexer {
           if (!startsWithQuote) {
             // Preserve closing quote for partially quoted words
             value += char;
+          } else {
+            // Check if there's non-quote content after this quote
+            const nextChar = pos + 1 < len ? input[pos + 1] : "";
+            if (
+              nextChar &&
+              !isWordBoundary(nextChar) &&
+              nextChar !== '"' &&
+              nextChar !== "'"
+            ) {
+              // There's non-quote content after - this is a partially quoted word
+              hasContentAfterQuote = true;
+              value += char;
+            }
+            // If next char is a quote, don't set hasContentAfterQuote - let the parser handle
           }
         } else {
           inDoubleQuote = true;
-          if (startsWithQuote) {
-            // Only set flags if word starts with quote
+          if (startsWithQuote && !hasContentAfterQuote) {
+            // Only set flags if word starts with quote AND no content after quote yet
             quoted = true;
           } else {
             // Preserve opening quote for partially quoted words
@@ -910,8 +974,19 @@ export class Lexer {
           }
         } else {
           // Outside quotes, backslash escapes next character
-          // Keep the backslash for quotes so parser knows they're escaped
-          if (nextChar === '"' || nextChar === "'") {
+          // Keep the backslash for:
+          // - backslash itself (so parser can distinguish \\ from \)
+          // - quotes (so parser knows they're escaped)
+          // - glob metacharacters (so parser creates Escaped nodes that won't be glob-expanded)
+          if (
+            nextChar === "\\" ||
+            nextChar === '"' ||
+            nextChar === "'" ||
+            nextChar === "*" ||
+            nextChar === "?" ||
+            nextChar === "[" ||
+            nextChar === "]"
+          ) {
             value += char + nextChar;
           } else {
             value += nextChar;
@@ -1149,6 +1224,71 @@ export class Lexer {
     this.column = col;
     this.line = ln;
 
+    // If we detected content after quote, this is a partially quoted word.
+    // We already preserved the quotes in the main loop when hasContentAfterQuote became true,
+    // but the opening quote was not preserved initially. We need to prepend it.
+    if (hasContentAfterQuote && startsWithQuote) {
+      const openQuote = input[start];
+      value = openQuote + value;
+      quoted = false;
+      singleQuoted = false;
+    }
+
+    // Check for unterminated quotes
+    if (inSingleQuote || inDoubleQuote) {
+      const quoteType = inSingleQuote ? "'" : '"';
+      throw new LexerError(
+        `unexpected EOF while looking for matching \`${quoteType}'`,
+        line,
+        column,
+      );
+    }
+
+    // Check if the word is "fully quoted" - a single quoted string with no unquoted content
+    // This is important for proper handling by parseWordParts
+    // Fully quoted patterns:
+    // - 'content' (single quotes only, starts and ends with single quote)
+    // - "content" (double quotes only, starts and ends with double quote)
+    // Not fully quoted: 'part1'part2, part1'part2', "part1"'part2'
+    // IMPORTANT: Skip this check if the word was already parsed as quoted (startsWithQuote)
+    // because the quotes have already been handled correctly during parsing.
+    // This prevents mistakenly stripping literal quotes that are part of the content
+    // (e.g., '"a,b,c"' should keep the double quotes as content).
+    if (!startsWithQuote && value.length >= 2) {
+      if (value[0] === "'" && value[value.length - 1] === "'") {
+        // Check if there are no other single quotes inside (except at boundaries)
+        const inner = value.slice(1, -1);
+        if (!inner.includes("'") && !inner.includes('"')) {
+          // Fully single-quoted: strip the quotes and set flags
+          value = inner;
+          quoted = true;
+          singleQuoted = true;
+        }
+      } else if (value[0] === '"' && value[value.length - 1] === '"') {
+        // Check if there are no other double quotes inside (except at boundaries)
+        // Need to handle escaped quotes inside double quotes
+        const inner = value.slice(1, -1);
+        // A double-quoted string can contain escaped quotes (\") and single quotes
+        // It's fully quoted if there are no unescaped double quotes
+        let hasUnescapedQuote = false;
+        for (let i = 0; i < inner.length; i++) {
+          if (inner[i] === '"') {
+            hasUnescapedQuote = true;
+            break;
+          }
+          if (inner[i] === "\\" && i + 1 < inner.length) {
+            i++; // Skip escaped char
+          }
+        }
+        if (!hasUnescapedQuote) {
+          // Fully double-quoted: strip the quotes and set flags
+          value = inner;
+          quoted = true;
+          singleQuoted = false;
+        }
+      }
+    }
+
     if (value === "") {
       return {
         type: TokenType.WORD,
@@ -1316,33 +1456,55 @@ export class Lexer {
       this.column++;
     }
 
-    // Read the delimiter
+    // Read the delimiter - may be composed of multiple quoted/unquoted segments
+    // e.g., 'EOF'"2" -> EOF2, EOF -> EOF, "EOF" -> EOF
     let delimiter = "";
     let quoted = false;
-    const char = this.input[this.pos];
 
-    if (char === "'" || char === '"') {
-      // Quoted delimiter - no expansion will happen
-      quoted = true;
-      const quoteChar = char;
-      this.pos++;
-      this.column++;
-      while (
-        this.pos < this.input.length &&
-        this.input[this.pos] !== quoteChar
-      ) {
-        delimiter += this.input[this.pos];
+    // Keep reading segments until we hit whitespace or operator
+    while (this.pos < this.input.length) {
+      const char = this.input[this.pos];
+
+      // Stop at whitespace or operators
+      if (/[\s;<>&|()]/.test(char)) {
+        break;
+      }
+
+      if (char === "'" || char === '"') {
+        // Quoted segment - any quoting makes the whole delimiter quoted
+        quoted = true;
+        const quoteChar = char;
         this.pos++;
         this.column++;
-      }
-      // Skip closing quote (but don't consume it - let the token reader handle it)
-    } else {
-      // Unquoted delimiter
-      while (
-        this.pos < this.input.length &&
-        !/[\s;<>&|()]/.test(this.input[this.pos])
-      ) {
-        delimiter += this.input[this.pos];
+        while (
+          this.pos < this.input.length &&
+          this.input[this.pos] !== quoteChar
+        ) {
+          delimiter += this.input[this.pos];
+          this.pos++;
+          this.column++;
+        }
+        // Skip closing quote
+        if (
+          this.pos < this.input.length &&
+          this.input[this.pos] === quoteChar
+        ) {
+          this.pos++;
+          this.column++;
+        }
+      } else if (char === "\\") {
+        // Backslash escapes the next character (also makes it quoted)
+        quoted = true;
+        this.pos++;
+        this.column++;
+        if (this.pos < this.input.length) {
+          delimiter += this.input[this.pos];
+          this.pos++;
+          this.column++;
+        }
+      } else {
+        // Unquoted character
+        delimiter += char;
         this.pos++;
         this.column++;
       }

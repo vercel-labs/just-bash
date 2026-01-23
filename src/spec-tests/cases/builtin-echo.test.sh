@@ -197,7 +197,6 @@ abcd\U00000065f
 ## END
 
 #### \0377 is the highest octal byte
-## SKIP: od command output format differs (no leading space)
 echo -en '\03777' | od -A n -t x1 | sed 's/ \+/ /g'
 ## STDOUT:
  ff 37
@@ -207,7 +206,6 @@ echo -en '\03777' | od -A n -t x1 | sed 's/ \+/ /g'
 ## END
 
 #### \0400 is one more than the highest octal byte
-## SKIP: od command not implemented
 # It is 256 % 256 which gets interpreted as a NUL byte.
 echo -en '\04000' | od -A n -t x1 | sed 's/ \+/ /g'
 ## STDOUT:
@@ -221,7 +219,6 @@ echo -en '\04000' | od -A n -t x1 | sed 's/ \+/ /g'
 ## END
 
 #### \0777 is out of range
-## SKIP: od command not implemented
 flags='-en'
 case $SH in dash) flags='-n' ;; esac
 
@@ -237,7 +234,6 @@ echo $flags '\0777' | od -A n -t x1 | sed 's/ \+/ /g'
 ## END
 
 #### incomplete hex escape
-## SKIP: od command not implemented
 echo -en 'abcd\x6' | od -A n -c | sed 's/ \+/ /g'
 ## STDOUT:
  a b c d 006
@@ -260,7 +256,6 @@ echo -e '\x' '\xg' | od -A n -c | sed 's/ \+/ /g'
 ## END
 
 #### incomplete octal escape
-## SKIP: od command not implemented
 flags='-en'
 case $SH in dash) flags='-n' ;; esac
 
@@ -270,7 +265,6 @@ echo $flags 'abcd\04' | od -A n -c | sed 's/ \+/ /g'
 ## END
 
 #### incomplete unicode escape
-## SKIP: od command not implemented
 echo -en 'abcd\u006' | od -A n -c | sed 's/ \+/ /g'
 ## STDOUT:
  a b c d 006
@@ -283,7 +277,6 @@ echo -en 'abcd\u006' | od -A n -c | sed 's/ \+/ /g'
 ## END
 
 #### \u6
-## SKIP: od command not implemented
 flags='-en'
 case $SH in dash) flags='-n' ;; esac
 
@@ -296,7 +289,6 @@ echo $flags '\u6' | od -A n -c | sed 's/ \+/ /g'
 ## END
 
 #### \0 \1 \8
-## SKIP: od command not implemented
 # \0 is special, but \1 isn't in bash
 # \1 is special in dash!  geez
 flags='-en'

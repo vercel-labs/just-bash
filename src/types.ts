@@ -106,6 +106,12 @@ export interface CommandContext {
    * Useful for testing with mock clocks.
    */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * File descriptors map for here-docs and process substitution.
+   * Maps FD numbers to their content (e.g., 3 -> "content from 3<<EOF").
+   * Note: FD 0 content is in `stdin`, but may also appear here for consistency.
+   */
+  fileDescriptors?: Map<number, string>;
 }
 
 export interface Command {

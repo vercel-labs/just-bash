@@ -347,6 +347,23 @@ export function parseAnsiCQuoted(
           }
           break;
         }
+        case "c": {
+          // \cX - control character escape
+          // Control char = X & 0x1f (mask with 31)
+          // For letters a-z/A-Z: ctrl-A=1, ctrl-Z=26
+          // For special chars: \c- = 0x0d (CR), \c+ = 0x0b (VT), \c" = 0x02
+          if (i + 2 < value.length) {
+            const ctrlChar = value[i + 2];
+            const code = ctrlChar.charCodeAt(0) & 0x1f;
+            result += String.fromCharCode(code);
+            i += 3;
+          } else {
+            // Incomplete \c at end of string
+            result += "\\c";
+            i += 2;
+          }
+          break;
+        }
         case "0":
         case "1":
         case "2":

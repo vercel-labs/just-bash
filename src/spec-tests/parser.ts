@@ -48,6 +48,7 @@ export function parseSpecFile(
 
   let currentTest: TestCase | null = null;
   let scriptLines: string[] = [];
+  let hasInlineCode = false; // True if ## code: directive was used
   let inMultiLineBlock = false;
   let multiLineType:
     | "stdout"
@@ -65,7 +66,8 @@ export function parseSpecFile(
 
     // Inside a multi-line block
     if (inMultiLineBlock) {
-      if (line === "## END") {
+      // Handle both "## END" and "## END:" (with trailing colon)
+      if (line === "## END" || line === "## END:") {
         // End of multi-line block
         if (currentTest && multiLineType) {
           currentTest.assertions.push({
@@ -124,6 +126,7 @@ export function parseSpecFile(
         lineNumber,
       };
       scriptLines = [];
+      hasInlineCode = false;
       continue;
     }
 
@@ -185,6 +188,15 @@ export function parseSpecFile(
         continue;
       }
 
+      // Check for code: directive (inline script)
+      const codeMatch = assertionLine.match(/^code:\s*(.*)$/);
+      if (codeMatch) {
+        // Override any existing script lines with the inline code
+        scriptLines = [codeMatch[1]];
+        hasInlineCode = true; // Don't add any more script lines
+        continue;
+      }
+
       // Single-line assertion
       const assertion = parseSingleLineAssertion(assertionLine);
       if (assertion) {
@@ -193,8 +205,8 @@ export function parseSpecFile(
       continue;
     }
 
-    // Regular script line (only add if we're in a test case)
-    if (currentTest) {
+    // Regular script line (only add if we're in a test case and no inline code was used)
+    if (currentTest && !hasInlineCode) {
       scriptLines.push(line);
     }
   }

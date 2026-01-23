@@ -4,7 +4,11 @@
 
 import type { ExecResult } from "../../types.js";
 import { clearArray } from "../helpers/array.js";
-import { getIfs, splitByIfs, stripTrailingIfs } from "../helpers/ifs.js";
+import {
+  getIfs,
+  splitByIfsForRead,
+  stripTrailingIfsWhitespace,
+} from "../helpers/ifs.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -342,45 +346,53 @@ export function handleRead(
     line = line.slice(0, -1);
   }
 
-  // Handle backslash escapes unless -r is specified
-  if (!raw) {
-    // In non-raw mode, backslash-newline is line continuation
-    // and backslashes escape the next character
-    line = line.replace(/\\(.)/g, "$1");
-  }
+  // Helper to process backslash escapes (remove backslashes, keep escaped chars)
+  const processBackslashEscapes = (s: string): string => {
+    if (raw) return s;
+    return s.replace(/\\(.)/g, "$1");
+  };
 
   // If no variable names given (only REPLY), store whole line without IFS splitting
   // This preserves leading/trailing whitespace
   if (varNames.length === 1 && varNames[0] === "REPLY") {
-    ctx.state.env.REPLY = line;
+    ctx.state.env.REPLY = processBackslashEscapes(line);
     return result("", "", foundDelimiter ? 0 : 1);
   }
 
   // Split by IFS (default is space, tab, newline)
   const ifs = getIfs(ctx.state.env);
-  const { words, wordStarts } = splitByIfs(line, ifs);
 
   // Handle array assignment (-a)
   if (arrayName) {
+    // Pass raw flag - splitting respects backslash escapes in non-raw mode
+    const { words } = splitByIfsForRead(line, ifs, undefined, raw);
     clearArray(ctx, arrayName);
-    // Assign words to array elements
+    // Assign words to array elements, processing backslash escapes after splitting
     for (let j = 0; j < words.length; j++) {
-      ctx.state.env[`${arrayName}_${j}`] = words[j];
+      ctx.state.env[`${arrayName}_${j}`] = processBackslashEscapes(words[j]);
     }
     return result("", "", foundDelimiter ? 0 : 1);
   }
+
+  // Use the advanced IFS splitting for read with proper whitespace/non-whitespace handling
+  // Pass raw flag - splitting respects backslash escapes in non-raw mode
+  const maxSplit = varNames.length;
+  const { words, wordStarts } = splitByIfsForRead(line, ifs, maxSplit, raw);
 
   // Assign words to variables
   for (let j = 0; j < varNames.length; j++) {
     const name = varNames[j];
     if (j < varNames.length - 1) {
-      // Assign single word
-      ctx.state.env[name] = words[j] ?? "";
+      // Assign single word, processing backslash escapes
+      ctx.state.env[name] = processBackslashEscapes(words[j] ?? "");
     } else {
       // Last variable gets all remaining content from original line
-      // This preserves original separators (tabs, etc.)
+      // This preserves original separators (tabs, etc.) but strips trailing IFS
       if (j < wordStarts.length) {
-        const value = stripTrailingIfs(line.substring(wordStarts[j]), ifs);
+        // Strip trailing IFS first (respects backslash escapes), then process backslashes
+        let value = line.substring(wordStarts[j]);
+        value = stripTrailingIfsWhitespace(value, ifs, raw);
+        value = processBackslashEscapes(value);
         ctx.state.env[name] = value;
       } else {
         ctx.state.env[name] = "";

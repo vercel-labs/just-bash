@@ -307,7 +307,7 @@ command sub OK
 ## END
 
 #### $BASHPID DOES change with subshell and command sub
-## SKIP: errexit in compound commands/pipelines not implemented
+## SKIP: BASHPID not implemented
 set -o errexit
 die() {
   echo 1>&2 "$@"; exit 1
@@ -456,7 +456,6 @@ written
 ## END
 
 #### $LINENO in [[
-## SKIP: $LINENO in conditional/arithmetic context not implemented
 echo one
 [[ $LINENO -eq 2 ]] && echo OK
 ## STDOUT:

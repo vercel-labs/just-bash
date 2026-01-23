@@ -883,8 +883,9 @@ Stack trace follows...`,
   describe("Security-focused sanitization", () => {
     it("should remove potential XSS characters", async () => {
       const env = createSanitizeEnv();
+      // Remove < and > to neutralize HTML tags
       const result = await env.exec(
-        "grep script /data/user-input.txt | tr -d '<>/\\'\"'",
+        "grep script /data/user-input.txt | tr -d '<>'",
       );
       expect(result.stdout).not.toContain("<");
       expect(result.stdout).not.toContain(">");

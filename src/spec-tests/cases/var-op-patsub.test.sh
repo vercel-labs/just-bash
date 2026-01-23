@@ -168,7 +168,6 @@ echo ${v/x/"?"}
 ## stdout: ?x
 
 #### Replace backslash
-## SKIP: Parameter expansion backslash edge cases not implemented
 v='[\f]'
 x='\f'
 echo ${v/"$x"/_}

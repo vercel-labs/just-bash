@@ -110,7 +110,6 @@ argv.py eg4/@(a b|foo)
 ## END
 
 #### Filenames with spaces
-## SKIP: extglob not implemented
 shopt -s extglob
 mkdir -p eg5
 touch eg5/'a b'{cd,de,ef}

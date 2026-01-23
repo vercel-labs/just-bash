@@ -45,7 +45,7 @@ status=127
 
 
 #### Print shell strings with weird chars: set and printf %q and ${x@Q}
-## SKIP: printf %q / set output format not implemented
+## SKIP: set output format differs from bash
 
 # bash declare -p will print binary data, which makes this invalid UTF-8!
 foo=$(/bin/echo -e 'a\nb\xffc'\'d)
@@ -93,7 +93,7 @@ pf  $'a\nb\001c\'d'
 ## END
 
 #### Print shell strings with normal chars: set and printf %q and ${x@Q}
-## SKIP: printf %q / set output format not implemented
+## SKIP: set output format differs from bash
 
 # There are variations on whether quotes are printed
 

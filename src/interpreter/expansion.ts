@@ -49,6 +49,7 @@ import {
   isIfsEmpty,
 } from "./helpers/ifs.js";
 import { getNamerefTarget, isNameref } from "./helpers/nameref.js";
+import { isReadonly } from "./helpers/readonly.js";
 import { escapeRegex } from "./helpers/regex.js";
 import { getLiteralValue, isQuotedPart } from "./helpers/word-parts.js";
 import type { InterpreterContext } from "./types.js";
@@ -69,6 +70,27 @@ function hasGlobPattern(value: string, extglob: boolean): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * Unescape backslashes in a glob pattern when glob expansion fails.
+ * In bash, when a glob pattern like [\\]_ doesn't match any files,
+ * the output is [\]_ (with processed escapes), not [\\]_ (raw pattern).
+ */
+function unescapeGlobPattern(pattern: string): string {
+  let result = "";
+  let i = 0;
+  while (i < pattern.length) {
+    if (pattern[i] === "\\" && i + 1 < pattern.length) {
+      // Backslash escapes the next character - output just the escaped char
+      result += pattern[i + 1];
+      i += 2;
+    } else {
+      result += pattern[i];
+      i++;
+    }
+  }
+  return result;
 }
 
 /**
@@ -116,6 +138,68 @@ function quoteValue(value: string): string {
     }
   }
   return `${result}'`;
+}
+
+/**
+ * Get the attributes of a variable for ${var@a} transformation.
+ * Returns a string with attribute flags (e.g., "ar" for readonly array).
+ *
+ * Attribute flags (in order):
+ * - a: indexed array
+ * - A: associative array
+ * - i: integer
+ * - n: nameref
+ * - r: readonly
+ * - x: exported
+ */
+function getVariableAttributes(ctx: InterpreterContext, name: string): string {
+  // Handle special variables (like ?, $, etc.) - they have no attributes
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+    return "";
+  }
+
+  let attrs = "";
+
+  // Check for indexed array (has numeric elements via name_0, name_1, etc. or __length marker)
+  const isIndexedArray =
+    ctx.state.env[`${name}__length`] !== undefined ||
+    Object.keys(ctx.state.env).some(
+      (k) =>
+        k.startsWith(`${name}_`) && /^[0-9]+$/.test(k.slice(name.length + 1)),
+    );
+
+  // Check for associative array
+  const isAssocArray = ctx.state.associativeArrays?.has(name) ?? false;
+
+  // Add array attributes (indexed before associative)
+  if (isIndexedArray && !isAssocArray) {
+    attrs += "a";
+  }
+  if (isAssocArray) {
+    attrs += "A";
+  }
+
+  // Check for integer attribute
+  if (ctx.state.integerVars?.has(name)) {
+    attrs += "i";
+  }
+
+  // Check for nameref attribute
+  if (isNameref(ctx, name)) {
+    attrs += "n";
+  }
+
+  // Check for readonly attribute
+  if (isReadonly(ctx, name)) {
+    attrs += "r";
+  }
+
+  // Check for exported attribute
+  if (ctx.state.exportedVars?.has(name)) {
+    attrs += "x";
+  }
+
+  return attrs;
 }
 
 // Helper to extract numeric value from an arithmetic expression
@@ -189,10 +273,11 @@ export function isWordFullyQuoted(word: WordNode): boolean {
 }
 
 /**
- * Escape glob metacharacters in a string for literal matching
+ * Escape glob metacharacters in a string for literal matching.
+ * Includes extglob metacharacters: ( ) |
  */
 export function escapeGlobChars(str: string): string {
-  return str.replace(/([*?[\]\\])/g, "\\$1");
+  return str.replace(/([*?[\]\\()|])/g, "\\$1");
 }
 
 /**
@@ -312,6 +397,112 @@ export async function expandWord(
     return expandWordSync(ctx, word);
   }
   return expandWordAsync(ctx, word);
+}
+
+/**
+ * Expand a word for use as a regex pattern (in [[ =~ ]]).
+ * Preserves backslash escapes so they're passed to the regex engine.
+ * For example, \[\] becomes \[\] in the regex (matching literal [ and ]).
+ */
+export async function expandWordForRegex(
+  ctx: InterpreterContext,
+  word: WordNode,
+): Promise<string> {
+  const parts: string[] = [];
+  for (const part of word.parts) {
+    if (part.type === "Escaped") {
+      // For regex patterns, preserve ALL backslash escapes
+      // This allows \[ \] \. \* etc. to work as regex escapes
+      parts.push(`\\${part.value}`);
+    } else if (part.type === "SingleQuoted") {
+      // Single-quoted content is literal in regex
+      parts.push(part.value);
+    } else if (part.type === "DoubleQuoted") {
+      // Double-quoted: expand contents
+      const expanded = await expandWordPartsAsync(ctx, part.parts);
+      parts.push(expanded);
+    } else {
+      // Other parts: expand normally
+      parts.push(await expandPart(ctx, part));
+    }
+  }
+  return parts.join("");
+}
+
+/**
+ * Expand a word for use as a pattern (e.g., in [[ == ]] or case).
+ * Preserves backslash escapes for pattern metacharacters so they're treated literally.
+ * This prevents `*\(\)` from being interpreted as an extglob pattern.
+ */
+export async function expandWordForPattern(
+  ctx: InterpreterContext,
+  word: WordNode,
+): Promise<string> {
+  const parts: string[] = [];
+  for (const part of word.parts) {
+    if (part.type === "Escaped") {
+      // For escaped characters that are pattern metacharacters, preserve the backslash
+      // This includes: ( ) | * ? [ ] for glob/extglob patterns
+      const ch = part.value;
+      if ("()|*?[]".includes(ch)) {
+        parts.push(`\\${ch}`);
+      } else {
+        parts.push(ch);
+      }
+    } else if (part.type === "SingleQuoted") {
+      // Single-quoted content should be escaped for literal matching
+      parts.push(escapeGlobChars(part.value));
+    } else if (part.type === "DoubleQuoted") {
+      // Double-quoted: expand contents and escape for literal matching
+      const expanded = await expandWordPartsAsync(ctx, part.parts);
+      parts.push(escapeGlobChars(expanded));
+    } else {
+      // Other parts: expand normally
+      parts.push(await expandPart(ctx, part));
+    }
+  }
+  return parts.join("");
+}
+
+/**
+ * Expand a word for glob matching.
+ * Unlike regular expansion, this escapes glob metacharacters in quoted parts
+ * so they are treated as literals, while preserving glob patterns from Glob parts.
+ * This enables patterns like '_tmp/[bc]'*.mm where [bc] is literal and * is a glob.
+ */
+async function expandWordForGlobbing(
+  ctx: InterpreterContext,
+  word: WordNode,
+): Promise<string> {
+  const parts: string[] = [];
+  for (const part of word.parts) {
+    if (part.type === "SingleQuoted") {
+      // Single-quoted content: escape glob metacharacters for literal matching
+      parts.push(escapeGlobChars(part.value));
+    } else if (part.type === "Escaped") {
+      // Escaped character: escape if it's a glob metacharacter
+      const ch = part.value;
+      if ("*?[]\\()|".includes(ch)) {
+        parts.push(`\\${ch}`);
+      } else {
+        parts.push(ch);
+      }
+    } else if (part.type === "DoubleQuoted") {
+      // Double-quoted: expand contents and escape glob metacharacters
+      const expanded = await expandWordPartsAsync(ctx, part.parts);
+      parts.push(escapeGlobChars(expanded));
+    } else if (part.type === "Glob") {
+      // Glob pattern: keep as-is (these are the actual patterns)
+      parts.push(part.pattern);
+    } else if (part.type === "Literal") {
+      // Literal: keep as-is (may contain glob characters that should glob)
+      parts.push(part.value);
+    } else {
+      // Other parts (ParameterExpansion, etc.): expand normally
+      parts.push(await expandPart(ctx, part));
+    }
+  }
+  return parts.join("");
 }
 
 /**
@@ -834,12 +1025,48 @@ export async function expandWordWithGlob(
     ? await expandWordAsync(ctx, word)
     : expandWordSync(ctx, word);
 
-  // Skip glob expansion if noglob is set (set -f)
-  if (
+  // Check if the word contains any Glob parts
+  const hasGlobParts = wordParts.some((p) => p.type === "Glob");
+
+  // For glob expansion, we need to:
+  // 1. Escape glob characters in quoted parts so they're treated as literals
+  // 2. Keep glob characters from Glob parts
+  // This enables patterns like '_tmp/[bc]'*.mm where [bc] is literal and * is a glob
+  if (!ctx.state.options.noglob && hasGlobParts) {
+    // Use expandWordForGlobbing which properly escapes quoted parts
+    const globPattern = await expandWordForGlobbing(ctx, word);
+
+    if (hasGlobPattern(globPattern, ctx.state.shoptOptions.extglob)) {
+      const globExpander = new GlobExpander(
+        ctx.fs,
+        ctx.state.cwd,
+        ctx.state.env,
+        {
+          globstar: ctx.state.shoptOptions.globstar,
+          nullglob: ctx.state.shoptOptions.nullglob,
+          failglob: ctx.state.shoptOptions.failglob,
+          dotglob: ctx.state.shoptOptions.dotglob,
+          extglob: ctx.state.shoptOptions.extglob,
+        },
+      );
+      const matches = await globExpander.expand(globPattern);
+      if (matches.length > 0) {
+        return { values: matches, quoted: false };
+      } else if (globExpander.hasFailglob()) {
+        throw new GlobError(value);
+      } else if (globExpander.hasNullglob()) {
+        return { values: [], quoted: false };
+      }
+      // Glob failed - return the unescaped pattern (not the raw pattern with backslashes)
+      // In bash, [\\]_ outputs [\]_ when no match, not [\\]_
+      return { values: [unescapeGlobPattern(value)], quoted: false };
+    }
+  } else if (
     !hasQuoted &&
     !ctx.state.options.noglob &&
     hasGlobPattern(value, ctx.state.shoptOptions.extglob)
   ) {
+    // No Glob parts but value contains glob characters from Literal parts
     const globExpander = new GlobExpander(
       ctx.fs,
       ctx.state.cwd,
@@ -866,6 +1093,13 @@ export async function expandWordWithGlob(
   // But quoted empty string produces one empty word (e.g., "" or "$empty")
   if (value === "" && !hasQuoted) {
     return { values: [], quoted: false };
+  }
+
+  // If we have Glob parts and didn't expand (noglob or no glob pattern),
+  // we still need to unescape backslashes in the value.
+  // In bash, [\\]_ with set -f outputs [\]_, not [\\]_
+  if (hasGlobParts && !hasQuoted) {
+    return { values: [unescapeGlobPattern(value)], quoted: false };
   }
 
   return { values: [value], quoted: hasQuoted };
@@ -1380,6 +1614,19 @@ function expandParameter(
         const quotedElements = elements.map(([, v]) => quoteValue(v));
         return quotedElements.join(" ");
       }
+      if (arrayMatch && operation.operator === "a") {
+        // ${arr[@]@a} - return attributes of array
+        return getVariableAttributes(ctx, arrayMatch[1]);
+      }
+
+      // Handle array element references like ${arr[0]@a}
+      const arrayElemMatch = parameter.match(
+        /^([a-zA-Z_][a-zA-Z0-9_]*)\[.+\]$/,
+      );
+      if (arrayElemMatch && operation.operator === "a") {
+        // ${arr[0]@a} - return attributes of the array itself
+        return getVariableAttributes(ctx, arrayElemMatch[1]);
+      }
 
       switch (operation.operator) {
         case "Q":
@@ -1389,8 +1636,8 @@ function expandParameter(
           // Expand as if it were a prompt string (limited implementation)
           return value;
         case "a":
-          // Return attribute flags (empty for regular variables)
-          return "";
+          // Return attribute flags for the variable
+          return getVariableAttributes(ctx, parameter);
         case "A":
           // Assignment format: name='value'
           return `${parameter}=${quoteValue(value)}`;

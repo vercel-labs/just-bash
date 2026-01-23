@@ -633,7 +633,6 @@ echo "${undef-\e}"
 
 
 #### op-test for ${a} and ${a[0]}
-## SKIP: Right brace in parameter default value not implemented
 case $SH in dash) exit ;; esac
 
 test-hyphen() {
@@ -740,7 +739,6 @@ a[*]: '' 'with-colon'
 
 
 #### op-test for ${!array} with array="a" and array="a[0]"
-## SKIP: Right brace in parameter default value not implemented
 case $SH in dash|mksh|zsh) exit ;; esac
 
 test-hyphen() {

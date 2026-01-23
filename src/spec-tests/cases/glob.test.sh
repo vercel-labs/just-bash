@@ -110,7 +110,6 @@ echo _tmp/\"*.py\"
 ## stdout: _tmp/"quoted.py"
 
 #### glob escaped
-## SKIP: Glob with escaped special characters not implemented
 # - mksh doesn't support [[:punct:]] ?
 # - python shell fails because \[ not supported!
 touch _tmp/\[abc\] _tmp/\?
@@ -367,7 +366,6 @@ argv.py x/unmatching.$v
 
 
 #### \ in unquoted substitutions escapes globchars
-## SKIP: Glob with escaped special characters not implemented
 mkdir x
 touch \
   'x/test.ifs.\.txt' \

@@ -108,6 +108,9 @@ export interface InterpreterState {
   callLineStack?: number[];
   /** File descriptors for process substitution and here-docs */
   fileDescriptors?: Map<number, string>;
+  /** True when the last executed statement's exit code is "safe" for errexit purposes
+   *  (e.g., from a &&/|| chain where the failure wasn't the final command) */
+  errexitSafe?: boolean;
 }
 
 export interface InterpreterContext {

@@ -27,7 +27,6 @@ EOF
 ## stdout: one
 
 #### Here doc from another input file descriptor
-## SKIP: read_from_fd.py helper not available
 # NOTE: OSH fails on descriptor 9, but not descriptor 8?  Is this because of
 # the Python VM?  How  to inspect state?
 read_from_fd.py 8  8<<EOF
@@ -36,7 +35,6 @@ EOF
 ## stdout: 8: here doc on descriptor
 
 #### Multiple here docs with different descriptors
-## SKIP: read_from_fd.py helper not available
 read_from_fd.py 0 3 <<EOF 3<<EOF3
 fd0
 EOF
@@ -123,7 +121,6 @@ two
 ## END
 
 #### Here doc with quote expansion in terminator
-## SKIP: Here-doc edge cases not implemented
 cat <<'EOF'"2"
 one
 two
@@ -295,8 +292,7 @@ Y 4
 ## END
 
 #### Function def and execution with here doc
-## SKIP: Function definition with here-doc not implemented
-fun() { cat; } <<EOF; echo before; fun; echo after 
+fun() { cat; } <<EOF; echo before; fun; echo after
 1
 2
 EOF
@@ -377,7 +373,6 @@ inside
 ## END
 
 #### Multiple here docs in pipeline
-## SKIP: read_from_fd.py helper not available
 case $SH in *osh) exit ;; esac
 
 # The second instance reads its stdin from the pipe, and fd 5 from a here doc.
@@ -396,7 +391,6 @@ ok
 ## END
 
 #### Multiple here docs in pipeline on multiple lines
-## SKIP: read_from_fd.py helper not available
 case $SH in *osh) exit ;; esac
 
 # SKIPPED: hangs with osh on Debian

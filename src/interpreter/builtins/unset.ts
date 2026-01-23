@@ -68,14 +68,15 @@ export function handleUnset(
         if (index < 0) {
           const elements = getArrayElements(ctx, arrayName);
           const len = elements.length;
+          const lineNum = ctx.state.currentLine;
           if (len === 0) {
-            stderr += `bash: unset: [${index}]: bad array subscript\n`;
+            stderr += `bash: line ${lineNum}: unset: [${index}]: bad array subscript\n`;
             exitCode = 1;
             continue;
           }
           const actualPos = len + index;
           if (actualPos < 0) {
-            stderr += `bash: unset: [${index}]: bad array subscript\n`;
+            stderr += `bash: line ${lineNum}: unset: [${index}]: bad array subscript\n`;
             exitCode = 1;
             continue;
           }
@@ -139,9 +140,10 @@ export function handleUnset(
       if (index < 0) {
         const elements = getArrayElements(ctx, arrayName);
         const len = elements.length;
+        const lineNum = ctx.state.currentLine;
         if (len === 0) {
           // Empty array with negative index - error
-          stderr += `bash: unset: [${index}]: bad array subscript\n`;
+          stderr += `bash: line ${lineNum}: unset: [${index}]: bad array subscript\n`;
           exitCode = 1;
           continue;
         }
@@ -149,7 +151,7 @@ export function handleUnset(
         const actualPos = len + index;
         if (actualPos < 0) {
           // Out of bounds negative index - error
-          stderr += `bash: unset: [${index}]: bad array subscript\n`;
+          stderr += `bash: line ${lineNum}: unset: [${index}]: bad array subscript\n`;
           exitCode = 1;
           continue;
         }

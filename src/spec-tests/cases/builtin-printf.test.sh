@@ -762,7 +762,7 @@ AZ
 ## END
 
 #### printf %c unicode - prints the first BYTE of a string - it does not respect UTF-8
-## SKIP: od command not implemented
+## SKIP: printf %c unicode byte output differs
 
 # TODO: in YSH, this should be deprecated
 case $SH in dash|ash) exit ;; esac
@@ -1382,7 +1382,6 @@ a9
 ## END
 
 #### printf %b with truncated octal escapes
-## SKIP: od command not implemented
 
 # 8 is not a valid octal digit
 

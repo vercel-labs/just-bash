@@ -87,7 +87,7 @@ status=0
 ## END
 
 #### but trap DEBUG respects errexit
-## SKIP: errexit in compound commands/pipelines not implemented
+## SKIP: trap DEBUG not implemented
 set -o errexit
 
 debuglog() {

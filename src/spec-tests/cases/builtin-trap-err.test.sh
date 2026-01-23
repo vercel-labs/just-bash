@@ -523,7 +523,7 @@ err
 ## END
 
 #### trap ERR
-## SKIP: errexit in compound commands/pipelines not implemented
+## SKIP: trap ERR not implemented
 err() {
   echo "err [$@] $?"
 }
@@ -567,7 +567,7 @@ D
 ## END
 
 #### trap ERR and pipelines - PIPESTATUS difference
-## SKIP: PIPESTATUS variable not implemented
+## SKIP: trap ERR not implemented
 case $SH in ash) exit ;; esac
 
 err() {

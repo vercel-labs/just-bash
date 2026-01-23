@@ -49,23 +49,47 @@ export const printenvCommand: Command = defineCommand(
 );
 
 // stdout_stderr.py - outputs to both stdout and stderr
+// If an argument is provided, it outputs that to stdout instead of "STDOUT"
 export const stdoutStderrCommand: Command = defineCommand(
   "stdout_stderr.py",
-  async () => {
-    return { stdout: "STDOUT\n", stderr: "STDERR\n", exitCode: 0 };
+  async (args) => {
+    const stdout = args.length > 0 ? `${args[0]}\n` : "STDOUT\n";
+    return { stdout, stderr: "STDERR\n", exitCode: 0 };
   },
 );
 
-// read_from_fd.py - reads from a file descriptor (simplified - reads from stdin)
+// read_from_fd.py - reads from specified file descriptors
+// Arguments are FD numbers. For each FD, outputs "<fd>: <content>" (without trailing newline from content)
 export const readFromFdCommand: Command = defineCommand(
   "read_from_fd.py",
   async (args, ctx) => {
-    // In real bash, this reads from a specific FD. Here we just return stdin or empty.
-    const fd = args[0] || "0";
-    if (fd === "0" && ctx.stdin) {
-      return { stdout: ctx.stdin, stderr: "", exitCode: 0 };
+    const results: string[] = [];
+
+    for (const arg of args) {
+      const fd = Number.parseInt(arg, 10);
+      if (Number.isNaN(fd)) {
+        continue;
+      }
+
+      let content = "";
+      if (fd === 0) {
+        // FD 0 is stdin
+        content = ctx.stdin || "";
+      } else if (ctx.fileDescriptors) {
+        // Other FDs from the fileDescriptors map
+        content = ctx.fileDescriptors.get(fd) || "";
+      }
+
+      // Remove trailing newline from content for the output format
+      const trimmedContent = content.replace(/\n$/, "");
+      results.push(`${fd}: ${trimmedContent}`);
     }
-    return { stdout: "", stderr: "", exitCode: 0 };
+
+    return {
+      stdout: results.length > 0 ? `${results.join("\n")}\n` : "",
+      stderr: "",
+      exitCode: 0,
+    };
   },
 );
 

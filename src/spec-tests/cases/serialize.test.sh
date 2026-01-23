@@ -74,7 +74,7 @@ roundtrip-ok
 ## N-I ash stdout-json: ""
 
 #### printf %q unprintable
-## SKIP: printf %q / set output format not implemented
+## SKIP: printf %q does not escape high bytes (0x80-0xff)
 case $SH in ash) return ;; esac  # yash and ash don't implement this
 
 unprintable=$'\xff'
@@ -93,7 +93,6 @@ $'\xff'
 ## N-I ash stdout-json: ""
 
 #### printf %q unicode
-## SKIP: printf %q / set output format not implemented
 case $SH in ash) return ;; esac  # yash and ash don't implement this
 
 unicode=$'\u03bc'
@@ -111,7 +110,7 @@ printf '%q\n' "$unicode"
 ## N-I ash stdout-json: ""
 
 #### printf %q invalid unicode
-## SKIP: printf %q / set output format not implemented
+## SKIP: printf %q does not escape invalid UTF-8 bytes
 case $SH in ash) return ;; esac
 
 # Hm bash/mksh/zsh understand these.  They are doing decoding and error
@@ -160,7 +159,7 @@ a$'\316'
 ## N-I ash stdout-json: ""
 
 #### set
-## SKIP: printf %q / set output format not implemented
+## SKIP: set output format for multiline values differs from bash
 case $SH in zsh) return ;; esac  # zsh doesn't make much sense
 
 zz=$'one\ntwo'

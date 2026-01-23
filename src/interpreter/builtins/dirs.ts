@@ -133,8 +133,9 @@ export async function handlePushd(
   ctx.state.env.PWD = resolvedDir;
   ctx.state.env.OLDPWD = ctx.state.previousDir;
 
-  // Output the stack (pushd doesn't do tilde substitution)
-  const output = `${[resolvedDir, ...stack].join(" ")}\n`;
+  // Output the stack (pushd DOES do tilde substitution)
+  const home = ctx.state.env.HOME || "";
+  const output = `${[resolvedDir, ...stack].map((p) => formatPath(p, home)).join(" ")}\n`;
 
   return success(output);
 }
@@ -176,8 +177,9 @@ export function handlePopd(
   ctx.state.env.PWD = newDir;
   ctx.state.env.OLDPWD = ctx.state.previousDir;
 
-  // Output the stack (popd doesn't do tilde substitution)
-  const output = `${[newDir, ...stack].join(" ")}\n`;
+  // Output the stack (popd DOES do tilde substitution)
+  const home = ctx.state.env.HOME || "";
+  const output = `${[newDir, ...stack].map((p) => formatPath(p, home)).join(" ")}\n`;
 
   return success(output);
 }

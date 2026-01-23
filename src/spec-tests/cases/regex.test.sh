@@ -142,7 +142,6 @@ true
 ## N-I zsh status: 1
 
 #### Regex to match literal brackets []
-## SKIP: Regex escaped brackets handling differs
 # bash-completion relies on this, so we're making it match bash.
 # zsh understandably differs.
 [[ '[]' =~ \[\] ]] && echo true
@@ -442,7 +441,6 @@ fi
 ## END
 
 #### unquoted [a  b] as pattern, [a  b|c]
-## SKIP: Here-doc edge cases not implemented
 
 $SH <<'EOF'
 [[ a =~ [ab] ]] && echo yes
@@ -488,7 +486,7 @@ one
 ## N-I zsh status: 1
 
 #### Operator chars ; & but not |
-## SKIP: Here-doc edge cases not implemented
+## SKIP: Semicolon handling in regex patterns differs
 
 # Hm semicolon is still an operator in bash
 $SH <<'EOF'
@@ -562,7 +560,6 @@ newline=1
 
 
 #### Quotes '' "" $'' $"" in pattern
-## SKIP: Here-doc edge cases not implemented
 
 $SH <<'EOF'
 [[ '|' =~ '|' ]] && echo sq
@@ -597,7 +594,6 @@ dollar-dq=0
 
 
 #### Unicode in pattern
-## SKIP: Here-doc edge cases not implemented
 
 $SH <<'EOF'
 [[ μ =~ μ ]] && echo mu

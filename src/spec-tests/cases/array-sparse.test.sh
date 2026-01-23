@@ -234,7 +234,6 @@ echo "${#sp1[@]}"
 
 
 #### Negative out-of-bound index with a[i]=v (1/2)
-## SKIP: Negative out-of-bounds error handling differs
 case $SH in mksh) exit ;; esac
 
 sp1[9]=x
@@ -264,7 +263,6 @@ bash: line 4: sp1[-11]: bad array subscript
 
 
 #### Negative out-of-bound index with a[i]=v (2/2)
-## SKIP: Negative out-of-bounds error handling differs
 case $SH in mksh) exit ;; esac
 
 sp1[9]=x
@@ -375,7 +373,6 @@ typeset a[8]=9
 
 
 #### unset -v a[i] with out-of-bound negative index
-## SKIP: Negative out-of-bounds error handling differs
 case $SH in mksh) exit ;; esac
 
 a=(1)
@@ -480,7 +477,6 @@ unset -v 'sp3[4]'
 
 
 #### [[ -v a[i] ]] with invalid negative index
-## SKIP: Negative out-of-bounds error handling differs
 case $SH in mksh) exit ;; esac
 
 sp1=()
@@ -570,7 +566,6 @@ echo $((a[7] = 100, a[7]))
 
 
 #### ((sp[i])) and ((sp[i]++)) with invalid negative index
-## SKIP: Negative out-of-bounds error handling differs
 case $SH in mksh) exit ;; esac
 
 a=({1..9})
@@ -637,7 +632,6 @@ sp[-9]: '1'.
 
 
 #### ${sp[i]} with negative invalid index
-## SKIP: Negative out-of-bounds array index should produce stderr message
 case $SH in mksh) exit ;; esac
 
 sp=({1..9})
@@ -1215,7 +1209,6 @@ json write (crash_dump.var_stack[0].a)
 
 
 #### Regression: a[-1]=1
-## SKIP: Negative array index error handling differs
 case $SH in mksh) exit 99 ;; esac
 
 a[-1]=1

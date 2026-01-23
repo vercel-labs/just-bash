@@ -143,7 +143,6 @@ echo 1 `echo \"`
 ## END
 
 #### Quoting $ within ``
-## SKIP: Complex quoting in backticks not implemented
 echo 1 `echo $`
 echo 2 `echo \$`
 echo 3 `echo \\$`
@@ -158,7 +157,6 @@ echo 5 `echo \\\\$`
 ## END
 
 #### Quoting $ within `` within double quotes
-## SKIP: Complex quoting in backticks not implemented
 echo "1 `echo $`"
 echo "2 `echo \$`"
 echo "3 `echo \\$`"

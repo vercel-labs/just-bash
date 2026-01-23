@@ -62,12 +62,21 @@ export function evaluateVariableTest(
     // Handle negative indices - bash counts from max_index + 1
     if (index < 0) {
       const indices = getArrayIndices(ctx, arrayName);
+      const lineNum = ctx.state.currentLine;
       if (indices.length === 0) {
+        // Empty array with negative index - emit warning and return false
+        ctx.state.expansionStderr =
+          (ctx.state.expansionStderr || "") +
+          `bash: line ${lineNum}: ${arrayName}: bad array subscript\n`;
         return false;
       }
       const maxIndex = Math.max(...indices);
       index = maxIndex + 1 + index;
       if (index < 0) {
+        // Out of bounds negative index - emit warning and return false
+        ctx.state.expansionStderr =
+          (ctx.state.expansionStderr || "") +
+          `bash: line ${lineNum}: ${arrayName}: bad array subscript\n`;
         return false;
       }
     }

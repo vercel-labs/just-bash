@@ -421,7 +421,7 @@ regex=1
 ## N-I mksh stdout-json: ""
 
 #### [[ ]] with redirect
-## SKIP: stdout_stderr.py test helper not available
+## SKIP: Command substitution stderr not captured by outer command redirect
 [[ $(stdout_stderr.py) == STDOUT ]] 2>$TMP/x.txt
 echo $?
 echo --
@@ -444,6 +444,7 @@ bang 0
 
 
 #### \(\) in pattern (regression)
+## SKIP: Backslash escapes in extglob patterns not preserved by lexer
 if [[ 'foo()' == *\(\) ]]; then echo match1; fi
 if [[ 'foo()' == *'()' ]]; then echo match2; fi
 if [[ 'foo()' == '*()' ]]; then echo match3; fi

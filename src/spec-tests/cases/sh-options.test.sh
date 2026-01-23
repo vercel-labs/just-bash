@@ -317,7 +317,7 @@ force
 ## END
 
 #### noclobber on <>
-## SKIP: Advanced read options (-N, -n, -d, -t, -u, -s, -e, -i, -a, -p, -P) not implemented
+## SKIP: read -n with <> redirection position tracking differs
 set -C
 echo foo >| $TMP/no-clobber
 exec 3<> $TMP/no-clobber
@@ -409,7 +409,7 @@ flaky
 ## END
 
 #### set without args lists variables
-## SKIP: printf %q / set output format not implemented
+## SKIP: set output ordering differs from bash
 __GLOBAL=g
 f() {
   local __mylocal=L
@@ -443,7 +443,7 @@ __var_in_parent_scope='D'
 ## END
 
 #### set without args and array variables
-## SKIP: printf %q / set output format not implemented
+## SKIP: set output format for arrays differs from bash
 declare -a __array
 __array=(1 2 '3 4')
 set | grep '^__'
@@ -465,7 +465,7 @@ a=( 1 2 3 )
 ## N-I dash status: 2
 
 #### set without args and assoc array variables (not in OSH)
-## SKIP: printf %q / set output format not implemented
+## SKIP: set output format for assoc arrays differs from bash
 typeset -A __assoc
 __assoc['k e y']='v a l'
 __assoc[a]=b

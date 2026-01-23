@@ -10,6 +10,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { markExported } from "../helpers/readonly.js";
 import { OK, result, success } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -88,8 +89,9 @@ export function handleExport(
       if (!(name in ctx.state.env)) {
         ctx.state.env[name] = "";
       }
-      // If it exists, it's already "exported" in our model
     }
+    // Mark the variable as exported
+    markExported(ctx, name);
   }
 
   return result("", stderr, exitCode);

@@ -302,7 +302,7 @@ clo c l o
 
 
 #### NO ASSERTIONS: Are startup files sourced before or after job control?
-## SKIP: Here-doc edge cases not implemented
+## SKIP: Interactive shell flags (--rcfile, -i) not supported
 
 cat >myrc <<'EOF'
 

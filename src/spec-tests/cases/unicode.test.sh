@@ -2,7 +2,7 @@
 ## compare_shells: bash mksh zsh
 
 #### OSH source code doesn't have to be valid Unicode (like other shells)
-## SKIP: od command not implemented
+## SKIP: requires external shell ($SH) execution
 
 # Should YSH be different?  It would be nice.
 # We would have to validate all Lit_Chars tokens, and the like.

@@ -1,7 +1,7 @@
 /**
- * Readonly variable helpers.
+ * Readonly and export variable helpers.
  *
- * Consolidates readonly variable logic used in declare, export, local, etc.
+ * Consolidates readonly and export variable logic used in declare, export, local, etc.
  */
 
 import type { ExecResult } from "../../types.js";
@@ -51,4 +51,19 @@ export function checkReadonlyError(
     return failure(stderr);
   }
   return null;
+}
+
+/**
+ * Mark a variable as exported.
+ */
+export function markExported(ctx: InterpreterContext, name: string): void {
+  ctx.state.exportedVars = ctx.state.exportedVars || new Set();
+  ctx.state.exportedVars.add(name);
+}
+
+/**
+ * Check if a variable is exported.
+ */
+export function isExported(ctx: InterpreterContext, name: string): boolean {
+  return ctx.state.exportedVars?.has(name) ?? false;
 }

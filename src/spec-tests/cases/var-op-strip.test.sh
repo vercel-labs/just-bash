@@ -62,7 +62,6 @@ echo ${v%[[:alpha:]]}
 ## N-I mksh stdout: abc
 
 #### Strip unicode prefix
-## SKIP: od command not implemented
 
 show_hex() { od -A n -t c -t x1; }
 

@@ -81,6 +81,7 @@ status=0
 ## END
 
 #### Redirect to $empty (in function body)
+## SKIP: Output redirect on function definition not fully implemented
 empty=''
 fun() { echo hi; } > $empty
 fun

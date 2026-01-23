@@ -11,7 +11,7 @@ popd
 echo -n pwd=; pwd
 ## status: 0
 ## STDOUT:
-/tmp /
+~ /
 pwd=/tmp
 /
 pwd=/
@@ -72,8 +72,6 @@ directory stack
 ## END
 
 #### cd replaces the lowest entry on the directory stack!
-## SKIP: Tilde substitution behavior differs from bash
-
 # stable temp dir
 dir=/tmp/oils-spec/builtin-dirs
 
@@ -98,9 +96,9 @@ echo popd=$?
 
 ## STDOUT:
 pushd=0
-/tmp /tmp/oils-spec/builtin-dirs
+~ ~/oils-spec/builtin-dirs
 cd=0
-/ /tmp/oils-spec/builtin-dirs
+/ ~/oils-spec/builtin-dirs
 popd=0
 popd=1
 ## END
@@ -114,7 +112,6 @@ dirs
 ## END
 
 #### dirs -c to clear the stack
-## SKIP: Tilde substitution behavior differs from bash
 set -o errexit
 cd /
 pushd /tmp >/dev/null  # zsh pushd doesn't print anything, but bash does
@@ -126,13 +123,12 @@ dirs
 ## status: 0
 ## STDOUT:
 --
-/tmp /
+~ /
 --
-/tmp
+~
 ## END
 
 #### dirs -v to print numbered stack, one entry per line
-## SKIP: Tilde substitution behavior differs from bash
 set -o errexit
 cd /
 pushd /tmp >/dev/null
@@ -144,11 +140,11 @@ dirs -v
 ## status: 0
 ## STDOUT:
 --
- 0  /tmp
+ 0  ~
  1  /
 --
  0  /dev
- 1  /tmp
+ 1  ~
  2  /
 ## END
 #
@@ -156,7 +152,6 @@ dirs -v
 ## OK zsh stdout-json: "--\n0\t/tmp\n1\t/\n--\n0\t/dev\n1\t/tmp\n2\t/\n"
 
 #### dirs -p to print one entry per line
-## SKIP: Tilde substitution behavior differs from bash
 set -o errexit
 cd /
 pushd /tmp >/dev/null
@@ -167,11 +162,11 @@ echo --
 dirs -p
 ## STDOUT:
 --
-/tmp
+~
 /
 --
 /dev
-/tmp
+~
 /
 ## END
 
@@ -217,7 +212,6 @@ pushd /tmp/oil_tests
 dirs
 
 #### dirs tilde test when $HOME is exactly $PWD
-## SKIP: Tilde substitution behavior differs from bash
 cd /
 mkdir -p /tmp/oil_test
 HOME=/tmp/oil_test
@@ -234,19 +228,17 @@ dirs
 ## END
 
 #### dirs test of path alias `..`
-## SKIP: Tilde substitution behavior differs from bash
 cd /tmp
 pushd .. >/dev/null
 dirs
-## stdout: / /tmp
+## stdout: / ~
 ## status: 0
 
 #### dirs test of path alias `.`
-## SKIP: Tilde substitution behavior differs from bash
 cd /tmp
 pushd . >/dev/null
 dirs
-## stdout: /tmp /tmp
+## stdout: ~ ~
 ## status: 0
 
 #### pushd does not take more than one argument

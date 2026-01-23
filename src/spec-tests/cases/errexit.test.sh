@@ -103,7 +103,6 @@ done
 ## status: 1
 
 #### errexit and brace group { }
-## SKIP: errexit in compound commands/pipelines not implemented
 set -o errexit
 { test no = yes && echo hi; }
 echo status=$?
@@ -226,7 +225,6 @@ echo 7
 ## END
 
 #### setting errexit in a subshell works but doesn't affect parent shell
-## SKIP: errexit in compound commands/pipelines not implemented
 ( echo 1; false; echo 2; set -o errexit; echo 3; false; echo 4; )
 echo 5
 false
@@ -291,7 +289,6 @@ one
 ## END
 
 #### pipeline process respects errexit
-## SKIP: errexit in compound commands/pipelines not implemented
 set -o errexit
 # It is respected here.
 { echo one; false; echo two; } | cat

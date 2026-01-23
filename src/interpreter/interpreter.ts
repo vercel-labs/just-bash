@@ -263,6 +263,10 @@ export class Interpreter {
       );
     }
 
+    // Reset errexitSafe at the start of each statement
+    // It will be set by inner compound command executions if needed
+    this.ctx.state.errexitSafe = false;
+
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
@@ -288,17 +292,28 @@ export class Interpreter {
       this.ctx.state.env["?"] = String(exitCode);
     }
 
+    // Track whether this exit code is "safe" for errexit purposes
+    // (i.e., the failure was from a && or || chain where the final command wasn't reached,
+    // OR the failure came from a compound command where the inner statement was errexit-safe)
+    const wasShortCircuited = lastExecutedIndex < node.pipelines.length - 1;
+    // Preserve errexitSafe if it was set by an inner compound command
+    const innerWasSafe = this.ctx.state.errexitSafe;
+    this.ctx.state.errexitSafe =
+      wasShortCircuited || lastPipelineNegated || innerWasSafe;
+
     // Check errexit (set -e): exit if command failed
     // Exceptions:
     // - Command was in a && or || list and wasn't the final command (short-circuit)
     // - Command was negated with !
     // - Command is part of a condition in if/while/until
+    // - Exit code came from a compound command where inner execution was errexit-safe
     if (
       this.ctx.state.options.errexit &&
       exitCode !== 0 &&
       lastExecutedIndex === node.pipelines.length - 1 &&
       !lastPipelineNegated &&
-      !this.ctx.state.inCondition
+      !this.ctx.state.inCondition &&
+      !innerWasSafe
     ) {
       throw new ErrexitError(exitCode, stdout, stderr);
     }
@@ -329,9 +344,17 @@ export class Interpreter {
           };
         }
         // In a MULTI-command pipeline, each command runs in a subshell context
-        // So exit/return only affect that segment, not the whole script
-        // For single commands, let ExitError propagate to terminate the script
+        // So exit/return/errexit only affect that segment, not the whole script
+        // For single commands, let these errors propagate to terminate the script
         else if (error instanceof ExitError && node.commands.length > 1) {
+          result = {
+            stdout: error.stdout,
+            stderr: error.stderr,
+            exitCode: error.exitCode,
+          };
+        } else if (error instanceof ErrexitError && node.commands.length > 1) {
+          // Errexit inside a pipeline segment should only fail that segment
+          // The pipeline's exit code comes from the last command (or pipefail)
           result = {
             stdout: error.stdout,
             stderr: error.stderr,
@@ -703,9 +726,10 @@ export class Interpreter {
             const elements = getArrayElements(this.ctx, arrayName);
             if (elements.length === 0) {
               // Empty array with negative index - error
+              const lineNum = this.ctx.state.currentLine;
               return result(
                 "",
-                `bash: ${arrayName}[${subscriptExpr}]: bad array subscript\n`,
+                `bash: line ${lineNum}: ${arrayName}[${subscriptExpr}]: bad array subscript\n`,
                 1,
               );
             }
@@ -716,9 +740,10 @@ export class Interpreter {
             index = maxIndex + 1 + index;
             if (index < 0) {
               // Out-of-bounds negative index - return error result
+              const lineNum = this.ctx.state.currentLine;
               return result(
                 "",
-                `bash: ${arrayName}[${subscriptExpr}]: bad array subscript\n`,
+                `bash: line ${lineNum}: ${arrayName}[${subscriptExpr}]: bad array subscript\n`,
                 1,
               );
             }
@@ -1133,7 +1158,7 @@ export class Interpreter {
     if (!skipFunctions) {
       const func = this.ctx.state.functions.get(commandName);
       if (func) {
-        return callFunction(this.ctx, func, args);
+        return callFunction(this.ctx, func, args, stdin);
       }
     }
     // Simple builtins (can be overridden by functions)
@@ -1332,17 +1357,22 @@ export class Interpreter {
     // cmdPath is available for future use (e.g., $0 in scripts)
     void cmdPath;
 
+    // Use groupStdin as fallback if no stdin from redirections/pipeline
+    // This is needed for commands inside groups/functions that receive stdin via heredoc
+    const effectiveStdin = stdin || this.ctx.state.groupStdin || "";
+
     const cmdCtx: CommandContext = {
       fs: this.ctx.fs,
       cwd: this.ctx.state.cwd,
       env: this.ctx.state.env,
-      stdin,
+      stdin: effectiveStdin,
       limits: this.ctx.limits,
       exec: this.ctx.execFn,
       fetch: this.ctx.fetch,
       getRegisteredCommands: () => Array.from(this.ctx.commands.keys()),
       sleep: this.ctx.sleep,
       trace: this.ctx.trace,
+      fileDescriptors: this.ctx.state.fileDescriptors,
     };
 
     try {
@@ -1752,6 +1782,8 @@ export class Interpreter {
 
     const savedEnv = { ...this.ctx.state.env };
     const savedCwd = this.ctx.state.cwd;
+    // Save options so subshell changes (like set -e) don't affect parent
+    const savedOptions = { ...this.ctx.state.options };
     // Reset loopDepth in subshell - break/continue should not affect parent loops
     const savedLoopDepth = this.ctx.state.loopDepth;
     // Track if parent has loop context - break/continue in subshell should exit subshell
@@ -1779,6 +1811,7 @@ export class Interpreter {
     } catch (error) {
       this.ctx.state.env = savedEnv;
       this.ctx.state.cwd = savedCwd;
+      this.ctx.state.options = savedOptions;
       this.ctx.state.loopDepth = savedLoopDepth;
       this.ctx.state.parentHasLoopContext = savedParentHasLoopContext;
       this.ctx.state.groupStdin = savedGroupStdin;
@@ -1842,6 +1875,7 @@ export class Interpreter {
 
     this.ctx.state.env = savedEnv;
     this.ctx.state.cwd = savedCwd;
+    this.ctx.state.options = savedOptions;
     this.ctx.state.loopDepth = savedLoopDepth;
     this.ctx.state.parentHasLoopContext = savedParentHasLoopContext;
     this.ctx.state.groupStdin = savedGroupStdin;
@@ -1957,6 +1991,11 @@ export class Interpreter {
   private async executeConditionalCommand(
     node: ConditionalCommandNode,
   ): Promise<ExecResult> {
+    // Update currentLine for error messages
+    if (node.line !== undefined) {
+      this.ctx.state.currentLine = node.line;
+    }
+
     // Pre-open output redirects to truncate files BEFORE evaluating expression
     // This matches bash behavior where redirect files are opened before
     // any command substitutions in the conditional expression are evaluated
@@ -1971,7 +2010,15 @@ export class Interpreter {
     try {
       const condResult = await evaluateConditional(this.ctx, node.expression);
       // Apply output redirections
-      const bodyResult = testResult(condResult);
+      let bodyResult = testResult(condResult);
+      // Include any stderr from expansion (e.g., bad array subscript warnings)
+      if (this.ctx.state.expansionStderr) {
+        bodyResult = {
+          ...bodyResult,
+          stderr: this.ctx.state.expansionStderr + bodyResult.stderr,
+        };
+        this.ctx.state.expansionStderr = "";
+      }
       return applyRedirections(this.ctx, bodyResult, node.redirections);
     } catch (error) {
       // Apply output redirections before returning

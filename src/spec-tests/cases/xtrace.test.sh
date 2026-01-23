@@ -48,7 +48,7 @@ echo $(echo $y)
 ## END
 
 #### xtrace with unprintable chars
-## SKIP: Here-doc edge cases not implemented
+## SKIP: NUL byte handling in heredoc differs
 case $SH in dash) exit ;; esac
 
 $SH >stdout 2>stderr <<'EOF'

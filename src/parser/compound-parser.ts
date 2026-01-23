@@ -24,7 +24,10 @@ import * as ArithParser from "./arithmetic-parser.js";
 import { TokenType } from "./lexer.js";
 import type { Parser } from "./parser.js";
 
-export function parseIf(p: Parser): IfNode {
+export function parseIf(
+  p: Parser,
+  options?: { skipRedirections?: boolean },
+): IfNode {
   p.expect(TokenType.IF);
   const clauses: IfClause[] = [];
 
@@ -78,18 +81,23 @@ export function parseIf(p: Parser): IfNode {
 
   p.expect(TokenType.FI);
 
-  // Parse optional redirections
-  const redirections = p.parseOptionalRedirections();
+  // Parse optional redirections (unless skipped for function body)
+  const redirections = options?.skipRedirections
+    ? []
+    : p.parseOptionalRedirections();
 
   return AST.ifNode(clauses, elseBody, redirections);
 }
 
-export function parseFor(p: Parser): ForNode | CStyleForNode {
+export function parseFor(
+  p: Parser,
+  options?: { skipRedirections?: boolean },
+): ForNode | CStyleForNode {
   p.expect(TokenType.FOR);
 
   // Check for C-style for: for (( ... ))
   if (p.check(TokenType.DPAREN_START)) {
-    return parseCStyleFor(p);
+    return parseCStyleFor(p, options);
   }
 
   // Regular for: for VAR in WORDS
@@ -136,12 +144,17 @@ export function parseFor(p: Parser): ForNode | CStyleForNode {
   const body = p.parseCompoundList();
   p.expect(TokenType.DONE);
 
-  const redirections = p.parseOptionalRedirections();
+  const redirections = options?.skipRedirections
+    ? []
+    : p.parseOptionalRedirections();
 
   return AST.forNode(variable, words, body, redirections);
 }
 
-function parseCStyleFor(p: Parser): CStyleForNode {
+function parseCStyleFor(
+  p: Parser,
+  options?: { skipRedirections?: boolean },
+): CStyleForNode {
   p.expect(TokenType.DPAREN_START);
 
   // Parse init; cond; step
@@ -197,7 +210,9 @@ function parseCStyleFor(p: Parser): CStyleForNode {
     p.expect(TokenType.DONE);
   }
 
-  const redirections = p.parseOptionalRedirections();
+  const redirections = options?.skipRedirections
+    ? []
+    : p.parseOptionalRedirections();
 
   return {
     type: "CStyleFor",
@@ -209,7 +224,10 @@ function parseCStyleFor(p: Parser): CStyleForNode {
   };
 }
 
-export function parseWhile(p: Parser): WhileNode {
+export function parseWhile(
+  p: Parser,
+  options?: { skipRedirections?: boolean },
+): WhileNode {
   p.expect(TokenType.WHILE);
   const condition = p.parseCompoundList();
   p.expect(TokenType.DO);
@@ -220,12 +238,17 @@ export function parseWhile(p: Parser): WhileNode {
   }
   p.expect(TokenType.DONE);
 
-  const redirections = p.parseOptionalRedirections();
+  const redirections = options?.skipRedirections
+    ? []
+    : p.parseOptionalRedirections();
 
   return AST.whileNode(condition, body, redirections);
 }
 
-export function parseUntil(p: Parser): UntilNode {
+export function parseUntil(
+  p: Parser,
+  options?: { skipRedirections?: boolean },
+): UntilNode {
   p.expect(TokenType.UNTIL);
   const condition = p.parseCompoundList();
   p.expect(TokenType.DO);
@@ -236,12 +259,17 @@ export function parseUntil(p: Parser): UntilNode {
   }
   p.expect(TokenType.DONE);
 
-  const redirections = p.parseOptionalRedirections();
+  const redirections = options?.skipRedirections
+    ? []
+    : p.parseOptionalRedirections();
 
   return AST.untilNode(condition, body, redirections);
 }
 
-export function parseCase(p: Parser): CaseNode {
+export function parseCase(
+  p: Parser,
+  options?: { skipRedirections?: boolean },
+): CaseNode {
   p.expect(TokenType.CASE);
 
   if (!p.isWord()) {
@@ -274,7 +302,9 @@ export function parseCase(p: Parser): CaseNode {
 
   p.expect(TokenType.ESAC);
 
-  const redirections = p.parseOptionalRedirections();
+  const redirections = options?.skipRedirections
+    ? []
+    : p.parseOptionalRedirections();
 
   return AST.caseNode(word, items, redirections);
 }
@@ -361,7 +391,10 @@ function parseCaseItem(p: Parser): CaseItemNode | null {
   return AST.caseItem(patterns, body, terminator);
 }
 
-export function parseSubshell(p: Parser): SubshellNode | CStyleForNode {
+export function parseSubshell(
+  p: Parser,
+  options?: { skipRedirections?: boolean },
+): SubshellNode | CStyleForNode {
   // Check for (( which indicates C-style for
   if (p.peek(1).type === TokenType.LPAREN) {
     // This is (( - but we need to check context
@@ -380,17 +413,25 @@ export function parseSubshell(p: Parser): SubshellNode | CStyleForNode {
   const body = p.parseCompoundList();
   p.expect(TokenType.RPAREN);
 
-  const redirections = p.parseOptionalRedirections();
+  const redirections = options?.skipRedirections
+    ? []
+    : p.parseOptionalRedirections();
 
   return AST.subshell(body, redirections);
 }
 
-export function parseGroup(p: Parser): GroupNode {
+export function parseGroup(
+  p: Parser,
+  options?: { skipRedirections?: boolean },
+): GroupNode {
   p.expect(TokenType.LBRACE);
   const body = p.parseCompoundList();
   p.expect(TokenType.RBRACE);
 
-  const redirections = p.parseOptionalRedirections();
+  // For function bodies, redirections are parsed by the function definition, not the group
+  const redirections = options?.skipRedirections
+    ? []
+    : p.parseOptionalRedirections();
 
   return AST.group(body, redirections);
 }

@@ -24,7 +24,7 @@ status=1
 ## END
 
 #### readonly with temp binding
-## SKIP: Temp frame mutation edge cases not implemented
+## SKIP: Temp binding to readonly var errors instead of warning and continuing
 # http://landley.net/notes.html#20-06-2020
 
 # temp binding

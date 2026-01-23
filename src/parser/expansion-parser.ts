@@ -705,6 +705,33 @@ export function parseWordParts(
     return [AST.doubleQuoted(innerParts)];
   }
 
+  // Check if value is a fully double-quoted string (starts and ends with " with no unescaped " inside)
+  // This handles cases like assignment values where the token isn't marked as quoted
+  // e.g., v="\\" where the value portion is "\"
+  if (
+    value.length >= 2 &&
+    value[0] === '"' &&
+    value[value.length - 1] === '"'
+  ) {
+    const inner = value.slice(1, -1);
+    // Check for unescaped double quotes inside
+    let hasUnescapedQuote = false;
+    for (let j = 0; j < inner.length; j++) {
+      if (inner[j] === '"') {
+        hasUnescapedQuote = true;
+        break;
+      }
+      if (inner[j] === "\\" && j + 1 < inner.length) {
+        j++; // Skip escaped char
+      }
+    }
+    if (!hasUnescapedQuote) {
+      // It's a fully double-quoted string - parse the inner content
+      const innerParts = parseDoubleQuotedContent(p, inner);
+      return [AST.doubleQuoted(innerParts)];
+    }
+  }
+
   const parts: WordPart[] = [];
   let i = 0;
   let literal = "";
@@ -723,18 +750,27 @@ export function parseWordParts(
     // In unquoted context, only certain characters are escapable
     // In here-docs, only $, `, \, newline are escapable (NOT ")
     // In regular words, $, `, \, ", newline are escapable
+    // Glob metacharacters (*, ?, [, ]) when escaped should create Escaped nodes
+    // so they're treated as literals during globbing
     if (char === "\\" && i + 1 < value.length) {
       const next = value[i + 1];
+      // Characters that should be escaped (result in just the literal char)
       const isEscapable = hereDoc
-        ? next === "$" || next === "`" || next === "\\" || next === "\n"
+        ? next === "$" || next === "`" || next === "\n"
         : next === "$" ||
           next === "`" ||
-          next === "\\" ||
           next === '"' ||
           next === "'" ||
           next === "\n";
+      // Glob metacharacters and backslash that should create Escaped nodes
+      // so they're treated as literals during globbing (and \\ doesn't escape the next char)
+      const isGlobMetaOrBackslash = "*?[]\\".includes(next);
       if (isEscapable) {
         literal += next;
+      } else if (isGlobMetaOrBackslash) {
+        // Create an Escaped node for glob metacharacters and backslash
+        flushLiteral();
+        parts.push(AST.escaped(next));
       } else {
         // Keep the backslash for non-special characters
         literal += `\\${next}`;

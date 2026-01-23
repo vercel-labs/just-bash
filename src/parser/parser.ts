@@ -912,7 +912,7 @@ export class Parser {
   }
 
   private parseConditionalCommand(): ConditionalCommandNode {
-    this.expect(TokenType.DBRACK_START);
+    const startToken = this.expect(TokenType.DBRACK_START);
 
     const expression = CondParser.parseConditionalExpression(this);
 
@@ -920,7 +920,7 @@ export class Parser {
 
     const redirections = this.parseOptionalRedirections();
 
-    return AST.conditionalCommand(expression, redirections);
+    return AST.conditionalCommand(expression, redirections, startToken.line);
   }
 
   private parseFunctionDef(): FunctionDefNode {
@@ -946,34 +946,38 @@ export class Parser {
     this.skipNewlines();
 
     // Parse body (must be compound command)
-    const body = this.parseCompoundCommandBody();
+    // For function bodies, redirections are NOT parsed on the body - they go on the function def
+    const body = this.parseCompoundCommandBody({ forFunctionBody: true });
 
     const redirections = this.parseOptionalRedirections();
 
     return AST.functionDef(name, body, redirections);
   }
 
-  private parseCompoundCommandBody(): CompoundCommandNode {
+  private parseCompoundCommandBody(options?: {
+    forFunctionBody?: boolean;
+  }): CompoundCommandNode {
+    const skipRedirections = options?.forFunctionBody;
     if (this.check(TokenType.LBRACE)) {
-      return CompoundParser.parseGroup(this);
+      return CompoundParser.parseGroup(this, { skipRedirections });
     }
     if (this.check(TokenType.LPAREN)) {
-      return CompoundParser.parseSubshell(this);
+      return CompoundParser.parseSubshell(this, { skipRedirections });
     }
     if (this.check(TokenType.IF)) {
-      return CompoundParser.parseIf(this);
+      return CompoundParser.parseIf(this, { skipRedirections });
     }
     if (this.check(TokenType.FOR)) {
-      return CompoundParser.parseFor(this);
+      return CompoundParser.parseFor(this, { skipRedirections });
     }
     if (this.check(TokenType.WHILE)) {
-      return CompoundParser.parseWhile(this);
+      return CompoundParser.parseWhile(this, { skipRedirections });
     }
     if (this.check(TokenType.UNTIL)) {
-      return CompoundParser.parseUntil(this);
+      return CompoundParser.parseUntil(this, { skipRedirections });
     }
     if (this.check(TokenType.CASE)) {
-      return CompoundParser.parseCase(this);
+      return CompoundParser.parseCase(this, { skipRedirections });
     }
 
     this.error("Expected compound command for function body");

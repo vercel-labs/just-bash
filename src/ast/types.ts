@@ -194,6 +194,7 @@ export interface ConditionalCommandNode extends ASTNode {
   type: "ConditionalCommand";
   expression: ConditionalExpressionNode;
   redirections: RedirectionNode[];
+  line?: number;
 }
 
 // =============================================================================
@@ -995,8 +996,9 @@ export const AST = {
   conditionalCommand(
     expression: ConditionalExpressionNode,
     redirections: RedirectionNode[] = [],
+    line?: number,
   ): ConditionalCommandNode {
-    return { type: "ConditionalCommand", expression, redirections };
+    return { type: "ConditionalCommand", expression, redirections, line };
   },
 
   arithmeticCommand(

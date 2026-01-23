@@ -6,9 +6,15 @@
  * - Function calls (with positional parameters and local scopes)
  */
 
-import type { FunctionDefNode } from "../ast/types.js";
+import type {
+  FunctionDefNode,
+  HereDocNode,
+  RedirectionNode,
+  WordNode,
+} from "../ast/types.js";
 import type { ExecResult } from "../types.js";
 import { ExitError, ReturnError } from "./errors.js";
+import { expandWord } from "./expansion.js";
 import { OK, result, throwExecutionLimit } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -46,10 +52,56 @@ export function executeFunctionDef(
   return OK;
 }
 
+/**
+ * Process input redirections to get stdin content for function calls.
+ * Handles heredocs (<<, <<-), here-strings (<<<), and file input (<).
+ */
+async function processInputRedirections(
+  ctx: InterpreterContext,
+  redirections: RedirectionNode[],
+): Promise<string> {
+  let stdin = "";
+
+  for (const redir of redirections) {
+    if (
+      (redir.operator === "<<" || redir.operator === "<<-") &&
+      redir.target.type === "HereDoc"
+    ) {
+      const hereDoc = redir.target as HereDocNode;
+      let content = await expandWord(ctx, hereDoc.content);
+      // <<- strips leading tabs from each line
+      if (hereDoc.stripTabs) {
+        content = content
+          .split("\n")
+          .map((line) => line.replace(/^\t+/, ""))
+          .join("\n");
+      }
+      // Only handle fd 0 (stdin) for now
+      const fd = redir.fd ?? 0;
+      if (fd === 0) {
+        stdin = content;
+      }
+    } else if (redir.operator === "<<<" && redir.target.type === "Word") {
+      stdin = `${await expandWord(ctx, redir.target as WordNode)}\n`;
+    } else if (redir.operator === "<" && redir.target.type === "Word") {
+      const target = await expandWord(ctx, redir.target as WordNode);
+      const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+      try {
+        stdin = await ctx.fs.readFile(filePath);
+      } catch {
+        // File not found - stdin remains unchanged
+      }
+    }
+  }
+
+  return stdin;
+}
+
 export async function callFunction(
   ctx: InterpreterContext,
   func: FunctionDefNode,
   args: string[],
+  stdin = "",
 ): Promise<ExecResult> {
   ctx.state.callDepth++;
   if (ctx.state.callDepth > ctx.limits.maxCallDepth) {
@@ -96,7 +148,14 @@ export async function callFunction(
   };
 
   try {
-    const execResult = await ctx.executeCommand(func.body, "");
+    // Process redirections on the function definition to get stdin
+    // Only use redirection-based stdin if no pipeline stdin was passed
+    const redirectionStdin = await processInputRedirections(
+      ctx,
+      func.redirections,
+    );
+    const effectiveStdin = stdin || redirectionStdin;
+    const execResult = await ctx.executeCommand(func.body, effectiveStdin);
     cleanup();
     return execResult;
   } catch (error) {

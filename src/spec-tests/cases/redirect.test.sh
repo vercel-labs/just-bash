@@ -283,8 +283,7 @@ STDERR
 ## N-I dash status: 1
 
 #### >&word redirects stdout and stderr when word is not a number or -
-## SKIP: stdout_stderr.py test helper not available
-
+## SKIP: >&word redirect to file (non-fd) does not capture stderr
 # dash, mksh don't implement this bash behaviour.
 case $SH in dash|mksh) exit 1 ;; esac
 
