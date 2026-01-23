@@ -77,7 +77,12 @@ export async function runSedTestCase(
     const actualOutput = result.stdout;
     const expectedOutput = testCase.expectedOutput;
 
-    const passed = actualOutput === expectedOutput;
+    // Handle special "???" marker meaning "expect error"
+    // Test passes if there's an error (non-empty stderr or non-zero exit code)
+    const expectError = expectedOutput === "???";
+    const passed = expectError
+      ? result.stderr !== "" || result.exitCode !== 0
+      : actualOutput === expectedOutput;
 
     // Handle skip tests
     if (expectedToFail) {

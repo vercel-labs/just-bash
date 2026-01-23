@@ -636,10 +636,11 @@ describe("sed command", () => {
         files: { "/test.txt": "a\nb\nc\n" },
         cwd: "/",
       });
-      // N;D without -n: N eventually runs out of lines and quits silently
+      // N;D: N appends next line, D deletes first line and restarts
+      // When N finally fails (no more lines), GNU sed auto-prints the pattern space
       const result = await env.exec("sed 'N;D' /test.txt");
-      // Real bash: outputs empty (N quits when no more lines)
-      expect(result.stdout).toBe("");
+      // GNU sed: prints the remaining line when N fails
+      expect(result.stdout).toBe("c\n");
     });
   });
 

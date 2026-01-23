@@ -11,6 +11,7 @@ export type SedAddress = number | "$" | { pattern: string } | StepAddress;
 export interface AddressRange {
   start?: SedAddress;
   end?: SedAddress;
+  negated?: boolean; // ! modifier - negate the address match
 }
 
 export type SedCommandType =
@@ -284,9 +285,11 @@ export interface SedState {
   quitSilent: boolean; // For Q command: quit without printing
   exitCode?: number; // Exit code from q/Q command
   appendBuffer: string[]; // Lines to append after current line
+  changedText?: string; // For c command: text to output in place of pattern space
   substitutionMade: boolean; // Track if substitution was made (for 't' command)
   lineNumberOutput: string[]; // Output from '=' command
   restartCycle: boolean; // For D command: restart cycle without reading new line
+  inDRestartedCycle: boolean; // Track if we're in a cycle restarted by D
   currentFilename?: string; // For F command
   // For file I/O commands (deferred execution)
   pendingFileReads: Array<{ filename: string; wholeFile: boolean }>;
@@ -295,6 +298,8 @@ export interface SedState {
   pendingExecute?: { command: string; replacePattern: boolean };
   // Range state tracking for pattern ranges like /start/,/end/
   rangeStates: Map<string, RangeState>;
+  // Last used regex pattern for empty regex reuse (//)
+  lastPattern?: string;
 }
 
 // Range state tracking for pattern ranges like /start/,/end/

@@ -19,6 +19,7 @@ export enum SedTokenType {
   SEMICOLON = "SEMICOLON", // ;
   NEWLINE = "NEWLINE",
   COMMA = "COMMA", // , - address range separator
+  NEGATION = "NEGATION", // ! - negate address
 
   // Commands (single character)
   COMMAND = "COMMAND", // p, d, h, H, g, G, x, n, N, P, D, q, Q, z, =, l, F, v
@@ -185,6 +186,17 @@ export class SedLexer {
       };
     }
 
+    // Negation modifier (!)
+    if (ch === "!") {
+      this.advance();
+      return {
+        type: SedTokenType.NEGATION,
+        value: "!",
+        line: startLine,
+        column: startColumn,
+      };
+    }
+
     // Dollar (last line address)
     if (ch === "$") {
       this.advance();
@@ -288,6 +300,11 @@ export class SedLexer {
     const startLine = this.line;
     const startColumn = this.column;
     this.advance(); // skip :
+
+    // Skip optional whitespace after colon (GNU sed allows ': label')
+    while (this.peek() === " " || this.peek() === "\t") {
+      this.advance();
+    }
 
     // Read label name (until whitespace, semicolon, newline, or brace)
     let label = "";
@@ -585,29 +602,82 @@ export class SedLexer {
     startLine: number,
     startColumn: number,
   ): SedToken {
-    // a\, i\, c\ followed by text
-    // Skip optional backslash and space
+    // a, i, c commands can be followed by:
+    // 1. a\ followed by newline then text (traditional)
+    // 2. a text (GNU extension one-liner, text after space)
+    // 3. a\text (backslash followed by text on same line)
+
+    let hasBackslash = false;
     if (this.peek() === "\\") {
-      this.advance();
-    }
-    if (this.peek() === " ") {
+      hasBackslash = true;
       this.advance();
     }
 
-    // Read text until newline (for single line) or handle multi-line with backslash continuation
+    // Skip optional space after command or backslash
+    let leadingSpaceStripped = false;
+    if (this.peek() === " " || this.peek() === "\t") {
+      this.advance();
+      leadingSpaceStripped = true;
+    }
+
+    // Check for \ at start of text to preserve leading spaces (GNU extension)
+    // e.g., "a \   text" preserves "   text"
+    let preserveLeadingSpaces = false;
+    if (this.peek() === "\\") {
+      preserveLeadingSpaces = true;
+      this.advance();
+    }
+
+    // If we have backslash followed by newline, text is on next line(s)
+    if (hasBackslash && this.peek() === "\n") {
+      this.advance(); // consume newline
+    }
+
+    // Read text, handling multi-line continuation and escape sequences
     let text = "";
     while (this.pos < this.input.length) {
       const ch = this.peek();
+
       if (ch === "\n") {
+        // Check if previous char was backslash for continuation
+        if (text.endsWith("\\")) {
+          // Continuation: remove backslash and add newline
+          text = text.slice(0, -1) + "\n";
+          this.advance();
+          continue;
+        }
+        // End of text
         break;
       }
+
+      // Handle \n escape sequence (convert to actual newline)
+      if (ch === "\\" && this.pos + 1 < this.input.length) {
+        const next = this.input[this.pos + 1];
+        if (next === "n") {
+          text += "\n";
+          this.advance();
+          this.advance();
+          continue;
+        }
+      }
+
       text += this.advance();
+    }
+
+    // For one-liner syntax without preserveLeadingSpaces, trim text
+    // For traditional syntax with \, don't trim
+    let finalText = text;
+    if (!hasBackslash && !preserveLeadingSpaces) {
+      finalText = text.trim();
+    } else if (!preserveLeadingSpaces && leadingSpaceStripped) {
+      // Traditional syntax: preserve text as-is but it was already trimmed of leading space
+      finalText = text;
     }
 
     return {
       type: SedTokenType.TEXT_CMD,
       value: cmd,
-      text: text.trim(),
+      text: finalText,
       line: startLine,
       column: startColumn,
     };

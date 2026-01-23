@@ -37,6 +37,7 @@ export function createInitialState(
     substitutionMade: false,
     lineNumberOutput: [],
     restartCycle: false,
+    inDRestartedCycle: false,
     currentFilename: filename,
     pendingFileReads: [],
     pendingFileWrites: [],
@@ -54,6 +55,7 @@ function matchesAddress(
   lineNum: number,
   totalLines: number,
   line: string,
+  state?: SedState,
 ): boolean {
   if (address === "$") {
     return lineNum === totalLines;
@@ -69,7 +71,15 @@ function matchesAddress(
   }
   if (typeof address === "object" && "pattern" in address) {
     try {
-      const regex = new RegExp(address.pattern);
+      // Handle empty pattern (reuse last pattern)
+      let pattern = address.pattern;
+      if (pattern === "" && state?.lastPattern) {
+        pattern = state.lastPattern;
+      } else if (pattern !== "" && state) {
+        // Track this pattern for future empty regex reuse
+        state.lastPattern = pattern;
+      }
+      const regex = new RegExp(pattern);
       return regex.test(line);
     } catch {
       return false;
@@ -93,12 +103,13 @@ function serializeRange(range: AddressRange): string {
   return `${serializeAddr(range.start)},${serializeAddr(range.end)}`;
 }
 
-function isInRange(
+function isInRangeInternal(
   range: AddressRange | undefined,
   lineNum: number,
   totalLines: number,
   line: string,
   rangeStates?: Map<string, import("./types.js").RangeState>,
+  state?: SedState,
 ): boolean {
   if (!range || (!range.start && !range.end)) {
     return true; // No address means match all lines
@@ -109,7 +120,7 @@ function isInRange(
 
   if (start !== undefined && end === undefined) {
     // Single address
-    return matchesAddress(start, lineNum, totalLines, line);
+    return matchesAddress(start, lineNum, totalLines, line, state);
   }
 
   if (start !== undefined && end !== undefined) {
@@ -138,13 +149,13 @@ function isInRange(
 
       if (!rangeState.active) {
         // Not in range yet - check if start matches
-        if (matchesAddress(start, lineNum, totalLines, line)) {
+        if (matchesAddress(start, lineNum, totalLines, line, state)) {
           rangeState.active = true;
           rangeState.startLine = lineNum;
           rangeStates.set(rangeKey, rangeState);
 
           // Check if end also matches on the same line
-          if (matchesAddress(end, lineNum, totalLines, line)) {
+          if (matchesAddress(end, lineNum, totalLines, line, state)) {
             rangeState.active = false;
             rangeStates.set(rangeKey, rangeState);
           }
@@ -153,7 +164,7 @@ function isInRange(
         return false;
       } else {
         // Already in range - check if end matches
-        if (matchesAddress(end, lineNum, totalLines, line)) {
+        if (matchesAddress(end, lineNum, totalLines, line, state)) {
           rangeState.active = false;
           rangeStates.set(rangeKey, rangeState);
         }
@@ -162,11 +173,42 @@ function isInRange(
     }
 
     // Fallback for no range state tracking (shouldn't happen)
-    const startMatches = matchesAddress(start, lineNum, totalLines, line);
+    const startMatches = matchesAddress(
+      start,
+      lineNum,
+      totalLines,
+      line,
+      state,
+    );
     return startMatches;
   }
 
   return true;
+}
+
+function isInRange(
+  range: AddressRange | undefined,
+  lineNum: number,
+  totalLines: number,
+  line: string,
+  rangeStates?: Map<string, import("./types.js").RangeState>,
+  state?: SedState,
+): boolean {
+  const result = isInRangeInternal(
+    range,
+    lineNum,
+    totalLines,
+    line,
+    rangeStates,
+    state,
+  );
+
+  // Handle negation modifier
+  if (range?.negated) {
+    return !result;
+  }
+
+  return result;
 }
 
 /**
@@ -199,6 +241,22 @@ function breToEre(pattern: string): string {
         }
         if (next === "{" || next === "}") {
           result += next; // Remove backslash for quantifiers
+          i += 2;
+          continue;
+        }
+        // Convert escape sequences to actual characters (GNU extension)
+        if (next === "t") {
+          result += "\t";
+          i += 2;
+          continue;
+        }
+        if (next === "n") {
+          result += "\n";
+          i += 2;
+          continue;
+        }
+        if (next === "r") {
+          result += "\r";
           i += 2;
           continue;
         }
@@ -292,8 +350,19 @@ function processReplacement(
           i += 2;
           continue;
         }
-        // Back-references \1 through \9
+        if (next === "r") {
+          result += "\r";
+          i += 2;
+          continue;
+        }
+        // Back-references \0 through \9
+        // \0 is the entire match (same as &)
         const digit = parseInt(next, 10);
+        if (digit === 0) {
+          result += match;
+          i += 2;
+          continue;
+        }
         if (digit >= 1 && digit <= 9) {
           result += groups[digit - 1] || "";
           i += 2;
@@ -335,6 +404,7 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
       totalLines,
       patternSpace,
       state.rangeStates,
+      state,
     )
   ) {
     return;
@@ -347,12 +417,19 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
       if (subCmd.global) flags += "g";
       if (subCmd.ignoreCase) flags += "i";
 
+      // Handle empty pattern (reuse last pattern)
+      let rawPattern = subCmd.pattern;
+      if (rawPattern === "" && state.lastPattern) {
+        rawPattern = state.lastPattern;
+      } else if (rawPattern !== "") {
+        // Track this pattern for future empty regex reuse
+        state.lastPattern = rawPattern;
+      }
+
       // Convert BRE to ERE if not using extended regex mode
       // BRE: +, ?, |, (, ) are literal; \+, \?, \|, \(, \) are special
       // ERE (JavaScript): +, ?, |, (, ) are special
-      const pattern = subCmd.extendedRegex
-        ? subCmd.pattern
-        : breToEre(subCmd.pattern);
+      const pattern = subCmd.extendedRegex ? rawPattern : breToEre(rawPattern);
 
       try {
         const regex = new RegExp(pattern, flags);
@@ -398,7 +475,8 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
           }
 
           if (subCmd.printOnMatch) {
-            state.printed = true;
+            // p flag - immediately print pattern space after substitution
+            state.lineNumberOutput.push(state.patternSpace);
           }
         }
       } catch {
@@ -408,7 +486,8 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
     }
 
     case "print":
-      state.printed = true;
+      // p - immediately print pattern space
+      state.lineNumberOutput.push(state.patternSpace);
       break;
 
     case "printFirstLine": {
@@ -433,6 +512,7 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
         state.patternSpace = state.patternSpace.slice(newlineIdx + 1);
         // Restart the cycle from the beginning with remaining content
         state.restartCycle = true;
+        state.inDRestartedCycle = true;
       } else {
         state.deleted = true;
       }
@@ -455,10 +535,9 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
       break;
 
     case "change":
-      // Replace the current line entirely
-      state.patternSpace = cmd.text;
-      state.deleted = true; // Don't print original
-      state.appendBuffer.push(cmd.text);
+      // Replace the current line entirely - text is output in place of pattern space
+      state.deleted = true; // Don't print original pattern space
+      state.changedText = cmd.text; // Output this in place of pattern space
       break;
 
     case "hold":
@@ -665,6 +744,45 @@ export function executeCommands(
 
     const cmd = commands[i];
 
+    // Handle n command specially - it needs to print and read next line inline
+    if (cmd.type === "next") {
+      if (
+        isInRange(
+          cmd.address,
+          state.lineNumber,
+          state.totalLines,
+          state.patternSpace,
+          state.rangeStates,
+          state,
+        )
+      ) {
+        // Output current pattern space (will be handled by caller based on silent mode)
+        state.lineNumberOutput.push(state.patternSpace);
+        state.printed = true; // Mark as printed so auto-print doesn't duplicate
+
+        if (
+          ctx &&
+          ctx.currentLineIndex + linesConsumed + 1 < ctx.lines.length
+        ) {
+          linesConsumed++;
+          const nextLine = ctx.lines[ctx.currentLineIndex + linesConsumed];
+          state.patternSpace = nextLine;
+          state.lineNumber = ctx.currentLineIndex + linesConsumed + 1;
+          // Reset substitution flag for new line (for t/T commands)
+          state.substitutionMade = false;
+        } else {
+          // If no next line, n quits after printing
+          // Mark as deleted to prevent auto-print of the pattern space
+          // (we already printed it via lineNumberOutput)
+          state.quit = true;
+          state.deleted = true;
+          break;
+        }
+      }
+      i++;
+      continue;
+    }
+
     // Handle N command specially - it needs to append next line inline
     if (cmd.type === "nextAppend") {
       if (
@@ -674,6 +792,7 @@ export function executeCommands(
           state.totalLines,
           state.patternSpace,
           state.rangeStates,
+          state,
         )
       ) {
         if (
@@ -685,10 +804,9 @@ export function executeCommands(
           state.patternSpace += `\n${nextLine}`;
           state.lineNumber = ctx.currentLineIndex + linesConsumed + 1;
         } else {
-          // If no next line, N quits without printing current pattern space
-          // This matches real bash behavior
+          // If no next line, N quits but auto-print happens first
           state.quit = true;
-          state.deleted = true;
+          // Let auto-print happen - GNU sed prints pattern space when N fails
           break;
         }
       }
@@ -707,6 +825,7 @@ export function executeCommands(
           state.totalLines,
           state.patternSpace,
           state.rangeStates,
+          state,
         )
       ) {
         if (branchCmd.label) {
@@ -733,6 +852,7 @@ export function executeCommands(
           state.totalLines,
           state.patternSpace,
           state.rangeStates,
+          state,
         )
       ) {
         if (state.substitutionMade) {
@@ -763,6 +883,7 @@ export function executeCommands(
           state.totalLines,
           state.patternSpace,
           state.rangeStates,
+          state,
         )
       ) {
         if (!state.substitutionMade) {
@@ -791,6 +912,7 @@ export function executeCommands(
           state.totalLines,
           state.patternSpace,
           state.rangeStates,
+          state,
         )
       ) {
         // Execute all commands in the group

@@ -12,14 +12,14 @@ describe("sed advanced commands", () => {
       expect(result.stdout).toBe("line1 line2\nline3 line4\n");
     });
 
-    it("quits without printing when N has no next line (odd line count)", async () => {
+    it("auto-prints pattern space when N has no next line (odd line count)", async () => {
       const env = new Bash({
         files: { "/test.txt": "line1\nline2\nline3\n" },
       });
-      // With 3 lines: N works on 1+2, then N on line3 has no next line and quits
+      // With 3 lines: N works on 1+2, then N on line3 has no next line
+      // GNU sed auto-prints the pattern space before quitting
       const result = await env.exec("sed 'N;s/\\n/ /' /test.txt");
-      // Real bash: only outputs the first pair, line3 is not printed
-      expect(result.stdout).toBe("line1 line2\n");
+      expect(result.stdout).toBe("line1 line2\nline3\n");
     });
 
     it("joins pairs of lines", async () => {

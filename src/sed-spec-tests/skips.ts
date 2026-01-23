@@ -9,11 +9,7 @@
  * Files to skip entirely
  */
 const SKIP_FILES: Set<string> = new Set<string>([
-  // Skip all test files until sed implementation is more complete
-  // These have too many failures to track individually
-  "busybox-sed.tests",
-  "pythonsed-unit.suite",
-  "pythonsed-chang.suite",
+  // All test files are now enabled
 ]);
 
 /**
@@ -21,222 +17,401 @@ const SKIP_FILES: Set<string> = new Set<string>([
  * Format: "fileName:testName" -> skipReason
  */
 const SKIP_TESTS: Map<string, string> = new Map<string, string>([
-  // Will be populated as we discover failing tests
+  // BusyBox tests with file handling (- as stdin, multiple files)
+  ["busybox-sed.tests:sed no files (stdin)", "stdin handling without input"],
+  ["busybox-sed.tests:sed explicit stdin", "- as stdin marker not supported"],
+  ["busybox-sed.tests:sed stdin twice", "multiple stdin markers not supported"],
+  ["busybox-sed.tests:sed normal newlines", "multiple file handling"],
+  [
+    "busybox-sed.tests:sed leave off trailing newline",
+    "multiple file handling",
+  ],
+  ["busybox-sed.tests:sed autoinsert newline", "multiple file handling"],
+  ["busybox-sed.tests:sed empty file plus cat", "multiple file handling"],
+  ["busybox-sed.tests:sed cat plus empty file", "multiple file handling"],
+  [
+    "busybox-sed.tests:sed append autoinserts newline 2",
+    "multiple file handling",
+  ],
+  [
+    "busybox-sed.tests:sed print autoinsert newlines",
+    "- as stdin with newline handling",
+  ],
+  [
+    "busybox-sed.tests:sed print autoinsert newlines two files",
+    "multiple file handling",
+  ],
+  [
+    "busybox-sed.tests:sed selective matches with one nl",
+    "multiple file handling",
+  ],
+  [
+    "busybox-sed.tests:sed selective matches insert newline",
+    "multiple file handling",
+  ],
+  [
+    "busybox-sed.tests:sed selective matches noinsert newline",
+    "multiple file handling",
+  ],
+  ["busybox-sed.tests:sed clusternewline", "multiple file handling"],
+  ["busybox-sed.tests:sed trailing NUL", "NUL byte and multiple file handling"],
+
+  [
+    "busybox-sed.tests:sed with N skipping lines past ranges on next cmds",
+    "N command with ranges",
+  ],
+
+  // NUL byte handling
+  ["busybox-sed.tests:sed embedded NUL", "NUL bytes in input"],
+  ["busybox-sed.tests:sed embedded NUL g", "NUL bytes with global flag"],
+  ["busybox-sed.tests:sed NUL in command", "NUL bytes in command file"],
+
+
+  // Branch/label edge case
+  [
+    "busybox-sed.tests:sed nonexistent label",
+    "branch to nonexistent label handling",
+  ],
+
+  // Empty regex reuse with no trailing newline (test has no trailing newline input)
+  [
+    "busybox-sed.tests:sed backref from empty s uses range regex",
+    "no trailing newline handling",
+  ],
+
+  // Various edge cases
+  [
+    "busybox-sed.tests:sed handles empty lines",
+    "empty line handling with $ anchor",
+  ],
+  ["busybox-sed.tests:sed s//g (exhaustive)", "zero-length match handling"],
+  ["busybox-sed.tests:sed s [delimiter]", "custom delimiter with bracket char"],
+  [
+    "busybox-sed.tests:sed s with \\\\t (GNU ext)",
+    "no trailing newline in input handling",
+  ],
+  [
+    "busybox-sed.tests:sed insert doesn't autoinsert newline",
+    "i command newline handling",
+  ],
+  ["busybox-sed.tests:sed subst+write", "w command with multiple files"],
+  [
+    "busybox-sed.tests:sed escaped newline in command",
+    "escaped char in replacement",
+  ],
+  ["busybox-sed.tests:sed match EOF", "$ address with multi-file"],
+  ["busybox-sed.tests:sed match EOF two files", "$ address with multi-file"],
+  [
+    "busybox-sed.tests:sed match EOF inline",
+    "$ address with -i and multi-file",
+  ],
+  ["busybox-sed.tests:sed lie-to-autoconf", "--version output"],
+  [
+    "busybox-sed.tests:sed d does not break n,regex matching",
+    "d with regex range",
+  ],
+  [
+    "busybox-sed.tests:sed d does not break n,regex matching #2",
+    "d with regex range",
+  ],
+  ["busybox-sed.tests:sed 2d;2,1p (gnu compat)", "range with deleted start"],
+  [
+    "busybox-sed.tests:sed a cmd ended by double backslash",
+    "backslash escaping in a command",
+  ],
+  [
+    "busybox-sed.tests:sed zero chars match/replace advances correctly 1",
+    "zero-length match advancement",
+  ],
+  [
+    "busybox-sed.tests:sed zero chars match/replace advances correctly 2",
+    "zero-length match advancement",
+  ],
+  [
+    "busybox-sed.tests:sed special char as s/// delimiter, in pattern",
+    "special delimiter escaping",
+  ],
+  [
+    "busybox-sed.tests:sed special char as s/// delimiter, in replacement 2",
+    "special delimiter with backreference",
+  ],
+  // /regex/,+N GNU extension (relative addresses)
+  [
+    "busybox-sed.tests:sed /regex/,+N{...} addresses work",
+    "/regex/,+N GNU extension",
+  ],
+  [
+    "busybox-sed.tests:sed /regex/,+N{...} addresses work 2",
+    "/regex/,+N GNU extension",
+  ],
+  [
+    "busybox-sed.tests:sed /regex/,+N{...} -i works",
+    "/regex/,+N GNU extension",
+  ],
+  [
+    "busybox-sed.tests:sed /regex/,+0{...} -i works",
+    "/regex/,+N GNU extension",
+  ],
+  [
+    "busybox-sed.tests:sed /regex/,+0<cmd> -i works",
+    "/regex/,+N GNU extension",
+  ],
+
+  // PythonSed tests expecting syntax errors
+  [
+    "pythonsed-unit.suite:syntax: terminating commands - 8",
+    "address-only without command should error",
+  ],
+  [
+    "pythonsed-unit.suite:syntax: terminating commands - 9",
+    "incomplete address should error",
+  ],
+  [
+    "pythonsed-unit.suite:syntax: terminating commands - 10",
+    "address range without command should error",
+  ],
+  [
+    "pythonsed-unit.suite:syntax: terminating commands - aic",
+    "#n special comment not supported",
+  ],
+
+  // PythonSed #n/#r special comments (GNU extension)
+  [
+    "pythonsed-unit.suite:regexp address: separators",
+    "#n special comment not supported",
+  ],
+  [
+    "pythonsed-unit.suite:regexp address: flags",
+    "#n special comment and /I flag not supported",
+  ],
+  [
+    "pythonsed-unit.suite:regexp address: address range with flag",
+    "#n special comment and /I flag not supported",
+  ],
+  [
+    "pythonsed-unit.suite:empty addresses: address range",
+    "malformed test case: empty input with non-empty expected output",
+  ],
+
+  // BRE/ERE regex edge cases
+  [
+    "pythonsed-unit.suite:anchors inside regexp $ - BRE",
+    "$ inside pattern handling",
+  ],
+  [
+    "pythonsed-unit.suite:anchors inside regexp ^ - BRE",
+    "^ inside pattern handling",
+  ],
+  ["pythonsed-unit.suite:regexp or", "BRE alternation \\|"],
+  ["pythonsed-unit.suite:regexp: {,n}", "{,n} quantifier syntax"],
+  [
+    "pythonsed-unit.suite:regexp: closing bracket in char set",
+    "closing bracket in charset",
+  ],
+  [
+    "pythonsed-unit.suite:regexp: closing bracket in complement char set",
+    "closing bracket in complement charset",
+  ],
+  [
+    "pythonsed-unit.suite:regexp: back reference before num in address",
+    "\\10 backreference in address",
+  ],
+  [
+    "pythonsed-unit.suite:regexp extended: back reference before num in address",
+    "\\10 backreference in address with ERE",
+  ],
+  [
+    "pythonsed-unit.suite:regexp: ** BRE (multiple quantifier)",
+    "multiple quantifier handling",
+  ],
+  [
+    "pythonsed-unit.suite:regexp: ** ERE (multiple quantifier)",
+    "#r comment and multiple quantifier",
+  ],
+  [
+    "pythonsed-unit.suite:regexp: *\\\\? BRE (multiple quantifier)",
+    "multiple quantifier handling",
+  ],
+  [
+    "pythonsed-unit.suite:regexp: *? ERE (multiple quantifier)",
+    "#r comment and multiple quantifier",
+  ],
+  [
+    "pythonsed-unit.suite:regexp: \\\\t \\\\n in char set",
+    "#n comment and escape in charset",
+  ],
+  ["pythonsed-unit.suite:avoid python extension - 2", "BRE grouping edge case"],
+  ["pythonsed-unit.suite:(^){2}", "#r comment and ^ quantified"],
+  [
+    "pythonsed-unit.suite:substitution: back reference before num in regexp",
+    "\\10 parsed as \\1 + 0",
+  ],
+
+  // More BusyBox tests
+  ["busybox-sed.tests:sed 's///w FILE'", "w flag with file path syntax"],
+
+  // PythonSed chang.suite - complex scripts using N, D, branching
+  [
+    "pythonsed-chang.suite:Get the last 6 lines of a file.",
+    "N/D command behavior",
+  ],
+  [
+    "pythonsed-chang.suite:Delete the last 6 lines of a file - 1.",
+    "N command behavior",
+  ],
+  [
+    "pythonsed-chang.suite:Delete every 4th line (e.g., 4th, 8th, 12th...) of a file - 1.",
+    "N command behavior",
+  ],
+  [
+    "pythonsed-chang.suite:Delete two consecutive lines if the first one contains PAT1 and the second one contains PAT2.",
+    "N/P/D commands",
+  ],
+  [
+    "pythonsed-chang.suite:Get every line containing PAT, the preceding, and the following ones.",
+    "N/P/D commands",
+  ],
+  [
+    "pythonsed-chang.suite:Get the line following a line containing PAT - Case 1 - 1.",
+    "N/D commands",
+  ],
+  [
+    "pythonsed-chang.suite:Remove HTML tags (may be multi-line) of a file.",
+    "N command behavior",
+  ],
+  [
+    "pythonsed-chang.suite:Remove comments (/* ... */, maybe multi-line) of a C program. - 1",
+    "N command behavior",
+  ],
+  [
+    "pythonsed-chang.suite:Extract (possibly multiline) contents between 'BEGIN' and the matching 'END'.",
+    "N command behavior",
+  ],
+  ["pythonsed-chang.suite:test at line 1516", "** not a valid command"],
+
+  // More pythonsed-chang.suite tests with complex N/D/branching
+  [
+    "pythonsed-chang.suite:Delete the LAST N-th line through the LAST M-th line of a datafile, where N is greater than M - 1.",
+    "complex N/D branching",
+  ],
+  [
+    "pythonsed-chang.suite:Get every Nth line of a file - 1.",
+    "complex N/D branching",
+  ],
+  [
+    "pythonsed-chang.suite:Join every N lines to one - 1.",
+    "complex N/D branching",
+  ],
+  [
+    'pythonsed-chang.suite:Extract "Received:" header(s) from a mailbox.',
+    "complex N/D branching",
+  ],
+  [
+    "pythonsed-chang.suite:Extract matched headers of a mail.",
+    "complex branching",
+  ],
+  [
+    "pythonsed-chang.suite:Extract every IMG elements from an HTML file.",
+    "complex branching",
+  ],
+  [
+    "pythonsed-chang.suite:Replace odd-numbered and even-numbered double quotes with single quotes and back quotes, respectively.",
+    "complex hold space logic",
+  ],
+  [
+    "pythonsed-chang.suite:Remove the start and the end tags of some `A' elements of an HTML file, but keep the contents.",
+    "complex branching",
+  ],
+  [
+    "pythonsed-chang.suite:Find failed instances without latter successful ones.",
+    "complex N/D branching",
+  ],
+  [
+    "pythonsed-chang.suite:Change the first quote of every single-quoted string to backquote(`). - 1",
+    "complex pattern manipulation",
+  ],
+  ["pythonsed-chang.suite:1 cat chicken", "test name parsing issue"],
+  [
+    "pythonsed-chang.suite:First number 1111 Second <2222>",
+    "test name parsing issue",
+  ],
+  ["pythonsed-chang.suite:word_1 word_2 word_3", "test name parsing issue"],
+  ["pythonsed-chang.suite:number [8888]", "test name parsing issue"],
+
+  // Multiple quantifier in BRE
+  [
+    "pythonsed-unit.suite:regexp: *\\? BRE (multiple quantifier)",
+    "BRE multiple quantifier handling",
+  ],
+
+  // Backreference parsing edge cases
+  [
+    "pythonsed-unit.suite:substitution: -r: back reference before num in regexp",
+    "\\10 parsing with extended regex",
+  ],
+
+  // Empty regex with /I flag
+  [
+    "pythonsed-unit.suite:empty regexp: case modifier propagation",
+    "empty regex reuse and /I flag",
+  ],
+  [
+    "pythonsed-unit.suite:empty regexp: same empty regexp, different case status",
+    "empty regex reuse and /I flag",
+  ],
+  [
+    "pythonsed-unit.suite:empty regexp: case modifier propagation for addresses",
+    "empty regex reuse and /I flag",
+  ],
+  [
+    "pythonsed-unit.suite:y: exceptions - not delimited",
+    "y command error handling",
+  ],
+  [
+    "pythonsed-unit.suite:y: exceptions - additional text",
+    "y command error handling",
+  ],
+  [
+    "pythonsed-unit.suite:v command earlier version",
+    "v command version parsing",
+  ],
+  ["pythonsed-unit.suite:F command", "F command with stdin (no filename)"],
+
+  // Backslash continuation in s command replacement
+  [
+    "pythonsed-unit.suite:substitution: new line in replacement old style",
+    "backslash continuation in s replacement across -e",
+  ],
+  // Multi-line c command with backslash continuation
+  [
+    "pythonsed-unit.suite:Change command c",
+    "multi-line c command with backslash continuation",
+  ],
+  // n command with #n silent mode
+  [
+    "pythonsed-unit.suite:n command without auto-print",
+    "n command with #n silent mode produces unexpected output",
+  ],
 ]);
 
 /**
  * Pattern-based skips for tests matching certain patterns
+ * NOTE: Most patterns have been removed as tests are actually passing
+ * NOTE: #n and #r special comments actually work in many cases - don't skip by pattern
  */
 const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
-  // Empty sed commands
-  { pattern: /sed\s+""/, reason: "Empty sed script not supported" },
-  { pattern: /sed\s+""\s+-/, reason: "Empty sed script not supported" },
-  // sed -i (in-place editing) not implemented
-  { pattern: /sed -i/, reason: "sed -i not implemented" },
-  { pattern: /sed\s+-[a-z]*i/, reason: "sed -i not implemented" },
-  // sed -f (script file) not fully implemented
-  { pattern: /sed\s+-f/, reason: "sed -f not implemented" },
-  // sed with multiple input files
-  { pattern: /input\s+input/, reason: "Multiple input files not supported" },
-  // sed -z (null-separated lines)
-  { pattern: /sed\s+-z/, reason: "sed -z not implemented" },
-  // sed -s (separate mode)
-  { pattern: /sed\s+-s/, reason: "sed -s not implemented" },
-  // Q command (quit without printing)
-  { pattern: /sed\s+'[^']*Q/, reason: "sed Q command not implemented" },
-  // R command (read file)
-  { pattern: /sed\s+'[^']*R/, reason: "sed R command not implemented" },
-  // W command (write file)
-  { pattern: /sed\s+'[^']*W/, reason: "sed W command not implemented" },
-  // e command (execute pattern space as shell command)
-  { pattern: /sed\s+'[^']*e/, reason: "sed e command not implemented" },
-  // z command (zap/empty pattern space)
-  { pattern: /sed\s+'[^']*z/, reason: "sed z command not implemented" },
-  // L command (left justify)
-  { pattern: /sed\s+'[^']*L/, reason: "sed L command not implemented" },
-  // F command (print file name)
-  { pattern: /sed\s+'[^']*F/, reason: "sed F command not implemented" },
-  // v command (version check)
-  { pattern: /sed\s+'[^']*v/, reason: "sed v command not implemented" },
-  // Previous regex reference with //
-  { pattern: /\/\//, reason: "Previous regex reference not implemented" },
-  // Address with + offset
-  { pattern: /,\+\d+/, reason: "Address offset not implemented" },
-  // GNU extensions
-  { pattern: /0,\//, reason: "GNU 0,/regex/ address not supported" },
-  // I command (case insensitive)
-  { pattern: /\/I/, reason: "Case insensitive flag not implemented" },
-  // M command (multi-line mode)
-  { pattern: /\/M/, reason: "Multi-line mode flag not implemented" },
-  // 0 address
-  { pattern: /sed\s+'0/, reason: "0 address not supported" },
-  // Alternate s delimiter parsing issues
-  { pattern: /s\s*@/, reason: "Alternate delimiter @ not fully supported" },
-  // T command (branch if no successful substitution)
-  { pattern: /sed[^|]*;\s*T\s/, reason: "T command not implemented" },
-  // Empty line handling
-  { pattern: /sed\s+'\$'/, reason: "Empty pattern handling" },
-
-  // Branch commands
-  { pattern: /\bb\s+\w+/, reason: "Branch to label not implemented" },
-  { pattern: /:\s*\w+/, reason: "Labels not implemented" },
-  { pattern: /\bt\s+\w+/, reason: "Test/branch not implemented" },
-  { pattern: /\bta\b/, reason: "Branch on substitution not implemented" },
-
-  // N command (append next line)
-  { pattern: /\bN\b/, reason: "N command not implemented correctly" },
-  { pattern: /\bn\b/, reason: "n command not implemented correctly" },
-
-  // Multi-line patterns
-  { pattern: /\\n/, reason: "Multi-line pattern issues" },
-
-  // i and a commands (insert/append)
-  { pattern: /'i'/, reason: "Insert command not implemented" },
-  { pattern: /'a'/, reason: "Append command not implemented" },
-  { pattern: /\/a\s/, reason: "Append after match not implemented" },
-  { pattern: /\/i\s/, reason: "Insert before match not implemented" },
-
-  // c command (change)
-  { pattern: /\bc\b/, reason: "Change command not implemented" },
-  { pattern: /crepl/, reason: "Change command not implemented" },
-
-  // Multiple -e options
-  { pattern: /-e\s+'[^']*'\s+-e/, reason: "Multiple -e options not handled" },
-  { pattern: /-e\s+"[^"]*"\s+-e/, reason: "Multiple -e options not handled" },
-
-  // Empty match replacement
-  { pattern: /s\/z\*\//, reason: "Empty match replacement not implemented" },
-
-  // NUL byte handling
-  { pattern: /NUL/, reason: "NUL byte handling not implemented" },
-
-  // Newline handling edge cases
-  { pattern: /trailing newline/, reason: "Trailing newline handling" },
-  { pattern: /autoinsert/, reason: "Auto-insert newline handling" },
-
-  // w command (write to file)
-  { pattern: /\bw\w+/, reason: "Write to file not implemented" },
-
-  // $ (last line) address
-  { pattern: /'\$/, reason: "Last line address not implemented" },
-  { pattern: /\$q/, reason: "Quit on last line not implemented" },
-
-  // --version flag
-  { pattern: /--version/, reason: "Version flag not implemented" },
-
-  // Nonexistent label handling
-  { pattern: /nonexistent label/, reason: "Label error handling" },
-
-  // GNUFAIL tests
-  { pattern: /GNUFAIL/, reason: "GNU-specific test" },
-
-  // Regex with special chars
-  { pattern: /\^\//, reason: "Start anchor in address not implemented" },
-  { pattern: /\\|/, reason: "OR in regex not implemented" },
-
-  // Hold space commands
-  { pattern: /\bH\b/, reason: "Hold space append not implemented" },
-  { pattern: /\bh\b/, reason: "Hold space copy not implemented" },
-  { pattern: /\bG\b/, reason: "Get from hold space not implemented" },
-  { pattern: /\bg\b/, reason: "Get from hold space not implemented" },
-  { pattern: /\bx\b/, reason: "Exchange command not implemented" },
-
-  // P and D commands
-  { pattern: /\bP\b/, reason: "Print first line not implemented" },
-  { pattern: /\bD\b/, reason: "Delete first line not implemented" },
-
-  // Loop constructs
-  { pattern: /:loop/, reason: "Loop labels not implemented" },
-  { pattern: /b\s*loop/, reason: "Branch to loop not implemented" },
-
-  // Complex address ranges
-  { pattern: /\d+,\d+\{/, reason: "Address range with block not implemented" },
+  // Skip tests using - as stdin marker with files
+  { pattern: /input -/, reason: "multiple file with - stdin marker" },
+  { pattern: /- input/, reason: "multiple file with - stdin marker" },
+  // Skip pythonsed-chang tests with multi-line names (N-th match tests)
+  { pattern: /1 cat chicken/, reason: "complex N-th match test" },
+  { pattern: /First number 1111/, reason: "complex N-th match test" },
+  { pattern: /word_1 word_2/, reason: "complex N-th match test" },
+  { pattern: /number \[8888\]/, reason: "complex N-th match test" },
   {
-    pattern: /\/[^/]+\/,\/[^/]+\//,
-    reason: "Regex address range not implemented",
+    pattern: /Extract matched headers of a mail/,
+    reason: "complex mail header test",
   },
-
-  // Nested braces
-  { pattern: /\{\s*[^}]*\{/, reason: "Nested braces not implemented" },
-
-  // Extended regex mode
-  { pattern: /#r/, reason: "Extended regex flag not implemented" },
-  { pattern: /-E/, reason: "Extended regex mode issues" },
-  { pattern: /-r/, reason: "Extended regex mode issues" },
-
-  // y command (transliterate)
-  { pattern: /\by\//, reason: "y command not implemented" },
-
-  // Silent mode
-  { pattern: /#n/, reason: "Silent mode flag not implemented" },
-  { pattern: /-n/, reason: "Silent mode issues" },
-
-  // Special characters as delimiters
-  { pattern: /s&/, reason: "Special delimiter not implemented" },
-
-  // Occurrence flags
-  { pattern: /\/\d+$/, reason: "Occurrence flag not implemented" },
-  { pattern: /s\/[^/]+\/[^/]+\/\d/, reason: "Nth occurrence not implemented" },
-
-  // Back references
-  { pattern: /\\1/, reason: "Back reference issues" },
-  { pattern: /\(\)/, reason: "Grouping issues" },
-
-  // Quantifiers in BRE/ERE
-  { pattern: /\\\+/, reason: "BRE + quantifier issues" },
-  { pattern: /\\\?/, reason: "BRE ? quantifier issues" },
-  { pattern: /\{n\}/, reason: "Repetition count issues" },
-  { pattern: /\{\d+,\d*\}/, reason: "Repetition range issues" },
-
-  // Character classes
-  { pattern: /\[\]/, reason: "Empty character class issues" },
-  { pattern: /\[\\t\]/, reason: "Tab in character class issues" },
-
-  // Anchors
-  { pattern: /\^\(/, reason: "Start anchor with group issues" },
-  { pattern: /\)\$/, reason: "End anchor with group issues" },
-
-  // Complex substitution patterns
-  { pattern: /s\/\.\*/, reason: "Greedy match replacement issues" },
-
-  // Comment handling
-  { pattern: /# comment/, reason: "Comment in script issues" },
-
-  // Multi-line input handling
-  { pattern: /input -/, reason: "Multiple input sources not implemented" },
-  { pattern: /- input/, reason: "Multiple input sources not implemented" },
-
-  // Test name pattern matches
-  { pattern: /Get the \d+/, reason: "Complex line selection tests" },
-  { pattern: /Delete the/, reason: "Complex line deletion tests" },
-  { pattern: /Join every/, reason: "Line joining tests" },
-  { pattern: /For each line/, reason: "Per-line operation tests" },
-  { pattern: /Get lines containing/, reason: "Pattern matching tests" },
-  { pattern: /Insert a separating/, reason: "Insertion tests" },
-  { pattern: /Perform operations/, reason: "Complex operation tests" },
-  { pattern: /Delete two consecutive/, reason: "Multi-line deletion tests" },
-  { pattern: /Remove almost identical/, reason: "Deduplication tests" },
-  { pattern: /Remove consecutive/, reason: "Consecutive removal tests" },
-  { pattern: /Extract.*header/, reason: "Header extraction tests" },
-  { pattern: /Get every line containing/, reason: "Pattern tests" },
-  { pattern: /Replace.*with/, reason: "Complex replacement tests" },
-  { pattern: /Remove comments/, reason: "Comment removal tests" },
-  { pattern: /Change the first quote/, reason: "Quote handling tests" },
-
-  // Specific test patterns
-  { pattern: /syntax:/, reason: "Syntax tests" },
-  { pattern: /regexp/, reason: "Regexp tests" },
-  { pattern: /substitution:/, reason: "Substitution tests" },
-  { pattern: /anchors/, reason: "Anchor tests" },
-  { pattern: /branch on/, reason: "Branch tests" },
-  { pattern: /PS ending/, reason: "Pattern space tests" },
-  { pattern: /Change command/, reason: "Change command tests" },
-  { pattern: /a,i,c/, reason: "Insert/append/change tests" },
-  { pattern: /y:/, reason: "Transliterate tests" },
-  { pattern: /n command/, reason: "n command tests" },
-  { pattern: /N command/, reason: "N command tests" },
-  { pattern: /p command/, reason: "p command tests" },
-  { pattern: /P command/, reason: "P command tests" },
 ];
 
 /**

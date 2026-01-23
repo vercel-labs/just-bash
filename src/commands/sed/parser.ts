@@ -55,6 +55,14 @@ class SedParser {
     // Parse optional address range
     const address = this.parseAddressRange();
 
+    // Check for negation modifier (!)
+    if (this.check(SedTokenType.NEGATION)) {
+      this.advance();
+      if (address) {
+        address.negated = true;
+      }
+    }
+
     // Skip whitespace tokens
     while (
       this.check(SedTokenType.NEWLINE) ||
@@ -416,6 +424,13 @@ class SedParser {
 /**
  * Parse multiple sed scripts into a list of commands.
  * This is the main entry point for parsing sed scripts.
+ *
+ * Also detects #n or #r special comments at the start of the first script:
+ * - #n enables silent mode (equivalent to -n flag)
+ * - #r enables extended regex mode (equivalent to -r/-E flag)
+ *
+ * Handles backslash continuation across -e arguments:
+ * - If a script ends with \, the next script is treated as continuation
  */
 export function parseMultipleScripts(
   scripts: string[],
@@ -423,7 +438,61 @@ export function parseMultipleScripts(
 ): {
   commands: SedCommand[];
   error?: string;
+  silentMode?: boolean;
+  extendedRegexMode?: boolean;
 } {
-  const parser = new SedParser(scripts, extendedRegex);
-  return parser.parse();
+  // Check for #n or #r special comments at the start of the first script
+  let silentMode = false;
+  let extendedRegexFromComment = false;
+
+  // First, join scripts that have backslash continuation
+  // e.g., -e 'a\' -e 'text' becomes 'a\ntext'
+  const joinedScripts: string[] = [];
+  for (let i = 0; i < scripts.length; i++) {
+    let script = scripts[i];
+
+    // Handle #n/#r comments in first script
+    if (joinedScripts.length === 0 && i === 0) {
+      const match = script.match(/^#([nr]+)\s*(?:\n|$)/i);
+      if (match) {
+        const flags = match[1].toLowerCase();
+        if (flags.includes("n")) {
+          silentMode = true;
+        }
+        if (flags.includes("r")) {
+          extendedRegexFromComment = true;
+        }
+        script = script.slice(match[0].length);
+      }
+    }
+
+    // Check if last script ends with backslash (continuation)
+    // For a/i/c commands, the backslash indicates text continues on next line
+    // Keep the backslash so the lexer knows to read the text from the next line
+    if (
+      joinedScripts.length > 0 &&
+      joinedScripts[joinedScripts.length - 1].endsWith("\\")
+    ) {
+      // Keep trailing backslash and join with newline
+      const lastScript = joinedScripts[joinedScripts.length - 1];
+      joinedScripts[joinedScripts.length - 1] = lastScript + "\n" + script;
+    } else {
+      joinedScripts.push(script);
+    }
+  }
+
+  // Join all scripts with newlines to form a single script
+  // This is necessary for grouped commands { } where { and } may be in different -e arguments
+  const combinedScript = joinedScripts.join("\n");
+
+  const parser = new SedParser(
+    [combinedScript],
+    extendedRegex || extendedRegexFromComment,
+  );
+  const result = parser.parse();
+  return {
+    ...result,
+    silentMode,
+    extendedRegexMode: extendedRegexFromComment,
+  };
 }

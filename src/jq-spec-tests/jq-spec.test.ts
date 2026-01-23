@@ -57,10 +57,14 @@ describe("JQ Spec Tests", () => {
 
       for (const testCase of parsed.testCases) {
         // Check for individual test skip
+        // For error tests, only check exact SKIP_TESTS matches (not patterns)
+        // to avoid broad patterns marking error tests that actually pass
         const skipReason = getSkipReason(
           fileName,
           testCase.name,
           testCase.program,
+          testCase.input,
+          testCase.expectsError,
         );
         if (skipReason) {
           testCase.skip = skipReason;

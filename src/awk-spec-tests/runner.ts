@@ -72,12 +72,23 @@ export async function runAwkTestCase(
     // Build the awk command
     let script: string;
 
-    if (testCase.input) {
+    // Build the -F flag if a field separator is specified
+    const fsFlag = testCase.fieldSeparator
+      ? `-F'${testCase.fieldSeparator.replace(/'/g, "'\\''")}' `
+      : "";
+
+    // For heredoc-style tests (which have fieldSeparator set), even empty input
+    // should be piped to awk as an empty line. We detect this by checking if
+    // fieldSeparator is set, since those tests always have input (even if empty).
+    const hasInput =
+      testCase.input.length > 0 || testCase.fieldSeparator !== undefined;
+
+    if (hasInput) {
       // Escape single quotes in input for the echo command
       const escapedInput = testCase.input.replace(/'/g, "'\\''");
-      script = `echo '${escapedInput}' | awk '${testCase.program.replace(/'/g, "'\\''")}'`;
+      script = `echo '${escapedInput}' | awk ${fsFlag}'${testCase.program.replace(/'/g, "'\\''")}'`;
     } else {
-      script = `awk '${testCase.program.replace(/'/g, "'\\''")}' </dev/null`;
+      script = `awk ${fsFlag}'${testCase.program.replace(/'/g, "'\\''")}' </dev/null`;
     }
 
     const result = await env.exec(script);

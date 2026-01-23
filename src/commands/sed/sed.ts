@@ -85,6 +85,7 @@ async function processContent(
 
   // Persistent state across all lines
   let holdSpace = "";
+  let lastPattern: string | undefined;
   const rangeStates = new Map<string, RangeState>();
 
   // For file I/O: track line positions for R command, accumulate writes
@@ -102,6 +103,7 @@ async function processContent(
       ...createInitialState(totalLines, filename, rangeStates),
       patternSpace: lines[lineIndex],
       holdSpace: holdSpace,
+      lastPattern: lastPattern,
       lineNumber: lineIndex + 1,
       totalLines,
       substitutionMade: false, // Reset for each new line (T command behavior)
@@ -181,6 +183,7 @@ async function processContent(
 
     // Preserve state for next line
     holdSpace = state.holdSpace;
+    lastPattern = state.lastPattern;
 
     // Output line numbers from = command (and l, F commands)
     for (const ln of state.lineNumberOutput) {
@@ -212,6 +215,9 @@ async function processContent(
       } else {
         output += `${state.patternSpace}\n`;
       }
+    } else if (state.changedText !== undefined) {
+      // c command: output changed text in place of pattern space
+      output += `${state.changedText}\n`;
     }
 
     // Output appends after the line
@@ -344,7 +350,10 @@ export const sedCommand: Command = {
     }
 
     // Parse all scripts
-    const { commands, error } = parseMultipleScripts(scripts, extendedRegex);
+    const { commands, error, silentMode } = parseMultipleScripts(
+      scripts,
+      extendedRegex,
+    );
     if (error) {
       return {
         stdout: "",
@@ -361,17 +370,25 @@ export const sedCommand: Command = {
       };
     }
 
+    // Enable silent mode from -n flag or #n comment
+    const effectiveSilent = !!(silent || silentMode);
+
     let content = "";
 
     // Read from files or stdin
     if (files.length === 0) {
       content = ctx.stdin;
       try {
-        const result = await processContent(content, commands, silent, {
-          limits: ctx.limits,
-          fs: ctx.fs,
-          cwd: ctx.cwd,
-        });
+        const result = await processContent(
+          content,
+          commands,
+          effectiveSilent,
+          {
+            limits: ctx.limits,
+            fs: ctx.fs,
+            cwd: ctx.cwd,
+          },
+        );
         return {
           stdout: result.output,
           stderr: "",
@@ -395,12 +412,17 @@ export const sedCommand: Command = {
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
         try {
           const fileContent = await ctx.fs.readFile(filePath);
-          const result = await processContent(fileContent, commands, silent, {
-            limits: ctx.limits,
-            filename: file,
-            fs: ctx.fs,
-            cwd: ctx.cwd,
-          });
+          const result = await processContent(
+            fileContent,
+            commands,
+            effectiveSilent,
+            {
+              limits: ctx.limits,
+              filename: file,
+              fs: ctx.fs,
+              cwd: ctx.cwd,
+            },
+          );
           await ctx.fs.writeFile(filePath, result.output);
         } catch (e) {
           if (e instanceof ExecutionLimitError) {
@@ -442,7 +464,7 @@ export const sedCommand: Command = {
     }
 
     try {
-      const result = await processContent(content, commands, silent, {
+      const result = await processContent(content, commands, effectiveSilent, {
         limits: ctx.limits,
         filename: files.length === 1 ? files[0] : undefined,
         fs: ctx.fs,

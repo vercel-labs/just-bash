@@ -193,12 +193,27 @@ function normalizeOutputs(output: string): string[] {
 }
 
 /**
- * Compare two arrays for equality
+ * Normalize a JSON string to canonical form for comparison
+ * This handles differences in whitespace (e.g., "key": 1 vs "key":1)
+ */
+function normalizeJson(s: string): string {
+  try {
+    const parsed = JSON.parse(s);
+    return JSON.stringify(parsed);
+  } catch {
+    // If it's not valid JSON, return as-is
+    return s;
+  }
+}
+
+/**
+ * Compare two arrays for equality, with JSON normalization
  */
 function arraysEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
+    // Normalize both values to handle JSON formatting differences
+    if (normalizeJson(a[i]) !== normalizeJson(b[i])) return false;
   }
   return true;
 }

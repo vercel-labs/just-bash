@@ -92,8 +92,14 @@ async function awkSplit(
 
   let sep: string | RegExp = ctx.FS;
   if (args.length >= 3) {
-    const sepVal = toAwkString(await evaluator.evalExpr(args[2]));
-    sep = sepVal === " " ? /\s+/ : sepVal;
+    const sepExpr = args[2];
+    // Check if the separator is a regex literal
+    if (sepExpr.type === "regex") {
+      sep = new RegExp(sepExpr.pattern);
+    } else {
+      const sepVal = toAwkString(await evaluator.evalExpr(sepExpr));
+      sep = sepVal === " " ? /\s+/ : sepVal;
+    }
   } else if (ctx.FS === " ") {
     sep = /\s+/;
   }
@@ -552,24 +558,85 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
       let flags = "";
       let width = "";
       let precision = "";
+      let positionalIdx: number | undefined;
+
+      // Check for positional argument: %n$ where n is a number
+      let posStart = j;
+      while (j < format.length && /\d/.test(format[j])) {
+        j++;
+      }
+      if (j > posStart && format[j] === "$") {
+        // Found positional argument like %2$
+        positionalIdx = parseInt(format.substring(posStart, j), 10) - 1; // Convert to 0-based
+        j++; // Skip the $
+      } else {
+        // Not positional, reset j
+        j = posStart;
+      }
+
+      // Skip length modifiers (l, ll, z, j, h, hh) - they're ignored in AWK but shouldn't break parsing
+      const skipLengthMods = () => {
+        if (j < format.length) {
+          // Check for hh or ll first (2-char modifiers)
+          if (
+            j + 1 < format.length &&
+            ((format[j] === "h" && format[j + 1] === "h") ||
+              (format[j] === "l" && format[j + 1] === "l"))
+          ) {
+            j += 2;
+            return;
+          }
+          // Check for single-char modifiers
+          if (/[lzjh]/.test(format[j])) {
+            j++;
+          }
+        }
+      };
 
       while (j < format.length && /[-+ #0]/.test(format[j])) {
         flags += format[j++];
       }
 
-      while (j < format.length && /\d/.test(format[j])) {
-        width += format[j++];
+      // Handle * for width
+      if (format[j] === "*") {
+        const widthVal = values[valueIdx++];
+        const w = widthVal !== undefined ? Math.floor(Number(widthVal)) : 0;
+        if (w < 0) {
+          flags += "-";
+          width = String(-w);
+        } else {
+          width = String(w);
+        }
+        j++;
+      } else {
+        while (j < format.length && /\d/.test(format[j])) {
+          width += format[j++];
+        }
       }
 
       if (format[j] === ".") {
         j++;
-        while (j < format.length && /\d/.test(format[j])) {
-          precision += format[j++];
+        // Handle * for precision
+        if (format[j] === "*") {
+          const precVal = values[valueIdx++];
+          precision = String(
+            precVal !== undefined ? Math.floor(Number(precVal)) : 0,
+          );
+          j++;
+        } else {
+          while (j < format.length && /\d/.test(format[j])) {
+            precision += format[j++];
+          }
         }
       }
 
+      // Skip length modifiers before the specifier
+      skipLengthMods();
+
       const spec = format[j];
-      const val = values[valueIdx];
+      // Use positional index if specified, otherwise use sequential index
+      const valIdx = positionalIdx !== undefined ? positionalIdx : valueIdx;
+      const val = values[valIdx];
 
       switch (spec) {
         case "s": {
@@ -586,7 +653,7 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
             }
           }
           result += str;
-          valueIdx++;
+          if (positionalIdx === undefined) valueIdx++;
           break;
         }
 
@@ -594,24 +661,40 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
         case "i": {
           let num = val !== undefined ? Math.floor(Number(val)) : 0;
           if (Number.isNaN(num)) num = 0;
-          let str = String(num);
+          const isNegative = num < 0;
+          let digits = Math.abs(num).toString();
+
+          // Precision for integers means minimum number of digits (zero-padded)
+          if (precision) {
+            const prec = parseInt(precision, 10);
+            digits = digits.padStart(prec, "0");
+          }
+
+          // Add sign
+          let sign = "";
+          if (isNegative) {
+            sign = "-";
+          } else if (flags.includes("+")) {
+            sign = "+";
+          } else if (flags.includes(" ")) {
+            sign = " ";
+          }
+
+          let str = sign + digits;
+
           if (width) {
             const w = parseInt(width, 10);
             if (flags.includes("-")) {
               str = str.padEnd(w);
-            } else if (flags.includes("0") && !flags.includes("-")) {
-              const sign = num < 0 ? "-" : "";
-              str =
-                sign +
-                Math.abs(num)
-                  .toString()
-                  .padStart(w - sign.length, "0");
+            } else if (flags.includes("0") && !precision) {
+              // Zero-padding only applies when no precision is specified
+              str = sign + digits.padStart(w - sign.length, "0");
             } else {
               str = str.padStart(w);
             }
           }
           result += str;
-          valueIdx++;
+          if (positionalIdx === undefined) valueIdx++;
           break;
         }
 
@@ -629,7 +712,7 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
             }
           }
           result += str;
-          valueIdx++;
+          if (positionalIdx === undefined) valueIdx++;
           break;
         }
 
@@ -649,7 +732,7 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
             }
           }
           result += str;
-          valueIdx++;
+          if (positionalIdx === undefined) valueIdx++;
           break;
         }
 
@@ -668,7 +751,14 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
           } else {
             str = num.toPrecision(prec);
           }
-          str = str.replace(/\.?0+$/, "").replace(/\.?0+e/, "e");
+          // Remove trailing zeros after decimal point, but keep at least one digit
+          // Must not match standalone "0" (which has no decimal point)
+          if (str.includes(".")) {
+            str = str.replace(/\.?0+$/, "").replace(/\.?0+e/, "e");
+          }
+          if (str.includes("e")) {
+            str = str.replace(/\.?0+e/, "e");
+          }
           if (width) {
             const w = parseInt(width, 10);
             if (flags.includes("-")) {
@@ -678,7 +768,7 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
             }
           }
           result += str;
-          valueIdx++;
+          if (positionalIdx === undefined) valueIdx++;
           break;
         }
 
@@ -686,39 +776,59 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
         case "X": {
           let num = val !== undefined ? Math.floor(Number(val)) : 0;
           if (Number.isNaN(num)) num = 0;
-          let str = Math.abs(num).toString(16);
-          if (spec === "X") str = str.toUpperCase();
+          let digits = Math.abs(num).toString(16);
+          if (spec === "X") digits = digits.toUpperCase();
+
+          // Precision for hex means minimum number of digits (zero-padded)
+          if (precision) {
+            const prec = parseInt(precision, 10);
+            digits = digits.padStart(prec, "0");
+          }
+
+          const sign = num < 0 ? "-" : "";
+          let str = sign + digits;
+
           if (width) {
             const w = parseInt(width, 10);
-            if (flags.includes("0")) {
-              str = str.padStart(w, "0");
-            } else if (flags.includes("-")) {
+            if (flags.includes("-")) {
               str = str.padEnd(w);
+            } else if (flags.includes("0") && !precision) {
+              str = sign + digits.padStart(w - sign.length, "0");
             } else {
               str = str.padStart(w);
             }
           }
-          result += num < 0 ? `-${str}` : str;
-          valueIdx++;
+          result += str;
+          if (positionalIdx === undefined) valueIdx++;
           break;
         }
 
         case "o": {
           let num = val !== undefined ? Math.floor(Number(val)) : 0;
           if (Number.isNaN(num)) num = 0;
-          let str = Math.abs(num).toString(8);
+          let digits = Math.abs(num).toString(8);
+
+          // Precision for octal means minimum number of digits (zero-padded)
+          if (precision) {
+            const prec = parseInt(precision, 10);
+            digits = digits.padStart(prec, "0");
+          }
+
+          const sign = num < 0 ? "-" : "";
+          let str = sign + digits;
+
           if (width) {
             const w = parseInt(width, 10);
-            if (flags.includes("0")) {
-              str = str.padStart(w, "0");
-            } else if (flags.includes("-")) {
+            if (flags.includes("-")) {
               str = str.padEnd(w);
+            } else if (flags.includes("0") && !precision) {
+              str = sign + digits.padStart(w - sign.length, "0");
             } else {
               str = str.padStart(w);
             }
           }
-          result += num < 0 ? `-${str}` : str;
-          valueIdx++;
+          result += str;
+          if (positionalIdx === undefined) valueIdx++;
           break;
         }
 
@@ -728,7 +838,7 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
           } else {
             result += String(val ?? "").charAt(0) || "";
           }
-          valueIdx++;
+          if (positionalIdx === undefined) valueIdx++;
           break;
         }
 
@@ -799,8 +909,10 @@ export const awkBuiltins: Record<string, AwkBuiltinFn> = {
     "system",
     "shell execution not allowed in sandboxed environment",
   ),
-  close: unsupported("close", "file operations not allowed"),
-  fflush: unsupported("fflush", "file operations not allowed"),
+  // close() and fflush() are no-ops in our environment (no real file handles)
+  // Return 0 for success to allow programs that use them to work
+  close: () => 0,
+  fflush: () => 0,
 
   // Unimplemented functions
   systime: unimplemented("systime"),

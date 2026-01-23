@@ -304,11 +304,25 @@ async function callUserFunction(
     savedParams[param] = ctx.vars[param];
   }
 
+  // Track array aliases we create (to clean up later)
+  const createdAliases: string[] = [];
+
   // Set up parameters
   for (let i = 0; i < func.params.length; i++) {
     const param = func.params[i];
-    const value = i < args.length ? await evalExpr(ctx, args[i]) : "";
-    ctx.vars[param] = value;
+    if (i < args.length) {
+      const arg = args[i];
+      // If argument is a simple variable, set up an array alias
+      // This allows arrays to be passed by reference
+      if (arg.type === "variable") {
+        ctx.arrayAliases.set(param, arg.name);
+        createdAliases.push(param);
+      }
+      const value = await evalExpr(ctx, arg);
+      ctx.vars[param] = value;
+    } else {
+      ctx.vars[param] = "";
+    }
   }
 
   // Execute function body
@@ -328,6 +342,11 @@ async function callUserFunction(
     } else {
       delete ctx.vars[param];
     }
+  }
+
+  // Clean up array aliases we created
+  for (const alias of createdAliases) {
+    ctx.arrayAliases.delete(alias);
   }
 
   ctx.hasReturn = false;
@@ -564,6 +583,12 @@ async function evalGetlineFromFile(
   }
 
   const filename = toAwkString(await evalExpr(ctx, fileExpr));
+
+  // Special handling for /dev/null - always returns EOF immediately
+  if (filename === "/dev/null") {
+    return 0;
+  }
+
   const filePath = ctx.fs.resolvePath(ctx.cwd, filename);
 
   // Use a special internal structure to track file state

@@ -20,6 +20,8 @@ export function getVariable(ctx: AwkRuntimeContext, name: string): AwkValue {
       return ctx.OFS;
     case "ORS":
       return ctx.ORS;
+    case "OFMT":
+      return ctx.OFMT;
     case "NR":
       return ctx.NR;
     case "NF":
@@ -59,6 +61,9 @@ export function setVariable(
     case "ORS":
       ctx.ORS = toAwkString(value);
       return;
+    case "OFMT":
+      ctx.OFMT = toAwkString(value);
+      return;
     case "NR":
       ctx.NR = Math.floor(toNumber(value));
       return;
@@ -97,6 +102,20 @@ export function setVariable(
 }
 
 /**
+ * Resolve array name through aliases (for function parameter passing).
+ */
+function resolveArrayName(ctx: AwkRuntimeContext, array: string): string {
+  // Follow alias chain to get the real array name
+  let resolved = array;
+  const seen = new Set<string>();
+  while (ctx.arrayAliases.has(resolved) && !seen.has(resolved)) {
+    seen.add(resolved);
+    resolved = ctx.arrayAliases.get(resolved)!;
+  }
+  return resolved;
+}
+
+/**
  * Get an array element value.
  */
 export function getArrayElement(
@@ -108,7 +127,13 @@ export function getArrayElement(
   if (array === "ARGV") {
     return ctx.ARGV[key] ?? "";
   }
-  return ctx.arrays[array]?.[key] ?? "";
+  // Handle built-in ENVIRON array
+  if (array === "ENVIRON") {
+    return ctx.ENVIRON[key] ?? "";
+  }
+  // Resolve aliases for function parameter passing
+  const resolvedArray = resolveArrayName(ctx, array);
+  return ctx.arrays[resolvedArray]?.[key] ?? "";
 }
 
 /**
@@ -120,10 +145,12 @@ export function setArrayElement(
   key: string,
   value: AwkValue,
 ): void {
-  if (!ctx.arrays[array]) {
-    ctx.arrays[array] = {};
+  // Resolve aliases for function parameter passing
+  const resolvedArray = resolveArrayName(ctx, array);
+  if (!ctx.arrays[resolvedArray]) {
+    ctx.arrays[resolvedArray] = {};
   }
-  ctx.arrays[array][key] = value;
+  ctx.arrays[resolvedArray][key] = value;
 }
 
 /**
@@ -137,7 +164,12 @@ export function hasArrayElement(
   if (array === "ARGV") {
     return ctx.ARGV[key] !== undefined;
   }
-  return ctx.arrays[array]?.[key] !== undefined;
+  if (array === "ENVIRON") {
+    return ctx.ENVIRON[key] !== undefined;
+  }
+  // Resolve aliases for function parameter passing
+  const resolvedArray = resolveArrayName(ctx, array);
+  return ctx.arrays[resolvedArray]?.[key] !== undefined;
 }
 
 /**
@@ -148,8 +180,10 @@ export function deleteArrayElement(
   array: string,
   key: string,
 ): void {
-  if (ctx.arrays[array]) {
-    delete ctx.arrays[array][key];
+  // Resolve aliases for function parameter passing
+  const resolvedArray = resolveArrayName(ctx, array);
+  if (ctx.arrays[resolvedArray]) {
+    delete ctx.arrays[resolvedArray][key];
   }
 }
 
@@ -157,5 +191,7 @@ export function deleteArrayElement(
  * Delete an entire array.
  */
 export function deleteArray(ctx: AwkRuntimeContext, array: string): void {
-  delete ctx.arrays[array];
+  // Resolve aliases for function parameter passing
+  const resolvedArray = resolveArrayName(ctx, array);
+  delete ctx.arrays[resolvedArray];
 }

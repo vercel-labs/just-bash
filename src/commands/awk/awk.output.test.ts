@@ -102,6 +102,44 @@ describe("awk output control", () => {
     });
   });
 
+  describe("printf with special features", () => {
+    it("should handle parenthesized printf", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "42" | awk '{ printf("%d\\n", $1) }'`,
+      );
+      expect(result.stdout).toBe("42\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle printf length modifiers", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "10" | awk '{ printf("%d %ld %lld\\n", $1, $1, $1) }'`,
+      );
+      expect(result.stdout).toBe("10 10 10\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle %*s width specifier", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { printf("a%*sb\\n", 5, "x") }'`,
+      );
+      expect(result.stdout).toBe("a    xb\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle negative %*s width specifier", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { printf("a%*sb\\n", -5, "x") }'`,
+      );
+      expect(result.stdout).toBe("ax    b\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
   describe("file output redirection", () => {
     it("should redirect to file with >", async () => {
       const env = new Bash();

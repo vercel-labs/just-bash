@@ -8,13 +8,26 @@ import type { AwkValue } from "./types.js";
 
 /**
  * Check if a value is truthy in AWK.
- * Numbers are truthy if non-zero, strings if non-empty.
+ * - Numbers: truthy if non-zero
+ * - Empty string: falsy
+ * - String "0": falsy (canonical string representation of zero)
+ * - All other non-empty strings: truthy (including "00", "0.0", etc.)
  */
 export function isTruthy(val: AwkValue): boolean {
   if (typeof val === "number") {
     return val !== 0;
   }
-  return val !== "";
+  // Empty string is always falsy
+  if (val === "") {
+    return false;
+  }
+  // Only the exact string "0" is falsy (canonical representation of zero)
+  // Other numeric-looking strings like "00", "0.0" are truthy as strings
+  if (val === "0") {
+    return false;
+  }
+  // All other non-empty strings are truthy
+  return true;
 }
 
 /**

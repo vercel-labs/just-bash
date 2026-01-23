@@ -82,16 +82,26 @@ export class AwkInterpreter {
 
   /**
    * Execute all END blocks.
+   * END blocks run even after exit is called, but exit from within
+   * an END block stops further END block execution.
    */
   async executeEnd(): Promise<void> {
-    if (!this.program || this.ctx.shouldExit) return;
+    if (!this.program) return;
+    // If we're already in END blocks (exit called from END), don't recurse
+    if (this.ctx.inEndBlock) return;
+
+    this.ctx.inEndBlock = true;
+    // Reset shouldExit so END blocks can execute, but preserve exitCode
+    this.ctx.shouldExit = false;
 
     for (const rule of this.program.rules) {
       if (rule.pattern?.type === "end") {
         await executeBlock(this.ctx, rule.action.statements);
-        if (this.ctx.shouldExit) break;
+        if (this.ctx.shouldExit) break; // exit from END block stops further END blocks
       }
     }
+
+    this.ctx.inEndBlock = false;
   }
 
   /**

@@ -250,6 +250,13 @@ export class AwkParser {
   // ─── Statement parsing ─────────────────────────────────────
 
   private parseStatement(): AwkStmt {
+    // Empty statement (just semicolon or newline before actual statement)
+    if (this.check(TokenType.SEMICOLON) || this.check(TokenType.NEWLINE)) {
+      this.advance();
+      // Return a no-op block for empty statements
+      return { type: "block", statements: [] };
+    }
+
     // Block
     if (this.check(TokenType.LBRACE)) {
       return this.parseBlock();
@@ -622,13 +629,28 @@ export class AwkParser {
   private parsePrintf(): AwkStmt {
     this.expect(TokenType.PRINTF);
 
-    // Use parsePrintArg to stop at > and >> (for redirection)
-    const format = this.parsePrintArg();
+    // AWK supports both:
+    //   printf format, arg1, arg2
+    //   printf(format, arg1, arg2)
+    // In the parenthesized form, commas are argument separators, NOT the comma operator
+
+    const hasParens = this.check(TokenType.LPAREN);
+    if (hasParens) {
+      this.advance(); // consume (
+    }
+
+    // Use parsePrintArg to stop at > and >> (for redirection) when not in parens
+    // When in parens, we use parseExpression for each argument (stops at , and ))
+    const format = hasParens ? this.parseExpression() : this.parsePrintArg();
     const args: AwkExpr[] = [];
 
     while (this.check(TokenType.COMMA)) {
       this.advance();
-      args.push(this.parsePrintArg());
+      args.push(hasParens ? this.parseExpression() : this.parsePrintArg());
+    }
+
+    if (hasParens) {
+      this.expect(TokenType.RPAREN);
     }
 
     // Check for output redirection

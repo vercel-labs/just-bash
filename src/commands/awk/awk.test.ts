@@ -1,6 +1,45 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
+describe("awk escape sequences", () => {
+  it("should handle hex escapes", async () => {
+    const env = new Bash();
+    const result = await env.exec(`awk 'BEGIN { print "H\\x49\\x4a\\x4BL" }'`);
+    expect(result.stdout).toBe("HIJKL\n");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("should handle octal escapes", async () => {
+    const env = new Bash();
+    const result = await env.exec(`awk 'BEGIN { print "0\\061\\62x\\0645" }'`);
+    expect(result.stdout).toBe("012x45\n");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("should handle special escapes (\\f\\r\\b\\v\\a)", async () => {
+    const env = new Bash();
+    const result = await env.exec(
+      `awk 'BEGIN { print "x\\f\\r\\b\\v\\a\\\\y" }'`,
+    );
+    expect(result.stdout).toBe("x\f\r\b\v\x07\\y\n");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("should print NF=0 for empty line", async () => {
+    const env = new Bash();
+    const result = await env.exec(`echo '' | awk '{ print NF }'`);
+    expect(result.stdout).toBe("0\n");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("should print NF=0 for tab-only line", async () => {
+    const env = new Bash();
+    const result = await env.exec(`echo $'\\t' | awk '{ print NF }'`);
+    expect(result.stdout).toBe("0\n");
+    expect(result.exitCode).toBe(0);
+  });
+});
+
 describe("awk command", () => {
   describe("basic field access", () => {
     it("should print entire line with $0", async () => {

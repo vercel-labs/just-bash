@@ -316,6 +316,18 @@ export class AwkLexer {
           case "r":
             value += "\r";
             break;
+          case "f":
+            value += "\f";
+            break;
+          case "b":
+            value += "\b";
+            break;
+          case "v":
+            value += "\v";
+            break;
+          case "a":
+            value += "\x07"; // bell/alert
+            break;
           case "\\":
             value += "\\";
             break;
@@ -325,8 +337,31 @@ export class AwkLexer {
           case "/":
             value += "/";
             break;
+          case "x": {
+            // Hex escape: \xHH
+            let hex = "";
+            while (hex.length < 2 && /[0-9a-fA-F]/.test(this.peek())) {
+              hex += this.advance();
+            }
+            if (hex.length > 0) {
+              value += String.fromCharCode(parseInt(hex, 16));
+            } else {
+              value += "x"; // No hex digits, treat as literal x
+            }
+            break;
+          }
           default:
-            value += escaped;
+            // Check for octal escape: \0 to \377
+            if (/[0-7]/.test(escaped)) {
+              let octal = escaped;
+              // Read up to 2 more octal digits (max 3 total)
+              while (octal.length < 3 && /[0-7]/.test(this.peek())) {
+                octal += this.advance();
+              }
+              value += String.fromCharCode(parseInt(octal, 8));
+            } else {
+              value += escaped;
+            }
         }
       } else {
         value += this.advance();
