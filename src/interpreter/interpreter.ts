@@ -115,6 +115,7 @@ import {
   GlobError,
   isScopeExitError,
   NounsetError,
+  PosixFatalError,
   ReturnError,
   SubshellExitError,
 } from "./errors.js";

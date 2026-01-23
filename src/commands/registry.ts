@@ -91,7 +91,8 @@ export type CommandName =
   | "tar"
   | "yq"
   | "xan"
-  | "sqlite3";
+  | "sqlite3"
+  | "time";
 
 /** Network command names (only available when network is configured) */
 export type NetworkCommandName = "curl";
@@ -367,6 +368,10 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "timeout",
     load: async () => (await import("./timeout/timeout.js")).timeoutCommand,
+  },
+  {
+    name: "time",
+    load: async () => (await import("./time/time.js")).timeCommand,
   },
   {
     name: "seq",

@@ -433,10 +433,23 @@ export function handleDeclare(
         markInteger(ctx, name);
       }
 
+      // Mark as lowercase if -l flag was used
+      if (declareLowercase) {
+        markLowercase(ctx, name);
+      }
+
+      // Mark as uppercase if -u flag was used
+      if (declareUppercase) {
+        markUppercase(ctx, name);
+      }
+
       // If variable has integer attribute (either just declared or previously), evaluate as arithmetic
       if (isInteger(ctx, name)) {
         value = evaluateIntegerValue(ctx, value);
       }
+
+      // Apply case transformation based on variable attributes
+      value = applyCaseTransform(ctx, name, value);
 
       // If this is an existing nameref (not being declared as one), write through it
       if (isNameref(ctx, name)) {
@@ -474,6 +487,16 @@ export function handleDeclare(
       // Mark as integer if -i flag was used
       if (declareInteger) {
         markInteger(ctx, name);
+      }
+
+      // Mark as lowercase if -l flag was used
+      if (declareLowercase) {
+        markLowercase(ctx, name);
+      }
+
+      // Mark as uppercase if -u flag was used
+      if (declareUppercase) {
+        markUppercase(ctx, name);
       }
 
       // Track associative array declaration

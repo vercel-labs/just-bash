@@ -143,6 +143,7 @@ export interface WordPartsAnalysis {
   hasArrayVar: boolean;
   hasArrayAtExpansion: boolean;
   hasParamExpansion: boolean;
+  hasVarNamePrefixExpansion: boolean;
 }
 
 /**
