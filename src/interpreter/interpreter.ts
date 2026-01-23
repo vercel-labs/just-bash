@@ -47,6 +47,7 @@ import {
   handleExit,
   handleExport,
   handleGetopts,
+  handleHash,
   handleLet,
   handleLocal,
   handleMapfile,
@@ -138,7 +139,11 @@ import {
   throwExecutionLimit,
 } from "./helpers/result.js";
 import { expandTildesInValue } from "./helpers/tilde.js";
-import { applyRedirections, preOpenOutputRedirects } from "./redirections.js";
+import {
+  applyRedirections,
+  preOpenOutputRedirects,
+  processFdVariableRedirections,
+} from "./redirections.js";
 import type { InterpreterContext, InterpreterState } from "./types.js";
 
 export type { InterpreterContext, InterpreterState } from "./types.js";
@@ -828,6 +833,20 @@ export class Interpreter {
       return result("", "", this.ctx.state.lastExitCode);
     }
 
+    // Process FD variable redirections ({varname}>file syntax)
+    // This allocates FDs and sets variables before command execution
+    const fdVarError = await processFdVariableRedirections(
+      this.ctx,
+      node.redirections,
+    );
+    if (fdVarError) {
+      for (const [name, value] of Object.entries(tempAssignments)) {
+        if (value === undefined) delete this.ctx.state.env[name];
+        else this.ctx.state.env[name] = value;
+      }
+      return fdVarError;
+    }
+
     for (const redir of node.redirections) {
       if (
         (redir.operator === "<<" || redir.operator === "<<-") &&
@@ -1316,7 +1335,10 @@ export class Interpreter {
     }
     if (commandName === "type") {
       // type - describe commands
-      return this.handleType(args);
+      return await this.handleType(args);
+    }
+    if (commandName === "hash") {
+      return handleHash(this.ctx, args);
     }
     // Test commands
     // Note: [[ is NOT handled here because it's a keyword, not a command.
@@ -1469,7 +1491,7 @@ export class Interpreter {
   // TYPE COMMAND
   // ===========================================================================
 
-  private handleType(args: string[]): ExecResult {
+  private async handleType(args: string[]): Promise<ExecResult> {
     // Shell keywords
     const keywords = new Set([
       "if",
@@ -1543,7 +1565,8 @@ export class Interpreter {
 
     // Parse options
     let typeOnly = false; // -t flag: print only the type word
-    let pathOnly = false; // -p/-P flag: print only paths to executables
+    let pathOnly = false; // -p flag: print only paths to executables (respects aliases/functions/builtins)
+    let forcePathSearch = false; // -P flag: force PATH search (ignores aliases/functions/builtins)
     const names: string[] = [];
 
     for (const arg of args) {
@@ -1552,8 +1575,10 @@ export class Interpreter {
         for (const char of arg.slice(1)) {
           if (char === "t") {
             typeOnly = true;
-          } else if (char === "p" || char === "P") {
+          } else if (char === "p") {
             pathOnly = true;
+          } else if (char === "P") {
+            forcePathSearch = true;
           }
           // Ignore -a, -f flags (not fully implemented)
         }
@@ -1565,64 +1590,150 @@ export class Interpreter {
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
+    let anyFound = false; // Track if any name was found (for -p/-P exit code)
 
     for (const name of names) {
+      // -P flag: force PATH search, ignoring aliases/functions/builtins
+      if (forcePathSearch) {
+        const pathResult = await this.findFirstInPath(name);
+        if (pathResult) {
+          stdout += `${pathResult}\n`;
+          anyFound = true;
+        }
+        // For -P, don't print anything if not found in PATH
+        continue;
+      }
+
       // Check aliases first (before other checks)
       // Aliases are stored in env with BASH_ALIAS_ prefix
       const alias = this.ctx.state.env[`BASH_ALIAS_${name}`];
       if (alias !== undefined) {
-        // -p/-P: print nothing for aliases (no path)
+        // -p: print nothing for aliases (no path)
         if (pathOnly) {
-          // Do nothing
+          // Do nothing - aliases have no path
         } else if (typeOnly) {
           stdout += "alias\n";
         } else {
           stdout += `${name} is aliased to \`${alias}'\n`;
         }
+        anyFound = true;
       } else if (keywords.has(name)) {
-        // -p/-P: print nothing for keywords (no path)
+        // -p: print nothing for keywords (no path)
         if (pathOnly) {
-          // Do nothing
+          // Do nothing - keywords have no path
         } else if (typeOnly) {
           stdout += "keyword\n";
         } else {
           stdout += `${name} is a shell keyword\n`;
         }
+        anyFound = true;
       } else if (builtins.has(name)) {
-        // -p/-P: print nothing for builtins (no path)
+        // -p: print nothing for builtins (no path)
         if (pathOnly) {
-          // Do nothing
+          // Do nothing - builtins have no path
         } else if (typeOnly) {
           stdout += "builtin\n";
         } else {
           stdout += `${name} is a shell builtin\n`;
         }
+        anyFound = true;
       } else if (this.ctx.state.functions.has(name)) {
-        // -p/-P: print nothing for functions (no path)
+        // -p: print nothing for functions (no path)
         if (pathOnly) {
-          // Do nothing
+          // Do nothing - functions have no path
         } else if (typeOnly) {
           stdout += "function\n";
         } else {
           stdout += `${name} is a function\n`;
         }
-      } else if (this.ctx.commands.has(name)) {
-        if (pathOnly) {
-          stdout += `/bin/${name}\n`;
-        } else if (typeOnly) {
-          stdout += "file\n";
-        } else {
-          stdout += `${name} is /bin/${name}\n`;
-        }
+        anyFound = true;
       } else {
-        if (!typeOnly && !pathOnly) {
-          stderr += `bash: type: ${name}: not found\n`;
+        // Check PATH for external command
+        const pathResult = await this.findFirstInPath(name);
+        if (pathResult) {
+          if (pathOnly) {
+            stdout += `${pathResult}\n`;
+          } else if (typeOnly) {
+            stdout += "file\n";
+          } else {
+            stdout += `${name} is ${pathResult}\n`;
+          }
+          anyFound = true;
+        } else {
+          if (!typeOnly && !pathOnly) {
+            stderr += `bash: type: ${name}: not found\n`;
+          }
         }
-        exitCode = 1;
       }
     }
 
+    // Set exit code based on whether anything was found
+    // For -p and -P: exit code 1 if no files were found
+    // For regular type: exit code 1 if any name wasn't found
+    if (pathOnly || forcePathSearch) {
+      exitCode = anyFound ? 0 : 1;
+    } else {
+      // Check if any names were not found (stderr will have errors for them)
+      exitCode = stderr ? 1 : 0;
+    }
+
     return result(stdout, stderr, exitCode);
+  }
+
+  /**
+   * Find the first occurrence of a command in PATH.
+   * Returns the full path if found, null otherwise.
+   * Only returns executable files, not directories.
+   */
+  private async findFirstInPath(name: string): Promise<string | null> {
+    // If name contains /, it's a path - check if it exists and is executable
+    if (name.includes("/")) {
+      const resolvedPath = this.ctx.fs.resolvePath(this.ctx.state.cwd, name);
+      if (await this.ctx.fs.exists(resolvedPath)) {
+        // Check if it's a directory
+        try {
+          const stat = await this.ctx.fs.stat(resolvedPath);
+          if (stat.isDirectory()) {
+            return null;
+          }
+        } catch {
+          // If stat fails, assume it's not a valid path
+          return null;
+        }
+        return resolvedPath;
+      }
+      return null;
+    }
+
+    // Search PATH directories
+    const pathEnv = this.ctx.state.env.PATH ?? "/bin:/usr/bin";
+    const pathDirs = pathEnv.split(":");
+
+    for (const dir of pathDirs) {
+      if (!dir) continue;
+      const fullPath = `${dir}/${name}`;
+      if (await this.ctx.fs.exists(fullPath)) {
+        // Check if it's a directory
+        try {
+          const stat = await this.ctx.fs.stat(fullPath);
+          if (stat.isDirectory()) {
+            continue; // Skip directories
+          }
+        } catch {
+          // If stat fails, skip this path
+          continue;
+        }
+        return fullPath;
+      }
+    }
+
+    // Fallback: check if command exists in registry (for OverlayFs compatibility)
+    const binExists = await this.ctx.fs.exists("/bin");
+    if (!binExists && this.ctx.commands.has(name)) {
+      return `/bin/${name}`;
+    }
+
+    return null;
   }
 
   /**
@@ -1889,6 +2000,15 @@ export class Interpreter {
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
+
+    // Process FD variable redirections ({varname}>file syntax)
+    const fdVarError = await processFdVariableRedirections(
+      this.ctx,
+      node.redirections,
+    );
+    if (fdVarError) {
+      return fdVarError;
+    }
 
     // Process heredoc and input redirections to get stdin content
     let effectiveStdin = stdin;

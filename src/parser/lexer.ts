@@ -81,6 +81,7 @@ export enum TokenType {
   NAME = "NAME", // Valid variable name
   NUMBER = "NUMBER", // For redirections like 2>&1
   ASSIGNMENT_WORD = "ASSIGNMENT_WORD", // VAR=value
+  FD_VARIABLE = "FD_VARIABLE", // {varname} before redirect operator
 
   // Comments
   COMMENT = "COMMENT",
@@ -515,6 +516,21 @@ export class Lexer {
 
     // Special cases with complex handling
     if (c0 === "{") {
+      // Check for FD variable syntax: {varname} immediately followed by redirect operator
+      // e.g., {fd}>file, {myvar}>>file, {fd}<&-
+      const fdVarResult = this.scanFdVariable(pos);
+      if (fdVarResult !== null) {
+        this.pos = fdVarResult.end;
+        this.column = startColumn + (fdVarResult.end - pos);
+        return {
+          type: TokenType.FD_VARIABLE,
+          value: fdVarResult.varname,
+          start: pos,
+          end: fdVarResult.end,
+          line: startLine,
+          column: startColumn,
+        };
+      }
       // Check for {} as a word (used in find -exec)
       if (c1 === "}") {
         this.pos = pos + 2;
@@ -1828,5 +1844,83 @@ export class Lexer {
     }
 
     return null;
+  }
+
+  /**
+   * Scan for FD variable syntax: {varname} immediately followed by a redirect operator.
+   * This is the bash 4.1+ feature where {fd}>file allocates an FD and stores it in variable.
+   * Returns the variable name and end position if found, null otherwise.
+   *
+   * Valid patterns:
+   * - {varname}>file, {varname}>>file, {varname}>|file
+   * - {varname}<file, {varname}<<word, {varname}<<<word
+   * - {varname}<>file
+   * - {varname}>&N, {varname}<&N
+   * - {varname}>&-, {varname}<&- (close FD)
+   */
+  private scanFdVariable(
+    startPos: number,
+  ): { varname: string; end: number } | null {
+    const input = this.input;
+    const len = input.length;
+    let pos = startPos + 1; // Skip the opening {
+
+    // Scan variable name (must be valid identifier)
+    const nameStart = pos;
+    while (pos < len) {
+      const c = input[pos];
+      if (pos === nameStart) {
+        // First char must be letter or underscore
+        if (!((c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c === "_")) {
+          return null;
+        }
+      } else {
+        // Subsequent chars can include digits
+        if (
+          !(
+            (c >= "a" && c <= "z") ||
+            (c >= "A" && c <= "Z") ||
+            (c >= "0" && c <= "9") ||
+            c === "_"
+          )
+        ) {
+          break;
+        }
+      }
+      pos++;
+    }
+
+    // Must have at least one character in the variable name
+    if (pos === nameStart) {
+      return null;
+    }
+
+    const varname = input.slice(nameStart, pos);
+
+    // Must be followed by closing brace
+    if (pos >= len || input[pos] !== "}") {
+      return null;
+    }
+    pos++; // Skip the closing }
+
+    // Must be immediately followed by a redirect operator (no whitespace)
+    if (pos >= len) {
+      return null;
+    }
+
+    const c = input[pos];
+    const c2 = pos + 1 < len ? input[pos + 1] : "";
+
+    // Check for valid redirect operators
+    const isRedirectOp =
+      c === ">" || // >, >>, >&, >|
+      c === "<" || // <, <<, <&, <<<, <>
+      (c === "&" && (c2 === ">" || c2 === "<")); // &>, &>>
+
+    if (!isRedirectOp) {
+      return null;
+    }
+
+    return { varname, end: pos };
   }
 }

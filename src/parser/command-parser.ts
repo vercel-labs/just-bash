@@ -14,7 +14,11 @@ import {
 } from "../ast/types.js";
 import { TokenType } from "./lexer.js";
 import type { Parser } from "./parser.js";
-import { REDIRECTION_AFTER_NUMBER, REDIRECTION_TOKENS } from "./types.js";
+import {
+  REDIRECTION_AFTER_FD_VARIABLE,
+  REDIRECTION_AFTER_NUMBER,
+  REDIRECTION_TOKENS,
+} from "./types.js";
 import * as WordParser from "./word-parser.js";
 
 export function isRedirection(p: Parser): boolean {
@@ -32,15 +36,27 @@ export function isRedirection(p: Parser): boolean {
     return REDIRECTION_AFTER_NUMBER.has(nextToken.type);
   }
 
+  // Check for FD variable followed by redirection operator
+  // e.g., {fd}>file allocates an FD and stores it in variable
+  if (t === TokenType.FD_VARIABLE) {
+    const nextToken = p.peek(1);
+    return REDIRECTION_AFTER_FD_VARIABLE.has(nextToken.type);
+  }
+
   return REDIRECTION_TOKENS.has(t);
 }
 
 export function parseRedirection(p: Parser): RedirectionNode {
   let fd: number | null = null;
+  let fdVariable: string | undefined;
 
-  // Parse optional file descriptor
+  // Parse optional file descriptor number
   if (p.check(TokenType.NUMBER)) {
     fd = Number.parseInt(p.advance().value, 10);
+  }
+  // Parse FD variable syntax: {varname}>file
+  else if (p.check(TokenType.FD_VARIABLE)) {
+    fdVariable = p.advance().value;
   }
 
   // Parse operator
@@ -66,7 +82,7 @@ export function parseRedirection(p: Parser): RedirectionNode {
   }
 
   const target = p.parseWord();
-  return AST.redirection(operator, target, fd);
+  return AST.redirection(operator, target, fd, fdVariable);
 }
 
 function parseHeredocStart(

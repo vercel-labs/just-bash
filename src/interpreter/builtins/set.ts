@@ -1,8 +1,12 @@
 /**
  * set - Set/unset shell options builtin
+ *
+ * In POSIX mode (set -o posix), errors from set (like invalid options)
+ * cause the script to exit immediately.
  */
 
 import type { ExecResult } from "../../types.js";
+import { PosixFatalError } from "../errors.js";
 import { failure, OK, success } from "../helpers/result.js";
 import type { InterpreterContext, ShellOptions } from "../types.js";
 
@@ -174,9 +178,12 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
     if ((arg === "-o" || arg === "+o") && hasNonOptionArg(args, i)) {
       const optName = args[i + 1];
       if (!(optName in LONG_OPTION_MAP)) {
-        return failure(
-          `bash: set: ${optName}: invalid option name\n${SET_USAGE}`,
-        );
+        const errorMsg = `bash: set: ${optName}: invalid option name\n${SET_USAGE}`;
+        // In POSIX mode, invalid option is fatal
+        if (ctx.state.options.posix) {
+          throw new PosixFatalError(1, "", errorMsg);
+        }
+        return failure(errorMsg);
       }
       setShellOption(ctx, LONG_OPTION_MAP[optName], arg === "-o");
       i += 2;
@@ -215,9 +222,12 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
       for (let j = 1; j < arg.length; j++) {
         const flag = arg[j];
         if (!(flag in SHORT_OPTION_MAP)) {
-          return failure(
-            `bash: set: ${arg[0]}${flag}: invalid option\n${SET_USAGE}`,
-          );
+          const errorMsg = `bash: set: ${arg[0]}${flag}: invalid option\n${SET_USAGE}`;
+          // In POSIX mode, invalid option is fatal
+          if (ctx.state.options.posix) {
+            throw new PosixFatalError(1, "", errorMsg);
+          }
+          return failure(errorMsg);
         }
         setShellOption(ctx, SHORT_OPTION_MAP[flag], enable);
       }
@@ -251,7 +261,12 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
 
     // Invalid option
     if (arg.startsWith("-") || arg.startsWith("+")) {
-      return failure(`bash: set: ${arg}: invalid option\n${SET_USAGE}`);
+      const errorMsg = `bash: set: ${arg}: invalid option\n${SET_USAGE}`;
+      // In POSIX mode, invalid option is fatal
+      if (ctx.state.options.posix) {
+        throw new PosixFatalError(1, "", errorMsg);
+      }
+      return failure(errorMsg);
     }
 
     // Non-option arguments are positional parameters

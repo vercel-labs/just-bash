@@ -233,6 +233,11 @@ export interface RedirectionNode extends ASTNode {
   type: "Redirection";
   /** File descriptor (default depends on operator) */
   fd: number | null;
+  /**
+   * Variable name for automatic FD allocation ({varname}>file syntax).
+   * When set, bash allocates an FD >= 10 and stores the number in this variable.
+   */
+  fdVariable?: string;
   operator: RedirectionOperator;
   target: WordNode | HereDocNode;
 }
@@ -909,8 +914,13 @@ export const AST = {
     operator: RedirectionOperator,
     target: WordNode | HereDocNode,
     fd: number | null = null,
+    fdVariable?: string,
   ): RedirectionNode {
-    return { type: "Redirection", fd, operator, target };
+    const node: RedirectionNode = { type: "Redirection", fd, operator, target };
+    if (fdVariable) {
+      node.fdVariable = fdVariable;
+    }
+    return node;
   },
 
   hereDoc(

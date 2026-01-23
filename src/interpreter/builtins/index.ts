@@ -29,6 +29,7 @@ export { handleEval } from "./eval.js";
 export { handleExit } from "./exit.js";
 export { handleExport } from "./export.js";
 export { handleGetopts } from "./getopts.js";
+export { handleHash } from "./hash.js";
 export { handleLet } from "./let.js";
 export { handleLocal } from "./local.js";
 export { handleMapfile } from "./mapfile.js";

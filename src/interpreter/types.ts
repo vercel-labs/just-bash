@@ -100,6 +100,10 @@ export interface InterpreterState {
   namerefs?: Set<string>;
   /** Set of variable names that have integer attribute (declare -i) */
   integerVars?: Set<string>;
+  /** Set of variable names that have lowercase attribute (declare -l) */
+  lowercaseVars?: Set<string>;
+  /** Set of variable names that have uppercase attribute (declare -u) */
+  uppercaseVars?: Set<string>;
   /** Hash table for PATH command lookup caching */
   hashTable?: Map<string, string>;
   /** Set of exported variable names */
@@ -108,6 +112,8 @@ export interface InterpreterState {
   callLineStack?: number[];
   /** File descriptors for process substitution and here-docs */
   fileDescriptors?: Map<number, string>;
+  /** Next available file descriptor for {varname}>file allocation (starts at 10) */
+  nextFd?: number;
   /** True when the last executed statement's exit code is "safe" for errexit purposes
    *  (e.g., from a &&/|| chain where the failure wasn't the final command) */
   errexitSafe?: boolean;

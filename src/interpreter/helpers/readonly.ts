@@ -60,10 +60,3 @@ export function markExported(ctx: InterpreterContext, name: string): void {
   ctx.state.exportedVars = ctx.state.exportedVars || new Set();
   ctx.state.exportedVars.add(name);
 }
-
-/**
- * Check if a variable is exported.
- */
-export function isExported(ctx: InterpreterContext, name: string): boolean {
-  return ctx.state.exportedVars?.has(name) ?? false;
-}

@@ -6,9 +6,13 @@
  * Shifts positional parameters to the left by n (default 1).
  * $n+1 becomes $1, $n+2 becomes $2, etc.
  * $# is decremented by n.
+ *
+ * In POSIX mode (set -o posix), errors from shift (like shift count
+ * exceeding available parameters) cause the script to exit immediately.
  */
 
 import type { ExecResult } from "../../types.js";
+import { PosixFatalError } from "../errors.js";
 import { failure, OK } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -22,7 +26,12 @@ export function handleShift(
   if (args.length > 0) {
     const parsed = Number.parseInt(args[0], 10);
     if (Number.isNaN(parsed) || parsed < 0) {
-      return failure(`bash: shift: ${args[0]}: numeric argument required\n`);
+      const errorMsg = `bash: shift: ${args[0]}: numeric argument required\n`;
+      // In POSIX mode, this error is fatal
+      if (ctx.state.options.posix) {
+        throw new PosixFatalError(1, "", errorMsg);
+      }
+      return failure(errorMsg);
     }
     n = parsed;
   }
@@ -32,7 +41,12 @@ export function handleShift(
 
   // Check if shift count exceeds available parameters
   if (n > currentCount) {
-    return failure("bash: shift: shift count out of range\n");
+    const errorMsg = "bash: shift: shift count out of range\n";
+    // In POSIX mode, this error is fatal
+    if (ctx.state.options.posix) {
+      throw new PosixFatalError(1, "", errorMsg);
+    }
+    return failure(errorMsg);
   }
 
   // If n is 0, do nothing

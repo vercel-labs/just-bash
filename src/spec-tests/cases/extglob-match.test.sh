@@ -6,7 +6,7 @@
 # Test extended glob matching with [[, case, etc.
 
 #### @ matches exactly one
-## SKIP: extglob not implemented
+## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ --verbose == --@(help|verbose) ]] && echo TRUE
 [[ --oops == --@(help|verbose) ]] || echo FALSE
 ## STDOUT:
@@ -15,7 +15,7 @@ FALSE
 ## END
 
 #### @() with variable arms
-## SKIP: extglob not implemented
+## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 choice1='help'
 choice2='verbose'
 [[ --verbose == --@($choice1|$choice2) ]] && echo TRUE
@@ -53,7 +53,7 @@ FALSE
 ## END
 
 #### Matching literal '@(cc)'
-## SKIP: extglob not implemented
+## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 
 # extglob is OFF.  Doesn't affect bash or mksh!
 [[ cc == @(cc) ]] 
@@ -93,7 +93,7 @@ FALSE
 ## END
 
 #### nested @() with quotes and vars
-## SKIP: extglob not implemented
+## SKIP: variable expansion inside nested extglob patterns not implemented
 shopt -s extglob
 prefix=no
 [[ --no-long-option == --@(help|verbose|$prefix-@(long|short)-'option') ]] &&
@@ -103,7 +103,7 @@ TRUE
 ## END
 
 #### ? matches 0 or 1
-## SKIP: extglob not implemented
+## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ -- == --?(help|verbose) ]] && echo TRUE
 [[ --oops == --?(help|verbose) ]] || echo FALSE
 ## STDOUT:
@@ -112,7 +112,7 @@ FALSE
 ## END
 
 #### + matches 1 or more
-## SKIP: extglob not implemented
+## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ --helphelp == --+(help|verbose) ]] && echo TRUE
 [[ -- == --+(help|verbose) ]] || echo FALSE
 ## STDOUT:
@@ -121,7 +121,7 @@ FALSE
 ## END
 
 #### * matches 0 or more
-## SKIP: extglob not implemented
+## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ -- == --*(help|verbose) ]] && echo TRUE
 [[ --oops == --*(help|verbose) ]] || echo FALSE
 ## STDOUT:
@@ -130,7 +130,7 @@ FALSE
 ## END
 
 #### simple repetition with *(foo) and +(Foo)
-## SKIP: extglob not implemented
+## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ foofoo == *(foo) ]] && echo TRUE
 [[ foofoo == +(foo) ]] && echo TRUE
 ## STDOUT:
@@ -139,7 +139,7 @@ TRUE
 ## END
 
 #### ! matches none
-## SKIP: extglob not implemented
+## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ --oops == --!(help|verbose) ]] && echo TRUE
 [[ --help == --!(help|verbose) ]] || echo FALSE
 ## STDOUT:
@@ -148,7 +148,7 @@ FALSE
 ## END
 
 #### match is anchored
-## SKIP: extglob not implemented
+## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ foo_ == @(foo) ]] || echo FALSE
 [[ _foo == @(foo) ]] || echo FALSE
 [[ foo == @(foo) ]] && echo TRUE
@@ -159,7 +159,7 @@ TRUE
 ## END
 
 #### repeated match is anchored
-## SKIP: extglob not implemented
+## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ foofoo_ == +(foo) ]] || echo FALSE
 [[ _foofoo == +(foo) ]] || echo FALSE
 [[ foofoo == +(foo) ]] && echo TRUE
@@ -170,7 +170,7 @@ TRUE
 ## END
 
 #### repetition with glob
-## SKIP: extglob not implemented
+## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 # NOTE that * means two different things here
 [[ foofoo_foo__foo___ == *(foo*) ]] && echo TRUE
 [[ Xoofoo_foo__foo___ == *(foo*) ]] || echo FALSE
@@ -180,7 +180,7 @@ FALSE
 ## END
 
 #### No brace expansion in ==
-## SKIP: extglob not implemented
+## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ --X{a,b}X == --@(help|X{a,b}X) ]] && echo TRUE
 [[ --oops == --@(help|X{a,b}X) ]] || echo FALSE
 ## STDOUT:
@@ -189,7 +189,7 @@ FALSE
 ## END
 
 #### adjacent extglob
-## SKIP: extglob not implemented
+## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ --help == @(--|++)@(help|verbose) ]] && echo TRUE
 [[ ++verbose == @(--|++)@(help|verbose) ]] && echo TRUE
 ## STDOUT:
@@ -198,7 +198,7 @@ TRUE
 ## END
 
 #### nested extglob
-## SKIP: extglob not implemented
+## SKIP: extglob patterns not recognized in [[ ]] by default (requires shopt -s extglob)
 [[ --help == --@(help|verbose=@(1|2)) ]] && echo TRUE
 [[ --verbose=1 == --@(help|verbose=@(1|2)) ]] && echo TRUE
 [[ --verbose=2 == --@(help|verbose=@(1|2)) ]] && echo TRUE
@@ -268,7 +268,7 @@ D
 ## END
 
 #### [[ $x == !($str) ]]
-## SKIP: extglob not implemented
+## SKIP: !() negation extglob pattern matching not implemented
 shopt -s extglob
 empty=''
 str='x'
@@ -280,7 +280,7 @@ FALSE
 ## END
 
 #### Turning extglob on changes the meaning of [[ !(str) ]] in bash
-## SKIP: extglob not implemented
+## SKIP: !() semantic change with extglob (negation vs pattern) not implemented
 empty=''
 str='x'
 [[ !($empty) ]]  && echo TRUE   # test if $empty is empty
@@ -301,7 +301,7 @@ TRUE
 ## END
 
 #### With extglob on, !($str) on the left or right of == has different meanings
-## SKIP: extglob not implemented
+## SKIP: !() negation extglob pattern matching not implemented
 shopt -s extglob
 str='x'
 [[ 1 == !($str) ]]  && echo TRUE   # glob match
@@ -365,7 +365,7 @@ echo $?
 ## END
 
 #### Extended glob in ${x//pat/replace}
-## SKIP: extglob not implemented
+## SKIP: extglob in parameter expansion patterns not implemented
 # not supported in OSH due to GlobToERE() strategy for positional info
 
 shopt -s extglob
@@ -378,7 +378,7 @@ foZ
 ## N-I osh stdout-json: ""
 
 #### Extended glob in ${x%PATTERN}
-## SKIP: extglob not implemented
+## SKIP: extglob in parameter expansion patterns not implemented
 
 shopt -s extglob
 x=foo.py

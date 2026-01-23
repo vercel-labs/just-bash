@@ -150,7 +150,7 @@ aaa aBC DEF
 ## END
 
 #### Lower Case glob
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: Case conversion with glob pattern constraint not implemented
 
 # Hm with C.UTF-8, this does no case folding?
 export LC_ALL=en_US.UTF-8
@@ -470,7 +470,7 @@ A
 
 
 #### Array expansion with nullary var op @Q
-## SKIP: brace expansion {1..9} returning literal; ${arr[@]@Q} not working on arrays
+## SKIP: brace expansion in declare -a=({..}) returns literal; ${arr[@]@Q} not working on arrays
 declare -a a=({1..9})
 declare -A A=(['a']=hello ['b']=world ['c']=osh ['d']=ysh)
 
@@ -501,7 +501,7 @@ argv.py "${u[*]@Q}"
 
 
 #### Array expansion with nullary var op @P
-## SKIP: brace expansion {1..9} returning literal; ${arr[@]@P} not working on arrays
+## SKIP: brace expansion in declare -a=({..}) returns literal; ${arr[@]@P} not working on arrays
 declare -a a=({1..9})
 declare -A A=(['a']=hello ['b']=world ['c']=osh ['d']=ysh)
 
@@ -532,7 +532,7 @@ argv.py "${u[*]@P}"
 
 
 #### Array expansion with nullary var op @a
-## SKIP: brace expansion {1..9} returning literal; ${arr[@]@a} not working on arrays
+## SKIP: brace expansion in declare -a=({..}) returns literal; ${arr[@]@a} not working on arrays
 declare -a a=({1..9})
 declare -A A=(['a']=hello ['b']=world ['c']=osh ['d']=ysh)
 

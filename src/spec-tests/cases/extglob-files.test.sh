@@ -43,7 +43,7 @@ echo @(*.cc|*.h)
 ## stdout: bar.cc bar.h baz.h foo.cc foo.h
 
 #### ?() matches 0 or 1
-## SKIP: extglob not implemented
+## SKIP: variable expansion in extglob file glob patterns not implemented
 shopt -s extglob
 mkdir -p 1
 cd 1
@@ -60,7 +60,7 @@ echo eg1/_*(One|Two)
 ## stdout: eg1/_ eg1/_One eg1/_OneOne eg1/_OneTwo eg1/_TwoTwo
 
 #### +() matches 1 or more
-## SKIP: extglob not implemented
+## SKIP: command substitution in extglob file glob patterns not implemented
 shopt -s extglob
 mkdir -p eg2
 touch eg2/_ eg2/_One eg2/_OneOne eg2/_TwoTwo eg2/_OneTwo
@@ -76,7 +76,7 @@ echo extglob2/!(*.h|*.cc)
 ## stdout: extglob2/bar.py extglob2/baz.py extglob2/foo.py
 
 #### Two adjacent alternations
-## SKIP: extglob not implemented
+## SKIP: adjacent !() and @() extglob patterns not matching correctly
 shopt -s extglob
 mkdir -p 2
 touch 2/{aa,ab,ac,ba,bb,bc,ca,cb,cc}
@@ -134,7 +134,7 @@ argv.py eg6/@(no|matches)  # no matches
 ## END
 
 #### Glob other punctuation chars (lexer mode)
-## SKIP: extglob not implemented
+## SKIP: extglob with special shell chars in quoted alternatives not implemented
 shopt -s extglob
 mkdir -p eg5
 cd eg5
@@ -147,7 +147,7 @@ argv.py @(__aa|'__<>'|__{}|__#|__&&|)
 ## END
 
 #### More glob escaping
-## SKIP: extglob not implemented
+## SKIP: extglob with quoted glob metacharacters in alternatives not implemented
 shopt -s extglob
 mkdir -p eg7
 cd eg7
@@ -162,7 +162,7 @@ argv.py @(nested|'_?'|@('_[:]'|'_*'))
 ## END
 
 #### Escaping of pipe (glibc bug, see demo/glibc_fnmatch.c)
-## SKIP: extglob not implemented
+## SKIP: escaped pipe in extglob pattern not implemented
 shopt -s extglob
 
 mkdir -p extpipe
@@ -208,7 +208,7 @@ bar.py foo.py spam.py
 ## END
 
 #### Extended glob in assignment builtin
-## SKIP: extglob not implemented
+## SKIP: extglob pattern in typeset flag position not implemented
 
 # Another invocation of _EvalWordToParts() that OSH should handle
 
@@ -229,7 +229,7 @@ status=1
 ## END
 
 #### Extended glob in same word as array
-## SKIP: extglob not implemented
+## SKIP: extglob combined with array expansion not implemented
 shopt -s extglob
 mkdir -p eg10
 cd eg10
@@ -311,7 +311,7 @@ builtin write -- @(fo*|bar).py
 ## END
 
 #### no match
-## SKIP: extglob not implemented
+## SKIP: extglob no-match fallback behavior not implemented
 shopt -s extglob
 echo @(__nope__)
 
@@ -331,7 +331,7 @@ echo ,(osh|style)
 ## END
 
 #### no_dash_glob
-## SKIP: extglob not implemented
+## SKIP: no_dash_glob shopt option not implemented
 shopt -s extglob
 mkdir -p opts
 cd opts

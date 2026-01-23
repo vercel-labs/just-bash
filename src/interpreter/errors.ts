@@ -211,3 +211,24 @@ export function isScopeExitError(
     error instanceof ReturnError
   );
 }
+
+/**
+ * Error thrown when a POSIX special builtin fails in POSIX mode.
+ * In POSIX mode (set -o posix), errors in special builtins like
+ * shift, set, readonly, export, etc. cause the entire script to exit.
+ *
+ * Per POSIX 2.8.1 - Consequences of Shell Errors:
+ * "A special built-in utility causes an interactive or non-interactive shell
+ * to exit when an error occurs."
+ */
+export class PosixFatalError extends ControlFlowError {
+  readonly name = "PosixFatalError";
+
+  constructor(
+    public readonly exitCode: number,
+    stdout: string = "",
+    stderr: string = "",
+  ) {
+    super("posix fatal error", stdout, stderr);
+  }
+}

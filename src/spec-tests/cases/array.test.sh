@@ -502,7 +502,7 @@ echo "${a[@]}"
 ## stdout: -a -b c- d-
 
 #### array default
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: Array expansion in default value doesn't produce separate args
 default=('1 2' '3')
 argv.py "${undef[@]:-${default[@]}}"
 ## stdout: ['1 2', '3']

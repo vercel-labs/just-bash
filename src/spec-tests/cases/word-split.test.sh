@@ -281,7 +281,6 @@ hi
 ## END
 
 #### IFS and joining arrays
-## SKIP: Unquoted $@ keeps params separate in bash regardless of IFS
 IFS=:
 set -- x 'y z'
 argv.py "$@"
@@ -500,7 +499,6 @@ noglob
 
 
 #### Empty IFS bug #2141 (from pnut)
-## SKIP: Empty IFS with unquoted $@ keeps params separate in bash
 
 res=0
 sum() {
@@ -538,7 +536,7 @@ sum 12 30 # fails with "fatal: Undefined variable '2'" on res=$(($1 + $2))
 ## END
 
 #### Unicode in IFS
-## SKIP: Read-write file descriptor (<>) not implemented
+## SKIP: Unicode characters in IFS not fully supported
 
 # bash, zsh, and yash support unicode in IFS, but dash/mksh/ash don't.
 
@@ -642,7 +640,7 @@ argv.py ' "$@" ' "$@"
 ## END
 
 #### 4 x 3 table - with for loop
-## SKIP: zsh setopt not supported
+## SKIP: Empty positional parameter handling differs from bash
 case $SH in yash) exit ;; esac  # no echo -n
 
 setopt SH_WORD_SPLIT  # for zsh
@@ -789,7 +787,6 @@ argv.py =$*=
 ## END
 
 #### IFS=x and '' and $@ (#3)
-## SKIP: IFS with empty args and $@ not implemented
 setopt SH_WORD_SPLIT  # for zsh
 
 IFS=x

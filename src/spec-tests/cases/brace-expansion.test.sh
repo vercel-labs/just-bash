@@ -55,7 +55,7 @@ echo -{$a,b}-
 ## stdout: -A- -b-
 
 #### double expansion with simple var -- bash bug
-## SKIP: Brace expansion with variables order not implemented
+## SKIP: just-bash produces correct output but bash has a bug we don't emulate
 # bash is inconsistent with the above
 a=A
 echo {$a,b}_{c,d}
@@ -69,7 +69,7 @@ echo {${a},b}_{c,d}
 ## stdout: A_c A_d b_c b_d
 
 #### double expansion with literal and simple var
-## SKIP: Double brace expansion with variables not implemented
+## SKIP: just-bash produces correct output but bash has a bug we don't emulate
 a=A
 echo {_$a,b}_{c,d}
 ## stdout: _A_c _A_d b_c b_d
@@ -372,7 +372,7 @@ echo -{e..a..2}-
 ## N-I mksh/zsh status: 0
 
 #### Mixed case char expansion is invalid
-## SKIP: Mixed case character ranges in brace expansion not implemented
+## SKIP: just-bash treats mixed case ranges as literal (like mksh) instead of erroring (like bash)
 case $SH in *zsh) echo BUG; exit ;; esac
 echo -{z..A}-
 echo -{z..A..2}-

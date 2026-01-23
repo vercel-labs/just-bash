@@ -47,6 +47,7 @@ import {
   getIfs,
   getIfsSeparator,
   isIfsEmpty,
+  splitByIfsForExpansion,
 } from "./helpers/ifs.js";
 import { getNamerefTarget, isNameref } from "./helpers/nameref.js";
 import { isReadonly } from "./helpers/readonly.js";
@@ -955,9 +956,107 @@ export async function expandWordWithGlob(
     }
   }
 
-  // Note: Unquoted $@ and $* are handled by normal expansion + word splitting.
-  // They expand to positional parameters joined by space, then split on IFS.
-  // The special handling above is only for quoted "$@" and "$*" inside double quotes.
+  // Special handling for unquoted $@ and $*
+  // $@ unquoted: Each positional parameter becomes a separate word, then each is subject to IFS splitting
+  // $* unquoted: All params are joined by IFS[0], then the result is split by IFS
+  //
+  // Key difference:
+  // - $@ preserves parameter boundaries first, then splits each
+  // - $* joins first, then splits (so empty params may collapse)
+  if (
+    wordParts.length === 1 &&
+    wordParts[0].type === "ParameterExpansion" &&
+    (wordParts[0].parameter === "@" || wordParts[0].parameter === "*") &&
+    !wordParts[0].operation
+  ) {
+    const isStar = wordParts[0].parameter === "*";
+    const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+    if (numParams === 0) {
+      return { values: [], quoted: false };
+    }
+
+    // Get individual positional parameters
+    const params: string[] = [];
+    for (let i = 1; i <= numParams; i++) {
+      params.push(ctx.state.env[String(i)] || "");
+    }
+
+    const ifsChars = getIfs(ctx.state.env);
+    const ifsEmpty = isIfsEmpty(ctx.state.env);
+
+    let allWords: string[];
+
+    if (isStar) {
+      // $* - join params with IFS[0], then split result by IFS
+      const ifsSep = getIfsSeparator(ctx.state.env);
+      const joined = params.join(ifsSep);
+
+      if (ifsEmpty) {
+        // Empty IFS - no splitting
+        allWords = joined ? [joined] : [];
+      } else {
+        // Split the joined string by IFS using proper splitting rules
+        allWords = splitByIfsForExpansion(joined, ifsChars);
+      }
+    } else {
+      // $@ - each param is a separate word, then each is subject to IFS splitting
+      if (ifsEmpty) {
+        // Empty IFS - no splitting, return params as-is
+        allWords = params;
+      } else {
+        allWords = [];
+
+        for (const param of params) {
+          if (param === "") {
+            // Empty params are preserved as empty words for $@
+            allWords.push("");
+          } else {
+            // Split this param by IFS using proper splitting rules
+            const parts = splitByIfsForExpansion(param, ifsChars);
+            allWords.push(...parts);
+          }
+        }
+      }
+    }
+
+    // Apply glob expansion to each word
+    if (ctx.state.options.noglob) {
+      return { values: allWords, quoted: false };
+    }
+
+    const globExpander = new GlobExpander(
+      ctx.fs,
+      ctx.state.cwd,
+      ctx.state.env,
+      {
+        globstar: ctx.state.shoptOptions.globstar,
+        nullglob: ctx.state.shoptOptions.nullglob,
+        failglob: ctx.state.shoptOptions.failglob,
+        dotglob: ctx.state.shoptOptions.dotglob,
+        extglob: ctx.state.shoptOptions.extglob,
+      },
+    );
+
+    const expandedValues: string[] = [];
+    for (const w of allWords) {
+      if (hasGlobPattern(w, ctx.state.shoptOptions.extglob)) {
+        const matches = await globExpander.expand(w);
+        if (matches.length > 0) {
+          expandedValues.push(...matches);
+        } else if (globExpander.hasFailglob()) {
+          throw new GlobError(w);
+        } else if (globExpander.hasNullglob()) {
+          // skip
+        } else {
+          expandedValues.push(w);
+        }
+      } else {
+        expandedValues.push(w);
+      }
+    }
+
+    return { values: expandedValues, quoted: false };
+  }
 
   // No brace expansion or single value - use original logic
   // Word splitting based on IFS

@@ -35,7 +35,7 @@ echo [!bin
 ## stdout: [!bin
 
 #### glob can expand to command and arg
-## SKIP: Test data directory not available
+## SKIP: Test requires script execution and REPO_ROOT setup
 cd $REPO_ROOT
 spec/testdata/echo.s[hz]
 ## stdout: spec/testdata/echo.sz
@@ -171,7 +171,7 @@ echo $var
 ## END
 
 #### Splitting/Globbing doesn't happen on local assignment
-## SKIP: Test data directory not available
+## SKIP: local builtin incorrectly splits/globs assignment values
 cd $REPO_ROOT
 
 f() {

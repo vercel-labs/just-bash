@@ -41,7 +41,7 @@ two]
 ## END
 
 #### ${ echo hi }  without semi-colon
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: ksh-style ${ cmd } command substitution not implemented
 
 x=${ echo no-semi }
 echo "[$x]"
@@ -61,7 +61,7 @@ x=${ ~/ysh-tilde-sub }
 ## END
 
 #### ${|REPLY=hi}
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: ksh-style ${|cmd} command substitution not implemented
 
 x=${|y=" reply var "; REPLY=$y}
 echo "[$x]"
@@ -87,7 +87,7 @@ echo "[$x]"
 
 
 #### for loop / case
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: ksh-style ${ cmd } command substitution not implemented
 
 x=${ for i in a b; do echo -$i-; done; }
 echo "$x"

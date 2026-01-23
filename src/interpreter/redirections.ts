@@ -7,6 +7,7 @@
  * - 2> : Write stderr to file
  * - &> : Write both stdout and stderr to file
  * - >& : Redirect fd to another fd
+ * - {fd}>file : Allocate FD and store in variable
  */
 
 import type { RedirectionNode, WordNode } from "../ast/types.js";
@@ -14,6 +15,127 @@ import type { ExecResult } from "../types.js";
 import { expandRedirectTarget, expandWord } from "./expansion.js";
 import { result as makeResult } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
+
+/**
+ * Allocate the next available file descriptor (starting at 10).
+ * Returns the allocated FD number.
+ */
+function allocateFd(ctx: InterpreterContext): number {
+  if (ctx.state.nextFd === undefined) {
+    ctx.state.nextFd = 10;
+  }
+  const fd = ctx.state.nextFd;
+  ctx.state.nextFd++;
+  return fd;
+}
+
+/**
+ * Process FD variable redirections ({varname}>file syntax).
+ * This allocates FDs and sets variables before command execution.
+ * Returns an error result if there's an issue, or null if successful.
+ */
+export async function processFdVariableRedirections(
+  ctx: InterpreterContext,
+  redirections: RedirectionNode[],
+): Promise<ExecResult | null> {
+  for (const redir of redirections) {
+    if (!redir.fdVariable) {
+      continue;
+    }
+
+    // Initialize fileDescriptors map if needed
+    if (!ctx.state.fileDescriptors) {
+      ctx.state.fileDescriptors = new Map();
+    }
+
+    // Handle close operation: {fd}>&- or {fd}<&-
+    // For close operations, we look up the existing variable value (the FD number)
+    // and close that FD, rather than allocating a new one.
+    if (
+      (redir.operator === ">&" || redir.operator === "<&") &&
+      redir.target.type === "Word"
+    ) {
+      const target = await expandWord(ctx, redir.target as WordNode);
+      if (target === "-") {
+        // Close operation - look up the FD from the variable and close it
+        const existingFd = ctx.state.env[redir.fdVariable];
+        if (existingFd !== undefined) {
+          const fdNum = Number.parseInt(existingFd, 10);
+          if (!Number.isNaN(fdNum)) {
+            ctx.state.fileDescriptors.delete(fdNum);
+          }
+        }
+        // Don't allocate a new FD for close operations
+        continue;
+      }
+    }
+
+    // Allocate a new FD (for non-close operations)
+    const fd = allocateFd(ctx);
+
+    // Set the variable to the allocated FD number
+    ctx.state.env[redir.fdVariable] = String(fd);
+
+    // For file redirections, store the file path mapping
+    if (redir.target.type === "Word") {
+      const target = await expandWord(ctx, redir.target as WordNode);
+
+      // Handle FD duplication: {fd}>&N or {fd}<&N
+      if (redir.operator === ">&" || redir.operator === "<&") {
+        const sourceFd = Number.parseInt(target, 10);
+        if (!Number.isNaN(sourceFd)) {
+          // Duplicate the source FD's content to the new FD
+          const content = ctx.state.fileDescriptors.get(sourceFd);
+          if (content !== undefined) {
+            ctx.state.fileDescriptors.set(fd, content);
+          }
+          continue;
+        }
+      }
+
+      // For output redirections to files, we'll handle actual writing in applyRedirections
+      // Store the target file path associated with this FD
+      if (
+        redir.operator === ">" ||
+        redir.operator === ">>" ||
+        redir.operator === ">|" ||
+        redir.operator === "&>" ||
+        redir.operator === "&>>"
+      ) {
+        // Mark this FD as pointing to a file (store file path for later use)
+        // Use a special format to distinguish from content
+        const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+        // For truncating operators (>, >|, &>), create/truncate the file now
+        if (
+          redir.operator === ">" ||
+          redir.operator === ">|" ||
+          redir.operator === "&>"
+        ) {
+          await ctx.fs.writeFile(filePath, "", "utf8");
+        }
+        ctx.state.fileDescriptors.set(fd, `__file__:${filePath}`);
+      } else if (redir.operator === "<<<") {
+        // For here-strings, store the target value plus newline as the FD content
+        ctx.state.fileDescriptors.set(fd, `${target}\n`);
+      } else if (redir.operator === "<" || redir.operator === "<>") {
+        // For input redirections, read the file content
+        try {
+          const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+          const content = await ctx.fs.readFile(filePath);
+          ctx.state.fileDescriptors.set(fd, content);
+        } catch {
+          return makeResult(
+            "",
+            `bash: ${target}: No such file or directory\n`,
+            1,
+          );
+        }
+      }
+    }
+  }
+
+  return null; // Success
+}
 
 /**
  * Pre-open (truncate) output redirect files before command execution.
@@ -128,6 +250,12 @@ export async function applyRedirections(
       target = expandResult.target;
     }
 
+    // Skip FD variable redirections in applyRedirections - they're already handled
+    // by processFdVariableRedirections and don't affect stdout/stderr directly
+    if (redir.fdVariable) {
+      continue;
+    }
+
     switch (redir.operator) {
       case ">":
       case ">|": {
@@ -237,6 +365,14 @@ export async function applyRedirections(
 
       case ">&": {
         const fd = redir.fd ?? 1; // Default to stdout (fd 1)
+        // Handle >&- close operation
+        if (target === "-") {
+          // Close the FD - remove from fileDescriptors
+          if (ctx.state.fileDescriptors) {
+            ctx.state.fileDescriptors.delete(fd);
+          }
+          break;
+        }
         // >&2 or 1>&2: redirect stdout to stderr
         if (target === "2" || target === "&2") {
           if (fd === 1) {
@@ -253,6 +389,31 @@ export async function applyRedirections(
             // 1>&1 is a no-op, but other fds redirect to stdout
             stdout += stderr;
             stderr = "";
+          }
+        }
+        // Handle writing to a user-allocated FD (>&$fd)
+        else {
+          const targetFd = Number.parseInt(target, 10);
+          if (!Number.isNaN(targetFd)) {
+            // Check if this is a valid user-allocated FD
+            const fdInfo = ctx.state.fileDescriptors?.get(targetFd);
+            if (fdInfo?.startsWith("__file__:")) {
+              // This FD is associated with a file - write to it
+              // The path is already resolved when the FD was allocated
+              const resolvedPath = fdInfo.slice(9); // Remove "__file__:" prefix
+              if (fd === 1) {
+                await ctx.fs.appendFile(resolvedPath, stdout, "binary");
+                stdout = "";
+              } else if (fd === 2) {
+                await ctx.fs.appendFile(resolvedPath, stderr, "binary");
+                stderr = "";
+              }
+            } else if (targetFd >= 10) {
+              // User-allocated FD range (>=10) but FD not found - bad file descriptor
+              stderr += `bash: ${targetFd}: Bad file descriptor\n`;
+              exitCode = 1;
+              stdout = "";
+            }
           }
         }
         break;

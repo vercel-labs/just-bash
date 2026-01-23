@@ -5,6 +5,7 @@
  *   export              - List all exported variables
  *   export -p           - List all exported variables (same as no args)
  *   export NAME=value   - Set and export variable
+ *   export NAME+=value  - Append value and export variable
  *   export NAME         - Export existing variable (or create empty)
  *   export -n NAME      - Un-export variable (remove from env)
  */
@@ -12,6 +13,7 @@
 import type { ExecResult } from "../../types.js";
 import { markExported } from "../helpers/readonly.js";
 import { OK, result, success } from "../helpers/result.js";
+import { expandTildesInValue } from "../helpers/tilde.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleExport(
@@ -64,12 +66,19 @@ export function handleExport(
   for (const arg of processedArgs) {
     let name: string;
     let value: string | undefined;
+    let isAppend = false;
 
-    if (arg.includes("=")) {
+    // Check for += append syntax: export NAME+=value
+    const appendMatch = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\+=(.*)$/);
+    if (appendMatch) {
+      name = appendMatch[1];
+      value = expandTildesInValue(ctx, appendMatch[2]);
+      isAppend = true;
+    } else if (arg.includes("=")) {
       // export NAME=value
       const eqIdx = arg.indexOf("=");
       name = arg.slice(0, eqIdx);
-      value = arg.slice(eqIdx + 1);
+      value = expandTildesInValue(ctx, arg.slice(eqIdx + 1));
     } else {
       // export NAME (without value)
       name = arg;
@@ -83,7 +92,13 @@ export function handleExport(
     }
 
     if (value !== undefined) {
-      ctx.state.env[name] = value;
+      if (isAppend) {
+        // Append to existing value (or set if not defined)
+        const existing = ctx.state.env[name] ?? "";
+        ctx.state.env[name] = existing + value;
+      } else {
+        ctx.state.env[name] = value;
+      }
     } else {
       // If variable doesn't exist, create it as empty
       if (!(name in ctx.state.env)) {

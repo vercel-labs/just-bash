@@ -43,31 +43,6 @@ export function buildIfsCharClassPattern(ifs: string): string {
 }
 
 /**
- * Build a RegExp for matching one or more IFS characters.
- * Used internally for splitting strings by IFS.
- */
-function buildIfsRegex(ifs: string, flags?: string): RegExp {
-  const pattern = buildIfsCharClassPattern(ifs);
-  return new RegExp(`[${pattern}]+`, flags);
-}
-
-/**
- * Build a RegExp for matching leading IFS characters.
- */
-function buildLeadingIfsRegex(ifs: string): RegExp {
-  const pattern = buildIfsCharClassPattern(ifs);
-  return new RegExp(`^[${pattern}]+`);
-}
-
-/**
- * Build a RegExp for matching trailing IFS characters.
- */
-function buildTrailingIfsRegex(ifs: string): RegExp {
-  const pattern = buildIfsCharClassPattern(ifs);
-  return new RegExp(`[${pattern}]+$`);
-}
-
-/**
  * Get the first character of IFS (used for joining with $* and ${!prefix*}).
  * Returns space if IFS is undefined, empty string if IFS is empty.
  */
@@ -75,65 +50,6 @@ export function getIfsSeparator(env: Record<string, string>): string {
   const ifs = env.IFS;
   if (ifs === undefined) return " ";
   return ifs[0] || "";
-}
-
-/**
- * Split a string by IFS, handling leading/trailing IFS properly.
- * Returns words and their start positions in the original string.
- *
- * @param value - String to split
- * @param ifs - IFS characters to split on
- * @returns Object with words array and wordStarts array
- */
-export function splitByIfs(
-  value: string,
-  ifs: string,
-): { words: string[]; wordStarts: number[] } {
-  // Empty IFS means no splitting
-  if (ifs === "") {
-    return { words: [value], wordStarts: [0] };
-  }
-
-  const words: string[] = [];
-  const wordStarts: number[] = [];
-  const ifsRegex = buildIfsRegex(ifs, "g");
-
-  let lastEnd = 0;
-
-  // Strip leading IFS
-  const leadingMatch = value.match(buildLeadingIfsRegex(ifs));
-  if (leadingMatch) {
-    lastEnd = leadingMatch[0].length;
-  }
-
-  // Find words separated by IFS
-  ifsRegex.lastIndex = lastEnd;
-  let match = ifsRegex.exec(value);
-
-  while (match !== null) {
-    if (match.index > lastEnd) {
-      wordStarts.push(lastEnd);
-      words.push(value.substring(lastEnd, match.index));
-    }
-    lastEnd = ifsRegex.lastIndex;
-    match = ifsRegex.exec(value);
-  }
-
-  // Capture final word if any
-  if (lastEnd < value.length) {
-    wordStarts.push(lastEnd);
-    words.push(value.substring(lastEnd));
-  }
-
-  return { words, wordStarts };
-}
-
-/**
- * Strip trailing IFS characters from a string.
- */
-export function stripTrailingIfs(value: string, ifs: string): string {
-  if (ifs === "") return value;
-  return value.replace(buildTrailingIfsRegex(ifs), "");
 }
 
 /** IFS whitespace characters */
@@ -300,6 +216,106 @@ export function splitByIfsForRead(
   }
 
   return { words, wordStarts };
+}
+
+/**
+ * IFS splitting for word expansion (unquoted $VAR, $*, etc.).
+ *
+ * Key differences from splitByIfsForRead:
+ * - Trailing non-whitespace delimiter does NOT create an empty field
+ * - No maxSplit concept (always splits fully)
+ * - No backslash escape handling
+ *
+ * @param value - String to split
+ * @param ifs - IFS characters to split on
+ * @returns Array of words after splitting
+ */
+export function splitByIfsForExpansion(value: string, ifs: string): string[] {
+  // Empty IFS means no splitting
+  if (ifs === "") {
+    return value ? [value] : [];
+  }
+
+  // Empty value means no words
+  if (value === "") {
+    return [];
+  }
+
+  const { whitespace, nonWhitespace } = categorizeIfs(ifs);
+  const words: string[] = [];
+  let pos = 0;
+
+  // Skip leading IFS whitespace
+  while (pos < value.length && whitespace.has(value[pos])) {
+    pos++;
+  }
+
+  // If we've consumed all input, return empty result
+  if (pos >= value.length) {
+    return [];
+  }
+
+  // Check for leading non-whitespace delimiter (creates empty field)
+  if (nonWhitespace.has(value[pos])) {
+    words.push("");
+    pos++;
+    // Skip any whitespace after the delimiter
+    while (pos < value.length && whitespace.has(value[pos])) {
+      pos++;
+    }
+  }
+
+  // Now process words
+  while (pos < value.length) {
+    const wordStart = pos;
+
+    // Collect characters until we hit an IFS character
+    while (pos < value.length) {
+      const ch = value[pos];
+      if (whitespace.has(ch) || nonWhitespace.has(ch)) {
+        break;
+      }
+      pos++;
+    }
+
+    words.push(value.substring(wordStart, pos));
+
+    if (pos >= value.length) {
+      break;
+    }
+
+    // Now handle the delimiter(s)
+    // Skip IFS whitespace
+    while (pos < value.length && whitespace.has(value[pos])) {
+      pos++;
+    }
+
+    // Check for non-whitespace delimiter
+    if (pos < value.length && nonWhitespace.has(value[pos])) {
+      pos++;
+
+      // Skip whitespace after non-whitespace delimiter
+      while (pos < value.length && whitespace.has(value[pos])) {
+        pos++;
+      }
+
+      // Check for more non-whitespace delimiters (creates empty fields)
+      while (pos < value.length && nonWhitespace.has(value[pos])) {
+        // Empty field for this delimiter
+        words.push("");
+        pos++;
+        // Skip whitespace after
+        while (pos < value.length && whitespace.has(value[pos])) {
+          pos++;
+        }
+      }
+    }
+
+    // Note: Unlike splitByIfsForRead, we do NOT add trailing empty field
+    // when we hit EOF after a non-whitespace delimiter
+  }
+
+  return words;
 }
 
 /**

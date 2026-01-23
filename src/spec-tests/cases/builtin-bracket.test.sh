@@ -242,7 +242,6 @@ status=1
 ## END
 
 #### -x
-## SKIP: File permission testing with chmod not fully implemented
 rm -f $TMP/x
 echo 'echo hi' > $TMP/x
 test -x $TMP/x || echo 'no'
@@ -256,7 +255,6 @@ bad
 ## END
 
 #### -r
-## SKIP: File permission testing with chmod not fully implemented
 echo '1' > $TMP/testr_yes
 echo '2' > $TMP/testr_no
 chmod -r $TMP/testr_no  # remove read permission
@@ -268,7 +266,6 @@ no
 ## END
 
 #### -w
-## SKIP: File permission testing with chmod not fully implemented
 rm -f $TMP/testw_*
 echo '1' > $TMP/testw_yes
 echo '2' > $TMP/testw_no

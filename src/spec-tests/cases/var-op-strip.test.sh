@@ -229,7 +229,7 @@ foo[]
 ## END
 
 #### Nested % and # operators (bug reported by Crestwave)
-## SKIP: argv.py doesn't escape newlines like Python repr(); strip ? on newline issue
+## SKIP: glob pattern ? does not match newline character in strip operations
 var=$'\n'
 argv.py "${var#?}"
 argv.py "${var%''}"
@@ -387,12 +387,12 @@ echo 4 ${x##*\(\)}
 ## END
 
 #### extglob in pattern
-## SKIP: extglob not implemented
+## SKIP: extglob in parameter expansion patterns not implemented
 case $SH in dash|zsh|ash) exit ;; esac
 
 shopt -s extglob
 
-x='foo()' 
+x='foo()'
 echo 1 ${x%*(foo|bar)'()'}
 echo 2 ${x%%*(foo|bar)'()'}
 echo 3 ${x#*(foo|bar)'()'}

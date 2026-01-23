@@ -37,7 +37,6 @@ zz-*-xx
 ## END
 
 #### ysh behavior when glob doesn't match
-## SKIP: Oils-specific shopt options not implemented
 
 shopt -s ysh:upgrade
 

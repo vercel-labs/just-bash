@@ -80,12 +80,35 @@ export async function evaluateFileTest(
       return false;
     }
 
-    case "-r":
-    case "-w":
-    case "-x":
-      // Readable/writable/executable - in virtual fs, just check existence
-      // For real fs, check actual permissions via mode
-      return ctx.fs.exists(path);
+    case "-r": {
+      // Readable - check read permission bits
+      if (await ctx.fs.exists(path)) {
+        const stat = await ctx.fs.stat(path);
+        // Check user read bit (0o400) - in our sandboxed env, we act as owner
+        return (stat.mode & 0o400) !== 0;
+      }
+      return false;
+    }
+
+    case "-w": {
+      // Writable - check write permission bits
+      if (await ctx.fs.exists(path)) {
+        const stat = await ctx.fs.stat(path);
+        // Check user write bit (0o200)
+        return (stat.mode & 0o200) !== 0;
+      }
+      return false;
+    }
+
+    case "-x": {
+      // Executable - check execute permission bits
+      if (await ctx.fs.exists(path)) {
+        const stat = await ctx.fs.stat(path);
+        // Check user execute bit (0o100)
+        return (stat.mode & 0o100) !== 0;
+      }
+      return false;
+    }
 
     case "-s": {
       // File exists and has size > 0

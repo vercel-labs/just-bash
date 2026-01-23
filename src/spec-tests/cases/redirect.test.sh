@@ -108,6 +108,7 @@ cat $TMP/named-fd.txt
 ## N-I dash/mksh status: 127
 
 #### Double digit fd (20> file)
+## SKIP: Persistent numeric FD allocation (exec N>file) not implemented
 exec 20> "$TMP/double-digit-fd.txt"
 echo hello20 >&20
 cat "$TMP/double-digit-fd.txt"
@@ -466,7 +467,6 @@ echo hello
 # dash/mksh terminates the execution of script on the redirection.
 
 #### echo foo >&100 (OSH regression: does not fail with invalid fd 100)
-## SKIP: Redirect to high fd number not implemented
 # oil 0.8.pre4 does not fail with non-existent fd 100.
 fd=100
 echo foo53 >&$fd
@@ -475,7 +475,6 @@ echo foo53 >&$fd
 ## OK dash status: 2
 
 #### echo foo >&N where N is first unused fd
-## SKIP: Redirect to high fd number not implemented
 # 1. prepare default fd for internal uses
 minfd=10
 case ${SH##*/} in
@@ -502,7 +501,6 @@ echo foo54 >&$fd
 ## OK dash status: 2
 
 #### exec {fd}>&- (OSH regression: fails to close fd)
-## SKIP: File descriptor variable syntax ({fd}>file) not implemented
 # mksh, dash do not implement {fd} redirections.
 case $SH in mksh|dash) exit 1 ;; esac
 # oil 0.8.pre4 fails to close fd by {fd}&-.
@@ -556,7 +554,7 @@ a1
 ## END
 
 #### Parsing of x={myvar} and related cases
-## SKIP: File descriptor variable syntax ({fd}>file) not implemented
+## SKIP: /dev/stdout redirect does not work in virtual filesystem
 case $SH in dash) exit ;; esac
 
 echo {myvar}>/dev/stdout

@@ -320,7 +320,7 @@ v=foo
 ## END
 
 #### array and - and +
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: Array expansion with [@] doesn't produce separate args
 case $SH in dash) exit ;; esac
 
 shopt -s compat_array  # to refer to array as scalar
@@ -452,7 +452,7 @@ argv=plus
 ## END
 
 #### $* ("" "") and - and + (IFS=)
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: $*:-/:+ checks if expansion is empty, not if params exist
 set -- "" ""
 IFS=
 echo argv=${*-minus}
@@ -678,7 +678,7 @@ a[0]: 'no-colon' 'with-colon'
 
 
 #### op-test for ${a[@]} and ${a[*]}
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: a[*] with IFS= and empty elements should be empty for :- test
 case $SH in dash) exit ;; esac
 
 test-hyphen() {
@@ -773,7 +773,7 @@ ref=a[0]: '' 'with-colon'
 
 
 #### op-test for ${!array} with array="a[@]" or array="a[*]"
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: Indirect array expansion edge case with IFS= and empty elements
 case $SH in dash|mksh|zsh) exit ;; esac
 
 test-hyphen() {

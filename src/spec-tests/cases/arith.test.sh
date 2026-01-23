@@ -135,7 +135,7 @@ echo $(( 24#ag7 ))
 ## END
 
 #### Integer constant validation
-## SKIP: Interactive shell invocation not implemented
+## SKIP: $SH -c invocations produce different validation results
 check() {
   $SH -c "shopt --set strict_arith; echo $1"
   echo status=$?
@@ -803,7 +803,7 @@ a=1
 ## BUG zsh status: 1
 
 #### Invalid constant
-## SKIP: Interactive shell invocation not implemented
+## SKIP: Invalid constant handling differs from bash (42x parsed as 42)
 
 echo $((a + x42))
 echo status=$?

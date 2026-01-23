@@ -746,7 +746,7 @@ echo "[${a[@]:10:1}][${a[*]:10:1}]"
 
 
 #### ${@:offset:length}
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: Negative offset slicing for positional parameters not implemented
 case $SH in mksh) exit ;; esac
 
 set -- v{1..9}
@@ -862,7 +862,7 @@ argv.py "abc${a[@]}xyz"
 
 
 #### ${a[@]#...}
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: Array pattern operations don't produce separate args
 case $SH in mksh) exit ;; esac
 
 a=(v{0..9})
@@ -887,7 +887,7 @@ argv.py "${a[@]#v?}"
 
 
 #### ${a[@]/pat/rep}
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: Array pattern operations don't produce separate args
 
 case $SH in mksh) exit ;; esac
 

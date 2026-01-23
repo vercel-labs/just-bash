@@ -197,7 +197,6 @@ status=0
 ## END
 
 #### hash -r doesn't allow additional args
-## SKIP: hash builtin not implemented
 hash -r whoami >/dev/null  # avoid weird output with mksh
 echo status=$?
 ## stdout: status=1

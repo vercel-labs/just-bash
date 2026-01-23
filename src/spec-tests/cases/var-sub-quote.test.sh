@@ -108,7 +108,7 @@ argv.py "${Unset:-"a b" c}"
 ## stdout: ['a b c']
 
 #### part_value tree with multiple words
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: Nested expansion with quotes doesn't produce separate words
 argv.py ${a:-${a:-"1 2" "3 4"}5 "6 7"}
 ## stdout: ['1 2', '3 45', '6 7']
 
@@ -293,7 +293,7 @@ a
 
 
 #### Right Brace as argument (similar to #702)
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: Right brace in quoted default value not parsed correctly
 
 echo "${var-}}"
 echo "${var-\}}"
@@ -319,7 +319,7 @@ echo "${var-"}"}"
 ## END
 
 #### Var substitution with newlines (#2492)
-## SKIP: Right brace in parameter default value not implemented
+## SKIP: Backslash-newline continuation in default value not implemented
 echo "${var-a \
 b}"
 echo "${var-a

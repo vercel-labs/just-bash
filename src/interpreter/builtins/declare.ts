@@ -50,6 +50,58 @@ export function isInteger(ctx: InterpreterContext, name: string): boolean {
 }
 
 /**
+ * Mark a variable as having the lowercase attribute.
+ */
+function markLowercase(ctx: InterpreterContext, name: string): void {
+  ctx.state.lowercaseVars ??= new Set();
+  ctx.state.lowercaseVars.add(name);
+  // -l and -u are mutually exclusive; -l clears -u
+  ctx.state.uppercaseVars?.delete(name);
+}
+
+/**
+ * Check if a variable has the lowercase attribute.
+ */
+export function isLowercase(ctx: InterpreterContext, name: string): boolean {
+  return ctx.state.lowercaseVars?.has(name) ?? false;
+}
+
+/**
+ * Mark a variable as having the uppercase attribute.
+ */
+function markUppercase(ctx: InterpreterContext, name: string): void {
+  ctx.state.uppercaseVars ??= new Set();
+  ctx.state.uppercaseVars.add(name);
+  // -l and -u are mutually exclusive; -u clears -l
+  ctx.state.lowercaseVars?.delete(name);
+}
+
+/**
+ * Check if a variable has the uppercase attribute.
+ */
+export function isUppercase(ctx: InterpreterContext, name: string): boolean {
+  return ctx.state.uppercaseVars?.has(name) ?? false;
+}
+
+/**
+ * Apply case transformation based on variable attributes.
+ * Returns the transformed value.
+ */
+export function applyCaseTransform(
+  ctx: InterpreterContext,
+  name: string,
+  value: string,
+): string {
+  if (isLowercase(ctx, name)) {
+    return value.toLowerCase();
+  }
+  if (isUppercase(ctx, name)) {
+    return value.toUpperCase();
+  }
+  return value;
+}
+
+/**
  * Evaluate a value as arithmetic if the variable has integer attribute.
  * Returns the evaluated string value.
  */
@@ -78,6 +130,8 @@ export function handleDeclare(
   let declareNameref = false;
   let removeNameref = false;
   let declareInteger = false;
+  let declareLowercase = false;
+  let declareUppercase = false;
   let functionMode = false; // -f flag: function definitions
   let functionNamesOnly = false; // -F flag: function names only
   const processedArgs: string[] = [];
@@ -109,6 +163,10 @@ export function handleDeclare(
       }
     } else if (arg === "-i") {
       declareInteger = true;
+    } else if (arg === "-l") {
+      declareLowercase = true;
+    } else if (arg === "-u") {
+      declareUppercase = true;
     } else if (arg === "-f") {
       functionMode = true;
     } else if (arg === "-F") {
@@ -123,6 +181,8 @@ export function handleDeclare(
         else if (flag === "p") printMode = true;
         else if (flag === "n") declareNameref = true;
         else if (flag === "i") declareInteger = true;
+        else if (flag === "l") declareLowercase = true;
+        else if (flag === "u") declareUppercase = true;
         else if (flag === "f") functionMode = true;
         else if (flag === "F") functionNamesOnly = true;
       }

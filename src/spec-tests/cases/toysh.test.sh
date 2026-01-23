@@ -114,7 +114,6 @@ echo ""{~,~root}/pwd
 ## END
 
 #### {abc}<<< - http://landley.net/notes-2019.html#09-12-2019
-## SKIP: File descriptor variable syntax ({fd}>file) not implemented
 { echo; } {abc}<<< walrus
 cat <&$abc
 ## STDOUT:

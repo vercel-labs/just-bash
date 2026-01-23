@@ -445,7 +445,7 @@ argv.py "$ex" "$glo" "$ro"
 
 
 #### aliased assignment doesn't split
-## SKIP: Word splitting incorrectly occurs in aliased export/readonly var=$value assignments
+## SKIP: alias expansion not implemented
 shopt -s expand_aliases || true
 words='a b c'
 alias e=export

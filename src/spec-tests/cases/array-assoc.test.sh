@@ -491,7 +491,7 @@ len=0
 ## END
 
 #### nameref and assoc array
-## SKIP: nameref (declare -n) not implemented
+## SKIP: nameref assignment to assoc array element doesn't modify underlying array
 show-values() {
   echo values: ${A[@]}
 }

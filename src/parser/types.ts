@@ -40,6 +40,22 @@ export const REDIRECTION_AFTER_NUMBER: Set<TokenType> = new Set([
   TokenType.TLESS,
 ]);
 
+// Redirect operators that can follow {varname} (FD variable syntax)
+export const REDIRECTION_AFTER_FD_VARIABLE: Set<TokenType> = new Set([
+  TokenType.LESS,
+  TokenType.GREAT,
+  TokenType.DLESS,
+  TokenType.DGREAT,
+  TokenType.LESSAND,
+  TokenType.GREATAND,
+  TokenType.LESSGREAT,
+  TokenType.DLESSDASH,
+  TokenType.CLOBBER,
+  TokenType.TLESS,
+  TokenType.AND_GREAT,
+  TokenType.AND_DGREAT,
+]);
+
 export interface ParseError {
   message: string;
   line: number;
