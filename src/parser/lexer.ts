@@ -1243,8 +1243,12 @@ export class Lexer {
         value += input[pos]; // Add the {
         pos++;
         col++;
-        // Track brace depth
+        // Track brace depth and quotes inside ${...}
+        // Single quotes must be balanced inside parameter expansions
         let depth = 1;
+        let inParamSingleQuote = false;
+        let singleQuoteStartLine = ln;
+        let singleQuoteStartCol = col;
         while (depth > 0 && pos < len) {
           const c = input[pos];
           // Handle backslash-newline line continuation inside ${...}
@@ -1255,15 +1259,48 @@ export class Lexer {
             col = 1;
             continue;
           }
+          // Handle escape sequences inside ${...} - skip escaped characters
+          if (c === "\\" && pos + 1 < len && !inParamSingleQuote) {
+            value += c;
+            pos++;
+            col++;
+            value += input[pos];
+            pos++;
+            col++;
+            continue;
+          }
           value += c;
-          if (c === "{") depth++;
-          else if (c === "}") depth--;
-          else if (c === "\n") {
+          if (inParamSingleQuote) {
+            // Inside single quotes, only ' is special
+            if (c === "'") {
+              inParamSingleQuote = false;
+            }
+          } else {
+            // Outside single quotes
+            if (c === "'") {
+              inParamSingleQuote = true;
+              singleQuoteStartLine = ln;
+              singleQuoteStartCol = col;
+            } else if (c === "{") {
+              depth++;
+            } else if (c === "}") {
+              depth--;
+            }
+          }
+          if (c === "\n") {
             ln++;
             col = 0;
           }
           pos++;
           col++;
+        }
+        // Check for unterminated single quote inside ${...}
+        if (inParamSingleQuote) {
+          throw new LexerError(
+            "unexpected EOF while looking for matching `''",
+            singleQuoteStartLine,
+            singleQuoteStartCol,
+          );
         }
         continue;
       }

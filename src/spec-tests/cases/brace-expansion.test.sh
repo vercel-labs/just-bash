@@ -197,7 +197,6 @@ foo~/bar ~/bar
 ## END
 
 #### Two kinds of tilde expansion
-## SKIP: Tilde expansion with brace not implemented
 
 HOME=/home/bob
 

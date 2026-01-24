@@ -363,7 +363,6 @@ status=1
 ## END
 
 #### more tilde expansion
-## SKIP: Tilde expansion in [[ ]] edge cases not implemented
 [[ ~ ]]
 echo status=$?
 HOME=''

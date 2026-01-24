@@ -178,7 +178,6 @@ argv.py ${foo%'c d'} ${foo%'c  d'}
 ## stdout: ['a', 'b', 'a', 'b', 'c', 'd']
 
 #### Syntax error for single quote in double quote
-## SKIP: Unmatched single quote in ${var%pattern} should be syntax error
 foo="'a b c d'"
 argv.py "${foo%d'}"
 ## stdout-json: ""

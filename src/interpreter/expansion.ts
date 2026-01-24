@@ -147,6 +147,48 @@ function hasGlobPattern(value: string, extglob: boolean): boolean {
 }
 
 /**
+ * Apply tilde expansion to a string.
+ * Used after brace expansion to handle cases like ~{/src,root} -> ~/src ~root -> /home/user/src /root
+ * Only expands ~ at the start of the string followed by / or end of string.
+ */
+function applyTildeExpansion(ctx: InterpreterContext, value: string): string {
+  if (!value.startsWith("~")) {
+    return value;
+  }
+
+  // Use HOME if set (even if empty), otherwise fall back to /home/user
+  const home =
+    ctx.state.env.HOME !== undefined ? ctx.state.env.HOME : "/home/user";
+
+  // ~/ or just ~
+  if (value === "~" || value.startsWith("~/")) {
+    return home + value.slice(1);
+  }
+
+  // ~username case: find where the username ends
+  // Username chars are alphanumeric, underscore, and hyphen
+  let i = 1;
+  while (i < value.length && /[a-zA-Z0-9_-]/.test(value[i])) {
+    i++;
+  }
+  const username = value.slice(1, i);
+  const rest = value.slice(i);
+
+  // Only expand if followed by / or end of string
+  if (rest !== "" && !rest.startsWith("/")) {
+    return value;
+  }
+
+  // Only support ~root expansion in sandboxed environment
+  if (username === "root") {
+    return `/root${rest}`;
+  }
+
+  // Unknown user - keep literal
+  return value;
+}
+
+/**
  * Unescape backslashes in a glob pattern when glob expansion fails.
  * In bash, when a glob pattern like [\\]_ doesn't match any files,
  * the output is [\]_ (with processed escapes), not [\\]_ (raw pattern).
@@ -821,7 +863,10 @@ function expandSimplePart(
         return part.user === null ? "~" : `~${part.user}`;
       }
       if (part.user === null) {
-        return ctx.state.env.HOME || "/home/user";
+        // Use HOME if set (even if empty), otherwise fall back to /home/user
+        return ctx.state.env.HOME !== undefined
+          ? ctx.state.env.HOME
+          : "/home/user";
       }
       // ~username only expands if user exists
       // In sandboxed environment, we can only verify 'root' exists universally
@@ -1175,7 +1220,9 @@ function expandWordWithBraces(
 
   // Expand braces and join each result
   const expanded = expandBracesInParts(ctx, parts);
-  return expanded.map((parts) => parts.join(""));
+  // Apply tilde expansion to each result - this handles cases like ~{/src,root}
+  // where brace expansion produces ~/src and ~root, which then need tilde expansion
+  return expanded.map((parts) => applyTildeExpansion(ctx, parts.join("")));
 }
 
 /**
@@ -1284,7 +1331,9 @@ async function expandWordWithBracesAsync(
   }
 
   const expanded = await expandBracesInPartsAsync(ctx, parts);
-  return expanded.map((parts) => parts.join(""));
+  // Apply tilde expansion to each result - this handles cases like ~{/src,root}
+  // where brace expansion produces ~/src and ~root, which then need tilde expansion
+  return expanded.map((parts) => applyTildeExpansion(ctx, parts.join("")));
 }
 
 export async function expandWordWithGlob(
