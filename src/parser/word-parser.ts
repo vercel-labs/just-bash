@@ -586,6 +586,35 @@ export function wordToString(_p: Parser, word: WordNode): string {
           result += part.user;
         }
         break;
+      case "BraceExpansion": {
+        // Reconstruct brace expansion syntax
+        result += "{";
+        const braceItems: string[] = [];
+        for (const item of part.items) {
+          if (item.type === "Range") {
+            // Reconstruct range: {start..end} or {start..end..step}
+            const startVal = item.startStr ?? String(item.start);
+            const endVal = item.endStr ?? String(item.end);
+            if (item.step !== undefined) {
+              braceItems.push(`${startVal}..${endVal}..${item.step}`);
+            } else {
+              braceItems.push(`${startVal}..${endVal}`);
+            }
+          } else {
+            // Word item - recurse to convert the word
+            braceItems.push(wordToString(_p, item.word));
+          }
+        }
+        // If there's only one item and it's a range, use the range syntax
+        // Otherwise, join with commas for {a,b,c} syntax
+        if (braceItems.length === 1 && part.items[0].type === "Range") {
+          result += braceItems[0];
+        } else {
+          result += braceItems.join(",");
+        }
+        result += "}";
+        break;
+      }
       default:
         // For complex parts, just use a placeholder
         result += part.type;

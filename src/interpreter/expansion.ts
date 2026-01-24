@@ -1011,6 +1011,132 @@ export async function expandWordWithGlob(
     }
   }
 
+  // Handle "${arr[@]:-${default[@]}}" and "${arr[@]:+${alt[@]}}" - array default/alternative values
+  // Also handles "${var:-${default[@]}}" where var is a scalar variable.
+  // When the default value contains an array expansion, each element should become a separate word.
+  if (wordParts.length === 1 && wordParts[0].type === "DoubleQuoted") {
+    const dqPart = wordParts[0];
+    if (
+      dqPart.parts.length === 1 &&
+      dqPart.parts[0].type === "ParameterExpansion" &&
+      (dqPart.parts[0].operation?.type === "DefaultValue" ||
+        dqPart.parts[0].operation?.type === "UseAlternative")
+    ) {
+      const paramPart = dqPart.parts[0];
+      const op = paramPart.operation as
+        | { type: "DefaultValue"; word?: WordNode; checkEmpty?: boolean }
+        | { type: "UseAlternative"; word?: WordNode; checkEmpty?: boolean };
+
+      // Check if the outer parameter is an array subscript
+      const arrayMatch = paramPart.parameter.match(
+        /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
+      );
+
+      // Determine if we should use the alternate/default value
+      let shouldUseAlternate: boolean;
+      let outerIsStar = false;
+
+      if (arrayMatch) {
+        // Outer parameter is an array subscript like arr[@] or arr[*]
+        const arrayName = arrayMatch[1];
+        outerIsStar = arrayMatch[2] === "*";
+
+        const elements = getArrayElements(ctx, arrayName);
+        const isSet =
+          elements.length > 0 || ctx.state.env[arrayName] !== undefined;
+        const isEmpty =
+          elements.length === 0 ||
+          (elements.length === 1 && elements.every(([, v]) => v === ""));
+        const checkEmpty = op.checkEmpty ?? false;
+
+        if (op.type === "UseAlternative") {
+          shouldUseAlternate = isSet && !(checkEmpty && isEmpty);
+        } else {
+          shouldUseAlternate = !isSet || (checkEmpty && isEmpty);
+        }
+
+        // If not using alternate, return the original array value
+        if (!shouldUseAlternate) {
+          if (elements.length > 0) {
+            const values = elements.map(([, v]) => v);
+            if (outerIsStar) {
+              const ifsSep = getIfsSeparator(ctx.state.env);
+              return { values: [values.join(ifsSep)], quoted: true };
+            }
+            return { values, quoted: true };
+          }
+          const scalarValue = ctx.state.env[arrayName];
+          if (scalarValue !== undefined) {
+            return { values: [scalarValue], quoted: true };
+          }
+          return { values: [], quoted: true };
+        }
+      } else {
+        // Outer parameter is a scalar variable
+        const varName = paramPart.parameter;
+        const isSet = isVariableSet(ctx, varName);
+        const value = getVariable(ctx, varName);
+        const isEmpty = value === "";
+        const checkEmpty = op.checkEmpty ?? false;
+
+        if (op.type === "UseAlternative") {
+          shouldUseAlternate = isSet && !(checkEmpty && isEmpty);
+        } else {
+          shouldUseAlternate = !isSet || (checkEmpty && isEmpty);
+        }
+
+        // If not using alternate, return the scalar value
+        if (!shouldUseAlternate) {
+          return { values: [value], quoted: true };
+        }
+      }
+
+      // We should use the alternate/default value
+      if (shouldUseAlternate && op.word) {
+        // Check if the default/alternative word contains an array expansion
+        const opWordParts = op.word.parts;
+        let defaultArrayName: string | null = null;
+        let defaultIsStar = false;
+
+        for (const part of opWordParts) {
+          if (part.type === "ParameterExpansion" && !part.operation) {
+            const defaultMatch = part.parameter.match(
+              /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
+            );
+            if (defaultMatch) {
+              defaultArrayName = defaultMatch[1];
+              defaultIsStar = defaultMatch[2] === "*";
+              break;
+            }
+          }
+        }
+
+        if (defaultArrayName) {
+          // The default word is an array expansion - return its elements
+          const defaultElements = getArrayElements(ctx, defaultArrayName);
+          if (defaultElements.length > 0) {
+            const values = defaultElements.map(([, v]) => v);
+            if (defaultIsStar || outerIsStar) {
+              // Join with IFS for [*] subscript
+              const ifsSep = getIfsSeparator(ctx.state.env);
+              return { values: [values.join(ifsSep)], quoted: true };
+            }
+            // [@] - each element as a separate word
+            return { values, quoted: true };
+          }
+          // Default array is empty - check for scalar
+          const scalarValue = ctx.state.env[defaultArrayName];
+          if (scalarValue !== undefined) {
+            return { values: [scalarValue], quoted: true };
+          }
+          // Default is unset
+          return { values: [], quoted: true };
+        }
+        // Default word doesn't contain an array expansion - fall through to normal expansion
+      }
+    }
+  }
+
   // Handle "${prefix}${arr[@]}${suffix}" - array expansion with adjacent text in double quotes
   // Each array element becomes a separate word, with prefix joined to first and suffix joined to last
   // This is similar to how "$@" works with prefix/suffix

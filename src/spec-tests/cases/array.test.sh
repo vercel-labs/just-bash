@@ -235,7 +235,6 @@ argv.py "${a[@]}"
 ## stdout: ['0', '1', '2 3', '4 5']
 
 #### Exporting array doesn't do anything, not even first element
-## SKIP: after export + array reassignment, printenv incorrectly shows previous value
 # bash parses, but doesn't execute.
 # mksh gives syntax error -- parses differently with 'export'
 # osh no longer parses this statically.
@@ -496,7 +495,6 @@ echo "${a[@]}"
 ## stdout: -a -b c- d-
 
 #### array default
-## SKIP: Array expansion in default value doesn't produce separate args
 default=('1 2' '3')
 argv.py "${undef[@]:-${default[@]}}"
 ## stdout: ['1 2', '3']

@@ -649,6 +649,7 @@ export class Interpreter {
         });
 
         // Helper to clear existing array elements (called after expansion)
+        // Also removes the scalar value since arrays can't be exported as scalars
         const clearExistingElements = () => {
           const prefix = `${name}_`;
           for (const key of Object.keys(this.ctx.state.env)) {
@@ -656,6 +657,9 @@ export class Interpreter {
               delete this.ctx.state.env[key];
             }
           }
+          // Remove scalar value - when a variable becomes an array,
+          // its scalar value should be cleared (arrays can't be exported)
+          delete this.ctx.state.env[name];
         };
 
         if (isAssoc && hasKeyedElements) {
@@ -1368,12 +1372,28 @@ export class Interpreter {
           }
         }
       } else if (inArrayContent) {
-        // Quoted/expansion part - expand it and accumulate as single element
-        const expanded = await expandWord(this.ctx, {
-          type: "Word",
-          parts: [part],
-        });
-        pendingLiteral += expanded;
+        // Handle BraceExpansion specially - it produces multiple values
+        if (part.type === "BraceExpansion") {
+          // Push any pending literal first
+          if (pendingLiteral) {
+            elements.push(pendingLiteral);
+            pendingLiteral = "";
+          }
+          // Use expandWordWithGlob to properly expand brace expressions
+          const braceExpanded = await expandWordWithGlob(this.ctx, {
+            type: "Word",
+            parts: [part],
+          });
+          // Add each expanded value as a separate element
+          elements.push(...braceExpanded.values);
+        } else {
+          // Quoted/expansion part - expand it and accumulate as single element
+          const expanded = await expandWord(this.ctx, {
+            type: "Word",
+            parts: [part],
+          });
+          pendingLiteral += expanded;
+        }
       }
     }
 
