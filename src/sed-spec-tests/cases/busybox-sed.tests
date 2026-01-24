@@ -274,22 +274,12 @@ testing "sed a cmd ended by double backslash" \
 '
 
 testing "sed a cmd understands \\n,\\t,\\r" \
-	"sed '/1/a\\\\t\\rzero\\none\\\\ntwo\\\\\\nthree'" \
-"\
-line1
-\t\rzero
-one\\\\ntwo\\
-three
-" "" "line1\n"
+	"sed '/1/a\\tzero\\rone\\ntwo'" \
+	"line1\n\tzero\rone\ntwo\n" "" "line1\n"
 
 testing "sed i cmd understands \\n,\\t,\\r" \
-	"sed '/1/i\\\\t\\rzero\\none\\\\ntwo\\\\\\nthree'" \
-"\
-\t\rzero
-one\\\\ntwo\\
-three
-line1
-" "" "line1\n"
+	"sed '/1/i\\tzero\\rone\\ntwo'" \
+	"\tzero\rone\ntwo\nline1\n" "" "line1\n"
 
 # first three lines are deleted; 4th line is matched and printed by "2,3" and by "4" ranges
 testing "sed with N skipping lines past ranges on next cmds" \

@@ -18,43 +18,7 @@ const SKIP_FILES: Set<string> = new Set<string>([
  */
 const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   // BusyBox tests with file handling (- as stdin, multiple files)
-  ["busybox-sed.tests:sed no files (stdin)", "stdin handling without input"],
-  ["busybox-sed.tests:sed explicit stdin", "- as stdin marker not supported"],
-  ["busybox-sed.tests:sed stdin twice", "multiple stdin markers not supported"],
-  ["busybox-sed.tests:sed normal newlines", "multiple file handling"],
-  [
-    "busybox-sed.tests:sed leave off trailing newline",
-    "multiple file handling",
-  ],
-  ["busybox-sed.tests:sed autoinsert newline", "multiple file handling"],
-  ["busybox-sed.tests:sed empty file plus cat", "multiple file handling"],
-  ["busybox-sed.tests:sed cat plus empty file", "multiple file handling"],
-  [
-    "busybox-sed.tests:sed append autoinserts newline 2",
-    "multiple file handling",
-  ],
-  [
-    "busybox-sed.tests:sed print autoinsert newlines",
-    "- as stdin with newline handling",
-  ],
-  [
-    "busybox-sed.tests:sed print autoinsert newlines two files",
-    "multiple file handling",
-  ],
-  [
-    "busybox-sed.tests:sed selective matches with one nl",
-    "multiple file handling",
-  ],
-  [
-    "busybox-sed.tests:sed selective matches insert newline",
-    "multiple file handling",
-  ],
-  [
-    "busybox-sed.tests:sed selective matches noinsert newline",
-    "multiple file handling",
-  ],
-  ["busybox-sed.tests:sed clusternewline", "multiple file handling"],
-  ["busybox-sed.tests:sed trailing NUL", "NUL byte and multiple file handling"],
+  // NOTE: "sed no files (stdin)", "sed explicit stdin", "sed stdin twice", and "sed trailing NUL" now work
 
   [
     "busybox-sed.tests:sed with N skipping lines past ranges on next cmds",
@@ -62,54 +26,30 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   ],
 
   // NUL byte handling
-  ["busybox-sed.tests:sed embedded NUL", "NUL bytes in input"],
-  ["busybox-sed.tests:sed embedded NUL g", "NUL bytes with global flag"],
+  // NOTE: "sed embedded NUL" and "sed embedded NUL g" now work
   ["busybox-sed.tests:sed NUL in command", "NUL bytes in command file"],
 
-  // Empty regex reuse with no trailing newline (test has no trailing newline input)
-  [
-    "busybox-sed.tests:sed backref from empty s uses range regex",
-    "no trailing newline handling",
-  ],
+  // NOTE: "sed backref from empty s uses range regex" now works (trailing newline fix)
 
   // Various edge cases
-  [
-    "busybox-sed.tests:sed handles empty lines",
-    "empty line handling with $ anchor",
-  ],
-  [
-    "busybox-sed.tests:sed s [delimiter]",
-    "no trailing newline in input/output handling",
-  ],
-  [
-    "busybox-sed.tests:sed s with \\\\t (GNU ext)",
-    "no trailing newline in input handling",
-  ],
-  [
-    "busybox-sed.tests:sed insert doesn't autoinsert newline",
-    "i command newline handling",
-  ],
+  // NOTE: "sed handles empty lines" now works with parser \$ fix
+  // NOTE: "sed escaped newline in command" now works with parser multiline fix
   ["busybox-sed.tests:sed subst+write", "w command with multiple files"],
+  ["busybox-sed.tests:sed clusternewline", "insert/p command output ordering"],
+  // NOTE: "sed match EOF" now works
+  // Trailing newline edge case when matches only in first file
   [
-    "busybox-sed.tests:sed escaped newline in command",
-    "test parser doesn't handle embedded newlines in replacement",
+    "busybox-sed.tests:sed selective matches noinsert newline",
+    "trailing newline with matches only in first file",
   ],
-  ["busybox-sed.tests:sed match EOF", "$ address with multi-file"],
-  ["busybox-sed.tests:sed match EOF two files", "$ address with multi-file"],
+  // $ address with multiple files
+  // NOTE: "sed match EOF two files" now works with multi-file handling
   [
     "busybox-sed.tests:sed match EOF inline",
     "$ address with -i and multi-file",
   ],
   ["busybox-sed.tests:sed lie-to-autoconf", "--version output"],
-  [
-    "busybox-sed.tests:sed d does not break n,regex matching",
-    "d with regex range",
-  ],
-  [
-    "busybox-sed.tests:sed d does not break n,regex matching #2",
-    "d with regex range",
-  ],
-  ["busybox-sed.tests:sed 2d;2,1p (gnu compat)", "range with deleted start"],
+  // NOTE: "sed 2d;2,1p (gnu compat)" now works with backward range fix
   [
     "busybox-sed.tests:sed a cmd ended by double backslash",
     "backslash escaping in a command",
@@ -119,27 +59,7 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "busybox-sed.tests:sed special char as s/// delimiter, in replacement 2",
     "special delimiter with backreference",
   ],
-  // /regex/,+N GNU extension (relative addresses)
-  [
-    "busybox-sed.tests:sed /regex/,+N{...} addresses work",
-    "/regex/,+N GNU extension",
-  ],
-  [
-    "busybox-sed.tests:sed /regex/,+N{...} addresses work 2",
-    "/regex/,+N GNU extension",
-  ],
-  [
-    "busybox-sed.tests:sed /regex/,+N{...} -i works",
-    "/regex/,+N GNU extension",
-  ],
-  [
-    "busybox-sed.tests:sed /regex/,+0{...} -i works",
-    "/regex/,+N GNU extension",
-  ],
-  [
-    "busybox-sed.tests:sed /regex/,+0<cmd> -i works",
-    "/regex/,+N GNU extension",
-  ],
+  // NOTE: /regex/,+N GNU extension now works (5 tests)
 
   // PythonSed tests expecting syntax errors
   // NOTE: Tests 8, 9, 10 now work (address-only and incomplete range errors)
@@ -151,15 +71,15 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   // PythonSed #n/#r special comments (GNU extension)
   [
     "pythonsed-unit.suite:regexp address: separators",
-    "#n special comment not supported",
+    "custom regex delimiter \\x not supported",
   ],
   [
     "pythonsed-unit.suite:regexp address: flags",
-    "#n special comment and /I flag not supported",
+    "/I case-insensitive flag not supported",
   ],
   [
     "pythonsed-unit.suite:regexp address: address range with flag",
-    "#n special comment and /I flag not supported",
+    "/I case-insensitive flag not supported",
   ],
   [
     "pythonsed-unit.suite:empty addresses: address range",
@@ -178,22 +98,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "pythonsed-unit.suite:regexp extended: back reference before num in address",
     "\\10 backreference in address with ERE",
   ],
-  [
-    "pythonsed-unit.suite:regexp: ** BRE (multiple quantifier)",
-    "multiple quantifier handling",
-  ],
-  [
-    "pythonsed-unit.suite:regexp: ** ERE (multiple quantifier)",
-    "#r comment and multiple quantifier",
-  ],
-  [
-    "pythonsed-unit.suite:regexp: *\\\\? BRE (multiple quantifier)",
-    "multiple quantifier handling",
-  ],
-  [
-    "pythonsed-unit.suite:regexp: *? ERE (multiple quantifier)",
-    "#r comment and multiple quantifier",
-  ],
   // NOTE: "regexp: \t \n in char set" now works
   ["pythonsed-unit.suite:avoid python extension - 2", "BRE grouping edge case"],
   ["pythonsed-unit.suite:(^){2}", "#r comment and ^ quantified"],
@@ -201,9 +105,27 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "pythonsed-unit.suite:substitution: back reference before num in regexp",
     "\\10 parsed as \\1 + 0",
   ],
+  // Multiple quantifier tests expect errors for invalid patterns like ab**
+  [
+    "pythonsed-unit.suite:regexp: ** BRE (multiple quantifier)",
+    "multiple quantifier error handling",
+  ],
+  [
+    "pythonsed-unit.suite:regexp: ** ERE (multiple quantifier)",
+    "multiple quantifier error handling",
+  ],
+  [
+    "pythonsed-unit.suite:regexp: *\\\\? BRE (multiple quantifier)",
+    "multiple quantifier error handling",
+  ],
+  [
+    "pythonsed-unit.suite:regexp: *? ERE (multiple quantifier)",
+    "multiple quantifier error handling",
+  ],
 
   // More BusyBox tests
   ["busybox-sed.tests:sed 's///w FILE'", "w flag with file path syntax"],
+  // NOTE: "sed a/i cmd understands \n,\t,\r" tests now work with fixed test file escaping
 
   // PythonSed chang.suite - complex scripts using N, D, branching
   // NOTE: Many N/D/P tests now pass due to cross-group branching fix
@@ -259,10 +181,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   [
     'pythonsed-chang.suite:Extract "Received:" header(s) from a mailbox.',
     "complex N/D branching",
-  ],
-  [
-    "pythonsed-chang.suite:Extract matched headers of a mail.",
-    "complex branching",
   ],
   [
     "pythonsed-chang.suite:Extract every IMG elements from an HTML file.",
@@ -330,9 +248,7 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
  * NOTE: #n and #r special comments actually work in many cases - don't skip by pattern
  */
 const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
-  // Skip tests using - as stdin marker with files
-  { pattern: /input -/, reason: "multiple file with - stdin marker" },
-  { pattern: /- input/, reason: "multiple file with - stdin marker" },
+  // NOTE: Multi-file with stdin marker (input -, - input) now works
   // Skip pythonsed-chang tests with multi-line names (N-th match tests)
   { pattern: /1 cat chicken/, reason: "complex N-th match test" },
   { pattern: /First number 1111/, reason: "complex N-th match test" },

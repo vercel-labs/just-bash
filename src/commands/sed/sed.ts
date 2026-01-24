@@ -74,6 +74,9 @@ async function processContent(
 ): Promise<{ output: string; exitCode?: number; errorMessage?: string }> {
   const { limits, filename, fs, cwd } = options;
 
+  // Track if input ended with newline - needed for preserving trailing newline behavior
+  const inputEndsWithNewline = content.endsWith("\n");
+
   const lines = content.split("\n");
   if (lines.length > 0 && lines[lines.length - 1] === "") {
     lines.pop();
@@ -82,6 +85,9 @@ async function processContent(
   const totalLines = lines.length;
   let output = "";
   let exitCode: number | undefined;
+  // Track if the last output came from auto-print (to determine trailing newline behavior)
+  // Only auto-print should have its trailing newline stripped when input has no trailing newline
+  let lastOutputWasAutoPrint = false;
 
   // Persistent state across all lines
   let holdSpace = "";
@@ -191,6 +197,7 @@ async function processContent(
     }
 
     // Output line numbers from = command (and l, F commands, p command)
+    const hadLineNumberOutput = state.lineNumberOutput.length > 0;
     for (const ln of state.lineNumberOutput) {
       output += `${ln}\n`;
     }
@@ -212,23 +219,34 @@ async function processContent(
     }
 
     // Handle output - Q (quitSilent) suppresses the final print
+    // Track whether output came from auto-print or explicit print (for trailing newline handling)
+    let hadPatternSpaceOutput = false;
     if (!state.deleted && !state.quitSilent) {
       if (silent) {
         if (state.printed) {
           output += `${state.patternSpace}\n`;
+          hadPatternSpaceOutput = true; // Explicit print in silent mode
         }
       } else {
         output += `${state.patternSpace}\n`;
+        hadPatternSpaceOutput = true; // Auto-print in non-silent mode
       }
     } else if (state.changedText !== undefined) {
       // c command: output changed text in place of pattern space
       output += `${state.changedText}\n`;
+      hadPatternSpaceOutput = true;
     }
 
     // Output appends after the line
     for (const text of appends) {
       output += `${text}\n`;
     }
+
+    // Track if this line produced output that should have trailing newline stripped
+    // This includes: explicit print (lineNumberOutput from p command or /p flag),
+    // pattern space output (auto-print or explicit via state.printed), but NOT appends
+    const hadOutput = hadLineNumberOutput || hadPatternSpaceOutput;
+    lastOutputWasAutoPrint = hadOutput && appends.length === 0;
 
     // Check for quit commands or errors
     if (state.quit || state.quitSilent) {
@@ -256,6 +274,16 @@ async function processContent(
         // Write error - silently ignore for now
       }
     }
+  }
+
+  // If input didn't end with newline, strip trailing newline from output
+  // BUT only if the last output was from auto-print (non-silent mode, no explicit prints/appends)
+  if (
+    !inputEndsWithNewline &&
+    lastOutputWasAutoPrint &&
+    output.endsWith("\n")
+  ) {
+    output = output.slice(0, -1);
   }
 
   return { output, exitCode };
@@ -296,6 +324,9 @@ export const sedCommand: Command = {
         }
       } else if (arg.startsWith("--")) {
         return unknownOption("sed", arg);
+      } else if (arg === "-") {
+        // "-" is stdin marker, treat as a file
+        files.push(arg);
       } else if (arg.startsWith("-") && arg.length > 1) {
         for (const c of arg.slice(1)) {
           if (
@@ -375,53 +406,26 @@ export const sedCommand: Command = {
       };
     }
 
-    if (commands.length === 0) {
-      return {
-        stdout: "",
-        stderr: "sed: no valid commands\n",
-        exitCode: 1,
-      };
-    }
+    // Note: empty script (no commands) is valid in sed - just passes through input
 
     // Enable silent mode from -n flag or #n comment
     const effectiveSilent = !!(silent || silentMode);
 
-    let content = "";
-
-    // Read from files or stdin
-    if (files.length === 0) {
-      content = ctx.stdin;
-      try {
-        const result = await processContent(
-          content,
-          commands,
-          effectiveSilent,
-          {
-            limits: ctx.limits,
-            fs: ctx.fs,
-            cwd: ctx.cwd,
-          },
-        );
-        return {
-          stdout: result.output,
-          stderr: result.errorMessage ? `${result.errorMessage}\n` : "",
-          exitCode: result.exitCode ?? 0,
-        };
-      } catch (e) {
-        if (e instanceof ExecutionLimitError) {
-          return {
-            stdout: "",
-            stderr: `sed: ${e.message}\n`,
-            exitCode: ExecutionLimitError.EXIT_CODE,
-          };
-        }
-        throw e;
-      }
-    }
-
-    // Handle in-place editing
+    // Handle in-place editing - check this first because -i requires files
     if (inPlace) {
+      // -i requires at least one file argument
+      if (files.length === 0) {
+        return {
+          stdout: "",
+          stderr: "sed: -i requires at least one file argument\n",
+          exitCode: 1,
+        };
+      }
       for (const file of files) {
+        // Skip "-" for in-place editing (can't edit stdin in-place)
+        if (file === "-") {
+          continue;
+        }
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
         try {
           const fileContent = await ctx.fs.readFile(filePath);
@@ -462,11 +466,27 @@ export const sedCommand: Command = {
       return { stdout: "", stderr: "", exitCode: 0 };
     }
 
-    // Read all files and process
-    for (const file of files) {
-      const filePath = ctx.fs.resolvePath(ctx.cwd, file);
+    let content = "";
+
+    // Read from files or stdin
+    if (files.length === 0) {
+      content = ctx.stdin;
       try {
-        content += await ctx.fs.readFile(filePath);
+        const result = await processContent(
+          content,
+          commands,
+          effectiveSilent,
+          {
+            limits: ctx.limits,
+            fs: ctx.fs,
+            cwd: ctx.cwd,
+          },
+        );
+        return {
+          stdout: result.output,
+          stderr: result.errorMessage ? `${result.errorMessage}\n` : "",
+          exitCode: result.exitCode ?? 0,
+        };
       } catch (e) {
         if (e instanceof ExecutionLimitError) {
           return {
@@ -475,12 +495,52 @@ export const sedCommand: Command = {
             exitCode: ExecutionLimitError.EXIT_CODE,
           };
         }
-        return {
-          stdout: "",
-          stderr: `sed: ${file}: No such file or directory\n`,
-          exitCode: 1,
-        };
+        throw e;
       }
+    }
+
+    // Read all files and process
+    // Support "-" as stdin marker
+    let stdinConsumed = false;
+    for (const file of files) {
+      let fileContent: string;
+      if (file === "-") {
+        // "-" means read from stdin (can only be consumed once)
+        if (stdinConsumed) {
+          fileContent = "";
+        } else {
+          fileContent = ctx.stdin;
+          stdinConsumed = true;
+        }
+      } else {
+        const filePath = ctx.fs.resolvePath(ctx.cwd, file);
+        try {
+          fileContent = await ctx.fs.readFile(filePath);
+        } catch (e) {
+          if (e instanceof ExecutionLimitError) {
+            return {
+              stdout: "",
+              stderr: `sed: ${e.message}\n`,
+              exitCode: ExecutionLimitError.EXIT_CODE,
+            };
+          }
+          return {
+            stdout: "",
+            stderr: `sed: ${file}: No such file or directory\n`,
+            exitCode: 1,
+          };
+        }
+      }
+      // When concatenating files, ensure previous content ends with newline
+      // (unless this is the first file, previous content is empty, or new content is empty)
+      if (
+        content.length > 0 &&
+        fileContent.length > 0 &&
+        !content.endsWith("\n")
+      ) {
+        content += "\n";
+      }
+      content += fileContent;
     }
 
     try {

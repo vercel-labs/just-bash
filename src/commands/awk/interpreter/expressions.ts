@@ -107,7 +107,7 @@ export async function evalExpr(
       return evalInExpr(ctx, expr.key, expr.array);
 
     case "getline":
-      return evalGetline(ctx, expr.variable, expr.file);
+      return evalGetline(ctx, expr.variable, expr.file, expr.command);
 
     case "tuple":
       return evalTuple(ctx, expr.elements);
@@ -534,13 +534,19 @@ async function evalInExpr(
 }
 
 /**
- * Evaluate getline - reads next line from current input or from file.
+ * Evaluate getline - reads next line from current input, file, or command pipe.
  */
 async function evalGetline(
   ctx: AwkRuntimeContext,
   variable?: string,
   file?: AwkExpr,
+  command?: AwkExpr,
 ): Promise<AwkValue> {
+  // "cmd" | getline - read from command pipe
+  if (command) {
+    return evalGetlineFromCommand(ctx, variable, command);
+  }
+
   // getline < "file" - read from external file
   if (file) {
     return evalGetlineFromFile(ctx, variable, file);
@@ -566,6 +572,71 @@ async function evalGetline(
 
   ctx.NR++;
   ctx.lineIndex = nextLineIndex;
+
+  return 1;
+}
+
+/**
+ * Read a line from a command pipe: "cmd" | getline [var]
+ * The command is executed and its output is read line by line.
+ */
+async function evalGetlineFromCommand(
+  ctx: AwkRuntimeContext,
+  variable: string | undefined,
+  cmdExpr: AwkExpr,
+): Promise<AwkValue> {
+  if (!ctx.exec) {
+    return -1; // No exec function available
+  }
+
+  const cmd = toAwkString(await evalExpr(ctx, cmdExpr));
+
+  // Use a cache for command output, similar to file caching
+  const cacheKey = `__cmd_${cmd}`;
+  const indexKey = `__cmdi_${cmd}`;
+
+  let lines: string[];
+  let lineIndex: number;
+
+  if (ctx.vars[cacheKey] === undefined) {
+    // First time running this command
+    try {
+      const result = await ctx.exec(cmd);
+      const output = result.stdout;
+      lines = output.split("\n");
+      // Remove trailing empty line if output ends with newline
+      if (lines.length > 0 && lines[lines.length - 1] === "") {
+        lines.pop();
+      }
+      // Store in cache
+      ctx.vars[cacheKey] = JSON.stringify(lines);
+      ctx.vars[indexKey] = -1;
+      lineIndex = -1;
+    } catch {
+      return -1; // Error running command
+    }
+  } else {
+    // Command already cached
+    lines = JSON.parse(ctx.vars[cacheKey] as string);
+    lineIndex = ctx.vars[indexKey] as number;
+  }
+
+  // Get next line
+  const nextIndex = lineIndex + 1;
+  if (nextIndex >= lines.length) {
+    return 0; // EOF
+  }
+
+  const line = lines[nextIndex];
+  ctx.vars[indexKey] = nextIndex;
+
+  if (variable) {
+    setVariable(ctx, variable, line);
+  } else {
+    setCurrentLine(ctx, line);
+  }
+
+  // Note: command pipe getline does NOT update NR
 
   return 1;
 }

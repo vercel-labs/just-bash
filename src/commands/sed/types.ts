@@ -6,7 +6,17 @@ export interface StepAddress {
   step: number;
 }
 
-export type SedAddress = number | "$" | { pattern: string } | StepAddress;
+// Relative offset address (GNU extension: ,+N)
+export interface RelativeOffset {
+  offset: number;
+}
+
+export type SedAddress =
+  | number
+  | "$"
+  | { pattern: string }
+  | StepAddress
+  | RelativeOffset;
 
 export interface AddressRange {
   start?: SedAddress;

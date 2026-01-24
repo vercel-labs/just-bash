@@ -338,7 +338,9 @@ export class AwkLexer {
             value += "/";
             break;
           case "x": {
-            // Hex escape: \xHH
+            // Hex escape: \xHH (2 hex digits max)
+            // Note: Different AWK implementations vary in how many digits they consume
+            // We use 2 digits which matches OneTrue AWK test expectations
             let hex = "";
             while (hex.length < 2 && /[0-9a-fA-F]/.test(this.peek())) {
               hex += this.advance();

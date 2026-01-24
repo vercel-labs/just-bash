@@ -53,6 +53,12 @@ function isStepAddress(address: SedAddress): address is StepAddress {
   return typeof address === "object" && "first" in address && "step" in address;
 }
 
+function isRelativeOffset(
+  address: SedAddress,
+): address is import("./types.js").RelativeOffset {
+  return typeof address === "object" && "offset" in address;
+}
+
 function matchesAddress(
   address: SedAddress,
   lineNum: number,
@@ -133,14 +139,89 @@ function isInRangeInternal(
     // Address range - needs state tracking for pattern addresses
     const hasPatternStart = typeof start === "object" && "pattern" in start;
     const hasPatternEnd = typeof end === "object" && "pattern" in end;
+    const hasRelativeEnd = isRelativeOffset(end);
 
-    // If both are numeric, simple range check
-    if (!hasPatternStart && !hasPatternEnd) {
+    // Handle relative offset end address (GNU extension: /pattern/,+N)
+    if (hasRelativeEnd && rangeStates) {
+      const rangeKey = serializeRange(range);
+      let rangeState = rangeStates.get(rangeKey);
+
+      if (!rangeState) {
+        rangeState = { active: false };
+        rangeStates.set(rangeKey, rangeState);
+      }
+
+      if (!rangeState.active) {
+        // Not in range yet - check if start matches
+        // For relative offset ranges, allow restarting (don't check completed)
+        const startMatches = matchesAddress(
+          start,
+          lineNum,
+          totalLines,
+          line,
+          state,
+        );
+
+        if (startMatches) {
+          rangeState.active = true;
+          rangeState.startLine = lineNum;
+          rangeStates.set(rangeKey, rangeState);
+
+          // Check if offset is 0 (match only the start line)
+          if (end.offset === 0) {
+            rangeState.active = false;
+            rangeStates.set(rangeKey, rangeState);
+          }
+          return true;
+        }
+        return false;
+      } else {
+        // Already in range - check if we've matched enough lines
+        const startLine = rangeState.startLine || lineNum;
+        if (lineNum >= startLine + end.offset) {
+          // This is the last line in the range
+          rangeState.active = false;
+          rangeStates.set(rangeKey, rangeState);
+        }
+        return true;
+      }
+    }
+
+    // If both are numeric, check for backward range (need state tracking)
+    if (!hasPatternStart && !hasPatternEnd && !hasRelativeEnd) {
       const startNum =
         typeof start === "number" ? start : start === "$" ? totalLines : 1;
       const endNum =
         typeof end === "number" ? end : end === "$" ? totalLines : totalLines;
-      return lineNum >= startNum && lineNum <= endNum;
+
+      // For forward ranges (start <= end), use simple check
+      if (startNum <= endNum) {
+        return lineNum >= startNum && lineNum <= endNum;
+      }
+
+      // For backward ranges (start > end), use state tracking
+      // GNU sed behavior: match only when start is first reached/passed
+      if (rangeStates) {
+        const rangeKey = serializeRange(range);
+        let rangeState = rangeStates.get(rangeKey);
+
+        if (!rangeState) {
+          rangeState = { active: false };
+          rangeStates.set(rangeKey, rangeState);
+        }
+
+        if (!rangeState.completed) {
+          if (lineNum >= startNum) {
+            rangeState.completed = true;
+            rangeStates.set(rangeKey, rangeState);
+            return true;
+          }
+        }
+        return false;
+      }
+
+      // Fallback: no state tracking available, can't handle backward range
+      return false;
     }
 
     // For pattern ranges, use state tracking

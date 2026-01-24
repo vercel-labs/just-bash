@@ -135,8 +135,15 @@ async function executePrint(
   for (const arg of args) {
     const val = await evalExpr(ctx, arg);
     // Use OFMT for numeric values (POSIX AWK behavior)
+    // Exception: integers are printed directly without OFMT formatting
+    // This matches real AWK behavior where `print 2292437248` outputs
+    // the full integer, not scientific notation
     if (typeof val === "number") {
-      values.push(formatPrintf(ctx.OFMT, [val]));
+      if (Number.isInteger(val) && Math.abs(val) < Number.MAX_SAFE_INTEGER) {
+        values.push(String(val));
+      } else {
+        values.push(formatPrintf(ctx.OFMT, [val]));
+      }
     } else {
       values.push(toAwkString(val));
     }

@@ -375,9 +375,13 @@ class SedParser {
       return undefined;
     }
 
-    // Check for range separator
+    // Check for range separator or relative offset (GNU extension: ,+N)
     let end: SedAddress | undefined;
-    if (this.check(SedTokenType.COMMA)) {
+    if (this.check(SedTokenType.RELATIVE_OFFSET)) {
+      // GNU extension: /pattern/,+N means "match N more lines after pattern"
+      const token = this.advance();
+      end = { offset: token.offset || 0 };
+    } else if (this.check(SedTokenType.COMMA)) {
       this.advance();
       end = this.parseAddress();
       // If we consumed a comma but have no end address, that's an error

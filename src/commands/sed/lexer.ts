@@ -716,22 +716,32 @@ export class SedLexer {
     // 3. a\text (backslash followed by text on same line)
 
     let hasBackslash = false;
-    if (this.peek() === "\\") {
+    // Traditional a\ syntax: only consume backslash if followed by newline or space
+    if (
+      this.peek() === "\\" &&
+      this.pos + 1 < this.input.length &&
+      (this.input[this.pos + 1] === "\n" ||
+        this.input[this.pos + 1] === " " ||
+        this.input[this.pos + 1] === "\t")
+    ) {
       hasBackslash = true;
       this.advance();
     }
 
     // Skip optional space after command or backslash
-    let leadingSpaceStripped = false;
     if (this.peek() === " " || this.peek() === "\t") {
       this.advance();
-      leadingSpaceStripped = true;
     }
 
     // Check for \ at start of text to preserve leading spaces (GNU extension)
     // e.g., "a \   text" preserves "   text"
+    // Only consume backslash if followed by space, otherwise it's an escape sequence
     let preserveLeadingSpaces = false;
-    if (this.peek() === "\\") {
+    if (
+      this.peek() === "\\" &&
+      this.pos + 1 < this.input.length &&
+      (this.input[this.pos + 1] === " " || this.input[this.pos + 1] === "\t")
+    ) {
       preserveLeadingSpaces = true;
       this.advance();
     }
@@ -758,11 +768,23 @@ export class SedLexer {
         break;
       }
 
-      // Handle \n escape sequence (convert to actual newline)
+      // Handle escape sequences in text commands (\n, \t, \r)
       if (ch === "\\" && this.pos + 1 < this.input.length) {
         const next = this.input[this.pos + 1];
         if (next === "n") {
           text += "\n";
+          this.advance();
+          this.advance();
+          continue;
+        }
+        if (next === "t") {
+          text += "\t";
+          this.advance();
+          this.advance();
+          continue;
+        }
+        if (next === "r") {
+          text += "\r";
           this.advance();
           this.advance();
           continue;
@@ -772,20 +794,11 @@ export class SedLexer {
       text += this.advance();
     }
 
-    // For one-liner syntax without preserveLeadingSpaces, trim text
-    // For traditional syntax with \, don't trim
-    let finalText = text;
-    if (!hasBackslash && !preserveLeadingSpaces) {
-      finalText = text.trim();
-    } else if (!preserveLeadingSpaces && leadingSpaceStripped) {
-      // Traditional syntax: preserve text as-is but it was already trimmed of leading space
-      finalText = text;
-    }
-
+    // Don't trim text - escape sequences like \t at the start are intentional
     return {
       type: SedTokenType.TEXT_CMD,
       value: cmd,
-      text: finalText,
+      text,
       line: startLine,
       column: startColumn,
     };

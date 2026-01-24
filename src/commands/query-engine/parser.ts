@@ -1064,7 +1064,8 @@ class Parser {
 
     // reduce EXPR as $VAR (INIT; UPDATE)
     if (this.match("REDUCE")) {
-      const expr = this.parseUnary(); // Use parseUnary to handle -.[] etc.
+      // Use parseAddSub to handle expressions like .[] / .[] or .[] + .[] before 'as'
+      const expr = this.parseAddSub();
       this.expect("AS", "Expected 'as' after reduce expression");
       const pattern = this.parsePattern();
       this.expect("LPAREN", "Expected '(' after variable");
@@ -1086,7 +1087,8 @@ class Parser {
 
     // foreach EXPR as $VAR (INIT; UPDATE) or (INIT; UPDATE; EXTRACT)
     if (this.match("FOREACH")) {
-      const expr = this.parseUnary(); // Use parseUnary to handle -.[] etc.
+      // Use parseAddSub to handle expressions like .[] / .[] or .[] + .[] before 'as'
+      const expr = this.parseAddSub();
       this.expect("AS", "Expected 'as' after foreach expression");
       const pattern = this.parsePattern();
       this.expect("LPAREN", "Expected '(' after variable");

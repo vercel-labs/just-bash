@@ -492,8 +492,9 @@ export class AwkParser {
   }
 
   /**
-   * Parse a print argument - same as ternary but treats > and >> at the TOP LEVEL
+   * Parse a print argument - same as expression but treats > and >> at the TOP LEVEL
    * (not inside ternary) as redirection rather than comparison operators.
+   * Supports assignment expressions like: print 9, a=10, 11
    */
   private parsePrintArg(): AwkExpr {
     // For ternary conditions, we need to allow > as comparison
@@ -502,11 +503,65 @@ export class AwkParser {
 
     if (hasTernary) {
       // Parse as full ternary with regular comparison (> allowed)
-      return this.parseTernary();
+      // Use parsePrintAssignment to support assignment in ternary context
+      return this.parsePrintAssignment(true);
     }
 
     // No ternary - parse without > to leave room for redirection
-    return this.parsePrintOr();
+    return this.parsePrintAssignment(false);
+  }
+
+  /**
+   * Parse assignment in print context. Supports a=10, a+=5, etc.
+   * @param allowGt Whether to allow > as comparison (true when inside ternary)
+   */
+  private parsePrintAssignment(allowGt: boolean): AwkExpr {
+    const expr = allowGt ? this.parseTernary() : this.parsePrintOr();
+
+    if (
+      this.match(
+        TokenType.ASSIGN,
+        TokenType.PLUS_ASSIGN,
+        TokenType.MINUS_ASSIGN,
+        TokenType.STAR_ASSIGN,
+        TokenType.SLASH_ASSIGN,
+        TokenType.PERCENT_ASSIGN,
+        TokenType.CARET_ASSIGN,
+      )
+    ) {
+      const opToken = this.advance();
+      const value = this.parsePrintAssignment(allowGt);
+
+      if (
+        expr.type !== "variable" &&
+        expr.type !== "field" &&
+        expr.type !== "array_access"
+      ) {
+        throw new Error("Invalid assignment target");
+      }
+
+      const opMap: Record<
+        string,
+        "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "^="
+      > = {
+        "=": "=",
+        "+=": "+=",
+        "-=": "-=",
+        "*=": "*=",
+        "/=": "/=",
+        "%=": "%=",
+        "^=": "^=",
+      };
+
+      return {
+        type: "assignment",
+        operator: opMap[opToken.value as string],
+        target: expr as AwkVariable | AwkFieldRef | AwkArrayAccess,
+        value,
+      };
+    }
+
+    return expr;
   }
 
   /**
@@ -778,7 +833,7 @@ export class AwkParser {
   }
 
   private parseTernary(): AwkExpr {
-    let expr = this.parseOr();
+    let expr = this.parsePipeGetline();
 
     if (this.check(TokenType.QUESTION)) {
       this.advance();
@@ -789,6 +844,32 @@ export class AwkParser {
     }
 
     return expr;
+  }
+
+  /**
+   * Parse command pipe getline: "cmd" | getline [var]
+   * This has lower precedence than logical OR but higher than ternary.
+   */
+  private parsePipeGetline(): AwkExpr {
+    const left = this.parseOr();
+
+    // Check for: expr | getline [var]
+    if (this.check(TokenType.PIPE)) {
+      this.advance();
+      if (!this.check(TokenType.GETLINE)) {
+        throw new Error("Expected 'getline' after '|' in expression context");
+      }
+      this.advance(); // consume 'getline'
+
+      let variable: string | undefined;
+      if (this.check(TokenType.IDENT)) {
+        variable = this.advance().value as string;
+      }
+
+      return { type: "getline", command: left, variable };
+    }
+
+    return left;
   }
 
   private parseOr(): AwkExpr {
@@ -1110,6 +1191,166 @@ export class AwkParser {
     return expr;
   }
 
+  /**
+   * Parse a field index expression. This is like parseUnary but does NOT allow
+   * postfix operators, so that $i++ parses as ($i)++ rather than $(i++).
+   * Allows: $1, $i, $++i, $--i, $(expr), $-1
+   * Does NOT consume postfix ++ or -- (those apply to the field, not the index)
+   */
+  private parseFieldIndex(): AwkExpr {
+    // Prefix increment/decrement for field index
+    if (this.check(TokenType.INCREMENT)) {
+      this.advance();
+      const operand = this.parseFieldIndex();
+      if (
+        operand.type !== "variable" &&
+        operand.type !== "field" &&
+        operand.type !== "array_access"
+      ) {
+        return {
+          type: "unary",
+          operator: "+",
+          operand: { type: "unary", operator: "+", operand },
+        };
+      }
+      return {
+        type: "pre_increment",
+        operand: operand as AwkVariable | AwkArrayAccess | AwkFieldRef,
+      };
+    }
+
+    if (this.check(TokenType.DECREMENT)) {
+      this.advance();
+      const operand = this.parseFieldIndex();
+      if (
+        operand.type !== "variable" &&
+        operand.type !== "field" &&
+        operand.type !== "array_access"
+      ) {
+        return {
+          type: "unary",
+          operator: "-",
+          operand: { type: "unary", operator: "-", operand },
+        };
+      }
+      return {
+        type: "pre_decrement",
+        operand: operand as AwkVariable | AwkArrayAccess | AwkFieldRef,
+      };
+    }
+
+    // Unary operators (-, +, !)
+    if (this.match(TokenType.NOT, TokenType.MINUS, TokenType.PLUS)) {
+      const op = this.advance().value as "!" | "-" | "+";
+      const operand = this.parseFieldIndex();
+      return { type: "unary", operator: op, operand };
+    }
+
+    // Power with non-postfix base
+    return this.parseFieldIndexPower();
+  }
+
+  /**
+   * Parse power expression for field index (no postfix on base)
+   */
+  private parseFieldIndexPower(): AwkExpr {
+    let left = this.parseFieldIndexPrimary();
+
+    if (this.check(TokenType.CARET)) {
+      this.advance();
+      const right = this.parseFieldIndexPower();
+      left = { type: "binary", operator: "^", left, right };
+    }
+
+    return left;
+  }
+
+  /**
+   * Parse primary expression for field index - like parsePrimary but returns
+   * without checking for postfix operators
+   */
+  private parseFieldIndexPrimary(): AwkExpr {
+    // Number literal
+    if (this.check(TokenType.NUMBER)) {
+      const value = this.advance().value as number;
+      return { type: "number", value };
+    }
+
+    // String literal
+    if (this.check(TokenType.STRING)) {
+      const value = this.advance().value as string;
+      return { type: "string", value };
+    }
+
+    // Nested field reference
+    if (this.check(TokenType.DOLLAR)) {
+      this.advance();
+      const index = this.parseFieldIndex();
+      return { type: "field", index };
+    }
+
+    // Parenthesized expression - allows full expression inside
+    if (this.check(TokenType.LPAREN)) {
+      this.advance();
+      const expr = this.parseExpression();
+      this.expect(TokenType.RPAREN);
+      return expr;
+    }
+
+    // Variable or function call
+    if (this.check(TokenType.IDENT)) {
+      const name = this.advance().value as string;
+      // Check for function call
+      if (this.check(TokenType.LPAREN)) {
+        this.advance();
+        const args: AwkExpr[] = [];
+        if (!this.check(TokenType.RPAREN)) {
+          args.push(this.parseExpression());
+          while (this.check(TokenType.COMMA)) {
+            this.advance();
+            args.push(this.parseExpression());
+          }
+        }
+        this.expect(TokenType.RPAREN);
+        return { type: "call", name, args };
+      }
+      // Check for array access
+      if (this.check(TokenType.LBRACKET)) {
+        this.advance();
+        const key = this.parseExpression();
+        // Handle multi-dimensional array: a[i,j] or a[i][j]
+        if (this.check(TokenType.COMMA)) {
+          const keys: AwkExpr[] = [key];
+          while (this.check(TokenType.COMMA)) {
+            this.advance();
+            keys.push(this.parseExpression());
+          }
+          this.expect(TokenType.RBRACKET);
+          // Concatenate keys with SUBSEP
+          const combinedKey = keys.reduce((acc, k) => ({
+            type: "binary" as const,
+            operator: " " as const,
+            left: {
+              type: "binary" as const,
+              operator: " " as const,
+              left: acc,
+              right: { type: "variable" as const, name: "SUBSEP" },
+            },
+            right: k,
+          }));
+          return { type: "array_access", array: name, key: combinedKey };
+        }
+        this.expect(TokenType.RBRACKET);
+        return { type: "array_access", array: name, key };
+      }
+      return { type: "variable", name };
+    }
+
+    throw new Error(
+      `Unexpected token in field index: ${this.current().type} at line ${this.current().line}:${this.current().column}`,
+    );
+  }
+
   private parsePrimary(): AwkExpr {
     // Number literal
     if (this.check(TokenType.NUMBER)) {
@@ -1129,10 +1370,11 @@ export class AwkParser {
       return { type: "regex", pattern };
     }
 
-    // Field reference - the index can be any unary expression like ++i or $i
+    // Field reference - the index can be any expression, but postfix ++ and --
+    // should apply to the field, not the index. So $i++ means ($i)++, not $(i++).
     if (this.check(TokenType.DOLLAR)) {
       this.advance();
-      const index = this.parseUnary();
+      const index = this.parseFieldIndex();
       return { type: "field", index };
     }
 

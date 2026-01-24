@@ -143,6 +143,59 @@ c`,
   });
 });
 
+describe("awk command pipe getline", () => {
+  it("reads from command pipe into $0", async () => {
+    const env = new Bash();
+    const result = await env.exec(
+      `awk 'BEGIN { "echo hello" | getline; print }'`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("hello\n");
+  });
+
+  it("reads from command pipe into variable", async () => {
+    const env = new Bash();
+    const result = await env.exec(
+      `awk 'BEGIN { "echo world" | getline x; print "got:", x }'`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("got: world\n");
+  });
+
+  it("reads multiple lines from command pipe", async () => {
+    const env = new Bash({
+      files: { "/test/data.txt": "line1\nline2\nline3" },
+    });
+    const result = await env.exec(
+      `awk 'BEGIN { while (("cat /test/data.txt") | getline line) print "read:", line }'`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("read: line1\nread: line2\nread: line3\n");
+  });
+
+  it("updates fields after command pipe getline into $0", async () => {
+    const env = new Bash();
+    const result = await env.exec(
+      `awk 'BEGIN { FS=":"; "echo a:bc:def" | getline; print NF, $1, $2 }'`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("3 a bc\n");
+  });
+
+  it("returns 1 on success, 0 on EOF", async () => {
+    const env = new Bash();
+    const result = await env.exec(
+      `awk 'BEGIN {
+        ret1 = ("echo single" | getline)
+        ret2 = ("echo single" | getline)  # second call to same command returns EOF
+        print ret1, ret2
+      }'`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("1 0\n");
+  });
+});
+
 describe("awk print to file", () => {
   it("writes to file with print > file", async () => {
     const env = new Bash({

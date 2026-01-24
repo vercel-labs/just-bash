@@ -137,6 +137,7 @@ export interface AwkGetline {
   type: "getline";
   variable?: string;
   file?: AwkExpr;
+  command?: AwkExpr; // For "cmd" | getline [var]
 }
 
 export interface AwkTuple {

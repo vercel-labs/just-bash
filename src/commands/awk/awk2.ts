@@ -55,7 +55,7 @@ export const awkCommand2: Command = {
         const eqIdx = assignment.indexOf("=");
         if (eqIdx > 0) {
           const varName = assignment.slice(0, eqIdx);
-          const varValue = assignment.slice(eqIdx + 1);
+          const varValue = processEscapes(assignment.slice(eqIdx + 1));
           vars[varName] = varValue;
         }
         programIdx = i + 1;
@@ -113,6 +113,11 @@ export const awkCommand2: Command = {
       maxIterations: ctx.limits?.maxAwkIterations,
       fs: awkFs,
       cwd: ctx.cwd,
+      // Wrap ctx.exec to match the expected signature for command pipe getline
+      exec: ctx.exec
+        ? // biome-ignore lint/style/noNonNullAssertion: exec checked in ternary
+          (cmd: string) => ctx.exec!(cmd, { cwd: ctx.cwd })
+        : undefined,
     });
     runtimeCtx.FS = fieldSepStr;
     runtimeCtx.vars = { ...vars };
@@ -241,6 +246,10 @@ function processEscapes(str: string): string {
     .replace(/\\t/g, "\t")
     .replace(/\\n/g, "\n")
     .replace(/\\r/g, "\r")
+    .replace(/\\b/g, "\b")
+    .replace(/\\f/g, "\f")
+    .replace(/\\a/g, "\x07") // bell
+    .replace(/\\v/g, "\v")
     .replace(/\\\\/g, "\\");
 }
 

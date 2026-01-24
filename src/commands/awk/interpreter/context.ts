@@ -78,6 +78,11 @@ export interface AwkRuntimeContext {
 
   // Random function override for testing
   random?: () => number;
+
+  // Exec function for command pipe getline ("cmd" | getline)
+  exec?: (
+    cmd: string,
+  ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
 }
 
 export interface CreateContextOptions {
@@ -86,6 +91,9 @@ export interface CreateContextOptions {
   maxRecursionDepth?: number;
   fs?: AwkFileSystem;
   cwd?: string;
+  exec?: (
+    cmd: string,
+  ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
 }
 
 export function createRuntimeContext(
@@ -97,6 +105,7 @@ export function createRuntimeContext(
     maxRecursionDepth = DEFAULT_MAX_RECURSION_DEPTH,
     fs,
     cwd,
+    exec,
   } = options;
 
   return {
@@ -144,5 +153,6 @@ export function createRuntimeContext(
 
     fs,
     cwd,
+    exec,
   };
 }

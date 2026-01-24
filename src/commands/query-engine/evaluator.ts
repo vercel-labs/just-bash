@@ -489,7 +489,17 @@ export function evaluate(
     case "UnaryOp": {
       const operands = evaluate(value, ast.operand, ctx);
       return operands.map((v) => {
-        if (ast.op === "-") return typeof v === "number" ? -v : null;
+        if (ast.op === "-") {
+          if (typeof v === "number") return -v;
+          if (typeof v === "string") {
+            // jq: strings cannot be negated - format truncates long strings
+            // jq format: "string (\"truncated...) - no closing quote when truncated
+            const formatStr = (s: string) =>
+              s.length > 5 ? `"${s.slice(0, 3)}...` : JSON.stringify(s);
+            throw new Error(`string (${formatStr(v)}) cannot be negated`);
+          }
+          return null;
+        }
         if (ast.op === "not") return !isTruthy(v);
         return null;
       });
@@ -935,12 +945,88 @@ function applyDel(
   pathExpr: AstNode,
   ctx: EvalContext,
 ): QueryValue {
+  // Helper to set a value at an AST path
+  function setAtPath(
+    obj: QueryValue,
+    pathNode: AstNode,
+    newVal: QueryValue,
+  ): QueryValue {
+    switch (pathNode.type) {
+      case "Identity":
+        return newVal;
+      case "Field": {
+        if (pathNode.base) {
+          // Nested field: recurse into base
+          const nested = evaluate(obj, pathNode.base, ctx)[0];
+          const modified = setAtPath(
+            nested,
+            { type: "Field", name: pathNode.name },
+            newVal,
+          );
+          return setAtPath(obj, pathNode.base, modified);
+        }
+        // Direct field
+        if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+          return { ...obj, [pathNode.name]: newVal };
+        }
+        return obj;
+      }
+      case "Index": {
+        if (pathNode.base) {
+          // Nested index: recurse into base
+          const nested = evaluate(obj, pathNode.base, ctx)[0];
+          const modified = setAtPath(
+            nested,
+            { type: "Index", index: pathNode.index },
+            newVal,
+          );
+          return setAtPath(obj, pathNode.base, modified);
+        }
+        // Direct index
+        const indices = evaluate(root, pathNode.index, ctx);
+        const idx = indices[0];
+        if (typeof idx === "number" && Array.isArray(obj)) {
+          const arr = [...obj];
+          const i = idx < 0 ? arr.length + idx : idx;
+          if (i >= 0 && i < arr.length) {
+            arr[i] = newVal;
+          }
+          return arr;
+        }
+        if (
+          typeof idx === "string" &&
+          obj &&
+          typeof obj === "object" &&
+          !Array.isArray(obj)
+        ) {
+          return { ...obj, [idx]: newVal };
+        }
+        return obj;
+      }
+      default:
+        return obj;
+    }
+  }
+
   function deleteAt(val: QueryValue, path: AstNode): QueryValue {
     switch (path.type) {
       case "Identity":
         return null;
 
       case "Field": {
+        // If there's a base (nested field like .a.b), recurse
+        if (path.base) {
+          // Evaluate base to get the nested object
+          const nested = evaluate(val, path.base, ctx)[0];
+          if (nested === null || nested === undefined) {
+            return val;
+          }
+          // Delete field from nested object
+          const modified = deleteAt(nested, { type: "Field", name: path.name });
+          // Set the modified value back at the base path
+          return setAtPath(val, path.base, modified);
+        }
+        // Direct field deletion (no base)
         if (val && typeof val === "object" && !Array.isArray(val)) {
           const obj = { ...val } as Record<string, unknown>;
           delete obj[path.name];
@@ -950,6 +1036,22 @@ function applyDel(
       }
 
       case "Index": {
+        // If there's a base (nested index like .[0].a), recurse
+        if (path.base) {
+          // Evaluate base to get the nested object/array
+          const nested = evaluate(val, path.base, ctx)[0];
+          if (nested === null || nested === undefined) {
+            return val;
+          }
+          // Delete at index from nested value
+          const modified = deleteAt(nested, {
+            type: "Index",
+            index: path.index,
+          });
+          // Set the modified value back at the base path
+          return setAtPath(val, path.base, modified);
+        }
+
         const indices = evaluate(root, path.index, ctx);
         const idx = indices[0];
 
@@ -982,6 +1084,71 @@ function applyDel(
           return {};
         }
         return val;
+      }
+
+      case "Pipe": {
+        // For nested paths like .a.b, navigate to .a and delete .b within it
+        const leftPath = path.left;
+        const rightPath = path.right;
+
+        // Helper to set a value at an AST path
+        function setAt(
+          obj: QueryValue,
+          pathNode: AstNode,
+          newVal: QueryValue,
+        ): QueryValue {
+          switch (pathNode.type) {
+            case "Identity":
+              return newVal;
+            case "Field": {
+              if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+                return { ...obj, [pathNode.name]: newVal };
+              }
+              return obj;
+            }
+            case "Index": {
+              const indices = evaluate(root, pathNode.index, ctx);
+              const idx = indices[0];
+              if (typeof idx === "number" && Array.isArray(obj)) {
+                const arr = [...obj];
+                const i = idx < 0 ? arr.length + idx : idx;
+                if (i >= 0 && i < arr.length) {
+                  arr[i] = newVal;
+                }
+                return arr;
+              }
+              if (
+                typeof idx === "string" &&
+                obj &&
+                typeof obj === "object" &&
+                !Array.isArray(obj)
+              ) {
+                return { ...obj, [idx]: newVal };
+              }
+              return obj;
+            }
+            case "Pipe": {
+              // Recurse: set at leftPath with the result of setting at rightPath
+              const innerVal = evaluate(obj, pathNode.left, ctx)[0];
+              const modified = setAt(innerVal, pathNode.right, newVal);
+              return setAt(obj, pathNode.left, modified);
+            }
+            default:
+              return obj;
+          }
+        }
+
+        // Get the current value at the left path
+        const nested = evaluate(val, leftPath, ctx)[0];
+        if (nested === null || nested === undefined) {
+          return val; // Nothing to delete
+        }
+
+        // Apply deletion on the nested value
+        const modified = deleteAt(nested, rightPath);
+
+        // Reconstruct the object with the modified nested value
+        return setAt(val, leftPath, modified);
       }
 
       default:
@@ -1061,6 +1228,15 @@ function evalBinaryOp(
             const rSet = new Set(r.map((x) => JSON.stringify(x)));
             return l.filter((x) => !rSet.has(JSON.stringify(x)));
           }
+          if (typeof l === "string" && typeof r === "string") {
+            // jq: strings cannot be subtracted - format truncates long strings
+            // jq format: "string (\"truncated...) - no closing quote when truncated
+            const formatStr = (s: string) =>
+              s.length > 10 ? `"${s.slice(0, 10)}...` : JSON.stringify(s);
+            throw new Error(
+              `string (${formatStr(l)}) and string (${formatStr(r)}) cannot be subtracted`,
+            );
+          }
           return null;
         case "*":
           if (typeof l === "number" && typeof r === "number") return l * r;
@@ -1095,7 +1271,7 @@ function evalBinaryOp(
           if (typeof l === "number" && typeof r === "number") {
             if (r === 0) {
               throw new Error(
-                `number (${l}) and number (${r}) cannot be modulo-divided because the divisor is zero`,
+                `number (${l}) and number (${r}) cannot be divided (remainder) because the divisor is zero`,
               );
             }
             // jq: special handling for infinity modulo (but not NaN)
@@ -1347,6 +1523,9 @@ function evalBuiltin(
           "toboolean/0",
           "todate/0",
           "tojson/0",
+          "tostream/0",
+          "fromstream/1",
+          "truncate_stream/1",
           "tonumber/0",
           "tostring/0",
           "transpose/0",
@@ -1416,6 +1595,13 @@ function evalBuiltin(
       const ns = evaluate(value, args[0], ctx);
       // Handle generator args - each n produces its own output
       if (args.length > 1) {
+        // Check for negative indices first
+        for (const nv of ns) {
+          const n = nv as number;
+          if (n < 0) {
+            throw new Error("nth doesn't support negative indices");
+          }
+        }
         // Use lazy evaluation to get partial results before errors
         let results: QueryValue[];
         try {
@@ -1427,13 +1613,16 @@ function evalBuiltin(
         }
         return ns.flatMap((nv) => {
           const n = nv as number;
-          return n >= 0 && n < results.length ? [results[n]] : [];
+          return n < results.length ? [results[n]] : [];
         });
       }
       if (Array.isArray(value)) {
         return ns.flatMap((nv) => {
           const n = nv as number;
-          return n >= 0 && n < value.length ? [value[n]] : [null];
+          if (n < 0) {
+            throw new Error("nth doesn't support negative indices");
+          }
+          return n < value.length ? [value[n]] : [null];
         });
       }
       return [null];
@@ -1945,7 +2134,157 @@ function evalBuiltin(
         }
       };
       walk(value, []);
-      return [paths];
+      // Return each path as a separate output (like paths does)
+      return paths;
+    }
+
+    case "tostream": {
+      // tostream outputs [path, leaf_value] pairs for each leaf, plus [[]] at end
+      const results: QueryValue[] = [];
+      const walk = (v: QueryValue, path: (string | number)[]) => {
+        if (v === null || typeof v !== "object") {
+          // Leaf value - output [path, value]
+          results.push([path, v]);
+        } else if (Array.isArray(v)) {
+          if (v.length === 0) {
+            // Empty array - output [path, []]
+            results.push([path, []]);
+          } else {
+            for (let i = 0; i < v.length; i++) {
+              walk(v[i], [...path, i]);
+            }
+          }
+        } else {
+          const keys = Object.keys(v);
+          if (keys.length === 0) {
+            // Empty object - output [path, {}]
+            results.push([path, {}]);
+          } else {
+            for (const key of keys) {
+              walk((v as Record<string, unknown>)[key], [...path, key]);
+            }
+          }
+        }
+      };
+      walk(value, []);
+      // End marker: [[]] (empty path array wrapped in array)
+      results.push([[]]);
+      return results;
+    }
+
+    case "fromstream": {
+      // fromstream(stream_expr) reconstructs values from stream of [path, value] pairs
+      if (args.length === 0) return [value];
+      const streamItems = evaluate(value, args[0], ctx);
+      let result: QueryValue = null;
+
+      for (const item of streamItems) {
+        if (!Array.isArray(item)) continue;
+        if (
+          item.length === 1 &&
+          Array.isArray(item[0]) &&
+          item[0].length === 0
+        ) {
+          // End marker [[]] - skip
+          continue;
+        }
+        if (item.length !== 2) continue;
+        const [path, val] = item;
+        if (!Array.isArray(path)) continue;
+
+        // Set value at path, creating structure as needed
+        if (path.length === 0) {
+          result = val;
+          continue;
+        }
+
+        // Auto-create root structure based on first path element
+        if (result === null) {
+          result = typeof path[0] === "number" ? [] : {};
+        }
+
+        // Navigate to parent and set value
+        let current: QueryValue = result;
+        for (let i = 0; i < path.length - 1; i++) {
+          const key = path[i];
+          const nextKey = path[i + 1];
+          if (Array.isArray(current) && typeof key === "number") {
+            // Extend array if needed
+            while (current.length <= key) {
+              current.push(null);
+            }
+            if (current[key] === null) {
+              current[key] = typeof nextKey === "number" ? [] : {};
+            }
+            current = current[key];
+          } else if (
+            current &&
+            typeof current === "object" &&
+            !Array.isArray(current)
+          ) {
+            const obj = current as Record<string, unknown>;
+            if (obj[String(key)] === null || obj[String(key)] === undefined) {
+              obj[String(key)] = typeof nextKey === "number" ? [] : {};
+            }
+            current = obj[String(key)] as QueryValue;
+          }
+        }
+
+        // Set the final value
+        const lastKey = path[path.length - 1];
+        if (Array.isArray(current) && typeof lastKey === "number") {
+          while (current.length <= lastKey) {
+            current.push(null);
+          }
+          current[lastKey] = val;
+        } else if (
+          current &&
+          typeof current === "object" &&
+          !Array.isArray(current)
+        ) {
+          (current as Record<string, unknown>)[String(lastKey)] = val;
+        }
+      }
+
+      return [result];
+    }
+
+    case "truncate_stream": {
+      // truncate_stream(stream_items) truncates paths by removing first n elements
+      // where n is the input value (depth)
+      const depth = typeof value === "number" ? Math.floor(value) : 0;
+      if (args.length === 0) return [];
+
+      const results: QueryValue[] = [];
+      const streamItems = evaluate(value, args[0], ctx);
+
+      for (const item of streamItems) {
+        if (!Array.isArray(item)) continue;
+
+        // Handle end markers [[path]] (length 1, first element is array)
+        if (item.length === 1 && Array.isArray(item[0])) {
+          const path = item[0] as (string | number)[];
+          if (path.length > depth) {
+            // Truncate the path
+            results.push([path.slice(depth)]);
+          }
+          // If path.length <= depth, skip (becomes root end marker)
+          continue;
+        }
+
+        // Handle value items [[path], value] (length 2)
+        if (item.length === 2 && Array.isArray(item[0])) {
+          const path = item[0] as (string | number)[];
+          const val = item[1];
+          if (path.length > depth) {
+            // Truncate the path
+            results.push([path.slice(depth), val]);
+          }
+          // If path.length <= depth, skip
+        }
+      }
+
+      return results;
     }
 
     case "to_entries":
@@ -2216,21 +2555,15 @@ function evalBuiltin(
 
     case "trim":
       if (typeof value === "string") return [value.trim()];
-      throw new Error(
-        `${Array.isArray(value) ? "array" : value === null ? "null" : typeof value} (${JSON.stringify(value)}) cannot be trimmed`,
-      );
+      throw new Error("trim input must be a string");
 
     case "ltrim":
       if (typeof value === "string") return [value.trimStart()];
-      throw new Error(
-        `${Array.isArray(value) ? "array" : value === null ? "null" : typeof value} (${JSON.stringify(value)}) cannot be trimmed`,
-      );
+      throw new Error("trim input must be a string");
 
     case "rtrim":
       if (typeof value === "string") return [value.trimEnd()];
-      throw new Error(
-        `${Array.isArray(value) ? "array" : value === null ? "null" : typeof value} (${JSON.stringify(value)}) cannot be trimmed`,
-      );
+      throw new Error("trim input must be a string");
 
     case "startswith": {
       if (typeof value !== "string" || args.length === 0) return [false];
@@ -2984,10 +3317,24 @@ function evalBuiltin(
       return [null];
 
     case "implode":
-      if (Array.isArray(value)) {
+      if (!Array.isArray(value)) {
+        throw new Error("implode input must be an array");
+      }
+      {
         // jq: Invalid code points get replaced with Unicode replacement character (0xFFFD)
         const REPLACEMENT_CHAR = 0xfffd;
-        const chars = (value as number[]).map((cp) => {
+        const chars = (value as QueryValue[]).map((cp) => {
+          // Check for non-numeric values
+          if (typeof cp === "string") {
+            throw new Error(
+              `string (${JSON.stringify(cp)}) can't be imploded, unicode codepoint needs to be numeric`,
+            );
+          }
+          if (typeof cp !== "number" || Number.isNaN(cp)) {
+            throw new Error(
+              `number (null) can't be imploded, unicode codepoint needs to be numeric`,
+            );
+          }
           // Truncate to integer
           const code = Math.trunc(cp);
           // Check for valid Unicode code point
@@ -3002,7 +3349,6 @@ function evalBuiltin(
         });
         return [chars.join("")];
       }
-      return [null];
 
     case "tojson":
     case "tojsonstream":
@@ -3036,8 +3382,12 @@ function evalBuiltin(
       // Handle generator args - each n produces its own limited output
       return ns.flatMap((nv) => {
         const n = nv as number;
+        // jq: negative limit throws error
+        if (n < 0) {
+          throw new Error("limit doesn't support negative count");
+        }
         // jq: limit(0; expr) should return [] without evaluating expr
-        if (n <= 0) return [];
+        if (n === 0) return [];
         // Use lazy evaluation to get partial results before errors
         let results: QueryValue[];
         try {
@@ -3197,12 +3547,12 @@ function evalBuiltin(
     case "@csv": {
       if (!Array.isArray(value)) return [null];
       const csvEscaped = value.map((v) => {
-        const s = String(v ?? "");
-        // CSV standard: escape quotes by doubling them, wrap in quotes if needed
-        if (s.includes(",") || s.includes('"') || s.includes("\n")) {
-          return `"${s.replace(/"/g, '""')}"`;
-        }
-        return s;
+        if (v === null) return "";
+        if (typeof v === "boolean") return v ? "true" : "false";
+        if (typeof v === "number") return String(v);
+        // Strings are always quoted, with internal quotes doubled
+        const s = String(v);
+        return `"${s.replace(/"/g, '""')}"`;
       });
       return [csvEscaped.join(",")];
     }

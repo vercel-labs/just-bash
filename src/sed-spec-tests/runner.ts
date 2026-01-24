@@ -40,8 +40,9 @@ export async function runSedTestCase(
     "/tmp/_keep": "",
   };
 
-  // Add input file if specified
-  if (testCase.infile) {
+  // Add input file if specified (even if empty, for tests that reference it)
+  // Also create the file if the command references "input" (for empty file tests)
+  if (testCase.infile || testCase.command.includes("input")) {
     files["/tmp/input"] = testCase.infile;
   }
 
