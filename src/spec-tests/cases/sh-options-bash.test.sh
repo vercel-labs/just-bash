@@ -30,6 +30,9 @@ echo status=$?
 # Setting a readonly variable in osh is a hard failure.
 ## OK osh status: 1
 ## OK osh stdout-json: ""
+# just-bash also treats readonly assignment as fatal (matches osh)
+## OK bash status: 1
+## OK bash stdout-json: ""
 
 #### SHELLOPTS and BASHOPTS are non-empty
 

@@ -1129,27 +1129,33 @@ function braceExpansionNeedsAsync(parts: WordPart[]): boolean {
 }
 
 /**
- * Expand brace expansion in word parts, producing multiple string arrays.
+ * Expand brace expansion in word parts, producing multiple arrays of parts.
  * Each result array represents the parts that will be joined to form one word.
  * For example, "pre{a,b}post" produces [["pre", "a", "post"], ["pre", "b", "post"]]
+ *
+ * Non-brace parts are kept as WordPart objects to allow deferred expansion.
+ * This is necessary for bash-like behavior where side effects in expansions
+ * (like $((i++))) are evaluated separately for each brace alternative.
  */
 // Maximum number of brace expansion results to prevent memory explosion
 const MAX_BRACE_EXPANSION_RESULTS = 10000;
 // Maximum total operations across all recursive calls
 const MAX_BRACE_OPERATIONS = 100000;
 
+type BraceExpandedPart = string | WordPart;
+
 function expandBracesInParts(
   ctx: InterpreterContext,
   parts: WordPart[],
   operationCounter: { count: number } = { count: 0 },
-): string[][] {
+): BraceExpandedPart[][] {
   // Check global operation limit
   if (operationCounter.count > MAX_BRACE_OPERATIONS) {
     return [[]];
   }
 
   // Start with one empty result
-  let results: string[][] = [[]];
+  let results: BraceExpandedPart[][] = [[]];
 
   for (const part of parts) {
     if (part.type === "BraceExpansion") {
@@ -1185,7 +1191,16 @@ function expandBracesInParts(
           );
           for (const exp of expanded) {
             operationCounter.count++;
-            braceValues.push(exp.join(""));
+            // Join all parts, expanding any deferred WordParts
+            const joinedParts: string[] = [];
+            for (const p of exp) {
+              if (typeof p === "string") {
+                joinedParts.push(p);
+              } else {
+                joinedParts.push(expandPartSync(ctx, p));
+              }
+            }
+            braceValues.push(joinedParts.join(""));
           }
         }
       }
@@ -1210,7 +1225,7 @@ function expandBracesInParts(
         return results;
       }
 
-      const newResults: string[][] = [];
+      const newResults: BraceExpandedPart[][] = [];
       for (const result of results) {
         for (const val of braceValues) {
           operationCounter.count++;
@@ -1222,11 +1237,12 @@ function expandBracesInParts(
       }
       results = newResults;
     } else {
-      // Non-brace part: expand it and append to all results
-      const expanded = expandPartSync(ctx, part);
+      // Non-brace part: keep as WordPart for deferred expansion
+      // This allows side effects (like $((i++))) to be evaluated
+      // separately for each brace alternative
       for (const result of results) {
         operationCounter.count++;
-        result.push(expanded);
+        result.push(part);
       }
     }
   }
@@ -1248,11 +1264,27 @@ function expandWordWithBraces(
     return [expandWordSync(ctx, word)];
   }
 
-  // Expand braces and join each result
+  // Expand braces - returns arrays of strings and deferred WordParts
   const expanded = expandBracesInParts(ctx, parts);
-  // Apply tilde expansion to each result - this handles cases like ~{/src,root}
-  // where brace expansion produces ~/src and ~root, which then need tilde expansion
-  return expanded.map((parts) => applyTildeExpansion(ctx, parts.join("")));
+
+  // Now expand each result, evaluating deferred parts separately for each
+  // This ensures side effects like $((i++)) are evaluated fresh for each brace alternative
+  const results: string[] = [];
+  for (const resultParts of expanded) {
+    const joinedParts: string[] = [];
+    for (const p of resultParts) {
+      if (typeof p === "string") {
+        joinedParts.push(p);
+      } else {
+        // Expand the deferred WordPart now
+        joinedParts.push(expandPartSync(ctx, p));
+      }
+    }
+    // Apply tilde expansion to each result - this handles cases like ~{/src,root}
+    // where brace expansion produces ~/src and ~root, which then need tilde expansion
+    results.push(applyTildeExpansion(ctx, joinedParts.join("")));
+  }
+  return results;
 }
 
 /**
@@ -1262,12 +1294,12 @@ async function expandBracesInPartsAsync(
   ctx: InterpreterContext,
   parts: WordPart[],
   operationCounter: { count: number } = { count: 0 },
-): Promise<string[][]> {
+): Promise<BraceExpandedPart[][]> {
   if (operationCounter.count > MAX_BRACE_OPERATIONS) {
     return [[]];
   }
 
-  let results: string[][] = [[]];
+  let results: BraceExpandedPart[][] = [[]];
 
   for (const part of parts) {
     if (part.type === "BraceExpansion") {
@@ -1302,7 +1334,16 @@ async function expandBracesInPartsAsync(
           );
           for (const exp of expanded) {
             operationCounter.count++;
-            braceValues.push(exp.join(""));
+            // Join all parts, expanding any deferred WordParts
+            const joinedParts: string[] = [];
+            for (const p of exp) {
+              if (typeof p === "string") {
+                joinedParts.push(p);
+              } else {
+                joinedParts.push(await expandPart(ctx, p));
+              }
+            }
+            braceValues.push(joinedParts.join(""));
           }
         }
       }
@@ -1323,7 +1364,7 @@ async function expandBracesInPartsAsync(
         return results;
       }
 
-      const newResults: string[][] = [];
+      const newResults: BraceExpandedPart[][] = [];
       for (const result of results) {
         for (const val of braceValues) {
           operationCounter.count++;
@@ -1335,11 +1376,10 @@ async function expandBracesInPartsAsync(
       }
       results = newResults;
     } else {
-      // Non-brace part: expand it asynchronously and append to all results
-      const expanded = await expandPart(ctx, part);
+      // Non-brace part: keep as WordPart for deferred expansion
       for (const result of results) {
         operationCounter.count++;
-        result.push(expanded);
+        result.push(part);
       }
     }
   }
@@ -1361,9 +1401,25 @@ async function expandWordWithBracesAsync(
   }
 
   const expanded = await expandBracesInPartsAsync(ctx, parts);
-  // Apply tilde expansion to each result - this handles cases like ~{/src,root}
-  // where brace expansion produces ~/src and ~root, which then need tilde expansion
-  return expanded.map((parts) => applyTildeExpansion(ctx, parts.join("")));
+
+  // Now expand each result, evaluating deferred parts separately for each
+  // This ensures side effects like $((i++)) are evaluated fresh for each brace alternative
+  const results: string[] = [];
+  for (const resultParts of expanded) {
+    const joinedParts: string[] = [];
+    for (const p of resultParts) {
+      if (typeof p === "string") {
+        joinedParts.push(p);
+      } else {
+        // Expand the deferred WordPart now (async)
+        joinedParts.push(await expandPart(ctx, p));
+      }
+    }
+    // Apply tilde expansion to each result - this handles cases like ~{/src,root}
+    // where brace expansion produces ~/src and ~root, which then need tilde expansion
+    results.push(applyTildeExpansion(ctx, joinedParts.join("")));
+  }
+  return results;
 }
 
 export async function expandWordWithGlob(
@@ -4335,27 +4391,34 @@ export async function expandWordWithGlob(
     !ctx.state.options.noglob &&
     hasGlobPattern(value, ctx.state.shoptOptions.extglob)
   ) {
-    // No Glob parts but value contains glob characters from Literal parts
-    const globExpander = new GlobExpander(
-      ctx.fs,
-      ctx.state.cwd,
-      ctx.state.env,
-      {
-        globstar: ctx.state.shoptOptions.globstar,
-        nullglob: ctx.state.shoptOptions.nullglob,
-        failglob: ctx.state.shoptOptions.failglob,
-        dotglob: ctx.state.shoptOptions.dotglob,
-        extglob: ctx.state.shoptOptions.extglob,
-        globskipdots: ctx.state.shoptOptions.globskipdots,
-      },
-    );
-    const matches = await globExpander.expand(value);
-    if (matches.length > 0) {
-      return { values: matches, quoted: false };
-    } else if (globExpander.hasFailglob()) {
-      throw new GlobError(value);
-    } else if (globExpander.hasNullglob()) {
-      return { values: [], quoted: false };
+    // No Glob parts but value contains glob characters from Literal parts or expansions
+    // Use expandWordForGlobbing to properly handle Escaped parts (e.g., \* should not glob)
+    const globPattern = await expandWordForGlobbing(ctx, word);
+
+    // Check if there are still glob patterns after escaping
+    // (e.g., "two-\*" becomes "two-\\*" which has no unescaped globs)
+    if (hasGlobPattern(globPattern, ctx.state.shoptOptions.extglob)) {
+      const globExpander = new GlobExpander(
+        ctx.fs,
+        ctx.state.cwd,
+        ctx.state.env,
+        {
+          globstar: ctx.state.shoptOptions.globstar,
+          nullglob: ctx.state.shoptOptions.nullglob,
+          failglob: ctx.state.shoptOptions.failglob,
+          dotglob: ctx.state.shoptOptions.dotglob,
+          extglob: ctx.state.shoptOptions.extglob,
+          globskipdots: ctx.state.shoptOptions.globskipdots,
+        },
+      );
+      const matches = await globExpander.expand(globPattern);
+      if (matches.length > 0) {
+        return { values: matches, quoted: false };
+      } else if (globExpander.hasFailglob()) {
+        throw new GlobError(value);
+      } else if (globExpander.hasNullglob()) {
+        return { values: [], quoted: false };
+      }
     }
   }
 
@@ -4611,7 +4674,7 @@ function getWordText(parts: WordPart[]): string {
  * Check if a word contains quoted "$@" that would expand to multiple words.
  * This is used to detect "ambiguous redirect" errors.
  */
-function hasQuotedMultiValueAt(
+export function hasQuotedMultiValueAt(
   ctx: InterpreterContext,
   word: WordNode,
 ): boolean {
@@ -4722,11 +4785,18 @@ export async function expandRedirectTarget(
   }
 
   // Skip glob expansion if noglob is set (set -f) or if the word was quoted
-  if (
-    hasQuoted ||
-    ctx.state.options.noglob ||
-    !hasGlobPattern(value, ctx.state.shoptOptions.extglob)
-  ) {
+  // Check these BEFORE building glob pattern to avoid double-expanding side-effectful expressions
+  if (hasQuoted || ctx.state.options.noglob) {
+    return { target: value };
+  }
+
+  // Build glob pattern using expandWordForGlobbing which preserves escaped glob chars
+  // For example: two-\* becomes two-\\* (escaped * is literal, not a glob)
+  // But: two-$star where star='*' becomes two-* (variable expansion is subject to glob)
+  const globPattern = await expandWordForGlobbing(ctx, word);
+
+  // Skip if there are no glob patterns in the pattern
+  if (!hasGlobPattern(globPattern, ctx.state.shoptOptions.extglob)) {
     return { target: value };
   }
 
@@ -4740,7 +4810,7 @@ export async function expandRedirectTarget(
     globskipdots: ctx.state.shoptOptions.globskipdots,
   });
 
-  const matches = await globExpander.expand(value);
+  const matches = await globExpander.expand(globPattern);
 
   if (matches.length === 0) {
     // No matches
@@ -4748,7 +4818,7 @@ export async function expandRedirectTarget(
       // failglob: error on no match
       return { error: `bash: no match: ${value}\n` };
     }
-    // Without failglob, use the literal pattern
+    // Without failglob, use the literal pattern (unescaped)
     return { target: value };
   }
 

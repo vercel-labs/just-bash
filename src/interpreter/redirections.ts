@@ -12,7 +12,11 @@
 
 import type { RedirectionNode, WordNode } from "../ast/types.js";
 import type { ExecResult } from "../types.js";
-import { expandRedirectTarget, expandWord } from "./expansion.js";
+import {
+  expandRedirectTarget,
+  expandWord,
+  hasQuotedMultiValueAt,
+} from "./expansion.js";
 import { result as makeResult } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -73,6 +77,10 @@ export async function preExpandRedirectTargets(
 
     const isFdRedirect = redir.operator === ">&" || redir.operator === "<&";
     if (isFdRedirect) {
+      // Check for "$@" with multiple positional params - this is an ambiguous redirect
+      if (hasQuotedMultiValueAt(ctx, redir.target as WordNode)) {
+        return { targets, error: "bash: $@: ambiguous redirect\n" };
+      }
       targets.set(i, await expandWord(ctx, redir.target as WordNode));
     } else {
       const expandResult = await expandRedirectTarget(
@@ -343,6 +351,13 @@ export async function applyRedirections(
       // For file redirects, use glob expansion with failglob/ambiguous redirect handling
       const isFdRedirect = redir.operator === ">&" || redir.operator === "<&";
       if (isFdRedirect) {
+        // Check for "$@" with multiple positional params - this is an ambiguous redirect
+        if (hasQuotedMultiValueAt(ctx, redir.target as WordNode)) {
+          stderr += "bash: $@: ambiguous redirect\n";
+          exitCode = 1;
+          stdout = "";
+          continue;
+        }
         target = await expandWord(ctx, redir.target as WordNode);
       } else {
         const expandResult = await expandRedirectTarget(

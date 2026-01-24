@@ -470,7 +470,6 @@ a{} b{}
 ## END
 
 #### Side effect in expansion
-## SKIP: Side effects in brace expansion not implemented
 # bash is the only one that does it first.  I guess since this is
 # non-POSIX anyway, follow bash?
 i=0

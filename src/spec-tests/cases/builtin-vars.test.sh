@@ -233,6 +233,7 @@ None
 readonly foo=bar
 foo=eggs
 echo "status=$?"  # nothing happens
+## stdout-json: ""
 ## status: 1
 ## BUG bash stdout: status=1
 ## BUG bash status: 0
@@ -258,6 +259,11 @@ global
 local
 ## END
 ## OK dash status: 2
+# just-bash treats readonly assignment as fatal (matches dash)
+## OK bash STDOUT:
+local
+## END
+## OK bash status: 1
 
 # mksh aborts the function, weird
 ## OK mksh STDOUT:

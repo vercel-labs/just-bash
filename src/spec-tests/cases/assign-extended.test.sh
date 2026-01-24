@@ -893,7 +893,7 @@ echo r=$r
 
 # clear the readonly flag.  Why is this accepted in bash, but doesn't do
 # anything?
-typeset +r r=r2 
+typeset +r r=r2
 echo r=$r
 
 r=r3
@@ -909,6 +909,11 @@ r=r3
 # mksh doesn't allow you to unset
 ## OK mksh status: 2
 ## OK mksh STDOUT:
+r=r1
+## END
+# just-bash treats readonly assignment as fatal
+## OK bash status: 1
+## OK bash STDOUT:
 r=r1
 ## END
 

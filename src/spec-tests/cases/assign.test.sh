@@ -765,5 +765,8 @@ argv.py "${a[@]}"
 ## END
 ## OK mksh status: 1
 ## OK mksh stdout-json: ""
+# just-bash treats readonly assignment as fatal (matches mksh)
+## OK bash status: 1
+## OK bash stdout-json: ""
 ## N-I dash status: 99
 ## N-I dash stdout-json: ""

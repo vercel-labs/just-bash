@@ -396,6 +396,9 @@ A['x']=1
 echo status=$?
 ## OK osh status: 1
 ## OK osh stdout-json: ""
+# just-bash treats readonly assignment as fatal (matches osh)
+## OK bash status: 1
+## OK bash stdout-json: ""
 ## STDOUT:
 status=1
 ## END

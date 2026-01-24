@@ -23,7 +23,6 @@ echo $a
 
 
 #### assign readonly -- one line
-## SKIP: Readonly variable assignment doesn't stop script execution
 readonly x=1; x=2; echo hi
 ## status: 1
 ## OK dash/mksh/ash status: 2

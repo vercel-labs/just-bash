@@ -35,7 +35,6 @@ fun _tmp/var-sub1 _tmp/var-sub2
 ## OK dash status: 2
 
 #### Descriptor redirect to bad "$@"
-## SKIP: Redirect with $@ expansion not implemented
 # All of them give errors:
 # dash - bad fd number, parse error?
 # bash - ambiguous redirect
