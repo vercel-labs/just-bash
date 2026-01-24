@@ -236,7 +236,12 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
 
   // ============================================================
   // Depth limit tests
+  // Our depth limit (2000) is lower than jq's to ensure V8 compatibility
   // ============================================================
+  [
+    "jq.test:reduce range(9999) as $_ ([];[.]) | tojson | fromjson | flatten",
+    "Our depth limit (2000) returns null before reaching 9999 levels",
+  ],
   [
     'jq.test:reduce range(10000) as $_ ([];[.]) | tojson | try (fromjson) catch . | (contains("<skipped: too deep>") | not) and contains("Exceeds depth limit for parsing")',
     "Depth limit test - different error messages",

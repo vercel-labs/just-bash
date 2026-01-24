@@ -33,19 +33,34 @@ class JqError extends Error {
 }
 
 const DEFAULT_MAX_JQ_ITERATIONS = 10000;
-const DEFAULT_MAX_JQ_DEPTH = 10000;
+// Depth limit for nested structures - must be low enough to avoid V8 stack overflow
+// during JSON.stringify/parse which have their own recursion limits (~2000-10000 depending on V8 version)
+const DEFAULT_MAX_JQ_DEPTH = 2000;
 
 export interface QueryExecutionLimits {
   maxIterations?: number;
   maxDepth?: number;
 }
 
-/** Calculate the nesting depth of an array */
-function getArrayDepth(value: QueryValue): number {
-  if (!Array.isArray(value)) return 0;
-  if (value.length === 0) return 1;
-  // Only check first element for performance (this catches [.] pattern)
-  return 1 + getArrayDepth(value[0]);
+/** Calculate the nesting depth of a value (array or object) */
+function getValueDepth(value: QueryValue, maxCheck = 3000): number {
+  let depth = 0;
+  let current: QueryValue = value;
+  while (depth < maxCheck) {
+    if (Array.isArray(current)) {
+      if (current.length === 0) return depth + 1;
+      current = current[0];
+      depth++;
+    } else if (current !== null && typeof current === "object") {
+      const keys = Object.keys(current);
+      if (keys.length === 0) return depth + 1;
+      current = (current as Record<string, unknown>)[keys[0]];
+      depth++;
+    } else {
+      return depth;
+    }
+  }
+  return depth;
 }
 
 export interface EvalContext {
@@ -659,7 +674,7 @@ export function evaluate(
         }
         accumulator = evaluate(accumulator, ast.update, newCtx)[0];
         // Check depth limit to prevent stack overflow with deeply nested structures
-        if (getArrayDepth(accumulator) > maxDepth) {
+        if (getValueDepth(accumulator, maxDepth + 1) > maxDepth) {
           return [null];
         }
       }
@@ -3368,8 +3383,14 @@ function evalBuiltin(
       }
 
     case "tojson":
-    case "tojsonstream":
+    case "tojsonstream": {
+      // Check depth to avoid V8 stack overflow during JSON.stringify
+      const maxDepth = ctx.limits.maxDepth ?? DEFAULT_MAX_JQ_DEPTH;
+      if (getValueDepth(value, maxDepth + 1) > maxDepth) {
+        return [null];
+      }
       return [JSON.stringify(value)];
+    }
 
     case "fromjson": {
       if (typeof value === "string") {
@@ -3595,8 +3616,14 @@ function evalBuiltin(
       ];
     }
 
-    case "@json":
+    case "@json": {
+      // Check depth to avoid V8 stack overflow during JSON.stringify
+      const maxDepth = ctx.limits.maxDepth ?? DEFAULT_MAX_JQ_DEPTH;
+      if (getValueDepth(value, maxDepth + 1) > maxDepth) {
+        return [null];
+      }
       return [JSON.stringify(value)];
+    }
 
     case "@html":
       if (typeof value === "string") {
