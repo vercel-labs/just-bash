@@ -27,6 +27,10 @@ export interface AwkTestCase {
   originalCommand?: string;
   /** Field separator to use (default is space/whitespace) */
   fieldSeparator?: string;
+  /** Command-line arguments to pass to awk (for ARGV/ARGC tests) */
+  args?: string[];
+  /** Command-line variable assignments via -v var=value */
+  vars?: Record<string, string>;
 }
 
 /**
@@ -175,12 +179,14 @@ function tryParseReversedTest(
   let awkEndLine = awkStartLine;
 
   // Find where the awk program ends (look for ' >foo pattern)
+  // Also match: ' <filename> >foo where filename is an input file
   for (let j = awkStartLine; j < lines.length; j++) {
     if (
       lines[j].includes("' >foo") ||
       lines[j].includes("'>foo") ||
       lines[j].match(/'\s+\/dev\/null\s*>\s*foo/) ||
-      lines[j].match(/'\s*>\s*foo/)
+      lines[j].match(/'\s*>\s*foo/) ||
+      lines[j].match(/'\s+\S+\s*>\s*foo/) // ' <filename> >foo
     ) {
       awkEndLine = j;
       break;
@@ -711,17 +717,27 @@ function tryParseBuiltinStyleTest(
   const awkLine = lines[startLine];
 
   // Extract the awk program from $awk '...' or $awk "..."
+  // Capture any flags/options between $awk and the program quote
   const awkMatch = awkLine.match(
-    /\$awk\s+(?:-[^\s]+\s+)?(['"])([\s\S]*?)\1(?:\s+([^\s>]+))?\s*>\s*foo([12])/,
+    /\$awk\s+((?:-[^\s']+\s+)*)(['"])([\s\S]*?)\2(?:\s+([^\s>]+))?\s*>\s*foo([12])/,
   );
   if (!awkMatch) {
     // Try multi-line awk program
     return tryParseMultiLineAwkTest(lines, startLine);
   }
 
-  const program = awkMatch[2];
-  const inputFile = awkMatch[3];
-  const fooNum = awkMatch[4];
+  const flagsStr = awkMatch[1] || "";
+  const program = awkMatch[3];
+  const inputFile = awkMatch[4];
+  const fooNum = awkMatch[5];
+
+  // Parse -v var=value options from flags
+  const vars: Record<string, string> = {};
+  // Match both -v var=value and -vvar=value formats
+  const varMatches = flagsStr.matchAll(/-v\s*(\w+)=([^\s]+)\s*/g);
+  for (const match of varMatches) {
+    vars[match[1]] = match[2];
+  }
 
   // Determine which is output and which is expected
   // Usually: awk output goes to foo1 or foo2, expected goes to the other
@@ -730,10 +746,67 @@ function tryParseBuiltinStyleTest(
   let inputData = "";
   let nextLine = startLine + 1;
 
-  // Check for piped input: echo 'data' | $awk
+  // Check for piped input: echo 'data' | $awk (same line)
   const pipeMatch = awkLine.match(/echo\s+(['"])(.*?)\1\s*\|\s*\$awk/);
   if (pipeMatch) {
     inputData = pipeMatch[2];
+  }
+
+  // Also check for unquoted piped input: echo data | $awk (same line)
+  if (!inputData) {
+    const unquotedPipeMatch = awkLine.match(/echo\s+(\S+)\s*\|\s*\$awk/);
+    if (unquotedPipeMatch) {
+      inputData = unquotedPipeMatch[1];
+    }
+  }
+
+  // Check for piped input from previous line: echo 'data' | (then $awk on this line)
+  if (!inputData && startLine > 0) {
+    const prevLine = lines[startLine - 1];
+    // Match: echo 'input' | or echo "input" | at end of line (single line)
+    const prevPipeMatch = prevLine.match(/echo\s+(['"])(.*?)\1\s*\|\s*$/);
+    if (prevPipeMatch) {
+      inputData = prevPipeMatch[2];
+    }
+    // Check for multi-line echo input ending with ' | or " |
+    // e.g., echo 'line1\nline2' | spanning multiple lines
+    if (!inputData && prevLine.trim().endsWith("' |")) {
+      // Search backwards for the echo start
+      for (let j = startLine - 1; j >= 0 && j >= startLine - 15; j--) {
+        const searchLine = lines[j];
+        if (searchLine.match(/^echo\s+'/)) {
+          // Found start of echo, extract content up to the pipe
+          const echoContent = lines
+            .slice(j, startLine)
+            .join("\n")
+            .match(/echo\s+'([\s\S]*?)'\s*\|/);
+          if (echoContent) {
+            inputData = echoContent[1];
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // Check for expected output from PREVIOUS line (when awk output goes to foo2, expected in foo1)
+  // Pattern: echo 'expected' >foo1  then  echo data | $awk '...' >foo2
+  if (fooNum === "2" && startLine > 0) {
+    const prevLine = lines[startLine - 1];
+    // With quotes
+    const prevEchoMatch = prevLine.match(/echo\s+(['"])(.*?)\1\s*>\s*foo1$/);
+    if (prevEchoMatch) {
+      expectedOutput = prevEchoMatch[2]
+        .replace(/\\n/g, "\n")
+        .replace(/\\t/g, "\t");
+    }
+    // Without quotes (can be multiple words)
+    if (!expectedOutput) {
+      const prevEchoNoQuoteMatch = prevLine.match(/echo\s+(.+?)\s*>\s*foo1$/);
+      if (prevEchoNoQuoteMatch) {
+        expectedOutput = prevEchoNoQuoteMatch[1];
+      }
+    }
   }
 
   // Look for the expected output and diff/cmp line
@@ -788,6 +861,7 @@ function tryParseBuiltinStyleTest(
       expectedOutput,
       lineNumber: startLine + 1,
       originalCommand: awkLine.trim(),
+      ...(Object.keys(vars).length > 0 ? { vars } : {}),
     },
     nextLine,
   };

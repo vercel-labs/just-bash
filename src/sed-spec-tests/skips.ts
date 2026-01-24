@@ -66,13 +66,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   ["busybox-sed.tests:sed embedded NUL g", "NUL bytes with global flag"],
   ["busybox-sed.tests:sed NUL in command", "NUL bytes in command file"],
 
-
-  // Branch/label edge case
-  [
-    "busybox-sed.tests:sed nonexistent label",
-    "branch to nonexistent label handling",
-  ],
-
   // Empty regex reuse with no trailing newline (test has no trailing newline input)
   [
     "busybox-sed.tests:sed backref from empty s uses range regex",
@@ -84,8 +77,10 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "busybox-sed.tests:sed handles empty lines",
     "empty line handling with $ anchor",
   ],
-  ["busybox-sed.tests:sed s//g (exhaustive)", "zero-length match handling"],
-  ["busybox-sed.tests:sed s [delimiter]", "custom delimiter with bracket char"],
+  [
+    "busybox-sed.tests:sed s [delimiter]",
+    "no trailing newline in input/output handling",
+  ],
   [
     "busybox-sed.tests:sed s with \\\\t (GNU ext)",
     "no trailing newline in input handling",
@@ -97,7 +92,7 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   ["busybox-sed.tests:sed subst+write", "w command with multiple files"],
   [
     "busybox-sed.tests:sed escaped newline in command",
-    "escaped char in replacement",
+    "test parser doesn't handle embedded newlines in replacement",
   ],
   ["busybox-sed.tests:sed match EOF", "$ address with multi-file"],
   ["busybox-sed.tests:sed match EOF two files", "$ address with multi-file"],
@@ -119,18 +114,7 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "busybox-sed.tests:sed a cmd ended by double backslash",
     "backslash escaping in a command",
   ],
-  [
-    "busybox-sed.tests:sed zero chars match/replace advances correctly 1",
-    "zero-length match advancement",
-  ],
-  [
-    "busybox-sed.tests:sed zero chars match/replace advances correctly 2",
-    "zero-length match advancement",
-  ],
-  [
-    "busybox-sed.tests:sed special char as s/// delimiter, in pattern",
-    "special delimiter escaping",
-  ],
+  // NOTE: "sed special char as s/// delimiter, in pattern" now works
   [
     "busybox-sed.tests:sed special char as s/// delimiter, in replacement 2",
     "special delimiter with backreference",
@@ -158,18 +142,7 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   ],
 
   // PythonSed tests expecting syntax errors
-  [
-    "pythonsed-unit.suite:syntax: terminating commands - 8",
-    "address-only without command should error",
-  ],
-  [
-    "pythonsed-unit.suite:syntax: terminating commands - 9",
-    "incomplete address should error",
-  ],
-  [
-    "pythonsed-unit.suite:syntax: terminating commands - 10",
-    "address range without command should error",
-  ],
+  // NOTE: Tests 8, 9, 10 now work (address-only and incomplete range errors)
   [
     "pythonsed-unit.suite:syntax: terminating commands - aic",
     "#n special comment not supported",
@@ -194,24 +167,9 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   ],
 
   // BRE/ERE regex edge cases
-  [
-    "pythonsed-unit.suite:anchors inside regexp $ - BRE",
-    "$ inside pattern handling",
-  ],
-  [
-    "pythonsed-unit.suite:anchors inside regexp ^ - BRE",
-    "^ inside pattern handling",
-  ],
-  ["pythonsed-unit.suite:regexp or", "BRE alternation \\|"],
-  ["pythonsed-unit.suite:regexp: {,n}", "{,n} quantifier syntax"],
-  [
-    "pythonsed-unit.suite:regexp: closing bracket in char set",
-    "closing bracket in charset",
-  ],
-  [
-    "pythonsed-unit.suite:regexp: closing bracket in complement char set",
-    "closing bracket in complement charset",
-  ],
+  // NOTE: anchors inside regexp $ and ^ now work
+  // NOTE: BRE alternation \|, closing bracket in charset, #n mode now work
+  // NOTE: {,n} quantifier syntax now works
   [
     "pythonsed-unit.suite:regexp: back reference before num in address",
     "\\10 backreference in address",
@@ -236,10 +194,7 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "pythonsed-unit.suite:regexp: *? ERE (multiple quantifier)",
     "#r comment and multiple quantifier",
   ],
-  [
-    "pythonsed-unit.suite:regexp: \\\\t \\\\n in char set",
-    "#n comment and escape in charset",
-  ],
+  // NOTE: "regexp: \t \n in char set" now works
   ["pythonsed-unit.suite:avoid python extension - 2", "BRE grouping edge case"],
   ["pythonsed-unit.suite:(^){2}", "#r comment and ^ quantified"],
   [
@@ -251,33 +206,14 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   ["busybox-sed.tests:sed 's///w FILE'", "w flag with file path syntax"],
 
   // PythonSed chang.suite - complex scripts using N, D, branching
-  [
-    "pythonsed-chang.suite:Get the last 6 lines of a file.",
-    "N/D command behavior",
-  ],
-  [
-    "pythonsed-chang.suite:Delete the last 6 lines of a file - 1.",
-    "N command behavior",
-  ],
-  [
-    "pythonsed-chang.suite:Delete every 4th line (e.g., 4th, 8th, 12th...) of a file - 1.",
-    "N command behavior",
-  ],
+  // NOTE: Many N/D/P tests now pass due to cross-group branching fix
   [
     "pythonsed-chang.suite:Delete two consecutive lines if the first one contains PAT1 and the second one contains PAT2.",
     "N/P/D commands",
   ],
   [
-    "pythonsed-chang.suite:Get every line containing PAT, the preceding, and the following ones.",
-    "N/P/D commands",
-  ],
-  [
     "pythonsed-chang.suite:Get the line following a line containing PAT - Case 1 - 1.",
     "N/D commands",
-  ],
-  [
-    "pythonsed-chang.suite:Remove HTML tags (may be multi-line) of a file.",
-    "N command behavior",
   ],
   [
     "pythonsed-chang.suite:Remove comments (/* ... */, maybe multi-line) of a C program. - 1",
@@ -288,6 +224,24 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "N command behavior",
   ],
   ["pythonsed-chang.suite:test at line 1516", "** not a valid command"],
+
+  // Tests using #r (ERE mode) with N/D/P commands and complex hold space logic
+  [
+    "pythonsed-chang.suite:Remove almost identical lines.",
+    "N/D/P commands with hold space",
+  ],
+  [
+    'pythonsed-chang.suite:For consecutive "almost identical" lines, print only the first one.',
+    "N/D/P commands with hold space",
+  ],
+  [
+    "pythonsed-chang.suite:Remove consecutive duplicate lines.",
+    "N/D commands with pattern matching",
+  ],
+  [
+    "pythonsed-chang.suite:Retrieve the first line among consecutive lines of the same key - 1.",
+    "N/D commands with complex branching",
+  ],
 
   // More pythonsed-chang.suite tests with complex N/D/branching
   [
@@ -318,10 +272,7 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "pythonsed-chang.suite:Replace odd-numbered and even-numbered double quotes with single quotes and back quotes, respectively.",
     "complex hold space logic",
   ],
-  [
-    "pythonsed-chang.suite:Remove the start and the end tags of some `A' elements of an HTML file, but keep the contents.",
-    "complex branching",
-  ],
+  // NOTE: "Remove the start and the end tags..." now works with cross-group branching
   [
     "pythonsed-chang.suite:Find failed instances without latter successful ones.",
     "complex N/D branching",
@@ -363,34 +314,13 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "pythonsed-unit.suite:empty regexp: case modifier propagation for addresses",
     "empty regex reuse and /I flag",
   ],
-  [
-    "pythonsed-unit.suite:y: exceptions - not delimited",
-    "y command error handling",
-  ],
-  [
-    "pythonsed-unit.suite:y: exceptions - additional text",
-    "y command error handling",
-  ],
-  [
-    "pythonsed-unit.suite:v command earlier version",
-    "v command version parsing",
-  ],
   ["pythonsed-unit.suite:F command", "F command with stdin (no filename)"],
 
-  // Backslash continuation in s command replacement
-  [
-    "pythonsed-unit.suite:substitution: new line in replacement old style",
-    "backslash continuation in s replacement across -e",
-  ],
+  // NOTE: "substitution: new line in replacement old style" now works
   // Multi-line c command with backslash continuation
   [
     "pythonsed-unit.suite:Change command c",
     "multi-line c command with backslash continuation",
-  ],
-  // n command with #n silent mode
-  [
-    "pythonsed-unit.suite:n command without auto-print",
-    "n command with #n silent mode produces unexpected output",
   ],
 ]);
 

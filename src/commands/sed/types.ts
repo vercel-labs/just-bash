@@ -284,10 +284,12 @@ export interface SedState {
   quit: boolean;
   quitSilent: boolean; // For Q command: quit without printing
   exitCode?: number; // Exit code from q/Q command
+  errorMessage?: string; // Error message (for v command, etc.)
   appendBuffer: string[]; // Lines to append after current line
   changedText?: string; // For c command: text to output in place of pattern space
   substitutionMade: boolean; // Track if substitution was made (for 't' command)
   lineNumberOutput: string[]; // Output from '=' command
+  nCommandOutput: string[]; // Output from 'n' command (respects silent mode)
   restartCycle: boolean; // For D command: restart cycle without reading new line
   inDRestartedCycle: boolean; // Track if we're in a cycle restarted by D
   currentFilename?: string; // For F command
@@ -300,12 +302,17 @@ export interface SedState {
   rangeStates: Map<string, RangeState>;
   // Last used regex pattern for empty regex reuse (//)
   lastPattern?: string;
+  // For cross-group branching: when a branch inside a group can't find its label
+  branchRequest?: string;
+  // Track total lines consumed during this execution cycle (for N command)
+  linesConsumedInCycle: number;
 }
 
 // Range state tracking for pattern ranges like /start/,/end/
 export interface RangeState {
   active: boolean;
   startLine?: number;
+  completed?: boolean; // For numeric start ranges: once ended, don't reactivate
 }
 
 export interface SedExecutionLimits {

@@ -561,7 +561,7 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
       let positionalIdx: number | undefined;
 
       // Check for positional argument: %n$ where n is a number
-      let posStart = j;
+      const posStart = j;
       while (j < format.length && /\d/.test(format[j])) {
         j++;
       }

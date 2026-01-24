@@ -24,6 +24,14 @@ class BreakError extends Error {
   }
 }
 
+// Custom error that preserves the original jq value
+class JqError extends Error {
+  constructor(public readonly value: QueryValue) {
+    super(typeof value === "string" ? value : JSON.stringify(value));
+    this.name = "JqError";
+  }
+}
+
 const DEFAULT_MAX_JQ_ITERATIONS = 10000;
 
 export interface QueryExecutionLimits {
@@ -184,6 +192,13 @@ function extractPathFromAst(ast: AstNode): (string | number)[] | null {
       // root resets to document root
       return null;
     }
+    // first without args is .[0], last without args is .[-1]
+    if (ast.name === "first" && ast.args.length === 0) {
+      return [0];
+    }
+    if (ast.name === "last" && ast.args.length === 0) {
+      return [-1];
+    }
   }
   // For other node types, we can't extract a simple path
   return null;
@@ -249,6 +264,41 @@ export interface EvaluateOptions {
   env?: Record<string, string | undefined>;
 }
 
+/**
+ * Evaluate an expression and return partial results even if an error occurs.
+ * Used for functions like isempty() that need to know if ANY value was produced.
+ */
+function evaluateWithPartialResults(
+  value: QueryValue,
+  ast: AstNode,
+  ctx: EvalContext,
+): QueryValue[] {
+  // For comma expressions, try to get partial results
+  if (ast.type === "Comma") {
+    const results: QueryValue[] = [];
+    try {
+      results.push(...evaluate(value, ast.left, ctx));
+    } catch (e) {
+      // Always re-throw execution limit errors - they must not be suppressed
+      if (e instanceof ExecutionLimitError) throw e;
+      // Left side errored, check if we have any results
+      if (results.length > 0) return results;
+      throw new Error("evaluation failed");
+    }
+    try {
+      results.push(...evaluate(value, ast.right, ctx));
+    } catch (e) {
+      // Always re-throw execution limit errors
+      if (e instanceof ExecutionLimitError) throw e;
+      // Right side errored, return what we have from left
+      return results;
+    }
+    return results;
+  }
+  // For other expressions, use normal evaluation
+  return evaluate(value, ast, ctx);
+}
+
 export function evaluate(
   value: QueryValue,
   ast: AstNode,
@@ -292,7 +342,13 @@ export function evaluate(
         const indices = evaluate(v, ast.index, ctx);
         return indices.flatMap((idx) => {
           if (typeof idx === "number" && Array.isArray(v)) {
-            const i = idx < 0 ? v.length + idx : idx;
+            // Handle NaN - return null for NaN index
+            if (Number.isNaN(idx)) {
+              return [null];
+            }
+            // Truncate float index to integer (jq behavior)
+            const truncated = Math.trunc(idx);
+            const i = truncated < 0 ? v.length + truncated : truncated;
             return i >= 0 && i < v.length ? [v[i]] : [null];
           }
           if (
@@ -311,17 +367,30 @@ export function evaluate(
     case "Slice": {
       const bases = ast.base ? evaluate(value, ast.base, ctx) : [value];
       return bases.flatMap((v) => {
-        if (!Array.isArray(v) && typeof v !== "string") return [null];
+        // null can be sliced and returns null
+        if (v === null) return [null];
+        if (!Array.isArray(v) && typeof v !== "string") {
+          throw new Error(`Cannot slice ${typeof v} (${JSON.stringify(v)})`);
+        }
         const len = v.length;
         const starts = ast.start ? evaluate(value, ast.start, ctx) : [0];
         const ends = ast.end ? evaluate(value, ast.end, ctx) : [len];
         return starts.flatMap((s) =>
           ends.map((e) => {
             // jq uses floor for start and ceil for end (for fractional indices)
+            // NaN in start position → 0, NaN in end position → length
             const sNum = s as number;
             const eNum = e as number;
-            const startRaw = Number.isInteger(sNum) ? sNum : Math.floor(sNum);
-            const endRaw = Number.isInteger(eNum) ? eNum : Math.ceil(eNum);
+            const startRaw = Number.isNaN(sNum)
+              ? 0
+              : Number.isInteger(sNum)
+                ? sNum
+                : Math.floor(sNum);
+            const endRaw = Number.isNaN(eNum)
+              ? len
+              : Number.isInteger(eNum)
+                ? eNum
+                : Math.ceil(eNum);
             const start = normalizeIndex(startRaw, len);
             const end = normalizeIndex(endRaw, len);
             return Array.isArray(v) ? v.slice(start, end) : v.slice(start, end);
@@ -451,9 +520,14 @@ export function evaluate(
         return evaluate(value, ast.body, ctx);
       } catch (e) {
         if (ast.catch) {
-          // jq: In catch handler, input is the error message string
-          const errorMsg = e instanceof Error ? e.message : String(e);
-          return evaluate(errorMsg, ast.catch, ctx);
+          // jq: In catch handler, input is the error value (preserved if JqError)
+          const errorVal =
+            e instanceof JqError
+              ? e.value
+              : e instanceof Error
+                ? e.message
+                : String(e);
+          return evaluate(errorVal, ast.catch, ctx);
         }
         return [];
       }
@@ -734,14 +808,26 @@ function applyUpdate(
 
       case "Index": {
         const indices = evaluate(root, path.index, ctx);
-        const idx = indices[0];
+        let idx = indices[0];
+
+        // Handle NaN index - throw error for assignment
+        if (typeof idx === "number" && Number.isNaN(idx)) {
+          throw new Error("Cannot set array element at NaN index");
+        }
+
+        // Truncate float index to integer for assignment
+        if (typeof idx === "number" && !Number.isInteger(idx)) {
+          idx = Math.trunc(idx);
+        }
 
         if (path.base) {
           return updateRecursive(val, path.base, (baseVal) => {
             if (typeof idx === "number" && Array.isArray(baseVal)) {
               const arr = [...baseVal];
               const i = idx < 0 ? arr.length + idx : idx;
-              if (i >= 0 && i < arr.length) {
+              if (i >= 0) {
+                // Extend array if needed
+                while (arr.length <= i) arr.push(null);
                 arr[i] = transform(arr[i]);
               }
               return arr;
@@ -773,7 +859,9 @@ function applyUpdate(
           if (Array.isArray(val)) {
             const arr = [...val];
             const i = idx < 0 ? arr.length + idx : idx;
-            if (i >= 0 && i < arr.length) {
+            if (i >= 0) {
+              // Extend array if needed
+              while (arr.length <= i) arr.push(null);
               arr[i] = transform(arr[i]);
             }
             return arr;
@@ -1110,6 +1198,8 @@ function evalBuiltin(
       if (value && typeof value === "object")
         return [Object.keys(value).length];
       if (value === null) return [0];
+      // jq: length of a number is its absolute value
+      if (typeof value === "number") return [Math.abs(value)];
       return [null];
 
     case "utf8bytelength": {
@@ -1136,12 +1226,151 @@ function evalBuiltin(
       if (typeof value === "object") return ["object"];
       return ["null"];
 
+    case "builtins":
+      // Return list of all builtin functions with arity
+      return [
+        [
+          "add/0",
+          "all/0",
+          "all/1",
+          "all/2",
+          "any/0",
+          "any/1",
+          "any/2",
+          "arrays/0",
+          "ascii/0",
+          "ascii_downcase/0",
+          "ascii_upcase/0",
+          "booleans/0",
+          "bsearch/1",
+          "builtins/0",
+          "combinations/0",
+          "combinations/1",
+          "contains/1",
+          "debug/0",
+          "del/1",
+          "delpaths/1",
+          "empty/0",
+          "env/0",
+          "error/0",
+          "error/1",
+          "explode/0",
+          "first/0",
+          "first/1",
+          "flatten/0",
+          "flatten/1",
+          "floor/0",
+          "from_entries/0",
+          "fromdate/0",
+          "fromjson/0",
+          "getpath/1",
+          "gmtime/0",
+          "group_by/1",
+          "gsub/2",
+          "gsub/3",
+          "has/1",
+          "implode/0",
+          "IN/1",
+          "IN/2",
+          "INDEX/1",
+          "INDEX/2",
+          "index/1",
+          "indices/1",
+          "infinite/0",
+          "inside/1",
+          "isempty/1",
+          "isnan/0",
+          "isnormal/0",
+          "isvalid/1",
+          "iterables/0",
+          "join/1",
+          "keys/0",
+          "keys_unsorted/0",
+          "last/0",
+          "last/1",
+          "length/0",
+          "limit/2",
+          "ltrimstr/1",
+          "map/1",
+          "map_values/1",
+          "match/1",
+          "match/2",
+          "max/0",
+          "max_by/1",
+          "min/0",
+          "min_by/1",
+          "mktime/0",
+          "modulemeta/1",
+          "nan/0",
+          "not/0",
+          "nth/1",
+          "nth/2",
+          "null/0",
+          "nulls/0",
+          "numbers/0",
+          "objects/0",
+          "path/1",
+          "paths/0",
+          "paths/1",
+          "pick/1",
+          "range/1",
+          "range/2",
+          "range/3",
+          "recurse/0",
+          "recurse/1",
+          "recurse_down/0",
+          "repeat/1",
+          "reverse/0",
+          "rindex/1",
+          "rtrimstr/1",
+          "scalars/0",
+          "scan/1",
+          "scan/2",
+          "select/1",
+          "setpath/2",
+          "skip/2",
+          "sort/0",
+          "sort_by/1",
+          "split/1",
+          "splits/1",
+          "splits/2",
+          "sqrt/0",
+          "startswith/1",
+          "strftime/1",
+          "strings/0",
+          "strptime/1",
+          "sub/2",
+          "sub/3",
+          "test/1",
+          "test/2",
+          "to_entries/0",
+          "toboolean/0",
+          "todate/0",
+          "tojson/0",
+          "tonumber/0",
+          "tostring/0",
+          "transpose/0",
+          "trim/0",
+          "ltrim/0",
+          "rtrim/0",
+          "type/0",
+          "unique/0",
+          "unique_by/1",
+          "until/2",
+          "utf8bytelength/0",
+          "values/0",
+          "walk/1",
+          "while/2",
+          "with_entries/1",
+        ],
+      ];
+
     case "empty":
       return [];
 
     case "error": {
       const msg = args.length > 0 ? evaluate(value, args[0], ctx)[0] : value;
-      throw new Error(String(msg));
+      throw new JqError(msg);
     }
 
     case "not": {
@@ -1160,8 +1389,15 @@ function evalBuiltin(
 
     case "first":
       if (args.length > 0) {
-        const results = evaluate(value, args[0], ctx);
-        return results.length > 0 ? [results[0]] : [];
+        // Use lazy evaluation - get first value without evaluating rest
+        try {
+          const results = evaluateWithPartialResults(value, args[0], ctx);
+          return results.length > 0 ? [results[0]] : [];
+        } catch (e) {
+          // Always re-throw execution limit errors
+          if (e instanceof ExecutionLimitError) throw e;
+          return [];
+        }
       }
       if (Array.isArray(value) && value.length > 0) return [value[0]];
       return [null];
@@ -1178,13 +1414,27 @@ function evalBuiltin(
     case "nth": {
       if (args.length < 1) return [null];
       const ns = evaluate(value, args[0], ctx);
-      const n = ns[0] as number;
+      // Handle generator args - each n produces its own output
       if (args.length > 1) {
-        const results = evaluate(value, args[1], ctx);
-        return n >= 0 && n < results.length ? [results[n]] : [];
+        // Use lazy evaluation to get partial results before errors
+        let results: QueryValue[];
+        try {
+          results = evaluateWithPartialResults(value, args[1], ctx);
+        } catch (e) {
+          // Always re-throw execution limit errors
+          if (e instanceof ExecutionLimitError) throw e;
+          results = [];
+        }
+        return ns.flatMap((nv) => {
+          const n = nv as number;
+          return n >= 0 && n < results.length ? [results[n]] : [];
+        });
       }
       if (Array.isArray(value)) {
-        return n >= 0 && n < value.length ? [value[n]] : [null];
+        return ns.flatMap((nv) => {
+          const n = nv as number;
+          return n >= 0 && n < value.length ? [value[n]] : [null];
+        });
       }
       return [null];
     }
@@ -1194,8 +1444,13 @@ function evalBuiltin(
       const startsVals = evaluate(value, args[0], ctx);
       if (args.length === 1) {
         // range(n) - single arg, range from 0 to n
-        const n = startsVals[0] as number;
-        return Array.from({ length: Math.max(0, n) }, (_, i) => i);
+        // Handle generator args - each value produces its own range
+        const result: number[] = [];
+        for (const n of startsVals) {
+          const num = n as number;
+          for (let i = 0; i < num; i++) result.push(i);
+        }
+        return result;
       }
       const endsVals = evaluate(value, args[1], ctx);
       if (args.length === 2) {
@@ -1252,6 +1507,43 @@ function evalBuiltin(
       return [sorted];
     }
 
+    case "bsearch": {
+      if (!Array.isArray(value)) {
+        const typeName =
+          value === null
+            ? "null"
+            : typeof value === "object"
+              ? "object"
+              : typeof value;
+        throw new Error(
+          `${typeName} (${JSON.stringify(value)}) cannot be searched from`,
+        );
+      }
+      if (args.length === 0) return [null];
+      const targets = evaluate(value, args[0], ctx);
+      // Handle generator args - each target produces its own search result
+      return targets.map((target) => {
+        // Binary search: return index if found, or -insertionPoint-1 if not
+        let lo = 0;
+        let hi = value.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          const cmp = compareJq(value[mid], target);
+          if (cmp < 0) {
+            lo = mid + 1;
+          } else {
+            hi = mid;
+          }
+        }
+        // Check if we found an exact match
+        if (lo < value.length && compareJq(value[lo], target) === 0) {
+          return lo;
+        }
+        // Not found: return negative insertion point
+        return -lo - 1;
+      });
+    }
+
     case "unique":
       if (Array.isArray(value)) {
         const seen = new Set<string>();
@@ -1269,16 +1561,18 @@ function evalBuiltin(
 
     case "unique_by": {
       if (!Array.isArray(value) || args.length === 0) return [null];
-      const seen = new Set<string>();
-      const result: QueryValue[] = [];
+      const seen = new Map<string, { item: QueryValue; key: QueryValue }>();
       for (const item of value) {
-        const key = JSON.stringify(evaluate(item, args[0], ctx)[0]);
-        if (!seen.has(key)) {
-          seen.add(key);
-          result.push(item);
+        const keyVal = evaluate(item, args[0], ctx)[0];
+        const keyStr = JSON.stringify(keyVal);
+        if (!seen.has(keyStr)) {
+          seen.set(keyStr, { item, key: keyVal });
         }
       }
-      return [result];
+      // Sort by key value and return items
+      const entries = [...seen.values()];
+      entries.sort((a, b) => compareJq(a.key, b.key));
+      return [entries.map((e) => e.item)];
     }
 
     case "group_by": {
@@ -1330,38 +1624,73 @@ function evalBuiltin(
 
     case "flatten": {
       if (!Array.isArray(value)) return [null];
-      const depth =
+      const depths =
         args.length > 0
-          ? (evaluate(value, args[0], ctx)[0] as number)
-          : Number.POSITIVE_INFINITY;
-      if (depth < 0) {
-        throw new Error("flatten depth must not be negative");
-      }
-      return [value.flat(depth)];
+          ? evaluate(value, args[0], ctx)
+          : [Number.POSITIVE_INFINITY];
+      // Handle generator args - each depth produces its own output
+      return depths.map((d) => {
+        const depth = d as number;
+        if (depth < 0) {
+          throw new Error("flatten depth must not be negative");
+        }
+        return value.flat(depth);
+      });
     }
 
-    case "add":
-      if (Array.isArray(value)) {
-        if (value.length === 0) return [null];
-        if (value.every((x) => typeof x === "number")) {
-          return [value.reduce((a, b) => (a as number) + (b as number), 0)];
+    case "add": {
+      // Helper to add an array of values
+      const addValues = (arr: QueryValue[]): QueryValue => {
+        // jq filters out null values for add
+        const filtered = arr.filter((x) => x !== null);
+        if (filtered.length === 0) return null;
+        if (filtered.every((x) => typeof x === "number")) {
+          return filtered.reduce((a, b) => (a as number) + (b as number), 0);
         }
-        if (value.every((x) => typeof x === "string")) {
-          return [value.join("")];
+        if (filtered.every((x) => typeof x === "string")) {
+          return filtered.join("");
         }
-        if (value.every((x) => Array.isArray(x))) {
-          return [value.flat()];
+        if (filtered.every((x) => Array.isArray(x))) {
+          return filtered.flat();
         }
         if (
-          value.every((x) => x && typeof x === "object" && !Array.isArray(x))
+          filtered.every((x) => x && typeof x === "object" && !Array.isArray(x))
         ) {
-          return [Object.assign({}, ...value)];
+          return Object.assign({}, ...filtered);
         }
+        return null;
+      };
+
+      // Handle add(expr) - collect values from generator and add them
+      if (args.length >= 1) {
+        const collected = evaluate(value, args[0], ctx);
+        return [addValues(collected)];
+      }
+      // Existing behavior for add (no args) - add array elements
+      if (Array.isArray(value)) {
+        return [addValues(value)];
       }
       return [null];
+    }
 
     case "any": {
-      if (args.length > 0) {
+      if (args.length >= 2) {
+        // any(generator; condition) - lazy evaluation with short-circuit
+        // Evaluate generator lazily, return true if any passes condition
+        try {
+          const genValues = evaluateWithPartialResults(value, args[0], ctx);
+          for (const v of genValues) {
+            const cond = evaluate(v, args[1], ctx);
+            if (cond.some(isTruthy)) return [true];
+          }
+        } catch (e) {
+          // Always re-throw execution limit errors
+          if (e instanceof ExecutionLimitError) throw e;
+          // Error occurred but we might have found a truthy value already
+        }
+        return [false];
+      }
+      if (args.length === 1) {
         if (Array.isArray(value)) {
           return [
             value.some((item) => isTruthy(evaluate(item, args[0], ctx)[0])),
@@ -1374,7 +1703,23 @@ function evalBuiltin(
     }
 
     case "all": {
-      if (args.length > 0) {
+      if (args.length >= 2) {
+        // all(generator; condition) - lazy evaluation with short-circuit
+        // Evaluate generator lazily, return false if any fails condition
+        try {
+          const genValues = evaluateWithPartialResults(value, args[0], ctx);
+          for (const v of genValues) {
+            const cond = evaluate(v, args[1], ctx);
+            if (!cond.some(isTruthy)) return [false];
+          }
+        } catch (e) {
+          // Always re-throw execution limit errors
+          if (e instanceof ExecutionLimitError) throw e;
+          // Error occurred but we might have found a falsy value already
+        }
+        return [true];
+      }
+      if (args.length === 1) {
         if (Array.isArray(value)) {
           return [
             value.every((item) => isTruthy(evaluate(item, args[0], ctx)[0])),
@@ -1455,19 +1800,28 @@ function evalBuiltin(
     case "getpath": {
       if (args.length === 0) return [null];
       const paths = evaluate(value, args[0], ctx);
-      const path = paths[0] as (string | number)[];
-      let current: QueryValue = value;
-      for (const key of path) {
-        if (current === null || current === undefined) return [null];
-        if (Array.isArray(current) && typeof key === "number") {
-          current = current[key];
-        } else if (typeof current === "object" && typeof key === "string") {
-          current = (current as Record<string, unknown>)[key];
-        } else {
-          return [null];
+      // Handle multiple paths (generator argument)
+      const results: QueryValue[] = [];
+      for (const pathVal of paths) {
+        const path = pathVal as (string | number)[];
+        let current: QueryValue = value;
+        for (const key of path) {
+          if (current === null || current === undefined) {
+            current = null;
+            break;
+          }
+          if (Array.isArray(current) && typeof key === "number") {
+            current = current[key];
+          } else if (typeof current === "object" && typeof key === "string") {
+            current = (current as Record<string, unknown>)[key];
+          } else {
+            current = null;
+            break;
+          }
         }
+        results.push(current);
       }
-      return [current];
+      return results;
     }
 
     case "setpath": {
@@ -1500,6 +1854,42 @@ function evalBuiltin(
     case "del": {
       if (args.length === 0) return [value];
       return [applyDel(value, args[0], ctx)];
+    }
+
+    case "pick": {
+      if (args.length === 0) return [null];
+      // pick uses path() to get paths, then builds an object with just those paths
+      // Collect paths from each argument
+      const allPaths: (string | number)[][] = [];
+      for (const arg of args) {
+        collectPaths(value, arg, ctx, [], allPaths);
+      }
+      // Build result object with only the picked paths
+      let result: QueryValue = null;
+      for (const path of allPaths) {
+        // Check for negative indices which are not allowed
+        for (const key of path) {
+          if (typeof key === "number" && key < 0) {
+            throw new Error("Out of bounds negative array index");
+          }
+        }
+        // Get the value at this path from the input
+        let current: QueryValue = value;
+        for (const key of path) {
+          if (current === null || current === undefined) break;
+          if (Array.isArray(current) && typeof key === "number") {
+            current = current[key];
+          } else if (typeof current === "object" && typeof key === "string") {
+            current = (current as Record<string, unknown>)[key];
+          } else {
+            current = null;
+            break;
+          }
+        }
+        // Set the value in the result
+        result = setPath(result, path, current);
+      }
+      return [result];
     }
 
     case "paths": {
@@ -1574,8 +1964,10 @@ function evalBuiltin(
         for (const item of value) {
           if (item && typeof item === "object") {
             const obj = item as Record<string, unknown>;
-            const key = obj.key ?? obj.name ?? obj.k;
-            const val = obj.value ?? obj.v;
+            // jq supports: key, Key, name, Name, k for the key
+            const key = obj.key ?? obj.Key ?? obj.name ?? obj.Name ?? obj.k;
+            // jq supports: value, Value, v for the value
+            const val = obj.value ?? obj.Value ?? obj.v;
             if (key !== undefined) result[String(key)] = val;
           }
         }
@@ -1610,7 +2002,6 @@ function evalBuiltin(
     case "join": {
       if (!Array.isArray(value)) return [null];
       const seps = args.length > 0 ? evaluate(value, args[0], ctx) : [""];
-      const sep = String(seps[0]);
       // jq: null values become empty strings, others get stringified
       // Also check for arrays/objects which should error
       for (const x of value) {
@@ -1618,11 +2009,12 @@ function evalBuiltin(
           throw new Error("cannot join: contains arrays or objects");
         }
       }
-      return [
+      // Handle generator args - each separator produces its own output
+      return seps.map((sep) =>
         value
           .map((x) => (x === null ? "" : typeof x === "string" ? x : String(x)))
-          .join(sep),
-      ];
+          .join(String(sep)),
+      );
     }
 
     case "split": {
@@ -1630,6 +2022,53 @@ function evalBuiltin(
       const seps = evaluate(value, args[0], ctx);
       const sep = String(seps[0]);
       return [value.split(sep)];
+    }
+
+    case "splits": {
+      // Split string by regex, return each part as separate output
+      if (typeof value !== "string" || args.length === 0) return [];
+      const patterns = evaluate(value, args[0], ctx);
+      const pattern = String(patterns[0]);
+      try {
+        const flags =
+          args.length > 1 ? String(evaluate(value, args[1], ctx)[0]) : "g";
+        // Ensure global flag is set for split
+        const regex = new RegExp(
+          pattern,
+          flags.includes("g") ? flags : `${flags}g`,
+        );
+        return value.split(regex);
+      } catch {
+        return [];
+      }
+    }
+
+    case "scan": {
+      // Find all regex matches in string
+      if (typeof value !== "string" || args.length === 0) return [];
+      const patterns = evaluate(value, args[0], ctx);
+      const pattern = String(patterns[0]);
+      try {
+        const flags =
+          args.length > 1 ? String(evaluate(value, args[1], ctx)[0]) : "";
+        // Ensure global flag is set for matchAll
+        const regex = new RegExp(
+          pattern,
+          flags.includes("g") ? flags : `${flags}g`,
+        );
+        const matches = [...value.matchAll(regex)];
+        // Return each match - if groups exist, return array of groups, else return match string
+        return matches.map((m) => {
+          if (m.length > 1) {
+            // Has capture groups - return array of captured groups (excluding full match)
+            return m.slice(1);
+          }
+          // No capture groups - return full match string
+          return m[0];
+        });
+      } catch {
+        return [];
+      }
     }
 
     case "test": {
@@ -1808,73 +2247,111 @@ function evalBuiltin(
     case "index": {
       if (args.length === 0) return [null];
       const needles = evaluate(value, args[0], ctx);
-      const needle = needles[0];
-      if (typeof value === "string" && typeof needle === "string") {
-        const idx = value.indexOf(needle);
-        return [idx >= 0 ? idx : null];
-      }
-      if (Array.isArray(value)) {
-        const idx = value.findIndex((x) => deepEqual(x, needle));
-        return [idx >= 0 ? idx : null];
-      }
-      return [null];
-    }
-
-    case "rindex": {
-      if (args.length === 0) return [null];
-      const needles = evaluate(value, args[0], ctx);
-      const needle = needles[0];
-      if (typeof value === "string" && typeof needle === "string") {
-        const idx = value.lastIndexOf(needle);
-        return [idx >= 0 ? idx : null];
-      }
-      if (Array.isArray(value)) {
-        for (let i = value.length - 1; i >= 0; i--) {
-          if (deepEqual(value[i], needle)) return [i];
+      // Handle generator args - each needle produces its own output
+      return needles.map((needle) => {
+        if (typeof value === "string" && typeof needle === "string") {
+          // jq: index("") on "" returns null, not 0
+          if (needle === "" && value === "") return null;
+          const idx = value.indexOf(needle);
+          return idx >= 0 ? idx : null;
         }
-        return [null];
-      }
-      return [null];
-    }
-
-    case "indices": {
-      if (args.length === 0) return [[]];
-      const needles = evaluate(value, args[0], ctx);
-      const needle = needles[0];
-      const result: number[] = [];
-      if (typeof value === "string" && typeof needle === "string") {
-        let idx = value.indexOf(needle);
-        while (idx !== -1) {
-          result.push(idx);
-          idx = value.indexOf(needle, idx + 1);
-        }
-      } else if (Array.isArray(value)) {
-        if (Array.isArray(needle)) {
-          // Search for consecutive subarray matches
-          const needleLen = needle.length;
-          if (needleLen === 0) {
-            // Empty array matches at every position
-            for (let i = 0; i <= value.length; i++) result.push(i);
-          } else {
-            for (let i = 0; i <= value.length - needleLen; i++) {
+        if (Array.isArray(value)) {
+          // If needle is an array, search for it as a subsequence
+          if (Array.isArray(needle)) {
+            for (let i = 0; i <= value.length - needle.length; i++) {
               let match = true;
-              for (let j = 0; j < needleLen; j++) {
+              for (let j = 0; j < needle.length; j++) {
                 if (!deepEqual(value[i + j], needle[j])) {
                   match = false;
                   break;
                 }
               }
-              if (match) result.push(i);
+              if (match) return i;
+            }
+            return null;
+          }
+          // Otherwise search for the element
+          const idx = value.findIndex((x) => deepEqual(x, needle));
+          return idx >= 0 ? idx : null;
+        }
+        return null;
+      });
+    }
+
+    case "rindex": {
+      if (args.length === 0) return [null];
+      const needles = evaluate(value, args[0], ctx);
+      // Handle generator args - each needle produces its own output
+      return needles.map((needle) => {
+        if (typeof value === "string" && typeof needle === "string") {
+          const idx = value.lastIndexOf(needle);
+          return idx >= 0 ? idx : null;
+        }
+        if (Array.isArray(value)) {
+          // If needle is an array, search for it as a subsequence from the end
+          if (Array.isArray(needle)) {
+            for (let i = value.length - needle.length; i >= 0; i--) {
+              let match = true;
+              for (let j = 0; j < needle.length; j++) {
+                if (!deepEqual(value[i + j], needle[j])) {
+                  match = false;
+                  break;
+                }
+              }
+              if (match) return i;
+            }
+            return null;
+          }
+          // Otherwise search for the element
+          for (let i = value.length - 1; i >= 0; i--) {
+            if (deepEqual(value[i], needle)) return i;
+          }
+          return null;
+        }
+        return null;
+      });
+    }
+
+    case "indices": {
+      if (args.length === 0) return [[]];
+      const needles = evaluate(value, args[0], ctx);
+      // Handle generator args - each needle produces its own result array
+      return needles.map((needle) => {
+        const result: number[] = [];
+        if (typeof value === "string" && typeof needle === "string") {
+          let idx = value.indexOf(needle);
+          while (idx !== -1) {
+            result.push(idx);
+            idx = value.indexOf(needle, idx + 1);
+          }
+        } else if (Array.isArray(value)) {
+          if (Array.isArray(needle)) {
+            // Search for consecutive subarray matches
+            const needleLen = needle.length;
+            if (needleLen === 0) {
+              // Empty array matches at every position
+              for (let i = 0; i <= value.length; i++) result.push(i);
+            } else {
+              for (let i = 0; i <= value.length - needleLen; i++) {
+                let match = true;
+                for (let j = 0; j < needleLen; j++) {
+                  if (!deepEqual(value[i + j], needle[j])) {
+                    match = false;
+                    break;
+                  }
+                }
+                if (match) result.push(i);
+              }
+            }
+          } else {
+            // Search for individual element
+            for (let i = 0; i < value.length; i++) {
+              if (deepEqual(value[i], needle)) result.push(i);
             }
           }
-        } else {
-          // Search for individual element
-          for (let i = 0; i < value.length; i++) {
-            if (deepEqual(value[i], needle)) result.push(i);
-          }
         }
-      }
-      return [result];
+        return result;
+      });
     }
 
     case "floor":
@@ -1896,6 +2373,8 @@ function evalBuiltin(
     case "fabs":
     case "abs":
       if (typeof value === "number") return [Math.abs(value)];
+      // jq returns strings unchanged for abs
+      if (typeof value === "string") return [value];
       return [null];
 
     case "log":
@@ -2097,9 +2576,35 @@ function evalBuiltin(
       if (typeof value === "number") return [value];
       if (typeof value === "string") {
         const n = Number(value);
-        return [Number.isNaN(n) ? null : n];
+        if (Number.isNaN(n)) {
+          throw new JqError(
+            `${JSON.stringify(value)} cannot be parsed as a number`,
+          );
+        }
+        return [n];
       }
-      return [null];
+      throw new JqError(`${typeof value} cannot be parsed as a number`);
+
+    case "toboolean": {
+      // jq: toboolean converts "true"/"false" strings and booleans to booleans
+      if (typeof value === "boolean") return [value];
+      if (typeof value === "string") {
+        if (value === "true") return [true];
+        if (value === "false") return [false];
+        throw new Error(
+          `string (${JSON.stringify(value)}) cannot be parsed as a boolean`,
+        );
+      }
+      const typeName =
+        value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+      const valueStr =
+        typeName === "array" || typeName === "object"
+          ? JSON.stringify(value)
+          : String(value);
+      throw new Error(
+        `${typeName} (${valueStr}) cannot be parsed as a boolean`,
+      );
+    }
 
     case "infinite":
       // jq: `infinite` produces positive infinity
@@ -2157,6 +2662,182 @@ function evalBuiltin(
     case "now":
       return [Date.now() / 1000];
 
+    case "gmtime": {
+      // Convert Unix timestamp to broken-down time array
+      // jq format: [year, month(0-11), day(1-31), hour, minute, second, weekday(0-6), yearday(0-365)]
+      if (typeof value !== "number") return [null];
+      const date = new Date(value * 1000);
+      const year = date.getUTCFullYear();
+      const month = date.getUTCMonth(); // 0-11
+      const day = date.getUTCDate(); // 1-31
+      const hour = date.getUTCHours();
+      const minute = date.getUTCMinutes();
+      const second = date.getUTCSeconds();
+      const weekday = date.getUTCDay(); // 0=Sunday
+      // Calculate day of year
+      const startOfYear = Date.UTC(year, 0, 1);
+      const yearday = Math.floor(
+        (date.getTime() - startOfYear) / (24 * 60 * 60 * 1000),
+      );
+      return [[year, month, day, hour, minute, second, weekday, yearday]];
+    }
+
+    case "mktime": {
+      // Convert broken-down time array to Unix timestamp
+      if (!Array.isArray(value)) {
+        throw new Error("mktime requires parsed datetime inputs");
+      }
+      const [year, month, day, hour = 0, minute = 0, second = 0] = value;
+      if (typeof year !== "number" || typeof month !== "number") {
+        throw new Error("mktime requires parsed datetime inputs");
+      }
+      const date = Date.UTC(
+        year,
+        month,
+        day ?? 1,
+        hour ?? 0,
+        minute ?? 0,
+        second ?? 0,
+      );
+      return [Math.floor(date / 1000)];
+    }
+
+    case "strftime": {
+      // Format time as string
+      if (args.length === 0) return [null];
+      const fmtVals = evaluate(value, args[0], ctx);
+      const fmt = fmtVals[0];
+      if (typeof fmt !== "string") {
+        throw new Error("strftime/1 requires a string format");
+      }
+      let date: Date;
+      if (typeof value === "number") {
+        // Unix timestamp
+        date = new Date(value * 1000);
+      } else if (Array.isArray(value)) {
+        // Broken-down time array
+        const [year, month, day, hour = 0, minute = 0, second = 0] = value;
+        if (typeof year !== "number" || typeof month !== "number") {
+          throw new Error("strftime/1 requires parsed datetime inputs");
+        }
+        date = new Date(
+          Date.UTC(year, month, day ?? 1, hour ?? 0, minute ?? 0, second ?? 0),
+        );
+      } else {
+        throw new Error("strftime/1 requires parsed datetime inputs");
+      }
+      // Simple strftime implementation
+      const dayNames = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+      ];
+      const monthNames = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+      ];
+      const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+      const result = fmt
+        .replace(/%Y/g, String(date.getUTCFullYear()))
+        .replace(/%m/g, pad(date.getUTCMonth() + 1))
+        .replace(/%d/g, pad(date.getUTCDate()))
+        .replace(/%H/g, pad(date.getUTCHours()))
+        .replace(/%M/g, pad(date.getUTCMinutes()))
+        .replace(/%S/g, pad(date.getUTCSeconds()))
+        .replace(/%A/g, dayNames[date.getUTCDay()])
+        .replace(/%B/g, monthNames[date.getUTCMonth()])
+        .replace(/%Z/g, "UTC")
+        .replace(/%%/g, "%");
+      return [result];
+    }
+
+    case "strptime": {
+      // Parse string to broken-down time array
+      if (args.length === 0) return [null];
+      if (typeof value !== "string") {
+        throw new Error("strptime/1 requires a string input");
+      }
+      const fmtVals = evaluate(value, args[0], ctx);
+      const fmt = fmtVals[0];
+      if (typeof fmt !== "string") {
+        throw new Error("strptime/1 requires a string format");
+      }
+      // Simple strptime for common ISO format
+      if (fmt === "%Y-%m-%dT%H:%M:%SZ") {
+        const match = value.match(
+          /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z$/,
+        );
+        if (match) {
+          const [, year, month, day, hour, minute, second] = match.map(Number);
+          const date = new Date(
+            Date.UTC(year, month - 1, day, hour, minute, second),
+          );
+          const weekday = date.getUTCDay();
+          const startOfYear = Date.UTC(year, 0, 1);
+          const yearday = Math.floor(
+            (date.getTime() - startOfYear) / (24 * 60 * 60 * 1000),
+          );
+          return [
+            [year, month - 1, day, hour, minute, second, weekday, yearday],
+          ];
+        }
+      }
+      // Fallback: try to parse as ISO date
+      const date = new Date(value);
+      if (!Number.isNaN(date.getTime())) {
+        const year = date.getUTCFullYear();
+        const month = date.getUTCMonth();
+        const day = date.getUTCDate();
+        const hour = date.getUTCHours();
+        const minute = date.getUTCMinutes();
+        const second = date.getUTCSeconds();
+        const weekday = date.getUTCDay();
+        const startOfYear = Date.UTC(year, 0, 1);
+        const yearday = Math.floor(
+          (date.getTime() - startOfYear) / (24 * 60 * 60 * 1000),
+        );
+        return [[year, month, day, hour, minute, second, weekday, yearday]];
+      }
+      throw new Error(`Cannot parse date: ${value}`);
+    }
+
+    case "fromdate": {
+      // Parse ISO 8601 date string to Unix timestamp
+      if (typeof value !== "string") {
+        throw new Error("fromdate requires a string input");
+      }
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        throw new Error(
+          `date "${value}" does not match format "%Y-%m-%dT%H:%M:%SZ"`,
+        );
+      }
+      return [Math.floor(date.getTime() / 1000)];
+    }
+
+    case "todate": {
+      // Convert Unix timestamp to ISO 8601 date string
+      if (typeof value !== "number") {
+        throw new Error("todate requires a number input");
+      }
+      const date = new Date(value * 1000);
+      return [date.toISOString().replace(/\.\d{3}Z$/, "Z")];
+    }
+
     case "env":
       return [ctx.env ?? {}];
 
@@ -2177,11 +2858,16 @@ function evalBuiltin(
         return results;
       }
       const results: QueryValue[] = [];
-      const seen = new Set<string>();
+      const condExpr = args.length >= 2 ? args[1] : null;
+      const maxDepth = 10000; // Prevent infinite loops
+      let depth = 0;
       const walk = (v: QueryValue) => {
-        const key = JSON.stringify(v);
-        if (seen.has(key)) return;
-        seen.add(key);
+        if (depth++ > maxDepth) return;
+        // Check condition if provided (recurse(f; cond))
+        if (condExpr) {
+          const condResults = evaluate(v, condExpr, ctx);
+          if (!condResults.some(isTruthy)) return;
+        }
         results.push(v);
         const next = evaluate(v, args[0], ctx);
         for (const n of next) {
@@ -2232,6 +2918,57 @@ function evalBuiltin(
         result.push(value.map((row) => (Array.isArray(row) ? row[i] : null)));
       }
       return [result];
+    }
+
+    case "combinations": {
+      // Generate Cartesian product of arrays
+      // combinations with no args: input is array of arrays, generate all combinations
+      // combinations(n): generate n-length combinations from input array
+      if (args.length > 0) {
+        // combinations(n) - n-tuples from input array
+        const ns = evaluate(value, args[0], ctx);
+        const n = ns[0] as number;
+        if (!Array.isArray(value) || n < 0) return [];
+        if (n === 0) return [[]];
+        // Generate all n-length combinations with repetition
+        const results: QueryValue[][] = [];
+        const generate = (current: QueryValue[], depth: number) => {
+          if (depth === n) {
+            results.push([...current]);
+            return;
+          }
+          for (const item of value) {
+            current.push(item);
+            generate(current, depth + 1);
+            current.pop();
+          }
+        };
+        generate([], 0);
+        return results;
+      }
+      // combinations with no args - Cartesian product of array of arrays
+      if (!Array.isArray(value)) return [];
+      if (value.length === 0) return [[]];
+      // Check all elements are arrays
+      for (const arr of value) {
+        if (!Array.isArray(arr)) return [];
+      }
+      // Generate Cartesian product
+      const results: QueryValue[][] = [];
+      const generate = (index: number, current: QueryValue[]) => {
+        if (index === value.length) {
+          results.push([...current]);
+          return;
+        }
+        const arr = value[index] as QueryValue[];
+        for (const item of arr) {
+          current.push(item);
+          generate(index + 1, current);
+          current.pop();
+        }
+      };
+      generate(0, []);
+      return results;
     }
 
     case "ascii":
@@ -2296,11 +3033,67 @@ function evalBuiltin(
     case "limit": {
       if (args.length < 2) return [];
       const ns = evaluate(value, args[0], ctx);
-      const n = ns[0] as number;
-      // jq: limit(0; expr) should return [] without evaluating expr
-      if (n <= 0) return [];
-      const results = evaluate(value, args[1], ctx);
-      return results.slice(0, n);
+      // Handle generator args - each n produces its own limited output
+      return ns.flatMap((nv) => {
+        const n = nv as number;
+        // jq: limit(0; expr) should return [] without evaluating expr
+        if (n <= 0) return [];
+        // Use lazy evaluation to get partial results before errors
+        let results: QueryValue[];
+        try {
+          results = evaluateWithPartialResults(value, args[1], ctx);
+        } catch (e) {
+          // Always re-throw execution limit errors
+          if (e instanceof ExecutionLimitError) throw e;
+          results = [];
+        }
+        return results.slice(0, n);
+      });
+    }
+
+    case "isempty": {
+      if (args.length < 1) return [true];
+      // isempty returns true if the expression produces no values
+      // It should short-circuit: if first value is produced, return false
+      // For comma expressions like `1,error("foo")`, the left side produces a value
+      // before the right side errors, so we should return false
+      try {
+        const results = evaluateWithPartialResults(value, args[0], ctx);
+        return [results.length === 0];
+      } catch (e) {
+        // Always re-throw execution limit errors
+        if (e instanceof ExecutionLimitError) throw e;
+        // If an error occurs without any results, return true
+        return [true];
+      }
+    }
+
+    case "isvalid": {
+      if (args.length < 1) return [true];
+      // isvalid returns true if the expression produces at least one value without error
+      try {
+        const results = evaluate(value, args[0], ctx);
+        return [results.length > 0];
+      } catch (e) {
+        // Always re-throw execution limit errors
+        if (e instanceof ExecutionLimitError) throw e;
+        // Any other error means invalid
+        return [false];
+      }
+    }
+
+    case "skip": {
+      if (args.length < 2) return [];
+      const ns = evaluate(value, args[0], ctx);
+      // Handle generator args - each n produces its own skip result
+      return ns.flatMap((nv) => {
+        const n = nv as number;
+        if (n < 0) {
+          throw new Error("skip doesn't support negative count");
+        }
+        const results = evaluate(value, args[1], ctx);
+        return results.slice(n);
+      });
     }
 
     case "until": {
@@ -2392,6 +3185,12 @@ function evalBuiltin(
     case "@uri":
       if (typeof value === "string") {
         return [encodeURIComponent(value)];
+      }
+      return [null];
+
+    case "@urid":
+      if (typeof value === "string") {
+        return [decodeURIComponent(value)];
       }
       return [null];
 
@@ -2657,12 +3456,34 @@ function compareJq(a: QueryValue, b: QueryValue): number {
     }
     return a.length - b.length;
   }
+  // Objects: compare by sorted keys, then values
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    const aObj = a as Record<string, unknown>;
+    const bObj = b as Record<string, unknown>;
+    const aKeys = Object.keys(aObj).sort();
+    const bKeys = Object.keys(bObj).sort();
+    // First compare keys
+    for (let i = 0; i < Math.min(aKeys.length, bKeys.length); i++) {
+      const keyCmp = aKeys[i].localeCompare(bKeys[i]);
+      if (keyCmp !== 0) return keyCmp;
+    }
+    if (aKeys.length !== bKeys.length) return aKeys.length - bKeys.length;
+    // Then compare values for each key
+    for (const key of aKeys) {
+      const cmp = compareJq(aObj[key], bObj[key]);
+      if (cmp !== 0) return cmp;
+    }
+  }
 
   return 0;
 }
 
 function containsDeep(a: QueryValue, b: QueryValue): boolean {
   if (deepEqual(a, b)) return true;
+  // jq: string contains substring check
+  if (typeof a === "string" && typeof b === "string") {
+    return a.includes(b);
+  }
   if (Array.isArray(a) && Array.isArray(b)) {
     return b.every((bItem) => a.some((aItem) => containsDeep(aItem, bItem)));
   }
@@ -2766,6 +3587,69 @@ function collectPaths(
   currentPath: (string | number)[],
   paths: (string | number)[][],
 ): void {
+  // Handle Comma - collect paths for both parts
+  if (expr.type === "Comma") {
+    const comma = expr as { type: "Comma"; left: AstNode; right: AstNode };
+    collectPaths(value, comma.left, ctx, currentPath, paths);
+    collectPaths(value, comma.right, ctx, currentPath, paths);
+    return;
+  }
+
+  // Try to extract a static path from the AST
+  const staticPath = extractPathFromAst(expr);
+  if (staticPath !== null) {
+    paths.push([...currentPath, ...staticPath]);
+    return;
+  }
+
+  // For more complex expressions, evaluate and try to infer paths
+  // This handles cases like .[] which produce multiple paths
+  if (expr.type === "Iterate") {
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i++) {
+        paths.push([...currentPath, i]);
+      }
+    } else if (value && typeof value === "object") {
+      for (const key of Object.keys(value)) {
+        paths.push([...currentPath, key]);
+      }
+    }
+    return;
+  }
+
+  // Handle Recurse (..) - recursive descent, returns paths to all values
+  if (expr.type === "Recurse") {
+    const walkPaths = (v: QueryValue, path: (string | number)[]) => {
+      paths.push([...currentPath, ...path]);
+      if (v && typeof v === "object") {
+        if (Array.isArray(v)) {
+          for (let i = 0; i < v.length; i++) {
+            walkPaths(v[i], [...path, i]);
+          }
+        } else {
+          for (const key of Object.keys(v)) {
+            walkPaths((v as Record<string, unknown>)[key], [...path, key]);
+          }
+        }
+      }
+    };
+    walkPaths(value, []);
+    return;
+  }
+
+  // For Pipe expressions, collect paths through the pipe
+  if (expr.type === "Pipe") {
+    const leftPath = extractPathFromAst(expr.left);
+    if (leftPath !== null) {
+      const leftResults = evaluate(value, expr.left, ctx);
+      for (const lv of leftResults) {
+        collectPaths(lv, expr.right, ctx, [...currentPath, ...leftPath], paths);
+      }
+      return;
+    }
+  }
+
+  // Fallback: if expression produces results, push current path
   const results = evaluate(value, expr, ctx);
   if (results.length > 0) {
     paths.push(currentPath);

@@ -71,7 +71,7 @@ async function processContent(
   commands: SedCommand[],
   silent: boolean,
   options: ProcessContentOptions = {},
-): Promise<{ output: string; exitCode?: number }> {
+): Promise<{ output: string; exitCode?: number; errorMessage?: string }> {
   const { limits, filename, fs, cwd } = options;
 
   const lines = content.split("\n");
@@ -118,7 +118,8 @@ async function processContent(
     // Execute commands with support for D command cycle restart
     let cycleIterations = 0;
     const maxCycleIterations = 10000;
-    let totalLinesConsumed = 0;
+    // Reset lines consumed counter for this cycle
+    state.linesConsumedInCycle = 0;
     do {
       cycleIterations++;
       if (cycleIterations > maxCycleIterations) {
@@ -130,8 +131,8 @@ async function processContent(
       state.pendingFileReads = [];
       state.pendingFileWrites = [];
 
-      const linesConsumed = executeCommands(commands, state, ctx, sedLimits);
-      totalLinesConsumed += linesConsumed;
+      // Execute commands - lines consumed are tracked in state.linesConsumedInCycle
+      executeCommands(commands, state, ctx, sedLimits);
 
       // Process pending file reads
       if (fs && cwd) {
@@ -168,9 +169,6 @@ async function processContent(
           fileWrites.set(filePath, existing + write.content);
         }
       }
-
-      // Update context for next iteration (so N command reads from correct position)
-      ctx.currentLineIndex += linesConsumed;
     } while (
       state.restartCycle &&
       !state.deleted &&
@@ -178,14 +176,21 @@ async function processContent(
       !state.quitSilent
     );
 
-    // Update main line index with total lines consumed
-    lineIndex += totalLinesConsumed;
+    // Update main line index with total lines consumed during this cycle
+    lineIndex += state.linesConsumedInCycle;
 
     // Preserve state for next line
     holdSpace = state.holdSpace;
     lastPattern = state.lastPattern;
 
-    // Output line numbers from = command (and l, F commands)
+    // Output from n command (respects silent mode) - must come before other outputs
+    if (!silent) {
+      for (const ln of state.nCommandOutput) {
+        output += `${ln}\n`;
+      }
+    }
+
+    // Output line numbers from = command (and l, F commands, p command)
     for (const ln of state.lineNumberOutput) {
       output += `${ln}\n`;
     }
@@ -225,10 +230,18 @@ async function processContent(
       output += `${text}\n`;
     }
 
-    // Check for quit commands
+    // Check for quit commands or errors
     if (state.quit || state.quitSilent) {
       if (state.exitCode !== undefined) {
         exitCode = state.exitCode;
+      }
+      if (state.errorMessage) {
+        // Early exit on error
+        return {
+          output: "",
+          exitCode: exitCode || 1,
+          errorMessage: state.errorMessage,
+        };
       }
       break;
     }
@@ -391,7 +404,7 @@ export const sedCommand: Command = {
         );
         return {
           stdout: result.output,
-          stderr: "",
+          stderr: result.errorMessage ? `${result.errorMessage}\n` : "",
           exitCode: result.exitCode ?? 0,
         };
       } catch (e) {
@@ -423,6 +436,13 @@ export const sedCommand: Command = {
               cwd: ctx.cwd,
             },
           );
+          if (result.errorMessage) {
+            return {
+              stdout: "",
+              stderr: `${result.errorMessage}\n`,
+              exitCode: result.exitCode ?? 1,
+            };
+          }
           await ctx.fs.writeFile(filePath, result.output);
         } catch (e) {
           if (e instanceof ExecutionLimitError) {
@@ -472,7 +492,7 @@ export const sedCommand: Command = {
       });
       return {
         stdout: result.output,
-        stderr: "",
+        stderr: result.errorMessage ? `${result.errorMessage}\n` : "",
         exitCode: result.exitCode ?? 0,
       };
     } catch (e) {

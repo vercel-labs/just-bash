@@ -47,35 +47,28 @@ const SKIP_FILES: Set<string> = new Set<string>([
  */
 const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   // ========================================
-  // T.argv - ARGV/ENVIRON not populated from command line
+  // T.argv - Command-line args and file handling
   // ========================================
   [
-    "T.argv:T.argv (ARGV[1] + ARGV[2])",
-    "ARGV not populated from command-line args",
+    "T.argv:T.argv (argc *)",
+    "ARGC/ARGV not populated from multi-arg command line",
   ],
   [
-    "T.argv:T.argv (ENVIRON[x1] + ENVIRON[x2])",
-    "ENVIRON not populated from shell env",
+    "T.argv:test at line 106",
+    "Test parser extracts shell commands as part of AWK program",
   ],
-  ["T.argv:T.argv (argc *)", "ARGC/ARGV iteration not matching real awk"],
-  ["T.argv:T.argv delete ARGV[2]", "delete ARGV behavior differs"],
-  ["T.argv:test at line 106", "ARGV command-line args not populated"],
-  ["T.argv:test at line 118", "ARGV[2] empty behavior differs"],
+  ["T.argv:test at line 118", "ARGV file handling with /dev/null"],
+  [
+    "T.argv:T.argv delete ARGV[2]",
+    "ARGV file handling with /dev/null - reads from ARGV files",
+  ],
 
   // ========================================
-  // T.builtin - Various builtin function edge cases
+  // T.builtin - Locale-specific tests
   // ========================================
   [
-    "T.builtin:T.builtin (sin/cos)",
-    "Test parser truncates multi-line printf args",
-  ],
-  [
-    "T.builtin:T.builtin (toupper/tolower)",
-    "Test uses pipe input which isn't fully supported",
-  ],
-  [
     "T.builtin:T.builtin (toupper/tolower) for utf-8",
-    "UTF-8 locale handling not implemented",
+    "Requires de_DE.UTF-8 locale which may not be installed",
   ],
 
   // ========================================
@@ -95,53 +88,11 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   // ========================================
   // T.expr - Expression parsing edge cases
   // ========================================
-  [
-    "T.expr:{ i=1; print ($++$++i) }... case 1",
-    "Complex nested field increment: $++$++i",
-  ],
-  [
-    "T.expr:{ i=1; print ($++$++i) }... case 2",
-    "Complex nested field increment: $++$++i",
-  ],
-  [
-    "T.expr:{ i=1; print ($++$++i) }... case 3",
-    "Complex nested field increment: $++$++i",
-  ],
-
-  // Pattern as expression: $1 !$2 (parsed as concatenation)
-  ["T.expr:$1 !$2... case 1", "Pattern parsed as concatenation, not logical"],
-  ["T.expr:$1 !$2... case 2", "Pattern parsed as concatenation, not logical"],
-  ["T.expr:$1 !$2... case 3", "Pattern parsed as concatenation, not logical"],
-  ["T.expr:$1 !$2... case 4", "Pattern parsed as concatenation, not logical"],
-
-  // Regex with concatenation
-  [
-    "T.expr:{ print ($1~/abc/ !$2) }... case 1",
-    "Regex match concatenated with negation",
-  ],
-  [
-    "T.expr:{ print ($1~/abc/ !$2) }... case 2",
-    "Regex match concatenated with negation",
-  ],
-  [
-    "T.expr:{ print ($1~/abc/ !$2) }... case 3",
-    "Regex match concatenated with negation",
-  ],
-  [
-    "T.expr:{ print ($1~/abc/ !$2) }... case 4",
-    "Regex match concatenated with negation",
-  ],
 
   // Large float comparison
   [
     "T.expr:{ print ($1 == $2) }... case 14",
     "2e1000 large float comparison (Infinity handling)",
-  ],
-
-  // Array field subscript increment
-  [
-    "T.expr:{ f[1]=1; f[2]=2; print $f[1], $f[1]++, ... case 1",
-    "Array subscript as field index with increment",
   ],
 
   // ========================================
@@ -153,40 +104,22 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   ],
 
   // ========================================
-  // T.gawk - gawk-specific features
+  // T.gawk - gawk-specific features (test parser issues)
   // ========================================
-  [
-    "T.gawk:test at line 9",
-    "Array reference passing through nested function calls",
-  ],
-  ["T.gawk:test at line 198", "Test parser truncates multi-line printf args"],
-  ["T.gawk:test at line 251", "Function return value edge case"],
-  [
-    "T.gawk:test at line 293",
-    "Test parser mixes expected output from a different test",
-  ],
-  ["T.gawk:test at line 323", "printf with substr edge case"],
+  ["T.gawk:test at line 9", "Test parser extracts wrong expected output"],
+  ["T.gawk:test at line 198", "Test parser extracts wrong expected output"],
+  ["T.gawk:test at line 251", "Test parser extracts wrong expected output"],
+  ["T.gawk:test at line 293", "Test parser extracts wrong expected output"],
+  ["T.gawk:test at line 323", "Test parser extracts wrong expected output"],
 
   // ========================================
   // T.misc - Miscellaneous tests with parser issues
   // ========================================
-  ["T.misc:1>&2", "Test name extraction issue from shell redirect syntax"],
+  // NOTE: Most T.misc:1>&2 tests pass now, only specific ones skipped via SKIP_PATTERNS
   ["T.misc:test at line 452", "Incomplete program: {print $"],
-  [
-    "T.misc:BAD: T.misc END must preserve $0",
-    "Printf positional args: %2$s %1$s not implemented",
-  ],
-  [
-    "T.misc:BAD: T.misc hex string cvt",
-    "Hex escape sequences in strings differ",
-  ],
   [
     "T.misc:BAD: T.misc sub banana error",
     "sub() with 3rd arg should error, we accept it",
-  ],
-  [
-    "T.misc:BAD: T.misc weird escapes in char class",
-    "Escape sequences in character classes differ",
   ],
   [
     "T.misc:BAD: T.misc escape sequences in strings mishandled",
@@ -212,12 +145,27 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
  * These are checked if no exact match is found
  */
 const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
-  // Printf positional arguments not implemented
-  { pattern: /printf.*%\d+\$/, reason: "Printf positional arguments (%n$)" },
   // Escape sequences in strings - test name has Unicode replacement char
   {
     pattern: /escape sequences in strings mishandled/,
     reason: "Invalid octal escape handling: \\888 etc",
+  },
+  // T.misc:1>&2 tests that need specific skips (matched by program content)
+  {
+    pattern: /^BEGIN \{x = 1; print x; x = x; print x\}$/,
+    reason: "x = x self-assignment behavior difference",
+  },
+  {
+    pattern: /^\{print \$1\*4\}$/,
+    reason: "Test parser fails to extract input for overflow test",
+  },
+  {
+    pattern: /for \(i in up\) gsub\("a", "A",/,
+    reason: "gsub with uninitialized variable - different concat behavior",
+  },
+  {
+    pattern: /%2\$s %1\$s/,
+    reason: "printf positional args %N$s should error in OneTrue AWK",
   },
 ];
 

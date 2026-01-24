@@ -37,6 +37,7 @@ export enum SedTokenType {
   FILE_WRITE = "FILE_WRITE", // w filename
   FILE_WRITE_LINE = "FILE_WRITE_LINE", // W filename
   EXECUTE = "EXECUTE", // e [command]
+  VERSION = "VERSION", // v [version]
 
   EOF = "EOF",
   ERROR = "ERROR",
@@ -268,16 +269,37 @@ export class SedLexer {
     const startColumn = this.column;
     this.advance(); // skip opening /
     let pattern = "";
+    let inBracket = false;
 
-    while (this.pos < this.input.length && this.peek() !== "/") {
-      if (this.peek() === "\\") {
+    while (this.pos < this.input.length) {
+      const ch = this.peek();
+
+      // Check for end of pattern (delimiter outside brackets)
+      if (ch === "/" && !inBracket) {
+        break;
+      }
+
+      if (ch === "\\") {
         pattern += this.advance();
-        if (this.pos < this.input.length) {
+        if (this.pos < this.input.length && this.peek() !== "\n") {
           pattern += this.advance();
         }
-      } else if (this.peek() === "\n") {
+      } else if (ch === "\n") {
         // Unterminated pattern
         break;
+      } else if (ch === "[" && !inBracket) {
+        inBracket = true;
+        pattern += this.advance();
+        // Handle negation and literal ] at start of bracket
+        if (this.peek() === "^") {
+          pattern += this.advance();
+        }
+        if (this.peek() === "]") {
+          pattern += this.advance(); // ] at start is literal
+        }
+      } else if (ch === "]" && inBracket) {
+        inBracket = false;
+        pattern += this.advance();
       } else {
         pattern += this.advance();
       }
@@ -425,13 +447,15 @@ export class SedLexer {
       case "=":
       case "l":
       case "F":
-      case "v":
         return {
           type: SedTokenType.COMMAND,
           value: ch,
           line: startLine,
           column: startColumn,
         };
+
+      case "v":
+        return this.readVersion(startLine, startColumn);
 
       default:
         return {
@@ -456,16 +480,49 @@ export class SedLexer {
       };
     }
 
-    // Read pattern
+    // Read pattern (handle bracket expressions where delimiter is literal)
     let pattern = "";
-    while (this.pos < this.input.length && this.peek() !== delimiter) {
-      if (this.peek() === "\\") {
-        pattern += this.advance();
+    let inBracket = false;
+    while (this.pos < this.input.length) {
+      const ch = this.peek();
+
+      // Check for end of pattern (delimiter outside brackets)
+      if (ch === delimiter && !inBracket) {
+        break;
+      }
+
+      if (ch === "\\") {
+        this.advance(); // consume backslash
         if (this.pos < this.input.length && this.peek() !== "\n") {
+          const escaped = this.peek();
+          // Only convert escaped delimiter to literal outside of bracket expressions
+          // Inside brackets, keep the backslash for BRE escape sequences
+          if (escaped === delimiter && !inBracket) {
+            // Escaped delimiter becomes literal delimiter in pattern
+            pattern += this.advance();
+          } else {
+            // Keep backslash + escaped char for other escapes
+            pattern += "\\";
+            pattern += this.advance();
+          }
+        } else {
+          pattern += "\\";
+        }
+      } else if (ch === "\n") {
+        break;
+      } else if (ch === "[" && !inBracket) {
+        inBracket = true;
+        pattern += this.advance();
+        // Handle negation and literal ] at start of bracket
+        if (this.peek() === "^") {
           pattern += this.advance();
         }
-      } else if (this.peek() === "\n") {
-        break;
+        if (this.peek() === "]") {
+          pattern += this.advance(); // ] at start is literal
+        }
+      } else if (ch === "]" && inBracket) {
+        inBracket = false;
+        pattern += this.advance();
       } else {
         pattern += this.advance();
       }
@@ -485,9 +542,31 @@ export class SedLexer {
     let replacement = "";
     while (this.pos < this.input.length && this.peek() !== delimiter) {
       if (this.peek() === "\\") {
-        replacement += this.advance();
-        if (this.pos < this.input.length && this.peek() !== "\n") {
-          replacement += this.advance();
+        this.advance(); // consume first backslash
+        if (this.pos < this.input.length) {
+          const next = this.peek();
+          if (next === "\\") {
+            // Double backslash - check what follows
+            this.advance(); // consume second backslash
+            if (this.pos < this.input.length && this.peek() === "\n") {
+              // \\<newline> = escaped newline (literal newline in output)
+              // This is how BusyBox sed handles multi-line replacements
+              replacement += "\n";
+              this.advance();
+            } else {
+              // \\\\ = literal backslash
+              replacement += "\\";
+            }
+          } else if (next === "\n") {
+            // \<newline> in replacement: include the newline as literal
+            replacement += "\n";
+            this.advance();
+          } else {
+            // Keep the backslash and following character
+            replacement += `\\${this.advance()}`;
+          }
+        } else {
+          replacement += "\\";
         }
       } else if (this.peek() === "\n") {
         break;
@@ -583,8 +662,37 @@ export class SedLexer {
       }
     }
 
-    if (this.peek() === delimiter) {
-      this.advance(); // skip closing delimiter
+    if (this.peek() !== delimiter) {
+      return {
+        type: SedTokenType.ERROR,
+        value: "unterminated transliteration dest",
+        line: startLine,
+        column: startColumn,
+      };
+    }
+    this.advance(); // skip closing delimiter
+
+    // Check for extra text after y command - only ; } newline or EOF allowed
+    // Whitespace followed by more text is an error
+    let nextChar = this.peek();
+    // Skip whitespace but track if we had any
+    while (nextChar === " " || nextChar === "\t") {
+      this.advance();
+      nextChar = this.peek();
+    }
+    // After y command, only command separators or EOF allowed
+    if (
+      nextChar !== "" &&
+      nextChar !== ";" &&
+      nextChar !== "\n" &&
+      nextChar !== "}"
+    ) {
+      return {
+        type: SedTokenType.ERROR,
+        value: "extra text at the end of a transform command",
+        line: startLine,
+        column: startColumn,
+      };
     }
 
     return {
@@ -642,7 +750,7 @@ export class SedLexer {
         // Check if previous char was backslash for continuation
         if (text.endsWith("\\")) {
           // Continuation: remove backslash and add newline
-          text = text.slice(0, -1) + "\n";
+          text = `${text.slice(0, -1)}\n`;
           this.advance();
           continue;
         }
@@ -715,6 +823,38 @@ export class SedLexer {
       type,
       value: cmd,
       label: label || undefined,
+      line: startLine,
+      column: startColumn,
+    };
+  }
+
+  private readVersion(startLine: number, startColumn: number): SedToken {
+    // Skip whitespace
+    while (this.peek() === " " || this.peek() === "\t") {
+      this.advance();
+    }
+
+    // Read optional version string (e.g., "4.5.3")
+    let version = "";
+    while (this.pos < this.input.length) {
+      const ch = this.peek();
+      if (
+        ch === " " ||
+        ch === "\t" ||
+        ch === "\n" ||
+        ch === ";" ||
+        ch === "}" ||
+        ch === "{"
+      ) {
+        break;
+      }
+      version += this.advance();
+    }
+
+    return {
+      type: SedTokenType.VERSION,
+      value: "v",
+      label: version || undefined, // Reuse label field for version string
       line: startLine,
       column: startColumn,
     };

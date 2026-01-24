@@ -137,9 +137,7 @@ export const awkCommand2: Command = {
       (rule) => rule.pattern?.type !== "begin" && rule.pattern?.type !== "end",
     );
     // Check if there are END blocks (need to read files to populate NR)
-    const hasEndBlocks = ast.rules.some(
-      (rule) => rule.pattern?.type === "end",
-    );
+    const hasEndBlocks = ast.rules.some((rule) => rule.pattern?.type === "end");
 
     // Execute BEGIN blocks
     try {

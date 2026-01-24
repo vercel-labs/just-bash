@@ -252,15 +252,7 @@ function tokenize(input: string): Token[] {
       continue;
     }
     if (c === "-") {
-      // Could be negative number or minus operator
-      if (isDigit(peek())) {
-        let num = c;
-        while (!isEof() && (isDigit(peek()) || peek() === ".")) {
-          num += advance();
-        }
-        tokens.push({ type: "NUMBER", value: Number(num), pos: start });
-        continue;
-      }
+      // Always tokenize as MINUS - let parser handle unary minus
       tokens.push({ type: "MINUS", pos: start });
       continue;
     }
@@ -520,7 +512,14 @@ export interface VarBindNode {
 export type DestructurePattern =
   | { type: "var"; name: string }
   | { type: "array"; elements: DestructurePattern[] }
-  | { type: "object"; fields: { key: string | AstNode; pattern: DestructurePattern; keyVar?: string }[] };
+  | {
+      type: "object";
+      fields: {
+        key: string | AstNode;
+        pattern: DestructurePattern;
+        keyVar?: string;
+      }[];
+    };
 
 export interface VarRefNode {
   type: "VarRef";
@@ -668,7 +667,8 @@ class Parser {
 
     // Object pattern: {key: $a, $b, ...}
     if (this.match("LBRACE")) {
-      const fields: { key: string | AstNode; pattern: DestructurePattern }[] = [];
+      const fields: { key: string | AstNode; pattern: DestructurePattern }[] =
+        [];
       if (!this.check("RBRACE")) {
         // Parse first field
         fields.push(this.parsePatternField());
@@ -693,7 +693,11 @@ class Parser {
   /**
    * Parse a single field in an object destructuring pattern
    */
-  private parsePatternField(): { key: string | AstNode; pattern: DestructurePattern; keyVar?: string } {
+  private parsePatternField(): {
+    key: string | AstNode;
+    pattern: DestructurePattern;
+    keyVar?: string;
+  } {
     // Check for computed key: (expr): $pattern
     if (this.match("LPAREN")) {
       const keyExpr = this.parseExpr();
@@ -728,7 +732,9 @@ class Parser {
       return { key: name, pattern: { type: "var", name: `$${name}` } };
     }
 
-    throw new Error(`Expected field name in object pattern at position ${tok.pos}`);
+    throw new Error(
+      `Expected field name in object pattern at position ${tok.pos}`,
+    );
   }
 
   private parsePipe(): AstNode {
@@ -787,7 +793,9 @@ class Parser {
   /**
    * Peek at a token N positions ahead (0 = current, 1 = next, etc.)
    */
-  private peekAhead(n: number): { type: TokenType; pos: number; value?: unknown } | undefined {
+  private peekAhead(
+    n: number,
+  ): { type: TokenType; pos: number; value?: unknown } | undefined {
     const idx = this.pos + n;
     return idx < this.tokens.length ? this.tokens[idx] : undefined;
   }
@@ -919,10 +927,13 @@ class Parser {
     while (true) {
       if (this.match("QUESTION")) {
         expr = { type: "Optional", expr };
-      } else if (this.check("DOT") && this.peek(1).type === "IDENT") {
+      } else if (
+        this.check("DOT") &&
+        (this.peek(1).type === "IDENT" || this.peek(1).type === "STRING")
+      ) {
         this.advance(); // consume DOT
-        const name = this.expect("IDENT", "Expected field name")
-          .value as string;
+        const token = this.advance();
+        const name = token.value as string;
         expr = { type: "Field", name, base: expr };
       } else if (this.check("LBRACKET")) {
         this.advance();
@@ -981,8 +992,8 @@ class Parser {
         this.expect("RBRACKET", "Expected ']'");
         return { type: "Index", index: indexExpr };
       }
-      // .field
-      if (this.check("IDENT")) {
+      // .field or ."quoted-field"
+      if (this.check("IDENT") || this.check("STRING")) {
         const name = this.advance().value as string;
         return { type: "Field", name };
       }
@@ -1053,7 +1064,7 @@ class Parser {
 
     // reduce EXPR as $VAR (INIT; UPDATE)
     if (this.match("REDUCE")) {
-      const expr = this.parsePostfix();
+      const expr = this.parseUnary(); // Use parseUnary to handle -.[] etc.
       this.expect("AS", "Expected 'as' after reduce expression");
       const pattern = this.parsePattern();
       this.expect("LPAREN", "Expected '(' after variable");
@@ -1063,12 +1074,19 @@ class Parser {
       this.expect("RPAREN", "Expected ')' after update expression");
       // For simple variable, use varName; for complex patterns, use pattern
       const varName = pattern.type === "var" ? pattern.name : "";
-      return { type: "Reduce", expr, varName, init, update, pattern: pattern.type !== "var" ? pattern : undefined };
+      return {
+        type: "Reduce",
+        expr,
+        varName,
+        init,
+        update,
+        pattern: pattern.type !== "var" ? pattern : undefined,
+      };
     }
 
     // foreach EXPR as $VAR (INIT; UPDATE) or (INIT; UPDATE; EXTRACT)
     if (this.match("FOREACH")) {
-      const expr = this.parsePostfix();
+      const expr = this.parseUnary(); // Use parseUnary to handle -.[] etc.
       this.expect("AS", "Expected 'as' after foreach expression");
       const pattern = this.parsePattern();
       this.expect("LPAREN", "Expected '(' after variable");
@@ -1082,7 +1100,15 @@ class Parser {
       this.expect("RPAREN", "Expected ')' after expressions");
       // For simple variable, use varName; for complex patterns, use pattern
       const varName = pattern.type === "var" ? pattern.name : "";
-      return { type: "Foreach", expr, varName, init, update, extract, pattern: pattern.type !== "var" ? pattern : undefined };
+      return {
+        type: "Foreach",
+        expr,
+        varName,
+        init,
+        update,
+        extract,
+        pattern: pattern.type !== "var" ? pattern : undefined,
+      };
     }
 
     // not as a standalone filter (when used as a function, not unary operator)

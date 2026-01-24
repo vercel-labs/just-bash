@@ -108,9 +108,11 @@ function resolveArrayName(ctx: AwkRuntimeContext, array: string): string {
   // Follow alias chain to get the real array name
   let resolved = array;
   const seen = new Set<string>();
-  while (ctx.arrayAliases.has(resolved) && !seen.has(resolved)) {
+  let alias = ctx.arrayAliases.get(resolved);
+  while (alias !== undefined && !seen.has(resolved)) {
     seen.add(resolved);
-    resolved = ctx.arrayAliases.get(resolved)!;
+    resolved = alias;
+    alias = ctx.arrayAliases.get(resolved);
   }
   return resolved;
 }
