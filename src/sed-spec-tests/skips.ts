@@ -180,10 +180,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "complex branching",
   ],
   [
-    "pythonsed-chang.suite:Replace odd-numbered and even-numbered double quotes with single quotes and back quotes, respectively.",
-    "complex hold space logic",
-  ],
-  [
     "pythonsed-chang.suite:Find failed instances without latter successful ones.",
     "complex N/D branching",
   ],

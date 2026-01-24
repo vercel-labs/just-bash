@@ -158,7 +158,7 @@ function getVarNamesWithPrefix(
         // Skip indexed array element storage (arr_0)
         // But add the base array name if it matches
         const match = k.match(/^([a-zA-Z_][a-zA-Z0-9_]*)_\d+$/);
-        if (match && match[1].startsWith(prefix)) {
+        if (match?.[1].startsWith(prefix)) {
           matchingVars.add(match[1]);
         }
       } else if (isAssocArrayElement(k)) {
@@ -3161,16 +3161,16 @@ export async function expandWordWithGlob(
               operation: indirOp.innerOp,
             };
             // Temporarily set the element value
-            const oldVal = ctx.state.env["_indirect_elem_"];
-            ctx.state.env["_indirect_elem_"] = elemValue;
+            const oldVal = ctx.state.env._indirect_elem_;
+            ctx.state.env._indirect_elem_ = elemValue;
             try {
               const result = expandParameter(ctx, syntheticPart, true);
               values.push(result);
             } finally {
               if (oldVal !== undefined) {
-                ctx.state.env["_indirect_elem_"] = oldVal;
+                ctx.state.env._indirect_elem_ = oldVal;
               } else {
-                delete ctx.state.env["_indirect_elem_"];
+                delete ctx.state.env._indirect_elem_;
               }
             }
           }

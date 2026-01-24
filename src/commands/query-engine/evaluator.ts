@@ -3572,7 +3572,15 @@ function evalBuiltin(
 
     case "@uri":
       if (typeof value === "string") {
-        return [encodeURIComponent(value)];
+        // encodeURIComponent doesn't encode !'()*~ but jq encodes !'()*
+        return [
+          encodeURIComponent(value)
+            .replace(/!/g, "%21")
+            .replace(/'/g, "%27")
+            .replace(/\(/g, "%28")
+            .replace(/\)/g, "%29")
+            .replace(/\*/g, "%2A"),
+        ];
       }
       return [null];
 
@@ -3632,8 +3640,8 @@ function evalBuiltin(
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;"),
+            .replace(/'/g, "&apos;")
+            .replace(/"/g, "&quot;"),
         ];
       }
       return [null];

@@ -567,8 +567,6 @@ const SKIP_INPUT_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\t/, reason: "Literal tab in input" },
   // Emoji flag characters (multi-codepoint indexing issues)
   { pattern: /🇬🇧/, reason: "Emoji flag codepoint indexing differs" },
-  // Escaped quote in input
-  { pattern: /\\"/, reason: "Escaped quote in input" },
   // delpaths bug with specific input
   { pattern: /^\{"bar":false\}$/, reason: "delpaths with string path bug" },
   // unique sort order bug

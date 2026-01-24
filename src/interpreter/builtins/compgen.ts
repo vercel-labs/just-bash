@@ -434,20 +434,20 @@ export async function handleCompgen(
       const savedEnv: Record<string, string | undefined> = {};
 
       // Save and set COMP_WORDS (empty array - no elements)
-      savedEnv["COMP_WORDS__length"] = ctx.state.env["COMP_WORDS__length"];
-      ctx.state.env["COMP_WORDS__length"] = "0";
+      savedEnv.COMP_WORDS__length = ctx.state.env.COMP_WORDS__length;
+      ctx.state.env.COMP_WORDS__length = "0";
 
       // Save and set COMP_CWORD
-      savedEnv["COMP_CWORD"] = ctx.state.env["COMP_CWORD"];
-      ctx.state.env["COMP_CWORD"] = "-1";
+      savedEnv.COMP_CWORD = ctx.state.env.COMP_CWORD;
+      ctx.state.env.COMP_CWORD = "-1";
 
       // Save and set COMP_LINE
-      savedEnv["COMP_LINE"] = ctx.state.env["COMP_LINE"];
-      ctx.state.env["COMP_LINE"] = "";
+      savedEnv.COMP_LINE = ctx.state.env.COMP_LINE;
+      ctx.state.env.COMP_LINE = "";
 
       // Save and set COMP_POINT
-      savedEnv["COMP_POINT"] = ctx.state.env["COMP_POINT"];
-      ctx.state.env["COMP_POINT"] = "0";
+      savedEnv.COMP_POINT = ctx.state.env.COMP_POINT;
+      ctx.state.env.COMP_POINT = "0";
 
       // Clear any existing COMPREPLY
       const savedCompreply: Record<string, string | undefined> = {};
@@ -1019,9 +1019,9 @@ function getCompreplyValues(ctx: InterpreterContext): string[] {
     for (const [, value] of elements) {
       values.push(value);
     }
-  } else if (ctx.state.env["COMPREPLY"] !== undefined) {
+  } else if (ctx.state.env.COMPREPLY !== undefined) {
     // It's a scalar value
-    values.push(ctx.state.env["COMPREPLY"]);
+    values.push(ctx.state.env.COMPREPLY);
   }
 
   return values;
