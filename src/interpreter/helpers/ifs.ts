@@ -121,6 +121,11 @@ export function splitByIfsForRead(
 ): { words: string[]; wordStarts: number[] } {
   // Empty IFS means no splitting
   if (ifs === "") {
+    // If value is empty, return empty array (no words)
+    // If value is non-empty, return the entire value as a single word
+    if (value === "") {
+      return { words: [], wordStarts: [] };
+    }
     return { words: [value], wordStarts: [0] };
   }
 

@@ -63,6 +63,11 @@ export interface StatementNode extends ASTNode {
     message: string;
     token: string;
   };
+  /**
+   * Original source text for verbose mode (set -v).
+   * When verbose mode is enabled, this text is printed to stderr before execution.
+   */
+  sourceText?: string;
 }
 
 // =============================================================================
@@ -538,7 +543,8 @@ export type ArithExpr =
   | ArithConcatNode
   | ArithDoubleSubscriptNode
   | ArithNumberSubscriptNode
-  | ArithSyntaxErrorNode;
+  | ArithSyntaxErrorNode
+  | ArithSingleQuoteNode;
 
 export interface ArithBracedExpansionNode extends ASTNode {
   type: "ArithBracedExpansion";
@@ -593,6 +599,17 @@ export interface ArithSyntaxErrorNode extends ASTNode {
   type: "ArithSyntaxError";
   errorToken: string; // The invalid token that caused the error
   message: string; // The error message
+}
+
+/**
+ * Single-quoted string in arithmetic expression.
+ * In $(()) expansion context, this causes an error.
+ * In (()) command context, this is evaluated as a number.
+ */
+export interface ArithSingleQuoteNode extends ASTNode {
+  type: "ArithSingleQuote";
+  content: string; // The content inside the quotes
+  value: number; // The numeric value (for command context)
 }
 
 export interface ArithNumberNode extends ASTNode {
@@ -877,6 +894,7 @@ export const AST = {
     operators: ("&&" | "||" | ";")[] = [],
     background = false,
     deferredError?: { message: string; token: string },
+    sourceText?: string,
   ): StatementNode {
     const node: StatementNode = {
       type: "Statement",
@@ -886,6 +904,9 @@ export const AST = {
     };
     if (deferredError) {
       node.deferredError = deferredError;
+    }
+    if (sourceText !== undefined) {
+      node.sourceText = sourceText;
     }
     return node;
   },

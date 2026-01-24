@@ -771,11 +771,11 @@ function parseArithPrimary(
     return { expr: { type: "ArithGroup", expression: expr }, pos: currentPos };
   }
 
-  // Single-quoted string: '...' - evaluates to its numeric value
-  // Note: In bash $(( )) expansion context, single quotes cause an error.
-  // However, in bash (( )) command context, single quotes work like numbers.
-  // We parse them as numbers here to support the (( )) command context.
-  // The $(( )) context error behavior would require tracking context, which is complex.
+  // Single-quoted string: '...' - context-dependent behavior
+  // In bash $(( )) expansion context, single quotes cause an error.
+  // In bash (( )) command context, single quotes work like numbers.
+  // We create a special ArithSingleQuote node that stores both the content
+  // and numeric value, allowing the evaluator to handle it based on context.
   if (input[currentPos] === "'") {
     currentPos++; // Skip opening '
     let content = "";
@@ -787,7 +787,8 @@ function parseArithPrimary(
     const numValue = Number.parseInt(content, 10);
     return {
       expr: {
-        type: "ArithNumber",
+        type: "ArithSingleQuote",
+        content,
         value: Number.isNaN(numValue) ? 0 : numValue,
       },
       pos: currentPos,

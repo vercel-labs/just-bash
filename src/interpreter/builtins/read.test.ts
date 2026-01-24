@@ -101,4 +101,26 @@ describe("read builtin", () => {
       expect(result.stdout).toBe("got: line1\ngot: line2\ngot: line3\n");
     });
   });
+
+  describe("read -a with empty IFS", () => {
+    it("should produce empty array for empty input with empty IFS", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        IFS=
+        echo '' | (read -a a; echo "\${#a[@]}")
+      `);
+      // When IFS is empty and input is empty, read -a should produce an empty array (0 elements)
+      expect(result.stdout).toBe("0\n");
+    });
+
+    it("should read entire non-empty input as single word with empty IFS", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        IFS=
+        echo 'hello world' | (read -a a; echo "\${#a[@]}"; echo "\${a[0]}")
+      `);
+      // With empty IFS, no word splitting occurs, so the entire input is one word
+      expect(result.stdout).toBe("1\nhello world\n");
+    });
+  });
 });

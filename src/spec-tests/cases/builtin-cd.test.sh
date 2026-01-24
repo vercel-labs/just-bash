@@ -214,7 +214,6 @@ status=1
 ## END
 
 #### pwd in symlinked dir on shell initialization
-## SKIP: Shell initialization with unset PWD does not use realpath
 tmp=$TMP/builtins-pwd-2
 mkdir -p $tmp
 mkdir -p $tmp/target

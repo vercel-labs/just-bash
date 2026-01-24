@@ -389,15 +389,43 @@ export class Bash {
     // Each exec call gets an isolated state copy - like starting a new shell
     // This ensures exec calls never interfere with each other
     const effectiveCwd = options?.cwd ?? this.state.cwd;
+
+    // Determine PWD and cwd for the new shell context
+    // If PWD is in the provided env, use it (inherited from parent)
+    // If PWD is NOT in the provided env (was unset), use realpath to get physical path
+    // This matches bash behavior: when PWD is unset and a new shell starts,
+    // it initializes PWD (and cwd) using realpath (resolving symlinks)
+    let newPwd: string | undefined;
+    let newCwd = effectiveCwd;
+    if (options?.cwd) {
+      if (options.env && "PWD" in options.env) {
+        // PWD explicitly provided - use it
+        newPwd = options.env.PWD;
+      } else if (options?.env && !("PWD" in options.env)) {
+        // PWD not in provided env - use realpath to resolve symlinks
+        // This also updates cwd since the shell determines its position from scratch
+        try {
+          newPwd = await this.fs.realpath(effectiveCwd);
+          newCwd = newPwd; // Both PWD and cwd should be the physical path
+        } catch {
+          // Fallback to logical path if realpath fails
+          newPwd = effectiveCwd;
+        }
+      } else {
+        // No env provided - use logical cwd
+        newPwd = effectiveCwd;
+      }
+    }
+
     const execState: InterpreterState = {
       ...this.state,
       env: {
         ...this.state.env,
         ...options?.env,
         // Update PWD when cwd option is provided
-        ...(options?.cwd ? { PWD: options.cwd } : {}),
+        ...(newPwd !== undefined ? { PWD: newPwd } : {}),
       },
-      cwd: effectiveCwd,
+      cwd: newCwd,
       // Deep copy mutable objects to prevent interference
       functions: new Map(this.state.functions),
       localScopes: [...this.state.localScopes],

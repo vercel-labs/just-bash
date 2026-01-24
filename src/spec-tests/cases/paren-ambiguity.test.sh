@@ -144,6 +144,9 @@ echo bye
 bye
 ## END
 
+## STDERR:
+## END
+
 ## N-I dash/ash status: 2
 ## N-I dash/ash STDOUT:
 ## END

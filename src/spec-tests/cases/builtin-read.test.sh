@@ -922,7 +922,6 @@ printf '%s\n' 'a b\,c d'   | (read -d ,; argv.py "$REPLY")
 ## END
 
 #### empty input and splitting
-## SKIP: read -a with empty IFS produces empty element instead of empty array
 case $SH in mksh|ash|dash|zsh) exit 99; esac
 echo '' | (read -a a; argv.py "${a[@]}")
 IFS=x

@@ -394,8 +394,16 @@ export function getVariable(
       // (this handles if target is also a nameref, array, etc.)
       return getVariable(ctx, resolved, checkNounset, _insideDoubleQuotes);
     }
-    // Nameref points to invalid target, return its raw value
+    // Nameref points to empty/invalid target
     const value = ctx.state.env[name];
+    // Empty nameref (no target) should trigger nounset error
+    if (
+      (value === undefined || value === "") &&
+      checkNounset &&
+      ctx.state.options.nounset
+    ) {
+      throw new NounsetError(name);
+    }
     return value || "";
   }
 

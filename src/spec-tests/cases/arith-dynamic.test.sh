@@ -24,7 +24,6 @@ echo $(( "1+2" * 3 ))
 ## END
 
 #### Single quotes
-## SKIP: Single quotes in arithmetic substitution should error, but we parse them as numbers for arithmetic command compatibility
 echo $(( '1' + '2' * 3 ))
 echo status=$?
 

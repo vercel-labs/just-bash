@@ -920,9 +920,13 @@ function expandPartSync(
         // Re-parse the expanded expression
         const parser = new Parser();
         const newExpr = parseArithmeticExpression(parser, expandedText);
-        return String(evaluateArithmeticSync(ctx, newExpr.expression));
+        // true = expansion context, single quotes cause error
+        return String(evaluateArithmeticSync(ctx, newExpr.expression, true));
       }
-      return String(evaluateArithmeticSync(ctx, part.expression.expression));
+      // true = expansion context, single quotes cause error
+      return String(
+        evaluateArithmeticSync(ctx, part.expression.expression, true),
+      );
     }
 
     case "BraceExpansion": {
@@ -4690,12 +4694,17 @@ async function expandPart(
       // modify parent environment (e.g., aliases defined inside $() should not leak)
       const savedEnv = { ...ctx.state.env };
       const savedCwd = ctx.state.cwd;
+      // Suppress verbose mode (set -v) inside command substitutions
+      // bash only prints verbose output for the main script
+      const savedSuppressVerbose = ctx.state.suppressVerbose;
+      ctx.state.suppressVerbose = true;
       try {
         const result = await ctx.executeScript(part.body);
         // Restore environment but preserve exit code
         const exitCode = result.exitCode;
         ctx.state.env = savedEnv;
         ctx.state.cwd = savedCwd;
+        ctx.state.suppressVerbose = savedSuppressVerbose;
         // Store the exit code for $?
         ctx.state.lastExitCode = exitCode;
         ctx.state.env["?"] = String(exitCode);
@@ -4712,6 +4721,7 @@ async function expandPart(
         ctx.state.env = savedEnv;
         ctx.state.cwd = savedCwd;
         ctx.state.bashPid = savedBashPid;
+        ctx.state.suppressVerbose = savedSuppressVerbose;
         // ExecutionLimitError must always propagate - these are safety limits
         if (error instanceof ExecutionLimitError) {
           throw error;
@@ -4745,9 +4755,13 @@ async function expandPart(
         // Re-parse the expanded expression
         const parser = new Parser();
         const newExpr = parseArithmeticExpression(parser, expandedText);
-        return String(await evaluateArithmetic(ctx, newExpr.expression));
+        // true = expansion context, single quotes cause error
+        return String(await evaluateArithmetic(ctx, newExpr.expression, true));
       }
-      return String(await evaluateArithmetic(ctx, part.expression.expression));
+      // true = expansion context, single quotes cause error
+      return String(
+        await evaluateArithmetic(ctx, part.expression.expression, true),
+      );
     }
 
     case "BraceExpansion": {

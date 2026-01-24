@@ -26,7 +26,6 @@ weird bug
 ## END
 
 #### set -o verbose prints unevaluated code
-## SKIP: set -o verbose not implemented
 set -o verbose
 x=foo
 y=bar

@@ -33,10 +33,8 @@ echo word_a || echo word_b
 echo word_a && echo word_b || echo
 
 #### Invalid token
-## SKIP: Syntax error detection for invalid commands differs
-invalid
-# TODO: change these to qualifiers!
-## status: 99
+;;
+## status: 2
 
 #### Filename Redirect
 echo 2>filename

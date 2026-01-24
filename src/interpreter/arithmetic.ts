@@ -430,10 +430,13 @@ function expandBracedContent(ctx: InterpreterContext, content: string): string {
 /**
  * Synchronous version of evaluateArithmetic for simple expressions.
  * Does not support command substitution - those will return 0.
+ * @param isExpansionContext - If true, we're in $(()) context where single quotes error.
+ *                             If false, we're in (()) context where single quotes work as numbers.
  */
 export function evaluateArithmeticSync(
   ctx: InterpreterContext,
   expr: ArithExpr,
+  isExpansionContext = true,
 ): number {
   switch (expr.type) {
     case "ArithNumber":
@@ -456,10 +459,10 @@ export function evaluateArithmeticSync(
       // If not a simple number, evaluate as arithmetic expression
       const parser = new Parser();
       const { expr: parsed } = parseArithExpr(parser, trimmed, 0);
-      return evaluateArithmeticSync(ctx, parsed);
+      return evaluateArithmeticSync(ctx, parsed, isExpansionContext);
     }
     case "ArithNested":
-      return evaluateArithmeticSync(ctx, expr.expression);
+      return evaluateArithmeticSync(ctx, expr.expression, isExpansionContext);
     case "ArithCommandSubst":
       // Command substitution not supported in sync version
       return 0;
@@ -511,7 +514,7 @@ export function evaluateArithmeticSync(
         return 0;
       } else if (expr.index) {
         // For indexed arrays, evaluate the index as arithmetic
-        let index = evaluateArithmeticSync(ctx, expr.index);
+        let index = evaluateArithmeticSync(ctx, expr.index, isExpansionContext);
 
         // Handle negative indices - bash counts from max_index + 1
         if (index < 0) {
@@ -589,24 +592,45 @@ export function evaluateArithmeticSync(
       // Syntax error node - throw at evaluation time so script can parse successfully
       throw new ArithmeticError(expr.message);
     }
+    case "ArithSingleQuote": {
+      // Single-quoted string - behavior depends on context
+      // In $(()) expansion context, single quotes cause an error
+      // In (()) command context, single quotes work like numbers
+      if (isExpansionContext) {
+        // Build error message similar to bash: "'1' + '2' * 3 : syntax error: operand expected"
+        throw new ArithmeticError(
+          `syntax error: operand expected (error token is "'${expr.content}'")`,
+        );
+      }
+      // In command context, return the numeric value
+      return expr.value;
+    }
     case "ArithBinary": {
       // Short-circuit evaluation for logical operators
       if (expr.operator === "||") {
-        const left = evaluateArithmeticSync(ctx, expr.left);
+        const left = evaluateArithmeticSync(ctx, expr.left, isExpansionContext);
         if (left) return 1;
-        return evaluateArithmeticSync(ctx, expr.right) ? 1 : 0;
+        return evaluateArithmeticSync(ctx, expr.right, isExpansionContext)
+          ? 1
+          : 0;
       }
       if (expr.operator === "&&") {
-        const left = evaluateArithmeticSync(ctx, expr.left);
+        const left = evaluateArithmeticSync(ctx, expr.left, isExpansionContext);
         if (!left) return 0;
-        return evaluateArithmeticSync(ctx, expr.right) ? 1 : 0;
+        return evaluateArithmeticSync(ctx, expr.right, isExpansionContext)
+          ? 1
+          : 0;
       }
-      const left = evaluateArithmeticSync(ctx, expr.left);
-      const right = evaluateArithmeticSync(ctx, expr.right);
+      const left = evaluateArithmeticSync(ctx, expr.left, isExpansionContext);
+      const right = evaluateArithmeticSync(ctx, expr.right, isExpansionContext);
       return applyBinaryOp(left, right, expr.operator);
     }
     case "ArithUnary": {
-      const operand = evaluateArithmeticSync(ctx, expr.operand);
+      const operand = evaluateArithmeticSync(
+        ctx,
+        expr.operand,
+        isExpansionContext,
+      );
       // Handle ++/-- with side effects separately
       if (expr.operator === "++" || expr.operator === "--") {
         if (expr.operand.type === "ArithVariable") {
@@ -640,7 +664,11 @@ export function evaluateArithmeticSync(
             const expandedKey = getVariable(ctx, expr.operand.index.name);
             envKey = `${arrayName}_${expandedKey}`;
           } else if (expr.operand.index) {
-            const index = evaluateArithmeticSync(ctx, expr.operand.index);
+            const index = evaluateArithmeticSync(
+              ctx,
+              expr.operand.index,
+              isExpansionContext,
+            );
             envKey = `${arrayName}_${index}`;
           } else {
             return operand;
@@ -656,7 +684,11 @@ export function evaluateArithmeticSync(
           // Handle dynamic variable name increment/decrement: x$foo++
           let varName = "";
           for (const part of expr.operand.parts) {
-            varName += evalConcatPartToStringSync(ctx, part);
+            varName += evalConcatPartToStringSync(
+              ctx,
+              part,
+              isExpansionContext,
+            );
           }
           if (varName && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
             const current =
@@ -671,7 +703,11 @@ export function evaluateArithmeticSync(
           let varName = "";
           if (expr.operand.nameExpr.type === "ArithConcat") {
             for (const part of expr.operand.nameExpr.parts) {
-              varName += evalConcatPartToStringSync(ctx, part);
+              varName += evalConcatPartToStringSync(
+                ctx,
+                part,
+                isExpansionContext,
+              );
             }
           } else if (expr.operand.nameExpr.type === "ArithVariable") {
             varName = expr.operand.nameExpr.hasDollarPrefix
@@ -679,7 +715,11 @@ export function evaluateArithmeticSync(
               : expr.operand.nameExpr.name;
           }
           if (varName && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
-            const index = evaluateArithmeticSync(ctx, expr.operand.subscript);
+            const index = evaluateArithmeticSync(
+              ctx,
+              expr.operand.subscript,
+              isExpansionContext,
+            );
             const envKey = `${varName}_${index}`;
             const current =
               Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
@@ -693,10 +733,14 @@ export function evaluateArithmeticSync(
       return applyUnaryOp(operand, expr.operator);
     }
     case "ArithTernary": {
-      const condition = evaluateArithmeticSync(ctx, expr.condition);
+      const condition = evaluateArithmeticSync(
+        ctx,
+        expr.condition,
+        isExpansionContext,
+      );
       return condition
-        ? evaluateArithmeticSync(ctx, expr.consequent)
-        : evaluateArithmeticSync(ctx, expr.alternate);
+        ? evaluateArithmeticSync(ctx, expr.consequent, isExpansionContext)
+        : evaluateArithmeticSync(ctx, expr.alternate, isExpansionContext);
     }
     case "ArithAssignment": {
       const name = expr.variable;
@@ -726,11 +770,19 @@ export function evaluateArithmeticSync(
           envKey = `${name}_${expandedKey}`;
         } else if (isAssoc) {
           // For non-variable subscripts on associative arrays, evaluate and convert to string
-          const index = evaluateArithmeticSync(ctx, expr.subscript);
+          const index = evaluateArithmeticSync(
+            ctx,
+            expr.subscript,
+            isExpansionContext,
+          );
           envKey = `${name}_${index}`;
         } else {
           // For indexed arrays, evaluate the subscript as arithmetic
-          let index = evaluateArithmeticSync(ctx, expr.subscript);
+          let index = evaluateArithmeticSync(
+            ctx,
+            expr.subscript,
+            isExpansionContext,
+          );
           // Handle negative indices
           if (index < 0) {
             const elements = getArrayElements(ctx, name);
@@ -746,19 +798,23 @@ export function evaluateArithmeticSync(
       }
 
       const current = Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
-      const value = evaluateArithmeticSync(ctx, expr.value);
+      const value = evaluateArithmeticSync(ctx, expr.value, isExpansionContext);
       const newValue = applyAssignmentOp(current, value, expr.operator);
       ctx.state.env[envKey] = String(newValue);
       return newValue;
     }
     case "ArithGroup":
-      return evaluateArithmeticSync(ctx, expr.expression);
+      return evaluateArithmeticSync(ctx, expr.expression, isExpansionContext);
     case "ArithConcat": {
       // Concatenate all parts to form a dynamic variable name or number
       // For ArithVariable without $, use the literal name; with $, use the value
       let concatenated = "";
       for (const part of expr.parts) {
-        concatenated += evalConcatPartToStringSync(ctx, part);
+        concatenated += evalConcatPartToStringSync(
+          ctx,
+          part,
+          isExpansionContext,
+        );
       }
       // If the result is a valid identifier, look it up as a variable
       if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(concatenated)) {
@@ -773,7 +829,7 @@ export function evaluateArithmeticSync(
       // Build the variable name from the target expression
       if (expr.target.type === "ArithConcat") {
         for (const part of expr.target.parts) {
-          varName += evalConcatPartToStringSync(ctx, part);
+          varName += evalConcatPartToStringSync(ctx, part, isExpansionContext);
         }
       } else if (expr.target.type === "ArithVariable") {
         varName = expr.target.hasDollarPrefix
@@ -786,11 +842,15 @@ export function evaluateArithmeticSync(
       // Build the env key - include subscript for array assignment
       let envKey = varName;
       if (expr.subscript) {
-        const index = evaluateArithmeticSync(ctx, expr.subscript);
+        const index = evaluateArithmeticSync(
+          ctx,
+          expr.subscript,
+          isExpansionContext,
+        );
         envKey = `${varName}_${index}`;
       }
       const current = Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
-      const value = evaluateArithmeticSync(ctx, expr.value);
+      const value = evaluateArithmeticSync(ctx, expr.value, isExpansionContext);
       const newValue = applyAssignmentOp(current, value, expr.operator);
       ctx.state.env[envKey] = String(newValue);
       return newValue;
@@ -800,7 +860,7 @@ export function evaluateArithmeticSync(
       let varName = "";
       if (expr.nameExpr.type === "ArithConcat") {
         for (const part of expr.nameExpr.parts) {
-          varName += evalConcatPartToStringSync(ctx, part);
+          varName += evalConcatPartToStringSync(ctx, part, isExpansionContext);
         }
       } else if (expr.nameExpr.type === "ArithVariable") {
         varName = expr.nameExpr.hasDollarPrefix
@@ -810,7 +870,11 @@ export function evaluateArithmeticSync(
       if (!varName || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
         return 0; // Invalid variable name
       }
-      const index = evaluateArithmeticSync(ctx, expr.subscript);
+      const index = evaluateArithmeticSync(
+        ctx,
+        expr.subscript,
+        isExpansionContext,
+      );
       const envKey = `${varName}_${index}`;
       const value = ctx.state.env[envKey];
       if (value !== undefined) {
@@ -831,10 +895,15 @@ export function evaluateArithmeticSync(
 function evalConcatPartToStringSync(
   ctx: InterpreterContext,
   expr: ArithExpr,
+  isExpansionContext = true,
 ): string {
   switch (expr.type) {
     case "ArithNumber":
       return String(expr.value);
+    case "ArithSingleQuote":
+      // For single quotes in concatenation context, evaluate through main evaluator
+      // which will handle the expansion vs command context distinction
+      return String(evaluateArithmeticSync(ctx, expr, isExpansionContext));
     case "ArithVariable":
       // If no $ prefix, use the literal name for building dynamic var names
       // If has $ prefix, expand to the variable's value
@@ -852,18 +921,19 @@ function evalConcatPartToStringSync(
     case "ArithConcat": {
       let result = "";
       for (const part of expr.parts) {
-        result += evalConcatPartToStringSync(ctx, part);
+        result += evalConcatPartToStringSync(ctx, part, isExpansionContext);
       }
       return result;
     }
     default:
-      return String(evaluateArithmeticSync(ctx, expr));
+      return String(evaluateArithmeticSync(ctx, expr, isExpansionContext));
   }
 }
 
 export async function evaluateArithmetic(
   ctx: InterpreterContext,
   expr: ArithExpr,
+  isExpansionContext = false,
 ): Promise<number> {
   switch (expr.type) {
     case "ArithNumber":
@@ -960,7 +1030,11 @@ export async function evaluateArithmetic(
         return 0;
       } else if (expr.index) {
         // For indexed arrays, evaluate the index as arithmetic
-        let index = await evaluateArithmetic(ctx, expr.index);
+        let index = await evaluateArithmetic(
+          ctx,
+          expr.index,
+          isExpansionContext,
+        );
 
         // Handle negative indices - bash counts from max_index + 1
         if (index < 0) {
@@ -1042,26 +1116,58 @@ export async function evaluateArithmetic(
       throw new ArithmeticError(expr.message);
     }
 
+    case "ArithSingleQuote": {
+      // Single-quoted string - behavior depends on context
+      // In $(()) expansion context, single quotes cause an error
+      // In (()) command context, single quotes work like numbers
+      if (isExpansionContext) {
+        throw new ArithmeticError(
+          `syntax error: operand expected (error token is "'${expr.content}'")`,
+        );
+      }
+      return expr.value;
+    }
+
     case "ArithBinary": {
       // Short-circuit evaluation for logical operators
       if (expr.operator === "||") {
-        const left = await evaluateArithmetic(ctx, expr.left);
+        const left = await evaluateArithmetic(
+          ctx,
+          expr.left,
+          isExpansionContext,
+        );
         if (left) return 1;
-        return (await evaluateArithmetic(ctx, expr.right)) ? 1 : 0;
+        return (await evaluateArithmetic(ctx, expr.right, isExpansionContext))
+          ? 1
+          : 0;
       }
       if (expr.operator === "&&") {
-        const left = await evaluateArithmetic(ctx, expr.left);
+        const left = await evaluateArithmetic(
+          ctx,
+          expr.left,
+          isExpansionContext,
+        );
         if (!left) return 0;
-        return (await evaluateArithmetic(ctx, expr.right)) ? 1 : 0;
+        return (await evaluateArithmetic(ctx, expr.right, isExpansionContext))
+          ? 1
+          : 0;
       }
 
-      const left = await evaluateArithmetic(ctx, expr.left);
-      const right = await evaluateArithmetic(ctx, expr.right);
+      const left = await evaluateArithmetic(ctx, expr.left, isExpansionContext);
+      const right = await evaluateArithmetic(
+        ctx,
+        expr.right,
+        isExpansionContext,
+      );
       return applyBinaryOp(left, right, expr.operator);
     }
 
     case "ArithUnary": {
-      const operand = await evaluateArithmetic(ctx, expr.operand);
+      const operand = await evaluateArithmetic(
+        ctx,
+        expr.operand,
+        isExpansionContext,
+      );
       // Handle ++/-- with side effects separately
       if (expr.operator === "++" || expr.operator === "--") {
         if (expr.operand.type === "ArithVariable") {
@@ -1095,7 +1201,11 @@ export async function evaluateArithmetic(
             const expandedKey = getVariable(ctx, expr.operand.index.name);
             envKey = `${arrayName}_${expandedKey}`;
           } else if (expr.operand.index) {
-            const index = await evaluateArithmetic(ctx, expr.operand.index);
+            const index = await evaluateArithmetic(
+              ctx,
+              expr.operand.index,
+              isExpansionContext,
+            );
             envKey = `${arrayName}_${index}`;
           } else {
             return operand;
@@ -1111,7 +1221,11 @@ export async function evaluateArithmetic(
           // Handle dynamic variable name increment/decrement: x$foo++
           let varName = "";
           for (const part of expr.operand.parts) {
-            varName += await evalConcatPartToStringAsync(ctx, part);
+            varName += await evalConcatPartToStringAsync(
+              ctx,
+              part,
+              isExpansionContext,
+            );
           }
           if (varName && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
             const current =
@@ -1126,7 +1240,11 @@ export async function evaluateArithmetic(
           let varName = "";
           if (expr.operand.nameExpr.type === "ArithConcat") {
             for (const part of expr.operand.nameExpr.parts) {
-              varName += await evalConcatPartToStringAsync(ctx, part);
+              varName += await evalConcatPartToStringAsync(
+                ctx,
+                part,
+                isExpansionContext,
+              );
             }
           } else if (expr.operand.nameExpr.type === "ArithVariable") {
             varName = expr.operand.nameExpr.hasDollarPrefix
@@ -1134,7 +1252,11 @@ export async function evaluateArithmetic(
               : expr.operand.nameExpr.name;
           }
           if (varName && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
-            const index = await evaluateArithmetic(ctx, expr.operand.subscript);
+            const index = await evaluateArithmetic(
+              ctx,
+              expr.operand.subscript,
+              isExpansionContext,
+            );
             const envKey = `${varName}_${index}`;
             const current =
               Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
@@ -1149,10 +1271,14 @@ export async function evaluateArithmetic(
     }
 
     case "ArithTernary": {
-      const condition = await evaluateArithmetic(ctx, expr.condition);
+      const condition = await evaluateArithmetic(
+        ctx,
+        expr.condition,
+        isExpansionContext,
+      );
       return condition
-        ? await evaluateArithmetic(ctx, expr.consequent)
-        : await evaluateArithmetic(ctx, expr.alternate);
+        ? await evaluateArithmetic(ctx, expr.consequent, isExpansionContext)
+        : await evaluateArithmetic(ctx, expr.alternate, isExpansionContext);
     }
 
     case "ArithAssignment": {
@@ -1183,11 +1309,19 @@ export async function evaluateArithmetic(
           envKey = `${name}_${expandedKey}`;
         } else if (isAssoc) {
           // For non-variable subscripts on associative arrays, evaluate and convert to string
-          const index = await evaluateArithmetic(ctx, expr.subscript);
+          const index = await evaluateArithmetic(
+            ctx,
+            expr.subscript,
+            isExpansionContext,
+          );
           envKey = `${name}_${index}`;
         } else {
           // For indexed arrays, evaluate the subscript as arithmetic
-          let index = await evaluateArithmetic(ctx, expr.subscript);
+          let index = await evaluateArithmetic(
+            ctx,
+            expr.subscript,
+            isExpansionContext,
+          );
           // Handle negative indices
           if (index < 0) {
             const elements = getArrayElements(ctx, name);
@@ -1203,21 +1337,29 @@ export async function evaluateArithmetic(
       }
 
       const current = Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
-      const value = await evaluateArithmetic(ctx, expr.value);
+      const value = await evaluateArithmetic(
+        ctx,
+        expr.value,
+        isExpansionContext,
+      );
       const newValue = applyAssignmentOp(current, value, expr.operator);
       ctx.state.env[envKey] = String(newValue);
       return newValue;
     }
 
     case "ArithGroup":
-      return await evaluateArithmetic(ctx, expr.expression);
+      return await evaluateArithmetic(ctx, expr.expression, isExpansionContext);
 
     case "ArithConcat": {
       // Concatenate all parts to form a dynamic variable name or number
       // For ArithVariable without $, use the literal name; with $, use the value
       let concatenated = "";
       for (const part of expr.parts) {
-        concatenated += await evalConcatPartToStringAsync(ctx, part);
+        concatenated += await evalConcatPartToStringAsync(
+          ctx,
+          part,
+          isExpansionContext,
+        );
       }
       // If the result is a valid identifier, look it up as a variable
       if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(concatenated)) {
@@ -1233,7 +1375,11 @@ export async function evaluateArithmetic(
       // Build the variable name from the target expression
       if (expr.target.type === "ArithConcat") {
         for (const part of expr.target.parts) {
-          varName += await evalConcatPartToStringAsync(ctx, part);
+          varName += await evalConcatPartToStringAsync(
+            ctx,
+            part,
+            isExpansionContext,
+          );
         }
       } else if (expr.target.type === "ArithVariable") {
         varName = expr.target.hasDollarPrefix
@@ -1246,11 +1392,19 @@ export async function evaluateArithmetic(
       // Build the env key - include subscript for array assignment
       let envKey = varName;
       if (expr.subscript) {
-        const index = await evaluateArithmetic(ctx, expr.subscript);
+        const index = await evaluateArithmetic(
+          ctx,
+          expr.subscript,
+          isExpansionContext,
+        );
         envKey = `${varName}_${index}`;
       }
       const current = Number.parseInt(ctx.state.env[envKey] || "0", 10) || 0;
-      const value = await evaluateArithmetic(ctx, expr.value);
+      const value = await evaluateArithmetic(
+        ctx,
+        expr.value,
+        isExpansionContext,
+      );
       const newValue = applyAssignmentOp(current, value, expr.operator);
       ctx.state.env[envKey] = String(newValue);
       return newValue;
@@ -1261,7 +1415,11 @@ export async function evaluateArithmetic(
       let varName = "";
       if (expr.nameExpr.type === "ArithConcat") {
         for (const part of expr.nameExpr.parts) {
-          varName += await evalConcatPartToStringAsync(ctx, part);
+          varName += await evalConcatPartToStringAsync(
+            ctx,
+            part,
+            isExpansionContext,
+          );
         }
       } else if (expr.nameExpr.type === "ArithVariable") {
         varName = expr.nameExpr.hasDollarPrefix
@@ -1271,7 +1429,11 @@ export async function evaluateArithmetic(
       if (!varName || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
         return 0; // Invalid variable name
       }
-      const index = await evaluateArithmetic(ctx, expr.subscript);
+      const index = await evaluateArithmetic(
+        ctx,
+        expr.subscript,
+        isExpansionContext,
+      );
       const envKey = `${varName}_${index}`;
       const value = ctx.state.env[envKey];
       if (value !== undefined) {
@@ -1293,10 +1455,15 @@ export async function evaluateArithmetic(
 async function evalConcatPartToStringAsync(
   ctx: InterpreterContext,
   expr: ArithExpr,
+  isExpansionContext = false,
 ): Promise<string> {
   switch (expr.type) {
     case "ArithNumber":
       return String(expr.value);
+    case "ArithSingleQuote":
+      // For single quotes in concatenation context, evaluate through main evaluator
+      // which will handle the expansion vs command context distinction
+      return String(await evaluateArithmetic(ctx, expr, isExpansionContext));
     case "ArithVariable":
       // If no $ prefix, use the literal name for building dynamic var names
       // If has $ prefix, expand to the variable's value
@@ -1318,11 +1485,15 @@ async function evalConcatPartToStringAsync(
     case "ArithConcat": {
       let result = "";
       for (const part of expr.parts) {
-        result += await evalConcatPartToStringAsync(ctx, part);
+        result += await evalConcatPartToStringAsync(
+          ctx,
+          part,
+          isExpansionContext,
+        );
       }
       return result;
     }
     default:
-      return String(await evaluateArithmetic(ctx, expr));
+      return String(await evaluateArithmetic(ctx, expr, isExpansionContext));
   }
 }

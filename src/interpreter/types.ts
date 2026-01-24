@@ -137,6 +137,12 @@ export interface InterpreterState {
    * a regular variable, returning its raw value.
    */
   boundNamerefs?: Set<string>;
+  /**
+   * Set of nameref variable names that were created with an invalid target.
+   * Invalid namerefs always read/write their value directly, never resolving.
+   * For example, after `ref=1; typeset -n ref`, ref has an invalid target "1".
+   */
+  invalidNamerefs?: Set<string>;
   /** Set of variable names that have integer attribute (declare -i) */
   integerVars?: Set<string>;
   /** Set of variable names that have lowercase attribute (declare -l) */
@@ -179,6 +185,12 @@ export interface InterpreterState {
    * remove the variable.
    */
   tempEnvBindings?: Map<string, string | undefined>[];
+  /**
+   * Suppress verbose mode output (set -v) when inside command substitutions.
+   * bash only prints verbose output for the main script, not for commands
+   * inside $(...) or backticks.
+   */
+  suppressVerbose?: boolean;
 }
 
 export interface InterpreterContext {

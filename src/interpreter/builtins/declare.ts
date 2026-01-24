@@ -27,6 +27,7 @@ import {
   isNameref,
   markNameref,
   markNamerefBound,
+  markNamerefInvalid,
   resolveNameref,
   targetExists,
   unmarkNameref,
@@ -1138,6 +1139,19 @@ export function handleDeclare(
       // For declare -n without a value, just mark as nameref
       if (declareNameref) {
         markNameref(ctx, name);
+        // If the existing value is not a valid variable name, mark as invalid nameref.
+        // Invalid namerefs act as regular variables (no resolution).
+        const existingValue = ctx.state.env[name];
+        if (
+          existingValue !== undefined &&
+          existingValue !== "" &&
+          !/^[a-zA-Z_][a-zA-Z0-9_]*(\[.+\])?$/.test(existingValue)
+        ) {
+          markNamerefInvalid(ctx, name);
+        } else if (existingValue && targetExists(ctx, existingValue)) {
+          // If target exists at creation time, mark as bound
+          markNamerefBound(ctx, name);
+        }
         markAsLocalIfNeeded(name);
         if (declareReadonly) {
           markReadonly(ctx, name);

@@ -448,6 +448,9 @@ export class Parser {
       return null;
     }
 
+    // Record the start position for verbose mode source text
+    const startOffset = this.current().start;
+
     const pipelines: PipelineNode[] = [];
     const operators: ("&&" | "||" | ";")[] = [];
     let background = false;
@@ -471,7 +474,19 @@ export class Parser {
       background = true;
     }
 
-    return AST.statement(pipelines, operators, background);
+    // Extract source text for verbose mode (set -v)
+    // Get the end position from the last consumed token
+    const endOffset =
+      this.pos > 0 ? this.tokens[this.pos - 1].end : startOffset;
+    const sourceText = this._input.slice(startOffset, endOffset);
+
+    return AST.statement(
+      pipelines,
+      operators,
+      background,
+      undefined,
+      sourceText,
+    );
   }
 
   // ===========================================================================

@@ -256,7 +256,6 @@ ref=1
 ## N-I bash/mksh stdout-json: ""
 
 #### name ref on Undef cell
-## SKIP: Empty nameref with nounset requires special handling
 typeset  -n ref
 
 # This is technically incorrect: an undefined name shouldn't evaluate to empty
@@ -274,7 +273,6 @@ nounset
 ## OK mksh stdout-json: ""
 
 #### assign to empty nameref and invalid nameref
-## SKIP: Empty nameref assignment edge case not implemented
 typeset -n ref
 echo ref=$ref
 
@@ -592,7 +590,6 @@ xx Y Z
 ## END
 
 #### bad mutation through nameref: ref[0]= where ref is array[0]
-## SKIP: Subscript on nameref pointing to array element not implemented
 array=(X Y Z)
 typeset -n ref='array[0]'
 ref[0]=foo  # error in bash: 'array[0]': not a valid identifier

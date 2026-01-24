@@ -203,7 +203,11 @@ import {
   wordToLiteralString,
 } from "./helpers/array.js";
 import { getErrorMessage } from "./helpers/errors.js";
-import { isNameref, resolveNameref } from "./helpers/nameref.js";
+import {
+  isNameref,
+  resolveNameref,
+  resolveNamerefForAssignment,
+} from "./helpers/nameref.js";
 import { checkReadonlyError, isReadonly } from "./helpers/readonly.js";
 import {
   failure,
@@ -359,14 +363,16 @@ export class Interpreter {
           this.ctx.state.env["?"] = String(exitCode);
           return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
         }
-        // ArithmeticError in expansion (e.g., echo $((42x))) should terminate the script
+        // ArithmeticError in expansion (e.g., echo $((42x))) - the command fails
+        // but the script continues execution. This matches bash behavior.
         if (error instanceof ArithmeticError) {
           stdout += error.stdout;
           stderr += error.stderr;
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env["?"] = String(exitCode);
-          return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
+          // Continue to next statement instead of terminating script
+          continue;
         }
         // Handle break/continue errors
         if (error instanceof BreakError || error instanceof ContinueError) {
@@ -420,6 +426,16 @@ export class Interpreter {
 
     let stdout = "";
     let stderr = "";
+
+    // verbose mode (set -v): print unevaluated source before execution
+    // Don't print verbose output inside command substitutions (suppressVerbose flag)
+    if (
+      this.ctx.state.options.verbose &&
+      !this.ctx.state.suppressVerbose &&
+      node.sourceText
+    ) {
+      stderr += `${node.sourceText}\n`;
+    }
     let exitCode = 0;
     let lastExecutedIndex = -1;
     let lastPipelineNegated = false;
@@ -1010,6 +1026,15 @@ export class Interpreter {
         if (isNameref(this.ctx, arrayName)) {
           const resolved = resolveNameref(this.ctx, arrayName);
           if (resolved && resolved !== arrayName) {
+            // If the nameref points to an array element (e.g., array[0]), subscript access is invalid
+            // because array[0] is not a valid identifier for further subscripting
+            if (resolved.includes("[")) {
+              return result(
+                "",
+                `bash: \`${resolved}': not a valid identifier\n`,
+                1,
+              );
+            }
             arrayName = resolved;
           }
         }
@@ -1140,14 +1165,16 @@ export class Interpreter {
       // Resolve nameref: if name is a nameref, write to the target variable
       let targetName = name;
       if (isNameref(this.ctx, name)) {
-        const resolved = resolveNameref(this.ctx, name);
+        const resolved = resolveNamerefForAssignment(this.ctx, name, value);
         if (resolved === undefined) {
           // Circular nameref detected
           return result("", `bash: ${name}: circular name reference\n`, 1);
         }
-        if (resolved !== name) {
-          targetName = resolved;
+        if (resolved === null) {
+          // Empty nameref and value is not an existing variable - skip assignment
+          continue;
         }
+        targetName = resolved;
       }
 
       // Check if variable is readonly (for scalar assignment)
