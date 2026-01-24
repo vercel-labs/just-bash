@@ -33,14 +33,25 @@ class JqError extends Error {
 }
 
 const DEFAULT_MAX_JQ_ITERATIONS = 10000;
+const DEFAULT_MAX_JQ_DEPTH = 10000;
 
 export interface QueryExecutionLimits {
   maxIterations?: number;
+  maxDepth?: number;
+}
+
+/** Calculate the nesting depth of an array */
+function getArrayDepth(value: QueryValue): number {
+  if (!Array.isArray(value)) return 0;
+  if (value.length === 0) return 1;
+  // Only check first element for performance (this catches [.] pattern)
+  return 1 + getArrayDepth(value[0]);
 }
 
 export interface EvalContext {
   vars: Map<string, QueryValue>;
-  limits: Required<QueryExecutionLimits>;
+  limits: Required<Pick<QueryExecutionLimits, "maxIterations">> &
+    QueryExecutionLimits;
   env?: Record<string, string | undefined>;
   /** Original document root for parent/root navigation */
   root?: QueryValue;
@@ -59,6 +70,7 @@ function createContext(options?: EvaluateOptions): EvalContext {
     limits: {
       maxIterations:
         options?.limits?.maxIterations ?? DEFAULT_MAX_JQ_ITERATIONS,
+      maxDepth: options?.limits?.maxDepth ?? DEFAULT_MAX_JQ_DEPTH,
     },
     env: options?.env,
   };
@@ -636,6 +648,7 @@ export function evaluate(
     case "Reduce": {
       const items = evaluate(value, ast.expr, ctx);
       let accumulator = evaluate(value, ast.init, ctx)[0];
+      const maxDepth = ctx.limits.maxDepth ?? DEFAULT_MAX_JQ_DEPTH;
       for (const item of items) {
         let newCtx: EvalContext | null;
         if (ast.pattern) {
@@ -645,6 +658,10 @@ export function evaluate(
           newCtx = withVar(ctx, ast.varName, item);
         }
         accumulator = evaluate(accumulator, ast.update, newCtx)[0];
+        // Check depth limit to prevent stack overflow with deeply nested structures
+        if (getArrayDepth(accumulator) > maxDepth) {
+          return [null];
+        }
       }
       return [accumulator];
     }

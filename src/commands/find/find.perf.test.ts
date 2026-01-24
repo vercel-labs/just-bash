@@ -1353,26 +1353,28 @@ describe("find common patterns", () => {
     });
 
     it("should find files newer than reference using -newer", async () => {
-      const files: Record<string, string> = {};
-      files["/data/reference.txt"] = "ref";
-      files["/data/file1.txt"] = "1";
-      files["/data/file2.txt"] = "2";
+      const now = new Date();
+      const earlier = new Date(now.getTime() - 60 * 1000);
 
       const events: TraceEvent[] = [];
       const env = new Bash({
-        files,
+        files: {
+          "/data/reference.txt": { content: "ref", mtime: earlier },
+          "/data/file1.txt": { content: "1", mtime: now },
+          "/data/file2.txt": { content: "2", mtime: now },
+        },
         trace: (event) => events.push(event),
       });
 
-      // In in-memory fs, all files have same mtime, so -newer finds none
+      // file1.txt and file2.txt are newer than reference.txt
       const result = await env.exec(
         "find /data -newer /data/reference.txt -type f",
       );
       expect(result.exitCode).toBe(0);
 
       const lines = result.stdout.trim().split("\n").filter(Boolean);
-      // All created at same time, so none are newer
-      expect(lines).toHaveLength(0);
+      expect(lines).toHaveLength(2);
+      expect(lines.sort()).toEqual(["/data/file1.txt", "/data/file2.txt"]);
 
       console.log(`\n-newer: ${lines.length} files newer than reference`);
     });
