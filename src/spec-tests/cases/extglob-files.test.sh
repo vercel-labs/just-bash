@@ -315,7 +315,7 @@ echo @(__nope__*|__nope__?|'*'|'?'|'[:alpha:]'|'|')
 ## END
 
 #### no_dash_glob
-## SKIP: no_dash_glob shopt option not implemented
+## SKIP (unimplementable): no_dash_glob is a YSH-specific shopt option
 shopt -s extglob
 mkdir -p opts
 cd opts

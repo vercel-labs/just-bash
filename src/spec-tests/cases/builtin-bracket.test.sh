@@ -405,7 +405,7 @@ status=1
 
 
 #### test -p named pipe
-## SKIP: Named pipes not implemented
+## SKIP (unimplementable): Named pipes (mkfifo) not implemented - virtual filesystem limitation
 mkfifo $TMP/fifo
 test -p $TMP/fifo
 echo status=$?
@@ -532,7 +532,7 @@ status=2
 ## status: 1
 
 #### -ef
-## SKIP: -ef with hardlinks requires inode tracking in virtual filesystem
+## SKIP (unimplementable): -ef with hardlinks requires inode tracking - virtual filesystem limitation
 left=$TMP/left
 right=$TMP/right
 touch $left $right

@@ -4,7 +4,7 @@
 # Features that bash 5.3 may implement
 
 #### ${ echo hi;}
-## SKIP: KSH-style command substitution ${ } not implemented
+## SKIP (unimplementable): KSH-style ${ cmd } not implemented, AND test includes syntax error ${myfunc;} that mksh handles line-by-line (requires line-by-line parser)
 
 x=${ echo hi;}
 echo "[$x]"
@@ -41,7 +41,7 @@ two]
 ## END
 
 #### ${ echo hi }  without semi-colon
-## SKIP: ksh-style ${ cmd } command substitution not implemented
+## SKIP (unimplementable): KSH-style ${ cmd } command substitution is mksh-specific (not bash)
 
 x=${ echo no-semi }
 echo "[$x]"
@@ -61,7 +61,7 @@ x=${ ~/ysh-tilde-sub }
 ## END
 
 #### ${|REPLY=hi}
-## SKIP: ksh-style ${|cmd} command substitution not implemented
+## SKIP (unimplementable): KSH valsub ${|...} is mksh-specific (not bash), AND test includes syntax error ${ |REPLY=zz} requiring line-by-line parser
 
 x=${|y=" reply var "; REPLY=$y}
 echo "[$x]"
@@ -87,7 +87,7 @@ echo "[$x]"
 
 
 #### for loop / case
-## SKIP: ksh-style ${ cmd } command substitution not implemented
+## SKIP (unimplementable): KSH-style ${ cmd } and valsub ${|...} are mksh-specific (not bash)
 
 x=${ for i in a b; do echo -$i-; done; }
 echo "$x"

@@ -22,7 +22,7 @@
  *   compgen -o option             - Completion option (plusdirs, dirnames, default, etc.)
  */
 
-import { Parser } from "../../parser/parser.js";
+import { type ParseException, Parser, parse } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { matchPattern } from "../conditionals.js";
 import { expandWord, getArrayElements } from "../expansion.js";
@@ -194,6 +194,7 @@ export async function handleCompgen(
   let defaultOption = false;
   let excludePattern: string | null = null;
   let functionName: string | null = null;
+  let commandString: string | null = null;
   const processedArgs: string[] = [];
 
   const validActions = [
@@ -300,12 +301,12 @@ export async function handleCompgen(
       }
       functionName = args[i];
     } else if (arg === "-C") {
-      // Command to run
+      // Command to run for completion
       i++;
       if (i >= args.length) {
         return failure("compgen: -C: option requires an argument\n", 2);
       }
-      // Skip command for now - -C is not implemented
+      commandString = args[i];
     } else if (arg === "-X") {
       // Pattern to exclude
       i++;
@@ -494,6 +495,40 @@ export async function handleCompgen(
       // Restore saved environment
       restoreEnv(ctx, savedEnv);
       restoreEnv(ctx, savedCompreply);
+    }
+  }
+
+  // Handle -C command: execute command and use output lines as completions
+  // Note: Unlike -W and -A, -C does not filter by searchPrefix.
+  // The command is responsible for generating appropriate completions.
+  if (commandString !== null) {
+    try {
+      // Parse and execute the command
+      const ast = parse(commandString);
+      const cmdResult = await ctx.executeScript(ast);
+
+      // Check for errors
+      if (cmdResult.exitCode !== 0) {
+        return result("", cmdResult.stderr, cmdResult.exitCode);
+      }
+
+      // Split stdout into lines and add as completions
+      // All non-empty lines are used as completions (no prefix filtering)
+      if (cmdResult.stdout) {
+        const lines = cmdResult.stdout.split("\n");
+        for (const line of lines) {
+          // Skip empty lines
+          if (line.length > 0) {
+            completions.push(line);
+          }
+        }
+      }
+    } catch (error) {
+      // Handle parse errors
+      if ((error as ParseException).name === "ParseException") {
+        return failure(`compgen: -C: ${(error as Error).message}\n`, 2);
+      }
+      throw error;
     }
   }
 

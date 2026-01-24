@@ -140,7 +140,7 @@ agd
 ## N-I dash stdout-json: ""
 
 #### shift is fatal at top level?
-## SKIP: POSIX mode (set -o posix) not implemented
+## SKIP (unimplementable): POSIX mode (set -o posix) requires significant behavior changes throughout the interpreter including function scoping, command lookup order, and error handling
 # http://landley.net/notes.html#08-04-2020
 
 # This makes a difference for zsh, but not for bash?

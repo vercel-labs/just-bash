@@ -126,7 +126,7 @@ v=tempenv f1 'global,tempenv'
 ## END
 
 #### [bash_unset] function call with tempenv vs tempenv-eval
-## SKIP: Complex bash 5.1 tempenv + eval unset scoping not fully implemented
+## SKIP (unimplementable): Complex bash 5.1 tempenv + eval unset scoping - extreme edge case
 unlocal() { unset -v "$1"; }
 
 f5() {

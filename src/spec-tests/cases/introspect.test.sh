@@ -42,7 +42,7 @@ f
 ## END
 
 #### FUNCNAME with source (scalar or array)
-## SKIP: Requires external test data files
+## SKIP (unimplementable): Requires external test data files from Oils project
 cd $REPO_ROOT
 
 # Comments on bash quirk:
@@ -155,7 +155,7 @@ check
 ## stdout: 4
 
 #### ${BASH_SOURCE[@]} with source and function name
-## SKIP: Requires external test data files
+## SKIP (unimplementable): Requires external test data files from Oils project
 cd $REPO_ROOT
 
 argv.py "${BASH_SOURCE[@]}"
@@ -189,7 +189,7 @@ f  # line 11
 ## END
 
 #### Locations with temp frame
-## SKIP: Requires external test data files
+## SKIP (unimplementable): Requires external test data files from Oils project
 
 cd $REPO_ROOT
 

@@ -32,7 +32,6 @@ import {
   ExecutionLimitError,
   ExitError,
   GlobError,
-  NounsetError,
 } from "./errors.js";
 import {
   analyzeWordParts,
@@ -6649,21 +6648,38 @@ function expandParameter(
         return getNamerefTarget(ctx, parameter) || "";
       }
 
+      // Check if parameter is an array expansion pattern like a[@] or a[*]
+      const isArrayExpansionPattern = /^[a-zA-Z_][a-zA-Z0-9_]*\[([@*])\]$/.test(
+        parameter,
+      );
+
       // Bash 5.0+ behavior: If the reference variable itself is unset,
-      // the indirection should error with set -u, or return empty string without it.
-      // The default value in ${!ref-default} applies to the TARGET, not the reference.
-      // If the reference is unset, there's no target to apply the default to.
+      // handle based on whether there's an innerOp that deals with unset vars.
       if (isUnset) {
-        // With set -u, accessing an unset reference variable is an error
-        if (ctx.state.options.nounset) {
-          throw new NounsetError(parameter);
+        // For ${!var+word} (UseAlternative): when var is unset, return empty
+        // because there's no target to check, and the alternative only applies
+        // when the TARGET is set.
+        if (operation.innerOp?.type === "UseAlternative") {
+          return "";
         }
-        // Without set -u, return empty string (don't apply inner operation's default)
-        return "";
+        // For other cases (plain ${!var}, ${!var-...}, ${!var:=...} etc.), error
+        throw new BadSubstitutionError(`\${!${parameter}}`);
       }
 
       // value contains the name of the parameter, get the target variable name
       const targetName = value;
+
+      // Bash 5.0+ behavior: For array expansion patterns (a[@] or a[*]),
+      // if the target name is empty or contains spaces (multiple array values joined),
+      // it's not a valid variable name, so error.
+      // For simple variable indirection (${!ref} where ref='bad name'), bash
+      // returns empty string without error for compatibility.
+      if (
+        isArrayExpansionPattern &&
+        (targetName === "" || targetName.includes(" "))
+      ) {
+        throw new BadSubstitutionError(`\${!${parameter}}`);
+      }
 
       // Bash 5.0+ disallows tilde expansion in array subscripts via indirection
       // e.g., ref='a[~+]'; ${!ref} is an error

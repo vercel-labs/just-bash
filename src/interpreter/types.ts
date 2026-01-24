@@ -21,6 +21,8 @@ export interface CompletionSpec {
   wordlist?: string;
   /** Function name for -F option */
   function?: string;
+  /** Command to run for -C option */
+  command?: string;
   /** Completion options (nospace, filenames, etc.) */
   options?: string[];
   /** Actions to perform (from -A option) */

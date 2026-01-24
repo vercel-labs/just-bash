@@ -191,7 +191,7 @@ test "$old" = "$new" && echo "not changed"
 ## stdout: not changed
 
 #### can't export array (strict_array)
-## SKIP: shopt strict_array not implemented (Oil shell option, not standard bash)
+## SKIP (unimplementable): shopt strict_array not implemented (OSH-specific, not standard bash)
 shopt -s strict_array
 
 typeset -a a
@@ -211,7 +211,7 @@ None
 ## OK osh stdout-json: ""
 
 #### can't export associative array (strict_array)
-## SKIP: shopt strict_array not implemented (Oil shell option, not standard bash)
+## SKIP (unimplementable): shopt strict_array not implemented (OSH-specific, not standard bash)
 shopt -s strict_array
 
 typeset -A a

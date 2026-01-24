@@ -106,7 +106,7 @@ sh -c 'echo 2'
 ## END
 
 #### OSH calling bash with SHELLOPTS does not change braceexpand
-## SKIP: bash invocation not implemented
+## SKIP (unimplementable): bash invocation not implemented - requires real process spawning
 
 #echo outside=$SHELLOPTS
 

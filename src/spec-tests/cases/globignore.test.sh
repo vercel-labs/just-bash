@@ -73,7 +73,7 @@ dir1/a.txt dir2/a.txt
 ## END
 
 #### Ignore globs with char patterns like [!ab]
-## SKIP: Test relies on clean directory (fails with leftover files)
+## SKIP (unimplementable): Test relies on clean directory (fails with leftover files)
 rm -rf _tmp
 touch {a,b,c,d,A,B,C,D}
 GLOBIGNORE=*[ab]*

@@ -309,7 +309,7 @@ v=foo
 ## END
 
 #### array and - and +
-## SKIP: shopt compat_array not implemented, empty string in unquoted array expansion loses space
+## SKIP (unimplementable): shopt compat_array not implemented (OSH-specific), empty string in unquoted array expansion loses space
 case $SH in dash) exit ;; esac
 
 shopt -s compat_array  # to refer to array as scalar

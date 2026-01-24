@@ -55,7 +55,6 @@ chmod +x test-no-shebang/script
 ## status: 0
 
 #### $PATH lookup
-## SKIP: External command $PATH execution not supported
 cd $TMP
 mkdir -p one two
 echo 'echo one' > one/mycmd
@@ -69,7 +68,6 @@ one
 ## END
 
 #### filling $PATH cache, then insert the same command earlier in cache
-## SKIP: External command $PATH execution not supported
 cd $TMP
 PATH="one:two:$PATH"
 mkdir -p one two
@@ -101,7 +99,7 @@ one
 ## END
 
 #### filling $PATH cache, then deleting command
-## SKIP: External command $PATH execution not supported
+## SKIP (unimplementable): We follow zsh/mksh behavior (re-search PATH) not bash behavior (fail on deleted cached command)
 cd $TMP
 PATH="one:two:$PATH"
 mkdir -p one two
@@ -134,7 +132,6 @@ status=0
 ## END
 
 #### Non-executable on $PATH
-## SKIP: External command $PATH execution not supported
 # shells differ in whether they actually execve('one/cmd') and get EPERM
 
 mkdir -p one two
@@ -198,7 +195,7 @@ echo status=$?
 ## OK osh stdout: status=2
 ## BUG dash/bash stdout: status=0
 
-## SKIP: External command $PATH execution not supported
+#### PATH resolution skips directories and non-executables
 # Make the following directory structure. File type and permission bits are
 # given on the left.
 # [drwxr-xr-x]  _tmp

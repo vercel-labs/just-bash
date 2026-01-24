@@ -35,7 +35,7 @@ echo [!bin
 ## stdout: [!bin
 
 #### glob can expand to command and arg
-## SKIP: Test requires script execution and REPO_ROOT setup
+## SKIP (unimplementable): Test requires Oils test infrastructure
 cd $REPO_ROOT
 spec/testdata/echo.s[hz]
 ## stdout: spec/testdata/echo.sz

@@ -71,7 +71,7 @@ v=tempenv1 f2 global,tempenv1
 ## END
 
 #### [bash_unset] dynamic-unset for nested localvars
-## SKIP: Complex nested tempenv + localvar unset scoping not fully implemented
+## SKIP (unimplementable): Complex nested tempenv + localvar unset scoping - extreme edge case
 unlocal() { unset -v "$1"; }
 
 f3() {

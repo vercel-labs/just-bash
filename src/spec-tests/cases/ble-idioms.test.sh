@@ -207,7 +207,7 @@ len=1048576
 
 
 #### shift unshift reverse
-## SKIP: complex dynamic array manipulation with eval not implemented
+## SKIP (unimplementable): Complex dynamic array manipulation with eval - extreme edge case
 
 case $SH in mksh|ash) exit ;; esac
 

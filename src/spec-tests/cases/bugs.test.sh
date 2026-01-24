@@ -103,7 +103,7 @@ foo $x() {
 
 
 #### file with NUL byte
-## SKIP: NUL byte handling in scripts not implemented
+## SKIP (unimplementable): NUL byte handling in scripts not implemented
 echo -e 'echo one \0 echo two' > tmp.sh
 $SH tmp.sh
 ## STDOUT:
@@ -275,7 +275,7 @@ echo $as_val
 ## END
 
 #### command execution $(echo 42 | tee PWNED) not allowed
-## SKIP: Security restriction for command substitution in arithmetic not implemented
+## SKIP (unimplementable): Security restriction for command substitution in arithmetic not implemented
 
 rm -f PWNED
 
@@ -322,7 +322,7 @@ NOPE
 
 
 #### unset doesn't allow command execution
-## SKIP: Security restriction for command substitution in unset not implemented
+## SKIP (unimplementable): Security restriction for command substitution in unset not implemented
 
 typeset -a a  # for mksh
 a=(42)

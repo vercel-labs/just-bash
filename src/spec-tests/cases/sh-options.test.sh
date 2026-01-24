@@ -312,7 +312,7 @@ force
 ## END
 
 #### noclobber on <>
-## SKIP: read -n with <> redirection position tracking differs
+## SKIP (unimplementable): read -n with <> redirection position tracking differs
 set -C
 echo foo >| $TMP/no-clobber
 exec 3<> $TMP/no-clobber

@@ -420,7 +420,7 @@ echo "should not get here: x=${x:-<unset>}"
 ## BUG dash/mksh/zsh status: 0
 
 #### 64-bit integer doesn't overflow
-## SKIP: JavaScript uses 32-bit signed integers for bitwise operations
+## SKIP (unimplementable): JavaScript uses 32-bit signed integers for bitwise operations
 
 a=$(( 1 << 31 ))
 echo $a
@@ -886,7 +886,7 @@ echo $((-10 % -3))
 ## END
 
 #### Negative numbers with bit shift
-## SKIP: JavaScript uses 32-bit signed integers for bitwise operations
+## SKIP (unimplementable): JavaScript uses 32-bit signed integers for bitwise operations
 
 echo $(( 5 << 1 ))
 echo $(( 5 << 0 ))

@@ -214,7 +214,7 @@ echo i=$i
 
 
 #### SIGPIPE causes pipeline to die (regression for issue #295)
-## SKIP: PIPESTATUS and SIGPIPE handling not implemented
+## SKIP (unimplementable): PIPESTATUS and SIGPIPE handling not implemented - requires signal handling
 cat /dev/urandom | sleep 0.1
 echo ${PIPESTATUS[@]}
 

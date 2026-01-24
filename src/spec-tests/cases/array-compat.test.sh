@@ -82,7 +82,7 @@ EQUAL
 ## END
 
 #### ++ on a whole array increments the first element (disallowed with strict_array)
-## SKIP: strict_array shopt not implemented
+## SKIP (unimplementable): strict_array is an OSH-specific shopt option (not standard bash)
 shopt -s strict_array
 
 a=(1 10)

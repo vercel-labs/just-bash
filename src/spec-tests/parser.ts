@@ -190,7 +190,9 @@ export function parseSpecFile(
 
       // Check for SKIP directive
       // Supports both "## SKIP: reason" and "## SKIP (unimplementable): reason" formats
-      const skipMatch = assertionLine.match(/^SKIP(?:\s*\([^)]+\))?(?::\s*(.*))?$/i);
+      const skipMatch = assertionLine.match(
+        /^SKIP(?:\s*\([^)]+\))?(?::\s*(.*))?$/i,
+      );
       if (skipMatch) {
         currentTest.skip = skipMatch[1] || "skipped";
         continue;

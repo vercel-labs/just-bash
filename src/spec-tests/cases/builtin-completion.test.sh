@@ -205,7 +205,7 @@ PA_FILE
 ## END
 
 #### compgen with actions: alias, setopt
-## SKIP: setopt action not supported
+## SKIP (unimplementable): setopt action not supported (zsh-specific)
 alias v_alias='ls'
 alias v_alias2='ls'
 alias a1='ls'
@@ -574,7 +574,6 @@ getopts
 ## END
 
 #### complete -C vs. compgen -C
-## SKIP: compgen -C and complete builtin not implemented
 f() { echo foo; echo bar; }
 
 # Bash prints warnings: -C option may not work as you expect

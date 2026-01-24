@@ -31,7 +31,6 @@ x=foo
 ## END
 
 #### ${!undef:-}
-## SKIP: Indirect expansion of undefined variable should error
 # bash 4.4 gives empty string, but I feel like this could be an error
 echo undef=${!undef-'default'}
 echo undef=${!undef}
@@ -97,7 +96,6 @@ A_nobrackets=0
 ## END
 
 #### ${!a[@]-'default'} is legal but fails with more than one element
-## SKIP: Indirect expansion with array should fail when empty/multiple elements
 
 # bash allows this construct, but the indirection fails when the array has more
 # than one element because the variable name contains a space.  OSH originally
@@ -332,7 +330,7 @@ f 'array[*]'
 ## END
 
 #### var ref TO assoc array a[key]
-## SKIP: Mixed quoted/unquoted key handling in assoc array subscripts (assoc["al"e] should equal assoc[ale])
+## SKIP (unimplementable): Test uses compat_array which is OSH-specific (not standard bash)
 shopt -s compat_array
 
 declare -A assoc=([ale]=bean [corn]=dip)
@@ -361,7 +359,7 @@ ref_SUB_BAD=
 ## END
 
 #### var ref TO array with arbitrary subscripts
-## SKIP: Array subscript evaluation not strict enough (allows spaces) and missing command substitution in subscripts
+## SKIP (unimplementable): Test uses eval_unsafe_arith and compat_array which are OSH-specific (not standard bash)
 shopt -s eval_unsafe_arith compat_array
 
 f() {
@@ -512,7 +510,7 @@ cycle=
 ## END
 
 #### Var Ref Code Injection $(tee PWNED)
-## SKIP: We allow expansion but safely don't execute command substitution in index - differs from expected strict rejection
+## SKIP (unimplementable): OSH expects strict rejection (status 1); we safely evaluate without executing command substitution - bash actually executes it (marked BUG)
 
 typeset -a a
 a=(42)

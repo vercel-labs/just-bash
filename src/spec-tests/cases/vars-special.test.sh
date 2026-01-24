@@ -110,7 +110,7 @@ histfile=yes
 ## END
 
 #### Some vars are set, even without startup file, or env: PATH, PWD
-## SKIP: bash --noprofile --norc flags not implemented
+## SKIP (unimplementable): bash --noprofile --norc flags require shell invocation
 
 flags=''
 case $SH in

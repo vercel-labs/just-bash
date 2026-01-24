@@ -78,7 +78,7 @@ echo ${#x-default}
 ## END
 
 #### ${#s} respects LC_ALL - length in bytes or code points
-## SKIP: Locale settings not supported
+## SKIP (unimplementable): Locale settings not supported - JS strings are UTF-16 based
 case $SH in dash) exit ;; esac
 
 # This test case is sorta "infected" because spec-common.sh sets LC_ALL=C.UTF-8

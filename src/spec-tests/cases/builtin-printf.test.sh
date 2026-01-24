@@ -1057,7 +1057,7 @@ xz
 ## END
 
 #### bash truncates long strftime string at 128
-## SKIP: Bash-specific 128-byte strftime buffer truncation not implemented
+## SKIP (unimplementable): Bash-specific 128-byte strftime buffer truncation - implementation detail
 
 case $SH in ash|dash|mksh|zsh) exit ;; esac
 

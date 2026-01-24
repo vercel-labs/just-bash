@@ -117,7 +117,7 @@ echo $'\0' | show_hex
 
 
 #### NUL bytes and IFS splitting
-## SKIP: NUL bytes are preserved instead of being stripped from strings
+## SKIP (unimplementable): NUL bytes are preserved instead of being stripped from strings
 case $SH in dash) exit ;; esac
 
 argv.py $(echo -e '\0')
@@ -172,7 +172,7 @@ status=0
 
 
 #### NUL bytes with test -f
-## SKIP: NUL byte handling in filenames differs from bash
+## SKIP (unimplementable): NUL byte handling in filenames differs from bash
 
 case $SH in dash) exit ;; esac
 
@@ -235,7 +235,7 @@ nul=1
 ## END
 
 #### Compare \x00 byte versus \x01 byte - command sub
-## SKIP: NUL byte handling in command substitution differs from bash (we preserve NUL bytes)
+## SKIP (unimplementable): NUL byte handling in command substitution differs from bash (we preserve NUL bytes)
 
 # https://stackoverflow.com/questions/32722007/is-skipping-ignoring-nul-bytes-on-process-substitution-standardized
 # bash contains a warning!
@@ -274,7 +274,7 @@ len=1
 ## END
 
 #### Compare \x00 byte versus \x01 byte - read builtin
-## SKIP: NUL byte handling in command substitution differs from bash (we preserve NUL bytes)
+## SKIP (unimplementable): NUL byte handling in command substitution differs from bash (we preserve NUL bytes)
 
 # Hm same odd behavior
 
@@ -308,7 +308,7 @@ len=1
 ## END
 
 #### Compare \x00 byte versus \x01 byte - read -n
-## SKIP: read -n NUL byte handling differs from bash
+## SKIP (unimplementable): read -n NUL byte handling differs from bash
 case $SH in dash) exit ;; esac
 
 show_string() {
@@ -379,7 +379,7 @@ len=2
 ## END
 
 #### Strip ops # ## % %% with NUL bytes
-## SKIP: NUL byte handling in command substitution differs from bash (we preserve NUL bytes)
+## SKIP (unimplementable): NUL byte handling in command substitution differs from bash (we preserve NUL bytes)
 
 show_bytes() {
   echo -n "$1" | od -A n -t x1
@@ -432,7 +432,7 @@ len=2
 ## END
 
 #### Issue 2269 Reduction
-## SKIP: NUL byte handling in command substitution differs from bash (we preserve NUL bytes)
+## SKIP (unimplementable): NUL byte handling in command substitution differs from bash (we preserve NUL bytes)
 
 show_bytes() {
   echo -n "$1" | od -A n -t x1
@@ -482,7 +482,7 @@ len=1
 ## END
 
 #### Issue 2269 - Do NUL bytes match ? in ${a#?}
-## SKIP: NUL byte handling in parameter expansion differs from bash
+## SKIP (unimplementable): NUL byte handling in parameter expansion differs from bash
 
 # https://github.com/oils-for-unix/oils/issues/2269
 

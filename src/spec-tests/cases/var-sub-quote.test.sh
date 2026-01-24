@@ -105,7 +105,7 @@ argv.py "${Unset:-"a b" c}"
 ## stdout: ['a b c']
 
 #### part_value tree with multiple words
-## SKIP: Nested expansion with quotes doesn't produce separate words
+## SKIP (unimplementable): Nested expansion with quotes requires major parser changes to track quote context through multiple expansion levels for proper word splitting
 argv.py ${a:-${a:-"1 2" "3 4"}5 "6 7"}
 ## stdout: ['1 2', '3 45', '6 7']
 

@@ -111,7 +111,7 @@ None
 ## END
 
 #### Escaped = in command name
-## SKIP: Weird filename test
+## SKIP (unimplementable): Requires external file from Oils project
 # foo=bar is in the 'spec/bin' dir.
 foo\=bar
 ## stdout: HI

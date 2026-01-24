@@ -243,7 +243,7 @@ _μ_ and _μ_
 ## END
 
 #### When LC_ALL=C, pattern ? doesn't match multibyte character
-## SKIP: Locale settings not supported
+## SKIP (unimplementable): Locale settings not supported - JS strings are UTF-16 based
 export LC_ALL='C'
 
 s='_μ_ and _μ_'

@@ -2708,6 +2708,13 @@ export class Interpreter {
     }
     // Handle user scripts (executable files without registered command handlers)
     if ("script" in resolved) {
+      // Add to hash table for PATH caching (only for non-path commands)
+      if (!commandName.includes("/")) {
+        if (!this.ctx.state.hashTable) {
+          this.ctx.state.hashTable = new Map();
+        }
+        this.ctx.state.hashTable.set(commandName, resolved.path);
+      }
       return await this.executeUserScript(resolved.path, args, stdin);
     }
     const { cmd, path: cmdPath } = resolved;
@@ -3084,6 +3091,15 @@ export class Interpreter {
           if (cmd) {
             return { cmd, path: cachedPath };
           }
+          // Also check if it's an executable script (not just registered commands)
+          try {
+            const stat = await this.ctx.fs.stat(cachedPath);
+            if (!stat.isDirectory && (stat.mode & 0o111) !== 0) {
+              return { script: true, path: cachedPath };
+            }
+          } catch {
+            // If stat fails, fall through to PATH search
+          }
         } else {
           // Remove stale entry from hash table
           this.ctx.state.hashTable.delete(commandName);
@@ -3097,7 +3113,11 @@ export class Interpreter {
 
     for (const dir of pathDirs) {
       if (!dir) continue;
-      const fullPath = `${dir}/${commandName}`;
+      // Resolve relative PATH directories against cwd
+      const resolvedDir = dir.startsWith("/")
+        ? dir
+        : this.ctx.fs.resolvePath(this.ctx.state.cwd, dir);
+      const fullPath = `${resolvedDir}/${commandName}`;
       if (await this.ctx.fs.exists(fullPath)) {
         // File exists - check if it's a directory
         try {

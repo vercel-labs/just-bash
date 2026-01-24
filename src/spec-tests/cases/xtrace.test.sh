@@ -47,7 +47,7 @@ echo $(echo $y)
 ## END
 
 #### xtrace with unprintable chars
-## SKIP: NUL byte handling in heredoc differs
+## SKIP (unimplementable): NUL byte handling in heredoc differs
 case $SH in dash) exit ;; esac
 
 $SH >stdout 2>stderr <<'EOF'

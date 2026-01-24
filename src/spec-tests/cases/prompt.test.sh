@@ -342,7 +342,7 @@ status=0
 ## END
 
 #### default PS1
-## SKIP: Shell startup options not supported
+## SKIP (unimplementable): Shell startup options not supported - requires $SH invocation
 #flags='--norc --noprofile'
 flags='--rcfile /dev/null'
 

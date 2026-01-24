@@ -57,7 +57,7 @@ IFS=x; ABC=cxd; for i in +($ABC); do echo =$i=; done
 ## END
 
 #### char class / extglob
-## SKIP: bracket expression with extglob edge cases not implemented
+## SKIP (unimplementable): Bracket expression with extglob requires complex parser changes to handle ambiguous syntax like [+()] where bracket and extglob patterns interact
 # http://landley.net/notes.html#14-05-2020
 shopt -s extglob
 

@@ -44,6 +44,7 @@ export function handleComplete(
   let isDefault = false;
   let wordlist: string | undefined;
   let funcName: string | undefined;
+  let commandStr: string | undefined;
   const options: string[] = [];
   const actions: string[] = [];
   const commands: string[] = [];
@@ -98,7 +99,7 @@ export function handleComplete(
       if (i >= args.length) {
         return failure("complete: -C: option requires an argument\n", 2);
       }
-      // Skip for now - -C is not fully implemented
+      commandStr = args[i];
     } else if (arg === "-G") {
       // Glob pattern
       i++;
@@ -166,6 +167,7 @@ export function handleComplete(
     (commands.length === 0 &&
       !wordlist &&
       !funcName &&
+      !commandStr &&
       options.length === 0 &&
       actions.length === 0 &&
       !isDefault)
@@ -190,6 +192,7 @@ export function handleComplete(
     };
     if (wordlist !== undefined) spec.wordlist = wordlist;
     if (funcName !== undefined) spec.function = funcName;
+    if (commandStr !== undefined) spec.command = commandStr;
     if (options.length > 0) spec.options = options;
     if (actions.length > 0) spec.actions = actions;
     ctx.state.completionSpecs.set("__default__", spec);
@@ -200,6 +203,7 @@ export function handleComplete(
     const spec: CompletionSpec = {};
     if (wordlist !== undefined) spec.wordlist = wordlist;
     if (funcName !== undefined) spec.function = funcName;
+    if (commandStr !== undefined) spec.command = commandStr;
     if (options.length > 0) spec.options = options;
     if (actions.length > 0) spec.actions = actions;
     ctx.state.completionSpecs.set(cmd, spec);
