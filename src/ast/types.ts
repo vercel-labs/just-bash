@@ -53,6 +53,16 @@ export interface StatementNode extends ASTNode {
   operators: ("&&" | "||" | ";")[];
   /** Run in background? */
   background: boolean;
+  /**
+   * Deferred syntax error. If set, executing this statement will throw a syntax error.
+   * This is used to support bash's incremental parsing behavior where syntax errors
+   * on later lines only trigger if/when execution reaches that line.
+   * Example: `{ls;\n}` - the } is invalid but with errexit, the script exits before reaching it.
+   */
+  deferredError?: {
+    message: string;
+    token: string;
+  };
 }
 
 // =============================================================================
@@ -69,6 +79,12 @@ export interface PipelineNode extends ASTNode {
   timed?: boolean;
   /** Use POSIX format for time output (-p flag) */
   timePosix?: boolean;
+  /**
+   * For each pipe in the pipeline, whether it's |& (pipe stderr too).
+   * pipeStderr[i] indicates if command[i]'s stderr should be piped to command[i+1]'s stdin.
+   * Length is commands.length - 1.
+   */
+  pipeStderr?: boolean[];
 }
 
 /** Union of all command types */
@@ -856,8 +872,18 @@ export const AST = {
     pipelines: PipelineNode[],
     operators: ("&&" | "||" | ";")[] = [],
     background = false,
+    deferredError?: { message: string; token: string },
   ): StatementNode {
-    return { type: "Statement", pipelines, operators, background };
+    const node: StatementNode = {
+      type: "Statement",
+      pipelines,
+      operators,
+      background,
+    };
+    if (deferredError) {
+      node.deferredError = deferredError;
+    }
+    return node;
   },
 
   pipeline(
@@ -865,8 +891,16 @@ export const AST = {
     negated = false,
     timed = false,
     timePosix = false,
+    pipeStderr?: boolean[],
   ): PipelineNode {
-    return { type: "Pipeline", commands, negated, timed, timePosix };
+    return {
+      type: "Pipeline",
+      commands,
+      negated,
+      timed,
+      timePosix,
+      pipeStderr,
+    };
   },
 
   simpleCommand(

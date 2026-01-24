@@ -1031,4 +1031,147 @@ export class OverlayFs implements IFileSystem {
       throw e;
     }
   }
+
+  /**
+   * Resolve all symlinks in a path to get the canonical physical path.
+   * This is equivalent to POSIX realpath().
+   */
+  async realpath(path: string): Promise<string> {
+    const normalized = this.normalizePath(path);
+    const seen = new Set<string>();
+
+    // Helper to resolve symlinks iteratively
+    const resolveAll = async (p: string): Promise<string> => {
+      const parts = p === "/" ? [] : p.slice(1).split("/");
+      let resolved = "";
+
+      for (const part of parts) {
+        resolved = `${resolved}/${part}`;
+
+        // Check for loops
+        if (seen.has(resolved)) {
+          throw new Error(
+            `ELOOP: too many levels of symbolic links, realpath '${path}'`,
+          );
+        }
+
+        // Check if deleted
+        if (this.deleted.has(resolved)) {
+          throw new Error(
+            `ENOENT: no such file or directory, realpath '${path}'`,
+          );
+        }
+
+        // Check memory layer first
+        let entry = this.memory.get(resolved);
+        let loopCount = 0;
+        const maxLoops = 40;
+
+        while (entry && entry.type === "symlink" && loopCount < maxLoops) {
+          seen.add(resolved);
+          resolved = this.resolveSymlink(resolved, entry.target);
+          loopCount++;
+
+          if (seen.has(resolved)) {
+            throw new Error(
+              `ELOOP: too many levels of symbolic links, realpath '${path}'`,
+            );
+          }
+
+          if (this.deleted.has(resolved)) {
+            throw new Error(
+              `ENOENT: no such file or directory, realpath '${path}'`,
+            );
+          }
+
+          entry = this.memory.get(resolved);
+        }
+
+        if (loopCount >= maxLoops) {
+          throw new Error(
+            `ELOOP: too many levels of symbolic links, realpath '${path}'`,
+          );
+        }
+
+        // If not in memory, check real filesystem
+        if (!entry) {
+          const realPath = this.toRealPath(resolved);
+          if (realPath) {
+            try {
+              const stat = await fs.promises.lstat(realPath);
+              if (stat.isSymbolicLink()) {
+                const target = await fs.promises.readlink(realPath);
+                seen.add(resolved);
+                resolved = this.resolveSymlink(resolved, target);
+
+                // Continue resolving from the new path
+                // We need to restart from this point to handle nested symlinks
+                return resolveAll(resolved);
+              }
+            } catch (e) {
+              if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+                throw new Error(
+                  `ENOENT: no such file or directory, realpath '${path}'`,
+                );
+              }
+              throw e;
+            }
+          }
+        }
+      }
+
+      return resolved || "/";
+    };
+
+    const result = await resolveAll(normalized);
+
+    // Verify the final path exists
+    const exists = await this.existsInOverlay(result);
+    if (!exists) {
+      throw new Error(`ENOENT: no such file or directory, realpath '${path}'`);
+    }
+
+    return result;
+  }
+
+  /**
+   * Set access and modification times of a file
+   * @param path - The file path
+   * @param _atime - Access time (ignored, kept for API compatibility)
+   * @param mtime - Modification time
+   */
+  async utimes(path: string, _atime: Date, mtime: Date): Promise<void> {
+    this.assertWritable(`utimes '${path}'`);
+    const normalized = this.normalizePath(path);
+
+    const exists = await this.existsInOverlay(normalized);
+    if (!exists) {
+      throw new Error(`ENOENT: no such file or directory, utimes '${path}'`);
+    }
+
+    // If in memory, update there
+    const entry = this.memory.get(normalized);
+    if (entry) {
+      entry.mtime = mtime;
+      return;
+    }
+
+    // If from real fs, we need to copy to memory layer first
+    const stat = await this.stat(normalized);
+    if (stat.isFile) {
+      const content = await this.readFileBuffer(normalized);
+      this.memory.set(normalized, {
+        type: "file",
+        content,
+        mode: stat.mode,
+        mtime,
+      });
+    } else if (stat.isDirectory) {
+      this.memory.set(normalized, {
+        type: "directory",
+        mode: stat.mode,
+        mtime,
+      });
+    }
+  }
 }

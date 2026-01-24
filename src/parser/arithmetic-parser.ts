@@ -19,16 +19,54 @@ import { ArithmeticError } from "../interpreter/errors.js";
 import type { Parser } from "./parser.js";
 
 /**
+ * Preprocess arithmetic expression to handle double-quoted strings.
+ * In bash, double quotes inside arithmetic are removed and their content is
+ * text-inserted into the expression. E.g., $(( "1 + 2" * 3 )) becomes $(( 1 + 2 * 3 ))
+ *
+ * Single quotes are left intact to trigger errors at parse/eval time.
+ */
+function preprocessArithInput(input: string): string {
+  let result = "";
+  let i = 0;
+  while (i < input.length) {
+    if (input[i] === '"') {
+      // Skip opening quote
+      i++;
+      // Copy content until closing quote
+      while (i < input.length && input[i] !== '"') {
+        if (input[i] === "\\" && i + 1 < input.length) {
+          // Handle escape sequences - keep the escaped character
+          result += input[i + 1];
+          i += 2;
+        } else {
+          result += input[i];
+          i++;
+        }
+      }
+      // Skip closing quote
+      if (i < input.length) i++;
+    } else {
+      result += input[i];
+      i++;
+    }
+  }
+  return result;
+}
+
+/**
  * Parse an arithmetic expression string into an AST node
  */
 export function parseArithmeticExpression(
   _p: Parser,
   input: string,
 ): ArithmeticExpressionNode {
-  const { expr: expression, pos } = parseArithExpr(_p, input, 0);
+  // Preprocess to handle double-quoted strings (bash text-substitution behavior)
+  const preprocessed = preprocessArithInput(input);
+  const { expr: expression, pos } = parseArithExpr(_p, preprocessed, 0);
   // Validate that all input was consumed (skip trailing whitespace first)
-  const finalPos = skipArithWhitespace(input, pos);
-  if (finalPos < input.length) {
+  // IMPORTANT: Check against preprocessed string, not original input
+  const finalPos = skipArithWhitespace(preprocessed, pos);
+  if (finalPos < preprocessed.length) {
     // There's remaining content that wasn't parsed - create an error node
     // that will be evaluated at runtime to produce the error
     const remaining = input.slice(finalPos).trim();
@@ -733,6 +771,10 @@ function parseArithPrimary(
   }
 
   // Single-quoted string: '...' - evaluates to its numeric value
+  // Note: In bash $(( )) expansion context, single quotes cause an error.
+  // However, in bash (( )) command context, single quotes work like numbers.
+  // We parse them as numbers here to support the (( )) command context.
+  // The $(( )) context error behavior would require tracking context, which is complex.
   if (input[currentPos] === "'") {
     currentPos++; // Skip opening '
     let content = "";
@@ -751,7 +793,9 @@ function parseArithPrimary(
     };
   }
 
-  // Double-quoted string: "..." - evaluates to its numeric value
+  // Double-quoted string: "..." - In bash, the content is text-inserted into the expression
+  // e.g., $(( "1 + 2" * 3 )) becomes $(( 1 + 2 * 3 )) = 7
+  // The quoted content is parsed inline, NOT as a grouped sub-expression
   if (input[currentPos] === '"') {
     currentPos++; // Skip opening "
     let content = "";
@@ -765,14 +809,13 @@ function parseArithPrimary(
       }
     }
     if (input[currentPos] === '"') currentPos++; // Skip closing "
-    const numValue = Number.parseInt(content, 10);
-    return {
-      expr: {
-        type: "ArithNumber",
-        value: Number.isNaN(numValue) ? 0 : numValue,
-      },
-      pos: currentPos,
-    };
+    // Parse the content as an expression and return it directly (no grouping)
+    const trimmed = content.trim();
+    if (!trimmed) {
+      return { expr: { type: "ArithNumber", value: 0 }, pos: currentPos };
+    }
+    const { expr } = parseArithExpr(p, trimmed, 0);
+    return { expr, pos: currentPos };
   }
 
   // Number

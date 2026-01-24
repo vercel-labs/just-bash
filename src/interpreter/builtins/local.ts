@@ -26,6 +26,7 @@ export function handleLocal(
   let exitCode = 0;
   let declareNameref = false;
   let declareArray = false;
+  let printMode = false;
 
   // Parse flags
   const processedArgs: string[] = [];
@@ -34,16 +35,38 @@ export function handleLocal(
       declareNameref = true;
     } else if (arg === "-a") {
       declareArray = true;
+    } else if (arg === "-p") {
+      printMode = true;
     } else if (arg.startsWith("-") && !arg.includes("=")) {
       // Handle combined flags like -na
       for (const flag of arg.slice(1)) {
         if (flag === "n") declareNameref = true;
         else if (flag === "a") declareArray = true;
+        else if (flag === "p") printMode = true;
         // Other flags are ignored for now
       }
     } else {
       processedArgs.push(arg);
     }
+  }
+
+  // Handle local -p: print local variables in current scope
+  // Note: bash outputs local -p without "declare --" prefix, just "name=value"
+  if (printMode && processedArgs.length === 0) {
+    let stdout = "";
+    // Get the names of local variables in current scope
+    const localNames = Array.from(currentScope.keys())
+      .filter((key) => !key.includes("_") || !key.match(/_\d+$/)) // Filter out array element keys
+      .filter((key) => !key.includes("__length")) // Filter out length markers
+      .sort();
+
+    for (const name of localNames) {
+      const value = ctx.state.env[name];
+      if (value !== undefined) {
+        stdout += `${name}=${value}\n`;
+      }
+    }
+    return result(stdout, "", 0);
   }
 
   for (const arg of processedArgs) {

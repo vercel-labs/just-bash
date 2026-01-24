@@ -329,7 +329,6 @@ echo status=$?
 ## BUG bash stdout: status=1
 
 #### -ot and -nt
-## SKIP: File time/inode comparison (-ot, -nt, -ef) not implemented
 touch -d 2017/12/31 $TMP/x
 touch -d 2018/01/01 > $TMP/y
 test $TMP/x -ot $TMP/y && echo 'older'
@@ -534,7 +533,7 @@ status=2
 ## status: 1
 
 #### -ef
-## SKIP: File time/inode comparison (-ot, -nt, -ef) not implemented
+## SKIP: -ef with hardlinks requires inode tracking in virtual filesystem
 left=$TMP/left
 right=$TMP/right
 touch $left $right

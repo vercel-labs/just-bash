@@ -646,4 +646,39 @@ export class InMemoryFs implements IFileSystem {
 
     return entry.target;
   }
+
+  /**
+   * Resolve all symlinks in a path to get the canonical physical path.
+   * This is equivalent to POSIX realpath().
+   */
+  async realpath(path: string): Promise<string> {
+    // resolvePathWithSymlinks already resolves all symlinks
+    const resolved = this.resolvePathWithSymlinks(path);
+
+    // Verify the path exists
+    if (!this.data.has(resolved)) {
+      throw new Error(`ENOENT: no such file or directory, realpath '${path}'`);
+    }
+
+    return resolved;
+  }
+
+  /**
+   * Set access and modification times of a file
+   * @param path - The file path
+   * @param _atime - Access time (ignored, kept for API compatibility)
+   * @param mtime - Modification time
+   */
+  async utimes(path: string, _atime: Date, mtime: Date): Promise<void> {
+    const normalized = this.normalizePath(path);
+    const resolved = this.resolvePathWithSymlinks(normalized);
+    const entry = this.data.get(resolved);
+
+    if (!entry) {
+      throw new Error(`ENOENT: no such file or directory, utimes '${path}'`);
+    }
+
+    // Update mtime on the entry
+    entry.mtime = mtime;
+  }
 }

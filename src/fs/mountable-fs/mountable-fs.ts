@@ -605,6 +605,41 @@ export class MountableFs implements IFileSystem {
   }
 
   /**
+   * Resolve all symlinks in a path to get the canonical physical path.
+   * This is equivalent to POSIX realpath().
+   */
+  async realpath(path: string): Promise<string> {
+    const normalized = this.normalizePath(path);
+
+    // Check if this is exactly a mount point
+    const mountEntry = this.mounts.get(normalized);
+    if (mountEntry) {
+      // Mount point itself - return the mount point path
+      return normalized;
+    }
+
+    // Route to the appropriate filesystem
+    const { fs, relativePath } = this.routePath(path);
+
+    // Get realpath from the underlying filesystem
+    const resolvedRelative = await fs.realpath(relativePath);
+
+    // Find the mount point for this path
+    for (const [mp, _entry] of this.mounts) {
+      if (normalized === mp || normalized.startsWith(`${mp}/`)) {
+        // Path is within this mount - reconstruct full path
+        if (resolvedRelative === "/") {
+          return mp;
+        }
+        return `${mp}${resolvedRelative}`;
+      }
+    }
+
+    // Path is in the base filesystem
+    return resolvedRelative;
+  }
+
+  /**
    * Perform a cross-mount copy operation.
    */
   private async crossMountCopy(
@@ -633,5 +668,16 @@ export class MountableFs implements IFileSystem {
       const target = await this.readlink(src);
       await this.symlink(target, dest);
     }
+  }
+
+  /**
+   * Set access and modification times of a file
+   * @param path - The file path
+   * @param atime - Access time
+   * @param mtime - Modification time
+   */
+  async utimes(path: string, atime: Date, mtime: Date): Promise<void> {
+    const { fs, relativePath } = this.routePath(path);
+    return fs.utimes(relativePath, atime, mtime);
   }
 }

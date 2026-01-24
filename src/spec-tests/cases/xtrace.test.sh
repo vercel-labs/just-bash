@@ -296,7 +296,6 @@ echo two
 ## END
 
 #### xtrace with variables in PS4
-## SKIP: PS4 variable expansion not implemented
 PS4='+$x:'
 set -o xtrace
 x=1
@@ -332,7 +331,6 @@ two
 ## END
 
 #### PS4 with unterminated ${
-## SKIP: Unterminated quote error not implemented
 # osh shows inline error; maybe fail like dash/mksh?
 x=1
 PS4='+${x'
@@ -350,7 +348,6 @@ status=0
 ## OK mksh status: 1
 
 #### PS4 with unterminated $(
-## SKIP: Unterminated quote error not implemented
 # osh shows inline error; maybe fail like dash/mksh?
 x=1
 PS4='+$(x'
@@ -386,7 +383,6 @@ status=0
 
 
 #### Reading $? in PS4
-## SKIP: PS4 variable expansion not implemented
 PS4='[last=$?] '
 set -x
 false

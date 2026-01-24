@@ -159,7 +159,7 @@ status=0
 ## END
 
 #### hash without args prints the cache
-## SKIP: hash builtin not implemented
+## SKIP: whoami command not available in sandbox
 whoami >/dev/null
 hash
 echo status=$?
@@ -177,7 +177,7 @@ status=0
 ## END
 
 #### hash with args
-## SKIP: hash builtin not implemented
+## SKIP: whoami command not available in sandbox
 hash whoami
 echo status=$?
 hash | grep -o /whoami  # prints it twice

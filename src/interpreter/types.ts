@@ -13,6 +13,22 @@ import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
 import type { CommandRegistry, ExecResult, TraceCallback } from "../types.js";
 
+/**
+ * Completion specification for a command, set by the `complete` builtin.
+ */
+export interface CompletionSpec {
+  /** Word list for -W option */
+  wordlist?: string;
+  /** Function name for -F option */
+  function?: string;
+  /** Completion options (nospace, filenames, etc.) */
+  options?: string[];
+  /** Actions to perform (from -A option) */
+  actions?: string[];
+  /** Whether this is a default completion (-D) */
+  isDefault?: boolean;
+}
+
 export interface ShellOptions {
   /** set -e: Exit immediately if a command exits with non-zero status */
   errexit: boolean;
@@ -47,6 +63,8 @@ export interface ShoptOptions {
   failglob: boolean;
   /** shopt -s globstar: Enable ** recursive glob patterns */
   globstar: boolean;
+  /** shopt -s globskipdots: Skip . and .. in glob patterns (default: true in bash >=5.2) */
+  globskipdots: boolean;
   /** shopt -s nocaseglob: Case-insensitive glob matching */
   nocaseglob: boolean;
   /** shopt -s nocasematch: Case-insensitive pattern matching in [[ ]] and case */
@@ -88,6 +106,8 @@ export interface InterpreterState {
   parentHasLoopContext?: boolean;
   /** Stdin available for commands in compound commands (groups, subshells, while loops with piped input) */
   groupStdin?: string;
+  /** Completion specifications set by the `complete` builtin */
+  completionSpecs?: Map<string, CompletionSpec>;
   /** Set of variable names that are readonly */
   readonlyVars?: Set<string>;
   /** Exit code from expansion errors (arithmetic, etc.) - overrides command exit code */

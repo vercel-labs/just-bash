@@ -332,7 +332,6 @@ echo "status=$?"
 ## BUG bash status: 0
 
 #### Slice of array with [@]
-## SKIP: Array slice ${a[@]:n:m} returns single element instead of multiple
 # mksh doesn't support this syntax!  It's a bash extension.
 a=(1 2 3)
 argv.py "${a[@]:1:2}"
@@ -341,7 +340,6 @@ argv.py "${a[@]:1:2}"
 ## N-I mksh stdout-json: ""
 
 #### Negative slice begin
-## SKIP: Array slice ${a[@]:n} returns single element instead of multiple
 # mksh doesn't support this syntax!  It's a bash extension.
 # NOTE: for some reason -2) has to be in parens?  Ah that's because it
 # conflicts with :-!  That's silly.  You can also add a space.
@@ -358,7 +356,6 @@ argv.py "${a[@]: 1: -3}"
 ## stdout-json: ""
 
 #### Slice with arithmetic
-## SKIP: Array slice ${a[@]:expr:n} returns single element instead of multiple
 a=(1 2 3)
 i=5
 argv.py "${a[@]:i-4:2}"
@@ -416,7 +413,6 @@ argv.py ${single[@]:-none} x "${single[@]:-none}"
 ## stdout: ['none', 'x', 'none']
 
 #### Stripping a whole array unquoted
-## SKIP: Unquoted ${array[@]%pattern} strip not applied to first element
 # Problem: it joins it first.
 files=('foo.c' 'sp ace.h' 'bar.c')
 argv.py ${files[@]%.c}
@@ -426,7 +422,6 @@ argv.py ${files[@]%.c}
 ## N-I mksh stdout-json: ""
 
 #### Stripping a whole array quoted
-## SKIP: Quoted "${array[@]%pattern}" returns single element, strip not applied
 files=('foo.c' 'sp ace.h' 'bar.c')
 argv.py "${files[@]%.c}"
 ## status: 0

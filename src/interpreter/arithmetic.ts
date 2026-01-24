@@ -890,7 +890,34 @@ export async function evaluateArithmetic(
         envKey = `${expr.array}_${expr.index.name}`;
       } else if (expr.index) {
         // For indexed arrays, evaluate the index as arithmetic
-        const index = await evaluateArithmetic(ctx, expr.index);
+        let index = await evaluateArithmetic(ctx, expr.index);
+
+        // Handle negative indices - bash counts from max_index + 1
+        if (index < 0) {
+          const elements = getArrayElements(ctx, expr.array);
+          const lineNum = ctx.state.currentLine;
+          if (elements.length === 0) {
+            // Empty array with negative index - output error to stderr and return 0
+            ctx.state.expansionStderr =
+              (ctx.state.expansionStderr || "") +
+              `bash: line ${lineNum}: ${expr.array}: bad array subscript\n`;
+            return 0;
+          }
+          // Find the maximum index
+          const maxIndex = Math.max(
+            ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
+          );
+          // Convert negative index to actual index
+          const actualIdx = maxIndex + 1 + index;
+          if (actualIdx < 0) {
+            // Out of bounds negative index - output error to stderr and return 0
+            ctx.state.expansionStderr =
+              (ctx.state.expansionStderr || "") +
+              `bash: line ${lineNum}: ${expr.array}: bad array subscript\n`;
+            return 0;
+          }
+          index = actualIdx;
+        }
         envKey = `${expr.array}_${index}`;
 
         // Array elements are stored as arrayName_index in env

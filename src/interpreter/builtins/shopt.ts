@@ -4,6 +4,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { updateShellopts } from "../helpers/shellopts.js";
 import type { InterpreterContext } from "../types.js";
 
 // All supported shopt options
@@ -13,6 +14,7 @@ const SHOPT_OPTIONS = [
   "nullglob",
   "failglob",
   "globstar",
+  "globskipdots",
   "nocaseglob",
   "nocasematch",
   "expand_aliases",
@@ -310,8 +312,10 @@ function handleSetOptions(
 
     if (setFlag) {
       ctx.state.options[key] = true;
+      updateShellopts(ctx);
     } else if (unsetFlag) {
       ctx.state.options[key] = false;
+      updateShellopts(ctx);
     } else {
       const value = ctx.state.options[key];
       if (quietFlag) {

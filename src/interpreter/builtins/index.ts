@@ -22,6 +22,8 @@
 
 export { handleBreak } from "./break.js";
 export { handleCd } from "./cd.js";
+export { handleCompgen } from "./compgen.js";
+export { handleComplete } from "./complete.js";
 export { handleContinue } from "./continue.js";
 export {
   applyCaseTransform,
@@ -35,6 +37,7 @@ export { handleExit } from "./exit.js";
 export { handleExport } from "./export.js";
 export { handleGetopts } from "./getopts.js";
 export { handleHash } from "./hash.js";
+export { handleHelp } from "./help.js";
 export { handleLet } from "./let.js";
 export { handleLocal } from "./local.js";
 export { handleMapfile } from "./mapfile.js";

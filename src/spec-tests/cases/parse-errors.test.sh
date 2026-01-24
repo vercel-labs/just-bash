@@ -87,7 +87,6 @@ echo "status=$?"
 ## OK mksh status: 1
 
 #### } on the second line
-## SKIP: {ls; is parsed as syntax error rather than command not found
 set -o errexit
 {ls;
 }

@@ -16,6 +16,7 @@ import { Parser } from "../parser/parser.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmeticSync } from "./arithmetic.js";
 import {
+  escapeRegexChars,
   expandWord,
   expandWordForPattern,
   expandWordForRegex,
@@ -61,9 +62,17 @@ export async function evaluateConditional(
       // This ensures *\(\) matches "foo()" by treating \( and \) as literal
       // For regex (=~), use expandWordForRegex to preserve all backslash escapes
       // so \[\] works as a regex to match literal []
+      // When regex pattern is quoted, escape regex metacharacters for literal matching
       let right: string;
-      if (expr.operator === "=~" && !isRhsQuoted) {
-        right = await expandWordForRegex(ctx, expr.right);
+      if (expr.operator === "=~") {
+        if (isRhsQuoted) {
+          // Quoted regex patterns should have metacharacters escaped for literal matching
+          // e.g., [[ 'a b' =~ '^(a b)$' ]] should NOT match because ^ ( ) $ are literals
+          const expanded = await expandWord(ctx, expr.right);
+          right = escapeRegexChars(expanded);
+        } else {
+          right = await expandWordForRegex(ctx, expr.right);
+        }
       } else if (isStringCompareOp(expr.operator) && !isRhsQuoted) {
         right = await expandWordForPattern(ctx, expr.right);
       } else {
@@ -513,8 +522,40 @@ function patternToRegexStr(pattern: string, extglob: boolean): string {
           regex += `(?:${altGroup})?`;
         } else if (char === "!") {
           // !(...) - match anything except the patterns
-          // This is tricky - we need a negative lookahead anchored to the end
-          regex += `(?!(?:${altGroup})$).*`;
+          // When !(pattern) is followed by more pattern content, we need special handling
+          const hasMorePattern = closeIdx < pattern.length - 1;
+          if (hasMorePattern) {
+            // Try to compute fixed lengths for the alternatives
+            const lengths = alternatives.map((alt) =>
+              computePatternLength(alt, extglob),
+            );
+            const allSameLength =
+              lengths.every((l) => l !== null) &&
+              lengths.every((l) => l === lengths[0]);
+
+            if (allSameLength && lengths[0] !== null) {
+              const n = lengths[0];
+              if (n === 0) {
+                // !(empty) followed by more - matches any non-empty string
+                regex += "(?:.+)";
+              } else {
+                // Match: <n chars OR >n chars OR exactly n chars that aren't the pattern
+                const parts: string[] = [];
+                if (n > 0) {
+                  parts.push(`.{0,${n - 1}}`);
+                }
+                parts.push(`.{${n + 1},}`);
+                parts.push(`(?!(?:${altGroup})).{${n}}`);
+                regex += `(?:${parts.join("|")})`;
+              }
+            } else {
+              // Complex case: different lengths or variable-length patterns
+              regex += `(?:(?!(?:${altGroup})).)*?`;
+            }
+          } else {
+            // At end of pattern - use simple negative lookahead
+            regex += `(?!(?:${altGroup})$).*`;
+          }
         }
         i = closeIdx;
         continue;
@@ -619,6 +660,86 @@ function splitExtglobAlternatives(content: string): string[] {
   }
   alternatives.push(current);
   return alternatives;
+}
+
+/**
+ * Compute the fixed length of a pattern, if it has one.
+ * Returns null if the pattern has variable length (contains *, +, etc.).
+ * Used to optimize !() extglob patterns.
+ */
+function computePatternLength(
+  pattern: string,
+  extglob: boolean,
+): number | null {
+  let length = 0;
+  let i = 0;
+
+  while (i < pattern.length) {
+    const c = pattern[i];
+
+    // Check for extglob patterns
+    if (
+      extglob &&
+      (c === "@" || c === "*" || c === "+" || c === "?" || c === "!") &&
+      i + 1 < pattern.length &&
+      pattern[i + 1] === "("
+    ) {
+      const closeIdx = findMatchingParen(pattern, i + 1);
+      if (closeIdx !== -1) {
+        if (c === "@") {
+          // @() matches exactly one occurrence - get length of alternatives
+          const content = pattern.slice(i + 2, closeIdx);
+          const alts = splitExtglobAlternatives(content);
+          const altLengths = alts.map((a) => computePatternLength(a, extglob));
+          // All alternatives must have same length for fixed length
+          if (
+            altLengths.every((l) => l !== null) &&
+            altLengths.every((l) => l === altLengths[0])
+          ) {
+            length += altLengths[0] as number;
+            i = closeIdx + 1;
+            continue;
+          }
+          return null; // Variable length
+        }
+        // *, +, ?, ! all have variable length
+        return null;
+      }
+    }
+
+    if (c === "*") {
+      return null; // Variable length
+    }
+    if (c === "?") {
+      length += 1;
+      i++;
+      continue;
+    }
+    if (c === "[") {
+      // Character class matches exactly 1 char
+      const closeIdx = pattern.indexOf("]", i + 1);
+      if (closeIdx !== -1) {
+        length += 1;
+        i = closeIdx + 1;
+        continue;
+      }
+      // No closing bracket - treat as literal
+      length += 1;
+      i++;
+      continue;
+    }
+    if (c === "\\") {
+      // Escaped char
+      length += 1;
+      i += 2;
+      continue;
+    }
+    // Regular character
+    length += 1;
+    i++;
+  }
+
+  return length;
 }
 
 /**

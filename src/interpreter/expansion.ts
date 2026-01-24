@@ -13,6 +13,8 @@
 import type {
   ArithExpr,
   ParameterExpansionPart,
+  ScriptNode,
+  SimpleCommandNode,
   SubstringOp,
   WordNode,
   WordPart,
@@ -58,6 +60,37 @@ import type { InterpreterContext } from "./types.js";
 
 // Re-export for backward compatibility
 export { getArrayElements, getVariable } from "./expansion/variable.js";
+
+/**
+ * Apply pattern removal (prefix or suffix strip) to a single value.
+ * Used by both scalar and vectorized array operations.
+ */
+function applyPatternRemoval(
+  value: string,
+  regexStr: string,
+  side: "prefix" | "suffix",
+  greedy: boolean,
+): string {
+  if (side === "prefix") {
+    // Prefix removal: greedy matches longest from start, non-greedy matches shortest
+    return value.replace(new RegExp(`^${regexStr}`), "");
+  }
+  // Suffix removal needs special handling because we need to find
+  // the rightmost (shortest) or leftmost (longest) match
+  const regex = new RegExp(`${regexStr}$`);
+  if (greedy) {
+    // %% - longest match: use regex directly (finds leftmost match)
+    return value.replace(regex, "");
+  }
+  // % - shortest match: find rightmost position where pattern matches to end
+  for (let i = value.length; i >= 0; i--) {
+    const suffix = value.slice(i);
+    if (regex.test(suffix)) {
+      return value.slice(0, i);
+    }
+  }
+  return value;
+}
 
 /**
  * Get variable names that match a given prefix.
@@ -313,6 +346,14 @@ export function isWordFullyQuoted(word: WordNode): boolean {
  */
 export function escapeGlobChars(str: string): string {
   return str.replace(/([*?[\]\\()|])/g, "\\$1");
+}
+
+/**
+ * Escape regex metacharacters in a string for literal matching.
+ * Used when quoted patterns are used with =~ operator.
+ */
+export function escapeRegexChars(str: string): string {
+  return str.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 }
 
 /**
@@ -874,6 +915,7 @@ export async function expandWordWithGlob(
     hasArrayAtExpansion,
     hasParamExpansion,
     hasVarNamePrefixExpansion,
+    hasIndirection,
   } = analyzeWordParts(wordParts);
 
   // Handle brace expansion first (produces multiple values)
@@ -905,6 +947,7 @@ export async function expandWordWithGlob(
             failglob: ctx.state.shoptOptions.failglob,
             dotglob: ctx.state.shoptOptions.dotglob,
             extglob: ctx.state.shoptOptions.extglob,
+            globskipdots: ctx.state.shoptOptions.globskipdots,
           },
         );
         const matches = await globExpander.expand(value);
@@ -964,6 +1007,461 @@ export async function expandWordWithGlob(
     }
   }
 
+  // Handle "${prefix}${arr[@]}${suffix}" - array expansion with adjacent text in double quotes
+  // Each array element becomes a separate word, with prefix joined to first and suffix joined to last
+  // This is similar to how "$@" works with prefix/suffix
+  if (
+    hasArrayAtExpansion &&
+    wordParts.length === 1 &&
+    wordParts[0].type === "DoubleQuoted"
+  ) {
+    const dqPart = wordParts[0];
+    // Find if there's a ${arr[@]} or ${arr[*]} inside (without operations)
+    let arrayAtIndex = -1;
+    let arrayName = "";
+    let isStar = false;
+    for (let i = 0; i < dqPart.parts.length; i++) {
+      const p = dqPart.parts[i];
+      if (p.type === "ParameterExpansion" && !p.operation) {
+        const match = p.parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/);
+        if (match) {
+          arrayAtIndex = i;
+          arrayName = match[1];
+          isStar = match[2] === "*";
+          break;
+        }
+      }
+    }
+
+    if (arrayAtIndex !== -1) {
+      // Expand prefix (parts before ${arr[@]})
+      let prefix = "";
+      for (let i = 0; i < arrayAtIndex; i++) {
+        prefix += await expandPart(ctx, dqPart.parts[i]);
+      }
+
+      // Expand suffix (parts after ${arr[@]})
+      let suffix = "";
+      for (let i = arrayAtIndex + 1; i < dqPart.parts.length; i++) {
+        suffix += await expandPart(ctx, dqPart.parts[i]);
+      }
+
+      // Get array elements
+      const elements = getArrayElements(ctx, arrayName);
+      const values = elements.map(([, v]) => v);
+
+      // If no elements, check for scalar (treat as single-element array)
+      if (elements.length === 0) {
+        const scalarValue = ctx.state.env[arrayName];
+        if (scalarValue !== undefined) {
+          // Scalar treated as single-element array
+          return { values: [prefix + scalarValue + suffix], quoted: true };
+        }
+        // Variable is unset or empty array
+        if (isStar) {
+          // "${arr[*]}" with empty array produces one empty word (prefix + "" + suffix)
+          return { values: [prefix + suffix], quoted: true };
+        }
+        // "${arr[@]}" with empty array produces no words (unless there's prefix/suffix)
+        const combined = prefix + suffix;
+        return { values: combined ? [combined] : [], quoted: true };
+      }
+
+      if (isStar) {
+        // "${arr[*]}" - join all elements with IFS into one word
+        const ifsSep = getIfsSeparator(ctx.state.env);
+        return {
+          values: [prefix + values.join(ifsSep) + suffix],
+          quoted: true,
+        };
+      }
+
+      // "${arr[@]}" - each element is a separate word
+      // Join prefix with first, suffix with last
+      if (values.length === 1) {
+        return { values: [prefix + values[0] + suffix], quoted: true };
+      }
+
+      const result = [
+        prefix + values[0],
+        ...values.slice(1, -1),
+        values[values.length - 1] + suffix,
+      ];
+      return { values: result, quoted: true };
+    }
+  }
+
+  // Handle "${arr[@]:offset}" and "${arr[@]:offset:length}" - array slicing with multiple return values
+  // "${arr[@]:n:m}" returns m elements starting from index n as separate words
+  // "${arr[*]:n:m}" returns m elements starting from index n joined with IFS as one word
+  if (wordParts.length === 1 && wordParts[0].type === "DoubleQuoted") {
+    const dqPart = wordParts[0];
+    if (
+      dqPart.parts.length === 1 &&
+      dqPart.parts[0].type === "ParameterExpansion" &&
+      dqPart.parts[0].operation?.type === "Substring"
+    ) {
+      const paramPart = dqPart.parts[0];
+      const arrayMatch = paramPart.parameter.match(
+        /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
+      );
+      if (arrayMatch) {
+        const arrayName = arrayMatch[1];
+        const isStar = arrayMatch[2] === "*";
+        const operation = paramPart.operation as SubstringOp;
+
+        // Evaluate offset and length
+        const offset = operation.offset
+          ? evaluateArithmeticSync(ctx, operation.offset.expression)
+          : 0;
+        const length = operation.length
+          ? evaluateArithmeticSync(ctx, operation.length.expression)
+          : undefined;
+
+        // Get array elements
+        const elements = getArrayElements(ctx, arrayName);
+        const values = elements.map(([, v]) => v);
+
+        // Apply slice
+        let start = offset;
+        if (start < 0) {
+          start = values.length + start;
+          if (start < 0) start = 0;
+        }
+
+        let slicedValues: string[];
+        if (length !== undefined) {
+          if (length < 0) {
+            // Negative length is an error for array slicing in bash
+            throw new ArithmeticError(
+              `${arrayName}[@]: substring expression < 0`,
+            );
+          }
+          slicedValues = values.slice(start, start + length);
+        } else {
+          slicedValues = values.slice(start);
+        }
+
+        if (slicedValues.length === 0) {
+          return { values: [], quoted: true };
+        }
+
+        if (isStar) {
+          // "${arr[*]:n:m}" - join with IFS into one word
+          const ifsSep = getIfsSeparator(ctx.state.env);
+          return { values: [slicedValues.join(ifsSep)], quoted: true };
+        }
+
+        // "${arr[@]:n:m}" - each element as a separate word
+        return { values: slicedValues, quoted: true };
+      }
+    }
+  }
+
+  // Handle "${arr[@]@a}", "${arr[@]@P}", "${arr[@]@Q}" - array Transform operations
+  // "${arr[@]@a}": Return attribute letter for each element (e.g., 'a' for indexed array)
+  // "${arr[@]@P}": Return each element's value (prompt expansion, limited implementation)
+  // "${arr[@]@Q}": Return each element quoted for shell reuse
+  // "${arr[*]@X}": Same as above but joined with IFS as one word
+  if (wordParts.length === 1 && wordParts[0].type === "DoubleQuoted") {
+    const dqPart = wordParts[0];
+    if (
+      dqPart.parts.length === 1 &&
+      dqPart.parts[0].type === "ParameterExpansion" &&
+      dqPart.parts[0].operation?.type === "Transform"
+    ) {
+      const paramPart = dqPart.parts[0];
+      const arrayMatch = paramPart.parameter.match(
+        /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
+      );
+      if (arrayMatch) {
+        const arrayName = arrayMatch[1];
+        const isStar = arrayMatch[2] === "*";
+        const operation = paramPart.operation as {
+          type: "Transform";
+          operator: string;
+        };
+
+        // Get array elements
+        const elements = getArrayElements(ctx, arrayName);
+
+        // If no elements, check for scalar (treat as single-element array)
+        if (elements.length === 0) {
+          const scalarValue = ctx.state.env[arrayName];
+          if (scalarValue !== undefined) {
+            // Scalar variable - return based on operator
+            let resultValue: string;
+            switch (operation.operator) {
+              case "a":
+                resultValue = ""; // Scalars have no array attribute
+                break;
+              case "P":
+                resultValue = scalarValue;
+                break;
+              case "Q":
+                resultValue = quoteValue(scalarValue);
+                break;
+              default:
+                resultValue = scalarValue;
+            }
+            return { values: [resultValue], quoted: true };
+          }
+          // Variable is unset
+          if (isStar) {
+            return { values: [""], quoted: true };
+          }
+          return { values: [], quoted: true };
+        }
+
+        // Get the attribute for this array (same for all elements)
+        const arrayAttr = getVariableAttributes(ctx, arrayName);
+
+        // Transform each element based on operator
+        let transformedValues: string[];
+        switch (operation.operator) {
+          case "a":
+            // Return attribute letter for each element
+            // All elements of the same array have the same attribute
+            transformedValues = elements.map(() => arrayAttr);
+            break;
+          case "P":
+            // Return each element's value (prompt expansion - limited implementation)
+            transformedValues = elements.map(([, v]) => v);
+            break;
+          case "Q":
+            // Quote each element
+            transformedValues = elements.map(([, v]) => quoteValue(v));
+            break;
+          default:
+            transformedValues = elements.map(([, v]) => v);
+        }
+
+        if (isStar) {
+          // "${arr[*]@X}" - join all values with IFS into one word
+          const ifsSep = getIfsSeparator(ctx.state.env);
+          return { values: [transformedValues.join(ifsSep)], quoted: true };
+        }
+
+        // "${arr[@]@X}" - each value as a separate word
+        return { values: transformedValues, quoted: true };
+      }
+    }
+  }
+
+  // Handle "${arr[@]/pattern/replacement}" and "${arr[*]/pattern/replacement}" - array pattern replacement
+  // "${arr[@]/#/prefix}": Prepend prefix to each element (when pattern is empty and anchor is "start")
+  // "${arr[@]/%/suffix}": Append suffix to each element (when pattern is empty and anchor is "end")
+  // "${arr[@]/pattern/replacement}": Replace pattern in each element
+  if (wordParts.length === 1 && wordParts[0].type === "DoubleQuoted") {
+    const dqPart = wordParts[0];
+    if (
+      dqPart.parts.length === 1 &&
+      dqPart.parts[0].type === "ParameterExpansion" &&
+      dqPart.parts[0].operation?.type === "PatternReplacement"
+    ) {
+      const paramPart = dqPart.parts[0];
+      const arrayMatch = paramPart.parameter.match(
+        /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
+      );
+      if (arrayMatch) {
+        const arrayName = arrayMatch[1];
+        const isStar = arrayMatch[2] === "*";
+        const operation = paramPart.operation as {
+          type: "PatternReplacement";
+          pattern: WordNode;
+          replacement: WordNode | null;
+          all: boolean;
+          anchor: "start" | "end" | null;
+        };
+
+        // Get array elements
+        const elements = getArrayElements(ctx, arrayName);
+        const values = elements.map(([, v]) => v);
+
+        // If no elements, check for scalar (treat as single-element array)
+        if (elements.length === 0) {
+          const scalarValue = ctx.state.env[arrayName];
+          if (scalarValue !== undefined) {
+            values.push(scalarValue);
+          }
+        }
+
+        if (values.length === 0) {
+          return { values: [], quoted: true };
+        }
+
+        // Build the replacement regex
+        let regex = "";
+        if (operation.pattern) {
+          for (const part of operation.pattern.parts) {
+            if (part.type === "Glob") {
+              regex += patternToRegex(
+                part.pattern,
+                true,
+                ctx.state.shoptOptions.extglob,
+              );
+            } else if (part.type === "Literal") {
+              regex += patternToRegex(
+                part.value,
+                true,
+                ctx.state.shoptOptions.extglob,
+              );
+            } else if (
+              part.type === "SingleQuoted" ||
+              part.type === "Escaped"
+            ) {
+              regex += escapeRegex(part.value);
+            } else if (part.type === "DoubleQuoted") {
+              const expanded = await expandWordPartsAsync(ctx, part.parts);
+              regex += escapeRegex(expanded);
+            } else if (part.type === "ParameterExpansion") {
+              const expanded = await expandPart(ctx, part);
+              regex += patternToRegex(
+                expanded,
+                true,
+                ctx.state.shoptOptions.extglob,
+              );
+            } else {
+              const expanded = await expandPart(ctx, part);
+              regex += escapeRegex(expanded);
+            }
+          }
+        }
+
+        const replacement = operation.replacement
+          ? await expandWordPartsAsync(ctx, operation.replacement.parts)
+          : "";
+
+        // Apply anchor modifiers
+        let regexPattern = regex;
+        if (operation.anchor === "start") {
+          regexPattern = `^${regex}`;
+        } else if (operation.anchor === "end") {
+          regexPattern = `${regex}$`;
+        }
+
+        // Apply replacement to each element
+        const replacedValues: string[] = [];
+        try {
+          const re = new RegExp(regexPattern, operation.all ? "g" : "");
+          for (const value of values) {
+            replacedValues.push(value.replace(re, replacement));
+          }
+        } catch {
+          // Invalid regex - return values unchanged
+          replacedValues.push(...values);
+        }
+
+        if (isStar) {
+          // "${arr[*]/...}" - join all elements with IFS into one word
+          const ifsSep = getIfsSeparator(ctx.state.env);
+          return { values: [replacedValues.join(ifsSep)], quoted: true };
+        }
+
+        // "${arr[@]/...}" - each element as a separate word
+        return { values: replacedValues, quoted: true };
+      }
+    }
+  }
+
+  // Handle "${arr[@]#pattern}" and "${arr[*]#pattern}" - array pattern removal (strip)
+  // "${arr[@]#pattern}": Remove shortest matching prefix from each element, each becomes a separate word
+  // "${arr[@]##pattern}": Remove longest matching prefix from each element
+  // "${arr[@]%pattern}": Remove shortest matching suffix from each element
+  // "${arr[@]%%pattern}": Remove longest matching suffix from each element
+  if (wordParts.length === 1 && wordParts[0].type === "DoubleQuoted") {
+    const dqPart = wordParts[0];
+    if (
+      dqPart.parts.length === 1 &&
+      dqPart.parts[0].type === "ParameterExpansion" &&
+      dqPart.parts[0].operation?.type === "PatternRemoval"
+    ) {
+      const paramPart = dqPart.parts[0];
+      const arrayMatch = paramPart.parameter.match(
+        /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
+      );
+      if (arrayMatch) {
+        const arrayName = arrayMatch[1];
+        const isStar = arrayMatch[2] === "*";
+        const operation = paramPart.operation as {
+          type: "PatternRemoval";
+          pattern: WordNode;
+          side: "prefix" | "suffix";
+          greedy: boolean;
+        };
+
+        // Get array elements
+        const elements = getArrayElements(ctx, arrayName);
+        const values = elements.map(([, v]) => v);
+
+        // If no elements, check for scalar (treat as single-element array)
+        if (elements.length === 0) {
+          const scalarValue = ctx.state.env[arrayName];
+          if (scalarValue !== undefined) {
+            values.push(scalarValue);
+          }
+        }
+
+        if (values.length === 0) {
+          return { values: [], quoted: true };
+        }
+
+        // Build the regex pattern
+        let regexStr = "";
+        const extglob = ctx.state.shoptOptions.extglob;
+        if (operation.pattern) {
+          for (const part of operation.pattern.parts) {
+            if (part.type === "Glob") {
+              regexStr += patternToRegex(
+                part.pattern,
+                operation.greedy,
+                extglob,
+              );
+            } else if (part.type === "Literal") {
+              regexStr += patternToRegex(part.value, operation.greedy, extglob);
+            } else if (
+              part.type === "SingleQuoted" ||
+              part.type === "Escaped"
+            ) {
+              regexStr += escapeRegex(part.value);
+            } else if (part.type === "DoubleQuoted") {
+              const expanded = await expandWordPartsAsync(ctx, part.parts);
+              regexStr += escapeRegex(expanded);
+            } else if (part.type === "ParameterExpansion") {
+              const expanded = await expandPart(ctx, part);
+              regexStr += patternToRegex(expanded, operation.greedy, extglob);
+            } else {
+              const expanded = await expandPart(ctx, part);
+              regexStr += escapeRegex(expanded);
+            }
+          }
+        }
+
+        // Apply pattern removal to each element
+        const strippedValues: string[] = [];
+        for (const value of values) {
+          strippedValues.push(
+            applyPatternRemoval(
+              value,
+              regexStr,
+              operation.side,
+              operation.greedy,
+            ),
+          );
+        }
+
+        if (isStar) {
+          // "${arr[*]#...}" - join all elements with IFS into one word
+          const ifsSep = getIfsSeparator(ctx.state.env);
+          return { values: [strippedValues.join(ifsSep)], quoted: true };
+        }
+
+        // "${arr[@]#...}" - each element as a separate word
+        return { values: strippedValues, quoted: true };
+      }
+    }
+  }
+
   // Handle "${!prefix@}" and "${!prefix*}" - variable name prefix expansion
   // "${!prefix@}": Each variable name becomes a separate word (like "$@")
   // "${!prefix*}": All names joined with IFS[0] into one word (like "$*")
@@ -1013,6 +1511,250 @@ export async function expandWordWithGlob(
       }
       // "${!arr[@]}" - each key as a separate word
       return { values: keys, quoted: true };
+    }
+  }
+
+  // Handle "${!ref}" where ref='arr[@]' or ref='arr[*]' - indirect array expansion
+  // This needs to be evaluated at runtime because we don't know the target until we expand ref
+  if (
+    hasIndirection &&
+    wordParts.length === 1 &&
+    wordParts[0].type === "DoubleQuoted"
+  ) {
+    const dqPart = wordParts[0];
+    if (
+      dqPart.parts.length === 1 &&
+      dqPart.parts[0].type === "ParameterExpansion" &&
+      dqPart.parts[0].operation?.type === "Indirection"
+    ) {
+      const paramPart = dqPart.parts[0];
+      // Get the value of the reference variable (e.g., ref='arr[@]')
+      const refValue = getVariable(ctx, paramPart.parameter);
+      // Check if the target is an array expansion (arr[@] or arr[*])
+      const arrayMatch = refValue.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/);
+      if (arrayMatch) {
+        const arrayName = arrayMatch[1];
+        const isStar = arrayMatch[2] === "*";
+        const elements = getArrayElements(ctx, arrayName);
+        if (elements.length > 0) {
+          const values = elements.map(([, v]) => v);
+          if (isStar) {
+            // arr[*] - join with IFS into one word
+            return {
+              values: [values.join(getIfsSeparator(ctx.state.env))],
+              quoted: true,
+            };
+          }
+          // arr[@] - each element as a separate word
+          return { values, quoted: true };
+        }
+        // No array elements - check for scalar variable
+        const scalarValue = ctx.state.env[arrayName];
+        if (scalarValue !== undefined) {
+          return { values: [scalarValue], quoted: true };
+        }
+        // Variable is unset - return empty
+        return { values: [], quoted: true };
+      }
+      // Handle ${!ref} where ref='@' or ref='*' - indirect positional parameter expansion
+      // When ref='@', "${!ref}" should expand like "$@" (separate words)
+      // When ref='*', "${!ref}" should expand like "$*" (joined by IFS)
+      if (refValue === "@" || refValue === "*") {
+        const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+        const params: string[] = [];
+        for (let i = 1; i <= numParams; i++) {
+          params.push(ctx.state.env[String(i)] || "");
+        }
+        if (refValue === "*") {
+          // ref='*' - join with IFS into one word (like "$*")
+          return {
+            values: [params.join(getIfsSeparator(ctx.state.env))],
+            quoted: true,
+          };
+        }
+        // ref='@' - each param as a separate word (like "$@")
+        return { values: params, quoted: true };
+      }
+    }
+  }
+
+  // Handle unquoted ${ref+...} or ${ref-...} where the word contains "${!ref}" (quoted indirect array expansion)
+  // This handles patterns like: ${hooksSlice+"${!hooksSlice}"} which should preserve element boundaries
+  if (
+    wordParts.length === 1 &&
+    wordParts[0].type === "ParameterExpansion" &&
+    (wordParts[0].operation?.type === "UseAlternative" ||
+      wordParts[0].operation?.type === "DefaultValue")
+  ) {
+    const paramPart = wordParts[0];
+    const op = paramPart.operation as
+      | { type: "UseAlternative"; word?: WordNode; checkEmpty?: boolean }
+      | { type: "DefaultValue"; word?: WordNode; checkEmpty?: boolean };
+    const opWord = op?.word;
+    // Check if the inner word is a quoted indirect expansion to an array
+    if (
+      opWord &&
+      opWord.parts.length === 1 &&
+      opWord.parts[0].type === "DoubleQuoted"
+    ) {
+      const innerDq = opWord.parts[0];
+      if (
+        innerDq.parts.length === 1 &&
+        innerDq.parts[0].type === "ParameterExpansion" &&
+        innerDq.parts[0].operation?.type === "Indirection"
+      ) {
+        const innerParam = innerDq.parts[0];
+        // Get the value of the reference variable to see if it points to an array
+        const refValue = getVariable(ctx, innerParam.parameter);
+        const arrayMatch = refValue.match(
+          /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
+        );
+        if (arrayMatch) {
+          // Check if we should use the alternative/default
+          const isSet = isVariableSet(ctx, paramPart.parameter);
+          const isEmpty = getVariable(ctx, paramPart.parameter) === "";
+          const checkEmpty = op.checkEmpty ?? false;
+          let shouldExpand: boolean;
+          if (op.type === "UseAlternative") {
+            // ${var+word} - expand if var IS set (and non-empty if :+)
+            shouldExpand = isSet && !(checkEmpty && isEmpty);
+          } else {
+            // ${var-word} - expand if var is NOT set (or empty if :-)
+            shouldExpand = !isSet || (checkEmpty && isEmpty);
+          }
+
+          if (shouldExpand) {
+            // Expand the inner indirect array reference
+            const arrayName = arrayMatch[1];
+            const isStar = arrayMatch[2] === "*";
+            const elements = getArrayElements(ctx, arrayName);
+            if (elements.length > 0) {
+              const values = elements.map(([, v]) => v);
+              if (isStar) {
+                // arr[*] - join with IFS into one word
+                return {
+                  values: [values.join(getIfsSeparator(ctx.state.env))],
+                  quoted: true,
+                };
+              }
+              // arr[@] - each element as a separate word (quoted)
+              return { values, quoted: true };
+            }
+            // No array elements - check for scalar variable
+            const scalarValue = ctx.state.env[arrayName];
+            if (scalarValue !== undefined) {
+              return { values: [scalarValue], quoted: true };
+            }
+            // Variable is unset - return empty
+            return { values: [], quoted: true };
+          }
+          // Don't expand the alternative - return empty
+          return { values: [], quoted: false };
+        }
+      }
+    }
+  }
+
+  // Handle unquoted ${!ref+...} or ${!ref-...} where the word contains "${!ref}" (quoted indirect array expansion)
+  // This handles patterns like: ${!hooksSlice+"${!hooksSlice}"} which should preserve element boundaries
+  // In this case, the outer operation is Indirection with innerOp of UseAlternative/DefaultValue
+  if (
+    wordParts.length === 1 &&
+    wordParts[0].type === "ParameterExpansion" &&
+    wordParts[0].operation?.type === "Indirection"
+  ) {
+    const paramPart = wordParts[0];
+    const indirOp = paramPart.operation as {
+      type: "Indirection";
+      innerOp?: {
+        type: string;
+        word?: WordNode;
+        checkEmpty?: boolean;
+      };
+    };
+    const innerOp = indirOp.innerOp;
+    if (
+      innerOp &&
+      (innerOp.type === "UseAlternative" || innerOp.type === "DefaultValue")
+    ) {
+      const opWord = innerOp.word;
+      // Check if the inner word is a quoted indirect expansion to an array
+      if (
+        opWord &&
+        opWord.parts.length === 1 &&
+        opWord.parts[0].type === "DoubleQuoted"
+      ) {
+        const innerDq = opWord.parts[0];
+        if (
+          innerDq.parts.length === 1 &&
+          innerDq.parts[0].type === "ParameterExpansion" &&
+          innerDq.parts[0].operation?.type === "Indirection"
+        ) {
+          const innerParam = innerDq.parts[0];
+          // Get the value of the reference variable to see if it points to an array
+          const refValue = getVariable(ctx, innerParam.parameter);
+          const arrayMatch = refValue.match(
+            /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
+          );
+          if (arrayMatch) {
+            // For ${!ref+word}, we need to check if the *expanded* ref value exists
+            // First, get what ref points to
+            const outerRefValue = getVariable(ctx, paramPart.parameter);
+            // Check if the target array is set
+            const targetArrayMatch = outerRefValue.match(
+              /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
+            );
+            let isSet = false;
+            if (targetArrayMatch) {
+              const targetArrayName = targetArrayMatch[1];
+              const targetElements = getArrayElements(ctx, targetArrayName);
+              isSet = targetElements.length > 0;
+            } else {
+              isSet = isVariableSet(ctx, outerRefValue);
+            }
+
+            // Note: checkEmpty would be used for :+ or :- variants, but since the indirect
+            // expansion target is an array, checking empty doesn't apply in the same way
+            // as it does for scalar variables. For now, we just check if the array is set.
+            let shouldExpand: boolean;
+            if (innerOp.type === "UseAlternative") {
+              // ${!ref+word} - expand if the *target* (what ref points to) IS set
+              shouldExpand = isSet;
+            } else {
+              // ${!ref-word} - expand if the *target* is NOT set
+              shouldExpand = !isSet;
+            }
+
+            if (shouldExpand) {
+              // Expand the inner indirect array reference
+              const arrayName = arrayMatch[1];
+              const isStar = arrayMatch[2] === "*";
+              const elements = getArrayElements(ctx, arrayName);
+              if (elements.length > 0) {
+                const values = elements.map(([, v]) => v);
+                if (isStar) {
+                  // arr[*] - join with IFS into one word
+                  return {
+                    values: [values.join(getIfsSeparator(ctx.state.env))],
+                    quoted: true,
+                  };
+                }
+                // arr[@] - each element as a separate word (quoted)
+                return { values, quoted: true };
+              }
+              // No array elements - check for scalar variable
+              const scalarValue = ctx.state.env[arrayName];
+              if (scalarValue !== undefined) {
+                return { values: [scalarValue], quoted: true };
+              }
+              // Variable is unset - return empty
+              return { values: [], quoted: true };
+            }
+            // Don't expand the alternative - return empty
+            return { values: [], quoted: false };
+          }
+        }
+      }
     }
   }
 
@@ -1269,6 +2011,125 @@ export async function expandWordWithGlob(
     }
   }
 
+  // Handle "${@#pattern}" and "${*#pattern}" - positional parameter pattern removal (strip)
+  // "${@#pattern}": Remove shortest matching prefix from each parameter, each becomes a separate word
+  // "${@##pattern}": Remove longest matching prefix from each parameter
+  // "${@%pattern}": Remove shortest matching suffix from each parameter
+  // "${@%%pattern}": Remove longest matching suffix from each parameter
+  if (wordParts.length === 1 && wordParts[0].type === "DoubleQuoted") {
+    const dqPart = wordParts[0];
+    // Find if there's a ${@#...} or ${*#...} inside
+    let patRemAtIndex = -1;
+    let patRemIsStar = false;
+    for (let i = 0; i < dqPart.parts.length; i++) {
+      const p = dqPart.parts[i];
+      if (
+        p.type === "ParameterExpansion" &&
+        (p.parameter === "@" || p.parameter === "*") &&
+        p.operation?.type === "PatternRemoval"
+      ) {
+        patRemAtIndex = i;
+        patRemIsStar = p.parameter === "*";
+        break;
+      }
+    }
+
+    if (patRemAtIndex !== -1) {
+      const paramPart = dqPart.parts[patRemAtIndex] as ParameterExpansionPart;
+      const operation = paramPart.operation as {
+        type: "PatternRemoval";
+        pattern: WordNode;
+        side: "prefix" | "suffix";
+        greedy: boolean;
+      };
+
+      // Get positional parameters
+      const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+      const params: string[] = [];
+      for (let i = 1; i <= numParams; i++) {
+        params.push(ctx.state.env[String(i)] || "");
+      }
+
+      // Expand prefix (parts before ${@#...})
+      let prefix = "";
+      for (let i = 0; i < patRemAtIndex; i++) {
+        prefix += await expandPart(ctx, dqPart.parts[i]);
+      }
+
+      // Expand suffix (parts after ${@#...})
+      let suffix = "";
+      for (let i = patRemAtIndex + 1; i < dqPart.parts.length; i++) {
+        suffix += await expandPart(ctx, dqPart.parts[i]);
+      }
+
+      if (numParams === 0) {
+        const combined = prefix + suffix;
+        return { values: combined ? [combined] : [], quoted: true };
+      }
+
+      // Build the regex pattern
+      let regexStr = "";
+      const extglob = ctx.state.shoptOptions.extglob;
+      if (operation.pattern) {
+        for (const part of operation.pattern.parts) {
+          if (part.type === "Glob") {
+            regexStr += patternToRegex(part.pattern, operation.greedy, extglob);
+          } else if (part.type === "Literal") {
+            regexStr += patternToRegex(part.value, operation.greedy, extglob);
+          } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
+            regexStr += escapeRegex(part.value);
+          } else if (part.type === "DoubleQuoted") {
+            const expanded = await expandWordPartsAsync(ctx, part.parts);
+            regexStr += escapeRegex(expanded);
+          } else if (part.type === "ParameterExpansion") {
+            const expanded = await expandPart(ctx, part);
+            regexStr += patternToRegex(expanded, operation.greedy, extglob);
+          } else {
+            const expanded = await expandPart(ctx, part);
+            regexStr += escapeRegex(expanded);
+          }
+        }
+      }
+
+      // Apply pattern removal to each param
+      const strippedParams: string[] = [];
+      for (const param of params) {
+        strippedParams.push(
+          applyPatternRemoval(
+            param,
+            regexStr,
+            operation.side,
+            operation.greedy,
+          ),
+        );
+      }
+
+      if (patRemIsStar) {
+        // "${*#...}" - join all params with IFS into one word
+        const ifsSep = getIfsSeparator(ctx.state.env);
+        return {
+          values: [prefix + strippedParams.join(ifsSep) + suffix],
+          quoted: true,
+        };
+      }
+
+      // "${@#...}" - each param is a separate word
+      if (strippedParams.length === 1) {
+        return {
+          values: [prefix + strippedParams[0] + suffix],
+          quoted: true,
+        };
+      }
+
+      const result = [
+        prefix + strippedParams[0],
+        ...strippedParams.slice(1, -1),
+        strippedParams[strippedParams.length - 1] + suffix,
+      ];
+      return { values: result, quoted: true };
+    }
+  }
+
   // Handle "$@" and "$*" with adjacent text inside double quotes, e.g., "-$@-"
   // "$@": Each positional parameter becomes a separate word, with prefix joined to first
   //       and suffix joined to last. If no params, produces nothing (or just prefix+suffix if present)
@@ -1352,6 +2213,386 @@ export async function expandWordWithGlob(
         params[params.length - 1] + suffix,
       ];
       return { values: result, quoted: true };
+    }
+  }
+
+  // Handle unquoted ${array[@]/pattern/replacement} - apply to each element
+  // This handles ${array[@]/#/prefix} (prepend) and ${array[@]/%/suffix} (append)
+  {
+    let unquotedArrayPatReplIdx = -1;
+    let unquotedArrayName = "";
+    let unquotedArrayIsStar = false;
+    for (let i = 0; i < wordParts.length; i++) {
+      const p = wordParts[i];
+      if (
+        p.type === "ParameterExpansion" &&
+        p.operation?.type === "PatternReplacement"
+      ) {
+        const arrayMatch = p.parameter.match(
+          /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
+        );
+        if (arrayMatch) {
+          unquotedArrayPatReplIdx = i;
+          unquotedArrayName = arrayMatch[1];
+          unquotedArrayIsStar = arrayMatch[2] === "*";
+          break;
+        }
+      }
+    }
+
+    if (unquotedArrayPatReplIdx !== -1) {
+      const paramPart = wordParts[
+        unquotedArrayPatReplIdx
+      ] as ParameterExpansionPart;
+      const operation = paramPart.operation as {
+        type: "PatternReplacement";
+        pattern: WordNode;
+        replacement: WordNode | null;
+        all: boolean;
+        anchor: "start" | "end" | null;
+      };
+
+      // Get array elements
+      const elements = getArrayElements(ctx, unquotedArrayName);
+      let values = elements.map(([, v]) => v);
+
+      // If no elements, check for scalar (treat as single-element array)
+      if (elements.length === 0) {
+        const scalarValue = ctx.state.env[unquotedArrayName];
+        if (scalarValue !== undefined) {
+          values = [scalarValue];
+        }
+      }
+
+      if (values.length === 0) {
+        return { values: [], quoted: false };
+      }
+
+      // Build the replacement regex
+      let regex = "";
+      if (operation.pattern) {
+        for (const part of operation.pattern.parts) {
+          if (part.type === "Glob") {
+            regex += patternToRegex(
+              part.pattern,
+              true,
+              ctx.state.shoptOptions.extglob,
+            );
+          } else if (part.type === "Literal") {
+            regex += patternToRegex(
+              part.value,
+              true,
+              ctx.state.shoptOptions.extglob,
+            );
+          } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
+            regex += escapeRegex(part.value);
+          } else if (part.type === "DoubleQuoted") {
+            const expanded = await expandWordPartsAsync(ctx, part.parts);
+            regex += escapeRegex(expanded);
+          } else if (part.type === "ParameterExpansion") {
+            const expanded = await expandPart(ctx, part);
+            regex += patternToRegex(
+              expanded,
+              true,
+              ctx.state.shoptOptions.extglob,
+            );
+          } else {
+            const expanded = await expandPart(ctx, part);
+            regex += escapeRegex(expanded);
+          }
+        }
+      }
+
+      const replacement = operation.replacement
+        ? await expandWordPartsAsync(ctx, operation.replacement.parts)
+        : "";
+
+      // Apply anchor modifiers
+      let regexPattern = regex;
+      if (operation.anchor === "start") {
+        regexPattern = `^${regex}`;
+      } else if (operation.anchor === "end") {
+        regexPattern = `${regex}$`;
+      }
+
+      // Apply replacement to each element
+      const replacedValues: string[] = [];
+      try {
+        const re = new RegExp(regexPattern, operation.all ? "g" : "");
+        for (const value of values) {
+          replacedValues.push(value.replace(re, replacement));
+        }
+      } catch {
+        // Invalid regex - return values unchanged
+        replacedValues.push(...values);
+      }
+
+      // For unquoted, we need to IFS-split the result
+      const ifsChars = getIfs(ctx.state.env);
+      const ifsEmpty = isIfsEmpty(ctx.state.env);
+
+      if (unquotedArrayIsStar) {
+        // ${arr[*]/...} unquoted - join with IFS, then split
+        const ifsSep = getIfsSeparator(ctx.state.env);
+        const joined = replacedValues.join(ifsSep);
+        if (ifsEmpty) {
+          return { values: joined ? [joined] : [], quoted: false };
+        }
+        return {
+          values: splitByIfsForExpansion(joined, ifsChars),
+          quoted: false,
+        };
+      }
+
+      // ${arr[@]/...} unquoted - each element separate, then IFS-split each
+      if (ifsEmpty) {
+        return { values: replacedValues, quoted: false };
+      }
+
+      const allWords: string[] = [];
+      for (const val of replacedValues) {
+        if (val === "") {
+          allWords.push("");
+        } else {
+          allWords.push(...splitByIfsForExpansion(val, ifsChars));
+        }
+      }
+      return { values: allWords, quoted: false };
+    }
+  }
+
+  // Handle unquoted ${array[@]#pattern} - apply pattern removal to each element
+  // This handles ${array[@]#pattern} (strip shortest prefix), ${array[@]##pattern} (strip longest prefix)
+  // ${array[@]%pattern} (strip shortest suffix), ${array[@]%%pattern} (strip longest suffix)
+  {
+    let unquotedArrayPatRemIdx = -1;
+    let unquotedArrayName = "";
+    let unquotedArrayIsStar = false;
+    for (let i = 0; i < wordParts.length; i++) {
+      const p = wordParts[i];
+      if (
+        p.type === "ParameterExpansion" &&
+        p.operation?.type === "PatternRemoval"
+      ) {
+        const arrayMatch = p.parameter.match(
+          /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
+        );
+        if (arrayMatch) {
+          unquotedArrayPatRemIdx = i;
+          unquotedArrayName = arrayMatch[1];
+          unquotedArrayIsStar = arrayMatch[2] === "*";
+          break;
+        }
+      }
+    }
+
+    if (unquotedArrayPatRemIdx !== -1) {
+      const paramPart = wordParts[
+        unquotedArrayPatRemIdx
+      ] as ParameterExpansionPart;
+      const operation = paramPart.operation as {
+        type: "PatternRemoval";
+        pattern: WordNode;
+        side: "prefix" | "suffix";
+        greedy: boolean;
+      };
+
+      // Get array elements
+      const elements = getArrayElements(ctx, unquotedArrayName);
+      let values = elements.map(([, v]) => v);
+
+      // If no elements, check for scalar (treat as single-element array)
+      if (elements.length === 0) {
+        const scalarValue = ctx.state.env[unquotedArrayName];
+        if (scalarValue !== undefined) {
+          values = [scalarValue];
+        }
+      }
+
+      if (values.length === 0) {
+        return { values: [], quoted: false };
+      }
+
+      // Build the regex pattern
+      let regexStr = "";
+      const extglob = ctx.state.shoptOptions.extglob;
+      if (operation.pattern) {
+        for (const part of operation.pattern.parts) {
+          if (part.type === "Glob") {
+            regexStr += patternToRegex(part.pattern, operation.greedy, extglob);
+          } else if (part.type === "Literal") {
+            regexStr += patternToRegex(part.value, operation.greedy, extglob);
+          } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
+            regexStr += escapeRegex(part.value);
+          } else if (part.type === "DoubleQuoted") {
+            const expanded = await expandWordPartsAsync(ctx, part.parts);
+            regexStr += escapeRegex(expanded);
+          } else if (part.type === "ParameterExpansion") {
+            const expanded = await expandPart(ctx, part);
+            regexStr += patternToRegex(expanded, operation.greedy, extglob);
+          } else {
+            const expanded = await expandPart(ctx, part);
+            regexStr += escapeRegex(expanded);
+          }
+        }
+      }
+
+      // Apply pattern removal to each element
+      const strippedValues: string[] = [];
+      for (const value of values) {
+        strippedValues.push(
+          applyPatternRemoval(
+            value,
+            regexStr,
+            operation.side,
+            operation.greedy,
+          ),
+        );
+      }
+
+      // For unquoted, we need to IFS-split the result
+      const ifsChars = getIfs(ctx.state.env);
+      const ifsEmpty = isIfsEmpty(ctx.state.env);
+
+      if (unquotedArrayIsStar) {
+        // ${arr[*]#...} unquoted - join with IFS, then split
+        const ifsSep = getIfsSeparator(ctx.state.env);
+        const joined = strippedValues.join(ifsSep);
+        if (ifsEmpty) {
+          return { values: joined ? [joined] : [], quoted: false };
+        }
+        return {
+          values: splitByIfsForExpansion(joined, ifsChars),
+          quoted: false,
+        };
+      }
+
+      // ${arr[@]#...} unquoted - each element separate, then IFS-split each
+      if (ifsEmpty) {
+        return { values: strippedValues, quoted: false };
+      }
+
+      const allWords: string[] = [];
+      for (const val of strippedValues) {
+        if (val === "") {
+          allWords.push("");
+        } else {
+          allWords.push(...splitByIfsForExpansion(val, ifsChars));
+        }
+      }
+      return { values: allWords, quoted: false };
+    }
+  }
+
+  // Handle unquoted ${@#pattern} and ${*#pattern} - apply pattern removal to each positional parameter
+  // This handles ${@#pattern} (strip shortest prefix), ${@##pattern} (strip longest prefix)
+  // ${@%pattern} (strip shortest suffix), ${@%%pattern} (strip longest suffix)
+  {
+    let unquotedPosPatRemIdx = -1;
+    let unquotedPosPatRemIsStar = false;
+    for (let i = 0; i < wordParts.length; i++) {
+      const p = wordParts[i];
+      if (
+        p.type === "ParameterExpansion" &&
+        (p.parameter === "@" || p.parameter === "*") &&
+        p.operation?.type === "PatternRemoval"
+      ) {
+        unquotedPosPatRemIdx = i;
+        unquotedPosPatRemIsStar = p.parameter === "*";
+        break;
+      }
+    }
+
+    if (unquotedPosPatRemIdx !== -1) {
+      const paramPart = wordParts[
+        unquotedPosPatRemIdx
+      ] as ParameterExpansionPart;
+      const operation = paramPart.operation as {
+        type: "PatternRemoval";
+        pattern: WordNode;
+        side: "prefix" | "suffix";
+        greedy: boolean;
+      };
+
+      // Get positional parameters
+      const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+      const params: string[] = [];
+      for (let i = 1; i <= numParams; i++) {
+        params.push(ctx.state.env[String(i)] || "");
+      }
+
+      if (params.length === 0) {
+        return { values: [], quoted: false };
+      }
+
+      // Build the regex pattern
+      let regexStr = "";
+      const extglob = ctx.state.shoptOptions.extglob;
+      if (operation.pattern) {
+        for (const part of operation.pattern.parts) {
+          if (part.type === "Glob") {
+            regexStr += patternToRegex(part.pattern, operation.greedy, extglob);
+          } else if (part.type === "Literal") {
+            regexStr += patternToRegex(part.value, operation.greedy, extglob);
+          } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
+            regexStr += escapeRegex(part.value);
+          } else if (part.type === "DoubleQuoted") {
+            const expanded = await expandWordPartsAsync(ctx, part.parts);
+            regexStr += escapeRegex(expanded);
+          } else if (part.type === "ParameterExpansion") {
+            const expanded = await expandPart(ctx, part);
+            regexStr += patternToRegex(expanded, operation.greedy, extglob);
+          } else {
+            const expanded = await expandPart(ctx, part);
+            regexStr += escapeRegex(expanded);
+          }
+        }
+      }
+
+      // Apply pattern removal to each positional parameter
+      const strippedParams: string[] = [];
+      for (const param of params) {
+        strippedParams.push(
+          applyPatternRemoval(
+            param,
+            regexStr,
+            operation.side,
+            operation.greedy,
+          ),
+        );
+      }
+
+      // For unquoted, we need to IFS-split the result
+      const ifsChars = getIfs(ctx.state.env);
+      const ifsEmpty = isIfsEmpty(ctx.state.env);
+
+      if (unquotedPosPatRemIsStar) {
+        // ${*#...} unquoted - join with IFS, then split
+        const ifsSep = getIfsSeparator(ctx.state.env);
+        const joined = strippedParams.join(ifsSep);
+        if (ifsEmpty) {
+          return { values: joined ? [joined] : [], quoted: false };
+        }
+        return {
+          values: splitByIfsForExpansion(joined, ifsChars),
+          quoted: false,
+        };
+      }
+
+      // ${@#...} unquoted - each param separate, then IFS-split each
+      if (ifsEmpty) {
+        return { values: strippedParams, quoted: false };
+      }
+
+      const allWords: string[] = [];
+      for (const val of strippedParams) {
+        if (val === "") {
+          allWords.push("");
+        } else {
+          allWords.push(...splitByIfsForExpansion(val, ifsChars));
+        }
+      }
+      return { values: allWords, quoted: false };
     }
   }
 
@@ -1521,6 +2762,7 @@ export async function expandWordWithGlob(
           failglob: ctx.state.shoptOptions.failglob,
           dotglob: ctx.state.shoptOptions.dotglob,
           extglob: ctx.state.shoptOptions.extglob,
+          globskipdots: ctx.state.shoptOptions.globskipdots,
         },
       );
 
@@ -1624,6 +2866,7 @@ export async function expandWordWithGlob(
         failglob: ctx.state.shoptOptions.failglob,
         dotglob: ctx.state.shoptOptions.dotglob,
         extglob: ctx.state.shoptOptions.extglob,
+        globskipdots: ctx.state.shoptOptions.globskipdots,
       },
     );
 
@@ -1688,6 +2931,7 @@ export async function expandWordWithGlob(
         failglob: ctx.state.shoptOptions.failglob,
         dotglob: ctx.state.shoptOptions.dotglob,
         extglob: ctx.state.shoptOptions.extglob,
+        globskipdots: ctx.state.shoptOptions.globskipdots,
       },
     );
     for (const sv of splitResult) {
@@ -1736,6 +2980,7 @@ export async function expandWordWithGlob(
           failglob: ctx.state.shoptOptions.failglob,
           dotglob: ctx.state.shoptOptions.dotglob,
           extglob: ctx.state.shoptOptions.extglob,
+          globskipdots: ctx.state.shoptOptions.globskipdots,
         },
       );
       const matches = await globExpander.expand(globPattern);
@@ -1766,6 +3011,7 @@ export async function expandWordWithGlob(
         failglob: ctx.state.shoptOptions.failglob,
         dotglob: ctx.state.shoptOptions.dotglob,
         extglob: ctx.state.shoptOptions.extglob,
+        globskipdots: ctx.state.shoptOptions.globskipdots,
       },
     );
     const matches = await globExpander.expand(value);
@@ -1833,6 +3079,7 @@ export async function expandRedirectTarget(
     failglob: ctx.state.shoptOptions.failglob,
     dotglob: ctx.state.shoptOptions.dotglob,
     extglob: ctx.state.shoptOptions.extglob,
+    globskipdots: ctx.state.shoptOptions.globskipdots,
   });
 
   const matches = await globExpander.expand(value);
@@ -1875,6 +3122,58 @@ async function expandWordAsync(
   return parts.join("");
 }
 
+/**
+ * Detect the $(<file) shorthand pattern.
+ * Returns the target WordNode if this is a valid $(<file) pattern, null otherwise.
+ *
+ * The pattern is valid when the command substitution body is a script with:
+ * - Exactly one statement
+ * - One pipeline with one command
+ * - A SimpleCommand with no name, no args, no assignments
+ * - Exactly one input redirection (<)
+ *
+ * Note: The special $(<file) behavior only works when it's the ONLY element
+ * in the command substitution. $(< file; cmd) or $(cmd; < file) are NOT special.
+ */
+function getFileReadShorthand(body: ScriptNode): { target: WordNode } | null {
+  // Must have exactly one statement
+  if (body.statements.length !== 1) return null;
+
+  const statement = body.statements[0];
+  // Must not have any operators (no && or ||)
+  if (statement.operators.length !== 0) return null;
+  // Must have exactly one pipeline
+  if (statement.pipelines.length !== 1) return null;
+
+  const pipeline = statement.pipelines[0];
+  // Must not be negated
+  if (pipeline.negated) return null;
+  // Must have exactly one command
+  if (pipeline.commands.length !== 1) return null;
+
+  const cmd = pipeline.commands[0];
+  // Must be a SimpleCommand
+  if (cmd.type !== "SimpleCommand") return null;
+
+  const simpleCmd = cmd as SimpleCommandNode;
+  // Must have no command name
+  if (simpleCmd.name !== null) return null;
+  // Must have no arguments
+  if (simpleCmd.args.length !== 0) return null;
+  // Must have no assignments
+  if (simpleCmd.assignments.length !== 0) return null;
+  // Must have exactly one redirection
+  if (simpleCmd.redirections.length !== 1) return null;
+
+  const redirect = simpleCmd.redirections[0];
+  // Must be an input redirection (<)
+  if (redirect.operator !== "<") return null;
+  // Target must be a WordNode (not heredoc)
+  if (redirect.target.type !== "Word") return null;
+
+  return { target: redirect.target };
+}
+
 async function expandPart(
   ctx: InterpreterContext,
   part: WordPart,
@@ -1899,6 +3198,31 @@ async function expandPart(
     }
 
     case "CommandSubstitution": {
+      // Check for the special $(<file) shorthand pattern
+      // This is equivalent to $(cat file) but reads the file directly
+      const fileReadShorthand = getFileReadShorthand(part.body);
+      if (fileReadShorthand) {
+        try {
+          // Expand the file path (handles $VAR, etc.)
+          const filePath = await expandWord(ctx, fileReadShorthand.target);
+          // Resolve relative paths
+          const resolvedPath = filePath.startsWith("/")
+            ? filePath
+            : `${ctx.state.cwd}/${filePath}`;
+          // Read the file
+          const content = await ctx.fs.readFile(resolvedPath);
+          ctx.state.lastExitCode = 0;
+          ctx.state.env["?"] = "0";
+          // Strip trailing newlines (like command substitution does)
+          return content.replace(/\n+$/, "");
+        } catch {
+          // File not found or read error - return empty string, set exit code
+          ctx.state.lastExitCode = 1;
+          ctx.state.env["?"] = "1";
+          return "";
+        }
+      }
+
       // Command substitution runs in a subshell-like context
       // ExitError should NOT terminate the main script, just this substitution
       // But ExecutionLimitError MUST propagate to protect against infinite recursion
@@ -1976,7 +3300,46 @@ function expandParameter(
   }
 
   const isUnset = !isVariableSet(ctx, parameter);
-  const isEmpty = value === "";
+  // For $* and $@, when checkEmpty is true (:-/:+), bash has special rules:
+  // - $*: "empty" only if $# == 0 (even if IFS="" makes expansion empty)
+  // - $@: "empty" if $# == 0 OR ($# == 1 AND $1 == "")
+  // This is because $@ treats a single empty param as "empty" but $* does not.
+  // For a[*] and a[@], similar rules apply based on array elements and IFS.
+  let isEmpty: boolean;
+  let effectiveValue = value; // For a[*], we need IFS-joined value, not space-joined
+  const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+  // Check if this is an array expansion: varname[*] or varname[@]
+  const arrayExpMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/);
+  if (parameter === "*") {
+    // $* is only "empty" if no positional params exist
+    isEmpty = numParams === 0;
+  } else if (parameter === "@") {
+    // $@ is "empty" if no params OR exactly one empty param
+    isEmpty = numParams === 0 || (numParams === 1 && ctx.state.env["1"] === "");
+  } else if (arrayExpMatch) {
+    // a[*] or a[@] - check if expansion is empty considering IFS
+    const [, arrayName, subscript] = arrayExpMatch;
+    const elements = getArrayElements(ctx, arrayName);
+    if (elements.length === 0) {
+      // Empty array - always empty
+      isEmpty = true;
+      effectiveValue = "";
+    } else if (subscript === "*") {
+      // a[*] - join with IFS, check if result is empty
+      const ifsSep = getIfsSeparator(ctx.state.env);
+      const joined = elements.map(([, v]) => v).join(ifsSep);
+      isEmpty = joined === "";
+      effectiveValue = joined; // Use IFS-joined value instead of space-joined
+    } else {
+      // a[@] - empty only if all elements are empty AND there's exactly one
+      // (similar to $@ behavior with single empty param)
+      isEmpty = elements.length === 1 && elements.every(([, v]) => v === "");
+      // For a[@], join with space (as getVariable does)
+      effectiveValue = elements.map(([, v]) => v).join(" ");
+    }
+  } else {
+    isEmpty = value === "";
+  }
 
   switch (operation.type) {
     case "DefaultValue": {
@@ -1986,7 +3349,7 @@ function expandParameter(
         // Pass inDoubleQuotes to suppress tilde expansion inside "..."
         return expandWordPartsSync(ctx, operation.word.parts, inDoubleQuotes);
       }
-      return value;
+      return effectiveValue;
     }
 
     case "AssignDefault": {
@@ -2035,7 +3398,7 @@ function expandParameter(
         }
         return defaultValue;
       }
-      return value;
+      return effectiveValue;
     }
 
     case "ErrorIfUnset": {
@@ -2047,7 +3410,7 @@ function expandParameter(
         // Use ExitError to properly exit with status 1 and error message
         throw new ExitError(1, "", `bash: ${message}\n`);
       }
-      return value;
+      return effectiveValue;
     }
 
     case "UseAlternative": {
@@ -2274,18 +3637,20 @@ function expandParameter(
         ? expandWordPartsSync(ctx, operation.replacement.parts)
         : "";
 
-      // Empty pattern means no replacement - return original value
-      // This prevents infinite loops and matches bash behavior
-      if (regex === "") {
-        return value;
-      }
-
       // Apply anchor modifiers
       if (operation.anchor === "start") {
         regex = `^${regex}`;
       } else if (operation.anchor === "end") {
         regex = `${regex}$`;
       }
+
+      // Empty pattern (without anchor) means no replacement - return original value
+      // This prevents infinite loops and matches bash behavior
+      // But with anchor, empty pattern is valid: ${var/#/prefix} prepends, ${var/%/suffix} appends
+      if (regex === "") {
+        return value;
+      }
+
       const flags = operation.all ? "g" : "";
 
       // Handle invalid regex patterns (like [z-a] which is an invalid range)
@@ -2484,19 +3849,63 @@ async function expandParameterAsync(
   }
 
   const isUnset = !isVariableSet(ctx, parameter);
-  const isEmpty = value === "";
+  // For $* and $@, when checkEmpty is true (:-/:+), bash has special rules:
+  // - $*: "empty" only if $# == 0 (even if IFS="" makes expansion empty)
+  // - $@: "empty" if $# == 0 OR ($# == 1 AND $1 == "")
+  // This is because $@ treats a single empty param as "empty" but $* does not.
+  // For a[*] and a[@], similar rules apply based on array elements and IFS.
+  let isEmptyAsync: boolean;
+  let effectiveValueAsync = value; // For a[*], we need IFS-joined value, not space-joined
+  const numParamsAsync = Number.parseInt(ctx.state.env["#"] || "0", 10);
+  // Check if this is an array expansion: varname[*] or varname[@]
+  const arrayExpMatchAsync = parameter.match(
+    /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
+  );
+  if (parameter === "*") {
+    // $* is only "empty" if no positional params exist
+    isEmptyAsync = numParamsAsync === 0;
+  } else if (parameter === "@") {
+    // $@ is "empty" if no params OR exactly one empty param
+    isEmptyAsync =
+      numParamsAsync === 0 ||
+      (numParamsAsync === 1 && ctx.state.env["1"] === "");
+  } else if (arrayExpMatchAsync) {
+    // a[*] or a[@] - check if expansion is empty considering IFS
+    const [, arrayName, subscript] = arrayExpMatchAsync;
+    const elements = getArrayElements(ctx, arrayName);
+    if (elements.length === 0) {
+      // Empty array - always empty
+      isEmptyAsync = true;
+      effectiveValueAsync = "";
+    } else if (subscript === "*") {
+      // a[*] - join with IFS, check if result is empty
+      const ifsSep = getIfsSeparator(ctx.state.env);
+      const joined = elements.map(([, v]) => v).join(ifsSep);
+      isEmptyAsync = joined === "";
+      effectiveValueAsync = joined; // Use IFS-joined value instead of space-joined
+    } else {
+      // a[@] - empty only if all elements are empty AND there's exactly one
+      // (similar to $@ behavior with single empty param)
+      isEmptyAsync =
+        elements.length === 1 && elements.every(([, v]) => v === "");
+      // For a[@], join with space (as getVariable does)
+      effectiveValueAsync = elements.map(([, v]) => v).join(" ");
+    }
+  } else {
+    isEmptyAsync = value === "";
+  }
 
   switch (operation.type) {
     case "DefaultValue": {
-      const useDefault = isUnset || (operation.checkEmpty && isEmpty);
+      const useDefault = isUnset || (operation.checkEmpty && isEmptyAsync);
       if (useDefault && operation.word) {
         return expandWordPartsAsync(ctx, operation.word.parts, inDoubleQuotes);
       }
-      return value;
+      return effectiveValueAsync;
     }
 
     case "AssignDefault": {
-      const useDefault = isUnset || (operation.checkEmpty && isEmpty);
+      const useDefault = isUnset || (operation.checkEmpty && isEmptyAsync);
       if (useDefault && operation.word) {
         const defaultValue = await expandWordPartsAsync(
           ctx,
@@ -2539,11 +3948,11 @@ async function expandParameterAsync(
         }
         return defaultValue;
       }
-      return value;
+      return effectiveValueAsync;
     }
 
     case "ErrorIfUnset": {
-      const shouldError = isUnset || (operation.checkEmpty && isEmpty);
+      const shouldError = isUnset || (operation.checkEmpty && isEmptyAsync);
       if (shouldError) {
         const message = operation.word
           ? await expandWordPartsAsync(
@@ -2554,11 +3963,14 @@ async function expandParameterAsync(
           : `${parameter}: parameter null or not set`;
         throw new ExitError(1, "", `bash: ${message}\n`);
       }
-      return value;
+      return effectiveValueAsync;
     }
 
     case "UseAlternative": {
-      const useAlternative = !(isUnset || (operation.checkEmpty && isEmpty));
+      const useAlternative = !(
+        isUnset ||
+        (operation.checkEmpty && isEmptyAsync)
+      );
       if (useAlternative && operation.word) {
         return expandWordPartsAsync(ctx, operation.word.parts, inDoubleQuotes);
       }
@@ -2648,15 +4060,19 @@ async function expandParameterAsync(
         ? await expandWordPartsAsync(ctx, operation.replacement.parts)
         : "";
 
-      if (regex === "") {
-        return value;
-      }
-
+      // Apply anchor modifiers
       if (operation.anchor === "start") {
         regex = `^${regex}`;
       } else if (operation.anchor === "end") {
         regex = `${regex}$`;
       }
+
+      // Empty pattern (without anchor) means no replacement - return original value
+      // But with anchor, empty pattern is valid: ${var/#/prefix} prepends, ${var/%/suffix} appends
+      if (regex === "") {
+        return value;
+      }
+
       const flags = operation.all ? "g" : "";
 
       try {

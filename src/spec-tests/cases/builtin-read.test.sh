@@ -32,7 +32,6 @@ argv.py "status=$?" "$REPLY"
 ## status: 0
 
 #### read /dev/null
-## SKIP: /dev/null read behavior not implemented
 read -n 1 </dev/null
 echo $?
 ## STDOUT:
@@ -840,7 +839,6 @@ echo 'a\b\c\d\e\f' | (read -n 0; argv.py "$REPLY")
 ## END
 
 #### read -n and backslash escape
-## SKIP: read -n backslash escape handling differs from bash
 case $SH in zsh) exit 99;; esac  # read -n not implemented
 
 echo 'a\b\c\d\e\f' | (read -n 5; argv.py "$REPLY")
@@ -863,7 +861,6 @@ echo 'a\ \ \ \ \ ' | (read -n 5; argv.py "$REPLY")
 ## END
 
 #### read -n 4 with incomplete backslash
-## SKIP: read -n backslash escape handling differs from bash
 case $SH in zsh) exit 99;; esac  # read -n not implemented
 
 echo 'abc\def\ghijklmn' | (read -n 4; argv.py "$REPLY")
@@ -890,7 +887,6 @@ echo '   \xxx\xxxxxxxx' | (read -n 4; argv.py "$REPLY")
 ## END
 
 #### read -n 4 with backslash + delim
-## SKIP: read -n backslash escape handling differs from bash
 case $SH in zsh) exit 99;; esac  # read -n not implemented
 
 echo $'abc\\\ndefg' | (read -n 4; argv.py "$REPLY")

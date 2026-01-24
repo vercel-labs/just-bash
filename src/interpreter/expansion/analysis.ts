@@ -144,6 +144,7 @@ export interface WordPartsAnalysis {
   hasArrayAtExpansion: boolean;
   hasParamExpansion: boolean;
   hasVarNamePrefixExpansion: boolean;
+  hasIndirection: boolean;
 }
 
 /**
@@ -156,6 +157,7 @@ export function analyzeWordParts(parts: WordPart[]): WordPartsAnalysis {
   let hasArrayAtExpansion = false;
   let hasParamExpansion = false;
   let hasVarNamePrefixExpansion = false;
+  let hasIndirection = false;
 
   for (const part of parts) {
     if (part.type === "SingleQuoted" || part.type === "DoubleQuoted") {
@@ -178,6 +180,10 @@ export function analyzeWordParts(parts: WordPart[]): WordPartsAnalysis {
               inner.operation?.type === "ArrayKeys"
             ) {
               hasVarNamePrefixExpansion = true;
+            }
+            // Check for ${!var} indirect expansion inside double quotes
+            if (inner.operation?.type === "Indirection") {
+              hasIndirection = true;
             }
           }
         }
@@ -203,6 +209,10 @@ export function analyzeWordParts(parts: WordPart[]): WordPartsAnalysis {
       ) {
         hasVarNamePrefixExpansion = true;
       }
+      // Check for ${!var} indirect expansion
+      if (part.operation?.type === "Indirection") {
+        hasIndirection = true;
+      }
     }
   }
 
@@ -213,5 +223,6 @@ export function analyzeWordParts(parts: WordPart[]): WordPartsAnalysis {
     hasArrayAtExpansion,
     hasParamExpansion,
     hasVarNamePrefixExpansion,
+    hasIndirection,
   };
 }

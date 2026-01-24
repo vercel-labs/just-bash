@@ -114,7 +114,6 @@ echo ${PIPESTATUS[@]}
 ## END
 
 #### |&
-## SKIP: |& pipeline does not pipe stderr to next command
 stdout_stderr.py |& cat
 ## STDOUT:
 STDERR

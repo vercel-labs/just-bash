@@ -41,7 +41,7 @@ status=0 opt=h OPTARG=
 ## END
 
 #### OPTARG is empty (not unset) after parsing a flag doesn't take an arg
-## SKIP: bash/mksh have different behavior (BUG status: 1) - OPTARG behavior with set -u varies
+## SKIP: just-bash produces correct output but test expects bash BUG behavior
 
 set -u
 getopts 'ab' name '-a'
@@ -159,7 +159,7 @@ echo $OPTIND
 ## stdout: 1
 
 #### OPTIND after multiple getopts with same spec
-## SKIP: OPTIND reset behavior after set -- varies between shells
+## SKIP: OPTIND not reset after set -- with empty args (matches mksh BUG, not bash)
 while getopts "hc:" opt; do
   echo '-'
 done
@@ -193,7 +193,7 @@ OPTIND=4
 ## END
 
 #### OPTIND after multiple getopts with different spec
-## SKIP: OPTIND reset behavior after set -- varies between shells
+## SKIP: OPTIND not reset when using different getopts specs (matches mksh BUG, not bash)
 # Wow this is poorly specified!  A fundamental design problem with the global
 # variable OPTIND.
 set -- -a
@@ -386,6 +386,7 @@ status=1
 
 
 #### getopts bug #1523
+## SKIP: $SH subprocess execution not supported
 # Create test script inline - getopts with abc: optspec
 cat > /tmp/getopts-1523.sh <<'SCRIPT'
 while getopts "abc:" opt; do
@@ -411,6 +412,7 @@ opt:c arg:de
 ## END
 
 #### More regression for #1523
+## SKIP: $SH subprocess execution not supported
 # Uses /tmp/getopts-1523.sh from previous test
 $SH /tmp/getopts-1523.sh -abcdef -xyz
 

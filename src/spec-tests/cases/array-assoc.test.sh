@@ -129,7 +129,6 @@ argv.py ${!A[@]}
 ## END
 
 #### ${A[@]/b/B}
-## SKIP: Associative array value ordering differs
 # but ${!A[@]/b/B} doesn't work
 declare -A A
 A['aa']=bbb
@@ -145,7 +144,6 @@ ddd
 ## END
 
 #### ${A[@]#prefix}
-## SKIP: Associative array value ordering differs
 declare -A A
 A['aa']=one
 A['bb']=two

@@ -281,7 +281,6 @@ STDERR
 ## N-I dash status: 1
 
 #### >&word redirects stdout and stderr when word is not a number or -
-## SKIP: >&word redirect to file (non-fd) does not capture stderr
 # dash, mksh don't implement this bash behaviour.
 case $SH in dash|mksh) exit 1 ;; esac
 
@@ -525,7 +524,6 @@ a
 ## END
 
 #### Parsing of x=1> and related cases
-## SKIP: Variable assignment vs redirect parsing ambiguity not implemented
 
 echo x=1>/dev/stdout
 echo x=1 >/dev/stdout
@@ -548,7 +546,6 @@ a1
 ## END
 
 #### Parsing of x={myvar} and related cases
-## SKIP: /dev/stdout redirect does not work in virtual filesystem
 case $SH in dash) exit ;; esac
 
 echo {myvar}>/dev/stdout

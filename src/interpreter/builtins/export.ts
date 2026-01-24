@@ -37,14 +37,17 @@ export function handleExport(
   // No args or just -p: list all exported variables
   if (processedArgs.length === 0 && !unexport) {
     let stdout = "";
-    const entries = Object.entries(ctx.state.env)
-      .filter(([key]) => !key.startsWith("BASH_ALIAS_")) // Don't list aliases
-      .sort(([a], [b]) => a.localeCompare(b));
+    // Only list variables that are actually exported
+    const exportedVars = ctx.state.exportedVars ?? new Set();
+    const sortedNames = Array.from(exportedVars).sort();
 
-    for (const [name, value] of entries) {
-      // Quote the value, escaping any quotes inside
-      const escapedValue = value.replace(/'/g, "'\\''");
-      stdout += `declare -x ${name}='${escapedValue}'\n`;
+    for (const name of sortedNames) {
+      const value = ctx.state.env[name];
+      if (value !== undefined) {
+        // Quote the value with double quotes, escaping backslashes and double quotes
+        const escapedValue = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        stdout += `declare -x ${name}="${escapedValue}"\n`;
+      }
     }
     return success(stdout);
   }

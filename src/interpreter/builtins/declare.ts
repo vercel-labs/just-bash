@@ -351,6 +351,94 @@ export function handleDeclare(
     return result(stdout, stderr, anyNotFound ? 1 : 0);
   }
 
+  // Print mode without args (declare -p): list all variables with attributes
+  if (printMode && processedArgs.length === 0) {
+    let stdout = "";
+
+    // Collect all variable names (excluding internal markers like __length)
+    const varNames = new Set<string>();
+    for (const key of Object.keys(ctx.state.env)) {
+      if (key.startsWith("BASH_")) continue;
+      // Skip internal array markers
+      if (key.includes("__length")) continue;
+      // For array elements (name_index), extract base name
+      const underscoreIdx = key.lastIndexOf("_");
+      if (underscoreIdx > 0) {
+        const baseName = key.slice(0, underscoreIdx);
+        const suffix = key.slice(underscoreIdx + 1);
+        // If suffix is numeric or baseName is an array, it's an array element
+        if (
+          /^\d+$/.test(suffix) ||
+          ctx.state.associativeArrays?.has(baseName)
+        ) {
+          varNames.add(baseName);
+          continue;
+        }
+      }
+      varNames.add(key);
+    }
+
+    // Also include local variables if we're in a function scope
+    if (ctx.state.localVarDepth) {
+      for (const name of ctx.state.localVarDepth.keys()) {
+        varNames.add(name);
+      }
+    }
+
+    // Sort and output each variable
+    const sortedNames = Array.from(varNames).sort();
+    for (const name of sortedNames) {
+      const flags = getVariableFlags(ctx, name);
+
+      // Check if this is an associative array
+      const isAssoc = ctx.state.associativeArrays?.has(name);
+      if (isAssoc) {
+        const keys = getAssocArrayKeys(ctx, name);
+        if (keys.length === 0) {
+          stdout += `declare -A ${name}=()\n`;
+        } else {
+          const elements = keys.map((key) => {
+            const value = ctx.state.env[`${name}_${key}`] ?? "";
+            const escapedValue = value
+              .replace(/\\/g, "\\\\")
+              .replace(/"/g, '\\"');
+            return `['${key}']="${escapedValue}"`;
+          });
+          stdout += `declare -A ${name}=(${elements.join(" ")})\n`;
+        }
+        continue;
+      }
+
+      // Check if this is an indexed array
+      const arrayIndices = getArrayIndices(ctx, name);
+      if (arrayIndices.length > 0) {
+        const elements = arrayIndices.map((index) => {
+          const value = ctx.state.env[`${name}_${index}`] ?? "";
+          const escapedValue = value
+            .replace(/\\/g, "\\\\")
+            .replace(/"/g, '\\"');
+          return `[${index}]="${escapedValue}"`;
+        });
+        stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
+        continue;
+      }
+
+      // Check if this is an empty array
+      if (ctx.state.env[`${name}__length`] !== undefined) {
+        stdout += `declare -a ${name}=()\n`;
+        continue;
+      }
+
+      // Regular scalar variable
+      const value = ctx.state.env[name];
+      if (value !== undefined) {
+        const escapedValue = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        stdout += `declare ${flags} ${name}="${escapedValue}"\n`;
+      }
+    }
+    return success(stdout);
+  }
+
   // No args: list all variables
   if (processedArgs.length === 0 && !printMode) {
     let stdout = "";

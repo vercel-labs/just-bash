@@ -149,7 +149,6 @@ ref2=two
 ## END
 
 #### var ref: 1, @, *
-## SKIP: ${!ref} where ref=@ should produce separate args like "$@"
 set -- x y
 ref=1; argv.py "${!ref}"
 ref=@; argv.py "${!ref}"
@@ -317,7 +316,6 @@ ale bean
 ## END
 
 #### var ref TO array var, with subscripts
-## SKIP: indirect expansion of array[@] via ${!var} doesn't split into multiple args
 f() {
   argv.py "${!1}"
 }
@@ -337,7 +335,7 @@ f 'array[*]'
 ## END
 
 #### var ref TO assoc array a[key]
-## SKIP: Indirect expansion to arrays not fully implemented
+## SKIP: Mixed quoted/unquoted key handling in assoc array subscripts (assoc["al"e] should equal assoc[ale])
 shopt -s compat_array
 
 declare -A assoc=([ale]=bean [corn]=dip)
@@ -366,7 +364,7 @@ ref_SUB_BAD=
 ## END
 
 #### var ref TO array with arbitrary subscripts
-## SKIP: Indirect expansion to arrays not fully implemented
+## SKIP: Array subscript evaluation not strict enough (allows spaces) and missing command substitution in subscripts
 shopt -s eval_unsafe_arith compat_array
 
 f() {
@@ -547,7 +545,7 @@ PWNED
 ## END
 
 #### ${!array_ref:-set} and ${!array_ref:=assign}
-## SKIP: Indirect array expansion with operators doesn't produce separate args
+## SKIP: Direct array[@] expansion with :- operator doesn't produce separate args
 
 ref='a[@]'
 a=('' '' '')
@@ -578,7 +576,7 @@ argv.py "${a[@]}"
 ## END
 
 #### Array indirect expansion with suffix operators
-## SKIP: Indirect array expansion with operators doesn't produce separate args
+## SKIP: Complex indirect expansion via assoc array key lookup with suffix operators not implemented
 
 declare -A ref=(['dummy']=v1)
 function test-suffixes {

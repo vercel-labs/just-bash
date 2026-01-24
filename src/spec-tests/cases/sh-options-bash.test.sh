@@ -2,7 +2,6 @@
 ## oils_failures_allowed: 2
 
 #### SHELLOPTS is updated when options are changed
-## SKIP: SHELLOPTS variable not implemented
 echo $SHELLOPTS | grep -q xtrace
 echo $?
 set -x
@@ -23,7 +22,6 @@ echo $?
 ## END
 
 #### SHELLOPTS is readonly
-## SKIP: SHELLOPTS variable not implemented
 SHELLOPTS=x
 echo status=$?
 ## stdout: status=1

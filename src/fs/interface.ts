@@ -234,6 +234,24 @@ export interface IFileSystem {
    * @throws Error if path doesn't exist
    */
   lstat(path: string): Promise<FsStat>;
+
+  /**
+   * Resolve all symlinks in a path to get the canonical physical path.
+   * This is equivalent to POSIX realpath() - it resolves all symlinks
+   * in the path and returns the absolute physical path.
+   * Used by pwd -P and cd -P for symlink resolution.
+   * @throws Error if path doesn't exist or contains a broken symlink
+   */
+  realpath(path: string): Promise<string>;
+
+  /**
+   * Set access and modification times of a file
+   * @param path - The file path
+   * @param atime - Access time (currently ignored, kept for API compatibility)
+   * @param mtime - Modification time
+   * @throws Error if path doesn't exist
+   */
+  utimes(path: string, atime: Date, mtime: Date): Promise<void>;
 }
 
 /**

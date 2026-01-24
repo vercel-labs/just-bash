@@ -76,7 +76,6 @@ echo extglob2/!(*.h|*.cc)
 ## stdout: extglob2/bar.py extglob2/baz.py extglob2/foo.py
 
 #### Two adjacent alternations
-## SKIP: adjacent !() and @() extglob patterns not matching correctly
 shopt -s extglob
 mkdir -p 2
 touch 2/{aa,ab,ac,ba,bb,bc,ca,cb,cc}
@@ -353,7 +352,7 @@ bar foo
 ## END
 
 #### noglob
-## SKIP: noglob (set -f) not implemented
+## SKIP: extglob with quoted glob metacharacters in alternatives not implemented
 shopt -s extglob
 mkdir -p _noglob
 cd _noglob

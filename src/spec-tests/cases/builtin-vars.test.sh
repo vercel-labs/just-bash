@@ -657,7 +657,6 @@ y=
 ## END
 
 #### unset a[-1] (bf.bash regression)
-## SKIP: Arithmetic context a[-1] returns 0 instead of last element value
 case $SH in dash|zsh) exit ;; esac
 
 a=(1 2 3)

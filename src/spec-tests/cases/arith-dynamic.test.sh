@@ -4,7 +4,6 @@
 # Various tests for dynamic parsing of arithmetic substitutions.
 
 #### Double quotes
-## SKIP: Quoted strings in arithmetic not implemented
 echo $(( "1 + 2" * 3 ))
 echo $(( "1+2" * 3 ))
 ## STDOUT:
@@ -25,7 +24,7 @@ echo $(( "1+2" * 3 ))
 ## END
 
 #### Single quotes
-## SKIP: Quoted strings in arithmetic not implemented
+## SKIP: Single quotes in arithmetic substitution should error, but we parse them as numbers for arithmetic command compatibility
 echo $(( '1' + '2' * 3 ))
 echo status=$?
 

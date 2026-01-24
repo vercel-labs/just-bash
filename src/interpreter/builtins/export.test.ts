@@ -50,20 +50,20 @@ describe("export builtin", () => {
     it("should list all exported variables with no args", async () => {
       const env = new Bash({ env: { FOO: "bar", BAZ: "qux" } });
       const result = await env.exec("export");
-      expect(result.stdout).toContain("declare -x FOO='bar'");
-      expect(result.stdout).toContain("declare -x BAZ='qux'");
+      expect(result.stdout).toContain('declare -x FOO="bar"');
+      expect(result.stdout).toContain('declare -x BAZ="qux"');
     });
 
     it("should list all exported variables with -p", async () => {
       const env = new Bash({ env: { FOO: "bar" } });
       const result = await env.exec("export -p");
-      expect(result.stdout).toContain("declare -x FOO='bar'");
+      expect(result.stdout).toContain('declare -x FOO="bar"');
     });
 
     it("should list newly exported variables within same exec", async () => {
       const env = new Bash();
       const result = await env.exec('export MSG="it\'s working"; export');
-      expect(result.stdout).toContain("it'\\''s working");
+      expect(result.stdout).toContain("it's working");
     });
 
     it("should not list aliases", async () => {

@@ -330,7 +330,13 @@ export class Parser {
       }
 
       // Check for unexpected tokens at statement start
-      this.checkUnexpectedToken();
+      // Returns a deferred error statement if the error should be deferred to execution time
+      const deferredErrorStmt = this.checkUnexpectedToken();
+      if (deferredErrorStmt) {
+        statements.push(deferredErrorStmt);
+        this.skipSeparators(false);
+        continue;
+      }
 
       const posBefore = this.pos;
       const stmt = this.parseStatement();
@@ -359,9 +365,11 @@ export class Parser {
   }
 
   /**
-   * Check for unexpected tokens that can't appear at statement start
+   * Check for unexpected tokens that can't appear at statement start.
+   * Returns a deferred error statement for tokens that should cause errors
+   * at execution time rather than parse time (to match bash's incremental behavior).
    */
-  private checkUnexpectedToken(): void {
+  private checkUnexpectedToken(): StatementNode | null {
     const t = this.current().type;
     const v = this.current().value;
 
@@ -379,8 +387,21 @@ export class Parser {
     }
 
     // Check for unexpected closing braces/parens
+    // These create deferred errors that trigger at execution time, to match
+    // bash's incremental parsing behavior. Example:
+    //   set -o errexit
+    //   {ls;     # This is a command "{ls" that fails (not brace group)
+    //   }        # This would be a syntax error, but errexit exits first
     if (t === TokenType.RBRACE || t === TokenType.RPAREN) {
-      this.error(`syntax error near unexpected token \`${v}'`);
+      const errorMsg = `syntax error near unexpected token \`${v}'`;
+      this.advance(); // Consume the token
+      // Create an empty statement with a deferred error
+      return AST.statement(
+        [AST.pipeline([AST.simpleCommand(null, [], [], [])])],
+        [],
+        false,
+        { message: errorMsg, token: v },
+      );
     }
 
     // Check for case terminators at statement start
@@ -396,6 +417,8 @@ export class Parser {
     if (t === TokenType.SEMICOLON) {
       this.error(`syntax error near unexpected token \`${v}'`);
     }
+
+    return null;
   }
 
   // ===========================================================================
@@ -468,6 +491,7 @@ export class Parser {
     const negated = negationCount % 2 === 1;
 
     const commands: CommandNode[] = [];
+    const pipeStderr: boolean[] = [];
 
     // Parse first command
     const firstCmd = this.parseCommand();
@@ -478,24 +502,20 @@ export class Parser {
       const pipeToken = this.advance();
       this.skipNewlines();
 
-      // |& redirects stderr to stdin of next command
-      // We'll handle this by adding implicit redirection
+      // Track whether this pipe is |& (pipes stderr too)
+      pipeStderr.push(pipeToken.type === TokenType.PIPE_AMP);
+
       const nextCmd = this.parseCommand();
-
-      if (
-        pipeToken.type === TokenType.PIPE_AMP &&
-        nextCmd.type === "SimpleCommand"
-      ) {
-        // Add implicit 2>&1 redirection
-        nextCmd.redirections.unshift(
-          AST.redirection(">&", AST.word([AST.literal("1")]), 2),
-        );
-      }
-
       commands.push(nextCmd);
     }
 
-    return AST.pipeline(commands, negated, timed, timePosix);
+    return AST.pipeline(
+      commands,
+      negated,
+      timed,
+      timePosix,
+      pipeStderr.length > 0 ? pipeStderr : undefined,
+    );
   }
 
   // ===========================================================================

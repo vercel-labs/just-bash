@@ -89,9 +89,11 @@ export function getVariable(
       // $- returns current shell option flags
       let flags = "";
       if (ctx.state.options.errexit) flags += "e";
+      if (ctx.state.options.noglob) flags += "f";
       if (ctx.state.options.nounset) flags += "u";
       if (ctx.state.options.verbose) flags += "v";
       if (ctx.state.options.xtrace) flags += "x";
+      if (ctx.state.options.noclobber) flags += "C";
       if (ctx.state.options.pipefail) flags += "p";
       return flags;
     }

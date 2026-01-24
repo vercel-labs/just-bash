@@ -136,7 +136,6 @@ reset.txt
 ## END
 
 #### Ignore .:..
-## SKIP: globskipdots shopt not implemented
 # globskipdots is enabled by default in bash >=5.2
 # for bash <5.2 this pattern is a common way to match dotfiles but not . or ..
 shopt -u globskipdots
@@ -183,7 +182,6 @@ echo .*
 ## END
 
 #### When GLOBIGNORE is set, glob may become empty (nullglob too)
-## SKIP: touch -- not implemented (can't create files starting with dash)
 touch -- foo.txt -foo.txt
 
 echo *t

@@ -156,7 +156,6 @@ typeset test_var5
 ## END
 
 #### declare -p
-## SKIP: declare -p without args doesn't list all variables, export -p outputs all vars as exported
 # BUG: bash doesn't output flags with "local -p", which seems to contradict
 #   with manual.
 test_var1=111

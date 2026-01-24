@@ -28,7 +28,6 @@ status=1
 ## stderr-json: ""
 
 #### $(< $file) yields the contents of the file
-## SKIP: $(<file) redirect shorthand not implemented
 
 seq 2 3 > myfile
 foo=$(< myfile)
@@ -43,7 +42,6 @@ argv.py "$foo"
 ## END
 
 #### `< $file` behaves like $(< file)
-## SKIP: $(<file) redirect shorthand not implemented
 
 seq 7 8 > myfile
 
@@ -178,7 +176,6 @@ FOO=
 
 
 #### Redirect in function body
-## SKIP: Output redirect on function definition not fully implemented
 fun() { echo hi; } 1>&2
 fun
 ## STDOUT:
@@ -188,7 +185,6 @@ hi
 ## END
 
 #### Redirect in function body is evaluated multiple times
-## SKIP: Redirect on function definition not implemented
 i=0
 fun() { echo "file $i"; } 1> "$TMP/file$((i++))"
 fun

@@ -45,7 +45,7 @@ true
 ## END
 
 
-#### bash and mksh: V in (( a[K] = V )) gets coerced to integer 
+#### bash and mksh: V in (( a[K] = V )) gets coerced to integer
 ## SKIP: Array value coercion in arithmetic not implemented
 shopt -u strict_arith || true
 K=key

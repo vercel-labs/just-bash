@@ -30,6 +30,7 @@ import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
 import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
+import { ParseException } from "../parser/types.js";
 import type {
   Command,
   CommandContext,
@@ -42,6 +43,8 @@ import {
   applyCaseTransform,
   handleBreak,
   handleCd,
+  handleCompgen,
+  handleComplete,
   handleContinue,
   handleDeclare,
   handleDirs,
@@ -50,6 +53,7 @@ import {
   handleExport,
   handleGetopts,
   handleHash,
+  handleHelp,
   handleLet,
   handleLocal,
   handleMapfile,
@@ -142,6 +146,7 @@ import {
   throwExecutionLimit,
 } from "./helpers/result.js";
 import { expandTildesInValue } from "./helpers/tilde.js";
+import { traceAssignment, traceSimpleCommand } from "./helpers/xtrace.js";
 import {
   applyRedirections,
   preOpenOutputRedirects,
@@ -320,6 +325,13 @@ export class Interpreter {
       );
     }
 
+    // Check for deferred syntax error. This is triggered when execution reaches
+    // a statement that has a syntax error (like standalone `}`), but the error
+    // was deferred to support bash's incremental parsing behavior.
+    if (node.deferredError) {
+      throw new ParseException(node.deferredError.message, node.line ?? 1, 1);
+    }
+
     // noexec mode (set -n): parse commands but do not execute them
     // This is used for syntax checking scripts without actually running them
     if (this.ctx.state.options.noexec) {
@@ -440,12 +452,25 @@ export class Interpreter {
       }
 
       if (!isLast) {
-        stdin = result.stdout;
-        lastResult = {
-          stdout: "",
-          stderr: result.stderr,
-          exitCode: result.exitCode,
-        };
+        // Check if this pipe is |& (pipe stderr to next command's stdin too)
+        const pipeStderrToNext = node.pipeStderr?.[i] ?? false;
+        if (pipeStderrToNext) {
+          // |& pipes both stdout and stderr to next command's stdin
+          stdin = result.stderr + result.stdout;
+          lastResult = {
+            stdout: "",
+            stderr: "",
+            exitCode: result.exitCode,
+          };
+        } else {
+          // Regular | only pipes stdout
+          stdin = result.stdout;
+          lastResult = {
+            stdout: "",
+            stderr: result.stderr,
+            exitCode: result.exitCode,
+          };
+        }
       } else {
         lastResult = result;
       }
@@ -575,6 +600,9 @@ export class Interpreter {
     // Clear expansion stderr at the start
     this.ctx.state.expansionStderr = "";
     const tempAssignments: Record<string, string | undefined> = {};
+
+    // Collect xtrace output for assignments
+    let xtraceAssignmentOutput = "";
 
     for (const assignment of node.assignments) {
       const name = assignment.name;
@@ -906,6 +934,14 @@ export class Interpreter {
       // Apply case transformation based on variable attributes (declare -l/-u)
       finalValue = applyCaseTransform(this.ctx, targetName, finalValue);
 
+      // Generate xtrace output for this assignment BEFORE setting the value
+      // This matches bash behavior where PS4 is expanded before the assignment takes effect
+      xtraceAssignmentOutput += await traceAssignment(
+        this.ctx,
+        targetName,
+        finalValue,
+      );
+
       if (node.name) {
         tempAssignments[targetName] = this.ctx.state.env[targetName];
         this.ctx.state.env[targetName] = finalValue;
@@ -923,7 +959,7 @@ export class Interpreter {
     if (!node.name) {
       // Assignment-only command: preserve the exit code from command substitution
       // e.g., x=$(false) should set $? to 1, not 0
-      return result("", "", this.ctx.state.lastExitCode);
+      return result("", xtraceAssignmentOutput, this.ctx.state.lastExitCode);
     }
 
     // Mark prefix assignment variables as temporarily exported for this command
@@ -1207,7 +1243,19 @@ export class Interpreter {
       return OK;
     }
 
+    // Generate xtrace output before running the command
+    const xtraceOutput = await traceSimpleCommand(this.ctx, commandName, args);
+
     let cmdResult = await this.runCommand(commandName, args, quotedArgs, stdin);
+
+    // Prepend xtrace output to stderr
+    if (xtraceOutput) {
+      cmdResult = {
+        ...cmdResult,
+        stderr: xtraceOutput + cmdResult.stderr,
+      };
+    }
+
     cmdResult = await applyRedirections(this.ctx, cmdResult, node.redirections);
 
     // Update $_ to the last argument of this command (after expansion)
@@ -1388,6 +1436,12 @@ export class Interpreter {
     if (commandName === "getopts") {
       return handleGetopts(this.ctx, args);
     }
+    if (commandName === "compgen") {
+      return handleCompgen(this.ctx, args);
+    }
+    if (commandName === "complete") {
+      return handleComplete(this.ctx, args);
+    }
     if (commandName === "pushd") {
       return await handlePushd(this.ctx, args);
     }
@@ -1508,6 +1562,7 @@ export class Interpreter {
         "eval",
         "shift",
         "getopts",
+        "compgen",
         "pushd",
         "popd",
         "dirs",
@@ -1580,6 +1635,9 @@ export class Interpreter {
     if (commandName === "hash") {
       return handleHash(this.ctx, args);
     }
+    if (commandName === "help") {
+      return handleHelp(this.ctx, args);
+    }
     // Test commands
     // Note: [[ is NOT handled here because it's a keyword, not a command.
     // When [[ appears as a simple command name (e.g., after prefix assignments
@@ -1616,8 +1674,13 @@ export class Interpreter {
       return failure(`bash: ${commandName}: command not found\n`, 127);
     }
     const { cmd, path: cmdPath } = resolved;
-    // cmdPath is available for future use (e.g., $0 in scripts)
-    void cmdPath;
+    // Add to hash table for PATH caching (only for non-path commands)
+    if (!commandName.includes("/")) {
+      if (!this.ctx.state.hashTable) {
+        this.ctx.state.hashTable = new Map();
+      }
+      this.ctx.state.hashTable.set(commandName, cmdPath);
+    }
 
     // Use groupStdin as fallback if no stdin from redirections/pipeline
     // This is needed for commands inside groups/functions that receive stdin via heredoc
@@ -1681,6 +1744,23 @@ export class Interpreter {
       const cmd = this.ctx.commands.get(cmdName);
       if (!cmd) return null;
       return { cmd, path: resolvedPath };
+    }
+
+    // Check hash table first (unless pathOverride is set, which bypasses cache)
+    if (!pathOverride && this.ctx.state.hashTable) {
+      const cachedPath = this.ctx.state.hashTable.get(commandName);
+      if (cachedPath) {
+        // Verify the cached path still exists
+        if (await this.ctx.fs.exists(cachedPath)) {
+          const cmd = this.ctx.commands.get(commandName);
+          if (cmd) {
+            return { cmd, path: cachedPath };
+          }
+        } else {
+          // Remove stale entry from hash table
+          this.ctx.state.hashTable.delete(commandName);
+        }
+      }
     }
 
     // Search PATH directories (use override if provided, for command -p)
@@ -1810,6 +1890,7 @@ export class Interpreter {
       "echo",
       "printf",
       "getopts",
+      "compgen",
       "hash",
       "ulimit",
       "umask",
@@ -1821,6 +1902,7 @@ export class Interpreter {
       "mapfile",
       "readarray",
       "pwd",
+      "help",
     ]);
 
     // Parse options
@@ -2296,6 +2378,7 @@ export class Interpreter {
       "echo",
       "printf",
       "getopts",
+      "compgen",
       "hash",
       "ulimit",
       "umask",
@@ -2306,6 +2389,7 @@ export class Interpreter {
       "popd",
       "mapfile",
       "readarray",
+      "help",
     ]);
 
     let stdout = "";

@@ -1,7 +1,6 @@
 ## compare_shells: bash
 
 #### var ref to array 'preHooks[@]'
-## SKIP: ${!array[@]} indirect expansion not implemented
 #
 # This idiom discussed on
 # https://github.com/NixOS/nixpkgs/pull/147629
@@ -55,7 +54,6 @@ show
 ## END
 
 #### Similar to above with set -u
-## SKIP: ${!array[@]} indirect expansion not implemented
 show() {
   echo show
 

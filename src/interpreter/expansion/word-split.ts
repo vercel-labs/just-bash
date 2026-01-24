@@ -5,6 +5,7 @@
  */
 
 import type { WordPart } from "../../ast/types.js";
+import { splitByIfsForExpansion } from "../helpers/ifs.js";
 import type { InterpreterContext } from "../types.js";
 import { hasQuotedOperationWord } from "./analysis.js";
 
@@ -17,92 +18,158 @@ export type ExpandPartFn = (
 ) => Promise<string>;
 
 /**
- * Smart word splitting that respects expansion boundaries.
+ * Check if a word part is splittable (subject to IFS splitting).
+ * Unquoted parameter expansions, command substitutions, and arithmetic expansions
+ * are splittable. Quoted parts (DoubleQuoted, SingleQuoted) are NOT splittable.
+ */
+function isPartSplittable(part: WordPart): boolean {
+  // Quoted parts are never splittable
+  if (part.type === "DoubleQuoted" || part.type === "SingleQuoted") {
+    return false;
+  }
+
+  // Literal parts are not splittable (they join with adjacent fields)
+  if (part.type === "Literal") {
+    return false;
+  }
+
+  // Glob parts are not splittable
+  if (part.type === "Glob") {
+    return false;
+  }
+
+  // Check for splittable expansion types
+  const isSplittable =
+    part.type === "ParameterExpansion" ||
+    part.type === "CommandSubstitution" ||
+    part.type === "ArithmeticExpansion";
+
+  if (!isSplittable) {
+    return false;
+  }
+
+  // Check if parameter expansion has quoted operation word - those shouldn't be splittable
+  if (part.type === "ParameterExpansion" && hasQuotedOperationWord(part)) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Smart word splitting for words containing expansions.
  *
- * E.g., with IFS=x: ${v:-AxBxC}x should give "A B Cx" (literal x attaches to last field)
- * E.g., with IFS=x: y${v:-AxBxC}z should give "yA B Cz" (literals attach to first/last fields)
+ * In bash, word splitting respects quoted parts. When you have:
+ * - $a"$b" where a="1 2" and b="3 4"
+ * - The unquoted $a gets split by IFS: "1 2" -> ["1", "2"]
+ * - The quoted "$b" does NOT get split, it joins with the last field from $a
+ * - Result: ["1", "23 4"] (the "2" joins with "3 4")
+ *
+ * This differs from pure literal words which are never IFS-split.
  *
  * @param ctx - Interpreter context
  * @param wordParts - Word parts to expand and split
- * @param _ifsChars - IFS characters (unused, kept for API compatibility)
- * @param ifsPattern - Regex-escaped IFS pattern for splitting
+ * @param ifsChars - IFS characters for proper whitespace/non-whitespace handling
+ * @param ifsPattern - Regex-escaped IFS pattern for checking if splitting is needed
  * @param expandPartFn - Function to expand individual parts (injected to avoid circular deps)
  */
 export async function smartWordSplit(
   ctx: InterpreterContext,
   wordParts: WordPart[],
-  _ifsChars: string,
-  ifsPattern: string,
+  ifsChars: string,
+  _ifsPattern: string,
   expandPartFn: ExpandPartFn,
 ): Promise<string[]> {
-  // First, check if any expansion result contains IFS characters
-  // If not, no splitting needed
-  type Segment = { value: string; splittable: boolean };
+  // Expand all parts and track if they are splittable
+  type Segment = { value: string; isSplittable: boolean };
   const segments: Segment[] = [];
+  let hasAnySplittable = false;
 
   for (const part of wordParts) {
-    const isSplittable =
-      part.type === "ParameterExpansion" ||
-      part.type === "CommandSubstitution" ||
-      part.type === "ArithmeticExpansion";
+    const splittable = isPartSplittable(part);
+    const expanded = await expandPartFn(ctx, part);
+    segments.push({ value: expanded, isSplittable: splittable });
 
-    // Check if parameter expansion has quoted operation word - those shouldn't split
-    if (part.type === "ParameterExpansion" && hasQuotedOperationWord(part)) {
-      const expanded = await expandPartFn(ctx, part);
-      segments.push({ value: expanded, splittable: false });
-    } else {
-      const expanded = await expandPartFn(ctx, part);
-      segments.push({ value: expanded, splittable: isSplittable });
+    if (splittable) {
+      hasAnySplittable = true;
     }
   }
 
-  // Check if any splittable segment contains IFS chars
-  const hasSplittableIFS = segments.some(
-    (seg) => seg.splittable && new RegExp(`[${ifsPattern}]`).test(seg.value),
-  );
-
-  if (!hasSplittableIFS) {
-    // No splitting needed - return the joined value to avoid double expansion
+  // If there's no splittable expansion, return the joined value as-is
+  // (pure literals are not subject to IFS splitting)
+  if (!hasAnySplittable) {
     const joined = segments.map((s) => s.value).join("");
     return joined ? [joined] : [];
   }
 
-  // Now do the smart splitting
-  const ifsRegex = new RegExp(`[${ifsPattern}]+`);
-  const result: string[] = [];
-  let currentField = "";
+  // Now do the smart word splitting:
+  // - Splittable parts get split by IFS
+  // - Non-splittable parts (quoted, literals) join with adjacent fields
+  //
+  // Algorithm:
+  // We maintain an array of words being built. The current word is built up
+  // by accumulating non-split content. When we split a splittable part:
+  // - The first fragment joins with the current word
+  // - Middle fragments become separate words
+  // - The last fragment becomes the start of a new current word
+  //
+  // Important distinction:
+  // - split returning [] (empty array) = nothing to add, continue building
+  // - split returning [""] (array with one empty string) = produces empty word
+  // - split returning ["x"] = produces "x" to append to current word
 
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
+  const words: string[] = [];
+  let currentWord = "";
+  // Track if we've produced any actual words (including empty ones from splits)
+  let hasProducedWord = false;
 
-    if (!seg.splittable) {
-      // Literal: append to current field
-      currentField += seg.value;
+  for (const segment of segments) {
+    if (!segment.isSplittable) {
+      // Non-splittable: append to current word (no splitting)
+      currentWord += segment.value;
     } else {
-      // Splittable: apply IFS splitting
-      const fields = seg.value.split(ifsRegex);
+      // Splittable: split by IFS
+      const parts = splitByIfsForExpansion(segment.value, ifsChars);
 
-      for (let j = 0; j < fields.length; j++) {
-        if (j === 0) {
-          // First field: append to current accumulated literal
-          currentField += fields[j];
-        } else {
-          // Subsequent fields: push previous and start new
-          if (currentField !== "") {
-            result.push(currentField);
-          }
-          currentField = fields[j];
+      if (parts.length === 0) {
+        // Empty expansion produces nothing - continue building current word
+        // This happens for empty string or all-whitespace with default IFS
+      } else if (parts.length === 1) {
+        // Single result: just append to current word
+        // Note: parts[0] might be empty string (e.g., IFS='_' and var='_' produces [""])
+        currentWord += parts[0];
+        hasProducedWord = true;
+      } else {
+        // Multiple results from split:
+        // - First part joins with current word
+        // - Middle parts become separate words
+        // - Last part starts the new current word
+        currentWord += parts[0];
+        words.push(currentWord);
+        hasProducedWord = true;
+
+        // Add middle parts as separate words
+        for (let i = 1; i < parts.length - 1; i++) {
+          words.push(parts[i]);
         }
+
+        // Last part becomes the new current word
+        currentWord = parts[parts.length - 1];
       }
     }
   }
 
-  // Push final field if not empty
-  if (currentField !== "") {
-    result.push(currentField);
+  // Add the remaining current word
+  // We add it if:
+  // - currentWord is non-empty, OR
+  // - we haven't produced any words yet but we've had a split that produced content
+  //   (this handles the case of IFS='_' and var='_' -> [""])
+  if (currentWord !== "") {
+    words.push(currentWord);
+  } else if (words.length === 0 && hasProducedWord) {
+    // The only content was from a split that produced [""] (empty string)
+    words.push("");
   }
 
-  // Always return the result to avoid double expansion
-  // The result contains [joined_value] if no splitting happened
-  return result;
+  return words;
 }

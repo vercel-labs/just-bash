@@ -11,7 +11,6 @@ echo ${v#a} ${v##ab}
 ## stdout: bcd cd
 
 #### Remove const suffix is vectorized on user array
-## SKIP: vectorized strip operation on arrays not applying to all elements
 a=(1a 2a 3a)
 argv.py ${a[@]%a}
 ## stdout: ['1', '2', '3']
@@ -21,7 +20,6 @@ argv.py ${a[@]%a}
 ## N-I mksh status: 1
 
 #### Remove const suffix is vectorized on $@ array
-## SKIP: vectorized strip operation on $@ not applying to all elements
 set -- 1a 2a 3a
 argv.py ${@%a}
 ## stdout: ['1', '2', '3']
@@ -135,7 +133,6 @@ argv.py "${s%%abcde}" "${s%abcde}" "${s#abcde}" "${s##abcde}"
 ## END
 
 #### Prepend using replacement of #
-## SKIP: ${array[@]/#/replacement} prepend syntax not implemented
 # This case was found in Kubernetes and others
 array=(aa bb '')
 argv.py ${array[@]/#/prefix-}
@@ -148,7 +145,6 @@ argv.py ${array[@]/#/prefix-}
 ## N-I mksh stdout-json: ""
 
 #### Append using replacement of %
-## SKIP: ${array[@]/%/replacement} append syntax not implemented
 array=(aa bb '')
 argv.py ${array[@]/%/-suffix}
 ## STDOUT:

@@ -45,7 +45,6 @@ status=127
 
 
 #### Print shell strings with weird chars: set and printf %q and ${x@Q}
-## SKIP: set output format differs from bash
 
 # bash declare -p will print binary data, which makes this invalid UTF-8!
 foo=$(/bin/echo -e 'a\nb\xffc'\'d)
@@ -68,7 +67,7 @@ foo=$(/bin/echo -e 'a\nb\x01c'\'d)
 case $SH in dash|mksh|zsh) return ;; esac
 
 
-set | grep -A1 foo
+set | grep '^foo='
 
 # Will print multi-line and binary data literally!
 #declare -p foo
@@ -78,12 +77,6 @@ printf 'pf  %q\n' "$foo"
 echo '@Q ' ${foo@Q}
 
 ## STDOUT:
-foo=$'a\nb\u0001c\'d'
-pf  $'a\nb\u0001c\'d'
-@Q  $'a\nb\u0001c\'d'
-## END
-
-## OK bash STDOUT:
 foo=$'a\nb\001c\'d'
 pf  $'a\nb\001c\'d'
 @Q  $'a\nb\001c\'d'
@@ -93,7 +86,6 @@ pf  $'a\nb\001c\'d'
 ## END
 
 #### Print shell strings with normal chars: set and printf %q and ${x@Q}
-## SKIP: set output format differs from bash
 
 # There are variations on whether quotes are printed
 
@@ -101,7 +93,7 @@ case $SH in dash|zsh) return ;; esac
 
 foo=spam
 
-set | grep -A1 foo
+set | grep '^foo='
 
 # Will print multi-line and binary data literally!
 typeset -p foo
@@ -111,14 +103,6 @@ printf 'pf  %q\n' "$foo"
 echo '@Q ' ${foo@Q}
 
 ## STDOUT:
-foo=spam
-declare -- foo=spam
-pf  spam
-@Q  spam
-## END
-
-
-## OK bash STDOUT:
 foo=spam
 declare -- foo="spam"
 pf  spam

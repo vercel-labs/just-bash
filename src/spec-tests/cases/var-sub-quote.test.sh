@@ -35,7 +35,6 @@ argv.py "${A[@]}"
 ## N-I mksh status: 1
 
 #### substitution of IFS character, quoted and unquoted
-## SKIP: Unquoted IFS-only value should produce empty string arg
 IFS=:
 s=:
 argv.py $s

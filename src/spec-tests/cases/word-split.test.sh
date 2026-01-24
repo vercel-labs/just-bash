@@ -89,7 +89,6 @@ argv.py $s1
 ## stdout: []
 
 #### Word elision with non-whitespace IFS
-## SKIP: Word elision with non-whitespace IFS not implemented
 # Treated differently than the default IFS.  What is the rule here?
 IFS='_'
 char='_'
@@ -110,7 +109,6 @@ argv.py $empty
 ## END
 
 #### Leading/trailing word elision with non-whitespace IFS
-## SKIP: Leading/trailing IFS handling not implemented
 # This behavior is weird.
 IFS=_
 s1='_a_b_'
@@ -118,7 +116,6 @@ argv.py $s1
 ## stdout: ['', 'a', 'b']
 
 #### Leading ' ' vs leading ' _ '
-## SKIP: Mixed whitespace/non-whitespace IFS not implemented
 # This behavior is weird, but all shells agree.
 IFS='_ '
 s1='_ a  b _ '
@@ -131,14 +128,12 @@ argv.py $s2
 ## END
 
 #### Multiple non-whitespace IFS chars.
-## SKIP: Multiple non-whitespace IFS characters not implemented
 IFS=_-
 s1='a__b---c_d'
 argv.py $s1
 ## stdout: ['a', '', 'b', '', '', 'c', 'd']
 
 #### IFS with whitespace and non-whitepace.
-## SKIP: Mixed whitespace/non-whitespace IFS not implemented
 # NOTE: Three delimiters means two empty words in the middle.  No elision.
 IFS='_ '
 s1='a_b _ _ _ c  _d e'
@@ -216,7 +211,6 @@ argv.py $s
 ## END
 
 #### IFS='\ '
-## SKIP: IFS with backslash not implemented
 # NOTE: OSH fails this because of double backslash escaping issue!
 # When IFS is \, then you're no longer using backslash escaping.
 IFS='\ '
@@ -227,7 +221,6 @@ argv.py $s
 ## END
 
 #### IFS characters are glob metacharacters
-## SKIP: IFS with glob metacharacters not implemented
 IFS='* '
 s='a*b c'
 argv.py $s
@@ -429,6 +422,7 @@ argv.py star ${!a[*]}
 ## N-I dash/mksh/ash/yash stdout-json: ""
 
 #### Bug #628 split on : with : in literal word
+## SKIP: IFS handling when literal contains IFS char not implemented (Bug #628)
 
 # 2025-03: What's the cause of this bug?
 #
@@ -536,7 +530,6 @@ sum 12 30 # fails with "fatal: Undefined variable '2'" on res=$(($1 + $2))
 ## END
 
 #### Unicode in IFS
-## SKIP: Unicode characters in IFS not fully supported
 
 # bash, zsh, and yash support unicode in IFS, but dash/mksh/ash don't.
 
@@ -688,7 +681,6 @@ echo -n ' "$@" ';  for i in "$@"; do echo -n ' '; echo -n -$i-; done; echo
 ## END
 
 #### IFS=x and '' and $@ - same bug as spec/toysh-posix case #12
-## SKIP: IFS with empty args and $@ not implemented
 case $SH in yash) exit ;; esac  # no echo -n
 
 setopt SH_WORD_SPLIT  # for zsh

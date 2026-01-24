@@ -12,7 +12,7 @@ export async function handleCd(
 ): Promise<ExecResult> {
   let target: string;
   let printPath = false;
-  let _physical = false;
+  let physical = false;
 
   // Parse options
   let i = 0;
@@ -22,10 +22,10 @@ export async function handleCd(
       i++;
       break;
     } else if (args[i] === "-L") {
-      _physical = false;
+      physical = false;
       i++;
     } else if (args[i] === "-P") {
-      _physical = true;
+      physical = true;
       i++;
     } else if (args[i].startsWith("-") && args[i] !== "-") {
       // Unknown option - ignore for now
@@ -103,7 +103,16 @@ export async function handleCd(
     }
   }
 
-  const newDir = currentPath || "/";
+  let newDir = currentPath || "/";
+
+  // If -P is specified, resolve symlinks to get the physical path
+  if (physical) {
+    try {
+      newDir = await ctx.fs.realpath(newDir);
+    } catch {
+      // If realpath fails, use the logical path (matches bash behavior)
+    }
+  }
 
   ctx.state.previousDir = ctx.state.cwd;
   ctx.state.cwd = newDir;

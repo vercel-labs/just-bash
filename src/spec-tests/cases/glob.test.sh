@@ -403,7 +403,6 @@ hi . ..
 ## END
 
 #### shopt -u globskipdots shows . and ..
-## SKIP: globskipdots shopt not implemented
 case $SH in dash|ash|mksh) exit ;; esac
 
 shopt -u globskipdots

@@ -848,7 +848,6 @@ echo "[${a[@]: -4}][${a[*]: -4}]"
 
 
 #### ${a[@]}
-## SKIP: "${prefix}${array[@]}${suffix}" should produce multiple args with prefix/suffix on first/last
 a=(v{0,1,2,3,4,5,6,7,8,9})
 unset -v 'a[2]' 'a[3]' 'a[4]' 'a[7]'
 
@@ -887,7 +886,6 @@ argv.py "${a[@]#v?}"
 
 
 #### ${a[@]/pat/rep}
-## SKIP: Array pattern operations don't produce separate args
 
 case $SH in mksh) exit ;; esac
 
@@ -920,7 +918,6 @@ argv.py "${a[@]//[!0-5]/_}"
 
 
 #### ${a[@]@P}, ${a[@]@Q}, and ${a[@]@a}
-## SKIP: ${array[@]@P} and ${array[@]@a} do not produce per-element results
 case $SH in mksh) exit ;; esac
 
 a=(v{0..9})
@@ -1026,7 +1023,6 @@ argv.py "${!a[@]}"
 
 
 #### "${a[*]}"
-## SKIP: Sparse array with unset elements handling differs
 a=(v{0,1,2,3,4,5,6,7,8,9})
 unset -v 'a[3]' 'a[4]' 'a[7]' 'a[9]'
 

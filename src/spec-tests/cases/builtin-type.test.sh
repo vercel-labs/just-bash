@@ -15,7 +15,6 @@ cd is a shell builtin
 ## END
 
 #### type -> alias external
-## SKIP: External command PATH lookup not supported
 mkdir -p _tmp
 shopt -s expand_aliases || true  # bash
 

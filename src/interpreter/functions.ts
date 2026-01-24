@@ -16,6 +16,7 @@ import type { ExecResult } from "../types.js";
 import { ExitError, ReturnError } from "./errors.js";
 import { expandWord } from "./expansion.js";
 import { OK, result, throwExecutionLimit } from "./helpers/result.js";
+import { applyRedirections, preExpandRedirectTargets } from "./redirections.js";
 import type { InterpreterContext } from "./types.js";
 
 /**
@@ -147,6 +148,17 @@ export async function callFunction(
     ctx.state.callDepth--;
   };
 
+  // Pre-expand redirect targets BEFORE executing the function body.
+  // This is critical because redirections like `fun() { echo $i; } > file$((i++))`
+  // must evaluate $((i++)) before the body runs, so the body sees the new value.
+  const { targets: preExpandedTargets, error: expandError } =
+    await preExpandRedirectTargets(ctx, func.redirections);
+
+  if (expandError) {
+    cleanup();
+    return result("", expandError, 1);
+  }
+
   try {
     // Process redirections on the function definition to get stdin
     // Only use redirection-based stdin if no pipeline stdin was passed
@@ -157,12 +169,26 @@ export async function callFunction(
     const effectiveStdin = stdin || redirectionStdin;
     const execResult = await ctx.executeCommand(func.body, effectiveStdin);
     cleanup();
-    return execResult;
+    // Apply output redirections from the function definition using pre-expanded targets
+    // e.g., fun() { echo hi; } 1>&2 should redirect output to stderr when called
+    return applyRedirections(
+      ctx,
+      execResult,
+      func.redirections,
+      preExpandedTargets,
+    );
   } catch (error) {
     cleanup();
     // Handle return statement - convert to normal exit with the specified code
     if (error instanceof ReturnError) {
-      return result(error.stdout, error.stderr, error.exitCode);
+      const returnResult = result(error.stdout, error.stderr, error.exitCode);
+      // Apply output redirections even when returning
+      return applyRedirections(
+        ctx,
+        returnResult,
+        func.redirections,
+        preExpandedTargets,
+      );
     }
     throw error;
   }

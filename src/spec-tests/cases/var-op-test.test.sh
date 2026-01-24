@@ -452,7 +452,6 @@ argv=plus
 ## END
 
 #### $* ("" "") and - and + (IFS=)
-## SKIP: $*:-/:+ checks if expansion is empty, not if params exist
 set -- "" ""
 IFS=
 echo argv=${*-minus}
@@ -473,7 +472,6 @@ argv=
 ## END
 
 #### "$*" ("" "") and - and + (IFS=)
-## SKIP: Bash checks if positional params exist, not if $* expansion is empty
 set -- "" ""
 IFS=
 echo "argv=${*-minus}"
@@ -678,7 +676,6 @@ a[0]: 'no-colon' 'with-colon'
 
 
 #### op-test for ${a[@]} and ${a[*]}
-## SKIP: a[*] with IFS= and empty elements should be empty for :- test
 case $SH in dash) exit ;; esac
 
 test-hyphen() {

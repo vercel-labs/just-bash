@@ -252,6 +252,15 @@ function parseParameterExpansion(
     i++;
   }
 
+  // Check for unterminated expansion (no closing } found)
+  if (i >= value.length) {
+    throw new ParseException(
+      "unexpected EOF while looking for matching '}'",
+      0,
+      0,
+    );
+  }
+
   return {
     part: AST.parameterExpansion(name, operation),
     endIndex: i + 1,
@@ -453,7 +462,14 @@ function parseParameterOperation(
     }
 
     // Find pattern/replacement separator
-    const patternEnd = WordParser.findPatternEnd(p, value, i);
+    // Special case: if we have an anchor and the next char is / or }, the pattern is empty
+    // This handles ${var/#/replacement} (prepend) and ${var/%/replacement} (append)
+    let patternEnd: number;
+    if (anchor !== null && (value[i] === "/" || value[i] === "}")) {
+      patternEnd = i; // Pattern is empty
+    } else {
+      patternEnd = WordParser.findPatternEnd(p, value, i);
+    }
     const patternStr = value.slice(i, patternEnd);
     // Parse the pattern for variable expansions (e.g., ${var//$pat/repl})
     const patternParts = parseWordParts(p, patternStr, false, false, false);

@@ -1014,7 +1014,13 @@ export class Lexer {
       }
 
       // Handle $(...) command substitution - consume the entire construct
-      if (char === "$" && pos + 1 < len && input[pos + 1] === "(") {
+      // Skip this handling if inside single quotes ($ is literal in single quotes)
+      if (
+        char === "$" &&
+        pos + 1 < len &&
+        input[pos + 1] === "(" &&
+        !inSingleQuote
+      ) {
         value += char;
         pos++;
         col++;
@@ -1124,7 +1130,13 @@ export class Lexer {
       }
 
       // Handle $[...] old-style arithmetic - consume the entire construct
-      if (char === "$" && pos + 1 < len && input[pos + 1] === "[") {
+      // Skip this handling if inside single quotes ($ is literal in single quotes)
+      if (
+        char === "$" &&
+        pos + 1 < len &&
+        input[pos + 1] === "[" &&
+        !inSingleQuote
+      ) {
         value += char;
         pos++;
         col++;
@@ -1150,7 +1162,13 @@ export class Lexer {
       }
 
       // Handle ${...} parameter expansion - consume the entire construct
-      if (char === "$" && pos + 1 < len && input[pos + 1] === "{") {
+      // Skip this handling if inside single quotes ($ is literal in single quotes)
+      if (
+        char === "$" &&
+        pos + 1 < len &&
+        input[pos + 1] === "{" &&
+        !inSingleQuote
+      ) {
         value += char;
         pos++;
         col++;
@@ -1176,7 +1194,8 @@ export class Lexer {
       }
 
       // Handle special variables $#, $?, $$, $!, $0-$9, $@, $*
-      if (char === "$" && pos + 1 < len) {
+      // Skip this handling if inside single quotes ($ is literal in single quotes)
+      if (char === "$" && pos + 1 < len && !inSingleQuote) {
         const next = input[pos + 1];
         if (
           next === "#" ||
@@ -1196,7 +1215,8 @@ export class Lexer {
       }
 
       // Handle backtick command substitution - consume the entire construct
-      if (char === "`") {
+      // Skip this handling if inside single quotes (backtick is literal in single quotes)
+      if (char === "`" && !inSingleQuote) {
         value += char;
         pos++;
         col++;

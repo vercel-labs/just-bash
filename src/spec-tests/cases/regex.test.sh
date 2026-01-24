@@ -72,7 +72,6 @@ status=1
 ## stdout: true
 
 #### Regex quoted with single quotes
-## SKIP: Quoted regex pattern handling differs
 # bash doesn't like the quotes
 [[ 'a b' =~ '^(a b)$' ]] && echo true
 ## stdout-json: ""
@@ -81,7 +80,6 @@ status=1
 ## OK zsh status: 0
 
 #### Regex quoted with double quotes
-## SKIP: Quoted regex pattern handling differs
 # bash doesn't like the quotes
 [[ 'a b' =~ "^(a b)$" ]] && echo true
 ## stdout-json: ""
@@ -100,7 +98,6 @@ pat="^(a b)$"
 ## stdout: true
 
 #### Double quoting pat variable -- again bash doesn't like it.
-## SKIP: Quoted regex pattern variable handling differs
 pat="^(a b)$"
 [[ 'a b' =~ "$pat" ]] && echo true
 ## stdout-json: ""
@@ -135,7 +132,6 @@ true
 ## OK zsh status: 1
 
 #### Regex with |
-## SKIP: Regex alternation without grouping not implemented
 [[ 'bar' =~ foo|bar ]] && echo true
 ## stdout: true
 ## N-I zsh stdout-json: ""
@@ -474,7 +470,6 @@ yes
 ## END
 
 #### c|a unquoted
-## SKIP: Regex alternation without grouping not implemented
 
 if [[ a =~ c|a ]]; then
   echo one

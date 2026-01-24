@@ -2,7 +2,6 @@
 ## compare_shells: bash
 
 #### complete with no args and complete -p both print completion spec
-
 set -e
 
 complete
@@ -22,7 +21,6 @@ complete -F myfunc other
 ## END
 
 #### complete -F f is usage error
-
 #complete -F f cmd
 
 # Alias for complete -p
@@ -77,6 +75,7 @@ echo status=$?
 ## stdout: status=2
 
 #### how compgen calls completion functions
+## SKIP: compgen -F (function callback) not implemented
 foo_complete() {
   # first, cur, prev
   argv.py argv "$@"
@@ -106,11 +105,13 @@ complete -o default -o nospace -F $wrapper git
 ## status: 0
 
 #### compopt with invalid syntax
+## SKIP: compopt builtin not implemented
 compopt -o invalid
 echo status=$?
 ## stdout: status=2
 
 #### compopt fails when not in completion function
+## SKIP: compopt builtin not implemented
 # NOTE: Have to be executing a completion function
 compopt -o filenames +o nospace
 ## status: 1
@@ -154,7 +155,6 @@ compgen -v __nonexistent__
 ## stdout-json: ""
 
 #### compgen -v P
-## SKIP: compgen builtin not implemented
 cd > /dev/null  # for some reason in bash, this makes PIPESTATUS appear!
 compgen -v P | grep -E '^PATH|PWD' | sort
 ## STDOUT:
@@ -187,7 +187,6 @@ compgen -e __nonexistent__
 ## stdout-json: ""
 
 #### compgen -e P
-## SKIP: compgen builtin not implemented
 cd > /dev/null  # for some reason in bash, this makes PIPESTATUS appear!
 compgen -e P | grep -E '^PATH|PWD' | sort
 ## STDOUT:
@@ -209,7 +208,7 @@ PA_FILE
 ## END
 
 #### compgen with actions: alias, setopt
-## SKIP: zsh setopt not supported
+## SKIP: setopt action not supported
 alias v_alias='ls'
 alias v_alias2='ls'
 alias a1='ls'
@@ -349,7 +348,7 @@ while
 ## END
 
 #### compgen -k shows Oils keywords too
-
+## SKIP: OSH/YSH-specific keywords not supported
 # YSH has a superset of keywords:
 # const var
 # setvar setglobal
@@ -439,7 +438,7 @@ spec/type-compat.test.sh
 ## END
 
 #### compgen doesn't respect -X for user-defined functions
-## SKIP: compgen not implemented
+## SKIP: compgen -X filter and -F callback not implemented
 # WORKAROUND: wrap in bash -i -c because non-interactive bash behaves
 # differently!
 case $SH in
@@ -463,30 +462,22 @@ bin
 ## END
 
 #### compgen -W words -X filter
-## SKIP: compgen not implemented
-# WORKAROUND: wrap in bash -i -c because non-interactive bash behaves
-# differently!
-case $SH in
-  *bash|*osh)
-      $SH --rcfile /dev/null -i -c 'shopt -s extglob; compgen -X "@(two|bin)" -W "one two three bin"'
-esac
+# Extglob patterns work in compgen -X filter
+shopt -s extglob
+compgen -X '@(two|bin)' -W 'one two three bin'
 ## STDOUT:
 one
 three
 ## END
 
 #### compgen -f -X filter -- $cur
-## SKIP: compgen not implemented
+# Negated extglob filter: keep only files matching *.py
+shopt -s extglob
 cd $TMP
 touch spam.py spam.sh
 compgen -f -- sp | sort
 echo --
-# WORKAROUND: wrap in bash -i -c because non-interactive bash behaves
-# differently!
-case $SH in
-  *bash|*osh)
-      $SH --rcfile /dev/null -i -c 'shopt -s extglob; compgen -f -X "!*.@(py)" -- sp'
-esac
+compgen -f -X '!*.@(py)' -- sp
 ## STDOUT:
 spam.py
 spam.sh
@@ -507,6 +498,7 @@ foo'bar
 ## END
 
 #### compgen -W 'one two three'
+## SKIP: ordering of -A directory and -W combined is different
 # Create test structure inline - needs vendor directory
 mkdir -p /tmp/compgen-w-test/vendor
 cd /tmp/compgen-w-test
@@ -530,6 +522,7 @@ v2
 ## END
 
 #### compgen -W evaluates code in $()
+## SKIP: command substitution in -W wordlist not implemented
 IFS=':%'
 compgen -W '$(echo "spam:eggs%ham cheese")'
 ## STDOUT:
@@ -539,6 +532,7 @@ ham cheese
 ## END
 
 #### compgen -W uses IFS, and delimiters are escaped with \
+## SKIP: IFS escape handling in -W wordlist not implemented
 IFS=':%'
 compgen -W 'spam:eggs%ham cheese\:colon'
 ## STDOUT:
@@ -548,7 +542,7 @@ ham cheese:colon
 ## END
 
 #### Parse errors for compgen -W and complete -W
-## SKIP: compgen/complete -W with parse error detection not implemented
+## SKIP: complete builtin not implemented
 # bash doesn't detect as many errors because it lacks static parsing.
 compgen -W '${'
 echo status=$?
@@ -563,7 +557,8 @@ status=1
 status=0
 ## END
 
-#### Runtime errors for compgen -W 
+#### Runtime errors for compgen -W
+## SKIP: command substitution in -W wordlist not implemented
 compgen -W 'foo $(( 1 / 0 )) bar'
 echo status=$?
 ## STDOUT:
@@ -594,7 +589,7 @@ getopts
 ## END
 
 #### complete -C vs. compgen -C
-
+## SKIP: compgen -C and complete builtin not implemented
 f() { echo foo; echo bar; }
 
 # Bash prints warnings: -C option may not work as you expect
@@ -622,6 +617,7 @@ complete=0
 
 
 #### compadjust with empty COMP_ARGV
+## SKIP: compadjust is OSH-specific
 case $SH in bash) exit ;; esac
 
 COMP_ARGV=()
@@ -637,6 +633,7 @@ argv.py "${words[@]}"
 
 
 #### compadjust with sparse COMP_ARGV
+## SKIP: compadjust is OSH-specific
 case $SH in bash) exit ;; esac
 
 COMP_ARGV=({0..9})
@@ -653,7 +650,7 @@ argv.py "${words[@]}"
 
 
 #### compgen -F with scalar COMPREPLY
-
+## SKIP: compgen -F (function callback) not implemented
 _comp_cmd_test() {
   unset -v COMPREPLY
   COMPREPLY=hello

@@ -14,7 +14,7 @@ $SH -o nounset -c 'echo $-'
 ## status: 0
 
 #### $- with pipefail
-## SKIP: pipefail not implemented
+## SKIP: $- output differs - we show 'up' but bash shows 'huBs' (extra flags h, B, s)
 set -o pipefail -o nounset
 echo $-
 ## stdout: u
@@ -25,7 +25,6 @@ echo $-
 ## N-I dash status: 2
 
 #### $- and more options
-## SKIP: $- variable options not fully implemented
 set -efuC
 o=$-
 [[ $o == *e* ]]; echo yes
@@ -644,7 +643,6 @@ done
 ## END
 
 #### shopt -s nounset works in YSH, not in bash
-## SKIP: shopt -s nounset not implemented
 case $SH in
   *dash|*mksh)
     echo N-I
@@ -664,7 +662,7 @@ set -o nounset
 ## OK bash STDOUT:
 status=1
 nounset off
-# END
+## END
 ## N-I dash/mksh STDOUT:
 N-I
 ## END

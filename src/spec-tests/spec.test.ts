@@ -27,7 +27,7 @@ const SKIP_FILES = new Set([
   "builtin-history.test.sh",
   "builtin-fc.test.sh",
   "builtin-bind.test.sh",
-  "builtin-completion.test.sh",
+  // "builtin-completion.test.sh", // Unskipped - tests added with SKIP markers
 
   // Process/job control - requires real processes
   "background.test.sh",

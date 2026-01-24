@@ -28,6 +28,7 @@ import {
   ExitError,
   PosixFatalError,
 } from "./interpreter/errors.js";
+import { buildShellopts } from "./interpreter/helpers/shellopts.js";
 import {
   Interpreter,
   type InterpreterOptions,
@@ -246,6 +247,7 @@ export class Bash {
         nullglob: false,
         failglob: false,
         globstar: false,
+        globskipdots: true, // Default to true in bash >=5.2
         nocaseglob: false,
         nocasematch: false,
         expand_aliases: false,
@@ -263,7 +265,14 @@ export class Bash {
         // Also export any user-provided environment variables
         ...Object.keys(options.env || {}),
       ]),
+      // SHELLOPTS is readonly
+      readonlyVars: new Set(["SHELLOPTS"]),
+      // Hash table for PATH command lookup caching
+      hashTable: new Map(),
     };
+
+    // Initialize SHELLOPTS to reflect current shell options (initially empty string since all are false)
+    this.state.env.SHELLOPTS = buildShellopts(this.state.options);
 
     // Initialize filesystem with standard directories and device files
     // Only applies to InMemoryFs - other filesystems use real directories
@@ -378,6 +387,8 @@ export class Bash {
       functions: new Map(this.state.functions),
       localScopes: [...this.state.localScopes],
       options: { ...this.state.options },
+      // Share hashTable reference - it should persist across exec calls
+      hashTable: this.state.hashTable,
     };
 
     // Normalize indented multi-line scripts (unless rawScript is true)

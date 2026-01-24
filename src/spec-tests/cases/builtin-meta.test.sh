@@ -58,7 +58,7 @@ eval
 
 
 #### command -v with multiple names
-## SKIP: exit code differs - bash returns 0 even when some names not found
+## SKIP: just-bash produces correct output (status=1) but test expects bash BUG behavior (status=0)
 # ALL FOUR SHELLS behave differently here!
 #
 # bash chooses to swallow the error!  We agree with zsh if ANY word lookup

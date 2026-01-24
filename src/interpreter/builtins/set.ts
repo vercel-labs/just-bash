@@ -7,18 +7,91 @@
 
 import type { ExecResult } from "../../types.js";
 import { PosixFatalError } from "../errors.js";
+import { getArrayIndices } from "../helpers/array.js";
 import { failure, OK, success } from "../helpers/result.js";
+import { updateShellopts } from "../helpers/shellopts.js";
 import type { InterpreterContext, ShellOptions } from "../types.js";
 
 /**
+ * Check if a character needs $'...' quoting (control characters, non-printable)
+ */
+function needsDollarQuoting(value: string): boolean {
+  // Check for any character that requires $'...' quoting:
+  // - Control characters (0x00-0x1F, 0x7F)
+  // - High bytes (0x80-0xFF)
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f || code > 0x7f) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Quote a value for shell output using $'...' quoting (bash ANSI-C quoting)
+ */
+function dollarQuote(value: string): string {
+  let result = "$'";
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i];
+    const code = value.charCodeAt(i);
+
+    if (code === 0x07) {
+      result += "\\a"; // bell
+    } else if (code === 0x08) {
+      result += "\\b"; // backspace
+    } else if (code === 0x09) {
+      result += "\\t"; // tab
+    } else if (code === 0x0a) {
+      result += "\\n"; // newline
+    } else if (code === 0x0b) {
+      result += "\\v"; // vertical tab
+    } else if (code === 0x0c) {
+      result += "\\f"; // form feed
+    } else if (code === 0x0d) {
+      result += "\\r"; // carriage return
+    } else if (code === 0x1b) {
+      result += "\\e"; // escape (bash extension)
+    } else if (code === 0x27) {
+      result += "\\'"; // single quote
+    } else if (code === 0x5c) {
+      result += "\\\\"; // backslash
+    } else if (code < 0x20 || code === 0x7f) {
+      // Other control characters: use octal notation (bash uses \NNN)
+      result += `\\${code.toString(8).padStart(3, "0")}`;
+    } else if (code > 0x7f && code <= 0xff) {
+      // High bytes: use octal
+      result += `\\${code.toString(8).padStart(3, "0")}`;
+    } else {
+      result += char;
+    }
+  }
+  result += "'";
+  return result;
+}
+
+/**
  * Quote a value for shell output (used by 'set' with no args)
+ * Matches bash's output format:
+ * - No quotes for simple alphanumeric values
+ * - Single quotes for values with spaces or shell metacharacters
+ * - $'...' quoting for values with control characters
  */
 function quoteValue(value: string): string {
+  // If value contains control characters or non-printable, use $'...' quoting
+  if (needsDollarQuoting(value)) {
+    return dollarQuote(value);
+  }
+
   // If value contains no special chars, return as-is
-  if (/^[a-zA-Z0-9_/.:-]*$/.test(value)) {
+  // Safe chars: alphanumerics, underscore, slash, dot, colon, hyphen, at, percent, plus, comma, equals
+  if (/^[a-zA-Z0-9_/.:\-@%+,=]*$/.test(value)) {
     return value;
   }
-  // Use single quotes, escaping any single quotes in the value
+
+  // Use single quotes for values with spaces or shell metacharacters
+  // Escape embedded single quotes as '\''
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
@@ -132,7 +205,8 @@ const NOOP_DISPLAY_OPTIONS: string[] = [
 ];
 
 /**
- * Set a shell option value using the option map
+ * Set a shell option value using the option map.
+ * Also updates the SHELLOPTS environment variable.
  */
 function setShellOption(
   ctx: InterpreterContext,
@@ -141,6 +215,7 @@ function setShellOption(
 ): void {
   if (optionKey !== null) {
     ctx.state.options[optionKey] = value;
+    updateShellopts(ctx);
   }
 }
 
@@ -155,6 +230,53 @@ function hasNonOptionArg(args: string[], i: number): boolean {
   );
 }
 
+/**
+ * Quote a value for array element output (always uses double quotes)
+ */
+function quoteArrayValue(value: string): string {
+  // If value needs $'...' quoting, use it inside the double quotes context
+  if (needsDollarQuoting(value)) {
+    return dollarQuote(value);
+  }
+  // For array elements, bash always uses double quotes
+  // Escape backslashes and double quotes
+  const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `"${escaped}"`;
+}
+
+/**
+ * Format an array variable for set output
+ * Format: arr=([0]="a" [1]="b" [2]="c")
+ */
+function formatArrayOutput(ctx: InterpreterContext, arrayName: string): string {
+  const indices = getArrayIndices(ctx, arrayName);
+  if (indices.length === 0) {
+    return `${arrayName}=()`;
+  }
+
+  const elements = indices.map((i) => {
+    const value = ctx.state.env[`${arrayName}_${i}`] ?? "";
+    return `[${i}]=${quoteArrayValue(value)}`;
+  });
+
+  return `${arrayName}=(${elements.join(" ")})`;
+}
+
+/**
+ * Get all array names from the environment
+ */
+function getArrayNames(ctx: InterpreterContext): Set<string> {
+  const arrayNames = new Set<string>();
+  for (const key of Object.keys(ctx.state.env)) {
+    // Match array element pattern: name_index where index is numeric
+    const match = key.match(/^([a-zA-Z_][a-zA-Z0-9_]*)_(\d+)$/);
+    if (match) {
+      arrayNames.add(match[1]);
+    }
+  }
+  return arrayNames;
+}
+
 export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
   if (args.includes("--help")) {
     return success(SET_USAGE);
@@ -162,12 +284,46 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
 
   // With no arguments, print all shell variables
   if (args.length === 0) {
-    const output = Object.entries(ctx.state.env)
-      .filter(([key]) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) // Only valid variable names
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, value]) => `${key}=${quoteValue(value)}`)
-      .join("\n");
-    return success(output ? `${output}\n` : "");
+    const arrayNames = getArrayNames(ctx);
+
+    // Collect scalar variables (excluding array elements like name_0)
+    const scalarEntries: [string, string][] = [];
+    for (const [key, value] of Object.entries(ctx.state.env)) {
+      // Only valid variable names (no underscores followed by digits or __metadata)
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
+        continue;
+      }
+      // Skip if this is actually an array (has array elements)
+      if (arrayNames.has(key)) {
+        continue;
+      }
+      scalarEntries.push([key, value]);
+    }
+
+    // Build output: scalars first, then arrays
+    const lines: string[] = [];
+
+    // Add scalar variables
+    for (const [key, value] of scalarEntries.sort(([a], [b]) =>
+      a.localeCompare(b),
+    )) {
+      lines.push(`${key}=${quoteValue(value)}`);
+    }
+
+    // Add arrays
+    for (const arrayName of [...arrayNames].sort()) {
+      lines.push(formatArrayOutput(ctx, arrayName));
+    }
+
+    // Sort all lines together (bash outputs in sorted order)
+    lines.sort((a, b) => {
+      // Extract variable name for comparison
+      const nameA = a.split("=")[0];
+      const nameB = b.split("=")[0];
+      return nameA.localeCompare(nameB);
+    });
+
+    return success(lines.length > 0 ? `${lines.join("\n")}\n` : "");
   }
 
   let i = 0;
@@ -245,6 +401,7 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
     if (arg === "-") {
       ctx.state.options.xtrace = false;
       ctx.state.options.verbose = false;
+      updateShellopts(ctx);
       if (i + 1 < args.length) {
         setPositionalParameters(ctx, args.slice(i + 1));
         return OK;

@@ -420,4 +420,56 @@ export class ReadWriteFs implements IFileSystem {
       throw e;
     }
   }
+
+  /**
+   * Resolve all symlinks in a path to get the canonical physical path.
+   * This is equivalent to POSIX realpath().
+   */
+  async realpath(path: string): Promise<string> {
+    const realPath = this.toRealPath(path);
+
+    try {
+      const resolved = await fs.promises.realpath(realPath);
+      // Convert back to virtual path (relative to root)
+      if (resolved.startsWith(this.root)) {
+        const relative = resolved.slice(this.root.length);
+        return relative || "/";
+      }
+      // If resolved path is outside root (shouldn't happen), return as-is
+      return resolved;
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") {
+        throw new Error(
+          `ENOENT: no such file or directory, realpath '${path}'`,
+        );
+      }
+      if (err.code === "ELOOP") {
+        throw new Error(
+          `ELOOP: too many levels of symbolic links, realpath '${path}'`,
+        );
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * Set access and modification times of a file
+   * @param path - The file path
+   * @param atime - Access time
+   * @param mtime - Modification time
+   */
+  async utimes(path: string, atime: Date, mtime: Date): Promise<void> {
+    const realPath = this.toRealPath(path);
+
+    try {
+      await fs.promises.utimes(realPath, atime, mtime);
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") {
+        throw new Error(`ENOENT: no such file or directory, utimes '${path}'`);
+      }
+      throw e;
+    }
+  }
 }

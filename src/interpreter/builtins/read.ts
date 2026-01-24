@@ -279,15 +279,50 @@ export function handleRead(
     return result("", "", foundDelimiter ? 0 : 1);
   } else if (nchars >= 0) {
     // -n: Read at most N characters (or until delimiter/EOF), then apply IFS splitting
-    for (let c = 0; c < effectiveStdin.length && c < nchars; c++) {
-      const char = effectiveStdin[c];
+    // In non-raw mode, backslash escapes are processed: \X counts as 1 char (the X)
+    let charCount = 0;
+    let inputPos = 0;
+    let hitDelimiter = false;
+    while (inputPos < effectiveStdin.length && charCount < nchars) {
+      const char = effectiveStdin[inputPos];
       if (char === effectiveDelimiter) {
-        consumed = c + 1;
+        consumed = inputPos + 1;
+        hitDelimiter = true;
         break;
       }
-      line += char;
-      consumed = c + 1;
+      if (!raw && char === "\\" && inputPos + 1 < effectiveStdin.length) {
+        // Backslash escape: consume both chars, but only count as 1 char
+        // The escaped character is kept, backslash is removed
+        const nextChar = effectiveStdin[inputPos + 1];
+        if (nextChar === effectiveDelimiter && effectiveDelimiter === "\n") {
+          // Backslash-newline is a line continuation: consume both, don't count as a char
+          // Continue reading from the next line
+          inputPos += 2;
+          consumed = inputPos;
+          continue;
+        }
+        if (nextChar === effectiveDelimiter) {
+          // Backslash-delimiter (non-newline): counts as one char (the escaped delimiter)
+          inputPos += 2;
+          charCount++;
+          line += nextChar;
+          consumed = inputPos;
+          continue;
+        }
+        line += nextChar;
+        inputPos += 2;
+        charCount++;
+        consumed = inputPos;
+      } else {
+        line += char;
+        inputPos++;
+        charCount++;
+        consumed = inputPos;
+      }
     }
+    // For -n: success if we read enough characters OR if we hit the delimiter
+    // Failure (exit 1) only if EOF reached before nchars and before delimiter
+    foundDelimiter = charCount >= nchars || hitDelimiter;
     // Consume from appropriate source
     consumeInput(consumed);
   } else {

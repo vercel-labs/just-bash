@@ -17,6 +17,49 @@ import { result as makeResult } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
 
 /**
+ * Pre-expanded redirect targets, keyed by index into the redirections array.
+ * This allows us to expand redirect targets (including side effects) before
+ * executing a function body, then apply the redirections after.
+ */
+export type ExpandedRedirectTargets = Map<number, string>;
+
+/**
+ * Pre-expand redirect targets for function definitions.
+ * This is needed because redirections on function definitions are evaluated
+ * each time the function is called, and any side effects (like $((i++)))
+ * must occur BEFORE the function body executes.
+ */
+export async function preExpandRedirectTargets(
+  ctx: InterpreterContext,
+  redirections: RedirectionNode[],
+): Promise<{ targets: ExpandedRedirectTargets; error?: string }> {
+  const targets: ExpandedRedirectTargets = new Map();
+
+  for (let i = 0; i < redirections.length; i++) {
+    const redir = redirections[i];
+    if (redir.target.type === "HereDoc") {
+      continue;
+    }
+
+    const isFdRedirect = redir.operator === ">&" || redir.operator === "<&";
+    if (isFdRedirect) {
+      targets.set(i, await expandWord(ctx, redir.target as WordNode));
+    } else {
+      const expandResult = await expandRedirectTarget(
+        ctx,
+        redir.target as WordNode,
+      );
+      if ("error" in expandResult) {
+        return { targets, error: expandResult.error };
+      }
+      targets.set(i, expandResult.target);
+    }
+  }
+
+  return { targets };
+}
+
+/**
  * Allocate the next available file descriptor (starting at 10).
  * Returns the allocated FD number.
  */
@@ -161,24 +204,42 @@ export async function preOpenOutputRedirects(
 
     // Only handle output truncation redirects (>, >|, &>)
     // Append (>>, &>>) doesn't need pre-truncation
-    // FD redirects (>&) don't touch files
+    // >&word needs special handling - it's a file redirect only if word is not a number
+    const isGreaterAmpersand = redir.operator === ">&";
     if (
       redir.operator !== ">" &&
       redir.operator !== ">|" &&
-      redir.operator !== "&>"
+      redir.operator !== "&>" &&
+      !isGreaterAmpersand
     ) {
       continue;
     }
 
     // Expand redirect target with glob handling (failglob, ambiguous redirect)
-    const expandResult = await expandRedirectTarget(
-      ctx,
-      redir.target as WordNode,
-    );
-    if ("error" in expandResult) {
-      return makeResult("", expandResult.error, 1);
+    // For >&, use plain expansion first to check if it's a number
+    let target: string;
+    if (isGreaterAmpersand) {
+      target = await expandWord(ctx, redir.target as WordNode);
+      // If it's a number, -, or has explicit fd, it's an FD redirect, not a file redirect
+      if (
+        target === "-" ||
+        !Number.isNaN(Number.parseInt(target, 10)) ||
+        redir.fd != null
+      ) {
+        continue;
+      }
+      // It's a file redirect - re-expand with redirect target handling
+      // (though we already have the expanded value, use it directly)
+    } else {
+      const expandResult = await expandRedirectTarget(
+        ctx,
+        redir.target as WordNode,
+      );
+      if ("error" in expandResult) {
+        return makeResult("", expandResult.error, 1);
+      }
+      target = expandResult.target;
     }
-    const target = expandResult.target;
     const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
     const isClobber = redir.operator === ">|";
 
@@ -209,7 +270,12 @@ export async function preOpenOutputRedirects(
     // Pre-truncate the file (create empty file)
     // This makes the file empty before any command substitutions in the
     // compound command body are evaluated
-    if (target !== "/dev/null") {
+    // Skip special device files that don't need pre-truncation
+    if (
+      target !== "/dev/null" &&
+      target !== "/dev/stdout" &&
+      target !== "/dev/stderr"
+    ) {
       await ctx.fs.writeFile(filePath, "", "utf8");
     }
   }
@@ -221,33 +287,41 @@ export async function applyRedirections(
   ctx: InterpreterContext,
   result: ExecResult,
   redirections: RedirectionNode[],
+  preExpandedTargets?: ExpandedRedirectTargets,
 ): Promise<ExecResult> {
   let { stdout, stderr, exitCode } = result;
 
-  for (const redir of redirections) {
+  for (let i = 0; i < redirections.length; i++) {
+    const redir = redirections[i];
     if (redir.target.type === "HereDoc") {
       continue;
     }
 
-    // For FD-to-FD redirects (>&), use plain expansion without glob handling
-    // For file redirects, use glob expansion with failglob/ambiguous redirect handling
-    const isFdRedirect = redir.operator === ">&" || redir.operator === "<&";
+    // Use pre-expanded target if available, otherwise expand now
     let target: string;
-    if (isFdRedirect) {
-      target = await expandWord(ctx, redir.target as WordNode);
+    const preExpanded = preExpandedTargets?.get(i);
+    if (preExpanded !== undefined) {
+      target = preExpanded;
     } else {
-      const expandResult = await expandRedirectTarget(
-        ctx,
-        redir.target as WordNode,
-      );
-      if ("error" in expandResult) {
-        stderr += expandResult.error;
-        exitCode = 1;
-        // When redirect fails, discard the output that would have been redirected
-        stdout = "";
-        continue;
+      // For FD-to-FD redirects (>&), use plain expansion without glob handling
+      // For file redirects, use glob expansion with failglob/ambiguous redirect handling
+      const isFdRedirect = redir.operator === ">&" || redir.operator === "<&";
+      if (isFdRedirect) {
+        target = await expandWord(ctx, redir.target as WordNode);
+      } else {
+        const expandResult = await expandRedirectTarget(
+          ctx,
+          redir.target as WordNode,
+        );
+        if ("error" in expandResult) {
+          stderr += expandResult.error;
+          exitCode = 1;
+          // When redirect fails, discard the output that would have been redirected
+          stdout = "";
+          continue;
+        }
+        target = expandResult.target;
       }
-      target = expandResult.target;
     }
 
     // Skip FD variable redirections in applyRedirections - they're already handled
@@ -262,6 +336,16 @@ export async function applyRedirections(
         const fd = redir.fd ?? 1;
         const isClobber = redir.operator === ">|";
         if (fd === 1) {
+          // /dev/stdout is a no-op for stdout - output stays on stdout
+          if (target === "/dev/stdout") {
+            break;
+          }
+          // /dev/stderr redirects stdout to stderr
+          if (target === "/dev/stderr") {
+            stderr += stdout;
+            stdout = "";
+            break;
+          }
           const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
           // Check if target is a directory
           try {
@@ -291,6 +375,16 @@ export async function applyRedirections(
           await ctx.fs.writeFile(filePath, stdout, "binary");
           stdout = "";
         } else if (fd === 2) {
+          // /dev/stderr is a no-op for stderr - output stays on stderr
+          if (target === "/dev/stderr") {
+            break;
+          }
+          // /dev/stdout redirects stderr to stdout
+          if (target === "/dev/stdout") {
+            stdout += stderr;
+            stderr = "";
+            break;
+          }
           if (target === "/dev/null") {
             stderr = "";
           } else {
@@ -327,6 +421,16 @@ export async function applyRedirections(
       case ">>": {
         const fd = redir.fd ?? 1;
         if (fd === 1) {
+          // /dev/stdout is a no-op for stdout - output stays on stdout
+          if (target === "/dev/stdout") {
+            break;
+          }
+          // /dev/stderr redirects stdout to stderr
+          if (target === "/dev/stderr") {
+            stderr += stdout;
+            stdout = "";
+            break;
+          }
           const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
           // Check if target is a directory
           try {
@@ -344,6 +448,16 @@ export async function applyRedirections(
           await ctx.fs.appendFile(filePath, stdout, "binary");
           stdout = "";
         } else if (fd === 2) {
+          // /dev/stderr is a no-op for stderr - output stays on stderr
+          if (target === "/dev/stderr") {
+            break;
+          }
+          // /dev/stdout redirects stderr to stdout
+          if (target === "/dev/stdout") {
+            stdout += stderr;
+            stderr = "";
+            break;
+          }
           const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
           // Check if target is a directory
           try {
@@ -430,6 +544,33 @@ export async function applyRedirections(
               exitCode = 1;
               stdout = "";
             }
+          } else if (redir.operator === ">&" && redir.fd == null) {
+            // In bash, >&word (without explicit fd) where word is not a number or '-'
+            // redirects BOTH stdout and stderr to the file (equivalent to &>word)
+            const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+            // Check if target is a directory
+            try {
+              const stat = await ctx.fs.stat(filePath);
+              if (stat.isDirectory) {
+                stderr = `bash: ${target}: Is a directory\n`;
+                exitCode = 1;
+                stdout = "";
+                break;
+              }
+              // Check noclobber: if file exists and noclobber is set, refuse to overwrite
+              if (ctx.state.options.noclobber && target !== "/dev/null") {
+                stderr = `bash: ${target}: cannot overwrite existing file\n`;
+                exitCode = 1;
+                stdout = "";
+                break;
+              }
+            } catch {
+              // File doesn't exist, that's ok - we'll create it
+            }
+            // Write both stdout and stderr to the file
+            await ctx.fs.writeFile(filePath, stdout + stderr, "binary");
+            stdout = "";
+            stderr = "";
           }
         }
         break;

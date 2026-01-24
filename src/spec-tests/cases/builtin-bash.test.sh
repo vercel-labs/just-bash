@@ -3,7 +3,6 @@
 
 
 #### help
-## SKIP: help builtin not implemented
 help
 echo status=$? >&2
 help help
@@ -17,7 +16,6 @@ status=0
 ## END
 
 #### bad help topic
-## SKIP: help builtin not implemented
 help ZZZ 2>$TMP/err.txt
 echo "help=$?"
 cat $TMP/err.txt | grep -i 'no help topics' >/dev/null

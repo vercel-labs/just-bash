@@ -276,6 +276,11 @@ function parseRegexPattern(p: Parser): WordNode {
         // Stop parsing the regex pattern here
         break;
       }
+    } else if (p.check(TokenType.PIPE)) {
+      // Unquoted | in regex pattern - regex alternation (foo|bar)
+      const token = p.advance();
+      parts.push({ type: "Literal", value: "|" });
+      lastTokenEnd = token.end;
     } else {
       // Unknown token, stop parsing
       break;
