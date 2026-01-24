@@ -3673,6 +3673,50 @@ export async function expandWordWithGlob(
     return { values: expandedValues, quoted: false };
   }
 
+  // Handle mixed word parts with word-producing expansions like $s1"${array[@]}"_"$@"
+  // This case has multiple top-level parts where some are DoubleQuoted containing ${arr[@]} or $@
+  // Each word-producing part expands to multiple words, and we need to join adjacent parts properly
+  const mixedWordResult = await expandMixedWordParts(ctx, wordParts);
+  if (mixedWordResult !== null) {
+    // Apply glob expansion to each resulting word
+    if (ctx.state.options.noglob) {
+      return { values: mixedWordResult, quoted: false };
+    }
+
+    const globExpander = new GlobExpander(
+      ctx.fs,
+      ctx.state.cwd,
+      ctx.state.env,
+      {
+        globstar: ctx.state.shoptOptions.globstar,
+        nullglob: ctx.state.shoptOptions.nullglob,
+        failglob: ctx.state.shoptOptions.failglob,
+        dotglob: ctx.state.shoptOptions.dotglob,
+        extglob: ctx.state.shoptOptions.extglob,
+        globskipdots: ctx.state.shoptOptions.globskipdots,
+      },
+    );
+
+    const expandedValues: string[] = [];
+    for (const w of mixedWordResult) {
+      if (hasGlobPattern(w, ctx.state.shoptOptions.extglob)) {
+        const matches = await globExpander.expand(w);
+        if (matches.length > 0) {
+          expandedValues.push(...matches);
+        } else if (globExpander.hasFailglob()) {
+          throw new GlobError(w);
+        } else if (globExpander.hasNullglob()) {
+          // skip
+        } else {
+          expandedValues.push(w);
+        }
+      } else {
+        expandedValues.push(w);
+      }
+    }
+    return { values: expandedValues, quoted: false };
+  }
+
   // No brace expansion or single value - use original logic
   // Word splitting based on IFS
   // If IFS is set to empty string, no word splitting occurs
@@ -3820,6 +3864,222 @@ export async function expandWordWithGlob(
   }
 
   return { values: [value], quoted: hasQuoted };
+}
+
+/**
+ * Check if a DoubleQuoted part contains a word-producing expansion (${arr[@]} or $@).
+ * Returns info about the expansion if found, or null if not found.
+ */
+function findWordProducingExpansion(
+  part: WordPart,
+):
+  | { type: "array"; name: string; atIndex: number; isStar: boolean }
+  | { type: "positional"; atIndex: number; isStar: boolean }
+  | null {
+  if (part.type !== "DoubleQuoted") return null;
+
+  for (let i = 0; i < part.parts.length; i++) {
+    const inner = part.parts[i];
+    if (inner.type !== "ParameterExpansion") continue;
+    if (inner.operation) continue; // Skip if has operation like ${arr[@]#pattern}
+
+    // Check for ${arr[@]} or ${arr[*]}
+    const arrayMatch = inner.parameter.match(
+      /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
+    );
+    if (arrayMatch) {
+      return {
+        type: "array",
+        name: arrayMatch[1],
+        atIndex: i,
+        isStar: arrayMatch[2] === "*",
+      };
+    }
+
+    // Check for $@ or $*
+    if (inner.parameter === "@" || inner.parameter === "*") {
+      return {
+        type: "positional",
+        atIndex: i,
+        isStar: inner.parameter === "*",
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Expand a DoubleQuoted part that contains a word-producing expansion.
+ * Returns an array of words.
+ */
+async function expandDoubleQuotedWithWordProducing(
+  ctx: InterpreterContext,
+  part: WordPart & { type: "DoubleQuoted" },
+  info:
+    | { type: "array"; name: string; atIndex: number; isStar: boolean }
+    | { type: "positional"; atIndex: number; isStar: boolean },
+): Promise<string[]> {
+  // Expand prefix (parts before the @ expansion)
+  let prefix = "";
+  for (let i = 0; i < info.atIndex; i++) {
+    prefix += await expandPart(ctx, part.parts[i]);
+  }
+
+  // Expand suffix (parts after the @ expansion)
+  let suffix = "";
+  for (let i = info.atIndex + 1; i < part.parts.length; i++) {
+    suffix += await expandPart(ctx, part.parts[i]);
+  }
+
+  // Get the values from the expansion
+  let values: string[];
+  if (info.type === "array") {
+    const elements = getArrayElements(ctx, info.name);
+    values = elements.map(([, v]) => v);
+    if (values.length === 0) {
+      // Check for scalar (treat as single-element array)
+      const scalarValue = ctx.state.env[info.name];
+      if (scalarValue !== undefined) {
+        values = [scalarValue];
+      }
+    }
+  } else {
+    // Positional parameters
+    const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+    values = [];
+    for (let i = 1; i <= numParams; i++) {
+      values.push(ctx.state.env[String(i)] || "");
+    }
+  }
+
+  // Handle * (join with IFS into single word)
+  if (info.isStar) {
+    const ifsSep = getIfsSeparator(ctx.state.env);
+    const joined = values.join(ifsSep);
+    return [prefix + joined + suffix];
+  }
+
+  // Handle @ (each value is a separate word)
+  if (values.length === 0) {
+    // No values - return prefix+suffix if non-empty
+    const combined = prefix + suffix;
+    return combined ? [combined] : [];
+  }
+
+  if (values.length === 1) {
+    return [prefix + values[0] + suffix];
+  }
+
+  // Multiple values: prefix joins with first, suffix joins with last
+  return [
+    prefix + values[0],
+    ...values.slice(1, -1),
+    values[values.length - 1] + suffix,
+  ];
+}
+
+/**
+ * Expand mixed word parts where some parts are word-producing (contain ${arr[@]} or $@).
+ * Returns null if this case doesn't apply.
+ *
+ * This handles cases like: $s1"${array[@]}"_"$@"
+ * - $s1 splits by IFS into multiple words
+ * - "${array[@]}" expands to multiple words (one per element)
+ * - _ is a literal
+ * - "$@" expands to multiple words (one per positional param)
+ *
+ * The joining rule is: last word of one part joins with first word of next part.
+ */
+async function expandMixedWordParts(
+  ctx: InterpreterContext,
+  wordParts: WordPart[],
+): Promise<string[] | null> {
+  // Only applies if we have multiple parts and at least one word-producing part
+  if (wordParts.length < 2) return null;
+
+  // Check if any DoubleQuoted parts have word-producing expansions
+  let hasWordProducing = false;
+  for (const part of wordParts) {
+    if (findWordProducingExpansion(part)) {
+      hasWordProducing = true;
+      break;
+    }
+  }
+  if (!hasWordProducing) return null;
+
+  const ifsChars = getIfs(ctx.state.env);
+  const ifsEmpty = isIfsEmpty(ctx.state.env);
+
+  // Expand each part into an array of words
+  // Then join adjacent parts by concatenating boundary words
+  const partWords: string[][] = [];
+
+  for (const part of wordParts) {
+    const wpInfo = findWordProducingExpansion(part);
+
+    if (wpInfo && part.type === "DoubleQuoted") {
+      // This part produces multiple words
+      const words = await expandDoubleQuotedWithWordProducing(
+        ctx,
+        part,
+        wpInfo,
+      );
+      partWords.push(words);
+    } else if (part.type === "DoubleQuoted" || part.type === "SingleQuoted") {
+      // Quoted part - produces single word, no splitting
+      const value = await expandPart(ctx, part);
+      partWords.push([value]);
+    } else if (part.type === "Literal") {
+      // Literal - no splitting
+      partWords.push([part.value]);
+    } else if (part.type === "ParameterExpansion") {
+      // Unquoted parameter expansion - subject to IFS splitting
+      const value = await expandPart(ctx, part);
+      if (ifsEmpty) {
+        partWords.push(value ? [value] : []);
+      } else {
+        const split = splitByIfsForExpansion(value, ifsChars);
+        partWords.push(split);
+      }
+    } else {
+      // Other parts (CommandSubstitution, ArithmeticExpansion, etc.)
+      const value = await expandPart(ctx, part);
+      if (ifsEmpty) {
+        partWords.push(value ? [value] : []);
+      } else {
+        const split = splitByIfsForExpansion(value, ifsChars);
+        partWords.push(split);
+      }
+    }
+  }
+
+  // Join the parts by concatenating boundary words
+  // Algorithm: for each pair of adjacent parts, join last word of left with first word of right
+  const result: string[] = [];
+
+  for (let i = 0; i < partWords.length; i++) {
+    const words = partWords[i];
+    if (words.length === 0) {
+      // Empty part - nothing to add
+      continue;
+    }
+
+    if (result.length === 0) {
+      // First non-empty part
+      result.push(...words);
+    } else {
+      // Join last word of result with first word of this part
+      const lastIdx = result.length - 1;
+      result[lastIdx] = result[lastIdx] + words[0];
+
+      // Add remaining words from this part
+      for (let j = 1; j < words.length; j++) {
+        result.push(words[j]);
+      }
+    }
+  }
+
+  return result;
 }
 
 /**

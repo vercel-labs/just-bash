@@ -12,8 +12,10 @@
  * - dynamic-unset (different scope): cell-unset - removes local cell, exposes outer value
  */
 
+import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
+import { evaluateArithmeticSync } from "../arithmetic.js";
 import { expandWord, getArrayElements } from "../expansion.js";
 import { isNameref, resolveNameref } from "../helpers/nameref.js";
 import { isReadonly } from "../helpers/readonly.js";
@@ -27,6 +29,25 @@ import { clearLocalVarDepth, getLocalVarDepth } from "./variable-helpers.js";
  */
 function isValidVariableName(name: string): boolean {
   return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name);
+}
+
+/**
+ * Evaluate an array index expression (can be arithmetic).
+ * Returns the evaluated numeric index.
+ */
+function evaluateArrayIndex(
+  ctx: InterpreterContext,
+  indexExpr: string,
+): number {
+  try {
+    const parser = new Parser();
+    const arithAst = parseArithmeticExpression(parser, indexExpr);
+    return evaluateArithmeticSync(ctx, arithAst.expression);
+  } catch {
+    // If parsing fails, try to parse as simple number
+    const num = parseInt(indexExpr, 10);
+    return Number.isNaN(num) ? 0 : num;
+  }
 }
 
 /**
@@ -169,14 +190,7 @@ export async function handleUnset(
         }
 
         // Indexed array: evaluate index as arithmetic expression
-        let index: number;
-        if (/^-?\d+$/.test(indexExpr)) {
-          index = Number.parseInt(indexExpr, 10);
-        } else {
-          const evalValue = ctx.state.env[indexExpr];
-          index = evalValue ? Number.parseInt(evalValue, 10) : 0;
-          if (Number.isNaN(index)) index = 0;
-        }
+        const index = evaluateArrayIndex(ctx, indexExpr);
 
         if (index < 0) {
           const elements = getArrayElements(ctx, arrayName);
@@ -268,15 +282,7 @@ export async function handleUnset(
       }
 
       // Indexed array: evaluate index as arithmetic expression
-      let index: number;
-      if (/^-?\d+$/.test(indexExpr)) {
-        index = Number.parseInt(indexExpr, 10);
-      } else {
-        // Try to evaluate as variable or expression
-        const evalValue = ctx.state.env[indexExpr];
-        index = evalValue ? Number.parseInt(evalValue, 10) : 0;
-        if (Number.isNaN(index)) index = 0;
-      }
+      const index = evaluateArrayIndex(ctx, indexExpr);
 
       // Handle negative indices
       if (index < 0) {

@@ -848,7 +848,6 @@ status=0
 ## END
 
 #### dynamic flag in array in assign builtin
-## SKIP: Dynamic flag handling not implemented
 typeset b
 b=(unused1 unused2)  # this works in mksh
 

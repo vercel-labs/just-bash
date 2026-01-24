@@ -225,7 +225,6 @@ status=1
 ## END
 
 #### Extended glob in same word as array
-## SKIP: extglob combined with array expansion not implemented
 shopt -s extglob
 mkdir -p eg10
 cd eg10

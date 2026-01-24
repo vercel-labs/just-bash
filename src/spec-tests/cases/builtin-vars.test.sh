@@ -582,8 +582,6 @@ status=0
 
 
 #### Unset array member with dynamic parsing
-## SKIP: Unset array member with dynamic arithmetic parsing not implemented
-
 i=1
 a=(w x y z)
 unset 'a[ i - 1 ]' a[i+1]  # note: can't have space between a and [
