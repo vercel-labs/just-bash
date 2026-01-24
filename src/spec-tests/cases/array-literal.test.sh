@@ -146,23 +146,18 @@ vals: ['2:34:56']
 ## END
 
 #### non-index forms of element (BashAssoc)
-## SKIP: stderr format differs from bash (we error silently, bash outputs warnings)
 declare -A a
 a=([j]=1 2 3 4)
 echo "status=$?"
 printf 'keys: '; argv.py "${!a[@]}"
 printf 'vals: '; argv.py "${a[@]}"
-## status: 1
+## status: 0
 ## STDOUT:
-## END
-# Bash outputs warning messages and succeeds (exit status 0)
-## BUG bash status: 0
-## BUG bash STDOUT:
 status=0
 keys: ['j']
 vals: ['1']
 ## END
-## BUG bash STDERR:
+## STDERR:
 bash: line 2: a: 2: must use subscript when assigning associative array
 bash: line 2: a: 3: must use subscript when assigning associative array
 bash: line 2: a: 4: must use subscript when assigning associative array

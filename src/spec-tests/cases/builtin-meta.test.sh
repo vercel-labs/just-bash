@@ -295,7 +295,6 @@ command command -v seq
 ## N-I zsh status: 127
 
 #### command -p (override existing program)
-## SKIP: user scripts in PATH not executable (command shadowing)
 # Tests whether command -p overrides the path
 # tr chosen because we need a simple non-builtin
 mkdir -p $TMP/bin

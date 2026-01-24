@@ -1007,6 +1007,14 @@ export async function expandWordForRegex(
       // Double-quoted: expand contents
       const expanded = await expandWordPartsAsync(ctx, part.parts);
       parts.push(expanded);
+    } else if (part.type === "TildeExpansion") {
+      // Tilde expansion on RHS of =~ is treated as literal (regex chars escaped)
+      // This matches bash 4.x+ behavior where ~ expands but the result is
+      // matched literally, not as a regex pattern.
+      // e.g., HOME='^a$'; [[ $HOME =~ ~ ]] matches because ~ expands to '^a$'
+      // and then '^a$' is escaped to '\^a\$' which matches the literal string
+      const expanded = await expandPart(ctx, part);
+      parts.push(escapeRegexChars(expanded));
     } else {
       // Other parts: expand normally
       parts.push(await expandPart(ctx, part));

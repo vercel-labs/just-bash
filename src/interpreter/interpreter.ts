@@ -398,6 +398,107 @@ export class Interpreter {
     return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
   }
 
+  /**
+   * Execute a user script file found in PATH.
+   * This handles executable files that don't have registered command handlers.
+   * The script runs in a subshell-like environment with its own positional parameters.
+   */
+  private async executeUserScript(
+    scriptPath: string,
+    args: string[],
+    stdin = "",
+  ): Promise<ExecResult> {
+    // Read the script content
+    let content: string;
+    try {
+      content = await this.ctx.fs.readFile(scriptPath);
+    } catch {
+      return failure(`bash: ${scriptPath}: No such file or directory\n`, 127);
+    }
+
+    // Check for shebang and skip it if present (we'll execute as bash script)
+    // Note: we don't actually support different interpreters, just bash
+    if (content.startsWith("#!")) {
+      const firstNewline = content.indexOf("\n");
+      if (firstNewline !== -1) {
+        content = content.slice(firstNewline + 1);
+      }
+    }
+
+    // Save current state for restoration after script execution
+    const savedEnv = { ...this.ctx.state.env };
+    const savedCwd = this.ctx.state.cwd;
+    const savedOptions = { ...this.ctx.state.options };
+    const savedLoopDepth = this.ctx.state.loopDepth;
+    const savedParentHasLoopContext = this.ctx.state.parentHasLoopContext;
+    const savedLastArg = this.ctx.state.lastArg;
+    const savedBashPid = this.ctx.state.bashPid;
+    const savedGroupStdin = this.ctx.state.groupStdin;
+    const savedSource = this.ctx.state.currentSource;
+
+    // Set up subshell-like environment
+    this.ctx.state.parentHasLoopContext = savedLoopDepth > 0;
+    this.ctx.state.loopDepth = 0;
+    this.ctx.state.bashPid = this.ctx.state.nextVirtualPid++;
+    if (stdin) {
+      this.ctx.state.groupStdin = stdin;
+    }
+    this.ctx.state.currentSource = scriptPath;
+
+    // Set positional parameters ($1, $2, etc.) from args
+    // $0 should be the script path
+    this.ctx.state.env["0"] = scriptPath;
+    this.ctx.state.env["#"] = String(args.length);
+    this.ctx.state.env["@"] = args.join(" ");
+    this.ctx.state.env["*"] = args.join(" ");
+    for (let i = 0; i < args.length && i < 9; i++) {
+      this.ctx.state.env[String(i + 1)] = args[i];
+    }
+    // Clear any remaining positional parameters
+    for (let i = args.length + 1; i <= 9; i++) {
+      delete this.ctx.state.env[String(i)];
+    }
+
+    const cleanup = (): void => {
+      this.ctx.state.env = savedEnv;
+      this.ctx.state.cwd = savedCwd;
+      this.ctx.state.options = savedOptions;
+      this.ctx.state.loopDepth = savedLoopDepth;
+      this.ctx.state.parentHasLoopContext = savedParentHasLoopContext;
+      this.ctx.state.lastArg = savedLastArg;
+      this.ctx.state.bashPid = savedBashPid;
+      this.ctx.state.groupStdin = savedGroupStdin;
+      this.ctx.state.currentSource = savedSource;
+    };
+
+    try {
+      const parser = new Parser();
+      const ast = parser.parse(content);
+      const execResult = await this.executeScript(ast);
+      cleanup();
+      return execResult;
+    } catch (error) {
+      cleanup();
+
+      // ExitError propagates up (but with output from this script)
+      if (error instanceof ExitError) {
+        throw error;
+      }
+
+      // ExecutionLimitError must always propagate
+      if (error instanceof ExecutionLimitError) {
+        throw error;
+      }
+
+      // Handle parse errors
+      if ((error as ParseException).name === "ParseException") {
+        return failure(`bash: ${scriptPath}: ${(error as Error).message}\n`);
+      }
+
+      throw error;
+    }
+  }
+
   private async executeStatement(node: StatementNode): Promise<ExecResult> {
     this.ctx.state.commandCount++;
     if (this.ctx.state.commandCount > this.ctx.limits.maxCommandCount) {
@@ -845,9 +946,12 @@ export class Interpreter {
               }
             } else {
               // For associative arrays, elements without [key]=value syntax are invalid
-              // Bash outputs warning and continues (status 0), but OSH returns error (status 1)
-              // We follow the stricter OSH behavior - silent exit with status 1
-              throw new ExitError(1, "", "");
+              // Bash outputs a warning to stderr and continues (status 0)
+              // Format: bash: line N: arrayname: value: must use subscript when assigning associative array
+              const expandedValue = await expandWord(this.ctx, element);
+              const lineNum = node.line ?? this.ctx.state.currentLine ?? 1;
+              xtraceAssignmentOutput += `bash: line ${lineNum}: ${name}: ${expandedValue}: must use subscript when assigning associative array\n`;
+              // Continue processing other elements (don't throw error)
             }
           }
         } else if (hasKeyedElements) {
@@ -2407,6 +2511,10 @@ export class Interpreter {
       // not_found error
       return failure(`bash: ${commandName}: No such file or directory\n`, 127);
     }
+    // Handle user scripts (executable files without registered command handlers)
+    if ("script" in resolved) {
+      return await this.executeUserScript(resolved.path, args, stdin);
+    }
     const { cmd, path: cmdPath } = resolved;
     // Add to hash table for PATH caching (only for non-path commands)
     if (!commandName.includes("/")) {
@@ -2727,6 +2835,7 @@ export class Interpreter {
     pathOverride?: string,
   ): Promise<
     | { cmd: Command; path: string }
+    | { script: true; path: string }
     | { error: "not_found" | "permission_denied"; path?: string }
     | null
   > {
@@ -2762,9 +2871,8 @@ export class Interpreter {
           // File exists but is not executable - permission denied
           return { error: "permission_denied", path: resolvedPath };
         }
-        // File exists and is executable but no handler - permission denied
-        // (we can't actually execute it in this sandbox)
-        return { error: "permission_denied", path: resolvedPath };
+        // File exists and is executable - treat as user script
+        return { script: true, path: resolvedPath };
       } catch {
         // If stat fails, treat as not found
         return { error: "not_found", path: resolvedPath };
@@ -2796,11 +2904,37 @@ export class Interpreter {
       if (!dir) continue;
       const fullPath = `${dir}/${commandName}`;
       if (await this.ctx.fs.exists(fullPath)) {
-        // File exists - look up command implementation
-        const cmd = this.ctx.commands.get(commandName);
-        if (cmd) {
-          return { cmd, path: fullPath };
-        }
+        // File exists - check if it's a directory
+        try {
+          const stat = await this.ctx.fs.stat(fullPath);
+          if (stat.isDirectory) {
+            continue; // Skip directories
+          }
+          const isExecutable = (stat.mode & 0o111) !== 0;
+          // Check for registered command handler
+          const cmd = this.ctx.commands.get(commandName);
+
+          // Determine if this is a system directory where command stubs live
+          const isSystemDir = dir === "/bin" || dir === "/usr/bin";
+
+          if (cmd && isSystemDir) {
+            // Registered commands in system directories work without execute bits
+            // (they're our internal implementations with stub files)
+            return { cmd, path: fullPath };
+          }
+
+          // For non-system directories (or non-registered commands), require executable
+          if (isExecutable) {
+            if (cmd && !isSystemDir) {
+              // User script shadows a registered command - treat as script
+              return { script: true, path: fullPath };
+            }
+            if (!cmd) {
+              // No registered handler - treat as user script
+              return { script: true, path: fullPath };
+            }
+          }
+        } catch {}
       }
     }
 

@@ -30,7 +30,6 @@ echo status=$?
 ## stdout: status=1
 
 #### File with no shebang is executed
-## SKIP: Interactive shell invocation not implemented
 # most shells execute /bin/sh; bash may execute itself
 echo 'echo hi' > $TMP/no-shebang
 chmod +x $TMP/no-shebang
@@ -39,7 +38,6 @@ $SH -c '$TMP/no-shebang'
 ## status: 0
 
 #### File with relative path and no shebang is executed
-## SKIP: $SH invocation for script execution not supported
 cd $TMP
 echo 'echo hi' > no-shebang
 chmod +x no-shebang
@@ -48,7 +46,6 @@ chmod +x no-shebang
 ## status: 0
 
 #### File in relative subdirectory and no shebang is executed
-## SKIP: $SH invocation for script execution not supported
 cd $TMP
 mkdir -p test-no-shebang
 echo 'echo hi' > test-no-shebang/script
@@ -201,7 +198,6 @@ echo status=$?
 ## OK osh stdout: status=2
 ## BUG dash/bash stdout: status=0
 
-#### Executing command with same name as directory in PATH (#2429)
 ## SKIP: External command $PATH execution not supported
 # Make the following directory structure. File type and permission bits are
 # given on the left.

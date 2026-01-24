@@ -67,16 +67,25 @@ export const chmodCommand: Command = {
     const modeArg = args[argIdx];
     const files = args.slice(argIdx + 1);
 
-    // Parse mode
-    let modeValue: number;
-    try {
-      modeValue = parseMode(modeArg);
-    } catch (_e) {
-      return {
-        stdout: "",
-        stderr: `chmod: invalid mode: '${modeArg}'\n`,
-        exitCode: 1,
-      };
+    // Check if mode is numeric or symbolic
+    const isNumericMode = /^[0-7]+$/.test(modeArg);
+
+    // Validate and parse mode
+    let numericMode: number | undefined;
+    if (isNumericMode) {
+      numericMode = parseInt(modeArg, 8);
+    } else {
+      // Validate symbolic mode syntax before applying
+      try {
+        // Use a dummy mode to validate syntax
+        parseMode(modeArg, 0o644);
+      } catch {
+        return {
+          stdout: "",
+          stderr: `chmod: invalid mode: '${modeArg}'\n`,
+          exitCode: 1,
+        };
+      }
     }
 
     let stdout = "";
@@ -86,6 +95,15 @@ export const chmodCommand: Command = {
     for (const file of files) {
       const filePath = ctx.fs.resolvePath(ctx.cwd, file);
       try {
+        // For symbolic mode, we need to read the current mode first
+        let modeValue: number;
+        if (isNumericMode && numericMode !== undefined) {
+          modeValue = numericMode;
+        } else {
+          const stat = await ctx.fs.stat(filePath);
+          modeValue = parseMode(modeArg, stat.mode);
+        }
+
         await ctx.fs.chmod(filePath, modeValue);
         if (verbose) {
           stdout += `mode of '${file}' changed to ${modeValue.toString(8).padStart(4, "0")}\n`;
@@ -98,7 +116,8 @@ export const chmodCommand: Command = {
             const recursiveOutput = await chmodRecursive(
               ctx,
               filePath,
-              modeValue,
+              isNumericMode ? numericMode : undefined,
+              isNumericMode ? undefined : modeArg,
               verbose,
             );
             stdout += recursiveOutput;
@@ -117,35 +136,59 @@ export const chmodCommand: Command = {
 async function chmodRecursive(
   ctx: CommandContext,
   dir: string,
-  mode: number,
+  numericMode: number | undefined,
+  symbolicMode: string | undefined,
   verbose: boolean,
 ): Promise<string> {
   let output = "";
   const entries = await ctx.fs.readdir(dir);
   for (const entry of entries) {
     const fullPath = dir === "/" ? `/${entry}` : `${dir}/${entry}`;
-    await ctx.fs.chmod(fullPath, mode);
+
+    // Calculate mode value
+    let modeValue: number;
+    if (numericMode !== undefined) {
+      modeValue = numericMode;
+    } else if (symbolicMode !== undefined) {
+      const stat = await ctx.fs.stat(fullPath);
+      modeValue = parseMode(symbolicMode, stat.mode);
+    } else {
+      // Should not happen, but fallback to 0644
+      modeValue = 0o644;
+    }
+
+    await ctx.fs.chmod(fullPath, modeValue);
     if (verbose) {
-      output += `mode of '${fullPath}' changed to ${mode.toString(8).padStart(4, "0")}\n`;
+      output += `mode of '${fullPath}' changed to ${modeValue.toString(8).padStart(4, "0")}\n`;
     }
 
     const stat = await ctx.fs.stat(fullPath);
     if (stat.isDirectory) {
-      output += await chmodRecursive(ctx, fullPath, mode, verbose);
+      output += await chmodRecursive(
+        ctx,
+        fullPath,
+        numericMode,
+        symbolicMode,
+        verbose,
+      );
     }
   }
   return output;
 }
 
-function parseMode(modeStr: string): number {
+/**
+ * Parse a mode string and return the resulting mode value.
+ * For numeric modes, currentMode is ignored.
+ * For symbolic modes, currentMode is used as the starting point.
+ */
+function parseMode(modeStr: string, currentMode = 0o644): number {
   // Numeric mode (octal)
   if (/^[0-7]+$/.test(modeStr)) {
     return parseInt(modeStr, 8);
   }
 
-  // Symbolic mode (simplified support)
-  // Start with default permissions (rw-r--r--)
-  let mode = 0o644;
+  // Symbolic mode - start with current mode
+  let mode = currentMode & 0o7777; // Only keep permission bits
 
   // Parse symbolic modes like u+x, g-w, o=r, a+x, +x
   const parts = modeStr.split(",");

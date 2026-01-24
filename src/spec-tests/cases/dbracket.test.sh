@@ -389,7 +389,6 @@ fnmatch=0
 ## END
 
 #### tilde expansion with =~ (confusing)
-## SKIP: tilde expansion behavior on RHS of =~ is bash-version dependent
 case $SH in mksh) exit ;; esac
 
 HOME=foo
