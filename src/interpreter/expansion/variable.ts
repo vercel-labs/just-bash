@@ -24,6 +24,28 @@ import { isNameref, resolveNameref } from "../helpers/nameref.js";
 import type { InterpreterContext } from "../types.js";
 
 /**
+ * Expand simple variable references in a subscript string.
+ * This handles patterns like $var and ${var} but not complex expansions.
+ * Used to support namerefs pointing to array elements like A[$key].
+ */
+function expandSimpleVarsInSubscript(
+  ctx: InterpreterContext,
+  subscript: string,
+): string {
+  // Replace ${varname} patterns
+  let result = subscript.replace(
+    /\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g,
+    (_, name) => ctx.state.env[name] ?? "",
+  );
+  // Replace $varname patterns (must be careful not to match ${})
+  result = result.replace(
+    /\$([a-zA-Z_][a-zA-Z0-9_]*)/g,
+    (_, name) => ctx.state.env[name] ?? "",
+  );
+  return result;
+}
+
+/**
  * Get all elements of an array stored as arrayName_0, arrayName_1, etc.
  * Returns an array of [index/key, value] tuples, sorted by index/key.
  * For associative arrays, uses string keys.
@@ -296,8 +318,11 @@ export function getVariable(
     const isAssoc = ctx.state.associativeArrays?.has(arrayName);
 
     if (isAssoc) {
-      // For associative arrays, use subscript as string key (remove quotes if present)
-      const key = unquoteKey(subscript);
+      // For associative arrays, use subscript as string key
+      // First unquote, then expand simple variable references for nameref support
+      let key = unquoteKey(subscript);
+      // Expand simple variable references like $var or ${var}
+      key = expandSimpleVarsInSubscript(ctx, key);
       const value = ctx.state.env[`${arrayName}_${key}`];
       if (value === undefined && checkNounset && ctx.state.options.nounset) {
         throw new NounsetError(`${arrayName}[${subscript}]`);

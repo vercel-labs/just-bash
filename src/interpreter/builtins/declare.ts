@@ -174,6 +174,27 @@ function evaluateIntegerValue(ctx: InterpreterContext, value: string): string {
   }
 }
 
+/**
+ * Format a value for associative array output in declare -p.
+ * Uses the oils/ysh-compatible format:
+ * - Simple values (no spaces, no special chars): unquoted
+ * - Empty strings or values with spaces/special chars: single-quoted with escaping
+ */
+function formatAssocValue(value: string): string {
+  // Empty string needs quotes
+  if (value === "") {
+    return "''";
+  }
+  // If value contains spaces, single quotes, or other special chars, quote it
+  if (/[\s'\\]/.test(value)) {
+    // Escape single quotes as '\'' (end quote, escaped quote, start quote)
+    const escaped = value.replace(/'/g, "'\\''");
+    return `'${escaped}'`;
+  }
+  // Simple value - no quotes needed
+  return value;
+}
+
 export function handleDeclare(
   ctx: InterpreterContext,
   args: string[],
@@ -371,14 +392,11 @@ export function handleDeclare(
         } else {
           const elements = keys.map((key) => {
             const value = ctx.state.env[`${name}_${key}`] ?? "";
-            const escapedValue = value
-              .replace(/\\/g, "\\\\")
-              .replace(/"/g, '\\"');
-            // Bash outputs [key]="value" without quotes around key
-            return `[${key}]="${escapedValue}"`;
+            // Format: ['key']=value (single quotes around key)
+            const formattedValue = formatAssocValue(value);
+            return `['${key}']=${formattedValue}`;
           });
-          // Bash outputs a trailing space before ) in associative arrays
-          stdout += `declare -A ${name}=(${elements.join(" ")} )\n`;
+          stdout += `declare -A ${name}=(${elements.join(" ")})\n`;
         }
         continue;
       }
@@ -470,6 +488,13 @@ export function handleDeclare(
       }
     }
 
+    // Include associative array names (for empty associative arrays)
+    if (ctx.state.associativeArrays) {
+      for (const name of ctx.state.associativeArrays) {
+        varNames.add(name);
+      }
+    }
+
     // Sort and output each variable
     const sortedNames = Array.from(varNames).sort();
     for (const name of sortedNames) {
@@ -506,14 +531,11 @@ export function handleDeclare(
         } else {
           const elements = keys.map((key) => {
             const value = ctx.state.env[`${name}_${key}`] ?? "";
-            const escapedValue = value
-              .replace(/\\/g, "\\\\")
-              .replace(/"/g, '\\"');
-            // Bash outputs [key]="value" without quotes around key
-            return `[${key}]="${escapedValue}"`;
+            // Format: ['key']=value (single quotes around key)
+            const formattedValue = formatAssocValue(value);
+            return `['${key}']=${formattedValue}`;
           });
-          // Bash outputs a trailing space before ) in associative arrays
-          stdout += `declare -A ${name}=(${elements.join(" ")} )\n`;
+          stdout += `declare -A ${name}=(${elements.join(" ")})\n`;
         }
         continue;
       }
@@ -560,16 +582,14 @@ export function handleDeclare(
         // Empty associative array
         stdout += `declare -A ${name}=()\n`;
       } else {
-        // Non-empty associative array: format as ([key]="value" ...)
-        // Note: bash includes a trailing space before the closing paren
+        // Non-empty associative array: format as (['key']=value ...)
         const elements = keys.map((key) => {
           const value = ctx.state.env[`${name}_${key}`] ?? "";
-          const escapedValue = value
-            .replace(/\\/g, "\\\\")
-            .replace(/"/g, '\\"');
-          return `[${key}]="${escapedValue}"`;
+          // Format: ['key']=value (single quotes around key)
+          const formattedValue = formatAssocValue(value);
+          return `['${key}']=${formattedValue}`;
         });
-        stdout += `declare -A ${name}=(${elements.join(" ")} )\n`;
+        stdout += `declare -A ${name}=(${elements.join(" ")})\n`;
       }
     }
     return success(stdout);
@@ -743,6 +763,19 @@ export function handleDeclare(
         for (const [key, rawValue] of entries) {
           // Apply tilde expansion to the value
           const value = expandTildesInValue(ctx, rawValue);
+          ctx.state.env[`${name}_${key}`] = value;
+        }
+      } else if (declareAssoc) {
+        // For associative arrays without [key]=value syntax,
+        // bash treats bare values as alternating key-value pairs
+        // e.g., (1 2 3) becomes ['1']=2, ['3']=''
+        const elements = parseArrayElements(content);
+        for (let i = 0; i < elements.length; i += 2) {
+          const key = elements[i];
+          const value =
+            i + 1 < elements.length
+              ? expandTildesInValue(ctx, elements[i + 1])
+              : "";
           ctx.state.env[`${name}_${key}`] = value;
         }
       } else {

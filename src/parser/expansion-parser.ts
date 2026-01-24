@@ -182,15 +182,43 @@ function parseParameterExpansion(
 
   if (indirection) {
     // Check for ${!arr[@]} or ${!arr[*]} - array keys/indices
+    // BUT only if there are no suffix operators - with operators it's indirect expansion
     const arrayKeysMatch = name.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/);
     if (arrayKeysMatch) {
-      operation = {
-        type: "ArrayKeys",
-        array: arrayKeysMatch[1],
-        star: arrayKeysMatch[2] === "*",
-      };
-      // Clear name so it doesn't get treated as a variable
-      name = "";
+      // Check if there are additional operators (e.g., ${!ref[@]:2})
+      // If so, this is indirect expansion through array values, not array keys
+      if (
+        i < value.length &&
+        value[i] !== "}" &&
+        /[:=\-+?#%/^,@]/.test(value[i])
+      ) {
+        // Parse as indirection with innerOp - the array expansion happens at runtime
+        const opResult = parseParameterOperation(p, value, i, name, quoted);
+        if (opResult.operation) {
+          operation = {
+            type: "Indirection",
+            innerOp: opResult.operation as InnerParameterOperation,
+          };
+          i = opResult.endIndex;
+        } else {
+          // Fallback to ArrayKeys if no operation parsed
+          operation = {
+            type: "ArrayKeys",
+            array: arrayKeysMatch[1],
+            star: arrayKeysMatch[2] === "*",
+          };
+          name = "";
+        }
+      } else {
+        // No suffix operators - this is array keys
+        operation = {
+          type: "ArrayKeys",
+          array: arrayKeysMatch[1],
+          star: arrayKeysMatch[2] === "*",
+        };
+        // Clear name so it doesn't get treated as a variable
+        name = "";
+      }
     } else if (
       value[i] === "*" ||
       (value[i] === "@" && !/[QPaAEKkuUL]/.test(value[i + 1] || ""))

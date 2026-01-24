@@ -46,10 +46,7 @@ export function markNamerefInvalid(
 /**
  * Check if a nameref was created with an invalid target.
  */
-function isNamerefInvalid(
-  ctx: InterpreterContext,
-  name: string,
-): boolean {
+function isNamerefInvalid(ctx: InterpreterContext, name: string): boolean {
   return ctx.state.invalidNamerefs?.has(name) ?? false;
 }
 

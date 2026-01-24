@@ -14,6 +14,29 @@ import type {
 } from "../../ast/types.js";
 
 /**
+ * Check if a glob pattern string contains variable references ($var or ${var})
+ * This is used to detect when IFS splitting should apply to expanded glob patterns.
+ */
+function globPatternHasVarRef(pattern: string): boolean {
+  // Look for $varname or ${...} patterns
+  // Skip escaped $ (e.g., \$)
+  for (let i = 0; i < pattern.length; i++) {
+    if (pattern[i] === "\\") {
+      i++; // Skip next character
+      continue;
+    }
+    if (pattern[i] === "$") {
+      const next = pattern[i + 1];
+      // Check for ${...} or $varname
+      if (next === "{" || (next && /[a-zA-Z_]/.test(next))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Check if an arithmetic expression requires async execution
  * (contains command substitution)
  */
@@ -260,6 +283,11 @@ export function analyzeWordParts(parts: WordPart[]): WordPartsAnalysis {
       if (part.operation?.type === "Indirection") {
         hasIndirection = true;
       }
+    }
+    // Check Glob parts for variable references - patterns like +($ABC) contain
+    // parameter expansions that should be subject to IFS splitting
+    if (part.type === "Glob" && globPatternHasVarRef(part.pattern)) {
+      hasParamExpansion = true;
     }
   }
 

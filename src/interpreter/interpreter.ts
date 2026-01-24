@@ -1164,6 +1164,10 @@ export class Interpreter {
 
       // Resolve nameref: if name is a nameref, write to the target variable
       let targetName = name;
+      let namerefArrayRef: {
+        arrayName: string;
+        subscriptExpr: string;
+      } | null = null;
       if (isNameref(this.ctx, name)) {
         const resolved = resolveNamerefForAssignment(this.ctx, name, value);
         if (resolved === undefined) {
@@ -1175,6 +1179,19 @@ export class Interpreter {
           continue;
         }
         targetName = resolved;
+
+        // Check if resolved nameref is an array element reference like A["K"] or A[$var]
+        const arrayRefMatch = targetName.match(
+          /^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/,
+        );
+        if (arrayRefMatch) {
+          namerefArrayRef = {
+            arrayName: arrayRefMatch[1],
+            subscriptExpr: arrayRefMatch[2],
+          };
+          // For subsequent checks (readonly, integer attr), use the array name
+          targetName = arrayRefMatch[1];
+        }
       }
 
       // Check if variable is readonly (for scalar assignment)
@@ -1240,7 +1257,68 @@ export class Interpreter {
       // e.g., a=(1 2 3); a=99 => a=([0]="99" [1]="2" [2]="3")
       // For associative arrays, it assigns to key "0"
       let actualEnvKey = targetName;
-      if (isArray(this.ctx, targetName)) {
+      if (namerefArrayRef) {
+        // Nameref resolved to an array element like A["K"] or A[$var]
+        // Need to expand the subscript and compute the correct env key
+        const { arrayName, subscriptExpr } = namerefArrayRef;
+        const isAssoc = this.ctx.state.associativeArrays?.has(arrayName);
+
+        if (isAssoc) {
+          // For associative arrays, expand variables in subscript then use as key
+          let key: string;
+          if (subscriptExpr.startsWith("'") && subscriptExpr.endsWith("'")) {
+            // Single-quoted: literal value, no expansion
+            key = subscriptExpr.slice(1, -1);
+          } else if (
+            subscriptExpr.startsWith('"') &&
+            subscriptExpr.endsWith('"')
+          ) {
+            // Double-quoted: expand variables inside
+            const inner = subscriptExpr.slice(1, -1);
+            const parser = new Parser();
+            const wordNode = parser.parseWordFromString(inner, true, false);
+            key = await expandWord(this.ctx, wordNode);
+          } else if (subscriptExpr.includes("$")) {
+            // Unquoted with variable reference
+            const parser = new Parser();
+            const wordNode = parser.parseWordFromString(
+              subscriptExpr,
+              false,
+              false,
+            );
+            key = await expandWord(this.ctx, wordNode);
+          } else {
+            // Plain literal
+            key = subscriptExpr;
+          }
+          actualEnvKey = `${arrayName}_${key}`;
+        } else {
+          // For indexed arrays, evaluate subscript as arithmetic expression
+          let index: number;
+          if (/^-?\d+$/.test(subscriptExpr)) {
+            index = Number.parseInt(subscriptExpr, 10);
+          } else {
+            try {
+              const parser = new Parser();
+              const arithAst = parseArithmeticExpression(parser, subscriptExpr);
+              index = evaluateArithmeticSync(this.ctx, arithAst.expression);
+            } catch {
+              const varValue = this.ctx.state.env[subscriptExpr];
+              index = varValue ? Number.parseInt(varValue, 10) : 0;
+            }
+            if (Number.isNaN(index)) index = 0;
+          }
+          // Handle negative indices
+          if (index < 0) {
+            const elements = getArrayElements(this.ctx, arrayName);
+            if (elements.length > 0) {
+              const maxIdx = Math.max(...elements.map((e) => e[0] as number));
+              index = maxIdx + 1 + index;
+            }
+          }
+          actualEnvKey = `${arrayName}_${index}`;
+        }
+      } else if (isArray(this.ctx, targetName)) {
         actualEnvKey = `${targetName}_0`;
       }
 

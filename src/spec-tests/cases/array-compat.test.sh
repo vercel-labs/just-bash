@@ -178,6 +178,12 @@ argv.py keys "${!A[@]}"
 argv.py values "${A[@]}"
 
 ## STDOUT:
+declare -A A=(['k']=v)
+['keys', 'k']
+['values', 'v']
+## END
+
+## BUG bash STDOUT:
 declare -A A=([k]="v" )
 ['keys', 'k']
 ['values', 'v']

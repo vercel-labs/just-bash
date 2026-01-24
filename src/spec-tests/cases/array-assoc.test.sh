@@ -48,7 +48,6 @@ declare -A assoc=()
 ## END
 
 #### Can initialize assoc array with the "(key value ...)" sequence
-## SKIP: Associative array key-value sequence initialization not implemented
 declare -A A=(1 2 3)
 echo status=$?
 declare -p A
@@ -281,7 +280,6 @@ argv.py "${d['key']}"
 ## stdout: ['1 2 3']
 
 #### Indexed array as key of associative array coerces to string (without shopt -s strict_array)
-## SKIP: Array as associative array key coercion not implemented
 declare -a array=(1 2 3)
 declare -A assoc
 assoc[42]=43
@@ -474,7 +472,6 @@ len=0
 ## END
 
 #### nameref and assoc array
-## SKIP: nameref assignment to assoc array element doesn't modify underlying array
 show-values() {
   echo values: ${A[@]}
 }
@@ -509,7 +506,6 @@ values: val3
 ## END
 
 #### ${!ref} and assoc array
-## SKIP: ${!ref} indirect reference not implemented
 show-values() {
   echo values: ${A[@]}
 }

@@ -12,6 +12,7 @@
 
 import type {
   ArithExpr,
+  InnerParameterOperation,
   ParameterExpansionPart,
   PatternRemovalOp,
   PatternReplacementOp,
@@ -2342,6 +2343,7 @@ export async function expandWordWithGlob(
 
   // Handle "${!ref}" where ref='arr[@]' or ref='arr[*]' - indirect array expansion
   // This needs to be evaluated at runtime because we don't know the target until we expand ref
+  // NOTE: Only apply this shortcut when there's no innerOp (e.g., ${!ref[@]} not ${!ref[@]:2})
   if (
     hasIndirection &&
     wordParts.length === 1 &&
@@ -2354,6 +2356,10 @@ export async function expandWordWithGlob(
       dqPart.parts[0].operation?.type === "Indirection"
     ) {
       const paramPart = dqPart.parts[0];
+      const indirOp = paramPart.operation as {
+        type: "Indirection";
+        innerOp?: InnerParameterOperation;
+      };
       // Get the value of the reference variable (e.g., ref='arr[@]')
       const refValue = getVariable(ctx, paramPart.parameter);
       // Check if the target is an array expansion (arr[@] or arr[*])
@@ -2362,6 +2368,185 @@ export async function expandWordWithGlob(
         const arrayName = arrayMatch[1];
         const isStar = arrayMatch[2] === "*";
         const elements = getArrayElements(ctx, arrayName);
+
+        if (indirOp.innerOp) {
+          // Handle "${!ref[@]:offset}" or "${!ref[@]:offset:length}" - array slicing via indirection
+          if (indirOp.innerOp.type === "Substring") {
+            const offset = indirOp.innerOp.offset
+              ? evaluateArithmeticSync(ctx, indirOp.innerOp.offset.expression)
+              : 0;
+            const length = indirOp.innerOp.length
+              ? evaluateArithmeticSync(ctx, indirOp.innerOp.length.expression)
+              : undefined;
+
+            // For sparse arrays, offset refers to index position
+            let startIdx = 0;
+            if (offset < 0) {
+              if (elements.length > 0) {
+                const lastIdx = elements[elements.length - 1][0];
+                const maxIndex = typeof lastIdx === "number" ? lastIdx : 0;
+                const targetIndex = maxIndex + 1 + offset;
+                if (targetIndex < 0) return { values: [], quoted: true };
+                startIdx = elements.findIndex(
+                  ([idx]) => typeof idx === "number" && idx >= targetIndex,
+                );
+                if (startIdx < 0) return { values: [], quoted: true };
+              }
+            } else {
+              startIdx = elements.findIndex(
+                ([idx]) => typeof idx === "number" && idx >= offset,
+              );
+              if (startIdx < 0) return { values: [], quoted: true };
+            }
+
+            let slicedElements: Array<[string | number, string]>;
+            if (length !== undefined) {
+              if (length < 0) {
+                throw new ArithmeticError(
+                  `${arrayName}[@]: substring expression < 0`,
+                );
+              }
+              slicedElements = elements.slice(startIdx, startIdx + length);
+            } else {
+              slicedElements = elements.slice(startIdx);
+            }
+
+            const values = slicedElements.map(([, v]) => v);
+            if (isStar) {
+              return {
+                values: [values.join(getIfsSeparator(ctx.state.env))],
+                quoted: true,
+              };
+            }
+            return { values, quoted: true };
+          }
+
+          // Handle DefaultValue, UseAlternative, AssignDefault, ErrorIfUnset
+          // These check the whole array, not each element
+          if (
+            indirOp.innerOp.type === "DefaultValue" ||
+            indirOp.innerOp.type === "UseAlternative" ||
+            indirOp.innerOp.type === "AssignDefault" ||
+            indirOp.innerOp.type === "ErrorIfUnset"
+          ) {
+            const op = indirOp.innerOp as {
+              type: string;
+              word?: WordNode;
+              checkEmpty?: boolean;
+            };
+            const checkEmpty = op.checkEmpty ?? false;
+            const values = elements.map(([, v]) => v);
+            // For arrays, "empty" means all elements are empty or no elements
+            const isEmpty =
+              elements.length === 0 || values.every((v) => v === "");
+            const isUnset = elements.length === 0;
+
+            if (indirOp.innerOp.type === "UseAlternative") {
+              // ${!ref[@]:+word} - return word if set and non-empty
+              const shouldUseAlt = !isUnset && !(checkEmpty && isEmpty);
+              if (shouldUseAlt && op.word) {
+                const altValue = expandWordPartsSync(ctx, op.word.parts, true);
+                return { values: [altValue], quoted: true };
+              }
+              return { values: [], quoted: true };
+            }
+            if (indirOp.innerOp.type === "DefaultValue") {
+              // ${!ref[@]:-word} - return word if unset or empty
+              const shouldUseDefault = isUnset || (checkEmpty && isEmpty);
+              if (shouldUseDefault && op.word) {
+                const defValue = expandWordPartsSync(ctx, op.word.parts, true);
+                return { values: [defValue], quoted: true };
+              }
+              if (isStar) {
+                return {
+                  values: [values.join(getIfsSeparator(ctx.state.env))],
+                  quoted: true,
+                };
+              }
+              return { values, quoted: true };
+            }
+            if (indirOp.innerOp.type === "AssignDefault") {
+              // ${!ref[@]:=word} - assign and return word if unset or empty
+              const shouldAssign = isUnset || (checkEmpty && isEmpty);
+              if (shouldAssign && op.word) {
+                const assignValue = expandWordPartsSync(
+                  ctx,
+                  op.word.parts,
+                  true,
+                );
+                // Assign to the target array
+                ctx.state.env[`${arrayName}_0`] = assignValue;
+                ctx.state.env[`${arrayName}__length`] = "1";
+                return { values: [assignValue], quoted: true };
+              }
+              if (isStar) {
+                return {
+                  values: [values.join(getIfsSeparator(ctx.state.env))],
+                  quoted: true,
+                };
+              }
+              return { values, quoted: true };
+            }
+            // ErrorIfUnset case - not common for arrays
+            if (isStar) {
+              return {
+                values: [values.join(getIfsSeparator(ctx.state.env))],
+                quoted: true,
+              };
+            }
+            return { values, quoted: true };
+          }
+
+          // Handle Transform operations specially for @a (attributes)
+          if (
+            indirOp.innerOp.type === "Transform" &&
+            (indirOp.innerOp as { operator: string }).operator === "a"
+          ) {
+            // @a should return the attributes of the array itself for each element
+            const attrs = getVariableAttributes(ctx, arrayName);
+            const values = elements.map(() => attrs);
+            if (isStar) {
+              return {
+                values: [values.join(getIfsSeparator(ctx.state.env))],
+                quoted: true,
+              };
+            }
+            return { values, quoted: true };
+          }
+
+          // Handle other innerOps (PatternRemoval, PatternReplacement, Transform, etc.)
+          // Apply the operation to each element
+          const values: string[] = [];
+          for (const [, elemValue] of elements) {
+            const syntheticPart: ParameterExpansionPart = {
+              type: "ParameterExpansion",
+              parameter: "_indirect_elem_",
+              operation: indirOp.innerOp,
+            };
+            // Temporarily set the element value
+            const oldVal = ctx.state.env["_indirect_elem_"];
+            ctx.state.env["_indirect_elem_"] = elemValue;
+            try {
+              const result = expandParameter(ctx, syntheticPart, true);
+              values.push(result);
+            } finally {
+              if (oldVal !== undefined) {
+                ctx.state.env["_indirect_elem_"] = oldVal;
+              } else {
+                delete ctx.state.env["_indirect_elem_"];
+              }
+            }
+          }
+          if (isStar) {
+            return {
+              values: [values.join(getIfsSeparator(ctx.state.env))],
+              quoted: true,
+            };
+          }
+          return { values, quoted: true };
+        }
+
+        // No innerOp - return array elements directly
         if (elements.length > 0) {
           const values = elements.map(([, v]) => v);
           if (isStar) {
@@ -2382,24 +2567,28 @@ export async function expandWordWithGlob(
         // Variable is unset - return empty
         return { values: [], quoted: true };
       }
-      // Handle ${!ref} where ref='@' or ref='*' - indirect positional parameter expansion
-      // When ref='@', "${!ref}" should expand like "$@" (separate words)
-      // When ref='*', "${!ref}" should expand like "$*" (joined by IFS)
-      if (refValue === "@" || refValue === "*") {
-        const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
-        const params: string[] = [];
-        for (let i = 1; i <= numParams; i++) {
-          params.push(ctx.state.env[String(i)] || "");
+
+      // Handle ${!ref} where ref='@' or ref='*' (no array)
+      if (!indirOp.innerOp) {
+        // Handle ${!ref} where ref='@' or ref='*' - indirect positional parameter expansion
+        // When ref='@', "${!ref}" should expand like "$@" (separate words)
+        // When ref='*', "${!ref}" should expand like "$*" (joined by IFS)
+        if (refValue === "@" || refValue === "*") {
+          const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+          const params: string[] = [];
+          for (let i = 1; i <= numParams; i++) {
+            params.push(ctx.state.env[String(i)] || "");
+          }
+          if (refValue === "*") {
+            // ref='*' - join with IFS into one word (like "$*")
+            return {
+              values: [params.join(getIfsSeparator(ctx.state.env))],
+              quoted: true,
+            };
+          }
+          // ref='@' - each param as a separate word (like "$@")
+          return { values: params, quoted: true };
         }
-        if (refValue === "*") {
-          // ref='*' - join with IFS into one word (like "$*")
-          return {
-            values: [params.join(getIfsSeparator(ctx.state.env))],
-            quoted: true,
-          };
-        }
-        // ref='@' - each param as a separate word (like "$@")
-        return { values: params, quoted: true };
       }
     }
   }
@@ -4949,7 +5138,8 @@ function expandSubscriptForAssocArray(
           j++;
         }
         const varName = inner.slice(i + 2, j - 1);
-        const value = ctx.state.env[varName] ?? "";
+        // Use getVariable to properly handle array expansions like array[@] and array[*]
+        const value = getVariable(ctx, varName);
         result += value;
         i = j;
       } else if (/[a-zA-Z_]/.test(inner[i + 1] || "")) {
@@ -4959,7 +5149,8 @@ function expandSubscriptForAssocArray(
           j++;
         }
         const varName = inner.slice(i + 1, j);
-        const value = ctx.state.env[varName] ?? "";
+        // Use getVariable for consistency
+        const value = getVariable(ctx, varName);
         result += value;
         i = j;
       } else {

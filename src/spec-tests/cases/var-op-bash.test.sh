@@ -359,7 +359,6 @@ fail
 ## END
 
 #### ${!A@a} and ${!A[@]@a}
-## SKIP: indirect array key expansion with @a transformation not implemented
 declare -A A=(["x"]=y)
 echo x=${!A[@]@a}
 echo invalid=${!A@a}

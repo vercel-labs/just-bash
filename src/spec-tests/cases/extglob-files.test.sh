@@ -43,7 +43,6 @@ echo @(*.cc|*.h)
 ## stdout: bar.cc bar.h baz.h foo.cc foo.h
 
 #### ?() matches 0 or 1
-## SKIP: variable expansion in extglob file glob patterns not implemented
 shopt -s extglob
 mkdir -p 1
 cd 1

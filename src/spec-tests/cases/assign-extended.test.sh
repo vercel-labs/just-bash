@@ -341,6 +341,16 @@ declare -a test_arr5=([0]="1" [1]="2" [2]="3")
 declare -A test_arr6=([a]="1" [b]="2" [c]="3" )
 declare -a test_arr7=([3]="foo")
 ## END
+
+## OK bash-2 STDOUT:
+declare -a test_arr1=()
+declare -a test_arr2=()
+declare -A test_arr3=()
+declare -a test_arr4=([0]="1" [1]="2" [2]="3")
+declare -a test_arr5=([0]="1" [1]="2" [2]="3")
+declare -A test_arr6=(['a']=1 ['b']=2 ['c']=3)
+declare -a test_arr7=([3]="foo")
+## END
 ## N-I mksh stdout-json: ""
 ## N-I mksh status: 1
 

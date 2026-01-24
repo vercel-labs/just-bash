@@ -572,7 +572,6 @@ argv.py "${a[@]}"
 ## END
 
 #### Array indirect expansion with suffix operators
-## SKIP: Complex indirect expansion via assoc array key lookup with suffix operators not implemented
 
 declare -A ref=(['dummy']=v1)
 function test-suffixes {
@@ -644,7 +643,6 @@ v2=assign
 ## END
 
 #### Array indirect expansion with replacements
-## SKIP: Indirect expansion with string operators (${!ref[@]#pattern}) not implemented
 
 declare -A ref=(['dummy']=v1)
 function test-rep {
@@ -700,7 +698,6 @@ test-rep 'a3[@]'
 ## END
 
 #### Array indirect expansion with @? conversion
-## SKIP: Array indirect expansion conversion not implemented
 
 declare -A ref=(['dummy']=v1)
 function test-op0 {

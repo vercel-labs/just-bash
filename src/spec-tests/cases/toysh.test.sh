@@ -22,7 +22,6 @@ a b c d
 ## N-I dash/mksh/zsh stdout-json: ""
 
 #### extglob $IFS 1
-## SKIP: extglob with IFS field splitting not implemented
 # http://landley.net/notes.html#12-06-2020
 shopt -s extglob
 
@@ -47,7 +46,6 @@ abc)d
 ## END
 
 #### extglob $IFS 2
-## SKIP: extglob with IFS field splitting not implemented
 # http://landley.net/notes.html#17-05-2020
 
 shopt -s extglob  # required for bash, not osh
