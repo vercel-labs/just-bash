@@ -440,8 +440,6 @@ attr = 'a'
 
 
 #### ${!r@a} with r='a[0]' (attribute for indirect expansion of an array element)
-## SKIP: indirect variable expansion with @a transformation not implemented
-
 a=(1 2 3)
 r='a'
 echo ${!r@a}

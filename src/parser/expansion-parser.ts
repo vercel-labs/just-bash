@@ -171,8 +171,12 @@ function parseParameterExpansion(
       };
       // Clear name so it doesn't get treated as a variable
       name = "";
-    } else if (value[i] === "*" || value[i] === "@") {
+    } else if (
+      value[i] === "*" ||
+      (value[i] === "@" && !/[QPaAEKkuUL]/.test(value[i + 1] || ""))
+    ) {
       // Check for ${!prefix*} or ${!prefix@} - list variables with prefix
+      // But NOT ${!var@P} which is indirection + @P transformation
       const suffix = value[i];
       i++; // Consume the * or @
       operation = {

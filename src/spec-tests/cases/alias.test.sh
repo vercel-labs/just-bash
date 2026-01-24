@@ -364,7 +364,6 @@ SEQ THREE | WC -l
 ## stdout: 3
 
 #### Alias not respected inside $()
-## SKIP: Alias scoping in subshells not implemented - aliases defined in $() leak to parent
 # This could be parsed correctly, but it is only defined in a child process.
 shopt -s expand_aliases
 echo $(alias sayhi='echo hello')

@@ -200,8 +200,6 @@ echo done
 ## END
 
 #### Indirect expansion, THEN suffix operators
-## SKIP: ${!var@P} prompt expansion not implemented
-
 check_eq() {
   [ "$1" = "$2" ] || { echo "$1 vs $2"; }
 }
