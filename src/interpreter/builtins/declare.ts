@@ -957,11 +957,15 @@ export function parseArrayElements(content: string): string[] {
   let inSingleQuote = false;
   let inDoubleQuote = false;
   let escaped = false;
+  // Track whether we've seen content that should result in an element,
+  // including empty quoted strings like '' or ""
+  let hasContent = false;
 
   for (const char of content) {
     if (escaped) {
       current += char;
       escaped = false;
+      hasContent = true;
       continue;
     }
     if (char === "\\") {
@@ -969,10 +973,20 @@ export function parseArrayElements(content: string): string[] {
       continue;
     }
     if (char === "'" && !inDoubleQuote) {
+      // Entering or leaving single quotes - either way, this indicates an element exists
+      if (!inSingleQuote) {
+        // Entering quotes - mark that we have content (even if empty)
+        hasContent = true;
+      }
       inSingleQuote = !inSingleQuote;
       continue;
     }
     if (char === '"' && !inSingleQuote) {
+      // Entering or leaving double quotes - either way, this indicates an element exists
+      if (!inDoubleQuote) {
+        // Entering quotes - mark that we have content (even if empty)
+        hasContent = true;
+      }
       inDoubleQuote = !inDoubleQuote;
       continue;
     }
@@ -981,15 +995,17 @@ export function parseArrayElements(content: string): string[] {
       !inSingleQuote &&
       !inDoubleQuote
     ) {
-      if (current) {
+      if (hasContent) {
         elements.push(current);
         current = "";
+        hasContent = false;
       }
       continue;
     }
     current += char;
+    hasContent = true;
   }
-  if (current) {
+  if (hasContent) {
     elements.push(current);
   }
   return elements;

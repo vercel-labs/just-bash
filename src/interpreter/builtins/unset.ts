@@ -50,6 +50,37 @@ function performCellUnset(ctx: InterpreterContext, varName: string): boolean {
 }
 
 /**
+ * Handle unsetting a variable that may have a tempEnvBinding.
+ * In bash, when you `unset v` where `v` was set by a prefix assignment (v=tempenv cmd),
+ * it reveals the underlying (global) value instead of completely deleting the variable.
+ * Returns true if a tempenv binding was found and handled, false otherwise.
+ */
+function handleTempEnvUnset(ctx: InterpreterContext, varName: string): boolean {
+  if (!ctx.state.tempEnvBindings || ctx.state.tempEnvBindings.length === 0) {
+    return false;
+  }
+
+  // Search from innermost (most recent) to outermost tempEnvBinding
+  for (let i = ctx.state.tempEnvBindings.length - 1; i >= 0; i--) {
+    const bindings = ctx.state.tempEnvBindings[i];
+    if (bindings.has(varName)) {
+      // Found a tempenv binding for this variable
+      // Restore the underlying value (what was saved when the tempenv was created)
+      const underlyingValue = bindings.get(varName);
+      if (underlyingValue === undefined) {
+        delete ctx.state.env[varName];
+      } else {
+        ctx.state.env[varName] = underlyingValue;
+      }
+      // Remove from this binding so future unsets will look at next layer
+      bindings.delete(varName);
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Expand the subscript expression for an associative array key.
  * Handles single-quoted, double-quoted, and unquoted subscripts.
  */
@@ -185,8 +216,9 @@ export async function handleUnset(
         // Dynamic-unset: called from a different scope than where local was declared
         // Perform cell-unset to expose outer value
         performCellUnset(ctx, targetName);
-      } else {
-        // Local-unset or not a local variable: just delete the value
+      } else if (!handleTempEnvUnset(ctx, targetName)) {
+        // Check for tempenv binding - if found, reveal underlying value
+        // If no tempenv binding, local-unset or not a local variable: just delete the value
         delete ctx.state.env[targetName];
       }
       // Clear the export attribute - when variable is unset, it loses its export status
@@ -283,8 +315,9 @@ export async function handleUnset(
       // Dynamic-unset: called from a different scope than where local was declared
       // Perform cell-unset to expose outer value
       performCellUnset(ctx, targetName);
-    } else {
-      // Local-unset or not a local variable: just delete the value
+    } else if (!handleTempEnvUnset(ctx, targetName)) {
+      // Check for tempenv binding - if found, reveal underlying value
+      // If no tempenv binding, local-unset or not a local variable: just delete the value
       delete ctx.state.env[targetName];
     }
     // Clear the export attribute - when variable is unset, it loses its export status

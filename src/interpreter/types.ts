@@ -160,6 +160,14 @@ export interface InterpreterState {
    * - dynamic-unset (different scope): cell-unset (removes local cell, exposes outer value)
    */
   localVarDepth?: Map<string, number>;
+  /**
+   * Stack of temporary environment bindings from prefix assignments (e.g., FOO=bar cmd).
+   * Each entry maps variable names to their saved (underlying) values.
+   * Used for bash-specific unset behavior: when unsetting a variable that has a
+   * tempenv binding, the unset should reveal the underlying value, not completely
+   * remove the variable.
+   */
+  tempEnvBindings?: Map<string, string | undefined>[];
 }
 
 export interface InterpreterContext {

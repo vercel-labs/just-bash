@@ -75,20 +75,18 @@ describe("export builtin", () => {
   });
 
   describe("un-exporting with -n", () => {
-    it("should remove variable with -n (within same exec)", async () => {
+    it("should remove export attribute but keep value with -n", async () => {
       const env = new Bash({ env: { FOO: "bar" } });
-      const result = await env.exec(
-        'export -n FOO; test -z "$FOO" && echo removed',
-      );
-      expect(result.stdout).toBe("removed\n");
+      // export -n removes the export attribute but keeps the value
+      const result = await env.exec('export -n FOO; echo "$FOO"');
+      expect(result.stdout).toBe("bar\n");
     });
 
-    it("should remove multiple variables with -n", async () => {
+    it("should remove export attribute from multiple variables with -n", async () => {
       const env = new Bash({ env: { FOO: "bar", BAZ: "qux" } });
-      const result = await env.exec(
-        'export -n FOO BAZ; test -z "$FOO" && test -z "$BAZ" && echo removed',
-      );
-      expect(result.stdout).toBe("removed\n");
+      // export -n removes export attribute but keeps values
+      const result = await env.exec('export -n FOO BAZ; echo "$FOO $BAZ"');
+      expect(result.stdout).toBe("bar qux\n");
     });
   });
 

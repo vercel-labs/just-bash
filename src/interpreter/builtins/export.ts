@@ -11,7 +11,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { markExported } from "../helpers/readonly.js";
+import { markExported, unmarkExported } from "../helpers/readonly.js";
 import { OK, result, success } from "../helpers/result.js";
 import { expandTildesInValue } from "../helpers/tilde.js";
 import type { InterpreterContext } from "../types.js";
@@ -52,12 +52,24 @@ export function handleExport(
     return success(stdout);
   }
 
-  // Handle un-export
+  // Handle un-export: remove export attribute but keep variable value
+  // In bash, `export -n name=value` sets the value AND removes export attribute
   if (unexport) {
     for (const arg of processedArgs) {
-      // Just remove the = part if present, we only care about the name
-      const name = arg.split("=")[0];
-      delete ctx.state.env[name];
+      let name: string;
+      let value: string | undefined;
+
+      if (arg.includes("=")) {
+        const eqIdx = arg.indexOf("=");
+        name = arg.slice(0, eqIdx);
+        value = expandTildesInValue(ctx, arg.slice(eqIdx + 1));
+        // Set the value
+        ctx.state.env[name] = value;
+      } else {
+        name = arg;
+      }
+      // Remove export attribute without deleting the variable
+      unmarkExported(ctx, name);
     }
     return OK;
   }

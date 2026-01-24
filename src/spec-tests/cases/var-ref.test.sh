@@ -645,7 +645,7 @@ v2=assign
 ## END
 
 #### Array indirect expansion with replacements
-## SKIP: function name with hyphen not supported
+## SKIP: Indirect expansion with string operators (${!ref[@]#pattern}) not implemented
 
 declare -A ref=(['dummy']=v1)
 function test-rep {

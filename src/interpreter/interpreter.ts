@@ -1479,6 +1479,16 @@ export class Interpreter {
     // Generate xtrace output before running the command
     const xtraceOutput = await traceSimpleCommand(this.ctx, commandName, args);
 
+    // Push tempEnvBindings onto the stack so unset can see them
+    // This allows `unset v` to reveal the underlying global value when
+    // v was set by a prefix assignment like `v=tempenv cmd`
+    if (Object.keys(tempAssignments).length > 0) {
+      this.ctx.state.tempEnvBindings = this.ctx.state.tempEnvBindings || [];
+      this.ctx.state.tempEnvBindings.push(
+        new Map(Object.entries(tempAssignments)),
+      );
+    }
+
     let cmdResult = await this.runCommand(commandName, args, quotedArgs, stdin);
 
     // Prepend xtrace output to stderr
@@ -1538,6 +1548,14 @@ export class Interpreter {
       for (const name of Object.keys(tempAssignments)) {
         this.ctx.state.tempExportedVars.delete(name);
       }
+    }
+
+    // Pop tempEnvBindings from the stack
+    if (
+      Object.keys(tempAssignments).length > 0 &&
+      this.ctx.state.tempEnvBindings
+    ) {
+      this.ctx.state.tempEnvBindings.pop();
     }
 
     // Include any stderr from expansion errors

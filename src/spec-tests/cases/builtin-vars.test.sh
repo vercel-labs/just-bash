@@ -17,7 +17,6 @@ X
 ## END
 
 #### Export sets a global variable that persists after export -n
-## SKIP: export -n unsets the variable value instead of just removing export attribute
 f() { export GLOBAL=X; }
 f
 echo $GLOBAL
@@ -55,7 +54,6 @@ echo status=$?
 ## N-I zsh status: 1
 
 #### export -n foo=bar not allowed
-## SKIP: export -n not implemented
 foo=old
 export -n foo=new
 echo status=$?

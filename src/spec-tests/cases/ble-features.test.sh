@@ -94,7 +94,6 @@ v=tempenv f1 'global,tempenv'
 
 
 #### [bash_unset] local-unset / dynamic-unset for tempenv
-## SKIP: bash-specific unset scoping behavior not implemented
 unlocal() { unset -v "$1"; }
 
 f1() {

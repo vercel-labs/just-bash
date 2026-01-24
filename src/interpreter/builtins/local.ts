@@ -280,6 +280,20 @@ export function handleLocal(
         ctx.state.exportedVars = ctx.state.exportedVars || new Set();
         ctx.state.exportedVars.add(name);
       }
+    } else {
+      // `local v` without assignment: bash behavior is:
+      // - If the variable is already local in current scope, keep its value
+      // - If there's a tempenv binding, inherit that value
+      // - Otherwise, the variable is unset (not inherited from global)
+      const isAlreadyLocal = currentScope.has(name);
+      const hasTempEnvBinding = ctx.state.tempEnvBindings?.some((bindings) =>
+        bindings.has(name),
+      );
+      if (!isAlreadyLocal && !hasTempEnvBinding) {
+        // Not already local, no tempenv binding - make the variable unset
+        delete ctx.state.env[name];
+      }
+      // If already local or has tempenv binding, keep the current value
     }
 
     // Track local variable depth for bash-specific unset scoping

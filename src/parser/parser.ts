@@ -987,7 +987,19 @@ export class Parser {
     // function name { ... } or function name () { ... }
     if (this.check(TokenType.FUNCTION)) {
       this.advance();
-      name = this.expect(TokenType.NAME, "Expected function name").value;
+      // Function names are more permissive than variable names - they can contain
+      // hyphens, dots, colons, slashes, etc. Accept both NAME and WORD tokens.
+      if (this.check(TokenType.NAME) || this.check(TokenType.WORD)) {
+        name = this.advance().value;
+      } else {
+        const token = this.current();
+        throw new ParseException(
+          "Expected function name",
+          token.line,
+          token.column,
+          token,
+        );
+      }
 
       // Optional ()
       if (this.check(TokenType.LPAREN)) {
