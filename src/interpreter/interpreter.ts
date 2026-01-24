@@ -768,18 +768,28 @@ export class Interpreter {
           }
         } else if (hasKeyedElements) {
           // Handle indexed array with [index]=value or [index]+=value syntax (sparse array)
-          // Clear existing elements first (keyed elements don't reference the array)
-          if (!assignment.append) {
-            clearExistingElements();
+          // Bash evaluation order: First expand ALL RHS values, THEN evaluate ALL indices
+          // This is important for cases like: a=([100+i++]=$((i++)) [200+i++]=$((i++)))
+          // where i++ in RHS affects subsequent index evaluations
+
+          // First pass: Expand all RHS values and collect them with their index expressions
+          interface PendingElement {
+            type: "keyed";
+            indexExpr: string;
+            value: string;
+            append: boolean;
           }
-          // Track current index for implicit increment after [n]=value
-          let currentIndex = 0;
+          interface PendingNonKeyed {
+            type: "non-keyed";
+            values: string[];
+          }
+          const pendingElements: (PendingElement | PendingNonKeyed)[] = [];
+
           for (const element of assignment.array) {
-            // Use parseKeyedElementFromWord to properly handle variable expansion
             const parsed = parseKeyedElementFromWord(element);
             if (parsed) {
               const {
-                key: indexStr,
+                key: indexExpr,
                 valueParts,
                 append: elementAppend,
               } = parsed;
@@ -793,29 +803,64 @@ export class Interpreter {
               }
               // Apply tilde expansion if value starts with ~
               value = expandTildesInValue(this.ctx, value);
+              pendingElements.push({
+                type: "keyed",
+                indexExpr,
+                value,
+                append: elementAppend,
+              });
+            } else {
+              // Non-keyed element: expand now
+              const expanded = await expandWordWithGlob(this.ctx, element);
+              pendingElements.push({
+                type: "non-keyed",
+                values: expanded.values,
+              });
+            }
+          }
+
+          // Clear existing elements AFTER all RHS expansion (keyed elements don't reference the array)
+          if (!assignment.append) {
+            clearExistingElements();
+          }
+
+          // Second pass: Evaluate all indices and perform assignments
+          // Track current index for implicit increment after [n]=value
+          let currentIndex = 0;
+          for (const pending of pendingElements) {
+            if (pending.type === "keyed") {
               // Evaluate index as arithmetic expression
               let index: number;
-              if (/^-?\d+$/.test(indexStr)) {
-                index = Number.parseInt(indexStr, 10);
-              } else {
-                // Try to evaluate as variable or expression
-                const varValue = this.ctx.state.env[indexStr];
-                index = varValue ? Number.parseInt(varValue, 10) : 0;
-                if (Number.isNaN(index)) index = 0;
+              try {
+                const parser = new Parser();
+                const arithAst = parseArithmeticExpression(
+                  parser,
+                  pending.indexExpr,
+                );
+                index = evaluateArithmeticSync(this.ctx, arithAst.expression);
+              } catch {
+                // If parsing fails, try simple fallbacks
+                if (/^-?\d+$/.test(pending.indexExpr)) {
+                  index = Number.parseInt(pending.indexExpr, 10);
+                } else {
+                  const varValue = this.ctx.state.env[pending.indexExpr];
+                  index = varValue ? Number.parseInt(varValue, 10) : 0;
+                  if (Number.isNaN(index)) index = 0;
+                }
               }
-              if (elementAppend) {
+              if (pending.append) {
                 // [index]+=value - append to existing value at this index
                 const existing = this.ctx.state.env[`${name}_${index}`] ?? "";
-                this.ctx.state.env[`${name}_${index}`] = existing + value;
+                this.ctx.state.env[`${name}_${index}`] =
+                  existing + pending.value;
               } else {
-                this.ctx.state.env[`${name}_${index}`] = value;
+                this.ctx.state.env[`${name}_${index}`] = pending.value;
               }
               // Update currentIndex to continue from this keyed index
               currentIndex = index + 1;
             } else {
               // Non-keyed element: use currentIndex and increment
-              const expanded = await expandWordWithGlob(this.ctx, element);
-              for (const val of expanded.values) {
+              for (const val of pending.values) {
                 this.ctx.state.env[`${name}_${currentIndex++}`] = val;
               }
             }

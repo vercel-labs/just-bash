@@ -169,7 +169,6 @@ bash: line 2: a: 4: must use subscript when assigning associative array
 ## END
 
 #### Evaluation order (1)
-## SKIP: Array evaluation order differs
 # RHS of [k]=v are expanded when the initializer list is instanciated.  For the
 # indexed array, the array indices are evaluated when the array is modified.
 i=1
@@ -194,7 +193,7 @@ vals: ['1+2+3', '10', 'hello']
 ## END
 
 #### Evaluation order (3)
-## SKIP: Array evaluation order differs
+## SKIP: nested array index like [a[0]] in literals not implemented
 # RHS should be expanded before any modification to the array.
 a=(old1 old2 old3)
 a=("${a[2]}" "${a[0]}" "${a[1]}" "${a[2]}" "${a[0]}")

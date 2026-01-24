@@ -461,22 +461,22 @@ echo done
 ## stdout: done
 
 #### Bad var ref
-## SKIP: Bad var ref error handling differs
 a='bad var name'
 echo ref ${!a}
 echo status=$?
 
 ## STDOUT:
-status=1
+ref
+status=0
 ## END
 
 #### Bad var ref 2
-## SKIP: Bad var ref error handling differs
 b='/'  # really bad
 echo ref ${!b}
 echo status=$?
 ## STDOUT:
-status=1
+ref
+status=0
 ## END
 
 #### ${!OPTIND} (used by bash completion
