@@ -6,7 +6,6 @@
 
 
 #### Unrecoverable: divide by zero in redirect word
-## SKIP: Interactive shell invocation not implemented
 
 $SH -c '
 echo hi > file$(( 42 / 0 )) in

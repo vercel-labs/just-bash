@@ -75,7 +75,6 @@ echo status=$?
 ## stdout: status=2
 
 #### how compgen calls completion functions
-## SKIP: compgen -F (function callback) not implemented
 foo_complete() {
   # first, cur, prev
   argv.py argv "$@"
@@ -650,7 +649,6 @@ argv.py "${words[@]}"
 
 
 #### compgen -F with scalar COMPREPLY
-## SKIP: compgen -F (function callback) not implemented
 _comp_cmd_test() {
   unset -v COMPREPLY
   COMPREPLY=hello

@@ -57,7 +57,7 @@ const SKIP_FILES = new Set([
   "unicode.test.sh",
 
   // Meta/introspection tests
-  "introspect.test.sh",
+  // "introspect.test.sh", // Unskipped - FUNCNAME/BASH_LINENO implemented
   "print-source-code.test.sh",
   "serialize.test.sh",
   "spec-harness-bug.test.sh",

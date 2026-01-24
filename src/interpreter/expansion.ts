@@ -2820,13 +2820,14 @@ export async function expandWordWithGlob(
 
     if (isStar) {
       // $* - join params with IFS[0], then split result by IFS
-      const ifsSep = getIfsSeparator(ctx.state.env);
-      const joined = params.join(ifsSep);
-
+      // HOWEVER: When IFS is empty, bash keeps params separate (like $@) for unquoted $*
+      // The joining with empty IFS only applies to quoted "$*"
       if (ifsEmpty) {
-        // Empty IFS - no splitting
-        allWords = joined ? [joined] : [];
+        // Empty IFS - keep params separate (same as $@)
+        allWords = params;
       } else {
+        const ifsSep = getIfsSeparator(ctx.state.env);
+        const joined = params.join(ifsSep);
         // Split the joined string by IFS using proper splitting rules
         allWords = splitByIfsForExpansion(joined, ifsChars);
       }
@@ -3435,6 +3436,17 @@ function expandParameter(
         /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(parameter) &&
         isArray(ctx, parameter)
       ) {
+        // Special handling for FUNCNAME and BASH_LINENO
+        if (parameter === "FUNCNAME") {
+          const firstElement = ctx.state.funcNameStack?.[0] || "";
+          return String(firstElement.length);
+        }
+        if (parameter === "BASH_LINENO") {
+          const firstElement = ctx.state.callLineStack?.[0];
+          return String(
+            firstElement !== undefined ? String(firstElement).length : 0,
+          );
+        }
         const firstElement = ctx.state.env[`${parameter}_0`] || "";
         return String(firstElement.length);
       }

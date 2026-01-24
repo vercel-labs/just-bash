@@ -168,7 +168,6 @@ lineno=2
 ## END
 
 #### var ref to $? with '?'
-## SKIP: Indirect reference to special vars not implemented
 myfunc() {
   local ref=$1
   echo ${!ref}

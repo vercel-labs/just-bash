@@ -142,7 +142,6 @@ x=\D{%H:%M
 
 
 #### 'echo' and printf fail on writing to full disk
-## SKIP: /dev/full device not implemented in virtual filesystem
 
 # Inspired by https://blog.sunfishcode.online/bugs-in-hello-world/
 
@@ -158,7 +157,6 @@ status=1
 ## END
 
 #### other builtins fail on writing to full disk
-## SKIP: /dev/full device not implemented in virtual filesystem
 
 type echo > /dev/full
 echo status=$?

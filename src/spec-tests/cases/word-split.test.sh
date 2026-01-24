@@ -71,7 +71,6 @@ argv.py 1 "$@" 2 $@ 3 "$*" 4 $* 5
 ## stdout: ['1', '2', '3', '', '4', '5']
 
 #### $* with empty IFS
-## SKIP: Empty IFS with unquoted $* keeps params separate in bash
 set -- "1 2" "3  4"
 
 IFS=
@@ -342,7 +341,6 @@ Yspaces=" Y "
 
 
 #### IFS='' with $@ and $* (bug #627)
-## SKIP: Empty IFS with unquoted $@ keeps params separate in bash
 set -- a 'b c'
 IFS=''
 argv.py at $@
@@ -355,7 +353,6 @@ argv.py star $*
 ## END
 
 #### IFS='' with $@ and $* and printf (bug #627)
-## SKIP: Empty IFS with unquoted $@ keeps params separate in bash
 set -- a 'b c'
 IFS=''
 printf '[%s]\n' $@

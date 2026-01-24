@@ -43,9 +43,15 @@ function applyBinaryOp(left: number, right: number, operator: string): number {
     case "*":
       return left * right;
     case "/":
-      return right !== 0 ? Math.trunc(left / right) : 0;
+      if (right === 0) {
+        throw new ArithmeticError("division by 0");
+      }
+      return Math.trunc(left / right);
     case "%":
-      return right !== 0 ? left % right : 0;
+      if (right === 0) {
+        throw new ArithmeticError("division by 0");
+      }
+      return left % right;
     case "**":
       // Bash disallows negative exponents
       if (right < 0) {

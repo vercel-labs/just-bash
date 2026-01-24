@@ -24,6 +24,8 @@
 
 import type { ExecResult } from "../../types.js";
 import { matchPattern } from "../conditionals.js";
+import { getArrayElements } from "../expansion.js";
+import { callFunction } from "../functions.js";
 import { failure, result, success } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -190,6 +192,7 @@ export async function handleCompgen(
   let dirnamesOption = false;
   let defaultOption = false;
   let excludePattern: string | null = null;
+  let functionName: string | null = null;
   const processedArgs: string[] = [];
 
   const validActions = [
@@ -289,12 +292,12 @@ export async function handleCompgen(
         return failure(`compgen: ${opt}: invalid option name\n`, 2);
       }
     } else if (arg === "-F") {
-      // Function to call - not fully implemented but we should skip the arg
+      // Function to call for generating completions
       i++;
       if (i >= args.length) {
         return failure("compgen: -F: option requires an argument\n", 2);
       }
-      // Skip function name for now - -F is not implemented
+      functionName = args[i];
     } else if (arg === "-C") {
       // Command to run
       i++;
@@ -404,6 +407,85 @@ export async function handleCompgen(
     }
   }
 
+  // Handle -F function: call function to generate completions
+  // Track stdout from function (prepended to completions output)
+  let functionStdout = "";
+  if (functionName !== null) {
+    const func = ctx.state.functions.get(functionName);
+    if (func) {
+      // Set up COMP_* variables that bash provides to completion functions
+      // When called via compgen (not during actual completion), bash sets:
+      // COMP_WORDS: empty array
+      // COMP_CWORD: -1
+      // COMP_LINE: empty string
+      // COMP_POINT: 0
+      const savedEnv: Record<string, string | undefined> = {};
+
+      // Save and set COMP_WORDS (empty array - no elements)
+      savedEnv["COMP_WORDS__length"] = ctx.state.env["COMP_WORDS__length"];
+      ctx.state.env["COMP_WORDS__length"] = "0";
+
+      // Save and set COMP_CWORD
+      savedEnv["COMP_CWORD"] = ctx.state.env["COMP_CWORD"];
+      ctx.state.env["COMP_CWORD"] = "-1";
+
+      // Save and set COMP_LINE
+      savedEnv["COMP_LINE"] = ctx.state.env["COMP_LINE"];
+      ctx.state.env["COMP_LINE"] = "";
+
+      // Save and set COMP_POINT
+      savedEnv["COMP_POINT"] = ctx.state.env["COMP_POINT"];
+      ctx.state.env["COMP_POINT"] = "0";
+
+      // Clear any existing COMPREPLY
+      const savedCompreply: Record<string, string | undefined> = {};
+      for (const key of Object.keys(ctx.state.env)) {
+        if (
+          key === "COMPREPLY" ||
+          key.startsWith("COMPREPLY_") ||
+          key === "COMPREPLY__length"
+        ) {
+          savedCompreply[key] = ctx.state.env[key];
+          delete ctx.state.env[key];
+        }
+      }
+
+      // Determine the arguments to pass to the function
+      // bash passes: command_name, word_being_completed, previous_word
+      // For compgen -F func cmd [word], it's: "compgen", cmd, ""
+      const funcArgs = ["compgen", processedArgs[0] ?? "", ""];
+
+      try {
+        // Call the function - errors during execution return exit code 1
+        const funcResult = await callFunction(ctx, func, funcArgs, "");
+
+        // Check if there was an error (e.g., division by zero)
+        if (funcResult.exitCode !== 0) {
+          // Restore saved environment
+          restoreEnv(ctx, savedEnv);
+          restoreEnv(ctx, savedCompreply);
+          return result("", funcResult.stderr, 1);
+        }
+
+        // Capture function stdout (e.g., debug output from the function)
+        functionStdout = funcResult.stdout;
+
+        // Get COMPREPLY values (supports both scalar and array)
+        const compreplyValues = getCompreplyValues(ctx);
+        completions.push(...compreplyValues);
+      } catch {
+        // If function execution fails, return exit code 1
+        restoreEnv(ctx, savedEnv);
+        restoreEnv(ctx, savedCompreply);
+        return result("", "", 1);
+      }
+
+      // Restore saved environment
+      restoreEnv(ctx, savedEnv);
+      restoreEnv(ctx, savedCompreply);
+    }
+  }
+
   // Apply -X filter: remove completions matching the exclude pattern
   // Uses extglob for pattern matching (compgen always uses extglob)
   // Special: if pattern starts with '!', the filter is negated (keep items matching the rest)
@@ -425,14 +507,18 @@ export async function handleCompgen(
 
   // If no completions found and we had a search prefix, return exit code 1
   if (filteredCompletions.length === 0 && searchPrefix !== null) {
-    return result("", "", 1);
+    // Still output any function stdout even if no completions
+    return result(functionStdout, "", 1);
   }
 
   // Apply prefix/suffix and output
-  const output = filteredCompletions
+  const completionOutput = filteredCompletions
     .map((c) => `${prefix}${c}${suffix}`)
     .join("\n");
-  return success(output ? `${output}\n` : "");
+  // Prepend function stdout to completions output
+  const output =
+    functionStdout + (completionOutput ? `${completionOutput}\n` : "");
+  return success(output);
 }
 
 /**
@@ -808,4 +894,46 @@ function splitWordlist(ctx: InterpreterContext, wordlist: string): string[] {
 
   const regex = new RegExp(`[${ifsChars.join("")}]+`);
   return wordlist.split(regex).filter((w) => w.length > 0);
+}
+
+/**
+ * Restore environment variables from saved values
+ */
+function restoreEnv(
+  ctx: InterpreterContext,
+  saved: Record<string, string | undefined>,
+): void {
+  for (const [key, value] of Object.entries(saved)) {
+    if (value === undefined) {
+      delete ctx.state.env[key];
+    } else {
+      ctx.state.env[key] = value;
+    }
+  }
+}
+
+/**
+ * Get COMPREPLY values (supports both scalar and array)
+ * Returns values in order, skipping sparse array gaps
+ */
+function getCompreplyValues(ctx: InterpreterContext): string[] {
+  const values: string[] = [];
+
+  // Check if COMPREPLY is an array
+  const lengthKey = "COMPREPLY__length";
+  const arrayLength = ctx.state.env[lengthKey];
+
+  if (arrayLength !== undefined) {
+    // It's an array - get elements using getArrayElements helper
+    // getArrayElements returns Array<[index, value]>
+    const elements = getArrayElements(ctx, "COMPREPLY");
+    for (const [, value] of elements) {
+      values.push(value);
+    }
+  } else if (ctx.state.env["COMPREPLY"] !== undefined) {
+    // It's a scalar value
+    values.push(ctx.state.env["COMPREPLY"]);
+  }
+
+  return values;
 }

@@ -1040,7 +1040,6 @@ v0/v1/v2/v5/v6/v8
 
 
 #### compgen -F _set_COMPREPLY
-## SKIP: compgen not implemented
 case $SH in mksh) exit ;; esac
 
 _set_COMPREPLY() {

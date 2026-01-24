@@ -134,6 +134,8 @@ export interface InterpreterState {
   tempExportedVars?: Set<string>;
   /** Stack of call line numbers for BASH_LINENO */
   callLineStack?: number[];
+  /** Stack of function names for FUNCNAME */
+  funcNameStack?: string[];
   /** File descriptors for process substitution and here-docs */
   fileDescriptors?: Map<number, string>;
   /** Next available file descriptor for {varname}>file allocation (starts at 10) */

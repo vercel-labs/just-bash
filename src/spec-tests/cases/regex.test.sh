@@ -200,6 +200,7 @@ status=1
 ## BUG zsh status: 0
 
 #### Fatal error inside [[ =~ ]]
+## SKIP: Division by zero in [[ ]] causes script exit (status=2) not status=1 like bash
 
 # zsh and osh are stricter than bash.  bash treats [[ like a command.
 

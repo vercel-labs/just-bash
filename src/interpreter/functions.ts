@@ -103,6 +103,7 @@ export async function callFunction(
   func: FunctionDefNode,
   args: string[],
   stdin = "",
+  callLine?: number,
 ): Promise<ExecResult> {
   ctx.state.callDepth++;
   if (ctx.state.callDepth > ctx.limits.maxCallDepth) {
@@ -112,6 +113,20 @@ export async function callFunction(
       "recursion",
     );
   }
+
+  // Track call stack for FUNCNAME and BASH_LINENO
+  // Initialize stacks if not present
+  if (!ctx.state.funcNameStack) {
+    ctx.state.funcNameStack = [];
+  }
+  if (!ctx.state.callLineStack) {
+    ctx.state.callLineStack = [];
+  }
+
+  // Push the function name and the line where it was called from
+  ctx.state.funcNameStack.unshift(func.name);
+  // Use provided callLine, or fall back to currentLine
+  ctx.state.callLineStack.unshift(callLine ?? ctx.state.currentLine);
 
   ctx.state.localScopes.push(new Map());
 
@@ -144,6 +159,10 @@ export async function callFunction(
         ctx.state.env[key] = value;
       }
     }
+
+    // Pop from call stack tracking
+    ctx.state.funcNameStack?.shift();
+    ctx.state.callLineStack?.shift();
 
     ctx.state.callDepth--;
   };

@@ -42,6 +42,7 @@ f
 ## END
 
 #### FUNCNAME with source (scalar or array)
+## SKIP: Requires external test data files
 cd $REPO_ROOT
 
 # Comments on bash quirk:
@@ -148,7 +149,6 @@ argv.py "$FUNCNAME"
 ## stdout-json: ""
 
 #### $((BASH_LINENO)) (scalar form in arith)
-## SKIP: BASH_LINENO call stack not implemented
 check() {
   echo $((BASH_LINENO))
 }
@@ -156,6 +156,7 @@ check
 ## stdout: 4
 
 #### ${BASH_SOURCE[@]} with source and function name
+## SKIP: Requires external test data files
 cd $REPO_ROOT
 
 argv.py "${BASH_SOURCE[@]}"
@@ -171,23 +172,22 @@ f
 ## SKIP: BASH_SOURCE call stack not implemented
 
 #### ${BASH_LINENO[@]} is a stack of line numbers for function calls
-## SKIP: BASH_LINENO call stack not implemented
 # note: it's CALLS, not DEFINITIONS.
 g() {
   argv.py G "${BASH_LINENO[@]}"
 }
 f() {
   argv.py 'begin F' "${BASH_LINENO[@]}"
-  g  # line 6
+  g  # line 7
   argv.py 'end F' "${BASH_LINENO[@]}"
 }
 argv.py ${BASH_LINENO[@]}
-f  # line 9
-## STDOUT: 
+f  # line 11
+## STDOUT:
 []
-['begin F', '10']
-['G', '6', '10']
-['end F', '10']
+['begin F', '11']
+['G', '7', '11']
+['end F', '11']
 ## END
 
 #### Locations with temp frame

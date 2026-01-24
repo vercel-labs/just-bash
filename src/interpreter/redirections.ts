@@ -274,9 +274,15 @@ export async function preOpenOutputRedirects(
     if (
       target !== "/dev/null" &&
       target !== "/dev/stdout" &&
-      target !== "/dev/stderr"
+      target !== "/dev/stderr" &&
+      target !== "/dev/full"
     ) {
       await ctx.fs.writeFile(filePath, "", "utf8");
+    }
+
+    // /dev/full always returns ENOSPC when written to
+    if (target === "/dev/full") {
+      return makeResult("", `bash: /dev/full: No space left on device\n`, 1);
     }
   }
 
@@ -346,6 +352,13 @@ export async function applyRedirections(
             stdout = "";
             break;
           }
+          // /dev/full always returns ENOSPC when written to
+          if (target === "/dev/full") {
+            stderr += `bash: echo: write error: No space left on device\n`;
+            exitCode = 1;
+            stdout = "";
+            break;
+          }
           const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
           // Check if target is a directory
           try {
@@ -383,6 +396,12 @@ export async function applyRedirections(
           if (target === "/dev/stdout") {
             stdout += stderr;
             stderr = "";
+            break;
+          }
+          // /dev/full always returns ENOSPC when written to
+          if (target === "/dev/full") {
+            stderr += `bash: echo: write error: No space left on device\n`;
+            exitCode = 1;
             break;
           }
           if (target === "/dev/null") {
@@ -431,6 +450,13 @@ export async function applyRedirections(
             stdout = "";
             break;
           }
+          // /dev/full always returns ENOSPC when written to
+          if (target === "/dev/full") {
+            stderr += `bash: echo: write error: No space left on device\n`;
+            exitCode = 1;
+            stdout = "";
+            break;
+          }
           const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
           // Check if target is a directory
           try {
@@ -456,6 +482,12 @@ export async function applyRedirections(
           if (target === "/dev/stdout") {
             stdout += stderr;
             stderr = "";
+            break;
+          }
+          // /dev/full always returns ENOSPC when written to
+          if (target === "/dev/full") {
+            stderr += `bash: echo: write error: No space left on device\n`;
+            exitCode = 1;
             break;
           }
           const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
@@ -577,6 +609,13 @@ export async function applyRedirections(
       }
 
       case "&>": {
+        // /dev/full always returns ENOSPC when written to
+        if (target === "/dev/full") {
+          stderr = `bash: echo: write error: No space left on device\n`;
+          exitCode = 1;
+          stdout = "";
+          break;
+        }
         const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
         // Check if target is a directory
         try {
@@ -605,6 +644,13 @@ export async function applyRedirections(
       }
 
       case "&>>": {
+        // /dev/full always returns ENOSPC when written to
+        if (target === "/dev/full") {
+          stderr = `bash: echo: write error: No space left on device\n`;
+          exitCode = 1;
+          stdout = "";
+          break;
+        }
         const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
         // Check if target is a directory
         try {

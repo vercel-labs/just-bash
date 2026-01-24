@@ -27,11 +27,22 @@ import type { InterpreterContext } from "../types.js";
  * Get all elements of an array stored as arrayName_0, arrayName_1, etc.
  * Returns an array of [index/key, value] tuples, sorted by index/key.
  * For associative arrays, uses string keys.
+ * Special arrays FUNCNAME and BASH_LINENO are handled dynamically from call stack.
  */
 export function getArrayElements(
   ctx: InterpreterContext,
   arrayName: string,
 ): Array<[number | string, string]> {
+  // Handle special call stack arrays
+  if (arrayName === "FUNCNAME") {
+    const stack = ctx.state.funcNameStack ?? [];
+    return stack.map((name, i) => [i, name]);
+  }
+  if (arrayName === "BASH_LINENO") {
+    const stack = ctx.state.callLineStack ?? [];
+    return stack.map((line, i) => [i, String(line)]);
+  }
+
   const isAssoc = ctx.state.associativeArrays?.has(arrayName);
 
   if (isAssoc) {
@@ -52,6 +63,13 @@ export function getArrayElements(
  * Check if a variable is an array (has elements stored as name_0, name_1, etc.)
  */
 export function isArray(ctx: InterpreterContext, name: string): boolean {
+  // Handle special call stack arrays - they're only arrays when inside functions
+  if (name === "FUNCNAME") {
+    return (ctx.state.funcNameStack?.length ?? 0) > 0;
+  }
+  if (name === "BASH_LINENO") {
+    return (ctx.state.callLineStack?.length ?? 0) > 0;
+  }
   // Check if it's an associative array
   if (ctx.state.associativeArrays?.has(name)) {
     return getAssocArrayKeys(ctx, name).length > 0;
@@ -152,6 +170,30 @@ export function getVariable(
     case "LINENO":
       // Current line number being executed
       return String(ctx.state.currentLine);
+    case "FUNCNAME": {
+      // Return the first element (current function name) or handle unset
+      const funcName = ctx.state.funcNameStack?.[0];
+      if (funcName !== undefined) {
+        return funcName;
+      }
+      // Outside functions, FUNCNAME is unset - check nounset
+      if (checkNounset && ctx.state.options.nounset) {
+        throw new NounsetError("FUNCNAME");
+      }
+      return "";
+    }
+    case "BASH_LINENO": {
+      // Return the first element (line where current function was called) or handle unset
+      const line = ctx.state.callLineStack?.[0];
+      if (line !== undefined) {
+        return String(line);
+      }
+      // Outside functions, BASH_LINENO is unset - check nounset
+      if (checkNounset && ctx.state.options.nounset) {
+        throw new NounsetError("BASH_LINENO");
+      }
+      return "";
+    }
   }
 
   // Check for empty subscript: varName[] is invalid
@@ -193,6 +235,23 @@ export function getVariable(
       const scalarValue = ctx.state.env[arrayName];
       if (scalarValue !== undefined) {
         return scalarValue;
+      }
+      return "";
+    }
+
+    // Handle special call stack arrays with numeric subscript
+    if (arrayName === "FUNCNAME") {
+      const index = Number.parseInt(subscript, 10);
+      if (!Number.isNaN(index) && index >= 0) {
+        return ctx.state.funcNameStack?.[index] ?? "";
+      }
+      return "";
+    }
+    if (arrayName === "BASH_LINENO") {
+      const index = Number.parseInt(subscript, 10);
+      if (!Number.isNaN(index) && index >= 0) {
+        const line = ctx.state.callLineStack?.[index];
+        return line !== undefined ? String(line) : "";
       }
       return "";
     }
