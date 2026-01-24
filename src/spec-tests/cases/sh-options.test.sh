@@ -83,7 +83,6 @@ echo $?
 ## END
 
 #### vi and emacs are mutually exclusive
-## SKIP: shopt -o -p not implemented
 show() {
   shopt -o -p | egrep 'emacs$|vi$'
   echo ___
@@ -194,7 +193,6 @@ echo $?
 ## N-I dash status: 2
 
 #### shopt -p -o prints 'set' options
-## SKIP: shopt -po not implemented
 case $SH in dash|mksh) exit ;; esac
 
 shopt -po nounset
@@ -217,7 +215,6 @@ nounset
 ## END
 
 #### shopt -o prints 'set' options
-## SKIP: shopt -o not implemented
 case $SH in dash|mksh) exit ;; esac
 
 shopt -o | egrep -o 'errexit|noglob|nounset'
@@ -407,7 +404,6 @@ flaky
 ## END
 
 #### set without args lists variables
-## SKIP: set output ordering differs from bash
 __GLOBAL=g
 f() {
   local __mylocal=L
@@ -441,7 +437,6 @@ __var_in_parent_scope='D'
 ## END
 
 #### set without args and array variables
-## SKIP: set output format for arrays differs from bash
 declare -a __array
 __array=(1 2 '3 4')
 set | grep '^__'

@@ -173,7 +173,7 @@ describe("Bash Syntax - Parse Errors", () => {
       const env = new Bash();
       const result = await env.exec("/nonexistent/path/command");
       expect(result.exitCode).toBe(127);
-      expect(result.stderr).toContain("command not found");
+      expect(result.stderr).toContain("No such file or directory");
     });
 
     it("should return 1 for file not found errors", async () => {

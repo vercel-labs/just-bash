@@ -240,7 +240,6 @@ v=tempenv eval 'f5 "global,tempenv,(eval)"'
 
 
 #### [bash_unset] localvar-inherit from tempenv
-## SKIP: bash-specific unset scoping behavior not implemented
 f1() {
   local v
   echo "[$1,(local)] v: ${v-(unset)}"

@@ -27,13 +27,30 @@ export function markNameref(ctx: InterpreterContext, name: string): void {
  */
 export function unmarkNameref(ctx: InterpreterContext, name: string): void {
   ctx.state.namerefs?.delete(name);
+  ctx.state.boundNamerefs?.delete(name);
+}
+
+/**
+ * Mark a nameref as "bound" - meaning its target existed at creation time.
+ * Bound namerefs will always resolve through to their target, even if unset.
+ */
+export function markNamerefBound(ctx: InterpreterContext, name: string): void {
+  ctx.state.boundNamerefs ??= new Set();
+  ctx.state.boundNamerefs.add(name);
+}
+
+/**
+ * Check if a nameref is "bound" (target existed at creation time).
+ */
+function isNamerefBound(ctx: InterpreterContext, name: string): boolean {
+  return ctx.state.boundNamerefs?.has(name) ?? false;
 }
 
 /**
  * Check if a name refers to a valid, existing variable or array element.
  * Used to determine if a nameref target is "real" or just a stored value.
  */
-function targetExists(ctx: InterpreterContext, target: string): boolean {
+export function targetExists(ctx: InterpreterContext, target: string): boolean {
   // Check for array subscript
   const arrayMatch = target.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
   if (arrayMatch) {
@@ -109,10 +126,15 @@ export function resolveNameref(
       return current;
     }
 
-    // Check if target exists - if not and it's not another nameref, return current
-    // This handles the case where a nameref was declared with an invalid target (like '1'),
-    // then later assigned a valid-looking name (like 'foo') that doesn't exist as a variable.
-    // In bash, such a nameref acts like a regular variable.
+    // For bound namerefs (target existed at creation time), always resolve through.
+    // This ensures that unsetting the target through the nameref still works correctly.
+    if (isNamerefBound(ctx, current)) {
+      current = target;
+      continue;
+    }
+
+    // For unbound namerefs (target never existed), check if target currently exists.
+    // If not, return the nameref itself (treat as regular variable).
     if (!isNameref(ctx, target) && !targetExists(ctx, target)) {
       return current;
     }

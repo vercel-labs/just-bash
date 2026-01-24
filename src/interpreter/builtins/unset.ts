@@ -16,6 +16,7 @@ import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { evaluateArithmeticSync } from "../arithmetic.js";
+import { isArray } from "../expansion/variable.js";
 import { expandWord, getArrayElements } from "../expansion.js";
 import { isNameref, resolveNameref } from "../helpers/nameref.js";
 import { isReadonly } from "../helpers/readonly.js";
@@ -32,13 +33,30 @@ function isValidVariableName(name: string): boolean {
 }
 
 /**
+ * Check if an index expression is a quoted string (single or double quotes).
+ * These are treated as associative array keys, not numeric indices.
+ */
+function isQuotedStringIndex(indexExpr: string): boolean {
+  // Check for single-quoted or double-quoted string
+  return (
+    (indexExpr.startsWith("'") && indexExpr.endsWith("'")) ||
+    (indexExpr.startsWith('"') && indexExpr.endsWith('"'))
+  );
+}
+
+/**
  * Evaluate an array index expression (can be arithmetic).
- * Returns the evaluated numeric index.
+ * Returns the evaluated numeric index, or null if the expression is a quoted
+ * string that should be treated as an associative array key.
  */
 function evaluateArrayIndex(
   ctx: InterpreterContext,
   indexExpr: string,
-): number {
+): number | null {
+  // If the index is a quoted string, it's meant for associative arrays only
+  if (isQuotedStringIndex(indexExpr)) {
+    return null;
+  }
   try {
     const parser = new Parser();
     const arithAst = parseArithmeticExpression(parser, indexExpr);
@@ -70,8 +88,25 @@ function performCellUnset(ctx: InterpreterContext, varName: string): boolean {
       }
       // Remove from this scope so future lookups find the outer value
       scope.delete(varName);
-      // Clear the local variable depth tracking
-      clearLocalVarDepth(ctx, varName);
+
+      // Check if there's an outer scope that also has this variable
+      // If so, update localVarDepth to that outer scope's depth
+      // Otherwise, clear the tracking
+      let foundOuterScope = false;
+      for (let j = i - 1; j >= 0; j--) {
+        if (ctx.state.localScopes[j].has(varName)) {
+          // Found an outer scope with this variable
+          // Scope at index j was created at callDepth j + 1
+          if (ctx.state.localVarDepth) {
+            ctx.state.localVarDepth.set(varName, j + 1);
+          }
+          foundOuterScope = true;
+          break;
+        }
+      }
+      if (!foundOuterScope) {
+        clearLocalVarDepth(ctx, varName);
+      }
       return true;
     }
   }
@@ -189,8 +224,36 @@ export async function handleUnset(
           continue;
         }
 
+        // Check if variable is an indexed array
+        const isIndexedArray = isArray(ctx, arrayName);
+        // Check if variable was explicitly declared as a scalar (not an array)
+        // A scalar exists when the base var name is in env but it's not an array
+        const isScalar =
+          arrayName in ctx.state.env && !isIndexedArray && !isAssoc;
+
+        if (isScalar) {
+          // Trying to unset array element on explicitly declared scalar variable
+          stderr += `bash: unset: ${arrayName}: not an array variable\n`;
+          exitCode = 1;
+          continue;
+        }
+
         // Indexed array: evaluate index as arithmetic expression
         const index = evaluateArrayIndex(ctx, indexExpr);
+
+        // If index is null, it's a quoted string key - error for indexed arrays
+        // Only error if the variable is actually an indexed array
+        if (index === null && isIndexedArray) {
+          stderr += `bash: unset: ${indexExpr}: not a valid identifier\n`;
+          exitCode = 1;
+          continue;
+        }
+
+        // If variable doesn't exist at all and we have a quoted string key,
+        // just silently succeed
+        if (index === null) {
+          continue;
+        }
 
         if (index < 0) {
           const elements = getArrayElements(ctx, arrayName);
@@ -281,8 +344,36 @@ export async function handleUnset(
         continue;
       }
 
+      // Check if variable is an indexed array
+      const isIndexedArray = isArray(ctx, arrayName);
+      // Check if variable was explicitly declared as a scalar (not an array)
+      // A scalar exists when the base var name is in env but it's not an array
+      const isScalar =
+        arrayName in ctx.state.env && !isIndexedArray && !isAssoc;
+
+      if (isScalar) {
+        // Trying to unset array element on explicitly declared scalar variable
+        stderr += `bash: unset: ${arrayName}: not an array variable\n`;
+        exitCode = 1;
+        continue;
+      }
+
       // Indexed array: evaluate index as arithmetic expression
       const index = evaluateArrayIndex(ctx, indexExpr);
+
+      // If index is null, it's a quoted string key - error for indexed arrays
+      // Only error if the variable is actually an indexed array
+      if (index === null && isIndexedArray) {
+        stderr += `bash: unset: ${indexExpr}: not a valid identifier\n`;
+        exitCode = 1;
+        continue;
+      }
+
+      // If variable doesn't exist at all and we have a quoted string key,
+      // just silently succeed
+      if (index === null) {
+        continue;
+      }
 
       // Handle negative indices
       if (index < 0) {

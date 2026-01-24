@@ -253,7 +253,6 @@ D
 ## END
 
 #### [[ $x == !($str) ]]
-## SKIP: !() negation extglob pattern matching not implemented
 shopt -s extglob
 empty=''
 str='x'
@@ -286,7 +285,6 @@ TRUE
 ## END
 
 #### With extglob on, !($str) on the left or right of == has different meanings
-## SKIP: !() negation extglob pattern matching not implemented
 shopt -s extglob
 str='x'
 [[ 1 == !($str) ]]  && echo TRUE   # glob match

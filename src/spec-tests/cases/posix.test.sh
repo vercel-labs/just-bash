@@ -116,7 +116,8 @@ done
 ## END
 
 #### Newlines in compound lists
-## SKIP: Newlines in compound lists not implemented
+mkdir -p tests _tmp
+echo hello > tests/hello.txt
 x=3
 while
   # a couple of <newline>s

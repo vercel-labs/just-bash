@@ -90,7 +90,6 @@ echo "${g[@]}"
 ## N-I dash/ash status: 2
 
 #### glob with escaped - in char class
-## SKIP: Glob char class with escaped dash not implemented
 touch _tmp/foo.-
 touch _tmp/c.C
 echo _tmp/*.[C-D] _tmp/*.[C\-D]

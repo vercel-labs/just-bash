@@ -171,12 +171,10 @@ argv.py 1 ${undefined:-"2 3" "4 5"} 6
 ## stdout: ['1', '2 3', '4 5', '6']
 
 #### default value can yield multiple words with part joining
-## SKIP: Default value with multiple words and joining not implemented
 argv.py 1${undefined:-"2 3" "4 5"}6
 ## stdout: ['12 3', '4 56']
 
 #### default value with unquoted IFS char
-## SKIP: Default value with IFS splitting not implemented
 IFS=_
 argv.py 1${undefined:-"2_3"x_x"4_5"}6
 ## stdout: ['12_3x', 'x4_56']
@@ -364,7 +362,6 @@ printf '[%s]\n' $*
 ## END
 
 #### IFS='' with ${a[@]} and ${a[*]} (bug #627)
-## SKIP: Empty IFS with array expansion not implemented
 case $SH in dash | ash) exit 0 ;; esac
 
 myarray=(a 'b c')
@@ -379,7 +376,6 @@ argv.py star ${myarray[*]}
 ## N-I dash/ash stdout-json: ""
 
 #### IFS='' with ${!prefix@} and ${!prefix*} (bug #627)
-## SKIP: Empty IFS with prefix expansion not implemented
 case $SH in dash | mksh | ash | yash) exit 0 ;; esac
 
 gLwbmGzS_var1=1
@@ -399,7 +395,6 @@ argv.py star ${!gLwbmGzS_*}
 ## N-I dash/mksh/ash/yash stdout-json: ""
 
 #### IFS='' with ${!a[@]} and ${!a[*]} (bug #627)
-## SKIP: Empty IFS with array index expansion not implemented
 case $SH in dash | mksh | ash | yash) exit 0 ;; esac
 
 IFS=''
@@ -418,7 +413,6 @@ argv.py star ${!a[*]}
 ## N-I dash/mksh/ash/yash stdout-json: ""
 
 #### Bug #628 split on : with : in literal word
-## SKIP: IFS handling when literal contains IFS char not implemented (Bug #628)
 
 # 2025-03: What's the cause of this bug?
 #
@@ -547,7 +541,6 @@ printf "<%s>\n" $x
 ## END
 
 #### 4 x 3 table: (default IFS, IFS='', IFS=zx) x ( $* "$*" $@ "$@" )
-## SKIP: Complex IFS and $@/$* combinations not implemented
 
 setopt SH_WORD_SPLIT  # for zsh
 
@@ -629,7 +622,6 @@ argv.py ' "$@" ' "$@"
 ## END
 
 #### 4 x 3 table - with for loop
-## SKIP: Empty positional parameter handling differs from bash
 case $SH in yash) exit ;; esac  # no echo -n
 
 setopt SH_WORD_SPLIT  # for zsh

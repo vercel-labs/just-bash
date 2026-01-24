@@ -150,7 +150,6 @@ EOF2
 ## stdout: there
 
 #### Here doc with line continuation, then pipe.  Syntax error.
-## SKIP: Here-doc line continuation syntax error detection differs
 cat <<EOF \
 1
 2

@@ -418,7 +418,6 @@ x=XX
 ## END
 
 #### unset nameref
-## SKIP: Unset through nameref behavior differs
 x=X
 typeset -n ref=x
 echo ref=$ref

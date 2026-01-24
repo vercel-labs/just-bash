@@ -140,7 +140,6 @@ L i
 ## END
 
 #### Lower Case with constant string (VERY WEIRD)
-## SKIP: Case folding with pattern not implemented
 x='AAA ABC DEF'
 echo ${x,A}
 echo ${x,,A}  # replaces every A only?
@@ -150,7 +149,6 @@ aaa aBC DEF
 ## END
 
 #### Lower Case glob
-## SKIP: Case conversion with glob pattern constraint not implemented
 
 # Hm with C.UTF-8, this does no case folding?
 export LC_ALL=en_US.UTF-8

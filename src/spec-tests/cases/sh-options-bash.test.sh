@@ -32,7 +32,6 @@ echo status=$?
 ## OK osh stdout-json: ""
 
 #### SHELLOPTS and BASHOPTS are non-empty
-## SKIP: SHELLOPTS and BASHOPTS not implemented
 
 # 2024-06 - tickled by Samuel testing Gentoo
 

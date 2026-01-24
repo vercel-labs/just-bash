@@ -427,7 +427,6 @@ argv.py "${files[@]%.c}"
 ## N-I mksh stdout-json: ""
 
 #### Multiple subscripts not allowed
-## SKIP: Multiple subscripts ${a[0][0]} should error but is accepted
 # NOTE: bash 4.3 had a bug where it ignored the bad subscript, but now it is
 # fixed.
 a=('123' '456')
@@ -497,7 +496,6 @@ argv.py "${undef[@]:-${default[@]}}"
 ## stdout: ['1 2', '3']
 
 #### Singleton Array Copy and Assign.  OSH can't index strings with ints
-## SKIP: Singleton array copy/assign edge case not implemented
 a=( '12 3' )
 b=( "${a[@]}" )
 c="${a[@]}"  # This decays it to a string
@@ -584,7 +582,6 @@ argv.py "${a[99]}" "${a[100]}" "${a[101]}"
 ## END
 
 #### Slice of sparse array with [@]
-## SKIP: Sparse array slicing ${a[@]:offset:len} returns empty
 # mksh doesn't support this syntax!  It's a bash extension.
 (( a[33]=1 ))
 (( a[66]=2 ))

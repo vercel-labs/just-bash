@@ -567,7 +567,12 @@ export function wordToString(_p: Parser, word: WordNode): string {
   for (const part of word.parts) {
     switch (part.type) {
       case "Literal":
+        result += part.value;
+        break;
       case "SingleQuoted":
+        // Preserve single quotes so empty strings like '' are not lost
+        result += `'${part.value}'`;
+        break;
       case "Escaped":
         result += part.value;
         break;

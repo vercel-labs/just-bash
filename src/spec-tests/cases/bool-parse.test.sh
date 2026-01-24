@@ -12,7 +12,6 @@
 #   spec/dbracket.test.sh        for [[
 
 #### test builtin - Unexpected trailing word '--' (#2409)
-## SKIP: test builtin -a/-o parsing with flag-like arguments not implemented
 
 # Minimal repro of sqsh build error
 set -- -o; test $# -ne 0 -a "$1" != "--"

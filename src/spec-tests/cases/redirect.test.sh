@@ -80,7 +80,6 @@ cat $TMP/file-redir2.txt
 ## stdout: two 1
 
 #### Descriptor redirect with filename
-## SKIP: Redirect descriptor to filename variable not implemented
 # bash/mksh treat this like a filename, not a descriptor.
 # dash aborts.
 echo one 1>&$TMP/nonexistent-filename__
@@ -308,7 +307,6 @@ hello
 ## END
 
 #### 1>&2- to move file descriptor
-## SKIP: File descriptor move (>&N-) not properly closing source fd after duplication
 exec 5> "$TMP/f.txt"
 echo hello5 >&5
 exec 6>&5-

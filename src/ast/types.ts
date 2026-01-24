@@ -514,6 +514,8 @@ export interface ArithmeticExpansionPart extends ASTNode {
 export interface ArithmeticExpressionNode extends ASTNode {
   type: "ArithmeticExpression";
   expression: ArithExpr;
+  /** Original expression text before parsing, used for re-parsing after variable expansion */
+  originalText?: string;
 }
 
 export type ArithExpr =

@@ -577,7 +577,6 @@ foo
 ## END
 
 #### local a=loc $var c=loc
-## SKIP: local $var does not create local variable with empty value shadowing global
 var='b'
 b=global
 echo $b

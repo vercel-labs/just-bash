@@ -32,6 +32,8 @@ function createMockCtx(): InterpreterContext {
       noclobber: false,
       noglob: false,
       noexec: false,
+      vi: false,
+      emacs: false,
     },
     shoptOptions: {
       extglob: false,

@@ -25,7 +25,6 @@ argv.py ${empty:-}
 ## stdout: []
 
 #### array with empty values
-## SKIP: Empty strings in array literal not preserved
 declare -a A=('' x "" '')
 argv.py "${A[@]}"
 ## stdout: ['', 'x', '', '']
@@ -289,7 +288,6 @@ a
 
 
 #### Right Brace as argument (similar to #702)
-## SKIP: Right brace in quoted default value not parsed correctly
 
 echo "${var-}}"
 echo "${var-\}}"

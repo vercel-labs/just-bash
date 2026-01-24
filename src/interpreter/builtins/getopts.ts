@@ -74,6 +74,9 @@ export function handleGetopts(
   // Check if we've exhausted all arguments
   if (optind > argsToProcess.length) {
     ctx.state.env[varName] = "?";
+    // When returning because OPTIND is past all args, bash sets OPTIND to args.length + 1
+    ctx.state.env.OPTIND = String(argsToProcess.length + 1);
+    ctx.state.env.__GETOPTS_CHARINDEX = "0";
     return { exitCode: 1, stdout: "", stderr: "" };
   }
 

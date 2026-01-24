@@ -803,7 +803,6 @@ a=1
 ## BUG zsh status: 1
 
 #### Invalid constant
-## SKIP: Invalid constant handling differs from bash (42x parsed as 42)
 
 echo $((a + x42))
 echo status=$?

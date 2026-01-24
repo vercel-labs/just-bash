@@ -144,7 +144,7 @@ status=0
 ## END
 
 #### command -V
-## SKIP: parse error with backtick escaping
+## SKIP: command -V output format differs (function body not printed, stderr on nonexistent)
 myfunc() { echo x; }
 
 shopt -s expand_aliases

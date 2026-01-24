@@ -124,6 +124,26 @@ function parseParameterExpansion(
     const closeIdx = WordParser.findMatchingBracket(p, value, i, "[", "]");
     name += value.slice(i, closeIdx + 1);
     i = closeIdx + 1;
+
+    // Check for multiple subscripts like ${a[0][0]} - this is invalid syntax
+    if (value[i] === "[") {
+      // Find closing } to get full expansion text for error message
+      let depth = 1;
+      let j = i;
+      while (j < value.length && depth > 0) {
+        if (value[j] === "{") depth++;
+        else if (value[j] === "}") depth--;
+        if (depth > 0) j++;
+      }
+      const badText = value.slice(start + 2, j); // Content between ${ and }
+      return {
+        part: AST.parameterExpansion("", {
+          type: "BadSubstitution",
+          text: badText,
+        }),
+        endIndex: j + 1,
+      };
+    }
   }
 
   // Check for invalid parameter expansion with empty name and operator
@@ -310,6 +330,9 @@ function parseParameterOperation(
         true, // isAssignment=true for tilde expansion after : in default values
         false,
         quoted,
+        false, // noBraceExpansion
+        false, // regexPattern
+        true, // inParameterExpansion - so \} is treated as escaped }
       );
       const word = AST.word(
         wordParts.length > 0 ? wordParts : [AST.literal("")],
@@ -404,6 +427,9 @@ function parseParameterOperation(
       true, // isAssignment=true for tilde expansion after : in default values
       false,
       quoted,
+      false, // noBraceExpansion
+      false, // regexPattern
+      true, // inParameterExpansion - so \} is treated as escaped }
     );
     const word = AST.word(wordParts.length > 0 ? wordParts : [AST.literal("")]);
 
@@ -637,12 +663,13 @@ function parseDoubleQuotedContent(p: Parser, value: string): WordPart[] {
   while (i < value.length) {
     const char = value[i];
 
-    // Handle escape sequences - \$ and \` should become $ and `
-    // In bash, "\$HOME" outputs "$HOME" (backslash is consumed by the escape)
+    // Handle escape sequences in double quotes
+    // In bash double quotes, \$ \` \" \\ all have the backslash removed
+    // "\$HOME" outputs "$HOME", "say \"hi\"" outputs 'say "hi"'
     if (char === "\\" && i + 1 < value.length) {
       const next = value[i + 1];
-      // \$ and \` should become $ and ` (prevents expansion, backslash consumed)
-      if (next === "$" || next === "`") {
+      // \$ \` \" \\ have backslash removed, result in just the escaped char
+      if (next === "$" || next === "`" || next === '"' || next === "\\") {
         literal += next; // Add just the escaped character, not the backslash
         i += 2;
         continue;
@@ -761,6 +788,10 @@ export function parseWordParts(
   singleQuotesAreLiteral = false,
   /** When true, brace expansion is disabled (used in [[ ]] conditionals) */
   noBraceExpansion = false,
+  /** When true, all backslash escapes create Escaped nodes (for regex patterns in [[ =~ ]]) */
+  regexPattern = false,
+  /** When true, \} is treated as escaped } (used in parameter expansion default values) */
+  inParameterExpansion = false,
 ): WordPart[] {
   if (singleQuoted) {
     // Single quotes: no expansion
@@ -821,24 +852,40 @@ export function parseWordParts(
     // In regular words, $, `, \, ", newline are escapable
     // Glob metacharacters (*, ?, [, ]) when escaped should create Escaped nodes
     // so they're treated as literals during globbing
+    // In regex patterns, ALL escaped characters create Escaped nodes so the backslash
+    // is preserved for the regex engine (e.g., \$ matches literal $)
     if (char === "\\" && i + 1 < value.length) {
       const next = value[i + 1];
+
+      // In regex patterns, all escaped characters create Escaped nodes
+      // This preserves the backslash for the regex engine
+      if (regexPattern) {
+        flushLiteral();
+        parts.push(AST.escaped(next));
+        i += 2;
+        continue;
+      }
+
       // Characters that should be escaped (result in just the literal char)
+      // Inside parameter expansion default values, \} is also escapable to produce }
       const isEscapable = hereDoc
         ? next === "$" || next === "`" || next === "\n"
         : next === "$" ||
           next === "`" ||
           next === '"' ||
           next === "'" ||
-          next === "\n";
-      // Glob metacharacters, extglob operators, and backslash that should create Escaped nodes
+          next === "\n" ||
+          (inParameterExpansion && next === "}");
+      // Glob metacharacters, extglob operators, braces, and backslash that should create Escaped nodes
       // so they're treated as literals during globbing (and \\ doesn't escape the next char)
       // Including ( and ) to prevent \( and \) from being interpreted as extglob operators
-      // BUT: inside double quotes (singleQuotesAreLiteral=true), ( and ) are NOT escapable
+      // Including { and } to prevent \{ and \} from being interpreted as brace expansion
+      // Including regex metacharacters (. ^ +) so they create Escaped nodes for [[ =~ ]] patterns
+      // BUT: inside double quotes (singleQuotesAreLiteral=true), ( ) { } . ^ + are NOT escapable
       // because double quotes only allow escaping $, `, ", \, and newline
       const isGlobMetaOrBackslash = singleQuotesAreLiteral
         ? "*?[]\\".includes(next)
-        : "*?[]\\()".includes(next);
+        : "*?[]\\(){}.^+".includes(next);
       if (isEscapable) {
         literal += next;
       } else if (isGlobMetaOrBackslash) {

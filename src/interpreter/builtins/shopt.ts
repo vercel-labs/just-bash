@@ -4,7 +4,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { updateShellopts } from "../helpers/shellopts.js";
+import { updateBashopts, updateShellopts } from "../helpers/shellopts.js";
 import type { InterpreterContext } from "../types.js";
 
 // All supported shopt options
@@ -210,12 +210,14 @@ export function handleShopt(
       // Set the option
       if (isShoptOption(name)) {
         ctx.state.shoptOptions[name] = true;
+        updateBashopts(ctx);
       }
       // Stub options are silently accepted
     } else if (unsetFlag) {
       // Unset the option
       if (isShoptOption(name)) {
         ctx.state.shoptOptions[name] = false;
+        updateBashopts(ctx);
       }
       // Stub options are silently accepted
     } else {
@@ -272,7 +274,7 @@ function handleSetOptions(
   printFlag: boolean,
   quietFlag: boolean,
 ): ExecResult {
-  // Map set -o option names to ShellOptions
+  // Map set -o option names to ShellOptions (implemented options)
   const SET_OPTIONS: Record<string, keyof typeof ctx.state.options> = {
     errexit: "errexit",
     pipefail: "pipefail",
@@ -283,15 +285,38 @@ function handleSetOptions(
     allexport: "allexport",
     noclobber: "noclobber",
     noglob: "noglob",
+    noexec: "noexec",
+    vi: "vi",
+    emacs: "emacs",
   };
 
-  const ALL_SET_OPTIONS = Object.keys(SET_OPTIONS);
+  // No-op options (recognized but always off, for compatibility with set -o)
+  const NOOP_OPTIONS = [
+    "braceexpand",
+    "errtrace",
+    "functrace",
+    "hashall",
+    "histexpand",
+    "history",
+    "ignoreeof",
+    "interactive-comments",
+    "keyword",
+    "monitor",
+    "nolog",
+    "notify",
+    "onecmd",
+    "physical",
+    "privileged",
+  ];
+
+  const ALL_SET_OPTIONS = [...Object.keys(SET_OPTIONS), ...NOOP_OPTIONS].sort();
 
   if (optionNames.length === 0) {
     // Print all set -o options
     const output: string[] = [];
     for (const opt of ALL_SET_OPTIONS) {
-      const value = ctx.state.options[SET_OPTIONS[opt]];
+      const isNoOp = NOOP_OPTIONS.includes(opt);
+      const value = isNoOp ? false : ctx.state.options[SET_OPTIONS[opt]];
       if (setFlag && !value) continue;
       if (unsetFlag && value) continue;
       output.push(
@@ -312,15 +337,43 @@ function handleSetOptions(
   const output: string[] = [];
 
   for (const name of optionNames) {
-    if (!(name in SET_OPTIONS)) {
+    const isImplemented = name in SET_OPTIONS;
+    const isNoOp = NOOP_OPTIONS.includes(name);
+
+    if (!isImplemented && !isNoOp) {
       stderr += `shopt: ${name}: invalid option name\n`;
       hasError = true;
+      continue;
+    }
+
+    if (isNoOp) {
+      // No-op options are always off and can't be changed
+      if (setFlag || unsetFlag) {
+        // Silently accept setting/unsetting no-op options (like bash)
+      } else {
+        // Query the option
+        if (quietFlag) {
+          hasError = true; // No-op options are always off
+        } else if (printFlag) {
+          output.push(`set +o ${name}`);
+          hasError = true; // Always off
+        } else {
+          output.push(`${name}\t\toff`);
+          hasError = true; // Always off
+        }
+      }
       continue;
     }
 
     const key = SET_OPTIONS[name];
 
     if (setFlag) {
+      // Handle mutual exclusivity of vi and emacs
+      if (key === "vi") {
+        ctx.state.options.emacs = false;
+      } else if (key === "emacs") {
+        ctx.state.options.vi = false;
+      }
       ctx.state.options[key] = true;
       updateShellopts(ctx);
     } else if (unsetFlag) {

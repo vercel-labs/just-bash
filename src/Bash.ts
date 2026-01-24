@@ -28,7 +28,10 @@ import {
   ExitError,
   PosixFatalError,
 } from "./interpreter/errors.js";
-import { buildShellopts } from "./interpreter/helpers/shellopts.js";
+import {
+  buildBashopts,
+  buildShellopts,
+} from "./interpreter/helpers/shellopts.js";
 import {
   Interpreter,
   type InterpreterOptions,
@@ -242,6 +245,8 @@ export class Bash {
         noclobber: false,
         noglob: false,
         noexec: false,
+        vi: false,
+        emacs: false,
       },
       shoptOptions: {
         extglob: false,
@@ -268,14 +273,16 @@ export class Bash {
         // Also export any user-provided environment variables
         ...Object.keys(options.env || {}),
       ]),
-      // SHELLOPTS is readonly
-      readonlyVars: new Set(["SHELLOPTS"]),
+      // SHELLOPTS and BASHOPTS are readonly
+      readonlyVars: new Set(["SHELLOPTS", "BASHOPTS"]),
       // Hash table for PATH command lookup caching
       hashTable: new Map(),
     };
 
     // Initialize SHELLOPTS to reflect current shell options (initially empty string since all are false)
     this.state.env.SHELLOPTS = buildShellopts(this.state.options);
+    // Initialize BASHOPTS to reflect current shopt options
+    this.state.env.BASHOPTS = buildBashopts(this.state.shoptOptions);
 
     // Initialize filesystem with standard directories and device files
     // Only applies to InMemoryFs - other filesystems use real directories

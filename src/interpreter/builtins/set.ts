@@ -150,6 +150,9 @@ const LONG_OPTION_MAP: Record<string, keyof ShellOptions | null> = {
   noglob: "noglob",
   allexport: "allexport",
   noexec: "noexec",
+  posix: "posix",
+  vi: "vi",
+  emacs: "emacs",
   // No-ops (accepted for compatibility)
   notify: null,
   monitor: null,
@@ -160,9 +163,6 @@ const LONG_OPTION_MAP: Record<string, keyof ShellOptions | null> = {
   errtrace: null,
   privileged: null,
   hashall: null,
-  posix: "posix",
-  vi: null,
-  emacs: null,
   ignoreeof: null,
   "interactive-comments": null,
   keyword: null,
@@ -181,12 +181,13 @@ const DISPLAY_OPTIONS: (keyof ShellOptions)[] = [
   "noclobber",
   "noglob",
   "noexec",
+  "vi",
+  "emacs",
 ];
 
 // List of no-op options to display (always off, for compatibility)
 const NOOP_DISPLAY_OPTIONS: string[] = [
   "braceexpand",
-  "emacs",
   "errtrace",
   "functrace",
   "hashall",
@@ -201,12 +202,12 @@ const NOOP_DISPLAY_OPTIONS: string[] = [
   "onecmd",
   "physical",
   "privileged",
-  "vi",
 ];
 
 /**
  * Set a shell option value using the option map.
  * Also updates the SHELLOPTS environment variable.
+ * Handles mutual exclusivity for vi/emacs options.
  */
 function setShellOption(
   ctx: InterpreterContext,
@@ -214,6 +215,14 @@ function setShellOption(
   value: boolean,
 ): void {
   if (optionKey !== null) {
+    // Handle mutual exclusivity of vi and emacs
+    if (value) {
+      if (optionKey === "vi") {
+        ctx.state.options.emacs = false;
+      } else if (optionKey === "emacs") {
+        ctx.state.options.vi = false;
+      }
+    }
     ctx.state.options[optionKey] = value;
     updateShellopts(ctx);
   }
@@ -286,15 +295,27 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
   if (args.length === 0) {
     const arrayNames = getArrayNames(ctx);
 
-    // Collect scalar variables (excluding array elements like name_0)
+    // Collect scalar variables (excluding array elements and internal metadata)
     const scalarEntries: [string, string][] = [];
     for (const [key, value] of Object.entries(ctx.state.env)) {
-      // Only valid variable names (no underscores followed by digits or __metadata)
+      // Only valid variable names
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
         continue;
       }
       // Skip if this is actually an array (has array elements)
       if (arrayNames.has(key)) {
+        continue;
+      }
+      // Skip array element variables (name_index pattern where name is an array)
+      const arrayElementMatch = key.match(/^([a-zA-Z_][a-zA-Z0-9_]*)_(\d+)$/);
+      if (arrayElementMatch && arrayNames.has(arrayElementMatch[1])) {
+        continue;
+      }
+      // Skip array metadata variables (name__length pattern)
+      const arrayMetadataMatch = key.match(
+        /^([a-zA-Z_][a-zA-Z0-9_]*)__length$/,
+      );
+      if (arrayMetadataMatch && arrayNames.has(arrayMetadataMatch[1])) {
         continue;
       }
       scalarEntries.push([key, value]);
@@ -305,22 +326,24 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
 
     // Add scalar variables
     for (const [key, value] of scalarEntries.sort(([a], [b]) =>
-      a.localeCompare(b),
+      a < b ? -1 : a > b ? 1 : 0,
     )) {
       lines.push(`${key}=${quoteValue(value)}`);
     }
 
-    // Add arrays
-    for (const arrayName of [...arrayNames].sort()) {
+    // Add arrays (use ASCII sort order: uppercase before lowercase)
+    for (const arrayName of [...arrayNames].sort((a, b) =>
+      a < b ? -1 : a > b ? 1 : 0,
+    )) {
       lines.push(formatArrayOutput(ctx, arrayName));
     }
 
-    // Sort all lines together (bash outputs in sorted order)
+    // Sort all lines together (bash uses ASCII sort order: uppercase before lowercase)
     lines.sort((a, b) => {
       // Extract variable name for comparison
       const nameA = a.split("=")[0];
       const nameB = b.split("=")[0];
-      return nameA.localeCompare(nameB);
+      return nameA < nameB ? -1 : nameA > nameB ? 1 : 0;
     });
 
     return success(lines.length > 0 ? `${lines.join("\n")}\n` : "");
@@ -459,4 +482,7 @@ function setPositionalParameters(
   // Update $@ and $* (all parameters)
   ctx.state.env["@"] = params.join(" ");
   ctx.state.env["*"] = params.join(" ");
+
+  // Note: bash does NOT reset OPTIND when positional parameters change.
+  // This is intentional to match bash behavior.
 }

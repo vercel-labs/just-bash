@@ -246,7 +246,6 @@ echo `echo \\"foo\\"`
 ## END
 
 #### More levels of double quotes in backticks
-## SKIP: Multiple escape levels in backticks not implemented
 
 # Shells don't agree here, some of them give you form feeds!
 # There are two levels of processing I don't understand.

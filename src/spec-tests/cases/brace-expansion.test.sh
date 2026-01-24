@@ -460,7 +460,6 @@ a{} b{}
 ## END
 
 #### OSH provides an alternative to invalid syntax
-## SKIP: Escaped braces in brace expansion not implemented
 echo -{a,b}\{1...3\}-
 echo -{a,\{1...3\}}-
 echo {a,b}\{\}

@@ -335,7 +335,6 @@ foo=
 ## END
 
 #### Unset and scope (bug #653)
-## SKIP: Unset scope edge case not implemented
 unlocal() { unset "$@"; }
 
 level2() {
@@ -489,7 +488,6 @@ status=0
 ## END
 
 #### Unset wrong type
-## SKIP: Unset with wrong type error handling differs
 case $SH in mksh) exit ;; esac
 
 declare undef

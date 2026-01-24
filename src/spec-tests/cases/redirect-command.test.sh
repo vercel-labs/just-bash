@@ -136,14 +136,12 @@ echo
 ## END
 
 #### Redirect in command sub
-## SKIP: Redirect inside command substitution not implemented
 FOO=$(echo foo 1>&2)
 echo $FOO
 ## stdout:
 ## stderr: foo
 
 #### Redirect in the middle of two assignments
-## SKIP: redirect in the middle of assignments not fully supported, output file not created
 FOO=foo >$TMP/out.txt BAR=bar printenv.py FOO BAR
 tac $TMP/out.txt
 ## STDOUT:
@@ -213,8 +211,6 @@ hi
 ## END
 
 #### redirect bash extensions:   [[  ((  for ((
-## SKIP: Redirect on [[ ]] and (( )) not implemented
-
 case $SH in dash|mksh) exit ;; esac
 
 rm -f dbracket dparen for-expr
@@ -230,10 +226,10 @@ done > for-expr
 wc -l dbracket dparen for-expr
 
 ## STDOUT:
-0 dbracket
-0 dparen
-1 for-expr
-1 total
+  0 dbracket
+  0 dparen
+  1 for-expr
+  1 total
 ## END
 
 ## N-I dash/mksh STDOUT:

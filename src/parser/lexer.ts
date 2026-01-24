@@ -951,7 +951,7 @@ export class Lexer {
       if (char === "'" && !inDoubleQuote) {
         if (inSingleQuote) {
           inSingleQuote = false;
-          if (!startsWithQuote) {
+          if (!startsWithQuote || hasContentAfterQuote) {
             // Preserve closing quote for partially quoted words
             value += char;
           } else {
@@ -990,7 +990,7 @@ export class Lexer {
       if (char === '"' && !inSingleQuote) {
         if (inDoubleQuote) {
           inDoubleQuote = false;
-          if (!startsWithQuote) {
+          if (!startsWithQuote || hasContentAfterQuote) {
             // Preserve closing quote for partially quoted words
             value += char;
           } else {
@@ -1042,12 +1042,17 @@ export class Lexer {
             nextChar === "`" ||
             nextChar === "\n"
           ) {
-            // For $ and ` keep the backslash so parser knows not to expand
-            if (nextChar === "$" || nextChar === "`") {
-              value += char + nextChar; // Keep backslash + char
-            } else {
-              value += nextChar;
+            // Keep the backslash for $, `, \, " so parser can handle escapes
+            // Only newline is truly consumed (line continuation)
+            if (nextChar === "\n") {
+              // Line continuation - consume both
+              pos += 2;
+              col = 1;
+              ln++;
+              continue;
             }
+            // Keep both characters for parser to handle
+            value += char + nextChar;
             pos += 2;
             col += 2;
             continue;
@@ -1059,16 +1064,28 @@ export class Lexer {
           // - quotes (so parser knows they're escaped)
           // - glob metacharacters (so parser creates Escaped nodes that won't be glob-expanded)
           // - parentheses (so \( and \) are treated as literal, not extglob operators)
+          // - dollar sign (so \$ in regex patterns creates Escaped("$") for literal $ matching)
+          // - dash (so \- inside character classes is literal dash, not range)
+          // - regex metacharacters (so \. \^ \+ \{ \} work in [[ =~ ]] patterns)
           if (
             nextChar === "\\" ||
             nextChar === '"' ||
             nextChar === "'" ||
+            nextChar === "`" ||
             nextChar === "*" ||
             nextChar === "?" ||
             nextChar === "[" ||
             nextChar === "]" ||
             nextChar === "(" ||
-            nextChar === ")"
+            nextChar === ")" ||
+            nextChar === "$" ||
+            nextChar === "-" ||
+            // Regex-specific metacharacters for [[ =~ ]] patterns
+            nextChar === "." ||
+            nextChar === "^" ||
+            nextChar === "+" ||
+            nextChar === "{" ||
+            nextChar === "}"
           ) {
             value += char + nextChar;
           } else {
@@ -1244,11 +1261,15 @@ export class Lexer {
         pos++;
         col++;
         // Track brace depth and quotes inside ${...}
-        // Single quotes must be balanced inside parameter expansions
+        // Both single and double quotes must be balanced inside parameter expansions
+        // e.g., ${var-"}"} - the } inside quotes is literal, not the closing brace
         let depth = 1;
         let inParamSingleQuote = false;
+        let inParamDoubleQuote = false;
         let singleQuoteStartLine = ln;
         let singleQuoteStartCol = col;
+        let doubleQuoteStartLine = ln;
+        let doubleQuoteStartCol = col;
         while (depth > 0 && pos < len) {
           const c = input[pos];
           // Handle backslash-newline line continuation inside ${...}
@@ -1260,6 +1281,7 @@ export class Lexer {
             continue;
           }
           // Handle escape sequences inside ${...} - skip escaped characters
+          // (but not inside single quotes where backslash is literal)
           if (c === "\\" && pos + 1 < len && !inParamSingleQuote) {
             value += c;
             pos++;
@@ -1275,12 +1297,21 @@ export class Lexer {
             if (c === "'") {
               inParamSingleQuote = false;
             }
+          } else if (inParamDoubleQuote) {
+            // Inside double quotes, only " ends it (escapes handled above)
+            if (c === '"') {
+              inParamDoubleQuote = false;
+            }
           } else {
-            // Outside single quotes
+            // Outside quotes
             if (c === "'") {
               inParamSingleQuote = true;
               singleQuoteStartLine = ln;
               singleQuoteStartCol = col;
+            } else if (c === '"') {
+              inParamDoubleQuote = true;
+              doubleQuoteStartLine = ln;
+              doubleQuoteStartCol = col;
             } else if (c === "{") {
               depth++;
             } else if (c === "}") {
@@ -1294,12 +1325,19 @@ export class Lexer {
           pos++;
           col++;
         }
-        // Check for unterminated single quote inside ${...}
+        // Check for unterminated quotes inside ${...}
         if (inParamSingleQuote) {
           throw new LexerError(
             "unexpected EOF while looking for matching `''",
             singleQuoteStartLine,
             singleQuoteStartCol,
+          );
+        }
+        if (inParamDoubleQuote) {
+          throw new LexerError(
+            "unexpected EOF while looking for matching `\"'",
+            doubleQuoteStartLine,
+            doubleQuoteStartCol,
           );
         }
         continue;

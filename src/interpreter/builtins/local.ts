@@ -26,7 +26,7 @@ export function handleLocal(
   let exitCode = 0;
   let declareNameref = false;
   let declareArray = false;
-  let printMode = false;
+  let _printMode = false;
 
   // Parse flags
   const processedArgs: string[] = [];
@@ -36,13 +36,13 @@ export function handleLocal(
     } else if (arg === "-a") {
       declareArray = true;
     } else if (arg === "-p") {
-      printMode = true;
+      _printMode = true;
     } else if (arg.startsWith("-") && !arg.includes("=")) {
       // Handle combined flags like -na
       for (const flag of arg.slice(1)) {
         if (flag === "n") declareNameref = true;
         else if (flag === "a") declareArray = true;
-        else if (flag === "p") printMode = true;
+        else if (flag === "p") _printMode = true;
         // Other flags are ignored for now
       }
     } else {
@@ -50,9 +50,9 @@ export function handleLocal(
     }
   }
 
-  // Handle local -p: print local variables in current scope
-  // Note: bash outputs local -p without "declare --" prefix, just "name=value"
-  if (printMode && processedArgs.length === 0) {
+  // Handle local (with or without -p): print local variables in current scope when no args
+  // Note: bash outputs local without "declare --" prefix, just "name=value"
+  if (processedArgs.length === 0) {
     let stdout = "";
     // Get the names of local variables in current scope
     const localNames = Array.from(currentScope.keys())
@@ -229,7 +229,10 @@ export function handleLocal(
       continue;
     }
 
-    if (!currentScope.has(name)) {
+    // Check if variable was already local BEFORE we potentially add it to scope
+    const wasAlreadyLocal = currentScope.has(name);
+
+    if (!wasAlreadyLocal) {
       currentScope.set(name, ctx.state.env[name]);
       // Also save array elements if -a flag is used
       if (declareArray) {
@@ -285,11 +288,10 @@ export function handleLocal(
       // - If the variable is already local in current scope, keep its value
       // - If there's a tempenv binding, inherit that value
       // - Otherwise, the variable is unset (not inherited from global)
-      const isAlreadyLocal = currentScope.has(name);
       const hasTempEnvBinding = ctx.state.tempEnvBindings?.some((bindings) =>
         bindings.has(name),
       );
-      if (!isAlreadyLocal && !hasTempEnvBinding) {
+      if (!wasAlreadyLocal && !hasTempEnvBinding) {
         // Not already local, no tempenv binding - make the variable unset
         delete ctx.state.env[name];
       }

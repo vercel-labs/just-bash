@@ -26,6 +26,23 @@ export function isIfsEmpty(env: Record<string, string>): boolean {
 }
 
 /**
+ * Check if IFS contains only whitespace characters (space, tab, newline).
+ * This affects how empty fields are handled in $@ and $* expansion.
+ * When IFS has non-whitespace chars, empty params are preserved.
+ * When IFS has only whitespace, empty params are dropped.
+ */
+export function isIfsWhitespaceOnly(env: Record<string, string>): boolean {
+  const ifs = getIfs(env);
+  if (ifs === "") return true; // Empty IFS counts as "whitespace only" for this purpose
+  for (const ch of ifs) {
+    if (ch !== " " && ch !== "\t" && ch !== "\n") {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Build a regex-safe pattern from IFS characters for use in character classes.
  * E.g., for IFS=" \t\n", returns " \\t\\n" (escaped for [pattern] use)
  */
@@ -169,8 +186,6 @@ export function splitByIfsForRead(
     }
 
     // Now handle the delimiter(s)
-    let hitNonWs = false;
-
     // Skip IFS characters (whitespace before non-whitespace)
     while (pos < value.length && whitespace.has(value[pos])) {
       pos++;
@@ -178,7 +193,6 @@ export function splitByIfsForRead(
 
     // Check for non-whitespace delimiter
     if (pos < value.length && nonWhitespace.has(value[pos])) {
-      hitNonWs = true;
       pos++;
 
       // Skip whitespace after non-whitespace delimiter
@@ -203,16 +217,10 @@ export function splitByIfsForRead(
       }
     }
 
-    // If we only hit whitespace, that's still a delimiter
-    // If we hit EOF after delimiter, check if it creates empty field
-    if (hitNonWs && pos >= value.length) {
-      // Trailing non-whitespace delimiter - creates empty field for unlimited split
-      // but for read builtin with maxSplit, we don't add trailing empty
-      if (maxSplit === undefined) {
-        words.push("");
-        wordStarts.push(pos);
-      }
-    }
+    // Note: Trailing non-whitespace delimiter does NOT create an empty field.
+    // Empty fields are only created between consecutive non-whitespace delimiters.
+    // For example: "a:b:" with IFS=":" produces ['a', 'b'], not ['a', 'b', '']
+    // But "a::b" with IFS=":" produces ['a', '', 'b'] (empty field between the two colons)
   }
 
   return { words, wordStarts };
@@ -230,20 +238,39 @@ export function splitByIfsForRead(
  * @param ifs - IFS characters to split on
  * @returns Array of words after splitting
  */
-export function splitByIfsForExpansion(value: string, ifs: string): string[] {
+/**
+ * Result of splitByIfsForExpansionEx with trailing delimiter info.
+ */
+export interface IfsExpansionSplitResult {
+  words: string[];
+  /** True if the value ended with an IFS delimiter (affects joining with subsequent text) */
+  hadTrailingDelimiter: boolean;
+}
+
+/**
+ * Extended IFS splitting that tracks trailing delimiters.
+ * This is needed for proper word boundary handling when literal text follows an expansion.
+ * For example, in `-$x-` where `x='a b c '`, the trailing space means the final `-`
+ * should become a separate word, not join with `c`.
+ */
+export function splitByIfsForExpansionEx(
+  value: string,
+  ifs: string,
+): IfsExpansionSplitResult {
   // Empty IFS means no splitting
   if (ifs === "") {
-    return value ? [value] : [];
+    return { words: value ? [value] : [], hadTrailingDelimiter: false };
   }
 
   // Empty value means no words
   if (value === "") {
-    return [];
+    return { words: [], hadTrailingDelimiter: false };
   }
 
   const { whitespace, nonWhitespace } = categorizeIfs(ifs);
   const words: string[] = [];
   let pos = 0;
+  let hadTrailingDelimiter = false;
 
   // Skip leading IFS whitespace
   while (pos < value.length && whitespace.has(value[pos])) {
@@ -252,7 +279,8 @@ export function splitByIfsForExpansion(value: string, ifs: string): string[] {
 
   // If we've consumed all input, return empty result
   if (pos >= value.length) {
-    return [];
+    // The value was all whitespace - it had trailing delimiter
+    return { words: [], hadTrailingDelimiter: true };
   }
 
   // Check for leading non-whitespace delimiter (creates empty field)
@@ -281,11 +309,14 @@ export function splitByIfsForExpansion(value: string, ifs: string): string[] {
     words.push(value.substring(wordStart, pos));
 
     if (pos >= value.length) {
+      // Ended on a word, no trailing delimiter
+      hadTrailingDelimiter = false;
       break;
     }
 
     // Now handle the delimiter(s)
     // Skip IFS whitespace
+    const beforeDelimiterPos = pos;
     while (pos < value.length && whitespace.has(value[pos])) {
       pos++;
     }
@@ -311,11 +342,17 @@ export function splitByIfsForExpansion(value: string, ifs: string): string[] {
       }
     }
 
-    // Note: Unlike splitByIfsForRead, we do NOT add trailing empty field
-    // when we hit EOF after a non-whitespace delimiter
+    // If we've consumed all input, we ended on a delimiter
+    if (pos >= value.length && pos > beforeDelimiterPos) {
+      hadTrailingDelimiter = true;
+    }
   }
 
-  return words;
+  return { words, hadTrailingDelimiter };
+}
+
+export function splitByIfsForExpansion(value: string, ifs: string): string[] {
+  return splitByIfsForExpansionEx(value, ifs).words;
 }
 
 /**

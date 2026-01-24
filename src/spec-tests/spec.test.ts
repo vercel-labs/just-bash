@@ -59,7 +59,7 @@ const SKIP_FILES = new Set([
   // Meta/introspection tests
   // "introspect.test.sh", // Unskipped - FUNCNAME/BASH_LINENO implemented
   "print-source-code.test.sh",
-  "serialize.test.sh",
+  // "serialize.test.sh", // Unskipped - tests added with SKIP markers
   "spec-harness-bug.test.sh",
 
   // Known differences / divergence docs (not real tests)
@@ -68,7 +68,7 @@ const SKIP_FILES = new Set([
 
   // Toysh-specific
   "toysh.test.sh",
-  "toysh-posix.test.sh",
+  "toysh-posix.test.sh", // Has IFS word-splitting issues unrelated to readonly fix
 
   // Blog/exploration tests (not spec tests)
   "blog1.test.sh",

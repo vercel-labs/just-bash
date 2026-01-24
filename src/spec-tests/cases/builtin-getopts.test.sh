@@ -158,7 +158,6 @@ echo $OPTIND
 ## stdout: 1
 
 #### OPTIND after multiple getopts with same spec
-## SKIP: OPTIND not reset after set -- with empty args (matches mksh BUG, not bash)
 while getopts "hc:" opt; do
   echo '-'
 done
@@ -192,7 +191,6 @@ OPTIND=4
 ## END
 
 #### OPTIND after multiple getopts with different spec
-## SKIP: OPTIND not reset when using different getopts specs (matches mksh BUG, not bash)
 # Wow this is poorly specified!  A fundamental design problem with the global
 # variable OPTIND.
 set -- -a

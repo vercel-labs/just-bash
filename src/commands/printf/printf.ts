@@ -658,8 +658,9 @@ function shellQuote(str: string): string {
     return str;
   }
 
-  // Check if we need $'...' syntax (for control chars, newlines, etc.)
-  const needsDollarQuote = /[\x00-\x1f\x7f]/.test(str);
+  // Check if we need $'...' syntax (for control chars, newlines, high bytes, etc.)
+  // High bytes (0x80-0xff) need escaping as they are not printable ASCII
+  const needsDollarQuote = /[\x00-\x1f\x7f-\xff]/.test(str);
 
   if (needsDollarQuote) {
     // Use $'...' format with escape sequences for control characters
@@ -686,8 +687,9 @@ function shellQuote(str: string): string {
         result += "\\v";
       } else if (char === "\x1b") {
         result += "\\E";
-      } else if (code < 32 || code > 126) {
-        // Use octal escapes like bash does (not hex)
+      } else if (code < 32 || (code >= 127 && code <= 255)) {
+        // Use octal escapes like bash does for control chars and high bytes (0x80-0xFF)
+        // Valid Unicode chars (code > 255) are left unescaped
         result += `\\${code.toString(8).padStart(3, "0")}`;
       } else if (char === '"') {
         result += '\\"';

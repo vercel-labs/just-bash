@@ -154,7 +154,6 @@ true
 ## END
 
 #### Regex to match literals . ^ $ etc.
-## SKIP: Regex escaped special chars handling differs
 [[ 'x' =~ \. ]] || echo false
 [[ '.' =~ \. ]] && echo true
 
@@ -199,7 +198,6 @@ status=1
 ## BUG zsh status: 0
 
 #### Fatal error inside [[ =~ ]]
-## SKIP: Division by zero in [[ ]] causes script exit (status=2) not status=1 like bash
 
 # zsh and osh are stricter than bash.  bash treats [[ like a command.
 
@@ -273,7 +271,6 @@ status=0
 ## END
 
 #### Escaped {
-## SKIP: regex with unquoted () groups causes parse error
 # from bash-completion
 [[ '$PA' =~ ^(\$\{?)([A-Za-z0-9_]*)$ ]] && argv.py "${BASH_REMATCH[@]}"
 ## STDOUT:
@@ -373,7 +370,6 @@ two
 ## END
 
 #### unquoted (a  b) as pattern, (a  b|c)
-## SKIP: Regex pattern with unquoted spaces not implemented
 
 if [[ 'a  b' =~ (a  b) ]]; then
   echo one
@@ -481,8 +477,6 @@ one
 ## N-I zsh status: 1
 
 #### Operator chars ; & but not |
-## SKIP: Semicolon handling in regex patterns differs
-
 # Hm semicolon is still an operator in bash
 $SH <<'EOF'
 [[ ';' =~ ; ]] && echo semi
@@ -636,7 +630,6 @@ m=
 ## END
 
 #### Operators and space lose meaning inside ()
-## SKIP: Regex pattern with operators inside groups not implemented
 [[ '< >' =~ (< >) ]] && echo true
 ## stdout: true
 ## N-I zsh stdout-json: ""

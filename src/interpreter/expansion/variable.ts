@@ -356,10 +356,21 @@ export function getVariable(
     }
 
     const value = ctx.state.env[`${arrayName}_${index}`];
-    if (value === undefined && checkNounset && ctx.state.options.nounset) {
+    if (value !== undefined) {
+      return value;
+    }
+    // If array element doesn't exist, check if it's a scalar variable accessed as c[0]
+    // In bash, c[0] for scalar c returns the value of c
+    if (index === 0) {
+      const scalarValue = ctx.state.env[arrayName];
+      if (scalarValue !== undefined) {
+        return scalarValue;
+      }
+    }
+    if (checkNounset && ctx.state.options.nounset) {
       throw new NounsetError(`${arrayName}[${index}]`);
     }
-    return value || "";
+    return "";
   }
 
   // Positional parameters ($1, $2, etc.) - check nounset
@@ -421,6 +432,41 @@ export function getVariable(
  * @param name - The variable name (possibly with array subscript)
  */
 export function isVariableSet(ctx: InterpreterContext, name: string): boolean {
+  // Special variables that are always set
+  // These match the variables handled in getVariable's switch statement
+  const alwaysSetSpecialVars = new Set([
+    "?",
+    "$",
+    "#",
+    "_",
+    "-",
+    "0",
+    "PPID",
+    "UID",
+    "EUID",
+    "RANDOM",
+    "SECONDS",
+    "BASH_VERSION",
+    "!",
+    "BASHPID",
+    "LINENO",
+  ]);
+  if (alwaysSetSpecialVars.has(name)) {
+    return true;
+  }
+
+  // $@ and $* are considered "set" only if there are positional parameters
+  if (name === "@" || name === "*") {
+    const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+    return numParams > 0;
+  }
+
+  // PWD and OLDPWD are special - they are set unless explicitly unset
+  // We check ctx.state.env for them since they can be unset
+  if (name === "PWD" || name === "OLDPWD") {
+    return name in ctx.state.env;
+  }
+
   // Check for array subscript: varName[subscript]
   const bracketMatch = name.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
   if (bracketMatch) {

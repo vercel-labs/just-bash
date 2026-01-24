@@ -52,6 +52,7 @@ import {
   getIfs,
   getIfsSeparator,
   isIfsEmpty,
+  isIfsWhitespaceOnly,
   splitByIfsForExpansion,
 } from "./helpers/ifs.js";
 import { getNamerefTarget, isNameref } from "./helpers/nameref.js";
@@ -905,8 +906,24 @@ function expandPartSync(
       return parts.join("");
     }
 
-    case "ArithmeticExpansion":
+    case "ArithmeticExpansion": {
+      // If original text is available and contains $var patterns (not ${...}),
+      // we need to do text substitution before parsing to maintain operator precedence.
+      // E.g., $(( $x * 3 )) where x='1 + 2' should expand to $(( 1 + 2 * 3 )) = 7
+      // not $(( (1+2) * 3 )) = 9
+      const originalText = part.expression.originalText;
+      const hasDollarVars =
+        originalText && /\$[a-zA-Z_][a-zA-Z0-9_]*(?![{[(])/.test(originalText);
+      if (hasDollarVars) {
+        // Expand $var patterns in the text
+        const expandedText = expandDollarVarsInArithText(ctx, originalText);
+        // Re-parse the expanded expression
+        const parser = new Parser();
+        const newExpr = parseArithmeticExpression(parser, expandedText);
+        return String(evaluateArithmeticSync(ctx, newExpr.expression));
+      }
       return String(evaluateArithmeticSync(ctx, part.expression.expression));
+    }
 
     case "BraceExpansion": {
       const results: string[] = [];
@@ -1885,15 +1902,35 @@ export async function expandWordWithGlob(
           ? evaluateArithmeticSync(ctx, operation.length.expression)
           : undefined;
 
-        // Get array elements
+        // Get array elements (sorted by index)
         const elements = getArrayElements(ctx, arrayName);
-        const values = elements.map(([, v]) => v);
 
-        // Apply slice
-        let start = offset;
-        if (start < 0) {
-          start = values.length + start;
-          if (start < 0) start = 0;
+        // For sparse arrays, offset refers to index position, not element position
+        // Find the first element whose index >= offset (or computed index for negative offset)
+        let startIdx = 0;
+        if (offset < 0) {
+          // Negative offset: count from maxIndex + 1
+          // e.g., -1 means elements with index >= maxIndex
+          if (elements.length > 0) {
+            const lastIdx = elements[elements.length - 1][0];
+            const maxIndex = typeof lastIdx === "number" ? lastIdx : 0;
+            const targetIndex = maxIndex + 1 + offset;
+            // If target index is negative, return empty (out of bounds)
+            if (targetIndex < 0) {
+              return { values: [], quoted: true };
+            }
+            // Find first element with index >= targetIndex
+            startIdx = elements.findIndex(
+              ([idx]) => typeof idx === "number" && idx >= targetIndex,
+            );
+            if (startIdx < 0) startIdx = elements.length; // All elements have smaller index
+          }
+        } else {
+          // Positive offset: find first element with index >= offset
+          startIdx = elements.findIndex(
+            ([idx]) => typeof idx === "number" && idx >= offset,
+          );
+          if (startIdx < 0) startIdx = elements.length; // All elements have smaller index
         }
 
         let slicedValues: string[];
@@ -1904,9 +1941,13 @@ export async function expandWordWithGlob(
               `${arrayName}[@]: substring expression < 0`,
             );
           }
-          slicedValues = values.slice(start, start + length);
+          // Take 'length' elements starting from startIdx
+          slicedValues = elements
+            .slice(startIdx, startIdx + length)
+            .map(([, v]) => v);
         } else {
-          slicedValues = values.slice(start);
+          // Take all elements starting from startIdx
+          slicedValues = elements.slice(startIdx).map(([, v]) => v);
         }
 
         if (slicedValues.length === 0) {
@@ -2586,13 +2627,19 @@ export async function expandWordWithGlob(
       if (offset <= 0) {
         // offset 0: include $0 at position 0
         const withZero = [shellName, ...allParams];
-        const startIdx = offset < 0 ? Math.max(0, withZero.length + offset) : 0;
-        if (length !== undefined) {
-          const endIdx =
-            length < 0 ? withZero.length + length : startIdx + length;
-          slicedParams = withZero.slice(startIdx, Math.max(startIdx, endIdx));
+        const computedIdx = withZero.length + offset;
+        // If negative offset goes beyond array bounds, return empty
+        if (computedIdx < 0) {
+          slicedParams = [];
         } else {
-          slicedParams = withZero.slice(startIdx);
+          const startIdx = offset < 0 ? computedIdx : 0;
+          if (length !== undefined) {
+            const endIdx =
+              length < 0 ? withZero.length + length : startIdx + length;
+            slicedParams = withZero.slice(startIdx, Math.max(startIdx, endIdx));
+          } else {
+            slicedParams = withZero.slice(startIdx);
+          }
         }
       } else {
         // offset > 0: start from $<offset>
@@ -3426,13 +3473,19 @@ export async function expandWordWithGlob(
       if (offset <= 0) {
         // offset 0: include $0 at position 0
         const withZero = [shellName, ...allParams];
-        const startIdx = offset < 0 ? Math.max(0, withZero.length + offset) : 0;
-        if (length !== undefined) {
-          const endIdx =
-            length < 0 ? withZero.length + length : startIdx + length;
-          slicedParams = withZero.slice(startIdx, Math.max(startIdx, endIdx));
+        const computedIdx = withZero.length + offset;
+        // If negative offset goes beyond array bounds, return empty
+        if (computedIdx < 0) {
+          slicedParams = [];
         } else {
-          slicedParams = withZero.slice(startIdx);
+          const startIdx = offset < 0 ? computedIdx : 0;
+          if (length !== undefined) {
+            const endIdx =
+              length < 0 ? withZero.length + length : startIdx + length;
+            slicedParams = withZero.slice(startIdx, Math.max(startIdx, endIdx));
+          } else {
+            slicedParams = withZero.slice(startIdx);
+          }
         }
       } else {
         // offset > 0: start from $<offset>
@@ -3596,6 +3649,10 @@ export async function expandWordWithGlob(
 
     const ifsChars = getIfs(ctx.state.env);
     const ifsEmpty = isIfsEmpty(ctx.state.env);
+    // Check if IFS contains only whitespace - this affects empty param handling
+    // With whitespace-only IFS, empty params are dropped
+    // With non-whitespace IFS, empty params are preserved (they create explicit fields)
+    const ifsWhitespaceOnly = isIfsWhitespaceOnly(ctx.state.env);
 
     let allWords: string[];
 
@@ -3604,31 +3661,51 @@ export async function expandWordWithGlob(
       // HOWEVER: When IFS is empty, bash keeps params separate (like $@) for unquoted $*
       // The joining with empty IFS only applies to quoted "$*"
       if (ifsEmpty) {
-        // Empty IFS - keep params separate (same as $@)
-        allWords = params;
+        // Empty IFS - keep params separate (same as $@), filter out empty params
+        allWords = params.filter((p) => p !== "");
       } else {
         const ifsSep = getIfsSeparator(ctx.state.env);
         const joined = params.join(ifsSep);
         // Split the joined string by IFS using proper splitting rules
+        // Note: splitByIfsForExpansion handles empty fields correctly based on IFS content
         allWords = splitByIfsForExpansion(joined, ifsChars);
       }
     } else {
       // $@ - each param is a separate word, then each is subject to IFS splitting
+      // - With whitespace-only IFS: empty params are dropped (collapsed by word splitting)
+      // - With non-whitespace IFS: empty params are preserved (they become explicit fields)
       if (ifsEmpty) {
-        // Empty IFS - no splitting, return params as-is
-        allWords = params;
-      } else {
+        // Empty IFS - no splitting, filter out empty params
+        allWords = params.filter((p) => p !== "");
+      } else if (ifsWhitespaceOnly) {
+        // Whitespace-only IFS - empty params are dropped
         allWords = [];
-
         for (const param of params) {
           if (param === "") {
-            // Empty params are preserved as empty words for $@
+            // Skip empty params - they would be collapsed by whitespace splitting anyway
+            continue;
+          }
+          // Split this param by IFS using proper splitting rules
+          const parts = splitByIfsForExpansion(param, ifsChars);
+          allWords.push(...parts);
+        }
+      } else {
+        // Non-whitespace IFS - preserve empty params EXCEPT trailing ones
+        // This matches bash behavior where middle empties are preserved but trailing ones are dropped
+        allWords = [];
+        for (const param of params) {
+          if (param === "") {
+            // Preserve empty params with non-whitespace IFS (for now - we'll trim trailing later)
             allWords.push("");
           } else {
             // Split this param by IFS using proper splitting rules
             const parts = splitByIfsForExpansion(param, ifsChars);
             allWords.push(...parts);
           }
+        }
+        // Remove trailing empty strings - bash drops trailing empty params for unquoted $@
+        while (allWords.length > 0 && allWords[allWords.length - 1] === "") {
+          allWords.pop();
         }
       }
     }
@@ -3671,6 +3748,237 @@ export async function expandWordWithGlob(
     }
 
     return { values: expandedValues, quoted: false };
+  }
+
+  // Special handling for unquoted ${arr[@]} and ${arr[*]} (without operations)
+  // Similar to $@ and $* handling above, but for arrays.
+  // ${arr[@]} unquoted: Each array element becomes a separate word, then each is subject to IFS splitting
+  // ${arr[*]} unquoted: When IFS is non-empty, join with IFS[0] then split by IFS
+  //                     When IFS is empty, keep elements separate (like $@)
+  if (
+    wordParts.length === 1 &&
+    wordParts[0].type === "ParameterExpansion" &&
+    !wordParts[0].operation
+  ) {
+    const arrayMatch = wordParts[0].parameter.match(
+      /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
+    );
+    if (arrayMatch) {
+      const arrayName = arrayMatch[1];
+      const isStar = arrayMatch[2] === "*";
+
+      // Get array elements
+      const elements = getArrayElements(ctx, arrayName);
+
+      // If no array elements, check for scalar (treat as single-element array)
+      let values: string[];
+      if (elements.length === 0) {
+        const scalarValue = ctx.state.env[arrayName];
+        if (scalarValue !== undefined) {
+          values = [scalarValue];
+        } else {
+          return { values: [], quoted: false };
+        }
+      } else {
+        values = elements.map(([, v]) => v);
+      }
+
+      const ifsChars = getIfs(ctx.state.env);
+      const ifsEmpty = isIfsEmpty(ctx.state.env);
+      const ifsWhitespaceOnly = isIfsWhitespaceOnly(ctx.state.env);
+
+      let allWords: string[];
+
+      if (isStar) {
+        // ${arr[*]} unquoted - join with IFS[0], then split result by IFS
+        // When IFS is empty, keep elements separate (like arr[@])
+        if (ifsEmpty) {
+          // Empty IFS - keep elements separate (same as arr[@]), filter out empty elements
+          allWords = values.filter((v) => v !== "");
+        } else {
+          const ifsSep = getIfsSeparator(ctx.state.env);
+          const joined = values.join(ifsSep);
+          allWords = splitByIfsForExpansion(joined, ifsChars);
+        }
+      } else {
+        // ${arr[@]} unquoted - each element is a separate word, then each is subject to IFS splitting
+        if (ifsEmpty) {
+          // Empty IFS - no splitting, filter out empty elements
+          allWords = values.filter((v) => v !== "");
+        } else if (ifsWhitespaceOnly) {
+          // Whitespace-only IFS - empty elements are dropped
+          allWords = [];
+          for (const val of values) {
+            if (val === "") {
+              continue;
+            }
+            const parts = splitByIfsForExpansion(val, ifsChars);
+            allWords.push(...parts);
+          }
+        } else {
+          // Non-whitespace IFS - preserve empty elements
+          allWords = [];
+          for (const val of values) {
+            if (val === "") {
+              allWords.push("");
+            } else {
+              const parts = splitByIfsForExpansion(val, ifsChars);
+              allWords.push(...parts);
+            }
+          }
+          // Remove trailing empty strings
+          while (allWords.length > 0 && allWords[allWords.length - 1] === "") {
+            allWords.pop();
+          }
+        }
+      }
+
+      // Apply glob expansion to each word
+      if (ctx.state.options.noglob) {
+        return { values: allWords, quoted: false };
+      }
+
+      const globExpander = new GlobExpander(
+        ctx.fs,
+        ctx.state.cwd,
+        ctx.state.env,
+        {
+          globstar: ctx.state.shoptOptions.globstar,
+          nullglob: ctx.state.shoptOptions.nullglob,
+          failglob: ctx.state.shoptOptions.failglob,
+          dotglob: ctx.state.shoptOptions.dotglob,
+          extglob: ctx.state.shoptOptions.extglob,
+          globskipdots: ctx.state.shoptOptions.globskipdots,
+        },
+      );
+
+      const expandedValues: string[] = [];
+      for (const w of allWords) {
+        if (hasGlobPattern(w, ctx.state.shoptOptions.extglob)) {
+          const matches = await globExpander.expand(w);
+          if (matches.length > 0) {
+            expandedValues.push(...matches);
+          } else if (globExpander.hasFailglob()) {
+            throw new GlobError(w);
+          } else if (globExpander.hasNullglob()) {
+            // skip
+          } else {
+            expandedValues.push(w);
+          }
+        } else {
+          expandedValues.push(w);
+        }
+      }
+
+      return { values: expandedValues, quoted: false };
+    }
+  }
+
+  // Special handling for unquoted ${!prefix@} and ${!prefix*} (variable name prefix expansion)
+  // ${!prefix@} unquoted: Each variable name becomes a separate word, then each is subject to IFS splitting
+  // ${!prefix*} unquoted: When IFS is non-empty, join with IFS[0] then split by IFS
+  //                       When IFS is empty, keep names separate (like prefix@)
+  if (
+    wordParts.length === 1 &&
+    wordParts[0].type === "ParameterExpansion" &&
+    wordParts[0].operation?.type === "VarNamePrefix"
+  ) {
+    const op = wordParts[0].operation as {
+      type: "VarNamePrefix";
+      prefix: string;
+      star: boolean;
+    };
+    const matchingVars = getVarNamesWithPrefix(ctx, op.prefix);
+
+    if (matchingVars.length === 0) {
+      return { values: [], quoted: false };
+    }
+
+    const ifsChars = getIfs(ctx.state.env);
+    const ifsEmpty = isIfsEmpty(ctx.state.env);
+
+    let allWords: string[];
+
+    if (op.star) {
+      // ${!prefix*} unquoted - join with IFS[0], then split result by IFS
+      // When IFS is empty, keep names separate (like prefix@)
+      if (ifsEmpty) {
+        // Empty IFS - keep names separate
+        allWords = matchingVars;
+      } else {
+        const ifsSep = getIfsSeparator(ctx.state.env);
+        const joined = matchingVars.join(ifsSep);
+        allWords = splitByIfsForExpansion(joined, ifsChars);
+      }
+    } else {
+      // ${!prefix@} unquoted - each name is a separate word, then each is subject to IFS splitting
+      if (ifsEmpty) {
+        // Empty IFS - no splitting
+        allWords = matchingVars;
+      } else {
+        allWords = [];
+        for (const name of matchingVars) {
+          const parts = splitByIfsForExpansion(name, ifsChars);
+          allWords.push(...parts);
+        }
+      }
+    }
+
+    return { values: allWords, quoted: false };
+  }
+
+  // Special handling for unquoted ${!arr[@]} and ${!arr[*]} (array keys/indices expansion)
+  // ${!arr[@]} unquoted: Each key/index becomes a separate word, then each is subject to IFS splitting
+  // ${!arr[*]} unquoted: When IFS is non-empty, join with IFS[0] then split by IFS
+  //                      When IFS is empty, keep keys separate (like arr[@])
+  if (
+    wordParts.length === 1 &&
+    wordParts[0].type === "ParameterExpansion" &&
+    wordParts[0].operation?.type === "ArrayKeys"
+  ) {
+    const op = wordParts[0].operation as {
+      type: "ArrayKeys";
+      array: string;
+      star: boolean;
+    };
+    const elements = getArrayElements(ctx, op.array);
+    const keys = elements.map(([k]) => String(k));
+
+    if (keys.length === 0) {
+      return { values: [], quoted: false };
+    }
+
+    const ifsChars = getIfs(ctx.state.env);
+    const ifsEmpty = isIfsEmpty(ctx.state.env);
+
+    let allWords: string[];
+
+    if (op.star) {
+      // ${!arr[*]} unquoted - join with IFS[0], then split result by IFS
+      // When IFS is empty, keep keys separate (like arr[@])
+      if (ifsEmpty) {
+        // Empty IFS - keep keys separate
+        allWords = keys;
+      } else {
+        const ifsSep = getIfsSeparator(ctx.state.env);
+        const joined = keys.join(ifsSep);
+        allWords = splitByIfsForExpansion(joined, ifsChars);
+      }
+    } else {
+      // ${!arr[@]} unquoted - each key is a separate word, then each is subject to IFS splitting
+      if (ifsEmpty) {
+        // Empty IFS - no splitting
+        allWords = keys;
+      } else {
+        allWords = [];
+        for (const key of keys) {
+          const parts = splitByIfsForExpansion(key, ifsChars);
+          allWords.push(...parts);
+        }
+      }
+    }
+
+    return { values: allWords, quoted: false };
   }
 
   // Handle mixed word parts with word-producing expansions like $s1"${array[@]}"_"$@"
@@ -4423,8 +4731,24 @@ async function expandPart(
       }
     }
 
-    case "ArithmeticExpansion":
+    case "ArithmeticExpansion": {
+      // If original text is available and contains $var patterns (not ${...}),
+      // we need to do text substitution before parsing to maintain operator precedence.
+      // E.g., $(( $x * 3 )) where x='1 + 2' should expand to $(( 1 + 2 * 3 )) = 7
+      // not $(( (1+2) * 3 )) = 9
+      const originalText = part.expression.originalText;
+      const hasDollarVars =
+        originalText && /\$[a-zA-Z_][a-zA-Z0-9_]*(?![{[(])/.test(originalText);
+      if (hasDollarVars) {
+        // Expand $var patterns in the text
+        const expandedText = expandDollarVarsInArithText(ctx, originalText);
+        // Re-parse the expanded expression
+        const parser = new Parser();
+        const newExpr = parseArithmeticExpression(parser, expandedText);
+        return String(await evaluateArithmetic(ctx, newExpr.expression));
+      }
       return String(await evaluateArithmetic(ctx, part.expression.expression));
+    }
 
     case "BraceExpansion": {
       const results: string[] = [];
@@ -4452,6 +4776,123 @@ async function expandPart(
     default:
       return "";
   }
+}
+
+/**
+ * Expand $var patterns in arithmetic expression text for text substitution.
+ * This handles the bash behavior where $(( $x * 3 )) with x='1 + 2' should
+ * expand to $(( 1 + 2 * 3 )) = 7, not $(( (1+2) * 3 )) = 9.
+ *
+ * Only expands simple $var patterns, not ${...}, $(()), $(), etc.
+ */
+function expandDollarVarsInArithText(
+  ctx: InterpreterContext,
+  text: string,
+): string {
+  let result = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === "$") {
+      // Check for ${...} - don't expand, keep as-is for arithmetic parser
+      if (text[i + 1] === "{") {
+        // Find matching }
+        let depth = 1;
+        let j = i + 2;
+        while (j < text.length && depth > 0) {
+          if (text[j] === "{") depth++;
+          else if (text[j] === "}") depth--;
+          j++;
+        }
+        result += text.slice(i, j);
+        i = j;
+        continue;
+      }
+      // Check for $((, $( - don't expand
+      if (text[i + 1] === "(") {
+        // Find matching ) or ))
+        let depth = 1;
+        let j = i + 2;
+        while (j < text.length && depth > 0) {
+          if (text[j] === "(") depth++;
+          else if (text[j] === ")") depth--;
+          j++;
+        }
+        result += text.slice(i, j);
+        i = j;
+        continue;
+      }
+      // Check for $var pattern
+      if (/[a-zA-Z_]/.test(text[i + 1] || "")) {
+        let j = i + 1;
+        while (j < text.length && /[a-zA-Z0-9_]/.test(text[j])) {
+          j++;
+        }
+        const varName = text.slice(i + 1, j);
+        const value = getVariable(ctx, varName);
+        result += value;
+        i = j;
+        continue;
+      }
+      // Check for $1, $2, etc. (positional parameters)
+      if (/[0-9]/.test(text[i + 1] || "")) {
+        let j = i + 1;
+        while (j < text.length && /[0-9]/.test(text[j])) {
+          j++;
+        }
+        const varName = text.slice(i + 1, j);
+        const value = getVariable(ctx, varName);
+        result += value;
+        i = j;
+        continue;
+      }
+      // Check for special vars: $*, $@, $#, $?, etc.
+      if (/[*@#?\-!$]/.test(text[i + 1] || "")) {
+        const varName = text[i + 1];
+        const value = getVariable(ctx, varName);
+        result += value;
+        i += 2;
+        continue;
+      }
+    }
+    // Check for double quotes - expand variables inside but keep the quotes
+    // (arithmetic preprocessor will strip them)
+    if (text[i] === '"') {
+      result += '"';
+      i++;
+      while (i < text.length && text[i] !== '"') {
+        if (text[i] === "$" && /[a-zA-Z_]/.test(text[i + 1] || "")) {
+          // Expand $var inside quotes
+          let j = i + 1;
+          while (j < text.length && /[a-zA-Z0-9_]/.test(text[j])) {
+            j++;
+          }
+          const varName = text.slice(i + 1, j);
+          const value = getVariable(ctx, varName);
+          result += value;
+          i = j;
+        } else if (text[i] === "\\") {
+          // Keep escape sequences
+          result += text[i];
+          i++;
+          if (i < text.length) {
+            result += text[i];
+            i++;
+          }
+        } else {
+          result += text[i];
+          i++;
+        }
+      }
+      if (i < text.length) {
+        result += '"';
+        i++;
+      }
+      continue;
+    }
+    result += text[i];
+    i++;
+  }
+  return result;
 }
 
 /**
@@ -4697,8 +5138,18 @@ function expandParameter(
       // Check if this is an array length: ${#a[@]} or ${#a[*]}
       const arrayMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/);
       if (arrayMatch) {
-        const elements = getArrayElements(ctx, arrayMatch[1]);
-        return String(elements.length);
+        const arrayName = arrayMatch[1];
+        const elements = getArrayElements(ctx, arrayName);
+        if (elements.length > 0) {
+          return String(elements.length);
+        }
+        // If no array elements, check if scalar variable exists
+        // In bash, ${#s[@]} for scalar s returns 1
+        const scalarValue = ctx.state.env[arrayName];
+        if (scalarValue !== undefined) {
+          return "1";
+        }
+        return "0";
       }
       // Check if this is just the array name (decays to ${#a[0]})
       if (
@@ -4771,7 +5222,8 @@ function expandParameter(
           allArgs = [shellName, ...params];
           if (offset < 0) {
             startIdx = allArgs.length + offset;
-            if (startIdx < 0) startIdx = 0;
+            // If negative offset goes beyond array bounds, return empty
+            if (startIdx < 0) return "";
           } else {
             startIdx = 0;
           }
@@ -4806,14 +5258,32 @@ function expandParameter(
           );
         }
         const elements = getArrayElements(ctx, arrayName);
-        const values = elements.map(([, v]) => v);
-        let start = offset;
-        // Negative offset: count from end
-        if (start < 0) {
-          start = values.length + start;
-          // Out of bounds negative index returns empty
-          if (start < 0) return "";
+
+        // For sparse arrays, offset refers to index position, not element position
+        // Find the first element whose index >= offset (or computed index for negative offset)
+        let startIdx = 0;
+        if (offset < 0) {
+          // Negative offset: count from maxIndex + 1
+          if (elements.length > 0) {
+            const lastIdx = elements[elements.length - 1][0];
+            const maxIndex = typeof lastIdx === "number" ? lastIdx : 0;
+            const targetIndex = maxIndex + 1 + offset;
+            // If target index is negative, return empty (out of bounds)
+            if (targetIndex < 0) return "";
+            // Find first element with index >= targetIndex
+            startIdx = elements.findIndex(
+              ([idx]) => typeof idx === "number" && idx >= targetIndex,
+            );
+            if (startIdx < 0) return ""; // All elements have smaller index
+          }
+        } else {
+          // Positive offset: find first element with index >= offset
+          startIdx = elements.findIndex(
+            ([idx]) => typeof idx === "number" && idx >= offset,
+          );
+          if (startIdx < 0) return ""; // All elements have smaller index
         }
+
         if (length !== undefined) {
           if (length < 0) {
             // Negative length is an error for array slicing in bash
@@ -4821,9 +5291,17 @@ function expandParameter(
               `${arrayMatch[1]}[@]: substring expression < 0`,
             );
           }
-          return values.slice(start, start + length).join(" ");
+          // Take 'length' elements starting from startIdx
+          return elements
+            .slice(startIdx, startIdx + length)
+            .map(([, v]) => v)
+            .join(" ");
         }
-        return values.slice(start).join(" ");
+        // Take all elements starting from startIdx
+        return elements
+          .slice(startIdx)
+          .map(([, v]) => v)
+          .join(" ");
       }
 
       // String slicing with UTF-8 support (slice by characters, not bytes)
@@ -4979,6 +5457,50 @@ function expandParameter(
     }
 
     case "CaseModification": {
+      // If there's a pattern, only convert characters matching the pattern
+      if (operation.pattern) {
+        const extglob = ctx.state.shoptOptions.extglob;
+        let patternRegexStr = "";
+        for (const part of operation.pattern.parts) {
+          if (part.type === "Glob") {
+            patternRegexStr += patternToRegex(part.pattern, true, extglob);
+          } else if (part.type === "Literal") {
+            patternRegexStr += patternToRegex(part.value, true, extglob);
+          } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
+            patternRegexStr += escapeRegex(part.value);
+          } else if (part.type === "DoubleQuoted") {
+            const expanded = expandWordPartsSync(ctx, part.parts);
+            patternRegexStr += escapeRegex(expanded);
+          } else if (part.type === "ParameterExpansion") {
+            const expanded = expandParameter(ctx, part);
+            patternRegexStr += patternToRegex(expanded, true, extglob);
+          }
+        }
+        // Build a regex that matches a single character against the pattern
+        // Anchor to match full character
+        const charPattern = new RegExp(`^(?:${patternRegexStr})$`);
+        const transform =
+          operation.direction === "upper"
+            ? (c: string) => c.toUpperCase()
+            : (c: string) => c.toLowerCase();
+
+        let result = "";
+        let converted = false;
+        for (const char of value) {
+          if (!operation.all && converted) {
+            // Non-all mode: only convert first match
+            result += char;
+          } else if (charPattern.test(char)) {
+            result += transform(char);
+            converted = true;
+          } else {
+            result += char;
+          }
+        }
+        return result;
+      }
+
+      // No pattern - convert all or first character
       if (operation.direction === "upper") {
         return operation.all
           ? value.toUpperCase()
@@ -5095,6 +5617,19 @@ function expandParameter(
 
       // value contains the name of the parameter, get the target variable name
       const targetName = value;
+
+      // Bash 5.0+ disallows tilde expansion in array subscripts via indirection
+      // e.g., ref='a[~+]'; ${!ref} is an error
+      // This was a bug in Bash 4.4 that was fixed in Bash 5.0
+      const arraySubscriptMatch = targetName.match(
+        /^[a-zA-Z_][a-zA-Z0-9_]*\[(.+)\]$/,
+      );
+      if (arraySubscriptMatch) {
+        const subscript = arraySubscriptMatch[1];
+        if (subscript.includes("~")) {
+          throw new BadSubstitutionError(`\${!${parameter}}`);
+        }
+      }
 
       // If there's an inner operation (e.g., ${!ref-default}), apply it
       if (operation.innerOp) {

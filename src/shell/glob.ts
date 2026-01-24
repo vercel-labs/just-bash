@@ -148,6 +148,33 @@ export class GlobExpander {
           j++;
         }
 
+        // Find the end of the character class first (to check if dash is at end)
+        let classEnd = j;
+        while (classEnd < pattern.length) {
+          if (pattern[classEnd] === "\\" && classEnd + 1 < pattern.length) {
+            classEnd += 2;
+            continue;
+          }
+          if (
+            pattern[classEnd] === "[" &&
+            classEnd + 1 < pattern.length &&
+            pattern[classEnd + 1] === ":"
+          ) {
+            const posixEnd = pattern.indexOf(":]", classEnd + 2);
+            if (posixEnd !== -1) {
+              classEnd = posixEnd + 2;
+              continue;
+            }
+          }
+          if (pattern[classEnd] === "]") {
+            break;
+          }
+          classEnd++;
+        }
+
+        // Track position in class content (for determining if dash is at start/end)
+        const classStartPos = j;
+
         // Parse until closing ]
         while (j < pattern.length && pattern[j] !== "]") {
           // Check for POSIX character class [[:name:]]
@@ -173,9 +200,17 @@ export class GlobExpander {
             continue;
           }
 
-          // Handle - as literal if at start/end
+          // Handle - : only escape if at start or end (literal), otherwise keep as range
           if (pattern[j] === "-") {
-            classContent += "\\-";
+            const atStart = j === classStartPos;
+            const atEnd = j + 1 === classEnd;
+            if (atStart || atEnd) {
+              // Dash at start or end is literal
+              classContent += "\\-";
+            } else {
+              // Dash in middle is a range operator
+              classContent += "-";
+            }
           } else {
             classContent += pattern[j];
           }
@@ -411,6 +446,11 @@ export class GlobExpander {
         // Add . and .. as virtual directory entries if pattern starts with .
         // These are always valid directory entries but may not be returned by readdir
         const allEntries = [...entriesWithTypes];
+        // When GLOBIGNORE is set, dotglob is implicitly enabled for regular dotfiles (bash behavior)
+        // but . and .. are still excluded unless explicitly matched
+        const effectiveDotglob = this.dotglob || this.hasGlobignore;
+        // Only add . and .. if pattern explicitly starts with . OR dotglob is explicitly set
+        // (not just GLOBIGNORE-implied, since GLOBIGNORE always filters . and ..)
         if (currentSegment.startsWith(".") || this.dotglob) {
           // Check if . and .. are already in entries
           const hasCurrentDir = entriesWithTypes.some((e) => e.name === ".");
@@ -435,10 +475,11 @@ export class GlobExpander {
 
         for (const entry of allEntries) {
           // Skip hidden files unless pattern explicitly matches them or dotglob is enabled
+          // When GLOBIGNORE is set, dotglob is implicitly enabled (bash behavior)
           if (
             entry.name.startsWith(".") &&
             !currentSegment.startsWith(".") &&
-            !this.dotglob
+            !effectiveDotglob
           ) {
             continue;
           }
@@ -486,6 +527,10 @@ export class GlobExpander {
 
         // Add . and .. as virtual directory entries if pattern starts with .
         const allEntries = [...entries];
+        // When GLOBIGNORE is set, dotglob is implicitly enabled for regular dotfiles (bash behavior)
+        // but . and .. are still excluded unless explicitly matched
+        const effectiveDotglobFallback = this.dotglob || this.hasGlobignore;
+        // Only add . and .. if pattern explicitly starts with . OR dotglob is explicitly set
         if (currentSegment.startsWith(".") || this.dotglob) {
           if (!entries.includes(".")) {
             allEntries.push(".");
@@ -497,10 +542,11 @@ export class GlobExpander {
 
         for (const entry of allEntries) {
           // Skip hidden files unless pattern explicitly matches them or dotglob is enabled
+          // When GLOBIGNORE is set, dotglob is implicitly enabled (bash behavior)
           if (
             entry.startsWith(".") &&
             !currentSegment.startsWith(".") &&
-            !this.dotglob
+            !effectiveDotglobFallback
           ) {
             continue;
           }
@@ -834,6 +880,33 @@ export class GlobExpander {
           j++;
         }
 
+        // Find the end of the character class first (to check if dash is at end)
+        let classEnd = j;
+        while (classEnd < pattern.length) {
+          if (pattern[classEnd] === "\\" && classEnd + 1 < pattern.length) {
+            classEnd += 2;
+            continue;
+          }
+          if (
+            pattern[classEnd] === "[" &&
+            classEnd + 1 < pattern.length &&
+            pattern[classEnd + 1] === ":"
+          ) {
+            const posixEnd = pattern.indexOf(":]", classEnd + 2);
+            if (posixEnd !== -1) {
+              classEnd = posixEnd + 2;
+              continue;
+            }
+          }
+          if (pattern[classEnd] === "]") {
+            break;
+          }
+          classEnd++;
+        }
+
+        // Track position in class content (for determining if dash is at start/end)
+        const classStartPos = j;
+
         // Parse until closing ]
         while (j < pattern.length && pattern[j] !== "]") {
           // Check for POSIX character class [[:name:]]
@@ -859,9 +932,17 @@ export class GlobExpander {
             continue;
           }
 
-          // Handle - as literal if at start/end
+          // Handle - : only escape if at start or end (literal), otherwise keep as range
           if (pattern[j] === "-") {
-            classContent += "\\-";
+            const atStart = j === classStartPos;
+            const atEnd = j + 1 === classEnd;
+            if (atStart || atEnd) {
+              // Dash at start or end is literal
+              classContent += "\\-";
+            } else {
+              // Dash in middle is a range operator
+              classContent += "-";
+            }
           } else {
             classContent += pattern[j];
           }

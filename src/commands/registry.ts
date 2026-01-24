@@ -17,6 +17,7 @@ export type CommandName =
   | "printf"
   | "ls"
   | "mkdir"
+  | "rmdir"
   | "touch"
   | "rm"
   | "cp"
@@ -125,6 +126,10 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "mkdir",
     load: async () => (await import("./mkdir/mkdir.js")).mkdirCommand,
+  },
+  {
+    name: "rmdir",
+    load: async () => (await import("./rmdir/rmdir.js")).rmdirCommand,
   },
   {
     name: "touch",

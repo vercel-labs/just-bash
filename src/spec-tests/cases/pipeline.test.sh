@@ -51,7 +51,6 @@ echo a | egrep '[0-9]+'
 ## status: 1
 
 #### Initial value of PIPESTATUS is empty string
-## SKIP: PIPESTATUS initial value differs (set to [0] after any command vs empty)
 case $SH in dash|zsh) exit ;; esac
 
 echo pipestatus ${PIPESTATUS[@]}

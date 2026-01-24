@@ -117,7 +117,6 @@ echo end
 ## END
 
 #### export with dynamic var name +=
-## SKIP: export with dynamic var name += not implemented
 
 orig() {
   export NIX_LDFLAGS${role_post}+=" -L$1/lib64"

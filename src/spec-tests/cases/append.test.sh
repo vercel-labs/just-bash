@@ -43,7 +43,6 @@ argv.py "${y[@]}"
 ## END
 
 #### error: s+=(my array)
-## SKIP: String to array append not implemented
 s='abc'
 s+=(d e f)
 argv.py "${s[@]}"

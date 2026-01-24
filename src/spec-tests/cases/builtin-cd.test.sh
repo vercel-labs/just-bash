@@ -193,7 +193,6 @@ $SH -c 'PWD=foo; pwd'
 ## END
 
 #### remove pwd dir
-## SKIP: rmdir not implemented
 dir=/tmp/oil-spec-test/pwd
 mkdir -p $dir
 cd $dir

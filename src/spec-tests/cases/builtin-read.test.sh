@@ -901,7 +901,6 @@ echo $'abc\\\ndefg' | (read -n 4; argv.py "$REPLY")
 ## END
 
 #### "backslash + newline" should be swallowed regardless of "-d <delim>"
-## SKIP: read -d backslash+newline handling differs from bash
 
 printf '%s\n' 'a b\' 'c d' | (read; argv.py "$REPLY")
 printf '%s\n' 'a b\,c d'   | (read; argv.py "$REPLY")
@@ -940,7 +939,6 @@ echo '' | (read -a a; argv.py "${a[@]}")
 ## END
 
 #### IFS='x ' read -a: trailing spaces (unlimited split)
-## SKIP: read -a trailing delimiter handling differs from bash
 case $SH in mksh|ash|dash|zsh) exit 99; esac
 IFS='x '
 echo 'a b'     | (read -a a; argv.py "${a[@]}")

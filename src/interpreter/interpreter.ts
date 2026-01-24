@@ -134,6 +134,48 @@ function isWordLiteralMatch(word: WordNode, targets: string[]): boolean {
   return targets.includes(part.value);
 }
 
+/**
+ * Parse the content of a read-write file descriptor.
+ * Format: __rw__:pathLength:path:position:content
+ * @returns The parsed components, or null if format is invalid
+ */
+function parseRwFdContent(fdContent: string): {
+  path: string;
+  position: number;
+  content: string;
+} | null {
+  if (!fdContent.startsWith("__rw__:")) {
+    return null;
+  }
+  // Parse pathLength
+  const afterPrefix = fdContent.slice(7); // After "__rw__:"
+  const firstColonIdx = afterPrefix.indexOf(":");
+  if (firstColonIdx === -1) {
+    return null;
+  }
+  const pathLength = Number.parseInt(afterPrefix.slice(0, firstColonIdx), 10);
+  if (Number.isNaN(pathLength) || pathLength < 0) {
+    return null;
+  }
+  // Extract path using length
+  const pathStart = firstColonIdx + 1;
+  const path = afterPrefix.slice(pathStart, pathStart + pathLength);
+  // Parse position (after path and colon)
+  const positionStart = pathStart + pathLength + 1; // +1 for ":"
+  const remaining = afterPrefix.slice(positionStart);
+  const posColonIdx = remaining.indexOf(":");
+  if (posColonIdx === -1) {
+    return null;
+  }
+  const position = Number.parseInt(remaining.slice(0, posColonIdx), 10);
+  if (Number.isNaN(position) || position < 0) {
+    return null;
+  }
+  // Extract content (after position and colon)
+  const content = remaining.slice(posColonIdx + 1);
+  return { path, position, content };
+}
+
 import {
   ArithmeticError,
   BadSubstitutionError,
@@ -162,7 +204,7 @@ import {
 } from "./helpers/array.js";
 import { getErrorMessage } from "./helpers/errors.js";
 import { isNameref, resolveNameref } from "./helpers/nameref.js";
-import { checkReadonlyError } from "./helpers/readonly.js";
+import { checkReadonlyError, isReadonly } from "./helpers/readonly.js";
 import {
   failure,
   OK,
@@ -310,6 +352,15 @@ export class Interpreter {
           return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
         }
         if (error instanceof BadSubstitutionError) {
+          stdout += error.stdout;
+          stderr += error.stderr;
+          exitCode = 1;
+          this.ctx.state.lastExitCode = exitCode;
+          this.ctx.state.env["?"] = String(exitCode);
+          return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
+        }
+        // ArithmeticError in expansion (e.g., echo $((42x))) should terminate the script
+        if (error instanceof ArithmeticError) {
           stdout += error.stdout;
           stderr += error.stderr;
           exitCode = 1;
@@ -515,17 +566,29 @@ export class Interpreter {
     }
 
     // Set PIPESTATUS array with exit codes from all pipeline commands
-    // Clear any previous PIPESTATUS entries
-    for (const key of Object.keys(this.ctx.state.env)) {
-      if (key.startsWith("PIPESTATUS_")) {
-        delete this.ctx.state.env[key];
+    // For single-command pipelines with compound commands, don't set PIPESTATUS here -
+    // let inner statements set it (e.g., non-matching case statements should leave
+    // PIPESTATUS unchanged, matching bash behavior).
+    // For multi-command pipelines or simple commands, always set PIPESTATUS.
+    const shouldSetPipestatus =
+      node.commands.length > 1 ||
+      (node.commands.length === 1 && node.commands[0].type === "SimpleCommand");
+
+    if (shouldSetPipestatus) {
+      // Clear any previous PIPESTATUS entries
+      for (const key of Object.keys(this.ctx.state.env)) {
+        if (key.startsWith("PIPESTATUS_")) {
+          delete this.ctx.state.env[key];
+        }
       }
+      // Set new PIPESTATUS entries
+      for (let i = 0; i < pipestatusExitCodes.length; i++) {
+        this.ctx.state.env[`PIPESTATUS_${i}`] = String(pipestatusExitCodes[i]);
+      }
+      this.ctx.state.env.PIPESTATUS__length = String(
+        pipestatusExitCodes.length,
+      );
     }
-    // Set new PIPESTATUS entries
-    for (let i = 0; i < pipestatusExitCodes.length; i++) {
-      this.ctx.state.env[`PIPESTATUS_${i}`] = String(pipestatusExitCodes[i]);
-    }
-    this.ctx.state.env.PIPESTATUS__length = String(pipestatusExitCodes.length);
 
     // If pipefail is enabled, use the rightmost failing exit code
     if (this.ctx.state.options.pipefail && pipefailExitCode !== 0) {
@@ -622,15 +685,12 @@ export class Interpreter {
     try {
       return await this.executeSimpleCommandInner(node, stdin);
     } catch (error) {
-      if (error instanceof ArithmeticError) {
-        // Arithmetic errors in expansion should not terminate the script
-        // Just return exit code 1 with the error message on stderr
-        return failure(error.stderr);
-      }
       if (error instanceof GlobError) {
         // GlobError from failglob should return exit code 1 with error message
         return failure(error.stderr);
       }
+      // ArithmeticError in expansion (e.g., echo $((42x))) should terminate the script
+      // Let the error propagate - it will be caught by the top-level error handler
       throw error;
     }
   }
@@ -691,8 +751,16 @@ export class Interpreter {
           );
         }
         // Check if array variable is readonly
-        const readonlyError = checkReadonlyError(this.ctx, name);
-        if (readonlyError) return readonlyError;
+        // For prefix assignments (temp bindings) to readonly vars, bash warns but continues
+        if (isReadonly(this.ctx, name)) {
+          if (node.name) {
+            // Temp binding to readonly var - warn but continue
+            xtraceAssignmentOutput += `bash: ${name}: readonly variable\n`;
+            continue; // Skip this assignment, process next one
+          }
+          const readonlyError = checkReadonlyError(this.ctx, name);
+          if (readonlyError) return readonlyError;
+        }
 
         // Check if this is an associative array
         const isAssoc = this.ctx.state.associativeArrays?.has(name);
@@ -884,6 +952,13 @@ export class Interpreter {
                 ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
               );
               startIndex = maxIndex + 1;
+            } else if (this.ctx.state.env[name] !== undefined) {
+              // Variable exists as a scalar string - convert to array element 0
+              // e.g., s='abc'; s+=(d e f) -> s=('abc' 'd' 'e' 'f')
+              const scalarValue = this.ctx.state.env[name];
+              this.ctx.state.env[`${name}_0`] = scalarValue;
+              delete this.ctx.state.env[name];
+              startIndex = 1;
             }
           } else {
             // Clear existing elements AFTER expansion (self-reference already read)
@@ -940,8 +1015,15 @@ export class Interpreter {
         }
 
         // Check if array variable is readonly
-        const readonlyError = checkReadonlyError(this.ctx, arrayName);
-        if (readonlyError) return readonlyError;
+        // For prefix assignments (temp bindings) to readonly vars, bash silently ignores them
+        if (isReadonly(this.ctx, arrayName)) {
+          if (node.name) {
+            // Temp binding to readonly var - silently skip (bash doesn't warn for subscript)
+            continue;
+          }
+          const readonlyError = checkReadonlyError(this.ctx, arrayName);
+          if (readonlyError) return readonlyError;
+        }
 
         const isAssoc = this.ctx.state.associativeArrays?.has(arrayName);
         let envKey: string;
@@ -1069,8 +1151,17 @@ export class Interpreter {
       }
 
       // Check if variable is readonly (for scalar assignment)
-      const readonlyError = checkReadonlyError(this.ctx, targetName);
-      if (readonlyError) return readonlyError;
+      // For prefix assignments (temp bindings) to readonly vars, bash warns but continues
+      if (isReadonly(this.ctx, targetName)) {
+        if (node.name) {
+          // Temp binding to readonly var - warn but continue
+          // Add to xtrace output for the warning message
+          xtraceAssignmentOutput += `bash: ${targetName}: readonly variable\n`;
+          continue; // Skip this assignment, process next one
+        }
+        const readonlyError = checkReadonlyError(this.ctx, targetName);
+        if (readonlyError) return readonlyError;
+      }
 
       // Handle append mode (+=) and integer attribute
       let finalValue: string;
@@ -1164,7 +1255,11 @@ export class Interpreter {
       // e.g., x=$(false) should set $? to 1, not 0
       // Also clear $_ - bash clears it for bare assignments
       this.ctx.state.lastArg = "";
-      return result("", xtraceAssignmentOutput, this.ctx.state.lastExitCode);
+      // Include any stderr from command substitutions (e.g., FOO=$(echo foo 1>&2))
+      const stderrOutput =
+        (this.ctx.state.expansionStderr || "") + xtraceAssignmentOutput;
+      this.ctx.state.expansionStderr = "";
+      return result("", stderrOutput, this.ctx.state.lastExitCode);
     }
 
     // Mark prefix assignment variables as temporarily exported for this command
@@ -1191,6 +1286,10 @@ export class Interpreter {
       }
       return fdVarError;
     }
+
+    // Track source FD for stdin from read-write file descriptors
+    // This allows the read builtin to update the FD's position after reading
+    let stdinSourceFd = -1;
 
     for (const redir of node.redirections) {
       if (
@@ -1248,10 +1347,12 @@ export class Interpreter {
           if (fdContent !== undefined) {
             // Handle different FD content formats
             if (fdContent.startsWith("__rw__:")) {
-              // Read/write mode: format is __rw__:path:content
-              const colonIdx = fdContent.indexOf(":", 7);
-              if (colonIdx !== -1) {
-                stdin = fdContent.slice(colonIdx + 1);
+              // Read/write mode: format is __rw__:pathLength:path:position:content
+              const parsed = parseRwFdContent(fdContent);
+              if (parsed) {
+                // Return content starting from current position
+                stdin = parsed.content.slice(parsed.position);
+                stdinSourceFd = sourceFd;
               }
             } else if (
               fdContent.startsWith("__file__:") ||
@@ -1352,7 +1453,15 @@ export class Interpreter {
         if (args.length > 0) {
           const newCommandName = args.shift() as string;
           quotedArgs.shift();
-          return await this.runCommand(newCommandName, args, quotedArgs, stdin);
+          return await this.runCommand(
+            newCommandName,
+            args,
+            quotedArgs,
+            stdin,
+            false,
+            false,
+            stdinSourceFd,
+          );
         }
         // No args - treat as no-op (status 0)
         // Preserve lastExitCode for command subs like $(exit 42)
@@ -1423,6 +1532,9 @@ export class Interpreter {
           }
           case "<>": {
             // Open file for read/write
+            // Format: __rw__:pathLength:path:position:content
+            // pathLength allows parsing paths with colons
+            // position tracks current file offset for read/write
             const filePath = this.ctx.fs.resolvePath(
               this.ctx.state.cwd,
               target,
@@ -1431,20 +1543,44 @@ export class Interpreter {
               const content = await this.ctx.fs.readFile(filePath);
               this.ctx.state.fileDescriptors.set(
                 fd,
-                `__rw__:${filePath}:${content}`,
+                `__rw__:${filePath.length}:${filePath}:0:${content}`,
               );
             } catch {
               // File doesn't exist - create empty
               await this.ctx.fs.writeFile(filePath, "", "utf8");
-              this.ctx.state.fileDescriptors.set(fd, `__rw__:${filePath}:`);
+              this.ctx.state.fileDescriptors.set(
+                fd,
+                `__rw__:${filePath.length}:${filePath}:0:`,
+              );
             }
             break;
           }
           case ">&": {
             // Duplicate output FD: N>&M means N now writes to same place as M
+            // Move FD: N>&M- means duplicate M to N, then close M
             if (target === "-") {
               // Close the FD
               this.ctx.state.fileDescriptors.delete(fd);
+            } else if (target.endsWith("-")) {
+              // Move operation: N>&M- duplicates M to N then closes M
+              const sourceFdStr = target.slice(0, -1);
+              const sourceFd = Number.parseInt(sourceFdStr, 10);
+              if (!Number.isNaN(sourceFd)) {
+                // First, duplicate: copy the FD content/info from source to target
+                const sourceInfo = this.ctx.state.fileDescriptors.get(sourceFd);
+                if (sourceInfo !== undefined) {
+                  this.ctx.state.fileDescriptors.set(fd, sourceInfo);
+                } else {
+                  // Source FD might be 1 (stdout) or 2 (stderr) which aren't in fileDescriptors
+                  // In that case, store as duplication marker
+                  this.ctx.state.fileDescriptors.set(
+                    fd,
+                    `__dupout__:${sourceFd}`,
+                  );
+                }
+                // Then close the source FD
+                this.ctx.state.fileDescriptors.delete(sourceFd);
+              }
             } else {
               const sourceFd = Number.parseInt(target, 10);
               if (!Number.isNaN(sourceFd)) {
@@ -1459,9 +1595,29 @@ export class Interpreter {
           }
           case "<&": {
             // Duplicate input FD: N<&M means N now reads from same place as M
+            // Move FD: N<&M- means duplicate M to N, then close M
             if (target === "-") {
               // Close the FD
               this.ctx.state.fileDescriptors.delete(fd);
+            } else if (target.endsWith("-")) {
+              // Move operation: N<&M- duplicates M to N then closes M
+              const sourceFdStr = target.slice(0, -1);
+              const sourceFd = Number.parseInt(sourceFdStr, 10);
+              if (!Number.isNaN(sourceFd)) {
+                // First, duplicate: copy the FD content/info from source to target
+                const sourceInfo = this.ctx.state.fileDescriptors.get(sourceFd);
+                if (sourceInfo !== undefined) {
+                  this.ctx.state.fileDescriptors.set(fd, sourceInfo);
+                } else {
+                  // Source FD might be 0 (stdin) which isn't in fileDescriptors
+                  this.ctx.state.fileDescriptors.set(
+                    fd,
+                    `__dupin__:${sourceFd}`,
+                  );
+                }
+                // Then close the source FD
+                this.ctx.state.fileDescriptors.delete(sourceFd);
+              }
             } else {
               const sourceFd = Number.parseInt(target, 10);
               if (!Number.isNaN(sourceFd)) {
@@ -1502,17 +1658,45 @@ export class Interpreter {
       );
     }
 
-    let cmdResult = await this.runCommand(commandName, args, quotedArgs, stdin);
+    let cmdResult: ExecResult;
+    let controlFlowError: BreakError | ContinueError | null = null;
 
-    // Prepend xtrace output to stderr
-    if (xtraceOutput) {
+    try {
+      cmdResult = await this.runCommand(
+        commandName,
+        args,
+        quotedArgs,
+        stdin,
+        false,
+        false,
+        stdinSourceFd,
+      );
+    } catch (error) {
+      // For break/continue, we still need to apply redirections before propagating
+      // This handles cases like "break > file" where the file should be created
+      if (error instanceof BreakError || error instanceof ContinueError) {
+        controlFlowError = error;
+        cmdResult = OK; // break/continue have exit status 0
+      } else {
+        throw error;
+      }
+    }
+
+    // Prepend xtrace output and any assignment warnings to stderr
+    const stderrPrefix = xtraceAssignmentOutput + xtraceOutput;
+    if (stderrPrefix) {
       cmdResult = {
         ...cmdResult,
-        stderr: xtraceOutput + cmdResult.stderr,
+        stderr: stderrPrefix + cmdResult.stderr,
       };
     }
 
     cmdResult = await applyRedirections(this.ctx, cmdResult, node.redirections);
+
+    // If we caught a break/continue error, re-throw it after applying redirections
+    if (controlFlowError) {
+      throw controlFlowError;
+    }
 
     // Update $_ to the last argument of this command (after expansion)
     // If no arguments, $_ is set to the command name
@@ -1604,6 +1788,9 @@ export class Interpreter {
     const elements: string[] = [];
     let inArrayContent = false;
     let pendingLiteral = "";
+    // Track whether we've seen a quoted part (SingleQuoted, DoubleQuoted) since
+    // last element push. This ensures empty quoted strings like '' are preserved.
+    let hasQuotedContent = false;
 
     for (const part of word.parts) {
       if (part.type === "Literal") {
@@ -1628,10 +1815,11 @@ export class Interpreter {
           const tokens = value.split(/(\s+)/);
           for (const token of tokens) {
             if (/^\s+$/.test(token)) {
-              // Whitespace - push pending element
-              if (pendingLiteral) {
+              // Whitespace - push pending element if we have content OR saw quoted part
+              if (pendingLiteral || hasQuotedContent) {
                 elements.push(pendingLiteral);
                 pendingLiteral = "";
+                hasQuotedContent = false;
               }
             } else if (token) {
               // Non-empty token - accumulate
@@ -1655,9 +1843,10 @@ export class Interpreter {
           } else {
             // Plain element - expand braces normally
             // Push any pending literal first
-            if (pendingLiteral) {
+            if (pendingLiteral || hasQuotedContent) {
               elements.push(pendingLiteral);
               pendingLiteral = "";
+              hasQuotedContent = false;
             }
             // Use expandWordWithGlob to properly expand brace expressions
             const braceExpanded = await expandWordWithGlob(this.ctx, {
@@ -1669,6 +1858,14 @@ export class Interpreter {
           }
         } else {
           // Quoted/expansion part - expand it and accumulate as single element
+          // Mark that we've seen quoted content (for empty string preservation)
+          if (
+            part.type === "SingleQuoted" ||
+            part.type === "DoubleQuoted" ||
+            part.type === "Escaped"
+          ) {
+            hasQuotedContent = true;
+          }
           const expanded = await expandWord(this.ctx, {
             type: "Word",
             parts: [part],
@@ -1678,8 +1875,8 @@ export class Interpreter {
       }
     }
 
-    // Push final element
-    if (pendingLiteral) {
+    // Push final element if we have content OR saw quoted part
+    if (pendingLiteral || hasQuotedContent) {
       elements.push(pendingLiteral);
     }
 
@@ -1689,6 +1886,10 @@ export class Interpreter {
       // These need to be parsed by the declare builtin as-is
       if (/^\[.+\]=/.test(elem)) {
         return elem;
+      }
+      // Empty strings must be quoted to be preserved
+      if (elem === "") {
+        return "''";
       }
       // If element contains whitespace or special chars, quote it
       if (
@@ -1811,6 +2012,7 @@ export class Interpreter {
     stdin: string,
     skipFunctions = false,
     useDefaultPath = false,
+    stdinSourceFd = -1,
   ): Promise<ExecResult> {
     // Built-in commands (special builtins that cannot be overridden by functions)
     if (commandName === "export") {
@@ -1837,7 +2039,9 @@ export class Interpreter {
     if (commandName === "return") {
       return handleReturn(this.ctx, args);
     }
-    if (commandName === "eval") {
+    // In POSIX mode, eval is a special builtin that cannot be overridden by functions
+    // In non-POSIX mode (bash default), functions can override eval
+    if (commandName === "eval" && this.ctx.state.options.posix) {
       return handleEval(this.ctx, args);
     }
     if (commandName === "shift") {
@@ -1868,7 +2072,7 @@ export class Interpreter {
       return handleSource(this.ctx, args);
     }
     if (commandName === "read") {
-      return handleRead(this.ctx, args, stdin);
+      return handleRead(this.ctx, args, stdin, stdinSourceFd);
     }
     if (commandName === "mapfile" || commandName === "readarray") {
       return handleMapfile(this.ctx, args, stdin);
@@ -1888,6 +2092,10 @@ export class Interpreter {
       }
     }
     // Simple builtins (can be overridden by functions)
+    // eval: In non-POSIX mode, functions can override eval (handled above for POSIX mode)
+    if (commandName === "eval") {
+      return handleEval(this.ctx, args);
+    }
     if (commandName === "cd") {
       return await handleCd(this.ctx, args);
     }
@@ -2085,6 +2293,14 @@ export class Interpreter {
         );
       }
       return failure(`bash: ${commandName}: command not found\n`, 127);
+    }
+    // Handle error cases from resolveCommand
+    if ("error" in resolved) {
+      if (resolved.error === "permission_denied") {
+        return failure(`bash: ${commandName}: Permission denied\n`, 126);
+      }
+      // not_found error
+      return failure(`bash: ${commandName}: No such file or directory\n`, 127);
     }
     const { cmd, path: cmdPath } = resolved;
     // Add to hash table for PATH caching (only for non-path commands)
@@ -2404,7 +2620,11 @@ export class Interpreter {
   private async resolveCommand(
     commandName: string,
     pathOverride?: string,
-  ): Promise<{ cmd: Command; path: string } | null> {
+  ): Promise<
+    | { cmd: Command; path: string }
+    | { error: "not_found" | "permission_denied"; path?: string }
+    | null
+  > {
     // If command contains "/", it's a path - resolve directly
     if (commandName.includes("/")) {
       const resolvedPath = this.ctx.fs.resolvePath(
@@ -2413,13 +2633,37 @@ export class Interpreter {
       );
       // Check if file exists
       if (!(await this.ctx.fs.exists(resolvedPath))) {
-        return null;
+        return { error: "not_found", path: resolvedPath };
       }
       // Extract command name from path
       const cmdName = resolvedPath.split("/").pop() || commandName;
       const cmd = this.ctx.commands.get(cmdName);
-      if (!cmd) return null;
-      return { cmd, path: resolvedPath };
+
+      // Check file properties
+      try {
+        const stat = await this.ctx.fs.stat(resolvedPath);
+        if (stat.isDirectory) {
+          // Trying to execute a directory
+          return { error: "permission_denied", path: resolvedPath };
+        }
+        // For registered commands (like /bin/echo), skip execute check
+        // since they're our internal implementations
+        if (cmd) {
+          return { cmd, path: resolvedPath };
+        }
+        // For non-registered commands, check if the file is executable
+        const isExecutable = (stat.mode & 0o111) !== 0;
+        if (!isExecutable) {
+          // File exists but is not executable - permission denied
+          return { error: "permission_denied", path: resolvedPath };
+        }
+        // File exists and is executable but no handler - permission denied
+        // (we can't actually execute it in this sandbox)
+        return { error: "permission_denied", path: resolvedPath };
+      } catch {
+        // If stat fails, treat as not found
+        return { error: "not_found", path: resolvedPath };
+      }
     }
 
     // Check hash table first (unless pathOverride is set, which bypasses cache)
@@ -3529,9 +3773,12 @@ export class Interpreter {
       return applyRedirections(this.ctx, bodyResult, node.redirections);
     } catch (error) {
       // Apply output redirections before returning
+      // ArithmeticError (e.g., division by zero) returns exit code 1
+      // Other errors (e.g., invalid regex) return exit code 2
+      const exitCode = error instanceof ArithmeticError ? 1 : 2;
       const bodyResult = failure(
         `bash: conditional expression: ${(error as Error).message}\n`,
-        2,
+        exitCode,
       );
       return applyRedirections(this.ctx, bodyResult, node.redirections);
     }

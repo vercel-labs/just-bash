@@ -12,10 +12,51 @@ import {
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
+/**
+ * Parse the content of a read-write file descriptor.
+ * Format: __rw__:pathLength:path:position:content
+ */
+function parseRwFdContent(fdContent: string): {
+  path: string;
+  position: number;
+  content: string;
+} | null {
+  if (!fdContent.startsWith("__rw__:")) {
+    return null;
+  }
+  const afterPrefix = fdContent.slice(7);
+  const firstColonIdx = afterPrefix.indexOf(":");
+  if (firstColonIdx === -1) return null;
+  const pathLength = Number.parseInt(afterPrefix.slice(0, firstColonIdx), 10);
+  if (Number.isNaN(pathLength) || pathLength < 0) return null;
+  const pathStart = firstColonIdx + 1;
+  const path = afterPrefix.slice(pathStart, pathStart + pathLength);
+  const positionStart = pathStart + pathLength + 1;
+  const remaining = afterPrefix.slice(positionStart);
+  const posColonIdx = remaining.indexOf(":");
+  if (posColonIdx === -1) return null;
+  const position = Number.parseInt(remaining.slice(0, posColonIdx), 10);
+  if (Number.isNaN(position) || position < 0) return null;
+  const content = remaining.slice(posColonIdx + 1);
+  return { path, position, content };
+}
+
+/**
+ * Encode read-write file descriptor content.
+ */
+function encodeRwFdContent(
+  path: string,
+  position: number,
+  content: string,
+): string {
+  return `__rw__:${path.length}:${path}:${position}:${content}`;
+}
+
 export function handleRead(
   ctx: InterpreterContext,
   args: string[],
   stdin: string,
+  stdinSourceFd = -1,
 ): ExecResult {
   // Parse options
   let raw = false;
@@ -253,6 +294,20 @@ export function handleRead(
         fileDescriptor,
         effectiveStdin.substring(bytesConsumed),
       );
+    } else if (stdinSourceFd >= 0 && ctx.state.fileDescriptors) {
+      // Update the position of a read-write FD that was redirected to stdin
+      const fdContent = ctx.state.fileDescriptors.get(stdinSourceFd);
+      if (fdContent?.startsWith("__rw__:")) {
+        const parsed = parseRwFdContent(fdContent);
+        if (parsed) {
+          // Advance position by bytesConsumed
+          const newPosition = parsed.position + bytesConsumed;
+          ctx.state.fileDescriptors.set(
+            stdinSourceFd,
+            encodeRwFdContent(parsed.path, newPosition, parsed.content),
+          );
+        }
+      }
     } else if (ctx.state.groupStdin !== undefined && !stdin) {
       ctx.state.groupStdin = effectiveStdin.substring(bytesConsumed);
     }
@@ -326,48 +381,66 @@ export function handleRead(
     consumeInput(consumed);
   } else {
     // Read until delimiter, handling line continuation (backslash-newline) if not raw mode
-    let remaining = effectiveStdin;
+    // Backslash-newline continuation is handled regardless of the delimiter - it's a line continuation feature
+    // Backslash-delimiter escapes the delimiter, making it literal
     consumed = 0;
+    let inputPos = 0;
 
-    while (true) {
-      const delimIndex = remaining.indexOf(effectiveDelimiter);
-      if (delimIndex !== -1) {
-        const segment = remaining.substring(0, delimIndex);
-        consumed += delimIndex + effectiveDelimiter.length;
-        remaining = remaining.substring(delimIndex + effectiveDelimiter.length);
+    while (inputPos < effectiveStdin.length) {
+      const char = effectiveStdin[inputPos];
 
-        // Check for line continuation: if line ends with \ and not in raw mode
-        // But only for newline delimiter (line continuation doesn't apply to other delimiters)
-        if (!raw && effectiveDelimiter === "\n" && segment.endsWith("\\")) {
-          // Remove trailing backslash and continue reading
-          line += segment.slice(0, -1);
+      // Check for delimiter
+      if (char === effectiveDelimiter) {
+        consumed = inputPos + effectiveDelimiter.length;
+        foundDelimiter = true;
+        break;
+      }
+
+      // In non-raw mode, handle backslash escapes
+      if (!raw && char === "\\" && inputPos + 1 < effectiveStdin.length) {
+        const nextChar = effectiveStdin[inputPos + 1];
+
+        if (nextChar === "\n") {
+          // Backslash-newline is line continuation: skip both, regardless of delimiter
+          inputPos += 2;
           continue;
         }
 
-        line += segment;
-        foundDelimiter = true;
-        break;
-      } else if (remaining.length > 0) {
-        // No delimiter found but have content - read it but return exit code 1
-        line += remaining;
-        consumed += remaining.length;
-        foundDelimiter = false;
-        remaining = "";
-        break;
-      } else {
-        // No more input
-        if (line.length === 0) {
-          // No input at all - return failure
-          for (const name of varNames) {
-            ctx.state.env[name] = "";
-          }
-          if (arrayName) {
-            clearArray(ctx, arrayName);
-          }
-          return result("", "", 1);
+        if (nextChar === effectiveDelimiter) {
+          // Backslash-delimiter: escape the delimiter, include it literally
+          line += nextChar;
+          inputPos += 2;
+          continue;
         }
-        foundDelimiter = false;
-        break;
+
+        // Other backslash escapes: keep both for now (will be processed later)
+        line += char;
+        line += nextChar;
+        inputPos += 2;
+        continue;
+      }
+
+      line += char;
+      inputPos++;
+    }
+
+    // If we exited the loop without finding a delimiter, we consumed everything
+    // foundDelimiter remains at initial value (true) only if we explicitly set it in the loop
+    // So check if we actually found the delimiter by seeing if we broke early
+    if (inputPos >= effectiveStdin.length) {
+      // We reached end of input without finding delimiter
+      foundDelimiter = false;
+      consumed = inputPos;
+      // Check if we got any content
+      if (line.length === 0 && effectiveStdin.length === 0) {
+        // No input at all - return failure
+        for (const name of varNames) {
+          ctx.state.env[name] = "";
+        }
+        if (arrayName) {
+          clearArray(ctx, arrayName);
+        }
+        return result("", "", 1);
       }
     }
 

@@ -341,7 +341,6 @@ argv.py "${x%%}"
 ## END
 
 #### Strip Right Brace (#702)
-## SKIP: Strip pattern with literal dollar sign not implemented
 var='$foo'
 echo 1 "${var#$foo}"
 echo 2 "${var#\$foo}"

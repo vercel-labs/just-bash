@@ -154,14 +154,13 @@ case word_a in
 esac
 
 #### case item without ;; is not allowed
-## SKIP: Syntax error detection for case without ;; differs
 case word_a in
   word_a)
   word_b)
     echo
     ;;
 esac
-## status: 99
+## status: 2
 
 
 #### Case with last dsemi on same line
@@ -187,13 +186,11 @@ case word_a in word_b) echo ;; word_c) echo ;; esac
 case word_a in word_b) echo word_b;; word_c) echo word_c ;; esac
 
 #### Case all on one line without trailing ;; or ;
-## SKIP: Syntax error detection for case without trailing ;; differs
 # My ANTLR parsers don't fail here and they should.
 case word_a in word_b) echo word_b;; word_c) echo word_c esac
-## status: 99
+## status: 2
 
 #### case: Using ; instead of ;;
-## SKIP: Syntax error detection for case with ; instead of ;; differs
 case word_a in
   word_a)
     ;
@@ -201,7 +198,7 @@ case word_a in
     echo
     ;;
 esac
-## status: 99
+## status: 2
 
 
 #### Function def

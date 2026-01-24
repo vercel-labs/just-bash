@@ -18,11 +18,17 @@ import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { evaluateArithmeticSync } from "../arithmetic.js";
-import { getArrayIndices, getAssocArrayKeys } from "../helpers/array.js";
+import {
+  clearArray,
+  getArrayIndices,
+  getAssocArrayKeys,
+} from "../helpers/array.js";
 import {
   isNameref,
   markNameref,
+  markNamerefBound,
   resolveNameref,
+  targetExists,
   unmarkNameref,
 } from "../helpers/nameref.js";
 import {
@@ -412,15 +418,33 @@ export function handleDeclare(
   }
 
   // Print mode without args (declare -p): list all variables with attributes
+  // When filtering flags are also set (-x, -r, -n, -a, -A), only show matching variables
   if (printMode && processedArgs.length === 0) {
+    // Check if any filtering flags are set
+    const filterExport = declareExport;
+    const filterReadonly = declareReadonly;
+    const filterNameref = declareNameref;
+    const filterIndexedArray = declareArray;
+    const filterAssocArray = declareAssoc;
+    const hasFilter =
+      filterExport ||
+      filterReadonly ||
+      filterNameref ||
+      filterIndexedArray ||
+      filterAssocArray;
+
     let stdout = "";
 
     // Collect all variable names (excluding internal markers like __length)
     const varNames = new Set<string>();
     for (const key of Object.keys(ctx.state.env)) {
       if (key.startsWith("BASH_")) continue;
-      // Skip internal array markers
-      if (key.includes("__length")) continue;
+      // For __length markers, extract the base name (for empty arrays)
+      if (key.endsWith("__length")) {
+        const baseName = key.slice(0, -8);
+        varNames.add(baseName);
+        continue;
+      }
       // For array elements (name_index), extract base name
       const underscoreIdx = key.lastIndexOf("_");
       if (underscoreIdx > 0) {
@@ -452,6 +476,28 @@ export function handleDeclare(
 
       // Check if this is an associative array
       const isAssoc = ctx.state.associativeArrays?.has(name);
+
+      // Check if this is an indexed array (not associative)
+      const arrayIndices = getArrayIndices(ctx, name);
+      const isIndexedArray =
+        !isAssoc &&
+        (arrayIndices.length > 0 ||
+          ctx.state.env[`${name}__length`] !== undefined);
+
+      // Apply filters if set
+      if (hasFilter) {
+        // If filtering for associative arrays only (-pA)
+        if (filterAssocArray && !isAssoc) continue;
+        // If filtering for indexed arrays only (-pa)
+        if (filterIndexedArray && !isIndexedArray) continue;
+        // If filtering for exported only (-px)
+        if (filterExport && !ctx.state.exportedVars?.has(name)) continue;
+        // If filtering for readonly only (-pr)
+        if (filterReadonly && !ctx.state.readonlyVars?.has(name)) continue;
+        // If filtering for nameref only (-pn)
+        if (filterNameref && !isNameref(ctx, name)) continue;
+      }
+
       if (isAssoc) {
         const keys = getAssocArrayKeys(ctx, name);
         if (keys.length === 0) {
@@ -472,7 +518,6 @@ export function handleDeclare(
       }
 
       // Check if this is an indexed array
-      const arrayIndices = getArrayIndices(ctx, name);
       if (arrayIndices.length > 0) {
         const elements = arrayIndices.map((index) => {
           const value = ctx.state.env[`${name}_${index}`] ?? "";
@@ -583,16 +628,61 @@ export function handleDeclare(
     return success(stdout);
   }
 
-  // No args: list all variables
+  // No args: list all variables (without -p flag, just print name=value)
   if (processedArgs.length === 0 && !printMode) {
     let stdout = "";
-    const entries = Object.entries(ctx.state.env)
-      .filter(([key]) => !key.startsWith("BASH_"))
-      .sort(([a], [b]) => a.localeCompare(b));
 
-    for (const [name, value] of entries) {
-      const escapedValue = value.replace(/'/g, "'\\''");
-      stdout += `declare -- ${name}='${escapedValue}'\n`;
+    // Collect all variable names (excluding internal markers)
+    const varNames = new Set<string>();
+    for (const key of Object.keys(ctx.state.env)) {
+      if (key.startsWith("BASH_")) continue;
+      // For __length markers, extract the base name (for arrays)
+      if (key.endsWith("__length")) {
+        const baseName = key.slice(0, -8);
+        varNames.add(baseName);
+        continue;
+      }
+      // For array elements (name_index), extract base name
+      const underscoreIdx = key.lastIndexOf("_");
+      if (underscoreIdx > 0) {
+        const baseName = key.slice(0, underscoreIdx);
+        const suffix = key.slice(underscoreIdx + 1);
+        // If suffix is numeric or baseName is an associative array
+        if (
+          /^\d+$/.test(suffix) ||
+          ctx.state.associativeArrays?.has(baseName)
+        ) {
+          varNames.add(baseName);
+          continue;
+        }
+      }
+      varNames.add(key);
+    }
+
+    const sortedNames = Array.from(varNames).sort();
+    for (const name of sortedNames) {
+      // Check if this is an associative array
+      const isAssoc = ctx.state.associativeArrays?.has(name);
+      if (isAssoc) {
+        // Skip associative arrays for simple declare output
+        continue;
+      }
+
+      // Check if this is an indexed array
+      const arrayIndices = getArrayIndices(ctx, name);
+      if (
+        arrayIndices.length > 0 ||
+        ctx.state.env[`${name}__length`] !== undefined
+      ) {
+        // Skip indexed arrays for simple declare output
+        continue;
+      }
+
+      // Regular scalar variable - output as name=value
+      const value = ctx.state.env[name];
+      if (value !== undefined) {
+        stdout += `${name}=${value}\n`;
+      }
     }
     return success(stdout);
   }
@@ -638,6 +728,13 @@ export function handleDeclare(
         ctx.state.associativeArrays ??= new Set();
         ctx.state.associativeArrays.add(name);
       }
+
+      // Clear existing array elements before assigning new ones
+      // This ensures arr=(a b c); arr=(d e) results in just (d e), not merged
+      clearArray(ctx, name);
+      // Also clear the scalar value and length marker
+      delete ctx.state.env[name];
+      delete ctx.state.env[`${name}__length`];
 
       // Check if this is associative array literal syntax: (['key']=value ...)
       if (declareAssoc && content.includes("[")) {
@@ -928,6 +1025,13 @@ export function handleDeclare(
       const name = arg.slice(0, eqIdx);
       let value = arg.slice(eqIdx + 1);
 
+      // Validate variable name
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+        stderr += `bash: typeset: \`${name}': not a valid identifier\n`;
+        exitCode = 1;
+        continue;
+      }
+
       // Check if variable is readonly
       const error = checkReadonlyError(ctx, name);
       if (error) return error;
@@ -948,6 +1052,12 @@ export function handleDeclare(
         }
         ctx.state.env[name] = value;
         markNameref(ctx, name);
+        // If the target variable exists at creation time, mark this nameref as "bound".
+        // Bound namerefs always resolve through to their target, even if unset later.
+        // Unbound namerefs (target never existed) act like regular variables.
+        if (value !== "" && targetExists(ctx, value)) {
+          markNamerefBound(ctx, name);
+        }
         markAsLocalIfNeeded(name);
         if (declareReadonly) {
           markReadonly(ctx, name);
@@ -1010,6 +1120,13 @@ export function handleDeclare(
     } else {
       // Just declare without value
       const name = arg;
+
+      // Validate variable name
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+        stderr += `bash: typeset: \`${name}': not a valid identifier\n`;
+        exitCode = 1;
+        continue;
+      }
 
       // Save to local scope before modifying
       if (declareArray || declareAssoc) {
@@ -1248,6 +1365,7 @@ export function handleReadonly(
   // Parse flags
   let _declareArray = false;
   let _declareAssoc = false;
+  let _printMode = false;
   const processedArgs: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -1257,23 +1375,27 @@ export function handleReadonly(
     } else if (arg === "-A") {
       _declareAssoc = true;
     } else if (arg === "-p") {
-      // Print mode - list readonly variables
-      if (args.length === 1) {
-        let stdout = "";
-        for (const name of ctx.state.readonlyVars || []) {
-          const value = ctx.state.env[name];
-          if (value !== undefined) {
-            stdout += `declare -r ${name}="${value}"\n`;
-          }
-        }
-        return success(stdout);
-      }
+      _printMode = true;
     } else if (arg === "--") {
       processedArgs.push(...args.slice(i + 1));
       break;
     } else if (!arg.startsWith("-")) {
       processedArgs.push(arg);
     }
+  }
+
+  // When called with no args (or just -p), list readonly variables
+  if (processedArgs.length === 0) {
+    let stdout = "";
+    const readonlyNames = Array.from(ctx.state.readonlyVars || []).sort();
+    for (const name of readonlyNames) {
+      const value = ctx.state.env[name];
+      if (value !== undefined) {
+        const escapedValue = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        stdout += `declare -r ${name}="${escapedValue}"\n`;
+      }
+    }
+    return success(stdout);
   }
 
   for (const arg of processedArgs) {

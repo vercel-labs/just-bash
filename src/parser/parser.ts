@@ -59,6 +59,15 @@ export class Parser {
     quoted: boolean;
   }[] = [];
   private parseIterations = 0;
+  private _input = "";
+
+  /**
+   * Get the raw input string being parsed.
+   * Used by conditional-parser for extracting exact whitespace in regex patterns.
+   */
+  getInput(): string {
+    return this._input;
+  }
 
   /**
    * Check parse iteration limit to prevent infinite loops
@@ -87,6 +96,7 @@ export class Parser {
       );
     }
 
+    this._input = input;
     const lexer = new Lexer(input);
     this.tokens = lexer.tokenize();
 
@@ -418,6 +428,12 @@ export class Parser {
       this.error(`syntax error near unexpected token \`${v}'`);
     }
 
+    // Check for pipe at statement start (e.g., newline followed by |)
+    // This is a syntax error: "| cmd" with nothing before it
+    if (t === TokenType.PIPE || t === TokenType.PIPE_AMP) {
+      this.error(`syntax error near unexpected token \`${v}'`);
+    }
+
     return null;
   }
 
@@ -626,6 +642,25 @@ export class Parser {
     );
   }
 
+  /**
+   * Parse a word for regex patterns (in [[ =~ ]]).
+   * All escaped characters create Escaped nodes so the backslash is preserved
+   * for the regex engine. For example, \$ creates Escaped("$") which becomes \$
+   * in the final regex pattern.
+   */
+  parseWordForRegex(): WordNode {
+    const token = this.advance();
+    return this.parseWordFromString(
+      token.value,
+      token.quoted,
+      token.singleQuoted,
+      false, // isAssignment
+      false, // hereDoc
+      true, // noBraceExpansion
+      true, // regexPattern
+    );
+  }
+
   parseWordFromString(
     value: string,
     quoted = false,
@@ -633,6 +668,7 @@ export class Parser {
     isAssignment = false,
     hereDoc = false,
     noBraceExpansion = false,
+    regexPattern = false,
   ): WordNode {
     const parts = ExpParser.parseWordParts(
       this,
@@ -643,6 +679,7 @@ export class Parser {
       hereDoc,
       false, // singleQuotesAreLiteral
       noBraceExpansion,
+      regexPattern,
     );
     return AST.word(parts);
   }

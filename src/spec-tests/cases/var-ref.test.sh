@@ -410,7 +410,6 @@ works: a[$(( 3 - 2 ))]
 ## END
 
 #### Bizarre tilde expansion in array index
-## SKIP: Tilde expansion in array index not implemented
 a=(x y)
 PWD=1
 ref='a[~+]'

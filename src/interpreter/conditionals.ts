@@ -406,6 +406,44 @@ async function evaluateTestPrimary(
     return { value, pos: args[newPos] === ")" ? newPos + 1 : newPos };
   }
 
+  // IMPORTANT: Check for binary operators FIRST, before unary operators.
+  // This handles the ambiguous case where a flag-like string (e.g., "-o", "-z", "-f")
+  // is used as the left operand of a binary comparison.
+  // For example: test -o != foo  -> should compare "-o" with "foo", not test shell option "!="
+  // Similarly:   test 1 -eq 1 -a -o != foo  -> after -a, "-o" followed by "!=" is a comparison
+  const next = args[pos + 1];
+
+  // Check for binary string operators
+  // Note: [ / test uses literal string comparison, NOT pattern matching
+  if (isStringCompareOp(next)) {
+    const left = token;
+    const right = args[pos + 2] ?? "";
+    return { value: compareStrings(next, left, right), pos: pos + 3 };
+  }
+
+  // Check for binary numeric operators
+  if (isNumericOp(next)) {
+    const leftParsed = parseNumericDecimal(token);
+    const rightParsed = parseNumericDecimal(args[pos + 2] ?? "0");
+    // Invalid operands - return false (will cause exit code 2 at higher level)
+    if (!leftParsed.valid || !rightParsed.valid) {
+      // For now, return false which is at least consistent with "comparison failed"
+      return { value: false, pos: pos + 3 };
+    }
+    const value = compareNumeric(next, leftParsed.value, rightParsed.value);
+    return { value, pos: pos + 3 };
+  }
+
+  // Binary file tests
+  if (isBinaryFileTestOperator(next)) {
+    const left = token;
+    const right = args[pos + 2] ?? "";
+    const value = await evaluateBinaryFileTest(ctx, next, left, right);
+    return { value, pos: pos + 3 };
+  }
+
+  // Now check for unary operators (only if next token is NOT a binary operator)
+
   // Unary file tests - use shared helper
   if (isFileTestOperator(token)) {
     const operand = args[pos + 1] ?? "";
@@ -431,35 +469,6 @@ async function evaluateTestPrimary(
     const optName = args[pos + 1] ?? "";
     const value = evaluateShellOption(ctx, optName);
     return { value, pos: pos + 2 };
-  }
-
-  // Check for binary operators
-  // Note: [ / test uses literal string comparison, NOT pattern matching
-  const next = args[pos + 1];
-  if (isStringCompareOp(next)) {
-    const left = token;
-    const right = args[pos + 2] ?? "";
-    return { value: compareStrings(next, left, right), pos: pos + 3 };
-  }
-
-  if (isNumericOp(next)) {
-    const leftParsed = parseNumericDecimal(token);
-    const rightParsed = parseNumericDecimal(args[pos + 2] ?? "0");
-    // Invalid operands - return false (will cause exit code 2 at higher level)
-    if (!leftParsed.valid || !rightParsed.valid) {
-      // For now, return false which is at least consistent with "comparison failed"
-      return { value: false, pos: pos + 3 };
-    }
-    const value = compareNumeric(next, leftParsed.value, rightParsed.value);
-    return { value, pos: pos + 3 };
-  }
-
-  // Binary file tests
-  if (isBinaryFileTestOperator(next)) {
-    const left = token;
-    const right = args[pos + 2] ?? "";
-    const value = await evaluateBinaryFileTest(ctx, next, left, right);
-    return { value, pos: pos + 3 };
   }
 
   // Single argument: true if non-empty

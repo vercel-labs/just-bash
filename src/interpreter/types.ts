@@ -50,6 +50,10 @@ export interface ShellOptions {
   noglob: boolean;
   /** set -n: Read commands but do not execute them (syntax check mode) */
   noexec: boolean;
+  /** set -o vi: Use vi-style line editing (mutually exclusive with emacs) */
+  vi: boolean;
+  /** set -o emacs: Use emacs-style line editing (mutually exclusive with vi) */
+  emacs: boolean;
 }
 
 export interface ShoptOptions {
@@ -126,6 +130,13 @@ export interface InterpreterState {
   directoryStack?: string[];
   /** Set of variable names that are namerefs (declare -n) */
   namerefs?: Set<string>;
+  /**
+   * Set of nameref variable names that were "bound" to valid targets at creation time.
+   * A bound nameref will always resolve through to its target, even if the target
+   * is later unset. An unbound nameref (target didn't exist at creation) acts like
+   * a regular variable, returning its raw value.
+   */
+  boundNamerefs?: Set<string>;
   /** Set of variable names that have integer attribute (declare -i) */
   integerVars?: Set<string>;
   /** Set of variable names that have lowercase attribute (declare -l) */

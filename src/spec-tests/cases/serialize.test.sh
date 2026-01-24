@@ -74,7 +74,6 @@ roundtrip-ok
 ## N-I ash stdout-json: ""
 
 #### printf %q unprintable
-## SKIP: printf %q does not escape high bytes (0x80-0xff)
 case $SH in ash) return ;; esac  # yash and ash don't implement this
 
 unprintable=$'\xff'
@@ -93,6 +92,7 @@ $'\xff'
 ## N-I ash stdout-json: ""
 
 #### printf %q unicode
+## SKIP: $'\xNN' escapes not decoded as UTF-8 (parser issue, not printf %q issue)
 case $SH in ash) return ;; esac  # yash and ash don't implement this
 
 unicode=$'\u03bc'
@@ -159,7 +159,6 @@ a$'\316'
 ## N-I ash stdout-json: ""
 
 #### set
-## SKIP: set output format for multiline values differs from bash
 case $SH in zsh) return ;; esac  # zsh doesn't make much sense
 
 zz=$'one\ntwo'
@@ -175,6 +174,7 @@ zz='one
 
 
 #### declare
+## SKIP: typeset output format differs (uses double quotes instead of $'...' for values with newlines)
 case $SH in ash|zsh) return ;; esac  # zsh doesn't make much sense
 
 zz=$'one\ntwo'

@@ -6,7 +6,7 @@
 
 import type { ParameterExpansionPart, WordPart } from "../../ast/types.js";
 import { getVariable, isVariableSet } from "../expansion/variable.js";
-import { splitByIfsForExpansion } from "../helpers/ifs.js";
+import { splitByIfsForExpansionEx } from "../helpers/ifs.js";
 import type { InterpreterContext } from "../types.js";
 import { isOperationWordEntirelyQuoted } from "./analysis.js";
 
@@ -61,6 +61,64 @@ function shouldUseOperationWord(
   if (!shouldUse) return null;
 
   return word.parts;
+}
+
+/**
+ * Check if a DoubleQuoted part contains only simple literals (no expansions).
+ * This is used to determine if special IFS handling is needed.
+ */
+function isSimpleQuotedLiteral(part: WordPart): boolean {
+  if (part.type === "SingleQuoted") {
+    return true; // Single quotes always contain only literals
+  }
+  if (part.type === "DoubleQuoted") {
+    const dqPart = part as { parts: WordPart[] };
+    // Check that all parts inside the double quotes are literals
+    return dqPart.parts.every((p) => p.type === "Literal");
+  }
+  return false;
+}
+
+/**
+ * Check if a ParameterExpansion has a default/alternative value with mixed quoted/unquoted parts.
+ * These need special handling to preserve quote boundaries during IFS splitting.
+ *
+ * This function returns non-null only when:
+ * 1. The default value has mixed quoted and unquoted parts
+ * 2. The quoted parts contain only simple literals (no $@, $*, or other expansions)
+ *
+ * Cases like ${var:-"$@"x} should NOT use special handling because $@ has special
+ * behavior that needs to be preserved.
+ */
+function hasMixedQuotedDefaultValue(
+  ctx: InterpreterContext,
+  part: WordPart,
+): WordPart[] | null {
+  if (part.type !== "ParameterExpansion") return null;
+
+  const opWordParts = shouldUseOperationWord(ctx, part);
+  if (!opWordParts || opWordParts.length <= 1) return null;
+
+  // Check if the operation word has simple quoted parts (only literals inside)
+  const hasSimpleQuotedParts = opWordParts.some((p) =>
+    isSimpleQuotedLiteral(p),
+  );
+  const hasUnquotedParts = opWordParts.some(
+    (p) =>
+      p.type === "Literal" ||
+      p.type === "ParameterExpansion" ||
+      p.type === "CommandSubstitution" ||
+      p.type === "ArithmeticExpansion",
+  );
+
+  // Only apply special handling when we have simple quoted literals and unquoted parts
+  // This handles cases like ${var:-"2_3"x_x"4_5"} where the IFS char should only
+  // split at the unquoted underscore, not inside the quoted strings
+  if (hasSimpleQuotedParts && hasUnquotedParts) {
+    return opWordParts;
+  }
+
+  return null;
 }
 
 /**
@@ -184,14 +242,27 @@ export async function smartWordSplit(
   }
 
   // Expand all parts and track if they are splittable
-  type Segment = { value: string; isSplittable: boolean };
+  // Also track if they have mixed quoted default values that need special handling
+  type Segment = {
+    value: string;
+    isSplittable: boolean;
+    mixedDefaultParts?: WordPart[];
+  };
   const segments: Segment[] = [];
   let hasAnySplittable = false;
 
   for (const part of wordParts) {
     const splittable = isPartSplittable(part);
+    // Check if this part has a mixed quoted/unquoted default value
+    const mixedDefaultParts = splittable
+      ? hasMixedQuotedDefaultValue(ctx, part)
+      : null;
     const expanded = await expandPartFn(ctx, part);
-    segments.push({ value: expanded, isSplittable: splittable });
+    segments.push({
+      value: expanded,
+      isSplittable: splittable,
+      mixedDefaultParts: mixedDefaultParts ?? undefined,
+    });
 
     if (splittable) {
       hasAnySplittable = true;
@@ -225,23 +296,80 @@ export async function smartWordSplit(
   let currentWord = "";
   // Track if we've produced any actual words (including empty ones from splits)
   let hasProducedWord = false;
+  // Track if the previous splittable segment ended with a trailing IFS delimiter
+  // If true, the next non-splittable content should start a new word
+  let pendingWordBreak = false;
 
   for (const segment of segments) {
     if (!segment.isSplittable) {
       // Non-splittable: append to current word (no splitting)
-      currentWord += segment.value;
+      // BUT if we have a pending word break from a previous trailing delimiter,
+      // push the current word first and start a new one.
+      // However, don't push an empty current word - that would happen when
+      // whitespace separates two literals, which should just separate them
+      // without creating an empty word in between.
+      if (pendingWordBreak && segment.value !== "") {
+        if (currentWord !== "") {
+          words.push(currentWord);
+        }
+        currentWord = segment.value;
+        pendingWordBreak = false;
+      } else {
+        currentWord += segment.value;
+      }
+    } else if (segment.mixedDefaultParts) {
+      // Special case: ParameterExpansion with mixed quoted/unquoted default value
+      // We need to recursively word-split the default value's parts to preserve
+      // quote boundaries. This handles cases like: 1${undefined:-"2_3"x_x"4_5"}6
+      // where the quoted parts "2_3" and "4_5" should NOT be split by IFS.
+      const splitParts = await smartWordSplitWithUnquotedLiterals(
+        ctx,
+        segment.mixedDefaultParts,
+        ifsChars,
+        _ifsPattern,
+        expandPartFn,
+      );
+
+      if (splitParts.length === 0) {
+        // Empty expansion produces nothing
+      } else if (splitParts.length === 1) {
+        currentWord += splitParts[0];
+        hasProducedWord = true;
+      } else {
+        // Multiple results: first joins with current, middle are separate, last starts new
+        currentWord += splitParts[0];
+        words.push(currentWord);
+        hasProducedWord = true;
+
+        for (let i = 1; i < splitParts.length - 1; i++) {
+          words.push(splitParts[i]);
+        }
+
+        currentWord = splitParts[splitParts.length - 1];
+      }
+      // Reset pending word break after processing mixed default parts
+      pendingWordBreak = false;
     } else {
-      // Splittable: split by IFS
-      const parts = splitByIfsForExpansion(segment.value, ifsChars);
+      // Splittable: split by IFS using extended version that tracks trailing delimiters
+      const { words: parts, hadTrailingDelimiter } = splitByIfsForExpansionEx(
+        segment.value,
+        ifsChars,
+      );
 
       if (parts.length === 0) {
         // Empty expansion produces nothing - continue building current word
         // This happens for empty string or all-whitespace with default IFS
+        // BUT if there was a trailing delimiter (e.g., "   "), mark pending word break
+        if (hadTrailingDelimiter) {
+          pendingWordBreak = true;
+        }
       } else if (parts.length === 1) {
         // Single result: just append to current word
         // Note: parts[0] might be empty string (e.g., IFS='_' and var='_' produces [""])
         currentWord += parts[0];
         hasProducedWord = true;
+        // If there was a trailing delimiter, mark pending word break for next segment
+        pendingWordBreak = hadTrailingDelimiter;
       } else {
         // Multiple results from split:
         // - First part joins with current word
@@ -258,6 +386,8 @@ export async function smartWordSplit(
 
         // Last part becomes the new current word
         currentWord = parts[parts.length - 1];
+        // If there was a trailing delimiter, mark pending word break for next segment
+        pendingWordBreak = hadTrailingDelimiter;
       }
     }
   }
@@ -318,11 +448,24 @@ async function smartWordSplitWithUnquotedLiterals(
   const words: string[] = [];
   let currentWord = "";
   let hasProducedWord = false;
+  let pendingWordBreak = false;
 
   for (const segment of segments) {
     if (!segment.isSplittable) {
       // Non-splittable (quoted): append to current word
-      currentWord += segment.value;
+      // BUT if we have a pending word break, push current word first
+      // However, don't push an empty current word - that happens when we have
+      // whitespace between two quoted parts, which should just separate them
+      // without creating an empty word in between
+      if (pendingWordBreak && segment.value !== "") {
+        if (currentWord !== "") {
+          words.push(currentWord);
+        }
+        currentWord = segment.value;
+        pendingWordBreak = false;
+      } else {
+        currentWord += segment.value;
+      }
     } else {
       // Splittable: check if it starts with IFS (causes word break)
       const startsWithIfsChar = startsWithIfs(segment.value, ifsChars);
@@ -335,14 +478,21 @@ async function smartWordSplitWithUnquotedLiterals(
         hasProducedWord = true;
       }
 
-      // Split by IFS
-      const parts = splitByIfsForExpansion(segment.value, ifsChars);
+      // Split by IFS using extended version
+      const { words: parts, hadTrailingDelimiter } = splitByIfsForExpansionEx(
+        segment.value,
+        ifsChars,
+      );
 
       if (parts.length === 0) {
         // Empty expansion produces nothing
+        if (hadTrailingDelimiter) {
+          pendingWordBreak = true;
+        }
       } else if (parts.length === 1) {
         currentWord += parts[0];
         hasProducedWord = true;
+        pendingWordBreak = hadTrailingDelimiter;
       } else {
         // Multiple results from split
         currentWord += parts[0];
@@ -354,6 +504,7 @@ async function smartWordSplitWithUnquotedLiterals(
         }
 
         currentWord = parts[parts.length - 1];
+        pendingWordBreak = hadTrailingDelimiter;
       }
     }
   }

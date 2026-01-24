@@ -95,7 +95,6 @@ echo $?
 ## END
 
 #### declare
-## SKIP: declare output format not implemented
 test_var1=111
 readonly test_var2=222
 export test_var3=333
@@ -363,7 +362,6 @@ declare -- a=b
 ## N-I mksh stdout-json: ""
 
 #### declare -pnrx
-## SKIP: declare -pn/-pr/-px filtering flags not implemented (outputs nothing for filtered list)
 test_var1=111
 readonly test_var2=222
 export test_var3=333
@@ -403,7 +401,6 @@ declare -x test_var3="333"
 ## END
 
 #### declare -paA
-## SKIP: declare -pa/-pA filtering flags not implemented (outputs nothing for filtered list)
 declare -a test_var6=()
 declare -A test_var7=()
 f1() {
@@ -569,7 +566,6 @@ declare -- x
 ## END
 
 #### eval -- "$(declare -p arr)" (restore arrays w/ unset elements)
-## SKIP: declare -a arr=(...) should clear existing array elements - separate bug
 arr=(1 2 3)
 eval -- "$(arr=(); arr[3]= arr[4]=foo; declare -p arr)"
 for i in {0..4}; do
@@ -931,7 +927,6 @@ status=0
 ## N-I ash status: 2
 
 #### invalid var name
-## SKIP: Invalid var name handling differs
 typeset foo/bar
 ## status: 1
 

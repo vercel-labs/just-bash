@@ -162,6 +162,14 @@ export async function executeCStyleFor(
   ctx: InterpreterContext,
   node: CStyleForNode,
 ): Promise<ExecResult> {
+  // Pre-open output redirects to truncate files BEFORE evaluating expressions
+  // This matches bash behavior where redirect files are opened before
+  // any command substitutions in the loop are evaluated
+  const preOpenError = await preOpenOutputRedirects(ctx, node.redirections);
+  if (preOpenError) {
+    return preOpenError;
+  }
+
   // Update currentLine for $LINENO - set to loop header line
   const loopLine = node.line;
   if (loopLine !== undefined) {
@@ -227,7 +235,9 @@ export async function executeCStyleFor(
           continue;
         }
         if (loopResult.action === "error") {
-          return result(stdout, stderr, loopResult.exitCode ?? 1);
+          // Apply output redirections before returning
+          const bodyResult = result(stdout, stderr, loopResult.exitCode ?? 1);
+          return applyRedirections(ctx, bodyResult, node.redirections);
         }
         throw loopResult.error;
       }
@@ -240,7 +250,9 @@ export async function executeCStyleFor(
     ctx.state.loopDepth--;
   }
 
-  return result(stdout, stderr, exitCode);
+  // Apply output redirections
+  const bodyResult = result(stdout, stderr, exitCode);
+  return applyRedirections(ctx, bodyResult, node.redirections);
 }
 
 export async function executeWhile(

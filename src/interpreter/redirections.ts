@@ -17,6 +17,36 @@ import { result as makeResult } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
 
 /**
+ * Parse the content of a read-write file descriptor.
+ * Format: __rw__:pathLength:path:position:content
+ * @returns The parsed components, or null if format is invalid
+ */
+function parseRwFdContent(fdContent: string): {
+  path: string;
+  position: number;
+  content: string;
+} | null {
+  if (!fdContent.startsWith("__rw__:")) {
+    return null;
+  }
+  const afterPrefix = fdContent.slice(7);
+  const firstColonIdx = afterPrefix.indexOf(":");
+  if (firstColonIdx === -1) return null;
+  const pathLength = Number.parseInt(afterPrefix.slice(0, firstColonIdx), 10);
+  if (Number.isNaN(pathLength) || pathLength < 0) return null;
+  const pathStart = firstColonIdx + 1;
+  const path = afterPrefix.slice(pathStart, pathStart + pathLength);
+  const positionStart = pathStart + pathLength + 1;
+  const remaining = afterPrefix.slice(positionStart);
+  const posColonIdx = remaining.indexOf(":");
+  if (posColonIdx === -1) return null;
+  const position = Number.parseInt(remaining.slice(0, posColonIdx), 10);
+  if (Number.isNaN(position) || position < 0) return null;
+  const content = remaining.slice(posColonIdx + 1);
+  return { path, position, content };
+}
+
+/**
  * Pre-expanded redirect targets, keyed by index into the redirections array.
  * This allows us to expand redirect targets (including side effects) before
  * executing a function body, then apply the redirections after.
@@ -560,15 +590,15 @@ export async function applyRedirections(
                 stderr = "";
               }
             } else if (fdInfo?.startsWith("__rw__:")) {
-              // Read/write FD - extract path and append to file
-              const colonIdx = fdInfo.indexOf(":", 7);
-              if (colonIdx !== -1) {
-                const resolvedPath = fdInfo.slice(7, colonIdx);
+              // Read/write FD - extract path using proper format parsing
+              // Format: __rw__:pathLength:path:position:content
+              const parsed = parseRwFdContent(fdInfo);
+              if (parsed) {
                 if (fd === 1) {
-                  await ctx.fs.appendFile(resolvedPath, stdout, "binary");
+                  await ctx.fs.appendFile(parsed.path, stdout, "binary");
                   stdout = "";
                 } else if (fd === 2) {
-                  await ctx.fs.appendFile(resolvedPath, stderr, "binary");
+                  await ctx.fs.appendFile(parsed.path, stderr, "binary");
                   stderr = "";
                 }
               }
@@ -612,9 +642,10 @@ export async function applyRedirections(
               exitCode = 1;
               stdout = "";
             }
-          } else if (redir.operator === ">&" && redir.fd == null) {
-            // In bash, >&word (without explicit fd) where word is not a number or '-'
-            // redirects BOTH stdout and stderr to the file (equivalent to &>word)
+          } else if (redir.operator === ">&") {
+            // In bash, N>&word where word is not a number or '-' is treated as a file redirect
+            // If no explicit fd (redir.fd == null), redirects BOTH stdout and stderr (equivalent to &>word)
+            // If explicit fd (e.g., 1>&word), redirects just that fd to the file
             const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
             // Check if target is a directory
             try {
@@ -635,10 +666,20 @@ export async function applyRedirections(
             } catch {
               // File doesn't exist, that's ok - we'll create it
             }
-            // Write both stdout and stderr to the file
-            await ctx.fs.writeFile(filePath, stdout + stderr, "binary");
-            stdout = "";
-            stderr = "";
+            if (redir.fd == null) {
+              // >&word (no explicit fd) - write both stdout and stderr to the file
+              await ctx.fs.writeFile(filePath, stdout + stderr, "binary");
+              stdout = "";
+              stderr = "";
+            } else if (fd === 1) {
+              // 1>&word - redirect stdout to file
+              await ctx.fs.writeFile(filePath, stdout, "binary");
+              stdout = "";
+            } else if (fd === 2) {
+              // 2>&word - redirect stderr to file
+              await ctx.fs.writeFile(filePath, stderr, "binary");
+              stderr = "";
+            }
           }
         }
         break;

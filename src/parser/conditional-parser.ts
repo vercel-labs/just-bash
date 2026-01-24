@@ -62,6 +62,56 @@ const BINARY_OPS = [
   "-ef",
 ];
 
+/**
+ * Parse a pattern word for the RHS of == or != in [[ ]].
+ * Handles the special case of !(...) extglob patterns where the lexer
+ * tokenizes `!` as BANG and `(` as LPAREN separately.
+ */
+function parsePatternWord(p: Parser): WordNode {
+  // Check for !(...) extglob pattern: BANG followed by LPAREN
+  if (p.check(TokenType.BANG) && p.peek(1).type === TokenType.LPAREN) {
+    // Consume the BANG token
+    p.advance();
+    // Consume the LPAREN token
+    p.advance();
+
+    // Now we need to find the matching ) and collect everything as an extglob pattern
+    // Track parenthesis depth
+    let depth = 1;
+    let pattern = "!(";
+
+    while (depth > 0 && !p.check(TokenType.EOF)) {
+      if (p.check(TokenType.LPAREN)) {
+        depth++;
+        pattern += "(";
+        p.advance();
+      } else if (p.check(TokenType.RPAREN)) {
+        depth--;
+        if (depth > 0) {
+          pattern += ")";
+        }
+        p.advance();
+      } else if (p.isWord()) {
+        pattern += p.advance().value;
+      } else if (p.check(TokenType.PIPE)) {
+        pattern += "|";
+        p.advance();
+      } else {
+        // Unexpected token
+        break;
+      }
+    }
+
+    pattern += ")";
+
+    // Parse the pattern string to create proper word parts
+    return p.parseWordFromString(pattern, false, false, false, false, true);
+  }
+
+  // Normal case - just parse a word
+  return p.parseWordNoBraceExpansion();
+}
+
 export function parseConditionalExpression(
   p: Parser,
 ): ConditionalExpressionNode {
@@ -162,10 +212,15 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
       const operator = p.advance().value;
       // For =~ operator, the RHS can include unquoted ( and ) for regex grouping
       // Parse until we hit ]], &&, ||, or newline
-      const right =
-        operator === "=~"
-          ? parseRegexPattern(p)
-          : p.parseWordNoBraceExpansion();
+      // For == and != operators, the RHS is a pattern (may include !(...) extglob)
+      let right: WordNode;
+      if (operator === "=~") {
+        right = parseRegexPattern(p);
+      } else if (operator === "==" || operator === "!=") {
+        right = parsePatternWord(p);
+      } else {
+        right = p.parseWordNoBraceExpansion();
+      }
       return {
         type: "CondBinary",
         operator: operator as CondBinaryOperator,
@@ -199,7 +254,7 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
     // Check for = (assignment/equality in test)
     if (p.isWord() && p.current().value === "=") {
       p.advance();
-      const right = p.parseWordNoBraceExpansion();
+      const right = parsePatternWord(p);
       return {
         type: "CondBinary",
         operator: "==",
@@ -223,7 +278,7 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
  * Important rules:
  * - Track parenthesis depth to distinguish between regex grouping and conditional grouping
  * - At the top level (parenDepth === 0), tokens must be adjacent (no spaces)
- * - Inside parentheses (parenDepth > 0), spaces are allowed
+ * - Inside parentheses (parenDepth > 0), spaces are allowed and operators lose special meaning
  * - This matches bash behavior: "[[ a =~ c a ]]" is a syntax error,
  *   but "[[ a =~ (c a) ]]" is valid
  */
@@ -231,6 +286,7 @@ function parseRegexPattern(p: Parser): WordNode {
   const parts: WordPart[] = [];
   let parenDepth = 0; // Track nested parens in the regex pattern
   let lastTokenEnd = -1; // Track end position of last consumed token
+  const input = p.getInput(); // Get raw input for extracting exact whitespace
 
   // Helper to check if we're at a pattern terminator
   const isTerminator = () =>
@@ -252,14 +308,16 @@ function parseRegexPattern(p: Parser): WordNode {
       break;
     }
 
-    // Inside parens, preserve the space as a literal space in the pattern
+    // Inside parens, preserve the exact whitespace from the input
     if (parenDepth > 0 && hasGap) {
-      parts.push({ type: "Literal", value: " " });
+      // Extract the exact whitespace characters from the raw input
+      const whitespace = input.slice(lastTokenEnd, currentToken.start);
+      parts.push({ type: "Literal", value: whitespace });
     }
 
     if (p.isWord()) {
-      // Parse word parts (this handles $var, etc.)
-      const word = p.parseWordNoBraceExpansion();
+      // Parse word parts for regex (this preserves backslash escapes as Escaped nodes)
+      const word = p.parseWordForRegex();
       parts.push(...word.parts);
       // After parseWord, position has advanced - get the consumed token's end
       lastTokenEnd = p.peek(-1).end;
@@ -286,6 +344,26 @@ function parseRegexPattern(p: Parser): WordNode {
       // Unquoted | in regex pattern - regex alternation (foo|bar)
       const token = p.advance();
       parts.push({ type: "Literal", value: "|" });
+      lastTokenEnd = token.end;
+    } else if (p.check(TokenType.SEMICOLON)) {
+      // Unquoted ; in regex pattern - only valid inside parentheses
+      if (parenDepth > 0) {
+        const token = p.advance();
+        parts.push({ type: "Literal", value: ";" });
+        lastTokenEnd = token.end;
+      } else {
+        // At top level, semicolon is a command terminator, stop parsing
+        break;
+      }
+    } else if (parenDepth > 0 && p.check(TokenType.LESS)) {
+      // Unquoted < inside parentheses - treated as literal in regex
+      const token = p.advance();
+      parts.push({ type: "Literal", value: "<" });
+      lastTokenEnd = token.end;
+    } else if (parenDepth > 0 && p.check(TokenType.GREAT)) {
+      // Unquoted > inside parentheses - treated as literal in regex
+      const token = p.advance();
+      parts.push({ type: "Literal", value: ">" });
       lastTokenEnd = token.end;
     } else {
       // Unknown token, stop parsing

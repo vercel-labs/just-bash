@@ -129,16 +129,15 @@ export function parseSimpleCommand(p: Parser): SimpleCommandNode {
   const args: WordNode[] = [];
   const redirections: RedirectionNode[] = [];
 
-  // Parse prefix assignments
-  while (p.check(TokenType.ASSIGNMENT_WORD)) {
+  // Parse prefix assignments and redirections (they can be interleaved)
+  // e.g., FOO=foo >file BAR=bar cmd
+  while (p.check(TokenType.ASSIGNMENT_WORD) || isRedirection(p)) {
     p.checkIterationLimit();
-    assignments.push(parseAssignment(p));
-  }
-
-  // Parse redirections that may come before command
-  while (isRedirection(p)) {
-    p.checkIterationLimit();
-    redirections.push(parseRedirection(p));
+    if (p.check(TokenType.ASSIGNMENT_WORD)) {
+      assignments.push(parseAssignment(p));
+    } else {
+      redirections.push(parseRedirection(p));
+    }
   }
 
   // Parse command name
@@ -169,6 +168,10 @@ export function parseSimpleCommand(p: Parser): SimpleCommandNode {
       redirections.push(parseRedirection(p));
     } else if (p.check(TokenType.RBRACE)) {
       // } can be an argument like "echo }" - parse it as a word
+      const token = p.advance();
+      args.push(p.parseWordFromString(token.value, false, false));
+    } else if (p.check(TokenType.LBRACE)) {
+      // { can be an argument like "type -t {" - parse it as a word
       const token = p.advance();
       args.push(p.parseWordFromString(token.value, false, false));
     } else if (p.check(TokenType.DBRACK_END)) {

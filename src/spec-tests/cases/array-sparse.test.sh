@@ -673,7 +673,6 @@ bash: line 10: sp: bad array subscript
 
 
 #### ${a[@]:offset:length}
-## SKIP: Sparse array slice offset counts set elements, not indices
 case $SH in mksh) exit ;; esac
 
 a=(v{0..9})
@@ -746,7 +745,6 @@ echo "[${a[@]:10:1}][${a[*]:10:1}]"
 
 
 #### ${@:offset:length}
-## SKIP: Negative offset slicing for positional parameters not implemented
 case $SH in mksh) exit ;; esac
 
 set -- v{1..9}

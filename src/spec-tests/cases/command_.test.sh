@@ -9,7 +9,6 @@ PATH=/bin
 ## stdout: /bin/ls
 
 #### Permission denied
-## SKIP: Permission denied execution not implemented (returns 127 instead of 126)
 touch $TMP/text-file
 $TMP/text-file
 ## status: 126

@@ -25,7 +25,6 @@ builtin
 ## END
 
 #### type -t -> keyword
-## SKIP: Parser treats { as brace group start instead of literal argument
 type -t for time ! fi do {
 ## STDOUT: 
 keyword

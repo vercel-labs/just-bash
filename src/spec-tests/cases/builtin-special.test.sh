@@ -226,7 +226,6 @@ should not get here
 ## END
 
 #### bash 'type' gets confused - says 'function', but runs builtin
-## SKIP: Function override of special builtins (eval) not fully implemented
 case $SH in dash|mksh|zsh|ash|yash) exit ;; esac
 
 echo TRUE

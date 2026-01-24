@@ -73,6 +73,7 @@ export function parseArithmeticExpression(
     if (remaining) {
       return {
         type: "ArithmeticExpression",
+        originalText: input,
         expression: {
           type: "ArithSyntaxError",
           errorToken: remaining,
@@ -81,7 +82,7 @@ export function parseArithmeticExpression(
       };
     }
   }
-  return { type: "ArithmeticExpression", expression };
+  return { type: "ArithmeticExpression", expression, originalText: input };
 }
 
 export function parseArithExpr(
@@ -822,6 +823,7 @@ function parseArithPrimary(
   if (/[0-9]/.test(input[currentPos])) {
     let numStr = "";
     let seenHash = false;
+    let isHex = false;
     // Handle different bases: 0x, 0, base#num
     while (currentPos < input.length) {
       const ch = input[currentPos];
@@ -837,12 +839,50 @@ function parseArithPrimary(
         seenHash = true;
         numStr += ch;
         currentPos++;
-      } else if (/[0-9a-fA-FxX]/.test(ch)) {
+      } else if (
+        numStr === "0" &&
+        (ch === "x" || ch === "X") &&
+        currentPos + 1 < input.length &&
+        /[0-9a-fA-F]/.test(input[currentPos + 1])
+      ) {
+        // Start of hex: 0x followed by hex digit
+        isHex = true;
+        numStr += ch;
+        currentPos++;
+      } else if (isHex && /[0-9a-fA-F]/.test(ch)) {
+        // Continue hex digits
+        numStr += ch;
+        currentPos++;
+      } else if (!isHex && /[0-9]/.test(ch)) {
+        // Decimal or octal digits only (no letters unless hex)
         numStr += ch;
         currentPos++;
       } else {
         break;
       }
+    }
+    // Check for invalid constant: a number followed by a letter that isn't a valid identifier start
+    // e.g., "42x" is invalid - the "x" makes it invalid
+    // But we've already parsed just the digits, so check if next char is a letter
+    if (currentPos < input.length && /[a-zA-Z_]/.test(input[currentPos])) {
+      // Consume the trailing letters to form the invalid token for error message
+      let invalidToken = numStr;
+      while (
+        currentPos < input.length &&
+        /[a-zA-Z0-9_]/.test(input[currentPos])
+      ) {
+        invalidToken += input[currentPos];
+        currentPos++;
+      }
+      // Return an error node that will throw at evaluation time
+      return {
+        expr: {
+          type: "ArithSyntaxError" as const,
+          errorToken: invalidToken,
+          message: `${invalidToken}: value too great for base (error token is "${invalidToken}")`,
+        },
+        pos: currentPos,
+      };
     }
     // Check for floating point (not supported in bash arithmetic)
     if (input[currentPos] === "." && /[0-9]/.test(input[currentPos + 1])) {
@@ -1138,6 +1178,7 @@ function parseArithPrimary(
 
 /**
  * Parse a number string with various bases (decimal, hex, octal, base#num)
+ * Returns NaN for invalid numbers.
  */
 export function parseArithNumber(str: string): number {
   // Handle base#num format
