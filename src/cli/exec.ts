@@ -116,7 +116,7 @@ if (runRealBash) {
     const result = spawnSync("bash", ["-c", script], {
       encoding: "utf-8",
       cwd: tempDir,
-      env: { ...process.env, HOME: tempDir, PATH: "/bin:/usr/bin" },
+      env: { ...process.env, HOME: tempDir, PATH: "/usr/bin:/bin" },
     });
     console.log("exitCode:", result.status);
     console.log("stderr:", JSON.stringify(result.stderr));

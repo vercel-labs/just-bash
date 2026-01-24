@@ -340,7 +340,6 @@ type -a executable
 ## status: 1
 
 #### type -P does not find directories (regression)
-## SKIP: Virtual filesystem uses /bin not /usr/bin for registered commands
 
 mkdir -p _tmp
 PATH="_tmp:$PATH"

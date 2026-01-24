@@ -114,7 +114,6 @@ status=0
 ## END
 
 #### command -v doesn't find executable dir
-## SKIP: expected /usr/bin/cat but got /bin/cat
 
 mkdir -p _tmp
 PATH="_tmp:$PATH"

@@ -851,7 +851,7 @@ async function getCommandCompletions(
   }
 
   // Add external commands from PATH
-  const path = ctx.state.env.PATH ?? "/bin:/usr/bin";
+  const path = ctx.state.env.PATH ?? "/usr/bin:/bin";
   for (const dir of path.split(":")) {
     if (!dir) continue;
     try {

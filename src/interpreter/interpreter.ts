@@ -1473,6 +1473,19 @@ export class Interpreter {
           }
         }
       }
+      // In bash, "exec" with only redirections does NOT persist prefix assignments
+      // This is the "special case of the special case" - unlike other special builtins
+      // (like ":"), exec without a command restores temp assignments
+      for (const [name, value] of Object.entries(tempAssignments)) {
+        if (value === undefined) delete this.ctx.state.env[name];
+        else this.ctx.state.env[name] = value;
+      }
+      // Clear temp exported vars
+      if (this.ctx.state.tempExportedVars) {
+        for (const name of Object.keys(tempAssignments)) {
+          this.ctx.state.tempExportedVars.delete(name);
+        }
+      }
       return OK;
     }
 
@@ -1927,7 +1940,7 @@ export class Interpreter {
       }
 
       // Run command without checking functions, but builtins are still available
-      // Pass useDefaultPath to use /bin:/usr/bin instead of $PATH
+      // Pass useDefaultPath to use /usr/bin:/bin instead of $PATH
       const [cmd, ...rest] = cmdArgs;
       return this.runCommand(cmd, rest, [], stdin, true, useDefaultPath);
     }
@@ -2056,8 +2069,8 @@ export class Interpreter {
     }
 
     // External commands - resolve via PATH
-    // For command -p, use default PATH /bin:/usr/bin instead of $PATH
-    const defaultPath = "/bin:/usr/bin";
+    // For command -p, use default PATH /usr/bin:/bin instead of $PATH
+    const defaultPath = "/usr/bin:/bin";
     const resolved = await this.resolveCommand(
       commandName,
       useDefaultPath ? defaultPath : undefined,
@@ -2427,7 +2440,7 @@ export class Interpreter {
     }
 
     // Search PATH directories (use override if provided, for command -p)
-    const pathEnv = pathOverride ?? this.ctx.state.env.PATH ?? "/bin:/usr/bin";
+    const pathEnv = pathOverride ?? this.ctx.state.env.PATH ?? "/usr/bin:/bin";
     const pathDirs = pathEnv.split(":");
 
     for (const dir of pathDirs) {
@@ -2442,14 +2455,14 @@ export class Interpreter {
       }
     }
 
-    // Fallback: check registry directly only if /bin doesn't exist
+    // Fallback: check registry directly only if /usr/bin doesn't exist
     // This maintains backward compatibility for OverlayFs and other non-InMemoryFs
     // where command stubs aren't created, while still respecting PATH for InMemoryFs
-    const binExists = await this.ctx.fs.exists("/bin");
-    if (!binExists) {
+    const usrBinExists = await this.ctx.fs.exists("/usr/bin");
+    if (!usrBinExists) {
       const cmd = this.ctx.commands.get(commandName);
       if (cmd) {
-        return { cmd, path: `/bin/${commandName}` };
+        return { cmd, path: `/usr/bin/${commandName}` };
       }
     }
 
@@ -2486,7 +2499,7 @@ export class Interpreter {
       return paths;
     }
 
-    const pathEnv = this.ctx.state.env.PATH || "/bin:/usr/bin";
+    const pathEnv = this.ctx.state.env.PATH || "/usr/bin:/bin";
     const pathDirs = pathEnv.split(":");
 
     for (const dir of pathDirs) {
@@ -2977,7 +2990,7 @@ export class Interpreter {
     }
 
     // Search PATH directories
-    const pathEnv = this.ctx.state.env.PATH ?? "/bin:/usr/bin";
+    const pathEnv = this.ctx.state.env.PATH ?? "/usr/bin:/bin";
     const pathDirs = pathEnv.split(":");
 
     for (const dir of pathDirs) {
@@ -3005,15 +3018,15 @@ export class Interpreter {
 
     // Fallback: check if command exists in registry
     // This handles virtual filesystems where commands are registered but
-    // not necessarily present as individual files in /bin
+    // not necessarily present as individual files in /usr/bin
     if (this.ctx.commands.has(name)) {
-      // Return path in the first PATH directory that contains /bin, or default to /bin
+      // Return path in the first PATH directory that contains /usr/bin or /bin, or default to /usr/bin
       for (const dir of pathDirs) {
-        if (dir === "/bin" || dir === "/usr/bin") {
+        if (dir === "/usr/bin" || dir === "/bin") {
           return `${dir}/${name}`;
         }
       }
-      return `/bin/${name}`;
+      return `/usr/bin/${name}`;
     }
 
     return null;
@@ -3169,10 +3182,31 @@ export class Interpreter {
           exitCode = 1;
         }
       } else if (this.ctx.commands.has(name)) {
+        // Search PATH for the command file (registered commands exist in both /usr/bin and /bin)
+        const pathEnv = this.ctx.state.env.PATH ?? "/usr/bin:/bin";
+        const pathDirs = pathEnv.split(":");
+        let foundPath: string | null = null;
+        for (const dir of pathDirs) {
+          if (!dir) continue;
+          const cmdPath = `${dir}/${name}`;
+          try {
+            const stat = await this.ctx.fs.stat(cmdPath);
+            if (!stat.isDirectory && (stat.mode & 0o111) !== 0) {
+              foundPath = cmdPath;
+              break;
+            }
+          } catch {
+            // File doesn't exist in this directory, continue searching
+          }
+        }
+        // Fall back to /usr/bin if not found in PATH (shouldn't happen for registered commands)
+        if (!foundPath) {
+          foundPath = `/usr/bin/${name}`;
+        }
         if (verboseDescribe) {
-          stdout += `${name} is /bin/${name}\n`;
+          stdout += `${name} is ${foundPath}\n`;
         } else {
-          stdout += `/bin/${name}\n`;
+          stdout += `${foundPath}\n`;
         }
       } else {
         // Not found - don't print anything for -v, print error to stderr for -V

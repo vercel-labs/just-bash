@@ -187,7 +187,7 @@ export async function handleHash(
   // Add names to hash table (look up in PATH)
   let hasError = false;
   let stderr = "";
-  const pathEnv = ctx.state.env.PATH || "/bin:/usr/bin";
+  const pathEnv = ctx.state.env.PATH || "/usr/bin:/bin";
   const pathDirs = pathEnv.split(":");
 
   for (const name of names) {

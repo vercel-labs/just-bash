@@ -124,9 +124,13 @@ async function executeScript(
     };
   }
 
-  // Build positional parameters for the exec env option
-  // Each exec is isolated, so we pass parameters via the env option
+  // Build environment for the exec call
+  // Include exported environment from parent (for prefix assignments like "FOO=bar exec sh -c '...'")
+  // plus positional parameters
   const positionalEnv: Record<string, string> = {
+    // Inherit exported environment from parent context
+    ...(ctx.exportedEnv || {}),
+    // Override with positional parameters
     "0": scriptName,
     "#": String(scriptArgs.length),
     "@": scriptArgs.join(" "),

@@ -16,7 +16,7 @@ describe("env command", () => {
     const env = new Bash();
     const result = await env.exec("env");
     expect(result.stdout).toContain("HOME=/");
-    expect(result.stdout).toContain("PATH=/bin");
+    expect(result.stdout).toContain("PATH=/usr/bin:/bin");
   });
 
   it("should show help with --help", async () => {

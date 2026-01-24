@@ -5,7 +5,7 @@ describe("which", () => {
   it("should find command in PATH", async () => {
     const env = new Bash();
     const result = await env.exec("which ls");
-    expect(result.stdout).toBe("/bin/ls\n");
+    expect(result.stdout).toBe("/usr/bin/ls\n");
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
   });
@@ -13,7 +13,7 @@ describe("which", () => {
   it("should find multiple commands", async () => {
     const env = new Bash();
     const result = await env.exec("which ls cat echo");
-    expect(result.stdout).toBe("/bin/ls\n/bin/cat\n/bin/echo\n");
+    expect(result.stdout).toBe("/usr/bin/ls\n/usr/bin/cat\n/usr/bin/echo\n");
     expect(result.exitCode).toBe(0);
   });
 
@@ -27,7 +27,7 @@ describe("which", () => {
   it("should return exit 1 if any command not found", async () => {
     const env = new Bash();
     const result = await env.exec("which ls nonexistent cat");
-    expect(result.stdout).toBe("/bin/ls\n/bin/cat\n");
+    expect(result.stdout).toBe("/usr/bin/ls\n/usr/bin/cat\n");
     expect(result.exitCode).toBe(1);
   });
 
@@ -47,9 +47,10 @@ describe("which", () => {
 
   it("should support -a to show all matches", async () => {
     const env = new Bash();
-    // With default PATH=/bin:/usr/bin, command exists in /bin
+    // With default PATH=/usr/bin:/bin, command exists in both directories
+    // -a should show both matches in PATH order
     const result = await env.exec("which -a ls");
-    expect(result.stdout).toBe("/bin/ls\n");
+    expect(result.stdout).toBe("/usr/bin/ls\n/bin/ls\n");
     expect(result.exitCode).toBe(0);
   });
 

@@ -173,7 +173,7 @@ export class Bash {
     const cwd = options.cwd || (this.useDefaultLayout ? "/home/user" : "/");
     const env: Record<string, string> = {
       HOME: this.useDefaultLayout ? "/home/user" : "/",
-      PATH: "/bin:/usr/bin",
+      PATH: "/usr/bin:/bin",
       IFS: " \t\n",
       OSTYPE: "linux-gnu",
       MACHTYPE: "x86_64-pc-linux-gnu",
@@ -314,31 +314,24 @@ export class Bash {
 
   registerCommand(command: Command): void {
     this.commands.set(command.name, command);
-    // Create command stubs in /bin for PATH-based resolution
+    // Create command stubs in /bin and /usr/bin for PATH-based resolution
     // Works for both InMemoryFs and OverlayFs (both have writeFileSync)
+    // Commands are registered to both locations like real Linux systems
+    // (where /bin is often a symlink to /usr/bin on modern systems)
     const fs = this.fs as {
       writeFileSync?: (path: string, content: string) => void;
     };
     if (typeof fs.writeFileSync === "function") {
+      const stub = `#!/bin/bash\n# Built-in command: ${command.name}\n`;
       try {
-        fs.writeFileSync(
-          `/bin/${command.name}`,
-          `#!/bin/bash\n# Built-in command: ${command.name}\n`,
-        );
+        fs.writeFileSync(`/bin/${command.name}`, stub);
       } catch {
         // Ignore errors
       }
-      // Also create stub in /usr/bin for env command
-      // Many scripts use /usr/bin/env directly
-      if (command.name === "env") {
-        try {
-          fs.writeFileSync(
-            `/usr/bin/${command.name}`,
-            `#!/bin/bash\n# Built-in command: ${command.name}\n`,
-          );
-        } catch {
-          // Ignore errors
-        }
+      try {
+        fs.writeFileSync(`/usr/bin/${command.name}`, stub);
+      } catch {
+        // Ignore errors
       }
     }
   }

@@ -210,7 +210,6 @@ status=0
 ## END
 
 #### HOSTNAME OSTYPE can be changed
-## SKIP: Interactive shell invocation not implemented
 case $SH in zsh) exit ;; esac
 
 #$SH -c 'echo hostname=$HOSTNAME'

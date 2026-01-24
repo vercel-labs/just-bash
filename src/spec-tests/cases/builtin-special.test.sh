@@ -77,7 +77,6 @@ None
 ## END
 
 #### Prefix binding for exec is a special case (versus e.g. readonly)
-## SKIP: exec special behaviors not implemented
 
 pre1=pre1 readonly x=x
 pre2=pre2 exec sh -c 'echo pre1=$pre1 x=$x pre2=$pre2'
@@ -90,7 +89,6 @@ pre1=pre1 x= pre2=pre2
 ## END
 
 #### exec without args is a special case of the special case in some shells
-## SKIP: exec special behaviors not implemented
 
 FOO=bar exec >& 2
 echo FOO=$FOO

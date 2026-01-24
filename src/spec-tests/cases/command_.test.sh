@@ -159,7 +159,6 @@ status=0
 ## END
 
 #### hash without args prints the cache
-## SKIP: whoami command not available in sandbox
 whoami >/dev/null
 hash
 echo status=$?
@@ -170,6 +169,7 @@ status=0
 
 # bash uses a weird table.  Although we could use TSV2.
 ## OK bash stdout-json: "hits\tcommand\n   1\t/usr/bin/whoami\nstatus=0\n"
+## OK-2 bash stdout-json: "hits\tcommand\n   1\t/bin/whoami\nstatus=0\n"
 
 ## OK mksh/zsh STDOUT:
 whoami=/usr/bin/whoami
