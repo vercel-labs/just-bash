@@ -1,5 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
+import { SedLexer, SedTokenType } from "./lexer.js";
+import { parseMultipleScripts } from "./parser.js";
+
+describe("sed lexer", () => {
+  it("should tokenize relative offset address +N", () => {
+    const lexer = new SedLexer("/^2/,+2d");
+    const tokens = lexer.tokenize();
+    const tokenTypes = tokens.map((t) => t.type);
+    expect(tokenTypes).toContain(SedTokenType.RELATIVE_OFFSET);
+  });
+});
+
+describe("sed parser", () => {
+  it("should parse relative offset address", () => {
+    const result = parseMultipleScripts(["/^2/,+2d"]);
+    expect(result.error).toBeUndefined();
+    expect(result.commands.length).toBe(1);
+  });
+});
 
 describe("sed command", () => {
   const createEnv = () =>
@@ -583,6 +602,35 @@ describe("sed command", () => {
       });
       const result = await env.exec("sed -n '1~3p' /test.txt");
       expect(result.stdout).toBe("1\n4\n");
+    });
+  });
+
+  describe("relative offset address (+N)", () => {
+    it("should delete N lines after matching pattern", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "1\n2\n3\n4\n5\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed '/^2/,+2d' /test.txt");
+      expect(result.stdout).toBe("1\n5\n");
+    });
+
+    it("should print N lines after matching pattern", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a\n1\nc\nc\na\n2\na\n3\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed -n '/a/,+1p' /test.txt");
+      expect(result.stdout).toBe("a\n1\na\n2\na\n3\n");
+    });
+
+    it("should work with grouped commands", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "1\n2\n3\n4\n5\n" },
+        cwd: "/",
+      });
+      const result = await env.exec("sed '/^2/,+2{d}' /test.txt");
+      expect(result.stdout).toBe("1\n5\n");
     });
   });
 

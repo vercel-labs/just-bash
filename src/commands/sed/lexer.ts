@@ -12,6 +12,7 @@ export enum SedTokenType {
   DOLLAR = "DOLLAR", // $ - last line
   PATTERN = "PATTERN", // /regex/
   STEP = "STEP", // first~step
+  RELATIVE_OFFSET = "RELATIVE_OFFSET", // +N (GNU extension: ,+N range)
 
   // Structure
   LBRACE = "LBRACE", // {
@@ -58,6 +59,7 @@ export interface SedToken {
   command?: string; // for execute command
   first?: number; // for step address
   step?: number; // for step address
+  offset?: number; // for relative offset address (+N)
   line: number;
   column: number;
 }
@@ -214,6 +216,11 @@ export class SedLexer {
       return this.readNumber();
     }
 
+    // Relative offset address +N (GNU extension for ,+N ranges)
+    if (ch === "+" && this.isDigit(this.input[this.pos + 1] || "")) {
+      return this.readRelativeOffset();
+    }
+
     // Pattern address /regex/
     if (ch === "/") {
       return this.readPattern();
@@ -259,6 +266,26 @@ export class SedLexer {
     return {
       type: SedTokenType.NUMBER,
       value: parseInt(numStr, 10),
+      line: startLine,
+      column: startColumn,
+    };
+  }
+
+  private readRelativeOffset(): SedToken {
+    const startLine = this.line;
+    const startColumn = this.column;
+    this.advance(); // skip +
+    let numStr = "";
+
+    while (this.isDigit(this.peek())) {
+      numStr += this.advance();
+    }
+
+    const offset = parseInt(numStr, 10) || 0;
+    return {
+      type: SedTokenType.RELATIVE_OFFSET,
+      value: `+${offset}`,
+      offset,
       line: startLine,
       column: startColumn,
     };
@@ -736,13 +763,11 @@ export class SedLexer {
     // Check for \ at start of text to preserve leading spaces (GNU extension)
     // e.g., "a \   text" preserves "   text"
     // Only consume backslash if followed by space, otherwise it's an escape sequence
-    let preserveLeadingSpaces = false;
     if (
       this.peek() === "\\" &&
       this.pos + 1 < this.input.length &&
       (this.input[this.pos + 1] === " " || this.input[this.pos + 1] === "\t")
     ) {
-      preserveLeadingSpaces = true;
       this.advance();
     }
 

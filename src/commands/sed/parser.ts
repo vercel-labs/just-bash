@@ -416,6 +416,10 @@ class SedParser {
           step: token.step || 0,
         };
 
+      case SedTokenType.RELATIVE_OFFSET:
+        this.advance();
+        return { offset: token.offset || 0 };
+
       default:
         return undefined;
     }
