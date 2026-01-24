@@ -94,6 +94,10 @@ export interface InterpreterState {
   startTime: number;
   /** PID of last background job (for $!) */
   lastBackgroundPid: number;
+  /** Current BASHPID (changes in subshells, unlike $$) */
+  bashPid: number;
+  /** Counter for generating unique virtual PIDs for subshells */
+  nextVirtualPid: number;
   /** Current line number being executed (for $LINENO) */
   currentLine: number;
   /** Shell options (set -e, etc.) */

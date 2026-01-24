@@ -133,7 +133,6 @@ argv.py eg6/@(no|matches)  # no matches
 ## END
 
 #### Glob other punctuation chars (lexer mode)
-## SKIP: extglob with special shell chars in quoted alternatives not implemented
 shopt -s extglob
 mkdir -p eg5
 cd eg5
@@ -146,7 +145,6 @@ argv.py @(__aa|'__<>'|__{}|__#|__&&|)
 ## END
 
 #### More glob escaping
-## SKIP: extglob with quoted glob metacharacters in alternatives not implemented
 shopt -s extglob
 mkdir -p eg7
 cd eg7
@@ -161,7 +159,6 @@ argv.py @(nested|'_?'|@('_[:]'|'_*'))
 ## END
 
 #### Escaping of pipe (glibc bug, see demo/glibc_fnmatch.c)
-## SKIP: escaped pipe in extglob pattern not implemented
 shopt -s extglob
 
 mkdir -p extpipe
@@ -352,7 +349,7 @@ bar foo
 ## END
 
 #### noglob
-## SKIP: extglob with quoted glob metacharacters in alternatives not implemented
+## SKIP: quote removal in extglob patterns with noglob not implemented
 shopt -s extglob
 mkdir -p _noglob
 cd _noglob

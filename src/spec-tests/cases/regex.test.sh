@@ -185,7 +185,6 @@ false
 ## BUG zsh status: 1
 
 #### Unquoted { is a regex parse error
-## SKIP: We detect this error at parse time (status 2) while bash defers to runtime (status 0)
 [[ { =~ { ]] && echo true
 echo status=$?
 ## stdout-json: ""

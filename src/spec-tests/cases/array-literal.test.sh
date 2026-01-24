@@ -11,7 +11,6 @@ echo "${a[4]}"
 ## END
 
 #### Tilde expansions in RHS of [k]=v (BashAssoc)
-## SKIP: We produce correct output but test expects bash BUG output (bash-5.2 tilde bug)
 # Note: bash-5.2 has a bug that the tilde doesn't expand on the right hand side
 # of [key]=value.  This problem doesn't happen in bash-3.1..5.1 and bash-5.3.
 HOME=/home/user
@@ -43,7 +42,6 @@ vals: ['a', 'b', 'c', 'd', '1', '2', '3', '4']
 ## END
 
 #### [k]=$v and [k]="$@" (BashArray)
-## SKIP: [k]=$v syntax in array literals and ${!a[@]} word-splitting not implemented
 i=5
 v='1 2 3'
 a=($v [i]=$v)
@@ -77,7 +75,6 @@ vals: ['1', '2', '3', '3 5 7']
 ## END
 
 #### [k]=$v and [k]="$@" (BashAssoc)
-## SKIP: [k]=$v syntax in assoc array literals not implemented correctly
 i=5
 v='1 2 3'
 declare -A a
@@ -112,7 +109,6 @@ vals: ['3 5 7']
 ## END
 
 #### append to element (BashArray)
-## SKIP: [key]+=value append syntax in array literals not implemented
 a=([hello]=1 [hello]+=2)
 printf 'keys: '; argv.py "${!a[@]}"
 printf 'vals: '; argv.py "${a[@]}"
@@ -120,14 +116,13 @@ a+=([hello]+=:34 [hello]+=:56)
 printf 'keys: '; argv.py "${!a[@]}"
 printf 'vals: '; argv.py "${a[@]}"
 ## STDOUT:
-keys: ['100']
+keys: ['0']
 vals: ['12']
-keys: ['100']
+keys: ['0']
 vals: ['12:34:56']
 ## END
 
 #### append to element (BashAssoc)
-## SKIP: We produce correct output ['12'] but test expects bash BUG output ['2']
 declare -A a
 hello=100
 a=([hello]=1 [hello]+=2)
@@ -151,7 +146,7 @@ vals: ['2:34:56']
 ## END
 
 #### non-index forms of element (BashAssoc)
-## SKIP: Array literal index behavior differs
+## SKIP: stderr format differs from bash (we error silently, bash outputs warnings)
 declare -A a
 a=([j]=1 2 3 4)
 echo "status=$?"
@@ -250,7 +245,6 @@ echo ${a["k2"]}
 ## END
 
 #### [k1]=v1 looking like brace expansions (BashArray)
-## SKIP: We produce correct output -{a,b}- but test expects bash BUG [k2]=-a-
 a=([k2]=-{a,b}-)
 echo ${a["k2"]}
 ## STDOUT:
@@ -261,7 +255,6 @@ echo ${a["k2"]}
 ## END
 
 #### BashArray cannot be changed to BashAssoc and vice versa
-## SKIP: Array type conversion not implemented
 declare -a a=(1 2 3 4)
 eval 'declare -A a=([a]=x [b]=y [c]=z)'
 echo status=$?

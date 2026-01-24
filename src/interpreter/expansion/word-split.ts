@@ -7,7 +7,7 @@
 import type { WordPart } from "../../ast/types.js";
 import { splitByIfsForExpansion } from "../helpers/ifs.js";
 import type { InterpreterContext } from "../types.js";
-import { hasQuotedOperationWord } from "./analysis.js";
+import { isOperationWordEntirelyQuoted } from "./analysis.js";
 
 /**
  * Type for the expandPart function that will be injected
@@ -48,8 +48,28 @@ function isPartSplittable(part: WordPart): boolean {
     return false;
   }
 
-  // Check if parameter expansion has quoted operation word - those shouldn't be splittable
-  if (part.type === "ParameterExpansion" && hasQuotedOperationWord(part)) {
+  // Word splitting behavior depends on whether the default value is entirely quoted:
+  //
+  // - ${v:-"AxBxC"} - entirely quoted default value, should NOT be split
+  //   The quotes protect the entire default value from word splitting.
+  //
+  // - ${v:-x"AxBxC"x} - mixed quoted/unquoted parts, SHOULD be split
+  //   The unquoted parts (x) act as potential word boundaries when containing IFS chars.
+  //   The quoted part "AxBxC" is protected from internal splitting.
+  //
+  // - ${v:-AxBxC} - entirely unquoted, SHOULD be split
+  //   All IFS chars in the result cause word boundaries.
+  //
+  // - ${v:-x"$@"x} - contains $@ in quotes with surrounding literals
+  //   bash 5.x: word splits the entire result (each space becomes a boundary)
+  //   bash 3.2/osh: preserves $@ element boundaries but doesn't add more splits
+  //
+  // We check isOperationWordEntirelyQuoted: if true, the expansion is non-splittable.
+  // If false (mixed or no quotes), word splitting applies.
+  if (
+    part.type === "ParameterExpansion" &&
+    isOperationWordEntirelyQuoted(part)
+  ) {
     return false;
   }
 

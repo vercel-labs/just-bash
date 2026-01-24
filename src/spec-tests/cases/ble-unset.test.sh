@@ -134,7 +134,6 @@ v=tempenv1 f3 global,tempenv1
 
 
 #### [bash_unset] dynamic-unset for nested tempenvs
-## SKIP: bash-specific unset scoping behavior not implemented
 unlocal() { unset -v "$1"; }
 
 f4_unlocal() {
@@ -191,7 +190,6 @@ v=tempenv1 f4_unlocal global,tempenv1
 ## END
 
 #### [bash_unset] local-unset for nested tempenvs
-## SKIP: bash-specific unset scoping behavior not implemented
 f4_unset() {
   v=tempenv2 eval '
     v=tempenv3 eval "

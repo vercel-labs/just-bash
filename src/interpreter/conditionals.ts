@@ -473,7 +473,10 @@ export function matchPattern(
   extglob = false,
 ): boolean {
   const regex = `^${patternToRegexStr(pattern, extglob)}$`;
-  return new RegExp(regex, nocasematch ? "i" : "").test(value);
+  // Use 's' flag (dotAll) so that * matches newlines in the value
+  // This matches bash behavior where patterns like *foo* match multiline values
+  const flags = nocasematch ? "is" : "s";
+  return new RegExp(regex, flags).test(value);
 }
 
 /**

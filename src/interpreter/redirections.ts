@@ -515,11 +515,13 @@ export async function applyRedirections(
         // 1<&2 and 1>&2 both make fd 1 point to where fd 2 points
         const fd = redir.fd ?? 1; // Default to stdout (fd 1)
         // Handle >&- or <&- close operation
+        // NOTE: For command-level redirections, FD close is TEMPORARY - it only
+        // affects the command during its execution. By the time applyRedirections
+        // is called, the command has already completed, so we should NOT modify
+        // the persistent FD state here. The FD will be restored after this command.
+        // Permanent FD closes are handled by `exec N>&-` in executeSimpleCommand.
         if (target === "-") {
-          // Close the FD - remove from fileDescriptors
-          if (ctx.state.fileDescriptors) {
-            ctx.state.fileDescriptors.delete(fd);
-          }
+          // Don't delete the FD - command-level redirections are temporary
           break;
         }
         // >&2, 1>&2, 1<&2: redirect stdout to stderr
@@ -570,8 +572,42 @@ export async function applyRedirections(
                   stderr = "";
                 }
               }
-            } else if (targetFd >= 10) {
-              // User-allocated FD range (>=10) but FD not found - bad file descriptor
+            } else if (fdInfo?.startsWith("__dupout__:")) {
+              // FD is duplicated from another FD - resolve the chain
+              // __dupout__:N means this FD writes to the same place as FD N
+              const sourceFd = Number.parseInt(fdInfo.slice(11), 10);
+              if (sourceFd === 1) {
+                // Target FD duplicates stdout - output stays on stdout (no-op for 1>&N)
+                // stdout remains as is
+              } else if (sourceFd === 2) {
+                // Target FD duplicates stderr - redirect stdout to stderr
+                if (fd === 1) {
+                  stderr += stdout;
+                  stdout = "";
+                }
+              } else {
+                // Check if sourceFd points to a file
+                const sourceInfo = ctx.state.fileDescriptors?.get(sourceFd);
+                if (sourceInfo?.startsWith("__file__:")) {
+                  const resolvedPath = sourceInfo.slice(9);
+                  if (fd === 1) {
+                    await ctx.fs.appendFile(resolvedPath, stdout, "binary");
+                    stdout = "";
+                  } else if (fd === 2) {
+                    await ctx.fs.appendFile(resolvedPath, stderr, "binary");
+                    stderr = "";
+                  }
+                }
+              }
+            } else if (fdInfo?.startsWith("__dupin__:")) {
+              // FD is duplicated for input - writing to it is an error
+              stderr += `bash: ${targetFd}: Bad file descriptor\n`;
+              exitCode = 1;
+              stdout = "";
+            } else if (targetFd >= 3) {
+              // User FD range (3+) but FD not found - bad file descriptor
+              // For FDs 3-9 (manually allocated) and 10+ (auto-allocated),
+              // if the FD is not in fileDescriptors, it means it was closed or never opened
               stderr += `bash: ${targetFd}: Bad file descriptor\n`;
               exitCode = 1;
               stdout = "";

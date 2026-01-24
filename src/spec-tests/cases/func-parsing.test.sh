@@ -64,13 +64,11 @@ func-name=ext
 ## OK mksh stdout-json: ""
 
 #### Function name with $
-## SKIP: Function name with expansion not implemented
 $foo-bar() { ls ; }
 ## status: 2
 ## OK bash/mksh status: 1
 
 #### Function name with command sub
-## SKIP: Function name with expansion not implemented
 foo-$(echo hi)() { ls ; }
 ## status: 2
 ## OK bash/mksh status: 1

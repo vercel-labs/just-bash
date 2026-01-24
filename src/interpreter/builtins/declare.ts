@@ -367,9 +367,11 @@ export function handleDeclare(
             const escapedValue = value
               .replace(/\\/g, "\\\\")
               .replace(/"/g, '\\"');
-            return `['${key}']="${escapedValue}"`;
+            // Bash outputs [key]="value" without quotes around key
+            return `[${key}]="${escapedValue}"`;
           });
-          stdout += `declare -A ${name}=(${elements.join(" ")})\n`;
+          // Bash outputs a trailing space before ) in associative arrays
+          stdout += `declare -A ${name}=(${elements.join(" ")} )\n`;
         }
         continue;
       }
@@ -460,9 +462,11 @@ export function handleDeclare(
             const escapedValue = value
               .replace(/\\/g, "\\\\")
               .replace(/"/g, '\\"');
-            return `['${key}']="${escapedValue}"`;
+            // Bash outputs [key]="value" without quotes around key
+            return `[${key}]="${escapedValue}"`;
           });
-          stdout += `declare -A ${name}=(${elements.join(" ")})\n`;
+          // Bash outputs a trailing space before ) in associative arrays
+          stdout += `declare -A ${name}=(${elements.join(" ")} )\n`;
         }
         continue;
       }
@@ -492,6 +496,34 @@ export function handleDeclare(
       if (value !== undefined) {
         const escapedValue = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
         stdout += `declare ${flags} ${name}="${escapedValue}"\n`;
+      }
+    }
+    return success(stdout);
+  }
+
+  // Handle declare -A without arguments: list all associative arrays
+  if (processedArgs.length === 0 && declareAssoc && !printMode) {
+    let stdout = "";
+
+    // Get all associative array names and sort them
+    const assocNames = Array.from(ctx.state.associativeArrays ?? []).sort();
+
+    for (const name of assocNames) {
+      const keys = getAssocArrayKeys(ctx, name);
+      if (keys.length === 0) {
+        // Empty associative array
+        stdout += `declare -A ${name}=()\n`;
+      } else {
+        // Non-empty associative array: format as ([key]="value" ...)
+        // Note: bash includes a trailing space before the closing paren
+        const elements = keys.map((key) => {
+          const value = ctx.state.env[`${name}_${key}`] ?? "";
+          const escapedValue = value
+            .replace(/\\/g, "\\\\")
+            .replace(/"/g, '\\"');
+          return `[${key}]="${escapedValue}"`;
+        });
+        stdout += `declare -A ${name}=(${elements.join(" ")} )\n`;
       }
     }
     return success(stdout);
@@ -577,6 +609,26 @@ export function handleDeclare(
     if (arrayMatch && !removeArray) {
       const name = arrayMatch[1];
       const content = arrayMatch[2];
+
+      // Check for type conversion errors
+      // Cannot convert indexed array to associative array
+      if (declareAssoc) {
+        const existingIndices = getArrayIndices(ctx, name);
+        if (existingIndices.length > 0) {
+          stderr += `bash: declare: ${name}: cannot convert indexed to associative array\n`;
+          exitCode = 1;
+          continue;
+        }
+      }
+      // Cannot convert associative array to indexed array
+      if (declareArray || (!declareAssoc && !declareArray)) {
+        // If no -A flag is set and variable is already an assoc array, error
+        if (ctx.state.associativeArrays?.has(name)) {
+          stderr += `bash: declare: ${name}: cannot convert associative to indexed array\n`;
+          exitCode = 1;
+          continue;
+        }
+      }
 
       // Save to local scope before modifying (for local variable restoration)
       saveArrayToLocalScope(name);
@@ -855,6 +907,14 @@ export function handleDeclare(
 
       // Track associative array declaration
       if (declareAssoc) {
+        // Check if this is already an indexed array - can't convert
+        const existingIndices = getArrayIndices(ctx, name);
+        if (existingIndices.length > 0) {
+          // bash: declare: z: cannot convert indexed to associative array
+          stderr += `bash: declare: ${name}: cannot convert indexed to associative array\n`;
+          exitCode = 1;
+          continue;
+        }
         ctx.state.associativeArrays ??= new Set();
         ctx.state.associativeArrays.add(name);
       }

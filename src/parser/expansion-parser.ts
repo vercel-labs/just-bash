@@ -827,9 +827,14 @@ export function parseWordParts(
           next === '"' ||
           next === "'" ||
           next === "\n";
-      // Glob metacharacters and backslash that should create Escaped nodes
+      // Glob metacharacters, extglob operators, and backslash that should create Escaped nodes
       // so they're treated as literals during globbing (and \\ doesn't escape the next char)
-      const isGlobMetaOrBackslash = "*?[]\\".includes(next);
+      // Including ( and ) to prevent \( and \) from being interpreted as extglob operators
+      // BUT: inside double quotes (singleQuotesAreLiteral=true), ( and ) are NOT escapable
+      // because double quotes only allow escaping $, `, ", \, and newline
+      const isGlobMetaOrBackslash = singleQuotesAreLiteral
+        ? "*?[]\\".includes(next)
+        : "*?[]\\()".includes(next);
       if (isEscapable) {
         literal += next;
       } else if (isGlobMetaOrBackslash) {

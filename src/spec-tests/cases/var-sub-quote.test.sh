@@ -318,7 +318,6 @@ echo "${var-"}"}"
 ## END
 
 #### Var substitution with newlines (#2492)
-## SKIP: Backslash-newline continuation in default value not implemented
 echo "${var-a \
 b}"
 echo "${var-a

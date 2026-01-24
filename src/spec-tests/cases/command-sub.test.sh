@@ -267,7 +267,6 @@ echo `echo \\\\\"foo\\\\\"` -
 ## BUG dash/mksh stdout-json: "\u000coo\\ -\n\u000coo\\ -\n\\\"foo\\\" -\n"
 
 #### Syntax errors with double quotes within backticks
-## SKIP: Interactive shell invocation not implemented
 
 # bash does print syntax errors but somehow it exits 0
 

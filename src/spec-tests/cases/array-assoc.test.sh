@@ -212,7 +212,6 @@ echo "${a['a+1']}"
 ## stdout: c
 
 #### lookup with unquoted $key and quoted "$i$i"
-## SKIP: Associative array variable key lookup differs
 declare -A A
 A["aa"]=b
 A["foo"]=bar
@@ -310,7 +309,6 @@ argv.py "${A["x"]}"
 ## END
 
 #### Slice of associative array doesn't make sense in bash
-## SKIP: Associative array slice behavior differs from bash
 declare -A a
 a[xx]=1
 a[yy]=2
@@ -326,15 +324,6 @@ argv.py ${a[@]: 4: 3}
 argv.py ${a[@]: 5: 3}
 ## stdout-json: ""
 ## status: 1
-## BUG bash STDOUT:
-['2', '1', '5']
-['2', '1', '5']
-['1', '5', '4']
-['5', '4', '3']
-['4', '3']
-['3']
-## END
-## BUG bash status: 0
 
 #### bash variable can have an associative array part and a string part
 # and $assoc is equivalent to ${assoc[0]}, just like regular arrays
@@ -414,7 +403,6 @@ status=1
 ## END
 
 #### associative array and brace expansion
-## SKIP: Brace expansion in associative array literal not implemented
 declare -A A=([k1]=v [k2]=-{a,b}-)
 echo ${A["k1"]}
 echo ${A["k2"]}
@@ -772,7 +760,6 @@ banana is yellow
 
 
 #### BashAssoc ${a[@]@Q}
-## SKIP: Read-write file descriptor (<>) not implemented
 
 declare -A a=()
 a['symbol1']=\'\'

@@ -217,7 +217,6 @@ for (( n=0; n<(3- (1)); n++ )) ; do echo $n; done
 ## END
 
 #### autoconf word split (#1449)
-## SKIP: Backticks with escaped quotes edge case not implemented
 
 mysed() {
   for line in "$@"; do

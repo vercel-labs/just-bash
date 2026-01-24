@@ -200,4 +200,52 @@ describe("Associative Arrays", () => {
       expect(result.stdout.trim()).toBe("[]");
     });
   });
+
+  describe("TODO: spec test fixes", () => {
+    it.skip("key-value sequence initialization", async () => {
+      // declare -A A=(1 2 3) should create ['1']=2 ['3']=''
+      const env = createEnv();
+      const result = await env.exec(`
+        declare -A A=(1 2 3)
+        declare -p A
+      `);
+      // Expected: declare -A A=(['1']=2 ['3']='')
+      expect(result.stdout.trim()).toBe("declare -A A=(['1']=2 ['3']='' )");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("variable key lookup", async () => {
+      const env = createEnv();
+      const result = await env.exec(`
+        declare -A A
+        A["aa"]=b
+        A["foo"]=bar
+        key=foo
+        echo \${A[$key]}
+        i=a
+        echo \${A["$i$i"]}
+      `);
+      expect(result.stdout.trim()).toBe("bar\nb");
+    });
+
+    it("self-reference in assignment (bash behavior)", async () => {
+      const env = createEnv();
+      // Step 0: Check declare -p output
+      let result = await env.exec(`
+        declare -A foo
+        foo=(["key"]="value1")
+        declare -p foo
+      `);
+      console.log("step0 stdout:", JSON.stringify(result.stdout));
+
+      // Step 1: Single quoted assignment & lookup
+      result = await env.exec(`
+        declare -A bar
+        bar=(['key']='value1')
+        echo \${bar['key']}
+      `);
+      console.log("step1 stdout:", JSON.stringify(result.stdout));
+      expect(result.stdout.trim()).toBe("value1");
+    });
+  });
 });

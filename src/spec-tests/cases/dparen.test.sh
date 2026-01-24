@@ -46,7 +46,6 @@ true
 
 
 #### bash and mksh: V in (( a[K] = V )) gets coerced to integer
-## SKIP: Array value coercion in arithmetic not implemented
 shopt -u strict_arith || true
 K=key
 V=value
@@ -107,7 +106,6 @@ V=0
 ## END
 
 #### bash: V in (( A["K"] = V )) gets coerced to integer
-## SKIP: Backslash-escaped quotes in unquoted word expansion not handled correctly
 shopt -u strict_arith || true
 K=key
 V=value
@@ -148,7 +146,6 @@ echo $x ${A['y']}
 ## END
 
 #### (( )) with redirect
-## SKIP: Command substitution stderr not captured by outer command redirect
 (( a = $(stdout_stderr.py 42) + 10 )) 2>$TMP/x.txt
 echo $a
 echo --

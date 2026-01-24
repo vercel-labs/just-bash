@@ -192,7 +192,6 @@ cmd=echo
 ## END
 
 #### bash/dash/mksh run the last command is run in its own process
-## SKIP: Pipeline subshell behavior not implemented
 echo hi | read line
 echo "line=$line"
 ## stdout: line=hi

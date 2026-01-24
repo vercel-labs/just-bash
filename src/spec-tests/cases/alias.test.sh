@@ -8,7 +8,6 @@
 # Bash is the only one that doesn't support aliases by default!
 
 #### Usage of builtins
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases || true
 alias -- foo=echo
 echo status=$?
@@ -27,7 +26,6 @@ x
 ## END
 
 #### Basic alias
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases  # bash requires this
 alias hi='echo hello world'
 hi || echo 'should not run this'
@@ -50,14 +48,12 @@ three
 ## END
 
 #### alias can override builtin
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases
 alias echo='echo foo'
 echo bar
 ## stdout: foo bar
 
 #### defining multiple aliases, then unalias
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases  # bash requires this
 x=x
 y=y
@@ -181,7 +177,6 @@ hello world punct
 ## END
 
 #### Recursive alias expansion of first word
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases  # bash requires this
 alias hi='e_ hello world'
 alias e_='echo __'
@@ -202,7 +197,6 @@ one TWO hello world
 ## END
 
 #### Expansion of alias with variable
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases  # bash requires this
 x=x
 alias echo-x='echo $x'  # nothing is evaluated here
@@ -213,7 +207,6 @@ y hi
 ## END
 
 #### Alias must be an unquoted word, no expansions allowed
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases  # bash requires this
 alias echo_alias_='echo'
 cmd=echo_alias_
@@ -226,7 +219,6 @@ status=127
 ## END
 
 #### first and second word are the same alias, but no trailing space
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases  # bash requires this
 x=x
 alias echo-x='echo $x'  # nothing is evaluated here
@@ -252,7 +244,6 @@ echo_alias_ x
 ## status: 127
 
 #### Dynamic alias definition
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases  # bash requires this
 x=x
 name='echo_alias_'
@@ -262,7 +253,6 @@ echo_alias_ X
 ## stdout: X
 
 #### Alias name with punctuation
-## SKIP: alias expansion not implemented
 # NOTE: / is not OK in bash, but OK in other shells.  Must less restrictive
 # than var names.
 shopt -s expand_aliases  # bash requires this
@@ -271,7 +261,6 @@ e_+.~x X
 ## stdout: X
 
 #### Syntax error after expansion
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases  # bash requires this
 alias e_=';; oops'
 e_ x
@@ -279,7 +268,6 @@ e_ x
 ## OK mksh/zsh status: 1
 
 #### Loop split across alias and arg works
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases  # bash requires this
 alias e_='for i in 1 2 3; do echo $i;'
 e_ done
@@ -332,7 +320,6 @@ e_ '${var}"'
 ## OK mksh/zsh status: 1
 
 #### Alias with internal newlines
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases
 alias e_='echo 1
 echo 2
@@ -377,6 +364,7 @@ SEQ THREE | WC -l
 ## stdout: 3
 
 #### Alias not respected inside $()
+## SKIP: Alias scoping in subshells not implemented - aliases defined in $() leak to parent
 # This could be parsed correctly, but it is only defined in a child process.
 shopt -s expand_aliases
 echo $(alias sayhi='echo hello')
@@ -393,7 +381,6 @@ hello other line
 ## END
 
 #### Alias is respected inside eval
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases
 eval "alias sayhi='echo hello'
 sayhi inside"
@@ -407,7 +394,6 @@ hello outside
 ## END
 
 #### alias with redirects works
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases
 alias e_=echo
 >$TMP/alias1.txt e_ 1
@@ -421,7 +407,6 @@ cat $TMP/alias1.txt $TMP/alias2.txt $TMP/alias3.txt
 ## END
 
 #### alias with environment bindings works
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases
 alias p_=printenv.py
 FOO=1 printenv.py FOO
@@ -469,7 +454,6 @@ two
 ## OK osh status: 2
 
 #### alias used in subshell and command sub
-## SKIP: alias expansion not implemented
 # This spec seems to be contradictoary?
 # http://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html#tag_18_03_01
 # "When used as specified by this volume of POSIX.1-2017, alias definitions
@@ -486,7 +470,6 @@ echo $(echo_ commandsub)
 ## END
 
 #### alias used in here doc
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases
 alias echo_='echo [ '
 cat <<EOF
@@ -524,7 +507,6 @@ argv.py "${a[@]}"
 ## N-I zsh status: 1
 
 #### Alias that is pipeline
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases
 alias t1='echo hi|wc -c'
 t1
@@ -533,7 +515,6 @@ t1
 ## END
 
 #### Alias that is && || ;
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases
 alias t1='echo one && echo two && echo 3 | wc -l;
 echo four'
@@ -597,7 +578,6 @@ echo done
 
 
 #### alias with word of multiple lines
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases
 
 alias ll='ls -l'

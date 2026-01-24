@@ -444,7 +444,6 @@ argv.py "$ex" "$glo" "$ro"
 
 
 #### aliased assignment doesn't split
-## SKIP: alias expansion not implemented
 shopt -s expand_aliases || true
 words='a b c'
 alias e=export
@@ -600,8 +599,6 @@ global
 ## END
 
 #### redirect after assignment builtin (eval redirects after evaluating arguments)
-## SKIP: Redirect timing - command sub stderr should output before redirect is applied
-
 # See also: spec/redir-order.test.sh (#2307)
 # The $(stdout_stderr.py) is evaluated *before* the 2>/dev/null redirection
 
@@ -616,7 +613,6 @@ STDERR
 ## BUG zsh stderr-json: ""
 
 #### redirect after command sub (like case above but without assignment builtin)
-## SKIP: Redirect timing - command sub stderr should output before redirect is applied
 echo stdout=$(stdout_stderr.py) 2>/dev/null
 ## STDOUT:
 stdout=STDOUT
@@ -626,7 +622,6 @@ STDERR
 ## END
 
 #### redirect after bare assignment
-## SKIP: Redirect timing - redirect behavior differs between bash and other shells
 x=$(stdout_stderr.py) 2>/dev/null
 echo done
 ## STDOUT:

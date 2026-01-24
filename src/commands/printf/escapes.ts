@@ -152,21 +152,40 @@ export function processEscapes(str: string): string {
           i = j;
           break;
         }
-        case "x":
+        case "x": {
           // Hex escape sequence \xHH
-          if (
-            i + 3 < str.length &&
-            /[0-9a-fA-F]{2}/.test(str.slice(i + 2, i + 4))
+          // Collect consecutive \xHH escapes and try to decode as UTF-8
+          const bytes: number[] = [];
+          let j = i;
+          while (
+            j + 3 < str.length &&
+            str[j] === "\\" &&
+            str[j + 1] === "x" &&
+            /[0-9a-fA-F]{2}/.test(str.slice(j + 2, j + 4))
           ) {
-            result += String.fromCharCode(
-              parseInt(str.slice(i + 2, i + 4), 16),
-            );
-            i += 4;
+            bytes.push(parseInt(str.slice(j + 2, j + 4), 16));
+            j += 4;
+          }
+
+          if (bytes.length > 0) {
+            // Try to decode the bytes as UTF-8
+            try {
+              const decoder = new TextDecoder("utf-8", { fatal: true });
+              result += decoder.decode(new Uint8Array(bytes));
+            } catch {
+              // If not valid UTF-8, fall back to Latin-1 (1:1 byte to codepoint)
+              for (const byte of bytes) {
+                result += String.fromCharCode(byte);
+              }
+            }
+            i = j;
           } else {
+            // No valid hex escape, keep the backslash
             result += str[i];
             i++;
           }
           break;
+        }
         case "u": {
           // Unicode escape \uHHHH (1-4 hex digits)
           let hex = "";

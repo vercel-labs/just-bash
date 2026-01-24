@@ -156,7 +156,6 @@ status=1
 ## END
 
 #### value.BashArray internal representation - Assoc (ordering is a problem)
-## SKIP: declare -A listing format differs
 case $SH in mksh) exit ;; esac
 
 declare -A A=([k]=v)

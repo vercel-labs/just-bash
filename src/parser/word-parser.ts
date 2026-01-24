@@ -205,8 +205,17 @@ function findCharacterClassEnd(value: string, start: number): number {
   while (i < value.length) {
     const char = value[i];
 
-    // Handle escape sequences - \] should not end the class
+    // Handle escape sequences
+    // In bash, shell escaping takes precedence over character class escaping.
+    // So \" inside a character class means the shell escaped the quote,
+    // and this is NOT a valid character class (bash outputs ["] for [\"])
+    // Only \] is valid inside a character class to include literal ]
     if (char === "\\" && i + 1 < value.length) {
+      const next = value[i + 1];
+      // If it's an escaped quote or shell special char, this is not a valid character class
+      if (next === '"' || next === "'") {
+        return -1;
+      }
       i += 2; // Skip both the backslash and the escaped character
       continue;
     }

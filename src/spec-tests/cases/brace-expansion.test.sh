@@ -55,7 +55,6 @@ echo -{$a,b}-
 ## stdout: -A- -b-
 
 #### double expansion with simple var -- bash bug
-## SKIP: just-bash produces correct output but bash has a bug we don't emulate
 # bash is inconsistent with the above
 a=A
 echo {$a,b}_{c,d}
@@ -69,7 +68,6 @@ echo {${a},b}_{c,d}
 ## stdout: A_c A_d b_c b_d
 
 #### double expansion with literal and simple var
-## SKIP: just-bash produces correct output but bash has a bug we don't emulate
 a=A
 echo {_$a,b}_{c,d}
 ## stdout: _A_c _A_d b_c b_d
@@ -107,7 +105,6 @@ echo a{X,,Y}b
 ## stdout: aXb ab aYb
 
 #### Empty alternative
-## SKIP: brace expansion word elision for empty alternatives not implemented
 # zsh and mksh don't do word elision, probably because they do brace expansion
 # AFTER variable substitution.
 argv.py {X,,Y,}

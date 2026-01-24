@@ -83,7 +83,13 @@ export function handleMapfile(
         if (skipped < skipCount) {
           skipped++;
         } else if (maxCount === 0 || lineCount < maxCount) {
-          lines.push(remaining);
+          // Bash truncates at NUL bytes
+          let lastLine = remaining;
+          const nulIdx = lastLine.indexOf("\0");
+          if (nulIdx !== -1) {
+            lastLine = lastLine.substring(0, nulIdx);
+          }
+          lines.push(lastLine);
           lineCount++;
         }
       }
@@ -92,7 +98,11 @@ export function handleMapfile(
 
     // Found delimiter
     let line = remaining.substring(0, delimIndex);
-    // NUL bytes cannot be stored in bash variables, so they are always stripped
+    // Bash truncates lines at NUL bytes (unlike 'read' which ignores them)
+    const nulIndex = line.indexOf("\0");
+    if (nulIndex !== -1) {
+      line = line.substring(0, nulIndex);
+    }
     // For other delimiters, include unless -t flag is set
     if (!trimDelimiter && delimiter !== "\0") {
       line += delimiter;

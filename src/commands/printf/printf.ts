@@ -884,14 +884,35 @@ function processBEscapes(str: string): { value: string; stopped: boolean } {
           return { value: result, stopped: true };
         case "x": {
           // \xHH - hex escape (1-2 hex digits)
-          let hex = "";
-          let j = i + 2;
-          while (j < str.length && j < i + 4 && /[0-9a-fA-F]/.test(str[j])) {
-            hex += str[j];
-            j++;
+          // Collect consecutive \xHH escapes and try to decode as UTF-8
+          const bytes: number[] = [];
+          let j = i;
+          while (j + 1 < str.length && str[j] === "\\" && str[j + 1] === "x") {
+            let hex = "";
+            let k = j + 2;
+            while (k < str.length && k < j + 4 && /[0-9a-fA-F]/.test(str[k])) {
+              hex += str[k];
+              k++;
+            }
+            if (hex) {
+              bytes.push(parseInt(hex, 16));
+              j = k;
+            } else {
+              break;
+            }
           }
-          if (hex) {
-            result += String.fromCharCode(parseInt(hex, 16));
+
+          if (bytes.length > 0) {
+            // Try to decode the bytes as UTF-8
+            try {
+              const decoder = new TextDecoder("utf-8", { fatal: true });
+              result += decoder.decode(new Uint8Array(bytes));
+            } catch {
+              // If not valid UTF-8, fall back to Latin-1 (1:1 byte to codepoint)
+              for (const byte of bytes) {
+                result += String.fromCharCode(byte);
+              }
+            }
             i = j;
           } else {
             result += "\\x";

@@ -157,7 +157,7 @@ import {
 } from "./expansion.js";
 import { callFunction, executeFunctionDef } from "./functions.js";
 import {
-  parseAssocArrayElement,
+  parseKeyedElementFromWord,
   wordToLiteralString,
 } from "./helpers/array.js";
 import { getErrorMessage } from "./helpers/errors.js";
@@ -430,9 +430,22 @@ export class Interpreter {
     let pipefailExitCode = 0; // Track rightmost failing command
     const pipestatusExitCodes: number[] = []; // Track all exit codes for PIPESTATUS
 
+    // For multi-command pipelines, save parent's $_ because pipeline commands
+    // run in subshell-like contexts and should not affect parent's $_
+    // (except the last command when lastpipe is enabled)
+    const isMultiCommandPipeline = node.commands.length > 1;
+    const savedLastArg = this.ctx.state.lastArg;
+
     for (let i = 0; i < node.commands.length; i++) {
       const command = node.commands[i];
       const isLast = i === node.commands.length - 1;
+
+      // In a multi-command pipeline, each command runs in a subshell context
+      // where $_ starts empty (subshells don't inherit $_ from parent in same way)
+      if (isMultiCommandPipeline) {
+        // Clear $_ for each pipeline command - they each get fresh subshell context
+        this.ctx.state.lastArg = "";
+      }
 
       let result: ExecResult;
       try {
@@ -552,6 +565,15 @@ export class Interpreter {
       };
     }
 
+    // Handle $_ for multi-command pipelines:
+    // - With lastpipe enabled: $_ is set by the last command (already done above)
+    // - Without lastpipe: $_ should be restored to the value before the pipeline
+    //   (since all commands ran in subshells that don't affect parent's $_)
+    if (isMultiCommandPipeline && !this.ctx.state.shoptOptions.lastpipe) {
+      this.ctx.state.lastArg = savedLastArg;
+    }
+    // With lastpipe, the last command already updated $_ in the main shell context
+
     return lastResult;
   }
 
@@ -620,6 +642,29 @@ export class Interpreter {
     // Update currentLine for $LINENO
     if (node.line !== undefined) {
       this.ctx.state.currentLine = node.line;
+    }
+
+    // Alias expansion: if expand_aliases is enabled and the command name is
+    // a literal unquoted word that matches an alias, substitute it.
+    // Keep expanding until no more alias expansion occurs (handles recursive aliases).
+    // The aliasExpansionStack persists across iterations to prevent infinite loops.
+    if (this.ctx.state.shoptOptions.expand_aliases && node.name) {
+      let currentNode = node;
+      let maxExpansions = 100; // Safety limit
+      while (maxExpansions > 0) {
+        const expandedNode = this.expandAlias(currentNode);
+        if (expandedNode === currentNode) {
+          break; // No expansion occurred
+        }
+        currentNode = expandedNode;
+        maxExpansions--;
+      }
+      // Clear the alias expansion stack after all expansions are done
+      this.aliasExpansionStack.clear();
+      // Continue with the fully expanded node
+      if (currentNode !== node) {
+        node = currentNode;
+      }
     }
 
     // Clear expansion stderr at the start
@@ -693,12 +738,20 @@ export class Interpreter {
           }
           // Handle associative array with [key]=value or [key]+=value syntax
           for (const element of assignment.array) {
-            const literalStr = wordToLiteralString(element);
-            const parsed = parseAssocArrayElement(literalStr);
+            // Use parseKeyedElementFromWord to properly handle variable expansion
+            const parsed = parseKeyedElementFromWord(element);
             if (parsed) {
-              const [key, rawValue, elementAppend] = parsed;
-              // Apply tilde expansion to the value (e.g., ~ becomes $HOME)
-              const value = expandTildesInValue(this.ctx, rawValue);
+              const { key, valueParts, append: elementAppend } = parsed;
+              // Expand the value parts (this handles $v, ${v}, etc.)
+              let value: string;
+              if (valueParts.length > 0) {
+                const valueWord: WordNode = { type: "Word", parts: valueParts };
+                value = await expandWord(this.ctx, valueWord);
+              } else {
+                value = "";
+              }
+              // Apply tilde expansion if value starts with ~
+              value = expandTildesInValue(this.ctx, value);
               if (elementAppend) {
                 // [key]+=value - append to existing value at this key
                 const existing = this.ctx.state.env[`${name}_${key}`] ?? "";
@@ -707,11 +760,10 @@ export class Interpreter {
                 this.ctx.state.env[`${name}_${key}`] = value;
               }
             } else {
-              // Fall back to treating as regular element (shouldn't happen for assoc)
-              const expanded = await expandWordWithGlob(this.ctx, element);
-              for (const val of expanded.values) {
-                this.ctx.state.env[`${name}_${val}`] = "";
-              }
+              // For associative arrays, elements without [key]=value syntax are invalid
+              // Bash outputs warning and continues (status 0), but OSH returns error (status 1)
+              // We follow the stricter OSH behavior - silent exit with status 1
+              throw new ExitError(1, "", "");
             }
           }
         } else if (hasKeyedElements) {
@@ -723,12 +775,24 @@ export class Interpreter {
           // Track current index for implicit increment after [n]=value
           let currentIndex = 0;
           for (const element of assignment.array) {
-            const literalStr = wordToLiteralString(element);
-            const parsed = parseAssocArrayElement(literalStr);
+            // Use parseKeyedElementFromWord to properly handle variable expansion
+            const parsed = parseKeyedElementFromWord(element);
             if (parsed) {
-              const [indexStr, rawValue, elementAppend] = parsed;
-              // Apply tilde expansion to the value (e.g., ~ becomes $HOME)
-              const value = expandTildesInValue(this.ctx, rawValue);
+              const {
+                key: indexStr,
+                valueParts,
+                append: elementAppend,
+              } = parsed;
+              // Expand the value parts (this handles $v, ${v}, etc.)
+              let value: string;
+              if (valueParts.length > 0) {
+                const valueWord: WordNode = { type: "Word", parts: valueParts };
+                value = await expandWord(this.ctx, valueWord);
+              } else {
+                value = "";
+              }
+              // Apply tilde expansion if value starts with ~
+              value = expandTildesInValue(this.ctx, value);
               // Evaluate index as arithmetic expression
               let index: number;
               if (/^-?\d+$/.test(indexStr)) {
@@ -1501,19 +1565,32 @@ export class Interpreter {
         }
       } else if (inArrayContent) {
         // Handle BraceExpansion specially - it produces multiple values
+        // BUT only if we're not inside a keyed element [key]=value
         if (part.type === "BraceExpansion") {
-          // Push any pending literal first
-          if (pendingLiteral) {
-            elements.push(pendingLiteral);
-            pendingLiteral = "";
+          // Check if pendingLiteral looks like a keyed element pattern: [key]=...
+          // If so, brace expansion should NOT happen in the value part
+          const isKeyedElement = /^\[.+\]=/.test(pendingLiteral);
+          if (isKeyedElement) {
+            // Inside a keyed element value - convert brace to literal, no expansion
+            pendingLiteral += wordToLiteralString({
+              type: "Word",
+              parts: [part],
+            });
+          } else {
+            // Plain element - expand braces normally
+            // Push any pending literal first
+            if (pendingLiteral) {
+              elements.push(pendingLiteral);
+              pendingLiteral = "";
+            }
+            // Use expandWordWithGlob to properly expand brace expressions
+            const braceExpanded = await expandWordWithGlob(this.ctx, {
+              type: "Word",
+              parts: [part],
+            });
+            // Add each expanded value as a separate element
+            elements.push(...braceExpanded.values);
           }
-          // Use expandWordWithGlob to properly expand brace expressions
-          const braceExpanded = await expandWordWithGlob(this.ctx, {
-            type: "Word",
-            parts: [part],
-          });
-          // Add each expanded value as a separate element
-          elements.push(...braceExpanded.values);
         } else {
           // Quoted/expansion part - expand it and accumulate as single element
           const expanded = await expandWord(this.ctx, {
@@ -1783,7 +1860,7 @@ export class Interpreter {
 
       // Handle -v and -V: describe commands without executing
       if (showPath || verboseDescribe) {
-        return this.handleCommandV(cmdArgs, showPath, verboseDescribe);
+        return await this.handleCommandV(cmdArgs, showPath, verboseDescribe);
       }
 
       // Run command without checking functions, but builtins are still available
@@ -1971,6 +2048,268 @@ export class Interpreter {
     } catch (error) {
       return failure(`${commandName}: ${getErrorMessage(error)}\n`);
     }
+  }
+
+  // ===========================================================================
+  // ALIAS EXPANSION
+  // ===========================================================================
+
+  /**
+   * Alias prefix used in environment variables
+   */
+  private static readonly ALIAS_PREFIX = "BASH_ALIAS_";
+
+  /**
+   * Track aliases currently being expanded to prevent infinite recursion
+   */
+  private aliasExpansionStack: Set<string> = new Set();
+
+  /**
+   * Check if a word is a literal unquoted word (eligible for alias expansion).
+   * Aliases only expand for literal words, not for quoted strings or expansions.
+   */
+  private isLiteralUnquotedWord(word: WordNode): boolean {
+    // Must have exactly one part that is a literal
+    if (word.parts.length !== 1) return false;
+    const part = word.parts[0];
+    // Must be a Literal part (not quoted, not an expansion)
+    return part.type === "Literal";
+  }
+
+  /**
+   * Get the literal value of a word if it's a simple literal
+   */
+  private getLiteralValue(word: WordNode): string | null {
+    if (word.parts.length !== 1) return null;
+    const part = word.parts[0];
+    if (part.type === "Literal") {
+      return part.value;
+    }
+    return null;
+  }
+
+  /**
+   * Get the alias value for a name, if defined
+   */
+  private getAlias(name: string): string | undefined {
+    return this.ctx.state.env[`${Interpreter.ALIAS_PREFIX}${name}`];
+  }
+
+  /**
+   * Expand alias in a SimpleCommandNode if applicable.
+   * Returns a new node with the alias expanded, or the original node if no expansion.
+   *
+   * Alias expansion rules:
+   * 1. Only expands if command name is a literal unquoted word
+   * 2. Alias value is substituted for the command name
+   * 3. If alias value ends with a space, the next word is also checked for alias expansion
+   * 4. Recursive expansion is allowed but limited to prevent infinite loops
+   */
+  private expandAlias(node: SimpleCommandNode): SimpleCommandNode {
+    // Need a command name to expand
+    if (!node.name) return node;
+
+    // Check if the command name is a literal unquoted word
+    if (!this.isLiteralUnquotedWord(node.name)) return node;
+
+    const cmdName = this.getLiteralValue(node.name);
+    if (!cmdName) return node;
+
+    // Check for alias
+    const aliasValue = this.getAlias(cmdName);
+    if (!aliasValue) return node;
+
+    // Prevent infinite recursion
+    if (this.aliasExpansionStack.has(cmdName)) return node;
+
+    try {
+      this.aliasExpansionStack.add(cmdName);
+
+      // Parse the alias value as a command
+      const parser = new Parser();
+      // Build the full command line: alias value + original args
+      // We need to combine the alias value with any remaining arguments
+      let fullCommand = aliasValue;
+
+      // Check if alias value ends with a space (triggers expansion of next word)
+      const expandNext = aliasValue.endsWith(" ");
+
+      // If not expanding next, append args directly
+      if (!expandNext) {
+        // Convert args to strings for re-parsing
+        for (const arg of node.args) {
+          const argLiteral = this.wordNodeToString(arg);
+          fullCommand += ` ${argLiteral}`;
+        }
+      }
+
+      // Parse the expanded command
+      let expandedAst: ScriptNode;
+      try {
+        expandedAst = parser.parse(fullCommand);
+      } catch (e) {
+        // If parsing fails, return original node (let normal execution handle the error)
+        if (e instanceof ParseException) {
+          // Re-throw parse errors to be handled by the caller
+          throw e;
+        }
+        return node;
+      }
+
+      // We expect exactly one statement with one command in the pipeline
+      if (
+        expandedAst.statements.length !== 1 ||
+        expandedAst.statements[0].pipelines.length !== 1 ||
+        expandedAst.statements[0].pipelines[0].commands.length !== 1
+      ) {
+        // Complex alias - might have multiple commands, pipelines, etc.
+        // For now, execute as a script and wrap result
+        // This is a simplification - full support would require more complex handling
+        return this.handleComplexAlias(node, aliasValue);
+      }
+
+      const expandedCmd = expandedAst.statements[0].pipelines[0].commands[0];
+      if (expandedCmd.type !== "SimpleCommand") {
+        // Alias expanded to a compound command - let it execute directly
+        return this.handleComplexAlias(node, aliasValue);
+      }
+
+      // Merge the expanded command with original node's context
+      let newNode: SimpleCommandNode = {
+        ...expandedCmd,
+        // Preserve original assignments (prefix assignments like FOO=bar alias_cmd)
+        assignments: [...node.assignments, ...expandedCmd.assignments],
+        // Preserve original redirections
+        redirections: [...expandedCmd.redirections, ...node.redirections],
+        // Preserve line number
+        line: node.line,
+      };
+
+      // If alias ends with space, expand next word too (recursive alias on first arg)
+      if (expandNext && node.args.length > 0) {
+        // Add the original args to the expanded command's args
+        newNode = {
+          ...newNode,
+          args: [...newNode.args, ...node.args],
+        };
+
+        // Now recursively expand the first arg if it's an alias
+        if (newNode.args.length > 0) {
+          const firstArg = newNode.args[0];
+          if (this.isLiteralUnquotedWord(firstArg)) {
+            const firstArgName = this.getLiteralValue(firstArg);
+            if (firstArgName && this.getAlias(firstArgName)) {
+              // Create a temporary node with the first arg as command
+              const tempNode: SimpleCommandNode = {
+                type: "SimpleCommand",
+                name: firstArg,
+                args: newNode.args.slice(1),
+                assignments: [],
+                redirections: [],
+              };
+              const expandedFirst = this.expandAlias(tempNode);
+              if (expandedFirst !== tempNode) {
+                // Merge back
+                newNode = {
+                  ...newNode,
+                  name: expandedFirst.name,
+                  args: [...expandedFirst.args],
+                };
+              }
+            }
+          }
+        }
+      }
+
+      // NOTE: We don't recursively call expandAlias here anymore - the caller
+      // handles iterative expansion to avoid issues with stack management.
+      // The aliasExpansionStack is cleared by the caller after all expansions complete.
+
+      return newNode;
+    } catch (e) {
+      // On error, clean up our entry from the stack
+      this.aliasExpansionStack.delete(cmdName);
+      throw e;
+    }
+    // NOTE: No finally block - we intentionally leave cmdName in the stack
+    // to prevent re-expansion of the same alias. The caller clears the stack.
+  }
+
+  /**
+   * Handle complex alias that expands to multiple commands or pipelines.
+   * For now, we create a wrapper that will execute the alias as a script.
+   */
+  private handleComplexAlias(
+    node: SimpleCommandNode,
+    aliasValue: string,
+  ): SimpleCommandNode {
+    // Build complete command string
+    let fullCommand = aliasValue;
+    for (const arg of node.args) {
+      const argLiteral = this.wordNodeToString(arg);
+      fullCommand += ` ${argLiteral}`;
+    }
+
+    // Create an eval-like command that will execute the alias
+    // This is a workaround - we create a new SimpleCommand that calls eval
+    const parser = new Parser();
+    const evalWord = parser.parseWordFromString("eval", false, false);
+    const cmdWord = parser.parseWordFromString(
+      `'${fullCommand.replace(/'/g, "'\\''")}'`,
+      false,
+      false,
+    );
+
+    return {
+      type: "SimpleCommand",
+      name: evalWord,
+      args: [cmdWord],
+      assignments: node.assignments,
+      redirections: node.redirections,
+      line: node.line,
+    };
+  }
+
+  /**
+   * Convert a WordNode back to a string representation for re-parsing.
+   * This is a simplified conversion that handles common cases.
+   */
+  private wordNodeToString(word: WordNode): string {
+    let result = "";
+    for (const part of word.parts) {
+      switch (part.type) {
+        case "Literal":
+          // Escape special characters
+          result += part.value.replace(/([\s"'$`\\*?[\]{}()<>|&;#!])/g, "\\$1");
+          break;
+        case "SingleQuoted":
+          result += `'${part.value}'`;
+          break;
+        case "DoubleQuoted":
+          // Handle double-quoted content
+          result += `"${part.parts.map((p) => (p.type === "Literal" ? p.value : `$${p.type}`)).join("")}"`;
+          break;
+        case "ParameterExpansion":
+          // Use braced form to be safe
+          result += `\${${part.parameter}}`;
+          break;
+        case "CommandSubstitution":
+          // CommandSubstitutionPart has body (ScriptNode), not command string
+          // We need to reconstruct - for simplicity, wrap in $(...)
+          result += `$(...)`;
+          break;
+        case "ArithmeticExpansion":
+          result += `$((${part.expression}))`;
+          break;
+        case "Glob":
+          result += part.pattern;
+          break;
+        default:
+          // For other types, try to preserve as-is
+          break;
+      }
+    }
+    return result;
   }
 
   // ===========================================================================
@@ -2268,7 +2607,7 @@ export class Interpreter {
       // 4. builtin
       // 5. all file paths
 
-      // Without -a, we stop at the first match (in order: alias, keyword, builtin, function, file)
+      // Without -a, we stop at the first match (in order: alias, keyword, function, builtin, file)
 
       // Check functions (unless -f suppresses them)
       const hasFunction =
@@ -2327,25 +2666,8 @@ export class Interpreter {
         }
       }
 
-      // Check builtins
-      const hasBuiltin = builtins.has(name);
-      if (hasBuiltin && (showAll || !foundAny)) {
-        // -p: print nothing for builtins (no path), but count as "found"
-        if (pathOnly) {
-          // Do nothing - builtins have no path
-        } else if (typeOnly) {
-          stdout += "builtin\n";
-        } else {
-          stdout += `${name} is a shell builtin\n`;
-        }
-        foundAny = true;
-        if (!showAll) {
-          continue;
-        }
-      }
-
-      // Check functions (for non-showAll case, it comes after alias/keyword/builtin)
-      // Note: This is the original bash order for non -a case
+      // Check functions (for non-showAll case, functions come before builtins)
+      // This matches bash behavior: alias, keyword, function, builtin, file
       if (!showAll && hasFunction && !foundAny) {
         // -p: print nothing for functions (no path), but count as "found"
         if (pathOnly) {
@@ -2361,6 +2683,23 @@ export class Interpreter {
         }
         foundAny = true;
         continue;
+      }
+
+      // Check builtins
+      const hasBuiltin = builtins.has(name);
+      if (hasBuiltin && (showAll || !foundAny)) {
+        // -p: print nothing for builtins (no path), but count as "found"
+        if (pathOnly) {
+          // Do nothing - builtins have no path
+        } else if (typeOnly) {
+          stdout += "builtin\n";
+        } else {
+          stdout += `${name} is a shell builtin\n`;
+        }
+        foundAny = true;
+        if (!showAll) {
+          continue;
+        }
       }
 
       // Check PATH for external command(s)
@@ -2622,11 +2961,11 @@ export class Interpreter {
    * -v: print the name or path of the command (simple output)
    * -V: print a description like `type` does (verbose output)
    */
-  private handleCommandV(
+  private async handleCommandV(
     names: string[],
     _showPath: boolean,
     verboseDescribe: boolean,
-  ): ExecResult {
+  ): Promise<ExecResult> {
     // Shell keywords
     const keywords = new Set([
       "if",
@@ -2737,6 +3076,35 @@ export class Interpreter {
         } else {
           stdout += `${name}\n`;
         }
+      } else if (name.includes("/")) {
+        // Path containing / - check if file exists and is executable
+        const resolvedPath = this.ctx.fs.resolvePath(this.ctx.state.cwd, name);
+        let found = false;
+        if (await this.ctx.fs.exists(resolvedPath)) {
+          try {
+            const stat = await this.ctx.fs.stat(resolvedPath);
+            if (!stat.isDirectory) {
+              // Check if file is executable (owner, group, or other execute bit set)
+              const isExecutable = (stat.mode & 0o111) !== 0;
+              if (isExecutable) {
+                if (verboseDescribe) {
+                  stdout += `${name} is ${name}\n`;
+                } else {
+                  stdout += `${name}\n`;
+                }
+                found = true;
+              }
+            }
+          } catch {
+            // If stat fails, treat as not found
+          }
+        }
+        if (!found) {
+          if (verboseDescribe) {
+            stderr += `bash: ${name}: not found\n`;
+          }
+          exitCode = 1;
+        }
       } else if (this.ctx.commands.has(name)) {
         if (verboseDescribe) {
           stdout += `${name} is /bin/${name}\n`;
@@ -2785,6 +3153,13 @@ export class Interpreter {
     this.ctx.state.parentHasLoopContext = savedLoopDepth > 0;
     this.ctx.state.loopDepth = 0;
 
+    // Save $_ (last argument) - subshell execution should not affect parent's $_
+    const savedLastArg = this.ctx.state.lastArg;
+
+    // Subshells get a new BASHPID (unlike $$ which stays the same)
+    const savedBashPid = this.ctx.state.bashPid;
+    this.ctx.state.bashPid = this.ctx.state.nextVirtualPid++;
+
     // Save any existing groupStdin and set new one from pipeline
     const savedGroupStdin = this.ctx.state.groupStdin;
     if (stdin) {
@@ -2809,6 +3184,8 @@ export class Interpreter {
       this.ctx.state.loopDepth = savedLoopDepth;
       this.ctx.state.parentHasLoopContext = savedParentHasLoopContext;
       this.ctx.state.groupStdin = savedGroupStdin;
+      this.ctx.state.bashPid = savedBashPid;
+      this.ctx.state.lastArg = savedLastArg;
       // ExecutionLimitError must always propagate - these are safety limits
       if (error instanceof ExecutionLimitError) {
         throw error;
@@ -2873,6 +3250,8 @@ export class Interpreter {
     this.ctx.state.loopDepth = savedLoopDepth;
     this.ctx.state.parentHasLoopContext = savedParentHasLoopContext;
     this.ctx.state.groupStdin = savedGroupStdin;
+    this.ctx.state.bashPid = savedBashPid;
+    this.ctx.state.lastArg = savedLastArg;
 
     // Apply output redirections
     const bodyResult = result(stdout, stderr, exitCode);
@@ -2983,16 +3362,39 @@ export class Interpreter {
       this.ctx.state.currentLine = node.line;
     }
 
+    // Pre-open output redirects to truncate files BEFORE evaluating expression
+    // This matches bash behavior where redirect files are opened before
+    // any command substitutions in the arithmetic expression are evaluated
+    const preOpenError = await preOpenOutputRedirects(
+      this.ctx,
+      node.redirections,
+    );
+    if (preOpenError) {
+      return preOpenError;
+    }
+
     try {
       const arithResult = await evaluateArithmetic(
         this.ctx,
         node.expression.expression,
       );
-      return testResult(arithResult !== 0);
+      // Apply output redirections
+      let bodyResult = testResult(arithResult !== 0);
+      // Include any stderr from expansion (e.g., command substitution stderr)
+      if (this.ctx.state.expansionStderr) {
+        bodyResult = {
+          ...bodyResult,
+          stderr: this.ctx.state.expansionStderr + bodyResult.stderr,
+        };
+        this.ctx.state.expansionStderr = "";
+      }
+      return applyRedirections(this.ctx, bodyResult, node.redirections);
     } catch (error) {
-      return failure(
+      // Apply output redirections before returning
+      const bodyResult = failure(
         `bash: arithmetic expression: ${(error as Error).message}\n`,
       );
+      return applyRedirections(this.ctx, bodyResult, node.redirections);
     }
   }
 

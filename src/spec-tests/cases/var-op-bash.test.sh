@@ -494,7 +494,6 @@ argv.py "${u[*]@Q}"
 
 
 #### Array expansion with nullary var op @P
-## SKIP: brace expansion in declare -a=({..}) returns literal; ${arr[@]@P} not working on arrays
 declare -a a=({1..9})
 declare -A A=(['a']=hello ['b']=world ['c']=osh ['d']=ysh)
 

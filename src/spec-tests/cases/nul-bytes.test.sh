@@ -352,7 +352,6 @@ len=0
 
 
 #### Compare \x00 byte versus \x01 byte - mapfile builtin
-## SKIP: mapfile/readarray not implemented
 case $SH in dash|mksh|zsh|ash) exit ;; esac
 
 { 

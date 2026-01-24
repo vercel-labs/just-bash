@@ -167,7 +167,6 @@ $SH $flags -i -c 'var=)'
 ## OK mksh status: 1
 
 #### array literal inside array is a parse error
-## SKIP: Nested array literal parse error not detected
 a=( inside=() )
 echo len=${#a[@]}
 ## status: 2

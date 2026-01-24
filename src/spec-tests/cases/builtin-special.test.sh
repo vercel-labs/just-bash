@@ -50,7 +50,6 @@ z=
 ## END
 
 #### Prefix assignments persist after readonly, but NOT exported (set -o posix)
-## SKIP: We correctly don't export foo, but test expects bash BUG behavior where foo IS exported
 # Bash only implements it behind the posix option
 case $SH in
   bash) set -o posix ;;
@@ -106,7 +105,6 @@ FOO=bar
 ## END
 
 #### Which shells allow special builtins to be redefined?
-## SKIP: We produce correct output 'hi' but test expects bash BUG output 'eval func echo hi'
 eval() {
   echo 'eval func' "$@"
 }
@@ -230,7 +228,7 @@ should not get here
 ## END
 
 #### bash 'type' gets confused - says 'function', but runs builtin
-## SKIP: type -t does not return 'function' when builtins are redefined as functions
+## SKIP: Function override of special builtins (eval) not fully implemented
 case $SH in dash|mksh|zsh|ash|yash) exit ;; esac
 
 echo TRUE

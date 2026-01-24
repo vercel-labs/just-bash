@@ -108,7 +108,7 @@ export function wordNeedsAsync(word: WordNode): boolean {
  * Check if a parameter expansion has quoted parts in its operation word
  * e.g., ${v:-"AxBxC"} has a quoted default value
  */
-export function hasQuotedOperationWord(part: ParameterExpansionPart): boolean {
+function hasQuotedOperationWord(part: ParameterExpansionPart): boolean {
   if (!part.operation) return false;
 
   const op = part.operation;
@@ -132,6 +132,44 @@ export function hasQuotedOperationWord(part: ParameterExpansionPart): boolean {
     }
   }
   return false;
+}
+
+/**
+ * Check if a parameter expansion's operation word is entirely quoted (all parts are quoted).
+ * This is different from hasQuotedOperationWord which returns true if ANY part is quoted.
+ *
+ * For word splitting purposes:
+ * - ${v:-"AxBxC"} - entirely quoted, should NOT be split
+ * - ${v:-x"AxBxC"x} - mixed quoted/unquoted, SHOULD be split (on unquoted parts)
+ * - ${v:-AxBxC} - entirely unquoted, SHOULD be split
+ */
+export function isOperationWordEntirelyQuoted(
+  part: ParameterExpansionPart,
+): boolean {
+  if (!part.operation) return false;
+
+  const op = part.operation;
+  let wordParts: WordPart[] | undefined;
+
+  // These operation types have a 'word' property that can contain quoted parts
+  if (
+    op.type === "DefaultValue" ||
+    op.type === "AssignDefault" ||
+    op.type === "UseAlternative" ||
+    op.type === "ErrorIfUnset"
+  ) {
+    wordParts = op.word?.parts;
+  }
+
+  if (!wordParts || wordParts.length === 0) return false;
+
+  // Check if ALL parts are quoted (DoubleQuoted or SingleQuoted)
+  for (const p of wordParts) {
+    if (p.type !== "DoubleQuoted" && p.type !== "SingleQuoted") {
+      return false; // Found an unquoted part
+    }
+  }
+  return true; // All parts are quoted
 }
 
 /**

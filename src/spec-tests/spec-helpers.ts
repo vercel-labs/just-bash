@@ -8,17 +8,46 @@
 import { defineCommand } from "../custom-commands.js";
 import type { Command } from "../types.js";
 
-// argv.py - prints arguments in Python repr() format: ['arg1', "arg with '"]
+// argv.py - prints arguments in Python 2 repr() format: ['arg1', "arg with '"]
 // Python uses single quotes by default, double quotes when string contains single quotes
-// Special characters like \n, \r, \t are escaped in repr format
+// Python 2 escapes non-printable and non-ASCII bytes as \xNN
 export const argvCommand: Command = defineCommand("argv.py", async (args) => {
   const formatted = args.map((arg) => {
-    // First escape special characters in Python repr format
-    let escaped = arg
-      .replace(/\\/g, "\\\\")
-      .replace(/\n/g, "\\n")
-      .replace(/\r/g, "\\r")
-      .replace(/\t/g, "\\t");
+    // Convert string to Python 2 repr() format
+    // Process character by character, escaping as needed
+    let escaped = "";
+    for (let i = 0; i < arg.length; i++) {
+      const char = arg[i];
+      const code = arg.charCodeAt(i);
+
+      if (char === "\\") {
+        escaped += "\\\\";
+      } else if (char === "\n") {
+        escaped += "\\n";
+      } else if (char === "\r") {
+        escaped += "\\r";
+      } else if (char === "\t") {
+        escaped += "\\t";
+      } else if (code < 0x20 || code === 0x7f) {
+        // Non-printable ASCII control characters -> \xNN
+        escaped += `\\x${code.toString(16).padStart(2, "0")}`;
+      } else if (code >= 0x80 && code <= 0xff) {
+        // Latin-1 range (U+0080-U+00FF): show as single \xNN
+        // This matches Python 2 behavior where bytes are 1:1 with codepoints
+        escaped += `\\x${code.toString(16).padStart(2, "0")}`;
+      } else if (code >= 0x100) {
+        // Non-Latin-1 Unicode: encode as UTF-8 bytes, then escape each byte as \xNN
+        // This matches Python 2 behavior with byte strings
+        const encoder = new TextEncoder();
+        const bytes = encoder.encode(char);
+        for (const byte of bytes) {
+          escaped += `\\x${byte.toString(16).padStart(2, "0")}`;
+        }
+      } else {
+        // Printable ASCII
+        escaped += char;
+      }
+    }
 
     const hasSingleQuote = arg.includes("'");
     const hasDoubleQuote = arg.includes('"');

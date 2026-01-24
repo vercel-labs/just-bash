@@ -31,7 +31,6 @@ echo ${unset-is unset}
 ## stdout: is unset
 
 #### Unquoted with array as default value
-## SKIP: Word splitting with "$@" in unquoted default value differs
 set -- '1 2' '3 4'
 argv.py X${unset=x"$@"x}X
 argv.py X${unset=x$@x}X  # If you want OSH to split, write this
@@ -71,7 +70,6 @@ argv.py "X${unset=x$@x}X"  # OSH is the same here
 ## END
 
 #### Assign default with array
-## SKIP: Word splitting with "$@" in unquoted default value differs
 set -- '1 2' '3 4'
 argv.py X${unset=x"$@"x}X
 argv.py "$unset"
@@ -770,7 +768,6 @@ ref=a[0]: '' 'with-colon'
 
 
 #### op-test for ${!array} with array="a[@]" or array="a[*]"
-## SKIP: Indirect array expansion edge case with IFS= and empty elements
 case $SH in dash|mksh|zsh) exit ;; esac
 
 test-hyphen() {
@@ -816,7 +813,6 @@ ref=a[*]: '' ''
 
 
 #### op-test for unquoted ${a[*]:-empty} with IFS=
-## SKIP: op-test for arrays not implemented
 case $SH in dash) exit ;; esac
 
 IFS=

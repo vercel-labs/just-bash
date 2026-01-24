@@ -172,19 +172,17 @@ function unescapeGlobPattern(pattern: string): string {
  * Uses single quotes with proper escaping for special characters.
  * Follows bash's quoting behavior:
  * - Simple strings without quotes: 'value'
- * - Strings with single quotes: 'foo'\''bar' (concatenated quoted segments)
- * - Strings with control characters (newlines, tabs, etc.): $'value'
+ * - Strings with single quotes or control characters: $'value' with \' escaping
  */
 function quoteValue(value: string): string {
   // Empty string becomes ''
   if (value === "") return "''";
 
-  // Check if we need $'...' format - only for actual control characters
-  // (not for literal backslashes, which are safe in single quotes)
-  const needsDollarQuote = /[\n\r\t\x00-\x1f\x7f]/.test(value);
+  // Check if we need $'...' format - for control characters OR single quotes
+  const needsDollarQuote = /[\n\r\t\x00-\x1f\x7f']/.test(value);
 
   if (needsDollarQuote) {
-    // Use $'...' format for strings with control characters
+    // Use $'...' format for strings with control characters or single quotes
     let result = "$'";
     for (const char of value) {
       switch (char) {
@@ -218,15 +216,8 @@ function quoteValue(value: string): string {
     return `${result}'`;
   }
 
-  // For strings without control characters, use single quotes
-  // Handle embedded single quotes with '\'' (end quote, escaped quote, start quote)
-  if (!value.includes("'")) {
-    return `'${value}'`;
-  }
-
-  // String contains single quotes - use 'foo'\''bar' format
-  const parts = value.split("'");
-  return parts.map((part) => `'${part}'`).join("\\'");
+  // For simple strings without control characters or single quotes, use single quotes
+  return `'${value}'`;
 }
 
 /**
@@ -952,6 +943,13 @@ export async function expandWordWithGlob(
     // Brace expansion produced multiple values - apply glob to each
     const allValues: string[] = [];
     for (const value of braceExpanded) {
+      // Word elision: In bash, empty strings from unquoted brace expansion
+      // are elided (removed from the result). For example, {X,,Y,} produces
+      // just X and Y, not X, '', Y, ''.
+      // This only applies when the word has no quoted parts.
+      if (!hasQuoted && value === "") {
+        continue;
+      }
       // Skip glob expansion if noglob is set (set -f)
       if (
         !hasQuoted &&
@@ -1448,6 +1446,15 @@ export async function expandWordWithGlob(
         const arrayName = arrayMatch[1];
         const isStar = arrayMatch[2] === "*";
         const operation = paramPart.operation as SubstringOp;
+
+        // Slicing associative arrays doesn't make sense - error out
+        if (ctx.state.associativeArrays?.has(arrayName)) {
+          throw new ExitError(
+            1,
+            "",
+            `bash: \${${arrayName}[@]: 0: 3}: bad substitution\n`,
+          );
+        }
 
         // Evaluate offset and length
         const offset = operation.offset
@@ -3451,6 +3458,41 @@ export async function expandRedirectTarget(
   const wordParts = word.parts;
   const { hasQuoted } = analyzeWordParts(wordParts);
 
+  // Check for brace expansion - if it produces multiple values, it's an ambiguous redirect
+  // For example: echo hi > a-{one,two} should error
+  if (hasBraceExpansion(wordParts)) {
+    const braceExpanded = braceExpansionNeedsAsync(wordParts)
+      ? await expandWordWithBracesAsync(ctx, word)
+      : expandWordWithBraces(ctx, word);
+    if (braceExpanded.length > 1) {
+      // Get the original word text for the error message
+      const originalText = wordParts
+        .map((p) => {
+          if (p.type === "Literal") return p.value;
+          if (p.type === "BraceExpansion") {
+            // Reconstruct brace expression
+            const items = p.items
+              .map((item) => {
+                if (item.type === "Range") {
+                  const step = item.step ? `..${item.step}` : "";
+                  return `${item.startStr ?? item.start}..${item.endStr ?? item.end}${step}`;
+                }
+                return item.word.parts
+                  .map((wp) => (wp.type === "Literal" ? wp.value : ""))
+                  .join("");
+              })
+              .join(",");
+            return `{${items}}`;
+          }
+          return "";
+        })
+        .join("");
+      return { error: `bash: ${originalText}: ambiguous redirect\n` };
+    }
+    // Single value from brace expansion - continue with normal processing
+    // (value will be re-expanded below, but since there's only one value it's the same)
+  }
+
   const needsAsync = wordNeedsAsync(word);
   const value = needsAsync
     ? await expandWordAsync(ctx, word)
@@ -3619,13 +3661,24 @@ async function expandPart(
       // Command substitution runs in a subshell-like context
       // ExitError should NOT terminate the main script, just this substitution
       // But ExecutionLimitError MUST propagate to protect against infinite recursion
+      // Command substitutions get a new BASHPID (unlike $$ which stays the same)
+      const savedBashPid = ctx.state.bashPid;
+      ctx.state.bashPid = ctx.state.nextVirtualPid++;
       try {
         const result = await ctx.executeScript(part.body);
         // Store the exit code for $?
         ctx.state.lastExitCode = result.exitCode;
         ctx.state.env["?"] = String(result.exitCode);
+        // Command substitution stderr should go to the shell's stderr at expansion time,
+        // NOT be affected by later redirections on the outer command
+        if (result.stderr) {
+          ctx.state.expansionStderr =
+            (ctx.state.expansionStderr || "") + result.stderr;
+        }
+        ctx.state.bashPid = savedBashPid;
         return result.stdout.replace(/\n+$/, "");
       } catch (error) {
+        ctx.state.bashPid = savedBashPid;
         // ExecutionLimitError must always propagate - these are safety limits
         if (error instanceof ExecutionLimitError) {
           throw error;
@@ -3634,6 +3687,11 @@ async function expandPart(
           // Catch exit in command substitution - return output so far
           ctx.state.lastExitCode = error.exitCode;
           ctx.state.env["?"] = String(error.exitCode);
+          // Also forward stderr from the exit
+          if (error.stderr) {
+            ctx.state.expansionStderr =
+              (ctx.state.expansionStderr || "") + error.stderr;
+          }
           return error.stdout.replace(/\n+$/, "");
         }
         throw error;
@@ -3671,12 +3729,103 @@ async function expandPart(
   }
 }
 
+/**
+ * Expand variable references in a subscript for associative arrays.
+ * e.g., "$key" -> "foo" if key=foo
+ * Handles $var, "$var", and concatenated forms like "$i$i"
+ */
+function expandSubscriptForAssocArray(
+  ctx: InterpreterContext,
+  subscript: string,
+): string {
+  // Remove surrounding quotes if present
+  let inner = subscript;
+  const hasQuotes =
+    (subscript.startsWith('"') && subscript.endsWith('"')) ||
+    (subscript.startsWith("'") && subscript.endsWith("'"));
+
+  if (hasQuotes) {
+    inner = subscript.slice(1, -1);
+  }
+
+  // For single-quoted strings, no expansion
+  if (subscript.startsWith("'") && subscript.endsWith("'")) {
+    return inner;
+  }
+
+  // Expand $var and ${var} references in the string
+  let result = "";
+  let i = 0;
+  while (i < inner.length) {
+    if (inner[i] === "$") {
+      // Check for ${...} or $name
+      if (inner[i + 1] === "{") {
+        // Find matching }
+        let depth = 1;
+        let j = i + 2;
+        while (j < inner.length && depth > 0) {
+          if (inner[j] === "{") depth++;
+          else if (inner[j] === "}") depth--;
+          j++;
+        }
+        const varName = inner.slice(i + 2, j - 1);
+        const value = ctx.state.env[varName] ?? "";
+        result += value;
+        i = j;
+      } else if (/[a-zA-Z_]/.test(inner[i + 1] || "")) {
+        // $name - find end of name
+        let j = i + 1;
+        while (j < inner.length && /[a-zA-Z0-9_]/.test(inner[j])) {
+          j++;
+        }
+        const varName = inner.slice(i + 1, j);
+        const value = ctx.state.env[varName] ?? "";
+        result += value;
+        i = j;
+      } else {
+        // Just a literal $ or unknown
+        result += inner[i];
+        i++;
+      }
+    } else if (inner[i] === "\\") {
+      // Escape sequence - skip the backslash and include next char
+      i++;
+      if (i < inner.length) {
+        result += inner[i];
+        i++;
+      }
+    } else {
+      result += inner[i];
+      i++;
+    }
+  }
+
+  return result;
+}
+
 function expandParameter(
   ctx: InterpreterContext,
   part: ParameterExpansionPart,
   inDoubleQuotes = false,
 ): string {
-  const { parameter, operation } = part;
+  let { parameter } = part;
+  const { operation } = part;
+
+  // For associative arrays, we need to expand variables in the subscript
+  // e.g., ${A[$key]} should expand $key to its value before lookup
+  const subscriptMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
+  if (subscriptMatch) {
+    const arrayName = subscriptMatch[1];
+    const subscript = subscriptMatch[2];
+    const isAssoc = ctx.state.associativeArrays?.has(arrayName);
+
+    if (isAssoc && subscript !== "@" && subscript !== "*") {
+      // Expand variables in the subscript for associative arrays
+      // Parse and expand the subscript as word parts
+      const expandedSubscript = expandSubscriptForAssocArray(ctx, subscript);
+      parameter = `${arrayName}[${expandedSubscript}]`;
+    }
+  }
 
   // Operations that handle unset variables should not trigger nounset
   const skipNounset =
@@ -3718,10 +3867,13 @@ function expandParameter(
       isEmpty = true;
       effectiveValue = "";
     } else if (subscript === "*") {
-      // a[*] - join with IFS, check if result is empty
+      // a[*] behavior depends on quoting context:
+      // - Quoted "${a[*]:-default}": uses default if IFS-joined result is empty
+      // - Unquoted ${a[*]:-default}: like $*, only "empty" if array has no elements
+      //   (even if IFS="" makes the joined expansion an empty string)
       const ifsSep = getIfsSeparator(ctx.state.env);
       const joined = elements.map(([, v]) => v).join(ifsSep);
-      isEmpty = joined === "";
+      isEmpty = inDoubleQuotes ? joined === "" : false;
       effectiveValue = joined; // Use IFS-joined value instead of space-joined
     } else {
       // a[@] - empty only if all elements are empty AND there's exactly one
@@ -3919,7 +4071,16 @@ function expandParameter(
       // Handle array slicing: ${arr[@]:offset} or ${arr[*]:offset}
       const arrayMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/);
       if (arrayMatch) {
-        const elements = getArrayElements(ctx, arrayMatch[1]);
+        const arrayName = arrayMatch[1];
+        // Slicing associative arrays doesn't make sense - error out
+        if (ctx.state.associativeArrays?.has(arrayName)) {
+          throw new ExitError(
+            1,
+            "",
+            `bash: \${${arrayName}[@]: 0: 3}: bad substitution\n`,
+          );
+        }
+        const elements = getArrayElements(ctx, arrayName);
         const values = elements.map(([, v]) => v);
         let start = offset;
         // Negative offset: count from end
@@ -4304,10 +4465,13 @@ async function expandParameterAsync(
       isEmptyAsync = true;
       effectiveValueAsync = "";
     } else if (subscript === "*") {
-      // a[*] - join with IFS, check if result is empty
+      // a[*] behavior depends on quoting context:
+      // - Quoted "${a[*]:-default}": uses default if IFS-joined result is empty
+      // - Unquoted ${a[*]:-default}: like $*, only "empty" if array has no elements
+      //   (even if IFS="" makes the joined expansion an empty string)
       const ifsSep = getIfsSeparator(ctx.state.env);
       const joined = elements.map(([, v]) => v).join(ifsSep);
-      isEmptyAsync = joined === "";
+      isEmptyAsync = inDoubleQuotes ? joined === "" : false;
       effectiveValueAsync = joined; // Use IFS-joined value instead of space-joined
     } else {
       // a[@] - empty only if all elements are empty AND there's exactly one

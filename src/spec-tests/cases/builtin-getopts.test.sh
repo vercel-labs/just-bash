@@ -41,7 +41,6 @@ status=0 opt=h OPTARG=
 ## END
 
 #### OPTARG is empty (not unset) after parsing a flag doesn't take an arg
-## SKIP: just-bash produces correct output but test expects bash BUG behavior
 
 set -u
 getopts 'ab' name '-a'

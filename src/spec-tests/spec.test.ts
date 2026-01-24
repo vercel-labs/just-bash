@@ -114,7 +114,7 @@ const SKIP_FILES = new Set([
   // "nix-idioms.test.sh", // Testing
   // "fatal-errors.test.sh", // Unskipped - 100% pass rate
   // "for-expr.test.sh", // Unskipped - tests added with SKIP markers
-  // "glob-bash.test.sh", // Testing
+  // "glob-bash.test.sh", // Unskipped - 100% pass rate (nullglob, failglob, dotglob implemented)
   // "bugs.test.sh", // Testing
 ]);
 

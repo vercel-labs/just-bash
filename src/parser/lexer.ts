@@ -1058,6 +1058,7 @@ export class Lexer {
           // - backslash itself (so parser can distinguish \\ from \)
           // - quotes (so parser knows they're escaped)
           // - glob metacharacters (so parser creates Escaped nodes that won't be glob-expanded)
+          // - parentheses (so \( and \) are treated as literal, not extglob operators)
           if (
             nextChar === "\\" ||
             nextChar === '"' ||
@@ -1065,7 +1066,9 @@ export class Lexer {
             nextChar === "*" ||
             nextChar === "?" ||
             nextChar === "[" ||
-            nextChar === "]"
+            nextChar === "]" ||
+            nextChar === "(" ||
+            nextChar === ")"
           ) {
             value += char + nextChar;
           } else {
@@ -1244,6 +1247,14 @@ export class Lexer {
         let depth = 1;
         while (depth > 0 && pos < len) {
           const c = input[pos];
+          // Handle backslash-newline line continuation inside ${...}
+          if (c === "\\" && pos + 1 < len && input[pos + 1] === "\n") {
+            // Skip both the backslash and the newline
+            pos += 2;
+            ln++;
+            col = 1;
+            continue;
+          }
           value += c;
           if (c === "{") depth++;
           else if (c === "}") depth--;

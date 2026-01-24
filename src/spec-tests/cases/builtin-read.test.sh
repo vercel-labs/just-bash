@@ -806,7 +806,6 @@ status=1
 ## N-I dash/ash stdout-json: ""
 
 #### mapfile from directory (bash doesn't handle errors)
-## SKIP: We return status=1 (correct) but bash returns status=0 (buggy), and our framework uses bash expectations
 case $SH in dash|ash|mksh|zsh) return ;; esac  # not implemented
 
 mkdir -p dir
@@ -1168,7 +1167,6 @@ check 'x\    '
 ## END
 
 #### read bash bug
-## SKIP: We intentionally don't reproduce this bash bug - our output is the correct behavior
 IFS='x '
 echo 'x\  \ ' | (read a b; argv.py "$a" "$b")
 ## STDOUT:

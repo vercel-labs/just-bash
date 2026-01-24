@@ -307,7 +307,6 @@ command sub OK
 ## END
 
 #### $BASHPID DOES change with subshell and command sub
-## SKIP: BASHPID not implemented
 set -o errexit
 die() {
   echo 1>&2 "$@"; exit 1
@@ -591,7 +590,6 @@ spaces
 ## N-I dash/mksh stdout-json: ""
 
 #### $_ with pipeline and subshell
-## SKIP: $_ with pipeline/subshell has different behavior
 case $SH in dash|mksh) exit ;; esac
 
 shopt -s lastpipe

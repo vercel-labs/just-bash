@@ -114,7 +114,6 @@ cat "$TMP/double-digit-fd.txt"
 ## BUG dash status: 127
 
 #### : 9> fdleak (OSH regression)
-## SKIP: FD propagation across statements not implemented
 true 9> "$TMP/fd.txt"
 ( echo world >&9 )
 cat "$TMP/fd.txt"
@@ -193,7 +192,6 @@ echo DONE
 ## OK dash status: 2
 
 #### Redirect to file descriptor that's not open
-## SKIP: /proc filesystem not available
 # Notes:
 # - 7/2021: descriptor 7 seems to work on all CI systems.  The process state
 #   isn't clean, but we could probably close it in OSH?
@@ -300,7 +298,6 @@ STDERR
 ## N-I dash/mksh stdout-json: ""
 
 #### 1>&- to close file descriptor
-## SKIP: File descriptor close (>&-) not properly closing the fd
 exec 5> "$TMP/f.txt"
 echo hello >&5
 exec 5>&-

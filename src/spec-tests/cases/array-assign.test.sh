@@ -189,7 +189,6 @@ len=2
 ## END
 
 #### More fragments like a[  a[5  a[5 +  a[5 + 3]
-## SKIP: We produce status=127 but test expects bash BUG output status=2 for syntax errors
 
 for name in 'a[' 'a[5'; do
   echo "echo hi from $name: \$# args: \$@" > "$name"

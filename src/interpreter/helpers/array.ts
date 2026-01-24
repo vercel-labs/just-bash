@@ -78,28 +78,103 @@ export function unquoteKey(key: string): string {
 }
 
 /**
- * Parse associative array element from a string like "[key]=value" or "[key]+=value"
- * Returns [key, value, append] where append is true for += syntax, null if no match.
+ * Parse a keyed array element from an AST WordNode like [key]=value or [key]+=value.
+ * Returns { key, valueParts, append } where valueParts are the AST parts for the value.
+ * Returns null if not a keyed element pattern.
+ *
+ * This is used to properly expand variables in the value part of keyed elements.
  */
-export function parseAssocArrayElement(
-  str: string,
-): [string, string, boolean] | null {
-  // Match [key]+=value pattern (append syntax)
-  const appendMatch = str.match(/^\[(.+?)\]\+=(.*)$/);
-  if (appendMatch) {
-    const key = unquoteKey(appendMatch[1]);
-    const value = appendMatch[2];
-    return [key, value, true];
+export interface ParsedKeyedElement {
+  key: string;
+  valueParts: WordNode["parts"];
+  append: boolean;
+}
+
+export function parseKeyedElementFromWord(
+  word: WordNode,
+): ParsedKeyedElement | null {
+  if (word.parts.length < 2) return null;
+
+  const first = word.parts[0];
+  const second = word.parts[1];
+
+  // Check for [key]= or [key]+= pattern
+  // First part should be a Glob with pattern like "[key]"
+  if (
+    first.type !== "Glob" ||
+    !first.pattern.startsWith("[") ||
+    !first.pattern.endsWith("]")
+  ) {
+    return null;
   }
 
-  // Match [key]=value pattern (regular assignment)
-  const match = str.match(/^\[(.+?)\]=(.*)$/);
-  if (!match) return null;
+  // Second part should be a Literal starting with "=" or "+="
+  if (second.type !== "Literal") return null;
+  const append = second.value.startsWith("+=");
+  if (!append && !second.value.startsWith("=")) return null;
 
-  const key = unquoteKey(match[1]);
-  const value = match[2];
+  // Extract key from the Glob pattern (remove [ and ])
+  let key = first.pattern.slice(1, -1);
+  // Remove surrounding quotes from key
+  key = unquoteKey(key);
 
-  return [key, value, false];
+  // Extract value parts: everything after the = (or +=)
+  // Convert BraceExpansion nodes to Literal nodes to prevent brace expansion
+  // in keyed element values (bash behavior: a=([k]=-{a,b}-) keeps literal braces)
+  const valueParts: WordNode["parts"] = [];
+
+  // The second part may have content after the = sign
+  const eqLen = append ? 2 : 1; // "+=" vs "="
+  const afterEq = second.value.slice(eqLen);
+  if (afterEq) {
+    valueParts.push({ type: "Literal", value: afterEq });
+  }
+
+  // Add remaining parts (parts[2], parts[3], etc.)
+  // Converting BraceExpansion to Literal
+  for (let i = 2; i < word.parts.length; i++) {
+    const part = word.parts[i];
+    if (part.type === "BraceExpansion") {
+      // Convert brace expansion to literal string
+      valueParts.push({ type: "Literal", value: braceToLiteral(part) });
+    } else {
+      valueParts.push(part);
+    }
+  }
+
+  return { key, valueParts, append };
+}
+
+/**
+ * Convert a BraceExpansion node back to its literal form.
+ * e.g., {a,b,c} or {1..5}
+ */
+function braceToLiteral(part: {
+  type: "BraceExpansion";
+  items: Array<
+    | {
+        type: "Range";
+        start: string | number;
+        end: string | number;
+        step?: number;
+        startStr?: string;
+        endStr?: string;
+      }
+    | { type: "Word"; word: WordNode }
+  >;
+}): string {
+  const items = part.items.map((item) => {
+    if (item.type === "Range") {
+      // Use startStr/endStr if available, otherwise use start/end
+      const startS = item.startStr ?? String(item.start);
+      const endS = item.endStr ?? String(item.end);
+      let range = `${startS}..${endS}`;
+      if (item.step) range += `..${item.step}`;
+      return range;
+    }
+    return wordToLiteralString(item.word);
+  });
+  return `{${items.join(",")}}`;
 }
 
 /**

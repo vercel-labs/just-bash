@@ -93,7 +93,6 @@ r2=
 ## END
 
 #### is 'builtin' prefix and array allowed?  OSH is smarter
-## SKIP: builtin keyword with typeset not implemented
 builtin typeset a=(1 2 3)
 echo len=${#a[@]}
 ## STDOUT:
@@ -105,7 +104,6 @@ len=3
 ## OK-2 mksh stdout-json: ""
 
 #### is 'command' prefix and array allowed?  OSH is smarter
-## SKIP: command keyword with typeset not implemented
 command typeset a=(1 2 3)
 echo len=${#a[@]}
 ## STDOUT:

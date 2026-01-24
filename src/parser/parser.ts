@@ -997,6 +997,11 @@ export class Parser {
     } else {
       // name () { ... }
       name = this.advance().value;
+      // Validate that the name doesn't contain expansion characters
+      // bash rejects: $foo() { ... } and foo-$(echo hi)() { ... }
+      if (name.includes("$")) {
+        this.error(`\`${name}': not a valid identifier`);
+      }
       this.expect(TokenType.LPAREN);
       this.expect(TokenType.RPAREN);
     }

@@ -898,6 +898,11 @@ export async function evaluateArithmetic(
       // Execute the command and parse the result as a number
       if (ctx.execFn) {
         const result = await ctx.execFn(expr.command);
+        // Command substitution stderr should go to the shell's stderr at expansion time
+        if (result.stderr) {
+          ctx.state.expansionStderr =
+            (ctx.state.expansionStderr || "") + result.stderr;
+        }
         const output = result.stdout.trim();
         return Number.parseInt(output, 10) || 0;
       }

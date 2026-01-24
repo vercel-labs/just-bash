@@ -5,6 +5,8 @@
 import { Bash } from "../Bash.js";
 import {
   getAcceptableStatuses,
+  getAcceptableStderrs,
+  getAcceptableStdouts,
   getExpectedStatus,
   getExpectedStderr,
   getExpectedStdout,
@@ -118,27 +120,43 @@ export async function runTestCase(
     const errors: string[] = [];
 
     // Compare stdout
-    if (expectedStdout !== null) {
+    // Use getAcceptableStdouts to handle OK variants (e.g., "## OK bash stdout-json: ...")
+    const acceptableStdouts = getAcceptableStdouts(testCase);
+    if (acceptableStdouts.length > 0) {
       const normalizedActual = normalizeOutput(result.stdout);
-      const normalizedExpected = normalizeOutput(expectedStdout);
+      const normalizedAcceptable = acceptableStdouts.map((s) =>
+        normalizeOutput(s),
+      );
 
-      if (normalizedActual !== normalizedExpected) {
+      if (!normalizedAcceptable.includes(normalizedActual)) {
         passed = false;
+        const stdoutDesc =
+          normalizedAcceptable.length === 1
+            ? JSON.stringify(normalizedAcceptable[0])
+            : `one of [${normalizedAcceptable.map((s) => JSON.stringify(s)).join(", ")}]`;
         errors.push(
-          `stdout mismatch:\n  expected: ${JSON.stringify(normalizedExpected)}\n  actual:   ${JSON.stringify(normalizedActual)}`,
+          `stdout mismatch:\n  expected: ${stdoutDesc}\n  actual:   ${JSON.stringify(normalizedActual)}`,
         );
       }
     }
 
     // Compare stderr
-    if (expectedStderr !== null) {
+    // Use getAcceptableStderrs to handle OK variants (e.g., "## OK bash STDERR: ...")
+    const acceptableStderrs = getAcceptableStderrs(testCase);
+    if (acceptableStderrs.length > 0) {
       const normalizedActual = normalizeOutput(result.stderr);
-      const normalizedExpected = normalizeOutput(expectedStderr);
+      const normalizedAcceptable = acceptableStderrs.map((s) =>
+        normalizeOutput(s),
+      );
 
-      if (normalizedActual !== normalizedExpected) {
+      if (!normalizedAcceptable.includes(normalizedActual)) {
         passed = false;
+        const stderrDesc =
+          normalizedAcceptable.length === 1
+            ? JSON.stringify(normalizedAcceptable[0])
+            : `one of [${normalizedAcceptable.map((s) => JSON.stringify(s)).join(", ")}]`;
         errors.push(
-          `stderr mismatch:\n  expected: ${JSON.stringify(normalizedExpected)}\n  actual:   ${JSON.stringify(normalizedActual)}`,
+          `stderr mismatch:\n  expected: ${stderrDesc}\n  actual:   ${JSON.stringify(normalizedActual)}`,
         );
       }
     }

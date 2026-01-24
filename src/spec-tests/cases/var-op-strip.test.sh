@@ -328,7 +328,6 @@ echo "${x%%?abc?}"
 ## END
 
 #### strip none unicode
-## SKIP: argv.py doesn't escape unicode chars like Python repr()
 x=μabcμ
 argv.py "${x#}"
 argv.py "${x##}"

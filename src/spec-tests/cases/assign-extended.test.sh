@@ -315,7 +315,6 @@ declare -- test_var5="555"
 ## END
 
 #### declare -p arr
-## SKIP: declare -p doesn't output array variables
 test_arr1=()
 declare -a test_arr2=()
 declare -A test_arr3=()

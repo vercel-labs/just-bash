@@ -18,6 +18,8 @@ function createMockCtx(): InterpreterContext {
     lastArg: "",
     startTime: Date.now(),
     lastBackgroundPid: 0,
+    bashPid: 1,
+    nextVirtualPid: 2,
     currentLine: 0,
     options: {
       errexit: false,

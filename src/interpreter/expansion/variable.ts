@@ -182,6 +182,9 @@ export function getVariable(
     case "!":
       // PID of most recent background job (0 if none)
       return String(ctx.state.lastBackgroundPid);
+    case "BASHPID":
+      // Current bash process ID (changes in subshells, unlike $$)
+      return String(ctx.state.bashPid);
     case "LINENO":
       // Current line number being executed
       return String(ctx.state.currentLine);

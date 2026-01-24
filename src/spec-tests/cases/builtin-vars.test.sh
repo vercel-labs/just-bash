@@ -194,7 +194,7 @@ test "$old" = "$new" && echo "not changed"
 ## stdout: not changed
 
 #### can't export array (strict_array)
-## SKIP: shopt strict_array not implemented, printenv.py returns empty instead of None
+## SKIP: shopt strict_array not implemented (Oil shell option, not standard bash)
 shopt -s strict_array
 
 typeset -a a
@@ -214,7 +214,7 @@ None
 ## OK osh stdout-json: ""
 
 #### can't export associative array (strict_array)
-## SKIP: shopt strict_array not implemented, printenv.py returns empty instead of None
+## SKIP: shopt strict_array not implemented (Oil shell option, not standard bash)
 shopt -s strict_array
 
 typeset -A a

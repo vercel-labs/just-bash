@@ -257,7 +257,6 @@ stdout
 
 
 #### Redirect with brace expansion isn't allowed
-## SKIP: Brace expansion in redirects not implemented
 
 echo hi > a-{one,two}
 echo status=$?

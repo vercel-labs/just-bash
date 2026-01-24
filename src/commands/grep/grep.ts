@@ -222,8 +222,8 @@ export const grepCommand: Command = {
       };
     }
 
-    // If no files and no stdin, read from stdin
-    if (files.length === 0 && ctx.stdin) {
+    // If no files and stdin is provided (including empty string), read from stdin
+    if (files.length === 0 && ctx.stdin !== undefined) {
       const result = searchContent(ctx.stdin, regex, {
         invertMatch,
         showLineNumbers,

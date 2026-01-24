@@ -702,9 +702,33 @@ export class GlobExpander {
    */
   private patternToRegexStr(pattern: string): string {
     let regex = "";
+    let inQuotedSection = false;
 
     for (let i = 0; i < pattern.length; i++) {
+      // Check for quote markers (from splitExtglobAlternatives)
+      // \x00QUOTE_START\x00 is 13 chars, \x00QUOTE_END\x00 is 11 chars
+      if (pattern.slice(i, i + 13) === "\x00QUOTE_START\x00") {
+        inQuotedSection = true;
+        i += 12; // Will be incremented by loop
+        continue;
+      }
+      if (pattern.slice(i, i + 11) === "\x00QUOTE_END\x00") {
+        inQuotedSection = false;
+        i += 10; // Will be incremented by loop
+        continue;
+      }
+
       const c = pattern[i];
+
+      // Inside quoted section, all characters are literal (escape regex special chars)
+      if (inQuotedSection) {
+        if (/[.+^${}()|\\*?[\]]/.test(c)) {
+          regex += `\\${c}`;
+        } else {
+          regex += c;
+        }
+        continue;
+      }
 
       // Check for extglob patterns: @(...), *(...), +(...), ?(...), !(...)
       if (
@@ -893,16 +917,42 @@ export class GlobExpander {
   }
 
   /**
-   * Split extglob pattern content on | handling nested patterns
+   * Split extglob pattern content on | handling nested patterns and quotes.
+   * Single-quoted content is preserved with a special marker for later processing.
    */
   private splitExtglobAlternatives(content: string): string[] {
     const alternatives: string[] = [];
     let current = "";
     let depth = 0;
+    let inSingleQuote = false;
     let i = 0;
 
     while (i < content.length) {
       const c = content[i];
+
+      // Handle single quotes - toggle quote mode
+      if (c === "'" && !inSingleQuote) {
+        inSingleQuote = true;
+        // Mark start of quoted section with special marker
+        current += "\x00QUOTE_START\x00";
+        i++;
+        continue;
+      }
+      if (c === "'" && inSingleQuote) {
+        inSingleQuote = false;
+        // Mark end of quoted section
+        current += "\x00QUOTE_END\x00";
+        i++;
+        continue;
+      }
+
+      // Inside single quotes, everything is literal
+      if (inSingleQuote) {
+        current += c;
+        i++;
+        continue;
+      }
+
       if (c === "\\") {
         // Escaped character
         current += c;
@@ -940,9 +990,30 @@ export class GlobExpander {
   private computePatternLength(pattern: string): number | null {
     let length = 0;
     let i = 0;
+    let inQuotedSection = false;
 
     while (i < pattern.length) {
+      // Check for quote markers (from splitExtglobAlternatives)
+      // \x00QUOTE_START\x00 is 13 chars, \x00QUOTE_END\x00 is 11 chars
+      if (pattern.slice(i, i + 13) === "\x00QUOTE_START\x00") {
+        inQuotedSection = true;
+        i += 13;
+        continue;
+      }
+      if (pattern.slice(i, i + 11) === "\x00QUOTE_END\x00") {
+        inQuotedSection = false;
+        i += 11;
+        continue;
+      }
+
       const c = pattern[i];
+
+      // Inside quoted section, all characters count as literal (fixed length 1 each)
+      if (inQuotedSection) {
+        length += 1;
+        i++;
+        continue;
+      }
 
       // Check for extglob patterns
       if (
