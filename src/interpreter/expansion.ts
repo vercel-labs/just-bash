@@ -3774,6 +3774,22 @@ export async function expandWordWithGlob(
 }
 
 /**
+ * Get a simple text representation of word parts for error messages.
+ * Only extracts parameter names from ParameterExpansion parts.
+ */
+function getWordText(parts: WordPart[]): string {
+  for (const p of parts) {
+    if (p.type === "ParameterExpansion") {
+      return p.parameter;
+    }
+    if (p.type === "Literal") {
+      return p.value;
+    }
+  }
+  return "";
+}
+
+/**
  * Check if a word contains quoted "$@" that would expand to multiple words.
  * This is used to detect "ambiguous redirect" errors.
  */
@@ -3869,6 +3885,23 @@ export async function expandRedirectTarget(
   const value = needsAsync
     ? await expandWordAsync(ctx, word)
     : expandWordSync(ctx, word);
+
+  // Check for word splitting producing multiple words - this is an ambiguous redirect
+  // This only applies when the word has unquoted expansions (not all quoted)
+  const { hasParamExpansion, hasCommandSub } = analyzeWordParts(wordParts);
+  const hasUnquotedExpansion =
+    (hasParamExpansion || hasCommandSub) && !hasQuoted;
+
+  if (hasUnquotedExpansion && !isIfsEmpty(ctx.state.env)) {
+    const ifsChars = getIfs(ctx.state.env);
+    const splitWords = splitByIfsForExpansion(value, ifsChars);
+    if (splitWords.length > 1) {
+      // Word splitting produces multiple words - ambiguous redirect
+      return {
+        error: `bash: $${getWordText(wordParts)}: ambiguous redirect\n`,
+      };
+    }
+  }
 
   // Skip glob expansion if noglob is set (set -f) or if the word was quoted
   if (

@@ -167,7 +167,6 @@ argv.py $foo
 ## stdout: ['a b']
 
 #### default value can yield multiple words
-## SKIP: Default value with multiple words not implemented
 argv.py 1 ${undefined:-"2 3" "4 5"} 6
 ## stdout: ['1', '2 3', '4 5', '6']
 

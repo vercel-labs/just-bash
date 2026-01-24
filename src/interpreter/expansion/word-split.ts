@@ -4,7 +4,8 @@
  * IFS-based word splitting for unquoted expansions.
  */
 
-import type { WordPart } from "../../ast/types.js";
+import type { ParameterExpansionPart, WordPart } from "../../ast/types.js";
+import { getVariable, isVariableSet } from "../expansion/variable.js";
 import { splitByIfsForExpansion } from "../helpers/ifs.js";
 import type { InterpreterContext } from "../types.js";
 import { isOperationWordEntirelyQuoted } from "./analysis.js";
@@ -16,6 +17,51 @@ export type ExpandPartFn = (
   ctx: InterpreterContext,
   part: WordPart,
 ) => Promise<string>;
+
+/**
+ * Check if a ParameterExpansion with a default/alternative value should use that value.
+ * Returns the operation word parts if the value should be used, null otherwise.
+ */
+function shouldUseOperationWord(
+  ctx: InterpreterContext,
+  part: ParameterExpansionPart,
+): WordPart[] | null {
+  const op = part.operation;
+  if (!op) return null;
+
+  // Only handle DefaultValue, AssignDefault, and UseAlternative
+  if (
+    op.type !== "DefaultValue" &&
+    op.type !== "AssignDefault" &&
+    op.type !== "UseAlternative"
+  ) {
+    return null;
+  }
+
+  const word = (op as { word?: { parts: WordPart[] } }).word;
+  if (!word || word.parts.length === 0) return null;
+
+  // Check if the variable is set/empty
+  // Pass checkNounset=false because we're inside a default/alternative value context
+  // where unset variables are allowed
+  const isSet = isVariableSet(ctx, part.parameter);
+  const value = getVariable(ctx, part.parameter, false);
+  const isEmpty = value === "";
+  const checkEmpty = (op as { checkEmpty?: boolean }).checkEmpty ?? false;
+
+  let shouldUse: boolean;
+  if (op.type === "UseAlternative") {
+    // ${var+word} - use word if var IS set (and non-empty if :+)
+    shouldUse = isSet && !(checkEmpty && isEmpty);
+  } else {
+    // ${var-word} / ${var=word} - use word if var is NOT set (or empty if :-)
+    shouldUse = !isSet || (checkEmpty && isEmpty);
+  }
+
+  if (!shouldUse) return null;
+
+  return word.parts;
+}
 
 /**
  * Check if a word part is splittable (subject to IFS splitting).
@@ -100,6 +146,43 @@ export async function smartWordSplit(
   _ifsPattern: string,
   expandPartFn: ExpandPartFn,
 ): Promise<string[]> {
+  // Check for special case: ParameterExpansion with a default value that should be used
+  // In this case, we need to recursively word-split the default value's parts
+  // to preserve quote boundaries within the default value.
+  if (wordParts.length === 1 && wordParts[0].type === "ParameterExpansion") {
+    const paramPart = wordParts[0];
+    const opWordParts = shouldUseOperationWord(ctx, paramPart);
+    if (opWordParts && opWordParts.length > 0) {
+      // Check if the operation word has mixed quoted/unquoted parts
+      // that would benefit from recursive word splitting
+      const hasMixedParts =
+        opWordParts.length > 1 &&
+        opWordParts.some(
+          (p) => p.type === "DoubleQuoted" || p.type === "SingleQuoted",
+        ) &&
+        opWordParts.some(
+          (p) =>
+            p.type === "Literal" ||
+            p.type === "ParameterExpansion" ||
+            p.type === "CommandSubstitution" ||
+            p.type === "ArithmeticExpansion",
+        );
+
+      if (hasMixedParts) {
+        // Recursively word-split the default value's parts
+        // But we need special handling: Literal parts from the default value
+        // SHOULD be split because they're in an unquoted context
+        return smartWordSplitWithUnquotedLiterals(
+          ctx,
+          opWordParts,
+          ifsChars,
+          _ifsPattern,
+          expandPartFn,
+        );
+      }
+    }
+  }
+
   // Expand all parts and track if they are splittable
   type Segment = { value: string; isSplittable: boolean };
   const segments: Segment[] = [];
@@ -188,6 +271,96 @@ export async function smartWordSplit(
     words.push(currentWord);
   } else if (words.length === 0 && hasProducedWord) {
     // The only content was from a split that produced [""] (empty string)
+    words.push("");
+  }
+
+  return words;
+}
+
+/**
+ * Check if a string starts with an IFS character
+ */
+function startsWithIfs(value: string, ifsChars: string): boolean {
+  return value.length > 0 && ifsChars.includes(value[0]);
+}
+
+/**
+ * Word splitting for default value parts where Literal parts ARE splittable.
+ * This is used when processing ${var:-"a b" c} where the default value has
+ * mixed quoted and unquoted parts. The unquoted Literal parts should be split.
+ */
+async function smartWordSplitWithUnquotedLiterals(
+  ctx: InterpreterContext,
+  wordParts: WordPart[],
+  ifsChars: string,
+  _ifsPattern: string,
+  expandPartFn: ExpandPartFn,
+): Promise<string[]> {
+  // Expand all parts and track if they are splittable
+  // In this context, Literal parts ARE splittable
+  type Segment = { value: string; isSplittable: boolean };
+  const segments: Segment[] = [];
+
+  for (const part of wordParts) {
+    // Quoted parts are not splittable
+    const isQuoted =
+      part.type === "DoubleQuoted" || part.type === "SingleQuoted";
+    // In the context of a default value, everything non-quoted is splittable
+    const splittable = !isQuoted;
+    const expanded = await expandPartFn(ctx, part);
+    segments.push({ value: expanded, isSplittable: splittable });
+  }
+
+  // Word splitting algorithm
+  // Key difference from standard smartWordSplit:
+  // When a splittable segment starts with an IFS character, it causes a word break
+  // from the previous content, even if the split produces only one word.
+  const words: string[] = [];
+  let currentWord = "";
+  let hasProducedWord = false;
+
+  for (const segment of segments) {
+    if (!segment.isSplittable) {
+      // Non-splittable (quoted): append to current word
+      currentWord += segment.value;
+    } else {
+      // Splittable: check if it starts with IFS (causes word break)
+      const startsWithIfsChar = startsWithIfs(segment.value, ifsChars);
+
+      // If the segment starts with IFS and we have accumulated content,
+      // finish the current word first
+      if (startsWithIfsChar && currentWord !== "") {
+        words.push(currentWord);
+        currentWord = "";
+        hasProducedWord = true;
+      }
+
+      // Split by IFS
+      const parts = splitByIfsForExpansion(segment.value, ifsChars);
+
+      if (parts.length === 0) {
+        // Empty expansion produces nothing
+      } else if (parts.length === 1) {
+        currentWord += parts[0];
+        hasProducedWord = true;
+      } else {
+        // Multiple results from split
+        currentWord += parts[0];
+        words.push(currentWord);
+        hasProducedWord = true;
+
+        for (let i = 1; i < parts.length - 1; i++) {
+          words.push(parts[i]);
+        }
+
+        currentWord = parts[parts.length - 1];
+      }
+    }
+  }
+
+  if (currentWord !== "") {
+    words.push(currentWord);
+  } else if (words.length === 0 && hasProducedWord) {
     words.push("");
   }
 

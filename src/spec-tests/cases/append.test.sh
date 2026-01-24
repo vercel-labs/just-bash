@@ -67,7 +67,6 @@ argv.py "${a[@]}"
 ## OK zsh stdout: ['x', 'y', 'z']
 
 #### typeset s+=(my array)
-## SKIP: typeset with string to array append not implemented
 typeset s='abc'
 echo $s
 
@@ -87,7 +86,6 @@ status=0
 ## N-I zsh stderr: typeset: not valid in this context: s+
 
 #### error: typeset myarray+=s
-## SKIP: typeset array append with string not implemented
 typeset a=(x y)
 argv.py "${a[@]}"
 typeset a+=s
@@ -165,7 +163,6 @@ echo $s1 $s2
 ## stdout: abcd abc
 
 #### typeset s+=
-## SKIP: typeset with += append to undefined not implemented
 
 typeset s+=foo
 echo s=$s
@@ -188,7 +185,6 @@ t=foofoo
 ## N-I zsh stdout-json: ""
 
 #### typeset s${dyn}+=
-## SKIP: typeset with dynamic variable name and += not implemented
 
 dyn=x
 

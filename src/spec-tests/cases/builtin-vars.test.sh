@@ -402,14 +402,13 @@ x=
 ## END
 
 #### Unset invalid variable name
-## SKIP: Unset invalid variable name error handling differs
 unset %
 echo status=$?
 ## STDOUT:
-status=2
-## END
-## OK bash/mksh STDOUT:
 status=1
+## END
+## OK osh STDOUT:
+status=2
 ## END
 ## BUG zsh STDOUT:
 status=0

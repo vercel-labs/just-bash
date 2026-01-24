@@ -288,8 +288,6 @@ status=0
 
 
 #### File redirects have word splitting too!
-## SKIP: Word splitting in redirects not implemented
-
 file='foo bar'
 
 echo hi > $file

@@ -781,6 +781,147 @@ export function handleDeclare(
       continue;
     }
 
+    // Check for array append syntax: typeset NAME+=(...)
+    const arrayAppendMatch = arg.match(
+      /^([a-zA-Z_][a-zA-Z0-9_]*)\+=\((.*)\)$/s,
+    );
+    if (arrayAppendMatch && !removeArray) {
+      const name = arrayAppendMatch[1];
+      const content = arrayAppendMatch[2];
+
+      // Check if variable is readonly
+      const error = checkReadonlyError(ctx, name);
+      if (error) return error;
+
+      // Save to local scope before modifying
+      saveArrayToLocalScope(name);
+
+      // Parse new elements
+      const newElements = parseArrayElements(content);
+
+      // Check if this is an associative array
+      if (ctx.state.associativeArrays?.has(name)) {
+        // For associative arrays, we need keyed elements: ([key]=value ...)
+        const entries = parseAssocArrayLiteral(content);
+        for (const [key, rawValue] of entries) {
+          const value = expandTildesInValue(ctx, rawValue);
+          ctx.state.env[`${name}_${key}`] = value;
+        }
+      } else {
+        // For indexed arrays, get current highest index and append
+        const existingIndices = getArrayIndices(ctx, name);
+
+        // If variable was a scalar, convert it to array element 0
+        let startIndex = 0;
+        if (existingIndices.length === 0 && ctx.state.env[name] !== undefined) {
+          // Variable exists as scalar - convert to array element 0
+          const scalarValue = ctx.state.env[name];
+          ctx.state.env[`${name}_0`] = scalarValue;
+          delete ctx.state.env[name];
+          startIndex = 1;
+        } else if (existingIndices.length > 0) {
+          // Find highest existing index + 1
+          startIndex = Math.max(...existingIndices) + 1;
+        }
+
+        // Append new elements
+        for (let i = 0; i < newElements.length; i++) {
+          ctx.state.env[`${name}_${startIndex + i}`] = expandTildesInValue(
+            ctx,
+            newElements[i],
+          );
+        }
+
+        // Update length marker
+        const newLength = startIndex + newElements.length;
+        ctx.state.env[`${name}__length`] = String(newLength);
+      }
+
+      // Mark as local if inside a function
+      markAsLocalIfNeeded(name);
+
+      if (declareReadonly) {
+        markReadonly(ctx, name);
+      }
+      if (declareExport) {
+        markExported(ctx, name);
+      }
+      continue;
+    }
+
+    // Check for += append syntax: typeset NAME+=value (scalar append)
+    const appendMatch = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\+=(.*)$/);
+    if (appendMatch) {
+      const name = appendMatch[1];
+      let appendValue = expandTildesInValue(ctx, appendMatch[2]);
+
+      // Check if variable is readonly
+      const error = checkReadonlyError(ctx, name);
+      if (error) return error;
+
+      // Save to local scope before modifying
+      saveToLocalScope(name);
+
+      // Mark as integer if -i flag was used
+      if (declareInteger) {
+        markInteger(ctx, name);
+      }
+
+      // Mark as lowercase if -l flag was used
+      if (declareLowercase) {
+        markLowercase(ctx, name);
+      }
+
+      // Mark as uppercase if -u flag was used
+      if (declareUppercase) {
+        markUppercase(ctx, name);
+      }
+
+      // Check if this is an array (bash appends to element 0 for array+=string)
+      const existingIndices = getArrayIndices(ctx, name);
+      const isArray =
+        existingIndices.length > 0 || ctx.state.associativeArrays?.has(name);
+
+      // If variable has integer attribute, evaluate as arithmetic and add
+      if (isInteger(ctx, name)) {
+        const existing = ctx.state.env[name] ?? "0";
+        const existingNum = parseInt(existing, 10) || 0;
+        const appendNum =
+          parseInt(evaluateIntegerValue(ctx, appendValue), 10) || 0;
+        appendValue = String(existingNum + appendNum);
+        ctx.state.env[name] = appendValue;
+      } else if (isArray) {
+        // For arrays, append to element 0 (bash behavior)
+        appendValue = applyCaseTransform(ctx, name, appendValue);
+        const element0Key = `${name}_0`;
+        const existing = ctx.state.env[element0Key] ?? "";
+        ctx.state.env[element0Key] = existing + appendValue;
+      } else {
+        // Apply case transformation
+        appendValue = applyCaseTransform(ctx, name, appendValue);
+
+        // Append to existing value (or set if not defined)
+        const existing = ctx.state.env[name] ?? "";
+        ctx.state.env[name] = existing + appendValue;
+      }
+
+      // Mark as local if inside a function
+      markAsLocalIfNeeded(name);
+
+      if (declareReadonly) {
+        markReadonly(ctx, name);
+      }
+      if (declareExport) {
+        markExported(ctx, name);
+      }
+      // If allexport is enabled (set -a), auto-export the variable
+      if (ctx.state.options.allexport && !removeExport) {
+        ctx.state.exportedVars = ctx.state.exportedVars || new Set();
+        ctx.state.exportedVars.add(name);
+      }
+      continue;
+    }
+
     // Check for scalar assignment: name=value
     if (arg.includes("=")) {
       const eqIdx = arg.indexOf("=");

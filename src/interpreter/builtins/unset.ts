@@ -22,6 +22,14 @@ import type { InterpreterContext } from "../types.js";
 import { clearLocalVarDepth, getLocalVarDepth } from "./variable-helpers.js";
 
 /**
+ * Check if a name is a valid bash variable name.
+ * Valid names start with letter or underscore, followed by letters, digits, or underscores.
+ */
+function isValidVariableName(name: string): boolean {
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name);
+}
+
+/**
  * Perform cell-unset for a local variable (dynamic-unset).
  * This removes the local cell and exposes the outer scope's value.
  * Returns true if a cell-unset was performed, false otherwise.
@@ -195,6 +203,13 @@ export async function handleUnset(
       }
 
       // Regular variable with -v: only delete variable, NOT function
+      // Validate variable name
+      if (!isValidVariableName(arg)) {
+        stderr += `bash: unset: \`${arg}': not a valid identifier\n`;
+        exitCode = 1;
+        continue;
+      }
+
       let targetName = arg;
       if (isNameref(ctx, arg)) {
         const resolved = resolveNameref(ctx, arg);
@@ -294,6 +309,13 @@ export async function handleUnset(
     }
 
     // Regular variable - check if it's a nameref and unset the target
+    // Validate variable name
+    if (!isValidVariableName(arg)) {
+      stderr += `bash: unset: \`${arg}': not a valid identifier\n`;
+      exitCode = 1;
+      continue;
+    }
+
     let targetName = arg;
     if (isNameref(ctx, arg)) {
       const resolved = resolveNameref(ctx, arg);

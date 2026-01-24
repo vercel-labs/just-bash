@@ -98,7 +98,6 @@ argv.py "${Unset:-'a b c'}"
 ## stdout: ["'a b c'"]
 
 #### Mixed inner quotes
-## SKIP: Word splitting in default value with mixed quotes not implemented
 argv.py ${Unset:-"a b" c}
 ## stdout: ['a b', 'c']
 
@@ -151,7 +150,6 @@ argv.py "${Unset:-'$var'}"
 ## stdout: ["'a b c'"]
 
 #### No outer quotes, Multiple internal quotes
-## SKIP: Word splitting in default value with multiple parts not implemented
 # It's like a single command word.  Parts are joined directly.
 var='a b c'
 argv.py ${Unset:-A$var " $var"D E F}
