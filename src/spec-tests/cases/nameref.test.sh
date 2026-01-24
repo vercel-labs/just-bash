@@ -609,7 +609,6 @@ foo Y Z
 ## END
 
 #### @ in nameref isn't supported, unlike in ${!ref}
-## SKIP: @ as nameref target validation not implemented
 
 set -- A B
 typeset -n ref='@'  # bash gives an error here

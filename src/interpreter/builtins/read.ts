@@ -200,22 +200,21 @@ export function handleRead(
   // Note: prompt (-p) would typically output to terminal, but we ignore it in non-interactive mode
 
   // Handle -t 0: check if input is available without reading
+  // In bash, -t 0 is a "poll" operation that always succeeds (returns 0) as long as
+  // stdin is valid/readable. It doesn't actually read any data.
   if (timeout === 0) {
-    // In non-interactive mode, check if there's stdin available
-    const effectiveStdin = stdin || ctx.state.groupStdin || "";
-    // If -u is used, check from fileDescriptors map
-    if (fileDescriptor >= 0 && ctx.state.fileDescriptors) {
-      const fdContent = ctx.state.fileDescriptors.get(fileDescriptor);
-      if (fdContent && fdContent.length > 0) {
-        return result("", "", 0); // Input available
+    // Clear any variables to empty (read doesn't actually read anything)
+    if (arrayName) {
+      clearArray(ctx, arrayName);
+    } else {
+      for (const name of varNames) {
+        ctx.state.env[name] = "";
       }
-      return result("", "", 1); // No input
+      if (varNames.length === 0) {
+        ctx.state.env.REPLY = "";
+      }
     }
-    // Check regular stdin
-    if (effectiveStdin.length > 0) {
-      return result("", "", 0); // Input available
-    }
-    return result("", "", 1); // No input
+    return result("", "", 0); // Always succeed - stdin is valid
   }
 
   // Handle negative timeout - bash returns exit code 1

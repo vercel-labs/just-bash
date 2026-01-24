@@ -861,7 +861,6 @@ argv.py "abc${a[@]}xyz"
 
 
 #### ${a[@]#...}
-## SKIP: Array pattern operations don't produce separate args
 case $SH in mksh) exit ;; esac
 
 a=(v{0..9})
@@ -1223,7 +1222,6 @@ bash: line 3: a[-1]: bad array subscript
 
 
 #### Initializing indexed array with ([index]=value)
-## SKIP: Array literal [index]=value syntax treated as literal strings
 case $SH in mksh) exit 99 ;; esac
 declare -a a=([xx]=1 [yy]=2 [zz]=3)
 echo status=$?

@@ -178,6 +178,28 @@ function isValidAssignmentLHS(str: string): boolean {
 }
 
 /**
+ * Find the index of assignment '=' or '+=' outside of brackets.
+ * Returns the index of '=' (or '=' after '+') or -1 if not found.
+ * For 'a[x=1]=value', returns the index of the second '='.
+ */
+function findAssignmentEq(str: string): number {
+  let depth = 0;
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    if (c === "[") {
+      depth++;
+    } else if (c === "]") {
+      depth--;
+    } else if (depth === 0 && c === "=") {
+      return i;
+    } else if (depth === 0 && c === "+" && str[i + 1] === "=") {
+      return i + 1; // Return position of '=' in '+='
+    }
+  }
+  return -1;
+}
+
+/**
  * Three-character operators (simple ones without special handling)
  */
 const THREE_CHAR_OPS: Array<[string, string, string, TokenType]> = [
@@ -719,8 +741,8 @@ export class Lexer {
           };
         }
 
-        // Check for assignment (including array subscript: a[0]=value, a[idx]=value, a[a[0]]=value)
-        const eqIdx = value.indexOf("=");
+        // Check for assignment (including array subscript: a[0]=value, a[idx]=value, a[a[0]]=value, a[x=1]=value)
+        const eqIdx = findAssignmentEq(value);
         if (eqIdx > 0 && isValidAssignmentLHS(value.slice(0, eqIdx))) {
           return {
             type: TokenType.ASSIGNMENT_WORD,
@@ -786,6 +808,9 @@ export class Lexer {
     let startsWithQuote = input[pos] === '"' || input[pos] === "'";
     // Track if there's unquoted content after a quoted section (makes it partially quoted)
     let hasContentAfterQuote = false;
+    // Track bracket depth for array subscripts (e.g., a[1 * 2]=x)
+    // When inside brackets, spaces should NOT be treated as word boundaries
+    let bracketDepth = 0;
 
     while (pos < len) {
       const char = input[pos];
@@ -808,6 +833,45 @@ export class Lexer {
             continue;
           }
         }
+        // Handle array subscript brackets - track depth for assignments like a[1 * 2]=x
+        // Only start tracking when we see [ after a valid variable name pattern
+        if (char === "[" && bracketDepth === 0) {
+          // Check if this looks like an array subscript (variable name followed by [)
+          // A valid variable name pattern: starts with letter/underscore, followed by alphanumeric/underscore
+          if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
+            bracketDepth = 1;
+            value += char;
+            pos++;
+            col++;
+            continue;
+          }
+        } else if (char === "[" && bracketDepth > 0) {
+          // Nested bracket (e.g., a[a[0]]=x)
+          bracketDepth++;
+          value += char;
+          pos++;
+          col++;
+          continue;
+        } else if (char === "]" && bracketDepth > 0) {
+          bracketDepth--;
+          value += char;
+          pos++;
+          col++;
+          continue;
+        }
+
+        // Inside brackets, only break on newlines - allow spaces and other chars
+        if (bracketDepth > 0) {
+          if (char === "\n") {
+            break;
+          }
+          // Continue collecting characters inside brackets
+          value += char;
+          pos++;
+          col++;
+          continue;
+        }
+
         if (
           char === " " ||
           char === "\t" ||
@@ -1354,9 +1418,9 @@ export class Lexer {
     // Only tokens that don't start with a quote can be assignments.
     // MYVAR="hello" is an assignment (name is unquoted)
     // "MYVAR=hello" is NOT an assignment (starts with quote)
-    // Also matches array subscript: a[0]=value, a[idx]=value, a[a[0]]=value
+    // Also matches array subscript: a[0]=value, a[idx]=value, a[a[0]]=value, a[x=1]=value
     if (!startsWithQuote) {
-      const eqIdx = value.indexOf("=");
+      const eqIdx = findAssignmentEq(value);
       if (eqIdx > 0 && isValidAssignmentLHS(value.slice(0, eqIdx))) {
         return {
           type: TokenType.ASSIGNMENT_WORD,

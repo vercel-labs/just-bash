@@ -29,7 +29,6 @@ echo "${a['hello']}"
 ## END
 
 #### index increments without [k]= (BashArray)
-## SKIP: array index auto-increment after [n]= and ${!a[@]} not word-splitting properly
 a=([100]=1 2 3 4)
 printf 'keys: '; argv.py "${!a[@]}"
 printf 'vals: '; argv.py "${a[@]}"
@@ -114,7 +113,6 @@ vals: ['3 5 7']
 
 #### append to element (BashArray)
 ## SKIP: [key]+=value append syntax in array literals not implemented
-hello=100
 a=([hello]=1 [hello]+=2)
 printf 'keys: '; argv.py "${!a[@]}"
 printf 'vals: '; argv.py "${a[@]}"
@@ -129,7 +127,7 @@ vals: ['12:34:56']
 ## END
 
 #### append to element (BashAssoc)
-## SKIP: [key]+=value append syntax in assoc array literals not implemented
+## SKIP: We produce correct output ['12'] but test expects bash BUG output ['2']
 declare -A a
 hello=100
 a=([hello]=1 [hello]+=2)

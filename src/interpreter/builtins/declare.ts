@@ -9,6 +9,7 @@
  *   declare -A NAME      - Declare associative array
  *   declare -r NAME      - Declare readonly variable
  *   declare -x NAME      - Export variable
+ *   declare -g NAME      - Declare global variable (inside functions)
  *
  * Also aliased as 'typeset'
  */
@@ -34,7 +35,11 @@ import {
 import { OK, result, success } from "../helpers/result.js";
 import { expandTildesInValue } from "../helpers/tilde.js";
 import type { InterpreterContext } from "../types.js";
-import { parseAssignment, setVariable } from "./variable-helpers.js";
+import {
+  markLocalVarDepth,
+  parseAssignment,
+  setVariable,
+} from "./variable-helpers.js";
 
 /**
  * Get the attribute flags string for a variable (e.g., "-r", "-x", "-rx", "--")
@@ -181,6 +186,7 @@ export function handleDeclare(
   let declareUppercase = false;
   let functionMode = false; // -f flag: function definitions
   let functionNamesOnly = false; // -F flag: function names only
+  let declareGlobal = false; // -g flag: declare global variable (inside functions)
   const processedArgs: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -224,6 +230,8 @@ export function handleDeclare(
       functionMode = true;
     } else if (arg === "-F") {
       functionNamesOnly = true;
+    } else if (arg === "-g") {
+      declareGlobal = true;
     } else if (arg.startsWith("-")) {
       // Handle combined flags like -ar
       for (const flag of arg.slice(1)) {
@@ -238,11 +246,61 @@ export function handleDeclare(
         else if (flag === "u") declareUppercase = true;
         else if (flag === "f") functionMode = true;
         else if (flag === "F") functionNamesOnly = true;
+        else if (flag === "g") declareGlobal = true;
       }
     } else {
       processedArgs.push(arg);
     }
   }
+
+  // Determine if we should create local variables (inside a function, without -g flag)
+  const isInsideFunction = ctx.state.localScopes.length > 0;
+  const createLocal = isInsideFunction && !declareGlobal;
+
+  // Helper to save variable to local scope (for restoration when function exits)
+  const saveToLocalScope = (name: string): void => {
+    if (!createLocal) return;
+    const currentScope =
+      ctx.state.localScopes[ctx.state.localScopes.length - 1];
+    if (!currentScope.has(name)) {
+      currentScope.set(name, ctx.state.env[name]);
+    }
+  };
+
+  // Helper to save array elements to local scope
+  const saveArrayToLocalScope = (name: string): void => {
+    if (!createLocal) return;
+    const currentScope =
+      ctx.state.localScopes[ctx.state.localScopes.length - 1];
+    // Save the base variable
+    if (!currentScope.has(name)) {
+      currentScope.set(name, ctx.state.env[name]);
+    }
+    // Save array elements
+    const prefix = `${name}_`;
+    for (const key of Object.keys(ctx.state.env)) {
+      if (key.startsWith(prefix) && !key.includes("__")) {
+        if (!currentScope.has(key)) {
+          currentScope.set(key, ctx.state.env[key]);
+        }
+      }
+    }
+    // Save length metadata
+    const lengthKey = `${name}__length`;
+    if (
+      ctx.state.env[lengthKey] !== undefined &&
+      !currentScope.has(lengthKey)
+    ) {
+      currentScope.set(lengthKey, ctx.state.env[lengthKey]);
+    }
+  };
+
+  // Helper to mark variable as local after setting it
+  const markAsLocalIfNeeded = (name: string): void => {
+    if (createLocal) {
+      markLocalVarDepth(ctx, name);
+    }
+  };
 
   // Handle declare -F (function names only)
   if (functionNamesOnly) {
@@ -439,6 +497,60 @@ export function handleDeclare(
     return success(stdout);
   }
 
+  // Handle declare -a without arguments: list all indexed arrays
+  if (processedArgs.length === 0 && declareArray && !printMode) {
+    let stdout = "";
+
+    // Find all indexed arrays
+    const arrayNames = new Set<string>();
+    for (const key of Object.keys(ctx.state.env)) {
+      if (key.startsWith("BASH_")) continue;
+      // Check for __length marker (empty arrays)
+      if (key.endsWith("__length")) {
+        const baseName = key.slice(0, -8);
+        // Make sure it's not an associative array
+        if (!ctx.state.associativeArrays?.has(baseName)) {
+          arrayNames.add(baseName);
+        }
+        continue;
+      }
+      // Check for numeric index pattern (name_index)
+      const lastUnderscore = key.lastIndexOf("_");
+      if (lastUnderscore > 0) {
+        const baseName = key.slice(0, lastUnderscore);
+        const suffix = key.slice(lastUnderscore + 1);
+        // If suffix is numeric, it's an array element
+        if (/^\d+$/.test(suffix)) {
+          // Make sure it's not an associative array
+          if (!ctx.state.associativeArrays?.has(baseName)) {
+            arrayNames.add(baseName);
+          }
+        }
+      }
+    }
+
+    // Output each array in sorted order
+    const sortedNames = Array.from(arrayNames).sort();
+    for (const name of sortedNames) {
+      const indices = getArrayIndices(ctx, name);
+      if (indices.length === 0) {
+        // Empty array
+        stdout += `declare -a ${name}=()\n`;
+      } else {
+        // Non-empty array: format as ([index]="value" ...)
+        const elements = indices.map((index) => {
+          const value = ctx.state.env[`${name}_${index}`] ?? "";
+          const escapedValue = value
+            .replace(/\\/g, "\\\\")
+            .replace(/"/g, '\\"');
+          return `[${index}]="${escapedValue}"`;
+        });
+        stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
+      }
+    }
+    return success(stdout);
+  }
+
   // No args: list all variables
   if (processedArgs.length === 0 && !printMode) {
     let stdout = "";
@@ -453,6 +565,10 @@ export function handleDeclare(
     return success(stdout);
   }
 
+  // Track errors during processing
+  let stderr = "";
+  let exitCode = 0;
+
   // Process each argument
   for (const arg of processedArgs) {
     // Check for array assignment: name=(...)
@@ -461,6 +577,9 @@ export function handleDeclare(
     if (arrayMatch && !removeArray) {
       const name = arrayMatch[1];
       const content = arrayMatch[2];
+
+      // Save to local scope before modifying (for local variable restoration)
+      saveArrayToLocalScope(name);
 
       // Track associative array declaration
       if (declareAssoc) {
@@ -479,12 +598,55 @@ export function handleDeclare(
       } else {
         // Parse as indexed array elements
         const elements = parseArrayElements(content);
-        for (let i = 0; i < elements.length; i++) {
-          ctx.state.env[`${name}_${i}`] = elements[i];
+        // Check if any element has [index]=value syntax (index can be number, variable, or expression)
+        const hasKeyedElements = elements.some((el) => /^\[[^\]]+\]=/.test(el));
+        if (hasKeyedElements) {
+          // Handle sparse array with [index]=value syntax
+          // Track current index - non-keyed elements use previous keyed index + 1
+          let currentIndex = 0;
+          for (const element of elements) {
+            // Match [index]=value where index can be any expression (not just digits)
+            const keyedMatch = element.match(/^\[([^\]]+)\]=(.*)$/);
+            if (keyedMatch) {
+              const indexExpr = keyedMatch[1];
+              const rawValue = keyedMatch[2];
+              const value = expandTildesInValue(ctx, rawValue);
+              // Evaluate index as arithmetic expression (handles numbers, variables, expressions)
+              let index: number;
+              if (/^-?\d+$/.test(indexExpr)) {
+                index = Number.parseInt(indexExpr, 10);
+              } else {
+                // Evaluate as arithmetic expression
+                try {
+                  const parser = new Parser();
+                  const arithAst = parseArithmeticExpression(parser, indexExpr);
+                  index = evaluateArithmeticSync(ctx, arithAst.expression);
+                } catch {
+                  // If parsing fails, treat as 0 (like unset variable)
+                  index = 0;
+                }
+              }
+              ctx.state.env[`${name}_${index}`] = value;
+              currentIndex = index + 1;
+            } else {
+              // Non-keyed element: use currentIndex and increment
+              const value = expandTildesInValue(ctx, element);
+              ctx.state.env[`${name}_${currentIndex}`] = value;
+              currentIndex++;
+            }
+          }
+        } else {
+          // Simple sequential assignment
+          for (let i = 0; i < elements.length; i++) {
+            ctx.state.env[`${name}_${i}`] = elements[i];
+          }
+          // Store array length marker
+          ctx.state.env[`${name}__length`] = String(elements.length);
         }
-        // Store array length marker
-        ctx.state.env[`${name}__length`] = String(elements.length);
       }
+
+      // Mark as local if inside a function
+      markAsLocalIfNeeded(name);
 
       if (declareReadonly) {
         markReadonly(ctx, name);
@@ -528,6 +690,9 @@ export function handleDeclare(
       const error = checkReadonlyError(ctx, name);
       if (error) return error;
 
+      // Save to local scope before modifying
+      saveArrayToLocalScope(name);
+
       // Evaluate the index (can be arithmetic expression)
       let index: number;
       try {
@@ -552,6 +717,9 @@ export function handleDeclare(
         ctx.state.env[`${name}__length`] = String(index + 1);
       }
 
+      // Mark as local if inside a function
+      markAsLocalIfNeeded(name);
+
       if (declareReadonly) {
         markReadonly(ctx, name);
       }
@@ -571,11 +739,23 @@ export function handleDeclare(
       const error = checkReadonlyError(ctx, name);
       if (error) return error;
 
+      // Save to local scope before modifying
+      saveToLocalScope(name);
+
       // For namerefs being declared with a value, store the target name
       // (don't follow the reference, just store what variable it points to)
       if (declareNameref) {
+        // Validate the target: must be a valid variable name or array subscript,
+        // not a special parameter like @, *, #, etc.
+        // bash gives an error: "declare: `@': invalid variable name for name reference"
+        if (value !== "" && !/^[a-zA-Z_][a-zA-Z0-9_]*(\[.+\])?$/.test(value)) {
+          stderr += `bash: declare: \`${value}': invalid variable name for name reference\n`;
+          exitCode = 1;
+          continue;
+        }
         ctx.state.env[name] = value;
         markNameref(ctx, name);
+        markAsLocalIfNeeded(name);
         if (declareReadonly) {
           markReadonly(ctx, name);
         }
@@ -619,6 +799,10 @@ export function handleDeclare(
       } else {
         ctx.state.env[name] = value;
       }
+
+      // Mark as local if inside a function
+      markAsLocalIfNeeded(name);
+
       if (declareReadonly) {
         markReadonly(ctx, name);
       }
@@ -634,9 +818,17 @@ export function handleDeclare(
       // Just declare without value
       const name = arg;
 
+      // Save to local scope before modifying
+      if (declareArray || declareAssoc) {
+        saveArrayToLocalScope(name);
+      } else {
+        saveToLocalScope(name);
+      }
+
       // For declare -n without a value, just mark as nameref
       if (declareNameref) {
         markNameref(ctx, name);
+        markAsLocalIfNeeded(name);
         if (declareReadonly) {
           markReadonly(ctx, name);
         }
@@ -680,6 +872,10 @@ export function handleDeclare(
           ctx.state.env[name] = "";
         }
       }
+
+      // Mark as local if inside a function
+      markAsLocalIfNeeded(name);
+
       if (declareReadonly) {
         markReadonly(ctx, name);
       }
@@ -689,7 +885,7 @@ export function handleDeclare(
     }
   }
 
-  return OK;
+  return result("", stderr, exitCode);
 }
 
 /**

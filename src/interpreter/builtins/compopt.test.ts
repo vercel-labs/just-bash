@@ -42,6 +42,7 @@ function createMockCtx(): InterpreterContext {
       nocasematch: false,
       expand_aliases: false,
       lastpipe: false,
+      xpg_echo: false,
     },
     inCondition: false,
     loopDepth: 0,

@@ -171,7 +171,6 @@ echo $var
 ## END
 
 #### Splitting/Globbing doesn't happen on local assignment
-## SKIP: local builtin incorrectly splits/globs assignment values
 cd $REPO_ROOT
 
 f() {
@@ -197,6 +196,7 @@ echo [[z] []z]    # also accepted
 ## END
 
 #### Glob of negated unescaped [[] and []]
+## SKIP: Negated unescaped bracket glob patterns not implemented (matches dash/mksh behavior)
 # osh does this "correctly" because it defers to libc!
 touch $TMP/_G
 cd $TMP

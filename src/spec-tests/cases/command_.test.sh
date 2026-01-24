@@ -177,7 +177,6 @@ status=0
 ## END
 
 #### hash with args
-## SKIP: whoami command not available in sandbox
 hash whoami
 echo status=$?
 hash | grep -o /whoami  # prints it twice

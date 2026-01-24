@@ -93,7 +93,6 @@ argv.py "$foo"
 ## END
 
 #### dynamic declare instead of %q
-## SKIP: Dynamic declare not implemented
 var=foo
 val='"quoted" with spaces and \'
 # I think this is bash 4.4 only.

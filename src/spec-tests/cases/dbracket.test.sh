@@ -205,7 +205,6 @@ true
 ## END
 
 #### Argument that looks like a real operator
-## SKIP: [[ ]] with argument resembling operator not implemented
 [[ -f < ]] && echo 'should be parse error'
 ## status: 2
 ## OK mksh status: 1

@@ -31,9 +31,9 @@ describe("find actions", () => {
         'find /dir -type f -name "*.txt" -exec wc -l {} +',
       );
       // wc -l with multiple files shows per-file counts and total
-      expect(result.stdout).toBe(`2 /dir/a.txt
-3 /dir/b.txt
-5 total
+      expect(result.stdout).toBe(`  2 /dir/a.txt
+  3 /dir/b.txt
+  5 total
 `);
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);

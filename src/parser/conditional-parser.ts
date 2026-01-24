@@ -146,6 +146,12 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
           operand,
         };
       }
+      // Unary operator followed by non-word token (like < > && ||) is a syntax error
+      // bash: "unexpected argument `<' to conditional unary operator"
+      const badToken = p.current();
+      p.error(
+        `unexpected argument \`${badToken.value}' to conditional unary operator`,
+      );
     }
 
     // Parse as word, then check for binary operator

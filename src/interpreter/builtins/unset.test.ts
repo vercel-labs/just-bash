@@ -121,4 +121,60 @@ describe("unset builtin", () => {
       expect(result.stdout).toBe("done\n");
     });
   });
+
+  describe("unset associative array elements", () => {
+    it("should unset associative array element with variable key", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        declare -A dict=()
+        key=mykey
+        dict["$key"]=foo
+        echo "before: \${dict[mykey]}"
+        unset -v 'dict["$key"]'
+        echo "after: \${dict[mykey]}"
+      `);
+      expect(result.stdout).toBe("before: foo\nafter: \n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should unset associative array element with special characters in key", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        declare -A dict=()
+        key='1],a[1'
+        dict["$key"]=foo
+        echo "\${#dict[@]}"
+        unset -v 'dict["$key"]'
+        echo "\${#dict[@]}"
+      `);
+      expect(result.stdout).toBe("1\n0\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should unset associative array element with single-quoted key", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        declare -A dict=()
+        dict['literal']=bar
+        echo "before: \${dict[literal]}"
+        unset "dict['literal']"
+        echo "after: \${dict[literal]}"
+      `);
+      expect(result.stdout).toBe("before: bar\nafter: \n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should unset associative array element with plain literal key", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        declare -A dict=()
+        dict[plainkey]=value
+        echo "before: \${dict[plainkey]}"
+        unset 'dict[plainkey]'
+        echo "after: \${dict[plainkey]}"
+      `);
+      expect(result.stdout).toBe("before: value\nafter: \n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
 });

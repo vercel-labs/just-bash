@@ -252,6 +252,7 @@ export class Bash {
         nocasematch: false,
         expand_aliases: false,
         lastpipe: false,
+        xpg_echo: false,
       },
       inCondition: false,
       loopDepth: 0,
@@ -324,6 +325,18 @@ export class Bash {
         );
       } catch {
         // Ignore errors
+      }
+      // Also create stub in /usr/bin for env command
+      // Many scripts use /usr/bin/env directly
+      if (command.name === "env") {
+        try {
+          fs.writeFileSync(
+            `/usr/bin/${command.name}`,
+            `#!/bin/bash\n# Built-in command: ${command.name}\n`,
+          );
+        } catch {
+          // Ignore errors
+        }
       }
     }
   }

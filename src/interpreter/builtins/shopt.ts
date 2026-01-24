@@ -19,6 +19,7 @@ const SHOPT_OPTIONS = [
   "nocasematch",
   "expand_aliases",
   "lastpipe",
+  "xpg_echo",
 ] as const;
 
 // Options that are recognized but not implemented (stubs that return current state)
@@ -66,7 +67,6 @@ const STUB_OPTIONS = [
   "restricted_shell",
   "shift_verbose",
   "sourcepath",
-  "xpg_echo",
 ] as const;
 
 type ShoptOption = (typeof SHOPT_OPTIONS)[number];
@@ -228,8 +228,16 @@ export function handleShopt(
           }
         } else if (printFlag) {
           output.push(`shopt ${value ? "-s" : "-u"} ${name}`);
+          // In bash, shopt -p returns exit code 1 if the option is unset
+          if (!value) {
+            hasError = true;
+          }
         } else {
           output.push(`${name}\t\t${value ? "on" : "off"}`);
+          // In bash, shopt without flags returns exit code 1 if the option is unset
+          if (!value) {
+            hasError = true;
+          }
         }
       } else {
         // Stub options report as off
@@ -237,8 +245,10 @@ export function handleShopt(
           hasError = true;
         } else if (printFlag) {
           output.push(`shopt -u ${name}`);
+          hasError = true; // Stub options are always off
         } else {
           output.push(`${name}\t\toff`);
+          hasError = true; // Stub options are always off
         }
       }
     }
@@ -324,8 +334,16 @@ function handleSetOptions(
         }
       } else if (printFlag) {
         output.push(`set ${value ? "-o" : "+o"} ${name}`);
+        // In bash, shopt -o -p returns exit code 1 if the option is unset
+        if (!value) {
+          hasError = true;
+        }
       } else {
         output.push(`${name}\t\t${value ? "on" : "off"}`);
+        // In bash, shopt -o without flags returns exit code 1 if the option is unset
+        if (!value) {
+          hasError = true;
+        }
       }
     }
   }

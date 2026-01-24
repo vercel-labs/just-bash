@@ -14,10 +14,10 @@ $SH -o nounset -c 'echo $-'
 ## status: 0
 
 #### $- with pipefail
-## SKIP: $- output differs - we show 'up' but bash shows 'huBs' (extra flags h, B, s)
+# Note: pipefail has no short flag in $-, we now include h (hashall), B (braceexpand), and s (stdin reading)
 set -o pipefail -o nounset
 echo $-
-## stdout: u
+## stdout: huBs
 ## status: 0
 ## OK bash stdout: huBs
 ## OK mksh stdout: ush
@@ -668,7 +668,6 @@ N-I
 ## END
 
 #### Unimplemented options - print, query, set, unset
-## SKIP: xpg_echo option not implemented
 case $SH in dash|mksh) exit ;; esac
 
 opt_name=xpg_echo
@@ -710,7 +709,6 @@ set=1
 ## END
 
 #### Unimplemented options - OSH shopt -s ignore_shopt_not_impl
-## SKIP: ignore_shopt_not_impl option not implemented
 case $SH in dash|mksh) exit ;; esac
 
 shopt -s ignore_shopt_not_impl
@@ -760,7 +758,6 @@ status=0
 ## END
 
 #### no-ops not shown by shopt -p
-## SKIP: shopt -p not implemented
 shopt -p | grep xpg
 echo --
 ## STDOUT:

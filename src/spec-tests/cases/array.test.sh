@@ -275,7 +275,6 @@ None
 ## END
 
 #### Arrays can't be used as env bindings
-## SKIP: array env bindings should pass stringified array to command, not None
 # Hm bash it treats it as a string!
 A=a B=(b b) printenv.py A B
 ## status: 2
@@ -288,7 +287,6 @@ a
 ## OK mksh status: 1
 
 #### Associative arrays can't be used as env bindings either
-## SKIP: assoc array env bindings should pass stringified array to command, not None
 A=a B=([k]=v) printenv.py A B
 ## status: 2
 ## stdout-json: ""
@@ -439,7 +437,6 @@ argv.py "${a[0]}" "${a[0][0]}"
 ## OK bash/mksh status: 1
 
 #### Length op, index op, then transform op is not allowed
-## SKIP: Array length with transform operation not implemented
 a=('123' '456')
 echo "${#a[0]}" "${#a[0]/1/xxx}"
 ## stdout-json: ""
@@ -636,7 +633,6 @@ foo
 
 
 #### Dynamic parsing of LHS a[$code]=value
-## SKIP: Assignment expression in array index array[x=1]=v not parsed correctly
 
 declare -a array
 array[x=1]='one'

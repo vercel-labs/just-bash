@@ -446,7 +446,6 @@ unset len=0
 ## END
 
 #### unset -v and assoc array
-## SKIP: unset -v with associative array key syntax not implemented
 shopt -s eval_unsafe_arith || true
 
 show-len() {
@@ -571,7 +570,6 @@ values: /val3/
 
 #### bash bug: (( A["$key"] = 1 )) doesn't work
 ## SKIP: Arithmetic assignment with associative array key differs
-key='\'
 declare -A A
 #A["$key"]=1
 
@@ -596,7 +594,6 @@ argv.py "${A[@]}"
 
 
 #### Implicit increment of keys
-## SKIP: Array literal with sparse index assignment [n]=value not implemented
 declare -a arr=( [30]=a b [40]=x y)
 argv.py "${!arr[@]}"
 argv.py "${arr[@]}"

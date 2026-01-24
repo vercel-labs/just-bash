@@ -164,9 +164,10 @@ function processEscapes(input: string): { output: string; stop: boolean } {
 export const echoCommand: Command = {
   name: "echo",
 
-  async execute(args: string[], _ctx: CommandContext): Promise<ExecResult> {
+  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
     let noNewline = false;
-    let interpretEscapes = false;
+    // When xpg_echo is enabled, interpret escapes by default (like echo -e)
+    let interpretEscapes = ctx.xpgEcho ?? false;
     let startIndex = 0;
 
     // Parse flags

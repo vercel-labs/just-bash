@@ -110,7 +110,7 @@ histfile=yes
 ## END
 
 #### Some vars are set, even without startup file, or env: PATH, PWD
-## SKIP: /usr/bin/env not implemented
+## SKIP: bash --noprofile --norc flags not implemented
 
 flags=''
 case $SH in
@@ -431,7 +431,6 @@ f
 ## END
 
 #### $LINENO in "bare" redirect arg (bug regression)
-## SKIP: Bare redirects (without command) not supported
 filename=$TMP/bare3
 rm -f $filename
 > $TMP/bare$LINENO
@@ -665,7 +664,6 @@ simple
 
 
 #### $_ with assignments, arrays, etc.
-## SKIP: $_ with declare/colon builtin not implemented
 case $SH in dash|mksh) exit ;; esac
 
 : foo

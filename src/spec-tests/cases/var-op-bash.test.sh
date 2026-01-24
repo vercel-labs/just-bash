@@ -164,8 +164,6 @@ ABC DEF
 ## END
 
 #### ${x@u} U L - upper / lower case (bash 5.1 feature)
-## SKIP: @u @U @L parameter transformation not implemented
-
 # https://www.gnu.org/software/bash/manual/html_node/Shell-Parameter-Expansion.html
 
 x='abc DEF'
@@ -192,7 +190,6 @@ OK
 ## END
 
 #### ${array@Q} and ${array[@]@Q}
-## SKIP: @Q array transformation output format differs
 array=(x 'y\nz')
 echo ${array[@]@Q}
 echo ${array@Q}
@@ -273,7 +270,6 @@ echo [${?@a}]
 ## END
 
 #### undef and @P @Q @a
-## SKIP: Interactive shell invocation not implemented
 $SH -c 'echo ${undef@P}'
 echo status=$?
 $SH -c 'echo ${undef@Q}'
@@ -389,7 +385,6 @@ invalid=
 ## END
 
 #### undef vs. empty string in var ops
-## SKIP: @K @k @A @a transformations not implemented
 
 empty=''
 x=x

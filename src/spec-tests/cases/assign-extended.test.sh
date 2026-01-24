@@ -570,7 +570,6 @@ declare -- x
 ## END
 
 #### eval -- "$(declare -p arr)" (restore arrays w/ unset elements)
-## SKIP: eval of declare -p sparse array assigns to wrong indices
 arr=(1 2 3)
 eval -- "$(arr=(); arr[3]= arr[4]=foo; declare -p arr)"
 for i in {0..4}; do
@@ -587,7 +586,6 @@ arr[4]: set ... [foo]
 ## N-I mksh status: 1
 
 #### declare -p UNDEF (and typeset) -- prints something to stderr
-## SKIP: wc -l output format differs (no leading spaces)
 
 x=42
 readonly x
@@ -790,7 +788,6 @@ echo $a $b $c
 ## OK mksh status: 1
 
 #### declare -g (bash-specific; bash-completion uses it)
-## SKIP: declare -g not implemented
 f() {
   declare -g G=42
   declare L=99

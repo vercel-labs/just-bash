@@ -118,6 +118,11 @@ export interface CommandContext {
    * Note: FD 0 content is in `stdin`, but may also appear here for consistency.
    */
   fileDescriptors?: Map<number, string>;
+  /**
+   * Whether xpg_echo shopt is enabled.
+   * When true, echo interprets backslash escapes by default (like echo -e).
+   */
+  xpgEcho?: boolean;
 }
 
 export interface Command {

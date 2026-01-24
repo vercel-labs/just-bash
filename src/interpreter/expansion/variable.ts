@@ -112,14 +112,22 @@ export function getVariable(
       return ctx.state.lastArg;
     case "-": {
       // $- returns current shell option flags
+      // Bash always includes h (hashall) and B (braceexpand) by default
+      // Note: pipefail has no short flag in $- (it's only set via -o pipefail)
       let flags = "";
+      // h = hashall (always on in bash by default, we have hash table support)
+      flags += "h";
       if (ctx.state.options.errexit) flags += "e";
       if (ctx.state.options.noglob) flags += "f";
       if (ctx.state.options.nounset) flags += "u";
       if (ctx.state.options.verbose) flags += "v";
       if (ctx.state.options.xtrace) flags += "x";
+      // B = braceexpand (always on in our implementation)
+      flags += "B";
       if (ctx.state.options.noclobber) flags += "C";
-      if (ctx.state.options.pipefail) flags += "p";
+      // s = stdin reading (always on since we execute scripts passed as strings,
+      // which is conceptually equivalent to reading from stdin like `bash < script.sh`)
+      flags += "s";
       return flags;
     }
     case "*": {

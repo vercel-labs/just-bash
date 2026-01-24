@@ -6,7 +6,6 @@
 # - zsh fails several cases
 
 #### >$file touches a file
-## SKIP: Redirect without command not implemented
 rm -f myfile
 test -f myfile
 echo status=$?

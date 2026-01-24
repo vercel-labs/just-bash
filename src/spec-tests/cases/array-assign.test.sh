@@ -29,7 +29,6 @@ status=127
 ## END
 
 #### Indexed LHS with spaces
-## SKIP: Array index with spaces not implemented
 case $SH in zsh|ash) exit ;; esac
 
 a[1 * 1]=x
@@ -45,8 +44,6 @@ status=0
 ## END
 
 #### Nested a[i[0]]=0
-## SKIP: Nested array index not implemented
-case $SH in zsh|ash) exit ;; esac
 
 i=(0 1 2)
 
@@ -192,7 +189,7 @@ len=2
 ## END
 
 #### More fragments like a[  a[5  a[5 +  a[5 + 3]
-## SKIP: Interactive shell invocation not implemented
+## SKIP: We produce status=127 but test expects bash BUG output status=2 for syntax errors
 
 for name in 'a[' 'a[5'; do
   echo "echo hi from $name: \$# args: \$@" > "$name"
@@ -304,9 +301,6 @@ status=1 len=2
 ## END
 
 #### Tricky parsing - a[ a[0]=1 ]=X  a[ a[0]+=1 ]+=X
-## SKIP: Nested array assignment parsing not implemented
-case $SH in zsh|mksh|ash) exit ;; esac
-
 # the nested [] means we can't use regular language lookahead?
 
 echo assign=$(( z[0] = 42 ))

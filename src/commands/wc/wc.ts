@@ -54,13 +54,17 @@ export const wcCommand: Command = {
     if (files.length === 0) {
       const stats = countStats(readResult.files[0].content);
       return {
-        stdout: `${formatStats(stats, showLines, showWords, showChars, "")}\n`,
+        stdout: `${formatStats(stats, showLines, showWords, showChars, "", 0)}\n`,
         stderr: "",
         exitCode: 0,
       };
     }
 
-    let stdout = "";
+    // First pass: count stats for all files and calculate max widths
+    const allStats: Array<{
+      filename: string;
+      stats: { lines: number; words: number; chars: number };
+    }> = [];
     let totalLines = 0;
     let totalWords = 0;
     let totalChars = 0;
@@ -70,7 +74,35 @@ export const wcCommand: Command = {
       totalLines += stats.lines;
       totalWords += stats.words;
       totalChars += stats.chars;
-      stdout += `${formatStats(stats, showLines, showWords, showChars, filename)}\n`;
+      allStats.push({ filename, stats });
+    }
+
+    // Calculate the max width needed for alignment
+    // Consider totals if we have multiple files
+    const maxLines =
+      files.length > 1
+        ? totalLines
+        : Math.max(...allStats.map((s) => s.stats.lines));
+    const maxWords =
+      files.length > 1
+        ? totalWords
+        : Math.max(...allStats.map((s) => s.stats.words));
+    const maxChars =
+      files.length > 1
+        ? totalChars
+        : Math.max(...allStats.map((s) => s.stats.chars));
+
+    // Calculate width based on which columns are shown
+    // Use minimum width of 3 for alignment when there are multiple files (matches osh behavior)
+    let maxWidth = files.length > 1 ? 3 : 0;
+    if (showLines) maxWidth = Math.max(maxWidth, String(maxLines).length);
+    if (showWords) maxWidth = Math.max(maxWidth, String(maxWords).length);
+    if (showChars) maxWidth = Math.max(maxWidth, String(maxChars).length);
+
+    // Second pass: format output with proper alignment
+    let stdout = "";
+    for (const { filename, stats } of allStats) {
+      stdout += `${formatStats(stats, showLines, showWords, showChars, filename, maxWidth)}\n`;
     }
 
     // Show total for multiple files
@@ -81,6 +113,7 @@ export const wcCommand: Command = {
         showWords,
         showChars,
         "total",
+        maxWidth,
       )}\n`;
     }
 
@@ -131,16 +164,17 @@ function formatStats(
   showWords: boolean,
   showChars: boolean,
   filename: string,
+  minWidth: number,
 ): string {
   const values: string[] = [];
   if (showLines) {
-    values.push(String(stats.lines));
+    values.push(String(stats.lines).padStart(minWidth));
   }
   if (showWords) {
-    values.push(String(stats.words));
+    values.push(String(stats.words).padStart(minWidth));
   }
   if (showChars) {
-    values.push(String(stats.chars));
+    values.push(String(stats.chars).padStart(minWidth));
   }
 
   let result = values.join(" ");

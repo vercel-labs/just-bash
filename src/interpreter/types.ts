@@ -73,6 +73,8 @@ export interface ShoptOptions {
   expand_aliases: boolean;
   /** shopt -s lastpipe: Run last command of pipeline in current shell context */
   lastpipe: boolean;
+  /** shopt -s xpg_echo: Make echo interpret backslash escapes by default (like echo -e) */
+  xpg_echo: boolean;
 }
 
 export interface InterpreterState {

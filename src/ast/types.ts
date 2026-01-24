@@ -459,8 +459,8 @@ export interface CaseModificationOp {
 /** ${var@Q}, ${var@P}, etc. - parameter transformation */
 export interface TransformOp {
   type: "Transform";
-  /** Q=quote, P=prompt, a=attributes, A=assignment, E=escape, K=keys */
-  operator: "Q" | "P" | "a" | "A" | "E" | "K";
+  /** Q=quote, P=prompt, a=attributes, A=assignment, E=escape, K=keys, k=keys(alt), u=ucfirst, U=uppercase, L=lowercase */
+  operator: "Q" | "P" | "a" | "A" | "E" | "K" | "k" | "u" | "U" | "L";
 }
 
 /** ${!VAR} - indirect expansion, optionally combined with another operation like ${!ref-default} */

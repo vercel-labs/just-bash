@@ -13,6 +13,8 @@
 import type {
   ArithExpr,
   ParameterExpansionPart,
+  PatternRemovalOp,
+  PatternReplacementOp,
   ScriptNode,
   SimpleCommandNode,
   SubstringOp,
@@ -168,48 +170,63 @@ function unescapeGlobPattern(pattern: string): string {
 /**
  * Quote a value for safe reuse as shell input (${var@Q} transformation)
  * Uses single quotes with proper escaping for special characters.
+ * Follows bash's quoting behavior:
+ * - Simple strings without quotes: 'value'
+ * - Strings with single quotes: 'foo'\''bar' (concatenated quoted segments)
+ * - Strings with control characters (newlines, tabs, etc.): $'value'
  */
 function quoteValue(value: string): string {
   // Empty string becomes ''
   if (value === "") return "''";
 
-  // If value contains no special characters that need $'...' format, use simple single quotes
-  if (!/['\\\n\r\t\x00-\x1f\x7f]/.test(value)) {
-    return `'${value}'`;
-  }
+  // Check if we need $'...' format - only for actual control characters
+  // (not for literal backslashes, which are safe in single quotes)
+  const needsDollarQuote = /[\n\r\t\x00-\x1f\x7f]/.test(value);
 
-  // Use $'...' format for strings with special characters
-  let result = "$'";
-  for (const char of value) {
-    switch (char) {
-      case "'":
-        result += "\\'";
-        break;
-      case "\\":
-        result += "\\\\";
-        break;
-      case "\n":
-        result += "\\n";
-        break;
-      case "\r":
-        result += "\\r";
-        break;
-      case "\t":
-        result += "\\t";
-        break;
-      default: {
-        // Check for control characters
-        const code = char.charCodeAt(0);
-        if (code < 32 || code === 127) {
-          // Use octal escapes like bash does (not hex)
-          result += `\\${code.toString(8).padStart(3, "0")}`;
-        } else {
-          result += char;
+  if (needsDollarQuote) {
+    // Use $'...' format for strings with control characters
+    let result = "$'";
+    for (const char of value) {
+      switch (char) {
+        case "'":
+          result += "\\'";
+          break;
+        case "\\":
+          result += "\\\\";
+          break;
+        case "\n":
+          result += "\\n";
+          break;
+        case "\r":
+          result += "\\r";
+          break;
+        case "\t":
+          result += "\\t";
+          break;
+        default: {
+          // Check for control characters
+          const code = char.charCodeAt(0);
+          if (code < 32 || code === 127) {
+            // Use octal escapes like bash does (not hex)
+            result += `\\${code.toString(8).padStart(3, "0")}`;
+          } else {
+            result += char;
+          }
         }
       }
     }
+    return `${result}'`;
   }
-  return `${result}'`;
+
+  // For strings without control characters, use single quotes
+  // Handle embedded single quotes with '\'' (end quote, escaped quote, start quote)
+  if (!value.includes("'")) {
+    return `'${value}'`;
+  }
+
+  // String contains single quotes - use 'foo'\''bar' format
+  const parts = value.split("'");
+  return parts.map((part) => `'${part}'`).join("\\'");
 }
 
 /**
@@ -976,17 +993,20 @@ export async function expandWordWithGlob(
 
   // Special handling for "${a[@]}" - each array element becomes a separate word
   // This applies even inside double quotes
+  // NOTE: Only handles the simple case WITHOUT operations (like pattern removal)
+  // Operations like ${a[@]#pattern} are handled by dedicated handlers below
   if (
     hasArrayAtExpansion &&
     wordParts.length === 1 &&
     wordParts[0].type === "DoubleQuoted"
   ) {
     const dqPart = wordParts[0];
-    // Check if it's ONLY the array expansion (like "${a[@]}")
-    // More complex cases like "prefix${a[@]}suffix" need different handling
+    // Check if it's ONLY the array expansion (like "${a[@]}") without operations
+    // More complex cases like "prefix${a[@]}suffix" or "${a[@]#pattern}" need different handling
     if (
       dqPart.parts.length === 1 &&
-      dqPart.parts[0].type === "ParameterExpansion"
+      dqPart.parts[0].type === "ParameterExpansion" &&
+      !dqPart.parts[0].operation
     ) {
       const paramPart = dqPart.parts[0];
       const match = paramPart.parameter.match(
@@ -1134,6 +1154,195 @@ export async function expandWordWithGlob(
         }
         // Default word doesn't contain an array expansion - fall through to normal expansion
       }
+    }
+  }
+
+  // Handle "${prefix}${arr[@]#pattern}${suffix}" and "${prefix}${arr[@]/pat/rep}${suffix}"
+  // Array pattern operations with adjacent text in double quotes
+  // Each array element has the pattern applied, then becomes a separate word
+  // with prefix joined to first and suffix joined to last
+  if (
+    hasArrayAtExpansion &&
+    wordParts.length === 1 &&
+    wordParts[0].type === "DoubleQuoted"
+  ) {
+    const dqPart = wordParts[0];
+    // Find if there's a ${arr[@]} or ${arr[*]} with PatternRemoval or PatternReplacement
+    let arrayAtIndex = -1;
+    let arrayName = "";
+    let isStar = false;
+    let arrayOperation: PatternRemovalOp | PatternReplacementOp | null = null;
+    for (let i = 0; i < dqPart.parts.length; i++) {
+      const p = dqPart.parts[i];
+      if (
+        p.type === "ParameterExpansion" &&
+        (p.operation?.type === "PatternRemoval" ||
+          p.operation?.type === "PatternReplacement")
+      ) {
+        const match = p.parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/);
+        if (match) {
+          arrayAtIndex = i;
+          arrayName = match[1];
+          isStar = match[2] === "*";
+          arrayOperation = p.operation as
+            | PatternRemovalOp
+            | PatternReplacementOp;
+          break;
+        }
+      }
+    }
+
+    // Only handle if there's prefix or suffix (pure "${arr[@]#pat}" is handled below)
+    if (
+      arrayAtIndex !== -1 &&
+      (arrayAtIndex > 0 || arrayAtIndex < dqPart.parts.length - 1)
+    ) {
+      // Expand prefix (parts before ${arr[@]})
+      let prefix = "";
+      for (let i = 0; i < arrayAtIndex; i++) {
+        prefix += await expandPart(ctx, dqPart.parts[i]);
+      }
+
+      // Expand suffix (parts after ${arr[@]})
+      let suffix = "";
+      for (let i = arrayAtIndex + 1; i < dqPart.parts.length; i++) {
+        suffix += await expandPart(ctx, dqPart.parts[i]);
+      }
+
+      // Get array elements
+      const elements = getArrayElements(ctx, arrayName);
+      let values = elements.map(([, v]) => v);
+
+      // If no elements, check for scalar (treat as single-element array)
+      if (elements.length === 0) {
+        const scalarValue = ctx.state.env[arrayName];
+        if (scalarValue !== undefined) {
+          values = [scalarValue];
+        } else {
+          // Variable is unset or empty array
+          if (isStar) {
+            return { values: [prefix + suffix], quoted: true };
+          }
+          const combined = prefix + suffix;
+          return { values: combined ? [combined] : [], quoted: true };
+        }
+      }
+
+      // Apply operation to each element
+      if (arrayOperation?.type === "PatternRemoval") {
+        const op = arrayOperation as PatternRemovalOp;
+        // Build the regex pattern
+        let regexStr = "";
+        const extglob = ctx.state.shoptOptions.extglob;
+        if (op.pattern) {
+          for (const part of op.pattern.parts) {
+            if (part.type === "Glob") {
+              regexStr += patternToRegex(part.pattern, op.greedy, extglob);
+            } else if (part.type === "Literal") {
+              regexStr += patternToRegex(part.value, op.greedy, extglob);
+            } else if (
+              part.type === "SingleQuoted" ||
+              part.type === "Escaped"
+            ) {
+              regexStr += escapeRegex(part.value);
+            } else if (part.type === "DoubleQuoted") {
+              const expanded = await expandWordPartsAsync(ctx, part.parts);
+              regexStr += escapeRegex(expanded);
+            } else if (part.type === "ParameterExpansion") {
+              const expanded = await expandPart(ctx, part);
+              regexStr += patternToRegex(expanded, op.greedy, extglob);
+            } else {
+              const expanded = await expandPart(ctx, part);
+              regexStr += escapeRegex(expanded);
+            }
+          }
+        }
+        // Apply pattern removal to each element
+        values = values.map((value) =>
+          applyPatternRemoval(value, regexStr, op.side, op.greedy),
+        );
+      } else {
+        const op = arrayOperation as PatternReplacementOp;
+        // Build the replacement regex
+        let regex = "";
+        if (op.pattern) {
+          for (const part of op.pattern.parts) {
+            if (part.type === "Glob") {
+              regex += patternToRegex(
+                part.pattern,
+                true,
+                ctx.state.shoptOptions.extglob,
+              );
+            } else if (part.type === "Literal") {
+              regex += patternToRegex(
+                part.value,
+                true,
+                ctx.state.shoptOptions.extglob,
+              );
+            } else if (
+              part.type === "SingleQuoted" ||
+              part.type === "Escaped"
+            ) {
+              regex += escapeRegex(part.value);
+            } else if (part.type === "DoubleQuoted") {
+              const expanded = await expandWordPartsAsync(ctx, part.parts);
+              regex += escapeRegex(expanded);
+            } else if (part.type === "ParameterExpansion") {
+              const expanded = await expandPart(ctx, part);
+              regex += patternToRegex(
+                expanded,
+                true,
+                ctx.state.shoptOptions.extglob,
+              );
+            } else {
+              const expanded = await expandPart(ctx, part);
+              regex += escapeRegex(expanded);
+            }
+          }
+        }
+
+        const replacement = op.replacement
+          ? await expandWordPartsAsync(ctx, op.replacement.parts)
+          : "";
+
+        // Apply anchor modifiers
+        let regexPattern = regex;
+        if (op.anchor === "start") {
+          regexPattern = `^${regex}`;
+        } else if (op.anchor === "end") {
+          regexPattern = `${regex}$`;
+        }
+
+        // Apply replacement to each element
+        try {
+          const re = new RegExp(regexPattern, op.all ? "g" : "");
+          values = values.map((value) => value.replace(re, replacement));
+        } catch {
+          // Invalid regex - leave values unchanged
+        }
+      }
+
+      if (isStar) {
+        // "${arr[*]#...}" - join all elements with IFS into one word
+        const ifsSep = getIfsSeparator(ctx.state.env);
+        return {
+          values: [prefix + values.join(ifsSep) + suffix],
+          quoted: true,
+        };
+      }
+
+      // "${arr[@]#...}" - each element is a separate word
+      // Join prefix with first, suffix with last
+      if (values.length === 1) {
+        return { values: [prefix + values[0] + suffix], quoted: true };
+      }
+
+      const result = [
+        prefix + values[0],
+        ...values.slice(1, -1),
+        values[values.length - 1] + suffix,
+      ];
+      return { values: result, quoted: true };
     }
   }
 
@@ -1361,6 +1570,20 @@ export async function expandWordWithGlob(
           case "Q":
             // Quote each element
             transformedValues = elements.map(([, v]) => quoteValue(v));
+            break;
+          case "u":
+            // Capitalize first character only (ucfirst)
+            transformedValues = elements.map(
+              ([, v]) => v.charAt(0).toUpperCase() + v.slice(1),
+            );
+            break;
+          case "U":
+            // Uppercase all characters
+            transformedValues = elements.map(([, v]) => v.toUpperCase());
+            break;
+          case "L":
+            // Lowercase all characters
+            transformedValues = elements.map(([, v]) => v.toLowerCase());
             break;
           default:
             transformedValues = elements.map(([, v]) => v);
@@ -3172,6 +3395,40 @@ export async function expandWordWithGlob(
 }
 
 /**
+ * Check if a word contains quoted "$@" that would expand to multiple words.
+ * This is used to detect "ambiguous redirect" errors.
+ */
+function hasQuotedMultiValueAt(
+  ctx: InterpreterContext,
+  word: WordNode,
+): boolean {
+  const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+  // Only a problem if there are 2+ positional parameters
+  if (numParams < 2) return false;
+
+  // Check for "$@" inside DoubleQuoted parts
+  function checkParts(parts: WordPart[]): boolean {
+    for (const part of parts) {
+      if (part.type === "DoubleQuoted") {
+        // Check inside the double-quoted part
+        for (const innerPart of part.parts) {
+          if (
+            innerPart.type === "ParameterExpansion" &&
+            innerPart.parameter === "@" &&
+            !innerPart.operation // plain $@ without operations
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  return checkParts(word.parts);
+}
+
+/**
  * Expand a redirect target with glob handling.
  *
  * For redirects:
@@ -3186,6 +3443,11 @@ export async function expandRedirectTarget(
   ctx: InterpreterContext,
   word: WordNode,
 ): Promise<{ target: string } | { error: string }> {
+  // Check for "$@" with multiple positional params - this is an ambiguous redirect
+  if (hasQuotedMultiValueAt(ctx, word)) {
+    return { error: "bash: $@: ambiguous redirect\n" };
+  }
+
   const wordParts = word.parts;
   const { hasQuoted } = analyzeWordParts(wordParts);
 
@@ -3569,18 +3831,20 @@ function expandParameter(
         // Special handling for FUNCNAME and BASH_LINENO
         if (parameter === "FUNCNAME") {
           const firstElement = ctx.state.funcNameStack?.[0] || "";
-          return String(firstElement.length);
+          return String([...firstElement].length);
         }
         if (parameter === "BASH_LINENO") {
           const firstElement = ctx.state.callLineStack?.[0];
           return String(
-            firstElement !== undefined ? String(firstElement).length : 0,
+            firstElement !== undefined ? [...String(firstElement)].length : 0,
           );
         }
         const firstElement = ctx.state.env[`${parameter}_0`] || "";
-        return String(firstElement.length);
+        return String([...firstElement].length);
       }
-      return String(value.length);
+      // Use spread to count Unicode code points, not UTF-16 code units
+      // This correctly handles characters outside the BMP (emoji, etc.)
+      return String([...value].length);
     }
 
     case "LengthSliceError": {
@@ -3865,6 +4129,8 @@ function expandParameter(
       switch (operation.operator) {
         case "Q":
           // Quote the value for reuse as shell input
+          // Returns empty for unset variables
+          if (isUnset) return "";
           return quoteValue(value);
         case "P":
           // Expand as if it were a prompt string (limited implementation)
@@ -3874,6 +4140,8 @@ function expandParameter(
           return getVariableAttributes(ctx, parameter);
         case "A":
           // Assignment format: name='value'
+          // Returns empty for unset variables
+          if (isUnset) return "";
           return `${parameter}=${quoteValue(value)}`;
         case "E":
           // Expand escape sequences
@@ -3908,8 +4176,24 @@ function expandParameter(
             }
           });
         case "K":
-          // Return keys (same as ${!arr[@]} for arrays)
-          return "";
+          // For scalars, @K behaves like @Q (quoted value)
+          // Returns empty for unset variables
+          if (isUnset) return "";
+          return quoteValue(value);
+        case "k":
+          // For scalars, @k behaves like @Q (quoted value)
+          // Returns empty for unset variables
+          if (isUnset) return "";
+          return quoteValue(value);
+        case "u":
+          // Capitalize first character only (ucfirst)
+          return value.charAt(0).toUpperCase() + value.slice(1);
+        case "U":
+          // Uppercase all characters
+          return value.toUpperCase();
+        case "L":
+          // Lowercase all characters
+          return value.toLowerCase();
         default:
           return value;
       }

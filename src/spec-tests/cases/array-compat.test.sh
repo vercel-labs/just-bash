@@ -104,7 +104,6 @@ argv.py "${a[*]#-}"
 ## N-I mksh stdout-json: ""
 
 #### value.BashArray internal representation - Indexed
-## SKIP: declare -a listing format differs
 case $SH in mksh) exit ;; esac
 
 z=()

@@ -53,7 +53,6 @@ argv.py "${s[@]}"
 ## END
 
 #### error: myarray+=s
-## SKIP: Array append with implicit index 0 not implemented
 
 # They treat this as implicit index 0.  We disallow this on the LHS, so we will
 # also disallow it on the RHS.

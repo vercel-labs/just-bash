@@ -118,7 +118,6 @@ argv.py "${xyz1}" "${xyz2}" "${xyz3[@]}" "${xyz4[@]}"
 
 
 #### declare array vs. associative array
-## SKIP: declare with quoted string assignment not implemented
 # Hm I don't understand why the array only has one element.  I guess because
 # index 0 is used twice?
 declare -a 'array=([a]=b [c]=d)'

@@ -49,7 +49,6 @@ date is a tracked alias for _tmp/date
 ## END
 
 #### type of relative path
-## SKIP: type builtin does not support relative paths
 mkdir -p _tmp
 touch _tmp/file _tmp/ex
 chmod +x _tmp/ex

@@ -140,7 +140,6 @@ printenv.py U
 ## stdout: u
 
 #### Unset exported variable, then define it again.  It's NOT still exported.
-## SKIP: unset does not clear export attribute, variable remains exported after unset
 export U
 U=u
 printenv.py U
@@ -547,7 +546,6 @@ assoc 0
 
 
 #### unset -v assoc (related to issue #661)
-## SKIP: Associative array unset edge case not implemented
 
 case $SH in dash|mksh|zsh) return ;; esac
 

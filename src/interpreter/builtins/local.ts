@@ -264,6 +264,16 @@ export function handleLocal(
       // Mark as empty array
       ctx.state.env[`${name}__length`] = "0";
     } else if (value !== undefined) {
+      // For namerefs, validate the target
+      if (
+        declareNameref &&
+        value !== "" &&
+        !/^[a-zA-Z_][a-zA-Z0-9_]*(\[.+\])?$/.test(value)
+      ) {
+        stderr += `bash: local: \`${value}': invalid variable name for name reference\n`;
+        exitCode = 1;
+        continue;
+      }
       ctx.state.env[name] = value;
       // If allexport is enabled (set -a), auto-export the variable
       if (ctx.state.options.allexport) {

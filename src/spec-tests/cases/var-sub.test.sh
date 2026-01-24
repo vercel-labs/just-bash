@@ -22,7 +22,6 @@ echo ${foo:-${bar}}
 ## stdout: ZZ
 
 #### Filename redirect with "$@"
-## SKIP: Ambiguous redirect error for "$@" not implemented
 # bash - ambiguous redirect -- yeah I want this error
 #   - But I want it at PARSE time?  So is there a special DollarAtPart?
 #     MultipleArgsPart?

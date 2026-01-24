@@ -17,7 +17,24 @@ echo ${#v}
 ## N-I mksh stdout: 4
 
 #### Unicode string length (mixed byte UTF-8 chars)
-## SKIP: UTF-8 character counting not implemented (counts bytes)
+# Japanese chars: 3 chars, 9 bytes in UTF-8
+v="日本語"
+echo ${#v}
+# Emoji: 1 char, 4 bytes in UTF-8
+v2="😀"
+echo ${#v2}
+## STDOUT:
+3
+1
+## END
+## N-I dash STDOUT:
+9
+4
+## END
+## N-I mksh STDOUT:
+9
+4
+## END
 
 #### String length with incomplete utf-8
 ## SKIP: OSH-specific UTF-8 validation warnings not implemented

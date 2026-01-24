@@ -41,6 +41,7 @@ import type {
 import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
 import {
   applyCaseTransform,
+  getLocalVarDepth,
   handleBreak,
   handleCd,
   handleCompgen,
@@ -109,6 +110,28 @@ const POSIX_SPECIAL_BUILTINS = new Set([
  */
 function isPosixSpecialBuiltin(name: string): boolean {
   return POSIX_SPECIAL_BUILTINS.has(name);
+}
+
+/**
+ * Check if a WordNode is a literal match for any of the given strings.
+ * Returns true only if the word is a single literal (no expansions, no quoting)
+ * that matches one of the target strings.
+ *
+ * This is used to detect assignment builtins at "parse time" - bash determines
+ * whether a command is export/declare/etc based on the literal token, not the
+ * runtime value after expansion.
+ */
+function isWordLiteralMatch(word: WordNode, targets: string[]): boolean {
+  // Must be a single part
+  if (word.parts.length !== 1) {
+    return false;
+  }
+  const part = word.parts[0];
+  // Must be a simple literal (not quoted, not an expansion)
+  if (part.type !== "Literal") {
+    return false;
+  }
+  return targets.includes(part.value);
 }
 
 import {
@@ -629,10 +652,10 @@ export class Interpreter {
         // Check if this is an associative array
         const isAssoc = this.ctx.state.associativeArrays?.has(name);
 
-        // Check if elements use [key]=value syntax
+        // Check if elements use [key]=value or [key]+=value syntax
         // This is detected by looking at the Word structure:
         // - First part is Glob with pattern like "[key]"
-        // - Second part is Literal starting with "="
+        // - Second part is Literal starting with "=" or "+="
         const hasKeyedElements = assignment.array.some((element) => {
           if (element.parts.length >= 2) {
             const first = element.parts[0];
@@ -642,7 +665,7 @@ export class Interpreter {
               first.pattern.startsWith("[") &&
               first.pattern.endsWith("]") &&
               second.type === "Literal" &&
-              second.value.startsWith("=")
+              (second.value.startsWith("=") || second.value.startsWith("+="))
             );
           }
           return false;
@@ -668,15 +691,21 @@ export class Interpreter {
           if (!assignment.append) {
             clearExistingElements();
           }
-          // Handle associative array with [key]=value syntax
+          // Handle associative array with [key]=value or [key]+=value syntax
           for (const element of assignment.array) {
             const literalStr = wordToLiteralString(element);
             const parsed = parseAssocArrayElement(literalStr);
             if (parsed) {
-              const [key, rawValue] = parsed;
+              const [key, rawValue, elementAppend] = parsed;
               // Apply tilde expansion to the value (e.g., ~ becomes $HOME)
               const value = expandTildesInValue(this.ctx, rawValue);
-              this.ctx.state.env[`${name}_${key}`] = value;
+              if (elementAppend) {
+                // [key]+=value - append to existing value at this key
+                const existing = this.ctx.state.env[`${name}_${key}`] ?? "";
+                this.ctx.state.env[`${name}_${key}`] = existing + value;
+              } else {
+                this.ctx.state.env[`${name}_${key}`] = value;
+              }
             } else {
               // Fall back to treating as regular element (shouldn't happen for assoc)
               const expanded = await expandWordWithGlob(this.ctx, element);
@@ -686,16 +715,18 @@ export class Interpreter {
             }
           }
         } else if (hasKeyedElements) {
-          // Handle indexed array with [index]=value syntax (sparse array)
+          // Handle indexed array with [index]=value or [index]+=value syntax (sparse array)
           // Clear existing elements first (keyed elements don't reference the array)
           if (!assignment.append) {
             clearExistingElements();
           }
+          // Track current index for implicit increment after [n]=value
+          let currentIndex = 0;
           for (const element of assignment.array) {
             const literalStr = wordToLiteralString(element);
             const parsed = parseAssocArrayElement(literalStr);
             if (parsed) {
-              const [indexStr, rawValue] = parsed;
+              const [indexStr, rawValue, elementAppend] = parsed;
               // Apply tilde expansion to the value (e.g., ~ becomes $HOME)
               const value = expandTildesInValue(this.ctx, rawValue);
               // Evaluate index as arithmetic expression
@@ -708,21 +739,20 @@ export class Interpreter {
                 index = varValue ? Number.parseInt(varValue, 10) : 0;
                 if (Number.isNaN(index)) index = 0;
               }
-              this.ctx.state.env[`${name}_${index}`] = value;
+              if (elementAppend) {
+                // [index]+=value - append to existing value at this index
+                const existing = this.ctx.state.env[`${name}_${index}`] ?? "";
+                this.ctx.state.env[`${name}_${index}`] = existing + value;
+              } else {
+                this.ctx.state.env[`${name}_${index}`] = value;
+              }
+              // Update currentIndex to continue from this keyed index
+              currentIndex = index + 1;
             } else {
-              // Fall back to sequential assignment
+              // Non-keyed element: use currentIndex and increment
               const expanded = await expandWordWithGlob(this.ctx, element);
-              const elements = getArrayElements(this.ctx, name);
-              let nextIdx =
-                elements.length > 0
-                  ? Math.max(
-                      ...elements.map(([idx]) =>
-                        typeof idx === "number" ? idx : 0,
-                      ),
-                    ) + 1
-                  : 0;
               for (const val of expanded.values) {
-                this.ctx.state.env[`${name}_${nextIdx++}`] = val;
+                this.ctx.state.env[`${name}_${currentIndex++}`] = val;
               }
             }
           }
@@ -758,6 +788,20 @@ export class Interpreter {
           if (!assignment.append) {
             this.ctx.state.env[`${name}__length`] = String(allElements.length);
           }
+        }
+
+        // For prefix assignments with a command, bash stringifies the array syntax
+        // and exports it as an environment variable. e.g., B=(b b) cmd exports B="(b b)"
+        if (node.name) {
+          // Save current scalar value for restoration
+          tempAssignments[name] = this.ctx.state.env[name];
+
+          // Stringify the array syntax as bash does
+          const elements = assignment.array.map((el) =>
+            wordToLiteralString(el),
+          );
+          const stringified = `(${elements.join(" ")})`;
+          this.ctx.state.env[name] = stringified;
         }
         continue;
       }
@@ -884,6 +928,19 @@ export class Interpreter {
           tempAssignments[envKey] = this.ctx.state.env[envKey];
           this.ctx.state.env[envKey] = finalValue;
         } else {
+          // If base array is a local variable, save this key to local scope for cleanup
+          const localDepth = getLocalVarDepth(this.ctx, arrayName);
+          if (
+            localDepth !== undefined &&
+            localDepth === this.ctx.state.callDepth &&
+            this.ctx.state.localScopes.length > 0
+          ) {
+            const currentScope =
+              this.ctx.state.localScopes[this.ctx.state.localScopes.length - 1];
+            if (!currentScope.has(envKey)) {
+              currentScope.set(envKey, this.ctx.state.env[envKey]);
+            }
+          }
           this.ctx.state.env[envKey] = finalValue;
         }
         continue;
@@ -932,8 +989,12 @@ export class Interpreter {
         }
       } else {
         // Normal string handling
+        // For arrays, append mode (+=) appends to index 0
+        const appendKey = isArray(this.ctx, targetName)
+          ? `${targetName}_0`
+          : targetName;
         finalValue = assignment.append
-          ? (this.ctx.state.env[targetName] || "") + value
+          ? (this.ctx.state.env[appendKey] || "") + value
           : value;
       }
 
@@ -971,8 +1032,29 @@ export class Interpreter {
     }
 
     if (!node.name) {
+      // No command name - could be assignment-only or redirect-only (bare redirects)
+      // e.g., "x=5" (assignment-only) or "> file" (bare redirect to create empty file)
+
+      // Handle bare redirections (no command, just redirects like "> file")
+      // In bash, this creates/truncates the file and returns success
+      if (node.redirections.length > 0) {
+        // Process the redirects - this creates/truncates files as needed
+        const redirectError = await preOpenOutputRedirects(
+          this.ctx,
+          node.redirections,
+        );
+        if (redirectError) {
+          return redirectError;
+        }
+        // Apply redirections to empty result (for append, read redirects, etc.)
+        const baseResult = result("", xtraceAssignmentOutput, 0);
+        return applyRedirections(this.ctx, baseResult, node.redirections);
+      }
+
       // Assignment-only command: preserve the exit code from command substitution
       // e.g., x=$(false) should set $? to 1, not 0
+      // Also clear $_ - bash clears it for bare assignments
+      this.ctx.state.lastArg = "";
       return result("", xtraceAssignmentOutput, this.ctx.state.lastExitCode);
     }
 
@@ -1081,23 +1163,51 @@ export class Interpreter {
     const args: string[] = [];
     const quotedArgs: boolean[] = [];
 
-    // Handle local/declare array assignments specially to preserve quote structure
-    // For `local a=(1 "2 3")`, we need to process array elements from AST to keep quotes
-    if (
-      commandName === "local" ||
-      commandName === "declare" ||
-      commandName === "typeset"
-    ) {
+    // Handle local/declare/export/readonly arguments specially:
+    // - For array assignments like `local a=(1 "2 3")`, preserve quote structure
+    // - For scalar assignments like `local foo=$bar`, DON'T glob expand the value
+    // This matches bash behavior where assignment values aren't subject to word splitting/globbing
+    //
+    // IMPORTANT: This special handling only applies when the command is a LITERAL keyword,
+    // not when it's determined via variable expansion. For example:
+    // - `export var=$x` -> no word splitting (literal export keyword)
+    // - `e=export; $e var=$x` -> word splitting DOES occur (export via variable)
+    //
+    // This is because bash determines at parse time whether the command is an assignment builtin.
+    const isLiteralAssignmentBuiltin =
+      isWordLiteralMatch(node.name, [
+        "local",
+        "declare",
+        "typeset",
+        "export",
+        "readonly",
+      ]) &&
+      (commandName === "local" ||
+        commandName === "declare" ||
+        commandName === "typeset" ||
+        commandName === "export" ||
+        commandName === "readonly");
+
+    if (isLiteralAssignmentBuiltin) {
       for (const arg of node.args) {
         const arrayAssignResult = await this.expandLocalArrayAssignment(arg);
         if (arrayAssignResult) {
           args.push(arrayAssignResult);
           quotedArgs.push(true);
         } else {
-          const expanded = await expandWordWithGlob(this.ctx, arg);
-          for (const value of expanded.values) {
-            args.push(value);
-            quotedArgs.push(expanded.quoted);
+          // Check if this looks like a scalar assignment (name=value)
+          // For assignments, we should NOT glob-expand the value part
+          const scalarAssignResult = await this.expandScalarAssignmentArg(arg);
+          if (scalarAssignResult !== null) {
+            args.push(scalarAssignResult);
+            quotedArgs.push(true);
+          } else {
+            // Not an assignment - use normal glob expansion
+            const expanded = await expandWordWithGlob(this.ctx, arg);
+            for (const value of expanded.values) {
+              args.push(value);
+              quotedArgs.push(expanded.quoted);
+            }
           }
         }
       }
@@ -1274,8 +1384,26 @@ export class Interpreter {
 
     // Update $_ to the last argument of this command (after expansion)
     // If no arguments, $_ is set to the command name
-    this.ctx.state.lastArg =
-      args.length > 0 ? args[args.length - 1] : commandName;
+    // Special case: for declare/local/typeset with array assignments like "a=(1 2)",
+    // bash sets $_ to just the variable name "a", not the full "a=(1 2)"
+    if (args.length > 0) {
+      let lastArg = args[args.length - 1];
+      if (
+        (commandName === "declare" ||
+          commandName === "local" ||
+          commandName === "typeset") &&
+        /^[a-zA-Z_][a-zA-Z0-9_]*=\(/.test(lastArg)
+      ) {
+        // Extract just the variable name from array assignment
+        const match = lastArg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)=\(/);
+        if (match) {
+          lastArg = match[1];
+        }
+      }
+      this.ctx.state.lastArg = lastArg;
+    } else {
+      this.ctx.state.lastArg = commandName;
+    }
 
     // In POSIX mode, prefix assignments persist after special builtins
     // e.g., `foo=bar :` leaves foo=bar in the environment
@@ -1422,6 +1550,105 @@ export class Interpreter {
     });
 
     return `${name}=(${quotedElements.join(" ")})`;
+  }
+
+  /**
+   * Check if a Word represents a scalar assignment (name=value, name+=value, or name[index]=value)
+   * and expand it WITHOUT glob expansion on the value part.
+   * Returns the expanded string like "name=expanded_value" or null if not a scalar assignment.
+   *
+   * This is important for bash compatibility: `local var=$x` where x='a b' should
+   * set var to "a b", not try to glob-expand it.
+   */
+  private async expandScalarAssignmentArg(
+    word: WordNode,
+  ): Promise<string | null> {
+    // Look for = in the word parts to detect assignment pattern
+    // We need to find where the assignment operator is and split there
+    let eqPartIndex = -1;
+    let eqCharIndex = -1;
+    let isAppend = false;
+
+    for (let i = 0; i < word.parts.length; i++) {
+      const part = word.parts[i];
+      if (part.type === "Literal") {
+        // Check for += first
+        const appendIdx = part.value.indexOf("+=");
+        if (appendIdx !== -1) {
+          // Verify it looks like an assignment: should have valid var name before +=
+          const before = part.value.slice(0, appendIdx);
+          if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(before)) {
+            eqPartIndex = i;
+            eqCharIndex = appendIdx;
+            isAppend = true;
+            break;
+          }
+          // Also check for array index append: name[index]+=
+          if (/^[a-zA-Z_][a-zA-Z0-9_]*\[[^\]]+\]$/.test(before)) {
+            eqPartIndex = i;
+            eqCharIndex = appendIdx;
+            isAppend = true;
+            break;
+          }
+        }
+        // Check for regular = (but not == or != or other operators)
+        const eqIdx = part.value.indexOf("=");
+        if (eqIdx !== -1 && (eqIdx === 0 || part.value[eqIdx - 1] !== "+")) {
+          // Make sure it's not inside brackets like [0]= which we handle separately
+          // and verify it looks like an assignment
+          const before = part.value.slice(0, eqIdx);
+          if (
+            /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(before) ||
+            /^[a-zA-Z_][a-zA-Z0-9_]*\[[^\]]+\]$/.test(before)
+          ) {
+            eqPartIndex = i;
+            eqCharIndex = eqIdx;
+            break;
+          }
+        }
+      }
+    }
+
+    // No assignment operator found
+    if (eqPartIndex === -1) {
+      return null;
+    }
+
+    // Split the word into name part and value part
+    const nameParts = word.parts.slice(0, eqPartIndex);
+    const eqPart = word.parts[eqPartIndex];
+
+    if (eqPart.type !== "Literal") {
+      return null;
+    }
+
+    const operatorLen = isAppend ? 2 : 1;
+    const nameFromEqPart = eqPart.value.slice(0, eqCharIndex);
+    const valueFromEqPart = eqPart.value.slice(eqCharIndex + operatorLen);
+    const valueParts = word.parts.slice(eqPartIndex + 1);
+
+    // Construct the name by expanding the name parts (no glob needed for names)
+    let name = "";
+    for (const part of nameParts) {
+      name += await expandWord(this.ctx, { type: "Word", parts: [part] });
+    }
+    name += nameFromEqPart;
+
+    // Construct the value part Word for expansion WITHOUT glob
+    const valueWord: WordNode = {
+      type: "Word",
+      parts:
+        valueFromEqPart !== ""
+          ? [{ type: "Literal", value: valueFromEqPart }, ...valueParts]
+          : valueParts,
+    };
+
+    // Expand the value WITHOUT glob expansion
+    const value =
+      valueWord.parts.length > 0 ? await expandWord(this.ctx, valueWord) : "";
+
+    const operator = isAppend ? "+=" : "=";
+    return `${name}${operator}${value}`;
   }
 
   private async runCommand(
@@ -1736,6 +1963,7 @@ export class Interpreter {
       sleep: this.ctx.sleep,
       trace: this.ctx.trace,
       fileDescriptors: this.ctx.state.fileDescriptors,
+      xpgEcho: this.ctx.state.shoptOptions.xpg_echo,
     };
 
     try {
@@ -1831,6 +2059,31 @@ export class Interpreter {
    */
   async findCommandInPath(commandName: string): Promise<string[]> {
     const paths: string[] = [];
+
+    // If command contains /, it's a path - check if it exists and is executable
+    if (commandName.includes("/")) {
+      const resolvedPath = this.ctx.fs.resolvePath(
+        this.ctx.state.cwd,
+        commandName,
+      );
+      if (await this.ctx.fs.exists(resolvedPath)) {
+        try {
+          const stat = await this.ctx.fs.stat(resolvedPath);
+          if (!stat.isDirectory) {
+            // Check if file is executable (owner, group, or other execute bit set)
+            const isExecutable = (stat.mode & 0o111) !== 0;
+            if (isExecutable) {
+              // Return the original path format (not resolved) to match bash behavior
+              paths.push(commandName);
+            }
+          }
+        } catch {
+          // If stat fails, skip
+        }
+      }
+      return paths;
+    }
+
     const pathEnv = this.ctx.state.env.PATH || "/bin:/usr/bin";
     const pathDirs = pathEnv.split(":");
 
@@ -2145,7 +2398,23 @@ export class Interpreter {
         // Name not found anywhere
         anyNotFound = true;
         if (!typeOnly && !pathOnly) {
-          stderr += `bash: type: ${name}: not found\n`;
+          // For relative paths (containing /), if the file exists but isn't executable,
+          // don't print "not found" - it was found, just not as an executable command.
+          // Only print "not found" if the file doesn't exist at all.
+          let shouldPrintError = true;
+          if (name.includes("/")) {
+            const resolvedPath = this.ctx.fs.resolvePath(
+              this.ctx.state.cwd,
+              name,
+            );
+            if (await this.ctx.fs.exists(resolvedPath)) {
+              // File exists but isn't executable - don't print error
+              shouldPrintError = false;
+            }
+          }
+          if (shouldPrintError) {
+            stderr += `bash: type: ${name}: not found\n`;
+          }
         }
       }
     }
@@ -2284,17 +2553,23 @@ export class Interpreter {
     if (name.includes("/")) {
       const resolvedPath = this.ctx.fs.resolvePath(this.ctx.state.cwd, name);
       if (await this.ctx.fs.exists(resolvedPath)) {
-        // Check if it's a directory
+        // Check if it's a directory or not executable
         try {
           const stat = await this.ctx.fs.stat(resolvedPath);
           if (stat.isDirectory) {
+            return null;
+          }
+          // Check if file is executable (owner, group, or other execute bit set)
+          const isExecutable = (stat.mode & 0o111) !== 0;
+          if (!isExecutable) {
             return null;
           }
         } catch {
           // If stat fails, assume it's not a valid path
           return null;
         }
-        return resolvedPath;
+        // Return the original path format (not resolved) to match bash behavior
+        return name;
       }
       return null;
     }

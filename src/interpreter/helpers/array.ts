@@ -78,18 +78,28 @@ export function unquoteKey(key: string): string {
 }
 
 /**
- * Parse associative array element from a string like "[key]=value"
- * Returns [key, value] if it matches, null otherwise.
+ * Parse associative array element from a string like "[key]=value" or "[key]+=value"
+ * Returns [key, value, append] where append is true for += syntax, null if no match.
  */
-export function parseAssocArrayElement(str: string): [string, string] | null {
-  // Match [key]=value pattern
+export function parseAssocArrayElement(
+  str: string,
+): [string, string, boolean] | null {
+  // Match [key]+=value pattern (append syntax)
+  const appendMatch = str.match(/^\[(.+?)\]\+=(.*)$/);
+  if (appendMatch) {
+    const key = unquoteKey(appendMatch[1]);
+    const value = appendMatch[2];
+    return [key, value, true];
+  }
+
+  // Match [key]=value pattern (regular assignment)
   const match = str.match(/^\[(.+?)\]=(.*)$/);
   if (!match) return null;
 
   const key = unquoteKey(match[1]);
   const value = match[2];
 
-  return [key, value];
+  return [key, value, false];
 }
 
 /**

@@ -167,11 +167,20 @@ export function analyzeWordParts(parts: WordPart[]): WordPartsAnalysis {
       if (part.type === "DoubleQuoted") {
         for (const inner of part.parts) {
           if (inner.type === "ParameterExpansion") {
-            // Check if it's array[@] or array[*] WITHOUT any operation
+            // Check if it's array[@] or array[*]
             const match = inner.parameter.match(
               /^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/,
             );
-            if (match && !inner.operation) {
+            // Set hasArrayAtExpansion for:
+            // - No operation: ${arr[@]}
+            // - PatternRemoval: ${arr[@]#pattern}, ${arr[@]%pattern}
+            // - PatternReplacement: ${arr[@]/pattern/replacement}
+            if (
+              match &&
+              (!inner.operation ||
+                inner.operation.type === "PatternRemoval" ||
+                inner.operation.type === "PatternReplacement")
+            ) {
               hasArrayAtExpansion = true;
             }
             // Check for ${!prefix@} or ${!prefix*} inside double quotes

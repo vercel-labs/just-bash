@@ -306,8 +306,6 @@ one
 ## END
 
 #### simple command / assign - redir failure DOES respect errexit
-## SKIP: Interactive shell invocation not implemented
-
 $SH -c '
 set -o errexit
 true > /

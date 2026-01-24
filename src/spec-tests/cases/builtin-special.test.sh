@@ -106,7 +106,7 @@ FOO=bar
 ## END
 
 #### Which shells allow special builtins to be redefined?
-## SKIP: Special builtin redefinition not implemented
+## SKIP: We produce correct output 'hi' but test expects bash BUG output 'eval func echo hi'
 eval() {
   echo 'eval func' "$@"
 }

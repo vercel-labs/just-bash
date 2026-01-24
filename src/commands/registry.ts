@@ -92,7 +92,8 @@ export type CommandName =
   | "yq"
   | "xan"
   | "sqlite3"
-  | "time";
+  | "time"
+  | "whoami";
 
 /** Network command names (only available when network is configured) */
 export type NetworkCommandName = "curl";
@@ -430,6 +431,10 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "hostname",
     load: async () => (await import("./hostname/hostname.js")).hostname,
+  },
+  {
+    name: "whoami",
+    load: async () => (await import("./whoami/whoami.js")).whoami,
   },
   {
     name: "od",

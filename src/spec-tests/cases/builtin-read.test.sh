@@ -580,7 +580,6 @@ bar 1
 ## END
 
 #### read -t 0 tests if input is available
-## SKIP: read -t 0 returns 1 instead of 0 when no input is available
 case $SH in dash|zsh|mksh) exit ;; esac
 
 # is there input available?

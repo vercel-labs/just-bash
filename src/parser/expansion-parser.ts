@@ -208,6 +208,7 @@ function parseParameterExpansion(
   } else if (lengthOp) {
     // ${#var:...} is invalid - you can't take length of a substring
     // ${#var-...} is also invalid - length operator can't be followed by test operators
+    // ${#var/...} is also invalid - length operator can't be followed by transform operators
     if (value[i] === ":") {
       // Mark this as an invalid length+slice operation
       // This will be handled at runtime to throw an error
@@ -219,6 +220,12 @@ function parseParameterExpansion(
     } else if (value[i] !== "}" && /[-+=?]/.test(value[i])) {
       // ${#x-default} etc. are syntax errors in bash
       // length operator cannot be followed by test operators
+      p.error(
+        `\${#${name}${value.slice(i, value.indexOf("}", i))}}: bad substitution`,
+      );
+    } else if (value[i] === "/") {
+      // ${#x/pattern/repl} is a syntax error in bash
+      // length operator cannot be followed by transform operators
       p.error(
         `\${#${name}${value.slice(i, value.indexOf("}", i))}}: bad substitution`,
       );
@@ -529,9 +536,19 @@ function parseParameterOperation(
     };
   }
 
-  // @Q @P @a @A @E @K transformations
-  if (char === "@" && /[QPaAEK]/.test(nextChar)) {
-    const operator = nextChar as "Q" | "P" | "a" | "A" | "E" | "K";
+  // @Q @P @a @A @E @K @k @u @U @L transformations
+  if (char === "@" && /[QPaAEKkuUL]/.test(nextChar)) {
+    const operator = nextChar as
+      | "Q"
+      | "P"
+      | "a"
+      | "A"
+      | "E"
+      | "K"
+      | "k"
+      | "u"
+      | "U"
+      | "L";
     return {
       operation: {
         type: "Transform",

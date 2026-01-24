@@ -429,7 +429,6 @@ x=local
 ## END
 
 #### static assignment doesn't split
-## SKIP: Word splitting incorrectly occurs in export/readonly var=$value assignments
 words='a b c'
 export ex=$words
 glo=$words
@@ -509,7 +508,6 @@ argv.py "$ex2" "$ro2"
 ## END
 
 #### assign and glob
-## SKIP: Glob expansion incorrectly occurs in export var=* assignment
 cd $TMP
 touch foo=a foo=b
 foo=*
@@ -530,7 +528,6 @@ unset foo
 ## END
 
 #### declare and glob
-## SKIP: Glob expansion incorrectly occurs in typeset var=* assignment
 cd $TMP
 touch foo=a foo=b
 typeset foo=*
