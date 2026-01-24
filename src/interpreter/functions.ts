@@ -49,7 +49,13 @@ export function executeFunctionDef(
     const stderr = `bash: line ${ctx.state.currentLine}: \`${node.name}': is a special builtin\n`;
     throw new ExitError(2, "", stderr);
   }
-  ctx.state.functions.set(node.name, node);
+  // Store the source file where this function is defined (for BASH_SOURCE)
+  // Use currentSource from state, or the node's sourceFile, or "main" as default
+  const funcWithSource: FunctionDefNode = {
+    ...node,
+    sourceFile: node.sourceFile ?? ctx.state.currentSource ?? "main",
+  };
+  ctx.state.functions.set(node.name, funcWithSource);
   return OK;
 }
 
@@ -114,7 +120,7 @@ export async function callFunction(
     );
   }
 
-  // Track call stack for FUNCNAME and BASH_LINENO
+  // Track call stack for FUNCNAME, BASH_LINENO, and BASH_SOURCE
   // Initialize stacks if not present
   if (!ctx.state.funcNameStack) {
     ctx.state.funcNameStack = [];
@@ -122,11 +128,16 @@ export async function callFunction(
   if (!ctx.state.callLineStack) {
     ctx.state.callLineStack = [];
   }
+  if (!ctx.state.sourceStack) {
+    ctx.state.sourceStack = [];
+  }
 
   // Push the function name and the line where it was called from
   ctx.state.funcNameStack.unshift(func.name);
   // Use provided callLine, or fall back to currentLine
   ctx.state.callLineStack.unshift(callLine ?? ctx.state.currentLine);
+  // Push the source file where this function was defined (for BASH_SOURCE)
+  ctx.state.sourceStack.unshift(func.sourceFile ?? "main");
 
   ctx.state.localScopes.push(new Map());
 
@@ -163,6 +174,7 @@ export async function callFunction(
     // Pop from call stack tracking
     ctx.state.funcNameStack?.shift();
     ctx.state.callLineStack?.shift();
+    ctx.state.sourceStack?.shift();
 
     ctx.state.callDepth--;
   };

@@ -59,7 +59,11 @@ import { getLiteralValue, isQuotedPart } from "./helpers/word-parts.js";
 import type { InterpreterContext } from "./types.js";
 
 // Re-export for backward compatibility
-export { getArrayElements, getVariable } from "./expansion/variable.js";
+export {
+  getArrayElements,
+  getVariable,
+  isArray,
+} from "./expansion/variable.js";
 
 /**
  * Apply pattern removal (prefix or suffix strip) to a single value.

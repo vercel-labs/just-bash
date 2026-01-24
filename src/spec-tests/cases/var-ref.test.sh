@@ -516,7 +516,7 @@ cycle=
 ## END
 
 #### Var Ref Code Injection $(tee PWNED)
-## SKIP: Code injection test not applicable
+## SKIP: We allow expansion but safely don't execute command substitution in index - differs from expected strict rejection
 
 typeset -a a
 a=(42)

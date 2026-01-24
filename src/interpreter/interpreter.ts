@@ -45,6 +45,7 @@ import {
   handleCd,
   handleCompgen,
   handleComplete,
+  handleCompopt,
   handleContinue,
   handleDeclare,
   handleDirs,
@@ -129,6 +130,7 @@ import {
   expandWord,
   expandWordWithGlob,
   getArrayElements,
+  isArray,
 } from "./expansion.js";
 import { callFunction, executeFunctionDef } from "./functions.js";
 import {
@@ -942,11 +944,19 @@ export class Interpreter {
         finalValue,
       );
 
+      // In bash, assigning a scalar value to an array variable assigns to index 0
+      // e.g., a=(1 2 3); a=99 => a=([0]="99" [1]="2" [2]="3")
+      // For associative arrays, it assigns to key "0"
+      let actualEnvKey = targetName;
+      if (isArray(this.ctx, targetName)) {
+        actualEnvKey = `${targetName}_0`;
+      }
+
       if (node.name) {
-        tempAssignments[targetName] = this.ctx.state.env[targetName];
-        this.ctx.state.env[targetName] = finalValue;
+        tempAssignments[actualEnvKey] = this.ctx.state.env[actualEnvKey];
+        this.ctx.state.env[actualEnvKey] = finalValue;
       } else {
-        this.ctx.state.env[targetName] = finalValue;
+        this.ctx.state.env[actualEnvKey] = finalValue;
         // If allexport is enabled (set -a), auto-export the variable
         if (this.ctx.state.options.allexport) {
           this.ctx.state.exportedVars =
@@ -1441,6 +1451,9 @@ export class Interpreter {
     }
     if (commandName === "complete") {
       return handleComplete(this.ctx, args);
+    }
+    if (commandName === "compopt") {
+      return handleCompopt(this.ctx, args);
     }
     if (commandName === "pushd") {
       return await handlePushd(this.ctx, args);

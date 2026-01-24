@@ -136,6 +136,10 @@ export interface InterpreterState {
   callLineStack?: number[];
   /** Stack of function names for FUNCNAME */
   funcNameStack?: string[];
+  /** Stack of source files for BASH_SOURCE (tracks where functions were defined) */
+  sourceStack?: string[];
+  /** Current source file context (for function definitions) */
+  currentSource?: string;
   /** File descriptors for process substitution and here-docs */
   fileDescriptors?: Map<number, string>;
   /** Next available file descriptor for {varname}>file allocation (starts at 10) */

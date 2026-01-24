@@ -488,10 +488,27 @@ export function evaluateArithmeticSync(
       if (expr.stringKey !== undefined) {
         // Literal string key: A['key']
         envKey = `${expr.array}_${expr.stringKey}`;
-      } else if (isAssoc && expr.index?.type === "ArithVariable") {
-        // For associative arrays, variable names are used as literal keys
-        // A[K] where K is a variable name -> use "K" as the key
+      } else if (
+        isAssoc &&
+        expr.index?.type === "ArithVariable" &&
+        !expr.index.hasDollarPrefix
+      ) {
+        // For associative arrays, variable names without $ prefix are used as literal keys
+        // A[K] where K is a variable name without $ -> use "K" as the key
         envKey = `${expr.array}_${expr.index.name}`;
+      } else if (
+        isAssoc &&
+        expr.index?.type === "ArithVariable" &&
+        expr.index.hasDollarPrefix
+      ) {
+        // For associative arrays with $ prefix: A[$key] -> expand $key to get the actual key
+        const expandedKey = getVariable(ctx, expr.index.name);
+        envKey = `${expr.array}_${expandedKey}`;
+        const arrayValue = ctx.state.env[envKey];
+        if (arrayValue !== undefined) {
+          return parseArithValue(arrayValue);
+        }
+        return 0;
       } else if (expr.index) {
         // For indexed arrays, evaluate the index as arithmetic
         let index = evaluateArithmeticSync(ctx, expr.index);
@@ -607,8 +624,21 @@ export function evaluateArithmeticSync(
 
           if (expr.operand.stringKey !== undefined) {
             envKey = `${arrayName}_${expr.operand.stringKey}`;
-          } else if (isAssoc && expr.operand.index?.type === "ArithVariable") {
+          } else if (
+            isAssoc &&
+            expr.operand.index?.type === "ArithVariable" &&
+            !expr.operand.index.hasDollarPrefix
+          ) {
+            // A[K]++ where K is without $ -> use "K" as literal key
             envKey = `${arrayName}_${expr.operand.index.name}`;
+          } else if (
+            isAssoc &&
+            expr.operand.index?.type === "ArithVariable" &&
+            expr.operand.index.hasDollarPrefix
+          ) {
+            // A[$key]++ where key has $ -> expand $key to get the actual key
+            const expandedKey = getVariable(ctx, expr.operand.index.name);
+            envKey = `${arrayName}_${expandedKey}`;
           } else if (expr.operand.index) {
             const index = evaluateArithmeticSync(ctx, expr.operand.index);
             envKey = `${arrayName}_${index}`;
@@ -678,10 +708,22 @@ export function evaluateArithmeticSync(
         envKey = `${name}_${expr.stringKey}`;
       } else if (expr.subscript) {
         const isAssoc = ctx.state.associativeArrays?.has(name);
-        if (isAssoc && expr.subscript.type === "ArithVariable") {
-          // For associative arrays, variable names are used as literal keys
-          // A[K] = V where K is a variable name -> use "K" as the key, not K's value
+        if (
+          isAssoc &&
+          expr.subscript.type === "ArithVariable" &&
+          !expr.subscript.hasDollarPrefix
+        ) {
+          // For associative arrays, variable names without $ prefix are used as literal keys
+          // A[K] = V where K is a variable name without $ -> use "K" as the key
           envKey = `${name}_${expr.subscript.name}`;
+        } else if (
+          isAssoc &&
+          expr.subscript.type === "ArithVariable" &&
+          expr.subscript.hasDollarPrefix
+        ) {
+          // For associative arrays with $ prefix: A[$key] -> expand $key to get the actual key
+          const expandedKey = getVariable(ctx, expr.subscript.name);
+          envKey = `${name}_${expandedKey}`;
         } else if (isAssoc) {
           // For non-variable subscripts on associative arrays, evaluate and convert to string
           const index = evaluateArithmeticSync(ctx, expr.subscript);
@@ -890,10 +932,27 @@ export async function evaluateArithmetic(
       if (expr.stringKey !== undefined) {
         // Literal string key: A['key']
         envKey = `${expr.array}_${expr.stringKey}`;
-      } else if (isAssoc && expr.index?.type === "ArithVariable") {
-        // For associative arrays, variable names are used as literal keys
-        // A[K] where K is a variable name -> use "K" as the key
+      } else if (
+        isAssoc &&
+        expr.index?.type === "ArithVariable" &&
+        !expr.index.hasDollarPrefix
+      ) {
+        // For associative arrays, variable names without $ prefix are used as literal keys
+        // A[K] where K is a variable name without $ -> use "K" as the key
         envKey = `${expr.array}_${expr.index.name}`;
+      } else if (
+        isAssoc &&
+        expr.index?.type === "ArithVariable" &&
+        expr.index.hasDollarPrefix
+      ) {
+        // For associative arrays with $ prefix: A[$key] -> expand $key to get the actual key
+        const expandedKey = getVariable(ctx, expr.index.name);
+        envKey = `${expr.array}_${expandedKey}`;
+        const arrayValue = ctx.state.env[envKey];
+        if (arrayValue !== undefined) {
+          return parseArithValue(arrayValue);
+        }
+        return 0;
       } else if (expr.index) {
         // For indexed arrays, evaluate the index as arithmetic
         let index = await evaluateArithmetic(ctx, expr.index);
@@ -1015,8 +1074,21 @@ export async function evaluateArithmetic(
 
           if (expr.operand.stringKey !== undefined) {
             envKey = `${arrayName}_${expr.operand.stringKey}`;
-          } else if (isAssoc && expr.operand.index?.type === "ArithVariable") {
+          } else if (
+            isAssoc &&
+            expr.operand.index?.type === "ArithVariable" &&
+            !expr.operand.index.hasDollarPrefix
+          ) {
+            // A[K]++ where K is without $ -> use "K" as literal key
             envKey = `${arrayName}_${expr.operand.index.name}`;
+          } else if (
+            isAssoc &&
+            expr.operand.index?.type === "ArithVariable" &&
+            expr.operand.index.hasDollarPrefix
+          ) {
+            // A[$key]++ where key has $ -> expand $key to get the actual key
+            const expandedKey = getVariable(ctx, expr.operand.index.name);
+            envKey = `${arrayName}_${expandedKey}`;
           } else if (expr.operand.index) {
             const index = await evaluateArithmetic(ctx, expr.operand.index);
             envKey = `${arrayName}_${index}`;
@@ -1088,10 +1160,22 @@ export async function evaluateArithmetic(
         envKey = `${name}_${expr.stringKey}`;
       } else if (expr.subscript) {
         const isAssoc = ctx.state.associativeArrays?.has(name);
-        if (isAssoc && expr.subscript.type === "ArithVariable") {
-          // For associative arrays, variable names are used as literal keys
-          // A[K] = V where K is a variable name -> use "K" as the key, not K's value
+        if (
+          isAssoc &&
+          expr.subscript.type === "ArithVariable" &&
+          !expr.subscript.hasDollarPrefix
+        ) {
+          // For associative arrays, variable names without $ prefix are used as literal keys
+          // A[K] = V where K is a variable name without $ -> use "K" as the key
           envKey = `${name}_${expr.subscript.name}`;
+        } else if (
+          isAssoc &&
+          expr.subscript.type === "ArithVariable" &&
+          expr.subscript.hasDollarPrefix
+        ) {
+          // For associative arrays with $ prefix: A[$key] -> expand $key to get the actual key
+          const expandedKey = getVariable(ctx, expr.subscript.name);
+          envKey = `${name}_${expandedKey}`;
         } else if (isAssoc) {
           // For non-variable subscripts on associative arrays, evaluate and convert to string
           const index = await evaluateArithmetic(ctx, expr.subscript);

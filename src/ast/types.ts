@@ -227,6 +227,8 @@ export interface FunctionDefNode extends ASTNode {
   name: string;
   body: CompoundCommandNode;
   redirections: RedirectionNode[];
+  /** Source file where the function was defined (for BASH_SOURCE tracking) */
+  sourceFile?: string;
 }
 
 // =============================================================================
@@ -1050,8 +1052,9 @@ export const AST = {
     name: string,
     body: CompoundCommandNode,
     redirections: RedirectionNode[] = [],
+    sourceFile?: string,
   ): FunctionDefNode {
-    return { type: "FunctionDef", name, body, redirections };
+    return { type: "FunctionDef", name, body, redirections, sourceFile };
   },
 
   conditionalCommand(

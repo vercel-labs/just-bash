@@ -104,13 +104,11 @@ complete -o default -o nospace -F $wrapper git
 ## status: 0
 
 #### compopt with invalid syntax
-## SKIP: compopt builtin not implemented
 compopt -o invalid
 echo status=$?
 ## stdout: status=2
 
 #### compopt fails when not in completion function
-## SKIP: compopt builtin not implemented
 # NOTE: Have to be executing a completion function
 compopt -o filenames +o nospace
 ## status: 1

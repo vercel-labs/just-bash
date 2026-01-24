@@ -27,7 +27,7 @@ import type { InterpreterContext } from "../types.js";
  * Get all elements of an array stored as arrayName_0, arrayName_1, etc.
  * Returns an array of [index/key, value] tuples, sorted by index/key.
  * For associative arrays, uses string keys.
- * Special arrays FUNCNAME and BASH_LINENO are handled dynamically from call stack.
+ * Special arrays FUNCNAME, BASH_LINENO, and BASH_SOURCE are handled dynamically from call stack.
  */
 export function getArrayElements(
   ctx: InterpreterContext,
@@ -41,6 +41,10 @@ export function getArrayElements(
   if (arrayName === "BASH_LINENO") {
     const stack = ctx.state.callLineStack ?? [];
     return stack.map((line, i) => [i, String(line)]);
+  }
+  if (arrayName === "BASH_SOURCE") {
+    const stack = ctx.state.sourceStack ?? [];
+    return stack.map((source, i) => [i, source]);
   }
 
   const isAssoc = ctx.state.associativeArrays?.has(arrayName);
@@ -69,6 +73,9 @@ export function isArray(ctx: InterpreterContext, name: string): boolean {
   }
   if (name === "BASH_LINENO") {
     return (ctx.state.callLineStack?.length ?? 0) > 0;
+  }
+  if (name === "BASH_SOURCE") {
+    return (ctx.state.sourceStack?.length ?? 0) > 0;
   }
   // Check if it's an associative array
   if (ctx.state.associativeArrays?.has(name)) {
@@ -194,6 +201,18 @@ export function getVariable(
       }
       return "";
     }
+    case "BASH_SOURCE": {
+      // Return the first element (source file where current function was defined) or handle unset
+      const source = ctx.state.sourceStack?.[0];
+      if (source !== undefined) {
+        return source;
+      }
+      // Outside functions, BASH_SOURCE is unset - check nounset
+      if (checkNounset && ctx.state.options.nounset) {
+        throw new NounsetError("BASH_SOURCE");
+      }
+      return "";
+    }
   }
 
   // Check for empty subscript: varName[] is invalid
@@ -252,6 +271,13 @@ export function getVariable(
       if (!Number.isNaN(index) && index >= 0) {
         const line = ctx.state.callLineStack?.[index];
         return line !== undefined ? String(line) : "";
+      }
+      return "";
+    }
+    if (arrayName === "BASH_SOURCE") {
+      const index = Number.parseInt(subscript, 10);
+      if (!Number.isNaN(index) && index >= 0) {
+        return ctx.state.sourceStack?.[index] ?? "";
       }
       return "";
     }

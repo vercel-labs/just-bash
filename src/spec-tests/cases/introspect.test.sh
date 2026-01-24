@@ -109,7 +109,6 @@ esac
 
 
 #### BASH_SOURCE and BASH_LINENO scalar or array (e.g. for virtualenv)
-## SKIP: BASH_SOURCE stack tracking not implemented
 
 
 #### ${FUNCNAME} with prefix/suffix operators
@@ -169,7 +168,6 @@ f
 ## END
 
 #### ${BASH_SOURCE[@]} with line numbers
-## SKIP: BASH_SOURCE call stack not implemented
 
 #### ${BASH_LINENO[@]} is a stack of line numbers for function calls
 # note: it's CALLS, not DEFINITIONS.
@@ -229,4 +227,3 @@ STACK:spec/testdata/bash-source-pushtemp.sh:source:2
 ## END
 
 #### Sourcing inside function grows the debug stack
-## SKIP: BASH_SOURCE stack tracking not implemented

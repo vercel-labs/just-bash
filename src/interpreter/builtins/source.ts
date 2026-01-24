@@ -95,8 +95,12 @@ export async function handleSource(
     }
   }
 
+  // Save and restore current source context for BASH_SOURCE tracking
+  const savedSource = ctx.state.currentSource;
+
   const cleanup = (): void => {
     ctx.state.sourceDepth--;
+    ctx.state.currentSource = savedSource;
     // Restore positional parameters if we changed them
     if (sourceArgs.length > 1) {
       for (const [key, value] of Object.entries(savedPositional)) {
@@ -110,6 +114,8 @@ export async function handleSource(
   };
 
   ctx.state.sourceDepth++;
+  // Set current source to the file being sourced (for function definitions)
+  ctx.state.currentSource = filename;
   try {
     const ast = parse(content);
     const result = await ctx.executeScript(ast);

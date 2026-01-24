@@ -24,6 +24,7 @@ export { handleBreak } from "./break.js";
 export { handleCd } from "./cd.js";
 export { handleCompgen } from "./compgen.js";
 export { handleComplete } from "./complete.js";
+export { handleCompopt } from "./compopt.js";
 export { handleContinue } from "./continue.js";
 export {
   applyCaseTransform,

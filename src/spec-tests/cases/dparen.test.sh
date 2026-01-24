@@ -107,7 +107,7 @@ V=0
 ## END
 
 #### bash: V in (( A["K"] = V )) gets coerced to integer
-## SKIP: Associative array arithmetic assignment edge cases not implemented
+## SKIP: Backslash-escaped quotes in unquoted word expansion not handled correctly
 shopt -u strict_arith || true
 K=key
 V=value
@@ -193,7 +193,6 @@ echo $x
 ## END
 
 #### Example of incrementing associative array entry with var key (ble.sh)
-## SKIP: Associative array $var key expansion in arithmetic not implemented
 declare -A A=(['foo']=42)
 key='foo'
 
