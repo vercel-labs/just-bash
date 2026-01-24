@@ -178,7 +178,6 @@ $v echo hi
 ## status: 127
 
 #### Evaluation of argv[0] in pipeline occurs in child
-## SKIP: Pipeline subshell assignment behavior not implemented
 ${cmd=echo} hi | wc -l
 echo "cmd=$cmd"
 ## STDOUT:
@@ -239,7 +238,6 @@ echo ${PIPESTATUS[@]}
 ## END
 
 #### Pipeline in eval
-## SKIP: Pipeline within eval not implemented
 ls /dev/null | eval 'cat | cat' | wc -l
 ## STDOUT:
 1
@@ -247,7 +245,6 @@ ls /dev/null | eval 'cat | cat' | wc -l
 
 
 #### shopt -s lastpipe and shopt -s no_last_fork interaction
-## SKIP: Interactive shell invocation not implemented
 
 case $SH in dash) exit ;; esac
 

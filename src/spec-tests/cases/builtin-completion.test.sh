@@ -306,7 +306,7 @@ status=0
 ## END
 
 #### compgen -k shows the same keywords as bash
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 
 # bash adds ]] and } and coproc
 
@@ -345,7 +345,7 @@ while
 ## END
 
 #### compgen -k shows Oils keywords too
-## SKIP: OSH/YSH-specific keywords not supported
+## SKIP (unimplementable): OSH/YSH-specific keywords not supported
 # YSH has a superset of keywords:
 # const var
 # setvar setglobal
@@ -435,12 +435,7 @@ spec/type-compat.test.sh
 ## END
 
 #### compgen doesn't respect -X for user-defined functions
-## SKIP: compgen -X filter and -F callback not implemented
-# WORKAROUND: wrap in bash -i -c because non-interactive bash behaves
-# differently!
-case $SH in
-  *bash|*osh)
-    $SH --rcfile /dev/null -i -c '
+# Test that -X filter works with -F callback
 shopt -s extglob
 fun() {
   COMPREPLY=(one two three bin)
@@ -448,8 +443,6 @@ fun() {
 compgen -X "@(two|bin)" -F fun
 echo --
 compgen -X "!@(two|bin)" -F fun
-'
-esac
 ## STDOUT:
 one
 three
@@ -495,7 +488,6 @@ foo'bar
 ## END
 
 #### compgen -W 'one two three'
-## SKIP: ordering of -A directory and -W combined is different
 # Create test structure inline - needs vendor directory
 mkdir -p /tmp/compgen-w-test/vendor
 cd /tmp/compgen-w-test
@@ -519,7 +511,6 @@ v2
 ## END
 
 #### compgen -W evaluates code in $()
-## SKIP: command substitution in -W wordlist not implemented
 IFS=':%'
 compgen -W '$(echo "spam:eggs%ham cheese")'
 ## STDOUT:
@@ -529,7 +520,6 @@ ham cheese
 ## END
 
 #### compgen -W uses IFS, and delimiters are escaped with \
-## SKIP: IFS escape handling in -W wordlist not implemented
 IFS=':%'
 compgen -W 'spam:eggs%ham cheese\:colon'
 ## STDOUT:
@@ -539,7 +529,6 @@ ham cheese:colon
 ## END
 
 #### Parse errors for compgen -W and complete -W
-## SKIP: complete builtin not implemented
 # bash doesn't detect as many errors because it lacks static parsing.
 compgen -W '${'
 echo status=$?
@@ -555,7 +544,6 @@ status=0
 ## END
 
 #### Runtime errors for compgen -W
-## SKIP: command substitution in -W wordlist not implemented
 compgen -W 'foo $(( 1 / 0 )) bar'
 echo status=$?
 ## STDOUT:
@@ -614,7 +602,7 @@ complete=0
 
 
 #### compadjust with empty COMP_ARGV
-## SKIP: compadjust is OSH-specific
+## SKIP (unimplementable): compadjust is OSH-specific
 case $SH in bash) exit ;; esac
 
 COMP_ARGV=()
@@ -630,7 +618,7 @@ argv.py "${words[@]}"
 
 
 #### compadjust with sparse COMP_ARGV
-## SKIP: compadjust is OSH-specific
+## SKIP (unimplementable): compadjust is OSH-specific
 case $SH in bash) exit ;; esac
 
 COMP_ARGV=({0..9})

@@ -209,7 +209,6 @@ echo status=$?
 ## BUG bash status: 0
 
 #### Quoted { and +
-## SKIP: Regex quoted special chars handling differs
 [[ { =~ "{" ]] && echo 'yes {'
 [[ + =~ "+" ]] && echo 'yes +'
 [[ * =~ "*" ]] && echo 'yes *'
@@ -327,7 +326,6 @@ status=1
 ## END
 
 #### pattern a=(1)
-## SKIP: Regex pattern with = and parentheses not implemented
 [[ a=x =~ a=(x) ]]
 echo status=$?
 [[ =x =~ a=(x) ]]
@@ -396,8 +394,6 @@ three
 ## END
 
 #### Multiple adjacent () groups
-## SKIP: Regex pattern with multiple groups and special chars not implemented
-
 if [[ 'a-b-c-d' =~ a-(b|  >>)-c-( ;|[de])|ff|gg ]]; then
   argv.py "${BASH_REMATCH[@]}"
 fi
@@ -610,7 +606,6 @@ one
 ## END
 
 #### make a lisp example
-## SKIP: Complex regex with escaped special characters not implemented
 
 str='(hi)'
 [[ "${str}" =~ ^^([][{}\(\)^@])|^(~@)|(\"(\\.|[^\\\"])*\")|^(;[^$'\n']*)|^([~\'\`])|^([^][ ~\`\'\";{}\(\)^@\,]+)|^[,]|^[[:space:]]+ ]]

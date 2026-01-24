@@ -32,6 +32,7 @@ import {
   ExecutionLimitError,
   ExitError,
   GlobError,
+  NounsetError,
 } from "./errors.js";
 import {
   analyzeWordParts,
@@ -56,7 +57,11 @@ import {
   isIfsWhitespaceOnly,
   splitByIfsForExpansion,
 } from "./helpers/ifs.js";
-import { getNamerefTarget, isNameref } from "./helpers/nameref.js";
+import {
+  getNamerefTarget,
+  isNameref,
+  resolveNameref,
+} from "./helpers/nameref.js";
 import { isReadonly } from "./helpers/readonly.js";
 import { escapeRegex } from "./helpers/regex.js";
 import { getLiteralValue, isQuotedPart } from "./helpers/word-parts.js";
@@ -79,13 +84,14 @@ function applyPatternRemoval(
   side: "prefix" | "suffix",
   greedy: boolean,
 ): string {
+  // Use 's' flag (dotall) so that . matches newlines (bash ? matches any char including newline)
   if (side === "prefix") {
     // Prefix removal: greedy matches longest from start, non-greedy matches shortest
-    return value.replace(new RegExp(`^${regexStr}`), "");
+    return value.replace(new RegExp(`^${regexStr}`, "s"), "");
   }
   // Suffix removal needs special handling because we need to find
   // the rightmost (shortest) or leftmost (longest) match
-  const regex = new RegExp(`${regexStr}$`);
+  const regex = new RegExp(`${regexStr}$`, "s");
   if (greedy) {
     // %% - longest match: use regex directly (finds leftmost match)
     return value.replace(regex, "");
@@ -113,6 +119,32 @@ function getVarNamesWithPrefix(
   const envKeys = Object.keys(ctx.state.env);
   const matchingVars = new Set<string>();
 
+  // Get sets of array names for filtering
+  const assocArrays = ctx.state.associativeArrays ?? new Set<string>();
+  const indexedArrays = new Set<string>();
+  // Find indexed arrays by looking for _\d+$ patterns
+  for (const k of envKeys) {
+    const match = k.match(/^([a-zA-Z_][a-zA-Z0-9_]*)_\d+$/);
+    if (match) {
+      indexedArrays.add(match[1]);
+    }
+    const lengthMatch = k.match(/^([a-zA-Z_][a-zA-Z0-9_]*)__length$/);
+    if (lengthMatch) {
+      indexedArrays.add(lengthMatch[1]);
+    }
+  }
+
+  // Helper to check if a key is an associative array element
+  const isAssocArrayElement = (key: string): boolean => {
+    for (const arrayName of assocArrays) {
+      const elemPrefix = `${arrayName}_`;
+      if (key.startsWith(elemPrefix) && key !== arrayName) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   for (const k of envKeys) {
     if (k.startsWith(prefix)) {
       // Check if this is an internal array storage key
@@ -123,8 +155,16 @@ function getVarNamesWithPrefix(
           matchingVars.add(lengthMatch[1]);
         }
         // Skip other internal markers
-      } else if (!/_\d+$/.test(k)) {
-        // Regular variable (not array element like arr_0)
+      } else if (/_\d+$/.test(k)) {
+        // Skip indexed array element storage (arr_0)
+        // But add the base array name if it matches
+        const match = k.match(/^([a-zA-Z_][a-zA-Z0-9_]*)_\d+$/);
+        if (match && match[1].startsWith(prefix)) {
+          matchingVars.add(match[1]);
+        }
+      } else if (isAssocArrayElement(k)) {
+      } else {
+        // Regular variable
         matchingVars.add(k);
       }
     }
@@ -787,6 +827,7 @@ export function escapeRegexChars(str: string): string {
 /**
  * Expand variables within a glob/extglob pattern string.
  * This handles patterns like @($var|$other) where variables need expansion.
+ * Also handles quoted strings inside patterns (e.g., @(foo|'bar'|"$baz")).
  * Preserves pattern metacharacters while expanding $var and ${var} references.
  */
 function expandVariablesInPattern(
@@ -798,6 +839,46 @@ function expandVariablesInPattern(
 
   while (i < pattern.length) {
     const c = pattern[i];
+
+    // Handle single-quoted strings - content is literal, strip quotes, escape glob chars
+    if (c === "'") {
+      const closeIdx = pattern.indexOf("'", i + 1);
+      if (closeIdx !== -1) {
+        const content = pattern.slice(i + 1, closeIdx);
+        // Escape glob metacharacters so they match literally
+        result += escapeGlobChars(content);
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+
+    // Handle double-quoted strings - expand variables inside, strip quotes, escape glob chars
+    if (c === '"') {
+      // Find matching close quote, handling escapes
+      let closeIdx = -1;
+      let j = i + 1;
+      while (j < pattern.length) {
+        if (pattern[j] === "\\") {
+          j += 2; // Skip escaped char
+          continue;
+        }
+        if (pattern[j] === '"') {
+          closeIdx = j;
+          break;
+        }
+        j++;
+      }
+      if (closeIdx !== -1) {
+        const content = pattern.slice(i + 1, closeIdx);
+        // Recursively expand variables in the double-quoted content
+        // but without the quote handling (pass through all other chars)
+        const expanded = expandVariablesInDoubleQuotedPattern(ctx, content);
+        // Escape glob metacharacters so they match literally
+        result += escapeGlobChars(expanded);
+        i = closeIdx + 1;
+        continue;
+      }
+    }
 
     // Handle variable references: $var or ${var}
     if (c === "$") {
@@ -840,6 +921,437 @@ function expandVariablesInPattern(
   }
 
   return result;
+}
+
+/**
+ * Expand variables within a double-quoted string inside a pattern.
+ * Handles $var and ${var} but not nested quotes.
+ */
+function expandVariablesInDoubleQuotedPattern(
+  ctx: InterpreterContext,
+  content: string,
+): string {
+  let result = "";
+  let i = 0;
+
+  while (i < content.length) {
+    const c = content[i];
+
+    // Handle backslash escapes
+    if (c === "\\" && i + 1 < content.length) {
+      const next = content[i + 1];
+      // In double quotes, only $, `, \, ", and newline are special after \
+      if (next === "$" || next === "`" || next === "\\" || next === '"') {
+        result += next;
+        i += 2;
+        continue;
+      }
+      // Other escapes pass through as-is
+      result += c;
+      i++;
+      continue;
+    }
+
+    // Handle variable references: $var or ${var}
+    if (c === "$") {
+      if (i + 1 < content.length) {
+        const next = content[i + 1];
+        if (next === "{") {
+          // ${var} form - find matching }
+          const closeIdx = content.indexOf("}", i + 2);
+          if (closeIdx !== -1) {
+            const varName = content.slice(i + 2, closeIdx);
+            result += ctx.state.env[varName] ?? "";
+            i = closeIdx + 1;
+            continue;
+          }
+        } else if (/[a-zA-Z_]/.test(next)) {
+          // $var form - read variable name
+          let end = i + 1;
+          while (end < content.length && /[a-zA-Z0-9_]/.test(content[end])) {
+            end++;
+          }
+          const varName = content.slice(i + 1, end);
+          result += ctx.state.env[varName] ?? "";
+          i = end;
+          continue;
+        }
+      }
+    }
+
+    // All other characters pass through unchanged
+    result += c;
+    i++;
+  }
+
+  return result;
+}
+
+/**
+ * Check if a pattern string contains command substitution $(...)
+ */
+function patternHasCommandSubstitution(pattern: string): boolean {
+  let i = 0;
+  while (i < pattern.length) {
+    const c = pattern[i];
+    // Skip escaped characters
+    if (c === "\\" && i + 1 < pattern.length) {
+      i += 2;
+      continue;
+    }
+    // Skip single-quoted strings
+    if (c === "'") {
+      const closeIdx = pattern.indexOf("'", i + 1);
+      if (closeIdx !== -1) {
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+    // Check for $( which indicates command substitution
+    if (c === "$" && i + 1 < pattern.length && pattern[i + 1] === "(") {
+      return true;
+    }
+    // Check for backtick command substitution
+    if (c === "`") {
+      return true;
+    }
+    i++;
+  }
+  return false;
+}
+
+/**
+ * Find the matching closing parenthesis for a command substitution.
+ * Handles nested parentheses, quotes, and escapes.
+ * Returns the index of the closing ), or -1 if not found.
+ */
+function findCommandSubstitutionEnd(pattern: string, startIdx: number): number {
+  let depth = 1;
+  let i = startIdx;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+
+  while (i < pattern.length && depth > 0) {
+    const c = pattern[i];
+
+    // Handle escapes (only outside single quotes)
+    if (c === "\\" && !inSingleQuote && i + 1 < pattern.length) {
+      i += 2;
+      continue;
+    }
+
+    // Handle single quotes (only outside double quotes)
+    if (c === "'" && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+      i++;
+      continue;
+    }
+
+    // Handle double quotes (only outside single quotes)
+    if (c === '"' && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote;
+      i++;
+      continue;
+    }
+
+    // Handle parentheses (only outside quotes)
+    if (!inSingleQuote && !inDoubleQuote) {
+      if (c === "(") {
+        depth++;
+      } else if (c === ")") {
+        depth--;
+        if (depth === 0) {
+          return i;
+        }
+      }
+    }
+
+    i++;
+  }
+
+  return -1;
+}
+
+/**
+ * Async version of expandVariablesInPattern that handles command substitutions.
+ * This handles patterns like @($var|$(echo foo)) where command substitutions need expansion.
+ */
+async function expandVariablesInPatternAsync(
+  ctx: InterpreterContext,
+  pattern: string,
+): Promise<string> {
+  let result = "";
+  let i = 0;
+
+  while (i < pattern.length) {
+    const c = pattern[i];
+
+    // Handle single-quoted strings - content is literal, strip quotes, escape glob chars
+    if (c === "'") {
+      const closeIdx = pattern.indexOf("'", i + 1);
+      if (closeIdx !== -1) {
+        const content = pattern.slice(i + 1, closeIdx);
+        // Escape glob metacharacters so they match literally
+        result += escapeGlobChars(content);
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+
+    // Handle double-quoted strings - expand variables inside, strip quotes, escape glob chars
+    if (c === '"') {
+      // Find matching close quote, handling escapes
+      let closeIdx = -1;
+      let j = i + 1;
+      while (j < pattern.length) {
+        if (pattern[j] === "\\") {
+          j += 2; // Skip escaped char
+          continue;
+        }
+        if (pattern[j] === '"') {
+          closeIdx = j;
+          break;
+        }
+        j++;
+      }
+      if (closeIdx !== -1) {
+        const content = pattern.slice(i + 1, closeIdx);
+        // Recursively expand (including command substitutions) in the double-quoted content
+        const expanded = await expandVariablesInDoubleQuotedPatternAsync(
+          ctx,
+          content,
+        );
+        // Escape glob metacharacters so they match literally
+        result += escapeGlobChars(expanded);
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+
+    // Handle command substitution: $(...)
+    if (c === "$" && i + 1 < pattern.length && pattern[i + 1] === "(") {
+      const closeIdx = findCommandSubstitutionEnd(pattern, i + 2);
+      if (closeIdx !== -1) {
+        const commandStr = pattern.slice(i + 2, closeIdx);
+        // Execute the command substitution
+        const output = await executeCommandSubstitutionFromString(
+          ctx,
+          commandStr,
+        );
+        result += output;
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+
+    // Handle backtick command substitution: `...`
+    if (c === "`") {
+      const closeIdx = pattern.indexOf("`", i + 1);
+      if (closeIdx !== -1) {
+        const commandStr = pattern.slice(i + 1, closeIdx);
+        // Execute the command substitution
+        const output = await executeCommandSubstitutionFromString(
+          ctx,
+          commandStr,
+        );
+        result += output;
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+
+    // Handle variable references: $var or ${var}
+    if (c === "$") {
+      if (i + 1 < pattern.length) {
+        const next = pattern[i + 1];
+        if (next === "{") {
+          // ${var} form - find matching }
+          const closeIdx = pattern.indexOf("}", i + 2);
+          if (closeIdx !== -1) {
+            const varName = pattern.slice(i + 2, closeIdx);
+            // Simple variable expansion (no complex operations)
+            result += ctx.state.env[varName] ?? "";
+            i = closeIdx + 1;
+            continue;
+          }
+        } else if (/[a-zA-Z_]/.test(next)) {
+          // $var form - read variable name
+          let end = i + 1;
+          while (end < pattern.length && /[a-zA-Z0-9_]/.test(pattern[end])) {
+            end++;
+          }
+          const varName = pattern.slice(i + 1, end);
+          result += ctx.state.env[varName] ?? "";
+          i = end;
+          continue;
+        }
+      }
+    }
+
+    // Handle backslash escapes - preserve them
+    if (c === "\\" && i + 1 < pattern.length) {
+      result += c + pattern[i + 1];
+      i += 2;
+      continue;
+    }
+
+    // All other characters pass through unchanged
+    result += c;
+    i++;
+  }
+
+  return result;
+}
+
+/**
+ * Async version of expandVariablesInDoubleQuotedPattern that handles command substitutions.
+ */
+async function expandVariablesInDoubleQuotedPatternAsync(
+  ctx: InterpreterContext,
+  content: string,
+): Promise<string> {
+  let result = "";
+  let i = 0;
+
+  while (i < content.length) {
+    const c = content[i];
+
+    // Handle backslash escapes
+    if (c === "\\" && i + 1 < content.length) {
+      const next = content[i + 1];
+      // In double quotes, only $, `, \, ", and newline are special after \
+      if (next === "$" || next === "`" || next === "\\" || next === '"') {
+        result += next;
+        i += 2;
+        continue;
+      }
+      // Other escapes pass through as-is
+      result += c;
+      i++;
+      continue;
+    }
+
+    // Handle command substitution: $(...)
+    if (c === "$" && i + 1 < content.length && content[i + 1] === "(") {
+      const closeIdx = findCommandSubstitutionEnd(content, i + 2);
+      if (closeIdx !== -1) {
+        const commandStr = content.slice(i + 2, closeIdx);
+        const output = await executeCommandSubstitutionFromString(
+          ctx,
+          commandStr,
+        );
+        result += output;
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+
+    // Handle backtick command substitution: `...`
+    if (c === "`") {
+      const closeIdx = content.indexOf("`", i + 1);
+      if (closeIdx !== -1) {
+        const commandStr = content.slice(i + 1, closeIdx);
+        const output = await executeCommandSubstitutionFromString(
+          ctx,
+          commandStr,
+        );
+        result += output;
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+
+    // Handle variable references: $var or ${var}
+    if (c === "$") {
+      if (i + 1 < content.length) {
+        const next = content[i + 1];
+        if (next === "{") {
+          // ${var} form - find matching }
+          const closeIdx = content.indexOf("}", i + 2);
+          if (closeIdx !== -1) {
+            const varName = content.slice(i + 2, closeIdx);
+            result += ctx.state.env[varName] ?? "";
+            i = closeIdx + 1;
+            continue;
+          }
+        } else if (/[a-zA-Z_]/.test(next)) {
+          // $var form - read variable name
+          let end = i + 1;
+          while (end < content.length && /[a-zA-Z0-9_]/.test(content[end])) {
+            end++;
+          }
+          const varName = content.slice(i + 1, end);
+          result += ctx.state.env[varName] ?? "";
+          i = end;
+          continue;
+        }
+      }
+    }
+
+    // All other characters pass through unchanged
+    result += c;
+    i++;
+  }
+
+  return result;
+}
+
+/**
+ * Execute a command substitution from a raw command string.
+ * Parses and executes the command, returning stdout with trailing newlines stripped.
+ */
+async function executeCommandSubstitutionFromString(
+  ctx: InterpreterContext,
+  commandStr: string,
+): Promise<string> {
+  // Parse the command
+  const parser = new Parser();
+  let ast: ScriptNode;
+  try {
+    ast = parser.parse(commandStr);
+  } catch {
+    // Parse error - return empty string
+    return "";
+  }
+
+  // Execute in subshell-like context
+  const savedBashPid = ctx.state.bashPid;
+  ctx.state.bashPid = ctx.state.nextVirtualPid++;
+  const savedEnv = { ...ctx.state.env };
+  const savedCwd = ctx.state.cwd;
+  const savedSuppressVerbose = ctx.state.suppressVerbose;
+  ctx.state.suppressVerbose = true;
+
+  try {
+    const result = await ctx.executeScript(ast);
+    // Restore environment but preserve exit code
+    const exitCode = result.exitCode;
+    ctx.state.env = savedEnv;
+    ctx.state.cwd = savedCwd;
+    ctx.state.suppressVerbose = savedSuppressVerbose;
+    ctx.state.lastExitCode = exitCode;
+    ctx.state.env["?"] = String(exitCode);
+    if (result.stderr) {
+      ctx.state.expansionStderr =
+        (ctx.state.expansionStderr || "") + result.stderr;
+    }
+    ctx.state.bashPid = savedBashPid;
+    return result.stdout.replace(/\n+$/, "");
+  } catch (error) {
+    ctx.state.env = savedEnv;
+    ctx.state.cwd = savedCwd;
+    ctx.state.bashPid = savedBashPid;
+    ctx.state.suppressVerbose = savedSuppressVerbose;
+    if (error instanceof ExecutionLimitError) {
+      throw error;
+    }
+    if (error instanceof ExitError) {
+      ctx.state.lastExitCode = error.exitCode;
+      ctx.state.env["?"] = String(error.exitCode);
+      return error.stdout?.replace(/\n+$/, "") ?? "";
+    }
+    return "";
+  }
 }
 
 /**
@@ -1086,8 +1598,15 @@ async function expandWordForGlobbing(
       const expanded = await expandWordPartsAsync(ctx, part.parts);
       parts.push(escapeGlobChars(expanded));
     } else if (part.type === "Glob") {
-      // Glob pattern: keep as-is (these are the actual patterns)
-      parts.push(part.pattern);
+      // Glob pattern: expand variables and command substitutions within extglob patterns
+      // e.g., @($var|$(echo foo)) needs both variable and command substitution expansion
+      if (patternHasCommandSubstitution(part.pattern)) {
+        // Use async version for command substitutions
+        parts.push(await expandVariablesInPatternAsync(ctx, part.pattern));
+      } else {
+        // Use sync version for simple variable expansion
+        parts.push(expandVariablesInPattern(ctx, part.pattern));
+      }
     } else if (part.type === "Literal") {
       // Literal: keep as-is (may contain glob characters that should glob)
       parts.push(part.value);
@@ -1519,6 +2038,17 @@ export async function expandWordWithGlob(
       );
       if (match) {
         const arrayName = match[1];
+
+        // Special case: if arrayName is a nameref pointing to array[@],
+        // ${ref[@]} doesn't do double indirection - it returns empty
+        if (isNameref(ctx, arrayName)) {
+          const resolved = resolveNameref(ctx, arrayName);
+          if (resolved && /^[a-zA-Z_][a-zA-Z0-9_]*\[@\]$/.test(resolved)) {
+            // ref points to arr[@], so ${ref[@]} is invalid/empty
+            return { values: [], quoted: true };
+          }
+        }
+
         const elements = getArrayElements(ctx, arrayName);
         if (elements.length > 0) {
           // Return each element as a separate word
@@ -1526,9 +2056,12 @@ export async function expandWordWithGlob(
         }
         // No array elements - check for scalar variable
         // ${s[@]} where s='abc' should return 'abc' (treat scalar as single-element array)
-        const scalarValue = ctx.state.env[arrayName];
-        if (scalarValue !== undefined) {
-          return { values: [scalarValue], quoted: true };
+        // But NOT if the scalar value is actually from a nameref to array[@]
+        if (!isNameref(ctx, arrayName)) {
+          const scalarValue = ctx.state.env[arrayName];
+          if (scalarValue !== undefined) {
+            return { values: [scalarValue], quoted: true };
+          }
         }
         // Variable is unset - return empty
         return { values: [], quoted: true };
@@ -1536,7 +2069,46 @@ export async function expandWordWithGlob(
     }
   }
 
-  // Handle "${arr[@]:-${default[@]}}" and "${arr[@]:+${alt[@]}}" - array default/alternative values
+  // Handle namerefs pointing to array[@] - "${ref}" where ref='arr[@]'
+  // When a nameref points to array[@], expanding "$ref" should produce multiple words
+  if (wordParts.length === 1 && wordParts[0].type === "DoubleQuoted") {
+    const dqPart = wordParts[0];
+    if (
+      dqPart.parts.length === 1 &&
+      dqPart.parts[0].type === "ParameterExpansion" &&
+      !dqPart.parts[0].operation
+    ) {
+      const paramPart = dqPart.parts[0];
+      const param = paramPart.parameter;
+      // Check if it's a simple variable name (not already an array subscript)
+      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(param) && isNameref(ctx, param)) {
+        const resolved = resolveNameref(ctx, param);
+        if (resolved && resolved !== param) {
+          // Check if resolved target is array[@]
+          const arrayAtMatch = resolved.match(
+            /^([a-zA-Z_][a-zA-Z0-9_]*)\[@\]$/,
+          );
+          if (arrayAtMatch) {
+            const arrayName = arrayAtMatch[1];
+            const elements = getArrayElements(ctx, arrayName);
+            if (elements.length > 0) {
+              // Return each element as a separate word
+              return { values: elements.map(([, v]) => v), quoted: true };
+            }
+            // No array elements - check for scalar variable
+            const scalarValue = ctx.state.env[arrayName];
+            if (scalarValue !== undefined) {
+              return { values: [scalarValue], quoted: true };
+            }
+            // Variable is unset - return empty
+            return { values: [], quoted: true };
+          }
+        }
+      }
+    }
+  }
+
+  // Handle "${arr[@]:-${default[@]}}", "${arr[@]:+${alt[@]}}", and "${arr[@]:=default}" - array default/alternative values
   // Also handles "${var:-${default[@]}}" where var is a scalar variable.
   // When the default value contains an array expansion, each element should become a separate word.
   if (wordParts.length === 1 && wordParts[0].type === "DoubleQuoted") {
@@ -1545,12 +2117,14 @@ export async function expandWordWithGlob(
       dqPart.parts.length === 1 &&
       dqPart.parts[0].type === "ParameterExpansion" &&
       (dqPart.parts[0].operation?.type === "DefaultValue" ||
-        dqPart.parts[0].operation?.type === "UseAlternative")
+        dqPart.parts[0].operation?.type === "UseAlternative" ||
+        dqPart.parts[0].operation?.type === "AssignDefault")
     ) {
       const paramPart = dqPart.parts[0];
       const op = paramPart.operation as
         | { type: "DefaultValue"; word?: WordNode; checkEmpty?: boolean }
-        | { type: "UseAlternative"; word?: WordNode; checkEmpty?: boolean };
+        | { type: "UseAlternative"; word?: WordNode; checkEmpty?: boolean }
+        | { type: "AssignDefault"; word?: WordNode; checkEmpty?: boolean };
 
       // Check if the outer parameter is an array subscript
       const arrayMatch = paramPart.parameter.match(
@@ -2500,9 +3074,9 @@ export async function expandWordWithGlob(
             };
             const checkEmpty = op.checkEmpty ?? false;
             const values = elements.map(([, v]) => v);
-            // For arrays, "empty" means all elements are empty or no elements
-            const isEmpty =
-              elements.length === 0 || values.every((v) => v === "");
+            // For arrays, "empty" means zero elements (not that elements are empty strings)
+            // Empty string elements are still "set" values, so they don't trigger default/alternative
+            const isEmpty = elements.length === 0;
             const isUnset = elements.length === 0;
 
             if (indirOp.innerOp.type === "UseAlternative") {
@@ -4238,6 +4812,145 @@ export async function expandWordWithGlob(
     return { values: allWords, quoted: false };
   }
 
+  // Special handling for unquoted $@ or $* with prefix/suffix (e.g., =$@= or =$*=)
+  // When positional params are all empty strings, they should create word boundaries
+  // Result: =$@= with params "" "" "" "" "" -> ["=", "="] (two words)
+  // The algorithm:
+  // 1. Each param becomes a separate word
+  // 2. Prefix joins with first param, suffix joins with last param
+  // 3. Then filter out empty words (with whitespace IFS) or preserve them (non-whitespace IFS)
+  {
+    let unquotedAtStarIndex = -1;
+    for (let i = 0; i < wordParts.length; i++) {
+      const p = wordParts[i];
+      if (
+        p.type === "ParameterExpansion" &&
+        (p.parameter === "@" || p.parameter === "*") &&
+        !p.operation
+      ) {
+        unquotedAtStarIndex = i;
+        break;
+      }
+    }
+
+    if (unquotedAtStarIndex !== -1 && wordParts.length > 1) {
+      // Get positional parameters
+      const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+      const params: string[] = [];
+      for (let i = 1; i <= numParams; i++) {
+        params.push(ctx.state.env[String(i)] || "");
+      }
+
+      // Expand prefix (parts before $@/$*)
+      let prefix = "";
+      for (let i = 0; i < unquotedAtStarIndex; i++) {
+        prefix += await expandPart(ctx, wordParts[i]);
+      }
+
+      // Expand suffix (parts after $@/$*)
+      let suffix = "";
+      for (let i = unquotedAtStarIndex + 1; i < wordParts.length; i++) {
+        suffix += await expandPart(ctx, wordParts[i]);
+      }
+
+      const ifsChars = getIfs(ctx.state.env);
+      const ifsEmpty = isIfsEmpty(ctx.state.env);
+      const ifsWhitespaceOnly = isIfsWhitespaceOnly(ctx.state.env);
+
+      if (numParams === 0) {
+        // No params - just return prefix+suffix if non-empty
+        const combined = prefix + suffix;
+        return { values: combined ? [combined] : [], quoted: false };
+      }
+
+      // Build words first: prefix joins with first param, suffix joins with last
+      // Then apply IFS splitting and filtering
+      let words: string[];
+
+      // Both unquoted $@ and unquoted $* behave the same way:
+      // Each param becomes a separate word, then each is subject to IFS splitting.
+      // The difference between $@ and $* only applies when QUOTED.
+      {
+        // First, attach prefix to first param, suffix to last param
+        const rawWords: string[] = [];
+        for (let i = 0; i < params.length; i++) {
+          let word = params[i];
+          if (i === 0) word = prefix + word;
+          if (i === params.length - 1) word = word + suffix;
+          rawWords.push(word);
+        }
+
+        // Now apply IFS splitting and filtering
+        if (ifsEmpty) {
+          // Empty IFS - no splitting, filter out empty words
+          words = rawWords.filter((w) => w !== "");
+        } else if (ifsWhitespaceOnly) {
+          // Whitespace-only IFS - empty words are dropped
+          words = [];
+          for (const word of rawWords) {
+            if (word === "") continue;
+            const parts = splitByIfsForExpansion(word, ifsChars);
+            words.push(...parts);
+          }
+        } else {
+          // Non-whitespace IFS - preserve empty words (except trailing)
+          words = [];
+          for (const word of rawWords) {
+            if (word === "") {
+              words.push("");
+            } else {
+              const parts = splitByIfsForExpansion(word, ifsChars);
+              words.push(...parts);
+            }
+          }
+          // Remove trailing empty strings
+          while (words.length > 0 && words[words.length - 1] === "") {
+            words.pop();
+          }
+        }
+      }
+
+      // Apply glob expansion to each word
+      if (ctx.state.options.noglob || words.length === 0) {
+        return { values: words, quoted: false };
+      }
+
+      const globExpander = new GlobExpander(
+        ctx.fs,
+        ctx.state.cwd,
+        ctx.state.env,
+        {
+          globstar: ctx.state.shoptOptions.globstar,
+          nullglob: ctx.state.shoptOptions.nullglob,
+          failglob: ctx.state.shoptOptions.failglob,
+          dotglob: ctx.state.shoptOptions.dotglob,
+          extglob: ctx.state.shoptOptions.extglob,
+          globskipdots: ctx.state.shoptOptions.globskipdots,
+        },
+      );
+
+      const expandedValues: string[] = [];
+      for (const w of words) {
+        if (hasGlobPattern(w, ctx.state.shoptOptions.extglob)) {
+          const matches = await globExpander.expand(w);
+          if (matches.length > 0) {
+            expandedValues.push(...matches);
+          } else if (globExpander.hasFailglob()) {
+            throw new GlobError(w);
+          } else if (globExpander.hasNullglob()) {
+            // skip
+          } else {
+            expandedValues.push(w);
+          }
+        } else {
+          expandedValues.push(w);
+        }
+      }
+
+      return { values: expandedValues, quoted: false };
+    }
+  }
+
   // Handle mixed word parts with word-producing expansions like $s1"${array[@]}"_"$@"
   // This case has multiple top-level parts where some are DoubleQuoted containing ${arr[@]} or $@
   // Each word-producing part expands to multiple words, and we need to join adjacent parts properly
@@ -4384,7 +5097,14 @@ export async function expandWordWithGlob(
       }
       // Glob failed - return the unescaped pattern (not the raw pattern with backslashes)
       // In bash, [\\]_ outputs [\]_ when no match, not [\\]_
-      return { values: [unescapeGlobPattern(value)], quoted: false };
+      // Also apply IFS splitting since the pattern may contain spaces (e.g., b[2 + 0]=bar -> b[2 + 0]=bar)
+      const unescapedValue = unescapeGlobPattern(value);
+      if (!isIfsEmpty(ctx.state.env)) {
+        const ifsChars = getIfs(ctx.state.env);
+        const splitValues = splitByIfsForExpansion(unescapedValue, ifsChars);
+        return { values: splitValues, quoted: false };
+      }
+      return { values: [unescapedValue], quoted: false };
     }
   } else if (
     !hasQuoted &&
@@ -4431,8 +5151,15 @@ export async function expandWordWithGlob(
   // If we have Glob parts and didn't expand (noglob or no glob pattern),
   // we still need to unescape backslashes in the value.
   // In bash, [\\]_ with set -f outputs [\]_, not [\\]_
+  // Also apply IFS splitting since the pattern may contain spaces
   if (hasGlobParts && !hasQuoted) {
-    return { values: [unescapeGlobPattern(value)], quoted: false };
+    const unescapedValue = unescapeGlobPattern(value);
+    if (!isIfsEmpty(ctx.state.env)) {
+      const ifsChars = getIfs(ctx.state.env);
+      const splitValues = splitByIfsForExpansion(unescapedValue, ifsChars);
+      return { values: splitValues, quoted: false };
+    }
+    return { values: [unescapedValue], quoted: false };
   }
 
   return { values: [value], quoted: hasQuoted };
@@ -4909,6 +5636,28 @@ async function expandPart(
   // Check if ParameterExpansion needs async (has command substitution in operation)
   if (part.type === "ParameterExpansion" && paramExpansionNeedsAsync(part)) {
     return expandParameterAsync(ctx, part);
+  }
+
+  // Check if a nameref parameter needs async (target has command substitution in subscript)
+  // This can't be detected statically, so we check at runtime
+  if (
+    part.type === "ParameterExpansion" &&
+    /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(part.parameter) &&
+    isNameref(ctx, part.parameter)
+  ) {
+    const target = resolveNameref(ctx, part.parameter);
+    if (target && target !== part.parameter) {
+      const targetBracketMatch = target.match(
+        /^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/,
+      );
+      if (targetBracketMatch) {
+        const targetSubscript = targetBracketMatch[2];
+        if (targetSubscript.includes("$(") || targetSubscript.includes("`")) {
+          // Nameref target has command substitution - use async path
+          return expandParameterAsync(ctx, part);
+        }
+      }
+    }
   }
 
   // Try simple cases first
@@ -5633,13 +6382,14 @@ function expandParameter(
         }
       }
 
+      // Use 's' flag (dotall) so that . matches newlines (bash ? matches any char including newline)
       if (operation.side === "prefix") {
         // Prefix removal: greedy matches longest from start, non-greedy matches shortest
-        return value.replace(new RegExp(`^${regexStr}`), "");
+        return value.replace(new RegExp(`^${regexStr}`, "s"), "");
       }
       // Suffix removal needs special handling because we need to find
       // the rightmost (shortest) or leftmost (longest) match
-      const regex = new RegExp(`${regexStr}$`);
+      const regex = new RegExp(`${regexStr}$`, "s");
       if (operation.greedy) {
         // %% - longest match: use regex directly (finds leftmost match)
         return value.replace(regex, "");
@@ -5704,7 +6454,8 @@ function expandParameter(
         return value;
       }
 
-      const flags = operation.all ? "g" : "";
+      // Use 's' flag (dotall) so that . matches newlines (bash ? and * match any char including newline)
+      const flags = operation.all ? "gs" : "s";
 
       // Handle invalid regex patterns (like [z-a] which is an invalid range)
       // Bash just returns the original value when pattern doesn't match
@@ -5898,6 +6649,19 @@ function expandParameter(
         return getNamerefTarget(ctx, parameter) || "";
       }
 
+      // Bash 5.0+ behavior: If the reference variable itself is unset,
+      // the indirection should error with set -u, or return empty string without it.
+      // The default value in ${!ref-default} applies to the TARGET, not the reference.
+      // If the reference is unset, there's no target to apply the default to.
+      if (isUnset) {
+        // With set -u, accessing an unset reference variable is an error
+        if (ctx.state.options.nounset) {
+          throw new NounsetError(parameter);
+        }
+        // Without set -u, return empty string (don't apply inner operation's default)
+        return "";
+      }
+
       // value contains the name of the parameter, get the target variable name
       const targetName = value;
 
@@ -5956,13 +6720,119 @@ function expandParameter(
   }
 }
 
+/**
+ * Expand command substitutions in an array subscript.
+ * e.g., "$(echo 1)" -> "1"
+ * This is needed for cases like ${a[$(echo 1)]} where the subscript
+ * contains a command that must be executed.
+ */
+async function expandSubscriptCommandSubst(
+  ctx: InterpreterContext,
+  subscript: string,
+): Promise<string> {
+  // Look for $(...) patterns and execute them
+  let result = "";
+  let i = 0;
+  while (i < subscript.length) {
+    if (subscript[i] === "$" && subscript[i + 1] === "(") {
+      // Find matching closing paren
+      let depth = 1;
+      let j = i + 2;
+      while (j < subscript.length && depth > 0) {
+        if (subscript[j] === "(" && subscript[j - 1] === "$") {
+          depth++;
+        } else if (subscript[j] === "(") {
+          depth++;
+        } else if (subscript[j] === ")") {
+          depth--;
+        }
+        j++;
+      }
+      // Extract and execute the command
+      const cmdStr = subscript.slice(i + 2, j - 1);
+      if (ctx.execFn) {
+        const cmdResult = await ctx.execFn(cmdStr);
+        // Strip trailing newlines like command substitution does
+        result += cmdResult.stdout.replace(/\n+$/, "");
+        // Forward stderr to expansion stderr
+        if (cmdResult.stderr) {
+          ctx.state.expansionStderr =
+            (ctx.state.expansionStderr || "") + cmdResult.stderr;
+        }
+      }
+      i = j;
+    } else if (subscript[i] === "`") {
+      // Legacy backtick command substitution
+      let j = i + 1;
+      while (j < subscript.length && subscript[j] !== "`") {
+        j++;
+      }
+      const cmdStr = subscript.slice(i + 1, j);
+      if (ctx.execFn) {
+        const cmdResult = await ctx.execFn(cmdStr);
+        result += cmdResult.stdout.replace(/\n+$/, "");
+        if (cmdResult.stderr) {
+          ctx.state.expansionStderr =
+            (ctx.state.expansionStderr || "") + cmdResult.stderr;
+        }
+      }
+      i = j + 1;
+    } else {
+      result += subscript[i];
+      i++;
+    }
+  }
+  return result;
+}
+
 // Async version of expandParameter for parameter expansions that contain command substitution
 async function expandParameterAsync(
   ctx: InterpreterContext,
   part: ParameterExpansionPart,
   inDoubleQuotes = false,
 ): Promise<string> {
-  const { parameter, operation } = part;
+  let { parameter } = part;
+  const { operation } = part;
+
+  // Handle command substitution in array subscript: ${a[$(echo 1)]}
+  // We need to expand the subscript before calling getVariable
+  const bracketMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
+  if (bracketMatch) {
+    const [, arrayName, subscript] = bracketMatch;
+    // Check if subscript contains command substitution
+    if (subscript.includes("$(") || subscript.includes("`")) {
+      const expandedSubscript = await expandSubscriptCommandSubst(
+        ctx,
+        subscript,
+      );
+      parameter = `${arrayName}[${expandedSubscript}]`;
+    }
+  } else if (
+    // Handle nameref pointing to array subscript with command substitution:
+    // typeset -n ref='a[$(echo 2) + 1]'; echo $ref
+    /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(parameter) &&
+    isNameref(ctx, parameter)
+  ) {
+    const target = resolveNameref(ctx, parameter);
+    if (target && target !== parameter) {
+      // Check if the resolved target is an array subscript with command substitution
+      const targetBracketMatch = target.match(
+        /^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/,
+      );
+      if (targetBracketMatch) {
+        const [, targetArrayName, targetSubscript] = targetBracketMatch;
+        if (targetSubscript.includes("$(") || targetSubscript.includes("`")) {
+          const expandedSubscript = await expandSubscriptCommandSubst(
+            ctx,
+            targetSubscript,
+          );
+          // Replace the nameref's stored target with the expanded one for this expansion
+          // We need to call getVariable with the expanded target directly
+          parameter = `${targetArrayName}[${expandedSubscript}]`;
+        }
+      }
+    }
+  }
 
   // Operations that handle unset variables should not trigger nounset
   const skipNounset =
@@ -6148,10 +7018,11 @@ async function expandParameterAsync(
         }
       }
 
+      // Use 's' flag (dotall) so that . matches newlines (bash ? matches any char including newline)
       if (operation.side === "prefix") {
-        return value.replace(new RegExp(`^${regexStr}`), "");
+        return value.replace(new RegExp(`^${regexStr}`, "s"), "");
       }
-      const regex = new RegExp(`${regexStr}$`);
+      const regex = new RegExp(`${regexStr}$`, "s");
       if (operation.greedy) {
         return value.replace(regex, "");
       }
@@ -6206,7 +7077,8 @@ async function expandParameterAsync(
         return value;
       }
 
-      const flags = operation.all ? "g" : "";
+      // Use 's' flag (dotall) so that . matches newlines (bash ? and * match any char including newline)
+      const flags = operation.all ? "gs" : "s";
 
       try {
         const re = new RegExp(regex, flags);

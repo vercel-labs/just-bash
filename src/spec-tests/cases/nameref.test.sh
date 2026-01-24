@@ -314,7 +314,6 @@ ref=XX
 ## N-I mksh stdout-json: ""
 
 #### -n attribute on array is hard error, not a warning
-## SKIP: Array assignment to nameref removes attribute - complex edge case
 x=X
 typeset -n ref #=x
 echo hi
@@ -545,7 +544,6 @@ ref=two
 ## END
 
 #### a[expr] in nameref
-## SKIP: Command substitution in nameref subscript not implemented
 
 # this confuses code and data
 typeset -n ref='a[$(echo 2) + 1]'
@@ -556,7 +554,6 @@ ref=three
 ## END
 
 #### a[@] in nameref
-## SKIP: Nameref to array[@] not implemented
 
 # this confuses code and data
 typeset -n ref='a[@]'

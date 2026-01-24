@@ -397,20 +397,7 @@ export function parseSubshell(
   p: Parser,
   options?: { skipRedirections?: boolean },
 ): SubshellNode | CStyleForNode {
-  // Check for (( which indicates C-style for
-  if (p.peek(1).type === TokenType.LPAREN) {
-    // This is (( - but we need to check context
-    // For now, treat as subshell start
-  }
-
   p.expect(TokenType.LPAREN);
-
-  // Check if this is (( arithmetic
-  if (p.check(TokenType.LPAREN)) {
-    p.advance();
-    // Parse arithmetic...
-    // For now, treat as subshell
-  }
 
   const body = p.parseCompoundList();
   p.expect(TokenType.RPAREN);

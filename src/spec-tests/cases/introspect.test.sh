@@ -189,7 +189,7 @@ f  # line 11
 ## END
 
 #### Locations with temp frame
-## SKIP: Temp binding edge cases not implemented
+## SKIP: Requires external test data files
 
 cd $REPO_ROOT
 
@@ -204,7 +204,7 @@ STACK:spec/testdata/bash-source-pushtemp.sh:main:0
 ## END
 
 #### Locations when sourcing
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 
 cd $REPO_ROOT
 

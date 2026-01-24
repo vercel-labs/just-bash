@@ -244,10 +244,12 @@ export function splitByIfsForRead(
  * @returns Array of words after splitting
  */
 /**
- * Result of splitByIfsForExpansionEx with trailing delimiter info.
+ * Result of splitByIfsForExpansionEx with leading/trailing delimiter info.
  */
 export interface IfsExpansionSplitResult {
   words: string[];
+  /** True if the value started with an IFS whitespace delimiter (affects joining with preceding text) */
+  hadLeadingDelimiter: boolean;
   /** True if the value ended with an IFS delimiter (affects joining with subsequent text) */
   hadTrailingDelimiter: boolean;
 }
@@ -264,28 +266,42 @@ export function splitByIfsForExpansionEx(
 ): IfsExpansionSplitResult {
   // Empty IFS means no splitting
   if (ifs === "") {
-    return { words: value ? [value] : [], hadTrailingDelimiter: false };
+    return {
+      words: value ? [value] : [],
+      hadLeadingDelimiter: false,
+      hadTrailingDelimiter: false,
+    };
   }
 
   // Empty value means no words
   if (value === "") {
-    return { words: [], hadTrailingDelimiter: false };
+    return {
+      words: [],
+      hadLeadingDelimiter: false,
+      hadTrailingDelimiter: false,
+    };
   }
 
   const { whitespace, nonWhitespace } = categorizeIfs(ifs);
   const words: string[] = [];
   let pos = 0;
+  let hadLeadingDelimiter = false;
   let hadTrailingDelimiter = false;
 
   // Skip leading IFS whitespace
+  const leadingStart = pos;
   while (pos < value.length && whitespace.has(value[pos])) {
     pos++;
+  }
+  // Track if we consumed any leading whitespace
+  if (pos > leadingStart) {
+    hadLeadingDelimiter = true;
   }
 
   // If we've consumed all input, return empty result
   if (pos >= value.length) {
-    // The value was all whitespace - it had trailing delimiter
-    return { words: [], hadTrailingDelimiter: true };
+    // The value was all whitespace - it had both leading and trailing delimiter
+    return { words: [], hadLeadingDelimiter: true, hadTrailingDelimiter: true };
   }
 
   // Check for leading non-whitespace delimiter (creates empty field)
@@ -353,7 +369,7 @@ export function splitByIfsForExpansionEx(
     }
   }
 
-  return { words, hadTrailingDelimiter };
+  return { words, hadLeadingDelimiter, hadTrailingDelimiter };
 }
 
 export function splitByIfsForExpansion(value: string, ifs: string): string[] {

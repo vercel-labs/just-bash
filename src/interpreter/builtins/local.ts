@@ -6,12 +6,14 @@ import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { evaluateArithmeticSync } from "../arithmetic.js";
+import { getArrayIndices } from "../helpers/array.js";
 import { markNameref } from "../helpers/nameref.js";
+import { checkReadonlyError } from "../helpers/readonly.js";
 import { failure, result } from "../helpers/result.js";
 import { expandTildesInValue } from "../helpers/tilde.js";
 import type { InterpreterContext } from "../types.js";
 import { parseArrayElements } from "./declare.js";
-import { markLocalVarDepth } from "./variable-helpers.js";
+import { markLocalVarDepth, pushLocalVarStack } from "./variable-helpers.js";
 
 export function handleLocal(
   ctx: InterpreterContext,
@@ -86,6 +88,9 @@ export function handleLocal(
         continue;
       }
 
+      // Check if variable is readonly
+      checkReadonlyError(ctx, name, "bash");
+
       // Save previous value for scope restoration
       if (!currentScope.has(name)) {
         currentScope.set(name, ctx.state.env[name]);
@@ -125,11 +130,87 @@ export function handleLocal(
       continue;
     }
 
-    // Check for += append syntax
+    // Check for array append syntax: local NAME+=(...)
+    const arrayAppendMatch = arg.match(
+      /^([a-zA-Z_][a-zA-Z0-9_]*)\+=\((.*)\)$/s,
+    );
+    if (arrayAppendMatch) {
+      name = arrayAppendMatch[1];
+      const content = arrayAppendMatch[2];
+
+      // Check if variable is readonly
+      checkReadonlyError(ctx, name, "bash");
+
+      // Save previous value for scope restoration
+      if (!currentScope.has(name)) {
+        currentScope.set(name, ctx.state.env[name]);
+        // Also save array elements
+        const prefix = `${name}_`;
+        for (const key of Object.keys(ctx.state.env)) {
+          if (key.startsWith(prefix) && !key.includes("__")) {
+            if (!currentScope.has(key)) {
+              currentScope.set(key, ctx.state.env[key]);
+            }
+          }
+        }
+        const lengthKey = `${name}__length`;
+        if (
+          ctx.state.env[lengthKey] !== undefined &&
+          !currentScope.has(lengthKey)
+        ) {
+          currentScope.set(lengthKey, ctx.state.env[lengthKey]);
+        }
+      }
+
+      // Parse new elements
+      const newElements = parseArrayElements(content);
+
+      // For indexed arrays, get current highest index and append
+      const existingIndices = getArrayIndices(ctx, name);
+
+      // If variable was a scalar, convert it to array element 0
+      let startIndex = 0;
+      if (existingIndices.length === 0 && ctx.state.env[name] !== undefined) {
+        // Variable exists as scalar - convert to array element 0
+        const scalarValue = ctx.state.env[name];
+        ctx.state.env[`${name}_0`] = scalarValue;
+        delete ctx.state.env[name];
+        startIndex = 1;
+      } else if (existingIndices.length > 0) {
+        // Find highest existing index + 1
+        startIndex = Math.max(...existingIndices) + 1;
+      }
+
+      // Append new elements
+      for (let i = 0; i < newElements.length; i++) {
+        ctx.state.env[`${name}_${startIndex + i}`] = expandTildesInValue(
+          ctx,
+          newElements[i],
+        );
+      }
+
+      // Update length marker
+      const newLength = startIndex + newElements.length;
+      ctx.state.env[`${name}__length`] = String(newLength);
+
+      // Track local variable depth for bash-specific unset scoping
+      markLocalVarDepth(ctx, name);
+
+      // Mark as nameref if -n flag was used
+      if (declareNameref) {
+        markNameref(ctx, name);
+      }
+      continue;
+    }
+
+    // Check for += append syntax (scalar append)
     const appendMatch = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\+=(.*)$/);
     if (appendMatch) {
       name = appendMatch[1];
       const appendValue = expandTildesInValue(ctx, appendMatch[2]);
+
+      // Check if variable is readonly
+      checkReadonlyError(ctx, name, "bash");
 
       // Save previous value for scope restoration
       if (!currentScope.has(name)) {
@@ -158,6 +239,9 @@ export function handleLocal(
       name = indexMatch[1];
       const indexExpr = indexMatch[2];
       const indexValue = expandTildesInValue(ctx, indexMatch[3]);
+
+      // Check if variable is readonly
+      checkReadonlyError(ctx, name, "bash");
 
       // Save previous array values for scope restoration
       if (!currentScope.has(name)) {
@@ -232,8 +316,51 @@ export function handleLocal(
     // Check if variable was already local BEFORE we potentially add it to scope
     const wasAlreadyLocal = currentScope.has(name);
 
+    // For bash's localvar-nest behavior: always push the current value to the stack
+    // This allows nested local declarations (e.g., in nested evals) to each have
+    // their own cell that can be unset independently.
+    //
+    // Special case for tempenv: the value we save depends on whether the tempenv
+    // was "accessed" (read or written) before this local declaration:
+    // - If accessed (read or mutated): save the current env value (tempenv or mutated)
+    // - If NOT accessed at all: save the underlying value (for dynamic-unset to reveal)
+    //   but local-unset will still just delete (value-unset)
+    if (value !== undefined) {
+      let savedValue: string | undefined = ctx.state.env[name];
+      // Check if there's a tempenv binding
+      if (ctx.state.tempEnvBindings) {
+        const tempEnvAccessed = ctx.state.accessedTempEnvVars?.has(name);
+        const tempEnvMutated = ctx.state.mutatedTempEnvVars?.has(name);
+        if (!tempEnvAccessed && !tempEnvMutated) {
+          // Tempenv was NOT accessed - save the underlying value for dynamic-unset
+          for (let i = ctx.state.tempEnvBindings.length - 1; i >= 0; i--) {
+            const bindings = ctx.state.tempEnvBindings[i];
+            if (bindings.has(name)) {
+              savedValue = bindings.get(name);
+              break;
+            }
+          }
+        }
+        // If accessed or mutated, keep savedValue as ctx.state.env[name]
+      }
+      pushLocalVarStack(ctx, name, savedValue);
+    }
+
     if (!wasAlreadyLocal) {
-      currentScope.set(name, ctx.state.env[name]);
+      // For bash 5.1 behavior: when saving the outer value for a local variable,
+      // if there's a tempenv binding, save the underlying (global) value, not the tempenv value.
+      // This way, dynamic-unset will correctly reveal the global value.
+      let savedValue: string | undefined = ctx.state.env[name];
+      if (ctx.state.tempEnvBindings) {
+        for (let i = ctx.state.tempEnvBindings.length - 1; i >= 0; i--) {
+          const bindings = ctx.state.tempEnvBindings[i];
+          if (bindings.has(name)) {
+            savedValue = bindings.get(name);
+            break;
+          }
+        }
+      }
+      currentScope.set(name, savedValue);
       // Also save array elements if -a flag is used
       if (declareArray) {
         const prefix = `${name}_`;
@@ -267,6 +394,9 @@ export function handleLocal(
       // Mark as empty array
       ctx.state.env[`${name}__length`] = "0";
     } else if (value !== undefined) {
+      // Check if variable is readonly
+      checkReadonlyError(ctx, name, "bash");
+
       // For namerefs, validate the target
       if (
         declareNameref &&

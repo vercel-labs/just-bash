@@ -225,7 +225,6 @@ foo[]
 ## END
 
 #### Nested % and # operators (bug reported by Crestwave)
-## SKIP: glob pattern ? does not match newline character in strip operations
 var=$'\n'
 argv.py "${var#?}"
 argv.py "${var%''}"

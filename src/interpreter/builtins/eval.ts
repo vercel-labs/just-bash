@@ -19,6 +19,7 @@ import type { InterpreterContext } from "../types.js";
 export async function handleEval(
   ctx: InterpreterContext,
   args: string[],
+  stdin?: string,
 ): Promise<ExecResult> {
   // Handle options like bash does:
   // -- ends option processing
@@ -49,10 +50,18 @@ export async function handleEval(
     return OK;
   }
 
+  // Save and set groupStdin for piped eval commands
+  // This allows stdin from the pipeline to flow to commands within eval
+  const savedGroupStdin = ctx.state.groupStdin;
+  const effectiveStdin = stdin ?? ctx.state.groupStdin;
+  if (effectiveStdin !== undefined) {
+    ctx.state.groupStdin = effectiveStdin;
+  }
+
   try {
     // Parse and execute in the current environment
     const ast = parse(command);
-    return ctx.executeScript(ast);
+    return await ctx.executeScript(ast);
   } catch (error) {
     // Rethrow control flow errors so they propagate to outer loops/functions
     if (
@@ -67,5 +76,8 @@ export async function handleEval(
       return failure(`bash: eval: ${(error as Error).message}\n`);
     }
     throw error;
+  } finally {
+    // Restore groupStdin
+    ctx.state.groupStdin = savedGroupStdin;
   }
 }

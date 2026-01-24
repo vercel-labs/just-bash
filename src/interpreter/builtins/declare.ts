@@ -33,6 +33,11 @@ import {
   unmarkNameref,
 } from "../helpers/nameref.js";
 import {
+  quoteArrayValue,
+  quoteDeclareValue,
+  quoteValue,
+} from "../helpers/quoting.js";
+import {
   checkReadonlyError,
   isReadonly,
   markExported,
@@ -195,6 +200,50 @@ function formatAssocValue(value: string): string {
   return value;
 }
 
+/**
+ * Parse array assignment syntax: name[index]=value
+ * Handles nested brackets like a[a[0]=1]=X
+ * Returns null if not an array assignment pattern
+ */
+function parseArrayAssignment(
+  arg: string,
+): { name: string; indexExpr: string; value: string } | null {
+  // Check for variable name at start
+  const nameMatch = arg.match(/^[a-zA-Z_][a-zA-Z0-9_]*/);
+  if (!nameMatch) return null;
+
+  const name = nameMatch[0];
+  let pos = name.length;
+
+  // Must have [ after name
+  if (arg[pos] !== "[") return null;
+
+  // Find matching ] using bracket depth tracking
+  let depth = 0;
+  const subscriptStart = pos + 1;
+  for (; pos < arg.length; pos++) {
+    if (arg[pos] === "[") depth++;
+    else if (arg[pos] === "]") {
+      depth--;
+      if (depth === 0) break;
+    }
+  }
+
+  // If depth is not 0, brackets are unbalanced
+  if (depth !== 0) return null;
+
+  const indexExpr = arg.slice(subscriptStart, pos);
+  pos++; // skip closing ]
+
+  // Must have = after ]
+  if (arg[pos] !== "=") return null;
+  pos++; // skip =
+
+  const value = arg.slice(pos);
+
+  return { name, indexExpr, value };
+}
+
 export function handleDeclare(
   ctx: InterpreterContext,
   args: string[],
@@ -242,11 +291,23 @@ export function handleDeclare(
       processedArgs.push(...args.slice(i + 1));
       break;
     } else if (arg.startsWith("+")) {
-      // Handle +n (remove nameref), +a (remove array), +x (remove export)
+      // Handle + flags that remove attributes
+      // Valid + flags: +a, +n, +x, +r, +i, +f, +F
       for (const flag of arg.slice(1)) {
         if (flag === "n") removeNameref = true;
         else if (flag === "a") removeArray = true;
         else if (flag === "x") removeExport = true;
+        else if (flag === "r") {
+          // +r is accepted by bash but has no effect (can't un-readonly)
+          // We just ignore it silently
+        } else if (flag === "i") {
+          // +i removes integer attribute - we just ignore since we don't track removal
+        } else if (flag === "f" || flag === "F") {
+          // +f/+F for function listing - we just ignore
+        } else {
+          // Unknown flag - bash returns exit code 2 for invalid options
+          return result("", `bash: typeset: +${flag}: invalid option\n`, 2);
+        }
       }
     } else if (arg === "-i") {
       declareInteger = true;
@@ -275,6 +336,10 @@ export function handleDeclare(
         else if (flag === "f") functionMode = true;
         else if (flag === "F") functionNamesOnly = true;
         else if (flag === "g") declareGlobal = true;
+        else {
+          // Unknown flag - bash returns exit code 2 for invalid options
+          return result("", `bash: typeset: -${flag}: invalid option\n`, 2);
+        }
       }
     } else {
       processedArgs.push(arg);
@@ -341,14 +406,17 @@ export function handleDeclare(
       }
       return success(stdout);
     }
-    // With args, check if functions exist (similar to -f)
+    // With args, check if functions exist and output their names
     let allExist = true;
+    let stdout = "";
     for (const name of processedArgs) {
-      if (!ctx.state.functions.has(name)) {
+      if (ctx.state.functions.has(name)) {
+        stdout += `${name}\n`;
+      } else {
         allExist = false;
       }
     }
-    return result("", "", allExist ? 0 : 1);
+    return result(stdout, "", allExist ? 0 : 1);
   }
 
   // Handle declare -f (function definitions)
@@ -406,10 +474,7 @@ export function handleDeclare(
       if (arrayIndices.length > 0) {
         const elements = arrayIndices.map((index) => {
           const value = ctx.state.env[`${name}_${index}`] ?? "";
-          const escapedValue = value
-            .replace(/\\/g, "\\\\")
-            .replace(/"/g, '\\"');
-          return `[${index}]="${escapedValue}"`;
+          return `[${index}]=${quoteArrayValue(value)}`;
         });
         stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
         continue;
@@ -424,13 +489,20 @@ export function handleDeclare(
       // Regular scalar variable
       const value = ctx.state.env[name];
       if (value !== undefined) {
-        // Use double quotes and escape properly for bash compatibility
-        const escapedValue = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-        stdout += `declare ${flags} ${name}="${escapedValue}"\n`;
+        // Use $'...' quoting for control characters, double quotes otherwise
+        stdout += `declare ${flags} ${name}=${quoteDeclareValue(value)}\n`;
       } else {
-        // Variable not found - add error to stderr and set flag for exit code 1
-        stderr += `bash: declare: ${name}: not found\n`;
-        anyNotFound = true;
+        // Check if variable is declared but unset (via declare or local)
+        const isDeclared = ctx.state.declaredVars?.has(name);
+        const isLocalVar = ctx.state.localVarDepth?.has(name);
+        if (isDeclared || isLocalVar) {
+          // Variable is declared but has no value - output without =""
+          stdout += `declare ${flags} ${name}\n`;
+        } else {
+          // Variable not found - add error to stderr and set flag for exit code 1
+          stderr += `bash: declare: ${name}: not found\n`;
+          anyNotFound = true;
+        }
       }
     }
     return result(stdout, stderr, anyNotFound ? 1 : 0);
@@ -544,10 +616,7 @@ export function handleDeclare(
       if (arrayIndices.length > 0) {
         const elements = arrayIndices.map((index) => {
           const value = ctx.state.env[`${name}_${index}`] ?? "";
-          const escapedValue = value
-            .replace(/\\/g, "\\\\")
-            .replace(/"/g, '\\"');
-          return `[${index}]="${escapedValue}"`;
+          return `[${index}]=${quoteArrayValue(value)}`;
         });
         stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
         continue;
@@ -562,8 +631,7 @@ export function handleDeclare(
       // Regular scalar variable
       const value = ctx.state.env[name];
       if (value !== undefined) {
-        const escapedValue = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-        stdout += `declare ${flags} ${name}="${escapedValue}"\n`;
+        stdout += `declare ${flags} ${name}=${quoteDeclareValue(value)}\n`;
       }
     }
     return success(stdout);
@@ -638,10 +706,7 @@ export function handleDeclare(
         // Non-empty array: format as ([index]="value" ...)
         const elements = indices.map((index) => {
           const value = ctx.state.env[`${name}_${index}`] ?? "";
-          const escapedValue = value
-            .replace(/\\/g, "\\\\")
-            .replace(/"/g, '\\"');
-          return `[${index}]="${escapedValue}"`;
+          return `[${index}]=${quoteArrayValue(value)}`;
         });
         stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
       }
@@ -702,7 +767,7 @@ export function handleDeclare(
       // Regular scalar variable - output as name=value
       const value = ctx.state.env[name];
       if (value !== undefined) {
-        stdout += `${name}=${value}\n`;
+        stdout += `${name}=${quoteValue(value)}\n`;
       }
     }
     return success(stdout);
@@ -861,13 +926,11 @@ export function handleDeclare(
     }
 
     // Check for array index assignment: name[index]=value
-    const indexMatch = arg.match(
-      /^([a-zA-Z_][a-zA-Z0-9_]*)\[([^\]]+)\]=(.*)$/s,
-    );
-    if (indexMatch) {
-      const name = indexMatch[1];
-      const indexExpr = indexMatch[2];
-      const value = indexMatch[3];
+    // We need to handle nested brackets like a[a[0]=1]=X
+    // The regex approach doesn't work for nested brackets, so we parse manually
+    const arrayAssignMatch = parseArrayAssignment(arg);
+    if (arrayAssignMatch) {
+      const { name, indexExpr, value } = arrayAssignMatch;
 
       // Check if variable is readonly
       const error = checkReadonlyError(ctx, name);
@@ -1234,7 +1297,10 @@ export function handleDeclare(
         if (declareArray || declareAssoc) {
           ctx.state.env[`${name}__length`] = "0";
         } else {
-          ctx.state.env[name] = "";
+          // Mark variable as declared but don't set a value
+          // This distinguishes "declare x" (unset) from "declare x=" (empty string)
+          ctx.state.declaredVars ??= new Set();
+          ctx.state.declaredVars.add(name);
         }
       }
 
@@ -1446,7 +1512,64 @@ export function handleReadonly(
   }
 
   for (const arg of processedArgs) {
-    // Check for += append syntax: readonly NAME+=value
+    // Check for array append syntax: readonly NAME+=(...)
+    const arrayAppendMatch = arg.match(
+      /^([a-zA-Z_][a-zA-Z0-9_]*)\+=\((.*)\)$/s,
+    );
+    if (arrayAppendMatch) {
+      const name = arrayAppendMatch[1];
+      const content = arrayAppendMatch[2];
+
+      // Check if variable is already readonly
+      const error = checkReadonlyError(ctx, name);
+      if (error) return error;
+
+      // Parse new elements
+      const newElements = parseArrayElements(content);
+
+      // Check if this is an associative array
+      if (ctx.state.associativeArrays?.has(name)) {
+        // For associative arrays, we need keyed elements: ([key]=value ...)
+        const entries = parseAssocArrayLiteral(content);
+        for (const [key, rawValue] of entries) {
+          const value = expandTildesInValue(ctx, rawValue);
+          ctx.state.env[`${name}_${key}`] = value;
+        }
+      } else {
+        // For indexed arrays, get current highest index and append
+        const existingIndices = getArrayIndices(ctx, name);
+
+        // If variable was a scalar, convert it to array element 0
+        let startIndex = 0;
+        if (existingIndices.length === 0 && ctx.state.env[name] !== undefined) {
+          // Variable exists as scalar - convert to array element 0
+          const scalarValue = ctx.state.env[name];
+          ctx.state.env[`${name}_0`] = scalarValue;
+          delete ctx.state.env[name];
+          startIndex = 1;
+        } else if (existingIndices.length > 0) {
+          // Find highest existing index + 1
+          startIndex = Math.max(...existingIndices) + 1;
+        }
+
+        // Append new elements
+        for (let i = 0; i < newElements.length; i++) {
+          ctx.state.env[`${name}_${startIndex + i}`] = expandTildesInValue(
+            ctx,
+            newElements[i],
+          );
+        }
+
+        // Update length marker
+        const newLength = startIndex + newElements.length;
+        ctx.state.env[`${name}__length`] = String(newLength);
+      }
+
+      markReadonly(ctx, name);
+      continue;
+    }
+
+    // Check for += append syntax: readonly NAME+=value (scalar append)
     const appendMatch = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\+=(.*)$/);
     if (appendMatch) {
       const name = appendMatch[1];

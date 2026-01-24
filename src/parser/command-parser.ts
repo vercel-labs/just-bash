@@ -313,6 +313,19 @@ function parseAssignment(p: Parser): AssignmentNode {
   return AST.assignment(assignName, wordValue, append, null);
 }
 
+// Tokens that are invalid inside array literals
+const INVALID_ARRAY_TOKENS: Set<TokenType> = new Set([
+  TokenType.AMP, // &
+  TokenType.PIPE, // |
+  TokenType.PIPE_AMP, // |&
+  TokenType.SEMICOLON, // ;
+  TokenType.AND_AND, // &&
+  TokenType.OR_OR, // ||
+  TokenType.DSEMI, // ;;
+  TokenType.SEMI_AND, // ;&
+  TokenType.SEMI_SEMI_AND, // ;;&
+]);
+
 function parseArrayElements(p: Parser): WordNode[] {
   const elements: WordNode[] = [];
   p.skipNewlines();
@@ -321,8 +334,11 @@ function parseArrayElements(p: Parser): WordNode[] {
     p.checkIterationLimit();
     if (p.isWord()) {
       elements.push(p.parseWord());
+    } else if (INVALID_ARRAY_TOKENS.has(p.current().type)) {
+      // Invalid tokens inside array literals - throw syntax error
+      p.error(`syntax error near unexpected token \`${p.current().value}'`);
     } else {
-      // Skip unexpected tokens to prevent infinite loop
+      // Skip other unexpected tokens to prevent infinite loop
       // This handles cases like nested parens: a=( (1 2) )
       p.advance();
     }

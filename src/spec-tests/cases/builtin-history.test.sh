@@ -4,7 +4,7 @@
 ## oils_cpp_failures_allowed: 7
 
 #### history -a
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 rm -f tmp
 
 echo '
@@ -37,7 +37,7 @@ history -a
 
 
 #### history -w writes out the in-memory history to the history file
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 
 cd $TMP
 
@@ -57,7 +57,7 @@ found=1
 
 
 #### history -r reads from the history file, and appends it to the current history
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 
 cd $TMP
 printf "cmd orig%s\n" {1..10} > tmp
@@ -76,7 +76,7 @@ history | grep orig | wc -l
 
 
 #### history -n reads *new* commands from the history file, and appends them to the current history
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 # NB: Based on line ranges, not contents
 
 cd $TMP
@@ -99,7 +99,7 @@ history | grep new | wc -l
 
 
 #### history -c clears in-memory history
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 
 $SH --norc -i <<'EOF'
 echo 'foo' > /dev/null
@@ -117,7 +117,7 @@ case $SH in bash) echo '^D' ;; esac
 
 
 #### history -d to delete 1 item
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 
 cd $TMP
 HISTFILE=tmp
@@ -134,7 +134,7 @@ status=1
 
 
 #### history -d to delete history from end
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 # bash 4 doesn't support negative indices or ranges
 
 rm -f myhist
@@ -189,7 +189,7 @@ status=1
 
 
 #### HISTFILE is defined initially
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 echo '
 if test -n $HISTFILE; then echo exists; fi
 ' | $SH -i
@@ -203,7 +203,7 @@ exists
 ## END
 
 #### HISTFILE must point to a file
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 
 rm -f _tmp/does-not-exist
 
@@ -222,7 +222,7 @@ status=1
 ## END
 
 #### HISTFILE set to array
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 
 echo '
 HISTFILE=(a b c)
@@ -245,7 +245,7 @@ status=0
 ## END
 
 #### HISTFILE unset
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 
 echo '
 unset HISTFILE
@@ -262,7 +262,7 @@ status=1
 
 
 #### history usage
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 
 history not-a-number
 echo status=$?
@@ -282,7 +282,7 @@ status=1
 
 
 #### HISTSIZE shrinks the in-memory history when changed
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 
 cd $TMP
 printf "cmd %s\n" {1..10} > tmp
@@ -313,7 +313,7 @@ cat tmp | wc -l
 
 
 #### recording history can be toggled with set -o/+o history
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 
 cd $TMP
 printf "echo %s\n" {1..3} > tmp
@@ -360,7 +360,7 @@ shopt -u histappend
 
 
 #### shopt histappend - osh ignores shopt and appends, bash sometimes overwrites
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 # When set, bash always appends when exiting, no matter what. 
 # When unset, bash will append anyway as long the # of new commands < the hist length
 # Either way, the file is truncated to HISTFILESIZE afterwards.

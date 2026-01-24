@@ -408,7 +408,7 @@ line=10
 ## END
 
 #### trap ERR with "atoms": assignment (( [[
-## SKIP: trap builtin not implemented
+## SKIP (unimplementable): trap builtin not implemented
 
 trap 'echo line=$LINENO' ERR
 
@@ -492,7 +492,7 @@ ok
 
 
 #### trap ERR with YSH proc
-## SKIP: Oils-specific shopt options not implemented
+## SKIP (unimplementable): Oils-specific shopt options not implemented
 
 case $SH in bash|mksh|ash) exit ;; esac
 
@@ -523,7 +523,7 @@ err
 ## END
 
 #### trap ERR
-## SKIP: trap ERR not implemented
+## SKIP (unimplementable): trap ERR not implemented
 err() {
   echo "err [$@] $?"
 }
@@ -567,7 +567,7 @@ D
 ## END
 
 #### trap ERR and pipelines - PIPESTATUS difference
-## SKIP: trap ERR not implemented
+## SKIP (unimplementable): trap ERR not implemented
 case $SH in ash) exit ;; esac
 
 err() {

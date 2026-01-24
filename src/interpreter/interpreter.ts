@@ -179,6 +179,7 @@ function parseRwFdContent(fdContent: string): {
 import {
   ArithmeticError,
   BadSubstitutionError,
+  BraceExpansionError,
   BreakError,
   ContinueError,
   ErrexitError,
@@ -204,6 +205,7 @@ import {
 } from "./helpers/array.js";
 import { getErrorMessage } from "./helpers/errors.js";
 import {
+  getNamerefTarget,
   isNameref,
   resolveNameref,
   resolveNamerefForAssignment,
@@ -366,6 +368,17 @@ export class Interpreter {
         // ArithmeticError in expansion (e.g., echo $((42x))) - the command fails
         // but the script continues execution. This matches bash behavior.
         if (error instanceof ArithmeticError) {
+          stdout += error.stdout;
+          stderr += error.stderr;
+          exitCode = 1;
+          this.ctx.state.lastExitCode = exitCode;
+          this.ctx.state.env["?"] = String(exitCode);
+          // Continue to next statement instead of terminating script
+          continue;
+        }
+        // BraceExpansionError for invalid ranges (e.g., {z..A} mixed case) - the command fails
+        // but the script continues execution. This matches bash behavior.
+        if (error instanceof BraceExpansionError) {
           stdout += error.stdout;
           stderr += error.stderr;
           exitCode = 1;
@@ -615,6 +628,17 @@ export class Interpreter {
         this.ctx.state.lastArg = "";
       }
 
+      // Determine if this command runs in a subshell context
+      // In bash, all commands except the last run in subshells
+      // With lastpipe enabled, the last command runs in the current shell
+      const runsInSubshell =
+        isMultiCommandPipeline &&
+        (!isLast || !this.ctx.state.shoptOptions.lastpipe);
+
+      // Save environment for commands running in subshell context
+      // This prevents variable assignments (e.g., ${cmd=echo}) from leaking to parent
+      const savedEnv = runsInSubshell ? { ...this.ctx.state.env } : null;
+
       let result: ExecResult;
       try {
         result = await this.executeCommand(command, stdin);
@@ -645,8 +669,17 @@ export class Interpreter {
             exitCode: error.exitCode,
           };
         } else {
+          // Restore environment before re-throwing
+          if (savedEnv) {
+            this.ctx.state.env = savedEnv;
+          }
           throw error;
         }
+      }
+
+      // Restore environment for subshell commands to prevent variable assignment leakage
+      if (savedEnv) {
+        this.ctx.state.env = savedEnv;
       }
 
       // Track exit code for PIPESTATUS
@@ -867,6 +900,26 @@ export class Interpreter {
             1,
           );
         }
+
+        // Check if name is a nameref - assigning an array to a nameref is complex
+        if (isNameref(this.ctx, name)) {
+          const target = getNamerefTarget(this.ctx, name);
+          // If nameref has no target (unbound), array assignment is a hard error
+          // This terminates the script with exit code 1
+          if (target === undefined || target === "") {
+            throw new ExitError(1, "", "");
+          }
+          const resolved = resolveNameref(this.ctx, name);
+          if (resolved && /^[a-zA-Z_][a-zA-Z0-9_]*\[@\]$/.test(resolved)) {
+            // Nameref points to array[@], can't assign list to it
+            return result(
+              "",
+              `bash: ${name}: cannot assign list to array member\n`,
+              1,
+            );
+          }
+        }
+
         // Check if array variable is readonly
         // For prefix assignments (temp bindings) to readonly vars, bash warns but continues
         if (isReadonly(this.ctx, name)) {
@@ -886,17 +939,55 @@ export class Interpreter {
         // This is detected by looking at the Word structure:
         // - First part is Glob with pattern like "[key]"
         // - Second part is Literal starting with "=" or "+="
+        //
+        // Special cases:
+        // 1. Nested brackets like [a[0]]= are parsed as:
+        //    - Glob with pattern "[a[0]" (ends with ] from inner bracket)
+        //    - Literal with value "]=..." (the outer ] and the =)
+        //
+        // 2. Double-quoted keys like ["key"]= are parsed as:
+        //    - Glob with pattern "[" (just the opening bracket)
+        //    - DoubleQuoted with the key
+        //    - Literal with value "]=" or "]+="
         const hasKeyedElements = assignment.array.some((element) => {
           if (element.parts.length >= 2) {
             const first = element.parts[0];
             const second = element.parts[1];
-            return (
-              first.type === "Glob" &&
-              first.pattern.startsWith("[") &&
-              first.pattern.endsWith("]") &&
-              second.type === "Literal" &&
-              (second.value.startsWith("=") || second.value.startsWith("+="))
-            );
+            if (first.type !== "Glob" || !first.pattern.startsWith("[")) {
+              return false;
+            }
+            // Check for double/single-quoted key: ["key"]= or ['key']=
+            if (
+              first.pattern === "[" &&
+              (second.type === "DoubleQuoted" || second.type === "SingleQuoted")
+            ) {
+              // Third part should be ]= or ]+=
+              if (element.parts.length < 3) return false;
+              const third = element.parts[2];
+              if (third.type !== "Literal") return false;
+              return (
+                third.value.startsWith("]=") || third.value.startsWith("]+=")
+              );
+            }
+            if (second.type !== "Literal") {
+              return false;
+            }
+            // Check if this is a nested bracket case (second starts with ])
+            // This happens when the glob pattern was truncated at an inner ]
+            if (second.value.startsWith("]")) {
+              // Nested bracket case: [a[0]]= where pattern ends at inner ]
+              // The second part should be "]=..." or "]+=..."
+              return (
+                second.value.startsWith("]=") || second.value.startsWith("]+=")
+              );
+            }
+            // Normal case: [key]= where pattern ends with ] and second starts with =
+            if (first.pattern.endsWith("]")) {
+              return (
+                second.value.startsWith("=") || second.value.startsWith("+=")
+              );
+            }
+            return false;
           }
           return false;
         });
@@ -916,12 +1007,26 @@ export class Interpreter {
         };
 
         if (isAssoc && hasKeyedElements) {
-          // For associative arrays with keyed elements, expand first then clear
-          // (keyed elements don't reference the array being assigned)
-          if (!assignment.append) {
-            clearExistingElements();
-          }
           // Handle associative array with [key]=value or [key]+=value syntax
+          // IMPORTANT: Expand all values FIRST (they may reference the current array),
+          // then clear, then assign. e.g., foo=(["key"]="${foo["key"]} more")
+          // should see the old foo["key"] value during expansion.
+          interface PendingAssocElement {
+            type: "keyed";
+            key: string;
+            value: string;
+            append: boolean;
+          }
+          interface PendingAssocInvalid {
+            type: "invalid";
+            expandedValue: string;
+          }
+          const pendingAssocElements: (
+            | PendingAssocElement
+            | PendingAssocInvalid
+          )[] = [];
+
+          // First pass: Expand all values BEFORE clearing the array
           for (const element of assignment.array) {
             // Use parseKeyedElementFromWord to properly handle variable expansion
             const parsed = parseKeyedElementFromWord(element);
@@ -937,20 +1042,44 @@ export class Interpreter {
               }
               // Apply tilde expansion if value starts with ~
               value = expandTildesInValue(this.ctx, value);
-              if (elementAppend) {
-                // [key]+=value - append to existing value at this key
-                const existing = this.ctx.state.env[`${name}_${key}`] ?? "";
-                this.ctx.state.env[`${name}_${key}`] = existing + value;
-              } else {
-                this.ctx.state.env[`${name}_${key}`] = value;
-              }
+              pendingAssocElements.push({
+                type: "keyed",
+                key,
+                value,
+                append: elementAppend,
+              });
             } else {
               // For associative arrays, elements without [key]=value syntax are invalid
               // Bash outputs a warning to stderr and continues (status 0)
-              // Format: bash: line N: arrayname: value: must use subscript when assigning associative array
               const expandedValue = await expandWord(this.ctx, element);
+              pendingAssocElements.push({
+                type: "invalid",
+                expandedValue,
+              });
+            }
+          }
+
+          // Clear existing elements AFTER all expansion (for self-reference support)
+          if (!assignment.append) {
+            clearExistingElements();
+          }
+
+          // Second pass: Perform all assignments
+          for (const pending of pendingAssocElements) {
+            if (pending.type === "keyed") {
+              if (pending.append) {
+                // [key]+=value - append to existing value at this key
+                const existing =
+                  this.ctx.state.env[`${name}_${pending.key}`] ?? "";
+                this.ctx.state.env[`${name}_${pending.key}`] =
+                  existing + pending.value;
+              } else {
+                this.ctx.state.env[`${name}_${pending.key}`] = pending.value;
+              }
+            } else {
+              // Format: bash: line N: arrayname: value: must use subscript when assigning associative array
               const lineNum = node.line ?? this.ctx.state.currentLine ?? 1;
-              xtraceAssignmentOutput += `bash: line ${lineNum}: ${name}: ${expandedValue}: must use subscript when assigning associative array\n`;
+              xtraceAssignmentOutput += `bash: line ${lineNum}: ${name}: ${pending.expandedValue}: must use subscript when assigning associative array\n`;
               // Continue processing other elements (don't throw error)
             }
           }
@@ -1025,7 +1154,12 @@ export class Interpreter {
                   parser,
                   pending.indexExpr,
                 );
-                index = evaluateArithmeticSync(this.ctx, arithAst.expression);
+                // Use isExpansionContext=false for array subscripts
+                index = evaluateArithmeticSync(
+                  this.ctx,
+                  arithAst.expression,
+                  false,
+                );
               } catch {
                 // If parsing fails, try simple fallbacks
                 if (/^-?\d+$/.test(pending.indexExpr)) {
@@ -1191,17 +1325,46 @@ export class Interpreter {
           // Evaluate subscript as arithmetic expression for indexed arrays
           // This handles: a[0], a[x], a[x+1], a[a[0]], a[b=2], etc.
           let index: number;
-          if (/^-?\d+$/.test(subscriptExpr)) {
+
+          // Handle double-quoted subscripts - strip quotes and use content as arithmetic
+          // Bash allows a["2"]=3 but NOT a['2']=3 (single quotes are a syntax error)
+          let evalExpr = subscriptExpr;
+          if (
+            subscriptExpr.startsWith('"') &&
+            subscriptExpr.endsWith('"') &&
+            subscriptExpr.length >= 2
+          ) {
+            evalExpr = subscriptExpr.slice(1, -1);
+          }
+
+          if (/^-?\d+$/.test(evalExpr)) {
             // Simple numeric subscript
-            index = Number.parseInt(subscriptExpr, 10);
+            index = Number.parseInt(evalExpr, 10);
           } else {
             // Parse and evaluate as arithmetic expression
+            // Use isExpansionContext=false since array subscripts work like (()) context
+            // where single quotes are allowed and evaluate to character values
             try {
               const parser = new Parser();
-              const arithAst = parseArithmeticExpression(parser, subscriptExpr);
-              index = evaluateArithmeticSync(this.ctx, arithAst.expression);
-            } catch {
-              // Fall back to variable lookup for backwards compatibility
+              const arithAst = parseArithmeticExpression(parser, evalExpr);
+              index = evaluateArithmeticSync(
+                this.ctx,
+                arithAst.expression,
+                false,
+              );
+            } catch (e) {
+              // ArithmeticError handling depends on whether the error is fatal
+              if (e instanceof ArithmeticError) {
+                const lineNum = this.ctx.state.currentLine;
+                const errorMsg = `bash: line ${lineNum}: ${subscriptExpr}: ${e.message}\n`;
+                // Fatal errors (like missing operand "0+") should abort the script
+                if (e.fatal) {
+                  throw new ExitError(1, "", errorMsg);
+                }
+                // Non-fatal errors (like single quotes) - just report error and continue
+                return result("", errorMsg, 1);
+              }
+              // Fall back to variable lookup for backwards compatibility (other errors)
               const varValue = this.ctx.state.env[subscriptExpr];
               index = varValue ? Number.parseInt(varValue, 10) : 0;
             }
@@ -1398,6 +1561,7 @@ export class Interpreter {
           actualEnvKey = `${arrayName}_${key}`;
         } else {
           // For indexed arrays, evaluate subscript as arithmetic expression
+          // Use isExpansionContext=false since array subscripts work like (()) context
           let index: number;
           if (/^-?\d+$/.test(subscriptExpr)) {
             index = Number.parseInt(subscriptExpr, 10);
@@ -1405,7 +1569,11 @@ export class Interpreter {
             try {
               const parser = new Parser();
               const arithAst = parseArithmeticExpression(parser, subscriptExpr);
-              index = evaluateArithmeticSync(this.ctx, arithAst.expression);
+              index = evaluateArithmeticSync(
+                this.ctx,
+                arithAst.expression,
+                false,
+              );
             } catch {
               const varValue = this.ctx.state.env[subscriptExpr];
               index = varValue ? Number.parseInt(varValue, 10) : 0;
@@ -1436,6 +1604,13 @@ export class Interpreter {
           this.ctx.state.exportedVars =
             this.ctx.state.exportedVars || new Set();
           this.ctx.state.exportedVars.add(targetName);
+        }
+        // Track if this is a mutation of a tempenv variable (for local-unset behavior)
+        // A tempenv is mutated when we assign to a variable that has a tempenv binding
+        if (this.ctx.state.tempEnvBindings?.some((b) => b.has(targetName))) {
+          this.ctx.state.mutatedTempEnvVars =
+            this.ctx.state.mutatedTempEnvVars || new Set();
+          this.ctx.state.mutatedTempEnvVars.add(targetName);
         }
       }
     }
@@ -1473,8 +1648,22 @@ export class Interpreter {
 
     // Mark prefix assignment variables as temporarily exported for this command
     // In bash, FOO=bar cmd makes FOO visible in cmd's environment
+    // EXCEPTION: For assignment builtins (readonly, declare, local, export, typeset),
+    // temp bindings should NOT be exported to command substitutions in the arguments.
+    // e.g., `FOO=foo readonly v=$(printenv.py FOO)` - the $(printenv.py FOO) should NOT see FOO.
+    // This is because assignment builtins don't actually run as external commands that receive
+    // an exported environment - they process their arguments in the current shell context.
+    const isLiteralAssignmentBuiltinForExport =
+      node.name &&
+      isWordLiteralMatch(node.name, [
+        "local",
+        "declare",
+        "typeset",
+        "export",
+        "readonly",
+      ]);
     const tempExportedVars = Object.keys(tempAssignments);
-    if (tempExportedVars.length > 0) {
+    if (tempExportedVars.length > 0 && !isLiteralAssignmentBuiltinForExport) {
       this.ctx.state.tempExportedVars =
         this.ctx.state.tempExportedVars || new Set();
       for (const name of tempExportedVars) {
@@ -1944,6 +2133,12 @@ export class Interpreter {
 
     if (shouldRestoreTempAssignments) {
       for (const [name, value] of Object.entries(tempAssignments)) {
+        // Skip restoration if this variable was a local that was fully unset
+        // This implements bash's behavior where unsetting all local cells
+        // prevents the tempenv from being restored
+        if (this.ctx.state.fullyUnsetLocals?.has(name)) {
+          continue;
+        }
         if (value === undefined) delete this.ctx.state.env[name];
         else this.ctx.state.env[name] = value;
       }
@@ -2251,7 +2446,7 @@ export class Interpreter {
     // In POSIX mode, eval is a special builtin that cannot be overridden by functions
     // In non-POSIX mode (bash default), functions can override eval
     if (commandName === "eval" && this.ctx.state.options.posix) {
-      return handleEval(this.ctx, args);
+      return handleEval(this.ctx, args, stdin);
     }
     if (commandName === "shift") {
       return handleShift(this.ctx, args);
@@ -2303,7 +2498,7 @@ export class Interpreter {
     // Simple builtins (can be overridden by functions)
     // eval: In non-POSIX mode, functions can override eval (handled above for POSIX mode)
     if (commandName === "eval") {
-      return handleEval(this.ctx, args);
+      return handleEval(this.ctx, args, stdin);
     }
     if (commandName === "cd") {
       return await handleCd(this.ctx, args);
@@ -3613,7 +3808,7 @@ export class Interpreter {
       const alias = this.ctx.state.env[`BASH_ALIAS_${name}`];
       if (alias !== undefined) {
         if (verboseDescribe) {
-          stdout += `${name} is aliased to \`${alias}'\n`;
+          stdout += `${name} is an alias for "${alias}"\n`;
         } else {
           stdout += `alias ${name}='${alias}'\n`;
         }
@@ -3659,8 +3854,9 @@ export class Interpreter {
           }
         }
         if (!found) {
+          // Not found - for -V, print error to stderr
           if (verboseDescribe) {
-            stderr += `bash: ${name}: not found\n`;
+            stderr += `${name}: not found\n`;
           }
           exitCode = 1;
         }
@@ -3692,9 +3888,9 @@ export class Interpreter {
           stdout += `${foundPath}\n`;
         }
       } else {
-        // Not found - don't print anything for -v, print error to stderr for -V
+        // Not found - for -V, print error to stderr (matches test at line 237-255)
         if (verboseDescribe) {
-          stderr += `bash: ${name}: not found\n`;
+          stderr += `${name}: not found\n`;
         }
         exitCode = 1;
       }
@@ -3726,6 +3922,34 @@ export class Interpreter {
     const savedCwd = this.ctx.state.cwd;
     // Save options so subshell changes (like set -e) don't affect parent
     const savedOptions = { ...this.ctx.state.options };
+
+    // Save local variable scoping state for subshell isolation
+    // Subshell gets a copy of these, but changes don't affect parent
+    const savedLocalScopes = this.ctx.state.localScopes;
+    const savedLocalVarStack = this.ctx.state.localVarStack;
+    const savedLocalVarDepth = this.ctx.state.localVarDepth;
+    const savedFullyUnsetLocals = this.ctx.state.fullyUnsetLocals;
+
+    // Deep copy the local scoping structures for the subshell
+    this.ctx.state.localScopes = savedLocalScopes.map(
+      (scope) => new Map(scope),
+    );
+    if (savedLocalVarStack) {
+      this.ctx.state.localVarStack = new Map();
+      for (const [name, stack] of savedLocalVarStack.entries()) {
+        this.ctx.state.localVarStack.set(
+          name,
+          stack.map((entry) => ({ ...entry })),
+        );
+      }
+    }
+    if (savedLocalVarDepth) {
+      this.ctx.state.localVarDepth = new Map(savedLocalVarDepth);
+    }
+    if (savedFullyUnsetLocals) {
+      this.ctx.state.fullyUnsetLocals = new Map(savedFullyUnsetLocals);
+    }
+
     // Reset loopDepth in subshell - break/continue should not affect parent loops
     const savedLoopDepth = this.ctx.state.loopDepth;
     // Track if parent has loop context - break/continue in subshell should exit subshell
@@ -3761,6 +3985,10 @@ export class Interpreter {
       this.ctx.state.env = savedEnv;
       this.ctx.state.cwd = savedCwd;
       this.ctx.state.options = savedOptions;
+      this.ctx.state.localScopes = savedLocalScopes;
+      this.ctx.state.localVarStack = savedLocalVarStack;
+      this.ctx.state.localVarDepth = savedLocalVarDepth;
+      this.ctx.state.fullyUnsetLocals = savedFullyUnsetLocals;
       this.ctx.state.loopDepth = savedLoopDepth;
       this.ctx.state.parentHasLoopContext = savedParentHasLoopContext;
       this.ctx.state.groupStdin = savedGroupStdin;
@@ -3827,6 +4055,10 @@ export class Interpreter {
     this.ctx.state.env = savedEnv;
     this.ctx.state.cwd = savedCwd;
     this.ctx.state.options = savedOptions;
+    this.ctx.state.localScopes = savedLocalScopes;
+    this.ctx.state.localVarStack = savedLocalVarStack;
+    this.ctx.state.localVarDepth = savedLocalVarDepth;
+    this.ctx.state.fullyUnsetLocals = savedFullyUnsetLocals;
     this.ctx.state.loopDepth = savedLoopDepth;
     this.ctx.state.parentHasLoopContext = savedParentHasLoopContext;
     this.ctx.state.groupStdin = savedGroupStdin;

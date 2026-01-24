@@ -89,7 +89,6 @@ a b
 ## END
 
 #### Ignore globs with char classes like [[:alnum:]]
-## SKIP: POSIX char classes in GLOBIGNORE patterns not yet implemented
 touch {_testing.py,pyproject.toml,20231114.log,.env}
 touch 'has space.docx'
 GLOBIGNORE=[[:alnum:]]*

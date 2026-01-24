@@ -100,7 +100,7 @@ status=0
 ## END
 
 #### shopt -s failglob behavior on single line with semicolon
-## SKIP: Matches OSH behavior, not bash's weird semicolon-sensitive behavior (intentional)
+## SKIP (unimplementable): Matches OSH behavior, not bash's weird semicolon-sensitive behavior (intentional)
 # bash behaves differently when commands are separated by a semicolon than when
 # separated by a newline. This behavior doesn't make sense or seem to be
 # intentional, so osh does not mimic it.

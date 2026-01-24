@@ -135,7 +135,7 @@ echo $(( 24#ag7 ))
 ## END
 
 #### Integer constant validation
-## SKIP: $SH -c invocations produce different validation results
+## SKIP (unimplementable): $SH -c invocations produce different validation results
 check() {
   $SH -c "shopt --set strict_arith; echo $1"
   echo status=$?

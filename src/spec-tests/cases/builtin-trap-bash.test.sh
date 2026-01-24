@@ -87,7 +87,7 @@ status=0
 ## END
 
 #### but trap DEBUG respects errexit
-## SKIP: trap DEBUG not implemented
+## SKIP (unimplementable): trap DEBUG not implemented
 set -o errexit
 
 debuglog() {
@@ -165,7 +165,7 @@ echo status=$?
 
 
 #### trap DEBUG with non-compound commands
-## SKIP: trap builtin not implemented
+## SKIP (unimplementable): trap builtin not implemented
 case $SH in dash|mksh) exit ;; esac
 
 debuglog() {
@@ -462,7 +462,7 @@ ok
 ## END
 
 #### trap DEBUG for expr
-## SKIP: trap builtin not implemented
+## SKIP (unimplementable): trap builtin not implemented
 debuglog() {
   echo "  [$@]"
 }

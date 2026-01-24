@@ -375,7 +375,6 @@ echo ${A[5]}
 ## END
 
 #### setting key to itself (from bash-bug mailing list)
-## SKIP: Associative array self-reference in assignment differs
 declare -A foo
 foo=(["key"]="value1")
 echo ${foo["key"]}
@@ -556,7 +555,6 @@ values: /val3/
 ## END
 
 #### bash bug: (( A["$key"] = 1 )) doesn't work
-## SKIP: Arithmetic assignment with associative array key differs
 declare -A A
 #A["$key"]=1
 

@@ -63,6 +63,20 @@ const BINARY_OPS = [
 ];
 
 /**
+ * Check if the current token is a valid conditional operand.
+ * In [[ ]], { and } can be used as plain string operands.
+ * Also, ASSIGNMENT_WORD tokens (like a=x) are treated as plain words in [[ ]].
+ */
+function isCondOperand(p: Parser): boolean {
+  return (
+    p.isWord() ||
+    p.check(TokenType.LBRACE) ||
+    p.check(TokenType.RBRACE) ||
+    p.check(TokenType.ASSIGNMENT_WORD)
+  );
+}
+
+/**
  * Parse a pattern word for the RHS of == or != in [[ ]].
  * Handles the special case of !(...) extglob patterns where the lexer
  * tokenizes `!` as BANG and `(` as LPAREN separately.
@@ -176,7 +190,8 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
   }
 
   // Handle unary operators: -f file, -z string, etc.
-  if (p.isWord()) {
+  // In [[ ]], { and } can be used as plain string operands
+  if (isCondOperand(p)) {
     const firstToken = p.current();
     const first = firstToken.value;
 
@@ -188,7 +203,7 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
       if (p.check(TokenType.DBRACK_END)) {
         p.error(`Expected operand after ${first}`);
       }
-      if (p.isWord()) {
+      if (isCondOperand(p)) {
         const operand = p.parseWordNoBraceExpansion();
         return {
           type: "CondUnary",
@@ -315,8 +330,9 @@ function parseRegexPattern(p: Parser): WordNode {
       parts.push({ type: "Literal", value: whitespace });
     }
 
-    if (p.isWord()) {
+    if (p.isWord() || p.check(TokenType.ASSIGNMENT_WORD)) {
       // Parse word parts for regex (this preserves backslash escapes as Escaped nodes)
+      // ASSIGNMENT_WORD tokens (like a=) are treated as plain words in regex patterns
       const word = p.parseWordForRegex();
       parts.push(...word.parts);
       // After parseWord, position has advanced - get the consumed token's end
@@ -327,6 +343,27 @@ function parseRegexPattern(p: Parser): WordNode {
       parts.push({ type: "Literal", value: "(" });
       parenDepth++;
       lastTokenEnd = token.end;
+    } else if (p.check(TokenType.DPAREN_START)) {
+      // (( is tokenized as DPAREN_START, but inside regex it's two ( chars
+      const token = p.advance();
+      parts.push({ type: "Literal", value: "((" });
+      parenDepth += 2;
+      lastTokenEnd = token.end;
+    } else if (p.check(TokenType.DPAREN_END)) {
+      // )) is tokenized as DPAREN_END, but inside regex it's two ) chars
+      if (parenDepth >= 2) {
+        const token = p.advance();
+        parts.push({ type: "Literal", value: "))" });
+        parenDepth -= 2;
+        lastTokenEnd = token.end;
+      } else if (parenDepth === 1) {
+        // Only one ( is open, this )) closes it and the extra ) is conditional grouping
+        // Don't consume, let the RPAREN handler deal with it
+        break;
+      } else {
+        // No open regex parens - this )) is part of the conditional expression
+        break;
+      }
     } else if (p.check(TokenType.RPAREN)) {
       // Unquoted ) - could be regex grouping or conditional expression grouping
       if (parenDepth > 0) {
@@ -364,6 +401,56 @@ function parseRegexPattern(p: Parser): WordNode {
       // Unquoted > inside parentheses - treated as literal in regex
       const token = p.advance();
       parts.push({ type: "Literal", value: ">" });
+      lastTokenEnd = token.end;
+    } else if (parenDepth > 0 && p.check(TokenType.DGREAT)) {
+      // Unquoted >> inside parentheses - treated as literal in regex
+      const token = p.advance();
+      parts.push({ type: "Literal", value: ">>" });
+      lastTokenEnd = token.end;
+    } else if (parenDepth > 0 && p.check(TokenType.DLESS)) {
+      // Unquoted << inside parentheses - treated as literal in regex
+      const token = p.advance();
+      parts.push({ type: "Literal", value: "<<" });
+      lastTokenEnd = token.end;
+    } else if (parenDepth > 0 && p.check(TokenType.LESSAND)) {
+      // Unquoted <& inside parentheses - treated as literal in regex
+      const token = p.advance();
+      parts.push({ type: "Literal", value: "<&" });
+      lastTokenEnd = token.end;
+    } else if (parenDepth > 0 && p.check(TokenType.GREATAND)) {
+      // Unquoted >& inside parentheses - treated as literal in regex
+      const token = p.advance();
+      parts.push({ type: "Literal", value: ">&" });
+      lastTokenEnd = token.end;
+    } else if (parenDepth > 0 && p.check(TokenType.LESSGREAT)) {
+      // Unquoted <> inside parentheses - treated as literal in regex
+      const token = p.advance();
+      parts.push({ type: "Literal", value: "<>" });
+      lastTokenEnd = token.end;
+    } else if (parenDepth > 0 && p.check(TokenType.CLOBBER)) {
+      // Unquoted >| inside parentheses - treated as literal in regex
+      const token = p.advance();
+      parts.push({ type: "Literal", value: ">|" });
+      lastTokenEnd = token.end;
+    } else if (parenDepth > 0 && p.check(TokenType.TLESS)) {
+      // Unquoted <<< inside parentheses - treated as literal in regex
+      const token = p.advance();
+      parts.push({ type: "Literal", value: "<<<" });
+      lastTokenEnd = token.end;
+    } else if (parenDepth > 0 && p.check(TokenType.AMP)) {
+      // Unquoted & inside parentheses - treated as literal in regex
+      const token = p.advance();
+      parts.push({ type: "Literal", value: "&" });
+      lastTokenEnd = token.end;
+    } else if (parenDepth > 0 && p.check(TokenType.LBRACE)) {
+      // Unquoted { inside parentheses - treated as literal in regex
+      const token = p.advance();
+      parts.push({ type: "Literal", value: "{" });
+      lastTokenEnd = token.end;
+    } else if (parenDepth > 0 && p.check(TokenType.RBRACE)) {
+      // Unquoted } inside parentheses - treated as literal in regex
+      const token = p.advance();
+      parts.push({ type: "Literal", value: "}" });
       lastTokenEnd = token.end;
     } else {
       // Unknown token, stop parsing

@@ -112,7 +112,9 @@ export async function evaluateConditional(
         case "=~": {
           try {
             const nocasematch = ctx.state.shoptOptions.nocasematch;
-            const regex = new RegExp(right, nocasematch ? "i" : "");
+            // Convert POSIX ERE syntax to JavaScript regex syntax
+            const jsPattern = posixEreToJsRegex(right);
+            const regex = new RegExp(jsPattern, nocasematch ? "i" : "");
             const match = left.match(regex);
             // Always clear BASH_REMATCH first (bash clears it on failed match)
             clearArray(ctx, "BASH_REMATCH");
@@ -157,8 +159,33 @@ export async function evaluateConditional(
       return false;
     }
 
-    case "CondNot":
+    case "CondNot": {
+      // When extglob is enabled and we have !( group ), it should be treated
+      // as an extglob pattern instead of negation. In bash, with extglob on,
+      // [[ !($str) ]] parses differently - the !() is a pattern, not negation.
+      // Since we parse before knowing extglob state, we handle this at evaluation.
+      //
+      // Check if operand is CondGroup containing CondWord - if extglob is on,
+      // treat the whole thing as a pattern word (which is always non-empty).
+      if (ctx.state.shoptOptions.extglob) {
+        if (
+          expr.operand.type === "CondGroup" &&
+          expr.operand.expression.type === "CondWord"
+        ) {
+          // With extglob, !($str) is an extglob pattern, not negation.
+          // Expand the word inside the group, construct the extglob pattern,
+          // and test if the pattern string is non-empty (which it always is).
+          const innerValue = await expandWord(
+            ctx,
+            expr.operand.expression.word,
+          );
+          // The extglob pattern "!(value)" is always a non-empty string
+          const extglobPattern = `!(${innerValue})`;
+          return extglobPattern !== "";
+        }
+      }
       return !(await evaluateConditional(ctx, expr.operand));
+    }
 
     case "CondAnd": {
       const left = await evaluateConditional(ctx, expr.left);
@@ -923,4 +950,180 @@ function parseNumericDecimal(value: string): { value: number; valid: boolean } {
   }
 
   return { value: negative ? -result : result, valid: true };
+}
+
+/**
+ * Convert a POSIX Extended Regular Expression to JavaScript RegExp syntax.
+ *
+ * Key differences handled:
+ * 1. `[]...]` - In POSIX, `]` is literal when first in class. In JS, need `\]`
+ * 2. `[^]...]` - Same with negated class
+ * 3. `[[:class:]]` - POSIX character classes need conversion
+ *
+ * @param pattern - POSIX ERE pattern string
+ * @returns JavaScript-compatible regex pattern string
+ */
+function posixEreToJsRegex(pattern: string): string {
+  let result = "";
+  let i = 0;
+
+  while (i < pattern.length) {
+    // Handle backslash escapes - skip the escaped character
+    if (pattern[i] === "\\" && i + 1 < pattern.length) {
+      result += pattern[i] + pattern[i + 1];
+      i += 2;
+    } else if (pattern[i] === "[") {
+      // Found start of character class
+      const classResult = convertPosixCharClass(pattern, i);
+      result += classResult.converted;
+      i = classResult.endIndex;
+    } else {
+      result += pattern[i];
+      i++;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Convert a POSIX character class starting at `startIndex` (where pattern[startIndex] === '[')
+ * to JavaScript regex character class syntax.
+ *
+ * Returns the converted class and the index after the closing `]`.
+ */
+function convertPosixCharClass(
+  pattern: string,
+  startIndex: number,
+): { converted: string; endIndex: number } {
+  let i = startIndex + 1;
+  let result = "[";
+
+  // Handle negation: [^ or [!
+  if (i < pattern.length && (pattern[i] === "^" || pattern[i] === "!")) {
+    result += "^";
+    i++;
+  }
+
+  // In POSIX, ] is literal when it's the first char (after optional ^)
+  // We need to collect it and add it later in a JS-compatible position
+  let hasLiteralCloseBracket = false;
+  if (i < pattern.length && pattern[i] === "]") {
+    hasLiteralCloseBracket = true;
+    i++;
+  }
+
+  // In POSIX, [ can also be literal when first (after optional ^ and ])
+  let hasLiteralOpenBracket = false;
+  if (
+    i < pattern.length &&
+    pattern[i] === "[" &&
+    i + 1 < pattern.length &&
+    pattern[i + 1] !== ":"
+  ) {
+    hasLiteralOpenBracket = true;
+    i++;
+  }
+
+  // Collect the rest of the character class content
+  let classContent = "";
+  let foundClose = false;
+
+  while (i < pattern.length) {
+    const ch = pattern[i];
+
+    if (ch === "]") {
+      // End of character class
+      foundClose = true;
+      i++;
+      break;
+    }
+
+    // Handle POSIX character classes like [:alpha:]
+    if (ch === "[" && i + 1 < pattern.length && pattern[i + 1] === ":") {
+      const endPos = pattern.indexOf(":]", i + 2);
+      if (endPos !== -1) {
+        const className = pattern.slice(i + 2, endPos);
+        classContent += posixClassToJsClass(className);
+        i = endPos + 2;
+        continue;
+      }
+    }
+
+    // Handle collating elements [.ch.] and equivalence classes [=ch=]
+    // These are rarely used but we should skip them properly
+    if (ch === "[" && i + 1 < pattern.length) {
+      const next = pattern[i + 1];
+      if (next === "." || next === "=") {
+        const endMarker = `${next}]`;
+        const endPos = pattern.indexOf(endMarker, i + 2);
+        if (endPos !== -1) {
+          // For now, just include the content as literal
+          const content = pattern.slice(i + 2, endPos);
+          classContent += content;
+          i = endPos + 2;
+          continue;
+        }
+      }
+    }
+
+    // Handle escape sequences
+    if (ch === "\\" && i + 1 < pattern.length) {
+      classContent += ch + pattern[i + 1];
+      i += 2;
+      continue;
+    }
+
+    classContent += ch;
+    i++;
+  }
+
+  if (!foundClose) {
+    // No closing bracket found - return as literal [
+    return { converted: "\\[", endIndex: startIndex + 1 };
+  }
+
+  // Build the JS-compatible character class
+  // In JS regex, we need to escape ] and [ or put them in specific positions
+  // The safest approach is to escape them with backslash
+
+  // If we had literal ] at the start, escape it
+  if (hasLiteralCloseBracket) {
+    result += "\\]";
+  }
+
+  // If we had literal [ at the start, escape it
+  if (hasLiteralOpenBracket) {
+    result += "\\[";
+  }
+
+  // Add the rest of the content
+  result += classContent;
+
+  result += "]";
+  return { converted: result, endIndex: i };
+}
+
+/**
+ * Convert POSIX character class name to JS regex equivalent.
+ */
+function posixClassToJsClass(className: string): string {
+  const mapping: Record<string, string> = {
+    alnum: "a-zA-Z0-9",
+    alpha: "a-zA-Z",
+    ascii: "\\x00-\\x7F",
+    blank: " \\t",
+    cntrl: "\\x00-\\x1F\\x7F",
+    digit: "0-9",
+    graph: "!-~",
+    lower: "a-z",
+    print: " -~",
+    punct: "!-/:-@\\[-`{-~",
+    space: " \\t\\n\\r\\f\\v",
+    upper: "A-Z",
+    word: "a-zA-Z0-9_",
+    xdigit: "0-9A-Fa-f",
+  };
+
+  return mapping[className] ?? "";
 }

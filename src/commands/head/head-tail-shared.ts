@@ -133,19 +133,21 @@ export async function processHeadTailFiles(
   // -v always shows, -q never shows, default shows for multiple files
   const showHeaders = verbose || (!quiet && files.length > 1);
 
+  let filesProcessed = 0;
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
-
-    // Show header if needed
-    if (showHeaders) {
-      if (i > 0) stdout += "\n";
-      stdout += `==> ${file} <==\n`;
-    }
 
     try {
       const filePath = ctx.fs.resolvePath(ctx.cwd, file);
       const content = await ctx.fs.readFile(filePath);
+
+      // Show header if needed - only after we know the file exists
+      if (showHeaders) {
+        if (filesProcessed > 0) stdout += "\n";
+        stdout += `==> ${file} <==\n`;
+      }
       stdout += contentProcessor(content);
+      filesProcessed++;
     } catch {
       stderr += `${cmdName}: ${file}: No such file or directory\n`;
       exitCode = 1;

@@ -7,93 +7,11 @@
 
 import type { ExecResult } from "../../types.js";
 import { PosixFatalError } from "../errors.js";
-import { getArrayIndices } from "../helpers/array.js";
+import { getArrayIndices, getAssocArrayKeys } from "../helpers/array.js";
+import { quoteArrayValue, quoteValue } from "../helpers/quoting.js";
 import { failure, OK, success } from "../helpers/result.js";
 import { updateShellopts } from "../helpers/shellopts.js";
 import type { InterpreterContext, ShellOptions } from "../types.js";
-
-/**
- * Check if a character needs $'...' quoting (control characters, non-printable)
- */
-function needsDollarQuoting(value: string): boolean {
-  // Check for any character that requires $'...' quoting:
-  // - Control characters (0x00-0x1F, 0x7F)
-  // - High bytes (0x80-0xFF)
-  for (let i = 0; i < value.length; i++) {
-    const code = value.charCodeAt(i);
-    if (code < 0x20 || code === 0x7f || code > 0x7f) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Quote a value for shell output using $'...' quoting (bash ANSI-C quoting)
- */
-function dollarQuote(value: string): string {
-  let result = "$'";
-  for (let i = 0; i < value.length; i++) {
-    const char = value[i];
-    const code = value.charCodeAt(i);
-
-    if (code === 0x07) {
-      result += "\\a"; // bell
-    } else if (code === 0x08) {
-      result += "\\b"; // backspace
-    } else if (code === 0x09) {
-      result += "\\t"; // tab
-    } else if (code === 0x0a) {
-      result += "\\n"; // newline
-    } else if (code === 0x0b) {
-      result += "\\v"; // vertical tab
-    } else if (code === 0x0c) {
-      result += "\\f"; // form feed
-    } else if (code === 0x0d) {
-      result += "\\r"; // carriage return
-    } else if (code === 0x1b) {
-      result += "\\e"; // escape (bash extension)
-    } else if (code === 0x27) {
-      result += "\\'"; // single quote
-    } else if (code === 0x5c) {
-      result += "\\\\"; // backslash
-    } else if (code < 0x20 || code === 0x7f) {
-      // Other control characters: use octal notation (bash uses \NNN)
-      result += `\\${code.toString(8).padStart(3, "0")}`;
-    } else if (code > 0x7f && code <= 0xff) {
-      // High bytes: use octal
-      result += `\\${code.toString(8).padStart(3, "0")}`;
-    } else {
-      result += char;
-    }
-  }
-  result += "'";
-  return result;
-}
-
-/**
- * Quote a value for shell output (used by 'set' with no args)
- * Matches bash's output format:
- * - No quotes for simple alphanumeric values
- * - Single quotes for values with spaces or shell metacharacters
- * - $'...' quoting for values with control characters
- */
-function quoteValue(value: string): string {
-  // If value contains control characters or non-printable, use $'...' quoting
-  if (needsDollarQuoting(value)) {
-    return dollarQuote(value);
-  }
-
-  // If value contains no special chars, return as-is
-  // Safe chars: alphanumerics, underscore, slash, dot, colon, hyphen, at, percent, plus, comma, equals
-  if (/^[a-zA-Z0-9_/.:\-@%+,=]*$/.test(value)) {
-    return value;
-  }
-
-  // Use single quotes for values with spaces or shell metacharacters
-  // Escape embedded single quotes as '\''
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
 
 const SET_USAGE = `set: usage: set [-eux] [+eux] [-o option] [+o option]
 Options:
@@ -240,20 +158,6 @@ function hasNonOptionArg(args: string[], i: number): boolean {
 }
 
 /**
- * Quote a value for array element output (always uses double quotes)
- */
-function quoteArrayValue(value: string): string {
-  // If value needs $'...' quoting, use it inside the double quotes context
-  if (needsDollarQuoting(value)) {
-    return dollarQuote(value);
-  }
-  // For array elements, bash always uses double quotes
-  // Escape backslashes and double quotes
-  const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  return `"${escaped}"`;
-}
-
-/**
  * Format an array variable for set output
  * Format: arr=([0]="a" [1]="b" [2]="c")
  */
@@ -272,18 +176,70 @@ function formatArrayOutput(ctx: InterpreterContext, arrayName: string): string {
 }
 
 /**
- * Get all array names from the environment
+ * Quote a key for associative array output
+ * Keys with spaces or special characters are quoted with double quotes
  */
-function getArrayNames(ctx: InterpreterContext): Set<string> {
+function quoteAssocKey(key: string): string {
+  // If key contains no special chars, return as-is
+  // Safe chars: alphanumerics, underscore
+  if (/^[a-zA-Z0-9_]+$/.test(key)) {
+    return key;
+  }
+  // Use double quotes for keys with spaces or shell metacharacters
+  // Escape backslashes and double quotes
+  const escaped = key.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `"${escaped}"`;
+}
+
+/**
+ * Format an associative array variable for set output
+ * Format: arr=([key1]="val1" [key2]="val2" )
+ * Note: bash adds a trailing space before the closing paren
+ */
+function formatAssocArrayOutput(
+  ctx: InterpreterContext,
+  arrayName: string,
+): string {
+  const keys = getAssocArrayKeys(ctx, arrayName);
+  if (keys.length === 0) {
+    return `${arrayName}=()`;
+  }
+
+  const elements = keys.map((k) => {
+    const value = ctx.state.env[`${arrayName}_${k}`] ?? "";
+    return `[${quoteAssocKey(k)}]=${quoteArrayValue(value)}`;
+  });
+
+  // Note: bash has a trailing space before the closing paren for assoc arrays
+  return `${arrayName}=(${elements.join(" ")} )`;
+}
+
+/**
+ * Get all indexed array names from the environment (excluding associative arrays)
+ */
+function getIndexedArrayNames(ctx: InterpreterContext): Set<string> {
   const arrayNames = new Set<string>();
+  const assocArrays = ctx.state.associativeArrays ?? new Set<string>();
+
   for (const key of Object.keys(ctx.state.env)) {
     // Match array element pattern: name_index where index is numeric
     const match = key.match(/^([a-zA-Z_][a-zA-Z0-9_]*)_(\d+)$/);
     if (match) {
-      arrayNames.add(match[1]);
+      const name = match[1];
+      // Exclude associative arrays - they're handled separately
+      if (!assocArrays.has(name)) {
+        arrayNames.add(name);
+      }
     }
   }
   return arrayNames;
+}
+
+/**
+ * Get all associative array names from state
+ */
+function getAssocArrayNames(ctx: InterpreterContext): Set<string> {
+  return ctx.state.associativeArrays ?? new Set<string>();
 }
 
 export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
@@ -293,7 +249,29 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
 
   // With no arguments, print all shell variables
   if (args.length === 0) {
-    const arrayNames = getArrayNames(ctx);
+    const indexedArrayNames = getIndexedArrayNames(ctx);
+    const assocArrayNames = getAssocArrayNames(ctx);
+
+    // Helper function to check if a key is an element of any assoc array
+    const isAssocArrayElement = (key: string): boolean => {
+      for (const arrayName of assocArrayNames) {
+        const prefix = `${arrayName}_`;
+        const metadataSuffix = `${arrayName}__length`;
+        // Skip metadata entries
+        if (key === metadataSuffix) {
+          continue;
+        }
+        if (key.startsWith(prefix)) {
+          const elemKey = key.slice(prefix.length);
+          // Skip if the key part starts with "_length" (metadata pattern)
+          if (elemKey.startsWith("_length")) {
+            continue;
+          }
+          return true;
+        }
+      }
+      return false;
+    };
 
     // Collect scalar variables (excluding array elements and internal metadata)
     const scalarEntries: [string, string][] = [];
@@ -302,20 +280,32 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
         continue;
       }
-      // Skip if this is actually an array (has array elements)
-      if (arrayNames.has(key)) {
+      // Skip if this is an indexed array (has array elements)
+      if (indexedArrayNames.has(key)) {
         continue;
       }
-      // Skip array element variables (name_index pattern where name is an array)
+      // Skip if this is an associative array
+      if (assocArrayNames.has(key)) {
+        continue;
+      }
+      // Skip indexed array element variables (name_index pattern where name is an indexed array)
       const arrayElementMatch = key.match(/^([a-zA-Z_][a-zA-Z0-9_]*)_(\d+)$/);
-      if (arrayElementMatch && arrayNames.has(arrayElementMatch[1])) {
+      if (arrayElementMatch && indexedArrayNames.has(arrayElementMatch[1])) {
         continue;
       }
-      // Skip array metadata variables (name__length pattern)
+      // Skip indexed array metadata variables (name__length pattern)
       const arrayMetadataMatch = key.match(
         /^([a-zA-Z_][a-zA-Z0-9_]*)__length$/,
       );
-      if (arrayMetadataMatch && arrayNames.has(arrayMetadataMatch[1])) {
+      if (arrayMetadataMatch && indexedArrayNames.has(arrayMetadataMatch[1])) {
+        continue;
+      }
+      // Skip associative array element variables
+      if (isAssocArrayElement(key)) {
+        continue;
+      }
+      // Skip associative array metadata (name__length pattern for assoc arrays)
+      if (arrayMetadataMatch && assocArrayNames.has(arrayMetadataMatch[1])) {
         continue;
       }
       scalarEntries.push([key, value]);
@@ -331,11 +321,18 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
       lines.push(`${key}=${quoteValue(value)}`);
     }
 
-    // Add arrays (use ASCII sort order: uppercase before lowercase)
-    for (const arrayName of [...arrayNames].sort((a, b) =>
+    // Add indexed arrays (use ASCII sort order: uppercase before lowercase)
+    for (const arrayName of [...indexedArrayNames].sort((a, b) =>
       a < b ? -1 : a > b ? 1 : 0,
     )) {
       lines.push(formatArrayOutput(ctx, arrayName));
+    }
+
+    // Add associative arrays
+    for (const arrayName of [...assocArrayNames].sort((a, b) =>
+      a < b ? -1 : a > b ? 1 : 0,
+    )) {
+      lines.push(formatAssocArrayOutput(ctx, arrayName));
     }
 
     // Sort all lines together (bash uses ASCII sort order: uppercase before lowercase)

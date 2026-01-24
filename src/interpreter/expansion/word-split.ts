@@ -270,6 +270,8 @@ export async function smartWordSplit(
   type Segment = {
     value: string;
     isSplittable: boolean;
+    /** True if this is a quoted part (DoubleQuoted or SingleQuoted) - can anchor empty words */
+    isQuoted: boolean;
     mixedDefaultParts?: WordPart[];
   };
   const segments: Segment[] = [];
@@ -277,6 +279,8 @@ export async function smartWordSplit(
 
   for (const part of wordParts) {
     const splittable = isPartSplittable(part);
+    const isQuoted =
+      part.type === "DoubleQuoted" || part.type === "SingleQuoted";
     // Check if this part has a mixed quoted/unquoted default value
     const mixedDefaultParts = splittable
       ? hasMixedQuotedDefaultValue(ctx, part)
@@ -285,6 +289,7 @@ export async function smartWordSplit(
     segments.push({
       value: expanded,
       isSplittable: splittable,
+      isQuoted,
       mixedDefaultParts: mixedDefaultParts ?? undefined,
     });
 
@@ -323,23 +328,45 @@ export async function smartWordSplit(
   // Track if the previous splittable segment ended with a trailing IFS delimiter
   // If true, the next non-splittable content should start a new word
   let pendingWordBreak = false;
+  // Track if the previous segment was a quoted empty string (can anchor empty words)
+  let prevWasQuotedEmpty = false;
 
   for (const segment of segments) {
     if (!segment.isSplittable) {
       // Non-splittable: append to current word (no splitting)
       // BUT if we have a pending word break from a previous trailing delimiter,
       // push the current word first and start a new one.
-      // However, don't push an empty current word - that would happen when
-      // whitespace separates two literals, which should just separate them
-      // without creating an empty word in between.
-      if (pendingWordBreak && segment.value !== "") {
-        if (currentWord !== "") {
-          words.push(currentWord);
+      //
+      // Special case: if this is a quoted empty segment and we have a pending word break,
+      // we should produce an empty word (the quoted empty "anchors" an empty word).
+      if (pendingWordBreak) {
+        if (segment.isQuoted && segment.value === "") {
+          // Quoted empty after trailing IFS delimiter: push current word and an empty word
+          if (currentWord !== "") {
+            words.push(currentWord);
+          }
+          // The quoted empty anchors an empty word
+          words.push("");
+          hasProducedWord = true;
+          currentWord = "";
+          pendingWordBreak = false;
+          prevWasQuotedEmpty = true;
+        } else if (segment.value !== "") {
+          // Non-empty content: push current word (if any) and start new word
+          if (currentWord !== "") {
+            words.push(currentWord);
+          }
+          currentWord = segment.value;
+          pendingWordBreak = false;
+          prevWasQuotedEmpty = false;
+        } else {
+          // Empty non-quoted segment with pending break: just append (noop)
+          currentWord += segment.value;
+          prevWasQuotedEmpty = false;
         }
-        currentWord = segment.value;
-        pendingWordBreak = false;
       } else {
         currentWord += segment.value;
+        prevWasQuotedEmpty = segment.isQuoted && segment.value === "";
       }
     } else if (segment.mixedDefaultParts) {
       // Special case: ParameterExpansion with mixed quoted/unquoted default value
@@ -373,12 +400,21 @@ export async function smartWordSplit(
       }
       // Reset pending word break after processing mixed default parts
       pendingWordBreak = false;
+      prevWasQuotedEmpty = false;
     } else {
       // Splittable: split by IFS using extended version that tracks trailing delimiters
-      const { words: parts, hadTrailingDelimiter } = splitByIfsForExpansionEx(
-        segment.value,
-        ifsChars,
-      );
+      const {
+        words: parts,
+        hadLeadingDelimiter,
+        hadTrailingDelimiter,
+      } = splitByIfsForExpansionEx(segment.value, ifsChars);
+
+      // If the previous segment was a quoted empty and this splittable segment
+      // has leading IFS delimiter, the quoted empty should anchor an empty word
+      if (prevWasQuotedEmpty && hadLeadingDelimiter && currentWord === "") {
+        words.push("");
+        hasProducedWord = true;
+      }
 
       if (parts.length === 0) {
         // Empty expansion produces nothing - continue building current word
@@ -413,6 +449,7 @@ export async function smartWordSplit(
         // If there was a trailing delimiter, mark pending word break for next segment
         pendingWordBreak = hadTrailingDelimiter;
       }
+      prevWasQuotedEmpty = false;
     }
   }
 

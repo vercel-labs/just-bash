@@ -21,6 +21,11 @@ export function handleBreak(
     return OK;
   }
 
+  // bash: too many arguments is an error (exit code 1)
+  if (args.length > 1) {
+    throw new ExitError(1, "", "bash: break: too many arguments\n");
+  }
+
   let levels = 1;
   if (args.length > 0) {
     const n = Number.parseInt(args[0], 10);

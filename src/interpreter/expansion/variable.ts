@@ -435,6 +435,14 @@ export function getVariable(
   // Regular variables - check nounset
   const value = ctx.state.env[name];
   if (value !== undefined) {
+    // Track tempenv access for local-unset scoping behavior
+    // If this variable has a tempenv binding and we're reading it,
+    // mark it as "accessed" so that local-unset will reveal the tempenv value
+    if (ctx.state.tempEnvBindings?.some((b) => b.has(name))) {
+      ctx.state.accessedTempEnvVars =
+        ctx.state.accessedTempEnvVars || new Set();
+      ctx.state.accessedTempEnvVars.add(name);
+    }
     // Scalar value exists - return it
     return value;
   }

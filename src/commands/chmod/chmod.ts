@@ -212,6 +212,18 @@ function parseMode(modeStr: string, currentMode = 0o644): number {
     if (perms.includes("w")) permBits |= 0o2;
     if (perms.includes("x") || perms.includes("X")) permBits |= 0o1;
 
+    // Handle special bits (s for setuid/setgid, t for sticky)
+    let specialBits = 0;
+    if (perms.includes("s")) {
+      // s sets setuid (4000) when applied to user, setgid (2000) when applied to group
+      if (who.includes("u")) specialBits |= 0o4000;
+      if (who.includes("g")) specialBits |= 0o2000;
+    }
+    if (perms.includes("t")) {
+      // t sets sticky bit (1000) - only meaningful for "other" but can be set via any who
+      specialBits |= 0o1000;
+    }
+
     for (const w of who) {
       let shift = 0;
       if (w === "u") shift = 6;
@@ -228,6 +240,29 @@ function parseMode(modeStr: string, currentMode = 0o644): number {
         // Clear the bits for this who, then set
         mode &= ~(0o7 << shift);
         mode |= bits;
+      }
+    }
+
+    // Apply special bits
+    if (op === "+") {
+      mode |= specialBits;
+    } else if (op === "-") {
+      mode &= ~specialBits;
+    } else if (op === "=") {
+      // For =, clear and set the special bits if specified
+      if (perms.includes("s")) {
+        if (who.includes("u")) {
+          mode &= ~0o4000;
+          mode |= specialBits & 0o4000;
+        }
+        if (who.includes("g")) {
+          mode &= ~0o2000;
+          mode |= specialBits & 0o2000;
+        }
+      }
+      if (perms.includes("t")) {
+        mode &= ~0o1000;
+        mode |= specialBits & 0o1000;
       }
     }
   }

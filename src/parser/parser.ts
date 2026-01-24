@@ -27,6 +27,7 @@ import {
   type RedirectionNode,
   type ScriptNode,
   type StatementNode,
+  type SubshellNode,
   type WordNode,
 } from "../ast/types.js";
 import * as ArithParser from "./arithmetic-parser.js";
@@ -577,6 +578,12 @@ export class Parser {
       return CompoundParser.parseGroup(this);
     }
     if (this.check(TokenType.DPAREN_START)) {
+      // Check if this (( )) closes with ) ) (nested subshells) or )) (arithmetic)
+      // Scan ahead to find the matching close
+      if (this.dparenClosesWithSpacedParens()) {
+        // The (( will close with ) ) - treat as nested subshells ( ( ... ) )
+        return this.parseNestedSubshellsFromDparen();
+      }
       return this.parseArithmeticCommand();
     }
     if (this.check(TokenType.DBRACK_START)) {
@@ -597,6 +604,84 @@ export class Parser {
 
     // Simple command
     return CmdParser.parseSimpleCommand(this);
+  }
+
+  /**
+   * Scan ahead from current DPAREN_START to determine if it closes with ) )
+   * (two separate RPAREN tokens) or )) (DPAREN_END token).
+   * Returns true if it closes with ) ) (nested subshells case).
+   */
+  private dparenClosesWithSpacedParens(): boolean {
+    // Scan through tokens tracking paren depth
+    let depth = 1; // We've seen one (( - need to track nested parens
+    let offset = 1; // Start after the DPAREN_START
+
+    while (offset < this.tokens.length - this.pos) {
+      const tok = this.peek(offset);
+      if (tok.type === TokenType.EOF) {
+        return false;
+      }
+
+      if (
+        tok.type === TokenType.DPAREN_START ||
+        tok.type === TokenType.LPAREN
+      ) {
+        depth++;
+      } else if (tok.type === TokenType.DPAREN_END) {
+        depth -= 2; // )) closes two levels
+        if (depth <= 0) {
+          // Closes with )) - this is arithmetic
+          return false;
+        }
+      } else if (tok.type === TokenType.RPAREN) {
+        depth--;
+        if (depth === 0) {
+          // Check if next token is also RPAREN
+          const nextTok = this.peek(offset + 1);
+          if (nextTok.type === TokenType.RPAREN) {
+            // Closes with ) ) - this is nested subshells
+            return true;
+          }
+        }
+      }
+      offset++;
+    }
+
+    return false;
+  }
+
+  /**
+   * Parse (( ... ) ) as nested subshells when we know it closes with ) ).
+   * We've already determined via dparenClosesWithSpacedParens() that this
+   * DPAREN_START should be treated as two LPAREN tokens.
+   */
+  private parseNestedSubshellsFromDparen(): SubshellNode {
+    // Skip the DPAREN_START token (which we're treating as two LPARENs)
+    this.advance();
+
+    // Parse the inner subshell body
+    // This is like being inside ( ( ... ) ) where we've consumed both (
+    const innerBody = this.parseCompoundList();
+
+    // Expect the first )
+    this.expect(TokenType.RPAREN);
+
+    // Now we're back at the outer subshell level
+    // The inner subshell is our body
+
+    // Expect the second ) (which closes the outer subshell we're implicitly in)
+    this.expect(TokenType.RPAREN);
+
+    const redirections = this.parseOptionalRedirections();
+
+    // Wrap the inner body in a subshell node
+    // The structure is: Subshell(body: [Subshell(body: innerBody)])
+    const innerSubshell = AST.subshell(innerBody, []);
+
+    return AST.subshell(
+      [AST.statement([AST.pipeline([innerSubshell], false, false, false)])],
+      redirections,
+    );
   }
 
   // ===========================================================================
@@ -849,6 +934,123 @@ export class Parser {
       part: AST.commandSubstitution(body, true),
       endIndex: i + 1,
     };
+  }
+
+  /**
+   * Check if $(( at position `start` in `value` is a command substitution with nested
+   * subshell rather than arithmetic expansion. This uses similar logic to the lexer's
+   * dparenClosesWithSpacedParens but operates on a string within a word/expansion.
+   *
+   * The key heuristics are:
+   * 1. If it closes with `) )` (separated by whitespace or content), it's a subshell
+   * 2. If at depth 1 we see `||`, `&&`, or single `|`, it's a command context
+   * 3. If it closes with `))`, it's arithmetic
+   *
+   * @param value The string containing the expansion
+   * @param start Position of the `$` in `$((` (so `$((` is at start..start+2)
+   * @returns true if this should be parsed as command substitution, false for arithmetic
+   */
+  isDollarDparenSubshell(value: string, start: number): boolean {
+    const len = value.length;
+    let pos = start + 3; // Skip past $((
+    let depth = 2; // We've seen ((, so we start at depth 2
+    let inSingleQuote = false;
+    let inDoubleQuote = false;
+
+    while (pos < len && depth > 0) {
+      const c = value[pos];
+
+      if (inSingleQuote) {
+        if (c === "'") {
+          inSingleQuote = false;
+        }
+        pos++;
+        continue;
+      }
+
+      if (inDoubleQuote) {
+        if (c === "\\") {
+          // Skip escaped char
+          pos += 2;
+          continue;
+        }
+        if (c === '"') {
+          inDoubleQuote = false;
+        }
+        pos++;
+        continue;
+      }
+
+      // Not in quotes
+      if (c === "'") {
+        inSingleQuote = true;
+        pos++;
+        continue;
+      }
+
+      if (c === '"') {
+        inDoubleQuote = true;
+        pos++;
+        continue;
+      }
+
+      if (c === "\\") {
+        // Skip escaped char
+        pos += 2;
+        continue;
+      }
+
+      if (c === "(") {
+        depth++;
+        pos++;
+        continue;
+      }
+
+      if (c === ")") {
+        depth--;
+        if (depth === 1) {
+          // We just closed the inner subshell, now at outer level
+          // Check if next char is another ) - if so, it's )) = arithmetic
+          const nextPos = pos + 1;
+          if (nextPos < len && value[nextPos] === ")") {
+            // )) - adjacent parens = arithmetic, not nested subshells
+            return false;
+          }
+          // The ) is followed by something else (whitespace, content, etc.)
+          // This indicates it's a subshell with more content after the inner )
+          // e.g., $((which cmd || echo fallback)2>/dev/null)
+          // After `(which cmd || echo fallback)` we have `2>/dev/null)` before the final `)`
+          return true;
+        }
+        if (depth === 0) {
+          // We closed all parens without the pattern we're looking for
+          return false;
+        }
+        pos++;
+        continue;
+      }
+
+      // Check for || or && or | at depth 1 (between inner subshells)
+      // At depth 1, we're inside the outer (( but outside any inner parens.
+      // If we see || or && or | here, it's connecting commands, not arithmetic.
+      if (depth === 1) {
+        if (c === "|" && pos + 1 < len && value[pos + 1] === "|") {
+          return true;
+        }
+        if (c === "&" && pos + 1 < len && value[pos + 1] === "&") {
+          return true;
+        }
+        if (c === "|" && pos + 1 < len && value[pos + 1] !== "|") {
+          // Single | - pipeline operator
+          return true;
+        }
+      }
+
+      pos++;
+    }
+
+    // Didn't find a definitive answer - default to arithmetic behavior
+    return false;
   }
 
   parseArithmeticExpansion(

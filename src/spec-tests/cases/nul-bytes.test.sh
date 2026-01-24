@@ -25,7 +25,7 @@ echo -e '\0-' | show_hex
 ## END
 
 #### printf - literal NUL in format string
-## SKIP: NUL bytes are preserved instead of being stripped like bash (matches zsh behavior)
+## SKIP (unimplementable): NUL bytes are preserved instead of being stripped like bash (matches zsh behavior)
 case $SH in dash|ash) return ;; esac
 
 # Show both printable and hex
@@ -70,7 +70,7 @@ printf '\0\n' | show_hex
 ## END
 
 #### printf - NUL byte in value (OSH and zsh agree)
-## SKIP: NUL bytes are preserved instead of being stripped like bash (matches zsh behavior)
+## SKIP (unimplementable): NUL bytes are preserved instead of being stripped like bash (matches zsh behavior)
 case $SH in dash) exit ;; esac
 show_hex() { od -A n -t c -t x1; }
 
@@ -94,7 +94,7 @@ printf '%s\n' "$nul" | show_hex
 ## N-I dash stdout-json: ""
 
 #### NUL bytes with echo $'\0' (OSH and zsh agree)
-## SKIP: NUL bytes are preserved instead of being stripped like bash (matches zsh behavior)
+## SKIP (unimplementable): NUL bytes are preserved instead of being stripped like bash (matches zsh behavior)
 case $SH in dash) exit ;; esac
 show_hex() { od -A n -t c -t x1; }
 
@@ -142,7 +142,7 @@ argv.py "$(echo -e 'a\0b')"
 ## END
 
 #### NUL bytes with test -n
-## SKIP: NUL byte handling in test -n differs from bash (matches zsh behavior)
+## SKIP (unimplementable): NUL byte handling in test -n differs from bash (matches zsh behavior)
 
 case $SH in dash) exit ;; esac
 
@@ -210,7 +210,7 @@ status=1
 
 
 #### NUL bytes with ${#s} (OSH and zsh agree)
-## SKIP: NUL byte in string length matches zsh behavior (returns 1, not 0)
+## SKIP (unimplementable): NUL byte in string length matches zsh behavior (returns 1, not 0)
 
 case $SH in dash) exit ;; esac
 

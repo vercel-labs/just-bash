@@ -53,10 +53,39 @@ export function checkReadonlyError(
 
 /**
  * Mark a variable as exported.
+ *
+ * If we're inside a local scope and the variable is local (exists in the
+ * current scope), track it as a locally-exported variable. When the scope
+ * is popped, the export attribute will be removed if it wasn't exported
+ * before entering the function.
  */
 export function markExported(ctx: InterpreterContext, name: string): void {
+  const wasExported = ctx.state.exportedVars?.has(name) ?? false;
   ctx.state.exportedVars = ctx.state.exportedVars || new Set();
   ctx.state.exportedVars.add(name);
+
+  // If we're in a local scope and the variable is local, track it
+  if (ctx.state.localScopes.length > 0) {
+    const currentScope =
+      ctx.state.localScopes[ctx.state.localScopes.length - 1];
+    // Only track if: the variable is local AND it wasn't already exported before
+    if (currentScope.has(name) && !wasExported) {
+      // Initialize localExportedVars stack if needed
+      if (!ctx.state.localExportedVars) {
+        ctx.state.localExportedVars = [];
+      }
+      // Ensure we have a set for the current scope depth
+      while (
+        ctx.state.localExportedVars.length < ctx.state.localScopes.length
+      ) {
+        ctx.state.localExportedVars.push(new Set());
+      }
+      // Track this variable as locally exported
+      ctx.state.localExportedVars[ctx.state.localExportedVars.length - 1].add(
+        name,
+      );
+    }
+  }
 }
 
 /**

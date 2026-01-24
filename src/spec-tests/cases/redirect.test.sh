@@ -324,7 +324,6 @@ world6
 ## N-I mksh stdout-json: ""
 
 #### 1>&2- (Bash bug: fail to restore closed fd)
-## SKIP: File descriptor close/move not properly working in complex scenarios
 # 7/2021: descriptor 8 is open on Github Actions, so use descriptor 6 instead
 
 # Fix for CI systems where process state isn't clean: Close descriptors 6 and 7.
@@ -374,7 +373,7 @@ second
 ## END
 
 #### <> for read/write named pipes
-## SKIP: Named pipes (mkfifo) not implemented and fd read/write with pipes not working
+## SKIP (unimplementable): Named pipes (mkfifo) not implemented and fd read/write with pipes not working
 rm -f "$TMP/f.pipe"
 mkfifo "$TMP/f.pipe"
 exec 8<> "$TMP/f.pipe"

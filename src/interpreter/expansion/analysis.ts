@@ -70,11 +70,32 @@ function arithExprNeedsAsync(expr: ArithExpr): boolean {
 }
 
 /**
+ * Check if a parameter string contains command substitution in array subscript.
+ * e.g., "a[$(echo 1)]" contains "$(echo 1)" which requires async execution.
+ */
+function parameterHasCommandSubst(parameter: string): boolean {
+  // Check for array subscript with command substitution
+  // Pattern: name[...$(...)...] or name[...`...`...]
+  const bracketMatch = parameter.match(/^[a-zA-Z_][a-zA-Z0-9_]*\[(.+)\]$/);
+  if (!bracketMatch) return false;
+
+  const subscript = bracketMatch[1];
+  // Check for $(...) or `...` in subscript
+  return subscript.includes("$(") || subscript.includes("`");
+}
+
+/**
  * Check if a parameter expansion requires async execution
  */
 export function paramExpansionNeedsAsync(
   part: ParameterExpansionPart,
 ): boolean {
+  // Check if the parameter itself contains command substitution in array subscript
+  // e.g., ${a[$(echo 1)]} needs async to evaluate the subscript
+  if (parameterHasCommandSubst(part.parameter)) {
+    return true;
+  }
+
   const op = part.operation;
   if (!op) return false;
 

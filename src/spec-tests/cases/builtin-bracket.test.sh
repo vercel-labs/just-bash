@@ -440,7 +440,6 @@ status=1
 ## END
 
 #### -u for setuid, -g too
-## SKIP: setuid/setgid file permission bits not implemented
 touch $TMP/setuid $TMP/setgid
 chmod u+s $TMP/setuid
 chmod g+s $TMP/setgid

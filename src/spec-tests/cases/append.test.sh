@@ -251,7 +251,6 @@ s=foofoo
 ## N-I zsh stdout-json: ""
 
 #### assign builtin appending array: declare d+=(d e)
-## SKIP: declare/readonly/local with += array append not implemented
 
 declare d+=(d e)
 echo "${d[@]}"

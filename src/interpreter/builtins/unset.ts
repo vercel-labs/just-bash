@@ -22,7 +22,11 @@ import { isNameref, resolveNameref } from "../helpers/nameref.js";
 import { isReadonly } from "../helpers/readonly.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
-import { clearLocalVarDepth, getLocalVarDepth } from "./variable-helpers.js";
+import {
+  clearLocalVarDepth,
+  getLocalVarDepth,
+  popLocalVarStack,
+} from "./variable-helpers.js";
 
 /**
  * Check if a name is a valid bash variable name.
@@ -71,11 +75,63 @@ function evaluateArrayIndex(
 /**
  * Perform cell-unset for a local variable (dynamic-unset).
  * This removes the local cell and exposes the outer scope's value.
+ * Uses the localVarStack for bash's localvar-nest behavior where multiple
+ * nested local declarations can each be unset independently.
  * Returns true if a cell-unset was performed, false otherwise.
  */
 function performCellUnset(ctx: InterpreterContext, varName: string): boolean {
-  // Find the scope where this variable was declared
-  // Search from innermost scope outward
+  // Check if this variable uses the localVarStack (for nested local declarations)
+  const hasStackEntry = ctx.state.localVarStack?.has(varName);
+
+  if (hasStackEntry) {
+    // This variable is managed by the localVarStack
+    const stackEntry = popLocalVarStack(ctx, varName);
+    if (stackEntry) {
+      // Restore the value from the stack
+      if (stackEntry.value === undefined) {
+        delete ctx.state.env[varName];
+      } else {
+        ctx.state.env[varName] = stackEntry.value;
+      }
+
+      // Check if there are more entries in the stack
+      const remainingStack = ctx.state.localVarStack?.get(varName);
+      if (!remainingStack || remainingStack.length === 0) {
+        // No more nested locals - clear the tracking
+        clearLocalVarDepth(ctx, varName);
+        // Also clean up the empty stack entry
+        ctx.state.localVarStack?.delete(varName);
+        // Mark this variable as "fully unset local" to prevent tempenv restoration
+        // Use the scope index from the last popped entry (where the variable was declared)
+        ctx.state.fullyUnsetLocals = ctx.state.fullyUnsetLocals || new Map();
+        ctx.state.fullyUnsetLocals.set(varName, stackEntry.scopeIndex);
+
+        // Bash 5.1 behavior: after cell-unset removes all locals, also remove tempenv
+        // binding to reveal the global value (not the tempenv value)
+        if (handleTempEnvUnset(ctx, varName)) {
+          // Tempenv was removed, env[varName] now has the global value
+        }
+      } else {
+        // Update localVarDepth to point to the now-top entry's scope
+        // The scope index + 1 gives us the call depth where that local was declared
+        const topEntry = remainingStack[remainingStack.length - 1];
+        ctx.state.localVarDepth = ctx.state.localVarDepth || new Map();
+        ctx.state.localVarDepth.set(varName, topEntry.scopeIndex + 1);
+      }
+      return true;
+    }
+    // Stack was empty but variable was stack-managed - just delete and clear tracking
+    delete ctx.state.env[varName];
+    clearLocalVarDepth(ctx, varName);
+    ctx.state.localVarStack?.delete(varName);
+    // Mark as fully unset - use the outermost scope (0) since we don't know the original
+    ctx.state.fullyUnsetLocals = ctx.state.fullyUnsetLocals || new Map();
+    ctx.state.fullyUnsetLocals.set(varName, 0);
+    return true;
+  }
+
+  // Fall back to the old behavior for variables without stack entries
+  // (for backwards compatibility with existing local declarations)
   for (let i = ctx.state.localScopes.length - 1; i >= 0; i--) {
     const scope = ctx.state.localScopes[i];
     if (scope.has(varName)) {
@@ -227,9 +283,12 @@ export async function handleUnset(
         // Check if variable is an indexed array
         const isIndexedArray = isArray(ctx, arrayName);
         // Check if variable was explicitly declared as a scalar (not an array)
-        // A scalar exists when the base var name is in env but it's not an array
+        // A scalar exists when the base var name is in env (or declared but unset) but it's not an array
+        const isDeclaredButUnset = ctx.state.declaredVars?.has(arrayName);
         const isScalar =
-          arrayName in ctx.state.env && !isIndexedArray && !isAssoc;
+          (arrayName in ctx.state.env || isDeclaredButUnset) &&
+          !isIndexedArray &&
+          !isAssoc;
 
         if (isScalar) {
           // Trying to unset array element on explicitly declared scalar variable
@@ -308,9 +367,39 @@ export async function handleUnset(
         // Dynamic-unset: called from a different scope than where local was declared
         // Perform cell-unset to expose outer value
         performCellUnset(ctx, targetName);
+      } else if (ctx.state.fullyUnsetLocals?.has(targetName)) {
+        // This variable was a local that has been fully unset
+        // Don't restore from tempenv, just delete
+        delete ctx.state.env[targetName];
+      } else if (localDepth !== undefined) {
+        // Local-unset: variable is local and we're in the same scope
+        // In bash 5.1, this is a "value-unset" for locals declared without tempenv access
+        // But if the tempenv was accessed (read or written) before the local declaration,
+        // we should pop from stack to reveal the tempenv/mutated value
+        const tempEnvAccessed = ctx.state.accessedTempEnvVars?.has(targetName);
+        const tempEnvMutated = ctx.state.mutatedTempEnvVars?.has(targetName);
+        if (
+          (tempEnvAccessed || tempEnvMutated) &&
+          ctx.state.localVarStack?.has(targetName)
+        ) {
+          // Tempenv was accessed before local declaration - pop from stack to reveal the value
+          const stackEntry = popLocalVarStack(ctx, targetName);
+          if (stackEntry) {
+            if (stackEntry.value === undefined) {
+              delete ctx.state.env[targetName];
+            } else {
+              ctx.state.env[targetName] = stackEntry.value;
+            }
+          } else {
+            delete ctx.state.env[targetName];
+          }
+        } else {
+          // Tempenv not accessed - just value-unset (delete)
+          delete ctx.state.env[targetName];
+        }
       } else if (!handleTempEnvUnset(ctx, targetName)) {
-        // Check for tempenv binding - if found, reveal underlying value
-        // If no tempenv binding, local-unset or not a local variable: just delete the value
+        // Not a local variable - check for tempenv binding
+        // If found, reveal underlying value; otherwise just delete
         delete ctx.state.env[targetName];
       }
       // Clear the export attribute - when variable is unset, it loses its export status
@@ -434,9 +523,39 @@ export async function handleUnset(
       // Dynamic-unset: called from a different scope than where local was declared
       // Perform cell-unset to expose outer value
       performCellUnset(ctx, targetName);
+    } else if (ctx.state.fullyUnsetLocals?.has(targetName)) {
+      // This variable was a local that has been fully unset
+      // Don't restore from tempenv, just delete
+      delete ctx.state.env[targetName];
+    } else if (localDepth !== undefined) {
+      // Local-unset: variable is local and we're in the same scope
+      // In bash 5.1, this is a "value-unset" for locals declared without tempenv access
+      // But if the tempenv was accessed (read or written) before the local declaration,
+      // we should pop from stack to reveal the tempenv/mutated value
+      const tempEnvAccessed = ctx.state.accessedTempEnvVars?.has(targetName);
+      const tempEnvMutated = ctx.state.mutatedTempEnvVars?.has(targetName);
+      if (
+        (tempEnvAccessed || tempEnvMutated) &&
+        ctx.state.localVarStack?.has(targetName)
+      ) {
+        // Tempenv was accessed before local declaration - pop from stack to reveal the value
+        const stackEntry = popLocalVarStack(ctx, targetName);
+        if (stackEntry) {
+          if (stackEntry.value === undefined) {
+            delete ctx.state.env[targetName];
+          } else {
+            ctx.state.env[targetName] = stackEntry.value;
+          }
+        } else {
+          delete ctx.state.env[targetName];
+        }
+      } else {
+        // Tempenv not accessed - just value-unset (delete)
+        delete ctx.state.env[targetName];
+      }
     } else if (!handleTempEnvUnset(ctx, targetName)) {
-      // Check for tempenv binding - if found, reveal underlying value
-      // If no tempenv binding, local-unset or not a local variable: just delete the value
+      // Not a local variable - check for tempenv binding
+      // If found, reveal underlying value; otherwise just delete
       delete ctx.state.env[targetName];
     }
     // Clear the export attribute - when variable is unset, it loses its export status

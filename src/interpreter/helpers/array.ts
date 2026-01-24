@@ -51,11 +51,21 @@ export function getAssocArrayKeys(
   arrayName: string,
 ): string[] {
   const prefix = `${arrayName}_`;
+  const metadataSuffix = `${arrayName}__length`;
   const keys: string[] = [];
 
   for (const envKey of Object.keys(ctx.state.env)) {
-    if (envKey.startsWith(prefix) && !envKey.includes("__")) {
+    // Skip the metadata entry (name__length)
+    if (envKey === metadataSuffix) {
+      continue;
+    }
+    if (envKey.startsWith(prefix)) {
       const key = envKey.slice(prefix.length);
+      // Skip if the key itself starts with underscore (would be part of metadata pattern)
+      // This handles edge cases like name__foo where foo could be confused with metadata
+      if (key.startsWith("_length")) {
+        continue;
+      }
       keys.push(key);
     }
   }
@@ -99,24 +109,120 @@ export function parseKeyedElementFromWord(
   const second = word.parts[1];
 
   // Check for [key]= or [key]+= pattern
-  // First part should be a Glob with pattern like "[key]"
-  if (
-    first.type !== "Glob" ||
-    !first.pattern.startsWith("[") ||
-    !first.pattern.endsWith("]")
-  ) {
+  // First part should be a Glob with pattern like "[key]" or just "["
+  //
+  // Special cases:
+  // 1. Nested brackets like [a[0]] are parsed as:
+  //    - Glob with pattern "[a[0]" (the inner [ starts a new character class,
+  //      which closes at the first ])
+  //    - Literal with value "]=..." (the outer ] and the =)
+  //
+  // 2. Double-quoted keys like ["key"]= are parsed as:
+  //    - Glob with pattern "[" (just the opening bracket)
+  //    - DoubleQuoted with the key
+  //    - Literal with value "]=" or "]+="
+  //
+  // We need to handle all these cases.
+
+  if (first.type !== "Glob" || !first.pattern.startsWith("[")) {
     return null;
   }
 
-  // Second part should be a Literal starting with "=" or "+="
-  if (second.type !== "Literal") return null;
-  const append = second.value.startsWith("+=");
-  if (!append && !second.value.startsWith("=")) return null;
+  let key: string;
+  let secondPart: WordNode["parts"][0] = second;
+  let secondPartIndex = 1;
 
-  // Extract key from the Glob pattern (remove [ and ])
-  let key = first.pattern.slice(1, -1);
+  // Check if this is a nested bracket case by looking at second.value
+  // If second starts with "]", this is nested bracket case
+  if (second.type === "Literal" && second.value.startsWith("]")) {
+    // Nested bracket case: [a[0]]= is parsed as Glob("[a[0]") + Literal("]=...")
+    // The key is first.pattern without leading [
+    // For [a[0]]=10: first.pattern="[a[0]", second.value="]=10"
+    // Key should be "a[0]"
+
+    const afterBracket = second.value.slice(1); // Remove the leading ]
+
+    if (afterBracket.startsWith("+=") || afterBracket.startsWith("=")) {
+      // Good, we found the assignment operator
+      key = first.pattern.slice(1);
+    } else if (afterBracket === "") {
+      // The ] was the whole second part, check third part for = or +=
+      if (word.parts.length < 3) return null;
+      const third = word.parts[2];
+      if (third.type !== "Literal") return null;
+      if (!third.value.startsWith("=") && !third.value.startsWith("+="))
+        return null;
+      key = first.pattern.slice(1);
+      secondPart = third;
+      secondPartIndex = 2;
+    } else {
+      // Not a valid keyed element pattern
+      return null;
+    }
+  } else if (
+    first.pattern === "[" &&
+    (second.type === "DoubleQuoted" || second.type === "SingleQuoted")
+  ) {
+    // Double/single-quoted key case: ["key"]= or ['key']=
+    // The key is in the second part, and third part should be ]=
+    if (word.parts.length < 3) return null;
+    const third = word.parts[2];
+    if (third.type !== "Literal") return null;
+    if (!third.value.startsWith("]=") && !third.value.startsWith("]+="))
+      return null;
+
+    // Extract key from the quoted part
+    if (second.type === "SingleQuoted") {
+      key = second.value;
+    } else {
+      // DoubleQuoted - extract literal content from inner parts
+      key = "";
+      for (const inner of second.parts) {
+        if (inner.type === "Literal") {
+          key += inner.value;
+        } else if (inner.type === "Escaped") {
+          key += inner.value;
+        }
+        // For now, skip variable expansions in keys (complex case)
+      }
+    }
+    secondPart = third;
+    secondPartIndex = 2;
+  } else if (first.pattern.endsWith("]")) {
+    // Normal case: [key]= where key has no nested brackets
+    // Second part should be a Literal starting with "=" or "+="
+    if (second.type !== "Literal") return null;
+    if (!second.value.startsWith("=") && !second.value.startsWith("+="))
+      return null;
+
+    // Extract key from the Glob pattern (remove [ and ])
+    key = first.pattern.slice(1, -1);
+  } else {
+    // Pattern doesn't end with ] and second doesn't start with ]
+    // This is not a valid keyed element
+    return null;
+  }
+
   // Remove surrounding quotes from key
   key = unquoteKey(key);
+
+  // Get the actual content after = or += from secondPart
+  // secondPart is a Literal that either starts with "=" or "+=" directly,
+  // or for nested brackets, starts with "]=" or "]+="
+  let assignmentContent: string;
+  if (secondPart.type !== "Literal") return null;
+
+  if (secondPart.value.startsWith("]=")) {
+    assignmentContent = secondPart.value.slice(1); // Remove leading ]
+  } else if (secondPart.value.startsWith("]+=")) {
+    assignmentContent = secondPart.value.slice(1); // Remove leading ]
+  } else {
+    assignmentContent = secondPart.value;
+  }
+
+  // Determine if this is an append operation
+  const append = assignmentContent.startsWith("+=");
+  if (!append && !assignmentContent.startsWith("=")) return null;
 
   // Extract value parts: everything after the = (or +=)
   // Convert BraceExpansion nodes to Literal nodes to prevent brace expansion
@@ -125,14 +231,14 @@ export function parseKeyedElementFromWord(
 
   // The second part may have content after the = sign
   const eqLen = append ? 2 : 1; // "+=" vs "="
-  const afterEq = second.value.slice(eqLen);
+  const afterEq = assignmentContent.slice(eqLen);
   if (afterEq) {
     valueParts.push({ type: "Literal", value: afterEq });
   }
 
-  // Add remaining parts (parts[2], parts[3], etc.)
+  // Add remaining parts (parts[secondPartIndex+1], etc.)
   // Converting BraceExpansion to Literal
-  for (let i = 2; i < word.parts.length; i++) {
+  for (let i = secondPartIndex + 1; i < word.parts.length; i++) {
     const part = word.parts[i];
     if (part.type === "BraceExpansion") {
       // Convert brace expansion to literal string

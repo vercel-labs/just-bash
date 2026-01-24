@@ -20,6 +20,125 @@ import type { Parser } from "./parser.js";
 // PURE STRING UTILITIES
 // =============================================================================
 
+/**
+ * Decode a byte array as UTF-8 with error recovery.
+ * Valid UTF-8 sequences are decoded to their Unicode characters.
+ * Invalid bytes are preserved as Latin-1 characters (byte value = char code).
+ *
+ * This matches bash's behavior for $'\xNN' sequences.
+ */
+function decodeUtf8WithRecovery(bytes: number[]): string {
+  let result = "";
+  let i = 0;
+
+  while (i < bytes.length) {
+    const b0 = bytes[i];
+
+    // ASCII (0xxxxxxx)
+    if (b0 < 0x80) {
+      result += String.fromCharCode(b0);
+      i++;
+      continue;
+    }
+
+    // 2-byte sequence (110xxxxx 10xxxxxx)
+    if ((b0 & 0xe0) === 0xc0) {
+      if (
+        i + 1 < bytes.length &&
+        (bytes[i + 1] & 0xc0) === 0x80 &&
+        b0 >= 0xc2 // Reject overlong sequences
+      ) {
+        const codePoint = ((b0 & 0x1f) << 6) | (bytes[i + 1] & 0x3f);
+        result += String.fromCharCode(codePoint);
+        i += 2;
+        continue;
+      }
+      // Invalid or incomplete - output as Latin-1
+      result += String.fromCharCode(b0);
+      i++;
+      continue;
+    }
+
+    // 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
+    if ((b0 & 0xf0) === 0xe0) {
+      if (
+        i + 2 < bytes.length &&
+        (bytes[i + 1] & 0xc0) === 0x80 &&
+        (bytes[i + 2] & 0xc0) === 0x80
+      ) {
+        // Check for overlong encoding
+        if (b0 === 0xe0 && bytes[i + 1] < 0xa0) {
+          // Overlong - output first byte as Latin-1
+          result += String.fromCharCode(b0);
+          i++;
+          continue;
+        }
+        // Check for surrogate range (U+D800-U+DFFF)
+        const codePoint =
+          ((b0 & 0x0f) << 12) |
+          ((bytes[i + 1] & 0x3f) << 6) |
+          (bytes[i + 2] & 0x3f);
+        if (codePoint >= 0xd800 && codePoint <= 0xdfff) {
+          // Invalid surrogate - output first byte as Latin-1
+          result += String.fromCharCode(b0);
+          i++;
+          continue;
+        }
+        result += String.fromCharCode(codePoint);
+        i += 3;
+        continue;
+      }
+      // Invalid or incomplete - output as Latin-1
+      result += String.fromCharCode(b0);
+      i++;
+      continue;
+    }
+
+    // 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
+    if ((b0 & 0xf8) === 0xf0 && b0 <= 0xf4) {
+      if (
+        i + 3 < bytes.length &&
+        (bytes[i + 1] & 0xc0) === 0x80 &&
+        (bytes[i + 2] & 0xc0) === 0x80 &&
+        (bytes[i + 3] & 0xc0) === 0x80
+      ) {
+        // Check for overlong encoding
+        if (b0 === 0xf0 && bytes[i + 1] < 0x90) {
+          // Overlong - output first byte as Latin-1
+          result += String.fromCharCode(b0);
+          i++;
+          continue;
+        }
+        const codePoint =
+          ((b0 & 0x07) << 18) |
+          ((bytes[i + 1] & 0x3f) << 12) |
+          ((bytes[i + 2] & 0x3f) << 6) |
+          (bytes[i + 3] & 0x3f);
+        // Check for valid range (U+10000 to U+10FFFF)
+        if (codePoint > 0x10ffff) {
+          // Invalid - output first byte as Latin-1
+          result += String.fromCharCode(b0);
+          i++;
+          continue;
+        }
+        result += String.fromCodePoint(codePoint);
+        i += 4;
+        continue;
+      }
+      // Invalid or incomplete - output as Latin-1
+      result += String.fromCharCode(b0);
+      i++;
+      continue;
+    }
+
+    // Invalid lead byte (10xxxxxx or 11111xxx) - output as Latin-1
+    result += String.fromCharCode(b0);
+    i++;
+  }
+
+  return result;
+}
+
 export function findTildeEnd(_p: Parser, value: string, start: number): number {
   let i = start + 1;
   while (i < value.length && /[a-zA-Z0-9_-]/.test(value[i])) {
@@ -332,11 +451,29 @@ export function parseAnsiCQuoted(
           break;
         case "x": {
           // \xHH - hex escape
-          const hex = value.slice(i + 2, i + 4);
-          const code = parseInt(hex, 16);
-          if (!Number.isNaN(code)) {
-            result += String.fromCharCode(code);
-            i += 4;
+          // Collect consecutive \xHH escapes and decode as UTF-8 with error recovery
+          const bytes: number[] = [];
+          let j = i;
+          while (
+            j + 1 < value.length &&
+            value[j] === "\\" &&
+            value[j + 1] === "x"
+          ) {
+            const hex = value.slice(j + 2, j + 4);
+            const code = parseInt(hex, 16);
+            if (!Number.isNaN(code) && hex.length > 0) {
+              bytes.push(code);
+              j += 2 + hex.length;
+            } else {
+              break;
+            }
+          }
+
+          if (bytes.length > 0) {
+            // Decode bytes as UTF-8 with error recovery
+            // Invalid bytes are preserved as Latin-1 characters
+            result += decodeUtf8WithRecovery(bytes);
+            i = j;
           } else {
             result += "\\x";
             i += 2;

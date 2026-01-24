@@ -92,7 +92,6 @@ $'\xff'
 ## N-I ash stdout-json: ""
 
 #### printf %q unicode
-## SKIP: $'\xNN' escapes not decoded as UTF-8 (parser issue, not printf %q issue)
 case $SH in ash) return ;; esac  # yash and ash don't implement this
 
 unicode=$'\u03bc'
@@ -110,7 +109,6 @@ printf '%q\n' "$unicode"
 ## N-I ash stdout-json: ""
 
 #### printf %q invalid unicode
-## SKIP: printf %q does not escape invalid UTF-8 bytes
 case $SH in ash) return ;; esac
 
 # Hm bash/mksh/zsh understand these.  They are doing decoding and error
@@ -174,7 +172,6 @@ zz='one
 
 
 #### declare
-## SKIP: typeset output format differs (uses double quotes instead of $'...' for values with newlines)
 case $SH in ash|zsh) return ;; esac  # zsh doesn't make much sense
 
 zz=$'one\ntwo'

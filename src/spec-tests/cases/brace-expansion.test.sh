@@ -368,7 +368,6 @@ echo -{e..a..2}-
 ## N-I mksh/zsh status: 0
 
 #### Mixed case char expansion is invalid
-## SKIP: just-bash treats mixed case ranges as literal (like mksh) instead of erroring (like bash)
 case $SH in *zsh) echo BUG; exit ;; esac
 echo -{z..A}-
 echo -{z..A..2}-

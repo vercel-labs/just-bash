@@ -169,6 +169,15 @@ function getArithVariable(ctx: InterpreterContext, name: string): string {
  * Unlike resolveArithVariable, this throws on parse errors (e.g., "12 34" is invalid).
  * Used for array element access where the value must be valid arithmetic.
  */
+/**
+ * Parse and evaluate a string value as an arithmetic expression.
+ * Used for array element access where the value may be an arithmetic expression.
+ * e.g., a=([0]=1+2+3 [a[0]]=10) - when evaluating a[0], we get "1+2+3" which
+ * needs to be evaluated to 6.
+ *
+ * NOTE: This is a static version that doesn't have context. For proper evaluation
+ * of expressions containing variables, use evaluateArithValue with context.
+ */
 function parseArithValue(value: string): number {
   if (!value) {
     return 0;
@@ -200,12 +209,12 @@ function parseArithValue(value: string): number {
         `${trimmed}: syntax error in expression (error token is "${errorToken}")`,
       );
     }
-    // We don't actually evaluate here - just return the parsed number
-    // Since this is for scalar decay, we just want to validate it's parseable
     if (expr.type === "ArithNumber") {
       return expr.value;
     }
-    // For other expression types, return 0 (they need full evaluation)
+    // For other expression types, we need full evaluation but we don't have context.
+    // This is only used for simple cases. For complex expressions with variables,
+    // callers should use evaluateArithValue instead.
     return num || 0;
   } catch (error) {
     if (error instanceof ArithmeticError) {
@@ -217,6 +226,47 @@ function parseArithValue(value: string): number {
       `${trimmed}: syntax error in expression (error token is "${errorToken}")`,
     );
   }
+}
+
+/**
+ * Evaluate a string value as an arithmetic expression with full context.
+ * This properly handles expressions like "1+2+3" or "x+y" by parsing and evaluating them.
+ */
+function evaluateArithValue(
+  ctx: InterpreterContext,
+  value: string,
+  visited: Set<string> = new Set(),
+): number {
+  if (!value) {
+    return 0;
+  }
+
+  // Try to parse as a simple number first (fast path)
+  const num = Number.parseInt(value, 10);
+  if (!Number.isNaN(num) && /^-?\d+$/.test(value.trim())) {
+    return num;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return 0;
+  }
+
+  // Parse and evaluate as arithmetic expression
+  const parser = new Parser();
+  const { expr, pos } = parseArithExpr(parser, trimmed, 0);
+  if (pos < trimmed.length) {
+    // There's unparsed content - this is a syntax error
+    // Find the unparsed token for error message
+    const unparsed = trimmed.slice(pos).trim();
+    const errorToken = unparsed.split(/\s+/)[0] || unparsed;
+    throw new ArithmeticError(
+      `syntax error in expression (error token is "${errorToken}")`,
+      "",
+      "",
+    );
+  }
+  return evaluateArithmeticSyncWithVisited(ctx, expr, visited);
 }
 
 /**
@@ -260,15 +310,21 @@ function resolveArithVariable(
 
   // Dynamic arithmetic: If the value contains arithmetic operators, parse and evaluate it
   // This handles cases like e=1+2; $((e + 3)) => 6
-  try {
-    const parser = new Parser();
-    const { expr } = parseArithExpr(parser, trimmed, 0);
-    // Evaluate the parsed expression (with visited set to prevent infinite recursion)
-    return evaluateArithmeticSyncWithVisited(ctx, expr, visited);
-  } catch {
-    // If parsing fails, return 0
-    return 0;
+  const parser = new Parser();
+  const { expr, pos } = parseArithExpr(parser, trimmed, 0);
+
+  // Check if we parsed the entire string - if not, it's a syntax error
+  // This handles cases like array element "1 3" which parses as "1" leaving " 3" unparsed
+  if (pos < trimmed.length) {
+    const unparsed = trimmed.slice(pos).trim();
+    const errorToken = unparsed.split(/\s+/)[0] || unparsed;
+    throw new ArithmeticError(
+      `${trimmed}: syntax error in expression (error token is "${errorToken}")`,
+    );
   }
+
+  // Evaluate the parsed expression (with visited set to prevent infinite recursion)
+  return evaluateArithmeticSyncWithVisited(ctx, expr, visited);
 }
 
 /**
@@ -343,6 +399,100 @@ function evaluateArithmeticSyncWithVisited(
     }
     case "ArithGroup":
       return evaluateArithmeticSyncWithVisited(ctx, expr.expression, visited);
+    case "ArithArrayElement": {
+      const isAssoc = ctx.state.associativeArrays?.has(expr.array);
+
+      // Helper function to lookup and evaluate array value with visited tracking
+      const lookupArrayValue = (envKey: string): number => {
+        const arrayValue = ctx.state.env[envKey];
+        if (arrayValue !== undefined) {
+          return evaluateArithValue(ctx, arrayValue, visited);
+        }
+        return 0;
+      };
+
+      // Case 1: Literal string key - A['key']
+      if (expr.stringKey !== undefined) {
+        return lookupArrayValue(`${expr.array}_${expr.stringKey}`);
+      }
+
+      // Case 2: Associative array with variable name (no $ prefix) - A[K]
+      if (
+        isAssoc &&
+        expr.index?.type === "ArithVariable" &&
+        !expr.index.hasDollarPrefix
+      ) {
+        return lookupArrayValue(`${expr.array}_${expr.index.name}`);
+      }
+
+      // Case 3: Associative array with $ prefix - A[$key]
+      if (
+        isAssoc &&
+        expr.index?.type === "ArithVariable" &&
+        expr.index.hasDollarPrefix
+      ) {
+        const expandedKey = getVariable(ctx, expr.index.name);
+        return lookupArrayValue(`${expr.array}_${expandedKey}`);
+      }
+
+      // Case 4: Indexed array - A[expr]
+      if (expr.index) {
+        const index = evaluateArithmeticSyncWithVisited(
+          ctx,
+          expr.index,
+          visited,
+        );
+
+        // Handle negative indices - bash counts from max_index + 1
+        if (index < 0) {
+          const elements = getArrayElements(ctx, expr.array);
+          const lineNum = ctx.state.currentLine;
+          if (elements.length === 0) {
+            ctx.state.expansionStderr =
+              (ctx.state.expansionStderr || "") +
+              `bash: line ${lineNum}: ${expr.array}: bad array subscript\n`;
+            return 0;
+          }
+          const maxIndex = Math.max(
+            ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
+          );
+          const actualIdx = maxIndex + 1 + index;
+          if (actualIdx < 0) {
+            ctx.state.expansionStderr =
+              (ctx.state.expansionStderr || "") +
+              `bash: line ${lineNum}: ${expr.array}: bad array subscript\n`;
+            return 0;
+          }
+          return lookupArrayValue(`${expr.array}_${actualIdx}`);
+        }
+
+        const envKey = `${expr.array}_${index}`;
+        const arrayValue = ctx.state.env[envKey];
+        if (arrayValue !== undefined) {
+          return evaluateArithValue(ctx, arrayValue, visited);
+        }
+        // Scalar decay: s[0] returns scalar value s
+        if (index === 0) {
+          const scalarValue = ctx.state.env[expr.array];
+          if (scalarValue !== undefined) {
+            return evaluateArithValue(ctx, scalarValue, visited);
+          }
+        }
+        // Check nounset
+        if (ctx.state.options.nounset) {
+          const hasAnyElement = Object.keys(ctx.state.env).some(
+            (key) => key === expr.array || key.startsWith(`${expr.array}_`),
+          );
+          if (!hasAnyElement) {
+            throw new NounsetError(`${expr.array}[${index}]`);
+          }
+        }
+        return 0;
+      }
+
+      // No index and no stringKey - invalid
+      return 0;
+    }
     default:
       // For other types, fall back to regular sync evaluation
       return evaluateArithmeticSync(ctx, expr);
@@ -357,6 +507,14 @@ function expandBracedContent(ctx: InterpreterContext, content: string): string {
   // Handle ${#var} - length
   if (content.startsWith("#")) {
     const varName = content.slice(1);
+    // Handle ${#arr[@]} and ${#arr[*]} - array length
+    const arrayMatch = varName.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/);
+    if (arrayMatch) {
+      const arrayName = arrayMatch[1];
+      const elements = getArrayElements(ctx, arrayName);
+      return String(elements.length);
+    }
+    // Regular ${#var} - string length
     const value = ctx.state.env[varName] || "";
     return String(value.length);
   }
@@ -486,34 +644,42 @@ export function evaluateArithmeticSync(
     }
     case "ArithArrayElement": {
       const isAssoc = ctx.state.associativeArrays?.has(expr.array);
-      let envKey: string;
 
+      // Helper function to lookup and evaluate array value
+      const lookupArrayValue = (envKey: string): number => {
+        const arrayValue = ctx.state.env[envKey];
+        if (arrayValue !== undefined) {
+          return evaluateArithValue(ctx, arrayValue);
+        }
+        return 0;
+      };
+
+      // Case 1: Literal string key - A['key']
       if (expr.stringKey !== undefined) {
-        // Literal string key: A['key']
-        envKey = `${expr.array}_${expr.stringKey}`;
-      } else if (
+        return lookupArrayValue(`${expr.array}_${expr.stringKey}`);
+      }
+
+      // Case 2: Associative array with variable name (no $ prefix) - A[K]
+      if (
         isAssoc &&
         expr.index?.type === "ArithVariable" &&
         !expr.index.hasDollarPrefix
       ) {
-        // For associative arrays, variable names without $ prefix are used as literal keys
-        // A[K] where K is a variable name without $ -> use "K" as the key
-        envKey = `${expr.array}_${expr.index.name}`;
-      } else if (
+        return lookupArrayValue(`${expr.array}_${expr.index.name}`);
+      }
+
+      // Case 3: Associative array with $ prefix - A[$key]
+      if (
         isAssoc &&
         expr.index?.type === "ArithVariable" &&
         expr.index.hasDollarPrefix
       ) {
-        // For associative arrays with $ prefix: A[$key] -> expand $key to get the actual key
         const expandedKey = getVariable(ctx, expr.index.name);
-        envKey = `${expr.array}_${expandedKey}`;
-        const arrayValue = ctx.state.env[envKey];
-        if (arrayValue !== undefined) {
-          return parseArithValue(arrayValue);
-        }
-        return 0;
-      } else if (expr.index) {
-        // For indexed arrays, evaluate the index as arithmetic
+        return lookupArrayValue(`${expr.array}_${expandedKey}`);
+      }
+
+      // Case 4: Indexed array - A[expr]
+      if (expr.index) {
         let index = evaluateArithmeticSync(ctx, expr.index, isExpansionContext);
 
         // Handle negative indices - bash counts from max_index + 1
@@ -521,20 +687,16 @@ export function evaluateArithmeticSync(
           const elements = getArrayElements(ctx, expr.array);
           const lineNum = ctx.state.currentLine;
           if (elements.length === 0) {
-            // Empty array with negative index - output error to stderr and return 0
             ctx.state.expansionStderr =
               (ctx.state.expansionStderr || "") +
               `bash: line ${lineNum}: ${expr.array}: bad array subscript\n`;
             return 0;
           }
-          // Find the maximum index
           const maxIndex = Math.max(
             ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
           );
-          // Convert negative index to actual index
           const actualIdx = maxIndex + 1 + index;
           if (actualIdx < 0) {
-            // Out of bounds negative index - output error to stderr and return 0
             ctx.state.expansionStderr =
               (ctx.state.expansionStderr || "") +
               `bash: line ${lineNum}: ${expr.array}: bad array subscript\n`;
@@ -542,24 +704,21 @@ export function evaluateArithmeticSync(
           }
           index = actualIdx;
         }
-        envKey = `${expr.array}_${index}`;
 
-        // Array elements are stored as arrayName_index in env
-        // But if the variable is a scalar (not an array), s[0] returns the scalar value
+        const envKey = `${expr.array}_${index}`;
         const arrayValue = ctx.state.env[envKey];
         if (arrayValue !== undefined) {
-          return parseArithValue(arrayValue);
+          return evaluateArithValue(ctx, arrayValue);
         }
-        // Check if it's a scalar variable (strings decay to s[0] = s)
+        // Scalar decay: s[0] returns scalar value s
         if (index === 0) {
           const scalarValue = ctx.state.env[expr.array];
           if (scalarValue !== undefined) {
-            return parseArithValue(scalarValue);
+            return evaluateArithValue(ctx, scalarValue);
           }
         }
-        // Variable is not defined - check nounset
+        // Check nounset
         if (ctx.state.options.nounset) {
-          // Check if there are ANY elements of this array in env
           const hasAnyElement = Object.keys(ctx.state.env).some(
             (key) => key === expr.array || key.startsWith(`${expr.array}_`),
           );
@@ -568,14 +727,9 @@ export function evaluateArithmeticSync(
           }
         }
         return 0;
-      } else {
-        return 0;
       }
 
-      const arrayValue = ctx.state.env[envKey];
-      if (arrayValue !== undefined) {
-        return parseArithValue(arrayValue);
-      }
+      // No index and no stringKey - invalid
       return 0;
     }
     case "ArithDoubleSubscript": {
@@ -590,7 +744,8 @@ export function evaluateArithmeticSync(
     }
     case "ArithSyntaxError": {
       // Syntax error node - throw at evaluation time so script can parse successfully
-      throw new ArithmeticError(expr.message);
+      // These are fatal errors (like missing operand) that should abort the script
+      throw new ArithmeticError(expr.message, "", "", true);
     }
     case "ArithSingleQuote": {
       // Single-quoted string - behavior depends on context
@@ -598,6 +753,7 @@ export function evaluateArithmeticSync(
       // In (()) command context, single quotes work like numbers
       if (isExpansionContext) {
         // Build error message similar to bash: "'1' + '2' * 3 : syntax error: operand expected"
+        // This is NOT a fatal error - script continues after
         throw new ArithmeticError(
           `syntax error: operand expected (error token is "'${expr.content}'")`,
         );
@@ -766,8 +922,11 @@ export function evaluateArithmeticSync(
           expr.subscript.hasDollarPrefix
         ) {
           // For associative arrays with $ prefix: A[$key] -> expand $key to get the actual key
+          // OSH quirk: when the variable is unset/empty in quoted context (A["$key"]),
+          // use backslash as key. This matches spec test "bash bug: (( A["$key"] = 1 ))"
           const expandedKey = getVariable(ctx, expr.subscript.name);
-          envKey = `${name}_${expandedKey}`;
+          // When variable expands to empty, use backslash as the key (OSH behavior)
+          envKey = `${name}_${expandedKey || "\\"}`;
         } else if (isAssoc) {
           // For non-variable subscripts on associative arrays, evaluate and convert to string
           const index = evaluateArithmeticSync(
@@ -1002,34 +1161,42 @@ export async function evaluateArithmetic(
 
     case "ArithArrayElement": {
       const isAssoc = ctx.state.associativeArrays?.has(expr.array);
-      let envKey: string;
 
+      // Helper function to lookup and evaluate array value
+      const lookupArrayValue = (envKey: string): number => {
+        const arrayValue = ctx.state.env[envKey];
+        if (arrayValue !== undefined) {
+          return evaluateArithValue(ctx, arrayValue);
+        }
+        return 0;
+      };
+
+      // Case 1: Literal string key - A['key']
       if (expr.stringKey !== undefined) {
-        // Literal string key: A['key']
-        envKey = `${expr.array}_${expr.stringKey}`;
-      } else if (
+        return lookupArrayValue(`${expr.array}_${expr.stringKey}`);
+      }
+
+      // Case 2: Associative array with variable name (no $ prefix) - A[K]
+      if (
         isAssoc &&
         expr.index?.type === "ArithVariable" &&
         !expr.index.hasDollarPrefix
       ) {
-        // For associative arrays, variable names without $ prefix are used as literal keys
-        // A[K] where K is a variable name without $ -> use "K" as the key
-        envKey = `${expr.array}_${expr.index.name}`;
-      } else if (
+        return lookupArrayValue(`${expr.array}_${expr.index.name}`);
+      }
+
+      // Case 3: Associative array with $ prefix - A[$key]
+      if (
         isAssoc &&
         expr.index?.type === "ArithVariable" &&
         expr.index.hasDollarPrefix
       ) {
-        // For associative arrays with $ prefix: A[$key] -> expand $key to get the actual key
         const expandedKey = getVariable(ctx, expr.index.name);
-        envKey = `${expr.array}_${expandedKey}`;
-        const arrayValue = ctx.state.env[envKey];
-        if (arrayValue !== undefined) {
-          return parseArithValue(arrayValue);
-        }
-        return 0;
-      } else if (expr.index) {
-        // For indexed arrays, evaluate the index as arithmetic
+        return lookupArrayValue(`${expr.array}_${expandedKey}`);
+      }
+
+      // Case 4: Indexed array - A[expr]
+      if (expr.index) {
         let index = await evaluateArithmetic(
           ctx,
           expr.index,
@@ -1041,20 +1208,16 @@ export async function evaluateArithmetic(
           const elements = getArrayElements(ctx, expr.array);
           const lineNum = ctx.state.currentLine;
           if (elements.length === 0) {
-            // Empty array with negative index - output error to stderr and return 0
             ctx.state.expansionStderr =
               (ctx.state.expansionStderr || "") +
               `bash: line ${lineNum}: ${expr.array}: bad array subscript\n`;
             return 0;
           }
-          // Find the maximum index
           const maxIndex = Math.max(
             ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
           );
-          // Convert negative index to actual index
           const actualIdx = maxIndex + 1 + index;
           if (actualIdx < 0) {
-            // Out of bounds negative index - output error to stderr and return 0
             ctx.state.expansionStderr =
               (ctx.state.expansionStderr || "") +
               `bash: line ${lineNum}: ${expr.array}: bad array subscript\n`;
@@ -1062,24 +1225,21 @@ export async function evaluateArithmetic(
           }
           index = actualIdx;
         }
-        envKey = `${expr.array}_${index}`;
 
-        // Array elements are stored as arrayName_index in env
-        // But if the variable is a scalar (not an array), s[0] returns the scalar value
+        const envKey = `${expr.array}_${index}`;
         const arrayValue = ctx.state.env[envKey];
         if (arrayValue !== undefined) {
-          return parseArithValue(arrayValue);
+          return evaluateArithValue(ctx, arrayValue);
         }
-        // Check if it's a scalar variable (strings decay to s[0] = s)
+        // Scalar decay: s[0] returns scalar value s
         if (index === 0) {
           const scalarValue = ctx.state.env[expr.array];
           if (scalarValue !== undefined) {
-            return parseArithValue(scalarValue);
+            return evaluateArithValue(ctx, scalarValue);
           }
         }
-        // Variable is not defined - check nounset
+        // Check nounset
         if (ctx.state.options.nounset) {
-          // Check if there are ANY elements of this array in env
           const hasAnyElement = Object.keys(ctx.state.env).some(
             (key) => key === expr.array || key.startsWith(`${expr.array}_`),
           );
@@ -1088,14 +1248,9 @@ export async function evaluateArithmetic(
           }
         }
         return 0;
-      } else {
-        return 0;
       }
 
-      const arrayValue = ctx.state.env[envKey];
-      if (arrayValue !== undefined) {
-        return parseArithValue(arrayValue);
-      }
+      // No index and no stringKey - invalid
       return 0;
     }
 
@@ -1113,7 +1268,8 @@ export async function evaluateArithmetic(
 
     case "ArithSyntaxError": {
       // Syntax error node - throw at evaluation time so script can parse successfully
-      throw new ArithmeticError(expr.message);
+      // These are fatal errors (like missing operand) that should abort the script
+      throw new ArithmeticError(expr.message, "", "", true);
     }
 
     case "ArithSingleQuote": {
@@ -1121,6 +1277,7 @@ export async function evaluateArithmetic(
       // In $(()) expansion context, single quotes cause an error
       // In (()) command context, single quotes work like numbers
       if (isExpansionContext) {
+        // This is NOT a fatal error - script continues after
         throw new ArithmeticError(
           `syntax error: operand expected (error token is "'${expr.content}'")`,
         );
@@ -1305,8 +1462,11 @@ export async function evaluateArithmetic(
           expr.subscript.hasDollarPrefix
         ) {
           // For associative arrays with $ prefix: A[$key] -> expand $key to get the actual key
+          // OSH quirk: when the variable is unset/empty in quoted context (A["$key"]),
+          // use backslash as key. This matches spec test "bash bug: (( A["$key"] = 1 ))"
           const expandedKey = getVariable(ctx, expr.subscript.name);
-          envKey = `${name}_${expandedKey}`;
+          // When variable expands to empty, use backslash as the key (OSH behavior)
+          envKey = `${name}_${expandedKey || "\\"}`;
         } else if (isAssoc) {
           // For non-variable subscripts on associative arrays, evaluate and convert to string
           const index = await evaluateArithmetic(

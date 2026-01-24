@@ -358,7 +358,7 @@ printf '[%X]\n' \'ab # extra chars ignored
 ## END
 
 #### unsigned / octal / hex big
-## SKIP: 64-bit shift overflow not implemented
+## SKIP (unimplementable): 64-bit shift overflow not implemented
 
 for big in $(( 1 << 32 )) $(( (1 << 63) - 1 )); do
   printf '[%u]\n' $big
@@ -499,7 +499,7 @@ weird bug
 ## END
 
 #### Invalid UTF-8
-## SKIP: python2 not available
+## SKIP (unimplementable): python2 not available
 
 echo bytes1
 not_utf8=$(python2 -c 'print("\xce\xce")')
@@ -557,7 +557,7 @@ e0
 
 
 #### Too large
-## SKIP: python2 not available
+## SKIP (unimplementable): python2 not available
 case $SH in mksh) echo 'weird bug'; exit ;; esac
 
 echo too large
@@ -599,7 +599,7 @@ f4
 
 
 #### negative numbers with unsigned / octal / hex
-## SKIP: 64-bit printf unsigned/octal/hex not implemented
+## SKIP (unimplementable): 64-bit printf unsigned/octal/hex not implemented
 printf '[%u]\n' -42
 echo status=$?
 
@@ -758,7 +758,6 @@ AZ
 ## END
 
 #### printf %c unicode - prints the first BYTE of a string - it does not respect UTF-8
-## SKIP: printf %c unicode byte output differs
 
 # TODO: in YSH, this should be deprecated
 case $SH in dash|ash) exit ;; esac
@@ -988,7 +987,7 @@ status=2
 ## END
 
 #### %(strftime format)T doesn't respect TZ if not exported
-## SKIP: TZ export semantics differ - our interpreter runs in same process so TZ affects libc regardless
+## SKIP (unimplementable): TZ export semantics differ - our interpreter runs in same process so TZ affects libc regardless
 
 # note: this test leaks!  It assumes that /etc/localtime is NOT Portugal.
 
@@ -1116,7 +1115,7 @@ esac
 ## END
 
 #### printf positive integer overflow
-## SKIP: 64-bit integer edge cases not implemented
+## SKIP (unimplementable): 64-bit integer edge cases not implemented
 
 # %i seems like a synonym for %d
 
@@ -1198,7 +1197,7 @@ status=0
 ## END
 
 #### printf negative integer overflow
-## SKIP: 64-bit integer edge cases not implemented
+## SKIP (unimplementable): 64-bit integer edge cases not implemented
 
 # %i seems like a synonym for %d
 

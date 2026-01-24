@@ -146,7 +146,6 @@ argv.py "$a"
 ## stdout: ['_tmp/*.Z']
 
 #### Env binding in readonly/declare is NOT exported!  (pitfall)
-## SKIP: env bindings before readonly/declare incorrectly exported to command substitution
 # All shells agree on this, but it's very confusing behavior.
 FOO=foo readonly v=$(printenv.py FOO)
 echo "v=$v"

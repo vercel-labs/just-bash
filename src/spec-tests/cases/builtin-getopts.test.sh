@@ -72,7 +72,6 @@ echo h=$FLAG_h c=$FLAG_c optind=$OPTIND argv=$@
 ## stdout: h=1 c=foo optind=4 argv=x y z
 
 #### getopts with invalid variable name
-## SKIP: Exit code varies between shells (bash=1, others=2)
 set -- -c foo -h
 getopts 'hc:' opt-
 echo status=$? opt=$opt OPTARG=$OPTARG OPTIND=$OPTIND
@@ -383,7 +382,6 @@ status=1
 
 
 #### getopts bug #1523
-## SKIP: $SH subprocess execution not supported
 # Create test script inline - getopts with abc: optspec
 cat > /tmp/getopts-1523.sh <<'SCRIPT'
 while getopts "abc:" opt; do
@@ -409,7 +407,7 @@ opt:c arg:de
 ## END
 
 #### More regression for #1523
-## SKIP: $SH subprocess execution not supported
+## SKIP (unimplementable): $SH subprocess execution not supported
 # Uses /tmp/getopts-1523.sh from previous test
 $SH /tmp/getopts-1523.sh -abcdef -xyz
 

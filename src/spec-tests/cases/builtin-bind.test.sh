@@ -6,7 +6,7 @@
 # See spec/stateful/bind.py for the remaining tests.
 
 #### bind -l should report readline functions
-## SKIP: bind readline builtin not implemented
+## SKIP (unimplementable): bind readline builtin not implemented
 
 
 #### bind -p -P to print function names and key bindings

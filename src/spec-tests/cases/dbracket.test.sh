@@ -232,7 +232,6 @@ false
 ## END
 
 #### (( array1 == array2 )) doesn't work
-## SKIP: Array comparison in arithmetic not implemented
 a=('1 3' 5)
 b=('1 3' 5)
 c=('1' '3 5')

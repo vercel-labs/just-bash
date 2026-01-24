@@ -2,7 +2,7 @@
 ## compare_shells: bash dash mksh zsh
 
 #### $SHELL is set to what is in /etc/passwd
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 
 sh=$(which $SH)
 

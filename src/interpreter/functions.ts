@@ -13,6 +13,7 @@ import type {
   WordNode,
 } from "../ast/types.js";
 import type { ExecResult } from "../types.js";
+import { clearLocalVarStackForScope } from "./builtins/variable-helpers.js";
 import { ExitError, ReturnError } from "./errors.js";
 import { expandWord } from "./expansion.js";
 import { OK, result, throwExecutionLimit } from "./helpers/result.js";
@@ -141,6 +142,12 @@ export async function callFunction(
 
   ctx.state.localScopes.push(new Map());
 
+  // Push a new set for tracking exports made in this scope
+  if (!ctx.state.localExportedVars) {
+    ctx.state.localExportedVars = [];
+  }
+  ctx.state.localExportedVars.push(new Set());
+
   const savedPositional: Record<string, string | undefined> = {};
   for (let i = 0; i < args.length; i++) {
     savedPositional[String(i + 1)] = ctx.state.env[String(i + 1)];
@@ -152,6 +159,9 @@ export async function callFunction(
   ctx.state.env["#"] = String(args.length);
 
   const cleanup = (): void => {
+    // Get the scope index before popping (for localVarStack cleanup)
+    const scopeIndex = ctx.state.localScopes.length - 1;
+
     const localScope = ctx.state.localScopes.pop();
     if (localScope) {
       for (const [varName, originalValue] of localScope) {
@@ -159,6 +169,30 @@ export async function callFunction(
           delete ctx.state.env[varName];
         } else {
           ctx.state.env[varName] = originalValue;
+        }
+      }
+    }
+
+    // Clear any localVarStack entries for this scope
+    clearLocalVarStackForScope(ctx, scopeIndex);
+
+    // Clear fullyUnsetLocals entries for this scope only
+    if (ctx.state.fullyUnsetLocals) {
+      for (const [name, entryScope] of ctx.state.fullyUnsetLocals.entries()) {
+        if (entryScope === scopeIndex) {
+          ctx.state.fullyUnsetLocals.delete(name);
+        }
+      }
+    }
+
+    // Pop local export tracking and restore export state
+    // If a variable was exported only in this scope, unmark it
+    if (ctx.state.localExportedVars && ctx.state.localExportedVars.length > 0) {
+      const localExports = ctx.state.localExportedVars.pop();
+      if (localExports) {
+        for (const name of localExports) {
+          // Remove the export attribute since the local scope is gone
+          ctx.state.exportedVars?.delete(name);
         }
       }
     }

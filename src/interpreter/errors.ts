@@ -134,9 +134,21 @@ export class ExitError extends ControlFlowError {
 export class ArithmeticError extends ControlFlowError {
   readonly name = "ArithmeticError";
 
-  constructor(message: string, stdout: string = "", stderr: string = "") {
+  /**
+   * If true, this error should abort script execution (like missing operand after binary operator).
+   * If false, the error is recoverable and execution can continue.
+   */
+  public fatal: boolean;
+
+  constructor(
+    message: string,
+    stdout: string = "",
+    stderr: string = "",
+    fatal = false,
+  ) {
     super(message, stdout, stderr);
     this.stderr = stderr || `bash: ${message}\n`;
+    this.fatal = fatal;
   }
 }
 
@@ -163,6 +175,19 @@ export class GlobError extends ControlFlowError {
   constructor(pattern: string, stdout: string = "", stderr: string = "") {
     super(`no match: ${pattern}`, stdout, stderr);
     this.stderr = stderr || `bash: no match: ${pattern}\n`;
+  }
+}
+
+/**
+ * Error thrown for invalid brace expansions (e.g., mixed case character ranges like {z..A}).
+ * Returns exit code 1 (matching bash behavior).
+ */
+export class BraceExpansionError extends ControlFlowError {
+  readonly name = "BraceExpansionError";
+
+  constructor(message: string, stdout: string = "", stderr: string = "") {
+    super(message, stdout, stderr);
+    this.stderr = stderr || `bash: ${message}\n`;
   }
 }
 

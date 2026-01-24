@@ -51,7 +51,6 @@ argv.py "${a[@]}"
 ## status: 0
 
 #### array with invalid token
-## SKIP: Invalid token & in array literal should error but is accepted
 a=(
 1
 &
@@ -168,7 +167,6 @@ argv.py "${a[i-4]}"
 ## stdout: ['2 3']
 
 #### Retrieve index that is a command sub
-## SKIP: Command substitution in array index returns wrong element
 a=(1 '2 3')
 argv.py "${a[$(echo 1)]}"
 ## stdout: ['2 3']
@@ -452,7 +450,7 @@ abc
 ## END
 
 #### ${mystr[@]} and ${mystr[*]} disallowed with strict_array
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 
 $SH -c 'shopt -s strict_array; s="abc"; echo ${s[@]}'
 echo status=$?

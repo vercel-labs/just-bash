@@ -3,13 +3,13 @@
 ## oils_failures_allowed: 0
 
 #### sh -c
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 $SH -c 'echo hi'
 ## stdout: hi
 ## status: 0
 
 #### empty -c input
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 # had a bug here
 $SH -c ''
 ## stdout-json: ""
@@ -73,7 +73,7 @@ echo foo
 ## END
 
 #### shell obeys --help (regression for OSH)
-## SKIP: Shell invocation not supported
+## SKIP (unimplementable): Shell invocation not supported
 n=$($SH --help | wc -l)
 if test $n -gt 0; then
   echo yes
@@ -84,7 +84,7 @@ yes
 ## N-I dash/mksh stdout-json: ""
 
 #### args are passed
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 $SH -c 'argv.py "$@"' dummy a b
 ## stdout: ['a', 'b']
 
@@ -96,7 +96,7 @@ $SH $script --help --help -h
 ## stdout: ['--help', '--help', '-h']
 
 #### args that look like flags are passed after -c
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 $SH -c 'argv.py "$@"' --help --help -h
 ## stdout: ['--help', '-h']
 
@@ -110,7 +110,7 @@ exit
 ## status: 1
 
 #### --rcfile in non-interactive shell prints warnings
-## SKIP: Shell invocation not supported
+## SKIP (unimplementable): Shell invocation not supported
 echo 'echo rc' > rc
 
 $SH --rcfile rc -i </dev/null 2>interactive.txt
@@ -138,7 +138,7 @@ $SH -l -c 'exit 0'
 
 
 #### accepts --login flag (dash and mksh don't accept long flags)
-## SKIP: Shell invocation not supported
+## SKIP (unimplementable): Shell invocation not supported
 $SH --login -c 'exit 0'
 ## status: 0
 ## OK dash status: 2
@@ -146,7 +146,7 @@ $SH --login -c 'exit 0'
 
 
 #### osh --eval 
-## SKIP: Shell invocation not supported
+## SKIP (unimplementable): Shell invocation not supported
 case $SH in bash|dash|mksh|zsh) exit ;; esac
 
 echo 'echo one "$@"' > one.sh
@@ -177,7 +177,7 @@ status=0
 ## END
 
 #### Set LC_ALL LC_CTYPE LC_COLLATE LANG - affects glob ?
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 
 # note: test/spec-common.sh sets LC_ALL
 unset LC_ALL
@@ -229,7 +229,7 @@ LANG _x_
 
 
 #### LC_CTYPE=invalid
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 
 # note: test/spec-common.sh sets LC_ALL
 unset LC_ALL

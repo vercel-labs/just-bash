@@ -380,7 +380,7 @@ trap 'cleanup x y z' EXIT
 ## status: 0
 
 #### trap EXIT with PARSE error
-## SKIP: EXIT trap execution on parse error not implemented
+## SKIP (unimplementable): EXIT trap execution on parse error not implemented
 trap 'echo FAILED' EXIT
 for
 ## stdout: FAILED
@@ -388,7 +388,7 @@ for
 ## OK mksh status: 1
 
 #### trap EXIT with PARSE error and explicit exit
-## SKIP: EXIT trap execution on parse error not implemented
+## SKIP (unimplementable): EXIT trap execution on parse error not implemented
 trap 'echo FAILED; exit 0' EXIT
 for
 ## stdout: FAILED
@@ -479,13 +479,13 @@ wait status 0
 ## END
 
 #### trap USR1, sleep, SIGINT: non-interactively
-## SKIP: Signal handling during sleep requires external processes
+## SKIP (unimplementable): Signal handling during sleep requires external processes
 
 #### trap INT, sleep, SIGINT: non-interactively
-## SKIP: Signal handling during sleep requires external processes
+## SKIP (unimplementable): Signal handling during sleep requires external processes
 
 #### trap EXIT, sleep, SIGINT: non-interactively
-## SKIP: Signal handling during sleep requires external processes
+## SKIP (unimplementable): Signal handling during sleep requires external processes
 
 #### Remove trap with an unsigned integer
 
@@ -567,7 +567,7 @@ trap --  USR2
 ## END
 
 #### trap with command.NoOp - check internal invariant
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 
 $SH -c 'trap "> zz" EXIT'
 wc -l zz  # should exist

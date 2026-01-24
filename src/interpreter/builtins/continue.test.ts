@@ -131,7 +131,7 @@ describe("continue builtin", () => {
       expect(result.exitCode).toBe(1);
     });
 
-    it("should break on too many arguments (bash behavior)", async () => {
+    it("should error on too many arguments (bash behavior)", async () => {
       const env = new Bash();
       const result = await env.exec(`
         for x in a b c; do
@@ -140,9 +140,10 @@ describe("continue builtin", () => {
         done
         echo --
       `);
-      // bash treats too many args as error and breaks out of the loop
-      expect(result.stdout).toBe("a\n--\n");
-      expect(result.exitCode).toBe(0);
+      // bash errors on too many args and exits with code 1
+      expect(result.stdout).toBe("a\n");
+      expect(result.stderr).toContain("too many arguments");
+      expect(result.exitCode).toBe(1);
     });
   });
 

@@ -85,6 +85,32 @@ export function parseArithmeticExpression(
   return { type: "ArithmeticExpression", expression, originalText: input };
 }
 
+/**
+ * Helper to create a "missing operand" syntax error node.
+ * Used when a binary operator is followed by end of input.
+ */
+function makeMissingOperandError(
+  op: string,
+  pos: number,
+): { expr: ArithExpr; pos: number } {
+  return {
+    expr: {
+      type: "ArithSyntaxError",
+      errorToken: op,
+      message: `syntax error: operand expected (error token is "${op}")`,
+    },
+    pos,
+  };
+}
+
+/**
+ * Check if we're at end of input (after skipping whitespace).
+ * Used to detect missing operand after binary operators.
+ */
+function isMissingOperand(input: string, pos: number): boolean {
+  return skipArithWhitespace(input, pos) >= input.length;
+}
+
 export function parseArithExpr(
   p: Parser,
   input: string,
@@ -103,7 +129,11 @@ function parseArithComma(
 
   currentPos = skipArithWhitespace(input, currentPos);
   while (input[currentPos] === ",") {
+    const op = ",";
     currentPos++; // Skip comma
+    if (isMissingOperand(input, currentPos)) {
+      return makeMissingOperandError(op, currentPos);
+    }
     const { expr: right, pos: p2 } = parseArithTernary(p, input, currentPos);
     left = { type: "ArithBinary", operator: ",", left, right };
     currentPos = skipArithWhitespace(input, p2);
@@ -147,7 +177,11 @@ function parseArithLogicalOr(
   while (true) {
     currentPos = skipArithWhitespace(input, currentPos);
     if (input.slice(currentPos, currentPos + 2) === "||") {
+      const op = "||";
       currentPos += 2;
+      if (isMissingOperand(input, currentPos)) {
+        return makeMissingOperandError(op, currentPos);
+      }
       const { expr: right, pos: p2 } = parseArithLogicalAnd(
         p,
         input,
@@ -173,7 +207,11 @@ function parseArithLogicalAnd(
   while (true) {
     currentPos = skipArithWhitespace(input, currentPos);
     if (input.slice(currentPos, currentPos + 2) === "&&") {
+      const op = "&&";
       currentPos += 2;
+      if (isMissingOperand(input, currentPos)) {
+        return makeMissingOperandError(op, currentPos);
+      }
       const { expr: right, pos: p2 } = parseArithBitwiseOr(
         p,
         input,
@@ -199,7 +237,11 @@ function parseArithBitwiseOr(
   while (true) {
     currentPos = skipArithWhitespace(input, currentPos);
     if (input[currentPos] === "|" && input[currentPos + 1] !== "|") {
+      const op = "|";
       currentPos++;
+      if (isMissingOperand(input, currentPos)) {
+        return makeMissingOperandError(op, currentPos);
+      }
       const { expr: right, pos: p2 } = parseArithBitwiseXor(
         p,
         input,
@@ -225,7 +267,11 @@ function parseArithBitwiseXor(
   while (true) {
     currentPos = skipArithWhitespace(input, currentPos);
     if (input[currentPos] === "^") {
+      const op = "^";
       currentPos++;
+      if (isMissingOperand(input, currentPos)) {
+        return makeMissingOperandError(op, currentPos);
+      }
       const { expr: right, pos: p2 } = parseArithBitwiseAnd(
         p,
         input,
@@ -251,7 +297,11 @@ function parseArithBitwiseAnd(
   while (true) {
     currentPos = skipArithWhitespace(input, currentPos);
     if (input[currentPos] === "&" && input[currentPos + 1] !== "&") {
+      const op = "&";
       currentPos++;
+      if (isMissingOperand(input, currentPos)) {
+        return makeMissingOperandError(op, currentPos);
+      }
       const { expr: right, pos: p2 } = parseArithEquality(p, input, currentPos);
       left = { type: "ArithBinary", operator: "&", left, right };
       currentPos = p2;
@@ -278,6 +328,9 @@ function parseArithEquality(
     ) {
       const op = input.slice(currentPos, currentPos + 2) as "==" | "!=";
       currentPos += 2;
+      if (isMissingOperand(input, currentPos)) {
+        return makeMissingOperandError(op, currentPos);
+      }
       const { expr: right, pos: p2 } = parseArithRelational(
         p,
         input,
@@ -308,12 +361,18 @@ function parseArithRelational(
     ) {
       const op = input.slice(currentPos, currentPos + 2) as "<=" | ">=";
       currentPos += 2;
+      if (isMissingOperand(input, currentPos)) {
+        return makeMissingOperandError(op, currentPos);
+      }
       const { expr: right, pos: p2 } = parseArithShift(p, input, currentPos);
       left = { type: "ArithBinary", operator: op, left, right };
       currentPos = p2;
     } else if (input[currentPos] === "<" || input[currentPos] === ">") {
       const op = input[currentPos] as "<" | ">";
       currentPos++;
+      if (isMissingOperand(input, currentPos)) {
+        return makeMissingOperandError(op, currentPos);
+      }
       const { expr: right, pos: p2 } = parseArithShift(p, input, currentPos);
       left = { type: "ArithBinary", operator: op, left, right };
       currentPos = p2;
@@ -340,6 +399,9 @@ function parseArithShift(
     ) {
       const op = input.slice(currentPos, currentPos + 2) as "<<" | ">>";
       currentPos += 2;
+      if (isMissingOperand(input, currentPos)) {
+        return makeMissingOperandError(op, currentPos);
+      }
       const { expr: right, pos: p2 } = parseArithAdditive(p, input, currentPos);
       left = { type: "ArithBinary", operator: op, left, right };
       currentPos = p2;
@@ -366,6 +428,9 @@ function parseArithAdditive(
     ) {
       const op = input[currentPos] as "+" | "-";
       currentPos++;
+      if (isMissingOperand(input, currentPos)) {
+        return makeMissingOperandError(op, currentPos);
+      }
       const { expr: right, pos: p2 } = parseArithMultiplicative(
         p,
         input,
@@ -391,13 +456,20 @@ function parseArithMultiplicative(
   while (true) {
     currentPos = skipArithWhitespace(input, currentPos);
     if (input[currentPos] === "*" && input[currentPos + 1] !== "*") {
+      const op = "*";
       currentPos++;
+      if (isMissingOperand(input, currentPos)) {
+        return makeMissingOperandError(op, currentPos);
+      }
       const { expr: right, pos: p2 } = parseArithPower(p, input, currentPos);
       left = { type: "ArithBinary", operator: "*", left, right };
       currentPos = p2;
     } else if (input[currentPos] === "/" || input[currentPos] === "%") {
       const op = input[currentPos] as "/" | "%";
       currentPos++;
+      if (isMissingOperand(input, currentPos)) {
+        return makeMissingOperandError(op, currentPos);
+      }
       const { expr: right, pos: p2 } = parseArithPower(p, input, currentPos);
       left = { type: "ArithBinary", operator: op, left, right };
       currentPos = p2;
@@ -418,7 +490,11 @@ function parseArithPower(
   let p2 = skipArithWhitespace(input, currentPos);
 
   if (input.slice(p2, p2 + 2) === "**") {
+    const op = "**";
     p2 += 2;
+    if (isMissingOperand(input, p2)) {
+      return makeMissingOperandError(op, p2);
+    }
     const { expr: exponent, pos: p3 } = parseArithPower(p, input, p2); // Right associative
     return {
       expr: {
@@ -1001,7 +1077,7 @@ function parseArithPrimary(
     hasDollarPrefix = true;
     currentPos++; // Skip the $ prefix
   }
-  if (/[a-zA-Z_]/.test(input[currentPos])) {
+  if (currentPos < input.length && /[a-zA-Z_]/.test(input[currentPos])) {
     let name = "";
     while (
       currentPos < input.length &&

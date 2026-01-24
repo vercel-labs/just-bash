@@ -59,7 +59,7 @@ bashopts is set
 ## N-I mksh status: 1
 
 #### SHELLOPTS reflects flags like sh -x
-## SKIP: $SH invocation not implemented
+## SKIP (unimplementable): $SH invocation not implemented
 
 $SH -x -c 'echo $SHELLOPTS' | grep -o xtrace
 
@@ -68,7 +68,7 @@ xtrace
 ## END
 
 #### export SHELLOPTS does cross-process tracing
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 
 $SH -c '
 export SHELLOPTS
@@ -86,7 +86,7 @@ sh -c 'echo 2'
 ## END
 
 #### export SHELLOPTS does cross-process tracing with bash
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 
 # calling bash
 $SH -c '

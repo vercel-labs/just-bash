@@ -71,7 +71,7 @@ yes
 ## END
 
 #### $HOME is NOT set
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 case $SH in *zsh) echo 'zsh sets HOME'; exit ;; esac
 
 home=$(echo $HOME)
@@ -95,7 +95,7 @@ zsh sets HOME
 ## END
 
 #### Vars set interactively only: $HISTFILE
-## SKIP: Shell invocation not supported
+## SKIP (unimplementable): Shell invocation not supported
 case $SH in dash|mksh|zsh) exit ;; esac
 
 $SH --norc --rcfile /dev/null -c 'echo histfile=${HISTFILE:+yes}'
@@ -744,7 +744,7 @@ prev=prev=prev=
 
 
 #### $_ is not undefined on first use
-## SKIP: $_ in subshell invocation not implemented
+## SKIP (unimplementable): $_ in subshell invocation not implemented
 set -e
 
 x=$($SH -u -c 'echo prev=$_')

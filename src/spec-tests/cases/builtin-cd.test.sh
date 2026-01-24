@@ -24,7 +24,7 @@ status=0
 ## END
 
 #### cd with 2 or more args - with strict_arg_parse
-## SKIP: Oils-specific shopt options not implemented
+## SKIP (unimplementable): Oils-specific shopt options not implemented
 
 shopt -s strict_arg_parse
 
@@ -365,7 +365,7 @@ status=0
 
 
 #### Change directory in non-shell parent process (make or Python)
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 
 # inspired by Perl package bug
 
@@ -407,7 +407,7 @@ echo "${new_dir##$old_dir}"
 ## END
 
 #### What happens when inherited $PWD and current dir disagree?
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 
 DIR=/tmp/osh-spec-cd
 mkdir -p $DIR
@@ -517,7 +517,7 @@ pwd /
 ## OK zsh/mksh status: 1
 
 #### pwd errors out on args with strict_arg_parse
-## SKIP: Oils-specific shopt options not implemented
+## SKIP (unimplementable): Oils-specific shopt options not implemented
 shopt -s strict_arg_parse || true
 pwd / >/dev/null || echo 'too many args!'
 ## N-I bash/dash/ash STDOUT:

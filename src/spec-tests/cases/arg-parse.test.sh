@@ -11,7 +11,7 @@ true extra
 ## END
 
 #### shift 1 extra
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 $SH -c '
 set -- a b c
 shift 1 extra

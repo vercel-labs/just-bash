@@ -114,7 +114,6 @@ None
 ## END
 
 #### Export a local that shadows a global
-## SKIP: local variables are incorrectly exported to child processes before export
 V=global
 f() {
   local V=local1
@@ -628,7 +627,6 @@ f
 ## BUG zsh status: 0
 
 #### local after readonly
-## SKIP: local after readonly edge case not implemented
 f() {
   readonly y
   local x=1 y=$(( x ))

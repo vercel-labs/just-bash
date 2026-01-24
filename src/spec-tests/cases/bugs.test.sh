@@ -298,8 +298,6 @@ fi
 ## END
 
 #### process sub <(echo 42 | tee PWNED) not allowed
-## SKIP: Security restriction for process substitution in arithmetic not implemented
-
 rm -f PWNED
 
 x='a[<(echo 42 | tee PWNED)]=1'
@@ -376,7 +374,7 @@ printf '%u\n' 2147483648
 ## END
 
 #### (( status bug
-## SKIP: 64-bit integers not supported (1 << 32 overflows 32-bit)
+## SKIP (unimplementable): 64-bit integers not supported (1 << 32 overflows 32-bit)
 case $SH in dash|ash) exit ;; esac
 
 # from Koiche on Zulip

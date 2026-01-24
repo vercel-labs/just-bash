@@ -285,6 +285,10 @@ a
 --
 ## END
 ## BUG bash status: 0
+## OK just-bash STDOUT:
+a
+## END
+## OK just-bash status: 1
 ## BUG-2 dash/mksh/zsh STDOUT:
 a
 b

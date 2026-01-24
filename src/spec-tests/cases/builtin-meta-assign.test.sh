@@ -2,7 +2,7 @@
 ## compare_shells: dash bash mksh zsh ash
 
 #### builtin declare a=(x y) is allowed
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 case $SH in dash|zsh|mksh|ash) exit ;; esac
 
 $SH -c 'declare a=(x y); declare -p a'

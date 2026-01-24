@@ -50,8 +50,101 @@ export class GlobExpander {
     const globignore = env?.GLOBIGNORE;
     if (globignore !== undefined && globignore !== "") {
       this.hasGlobignore = true;
-      this.globignorePatterns = globignore.split(":");
+      this.globignorePatterns = this.splitGlobignorePatterns(globignore);
     }
+  }
+
+  /**
+   * Split GLOBIGNORE value on colons, but preserve colons inside POSIX character classes.
+   * For example: "[[:alnum:]]*:*.txt" should split to ["[[:alnum:]]*", "*.txt"]
+   * not ["[[:alnum", "]]*", "*.txt"]
+   */
+  private splitGlobignorePatterns(globignore: string): string[] {
+    const patterns: string[] = [];
+    let current = "";
+    let i = 0;
+
+    while (i < globignore.length) {
+      const c = globignore[i];
+
+      if (c === "[") {
+        // Start of character class - find the matching ]
+        // Need to handle POSIX classes like [[:alnum:]] inside
+        current += c;
+        i++;
+
+        // Handle negation [! or [^
+        if (
+          i < globignore.length &&
+          (globignore[i] === "!" || globignore[i] === "^")
+        ) {
+          current += globignore[i];
+          i++;
+        }
+
+        // Handle ] as first char (literal ])
+        if (i < globignore.length && globignore[i] === "]") {
+          current += globignore[i];
+          i++;
+        }
+
+        // Read until closing ]
+        while (i < globignore.length && globignore[i] !== "]") {
+          // Check for POSIX class [: ... :]
+          if (
+            globignore[i] === "[" &&
+            i + 1 < globignore.length &&
+            globignore[i + 1] === ":"
+          ) {
+            // Find the closing :]
+            const posixEnd = globignore.indexOf(":]", i + 2);
+            if (posixEnd !== -1) {
+              // Include the entire POSIX class including [:...:]
+              current += globignore.slice(i, posixEnd + 2);
+              i = posixEnd + 2;
+              continue;
+            }
+          }
+
+          // Handle escaped characters
+          if (globignore[i] === "\\" && i + 1 < globignore.length) {
+            current += globignore[i] + globignore[i + 1];
+            i += 2;
+            continue;
+          }
+
+          current += globignore[i];
+          i++;
+        }
+
+        // Include the closing ]
+        if (i < globignore.length && globignore[i] === "]") {
+          current += globignore[i];
+          i++;
+        }
+      } else if (c === ":") {
+        // Colon outside of character class - this is a pattern separator
+        if (current !== "") {
+          patterns.push(current);
+        }
+        current = "";
+        i++;
+      } else if (c === "\\" && i + 1 < globignore.length) {
+        // Escaped character
+        current += c + globignore[i + 1];
+        i += 2;
+      } else {
+        current += c;
+        i++;
+      }
+    }
+
+    // Don't forget the last pattern
+    if (current !== "") {
+      patterns.push(current);
+    }
+
+    return patterns;
   }
 
   /**
@@ -610,7 +703,7 @@ export class GlobExpander {
   private async expandRecursive(pattern: string): Promise<string[]> {
     const results: string[] = [];
 
-    // Split pattern at **
+    // Split pattern at first **
     const doubleStarIndex = pattern.indexOf("**");
     const beforeDoubleStar =
       pattern.slice(0, doubleStarIndex).replace(/\/$/, "") || ".";
@@ -619,9 +712,104 @@ export class GlobExpander {
     // Get the file pattern after **
     const filePattern = afterDoubleStar.replace(/^\//, "");
 
-    await this.walkDirectory(beforeDoubleStar, filePattern, results);
+    // Check if the file pattern contains another ** (multiple globstar)
+    // If so, we need to recursively expand from each directory
+    if (filePattern.includes("**") && this.isGlobstarValid(filePattern)) {
+      await this.walkDirectoryMultiGlobstar(
+        beforeDoubleStar,
+        filePattern,
+        results,
+      );
+      // Dedupe results since multiple ** can match the same file from different paths
+      const unique = [...new Set(results)];
+      return unique.sort();
+    } else {
+      await this.walkDirectory(beforeDoubleStar, filePattern, results);
+    }
 
     return results.sort();
+  }
+
+  /**
+   * Walk directory for patterns with multiple globstar (like dir/star-star/subdir/star-star/etc)
+   * At each directory level, recursively expand the sub-pattern that contains globstar
+   */
+  private async walkDirectoryMultiGlobstar(
+    dir: string,
+    subPattern: string,
+    results: string[],
+  ): Promise<void> {
+    const fullPath = this.fs.resolvePath(this.cwd, dir);
+
+    try {
+      // Get all directories at this level
+      const entriesWithTypes = this.fs.readdirWithFileTypes
+        ? await this.fs.readdirWithFileTypes(fullPath)
+        : null;
+
+      if (entriesWithTypes) {
+        const dirs: string[] = [];
+
+        for (const entry of entriesWithTypes) {
+          const entryPath = dir === "." ? entry.name : `${dir}/${entry.name}`;
+          if (entry.isDirectory) {
+            dirs.push(entryPath);
+          }
+        }
+
+        // From this directory, expand the sub-pattern (which contains **)
+        // Build a pattern relative to this directory
+        const patternFromHere =
+          dir === "." ? subPattern : `${dir}/${subPattern}`;
+        const subResults = await this.expandRecursive(patternFromHere);
+        results.push(...subResults);
+
+        // Also recurse into subdirectories (because the first ** can match multiple levels)
+        for (let i = 0; i < dirs.length; i += DEFAULT_BATCH_SIZE) {
+          const batch = dirs.slice(i, i + DEFAULT_BATCH_SIZE);
+          await Promise.all(
+            batch.map((dirPath) =>
+              this.walkDirectoryMultiGlobstar(dirPath, subPattern, results),
+            ),
+          );
+        }
+      } else {
+        // Fall back to readdir + stat
+        const entries = await this.fs.readdir(fullPath);
+        const dirs: string[] = [];
+
+        for (const entry of entries) {
+          const entryPath = dir === "." ? entry : `${dir}/${entry}`;
+          const fullEntryPath = this.fs.resolvePath(this.cwd, entryPath);
+          try {
+            const stat = await this.fs.stat(fullEntryPath);
+            if (stat.isDirectory) {
+              dirs.push(entryPath);
+            }
+          } catch {
+            // Entry doesn't exist
+          }
+        }
+
+        // From this directory, expand the sub-pattern
+        const patternFromHere =
+          dir === "." ? subPattern : `${dir}/${subPattern}`;
+        const subResults = await this.expandRecursive(patternFromHere);
+        results.push(...subResults);
+
+        // Recurse into subdirectories
+        for (let i = 0; i < dirs.length; i += DEFAULT_BATCH_SIZE) {
+          const batch = dirs.slice(i, i + DEFAULT_BATCH_SIZE);
+          await Promise.all(
+            batch.map((dirPath) =>
+              this.walkDirectoryMultiGlobstar(dirPath, subPattern, results),
+            ),
+          );
+        }
+      }
+    } catch {
+      // Directory doesn't exist
+    }
   }
 
   /**

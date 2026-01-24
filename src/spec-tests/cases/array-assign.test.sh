@@ -61,7 +61,6 @@ argv.py "${a[@]}"
 ## END
 
 #### Multiple LHS array words
-## SKIP: Multiple LHS array assignments not implemented
 case $SH in zsh|ash) exit ;; esac
 
 a=(0 1 2)
@@ -160,7 +159,6 @@ typeset b[2]=zzz
 ## END
 
 #### file named a[ is  not executed
-## SKIP: File execution edge cases not implemented
 case $SH in zsh|ash) exit ;; esac
 
 PATH=".:$PATH"
@@ -267,7 +265,6 @@ a[5 + 3]+= status=127
 ## END
 
 #### Are quotes allowed?
-## SKIP: Quotes in array index not implemented
 
 # double quotes allowed in bash
 a["1"]=2
@@ -299,6 +296,15 @@ status=0 len=2
 status=1 len=2
 ## END
 
+# bash 3.2+ treats single quotes in array index as character values
+## OK bash status: 0
+## OK bash STDOUT:
+status=0 len=1
+status=0 len=2
+status=0 len=3
+status=0 len=4
+## END
+
 #### Tricky parsing - a[ a[0]=1 ]=X  a[ a[0]+=1 ]+=X
 # the nested [] means we can't use regular language lookahead?
 
@@ -327,7 +333,6 @@ declare -a a=([0]="2" [1]="X" [2]="3X" [3]="Y")
 ## END
 
 #### argv.py a[1 + 2]=
-## SKIP: array assignment with spaces in index as env prefix (a[1 + 2]= cmd) not implemented
 case $SH in zsh|ash) exit ;; esac
 
 # This tests that the worse parser doesn't unconditinoally treat a[ as special
@@ -355,7 +360,6 @@ status=0
 ## END
 
 #### declare builtin doesn't allow spaces
-## SKIP: declare with nested array index not implemented
 case $SH in zsh|mksh|ash) exit ;; esac
 
 # OSH doesn't allow this

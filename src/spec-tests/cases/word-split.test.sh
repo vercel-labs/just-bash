@@ -155,7 +155,6 @@ argv.py 1 $space 2
 ## stdout: ['1', '2']
 
 #### empty literals are not elided
-## SKIP: Empty literal elision with adjacent parts not implemented
 space=" "
 argv.py 1 $space"" 2
 ## stdout: ['1', '', '2']
@@ -180,7 +179,7 @@ argv.py 1${undefined:-"2_3"x_x"4_5"}6
 ## stdout: ['12_3x', 'x4_56']
 
 #### IFS empty doesn't do splitting
-## SKIP: python2 not available
+## SKIP (unimplementable): python2 not available
 IFS=''
 x=$(python2 -c 'print(" a b\tc\n")')
 argv.py $x
@@ -189,7 +188,7 @@ argv.py $x
 ## END
 
 #### IFS unset behaves like $' \t\n'
-## SKIP: python2 not available
+## SKIP (unimplementable): python2 not available
 unset IFS
 x=$(python2 -c 'print(" a b\tc\n")')
 argv.py $x
@@ -713,7 +712,6 @@ argv.py ' "$@" ' "$@"
 ## END
 
 #### IFS=x and '' and $@ (#2)
-## SKIP: IFS with empty args and $@ not implemented
 setopt SH_WORD_SPLIT  # for zsh
 
 set -- "" "" "" "" ""
@@ -815,7 +813,6 @@ argv.py $*
 ## END
 
 #### ""$A"" - empty string on both sides - derived from spec/toysh-posix #15
-## SKIP: Empty string adjacent to unquoted expansion not implemented
 
 A="   abc   def   "
 

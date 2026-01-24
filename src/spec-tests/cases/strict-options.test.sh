@@ -53,10 +53,10 @@ two
 ## END
 
 #### top level control flow
-## SKIP: Requires running $SH as external subprocess
+## SKIP (unimplementable): Requires running $SH as external subprocess
 
 #### errexit and top-level control flow
-## SKIP: Requires running $SH as external subprocess with -o option
+## SKIP (unimplementable): Requires running $SH as external subprocess with -o option
 
 #### shopt -s strict_control_flow
 shopt -s strict_control_flow || true
@@ -240,7 +240,7 @@ status=0
 
 
 #### strict_parse_slice means you need explicit  length
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 case $SH in bash*|dash|mksh) exit ;; esac
 
 $SH -c '

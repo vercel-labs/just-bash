@@ -17,7 +17,6 @@ c/leaf.md
 ## END
 
 #### each occurrence of ** recurses through all depths
-## SKIP: multiple ** in single pattern not implemented
 shopt -s globstar
 
 mkdir -p c/subdir

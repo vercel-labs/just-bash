@@ -2,7 +2,6 @@
 ## oils_failures_allowed: 3
 
 #### (( closed with ) ) after multiple lines is command - #2337
-## SKIP: Multiline (( )) subshell not implemented
 (( echo 1
 echo 2
 (( x ))
@@ -17,7 +16,6 @@ echo 3
 ## END
 
 #### $(( closed with ) ) after multiple lines is command - #2337
-## SKIP: Multiline $(( )) subshell not implemented
 echo $(( echo 1
 echo 2
 (( x ))
@@ -94,7 +92,6 @@ bad
 ## END
 
 #### ((gzip example - zdiff package - #2337
-## SKIP: Complex fd close/move syntax in subshells not fully working
 # https://github.com/git-for-windows/git-sdk-64/blob/main/usr/bin/zdiff#L136
 
 gzip_status=$(
@@ -111,7 +108,6 @@ bye
 ## END
 
 #### ((pkg-config example - postfix package - #2337
-## SKIP: Nested (( )) in backtick command substitution parsing differs
 icu_cppflags=`((pkg-config --cflags icu-uc icu-i18n) ||
                   (pkgconf --cflags icu-uc icu-i18n) ||
                   (icu-config --cppflags)) 2>/dev/null`
@@ -122,7 +118,6 @@ bye
 ## END
 
 #### ((test example - liblo package - #2337
-## SKIP: Nested (( )) in conditional parsing differs
 if ! ((test x"$i" = x-g) || (test x"$i" = x-O2)); then
     CF="$CF $i"
 fi
@@ -133,7 +128,6 @@ bye
 ## END
 
 #### $((which example - command sub versus arith sub - gnunet-gtk package
-## SKIP: Parser incorrectly treats $((which ...) as arithmetic instead of $(( subshell ))
 
         gtk_update_icon_cache_bin="$((which gtk-update-icon-cache ||
 echo /opt/gnome/bin/gtk-update-icon-cache)2>/dev/null)"

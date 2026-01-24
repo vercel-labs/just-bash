@@ -22,9 +22,10 @@
  *   compgen -o option             - Completion option (plusdirs, dirnames, default, etc.)
  */
 
+import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { matchPattern } from "../conditionals.js";
-import { getArrayElements } from "../expansion.js";
+import { expandWord, getArrayElements } from "../expansion.js";
 import { callFunction } from "../functions.js";
 import { failure, result, success } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
@@ -346,17 +347,9 @@ export async function handleCompgen(
     completions.push(...fileCompletions);
   }
 
-  // Handle wordlist
-  if (wordlist !== null) {
-    const words = splitWordlist(ctx, wordlist);
-    for (const word of words) {
-      if (searchPrefix === null || word.startsWith(searchPrefix)) {
-        completions.push(word);
-      }
-    }
-  }
-
   // Handle action types - loop through all of them to support multiple -A flags
+  // NOTE: Action types are processed BEFORE wordlist to match bash behavior
+  // where -A directory results come before -W wordlist results
   for (const actionType of actionTypes) {
     if (actionType === "variable") {
       const vars = getVariableNames(ctx, searchPrefix);
@@ -394,6 +387,24 @@ export async function handleCompgen(
     } else if (actionType === "command") {
       const commands = await getCommandCompletions(ctx, searchPrefix);
       completions.push(...commands);
+    }
+  }
+
+  // Handle wordlist AFTER action types
+  // This ensures -A directory results come before -W wordlist results
+  if (wordlist !== null) {
+    try {
+      // First, expand the wordlist (handles $(), ${}, etc.)
+      const expandedWordlist = await expandWordlistString(ctx, wordlist);
+      const words = splitWordlist(ctx, expandedWordlist);
+      for (const word of words) {
+        if (searchPrefix === null || word.startsWith(searchPrefix)) {
+          completions.push(word);
+        }
+      }
+    } catch {
+      // Expansion errors (e.g., arithmetic division by zero) return status 1
+      return result("", "", 1);
     }
   }
 
@@ -874,26 +885,69 @@ async function getCommandCompletions(
 }
 
 /**
+ * Expand a wordlist string, handling command substitution ($()),
+ * variable expansion (${}, $VAR), arithmetic expansion ($(())), etc.
+ * Throws on expansion errors (e.g., division by zero).
+ */
+async function expandWordlistString(
+  ctx: InterpreterContext,
+  wordlist: string,
+): Promise<string> {
+  const parser = new Parser();
+  // Parse the wordlist as a word (not in quotes, so expansions apply)
+  const wordNode = parser.parseWordFromString(wordlist, false, false);
+  // Expand the word - this handles $(), ${}, etc.
+  // Errors (like arithmetic errors) will propagate up
+  return await expandWord(ctx, wordNode);
+}
+
+/**
  * Split a wordlist string into individual words, respecting IFS
+ * Backslash-escaped IFS characters are treated as literal characters, not delimiters
  */
 function splitWordlist(ctx: InterpreterContext, wordlist: string): string[] {
   const ifs = ctx.state.env.IFS ?? " \t\n";
 
-  // Create a regex from IFS characters
-  const ifsChars = ifs.split("").map((c) => {
-    // Escape special regex characters
-    if ("[]\\^$.|?*+(){}".includes(c)) {
-      return `\\${c}`;
-    }
-    return c;
-  });
-
-  if (ifsChars.length === 0) {
+  if (ifs.length === 0) {
     return [wordlist];
   }
 
-  const regex = new RegExp(`[${ifsChars.join("")}]+`);
-  return wordlist.split(regex).filter((w) => w.length > 0);
+  // Build a set of IFS characters for fast lookup
+  const ifsSet = new Set(ifs.split(""));
+
+  // Parse the wordlist character by character, respecting backslash escapes
+  const words: string[] = [];
+  let currentWord = "";
+  let i = 0;
+
+  while (i < wordlist.length) {
+    const char = wordlist[i];
+
+    if (char === "\\" && i + 1 < wordlist.length) {
+      // Backslash escape: the next character is literal (not a delimiter)
+      const nextChar = wordlist[i + 1];
+      currentWord += nextChar;
+      i += 2;
+    } else if (ifsSet.has(char)) {
+      // This is an IFS delimiter
+      if (currentWord.length > 0) {
+        words.push(currentWord);
+        currentWord = "";
+      }
+      i++;
+    } else {
+      // Regular character
+      currentWord += char;
+      i++;
+    }
+  }
+
+  // Don't forget the last word
+  if (currentWord.length > 0) {
+    words.push(currentWord);
+  }
+
+  return words;
 }
 
 /**

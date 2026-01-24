@@ -167,3 +167,62 @@ export function clearLocalVarDepth(
 ): void {
   ctx.state.localVarDepth?.delete(name);
 }
+
+/**
+ * Push the current value of a variable onto the local var stack.
+ * Used for bash's localvar-nest behavior where nested local declarations
+ * each create a new cell that can be unset independently.
+ */
+export function pushLocalVarStack(
+  ctx: InterpreterContext,
+  name: string,
+  currentValue: string | undefined,
+): void {
+  ctx.state.localVarStack = ctx.state.localVarStack || new Map();
+  const stack = ctx.state.localVarStack.get(name) || [];
+  stack.push({
+    value: currentValue,
+    scopeIndex: ctx.state.localScopes.length - 1,
+  });
+  ctx.state.localVarStack.set(name, stack);
+}
+
+/**
+ * Pop the top entry from the local var stack for a variable.
+ * Returns the saved value and scope index if there was an entry, or undefined if the stack was empty.
+ */
+export function popLocalVarStack(
+  ctx: InterpreterContext,
+  name: string,
+): { value: string | undefined; scopeIndex: number } | undefined {
+  const stack = ctx.state.localVarStack?.get(name);
+  if (!stack || stack.length === 0) {
+    return undefined;
+  }
+  return stack.pop();
+}
+
+/**
+ * Clear all local var stack entries for a specific scope index.
+ * Called when a function returns and its local scope is popped.
+ */
+export function clearLocalVarStackForScope(
+  ctx: InterpreterContext,
+  scopeIndex: number,
+): void {
+  if (!ctx.state.localVarStack) return;
+
+  for (const [name, stack] of ctx.state.localVarStack.entries()) {
+    // Remove entries from the top of the stack that belong to this scope
+    while (
+      stack.length > 0 &&
+      stack[stack.length - 1].scopeIndex === scopeIndex
+    ) {
+      stack.pop();
+    }
+    // Clean up empty entries
+    if (stack.length === 0) {
+      ctx.state.localVarStack.delete(name);
+    }
+  }
+}

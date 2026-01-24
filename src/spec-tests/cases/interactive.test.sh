@@ -2,7 +2,7 @@
 ## compare_shells: bash
 
 #### 'exit' in oshrc (regression)
-## SKIP: Shell invocation not supported
+## SKIP (unimplementable): Shell invocation not supported
 cat >$TMP/oshrc <<EOF
 echo one
 exit 42
@@ -15,7 +15,7 @@ one
 ## END
 
 #### fatal errors continue
-## SKIP: Shell invocation not supported
+## SKIP (unimplementable): Shell invocation not supported
 # NOTE: tried here doc, but sys.stdin.isatty() fails.  Could we fake it?
 $SH --rcfile /dev/null -i -c '
 echo $(( 1 / 0 ))
@@ -28,7 +28,7 @@ one
 ## END
 
 #### interactive shell loads rcfile (when combined with -c)
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 $SH -c 'echo 1'
 cat >$TMP/rcfile <<EOF
 echo RCFILE
@@ -41,7 +41,7 @@ RCFILE
 ## END
 
 #### --rcfile with parse error - shell is executed anyway
-## SKIP: Shell invocation with --rcfile and interactive mode not supported
+## SKIP (unimplementable): Shell invocation with --rcfile and interactive mode not supported
 cat >$TMP/rcfile <<EOF
 echo RCFILE; ( echo
 EOF
@@ -55,7 +55,7 @@ status=0
 ## END
 
 #### interactive shell loads files in rcdir (when combined with -c)
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 
 $SH -c 'echo A'
 
@@ -95,7 +95,7 @@ A
 ## END
 
 #### nonexistent --rcdir is ignored
-## SKIP: Shell invocation not supported
+## SKIP (unimplementable): Shell invocation not supported
 case $SH in bash) exit ;; esac
 
 $SH --rcdir $TMP/__does-not-exist -i -c 'echo hi'
@@ -109,7 +109,7 @@ status=0
 ## END
 
 #### shell doesn't load rcfile/rcdir if --norc is given
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 
 $SH -c 'echo A'
 
@@ -143,7 +143,7 @@ C
 
 
 #### interactive shell runs PROMPT_COMMAND after each command
-## SKIP: Shell invocation not supported
+## SKIP (unimplementable): Shell invocation not supported
 export PS1=''  # OSH prints prompt to stdout
 
 case $SH in
@@ -170,7 +170,7 @@ PROMPT
 
 
 #### parse error in PROMPT_COMMAND
-## SKIP: Interactive shell with PROMPT_COMMAND not supported
+## SKIP (unimplementable): Interactive shell with PROMPT_COMMAND not supported
 export PS1=''  # OSH prints prompt to stdout
 
 case $SH in
@@ -193,7 +193,7 @@ two
 ## END
 
 #### runtime error in PROMPT_COMMAND
-## SKIP: Shell invocation not supported
+## SKIP (unimplementable): Shell invocation not supported
 export PS1=''  # OSH prints prompt to stdout
 
 case $SH in
@@ -216,7 +216,7 @@ two
 ## END
 
 #### Error message with bad oshrc file (currently ignored)
-## SKIP: Shell invocation not supported
+## SKIP (unimplementable): Shell invocation not supported
 cd $TMP
 echo 'foo >' > bad_oshrc
 
@@ -234,7 +234,7 @@ bad_oshrc:
 
 
 #### PROMPT_COMMAND can see $?, like bash
-## SKIP: Shell invocation not supported
+## SKIP (unimplementable): Shell invocation not supported
 
 # bug fix #853
 
@@ -264,7 +264,7 @@ last_status=0
 ## END
 
 #### PROMPT_COMMAND that writes to BASH_REMATCH
-## SKIP: Shell invocation not supported
+## SKIP (unimplementable): Shell invocation not supported
 export PS1=''
 
 case $SH in
@@ -302,7 +302,7 @@ clo c l o
 
 
 #### NO ASSERTIONS: Are startup files sourced before or after job control?
-## SKIP: Interactive shell flags (--rcfile, -i) not supported
+## SKIP (unimplementable): Interactive shell flags (--rcfile, -i) not supported
 
 cat >myrc <<'EOF'
 
@@ -339,7 +339,7 @@ $SH --rcfile myrc -i -c 'show-shell-state main'
 
 
 #### HISTFILE is written in interactive shell
-## SKIP: Shell invocation not supported
+## SKIP (unimplementable): Shell invocation not supported
 
 rm -f myhist
 export HISTFILE=myhist
@@ -371,7 +371,7 @@ status=0
 ## END
 
 #### HISTFILE=my-history loads history from that file, and writes back to it
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 
 echo 'echo 1' > my-history
 
@@ -396,7 +396,7 @@ history
 ## END
 
 #### HISTFILE=my-history with history -a
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 
 echo 'echo 1' > my-history
 

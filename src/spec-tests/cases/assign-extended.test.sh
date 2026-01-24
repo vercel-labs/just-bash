@@ -67,10 +67,10 @@ declare -f ek
 ## N-I mksh status: 127
 
 #### declare -F with shopt -s extdebug prints more info
-## SKIP: extdebug not implemented
+## SKIP (unimplementable): extdebug not implemented
 
 #### declare -F with shopt -s extdebug and main file
-## SKIP: extdebug not implemented
+## SKIP (unimplementable): extdebug not implemented
 
 #### declare -p var (exit status)
 var1() { echo func; }  # function names are NOT found.
@@ -527,7 +527,6 @@ declare -- test_var1="local"
 ## N-I mksh status: 1
 
 #### ble.sh: eval -- "$(declare -p var arr)"
-## SKIP: declare -p in pipeline subshell with eval - outputs nothing
 # This illustrates an example usage of "eval & declare" for exporting
 # multiple variables from $().
 eval -- "$(
@@ -554,8 +553,6 @@ arr[3]=a10
 ## N-I mksh status: 1
 
 #### declare -p and value.Undef
-## SKIP: declare -p outputs x="" instead of x for declared-but-unset variables; also local var shadowing issue
-
 # This is a regression for a crash
 # But actually there is also an incompatibility -- we don't print anything
 
@@ -783,13 +780,14 @@ None
 ## BUG mksh status: 0
 
 #### syntax error in array assignment
-## SKIP: Array assignment syntax error handling differs
 a=x b[0+]=y c=z
 echo $a $b $c
 ## status: 2
 ## stdout-json: ""
 ## BUG bash stdout: x
 ## BUG bash status: 0
+## OK bash stdout-json: ""
+## OK bash status: 1
 ## OK mksh stdout-json: ""
 ## OK mksh status: 1
 
@@ -927,7 +925,6 @@ r=r1
 
 
 #### function name with /
-## SKIP: Function names with / not implemented
 ble/foo() { echo hi; }
 declare -F ble/foo
 echo status=$?

@@ -3,8 +3,8 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { BreakError, ContinueError, SubshellExitError } from "../errors.js";
-import { failure, OK } from "../helpers/result.js";
+import { ContinueError, ExitError, SubshellExitError } from "../errors.js";
+import { OK } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleContinue(
@@ -21,16 +21,20 @@ export function handleContinue(
     return OK;
   }
 
-  // bash: too many arguments causes a break, not continue
+  // bash: too many arguments is an error (exit code 1)
   if (args.length > 1) {
-    throw new BreakError(1);
+    throw new ExitError(1, "", "bash: continue: too many arguments\n");
   }
 
   let levels = 1;
   if (args.length > 0) {
     const n = Number.parseInt(args[0], 10);
     if (Number.isNaN(n) || n < 1) {
-      return failure(`bash: continue: ${args[0]}: numeric argument required\n`);
+      throw new ExitError(
+        1,
+        "",
+        `bash: continue: ${args[0]}: numeric argument required\n`,
+      );
     }
     levels = n;
   }

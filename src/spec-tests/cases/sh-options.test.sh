@@ -5,7 +5,7 @@
 # Test options to set, shopt, $SH.
 
 #### $- with -c
-## SKIP: $SH invocation not implemented
+## SKIP (unimplementable): $SH invocation not implemented
 # dash's behavior seems most sensible here?
 $SH -o nounset -c 'echo $-'
 ## stdout: u
@@ -41,7 +41,7 @@ yes
 ## N-I dash status: 127
 
 #### $- with interactive shell
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 $SH -c 'echo $-' | grep i || echo FALSE
 $SH -i -c 'echo $-' | grep -q i && echo TRUE
 ## STDOUT:
@@ -49,19 +49,19 @@ FALSE
 TRUE
 ## END
 #### pass short options like sh -e
-## SKIP: $SH invocation not implemented
+## SKIP (unimplementable): $SH invocation not implemented
 $SH -e -c 'false; echo status=$?'
 ## stdout-json: ""
 ## status: 1
 
 #### pass long options like sh -o errexit
-## SKIP: $SH invocation not implemented
+## SKIP (unimplementable): $SH invocation not implemented
 $SH -o errexit -c 'false; echo status=$?'
 ## stdout-json: ""
 ## status: 1
 
 #### pass shopt options like sh -O nullglob
-## SKIP: $SH invocation not implemented
+## SKIP (unimplementable): $SH invocation not implemented
 $SH +O nullglob -c 'echo foo *.nonexistent bar'
 $SH -O nullglob -c 'echo foo *.nonexistent bar'
 ## STDOUT:
@@ -113,7 +113,7 @@ ___
 ## END
 
 #### interactive shell starts with emacs mode on
-## SKIP: Interactive shell mode detection not implemented
+## SKIP (unimplementable): Interactive shell mode detection not implemented
 case $SH in dash) exit ;; esac
 case $SH in bash|*osh) flag='--rcfile /dev/null' ;; esac
 
@@ -458,7 +458,6 @@ a=( 1 2 3 )
 ## N-I dash status: 2
 
 #### set without args and assoc array variables (not in OSH)
-## SKIP: set output format for assoc arrays differs from bash
 typeset -A __assoc
 __assoc['k e y']='v a l'
 __assoc[a]=b

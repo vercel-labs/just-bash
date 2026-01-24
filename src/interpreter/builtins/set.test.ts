@@ -2,6 +2,34 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
 describe("set builtin", () => {
+  describe("set with no args (variable listing)", () => {
+    it("should output associative arrays in bash format", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        typeset -A __assoc
+        __assoc['k e y']='v a l'
+        __assoc[a]=b
+        set | grep '^__assoc='
+      `);
+      expect(result.exitCode).toBe(0);
+      // Bash format: __assoc=([a]="b" ["k e y"]="v a l" )
+      // Keys are sorted, so 'a' comes before 'k e y'
+      expect(result.stdout).toBe('__assoc=([a]="b" ["k e y"]="v a l" )\n');
+    });
+
+    it("should not show assoc array elements as separate scalars", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        typeset -A __assoc
+        __assoc[a]=b
+        set | grep '^__assoc' | wc -l
+      `);
+      expect(result.exitCode).toBe(0);
+      // Should only be one line, the array output, not multiple lines
+      expect(result.stdout.trim()).toBe("1");
+    });
+  });
+
   describe("set -u (nounset)", () => {
     it("should error on unset variable when enabled", async () => {
       const env = new Bash();

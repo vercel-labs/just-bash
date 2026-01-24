@@ -432,6 +432,40 @@ export class Lexer {
     // Special handling for (( and )) to track nested parentheses in arithmetic contexts
     // This is needed for C-style for loops: for (( n=0; n<(3-(1)); n++ ))
     if (c0 === "(" && c1 === "(") {
+      // If already inside arithmetic context, (( is just two open parens for grouping
+      // Don't start a new arithmetic context
+      if (this.dparenDepth > 0) {
+        this.pos = pos + 1;
+        this.column = startColumn + 1;
+        this.dparenDepth++;
+        return this.makeToken(
+          TokenType.LPAREN,
+          "(",
+          pos,
+          startLine,
+          startColumn,
+        );
+      }
+      // Check if this looks like nested subshells ((cmd) || (cmd2)) vs arithmetic ((1+2))
+      // Use two complementary heuristics:
+      // 1. looksLikeNestedSubshells: quick check if content looks like commands
+      // 2. dparenClosesWithSpacedParens: check if closes with ) ) or has || && ; operators
+      // Either heuristic can identify nested subshells
+      if (
+        this.looksLikeNestedSubshells(pos + 2) ||
+        this.dparenClosesWithSpacedParens(pos + 2)
+      ) {
+        // Nested subshells case: emit just one LPAREN
+        this.pos = pos + 1;
+        this.column = startColumn + 1;
+        return this.makeToken(
+          TokenType.LPAREN,
+          "(",
+          pos,
+          startLine,
+          startColumn,
+        );
+      }
       this.pos = pos + 2;
       this.column = startColumn + 2;
       this.dparenDepth = 1; // Enter arithmetic context
@@ -445,7 +479,7 @@ export class Lexer {
     }
     if (c0 === ")" && c1 === ")") {
       if (this.dparenDepth === 1) {
-        // Closing the arithmetic context
+        // Closing the outermost arithmetic context
         this.pos = pos + 2;
         this.column = startColumn + 2;
         this.dparenDepth = 0;
@@ -469,16 +503,11 @@ export class Lexer {
           startColumn,
         );
       }
-      // dparenDepth === 0: not in arithmetic context, use normal )) handling
-      this.pos = pos + 2;
-      this.column = startColumn + 2;
-      return this.makeToken(
-        TokenType.DPAREN_END,
-        "))",
-        pos,
-        startLine,
-        startColumn,
-      );
+      // dparenDepth === 0: not in arithmetic context
+      // Emit single RPAREN, let the parser handle two )s as needed
+      this.pos = pos + 1;
+      this.column = startColumn + 1;
+      return this.makeToken(TokenType.RPAREN, ")", pos, startLine, startColumn);
     }
 
     // Table-driven two-char operators (excluding (( and )) which are handled above)
@@ -501,6 +530,30 @@ export class Lexer {
         continue;
       }
       if (c0 === first && c1 === second) {
+        // Special case: [[ and ]] should only be recognized as tokens when followed
+        // by whitespace or at a word boundary. Otherwise, they're part of a glob pattern
+        // like [[z] or []z] which are character class patterns.
+        if (type === TokenType.DBRACK_START || type === TokenType.DBRACK_END) {
+          const afterOp = input[pos + 2];
+          // If followed by a non-boundary character, treat as word instead
+          if (
+            afterOp !== undefined &&
+            afterOp !== " " &&
+            afterOp !== "\t" &&
+            afterOp !== "\n" &&
+            afterOp !== ";" &&
+            afterOp !== "&" &&
+            afterOp !== "|" &&
+            afterOp !== "(" &&
+            afterOp !== ")" &&
+            afterOp !== "<" &&
+            afterOp !== ">"
+          ) {
+            // Not a word boundary - this is a glob pattern like [[z], not [[
+            // Skip to word parsing below
+            break;
+          }
+        }
         this.pos = pos + 2;
         this.column = startColumn + 2;
         return this.makeToken(
@@ -621,6 +674,131 @@ export class Lexer {
 
     // Words
     return this.readWord(pos, startLine, startColumn);
+  }
+
+  /**
+   * Look ahead from position after (( to determine if this is nested subshells
+   * like ((cmd) || (cmd2)) rather than arithmetic like ((1+2)).
+   *
+   * Returns true if it looks like nested subshells (command invocation).
+   */
+  private looksLikeNestedSubshells(startPos: number): boolean {
+    const input = this.input;
+    const len = input.length;
+    let pos = startPos;
+
+    // Skip optional whitespace (but not newlines)
+    while (pos < len && (input[pos] === " " || input[pos] === "\t")) {
+      pos++;
+    }
+
+    if (pos >= len) return false;
+
+    const c = input[pos];
+
+    // If we see another ( immediately, recursively check what's inside
+    if (c === "(") {
+      return this.looksLikeNestedSubshells(pos + 1);
+    }
+
+    // Check if this looks like the start of a command name
+    const isLetter = /[a-zA-Z_]/.test(c);
+    const isSpecialCommand = c === "!" || c === "[";
+
+    if (!isLetter && !isSpecialCommand) {
+      return false;
+    }
+
+    // Read the word-like content
+    let wordEnd = pos;
+    while (wordEnd < len && /[a-zA-Z0-9_\-.]/.test(input[wordEnd])) {
+      wordEnd++;
+    }
+
+    if (wordEnd === pos) {
+      return isSpecialCommand;
+    }
+
+    // Skip whitespace after the word (but not newlines)
+    let afterWord = wordEnd;
+    while (
+      afterWord < len &&
+      (input[afterWord] === " " || input[afterWord] === "\t")
+    ) {
+      afterWord++;
+    }
+
+    if (afterWord >= len) return false;
+
+    const nextChar = input[afterWord];
+
+    // If the word is followed by =, it's likely arithmetic
+    if (nextChar === "=" && input[afterWord + 1] !== "=") {
+      return false;
+    }
+
+    // If followed by newline, this is NOT a proper subshell pattern
+    // like ((echo 1\necho 2\n...)) which bash treats as arithmetic error
+    if (nextChar === "\n") {
+      return false;
+    }
+
+    // If followed by arithmetic operators without space, likely arithmetic
+    if (
+      wordEnd === afterWord &&
+      /[+\-*/%<>&|^!~?:]/.test(nextChar) &&
+      nextChar !== "-"
+    ) {
+      return false;
+    }
+
+    // If followed by )), it's arithmetic
+    if (nextChar === ")" && input[afterWord + 1] === ")") {
+      return false;
+    }
+
+    // If followed by command-like arguments after whitespace, it's likely a command
+    // But we need to verify there's a ) somewhere on this line to close the subshell
+    if (
+      afterWord > wordEnd &&
+      (nextChar === "-" ||
+        nextChar === '"' ||
+        nextChar === "'" ||
+        nextChar === "$" ||
+        /[a-zA-Z_/.]/.test(nextChar))
+    ) {
+      // Scan ahead to find ) on the same line
+      let scanPos = afterWord;
+      while (scanPos < len && input[scanPos] !== "\n") {
+        if (input[scanPos] === ")") {
+          return true;
+        }
+        scanPos++;
+      }
+      // No ) found on this line - not a proper subshell
+      return false;
+    }
+
+    // If followed by ) then || or &&, it's nested subshells
+    if (nextChar === ")") {
+      let afterParen = afterWord + 1;
+      while (
+        afterParen < len &&
+        (input[afterParen] === " " || input[afterParen] === "\t")
+      ) {
+        afterParen++;
+      }
+      if (
+        (input[afterParen] === "|" && input[afterParen + 1] === "|") ||
+        (input[afterParen] === "&" && input[afterParen + 1] === "&") ||
+        input[afterParen] === ";" ||
+        (input[afterParen] === "|" && input[afterParen + 1] !== "|")
+      ) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private makeToken(
@@ -835,10 +1013,24 @@ export class Lexer {
         }
         // Handle array subscript brackets - track depth for assignments like a[1 * 2]=x
         // Only start tracking when we see [ after a valid variable name pattern
+        // We need to distinguish between array subscripts (a[idx]) and glob character classes (_[abc])
+        // For globs, [ inside the class is literal and shouldn't increase depth
         if (char === "[" && bracketDepth === 0) {
           // Check if this looks like an array subscript (variable name followed by [)
           // A valid variable name pattern: starts with letter/underscore, followed by alphanumeric/underscore
           if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
+            // Check if this is likely a glob character class (starts with ^ or !)
+            // Glob: _[^abc], _[!abc] - negated character class
+            // Array: arr[idx], arr[a[0]]
+            const afterBracket = pos + 1 < len ? input[pos + 1] : "";
+            if (afterBracket === "^" || afterBracket === "!") {
+              // Likely a glob negated character class, don't track nested brackets
+              // Just add the [ and let glob expansion handle it
+              value += char;
+              pos++;
+              col++;
+              continue;
+            }
             bracketDepth = 1;
             value += char;
             pos++;
@@ -847,13 +1039,19 @@ export class Lexer {
           }
         } else if (char === "[" && bracketDepth > 0) {
           // Nested bracket (e.g., a[a[0]]=x)
-          bracketDepth++;
+          // But skip if this [ is escaped (preceded by \)
+          if (value.length > 0 && value[value.length - 1] !== "\\") {
+            bracketDepth++;
+          }
           value += char;
           pos++;
           col++;
           continue;
         } else if (char === "]" && bracketDepth > 0) {
-          bracketDepth--;
+          // But skip if this ] is escaped (preceded by \)
+          if (value.length > 0 && value[value.length - 1] !== "\\") {
+            bracketDepth--;
+          }
           value += char;
           pos++;
           col++;
@@ -957,18 +1155,23 @@ export class Lexer {
           } else {
             // Check if there's non-quote content after this quote
             const nextChar = pos + 1 < len ? input[pos + 1] : "";
-            if (
-              nextChar &&
-              !isWordBoundary(nextChar) &&
-              nextChar !== '"' &&
-              nextChar !== "'"
-            ) {
-              // There's non-quote content after - this is a partially quoted word
-              // like '_tmp/[bc]'*.mm - need to add the closing quote
-              hasContentAfterQuote = true;
-              value += char;
+            if (nextChar && !isWordBoundary(nextChar) && nextChar !== "'") {
+              // There's content after - check if it's a different quote type
+              if (nextChar === '"') {
+                // Adjacent different quote types like 'a'"$foo" - need full parsing
+                // Preserve the closing single quote for parseWordParts
+                hasContentAfterQuote = true;
+                value += char;
+                singleQuoted = false;
+                quoted = false;
+              } else {
+                // There's non-quote content after - this is a partially quoted word
+                // like '_tmp/[bc]'*.mm - need to add the closing quote
+                hasContentAfterQuote = true;
+                value += char;
+              }
             }
-            // If next char is a quote, don't set hasContentAfterQuote - let the parser handle
+            // If next char is same quote type, don't set hasContentAfterQuote - let the parser handle
             // adjacent quotes like 'hello''world'
           }
         } else {
@@ -996,17 +1199,22 @@ export class Lexer {
           } else {
             // Check if there's non-quote content after this quote
             const nextChar = pos + 1 < len ? input[pos + 1] : "";
-            if (
-              nextChar &&
-              !isWordBoundary(nextChar) &&
-              nextChar !== '"' &&
-              nextChar !== "'"
-            ) {
-              // There's non-quote content after - this is a partially quoted word
-              hasContentAfterQuote = true;
-              value += char;
+            if (nextChar && !isWordBoundary(nextChar) && nextChar !== '"') {
+              // There's content after - check if it's a different quote type
+              if (nextChar === "'") {
+                // Adjacent different quote types like "a"'$foo' - need full parsing
+                // Preserve the closing double quote for parseWordParts
+                hasContentAfterQuote = true;
+                value += char;
+                singleQuoted = false;
+                quoted = false;
+              } else {
+                // There's non-quote content after - this is a partially quoted word
+                hasContentAfterQuote = true;
+                value += char;
+              }
             }
-            // If next char is a quote, don't set hasContentAfterQuote - let the parser handle
+            // If next char is same quote type, don't set hasContentAfterQuote - let the parser handle
           }
         } else {
           inDoubleQuote = true;
@@ -1120,7 +1328,10 @@ export class Lexer {
         let inCasePattern = false; // Are we in case pattern (after 'in', before ')')
         let wordBuffer = ""; // Track recent word for keyword detection
         // Check if this is $((...)) arithmetic expansion
-        const isArithmetic = input[pos] === "(";
+        // When $(( is followed by content that spans multiple lines and closes with ) ),
+        // it's $( ( subshell ) ) not $(( arithmetic ))
+        const isArithmetic =
+          input[pos] === "(" && !this.dollarDparenIsSubshell(pos);
         while (depth > 0 && pos < len) {
           const c = input[pos];
           value += c;
@@ -1150,6 +1361,50 @@ export class Lexer {
               pos++;
               col++;
               wordBuffer = "";
+            } else if (c === "$" && pos + 1 < len && input[pos + 1] === "{") {
+              // Handle ${...} parameter expansion - consume the entire construct
+              // This prevents # inside ${#var} from being treated as a comment
+              pos++;
+              col++;
+              value += input[pos]; // Add the {
+              pos++;
+              col++;
+              let braceDepth = 1;
+              let inBraceSingleQuote = false;
+              let inBraceDoubleQuote = false;
+              while (braceDepth > 0 && pos < len) {
+                const bc = input[pos];
+                if (bc === "\\" && pos + 1 < len && !inBraceSingleQuote) {
+                  // Handle escape sequences
+                  value += bc;
+                  pos++;
+                  col++;
+                  value += input[pos];
+                  pos++;
+                  col++;
+                  continue;
+                }
+                value += bc;
+                if (inBraceSingleQuote) {
+                  if (bc === "'") inBraceSingleQuote = false;
+                } else if (inBraceDoubleQuote) {
+                  if (bc === '"') inBraceDoubleQuote = false;
+                } else {
+                  if (bc === "'") inBraceSingleQuote = true;
+                  else if (bc === '"') inBraceDoubleQuote = true;
+                  else if (bc === "{") braceDepth++;
+                  else if (bc === "}") braceDepth--;
+                }
+                if (bc === "\n") {
+                  ln++;
+                  col = 0;
+                } else {
+                  col++;
+                }
+                pos++;
+              }
+              wordBuffer = "";
+              continue;
             } else if (
               c === "#" &&
               !isArithmetic && // # is NOT a comment in arithmetic expansion
@@ -2092,5 +2347,259 @@ export class Lexer {
     }
 
     return { varname, end: pos };
+  }
+
+  /**
+   * Scan ahead from a $(( position to determine if it should be treated as
+   * $( ( subshell ) ) instead of $(( arithmetic )).
+   * This handles cases like:
+   *   echo $(( echo 1
+   *   echo 2
+   *   ) )
+   * which should be a command substitution containing a subshell, not arithmetic.
+   *
+   * @param startPos - position at the second ( (i.e., at input[startPos] === "(")
+   * @returns true if this is a subshell (closes with ) )), false if arithmetic (closes with )))
+   */
+  private dollarDparenIsSubshell(startPos: number): boolean {
+    const input = this.input;
+    const len = input.length;
+    let pos = startPos + 1; // Skip the second (
+    let depth = 2; // We've seen $((, so we start at depth 2
+    let inSingleQuote = false;
+    let inDoubleQuote = false;
+    let hasNewline = false;
+
+    while (pos < len && depth > 0) {
+      const c = input[pos];
+
+      if (inSingleQuote) {
+        if (c === "'") {
+          inSingleQuote = false;
+        }
+        if (c === "\n") hasNewline = true;
+        pos++;
+        continue;
+      }
+
+      if (inDoubleQuote) {
+        if (c === "\\") {
+          // Skip escaped char
+          pos += 2;
+          continue;
+        }
+        if (c === '"') {
+          inDoubleQuote = false;
+        }
+        if (c === "\n") hasNewline = true;
+        pos++;
+        continue;
+      }
+
+      // Not in quotes
+      if (c === "'") {
+        inSingleQuote = true;
+        pos++;
+        continue;
+      }
+
+      if (c === '"') {
+        inDoubleQuote = true;
+        pos++;
+        continue;
+      }
+
+      if (c === "\\") {
+        // Skip escaped char
+        pos += 2;
+        continue;
+      }
+
+      if (c === "\n") {
+        hasNewline = true;
+      }
+
+      if (c === "(") {
+        depth++;
+        pos++;
+        continue;
+      }
+
+      if (c === ")") {
+        depth--;
+        if (depth === 1) {
+          // We've closed the inner subshell. Check what follows.
+          // For ) ) with whitespace, this is a subshell
+          // For )), this is arithmetic
+          const nextPos = pos + 1;
+          if (nextPos < len && input[nextPos] === ")") {
+            // )) - adjacent parens = arithmetic (or at least could be)
+            // But if we have newlines AND it closes with ) ), it's a subshell
+            // Actually, let's check if there's whitespace then )
+            return false;
+          }
+          // Check if there's whitespace followed by )
+          let scanPos = nextPos;
+          let hasWhitespace = false;
+          while (
+            scanPos < len &&
+            (input[scanPos] === " " ||
+              input[scanPos] === "\t" ||
+              input[scanPos] === "\n")
+          ) {
+            hasWhitespace = true;
+            scanPos++;
+          }
+          if (hasWhitespace && scanPos < len && input[scanPos] === ")") {
+            // This is ) ) with whitespace - subshell
+            return true;
+          }
+          // The ) is followed by something else - could still be valid subshell
+          // If it has newlines, treat as subshell (commands span multiple lines)
+          if (hasNewline) {
+            return true;
+          }
+        }
+        if (depth === 0) {
+          // We closed all parens without finding a ) ) pattern
+          return false;
+        }
+        pos++;
+        continue;
+      }
+
+      pos++;
+    }
+
+    // Didn't find a definitive answer - default to arithmetic behavior
+    return false;
+  }
+
+  /**
+   * Scan ahead from a (( position to determine if it closes with ) ) (nested subshells)
+   * or )) (arithmetic). We need to track paren depth and quotes to find the matching close.
+   * @param startPos - position after the (( (i.e., at the first char of content)
+   * @returns true if it closes with ) ) (space between parens), false otherwise
+   */
+  private dparenClosesWithSpacedParens(startPos: number): boolean {
+    const input = this.input;
+    const len = input.length;
+    let pos = startPos;
+    let depth = 2; // We've seen ((, so we start at depth 2
+    let inSingleQuote = false;
+    let inDoubleQuote = false;
+
+    while (pos < len && depth > 0) {
+      const c = input[pos];
+
+      if (inSingleQuote) {
+        if (c === "'") {
+          inSingleQuote = false;
+        }
+        pos++;
+        continue;
+      }
+
+      if (inDoubleQuote) {
+        if (c === "\\") {
+          // Skip escaped char
+          pos += 2;
+          continue;
+        }
+        if (c === '"') {
+          inDoubleQuote = false;
+        }
+        pos++;
+        continue;
+      }
+
+      // Not in quotes
+      if (c === "'") {
+        inSingleQuote = true;
+        pos++;
+        continue;
+      }
+
+      if (c === '"') {
+        inDoubleQuote = true;
+        pos++;
+        continue;
+      }
+
+      if (c === "\\") {
+        // Skip escaped char
+        pos += 2;
+        continue;
+      }
+
+      if (c === "(") {
+        depth++;
+        pos++;
+        continue;
+      }
+
+      if (c === ")") {
+        depth--;
+        if (depth === 1) {
+          // Check if next char is another ) with whitespace between them
+          // For ) ), there MUST be whitespace between them to be nested subshells
+          // If they are adjacent ))  it's arithmetic
+          const nextPos = pos + 1;
+          if (nextPos < len && input[nextPos] === ")") {
+            // )) - adjacent parens = arithmetic, not nested subshells
+            return false;
+          }
+          // Check if there's whitespace followed by )
+          let scanPos = nextPos;
+          let hasWhitespace = false;
+          while (
+            scanPos < len &&
+            (input[scanPos] === " " ||
+              input[scanPos] === "\t" ||
+              input[scanPos] === "\n")
+          ) {
+            hasWhitespace = true;
+            scanPos++;
+          }
+          if (hasWhitespace && scanPos < len && input[scanPos] === ")") {
+            // This is ) ) with whitespace - nested subshells
+            return true;
+          }
+          // The ) is followed by something else
+          // Continue scanning - this could still be valid
+        }
+        if (depth === 0) {
+          // We closed all parens without finding a ) ) pattern
+          return false;
+        }
+        pos++;
+        continue;
+      }
+
+      // Check for || or && or | at depth 1 (between inner subshells)
+      // At depth 1, we're inside the outer (( but outside any inner parens.
+      // If we see || or && or | here, it's connecting commands, not arithmetic.
+      // Example: ((cmd1) || (cmd2)) - after (cmd1), depth is 1, then || appears
+      // Example: ((cmd1) | cmd2) - pipeline between subshell and command
+      // Note: At depth 2, || and && and | could be arithmetic operators, so we don't check there.
+      if (depth === 1) {
+        if (c === "|" && pos + 1 < len && input[pos + 1] === "|") {
+          return true;
+        }
+        if (c === "&" && pos + 1 < len && input[pos + 1] === "&") {
+          return true;
+        }
+        if (c === "|" && pos + 1 < len && input[pos + 1] !== "|") {
+          // Single | - pipeline operator
+          return true;
+        }
+        // Don't check for ; at depth 1 - it could be after a command in nested subshell
+      }
+
+      pos++;
+    }
+
+    // Didn't find a definitive answer - default to arithmetic behavior
+    return false;
   }
 }

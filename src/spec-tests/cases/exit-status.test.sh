@@ -81,7 +81,7 @@ status=257
 
 
 #### subshell OverflowError https://github.com/oilshell/oil/issues/996
-## SKIP: 64-bit integer edge cases not implemented
+## SKIP (unimplementable): 64-bit integer edge cases not implemented
 
 # We have to capture stderr here 
 

@@ -2,7 +2,7 @@
 ## oils_failures_allowed: 8
 
 #### sh -i
-## SKIP: Shell invocation not supported
+## SKIP (unimplementable): Shell invocation not supported
 # Notes:
 # - OSH prompt goes to stdout and bash goes to stderr
 # - This test seems to fail on the system bash, but succeeds with spec-bin/bash
@@ -300,7 +300,7 @@ matched=0
 ## END
 
 #### \! for history number
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 set -o history # enable history
 PS1='foo \! bar'
 history -c # clear history
@@ -325,7 +325,7 @@ matched=0
 ## END
 
 #### @P with array
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 $SH -c 'echo ${@@P}' dummy a b c
 echo status=$?
 $SH -c 'echo ${*@P}' dummy a b c

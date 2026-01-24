@@ -359,7 +359,7 @@ argv.py "${s:0:0}"
 ## END
 
 #### ${array[@]:} vs ${array[@]: }  - bash and zsh inconsistent
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 
 $SH -c 'array=(1 2 3); argv.py ${array[@]:}'
 $SH -c 'array=(1 2 3); argv.py space ${array[@]: }'

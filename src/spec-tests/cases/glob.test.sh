@@ -184,7 +184,6 @@ f 'void *'
 ## BUG dash status: 2
 
 #### Glob of unescaped [[] and []]
-## SKIP: Glob with escaped special characters not implemented
 touch $TMP/[ $TMP/]
 cd $TMP
 echo [\[z] [\]z]  # the right way to do it
@@ -195,7 +194,6 @@ echo [[z] []z]    # also accepted
 ## END
 
 #### Glob of negated unescaped [[] and []]
-## SKIP: Negated unescaped bracket glob patterns not implemented (matches dash/mksh behavior)
 # osh does this "correctly" because it defers to libc!
 touch $TMP/_G
 cd $TMP
@@ -262,7 +260,7 @@ __a__
 # note: zsh also passes this, but it doesn't run with this file.
 
 #### Glob ordering respects LC_COLLATE (zsh respects this too)
-## SKIP: Interactive shell invocation not implemented
+## SKIP (unimplementable): Interactive shell invocation not implemented
 
 # test/spec-common.sh sets LC_ALL=C.UTF_8
 unset LC_ALL

@@ -2,7 +2,7 @@
 ## oils_cpp_failures_allowed: 2
 
 #### Performance demo
-## SKIP: Oils-specific shopt options not implemented
+## SKIP (unimplementable): Oils-specific shopt options not implemented
 
 case $SH in bash|mksh) exit ;; esac
 
@@ -1096,7 +1096,7 @@ argv.py @a
 
 
 #### (YSH) $[a1 === a2]
-## SKIP: Oils-specific shopt options not implemented
+## SKIP (unimplementable): Oils-specific shopt options not implemented
 case $SH in bash|mksh) exit ;; esac
 
 a1=(1 2 3)
@@ -1148,7 +1148,7 @@ append 'x' 'y' 'z' (a)
 
 
 #### (YSH) $[bool(a)]
-## SKIP: Oils-specific shopt options not implemented
+## SKIP (unimplementable): Oils-specific shopt options not implemented
 case $SH in bash|mksh) exit ;; esac
 
 a1=()

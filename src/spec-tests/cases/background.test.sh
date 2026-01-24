@@ -83,7 +83,7 @@ status=0
 ## END
 
 #### wait for N parallel jobs and check failure
-## SKIP: Background jobs with wait not fully implemented
+## SKIP (unimplementable): Background jobs with wait not fully implemented
 
 set -o errexit
 
@@ -170,7 +170,7 @@ status=99
 ## END
 
 #### Wait for job and PIPESTATUS
-## SKIP: Background job control (wait %+) not implemented
+## SKIP (unimplementable): Background job control (wait %+) not implemented
 
 # foreground
 { echo hi; exit 55; } | false
@@ -196,7 +196,7 @@ wait status=1 pipestatus=1
 ## END
 
 #### Wait for job and PIPESTATUS - cat
-## SKIP: Background job control (wait %+) not implemented
+## SKIP (unimplementable): Background job control (wait %+) not implemented
 
 # foreground
 exit 55 | ( cat; exit 99 )

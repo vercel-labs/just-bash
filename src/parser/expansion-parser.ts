@@ -634,8 +634,14 @@ function parseExpansion(
 
   const char = value[i];
 
-  // $((expr)) - arithmetic expansion
+  // $((expr)) - arithmetic expansion OR $((cmd) ...) - command substitution with nested subshell
+  // We need to check if this is arithmetic (closes with )) or command sub (closes with ) ))
   if (char === "(" && value[i + 1] === "(") {
+    // Check if this should be parsed as a subshell instead of arithmetic
+    if (p.isDollarDparenSubshell(value, start)) {
+      // Parse as command substitution - the $(( should be treated as $( with inner (
+      return p.parseCommandSubstitution(value, start);
+    }
     return p.parseArithmeticExpansion(value, start);
   }
 

@@ -149,21 +149,10 @@ async function executeScript(
     }
   }
 
-  // Process the script line by line, filtering out comments and empty lines
-  const lines = scriptToRun.split("\n");
-  const commands: string[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    // Skip empty lines and comment lines
-    if (trimmed && !trimmed.startsWith("#")) {
-      commands.push(trimmed);
-    }
-  }
-
-  // Execute all commands joined by semicolons
-  // Pass positional parameters via the env option
-  const commandString = commands.join("; ");
-  const result = await ctx.exec(commandString, {
+  // Execute the script as-is, preserving newlines for proper parsing
+  // The parser needs to see the original structure to correctly handle
+  // multi-line constructs like (( ... )) vs ( ( ... ) )
+  const result = await ctx.exec(scriptToRun, {
     env: positionalEnv,
     cwd: ctx.cwd,
   });

@@ -500,7 +500,7 @@ should be executed
 
 
 #### Command sub exit code is lost
-## SKIP: Oils-specific shopt options not implemented
+## SKIP (unimplementable): Oils-specific shopt options not implemented
 echo ft $(false) $(true)
 echo status=$?
 

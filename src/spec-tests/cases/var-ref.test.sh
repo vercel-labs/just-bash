@@ -424,7 +424,6 @@ echo ${!ref}
 # ## END
 
 #### Indirect expansion TO fancy expansion features bash disallows
-## SKIP: Indirect expansion features not implemented
 
 check_indir() {
     result="${!1}"
@@ -454,7 +453,7 @@ check_indir "!a@"    "a aa"
 check_indir "#x"      1
 check_indir "x#y"
 check_indir "x/y/foo" foo
-check_indir "x@Q"     y
+check_indir "x@Q"     "'y'"
 echo done
 ## status: 0
 ## stdout: done
@@ -541,7 +540,6 @@ PWNED
 ## END
 
 #### ${!array_ref:-set} and ${!array_ref:=assign}
-## SKIP: Direct array[@] expansion with :- operator doesn't produce separate args
 
 ref='a[@]'
 a=('' '' '')

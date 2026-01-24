@@ -101,7 +101,6 @@ status=1
 
 
 #### File redirect to $var with glob char
-## SKIP: Glob expansion in redirects not implemented
 
 touch two-bar
 

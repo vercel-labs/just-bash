@@ -130,6 +130,21 @@ describe("break builtin", () => {
       expect(result.stderr).toContain("numeric argument required");
       expect(result.exitCode).toBe(128); // bash returns 128 for invalid break args
     });
+
+    it("should error on too many arguments (bash behavior)", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        for x in a b c; do
+          echo $x
+          break 1 2 3
+        done
+        echo --
+      `);
+      // bash errors on too many args and exits with code 1
+      expect(result.stdout).toBe("a\n");
+      expect(result.stderr).toContain("too many arguments");
+      expect(result.exitCode).toBe(1);
+    });
   });
 
   describe("break in nested constructs", () => {

@@ -176,7 +176,6 @@ vals: ['1', '2', '3']
 ## END
 
 #### Evaluation order (2)
-## SKIP: nested array index like [a[0]] in literals not implemented
 # When evaluating the index, the modification to the array by the previous item
 # of the initializer list is visible to the current item.
 a=([0]=1+2+3 [a[0]]=10 [a[6]]=hello)
@@ -188,7 +187,6 @@ vals: ['1+2+3', '10', 'hello']
 ## END
 
 #### Evaluation order (3)
-## SKIP: nested array index like [a[0]] in literals not implemented
 # RHS should be expanded before any modification to the array.
 a=(old1 old2 old3)
 a=("${a[2]}" "${a[0]}" "${a[1]}" "${a[2]}" "${a[0]}")

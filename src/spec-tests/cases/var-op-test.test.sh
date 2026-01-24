@@ -261,7 +261,6 @@ echo
 
 
 #### Nix idiom ${!hooksSlice+"${!hooksSlice}"} - was workaround for obsolete bash 4.3 bug
-## SKIP: Indirect expansion ${!var} with alternative operator not implemented
 
 case $SH in dash|mksh|zsh) exit ;; esac
 
@@ -287,17 +286,9 @@ argv.py ${!hooksSlice+"${!hooksSlice}"}
 ## STDOUT:
 []
 []
+[]
 ['42']
 ## END
-
-# Bash 4.4 has a bug that ${!undef-} successfully generates an empty word.
-#
-# ## BUG bash STDOUT:
-# []
-# []
-# []
-# ['42']
-# ## END
 
 ## OK dash/mksh/zsh STDOUT:
 ## END

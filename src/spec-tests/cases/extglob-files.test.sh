@@ -59,7 +59,6 @@ echo eg1/_*(One|Two)
 ## stdout: eg1/_ eg1/_One eg1/_OneOne eg1/_OneTwo eg1/_TwoTwo
 
 #### +() matches 1 or more
-## SKIP: command substitution in extglob file glob patterns not implemented
 shopt -s extglob
 mkdir -p eg2
 touch eg2/_ eg2/_One eg2/_OneOne eg2/_TwoTwo eg2/_OneTwo
@@ -203,7 +202,6 @@ bar.py foo.py spam.py
 ## END
 
 #### Extended glob in assignment builtin
-## SKIP: extglob pattern in typeset flag position not implemented
 
 # Another invocation of _EvalWordToParts() that OSH should handle
 
@@ -305,19 +303,11 @@ builtin write -- @(fo*|bar).py
 ## END
 
 #### no match
-## SKIP: extglob no-match fallback behavior not implemented
 shopt -s extglob
 echo @(__nope__)
 
 # OSH has glob quoting here
 echo @(__nope__*|__nope__?|'*'|'?'|'[:alpha:]'|'|')
-
-if test $SH != osh; then
-  exit
-fi
-
-# OSH has this alias for @()
-echo ,(osh|style)
 
 ## STDOUT:
 @(__nope__)
@@ -347,7 +337,6 @@ bar foo
 ## END
 
 #### noglob
-## SKIP: quote removal in extglob patterns with noglob not implemented
 shopt -s extglob
 mkdir -p _noglob
 cd _noglob

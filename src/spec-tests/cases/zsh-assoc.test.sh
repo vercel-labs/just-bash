@@ -19,7 +19,6 @@ echo ${a[aa]}
 ## stdout: b
 
 #### set key
-## SKIP: Associative array value coercion in arithmetic not implemented
 typeset -A a
 a=(aa b foo bar a+1 c)
 a[X]=XX

@@ -30,12 +30,8 @@ export function handleGetopts(
   const optstring = args[0];
   const varName = args[1];
 
-  // Validate variable name (must be a valid identifier)
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
-    // Invalid variable name - bash returns 1 or 2 depending on version
-    ctx.state.env[varName] = "";
-    return { exitCode: 2, stdout: "", stderr: "" };
-  }
+  // Check if variable name is valid (must be a valid identifier)
+  const invalidVarName = !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName);
 
   // Determine if silent mode (optstring starts with ':')
   const silentMode = optstring.startsWith(":");
@@ -73,11 +69,13 @@ export function handleGetopts(
 
   // Check if we've exhausted all arguments
   if (optind > argsToProcess.length) {
-    ctx.state.env[varName] = "?";
+    if (!invalidVarName) {
+      ctx.state.env[varName] = "?";
+    }
     // When returning because OPTIND is past all args, bash sets OPTIND to args.length + 1
     ctx.state.env.OPTIND = String(argsToProcess.length + 1);
     ctx.state.env.__GETOPTS_CHARINDEX = "0";
-    return { exitCode: 1, stdout: "", stderr: "" };
+    return { exitCode: invalidVarName ? 2 : 1, stdout: "", stderr: "" };
   }
 
   // Get current argument (0-indexed in array, but OPTIND is 1-based)
@@ -86,16 +84,20 @@ export function handleGetopts(
   // Check if this is an option argument (starts with -)
   if (!currentArg || currentArg === "-" || !currentArg.startsWith("-")) {
     // Not an option - end of options
-    ctx.state.env[varName] = "?";
-    return { exitCode: 1, stdout: "", stderr: "" };
+    if (!invalidVarName) {
+      ctx.state.env[varName] = "?";
+    }
+    return { exitCode: invalidVarName ? 2 : 1, stdout: "", stderr: "" };
   }
 
   // Check for -- (end of options marker)
   if (currentArg === "--") {
     ctx.state.env.OPTIND = String(optind + 1);
     ctx.state.env.__GETOPTS_CHARINDEX = "0";
-    ctx.state.env[varName] = "?";
-    return { exitCode: 1, stdout: "", stderr: "" };
+    if (!invalidVarName) {
+      ctx.state.env[varName] = "?";
+    }
+    return { exitCode: invalidVarName ? 2 : 1, stdout: "", stderr: "" };
   }
 
   // Get the option character to process
@@ -121,7 +123,9 @@ export function handleGetopts(
     } else {
       ctx.state.env.OPTARG = optChar;
     }
-    ctx.state.env[varName] = "?";
+    if (!invalidVarName) {
+      ctx.state.env[varName] = "?";
+    }
 
     // Move to next character or next argument
     if (startIndex + 1 < currentArg.length) {
@@ -132,7 +136,7 @@ export function handleGetopts(
       ctx.state.env.__GETOPTS_CHARINDEX = "0";
     }
 
-    return { exitCode: 0, stdout: "", stderr: stderrMsg };
+    return { exitCode: invalidVarName ? 2 : 0, stdout: "", stderr: stderrMsg };
   }
 
   // Check if this option requires an argument
@@ -155,14 +159,22 @@ export function handleGetopts(
         let stderrMsg = "";
         if (!silentMode) {
           stderrMsg = `bash: option requires an argument -- ${optChar}\n`;
-          ctx.state.env[varName] = "?";
+          if (!invalidVarName) {
+            ctx.state.env[varName] = "?";
+          }
         } else {
           ctx.state.env.OPTARG = optChar;
-          ctx.state.env[varName] = ":";
+          if (!invalidVarName) {
+            ctx.state.env[varName] = ":";
+          }
         }
         ctx.state.env.OPTIND = String(optind + 1);
         ctx.state.env.__GETOPTS_CHARINDEX = "0";
-        return { exitCode: 0, stdout: "", stderr: stderrMsg };
+        return {
+          exitCode: invalidVarName ? 2 : 0,
+          stdout: "",
+          stderr: stderrMsg,
+        };
       }
       ctx.state.env.OPTARG = argsToProcess[optind]; // Next arg (0-indexed: optind)
       ctx.state.env.OPTIND = String(optind + 2);
@@ -180,8 +192,10 @@ export function handleGetopts(
     }
   }
 
-  // Set the variable to the option character
-  ctx.state.env[varName] = optChar;
+  // Set the variable to the option character (if valid variable name)
+  if (!invalidVarName) {
+    ctx.state.env[varName] = optChar;
+  }
 
-  return { exitCode: 0, stdout: "", stderr: "" };
+  return { exitCode: invalidVarName ? 2 : 0, stdout: "", stderr: "" };
 }

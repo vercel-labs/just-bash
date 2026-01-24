@@ -2,7 +2,7 @@
 ## compare_shells: dash bash mksh zsh
 
 #### history builtin usage
-## SKIP: history builtin not implemented
+## SKIP (unimplementable): history builtin not implemented
 history
 echo status=$?
 history +5  # hm bash considers this valid

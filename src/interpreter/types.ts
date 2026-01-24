@@ -155,6 +155,16 @@ export interface InterpreterState {
   exportedVars?: Set<string>;
   /** Set of temporarily exported variable names (for prefix assignments like FOO=bar cmd) */
   tempExportedVars?: Set<string>;
+  /**
+   * Stack of sets tracking variables exported within each local scope.
+   * When a function returns and a local scope is popped, if a variable was
+   * exported only in that scope (not before entering), the export attribute
+   * should be removed. This enables bash's scoped export behavior where
+   * `local V=x; export V` only exports the local, not the global.
+   */
+  localExportedVars?: Set<string>[];
+  /** Set of variable names that have been declared but not assigned a value */
+  declaredVars?: Set<string>;
   /** Stack of call line numbers for BASH_LINENO */
   callLineStack?: number[];
   /** Stack of function names for FUNCNAME */
@@ -178,6 +188,22 @@ export interface InterpreterState {
    */
   localVarDepth?: Map<string, number>;
   /**
+   * Stack of saved values for each local variable, supporting bash's localvar-nest behavior.
+   * Each entry contains the saved (outer) value and the scope index where it was saved.
+   * This allows multiple nested `local` declarations of the same variable (e.g., in nested evals)
+   * to each have their own cell that can be unset independently.
+   */
+  localVarStack?: Map<
+    string,
+    Array<{ value: string | undefined; scopeIndex: number }>
+  >;
+  /**
+   * Map of variable names to scope index where they were fully unset.
+   * Used to prevent tempenv restoration after all local cells are removed.
+   * Entries are cleared when their scope returns.
+   */
+  fullyUnsetLocals?: Map<string, number>;
+  /**
    * Stack of temporary environment bindings from prefix assignments (e.g., FOO=bar cmd).
    * Each entry maps variable names to their saved (underlying) values.
    * Used for bash-specific unset behavior: when unsetting a variable that has a
@@ -185,6 +211,19 @@ export interface InterpreterState {
    * remove the variable.
    */
   tempEnvBindings?: Map<string, string | undefined>[];
+  /**
+   * Set of tempenv variable names that have been explicitly written to within
+   * the current function context (after the prefix assignment, before local).
+   * Used to distinguish between "fresh" tempenvs (local-unset = value-unset)
+   * and "mutated" tempenvs (local-unset reveals the mutated value).
+   */
+  mutatedTempEnvVars?: Set<string>;
+  /**
+   * Set of tempenv variable names that have been accessed (read or written)
+   * within the current function context. Used to determine if a tempenv was
+   * "observed" before a local declaration.
+   */
+  accessedTempEnvVars?: Set<string>;
   /**
    * Suppress verbose mode output (set -v) when inside command substitutions.
    * bash only prints verbose output for the main script, not for commands

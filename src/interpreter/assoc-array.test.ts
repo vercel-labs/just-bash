@@ -71,10 +71,13 @@ describe("Associative Arrays", () => {
       const result = await env.exec(`
         declare -A A
         A['x']=42
+        echo "before: A['x']=" \${A['x']}
         (( x = A['x'] ))
-        echo $x
+        echo "after: x=$x"
       `);
-      expect(result.stdout.trim()).toBe("42");
+      console.log("DEBUG read arith stdout:", JSON.stringify(result.stdout));
+      console.log("DEBUG read arith stderr:", JSON.stringify(result.stderr));
+      expect(result.stdout).toContain("42");
     });
 
     it("should assign to associative array in arithmetic with string key", async () => {
@@ -246,6 +249,20 @@ describe("Associative Arrays", () => {
       `);
       console.log("step1 stdout:", JSON.stringify(result.stdout));
       expect(result.stdout.trim()).toBe("value1");
+    });
+
+    it("nested array index in array literal", async () => {
+      const env = createEnv();
+      // Test: a=([0]=1+2+3 [a[0]]=10 [a[6]]=hello)
+      // [0]=1+2+3 sets a[0]="1+2+3" (literal string)
+      // [a[0]]=10 - a[0] is "1+2+3", in arithmetic context 1+2+3=6, so a[6]=10
+      // [a[6]]=hello - a[6] is now 10, so a[10]="hello"
+      const result = await env.exec(`
+        a=([0]=1+2+3 [a[0]]=10 [a[6]]=hello)
+        echo "keys: \${!a[@]}"
+        echo "vals: \${a[@]}"
+      `);
+      expect(result.stdout.trim()).toBe("keys: 0 6 10\nvals: 1+2+3 10 hello");
     });
   });
 });

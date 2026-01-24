@@ -37,10 +37,10 @@ echo ${#v2}
 ## END
 
 #### String length with incomplete utf-8
-## SKIP: OSH-specific UTF-8 validation warnings not implemented
+## SKIP (unimplementable): OSH-specific UTF-8 validation warnings not implemented
 
 #### String length with invalid utf-8 continuation bytes
-## SKIP: OSH-specific UTF-8 validation warnings not implemented
+## SKIP (unimplementable): OSH-specific UTF-8 validation warnings not implemented
 
 #### Length of undefined variable
 echo ${#undef}

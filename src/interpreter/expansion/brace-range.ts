@@ -5,6 +5,8 @@
  * These are pure functions with no external dependencies.
  */
 
+import { BraceExpansionError } from "../errors.js";
+
 // Maximum iterations for range expansion to prevent infinite loops
 const MAX_SAFE_RANGE_ITERATIONS = 10000;
 
@@ -77,11 +79,12 @@ function safeExpandNumericRange(
 /**
  * Safely expand a character range with step, preventing infinite loops.
  * Returns array of string values, or null if the range is invalid.
+ * Throws BraceExpansionError for mixed case ranges (e.g., {z..A}).
  *
  * Bash behavior:
  * - When step is 0, treat it as 1
  * - When step direction is "wrong", use absolute value and go in natural direction
- * - Mixed case (e.g., {z..A}) is invalid - return null
+ * - Mixed case (e.g., {z..A}) is an error - throws BraceExpansionError
  */
 function safeExpandCharRange(
   start: string,
@@ -105,7 +108,11 @@ function safeExpandCharRange(
   const endIsLower = end >= "a" && end <= "z";
 
   if ((startIsUpper && endIsLower) || (startIsLower && endIsUpper)) {
-    return null; // Mixed case is invalid
+    // Mixed case is an error in bash (produces no output, exit code 1)
+    const stepPart = rawStep !== undefined ? `..${rawStep}` : "";
+    throw new BraceExpansionError(
+      `{${start}..${end}${stepPart}}: invalid sequence`,
+    );
   }
 
   const results: string[] = [];

@@ -2,7 +2,7 @@
 ## compare_shells: bash dash mksh
 
 #### Long Token - 65535 bytes
-## SKIP: python2 not available
+## SKIP (unimplementable): python2 not available
 
 python2 -c 'print("echo -n %s" % ("x" * 65535))' > tmp.sh
 $SH tmp.sh > out
@@ -13,7 +13,7 @@ wc --bytes out
 ## END
 
 #### Token that's too long for Oils - 65536 bytes
-## SKIP: python2 not available
+## SKIP (unimplementable): python2 not available
 
 python2 -c 'print("echo -n %s" % ("x" * 65536))' > tmp.sh
 $SH tmp.sh > out
@@ -154,7 +154,7 @@ echo 1 ;; echo 2
 ## OK mksh status: 1
 
 #### interactive parse error (regression)
-## SKIP: Shell self-invocation ($SH -i -c ...) not supported
+## SKIP (unimplementable): Shell self-invocation ($SH -i -c ...) not supported
 flags=''
 case $SH in
   bash*|*osh)

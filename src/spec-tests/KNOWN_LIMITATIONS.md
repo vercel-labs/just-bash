@@ -212,8 +212,10 @@ The `%q` format for shell quoting and `set` output format are not implemented.
 - **AI Use Case**: Safely quote strings when agents generate shell commands programmatically
 - Example: `printf '%q ' "$untrusted_input"` for safe command construction
 
-#### printf strftime (4 tests)
-The `%(format)T` strftime format is not implemented.
+#### printf strftime (2 tests)
+The `%(format)T` strftime format is implemented. Remaining skipped tests:
+- TZ export semantics differ (our interpreter runs in same process so TZ affects libc regardless)
+- Bash-specific 128-byte strftime buffer truncation not implemented
 
 #### hash (3 tests)
 The `hash` builtin for managing the command hash table is not implemented.

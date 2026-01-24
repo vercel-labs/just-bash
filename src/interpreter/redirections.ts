@@ -21,6 +21,20 @@ import { result as makeResult } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
 
 /**
+ * Determine the encoding to use for file I/O.
+ * If all character codes are <= 255, use binary encoding (byte data).
+ * Otherwise, use UTF-8 encoding (text with Unicode characters).
+ */
+function getFileEncoding(content: string): "binary" | "utf8" {
+  for (let i = 0; i < content.length; i++) {
+    if (content.charCodeAt(i) > 255) {
+      return "utf8";
+    }
+  }
+  return "binary";
+}
+
+/**
  * Parse the content of a read-write file descriptor.
  * Format: __rw__:pathLength:path:position:content
  * @returns The parsed components, or null if format is invalid
@@ -192,7 +206,7 @@ export async function processFdVariableRedirections(
           redir.operator === ">|" ||
           redir.operator === "&>"
         ) {
-          await ctx.fs.writeFile(filePath, "", "utf8");
+          await ctx.fs.writeFile(filePath, "", "binary");
         }
         ctx.state.fileDescriptors.set(fd, `__file__:${filePath}`);
       } else if (redir.operator === "<<<") {
@@ -315,7 +329,7 @@ export async function preOpenOutputRedirects(
       target !== "/dev/stderr" &&
       target !== "/dev/full"
     ) {
-      await ctx.fs.writeFile(filePath, "", "utf8");
+      await ctx.fs.writeFile(filePath, "", "binary");
     }
 
     // /dev/full always returns ENOSPC when written to
@@ -429,8 +443,8 @@ export async function applyRedirections(
           } catch {
             // File doesn't exist, that's ok - we'll create it
           }
-          // Use binary encoding to preserve bytes in stdout (e.g., gzip output)
-          await ctx.fs.writeFile(filePath, stdout, "binary");
+          // Smart encoding: binary for byte data, UTF-8 for Unicode text
+          await ctx.fs.writeFile(filePath, stdout, getFileEncoding(stdout));
           stdout = "";
         } else if (fd === 2) {
           // /dev/stderr is a no-op for stderr - output stays on stderr
@@ -474,8 +488,8 @@ export async function applyRedirections(
             } catch {
               // File doesn't exist, that's ok
             }
-            // Use binary encoding to preserve bytes in stderr
-            await ctx.fs.writeFile(filePath, stderr, "binary");
+            // Smart encoding: binary for byte data, UTF-8 for Unicode text
+            await ctx.fs.writeFile(filePath, stderr, getFileEncoding(stderr));
             stderr = "";
           }
         }
@@ -515,8 +529,8 @@ export async function applyRedirections(
           } catch {
             // File doesn't exist, that's ok
           }
-          // Use binary encoding to preserve bytes in stdout
-          await ctx.fs.appendFile(filePath, stdout, "binary");
+          // Smart encoding: binary for byte data, UTF-8 for Unicode text
+          await ctx.fs.appendFile(filePath, stdout, getFileEncoding(stdout));
           stdout = "";
         } else if (fd === 2) {
           // /dev/stderr is a no-op for stderr - output stays on stderr
@@ -547,8 +561,8 @@ export async function applyRedirections(
           } catch {
             // File doesn't exist, that's ok
           }
-          // Use binary encoding to preserve bytes in stderr
-          await ctx.fs.appendFile(filePath, stderr, "binary");
+          // Smart encoding: binary for byte data, UTF-8 for Unicode text
+          await ctx.fs.appendFile(filePath, stderr, getFileEncoding(stderr));
           stderr = "";
         }
         break;
@@ -567,6 +581,43 @@ export async function applyRedirections(
         // Permanent FD closes are handled by `exec N>&-` in executeSimpleCommand.
         if (target === "-") {
           // Don't delete the FD - command-level redirections are temporary
+          break;
+        }
+        // Handle FD move operation: N>&M- (duplicate M to N, then close M)
+        if (target.endsWith("-")) {
+          const sourceFdStr = target.slice(0, -1);
+          const sourceFd = Number.parseInt(sourceFdStr, 10);
+          if (!Number.isNaN(sourceFd)) {
+            // First, duplicate: copy the FD content/info from source to target
+            const sourceInfo = ctx.state.fileDescriptors?.get(sourceFd);
+            if (sourceInfo !== undefined) {
+              if (!ctx.state.fileDescriptors) {
+                ctx.state.fileDescriptors = new Map();
+              }
+              ctx.state.fileDescriptors.set(fd, sourceInfo);
+              // Then close the source FD (only for user FDs 3+)
+              if (sourceFd >= 3) {
+                ctx.state.fileDescriptors?.delete(sourceFd);
+              }
+            } else if (sourceFd === 1 || sourceFd === 2) {
+              // Source FD is stdout or stderr which aren't in fileDescriptors
+              // Store as duplication marker
+              if (!ctx.state.fileDescriptors) {
+                ctx.state.fileDescriptors = new Map();
+              }
+              ctx.state.fileDescriptors.set(fd, `__dupout__:${sourceFd}`);
+            } else if (sourceFd === 0) {
+              // Source FD is stdin
+              if (!ctx.state.fileDescriptors) {
+                ctx.state.fileDescriptors = new Map();
+              }
+              ctx.state.fileDescriptors.set(fd, `__dupin__:${sourceFd}`);
+            } else if (sourceFd >= 3) {
+              // Source FD is a user FD (3+) that's not in fileDescriptors - bad file descriptor
+              stderr += `bash: ${sourceFd}: Bad file descriptor\n`;
+              exitCode = 1;
+            }
+          }
           break;
         }
         // >&2, 1>&2, 1<&2: redirect stdout to stderr
@@ -598,10 +649,18 @@ export async function applyRedirections(
               // The path is already resolved when the FD was allocated
               const resolvedPath = fdInfo.slice(9); // Remove "__file__:" prefix
               if (fd === 1) {
-                await ctx.fs.appendFile(resolvedPath, stdout, "binary");
+                await ctx.fs.appendFile(
+                  resolvedPath,
+                  stdout,
+                  getFileEncoding(stdout),
+                );
                 stdout = "";
               } else if (fd === 2) {
-                await ctx.fs.appendFile(resolvedPath, stderr, "binary");
+                await ctx.fs.appendFile(
+                  resolvedPath,
+                  stderr,
+                  getFileEncoding(stderr),
+                );
                 stderr = "";
               }
             } else if (fdInfo?.startsWith("__rw__:")) {
@@ -610,10 +669,18 @@ export async function applyRedirections(
               const parsed = parseRwFdContent(fdInfo);
               if (parsed) {
                 if (fd === 1) {
-                  await ctx.fs.appendFile(parsed.path, stdout, "binary");
+                  await ctx.fs.appendFile(
+                    parsed.path,
+                    stdout,
+                    getFileEncoding(stdout),
+                  );
                   stdout = "";
                 } else if (fd === 2) {
-                  await ctx.fs.appendFile(parsed.path, stderr, "binary");
+                  await ctx.fs.appendFile(
+                    parsed.path,
+                    stderr,
+                    getFileEncoding(stderr),
+                  );
                   stderr = "";
                 }
               }
@@ -636,10 +703,18 @@ export async function applyRedirections(
                 if (sourceInfo?.startsWith("__file__:")) {
                   const resolvedPath = sourceInfo.slice(9);
                   if (fd === 1) {
-                    await ctx.fs.appendFile(resolvedPath, stdout, "binary");
+                    await ctx.fs.appendFile(
+                      resolvedPath,
+                      stdout,
+                      getFileEncoding(stdout),
+                    );
                     stdout = "";
                   } else if (fd === 2) {
-                    await ctx.fs.appendFile(resolvedPath, stderr, "binary");
+                    await ctx.fs.appendFile(
+                      resolvedPath,
+                      stderr,
+                      getFileEncoding(stderr),
+                    );
                     stderr = "";
                   }
                 }
@@ -683,16 +758,21 @@ export async function applyRedirections(
             }
             if (redir.fd == null) {
               // >&word (no explicit fd) - write both stdout and stderr to the file
-              await ctx.fs.writeFile(filePath, stdout + stderr, "binary");
+              const combined = stdout + stderr;
+              await ctx.fs.writeFile(
+                filePath,
+                combined,
+                getFileEncoding(combined),
+              );
               stdout = "";
               stderr = "";
             } else if (fd === 1) {
               // 1>&word - redirect stdout to file
-              await ctx.fs.writeFile(filePath, stdout, "binary");
+              await ctx.fs.writeFile(filePath, stdout, getFileEncoding(stdout));
               stdout = "";
             } else if (fd === 2) {
               // 2>&word - redirect stderr to file
-              await ctx.fs.writeFile(filePath, stderr, "binary");
+              await ctx.fs.writeFile(filePath, stderr, getFileEncoding(stderr));
               stderr = "";
             }
           }
@@ -728,8 +808,9 @@ export async function applyRedirections(
         } catch {
           // File doesn't exist, that's ok
         }
-        // Use binary encoding to preserve bytes
-        await ctx.fs.writeFile(filePath, stdout + stderr, "binary");
+        // Smart encoding: binary for byte data, UTF-8 for Unicode text
+        const combined = stdout + stderr;
+        await ctx.fs.writeFile(filePath, combined, getFileEncoding(combined));
         stdout = "";
         stderr = "";
         break;
@@ -756,8 +837,9 @@ export async function applyRedirections(
         } catch {
           // File doesn't exist, that's ok
         }
-        // Use binary encoding to preserve bytes
-        await ctx.fs.appendFile(filePath, stdout + stderr, "binary");
+        // Smart encoding: binary for byte data, UTF-8 for Unicode text
+        const combined = stdout + stderr;
+        await ctx.fs.appendFile(filePath, combined, getFileEncoding(combined));
         stdout = "";
         stderr = "";
         break;
@@ -776,11 +858,11 @@ export async function applyRedirections(
     } else if (fd1Info.startsWith("__file__:")) {
       // fd 1 is redirected to a file
       const filePath = fd1Info.slice(9);
-      await ctx.fs.appendFile(filePath, stdout, "binary");
+      await ctx.fs.appendFile(filePath, stdout, getFileEncoding(stdout));
       stdout = "";
     } else if (fd1Info.startsWith("__file_append__:")) {
       const filePath = fd1Info.slice(16);
-      await ctx.fs.appendFile(filePath, stdout, "binary");
+      await ctx.fs.appendFile(filePath, stdout, getFileEncoding(stdout));
       stdout = "";
     }
   }
@@ -794,11 +876,11 @@ export async function applyRedirections(
       stderr = "";
     } else if (fd2Info.startsWith("__file__:")) {
       const filePath = fd2Info.slice(9);
-      await ctx.fs.appendFile(filePath, stderr, "binary");
+      await ctx.fs.appendFile(filePath, stderr, getFileEncoding(stderr));
       stderr = "";
     } else if (fd2Info.startsWith("__file_append__:")) {
       const filePath = fd2Info.slice(16);
-      await ctx.fs.appendFile(filePath, stderr, "binary");
+      await ctx.fs.appendFile(filePath, stderr, getFileEncoding(stderr));
       stderr = "";
     }
   }

@@ -89,7 +89,6 @@ FALSE
 ## END
 
 #### nested @() with quotes and vars
-## SKIP: variable expansion inside nested extglob patterns not implemented
 shopt -s extglob
 prefix=no
 [[ --no-long-option == --@(help|verbose|$prefix-@(long|short)-'option') ]] &&
@@ -264,7 +263,6 @@ FALSE
 ## END
 
 #### Turning extglob on changes the meaning of [[ !(str) ]] in bash
-## SKIP: !() semantic change with extglob (negation vs pattern) not implemented
 empty=''
 str='x'
 [[ !($empty) ]]  && echo TRUE   # test if $empty is empty

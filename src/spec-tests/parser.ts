@@ -36,6 +36,13 @@ export interface ParsedSpecFile {
 }
 
 /**
+ * Check if a shell name is bash-compatible (bash, bash-*, or just-bash)
+ */
+function isBashCompatible(s: string): boolean {
+  return s === "bash" || s.startsWith("bash-") || s === "just-bash";
+}
+
+/**
  * Parse a spec test file content
  */
 export function parseSpecFile(
@@ -182,7 +189,8 @@ export function parseSpecFile(
       }
 
       // Check for SKIP directive
-      const skipMatch = assertionLine.match(/^SKIP(?::\s*(.*))?$/i);
+      // Supports both "## SKIP: reason" and "## SKIP (unimplementable): reason" formats
+      const skipMatch = assertionLine.match(/^SKIP(?:\s*\([^)]+\))?(?::\s*(.*))?$/i);
       if (skipMatch) {
         currentTest.skip = skipMatch[1] || "skipped";
         continue;
@@ -325,7 +333,7 @@ export function getExpectedStdout(testCase: TestCase): string | null {
     if (
       (assertion.type === "stdout" || assertion.type === "stdout-json") &&
       assertion.variant === "BUG" &&
-      assertion.shells?.some((s) => s === "bash" || s.startsWith("bash-"))
+      assertion.shells?.some(isBashCompatible)
     ) {
       return String(assertion.value);
     }
@@ -353,7 +361,7 @@ export function getExpectedStderr(testCase: TestCase): string | null {
     if (
       (assertion.type === "stderr" || assertion.type === "stderr-json") &&
       assertion.variant === "BUG" &&
-      assertion.shells?.some((s) => s === "bash" || s.startsWith("bash-"))
+      assertion.shells?.some(isBashCompatible)
     ) {
       return String(assertion.value);
     }
@@ -383,7 +391,7 @@ export function getExpectedStatus(testCase: TestCase): number | null {
     if (
       assertion.type === "status" &&
       assertion.variant === "BUG" &&
-      assertion.shells?.some((s) => s === "bash" || s.startsWith("bash-"))
+      assertion.shells?.some(isBashCompatible)
     ) {
       return assertion.value as number;
     }
@@ -416,7 +424,7 @@ export function getAcceptableStdouts(testCase: TestCase): string[] {
     if (
       (assertion.type === "stdout" || assertion.type === "stdout-json") &&
       assertion.variant === "BUG" &&
-      assertion.shells?.some((s) => s === "bash" || s.startsWith("bash-"))
+      assertion.shells?.some(isBashCompatible)
     ) {
       const value = String(assertion.value);
       if (!stdouts.includes(value)) {
@@ -430,7 +438,7 @@ export function getAcceptableStdouts(testCase: TestCase): string[] {
     if (
       (assertion.type === "stdout" || assertion.type === "stdout-json") &&
       assertion.variant === "OK" &&
-      assertion.shells?.some((s) => s === "bash" || s.startsWith("bash-"))
+      assertion.shells?.some(isBashCompatible)
     ) {
       const value = String(assertion.value);
       if (!stdouts.includes(value)) {
@@ -466,7 +474,7 @@ export function getAcceptableStderrs(testCase: TestCase): string[] {
     if (
       (assertion.type === "stderr" || assertion.type === "stderr-json") &&
       assertion.variant === "BUG" &&
-      assertion.shells?.some((s) => s === "bash" || s.startsWith("bash-"))
+      assertion.shells?.some(isBashCompatible)
     ) {
       const value = String(assertion.value);
       if (!stderrs.includes(value)) {
@@ -480,7 +488,7 @@ export function getAcceptableStderrs(testCase: TestCase): string[] {
     if (
       (assertion.type === "stderr" || assertion.type === "stderr-json") &&
       assertion.variant === "OK" &&
-      assertion.shells?.some((s) => s === "bash" || s.startsWith("bash-"))
+      assertion.shells?.some(isBashCompatible)
     ) {
       const value = String(assertion.value);
       if (!stderrs.includes(value)) {
@@ -518,7 +526,7 @@ export function getAcceptableStatuses(testCase: TestCase): number[] {
     if (
       assertion.type === "status" &&
       assertion.variant === "BUG" &&
-      assertion.shells?.some((s) => s === "bash" || s.startsWith("bash-"))
+      assertion.shells?.some(isBashCompatible)
     ) {
       const value = assertion.value as number;
       if (!statuses.includes(value)) {
@@ -532,13 +540,13 @@ export function getAcceptableStatuses(testCase: TestCase): number[] {
     (a) =>
       a.type === "status" &&
       a.variant === "OK" &&
-      a.shells?.some((s) => s === "bash" || s.startsWith("bash-")),
+      a.shells?.some(isBashCompatible),
   );
   const hasBUGBashStatus = testCase.assertions.some(
     (a) =>
       a.type === "status" &&
       a.variant === "BUG" &&
-      a.shells?.some((s) => s === "bash" || s.startsWith("bash-")),
+      a.shells?.some(isBashCompatible),
   );
 
   // If no explicit default status BUT there are OK or BUG bash status variants,
@@ -557,7 +565,7 @@ export function getAcceptableStatuses(testCase: TestCase): number[] {
     if (
       assertion.type === "status" &&
       assertion.variant === "OK" &&
-      assertion.shells?.some((s) => s === "bash" || s.startsWith("bash-"))
+      assertion.shells?.some(isBashCompatible)
     ) {
       const value = assertion.value as number;
       if (!statuses.includes(value)) {
@@ -574,8 +582,6 @@ export function getAcceptableStatuses(testCase: TestCase): number[] {
  */
 export function isNotImplementedForBash(testCase: TestCase): boolean {
   return testCase.assertions.some(
-    (a) =>
-      a.variant === "N-I" &&
-      a.shells?.some((s) => s === "bash" || s.startsWith("bash-")),
+    (a) => a.variant === "N-I" && a.shells?.some(isBashCompatible),
   );
 }
