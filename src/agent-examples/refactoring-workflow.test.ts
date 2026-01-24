@@ -288,7 +288,8 @@ accountId`,
 second line
 third line
 fourth line
-fifth line`,
+fifth line
+`,
       },
       cwd: "/code",
     });

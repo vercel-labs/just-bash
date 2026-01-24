@@ -3550,9 +3550,17 @@ function evalBuiltin(
         if (v === null) return "";
         if (typeof v === "boolean") return v ? "true" : "false";
         if (typeof v === "number") return String(v);
-        // Strings are always quoted, with internal quotes doubled
+        // Only quote strings that contain special characters (comma, quote, newline)
         const s = String(v);
-        return `"${s.replace(/"/g, '""')}"`;
+        if (
+          s.includes(",") ||
+          s.includes('"') ||
+          s.includes("\n") ||
+          s.includes("\r")
+        ) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
       });
       return [csvEscaped.join(",")];
     }
