@@ -2,7 +2,7 @@
  * AWK spec test runner - executes parsed awk tests against just-bash's awk
  */
 
-import { Bash } from "../Bash.js";
+import { Bash } from "../../Bash.js";
 import type { AwkTestCase } from "./parser.js";
 
 export interface AwkTestResult {

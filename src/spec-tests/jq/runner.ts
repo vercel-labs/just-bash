@@ -2,7 +2,7 @@
  * JQ spec test runner - executes parsed jq tests against just-bash's jq
  */
 
-import { Bash } from "../Bash.js";
+import { Bash } from "../../Bash.js";
 import type { JqTestCase } from "./parser.js";
 
 export interface JqTestResult {

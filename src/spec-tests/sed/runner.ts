@@ -2,7 +2,7 @@
  * SED spec test runner - executes parsed sed tests against just-bash's sed
  */
 
-import { Bash } from "../Bash.js";
+import { Bash } from "../../Bash.js";
 import type { SedTestCase } from "./parser.js";
 
 export interface SedTestResult {

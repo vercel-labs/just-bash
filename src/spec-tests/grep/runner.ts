@@ -2,7 +2,7 @@
  * Grep spec test runner - executes parsed grep tests against just-bash's grep
  */
 
-import { Bash } from "../Bash.js";
+import { Bash } from "../../Bash.js";
 import type { GrepTestCase } from "./parser.js";
 
 export interface GrepTestResult {

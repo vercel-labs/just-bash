@@ -19,7 +19,7 @@ import {
   type BusyBoxTestCase,
   type ParsedBusyBoxTestFile,
   parseBusyBoxTests,
-} from "../test-utils/busybox-test-parser.js";
+} from "../../test-utils/busybox-test-parser.js";
 
 // Re-export types with sed-specific names for backwards compatibility
 export type SedTestCase = BusyBoxTestCase;

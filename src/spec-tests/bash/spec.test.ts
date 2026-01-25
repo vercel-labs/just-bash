@@ -7,8 +7,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseSpecFile } from "./parser.js";
-import { runTestCase } from "./runner.js";
+import { parseSpecFile } from "../parser.js";
+import { runTestCase } from "../runner.js";
 
 const CASES_DIR = path.join(__dirname, "cases");
 

@@ -10,7 +10,7 @@ import {
   type BusyBoxTestCase,
   type ParsedBusyBoxTestFile,
   parseBusyBoxTests,
-} from "../test-utils/busybox-test-parser.js";
+} from "../../test-utils/busybox-test-parser.js";
 
 // Re-export types with grep-specific names
 export type GrepTestCase = BusyBoxTestCase;
