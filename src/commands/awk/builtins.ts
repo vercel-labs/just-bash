@@ -34,6 +34,90 @@ function toAwkString(val: AwkValue): string {
   return String(val);
 }
 
+// ─── Sub/Gsub Helpers ───────────────────────────────────────────
+
+/**
+ * Extract a regex pattern from the first argument.
+ * Handles both regex literals and string expressions.
+ */
+async function extractPatternArg(
+  arg: AwkExpr,
+  evaluator: AwkEvaluator,
+): Promise<string> {
+  if (arg.type === "regex") {
+    return arg.pattern;
+  }
+  let pattern = toAwkString(await evaluator.evalExpr(arg));
+  if (pattern.startsWith("/") && pattern.endsWith("/")) {
+    pattern = pattern.slice(1, -1);
+  }
+  return pattern;
+}
+
+/**
+ * Resolve the target variable name from optional third argument.
+ * Returns "$0" if no third argument, otherwise resolves variable/field name.
+ */
+async function resolveTargetName(
+  args: AwkExpr[],
+  evaluator: AwkEvaluator,
+): Promise<string> {
+  if (args.length < 3) {
+    return "$0";
+  }
+  const targetExpr = args[2];
+  if (targetExpr.type === "variable") {
+    return targetExpr.name;
+  }
+  if (targetExpr.type === "field") {
+    const idx = Math.floor(
+      toNumber(await evaluator.evalExpr(targetExpr.index)),
+    );
+    return `$${idx}`;
+  }
+  return "$0";
+}
+
+/**
+ * Get the current value of a target variable/field.
+ */
+function getTargetValue(targetName: string, ctx: AwkRuntimeContext): string {
+  if (targetName === "$0") {
+    return ctx.line;
+  }
+  if (targetName.startsWith("$")) {
+    const idx = parseInt(targetName.slice(1), 10) - 1;
+    return ctx.fields[idx] || "";
+  }
+  return toAwkString(ctx.vars[targetName] ?? "");
+}
+
+/**
+ * Update a target variable/field with a new value.
+ */
+function updateTarget(
+  targetName: string,
+  newValue: string,
+  ctx: AwkRuntimeContext,
+): void {
+  if (targetName === "$0") {
+    ctx.line = newValue;
+    ctx.fields =
+      ctx.FS === " "
+        ? newValue.trim().split(/\s+/).filter(Boolean)
+        : newValue.split(ctx.fieldSep);
+    ctx.NF = ctx.fields.length;
+  } else if (targetName.startsWith("$")) {
+    const idx = parseInt(targetName.slice(1), 10) - 1;
+    while (ctx.fields.length <= idx) ctx.fields.push("");
+    ctx.fields[idx] = newValue;
+    ctx.NF = ctx.fields.length;
+    ctx.line = ctx.fields.join(ctx.OFS);
+  } else {
+    ctx.vars[targetName] = newValue;
+  }
+}
+
 // ─── String Functions ───────────────────────────────────────────
 
 async function awkLength(
@@ -121,63 +205,16 @@ async function awkSub(
 ): Promise<number> {
   if (args.length < 2) return 0;
 
-  let pattern: string;
-  if (args[0].type === "regex") {
-    pattern = args[0].pattern;
-  } else {
-    pattern = toAwkString(await evaluator.evalExpr(args[0]));
-    if (pattern.startsWith("/") && pattern.endsWith("/")) {
-      pattern = pattern.slice(1, -1);
-    }
-  }
-
+  const pattern = await extractPatternArg(args[0], evaluator);
   const replacement = toAwkString(await evaluator.evalExpr(args[1]));
-
-  let targetName = "$0";
-  if (args.length >= 3) {
-    const targetExpr = args[2];
-    if (targetExpr.type === "variable") {
-      targetName = targetExpr.name;
-    } else if (targetExpr.type === "field") {
-      const idx = Math.floor(
-        toNumber(await evaluator.evalExpr(targetExpr.index)),
-      );
-      targetName = `$${idx}`;
-    }
-  }
-
-  let target: string;
-  if (targetName === "$0") {
-    target = ctx.line;
-  } else if (targetName.startsWith("$")) {
-    const idx = parseInt(targetName.slice(1), 10) - 1;
-    target = ctx.fields[idx] || "";
-  } else {
-    target = toAwkString(ctx.vars[targetName] ?? "");
-  }
+  const targetName = await resolveTargetName(args, evaluator);
+  const target = getTargetValue(targetName, ctx);
 
   try {
     const regex = new RegExp(pattern);
     const newTarget = target.replace(regex, createSubReplacer(replacement));
     const changed = newTarget !== target ? 1 : 0;
-
-    if (targetName === "$0") {
-      ctx.line = newTarget;
-      ctx.fields =
-        ctx.FS === " "
-          ? newTarget.trim().split(/\s+/).filter(Boolean)
-          : newTarget.split(ctx.fieldSep);
-      ctx.NF = ctx.fields.length;
-    } else if (targetName.startsWith("$")) {
-      const idx = parseInt(targetName.slice(1), 10) - 1;
-      while (ctx.fields.length <= idx) ctx.fields.push("");
-      ctx.fields[idx] = newTarget;
-      ctx.NF = ctx.fields.length;
-      ctx.line = ctx.fields.join(ctx.OFS);
-    } else {
-      ctx.vars[targetName] = newTarget;
-    }
-
+    updateTarget(targetName, newTarget, ctx);
     return changed;
   } catch {
     return 0;
@@ -191,64 +228,17 @@ async function awkGsub(
 ): Promise<number> {
   if (args.length < 2) return 0;
 
-  let pattern: string;
-  if (args[0].type === "regex") {
-    pattern = args[0].pattern;
-  } else {
-    pattern = toAwkString(await evaluator.evalExpr(args[0]));
-    if (pattern.startsWith("/") && pattern.endsWith("/")) {
-      pattern = pattern.slice(1, -1);
-    }
-  }
-
+  const pattern = await extractPatternArg(args[0], evaluator);
   const replacement = toAwkString(await evaluator.evalExpr(args[1]));
-
-  let targetName = "$0";
-  if (args.length >= 3) {
-    const targetExpr = args[2];
-    if (targetExpr.type === "variable") {
-      targetName = targetExpr.name;
-    } else if (targetExpr.type === "field") {
-      const idx = Math.floor(
-        toNumber(await evaluator.evalExpr(targetExpr.index)),
-      );
-      targetName = `$${idx}`;
-    }
-  }
-
-  let target: string;
-  if (targetName === "$0") {
-    target = ctx.line;
-  } else if (targetName.startsWith("$")) {
-    const idx = parseInt(targetName.slice(1), 10) - 1;
-    target = ctx.fields[idx] || "";
-  } else {
-    target = toAwkString(ctx.vars[targetName] ?? "");
-  }
+  const targetName = await resolveTargetName(args, evaluator);
+  const target = getTargetValue(targetName, ctx);
 
   try {
     const regex = new RegExp(pattern, "g");
     const matches = target.match(regex);
     const count = matches ? matches.length : 0;
     const newTarget = target.replace(regex, createSubReplacer(replacement));
-
-    if (targetName === "$0") {
-      ctx.line = newTarget;
-      ctx.fields =
-        ctx.FS === " "
-          ? newTarget.trim().split(/\s+/).filter(Boolean)
-          : newTarget.split(ctx.fieldSep);
-      ctx.NF = ctx.fields.length;
-    } else if (targetName.startsWith("$")) {
-      const idx = parseInt(targetName.slice(1), 10) - 1;
-      while (ctx.fields.length <= idx) ctx.fields.push("");
-      ctx.fields[idx] = newTarget;
-      ctx.NF = ctx.fields.length;
-      ctx.line = ctx.fields.join(ctx.OFS);
-    } else {
-      ctx.vars[targetName] = newTarget;
-    }
-
+    updateTarget(targetName, newTarget, ctx);
     return count;
   } catch {
     return 0;

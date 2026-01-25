@@ -82,8 +82,8 @@ export async function evalExpr(
 
     case "ternary":
       return isTruthy(await evalExpr(ctx, expr.condition))
-        ? evalExpr(ctx, expr.consequent)
-        : evalExpr(ctx, expr.alternate);
+        ? await evalExpr(ctx, expr.consequent)
+        : await evalExpr(ctx, expr.alternate);
 
     case "call":
       return evalFunctionCall(ctx, expr.name, expr.args);

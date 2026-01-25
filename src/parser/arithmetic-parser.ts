@@ -17,6 +17,26 @@ import type {
 } from "../ast/types.js";
 import { ArithmeticError } from "../interpreter/errors.js";
 import type { Parser } from "./parser.js";
+import { MAX_ARITH_ITERATIONS } from "./types.js";
+
+/**
+ * Module-level iteration counter for preventing infinite loops.
+ * Reset at each top-level parse call.
+ */
+let arithIterations = 0;
+
+/**
+ * Check and increment the iteration counter.
+ * Throws if the limit is exceeded.
+ */
+function checkArithIteration(): void {
+  arithIterations++;
+  if (arithIterations > MAX_ARITH_ITERATIONS) {
+    throw new ArithmeticError(
+      "Maximum arithmetic parsing iterations exceeded (possible infinite loop)",
+    );
+  }
+}
 
 /**
  * Parse an arithmetic expression string into an AST node
@@ -25,6 +45,7 @@ export function parseArithmeticExpression(
   _p: Parser,
   input: string,
 ): ArithmeticExpressionNode {
+  arithIterations = 0; // Reset counter for new parse
   const expression = parseArithExpr(_p, input, 0).expr;
   return { type: "ArithmeticExpression", expression };
 }
@@ -34,6 +55,7 @@ export function parseArithExpr(
   input: string,
   pos: number,
 ): { expr: ArithExpr; pos: number } {
+  checkArithIteration();
   // Comma operator has the lowest precedence
   return parseArithComma(p, input, pos);
 }
@@ -43,6 +65,7 @@ function parseArithComma(
   input: string,
   pos: number,
 ): { expr: ArithExpr; pos: number } {
+  checkArithIteration();
   let { expr: left, pos: currentPos } = parseArithTernary(p, input, pos);
 
   currentPos = skipArithWhitespace(input, currentPos);
@@ -61,6 +84,7 @@ function parseArithTernary(
   input: string,
   pos: number,
 ): { expr: ArithExpr; pos: number } {
+  checkArithIteration();
   let { expr: condition, pos: currentPos } = parseArithLogicalOr(p, input, pos);
 
   currentPos = skipArithWhitespace(input, currentPos);
@@ -383,6 +407,7 @@ function parseArithUnary(
   input: string,
   pos: number,
 ): { expr: ArithExpr; pos: number } {
+  checkArithIteration();
   let currentPos = skipArithWhitespace(input, pos);
 
   // Prefix operators: ++ -- + - ! ~
@@ -482,6 +507,7 @@ function parseArithPrimary(
   input: string,
   pos: number,
 ): { expr: ArithExpr; pos: number } {
+  checkArithIteration();
   let currentPos = skipArithWhitespace(input, pos);
 
   // Nested arithmetic: $((expr))

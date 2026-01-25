@@ -160,6 +160,29 @@ describe("jq operators", () => {
       const result = await env.exec("echo '-5' | jq 'abs'");
       expect(result.stdout).toBe("5\n");
     });
+
+    it("should atan2 with two arguments", async () => {
+      const env = new Bash();
+      // atan2(1; 1) = π/4 ≈ 0.7853981633974483
+      const result = await env.exec("echo 'null' | jq 'atan2(1; 1)'");
+      expect(result.exitCode).toBe(0);
+      expect(Number.parseFloat(result.stdout)).toBeCloseTo(Math.PI / 4, 10);
+    });
+
+    it("should atan2(0; 1) return 0", async () => {
+      const env = new Bash();
+      const result = await env.exec("echo 'null' | jq 'atan2(0; 1)'");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("0\n");
+    });
+
+    it("should atan2(1; 0) return π/2", async () => {
+      const env = new Bash();
+      // atan2(1; 0) = π/2
+      const result = await env.exec("echo 'null' | jq 'atan2(1; 0)'");
+      expect(result.exitCode).toBe(0);
+      expect(Number.parseFloat(result.stdout)).toBeCloseTo(Math.PI / 2, 10);
+    });
   });
 
   describe("type conversion", () => {

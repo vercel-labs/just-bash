@@ -6,6 +6,15 @@
  */
 
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import {
+  tryEvalBinaryMathBuiltin,
+  tryEvalSpecialMathBuiltin,
+  tryEvalUnaryMathBuiltin,
+} from "./builtins-math.js";
+import {
+  tryEvalImplode,
+  tryEvalSimpleStringBuiltin,
+} from "./builtins-string.js";
 import type { AstNode, DestructurePattern } from "./parser.js";
 
 export type QueryValue = unknown;
@@ -1383,6 +1392,39 @@ function evalBuiltin(
   args: AstNode[],
   ctx: EvalContext,
 ): QueryValue[] {
+  // Check for math builtins first (extracted to separate module for maintainability)
+  const unaryMathResult = tryEvalUnaryMathBuiltin(name, value);
+  if (unaryMathResult !== null) {
+    return unaryMathResult;
+  }
+
+  const specialMathResult = tryEvalSpecialMathBuiltin(name, value);
+  if (specialMathResult !== null) {
+    return specialMathResult;
+  }
+
+  const binaryMathResult = tryEvalBinaryMathBuiltin(
+    name,
+    value,
+    args,
+    evaluate,
+    ctx,
+  );
+  if (binaryMathResult !== null) {
+    return binaryMathResult;
+  }
+
+  // Check for simple string builtins (extracted to separate module)
+  const simpleStringResult = tryEvalSimpleStringBuiltin(name, value);
+  if (simpleStringResult !== null) {
+    return simpleStringResult;
+  }
+
+  const implodeResult = tryEvalImplode(name, value);
+  if (implodeResult !== null) {
+    return implodeResult;
+  }
+
   switch (name) {
     case "keys":
       if (Array.isArray(value)) return [value.map((_, i) => i)];
@@ -2538,25 +2580,7 @@ function evalBuiltin(
       }
     }
 
-    case "ascii_downcase":
-      if (typeof value === "string") {
-        return [
-          value.replace(/[A-Z]/g, (c) =>
-            String.fromCharCode(c.charCodeAt(0) + 32),
-          ),
-        ];
-      }
-      return [null];
-
-    case "ascii_upcase":
-      if (typeof value === "string") {
-        return [
-          value.replace(/[a-z]/g, (c) =>
-            String.fromCharCode(c.charCodeAt(0) - 32),
-          ),
-        ];
-      }
-      return [null];
+    // ascii_downcase and ascii_upcase are handled by tryEvalSimpleStringBuiltin
 
     case "ltrimstr": {
       if (typeof value !== "string" || args.length === 0) return [value];
@@ -2585,17 +2609,7 @@ function evalBuiltin(
       return [result];
     }
 
-    case "trim":
-      if (typeof value === "string") return [value.trim()];
-      throw new Error("trim input must be a string");
-
-    case "ltrim":
-      if (typeof value === "string") return [value.trimStart()];
-      throw new Error("trim input must be a string");
-
-    case "rtrim":
-      if (typeof value === "string") return [value.trimEnd()];
-      throw new Error("trim input must be a string");
+    // trim, ltrim, rtrim are handled by tryEvalSimpleStringBuiltin
 
     case "startswith": {
       if (typeof value !== "string" || args.length === 0) return [false];
@@ -2719,223 +2733,17 @@ function evalBuiltin(
       });
     }
 
-    case "floor":
-      if (typeof value === "number") return [Math.floor(value)];
-      return [null];
+    // Note: Math functions are handled by helpers in builtins-math.ts:
+    // - tryEvalUnaryMathBuiltin: floor, ceil, round, sqrt, log, log10, log2, exp,
+    //   exp10, exp2, sin, cos, tan, asin, acos, atan, sinh, cosh, tanh, asinh,
+    //   acosh, atanh, cbrt, expm1, log1p, trunc
+    // - tryEvalSpecialMathBuiltin: abs/fabs, nan, infinite, isnan, isinfinite,
+    //   isfinite, isnormal
+    // - tryEvalBinaryMathBuiltin: pow, atan2, hypot, fma, copysign, drem/remainder,
+    //   fdim, fmax, fmin, ldexp, scalbn/scalbln, nearbyint/rint, significand,
+    //   logb, frexp, modf
 
-    case "ceil":
-      if (typeof value === "number") return [Math.ceil(value)];
-      return [null];
-
-    case "round":
-      if (typeof value === "number") return [Math.round(value)];
-      return [null];
-
-    case "sqrt":
-      if (typeof value === "number") return [Math.sqrt(value)];
-      return [null];
-
-    case "fabs":
-    case "abs":
-      if (typeof value === "number") return [Math.abs(value)];
-      // jq returns strings unchanged for abs
-      if (typeof value === "string") return [value];
-      return [null];
-
-    case "log":
-      if (typeof value === "number") return [Math.log(value)];
-      return [null];
-
-    case "log10":
-      if (typeof value === "number") return [Math.log10(value)];
-      return [null];
-
-    case "log2":
-      if (typeof value === "number") return [Math.log2(value)];
-      return [null];
-
-    case "exp":
-      if (typeof value === "number") return [Math.exp(value)];
-      return [null];
-
-    case "exp10":
-      if (typeof value === "number") return [10 ** value];
-      return [null];
-
-    case "exp2":
-      if (typeof value === "number") return [2 ** value];
-      return [null];
-
-    case "pow": {
-      if (typeof value !== "number" || args.length === 0) return [null];
-      const exps = evaluate(value, args[0], ctx);
-      const exp = exps[0] as number;
-      return [value ** exp];
-    }
-
-    case "sin":
-      if (typeof value === "number") return [Math.sin(value)];
-      return [null];
-
-    case "cos":
-      if (typeof value === "number") return [Math.cos(value)];
-      return [null];
-
-    case "tan":
-      if (typeof value === "number") return [Math.tan(value)];
-      return [null];
-
-    case "asin":
-      if (typeof value === "number") return [Math.asin(value)];
-      return [null];
-
-    case "acos":
-      if (typeof value === "number") return [Math.acos(value)];
-      return [null];
-
-    case "atan":
-      if (typeof value === "number") return [Math.atan(value)];
-      return [null];
-
-    case "atan2": {
-      if (typeof value !== "number" || args.length === 0) return [null];
-      const x = evaluate(value, args[0], ctx)[0] as number;
-      return [Math.atan2(value, x)];
-    }
-
-    case "sinh":
-      if (typeof value === "number") return [Math.sinh(value)];
-      return [null];
-
-    case "cosh":
-      if (typeof value === "number") return [Math.cosh(value)];
-      return [null];
-
-    case "tanh":
-      if (typeof value === "number") return [Math.tanh(value)];
-      return [null];
-
-    case "asinh":
-      if (typeof value === "number") return [Math.asinh(value)];
-      return [null];
-
-    case "acosh":
-      if (typeof value === "number") return [Math.acosh(value)];
-      return [null];
-
-    case "atanh":
-      if (typeof value === "number") return [Math.atanh(value)];
-      return [null];
-
-    case "cbrt":
-      if (typeof value === "number") return [Math.cbrt(value)];
-      return [null];
-
-    case "expm1":
-      if (typeof value === "number") return [Math.expm1(value)];
-      return [null];
-
-    case "log1p":
-      if (typeof value === "number") return [Math.log1p(value)];
-      return [null];
-
-    case "trunc":
-      if (typeof value === "number") return [Math.trunc(value)];
-      return [null];
-
-    case "hypot": {
-      if (typeof value !== "number" || args.length === 0) return [null];
-      const y = evaluate(value, args[0], ctx)[0] as number;
-      return [Math.hypot(value, y)];
-    }
-
-    case "fma": {
-      if (typeof value !== "number" || args.length < 2) return [null];
-      const y = evaluate(value, args[0], ctx)[0] as number;
-      const z = evaluate(value, args[1], ctx)[0] as number;
-      return [value * y + z];
-    }
-
-    case "copysign": {
-      if (typeof value !== "number" || args.length === 0) return [null];
-      const y = evaluate(value, args[0], ctx)[0] as number;
-      return [Math.sign(y) * Math.abs(value)];
-    }
-
-    case "drem":
-    case "remainder": {
-      if (typeof value !== "number" || args.length === 0) return [null];
-      const y = evaluate(value, args[0], ctx)[0] as number;
-      return [value - Math.round(value / y) * y];
-    }
-
-    case "fdim": {
-      if (typeof value !== "number" || args.length === 0) return [null];
-      const y = evaluate(value, args[0], ctx)[0] as number;
-      return [Math.max(0, value - y)];
-    }
-
-    case "fmax": {
-      if (typeof value !== "number" || args.length === 0) return [null];
-      const y = evaluate(value, args[0], ctx)[0] as number;
-      return [Math.max(value, y)];
-    }
-
-    case "fmin": {
-      if (typeof value !== "number" || args.length === 0) return [null];
-      const y = evaluate(value, args[0], ctx)[0] as number;
-      return [Math.min(value, y)];
-    }
-
-    case "ldexp": {
-      if (typeof value !== "number" || args.length === 0) return [null];
-      const exp = evaluate(value, args[0], ctx)[0] as number;
-      return [value * 2 ** exp];
-    }
-
-    case "scalbn":
-    case "scalbln": {
-      if (typeof value !== "number" || args.length === 0) return [null];
-      const exp = evaluate(value, args[0], ctx)[0] as number;
-      return [value * 2 ** exp];
-    }
-
-    case "nearbyint":
-      if (typeof value === "number") return [Math.round(value)];
-      return [null];
-
-    case "logb":
-      if (typeof value === "number")
-        return [Math.floor(Math.log2(Math.abs(value)))];
-      return [null];
-
-    case "significand":
-      if (typeof value === "number") {
-        const exp = Math.floor(Math.log2(Math.abs(value)));
-        return [value / 2 ** exp];
-      }
-      return [null];
-
-    case "frexp":
-      if (typeof value === "number") {
-        if (value === 0) return [[0, 0]];
-        const exp = Math.floor(Math.log2(Math.abs(value))) + 1;
-        const mantissa = value / 2 ** exp;
-        return [[mantissa, exp]];
-      }
-      return [null];
-
-    case "modf":
-      if (typeof value === "number") {
-        const intPart = Math.trunc(value);
-        const fracPart = value - intPart;
-        return [[fracPart, intPart]];
-      }
-      return [null];
-
-    case "tostring":
-      if (typeof value === "string") return [value];
-      return [JSON.stringify(value)];
+    // tostring is handled by tryEvalSimpleStringBuiltin
 
     case "tonumber":
       if (typeof value === "number") return [value];
@@ -2971,27 +2779,8 @@ function evalBuiltin(
       );
     }
 
-    case "infinite":
-      // jq: `infinite` produces positive infinity
-      return [Number.POSITIVE_INFINITY];
-
-    case "nan":
-      // jq: `nan` produces NaN value
-      return [Number.NaN];
-
-    case "isinfinite":
-      return [typeof value === "number" && !Number.isFinite(value)];
-
-    case "isnan":
-      return [typeof value === "number" && Number.isNaN(value)];
-
-    case "isnormal":
-      return [
-        typeof value === "number" && Number.isFinite(value) && value !== 0,
-      ];
-
-    case "isfinite":
-      return [typeof value === "number" && Number.isFinite(value)];
+    // Note: infinite, nan, isinfinite, isnan, isnormal, isfinite are handled
+    // by tryEvalSpecialMathBuiltin in builtins-math.ts
 
     case "numbers":
       return typeof value === "number" ? [value] : [];
@@ -3342,45 +3131,8 @@ function evalBuiltin(
       }
       return [null];
 
-    case "explode":
-      if (typeof value === "string") {
-        return [Array.from(value).map((c) => c.codePointAt(0))];
-      }
-      return [null];
-
-    case "implode":
-      if (!Array.isArray(value)) {
-        throw new Error("implode input must be an array");
-      }
-      {
-        // jq: Invalid code points get replaced with Unicode replacement character (0xFFFD)
-        const REPLACEMENT_CHAR = 0xfffd;
-        const chars = (value as QueryValue[]).map((cp) => {
-          // Check for non-numeric values
-          if (typeof cp === "string") {
-            throw new Error(
-              `string (${JSON.stringify(cp)}) can't be imploded, unicode codepoint needs to be numeric`,
-            );
-          }
-          if (typeof cp !== "number" || Number.isNaN(cp)) {
-            throw new Error(
-              `number (null) can't be imploded, unicode codepoint needs to be numeric`,
-            );
-          }
-          // Truncate to integer
-          const code = Math.trunc(cp);
-          // Check for valid Unicode code point
-          // Valid range: 0 to 0x10FFFF, excluding surrogate pairs (0xD800-0xDFFF)
-          if (code < 0 || code > 0x10ffff) {
-            return String.fromCodePoint(REPLACEMENT_CHAR);
-          }
-          if (code >= 0xd800 && code <= 0xdfff) {
-            return String.fromCodePoint(REPLACEMENT_CHAR);
-          }
-          return String.fromCodePoint(code);
-        });
-        return [chars.join("")];
-      }
+    // explode is handled by tryEvalSimpleStringBuiltin
+    // implode is handled by tryEvalImplode
 
     case "tojson":
     case "tojsonstream": {

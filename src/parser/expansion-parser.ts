@@ -13,7 +13,29 @@ import {
 } from "../ast/types.js";
 import { parseArithmeticExpression } from "./arithmetic-parser.js";
 import type { Parser } from "./parser.js";
+import { MAX_EXPANSION_ITERATIONS, ParseException } from "./types.js";
 import * as WordParser from "./word-parser.js";
+
+/**
+ * Module-level iteration counter for preventing infinite loops.
+ * Reset at each top-level parse call.
+ */
+let expansionIterations = 0;
+
+/**
+ * Check and increment the iteration counter.
+ * Throws if the limit is exceeded.
+ */
+function checkExpansionIteration(): void {
+  expansionIterations++;
+  if (expansionIterations > MAX_EXPANSION_ITERATIONS) {
+    throw new ParseException(
+      "Maximum expansion parsing iterations exceeded (possible infinite loop)",
+      0,
+      0,
+    );
+  }
+}
 
 function parseSimpleParameter(
   _p: Parser,
@@ -184,6 +206,7 @@ function parseParameterOperation(
   _paramName: string,
   quoted = false,
 ): { operation: ParameterOperation | null; endIndex: number } {
+  checkExpansionIteration();
   let i = start;
   const char = value[i];
   const nextChar = value[i + 1] || "";
@@ -502,6 +525,7 @@ function parseExpansion(
 }
 
 function parseDoubleQuotedContent(p: Parser, value: string): WordPart[] {
+  checkExpansionIteration();
   const parts: WordPart[] = [];
   let i = 0;
   let literal = "";
@@ -514,6 +538,7 @@ function parseDoubleQuotedContent(p: Parser, value: string): WordPart[] {
   };
 
   while (i < value.length) {
+    checkExpansionIteration();
     const char = value[i];
 
     // Handle escape sequences - \$ and \` should become $ and `
@@ -639,6 +664,9 @@ export function parseWordParts(
   /** When true, single quotes are treated as literal characters, not quote delimiters */
   singleQuotesAreLiteral = false,
 ): WordPart[] {
+  // Reset iteration counter at entry point
+  expansionIterations = 0;
+
   if (singleQuoted) {
     // Single quotes: no expansion
     return [AST.singleQuoted(value)];
@@ -663,6 +691,7 @@ export function parseWordParts(
   };
 
   while (i < value.length) {
+    checkExpansionIteration();
     const char = value[i];
 
     // Handle escape sequences
