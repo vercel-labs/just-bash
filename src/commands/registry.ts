@@ -97,7 +97,7 @@ export type CommandName =
   | "whoami";
 
 /** Network command names (only available when network is configured) */
-export type NetworkCommandName = "curl";
+export type NetworkCommandName = "curl" | "specli";
 
 /** All command names including network commands */
 export type AllCommandName = CommandName | NetworkCommandName;
@@ -488,6 +488,10 @@ const networkCommandLoaders: LazyCommandDef<NetworkCommandName>[] = [
   {
     name: "curl",
     load: async () => (await import("./curl/curl.js")).curlCommand,
+  },
+  {
+    name: "specli",
+    load: async () => (await import("./specli/specli.js")).specliCommand,
   },
 ];
 

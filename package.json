@@ -49,10 +49,10 @@
   "scripts": {
     "build": "rm -rf dist && tsc && pnpm build:lib && pnpm build:browser && pnpm build:cli && pnpm build:shell && pnpm build:clean && sed '1,/^-->/d' AGENTS.npm.md > dist/AGENTS.md",
     "build:clean": "find dist -name '*.test.js' -delete && find dist -name '*.test.d.ts' -delete",
-    "build:lib": "esbuild dist/index.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bundle --chunk-names=chunks/[name]-[hash] --external:diff --external:minimatch --external:sprintf-js --external:turndown --external:sql.js --external:@mongodb-js/zstd --external:node-liblzma --external:compressjs",
-    "build:browser": "esbuild dist/browser.js --bundle --platform=browser --format=esm --minify --outfile=dist/bundle/browser.js --external:diff --external:minimatch --external:sprintf-js --external:turndown --external:node:* --external:@mongodb-js/zstd --external:node-liblzma --external:compressjs --define:__BROWSER__=true",
-    "build:cli": "esbuild dist/cli/just-bash.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bin --entry-names=[name] --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node' --external:sql.js --external:@mongodb-js/zstd --external:node-liblzma --external:compressjs",
-    "build:shell": "esbuild dist/cli/shell.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bin/shell --entry-names=[name] --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node' --external:sql.js --external:@mongodb-js/zstd --external:node-liblzma --external:compressjs",
+    "build:lib": "esbuild dist/index.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bundle --chunk-names=chunks/[name]-[hash] --external:diff --external:minimatch --external:sprintf-js --external:turndown --external:sql.js --external:@mongodb-js/zstd --external:node-liblzma --external:compressjs --external:specli",
+    "build:browser": "esbuild dist/browser.js --bundle --platform=browser --format=esm --minify --outfile=dist/bundle/browser.js --external:diff --external:minimatch --external:sprintf-js --external:turndown --external:node:* --external:@mongodb-js/zstd --external:node-liblzma --external:compressjs --external:specli --define:__BROWSER__=true",
+    "build:cli": "esbuild dist/cli/just-bash.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bin --entry-names=[name] --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node' --external:sql.js --external:@mongodb-js/zstd --external:node-liblzma --external:compressjs --external:specli",
+    "build:shell": "esbuild dist/cli/shell.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bin/shell --entry-names=[name] --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node' --external:sql.js --external:@mongodb-js/zstd --external:node-liblzma --external:compressjs --external:specli",
     "prepublishOnly": "pnpm validate",
     "validate": "pnpm lint && pnpm knip && pnpm typecheck &&  pnpm build && pnpm test:run && pnpm test:dist",
     "typecheck": "tsc --noEmit",
@@ -81,6 +81,7 @@
     "@types/turndown": "^5.0.6",
     "esbuild": "^0.27.2",
     "knip": "^5.41.1",
+    "specli": "^0.0.39",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16"
   },
@@ -102,6 +103,14 @@
   },
   "optionalDependencies": {
     "node-liblzma": "^2.0.3"
+  },
+  "peerDependencies": {
+    "specli": ">=0.0.39"
+  },
+  "peerDependenciesMeta": {
+    "specli": {
+      "optional": true
+    }
   },
   "packageManager": "pnpm@8.15.9+sha512.499434c9d8fdd1a2794ebf4552b3b25c0a633abcee5bb15e7b5de90f32f47b513aca98cd5cfd001c31f0db454bc3804edccd578501e4ca293a6816166bbd9f81"
 }
