@@ -113,6 +113,98 @@ function isPosixSpecialBuiltin(name: string): boolean {
 }
 
 /**
+ * Shell keywords (for type, command -v, etc.)
+ */
+const SHELL_KEYWORDS = new Set([
+  "if",
+  "then",
+  "else",
+  "elif",
+  "fi",
+  "case",
+  "esac",
+  "for",
+  "select",
+  "while",
+  "until",
+  "do",
+  "done",
+  "in",
+  "function",
+  "{",
+  "}",
+  "time",
+  "[[",
+  "]]",
+  "!",
+]);
+
+/**
+ * Shell builtins (for type, command -v, builtin, etc.)
+ */
+const SHELL_BUILTINS = new Set([
+  ":",
+  "true",
+  "false",
+  "cd",
+  "export",
+  "unset",
+  "exit",
+  "local",
+  "set",
+  "break",
+  "continue",
+  "return",
+  "eval",
+  "shift",
+  "getopts",
+  "compgen",
+  "complete",
+  "compopt",
+  "pushd",
+  "popd",
+  "dirs",
+  "source",
+  ".",
+  "read",
+  "mapfile",
+  "readarray",
+  "declare",
+  "typeset",
+  "readonly",
+  "let",
+  "command",
+  "shopt",
+  "exec",
+  "test",
+  "[",
+  "echo",
+  "printf",
+  "pwd",
+  "alias",
+  "unalias",
+  "type",
+  "hash",
+  "ulimit",
+  "umask",
+  "trap",
+  "times",
+  "wait",
+  "kill",
+  "jobs",
+  "fg",
+  "bg",
+  "disown",
+  "suspend",
+  "fc",
+  "history",
+  "help",
+  "enable",
+  "builtin",
+  "caller",
+]);
+
+/**
  * Check if a WordNode is a literal match for any of the given strings.
  * Returns true only if the word is a single literal (no expansions, no quoting)
  * that matches one of the target strings.
@@ -2571,66 +2663,7 @@ export class Interpreter {
       }
       const cmd = cmdArgs[0];
       // Check if the command is a shell builtin
-      const builtins = new Set([
-        ":",
-        "true",
-        "false",
-        "cd",
-        "export",
-        "unset",
-        "exit",
-        "local",
-        "set",
-        "break",
-        "continue",
-        "return",
-        "eval",
-        "shift",
-        "getopts",
-        "compgen",
-        "pushd",
-        "popd",
-        "dirs",
-        "source",
-        ".",
-        "read",
-        "mapfile",
-        "readarray",
-        "declare",
-        "typeset",
-        "readonly",
-        "let",
-        "command",
-        "shopt",
-        "exec",
-        "test",
-        "[",
-        "echo",
-        "printf",
-        "pwd",
-        "alias",
-        "unalias",
-        "type",
-        "hash",
-        "ulimit",
-        "umask",
-        "trap",
-        "times",
-        "wait",
-        "kill",
-        "jobs",
-        "fg",
-        "bg",
-        "disown",
-        "suspend",
-        "fc",
-        "history",
-        "help",
-        "enable",
-        "builtin",
-        "caller",
-      ]);
-      if (!builtins.has(cmd)) {
+      if (!SHELL_BUILTINS.has(cmd)) {
         // Not a builtin - return error
         return failure(`bash: builtin: ${cmd}: not a shell builtin\n`);
       }
@@ -3230,80 +3263,6 @@ export class Interpreter {
   // ===========================================================================
 
   private async handleType(args: string[]): Promise<ExecResult> {
-    // Shell keywords
-    const keywords = new Set([
-      "if",
-      "then",
-      "else",
-      "elif",
-      "fi",
-      "case",
-      "esac",
-      "for",
-      "select",
-      "while",
-      "until",
-      "do",
-      "done",
-      "in",
-      "function",
-      "{",
-      "}",
-      "time",
-      "[[",
-      "]]",
-      "!",
-    ]);
-
-    // Shell builtins
-    const builtins = new Set([
-      "cd",
-      "export",
-      "unset",
-      "exit",
-      "local",
-      "set",
-      "break",
-      "continue",
-      "return",
-      "eval",
-      "shift",
-      "source",
-      ".",
-      "read",
-      "declare",
-      "typeset",
-      "readonly",
-      ":",
-      "true",
-      "false",
-      "let",
-      "command",
-      "builtin",
-      "shopt",
-      "exec",
-      "wait",
-      "type",
-      "[",
-      "test",
-      "echo",
-      "printf",
-      "getopts",
-      "compgen",
-      "hash",
-      "ulimit",
-      "umask",
-      "alias",
-      "unalias",
-      "dirs",
-      "pushd",
-      "popd",
-      "mapfile",
-      "readarray",
-      "pwd",
-      "help",
-    ]);
-
     // Parse options
     let typeOnly = false; // -t flag: print only the type word
     let pathOnly = false; // -p flag: print only paths to executables (respects aliases/functions/builtins)
@@ -3424,7 +3383,7 @@ export class Interpreter {
       }
 
       // Check keywords
-      const hasKeyword = keywords.has(name);
+      const hasKeyword = SHELL_KEYWORDS.has(name);
       if (hasKeyword && (showAll || !foundAny)) {
         // -p: print nothing for keywords (no path), but count as "found"
         if (pathOnly) {
@@ -3460,7 +3419,7 @@ export class Interpreter {
       }
 
       // Check builtins
-      const hasBuiltin = builtins.has(name);
+      const hasBuiltin = SHELL_BUILTINS.has(name);
       if (hasBuiltin && (showAll || !foundAny)) {
         // -p: print nothing for builtins (no path), but count as "found"
         if (pathOnly) {
@@ -3740,79 +3699,6 @@ export class Interpreter {
     _showPath: boolean,
     verboseDescribe: boolean,
   ): Promise<ExecResult> {
-    // Shell keywords
-    const keywords = new Set([
-      "if",
-      "then",
-      "else",
-      "elif",
-      "fi",
-      "case",
-      "esac",
-      "for",
-      "select",
-      "while",
-      "until",
-      "do",
-      "done",
-      "in",
-      "function",
-      "{",
-      "}",
-      "time",
-      "[[",
-      "]]",
-      "!",
-    ]);
-
-    // Shell builtins
-    const builtins = new Set([
-      "cd",
-      "export",
-      "unset",
-      "exit",
-      "local",
-      "set",
-      "break",
-      "continue",
-      "return",
-      "eval",
-      "shift",
-      "source",
-      ".",
-      "read",
-      "declare",
-      "typeset",
-      "readonly",
-      ":",
-      "true",
-      "false",
-      "let",
-      "command",
-      "builtin",
-      "shopt",
-      "exec",
-      "wait",
-      "type",
-      "[",
-      "test",
-      "echo",
-      "printf",
-      "getopts",
-      "compgen",
-      "hash",
-      "ulimit",
-      "umask",
-      "alias",
-      "unalias",
-      "dirs",
-      "pushd",
-      "popd",
-      "mapfile",
-      "readarray",
-      "help",
-    ]);
-
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
@@ -3832,13 +3718,13 @@ export class Interpreter {
         } else {
           stdout += `alias ${name}='${alias}'\n`;
         }
-      } else if (keywords.has(name)) {
+      } else if (SHELL_KEYWORDS.has(name)) {
         if (verboseDescribe) {
           stdout += `${name} is a shell keyword\n`;
         } else {
           stdout += `${name}\n`;
         }
-      } else if (builtins.has(name)) {
+      } else if (SHELL_BUILTINS.has(name)) {
         if (verboseDescribe) {
           stdout += `${name} is a shell builtin\n`;
         } else {

@@ -19,6 +19,23 @@ import { ArithmeticError } from "../interpreter/errors.js";
 import type { Parser } from "./parser.js";
 
 /**
+ * Assignment operators in arithmetic expressions
+ */
+const ARITH_ASSIGN_OPS = [
+  "=",
+  "+=",
+  "-=",
+  "*=",
+  "/=",
+  "%=",
+  "<<=",
+  ">>=",
+  "&=",
+  "|=",
+  "^=",
+] as const;
+
+/**
  * Preprocess arithmetic expression to handle double-quoted strings.
  * In bash, double quotes inside arithmetic are removed and their content is
  * text-inserted into the expression. E.g., $(( "1 + 2" * 3 )) becomes $(( 1 + 2 * 3 ))
@@ -616,20 +633,7 @@ function parseArithPostfix(
     expr.type === "ArithVariable" ||
     expr.type === "ArithDynamicElement"
   ) {
-    const assignOps = [
-      "=",
-      "+=",
-      "-=",
-      "*=",
-      "/=",
-      "%=",
-      "<<=",
-      ">>=",
-      "&=",
-      "|=",
-      "^=",
-    ];
-    for (const op of assignOps) {
+    for (const op of ARITH_ASSIGN_OPS) {
       if (
         input.slice(currentPos, currentPos + op.length) === op &&
         input.slice(currentPos, currentPos + op.length + 1) !== "=="
@@ -1128,20 +1132,7 @@ function parseArithPrimary(
 
       // Check for assignment operators after array subscript (skip if in concat context)
       if (!skipAssignment) {
-        const assignOps = [
-          "=",
-          "+=",
-          "-=",
-          "*=",
-          "/=",
-          "%=",
-          "<<=",
-          ">>=",
-          "&=",
-          "|=",
-          "^=",
-        ];
-        for (const op of assignOps) {
+        for (const op of ARITH_ASSIGN_OPS) {
           if (
             input.slice(currentPos, currentPos + op.length) === op &&
             input.slice(currentPos, currentPos + op.length + 1) !== "=="
@@ -1184,20 +1175,7 @@ function parseArithPrimary(
     // Assignment has higher precedence than comma, so parse RHS with parseArithTernary
     // This makes `a = b, c` parse as `(a = b), c` not `a = (b, c)`
     if (!skipAssignment) {
-      const assignOps = [
-        "=",
-        "+=",
-        "-=",
-        "*=",
-        "/=",
-        "%=",
-        "<<=",
-        ">>=",
-        "&=",
-        "|=",
-        "^=",
-      ];
-      for (const op of assignOps) {
+      for (const op of ARITH_ASSIGN_OPS) {
         if (
           input.slice(currentPos, currentPos + op.length) === op &&
           input.slice(currentPos, currentPos + op.length + 1) !== "=="

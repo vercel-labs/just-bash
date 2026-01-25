@@ -17,7 +17,7 @@ import type {
  * Check if a glob pattern string contains variable references ($var or ${var})
  * This is used to detect when IFS splitting should apply to expanded glob patterns.
  */
-function globPatternHasVarRef(pattern: string): boolean {
+export function globPatternHasVarRef(pattern: string): boolean {
   // Look for $varname or ${...} patterns
   // Skip escaped $ (e.g., \$)
   for (let i = 0; i < pattern.length; i++) {

@@ -8,30 +8,10 @@ import type { ParameterExpansionPart, WordPart } from "../../ast/types.js";
 import { getVariable, isVariableSet } from "../expansion/variable.js";
 import { splitByIfsForExpansionEx } from "../helpers/ifs.js";
 import type { InterpreterContext } from "../types.js";
-import { isOperationWordEntirelyQuoted } from "./analysis.js";
-
-/**
- * Check if a glob pattern string contains variable references ($var or ${var})
- * This is used to detect when IFS splitting should apply to expanded glob patterns.
- */
-function globPatternHasVarRef(pattern: string): boolean {
-  // Look for $varname or ${...} patterns
-  // Skip escaped $ (e.g., \$)
-  for (let i = 0; i < pattern.length; i++) {
-    if (pattern[i] === "\\") {
-      i++; // Skip next character
-      continue;
-    }
-    if (pattern[i] === "$") {
-      const next = pattern[i + 1];
-      // Check for ${...} or $varname
-      if (next === "{" || (next && /[a-zA-Z_]/.test(next))) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
+import {
+  globPatternHasVarRef,
+  isOperationWordEntirelyQuoted,
+} from "./analysis.js";
 
 /**
  * Type for the expandPart function that will be injected

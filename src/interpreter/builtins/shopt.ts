@@ -60,7 +60,6 @@ const STUB_OPTIONS = [
   "login_shell",
   "mailwarn",
   "no_empty_cmd_completion",
-  "nocaseglob",
   "progcomp",
   "progcomp_alias",
   "promptvars",
