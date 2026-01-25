@@ -265,3 +265,89 @@ new2`,
     expect(output).toBe("001\n002\n003\n");
   });
 });
+
+describe("awk getline return values", () => {
+  it("returns 1 on successful read", async () => {
+    const env = new Bash({
+      files: { "/test/data.txt": "line1\nline2" },
+    });
+    const result = await env.exec(
+      `awk 'BEGIN { ret = (getline < "/test/data.txt"); print "ret:", ret }'`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("ret: 1\n");
+  });
+
+  it("returns 0 on EOF", async () => {
+    const env = new Bash({
+      files: { "/test/data.txt": "single" },
+    });
+    const result = await env.exec(
+      `awk 'BEGIN {
+        getline < "/test/data.txt"  # read first line
+        ret = (getline < "/test/data.txt")  # EOF
+        print "ret:", ret
+      }'`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("ret: 0\n");
+  });
+
+  it("returns -1 on error", async () => {
+    const env = new Bash();
+    const result = await env.exec(
+      `awk 'BEGIN { ret = (getline < "/nonexistent/file"); print "ret:", ret }'`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("ret: -1\n");
+  });
+});
+
+describe("awk getline with field separator", () => {
+  it("re-splits $0 after getline", async () => {
+    const env = new Bash({
+      files: { "/test/data.txt": "a:b:c" },
+    });
+    const result = await env.exec(
+      `awk 'BEGIN { FS=":"; getline < "/test/data.txt"; print $2 }'`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("b\n");
+  });
+
+  it("does not re-split when getline into variable", async () => {
+    const env = new Bash({
+      files: { "/test/data.txt": "a:b:c" },
+    });
+    const result = await env.exec(
+      `awk 'BEGIN { FS=":"; getline x < "/test/data.txt"; print x; print NF }'`,
+    );
+    expect(result.exitCode).toBe(0);
+    // x gets whole line, NF is still 0 (no main input)
+    expect(result.stdout).toBe("a:b:c\n0\n");
+  });
+});
+
+describe("awk getline in loop", () => {
+  it("reads all lines in while loop", async () => {
+    const env = new Bash({
+      files: { "/test/data.txt": "1\n2\n3\n4\n5" },
+    });
+    const result = await env.exec(
+      `awk 'BEGIN { sum=0; while ((getline n < "/test/data.txt") > 0) sum += n; print sum }'`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("15\n");
+  });
+
+  it("counts lines with getline loop", async () => {
+    const env = new Bash({
+      files: { "/test/data.txt": "a\nb\nc\nd" },
+    });
+    const result = await env.exec(
+      `awk 'BEGIN { count=0; while ((getline < "/test/data.txt") > 0) count++; print count }'`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("4\n");
+  });
+});

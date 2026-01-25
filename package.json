@@ -65,6 +65,8 @@
     "test:unit": "vitest run --config vitest.unit.config.ts",
     "test:comparison": "vitest run --config vitest.comparison.config.ts",
     "test:comparison:record": "RECORD_FIXTURES=1 vitest run --config vitest.comparison.config.ts",
+    "test:coverage": "vitest run --coverage",
+    "test:coverage:unit": "vitest run --config vitest.unit.config.ts --coverage",
     "shell": "npx tsx src/cli/shell.ts",
     "dev:exec": "npx tsx src/cli/exec.ts"
   },
@@ -79,6 +81,7 @@
     "@types/sprintf-js": "^1.1.4",
     "@types/sql.js": "^1.4.9",
     "@types/turndown": "^5.0.6",
+    "@vitest/coverage-v8": "^4.0.18",
     "esbuild": "^0.27.2",
     "knip": "^5.41.1",
     "typescript": "^5.9.3",
