@@ -38,7 +38,7 @@ import type {
   ExecResult,
   TraceCallback,
 } from "../types.js";
-import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
+import { evaluateArithmetic } from "./arithmetic.js";
 import {
   applyCaseTransform,
   getLocalVarDepth,
@@ -1247,7 +1247,7 @@ export class Interpreter {
                   pending.indexExpr,
                 );
                 // Use isExpansionContext=false for array subscripts
-                index = evaluateArithmeticSync(
+                index = await evaluateArithmetic(
                   this.ctx,
                   arithAst.expression,
                   false,
@@ -1439,7 +1439,7 @@ export class Interpreter {
             try {
               const parser = new Parser();
               const arithAst = parseArithmeticExpression(parser, evalExpr);
-              index = evaluateArithmeticSync(
+              index = await evaluateArithmetic(
                 this.ctx,
                 arithAst.expression,
                 false,
@@ -1578,12 +1578,12 @@ export class Interpreter {
             const expr = `(${currentVal}) + (${value})`;
             const arithAst = parseArithmeticExpression(parser, expr);
             finalValue = String(
-              evaluateArithmeticSync(this.ctx, arithAst.expression),
+              await evaluateArithmetic(this.ctx, arithAst.expression),
             );
           } else {
             const arithAst = parseArithmeticExpression(parser, value);
             finalValue = String(
-              evaluateArithmeticSync(this.ctx, arithAst.expression),
+              await evaluateArithmetic(this.ctx, arithAst.expression),
             );
           }
         } catch {
@@ -1661,7 +1661,7 @@ export class Interpreter {
             try {
               const parser = new Parser();
               const arithAst = parseArithmeticExpression(parser, subscriptExpr);
-              index = evaluateArithmeticSync(
+              index = await evaluateArithmetic(
                 this.ctx,
                 arithAst.expression,
                 false,

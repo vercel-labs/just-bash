@@ -5,7 +5,7 @@
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
-import { evaluateArithmeticSync } from "../arithmetic.js";
+import { evaluateArithmetic } from "../arithmetic.js";
 import { getArrayIndices } from "../helpers/array.js";
 import { markNameref } from "../helpers/nameref.js";
 import { checkReadonlyError } from "../helpers/readonly.js";
@@ -15,10 +15,10 @@ import type { InterpreterContext } from "../types.js";
 import { parseArrayElements } from "./declare.js";
 import { markLocalVarDepth, pushLocalVarStack } from "./variable-helpers.js";
 
-export function handleLocal(
+export async function handleLocal(
   ctx: InterpreterContext,
   args: string[],
-): ExecResult {
+): Promise<ExecResult> {
   if (ctx.state.localScopes.length === 0) {
     return failure("bash: local: can only be used in a function\n");
   }
@@ -269,7 +269,7 @@ export function handleLocal(
       try {
         const parser = new Parser();
         const arithAst = parseArithmeticExpression(parser, indexExpr);
-        index = evaluateArithmeticSync(ctx, arithAst.expression);
+        index = await evaluateArithmetic(ctx, arithAst.expression);
       } catch {
         // If parsing fails, try to parse as simple number
         const num = parseInt(indexExpr, 10);

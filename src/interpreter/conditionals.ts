@@ -14,7 +14,7 @@ import type { ConditionalExpressionNode } from "../ast/types.js";
 import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
 import type { ExecResult } from "../types.js";
-import { evaluateArithmeticSync } from "./arithmetic.js";
+import { evaluateArithmetic } from "./arithmetic.js";
 import {
   escapeRegexChars,
   expandWord,
@@ -98,8 +98,8 @@ export async function evaluateConditional(
       if (isNumericOp(expr.operator)) {
         return compareNumeric(
           expr.operator,
-          evalArithExpr(ctx, left),
-          evalArithExpr(ctx, right),
+          await evalArithExpr(ctx, left),
+          await evalArithExpr(ctx, right),
         );
       }
 
@@ -151,7 +151,7 @@ export async function evaluateConditional(
         return evaluateStringTest(expr.operator, operand);
       }
       if (expr.operator === "-v") {
-        return evaluateVariableTest(ctx, operand);
+        return await evaluateVariableTest(ctx, operand);
       }
       if (expr.operator === "-o") {
         return evaluateShellOption(ctx, operand);
@@ -245,7 +245,7 @@ export async function evaluateTestArgs(
       return testResult(!operand);
     }
     if (op === "-v") {
-      return testResult(evaluateVariableTest(ctx, operand));
+      return testResult(await evaluateVariableTest(ctx, operand));
     }
     if (op === "-o") {
       return testResult(evaluateShellOption(ctx, operand));
@@ -487,7 +487,7 @@ async function evaluateTestPrimary(
   // Variable tests
   if (token === "-v") {
     const varName = args[pos + 1] ?? "";
-    const value = evaluateVariableTest(ctx, varName);
+    const value = await evaluateVariableTest(ctx, varName);
     return { value, pos: pos + 2 };
   }
 
@@ -812,7 +812,10 @@ function evaluateShellOption(ctx: InterpreterContext, option: string): boolean {
  * Evaluate an arithmetic expression string for [[ ]] comparisons.
  * In bash, [[ -eq ]] etc. evaluate operands as arithmetic expressions.
  */
-function evalArithExpr(ctx: InterpreterContext, expr: string): number {
+async function evalArithExpr(
+  ctx: InterpreterContext,
+  expr: string,
+): Promise<number> {
   expr = expr.trim();
   if (expr === "") return 0;
 
@@ -826,7 +829,7 @@ function evalArithExpr(ctx: InterpreterContext, expr: string): number {
   try {
     const parser = new Parser();
     const arithAst = parseArithmeticExpression(parser, expr);
-    return evaluateArithmeticSync(ctx, arithAst.expression);
+    return await evaluateArithmetic(ctx, arithAst.expression);
   } catch {
     // If parsing fails, try simple numeric
     return parseNumeric(expr);

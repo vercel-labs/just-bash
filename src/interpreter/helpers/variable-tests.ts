@@ -1,6 +1,6 @@
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
-import { evaluateArithmeticSync } from "../arithmetic.js";
+import { evaluateArithmetic } from "../arithmetic.js";
 import type { InterpreterContext } from "../types.js";
 import { getArrayIndices, getAssocArrayKeys } from "./array.js";
 
@@ -11,10 +11,10 @@ import { getArrayIndices, getAssocArrayKeys } from "./array.js";
  * @param ctx - Interpreter context with environment variables
  * @param operand - The variable name to test, may include array subscript (e.g., "arr[0]", "arr[-1]")
  */
-export function evaluateVariableTest(
+export async function evaluateVariableTest(
   ctx: InterpreterContext,
   operand: string,
-): boolean {
+): Promise<boolean> {
   // Check for array element syntax: var[index]
   const arrayMatch = operand.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
 
@@ -47,7 +47,7 @@ export function evaluateVariableTest(
     try {
       const parser = new Parser();
       const arithAst = parseArithmeticExpression(parser, indexExpr);
-      index = evaluateArithmeticSync(ctx, arithAst.expression);
+      index = await evaluateArithmetic(ctx, arithAst.expression);
     } catch {
       // If parsing fails, try simple numeric
       if (/^-?\d+$/.test(indexExpr)) {

@@ -25,10 +25,10 @@ export type ExpandPartFn = (
  * Check if a ParameterExpansion with a default/alternative value should use that value.
  * Returns the operation word parts if the value should be used, null otherwise.
  */
-function shouldUseOperationWord(
+async function shouldUseOperationWord(
   ctx: InterpreterContext,
   part: ParameterExpansionPart,
-): WordPart[] | null {
+): Promise<WordPart[] | null> {
   const op = part.operation;
   if (!op) return null;
 
@@ -47,8 +47,8 @@ function shouldUseOperationWord(
   // Check if the variable is set/empty
   // Pass checkNounset=false because we're inside a default/alternative value context
   // where unset variables are allowed
-  const isSet = isVariableSet(ctx, part.parameter);
-  const value = getVariable(ctx, part.parameter, false);
+  const isSet = await isVariableSet(ctx, part.parameter);
+  const value = await getVariable(ctx, part.parameter, false);
   const isEmpty = value === "";
   const checkEmpty = (op as { checkEmpty?: boolean }).checkEmpty ?? false;
 
@@ -93,13 +93,13 @@ function isSimpleQuotedLiteral(part: WordPart): boolean {
  * Cases like ${var:-"$@"x} should NOT use special handling because $@ has special
  * behavior that needs to be preserved.
  */
-function hasMixedQuotedDefaultValue(
+async function hasMixedQuotedDefaultValue(
   ctx: InterpreterContext,
   part: WordPart,
-): WordPart[] | null {
+): Promise<WordPart[] | null> {
   if (part.type !== "ParameterExpansion") return null;
 
-  const opWordParts = shouldUseOperationWord(ctx, part);
+  const opWordParts = await shouldUseOperationWord(ctx, part);
   if (!opWordParts || opWordParts.length <= 1) return null;
 
   // Check if the operation word has simple quoted parts (only literals inside)
@@ -213,7 +213,7 @@ export async function smartWordSplit(
   // to preserve quote boundaries within the default value.
   if (wordParts.length === 1 && wordParts[0].type === "ParameterExpansion") {
     const paramPart = wordParts[0];
-    const opWordParts = shouldUseOperationWord(ctx, paramPart);
+    const opWordParts = await shouldUseOperationWord(ctx, paramPart);
     if (opWordParts && opWordParts.length > 0) {
       // Check if the operation word has mixed quoted/unquoted parts
       // that would benefit from recursive word splitting
@@ -263,7 +263,7 @@ export async function smartWordSplit(
       part.type === "DoubleQuoted" || part.type === "SingleQuoted";
     // Check if this part has a mixed quoted/unquoted default value
     const mixedDefaultParts = splittable
-      ? hasMixedQuotedDefaultValue(ctx, part)
+      ? await hasMixedQuotedDefaultValue(ctx, part)
       : null;
     const expanded = await expandPartFn(ctx, part);
     segments.push({

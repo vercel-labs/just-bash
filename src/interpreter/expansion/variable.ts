@@ -12,7 +12,7 @@
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import { BASH_VERSION, getProcessInfo } from "../../shell-metadata.js";
-import { evaluateArithmeticSync } from "../arithmetic.js";
+import { evaluateArithmetic } from "../arithmetic.js";
 import { BadSubstitutionError, NounsetError } from "../errors.js";
 import {
   getArrayIndices,
@@ -113,12 +113,12 @@ export function isArray(ctx: InterpreterContext, name: string): boolean {
  * @param name - The variable name
  * @param checkNounset - Whether to check for nounset (default true)
  */
-export function getVariable(
+export async function getVariable(
   ctx: InterpreterContext,
   name: string,
   checkNounset = true,
   _insideDoubleQuotes = false,
-): string {
+): Promise<string> {
   // Special variables are always defined (never trigger nounset)
   switch (name) {
     case "?":
@@ -341,7 +341,7 @@ export function getVariable(
       try {
         const parser = new Parser();
         const arithAst = parseArithmeticExpression(parser, subscript);
-        index = evaluateArithmeticSync(ctx, arithAst.expression);
+        index = await evaluateArithmetic(ctx, arithAst.expression);
       } catch {
         // Fall back to simple variable lookup for backwards compatibility
         const evalValue = ctx.state.env[subscript];
@@ -417,7 +417,7 @@ export function getVariable(
     if (resolved !== name) {
       // Recursively get the target variable's value
       // (this handles if target is also a nameref, array, etc.)
-      return getVariable(ctx, resolved, checkNounset, _insideDoubleQuotes);
+      return await getVariable(ctx, resolved, checkNounset, _insideDoubleQuotes);
     }
     // Nameref points to empty/invalid target
     const value = ctx.state.env[name];
@@ -472,7 +472,10 @@ export function getVariable(
  * @param ctx - The interpreter context
  * @param name - The variable name (possibly with array subscript)
  */
-export function isVariableSet(ctx: InterpreterContext, name: string): boolean {
+export async function isVariableSet(
+  ctx: InterpreterContext,
+  name: string,
+): Promise<boolean> {
   // Special variables that are always set
   // These match the variables handled in getVariable's switch statement
   const alwaysSetSpecialVars = new Set([
@@ -553,7 +556,7 @@ export function isVariableSet(ctx: InterpreterContext, name: string): boolean {
       try {
         const parser = new Parser();
         const arithAst = parseArithmeticExpression(parser, subscript);
-        index = evaluateArithmeticSync(ctx, arithAst.expression);
+        index = await evaluateArithmetic(ctx, arithAst.expression);
       } catch {
         const evalValue = ctx.state.env[subscript];
         index = evalValue ? Number.parseInt(evalValue, 10) : 0;

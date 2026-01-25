@@ -17,7 +17,7 @@
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
-import { evaluateArithmeticSync } from "../arithmetic.js";
+import { evaluateArithmetic } from "../arithmetic.js";
 import {
   clearArray,
   getArrayIndices,
@@ -167,11 +167,14 @@ export function applyCaseTransform(
  * Evaluate a value as arithmetic if the variable has integer attribute.
  * Returns the evaluated string value.
  */
-function evaluateIntegerValue(ctx: InterpreterContext, value: string): string {
+async function evaluateIntegerValue(
+  ctx: InterpreterContext,
+  value: string,
+): Promise<string> {
   try {
     const parser = new Parser();
     const arithAst = parseArithmeticExpression(parser, value);
-    const result = evaluateArithmeticSync(ctx, arithAst.expression);
+    const result = await evaluateArithmetic(ctx, arithAst.expression);
     return String(result);
   } catch {
     // If parsing fails, return 0 (bash behavior for invalid expressions)
@@ -244,10 +247,10 @@ function parseArrayAssignment(
   return { name, indexExpr, value };
 }
 
-export function handleDeclare(
+export async function handleDeclare(
   ctx: InterpreterContext,
   args: string[],
-): ExecResult {
+): Promise<ExecResult> {
   // Parse flags
   let declareArray = false;
   let declareAssoc = false;
@@ -868,7 +871,7 @@ export function handleDeclare(
                 try {
                   const parser = new Parser();
                   const arithAst = parseArithmeticExpression(parser, indexExpr);
-                  index = evaluateArithmeticSync(ctx, arithAst.expression);
+                  index = await evaluateArithmetic(ctx, arithAst.expression);
                 } catch {
                   // If parsing fails, treat as 0 (like unset variable)
                   index = 0;
@@ -944,7 +947,7 @@ export function handleDeclare(
       try {
         const parser = new Parser();
         const arithAst = parseArithmeticExpression(parser, indexExpr);
-        index = evaluateArithmeticSync(ctx, arithAst.expression);
+        index = await evaluateArithmetic(ctx, arithAst.expression);
       } catch {
         // If parsing fails, try to parse as simple number
         const num = parseInt(indexExpr, 10);
@@ -1081,7 +1084,7 @@ export function handleDeclare(
         const existing = ctx.state.env[name] ?? "0";
         const existingNum = parseInt(existing, 10) || 0;
         const appendNum =
-          parseInt(evaluateIntegerValue(ctx, appendValue), 10) || 0;
+          parseInt(await evaluateIntegerValue(ctx, appendValue), 10) || 0;
         appendValue = String(existingNum + appendNum);
         ctx.state.env[name] = appendValue;
       } else if (isArray) {
@@ -1182,7 +1185,7 @@ export function handleDeclare(
 
       // If variable has integer attribute (either just declared or previously), evaluate as arithmetic
       if (isInteger(ctx, name)) {
-        value = evaluateIntegerValue(ctx, value);
+        value = await evaluateIntegerValue(ctx, value);
       }
 
       // Apply case transformation based on variable attributes
@@ -1471,10 +1474,10 @@ function parseAssocArrayLiteral(content: string): [string, string][] {
  *   readonly NAME=value   - Declare readonly variable
  *   readonly NAME         - Mark existing variable as readonly
  */
-export function handleReadonly(
+export async function handleReadonly(
   ctx: InterpreterContext,
   args: string[],
-): ExecResult {
+): Promise<ExecResult> {
   // Parse flags
   let _declareArray = false;
   let _declareAssoc = false;
@@ -1595,7 +1598,7 @@ export function handleReadonly(
     }
 
     // Set variable and mark as readonly
-    const error = setVariable(ctx, assignment, { makeReadonly: true });
+    const error = await setVariable(ctx, assignment, { makeReadonly: true });
     if (error) {
       return error;
     }

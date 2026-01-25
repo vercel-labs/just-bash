@@ -15,7 +15,7 @@
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
-import { evaluateArithmeticSync } from "../arithmetic.js";
+import { evaluateArithmetic } from "../arithmetic.js";
 import { isArray } from "../expansion/variable.js";
 import { expandWord, getArrayElements } from "../expansion.js";
 import { isNameref, resolveNameref } from "../helpers/nameref.js";
@@ -53,10 +53,10 @@ function isQuotedStringIndex(indexExpr: string): boolean {
  * Returns the evaluated numeric index, or null if the expression is a quoted
  * string that should be treated as an associative array key.
  */
-function evaluateArrayIndex(
+async function evaluateArrayIndex(
   ctx: InterpreterContext,
   indexExpr: string,
-): number | null {
+): Promise<number | null> {
   // If the index is a quoted string, it's meant for associative arrays only
   if (isQuotedStringIndex(indexExpr)) {
     return null;
@@ -64,7 +64,7 @@ function evaluateArrayIndex(
   try {
     const parser = new Parser();
     const arithAst = parseArithmeticExpression(parser, indexExpr);
-    return evaluateArithmeticSync(ctx, arithAst.expression);
+    return await evaluateArithmetic(ctx, arithAst.expression);
   } catch {
     // If parsing fails, try to parse as simple number
     const num = parseInt(indexExpr, 10);
@@ -298,7 +298,7 @@ export async function handleUnset(
         }
 
         // Indexed array: evaluate index as arithmetic expression
-        const index = evaluateArrayIndex(ctx, indexExpr);
+        const index = await evaluateArrayIndex(ctx, indexExpr);
 
         // If index is null, it's a quoted string key - error for indexed arrays
         // Only error if the variable is actually an indexed array
@@ -448,7 +448,7 @@ export async function handleUnset(
       }
 
       // Indexed array: evaluate index as arithmetic expression
-      const index = evaluateArrayIndex(ctx, indexExpr);
+      const index = await evaluateArrayIndex(ctx, indexExpr);
 
       // If index is null, it's a quoted string key - error for indexed arrays
       // Only error if the variable is actually an indexed array

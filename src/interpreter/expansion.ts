@@ -25,7 +25,7 @@ import type {
 import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
 import { GlobExpander } from "../shell/glob.js";
-import { evaluateArithmetic, evaluateArithmeticSync } from "./arithmetic.js";
+import { evaluateArithmetic } from "./arithmetic.js";
 import {
   ArithmeticError,
   BadSubstitutionError,
@@ -33,12 +33,7 @@ import {
   ExitError,
   GlobError,
 } from "./errors.js";
-import {
-  analyzeWordParts,
-  paramExpansionNeedsAsync,
-  partNeedsAsync,
-  wordNeedsAsync,
-} from "./expansion/analysis.js";
+import { analyzeWordParts } from "./expansion/analysis.js";
 import { expandBraceRange } from "./expansion/brace-range.js";
 import { patternToRegex } from "./expansion/pattern.js";
 import {
@@ -756,18 +751,6 @@ function _getWordPartsValue(parts: WordPart[]): string {
 }
 
 // Helper to fully expand word parts (including variables, arithmetic, etc.)
-// inDoubleQuotes flag suppresses tilde expansion
-function expandWordPartsSync(
-  ctx: InterpreterContext,
-  parts: WordPart[],
-  inDoubleQuotes = false,
-): string {
-  return parts
-    .map((part) => expandPartSync(ctx, part, inDoubleQuotes))
-    .join("");
-}
-
-// Async version of expandWordPartsSync for parts that contain command substitution
 async function expandWordPartsAsync(
   ctx: InterpreterContext,
   parts: WordPart[],
@@ -1368,8 +1351,6 @@ function expandSimplePart(
   if (literal !== null) return literal;
 
   switch (part.type) {
-    case "ParameterExpansion":
-      return expandParameter(ctx, part, inDoubleQuotes);
     case "TildeExpansion":
       // Tilde expansion doesn't happen inside double quotes
       if (inDoubleQuotes) {
@@ -1396,103 +1377,10 @@ function expandSimplePart(
   }
 }
 
-// Sync version of expandPart for parts that don't need async
-// inDoubleQuotes flag suppresses tilde expansion
-function expandPartSync(
-  ctx: InterpreterContext,
-  part: WordPart,
-  inDoubleQuotes = false,
-): string {
-  // Try simple cases first
-  const simple = expandSimplePart(ctx, part, inDoubleQuotes);
-  if (simple !== null) return simple;
-
-  // Handle cases that need recursion
-  switch (part.type) {
-    case "DoubleQuoted": {
-      const parts: string[] = [];
-      for (const p of part.parts) {
-        // Inside double quotes, suppress tilde expansion
-        parts.push(expandPartSync(ctx, p, true));
-      }
-      return parts.join("");
-    }
-
-    case "ArithmeticExpansion": {
-      // If original text is available and contains $var patterns (not ${...}),
-      // we need to do text substitution before parsing to maintain operator precedence.
-      // E.g., $(( $x * 3 )) where x='1 + 2' should expand to $(( 1 + 2 * 3 )) = 7
-      // not $(( (1+2) * 3 )) = 9
-      const originalText = part.expression.originalText;
-      const hasDollarVars =
-        originalText && /\$[a-zA-Z_][a-zA-Z0-9_]*(?![{[(])/.test(originalText);
-      if (hasDollarVars) {
-        // Expand $var patterns in the text
-        const expandedText = expandDollarVarsInArithText(ctx, originalText);
-        // Re-parse the expanded expression
-        const parser = new Parser();
-        const newExpr = parseArithmeticExpression(parser, expandedText);
-        // true = expansion context, single quotes cause error
-        return String(evaluateArithmeticSync(ctx, newExpr.expression, true));
-      }
-      // true = expansion context, single quotes cause error
-      return String(
-        evaluateArithmeticSync(ctx, part.expression.expression, true),
-      );
-    }
-
-    case "BraceExpansion": {
-      const results: string[] = [];
-      for (const item of part.items) {
-        if (item.type === "Range") {
-          const range = expandBraceRange(
-            item.start,
-            item.end,
-            item.step,
-            item.startStr,
-            item.endStr,
-          );
-          if (range.expanded) {
-            results.push(...range.expanded);
-          } else {
-            return range.literal;
-          }
-        } else {
-          results.push(expandWordSync(ctx, item.word));
-        }
-      }
-      return results.join(" ");
-    }
-
-    default:
-      return "";
-  }
-}
-
-// Sync version of expandWord for words that don't need async
-function expandWordSync(ctx: InterpreterContext, word: WordNode): string {
-  const wordParts = word.parts;
-  const len = wordParts.length;
-
-  if (len === 1) {
-    return expandPartSync(ctx, wordParts[0]);
-  }
-
-  const parts: string[] = [];
-  for (let i = 0; i < len; i++) {
-    parts.push(expandPartSync(ctx, wordParts[i]));
-  }
-  return parts.join("");
-}
-
 export async function expandWord(
   ctx: InterpreterContext,
   word: WordNode,
 ): Promise<string> {
-  // Fast path: if no async parts, use sync version
-  if (!wordNeedsAsync(word)) {
-    return expandWordSync(ctx, word);
-  }
   return expandWordAsync(ctx, word);
 }
 
@@ -1629,22 +1517,12 @@ function hasBraceExpansion(parts: WordPart[]): boolean {
   return false;
 }
 
-/**
- * Check if brace expansion contains parts that need async (command substitution)
- */
-function braceExpansionNeedsAsync(parts: WordPart[]): boolean {
-  for (const part of parts) {
-    if (part.type === "BraceExpansion") {
-      for (const item of part.items) {
-        if (item.type === "Word" && wordNeedsAsync(item.word)) {
-          return true;
-        }
-      }
-    }
-    if (partNeedsAsync(part)) return true;
-  }
-  return false;
-}
+// Maximum number of brace expansion results to prevent memory explosion
+const MAX_BRACE_EXPANSION_RESULTS = 10000;
+// Maximum total operations across all recursive calls
+const MAX_BRACE_OPERATIONS = 100000;
+
+type BraceExpandedPart = string | WordPart;
 
 /**
  * Expand brace expansion in word parts, producing multiple arrays of parts.
@@ -1654,159 +1532,6 @@ function braceExpansionNeedsAsync(parts: WordPart[]): boolean {
  * Non-brace parts are kept as WordPart objects to allow deferred expansion.
  * This is necessary for bash-like behavior where side effects in expansions
  * (like $((i++))) are evaluated separately for each brace alternative.
- */
-// Maximum number of brace expansion results to prevent memory explosion
-const MAX_BRACE_EXPANSION_RESULTS = 10000;
-// Maximum total operations across all recursive calls
-const MAX_BRACE_OPERATIONS = 100000;
-
-type BraceExpandedPart = string | WordPart;
-
-function expandBracesInParts(
-  ctx: InterpreterContext,
-  parts: WordPart[],
-  operationCounter: { count: number } = { count: 0 },
-): BraceExpandedPart[][] {
-  // Check global operation limit
-  if (operationCounter.count > MAX_BRACE_OPERATIONS) {
-    return [[]];
-  }
-
-  // Start with one empty result
-  let results: BraceExpandedPart[][] = [[]];
-
-  for (const part of parts) {
-    if (part.type === "BraceExpansion") {
-      // Get all brace expansion values
-      const braceValues: string[] = [];
-      let hasInvalidRange = false;
-      let invalidRangeLiteral = "";
-      for (const item of part.items) {
-        if (item.type === "Range") {
-          const range = expandBraceRange(
-            item.start,
-            item.end,
-            item.step,
-            item.startStr,
-            item.endStr,
-          );
-          if (range.expanded) {
-            for (const val of range.expanded) {
-              operationCounter.count++;
-              braceValues.push(val);
-            }
-          } else {
-            hasInvalidRange = true;
-            invalidRangeLiteral = range.literal;
-            break;
-          }
-        } else {
-          // Word item - expand it (recursively handle nested braces)
-          const expanded = expandBracesInParts(
-            ctx,
-            item.word.parts,
-            operationCounter,
-          );
-          for (const exp of expanded) {
-            operationCounter.count++;
-            // Join all parts, expanding any deferred WordParts
-            const joinedParts: string[] = [];
-            for (const p of exp) {
-              if (typeof p === "string") {
-                joinedParts.push(p);
-              } else {
-                joinedParts.push(expandPartSync(ctx, p));
-              }
-            }
-            braceValues.push(joinedParts.join(""));
-          }
-        }
-      }
-
-      // If we have an invalid range, treat it as a literal and append to all results
-      if (hasInvalidRange) {
-        for (const result of results) {
-          operationCounter.count++;
-          result.push(invalidRangeLiteral);
-        }
-        continue;
-      }
-
-      // Multiply results by brace values (cartesian product)
-      // But first check if this would exceed the limit
-      const newSize = results.length * braceValues.length;
-      if (
-        newSize > MAX_BRACE_EXPANSION_RESULTS ||
-        operationCounter.count > MAX_BRACE_OPERATIONS
-      ) {
-        // Too many results - return what we have and stop
-        return results;
-      }
-
-      const newResults: BraceExpandedPart[][] = [];
-      for (const result of results) {
-        for (const val of braceValues) {
-          operationCounter.count++;
-          if (operationCounter.count > MAX_BRACE_OPERATIONS) {
-            return newResults.length > 0 ? newResults : results;
-          }
-          newResults.push([...result, val]);
-        }
-      }
-      results = newResults;
-    } else {
-      // Non-brace part: keep as WordPart for deferred expansion
-      // This allows side effects (like $((i++))) to be evaluated
-      // separately for each brace alternative
-      for (const result of results) {
-        operationCounter.count++;
-        result.push(part);
-      }
-    }
-  }
-
-  return results;
-}
-
-/**
- * Expand a word with brace expansion support, returning multiple values
- */
-function expandWordWithBraces(
-  ctx: InterpreterContext,
-  word: WordNode,
-): string[] {
-  const parts = word.parts;
-
-  if (!hasBraceExpansion(parts)) {
-    // No brace expansion, return single value
-    return [expandWordSync(ctx, word)];
-  }
-
-  // Expand braces - returns arrays of strings and deferred WordParts
-  const expanded = expandBracesInParts(ctx, parts);
-
-  // Now expand each result, evaluating deferred parts separately for each
-  // This ensures side effects like $((i++)) are evaluated fresh for each brace alternative
-  const results: string[] = [];
-  for (const resultParts of expanded) {
-    const joinedParts: string[] = [];
-    for (const p of resultParts) {
-      if (typeof p === "string") {
-        joinedParts.push(p);
-      } else {
-        // Expand the deferred WordPart now
-        joinedParts.push(expandPartSync(ctx, p));
-      }
-    }
-    // Apply tilde expansion to each result - this handles cases like ~{/src,root}
-    // where brace expansion produces ~/src and ~root, which then need tilde expansion
-    results.push(applyTildeExpansion(ctx, joinedParts.join("")));
-  }
-  return results;
-}
-
-/**
- * Async version of expandBracesInParts for when brace expansion contains command substitution
  */
 async function expandBracesInPartsAsync(
   ctx: InterpreterContext,
@@ -1956,12 +1681,9 @@ export async function expandWordWithGlob(
   } = analyzeWordParts(wordParts);
 
   // Handle brace expansion first (produces multiple values)
-  // Use async version if brace expansion contains command substitution
   const hasBraces = hasBraceExpansion(wordParts);
   const braceExpanded = hasBraces
-    ? braceExpansionNeedsAsync(wordParts)
-      ? await expandWordWithBracesAsync(ctx, word)
-      : expandWordWithBraces(ctx, word)
+    ? await expandWordWithBracesAsync(ctx, word)
     : null;
 
   if (braceExpanded && braceExpanded.length > 1) {
@@ -2172,9 +1894,9 @@ export async function expandWordWithGlob(
       } else {
         // Outer parameter is a scalar variable
         const varName = paramPart.parameter;
-        const isSet = isVariableSet(ctx, varName);
-        const value = getVariable(ctx, varName);
-        const isEmpty = value === "";
+        const isSet = await isVariableSet(ctx, varName);
+        const varValue = await getVariable(ctx, varName);
+        const isEmpty = varValue === "";
         const checkEmpty = op.checkEmpty ?? false;
 
         if (op.type === "UseAlternative") {
@@ -2185,7 +1907,7 @@ export async function expandWordWithGlob(
 
         // If not using alternate, return the scalar value
         if (!shouldUseAlternate) {
-          return { values: [value], quoted: true };
+          return { values: [varValue], quoted: true };
         }
       }
 
@@ -2538,10 +2260,10 @@ export async function expandWordWithGlob(
 
         // Evaluate offset and length
         const offset = operation.offset
-          ? evaluateArithmeticSync(ctx, operation.offset.expression)
+          ? await evaluateArithmetic(ctx, operation.offset.expression)
           : 0;
         const length = operation.length
-          ? evaluateArithmeticSync(ctx, operation.length.expression)
+          ? await evaluateArithmetic(ctx, operation.length.expression)
           : undefined;
 
         // Get array elements (sorted by index)
@@ -2998,7 +2720,7 @@ export async function expandWordWithGlob(
         innerOp?: InnerParameterOperation;
       };
       // Get the value of the reference variable (e.g., ref='arr[@]')
-      const refValue = getVariable(ctx, paramPart.parameter);
+      const refValue = await getVariable(ctx, paramPart.parameter);
       // Check if the target is an array expansion (arr[@] or arr[*])
       const arrayMatch = refValue.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/);
       if (arrayMatch) {
@@ -3010,10 +2732,10 @@ export async function expandWordWithGlob(
           // Handle "${!ref[@]:offset}" or "${!ref[@]:offset:length}" - array slicing via indirection
           if (indirOp.innerOp.type === "Substring") {
             const offset = indirOp.innerOp.offset
-              ? evaluateArithmeticSync(ctx, indirOp.innerOp.offset.expression)
+              ? await evaluateArithmetic(ctx, indirOp.innerOp.offset.expression)
               : 0;
             const length = indirOp.innerOp.length
-              ? evaluateArithmeticSync(ctx, indirOp.innerOp.length.expression)
+              ? await evaluateArithmetic(ctx, indirOp.innerOp.length.expression)
               : undefined;
 
             // For sparse arrays, offset refers to index position
@@ -3082,7 +2804,11 @@ export async function expandWordWithGlob(
               // ${!ref[@]:+word} - return word if set and non-empty
               const shouldUseAlt = !isUnset && !(checkEmpty && isEmpty);
               if (shouldUseAlt && op.word) {
-                const altValue = expandWordPartsSync(ctx, op.word.parts, true);
+                const altValue = await expandWordPartsAsync(
+                  ctx,
+                  op.word.parts,
+                  true,
+                );
                 return { values: [altValue], quoted: true };
               }
               return { values: [], quoted: true };
@@ -3091,7 +2817,11 @@ export async function expandWordWithGlob(
               // ${!ref[@]:-word} - return word if unset or empty
               const shouldUseDefault = isUnset || (checkEmpty && isEmpty);
               if (shouldUseDefault && op.word) {
-                const defValue = expandWordPartsSync(ctx, op.word.parts, true);
+                const defValue = await expandWordPartsAsync(
+                  ctx,
+                  op.word.parts,
+                  true,
+                );
                 return { values: [defValue], quoted: true };
               }
               if (isStar) {
@@ -3106,7 +2836,7 @@ export async function expandWordWithGlob(
               // ${!ref[@]:=word} - assign and return word if unset or empty
               const shouldAssign = isUnset || (checkEmpty && isEmpty);
               if (shouldAssign && op.word) {
-                const assignValue = expandWordPartsSync(
+                const assignValue = await expandWordPartsAsync(
                   ctx,
                   op.word.parts,
                   true,
@@ -3164,7 +2894,11 @@ export async function expandWordWithGlob(
             const oldVal = ctx.state.env._indirect_elem_;
             ctx.state.env._indirect_elem_ = elemValue;
             try {
-              const result = expandParameter(ctx, syntheticPart, true);
+              const result = await expandParameterAsync(
+                ctx,
+                syntheticPart,
+                true,
+              );
               values.push(result);
             } finally {
               if (oldVal !== undefined) {
@@ -3257,14 +2991,14 @@ export async function expandWordWithGlob(
       ) {
         const innerParam = innerDq.parts[0];
         // Get the value of the reference variable to see if it points to an array
-        const refValue = getVariable(ctx, innerParam.parameter);
+        const refValue = await getVariable(ctx, innerParam.parameter);
         const arrayMatch = refValue.match(
           /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
         );
         if (arrayMatch) {
           // Check if we should use the alternative/default
-          const isSet = isVariableSet(ctx, paramPart.parameter);
-          const isEmpty = getVariable(ctx, paramPart.parameter) === "";
+          const isSet = await isVariableSet(ctx, paramPart.parameter);
+          const isEmpty = (await getVariable(ctx, paramPart.parameter)) === "";
           const checkEmpty = op.checkEmpty ?? false;
           let shouldExpand: boolean;
           if (op.type === "UseAlternative") {
@@ -3344,14 +3078,14 @@ export async function expandWordWithGlob(
         ) {
           const innerParam = innerDq.parts[0];
           // Get the value of the reference variable to see if it points to an array
-          const refValue = getVariable(ctx, innerParam.parameter);
+          const refValue = await getVariable(ctx, innerParam.parameter);
           const arrayMatch = refValue.match(
             /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
           );
           if (arrayMatch) {
             // For ${!ref+word}, we need to check if the *expanded* ref value exists
             // First, get what ref points to
-            const outerRefValue = getVariable(ctx, paramPart.parameter);
+            const outerRefValue = await getVariable(ctx, paramPart.parameter);
             // Check if the target array is set
             const targetArrayMatch = outerRefValue.match(
               /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
@@ -3362,7 +3096,7 @@ export async function expandWordWithGlob(
               const targetElements = getArrayElements(ctx, targetArrayName);
               isSet = targetElements.length > 0;
             } else {
-              isSet = isVariableSet(ctx, outerRefValue);
+              isSet = await isVariableSet(ctx, outerRefValue);
             }
 
             // Note: checkEmpty would be used for :+ or :- variants, but since the indirect
@@ -3437,10 +3171,10 @@ export async function expandWordWithGlob(
 
       // Evaluate offset and length
       const offset = operation.offset
-        ? evaluateArithmeticSync(ctx, operation.offset.expression)
+        ? await evaluateArithmetic(ctx, operation.offset.expression)
         : 0;
       const length = operation.length
-        ? evaluateArithmeticSync(ctx, operation.length.expression)
+        ? await evaluateArithmetic(ctx, operation.length.expression)
         : undefined;
 
       // Get positional parameters
@@ -4283,10 +4017,10 @@ export async function expandWordWithGlob(
 
       // Evaluate offset and length
       const offset = operation.offset
-        ? evaluateArithmeticSync(ctx, operation.offset.expression)
+        ? await evaluateArithmetic(ctx, operation.offset.expression)
         : 0;
       const length = operation.length
-        ? evaluateArithmeticSync(ctx, operation.length.expression)
+        ? await evaluateArithmetic(ctx, operation.length.expression)
         : undefined;
 
       // Get positional parameters
@@ -5056,10 +4790,7 @@ export async function expandWordWithGlob(
     return { values: expandedValues, quoted: false };
   }
 
-  const needsAsync = wordNeedsAsync(word);
-  const value = needsAsync
-    ? await expandWordAsync(ctx, word)
-    : expandWordSync(ctx, word);
+  const value = await expandWordAsync(ctx, word);
 
   // Check if the word contains any Glob parts
   const hasGlobParts = wordParts.some((p) => p.type === "Glob");
@@ -5456,9 +5187,7 @@ export async function expandRedirectTarget(
   // Check for brace expansion - if it produces multiple values, it's an ambiguous redirect
   // For example: echo hi > a-{one,two} should error
   if (hasBraceExpansion(wordParts)) {
-    const braceExpanded = braceExpansionNeedsAsync(wordParts)
-      ? await expandWordWithBracesAsync(ctx, word)
-      : expandWordWithBraces(ctx, word);
+    const braceExpanded = await expandWordWithBracesAsync(ctx, word);
     if (braceExpanded.length > 1) {
       // Get the original word text for the error message
       const originalText = wordParts
@@ -5488,10 +5217,7 @@ export async function expandRedirectTarget(
     // (value will be re-expanded below, but since there's only one value it's the same)
   }
 
-  const needsAsync = wordNeedsAsync(word);
-  const value = needsAsync
-    ? await expandWordAsync(ctx, word)
-    : expandWordSync(ctx, word);
+  const value = await expandWordAsync(ctx, word);
 
   // Check for word splitting producing multiple words - this is an ambiguous redirect
   // This only applies when the word has unquoted expansions (not all quoted)
@@ -5632,34 +5358,12 @@ async function expandPart(
   ctx: InterpreterContext,
   part: WordPart,
 ): Promise<string> {
-  // Check if ParameterExpansion needs async (has command substitution in operation)
-  if (part.type === "ParameterExpansion" && paramExpansionNeedsAsync(part)) {
+  // Always use async expansion for ParameterExpansion
+  if (part.type === "ParameterExpansion") {
     return expandParameterAsync(ctx, part);
   }
 
-  // Check if a nameref parameter needs async (target has command substitution in subscript)
-  // This can't be detected statically, so we check at runtime
-  if (
-    part.type === "ParameterExpansion" &&
-    /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(part.parameter) &&
-    isNameref(ctx, part.parameter)
-  ) {
-    const target = resolveNameref(ctx, part.parameter);
-    if (target && target !== part.parameter) {
-      const targetBracketMatch = target.match(
-        /^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/,
-      );
-      if (targetBracketMatch) {
-        const targetSubscript = targetBracketMatch[2];
-        if (targetSubscript.includes("$(") || targetSubscript.includes("`")) {
-          // Nameref target has command substitution - use async path
-          return expandParameterAsync(ctx, part);
-        }
-      }
-    }
-  }
-
-  // Try simple cases first
+  // Try simple cases first (Literal, SingleQuoted, Escaped, TildeExpansion, Glob)
   const simple = expandSimplePart(ctx, part);
   if (simple !== null) return simple;
 
@@ -5925,818 +5629,6 @@ function expandDollarVarsInArithText(
 }
 
 /**
- * Expand variable references in a subscript for associative arrays.
- * e.g., "$key" -> "foo" if key=foo
- * Handles $var, "$var", and concatenated forms like "$i$i"
- */
-function expandSubscriptForAssocArray(
-  ctx: InterpreterContext,
-  subscript: string,
-): string {
-  // Remove surrounding quotes if present
-  let inner = subscript;
-  const hasQuotes =
-    (subscript.startsWith('"') && subscript.endsWith('"')) ||
-    (subscript.startsWith("'") && subscript.endsWith("'"));
-
-  if (hasQuotes) {
-    inner = subscript.slice(1, -1);
-  }
-
-  // For single-quoted strings, no expansion
-  if (subscript.startsWith("'") && subscript.endsWith("'")) {
-    return inner;
-  }
-
-  // Expand $var and ${var} references in the string
-  let result = "";
-  let i = 0;
-  while (i < inner.length) {
-    if (inner[i] === "$") {
-      // Check for ${...} or $name
-      if (inner[i + 1] === "{") {
-        // Find matching }
-        let depth = 1;
-        let j = i + 2;
-        while (j < inner.length && depth > 0) {
-          if (inner[j] === "{") depth++;
-          else if (inner[j] === "}") depth--;
-          j++;
-        }
-        const varName = inner.slice(i + 2, j - 1);
-        // Use getVariable to properly handle array expansions like array[@] and array[*]
-        const value = getVariable(ctx, varName);
-        result += value;
-        i = j;
-      } else if (/[a-zA-Z_]/.test(inner[i + 1] || "")) {
-        // $name - find end of name
-        let j = i + 1;
-        while (j < inner.length && /[a-zA-Z0-9_]/.test(inner[j])) {
-          j++;
-        }
-        const varName = inner.slice(i + 1, j);
-        // Use getVariable for consistency
-        const value = getVariable(ctx, varName);
-        result += value;
-        i = j;
-      } else {
-        // Just a literal $ or unknown
-        result += inner[i];
-        i++;
-      }
-    } else if (inner[i] === "\\") {
-      // Escape sequence - skip the backslash and include next char
-      i++;
-      if (i < inner.length) {
-        result += inner[i];
-        i++;
-      }
-    } else {
-      result += inner[i];
-      i++;
-    }
-  }
-
-  return result;
-}
-
-function expandParameter(
-  ctx: InterpreterContext,
-  part: ParameterExpansionPart,
-  inDoubleQuotes = false,
-): string {
-  let { parameter } = part;
-  const { operation } = part;
-
-  // For associative arrays, we need to expand variables in the subscript
-  // e.g., ${A[$key]} should expand $key to its value before lookup
-  const subscriptMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
-  if (subscriptMatch) {
-    const arrayName = subscriptMatch[1];
-    const subscript = subscriptMatch[2];
-    const isAssoc = ctx.state.associativeArrays?.has(arrayName);
-
-    if (isAssoc && subscript !== "@" && subscript !== "*") {
-      // Expand variables in the subscript for associative arrays
-      // Parse and expand the subscript as word parts
-      const expandedSubscript = expandSubscriptForAssocArray(ctx, subscript);
-      parameter = `${arrayName}[${expandedSubscript}]`;
-    }
-  }
-
-  // Operations that handle unset variables should not trigger nounset
-  const skipNounset =
-    operation &&
-    (operation.type === "DefaultValue" ||
-      operation.type === "AssignDefault" ||
-      operation.type === "UseAlternative" ||
-      operation.type === "ErrorIfUnset");
-
-  const value = getVariable(ctx, parameter, !skipNounset);
-
-  if (!operation) {
-    return value;
-  }
-
-  const isUnset = !isVariableSet(ctx, parameter);
-  // For $* and $@, when checkEmpty is true (:-/:+), bash has special rules:
-  // - $*: "empty" only if $# == 0 (even if IFS="" makes expansion empty)
-  // - $@: "empty" if $# == 0 OR ($# == 1 AND $1 == "")
-  // This is because $@ treats a single empty param as "empty" but $* does not.
-  // For a[*] and a[@], similar rules apply based on array elements and IFS.
-  let isEmpty: boolean;
-  let effectiveValue = value; // For a[*], we need IFS-joined value, not space-joined
-  const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
-  // Check if this is an array expansion: varname[*] or varname[@]
-  const arrayExpMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/);
-  if (parameter === "*") {
-    // $* is only "empty" if no positional params exist
-    isEmpty = numParams === 0;
-  } else if (parameter === "@") {
-    // $@ is "empty" if no params OR exactly one empty param
-    isEmpty = numParams === 0 || (numParams === 1 && ctx.state.env["1"] === "");
-  } else if (arrayExpMatch) {
-    // a[*] or a[@] - check if expansion is empty considering IFS
-    const [, arrayName, subscript] = arrayExpMatch;
-    const elements = getArrayElements(ctx, arrayName);
-    if (elements.length === 0) {
-      // Empty array - always empty
-      isEmpty = true;
-      effectiveValue = "";
-    } else if (subscript === "*") {
-      // a[*] behavior depends on quoting context:
-      // - Quoted "${a[*]:-default}": uses default if IFS-joined result is empty
-      // - Unquoted ${a[*]:-default}: like $*, only "empty" if array has no elements
-      //   (even if IFS="" makes the joined expansion an empty string)
-      const ifsSep = getIfsSeparator(ctx.state.env);
-      const joined = elements.map(([, v]) => v).join(ifsSep);
-      isEmpty = inDoubleQuotes ? joined === "" : false;
-      effectiveValue = joined; // Use IFS-joined value instead of space-joined
-    } else {
-      // a[@] - empty only if all elements are empty AND there's exactly one
-      // (similar to $@ behavior with single empty param)
-      isEmpty = elements.length === 1 && elements.every(([, v]) => v === "");
-      // For a[@], join with space (as getVariable does)
-      effectiveValue = elements.map(([, v]) => v).join(" ");
-    }
-  } else {
-    isEmpty = value === "";
-  }
-
-  switch (operation.type) {
-    case "DefaultValue": {
-      const useDefault = isUnset || (operation.checkEmpty && isEmpty);
-      if (useDefault && operation.word) {
-        // Only expand when actually using the default (lazy evaluation)
-        // Pass inDoubleQuotes to suppress tilde expansion inside "..."
-        return expandWordPartsSync(ctx, operation.word.parts, inDoubleQuotes);
-      }
-      return effectiveValue;
-    }
-
-    case "AssignDefault": {
-      const useDefault = isUnset || (operation.checkEmpty && isEmpty);
-      if (useDefault && operation.word) {
-        // Only expand when actually using the default (lazy evaluation)
-        // Pass inDoubleQuotes to suppress tilde expansion inside "..."
-        const defaultValue = expandWordPartsSync(
-          ctx,
-          operation.word.parts,
-          inDoubleQuotes,
-        );
-        // Handle array subscript assignment (e.g., arr[0]=x)
-        const arrayMatch = parameter.match(
-          /^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/,
-        );
-        if (arrayMatch) {
-          const [, arrayName, subscriptExpr] = arrayMatch;
-          // Evaluate subscript as arithmetic expression
-          let index: number;
-          if (/^\d+$/.test(subscriptExpr)) {
-            index = Number.parseInt(subscriptExpr, 10);
-          } else {
-            try {
-              const parser = new Parser();
-              const arithAst = parseArithmeticExpression(parser, subscriptExpr);
-              index = evaluateArithmeticSync(ctx, arithAst.expression);
-            } catch {
-              const varValue = ctx.state.env[subscriptExpr];
-              index = varValue ? Number.parseInt(varValue, 10) : 0;
-            }
-            if (Number.isNaN(index)) index = 0;
-          }
-          // Set array element
-          ctx.state.env[`${arrayName}_${index}`] = defaultValue;
-          // Update array length if needed
-          const currentLength = Number.parseInt(
-            ctx.state.env[`${arrayName}__length`] || "0",
-            10,
-          );
-          if (index >= currentLength) {
-            ctx.state.env[`${arrayName}__length`] = String(index + 1);
-          }
-        } else {
-          ctx.state.env[parameter] = defaultValue;
-        }
-        return defaultValue;
-      }
-      return effectiveValue;
-    }
-
-    case "ErrorIfUnset": {
-      const shouldError = isUnset || (operation.checkEmpty && isEmpty);
-      if (shouldError) {
-        const message = operation.word
-          ? expandWordPartsSync(ctx, operation.word.parts, inDoubleQuotes)
-          : `${parameter}: parameter null or not set`;
-        // Use ExitError to properly exit with status 1 and error message
-        throw new ExitError(1, "", `bash: ${message}\n`);
-      }
-      return effectiveValue;
-    }
-
-    case "UseAlternative": {
-      const useAlternative = !(isUnset || (operation.checkEmpty && isEmpty));
-      if (useAlternative && operation.word) {
-        // Only expand when actually using the alternative (lazy evaluation)
-        // Pass inDoubleQuotes to suppress tilde expansion inside "..."
-        return expandWordPartsSync(ctx, operation.word.parts, inDoubleQuotes);
-      }
-      return "";
-    }
-
-    case "Length": {
-      // Check if this is an array length: ${#a[@]} or ${#a[*]}
-      const arrayMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/);
-      if (arrayMatch) {
-        const arrayName = arrayMatch[1];
-        const elements = getArrayElements(ctx, arrayName);
-        if (elements.length > 0) {
-          return String(elements.length);
-        }
-        // If no array elements, check if scalar variable exists
-        // In bash, ${#s[@]} for scalar s returns 1
-        const scalarValue = ctx.state.env[arrayName];
-        if (scalarValue !== undefined) {
-          return "1";
-        }
-        return "0";
-      }
-      // Check if this is just the array name (decays to ${#a[0]})
-      if (
-        /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(parameter) &&
-        isArray(ctx, parameter)
-      ) {
-        // Special handling for FUNCNAME and BASH_LINENO
-        if (parameter === "FUNCNAME") {
-          const firstElement = ctx.state.funcNameStack?.[0] || "";
-          return String([...firstElement].length);
-        }
-        if (parameter === "BASH_LINENO") {
-          const firstElement = ctx.state.callLineStack?.[0];
-          return String(
-            firstElement !== undefined ? [...String(firstElement)].length : 0,
-          );
-        }
-        const firstElement = ctx.state.env[`${parameter}_0`] || "";
-        return String([...firstElement].length);
-      }
-      // Use spread to count Unicode code points, not UTF-16 code units
-      // This correctly handles characters outside the BMP (emoji, etc.)
-      return String([...value].length);
-    }
-
-    case "LengthSliceError": {
-      // ${#var:...} is invalid - can't take length of a substring
-      throw new BadSubstitutionError(parameter);
-    }
-
-    case "BadSubstitution": {
-      // Invalid parameter expansion syntax (e.g., ${(x)foo} zsh syntax)
-      // Error was deferred from parse time to runtime
-      throw new BadSubstitutionError(operation.text);
-    }
-
-    case "Substring": {
-      // Evaluate arithmetic expressions in offset and length
-      const offset = operation.offset
-        ? evaluateArithmeticSync(ctx, operation.offset.expression)
-        : 0;
-      const length = operation.length
-        ? evaluateArithmeticSync(ctx, operation.length.expression)
-        : undefined;
-
-      // Handle special case for ${@:offset} and ${*:offset}
-      // When offset is 0, it includes $0 (the shell name)
-      // When offset > 0, it starts from positional parameters ($1, $2, etc.)
-      if (parameter === "@" || parameter === "*") {
-        // Get positional parameters properly (not by splitting joined string)
-        const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
-        const params: string[] = [];
-        for (let i = 1; i <= numParams; i++) {
-          params.push(ctx.state.env[String(i)] || "");
-        }
-
-        const shellName = ctx.state.env["0"] || "bash";
-
-        // Build the array to slice from
-        // When offset is 0, include $0 at position 0, then $1, $2, etc.
-        // When offset > 0, $1 is at position 1, $2 at position 2, etc.
-        // So for offset 1, we start at params[0] (which is $1)
-        // For offset 0, we include shellName, then params
-        let allArgs: string[];
-        let startIdx: number;
-
-        if (offset <= 0) {
-          // offset 0: include $0 at position 0
-          // offset negative: count from end (not typical for @/*, but handle it)
-          allArgs = [shellName, ...params];
-          if (offset < 0) {
-            startIdx = allArgs.length + offset;
-            // If negative offset goes beyond array bounds, return empty
-            if (startIdx < 0) return "";
-          } else {
-            startIdx = 0;
-          }
-        } else {
-          // offset > 0: start from $<offset> (e.g., offset 1 starts at $1)
-          // $1 is params[0], $2 is params[1], etc.
-          allArgs = params;
-          startIdx = offset - 1;
-        }
-
-        if (startIdx < 0 || startIdx >= allArgs.length) {
-          return "";
-        }
-        if (length !== undefined) {
-          const endIdx =
-            length < 0 ? allArgs.length + length : startIdx + length;
-          return allArgs.slice(startIdx, Math.max(startIdx, endIdx)).join(" ");
-        }
-        return allArgs.slice(startIdx).join(" ");
-      }
-
-      // Handle array slicing: ${arr[@]:offset} or ${arr[*]:offset}
-      const arrayMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/);
-      if (arrayMatch) {
-        const arrayName = arrayMatch[1];
-        // Slicing associative arrays doesn't make sense - error out
-        if (ctx.state.associativeArrays?.has(arrayName)) {
-          throw new ExitError(
-            1,
-            "",
-            `bash: \${${arrayName}[@]: 0: 3}: bad substitution\n`,
-          );
-        }
-        const elements = getArrayElements(ctx, arrayName);
-
-        // For sparse arrays, offset refers to index position, not element position
-        // Find the first element whose index >= offset (or computed index for negative offset)
-        let startIdx = 0;
-        if (offset < 0) {
-          // Negative offset: count from maxIndex + 1
-          if (elements.length > 0) {
-            const lastIdx = elements[elements.length - 1][0];
-            const maxIndex = typeof lastIdx === "number" ? lastIdx : 0;
-            const targetIndex = maxIndex + 1 + offset;
-            // If target index is negative, return empty (out of bounds)
-            if (targetIndex < 0) return "";
-            // Find first element with index >= targetIndex
-            startIdx = elements.findIndex(
-              ([idx]) => typeof idx === "number" && idx >= targetIndex,
-            );
-            if (startIdx < 0) return ""; // All elements have smaller index
-          }
-        } else {
-          // Positive offset: find first element with index >= offset
-          startIdx = elements.findIndex(
-            ([idx]) => typeof idx === "number" && idx >= offset,
-          );
-          if (startIdx < 0) return ""; // All elements have smaller index
-        }
-
-        if (length !== undefined) {
-          if (length < 0) {
-            // Negative length is an error for array slicing in bash
-            throw new ArithmeticError(
-              `${arrayMatch[1]}[@]: substring expression < 0`,
-            );
-          }
-          // Take 'length' elements starting from startIdx
-          return elements
-            .slice(startIdx, startIdx + length)
-            .map(([, v]) => v)
-            .join(" ");
-        }
-        // Take all elements starting from startIdx
-        return elements
-          .slice(startIdx)
-          .map(([, v]) => v)
-          .join(" ");
-      }
-
-      // String slicing with UTF-8 support (slice by characters, not bytes)
-      const chars = [...value]; // This handles multi-byte UTF-8 characters
-      let start = offset;
-      if (start < 0) start = Math.max(0, chars.length + start);
-      if (length !== undefined) {
-        if (length < 0) {
-          // Negative length means end position from end
-          const endPos = chars.length + length;
-          return chars.slice(start, Math.max(start, endPos)).join("");
-        }
-        return chars.slice(start, start + length).join("");
-      }
-      return chars.slice(start).join("");
-    }
-
-    case "PatternRemoval": {
-      // Build regex pattern from parts, preserving literal vs glob distinction
-      let regexStr = "";
-      const extglob = ctx.state.shoptOptions.extglob;
-      if (operation.pattern) {
-        for (const part of operation.pattern.parts) {
-          if (part.type === "Glob") {
-            // Glob pattern - convert * and ? to regex equivalents
-            regexStr += patternToRegex(part.pattern, operation.greedy, extglob);
-          } else if (part.type === "Literal") {
-            // Unquoted literal - treat as glob pattern (may contain *, ?, [...])
-            regexStr += patternToRegex(part.value, operation.greedy, extglob);
-          } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
-            // Quoted text - escape all special regex and glob characters
-            regexStr += escapeRegex(part.value);
-          } else if (part.type === "DoubleQuoted") {
-            // Double quoted - expand variables but treat result as literal
-            const expanded = expandWordPartsSync(ctx, part.parts);
-            regexStr += escapeRegex(expanded);
-          } else if (part.type === "ParameterExpansion") {
-            // Unquoted parameter expansion - treat expanded value as glob pattern
-            const expanded = expandPartSync(ctx, part);
-            regexStr += patternToRegex(expanded, operation.greedy, extglob);
-          } else {
-            // Other parts - expand and escape (command substitution, etc.)
-            const expanded = expandPartSync(ctx, part);
-            regexStr += escapeRegex(expanded);
-          }
-        }
-      }
-
-      // Use 's' flag (dotall) so that . matches newlines (bash ? matches any char including newline)
-      if (operation.side === "prefix") {
-        // Prefix removal: greedy matches longest from start, non-greedy matches shortest
-        return value.replace(new RegExp(`^${regexStr}`, "s"), "");
-      }
-      // Suffix removal needs special handling because we need to find
-      // the rightmost (shortest) or leftmost (longest) match
-      const regex = new RegExp(`${regexStr}$`, "s");
-      if (operation.greedy) {
-        // %% - longest match: use regex directly (finds leftmost match)
-        return value.replace(regex, "");
-      }
-      // % - shortest match: find rightmost position where pattern matches to end
-      for (let i = value.length; i >= 0; i--) {
-        const suffix = value.slice(i);
-        if (regex.test(suffix)) {
-          return value.slice(0, i);
-        }
-      }
-      return value;
-    }
-
-    case "PatternReplacement": {
-      // Build regex pattern from parts, preserving literal vs glob distinction
-      let regex = "";
-      const extglobRepl = ctx.state.shoptOptions.extglob;
-      if (operation.pattern) {
-        for (const part of operation.pattern.parts) {
-          if (part.type === "Glob") {
-            // Glob pattern - convert * and ? to regex equivalents
-            regex += patternToRegex(part.pattern, true, extglobRepl);
-          } else if (part.type === "Literal") {
-            // Unquoted literal - treat as glob pattern (may contain *, ?, [...], \X)
-            regex += patternToRegex(part.value, true, extglobRepl);
-          } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
-            // Quoted text - escape all special regex and glob characters
-            regex += escapeRegex(part.value);
-          } else if (part.type === "DoubleQuoted") {
-            // Double quoted - expand variables but treat result as literal
-            const expanded = expandWordPartsSync(ctx, part.parts);
-            regex += escapeRegex(expanded);
-          } else if (part.type === "ParameterExpansion") {
-            // Unquoted parameter expansion - treat expanded value as glob pattern
-            // In bash, ${v//$pat/x} where pat='*' treats * as a glob
-            const expanded = expandPartSync(ctx, part);
-            regex += patternToRegex(expanded, true, extglobRepl);
-          } else {
-            // Other parts - expand and escape (command substitution, etc.)
-            const expanded = expandPartSync(ctx, part);
-            regex += escapeRegex(expanded);
-          }
-        }
-      }
-
-      const replacement = operation.replacement
-        ? expandWordPartsSync(ctx, operation.replacement.parts)
-        : "";
-
-      // Apply anchor modifiers
-      if (operation.anchor === "start") {
-        regex = `^${regex}`;
-      } else if (operation.anchor === "end") {
-        regex = `${regex}$`;
-      }
-
-      // Empty pattern (without anchor) means no replacement - return original value
-      // This prevents infinite loops and matches bash behavior
-      // But with anchor, empty pattern is valid: ${var/#/prefix} prepends, ${var/%/suffix} appends
-      if (regex === "") {
-        return value;
-      }
-
-      // Use 's' flag (dotall) so that . matches newlines (bash ? and * match any char including newline)
-      const flags = operation.all ? "gs" : "s";
-
-      // Handle invalid regex patterns (like [z-a] which is an invalid range)
-      // Bash just returns the original value when pattern doesn't match
-      try {
-        const re = new RegExp(regex, flags);
-        if (operation.all) {
-          // For global replace, avoid matching empty string at end which
-          // JavaScript regex does but bash pattern matching doesn't
-          let result = "";
-          let lastIndex = 0;
-          let match: RegExpExecArray | null = re.exec(value);
-          while (match !== null) {
-            // Skip empty matches (except at the start when pattern allows)
-            if (match[0].length === 0 && match.index === value.length) {
-              break;
-            }
-            result += value.slice(lastIndex, match.index) + replacement;
-            lastIndex = match.index + match[0].length;
-            // Prevent infinite loop on zero-length matches
-            if (match[0].length === 0) {
-              lastIndex++;
-            }
-            match = re.exec(value);
-          }
-          result += value.slice(lastIndex);
-          return result;
-        }
-        return value.replace(re, replacement);
-      } catch {
-        // Invalid regex - return original value like bash does
-        return value;
-      }
-    }
-
-    case "CaseModification": {
-      // If there's a pattern, only convert characters matching the pattern
-      if (operation.pattern) {
-        const extglob = ctx.state.shoptOptions.extglob;
-        let patternRegexStr = "";
-        for (const part of operation.pattern.parts) {
-          if (part.type === "Glob") {
-            patternRegexStr += patternToRegex(part.pattern, true, extglob);
-          } else if (part.type === "Literal") {
-            patternRegexStr += patternToRegex(part.value, true, extglob);
-          } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
-            patternRegexStr += escapeRegex(part.value);
-          } else if (part.type === "DoubleQuoted") {
-            const expanded = expandWordPartsSync(ctx, part.parts);
-            patternRegexStr += escapeRegex(expanded);
-          } else if (part.type === "ParameterExpansion") {
-            const expanded = expandParameter(ctx, part);
-            patternRegexStr += patternToRegex(expanded, true, extglob);
-          }
-        }
-        // Build a regex that matches a single character against the pattern
-        // Anchor to match full character
-        const charPattern = new RegExp(`^(?:${patternRegexStr})$`);
-        const transform =
-          operation.direction === "upper"
-            ? (c: string) => c.toUpperCase()
-            : (c: string) => c.toLowerCase();
-
-        let result = "";
-        let converted = false;
-        for (const char of value) {
-          if (!operation.all && converted) {
-            // Non-all mode: only convert first match
-            result += char;
-          } else if (charPattern.test(char)) {
-            result += transform(char);
-            converted = true;
-          } else {
-            result += char;
-          }
-        }
-        return result;
-      }
-
-      // No pattern - convert all or first character
-      if (operation.direction === "upper") {
-        return operation.all
-          ? value.toUpperCase()
-          : value.charAt(0).toUpperCase() + value.slice(1);
-      }
-      return operation.all
-        ? value.toLowerCase()
-        : value.charAt(0).toLowerCase() + value.slice(1);
-    }
-
-    case "Transform": {
-      // Handle array transformations specially
-      const arrayMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/);
-      if (arrayMatch && operation.operator === "Q") {
-        // ${arr[@]@Q} - quote each element
-        const elements = getArrayElements(ctx, arrayMatch[1]);
-        const quotedElements = elements.map(([, v]) => quoteValue(v));
-        return quotedElements.join(" ");
-      }
-      if (arrayMatch && operation.operator === "a") {
-        // ${arr[@]@a} - return attributes of array
-        return getVariableAttributes(ctx, arrayMatch[1]);
-      }
-
-      // Handle array element references like ${arr[0]@a}
-      const arrayElemMatch = parameter.match(
-        /^([a-zA-Z_][a-zA-Z0-9_]*)\[.+\]$/,
-      );
-      if (arrayElemMatch && operation.operator === "a") {
-        // ${arr[0]@a} - return attributes of the array itself
-        return getVariableAttributes(ctx, arrayElemMatch[1]);
-      }
-
-      switch (operation.operator) {
-        case "Q":
-          // Quote the value for reuse as shell input
-          // Returns empty for unset variables
-          if (isUnset) return "";
-          return quoteValue(value);
-        case "P":
-          // Expand prompt escape sequences
-          return expandPrompt(ctx, value);
-        case "a":
-          // Return attribute flags for the variable
-          return getVariableAttributes(ctx, parameter);
-        case "A":
-          // Assignment format: name='value'
-          // Returns empty for unset variables
-          if (isUnset) return "";
-          return `${parameter}=${quoteValue(value)}`;
-        case "E":
-          // Expand escape sequences
-          return value.replace(/\\([\\abefnrtv'"?])/g, (_, c) => {
-            switch (c) {
-              case "\\":
-                return "\\";
-              case "a":
-                return "\x07";
-              case "b":
-                return "\b";
-              case "e":
-                return "\x1b";
-              case "f":
-                return "\f";
-              case "n":
-                return "\n";
-              case "r":
-                return "\r";
-              case "t":
-                return "\t";
-              case "v":
-                return "\v";
-              case "'":
-                return "'";
-              case '"':
-                return '"';
-              case "?":
-                return "?";
-              default:
-                return c;
-            }
-          });
-        case "K":
-          // For scalars, @K behaves like @Q (quoted value)
-          // Returns empty for unset variables
-          if (isUnset) return "";
-          return quoteValue(value);
-        case "k":
-          // For scalars, @k behaves like @Q (quoted value)
-          // Returns empty for unset variables
-          if (isUnset) return "";
-          return quoteValue(value);
-        case "u":
-          // Capitalize first character only (ucfirst)
-          return value.charAt(0).toUpperCase() + value.slice(1);
-        case "U":
-          // Uppercase all characters
-          return value.toUpperCase();
-        case "L":
-          // Lowercase all characters
-          return value.toLowerCase();
-        default:
-          return value;
-      }
-    }
-
-    case "Indirection": {
-      // For namerefs, ${!ref} returns the name of the target variable (inverted behavior)
-      // For regular variables, ${!ref} returns the value of the variable named by $ref
-      if (isNameref(ctx, parameter)) {
-        // Return the target name, not the value
-        return getNamerefTarget(ctx, parameter) || "";
-      }
-
-      // Check if parameter is an array expansion pattern like a[@] or a[*]
-      const isArrayExpansionPattern = /^[a-zA-Z_][a-zA-Z0-9_]*\[([@*])\]$/.test(
-        parameter,
-      );
-
-      // Bash 5.0+ behavior: If the reference variable itself is unset,
-      // handle based on whether there's an innerOp that deals with unset vars.
-      if (isUnset) {
-        // For ${!var+word} (UseAlternative): when var is unset, return empty
-        // because there's no target to check, and the alternative only applies
-        // when the TARGET is set.
-        if (operation.innerOp?.type === "UseAlternative") {
-          return "";
-        }
-        // For other cases (plain ${!var}, ${!var-...}, ${!var:=...} etc.), error
-        throw new BadSubstitutionError(`\${!${parameter}}`);
-      }
-
-      // value contains the name of the parameter, get the target variable name
-      const targetName = value;
-
-      // Bash 5.0+ behavior: For array expansion patterns (a[@] or a[*]),
-      // if the target name is empty or contains spaces (multiple array values joined),
-      // it's not a valid variable name, so error.
-      // For simple variable indirection (${!ref} where ref='bad name'), bash
-      // returns empty string without error for compatibility.
-      if (
-        isArrayExpansionPattern &&
-        (targetName === "" || targetName.includes(" "))
-      ) {
-        throw new BadSubstitutionError(`\${!${parameter}}`);
-      }
-
-      // Bash 5.0+ disallows tilde expansion in array subscripts via indirection
-      // e.g., ref='a[~+]'; ${!ref} is an error
-      // This was a bug in Bash 4.4 that was fixed in Bash 5.0
-      const arraySubscriptMatch = targetName.match(
-        /^[a-zA-Z_][a-zA-Z0-9_]*\[(.+)\]$/,
-      );
-      if (arraySubscriptMatch) {
-        const subscript = arraySubscriptMatch[1];
-        if (subscript.includes("~")) {
-          throw new BadSubstitutionError(`\${!${parameter}}`);
-        }
-      }
-
-      // If there's an inner operation (e.g., ${!ref-default}), apply it
-      if (operation.innerOp) {
-        // Create a synthetic part to recursively expand with the inner operation
-        const syntheticPart: ParameterExpansionPart = {
-          type: "ParameterExpansion",
-          parameter: targetName,
-          operation: operation.innerOp,
-        };
-        return expandParameter(ctx, syntheticPart, inDoubleQuotes);
-      }
-
-      return getVariable(ctx, targetName);
-    }
-
-    case "ArrayKeys": {
-      // ${!arr[@]} or ${!arr[*]} - return the keys/indices of an array
-      const elements = getArrayElements(ctx, operation.array);
-      const keys = elements.map(([k]) => String(k));
-      if (operation.star) {
-        // ${!arr[*]} - join with first char of IFS
-        return keys.join(getIfsSeparator(ctx.state.env));
-      }
-      // ${!arr[@]} - join with space
-      return keys.join(" ");
-    }
-
-    case "VarNamePrefix": {
-      // ${!prefix*} or ${!prefix@} - list variable names with prefix
-      const matchingVars = getVarNamesWithPrefix(ctx, operation.prefix);
-      if (operation.star) {
-        // ${!prefix*} - join with first char of IFS
-        return matchingVars.join(getIfsSeparator(ctx.state.env));
-      }
-      // ${!prefix@} - join with space
-      return matchingVars.join(" ");
-    }
-
-    default:
-      return value;
-  }
-}
-
-/**
  * Expand command substitutions in an array subscript.
  * e.g., "$(echo 1)" -> "1"
  * This is needed for cases like ${a[$(echo 1)]} where the subscript
@@ -6858,13 +5750,13 @@ async function expandParameterAsync(
       operation.type === "UseAlternative" ||
       operation.type === "ErrorIfUnset");
 
-  const value = getVariable(ctx, parameter, !skipNounset);
+  const value = await getVariable(ctx, parameter, !skipNounset);
 
   if (!operation) {
     return value;
   }
 
-  const isUnset = !isVariableSet(ctx, parameter);
+  const isUnset = !(await isVariableSet(ctx, parameter));
   // For $* and $@, when checkEmpty is true (:-/:+), bash has special rules:
   // - $*: "empty" only if $# == 0 (even if IFS="" makes expansion empty)
   // - $@: "empty" if $# == 0 OR ($# == 1 AND $1 == "")
@@ -7122,8 +6014,353 @@ async function expandParameterAsync(
       }
     }
 
-    // Other operations don't have words with command substitution, use sync
+    case "Length": {
+      // Check if this is an array length: ${#a[@]} or ${#a[*]}
+      const arrayMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/);
+      if (arrayMatch) {
+        const arrayName = arrayMatch[1];
+        const elements = getArrayElements(ctx, arrayName);
+        if (elements.length > 0) {
+          return String(elements.length);
+        }
+        // If no array elements, check if scalar variable exists
+        // In bash, ${#s[@]} for scalar s returns 1
+        const scalarValue = ctx.state.env[arrayName];
+        if (scalarValue !== undefined) {
+          return "1";
+        }
+        return "0";
+      }
+      // Check if this is just the array name (decays to ${#a[0]})
+      if (
+        /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(parameter) &&
+        isArray(ctx, parameter)
+      ) {
+        // Special handling for FUNCNAME and BASH_LINENO
+        if (parameter === "FUNCNAME") {
+          const firstElement = ctx.state.funcNameStack?.[0] || "";
+          return String([...firstElement].length);
+        }
+        if (parameter === "BASH_LINENO") {
+          const firstElement = ctx.state.callLineStack?.[0];
+          return String(
+            firstElement !== undefined ? [...String(firstElement)].length : 0,
+          );
+        }
+        const firstElement = ctx.state.env[`${parameter}_0`] || "";
+        return String([...firstElement].length);
+      }
+      // Use spread to count Unicode code points, not UTF-16 code units
+      return String([...value].length);
+    }
+
+    case "LengthSliceError": {
+      throw new BadSubstitutionError(parameter);
+    }
+
+    case "BadSubstitution": {
+      throw new BadSubstitutionError(operation.text);
+    }
+
+    case "Substring": {
+      const offset = operation.offset
+        ? await evaluateArithmetic(ctx, operation.offset.expression)
+        : 0;
+      const length = operation.length
+        ? await evaluateArithmetic(ctx, operation.length.expression)
+        : undefined;
+
+      // Handle special case for ${@:offset} and ${*:offset}
+      if (parameter === "@" || parameter === "*") {
+        const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+        const params: string[] = [];
+        for (let i = 1; i <= numParams; i++) {
+          params.push(ctx.state.env[String(i)] || "");
+        }
+        const shellName = ctx.state.env["0"] || "bash";
+        let allArgs: string[];
+        let startIdx: number;
+
+        if (offset <= 0) {
+          allArgs = [shellName, ...params];
+          if (offset < 0) {
+            startIdx = allArgs.length + offset;
+            if (startIdx < 0) return "";
+          } else {
+            startIdx = 0;
+          }
+        } else {
+          allArgs = params;
+          startIdx = offset - 1;
+        }
+
+        if (startIdx < 0 || startIdx >= allArgs.length) {
+          return "";
+        }
+        if (length !== undefined) {
+          const endIdx =
+            length < 0 ? allArgs.length + length : startIdx + length;
+          return allArgs.slice(startIdx, Math.max(startIdx, endIdx)).join(" ");
+        }
+        return allArgs.slice(startIdx).join(" ");
+      }
+
+      // Handle array slicing: ${arr[@]:offset} or ${arr[*]:offset}
+      const arrayMatchSubstr = parameter.match(
+        /^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/,
+      );
+      if (arrayMatchSubstr) {
+        const arrayName = arrayMatchSubstr[1];
+        if (ctx.state.associativeArrays?.has(arrayName)) {
+          throw new ExitError(
+            1,
+            "",
+            `bash: \${${arrayName}[@]: 0: 3}: bad substitution\n`,
+          );
+        }
+        const elements = getArrayElements(ctx, arrayName);
+        let startIdx = 0;
+        if (offset < 0) {
+          if (elements.length > 0) {
+            const lastIdx = elements[elements.length - 1][0];
+            const maxIndex = typeof lastIdx === "number" ? lastIdx : 0;
+            const targetIndex = maxIndex + 1 + offset;
+            if (targetIndex < 0) return "";
+            startIdx = elements.findIndex(
+              ([idx]) => typeof idx === "number" && idx >= targetIndex,
+            );
+            if (startIdx < 0) return "";
+          }
+        } else {
+          startIdx = elements.findIndex(
+            ([idx]) => typeof idx === "number" && idx >= offset,
+          );
+          if (startIdx < 0) return "";
+        }
+
+        if (length !== undefined) {
+          if (length < 0) {
+            throw new ArithmeticError(
+              `${arrayMatchSubstr[1]}[@]: substring expression < 0`,
+            );
+          }
+          return elements
+            .slice(startIdx, startIdx + length)
+            .map(([, v]) => v)
+            .join(" ");
+        }
+        return elements
+          .slice(startIdx)
+          .map(([, v]) => v)
+          .join(" ");
+      }
+
+      // String slicing with UTF-8 support
+      const chars = [...value];
+      let start = offset;
+      if (start < 0) start = Math.max(0, chars.length + start);
+      if (length !== undefined) {
+        if (length < 0) {
+          const endPos = chars.length + length;
+          return chars.slice(start, Math.max(start, endPos)).join("");
+        }
+        return chars.slice(start, start + length).join("");
+      }
+      return chars.slice(start).join("");
+    }
+
+    case "CaseModification": {
+      if (operation.pattern) {
+        const extglob = ctx.state.shoptOptions.extglob;
+        let patternRegexStr = "";
+        for (const part of operation.pattern.parts) {
+          if (part.type === "Glob") {
+            patternRegexStr += patternToRegex(part.pattern, true, extglob);
+          } else if (part.type === "Literal") {
+            patternRegexStr += patternToRegex(part.value, true, extglob);
+          } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
+            patternRegexStr += escapeRegex(part.value);
+          } else if (part.type === "DoubleQuoted") {
+            const expanded = await expandWordPartsAsync(ctx, part.parts);
+            patternRegexStr += escapeRegex(expanded);
+          } else if (part.type === "ParameterExpansion") {
+            const expanded = await expandParameterAsync(ctx, part);
+            patternRegexStr += patternToRegex(expanded, true, extglob);
+          }
+        }
+        const charPattern = new RegExp(`^(?:${patternRegexStr})$`);
+        const transform =
+          operation.direction === "upper"
+            ? (c: string) => c.toUpperCase()
+            : (c: string) => c.toLowerCase();
+
+        let result = "";
+        let converted = false;
+        for (const char of value) {
+          if (!operation.all && converted) {
+            result += char;
+          } else if (charPattern.test(char)) {
+            result += transform(char);
+            converted = true;
+          } else {
+            result += char;
+          }
+        }
+        return result;
+      }
+
+      if (operation.direction === "upper") {
+        return operation.all
+          ? value.toUpperCase()
+          : value.charAt(0).toUpperCase() + value.slice(1);
+      }
+      return operation.all
+        ? value.toLowerCase()
+        : value.charAt(0).toLowerCase() + value.slice(1);
+    }
+
+    case "Transform": {
+      const arrayMatchTransform = parameter.match(
+        /^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/,
+      );
+      if (arrayMatchTransform && operation.operator === "Q") {
+        const elements = getArrayElements(ctx, arrayMatchTransform[1]);
+        const quotedElements = elements.map(([, v]) => quoteValue(v));
+        return quotedElements.join(" ");
+      }
+      if (arrayMatchTransform && operation.operator === "a") {
+        return getVariableAttributes(ctx, arrayMatchTransform[1]);
+      }
+
+      const arrayElemMatch = parameter.match(
+        /^([a-zA-Z_][a-zA-Z0-9_]*)\[.+\]$/,
+      );
+      if (arrayElemMatch && operation.operator === "a") {
+        return getVariableAttributes(ctx, arrayElemMatch[1]);
+      }
+
+      switch (operation.operator) {
+        case "Q":
+          if (isUnset) return "";
+          return quoteValue(value);
+        case "P":
+          return expandPrompt(ctx, value);
+        case "a":
+          return getVariableAttributes(ctx, parameter);
+        case "A":
+          if (isUnset) return "";
+          return `${parameter}=${quoteValue(value)}`;
+        case "E":
+          return value.replace(/\\([\\abefnrtv'"?])/g, (_, c) => {
+            switch (c) {
+              case "\\":
+                return "\\";
+              case "a":
+                return "\x07";
+              case "b":
+                return "\b";
+              case "e":
+                return "\x1b";
+              case "f":
+                return "\f";
+              case "n":
+                return "\n";
+              case "r":
+                return "\r";
+              case "t":
+                return "\t";
+              case "v":
+                return "\v";
+              case "'":
+                return "'";
+              case '"':
+                return '"';
+              case "?":
+                return "?";
+              default:
+                return c;
+            }
+          });
+        case "K":
+        case "k":
+          if (isUnset) return "";
+          return quoteValue(value);
+        case "u":
+          return value.charAt(0).toUpperCase() + value.slice(1);
+        case "U":
+          return value.toUpperCase();
+        case "L":
+          return value.toLowerCase();
+        default:
+          return value;
+      }
+    }
+
+    case "Indirection": {
+      if (isNameref(ctx, parameter)) {
+        return getNamerefTarget(ctx, parameter) || "";
+      }
+
+      const isArrayExpansionPattern = /^[a-zA-Z_][a-zA-Z0-9_]*\[([@*])\]$/.test(
+        parameter,
+      );
+
+      if (isUnset) {
+        if (operation.innerOp?.type === "UseAlternative") {
+          return "";
+        }
+        throw new BadSubstitutionError(`\${!${parameter}}`);
+      }
+
+      const targetName = value;
+
+      if (
+        isArrayExpansionPattern &&
+        (targetName === "" || targetName.includes(" "))
+      ) {
+        throw new BadSubstitutionError(`\${!${parameter}}`);
+      }
+
+      const arraySubscriptMatch = targetName.match(
+        /^[a-zA-Z_][a-zA-Z0-9_]*\[(.+)\]$/,
+      );
+      if (arraySubscriptMatch) {
+        const subscript = arraySubscriptMatch[1];
+        if (subscript.includes("~")) {
+          throw new BadSubstitutionError(`\${!${parameter}}`);
+        }
+      }
+
+      if (operation.innerOp) {
+        const syntheticPart: ParameterExpansionPart = {
+          type: "ParameterExpansion",
+          parameter: targetName,
+          operation: operation.innerOp,
+        };
+        return expandParameterAsync(ctx, syntheticPart, inDoubleQuotes);
+      }
+
+      return await getVariable(ctx, targetName);
+    }
+
+    case "ArrayKeys": {
+      const elements = getArrayElements(ctx, operation.array);
+      const keys = elements.map(([k]) => String(k));
+      if (operation.star) {
+        return keys.join(getIfsSeparator(ctx.state.env));
+      }
+      return keys.join(" ");
+    }
+
+    case "VarNamePrefix": {
+      const matchingVars = getVarNamesWithPrefix(ctx, operation.prefix);
+      if (operation.star) {
+        return matchingVars.join(getIfsSeparator(ctx.state.env));
+      }
+      return matchingVars.join(" ");
+    }
+
     default:
-      return expandParameter(ctx, part, inDoubleQuotes);
+      return value;
   }
 }

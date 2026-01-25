@@ -5,7 +5,7 @@
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
-import { evaluateArithmeticSync } from "../arithmetic.js";
+import { evaluateArithmetic } from "../arithmetic.js";
 import { checkReadonlyError, markReadonly } from "../helpers/readonly.js";
 import type { InterpreterContext } from "../types.js";
 import { parseArrayElements } from "./declare.js";
@@ -76,14 +76,14 @@ export interface SetVariableOptions {
 /**
  * Evaluate an array index expression (can be arithmetic).
  */
-function evaluateArrayIndex(
+async function evaluateArrayIndex(
   ctx: InterpreterContext,
   indexExpr: string,
-): number {
+): Promise<number> {
   try {
     const parser = new Parser();
     const arithAst = parseArithmeticExpression(parser, indexExpr);
-    return evaluateArithmeticSync(ctx, arithAst.expression);
+    return await evaluateArithmetic(ctx, arithAst.expression);
   } catch {
     // If parsing fails, try to parse as simple number
     const num = parseInt(indexExpr, 10);
@@ -95,11 +95,11 @@ function evaluateArrayIndex(
  * Set a variable from a parsed assignment.
  * Returns an error result if the variable is readonly, otherwise null.
  */
-export function setVariable(
+export async function setVariable(
   ctx: InterpreterContext,
   assignment: ParsedAssignment,
   options: SetVariableOptions = {},
-): ExecResult | null {
+): Promise<ExecResult | null> {
   const { name, isArray, arrayElements, value, arrayIndex } = assignment;
   const { makeReadonly = false, checkReadonly = true } = options;
 
@@ -117,7 +117,7 @@ export function setVariable(
     ctx.state.env[`${name}__length`] = String(arrayElements.length);
   } else if (arrayIndex !== undefined && value !== undefined) {
     // Array index assignment: a[index]=value
-    const index = evaluateArrayIndex(ctx, arrayIndex);
+    const index = await evaluateArrayIndex(ctx, arrayIndex);
     ctx.state.env[`${name}_${index}`] = value;
     // Update array length if needed (sparse arrays may have gaps)
     const currentLength = parseInt(ctx.state.env[`${name}__length`] ?? "0", 10);

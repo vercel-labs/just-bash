@@ -1,17 +1,10 @@
 /**
  * Word Analysis
  *
- * Functions for analyzing word parts to determine:
- * - Whether async execution is needed
- * - What types of expansions are present
+ * Functions for analyzing word parts to determine what types of expansions are present.
  */
 
-import type {
-  ArithExpr,
-  ParameterExpansionPart,
-  WordNode,
-  WordPart,
-} from "../../ast/types.js";
+import type { ParameterExpansionPart, WordPart } from "../../ast/types.js";
 
 /**
  * Check if a glob pattern string contains variable references ($var or ${var})
@@ -34,118 +27,6 @@ export function globPatternHasVarRef(pattern: string): boolean {
     }
   }
   return false;
-}
-
-/**
- * Check if an arithmetic expression requires async execution
- * (contains command substitution)
- */
-function arithExprNeedsAsync(expr: ArithExpr): boolean {
-  switch (expr.type) {
-    case "ArithCommandSubst":
-      return true;
-    case "ArithNested":
-      return arithExprNeedsAsync(expr.expression);
-    case "ArithBinary":
-      return arithExprNeedsAsync(expr.left) || arithExprNeedsAsync(expr.right);
-    case "ArithUnary":
-      return arithExprNeedsAsync(expr.operand);
-    case "ArithTernary":
-      return (
-        arithExprNeedsAsync(expr.condition) ||
-        arithExprNeedsAsync(expr.consequent) ||
-        arithExprNeedsAsync(expr.alternate)
-      );
-    case "ArithAssignment":
-      return arithExprNeedsAsync(expr.value);
-    case "ArithGroup":
-      return arithExprNeedsAsync(expr.expression);
-    case "ArithArrayElement":
-      return expr.index ? arithExprNeedsAsync(expr.index) : false;
-    case "ArithConcat":
-      return expr.parts.some(arithExprNeedsAsync);
-    default:
-      return false;
-  }
-}
-
-/**
- * Check if a parameter string contains command substitution in array subscript.
- * e.g., "a[$(echo 1)]" contains "$(echo 1)" which requires async execution.
- */
-function parameterHasCommandSubst(parameter: string): boolean {
-  // Check for array subscript with command substitution
-  // Pattern: name[...$(...)...] or name[...`...`...]
-  const bracketMatch = parameter.match(/^[a-zA-Z_][a-zA-Z0-9_]*\[(.+)\]$/);
-  if (!bracketMatch) return false;
-
-  const subscript = bracketMatch[1];
-  // Check for $(...) or `...` in subscript
-  return subscript.includes("$(") || subscript.includes("`");
-}
-
-/**
- * Check if a parameter expansion requires async execution
- */
-export function paramExpansionNeedsAsync(
-  part: ParameterExpansionPart,
-): boolean {
-  // Check if the parameter itself contains command substitution in array subscript
-  // e.g., ${a[$(echo 1)]} needs async to evaluate the subscript
-  if (parameterHasCommandSubst(part.parameter)) {
-    return true;
-  }
-
-  const op = part.operation;
-  if (!op) return false;
-
-  // Check if the operation's word contains async parts
-  if ("word" in op && op.word && wordNeedsAsync(op.word)) {
-    return true;
-  }
-  // Check pattern and replacement in PatternReplacement
-  if (op.type === "PatternReplacement") {
-    if (op.pattern && wordNeedsAsync(op.pattern)) return true;
-    if (op.replacement && wordNeedsAsync(op.replacement)) return true;
-  }
-  // Check pattern in PatternRemoval
-  if (
-    op.type === "PatternRemoval" &&
-    op.pattern &&
-    wordNeedsAsync(op.pattern)
-  ) {
-    return true;
-  }
-  return false;
-}
-
-/**
- * Check if a word part requires async execution
- */
-export function partNeedsAsync(part: WordPart): boolean {
-  switch (part.type) {
-    case "CommandSubstitution":
-      return true;
-    case "ArithmeticExpansion":
-      return arithExprNeedsAsync(part.expression.expression);
-    case "DoubleQuoted":
-      return part.parts.some(partNeedsAsync);
-    case "BraceExpansion":
-      return part.items.some(
-        (item) => item.type === "Word" && wordNeedsAsync(item.word),
-      );
-    case "ParameterExpansion":
-      return paramExpansionNeedsAsync(part);
-    default:
-      return false;
-  }
-}
-
-/**
- * Check if a word requires async execution
- */
-export function wordNeedsAsync(word: WordNode): boolean {
-  return word.parts.some(partNeedsAsync);
 }
 
 /**
