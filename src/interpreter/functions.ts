@@ -17,28 +17,9 @@ import { clearLocalVarStackForScope } from "./builtins/variable-helpers.js";
 import { ExitError, ReturnError } from "./errors.js";
 import { expandWord } from "./expansion.js";
 import { OK, result, throwExecutionLimit } from "./helpers/result.js";
+import { POSIX_SPECIAL_BUILTINS } from "./helpers/shell-constants.js";
 import { applyRedirections, preExpandRedirectTargets } from "./redirections.js";
 import type { InterpreterContext } from "./types.js";
-
-/**
- * POSIX special built-in commands that cannot be redefined as functions in POSIX mode.
- */
-const POSIX_SPECIAL_BUILTINS = new Set([
-  ":",
-  ".",
-  "break",
-  "continue",
-  "eval",
-  "exec",
-  "exit",
-  "export",
-  "readonly",
-  "return",
-  "set",
-  "shift",
-  "trap",
-  "unset",
-]);
 
 export function executeFunctionDef(
   ctx: InterpreterContext,
