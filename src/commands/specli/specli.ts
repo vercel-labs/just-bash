@@ -6,104 +6,9 @@
  */
 
 import { getExitCode, renderToString, specli } from "specli";
-import type { SecureFetch } from "../../network/index.js";
+import { createStandardFetch } from "../../network/index.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
-
-/**
- * Create a standard fetch-compatible wrapper around SecureFetch.
- * This adapts the SecureFetch interface to the standard fetch signature
- * that specli expects.
- */
-function createFetchWrapper(secureFetch: SecureFetch): typeof globalThis.fetch {
-  return async (
-    input: RequestInfo | URL,
-    init?: RequestInit,
-  ): Promise<Response> => {
-    // Check if input is a Request object
-    const isRequest =
-      typeof input === "object" &&
-      input !== null &&
-      "url" in input &&
-      "method" in input;
-
-    // Extract URL string
-    const url =
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.href
-          : (input as Request).url;
-
-    // Extract method - prefer init, then Request object, then default to GET
-    const method =
-      init?.method ?? (isRequest ? (input as Request).method : "GET");
-
-    // Extract headers - merge from Request object and init
-    const headers: Record<string, string> = {};
-
-    // First, get headers from Request object if present
-    if (isRequest) {
-      const reqHeaders = (input as Request).headers;
-      if (reqHeaders) {
-        reqHeaders.forEach((value, key) => {
-          headers[key] = value;
-        });
-      }
-    }
-
-    // Then, override/add headers from init
-    if (init?.headers) {
-      if (init.headers instanceof Headers) {
-        init.headers.forEach((value, key) => {
-          headers[key] = value;
-        });
-      } else if (Array.isArray(init.headers)) {
-        for (const [key, value] of init.headers) {
-          headers[key] = value;
-        }
-      } else {
-        Object.assign(headers, init.headers);
-      }
-    }
-
-    // Extract body - prefer init, then Request object
-    let body: string | undefined;
-    const bodySource = init?.body;
-    if (bodySource) {
-      if (typeof bodySource === "string") {
-        body = bodySource;
-      } else if (bodySource instanceof ArrayBuffer) {
-        body = new TextDecoder().decode(bodySource);
-      } else if (ArrayBuffer.isView(bodySource)) {
-        body = new TextDecoder().decode(bodySource);
-      } else {
-        // For other body types (ReadableStream, FormData, etc.), convert to string
-        body = String(bodySource);
-      }
-    }
-
-    // Call SecureFetch
-    const result = await secureFetch(url, {
-      method,
-      headers: Object.keys(headers).length > 0 ? headers : undefined,
-      body,
-      followRedirects: init?.redirect !== "manual",
-    });
-
-    // Convert FetchResult to Response
-    const responseHeaders = new Headers();
-    for (const [key, value] of Object.entries(result.headers)) {
-      responseHeaders.set(key, value);
-    }
-
-    return new Response(result.body, {
-      status: result.status,
-      statusText: result.statusText,
-      headers: responseHeaders,
-    });
-  };
-}
 
 const specliHelp = {
   name: "specli",
@@ -397,7 +302,7 @@ export const specliCommand: Command = {
     }
 
     // Create fetch wrapper for specli
-    const fetchWrapper = createFetchWrapper(ctx.fetch);
+    const fetchWrapper = createStandardFetch(ctx.fetch);
 
     // Create fs wrapper for specli to read from our virtual filesystem
     const fsWrapper = {

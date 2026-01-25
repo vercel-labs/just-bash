@@ -187,3 +187,116 @@ async function responseToResult(
     url,
   };
 }
+
+/**
+ * Creates a standard fetch-compatible wrapper around SecureFetch.
+ *
+ * This adapter converts our SecureFetch interface to the standard fetch signature,
+ * making it compatible with libraries that accept a custom fetch implementation
+ * (e.g., specli, openai, anthropic SDKs).
+ *
+ * The wrapper handles:
+ * - Request objects (extracting URL, method, headers, body)
+ * - String URLs with RequestInit options
+ * - URL objects
+ *
+ * @example
+ * ```ts
+ * const secureFetch = createSecureFetch(config);
+ * const standardFetch = createStandardFetch(secureFetch);
+ *
+ * // Use with libraries expecting standard fetch
+ * const client = await specli({ spec: "...", fetch: standardFetch });
+ * ```
+ */
+export function createStandardFetch(
+  secureFetch: SecureFetch,
+): typeof globalThis.fetch {
+  return async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    // Check if input is a Request object
+    const isRequest =
+      typeof input === "object" &&
+      input !== null &&
+      "url" in input &&
+      "method" in input;
+
+    // Extract URL string
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : (input as Request).url;
+
+    // Extract method - prefer init, then Request object, then default to GET
+    const method =
+      init?.method ?? (isRequest ? (input as Request).method : "GET");
+
+    // Extract headers - merge from Request object and init
+    const headers: Record<string, string> = {};
+
+    // First, get headers from Request object if present
+    if (isRequest) {
+      const reqHeaders = (input as Request).headers;
+      if (reqHeaders) {
+        reqHeaders.forEach((value, key) => {
+          headers[key] = value;
+        });
+      }
+    }
+
+    // Then, override/add headers from init
+    if (init?.headers) {
+      if (init.headers instanceof Headers) {
+        init.headers.forEach((value, key) => {
+          headers[key] = value;
+        });
+      } else if (Array.isArray(init.headers)) {
+        for (const [key, value] of init.headers) {
+          headers[key] = value;
+        }
+      } else {
+        Object.assign(headers, init.headers);
+      }
+    }
+
+    // Extract body from init
+    let body: string | undefined;
+    const bodySource = init?.body;
+    if (bodySource) {
+      if (typeof bodySource === "string") {
+        body = bodySource;
+      } else if (bodySource instanceof ArrayBuffer) {
+        body = new TextDecoder().decode(bodySource);
+      } else if (ArrayBuffer.isView(bodySource)) {
+        body = new TextDecoder().decode(bodySource);
+      } else {
+        // For other body types (ReadableStream, FormData, etc.), convert to string
+        body = String(bodySource);
+      }
+    }
+
+    // Call SecureFetch
+    const result = await secureFetch(url, {
+      method,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
+      body,
+      followRedirects: init?.redirect !== "manual",
+    });
+
+    // Convert FetchResult to Response
+    const responseHeaders = new Headers();
+    for (const [key, value] of Object.entries(result.headers)) {
+      responseHeaders.set(key, value);
+    }
+
+    return new Response(result.body, {
+      status: result.status,
+      statusText: result.statusText,
+      headers: responseHeaders,
+    });
+  };
+}
