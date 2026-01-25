@@ -8,7 +8,7 @@ import type { ExecResult } from "../../types.js";
 import { evaluateArithmetic } from "../arithmetic.js";
 import { checkReadonlyError, markReadonly } from "../helpers/readonly.js";
 import type { InterpreterContext } from "../types.js";
-import { parseArrayElements } from "./declare.js";
+import { parseArrayElements } from "./declare-array-parsing.js";
 
 /**
  * Result of parsing an assignment argument.

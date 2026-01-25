@@ -18,11 +18,7 @@ import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { evaluateArithmetic } from "../arithmetic.js";
-import {
-  clearArray,
-  getArrayIndices,
-  getAssocArrayKeys,
-} from "../helpers/array.js";
+import { clearArray, getArrayIndices } from "../helpers/array.js";
 import {
   isNameref,
   markNameref,
@@ -33,13 +29,7 @@ import {
   unmarkNameref,
 } from "../helpers/nameref.js";
 import {
-  quoteArrayValue,
-  quoteDeclareValue,
-  quoteValue,
-} from "../helpers/quoting.js";
-import {
   checkReadonlyError,
-  isReadonly,
   markExported,
   markReadonly,
   unmarkExported,
@@ -48,53 +38,21 @@ import { OK, result, success } from "../helpers/result.js";
 import { expandTildesInValue } from "../helpers/tilde.js";
 import type { InterpreterContext } from "../types.js";
 import {
+  parseArrayElements,
+  parseAssocArrayLiteral,
+} from "./declare-array-parsing.js";
+import {
+  listAllVariables,
+  listAssociativeArrays,
+  listIndexedArrays,
+  printAllVariables,
+  printSpecificVariables,
+} from "./declare-print.js";
+import {
   markLocalVarDepth,
   parseAssignment,
   setVariable,
 } from "./variable-helpers.js";
-
-/**
- * Get the attribute flags string for a variable (e.g., "-r", "-x", "-rx", "--")
- * Order follows bash convention: a/A (array), i (integer), l (lowercase), n (nameref), r (readonly), u (uppercase), x (export)
- */
-function getVariableFlags(ctx: InterpreterContext, name: string): string {
-  let flags = "";
-
-  // Note: array flags (-a/-A) are handled separately in the caller
-  // since they require different output format
-
-  // Integer attribute
-  if (ctx.state.integerVars?.has(name)) {
-    flags += "i";
-  }
-
-  // Lowercase attribute
-  if (ctx.state.lowercaseVars?.has(name)) {
-    flags += "l";
-  }
-
-  // Nameref attribute
-  if (isNameref(ctx, name)) {
-    flags += "n";
-  }
-
-  // Readonly attribute
-  if (isReadonly(ctx, name)) {
-    flags += "r";
-  }
-
-  // Uppercase attribute
-  if (ctx.state.uppercaseVars?.has(name)) {
-    flags += "u";
-  }
-
-  // Export attribute
-  if (ctx.state.exportedVars?.has(name)) {
-    flags += "x";
-  }
-
-  return flags === "" ? "--" : `-${flags}`;
-}
 
 /**
  * Mark a variable as having the integer attribute.
@@ -180,27 +138,6 @@ async function evaluateIntegerValue(
     // If parsing fails, return 0 (bash behavior for invalid expressions)
     return "0";
   }
-}
-
-/**
- * Format a value for associative array output in declare -p.
- * Uses the oils/ysh-compatible format:
- * - Simple values (no spaces, no special chars): unquoted
- * - Empty strings or values with spaces/special chars: single-quoted with escaping
- */
-function formatAssocValue(value: string): string {
-  // Empty string needs quotes
-  if (value === "") {
-    return "''";
-  }
-  // If value contains spaces, single quotes, or other special chars, quote it
-  if (/[\s'\\]/.test(value)) {
-    // Escape single quotes as '\'' (end quote, escaped quote, start quote)
-    const escaped = value.replace(/'/g, "'\\''");
-    return `'${escaped}'`;
-  }
-  // Simple value - no quotes needed
-  return value;
 }
 
 /**
@@ -447,333 +384,34 @@ export async function handleDeclare(
 
   // Print mode with specific variable names: declare -p varname
   if (printMode && processedArgs.length > 0) {
-    let stdout = "";
-    let stderr = "";
-    let anyNotFound = false;
-    for (const name of processedArgs) {
-      // Get the variable's attribute flags (for scalar variables)
-      const flags = getVariableFlags(ctx, name);
-
-      // Check if this is an associative array
-      const isAssoc = ctx.state.associativeArrays?.has(name);
-      if (isAssoc) {
-        const keys = getAssocArrayKeys(ctx, name);
-        if (keys.length === 0) {
-          stdout += `declare -A ${name}=()\n`;
-        } else {
-          const elements = keys.map((key) => {
-            const value = ctx.state.env[`${name}_${key}`] ?? "";
-            // Format: ['key']=value (single quotes around key)
-            const formattedValue = formatAssocValue(value);
-            return `['${key}']=${formattedValue}`;
-          });
-          stdout += `declare -A ${name}=(${elements.join(" ")})\n`;
-        }
-        continue;
-      }
-
-      // Check if this is an indexed array (has array elements)
-      const arrayIndices = getArrayIndices(ctx, name);
-      if (arrayIndices.length > 0) {
-        const elements = arrayIndices.map((index) => {
-          const value = ctx.state.env[`${name}_${index}`] ?? "";
-          return `[${index}]=${quoteArrayValue(value)}`;
-        });
-        stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
-        continue;
-      }
-
-      // Check if this is an empty array (has __length marker but no elements)
-      if (ctx.state.env[`${name}__length`] !== undefined) {
-        stdout += `declare -a ${name}=()\n`;
-        continue;
-      }
-
-      // Regular scalar variable
-      const value = ctx.state.env[name];
-      if (value !== undefined) {
-        // Use $'...' quoting for control characters, double quotes otherwise
-        stdout += `declare ${flags} ${name}=${quoteDeclareValue(value)}\n`;
-      } else {
-        // Check if variable is declared but unset (via declare or local)
-        const isDeclared = ctx.state.declaredVars?.has(name);
-        const isLocalVar = ctx.state.localVarDepth?.has(name);
-        if (isDeclared || isLocalVar) {
-          // Variable is declared but has no value - output without =""
-          stdout += `declare ${flags} ${name}\n`;
-        } else {
-          // Variable not found - add error to stderr and set flag for exit code 1
-          stderr += `bash: declare: ${name}: not found\n`;
-          anyNotFound = true;
-        }
-      }
-    }
-    return result(stdout, stderr, anyNotFound ? 1 : 0);
+    return printSpecificVariables(ctx, processedArgs);
   }
 
   // Print mode without args (declare -p): list all variables with attributes
   // When filtering flags are also set (-x, -r, -n, -a, -A), only show matching variables
   if (printMode && processedArgs.length === 0) {
-    // Check if any filtering flags are set
-    const filterExport = declareExport;
-    const filterReadonly = declareReadonly;
-    const filterNameref = declareNameref;
-    const filterIndexedArray = declareArray;
-    const filterAssocArray = declareAssoc;
-    const hasFilter =
-      filterExport ||
-      filterReadonly ||
-      filterNameref ||
-      filterIndexedArray ||
-      filterAssocArray;
-
-    let stdout = "";
-
-    // Collect all variable names (excluding internal markers like __length)
-    const varNames = new Set<string>();
-    for (const key of Object.keys(ctx.state.env)) {
-      if (key.startsWith("BASH_")) continue;
-      // For __length markers, extract the base name (for empty arrays)
-      if (key.endsWith("__length")) {
-        const baseName = key.slice(0, -8);
-        varNames.add(baseName);
-        continue;
-      }
-      // For array elements (name_index), extract base name
-      const underscoreIdx = key.lastIndexOf("_");
-      if (underscoreIdx > 0) {
-        const baseName = key.slice(0, underscoreIdx);
-        const suffix = key.slice(underscoreIdx + 1);
-        // If suffix is numeric or baseName is an array, it's an array element
-        if (
-          /^\d+$/.test(suffix) ||
-          ctx.state.associativeArrays?.has(baseName)
-        ) {
-          varNames.add(baseName);
-          continue;
-        }
-      }
-      varNames.add(key);
-    }
-
-    // Also include local variables if we're in a function scope
-    if (ctx.state.localVarDepth) {
-      for (const name of ctx.state.localVarDepth.keys()) {
-        varNames.add(name);
-      }
-    }
-
-    // Include associative array names (for empty associative arrays)
-    if (ctx.state.associativeArrays) {
-      for (const name of ctx.state.associativeArrays) {
-        varNames.add(name);
-      }
-    }
-
-    // Sort and output each variable
-    const sortedNames = Array.from(varNames).sort();
-    for (const name of sortedNames) {
-      const flags = getVariableFlags(ctx, name);
-
-      // Check if this is an associative array
-      const isAssoc = ctx.state.associativeArrays?.has(name);
-
-      // Check if this is an indexed array (not associative)
-      const arrayIndices = getArrayIndices(ctx, name);
-      const isIndexedArray =
-        !isAssoc &&
-        (arrayIndices.length > 0 ||
-          ctx.state.env[`${name}__length`] !== undefined);
-
-      // Apply filters if set
-      if (hasFilter) {
-        // If filtering for associative arrays only (-pA)
-        if (filterAssocArray && !isAssoc) continue;
-        // If filtering for indexed arrays only (-pa)
-        if (filterIndexedArray && !isIndexedArray) continue;
-        // If filtering for exported only (-px)
-        if (filterExport && !ctx.state.exportedVars?.has(name)) continue;
-        // If filtering for readonly only (-pr)
-        if (filterReadonly && !ctx.state.readonlyVars?.has(name)) continue;
-        // If filtering for nameref only (-pn)
-        if (filterNameref && !isNameref(ctx, name)) continue;
-      }
-
-      if (isAssoc) {
-        const keys = getAssocArrayKeys(ctx, name);
-        if (keys.length === 0) {
-          stdout += `declare -A ${name}=()\n`;
-        } else {
-          const elements = keys.map((key) => {
-            const value = ctx.state.env[`${name}_${key}`] ?? "";
-            // Format: ['key']=value (single quotes around key)
-            const formattedValue = formatAssocValue(value);
-            return `['${key}']=${formattedValue}`;
-          });
-          stdout += `declare -A ${name}=(${elements.join(" ")})\n`;
-        }
-        continue;
-      }
-
-      // Check if this is an indexed array
-      if (arrayIndices.length > 0) {
-        const elements = arrayIndices.map((index) => {
-          const value = ctx.state.env[`${name}_${index}`] ?? "";
-          return `[${index}]=${quoteArrayValue(value)}`;
-        });
-        stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
-        continue;
-      }
-
-      // Check if this is an empty array
-      if (ctx.state.env[`${name}__length`] !== undefined) {
-        stdout += `declare -a ${name}=()\n`;
-        continue;
-      }
-
-      // Regular scalar variable
-      const value = ctx.state.env[name];
-      if (value !== undefined) {
-        stdout += `declare ${flags} ${name}=${quoteDeclareValue(value)}\n`;
-      }
-    }
-    return success(stdout);
+    return printAllVariables(ctx, {
+      filterExport: declareExport,
+      filterReadonly: declareReadonly,
+      filterNameref: declareNameref,
+      filterIndexedArray: declareArray,
+      filterAssocArray: declareAssoc,
+    });
   }
 
   // Handle declare -A without arguments: list all associative arrays
   if (processedArgs.length === 0 && declareAssoc && !printMode) {
-    let stdout = "";
-
-    // Get all associative array names and sort them
-    const assocNames = Array.from(ctx.state.associativeArrays ?? []).sort();
-
-    for (const name of assocNames) {
-      const keys = getAssocArrayKeys(ctx, name);
-      if (keys.length === 0) {
-        // Empty associative array
-        stdout += `declare -A ${name}=()\n`;
-      } else {
-        // Non-empty associative array: format as (['key']=value ...)
-        const elements = keys.map((key) => {
-          const value = ctx.state.env[`${name}_${key}`] ?? "";
-          // Format: ['key']=value (single quotes around key)
-          const formattedValue = formatAssocValue(value);
-          return `['${key}']=${formattedValue}`;
-        });
-        stdout += `declare -A ${name}=(${elements.join(" ")})\n`;
-      }
-    }
-    return success(stdout);
+    return listAssociativeArrays(ctx);
   }
 
   // Handle declare -a without arguments: list all indexed arrays
   if (processedArgs.length === 0 && declareArray && !printMode) {
-    let stdout = "";
-
-    // Find all indexed arrays
-    const arrayNames = new Set<string>();
-    for (const key of Object.keys(ctx.state.env)) {
-      if (key.startsWith("BASH_")) continue;
-      // Check for __length marker (empty arrays)
-      if (key.endsWith("__length")) {
-        const baseName = key.slice(0, -8);
-        // Make sure it's not an associative array
-        if (!ctx.state.associativeArrays?.has(baseName)) {
-          arrayNames.add(baseName);
-        }
-        continue;
-      }
-      // Check for numeric index pattern (name_index)
-      const lastUnderscore = key.lastIndexOf("_");
-      if (lastUnderscore > 0) {
-        const baseName = key.slice(0, lastUnderscore);
-        const suffix = key.slice(lastUnderscore + 1);
-        // If suffix is numeric, it's an array element
-        if (/^\d+$/.test(suffix)) {
-          // Make sure it's not an associative array
-          if (!ctx.state.associativeArrays?.has(baseName)) {
-            arrayNames.add(baseName);
-          }
-        }
-      }
-    }
-
-    // Output each array in sorted order
-    const sortedNames = Array.from(arrayNames).sort();
-    for (const name of sortedNames) {
-      const indices = getArrayIndices(ctx, name);
-      if (indices.length === 0) {
-        // Empty array
-        stdout += `declare -a ${name}=()\n`;
-      } else {
-        // Non-empty array: format as ([index]="value" ...)
-        const elements = indices.map((index) => {
-          const value = ctx.state.env[`${name}_${index}`] ?? "";
-          return `[${index}]=${quoteArrayValue(value)}`;
-        });
-        stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
-      }
-    }
-    return success(stdout);
+    return listIndexedArrays(ctx);
   }
 
   // No args: list all variables (without -p flag, just print name=value)
   if (processedArgs.length === 0 && !printMode) {
-    let stdout = "";
-
-    // Collect all variable names (excluding internal markers)
-    const varNames = new Set<string>();
-    for (const key of Object.keys(ctx.state.env)) {
-      if (key.startsWith("BASH_")) continue;
-      // For __length markers, extract the base name (for arrays)
-      if (key.endsWith("__length")) {
-        const baseName = key.slice(0, -8);
-        varNames.add(baseName);
-        continue;
-      }
-      // For array elements (name_index), extract base name
-      const underscoreIdx = key.lastIndexOf("_");
-      if (underscoreIdx > 0) {
-        const baseName = key.slice(0, underscoreIdx);
-        const suffix = key.slice(underscoreIdx + 1);
-        // If suffix is numeric or baseName is an associative array
-        if (
-          /^\d+$/.test(suffix) ||
-          ctx.state.associativeArrays?.has(baseName)
-        ) {
-          varNames.add(baseName);
-          continue;
-        }
-      }
-      varNames.add(key);
-    }
-
-    const sortedNames = Array.from(varNames).sort();
-    for (const name of sortedNames) {
-      // Check if this is an associative array
-      const isAssoc = ctx.state.associativeArrays?.has(name);
-      if (isAssoc) {
-        // Skip associative arrays for simple declare output
-        continue;
-      }
-
-      // Check if this is an indexed array
-      const arrayIndices = getArrayIndices(ctx, name);
-      if (
-        arrayIndices.length > 0 ||
-        ctx.state.env[`${name}__length`] !== undefined
-      ) {
-        // Skip indexed arrays for simple declare output
-        continue;
-      }
-
-      // Regular scalar variable - output as name=value
-      const value = ctx.state.env[name];
-      if (value !== undefined) {
-        stdout += `${name}=${quoteValue(value)}\n`;
-      }
-    }
-    return success(stdout);
+    return listAllVariables(ctx);
   }
 
   // Track errors during processing
@@ -1320,151 +958,6 @@ export async function handleDeclare(
   }
 
   return result("", stderr, exitCode);
-}
-
-/**
- * Parse array elements from content like "1 2 3" or "'a b' c d"
- */
-export function parseArrayElements(content: string): string[] {
-  const elements: string[] = [];
-  let current = "";
-  let inSingleQuote = false;
-  let inDoubleQuote = false;
-  let escaped = false;
-  // Track whether we've seen content that should result in an element,
-  // including empty quoted strings like '' or ""
-  let hasContent = false;
-
-  for (const char of content) {
-    if (escaped) {
-      current += char;
-      escaped = false;
-      hasContent = true;
-      continue;
-    }
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (char === "'" && !inDoubleQuote) {
-      // Entering or leaving single quotes - either way, this indicates an element exists
-      if (!inSingleQuote) {
-        // Entering quotes - mark that we have content (even if empty)
-        hasContent = true;
-      }
-      inSingleQuote = !inSingleQuote;
-      continue;
-    }
-    if (char === '"' && !inSingleQuote) {
-      // Entering or leaving double quotes - either way, this indicates an element exists
-      if (!inDoubleQuote) {
-        // Entering quotes - mark that we have content (even if empty)
-        hasContent = true;
-      }
-      inDoubleQuote = !inDoubleQuote;
-      continue;
-    }
-    if (
-      (char === " " || char === "\t" || char === "\n") &&
-      !inSingleQuote &&
-      !inDoubleQuote
-    ) {
-      if (hasContent) {
-        elements.push(current);
-        current = "";
-        hasContent = false;
-      }
-      continue;
-    }
-    current += char;
-    hasContent = true;
-  }
-  if (hasContent) {
-    elements.push(current);
-  }
-  return elements;
-}
-
-/**
- * Parse associative array literal content like "['foo']=bar ['spam']=42"
- * Returns array of [key, value] pairs
- */
-function parseAssocArrayLiteral(content: string): [string, string][] {
-  const entries: [string, string][] = [];
-  let pos = 0;
-
-  while (pos < content.length) {
-    // Skip whitespace
-    while (pos < content.length && /\s/.test(content[pos])) {
-      pos++;
-    }
-    if (pos >= content.length) break;
-
-    // Expect [
-    if (content[pos] !== "[") {
-      // Skip non-bracket content
-      pos++;
-      continue;
-    }
-    pos++; // skip [
-
-    // Parse key (may be quoted)
-    let key = "";
-    if (content[pos] === "'" || content[pos] === '"') {
-      const quote = content[pos];
-      pos++;
-      while (pos < content.length && content[pos] !== quote) {
-        key += content[pos];
-        pos++;
-      }
-      if (content[pos] === quote) pos++;
-    } else {
-      while (
-        pos < content.length &&
-        content[pos] !== "]" &&
-        content[pos] !== "="
-      ) {
-        key += content[pos];
-        pos++;
-      }
-    }
-
-    // Skip to ]
-    while (pos < content.length && content[pos] !== "]") {
-      pos++;
-    }
-    if (content[pos] === "]") pos++;
-
-    // Expect =
-    if (content[pos] !== "=") continue;
-    pos++;
-
-    // Parse value (may be quoted)
-    let value = "";
-    if (content[pos] === "'" || content[pos] === '"') {
-      const quote = content[pos];
-      pos++;
-      while (pos < content.length && content[pos] !== quote) {
-        if (content[pos] === "\\" && pos + 1 < content.length) {
-          pos++;
-          value += content[pos];
-        } else {
-          value += content[pos];
-        }
-        pos++;
-      }
-      if (content[pos] === quote) pos++;
-    } else {
-      while (pos < content.length && !/\s/.test(content[pos])) {
-        value += content[pos];
-        pos++;
-      }
-    }
-
-    entries.push([key, value]);
-  }
-
-  return entries;
 }
 
 /**

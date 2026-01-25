@@ -26,8 +26,6 @@ import type {
 import type { IFileSystem } from "../fs/interface.js";
 import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
-import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
-import { Parser } from "../parser/parser.js";
 import { ParseException } from "../parser/types.js";
 import type { CommandRegistry, ExecResult, TraceCallback } from "../types.js";
 import { expandAlias as expandAliasHelper } from "./alias-expansion.js";
@@ -41,11 +39,6 @@ import {
   dispatchBuiltin,
   executeExternalCommand,
 } from "./builtin-dispatch.js";
-import {
-  applyCaseTransform,
-  getLocalVarDepth,
-  isInteger,
-} from "./builtins/index.js";
 import { findCommandInPath as findCommandInPathHelper } from "./command-resolution.js";
 import { evaluateConditional } from "./conditionals.js";
 import {
@@ -70,28 +63,12 @@ import {
   PosixFatalError,
   ReturnError,
 } from "./errors.js";
-import {
-  expandWord,
-  expandWordWithGlob,
-  getArrayElements,
-  isArray,
-} from "./expansion.js";
+import { expandWord, expandWordWithGlob } from "./expansion.js";
 import { executeFunctionDef } from "./functions.js";
-import {
-  parseKeyedElementFromWord,
-  wordToLiteralString,
-} from "./helpers/array.js";
 import {
   isWordLiteralMatch,
   parseRwFdContent,
 } from "./helpers/interpreter-utils.js";
-import {
-  getNamerefTarget,
-  isNameref,
-  resolveNameref,
-  resolveNamerefForAssignment,
-} from "./helpers/nameref.js";
-import { checkReadonlyError, isReadonly } from "./helpers/readonly.js";
 import {
   failure,
   OK,
@@ -100,14 +77,14 @@ import {
   throwExecutionLimit,
 } from "./helpers/result.js";
 import { isPosixSpecialBuiltin } from "./helpers/shell-constants.js";
-import { expandTildesInValue } from "./helpers/tilde.js";
-import { traceAssignment, traceSimpleCommand } from "./helpers/xtrace.js";
+import { traceSimpleCommand } from "./helpers/xtrace.js";
 import { executePipeline as executePipelineHelper } from "./pipeline-execution.js";
 import {
   applyRedirections,
   preOpenOutputRedirects,
   processFdVariableRedirections,
 } from "./redirections.js";
+import { processAssignments } from "./simple-command-assignments.js";
 import {
   executeGroup as executeGroupHelper,
   executeSubshell as executeSubshellHelper,
@@ -190,10 +167,6 @@ export class Interpreter {
     }
     return env;
   }
-
-  // ===========================================================================
-  // AST EXECUTION
-  // ===========================================================================
 
   async executeScript(node: ScriptNode): Promise<ExecResult> {
     let stdout = "";
@@ -442,10 +415,6 @@ export class Interpreter {
     }
   }
 
-  // ===========================================================================
-  // SIMPLE COMMAND EXECUTION
-  // ===========================================================================
-
   private async executeSimpleCommand(
     node: SimpleCommandNode,
     stdin: string,
@@ -497,741 +466,14 @@ export class Interpreter {
 
     // Clear expansion stderr at the start
     this.ctx.state.expansionStderr = "";
-    const tempAssignments: Record<string, string | undefined> = {};
 
-    // Collect xtrace output for assignments
-    let xtraceAssignmentOutput = "";
-
-    for (const assignment of node.assignments) {
-      const name = assignment.name;
-
-      // Handle array assignment: VAR=(a b c) or VAR+=(a b c)
-      // Each element can be a glob that expands to multiple values
-      if (assignment.array) {
-        // Check if trying to assign array to subscripted element: a[0]=(1 2) is invalid
-        // This should be a runtime error (exit code 1) not a parse error
-        if (/\[.+\]$/.test(name)) {
-          // Bash outputs to stderr and returns exit code 1
-          return result(
-            "",
-            `bash: ${name}: cannot assign list to array member\n`,
-            1,
-          );
-        }
-
-        // Check if name is a nameref - assigning an array to a nameref is complex
-        if (isNameref(this.ctx, name)) {
-          const target = getNamerefTarget(this.ctx, name);
-          // If nameref has no target (unbound), array assignment is a hard error
-          // This terminates the script with exit code 1
-          if (target === undefined || target === "") {
-            throw new ExitError(1, "", "");
-          }
-          const resolved = resolveNameref(this.ctx, name);
-          if (resolved && /^[a-zA-Z_][a-zA-Z0-9_]*\[@\]$/.test(resolved)) {
-            // Nameref points to array[@], can't assign list to it
-            return result(
-              "",
-              `bash: ${name}: cannot assign list to array member\n`,
-              1,
-            );
-          }
-        }
-
-        // Check if array variable is readonly
-        // For prefix assignments (temp bindings) to readonly vars, bash warns but continues
-        if (isReadonly(this.ctx, name)) {
-          if (node.name) {
-            // Temp binding to readonly var - warn but continue
-            xtraceAssignmentOutput += `bash: ${name}: readonly variable\n`;
-            continue; // Skip this assignment, process next one
-          }
-          const readonlyError = checkReadonlyError(this.ctx, name);
-          if (readonlyError) return readonlyError;
-        }
-
-        // Check if this is an associative array
-        const isAssoc = this.ctx.state.associativeArrays?.has(name);
-
-        // Check if elements use [key]=value or [key]+=value syntax
-        // This is detected by looking at the Word structure:
-        // - First part is Glob with pattern like "[key]"
-        // - Second part is Literal starting with "=" or "+="
-        //
-        // Special cases:
-        // 1. Nested brackets like [a[0]]= are parsed as:
-        //    - Glob with pattern "[a[0]" (ends with ] from inner bracket)
-        //    - Literal with value "]=..." (the outer ] and the =)
-        //
-        // 2. Double-quoted keys like ["key"]= are parsed as:
-        //    - Glob with pattern "[" (just the opening bracket)
-        //    - DoubleQuoted with the key
-        //    - Literal with value "]=" or "]+="
-        const hasKeyedElements = assignment.array.some((element) => {
-          if (element.parts.length >= 2) {
-            const first = element.parts[0];
-            const second = element.parts[1];
-            if (first.type !== "Glob" || !first.pattern.startsWith("[")) {
-              return false;
-            }
-            // Check for double/single-quoted key: ["key"]= or ['key']=
-            if (
-              first.pattern === "[" &&
-              (second.type === "DoubleQuoted" || second.type === "SingleQuoted")
-            ) {
-              // Third part should be ]= or ]+=
-              if (element.parts.length < 3) return false;
-              const third = element.parts[2];
-              if (third.type !== "Literal") return false;
-              return (
-                third.value.startsWith("]=") || third.value.startsWith("]+=")
-              );
-            }
-            if (second.type !== "Literal") {
-              return false;
-            }
-            // Check if this is a nested bracket case (second starts with ])
-            // This happens when the glob pattern was truncated at an inner ]
-            if (second.value.startsWith("]")) {
-              // Nested bracket case: [a[0]]= where pattern ends at inner ]
-              // The second part should be "]=..." or "]+=..."
-              return (
-                second.value.startsWith("]=") || second.value.startsWith("]+=")
-              );
-            }
-            // Normal case: [key]= where pattern ends with ] and second starts with =
-            if (first.pattern.endsWith("]")) {
-              return (
-                second.value.startsWith("=") || second.value.startsWith("+=")
-              );
-            }
-            return false;
-          }
-          return false;
-        });
-
-        // Helper to clear existing array elements (called after expansion)
-        // Also removes the scalar value since arrays can't be exported as scalars
-        const clearExistingElements = () => {
-          const prefix = `${name}_`;
-          for (const key of Object.keys(this.ctx.state.env)) {
-            if (key.startsWith(prefix) && !key.includes("__")) {
-              delete this.ctx.state.env[key];
-            }
-          }
-          // Remove scalar value - when a variable becomes an array,
-          // its scalar value should be cleared (arrays can't be exported)
-          delete this.ctx.state.env[name];
-        };
-
-        if (isAssoc && hasKeyedElements) {
-          // Handle associative array with [key]=value or [key]+=value syntax
-          // IMPORTANT: Expand all values FIRST (they may reference the current array),
-          // then clear, then assign. e.g., foo=(["key"]="${foo["key"]} more")
-          // should see the old foo["key"] value during expansion.
-          interface PendingAssocElement {
-            type: "keyed";
-            key: string;
-            value: string;
-            append: boolean;
-          }
-          interface PendingAssocInvalid {
-            type: "invalid";
-            expandedValue: string;
-          }
-          const pendingAssocElements: (
-            | PendingAssocElement
-            | PendingAssocInvalid
-          )[] = [];
-
-          // First pass: Expand all values BEFORE clearing the array
-          for (const element of assignment.array) {
-            // Use parseKeyedElementFromWord to properly handle variable expansion
-            const parsed = parseKeyedElementFromWord(element);
-            if (parsed) {
-              const { key, valueParts, append: elementAppend } = parsed;
-              // Expand the value parts (this handles $v, ${v}, etc.)
-              let value: string;
-              if (valueParts.length > 0) {
-                const valueWord: WordNode = { type: "Word", parts: valueParts };
-                value = await expandWord(this.ctx, valueWord);
-              } else {
-                value = "";
-              }
-              // Apply tilde expansion if value starts with ~
-              value = expandTildesInValue(this.ctx, value);
-              pendingAssocElements.push({
-                type: "keyed",
-                key,
-                value,
-                append: elementAppend,
-              });
-            } else {
-              // For associative arrays, elements without [key]=value syntax are invalid
-              // Bash outputs a warning to stderr and continues (status 0)
-              const expandedValue = await expandWord(this.ctx, element);
-              pendingAssocElements.push({
-                type: "invalid",
-                expandedValue,
-              });
-            }
-          }
-
-          // Clear existing elements AFTER all expansion (for self-reference support)
-          if (!assignment.append) {
-            clearExistingElements();
-          }
-
-          // Second pass: Perform all assignments
-          for (const pending of pendingAssocElements) {
-            if (pending.type === "keyed") {
-              if (pending.append) {
-                // [key]+=value - append to existing value at this key
-                const existing =
-                  this.ctx.state.env[`${name}_${pending.key}`] ?? "";
-                this.ctx.state.env[`${name}_${pending.key}`] =
-                  existing + pending.value;
-              } else {
-                this.ctx.state.env[`${name}_${pending.key}`] = pending.value;
-              }
-            } else {
-              // Format: bash: line N: arrayname: value: must use subscript when assigning associative array
-              const lineNum = node.line ?? this.ctx.state.currentLine ?? 1;
-              xtraceAssignmentOutput += `bash: line ${lineNum}: ${name}: ${pending.expandedValue}: must use subscript when assigning associative array\n`;
-              // Continue processing other elements (don't throw error)
-            }
-          }
-        } else if (hasKeyedElements) {
-          // Handle indexed array with [index]=value or [index]+=value syntax (sparse array)
-          // Bash evaluation order: First expand ALL RHS values, THEN evaluate ALL indices
-          // This is important for cases like: a=([100+i++]=$((i++)) [200+i++]=$((i++)))
-          // where i++ in RHS affects subsequent index evaluations
-
-          // First pass: Expand all RHS values and collect them with their index expressions
-          interface PendingElement {
-            type: "keyed";
-            indexExpr: string;
-            value: string;
-            append: boolean;
-          }
-          interface PendingNonKeyed {
-            type: "non-keyed";
-            values: string[];
-          }
-          const pendingElements: (PendingElement | PendingNonKeyed)[] = [];
-
-          for (const element of assignment.array) {
-            const parsed = parseKeyedElementFromWord(element);
-            if (parsed) {
-              const {
-                key: indexExpr,
-                valueParts,
-                append: elementAppend,
-              } = parsed;
-              // Expand the value parts (this handles $v, ${v}, etc.)
-              let value: string;
-              if (valueParts.length > 0) {
-                const valueWord: WordNode = { type: "Word", parts: valueParts };
-                value = await expandWord(this.ctx, valueWord);
-              } else {
-                value = "";
-              }
-              // Apply tilde expansion if value starts with ~
-              value = expandTildesInValue(this.ctx, value);
-              pendingElements.push({
-                type: "keyed",
-                indexExpr,
-                value,
-                append: elementAppend,
-              });
-            } else {
-              // Non-keyed element: expand now
-              const expanded = await expandWordWithGlob(this.ctx, element);
-              pendingElements.push({
-                type: "non-keyed",
-                values: expanded.values,
-              });
-            }
-          }
-
-          // Clear existing elements AFTER all RHS expansion (keyed elements don't reference the array)
-          if (!assignment.append) {
-            clearExistingElements();
-          }
-
-          // Second pass: Evaluate all indices and perform assignments
-          // Track current index for implicit increment after [n]=value
-          let currentIndex = 0;
-          for (const pending of pendingElements) {
-            if (pending.type === "keyed") {
-              // Evaluate index as arithmetic expression
-              let index: number;
-              try {
-                const parser = new Parser();
-                const arithAst = parseArithmeticExpression(
-                  parser,
-                  pending.indexExpr,
-                );
-                // Use isExpansionContext=false for array subscripts
-                index = await evaluateArithmetic(
-                  this.ctx,
-                  arithAst.expression,
-                  false,
-                );
-              } catch {
-                // If parsing fails, try simple fallbacks
-                if (/^-?\d+$/.test(pending.indexExpr)) {
-                  index = Number.parseInt(pending.indexExpr, 10);
-                } else {
-                  const varValue = this.ctx.state.env[pending.indexExpr];
-                  index = varValue ? Number.parseInt(varValue, 10) : 0;
-                  if (Number.isNaN(index)) index = 0;
-                }
-              }
-              if (pending.append) {
-                // [index]+=value - append to existing value at this index
-                const existing = this.ctx.state.env[`${name}_${index}`] ?? "";
-                this.ctx.state.env[`${name}_${index}`] =
-                  existing + pending.value;
-              } else {
-                this.ctx.state.env[`${name}_${index}`] = pending.value;
-              }
-              // Update currentIndex to continue from this keyed index
-              currentIndex = index + 1;
-            } else {
-              // Non-keyed element: use currentIndex and increment
-              for (const val of pending.values) {
-                this.ctx.state.env[`${name}_${currentIndex++}`] = val;
-              }
-            }
-          }
-        } else {
-          // Regular array assignment without keyed elements
-          // IMPORTANT: Expand elements FIRST (they may reference the current array)
-          // then clear, then assign. e.g., a=(0 "${a[@]}" 1) should see old a[@]
-          const allElements: string[] = [];
-          for (const element of assignment.array) {
-            const expanded = await expandWordWithGlob(this.ctx, element);
-            allElements.push(...expanded.values);
-          }
-
-          // For append mode (+=), find the max existing index BEFORE clearing
-          let startIndex = 0;
-          if (assignment.append) {
-            const elements = getArrayElements(this.ctx, name);
-            if (elements.length > 0) {
-              const maxIndex = Math.max(
-                ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
-              );
-              startIndex = maxIndex + 1;
-            } else if (this.ctx.state.env[name] !== undefined) {
-              // Variable exists as a scalar string - convert to array element 0
-              // e.g., s='abc'; s+=(d e f) -> s=('abc' 'd' 'e' 'f')
-              const scalarValue = this.ctx.state.env[name];
-              this.ctx.state.env[`${name}_0`] = scalarValue;
-              delete this.ctx.state.env[name];
-              startIndex = 1;
-            }
-          } else {
-            // Clear existing elements AFTER expansion (self-reference already read)
-            clearExistingElements();
-          }
-
-          for (let i = 0; i < allElements.length; i++) {
-            this.ctx.state.env[`${name}_${startIndex + i}`] = allElements[i];
-          }
-          // Update length only for non-append (length tracking is not reliable with sparse arrays)
-          if (!assignment.append) {
-            this.ctx.state.env[`${name}__length`] = String(allElements.length);
-          }
-        }
-
-        // For prefix assignments with a command, bash stringifies the array syntax
-        // and exports it as an environment variable. e.g., B=(b b) cmd exports B="(b b)"
-        if (node.name) {
-          // Save current scalar value for restoration
-          tempAssignments[name] = this.ctx.state.env[name];
-
-          // Stringify the array syntax as bash does
-          const elements = assignment.array.map((el) =>
-            wordToLiteralString(el),
-          );
-          const stringified = `(${elements.join(" ")})`;
-          this.ctx.state.env[name] = stringified;
-        }
-        continue;
-      }
-
-      const value = assignment.value
-        ? await expandWord(this.ctx, assignment.value)
-        : "";
-
-      // Check for empty subscript assignment: a[]=value is invalid
-      const emptySubscriptMatch = name.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[\]$/);
-      if (emptySubscriptMatch) {
-        return result("", `bash: ${name}: bad array subscript\n`, 1);
-      }
-
-      // Check for array subscript assignment: a[subscript]=value
-      const subscriptMatch = name.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
-      if (subscriptMatch) {
-        let arrayName = subscriptMatch[1];
-        const subscriptExpr = subscriptMatch[2];
-
-        // Check if arrayName is a nameref - if so, resolve it
-        if (isNameref(this.ctx, arrayName)) {
-          const resolved = resolveNameref(this.ctx, arrayName);
-          if (resolved && resolved !== arrayName) {
-            // If the nameref points to an array element (e.g., array[0]), subscript access is invalid
-            // because array[0] is not a valid identifier for further subscripting
-            if (resolved.includes("[")) {
-              return result(
-                "",
-                `bash: \`${resolved}': not a valid identifier\n`,
-                1,
-              );
-            }
-            arrayName = resolved;
-          }
-        }
-
-        // Check if array variable is readonly
-        // For prefix assignments (temp bindings) to readonly vars, bash silently ignores them
-        if (isReadonly(this.ctx, arrayName)) {
-          if (node.name) {
-            // Temp binding to readonly var - silently skip (bash doesn't warn for subscript)
-            continue;
-          }
-          const readonlyError = checkReadonlyError(this.ctx, arrayName);
-          if (readonlyError) return readonlyError;
-        }
-
-        const isAssoc = this.ctx.state.associativeArrays?.has(arrayName);
-        let envKey: string;
-
-        if (isAssoc) {
-          // For associative arrays, expand variables in subscript first, then use as key
-          // e.g., foo["$key"]=value where key=bar should set foo_bar
-          let key: string;
-          if (subscriptExpr.startsWith("'") && subscriptExpr.endsWith("'")) {
-            // Single-quoted: literal value, no expansion
-            key = subscriptExpr.slice(1, -1);
-          } else if (
-            subscriptExpr.startsWith('"') &&
-            subscriptExpr.endsWith('"')
-          ) {
-            // Double-quoted: expand variables inside
-            const inner = subscriptExpr.slice(1, -1);
-            const parser = new Parser();
-            const wordNode = parser.parseWordFromString(inner, true, false);
-            key = await expandWord(this.ctx, wordNode);
-          } else if (subscriptExpr.includes("$")) {
-            // Unquoted with variable reference
-            const parser = new Parser();
-            const wordNode = parser.parseWordFromString(
-              subscriptExpr,
-              false,
-              false,
-            );
-            key = await expandWord(this.ctx, wordNode);
-          } else {
-            // Plain literal
-            key = subscriptExpr;
-          }
-          envKey = `${arrayName}_${key}`;
-        } else {
-          // Evaluate subscript as arithmetic expression for indexed arrays
-          // This handles: a[0], a[x], a[x+1], a[a[0]], a[b=2], etc.
-          let index: number;
-
-          // Handle double-quoted subscripts - strip quotes and use content as arithmetic
-          // Bash allows a["2"]=3 but NOT a['2']=3 (single quotes are a syntax error)
-          let evalExpr = subscriptExpr;
-          if (
-            subscriptExpr.startsWith('"') &&
-            subscriptExpr.endsWith('"') &&
-            subscriptExpr.length >= 2
-          ) {
-            evalExpr = subscriptExpr.slice(1, -1);
-          }
-
-          if (/^-?\d+$/.test(evalExpr)) {
-            // Simple numeric subscript
-            index = Number.parseInt(evalExpr, 10);
-          } else {
-            // Parse and evaluate as arithmetic expression
-            // Use isExpansionContext=false since array subscripts work like (()) context
-            // where single quotes are allowed and evaluate to character values
-            try {
-              const parser = new Parser();
-              const arithAst = parseArithmeticExpression(parser, evalExpr);
-              index = await evaluateArithmetic(
-                this.ctx,
-                arithAst.expression,
-                false,
-              );
-            } catch (e) {
-              // ArithmeticError handling depends on whether the error is fatal
-              if (e instanceof ArithmeticError) {
-                const lineNum = this.ctx.state.currentLine;
-                const errorMsg = `bash: line ${lineNum}: ${subscriptExpr}: ${e.message}\n`;
-                // Fatal errors (like missing operand "0+") should abort the script
-                if (e.fatal) {
-                  throw new ExitError(1, "", errorMsg);
-                }
-                // Non-fatal errors (like single quotes) - just report error and continue
-                return result("", errorMsg, 1);
-              }
-              // Fall back to variable lookup for backwards compatibility (other errors)
-              const varValue = this.ctx.state.env[subscriptExpr];
-              index = varValue ? Number.parseInt(varValue, 10) : 0;
-            }
-            if (Number.isNaN(index)) index = 0;
-          }
-
-          // Handle negative indices - bash counts from max_index + 1
-          if (index < 0) {
-            const elements = getArrayElements(this.ctx, arrayName);
-            if (elements.length === 0) {
-              // Empty array with negative index - error
-              const lineNum = this.ctx.state.currentLine;
-              return result(
-                "",
-                `bash: line ${lineNum}: ${arrayName}[${subscriptExpr}]: bad array subscript\n`,
-                1,
-              );
-            }
-            // Find the maximum index
-            const maxIndex = Math.max(
-              ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
-            );
-            index = maxIndex + 1 + index;
-            if (index < 0) {
-              // Out-of-bounds negative index - return error result
-              const lineNum = this.ctx.state.currentLine;
-              return result(
-                "",
-                `bash: line ${lineNum}: ${arrayName}[${subscriptExpr}]: bad array subscript\n`,
-                1,
-              );
-            }
-          }
-
-          envKey = `${arrayName}_${index}`;
-        }
-
-        // Handle append mode (+=)
-        const finalValue = assignment.append
-          ? (this.ctx.state.env[envKey] || "") + value
-          : value;
-
-        if (node.name) {
-          tempAssignments[envKey] = this.ctx.state.env[envKey];
-          this.ctx.state.env[envKey] = finalValue;
-        } else {
-          // If base array is a local variable, save this key to local scope for cleanup
-          const localDepth = getLocalVarDepth(this.ctx, arrayName);
-          if (
-            localDepth !== undefined &&
-            localDepth === this.ctx.state.callDepth &&
-            this.ctx.state.localScopes.length > 0
-          ) {
-            const currentScope =
-              this.ctx.state.localScopes[this.ctx.state.localScopes.length - 1];
-            if (!currentScope.has(envKey)) {
-              currentScope.set(envKey, this.ctx.state.env[envKey]);
-            }
-          }
-          this.ctx.state.env[envKey] = finalValue;
-        }
-        continue;
-      }
-
-      // Resolve nameref: if name is a nameref, write to the target variable
-      let targetName = name;
-      let namerefArrayRef: {
-        arrayName: string;
-        subscriptExpr: string;
-      } | null = null;
-      if (isNameref(this.ctx, name)) {
-        const resolved = resolveNamerefForAssignment(this.ctx, name, value);
-        if (resolved === undefined) {
-          // Circular nameref detected
-          return result("", `bash: ${name}: circular name reference\n`, 1);
-        }
-        if (resolved === null) {
-          // Empty nameref and value is not an existing variable - skip assignment
-          continue;
-        }
-        targetName = resolved;
-
-        // Check if resolved nameref is an array element reference like A["K"] or A[$var]
-        const arrayRefMatch = targetName.match(
-          /^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/,
-        );
-        if (arrayRefMatch) {
-          namerefArrayRef = {
-            arrayName: arrayRefMatch[1],
-            subscriptExpr: arrayRefMatch[2],
-          };
-          // For subsequent checks (readonly, integer attr), use the array name
-          targetName = arrayRefMatch[1];
-        }
-      }
-
-      // Check if variable is readonly (for scalar assignment)
-      // For prefix assignments (temp bindings) to readonly vars, bash warns but continues
-      if (isReadonly(this.ctx, targetName)) {
-        if (node.name) {
-          // Temp binding to readonly var - warn but continue
-          // Add to xtrace output for the warning message
-          xtraceAssignmentOutput += `bash: ${targetName}: readonly variable\n`;
-          continue; // Skip this assignment, process next one
-        }
-        const readonlyError = checkReadonlyError(this.ctx, targetName);
-        if (readonlyError) return readonlyError;
-      }
-
-      // Handle append mode (+=) and integer attribute
-      let finalValue: string;
-      if (isInteger(this.ctx, targetName)) {
-        // For integer variables, evaluate as arithmetic
-        try {
-          const parser = new Parser();
-          if (assignment.append) {
-            // += for integers: add the values arithmetically
-            const currentVal = this.ctx.state.env[targetName] || "0";
-            const expr = `(${currentVal}) + (${value})`;
-            const arithAst = parseArithmeticExpression(parser, expr);
-            finalValue = String(
-              await evaluateArithmetic(this.ctx, arithAst.expression),
-            );
-          } else {
-            const arithAst = parseArithmeticExpression(parser, value);
-            finalValue = String(
-              await evaluateArithmetic(this.ctx, arithAst.expression),
-            );
-          }
-        } catch {
-          // If parsing fails, return 0 (bash behavior for invalid expressions)
-          finalValue = "0";
-        }
-      } else {
-        // Normal string handling
-        // For arrays, append mode (+=) appends to index 0
-        const appendKey = isArray(this.ctx, targetName)
-          ? `${targetName}_0`
-          : targetName;
-        finalValue = assignment.append
-          ? (this.ctx.state.env[appendKey] || "") + value
-          : value;
-      }
-
-      // Apply case transformation based on variable attributes (declare -l/-u)
-      finalValue = applyCaseTransform(this.ctx, targetName, finalValue);
-
-      // Generate xtrace output for this assignment BEFORE setting the value
-      // This matches bash behavior where PS4 is expanded before the assignment takes effect
-      xtraceAssignmentOutput += await traceAssignment(
-        this.ctx,
-        targetName,
-        finalValue,
-      );
-
-      // In bash, assigning a scalar value to an array variable assigns to index 0
-      // e.g., a=(1 2 3); a=99 => a=([0]="99" [1]="2" [2]="3")
-      // For associative arrays, it assigns to key "0"
-      let actualEnvKey = targetName;
-      if (namerefArrayRef) {
-        // Nameref resolved to an array element like A["K"] or A[$var]
-        // Need to expand the subscript and compute the correct env key
-        const { arrayName, subscriptExpr } = namerefArrayRef;
-        const isAssoc = this.ctx.state.associativeArrays?.has(arrayName);
-
-        if (isAssoc) {
-          // For associative arrays, expand variables in subscript then use as key
-          let key: string;
-          if (subscriptExpr.startsWith("'") && subscriptExpr.endsWith("'")) {
-            // Single-quoted: literal value, no expansion
-            key = subscriptExpr.slice(1, -1);
-          } else if (
-            subscriptExpr.startsWith('"') &&
-            subscriptExpr.endsWith('"')
-          ) {
-            // Double-quoted: expand variables inside
-            const inner = subscriptExpr.slice(1, -1);
-            const parser = new Parser();
-            const wordNode = parser.parseWordFromString(inner, true, false);
-            key = await expandWord(this.ctx, wordNode);
-          } else if (subscriptExpr.includes("$")) {
-            // Unquoted with variable reference
-            const parser = new Parser();
-            const wordNode = parser.parseWordFromString(
-              subscriptExpr,
-              false,
-              false,
-            );
-            key = await expandWord(this.ctx, wordNode);
-          } else {
-            // Plain literal
-            key = subscriptExpr;
-          }
-          actualEnvKey = `${arrayName}_${key}`;
-        } else {
-          // For indexed arrays, evaluate subscript as arithmetic expression
-          // Use isExpansionContext=false since array subscripts work like (()) context
-          let index: number;
-          if (/^-?\d+$/.test(subscriptExpr)) {
-            index = Number.parseInt(subscriptExpr, 10);
-          } else {
-            try {
-              const parser = new Parser();
-              const arithAst = parseArithmeticExpression(parser, subscriptExpr);
-              index = await evaluateArithmetic(
-                this.ctx,
-                arithAst.expression,
-                false,
-              );
-            } catch {
-              const varValue = this.ctx.state.env[subscriptExpr];
-              index = varValue ? Number.parseInt(varValue, 10) : 0;
-            }
-            if (Number.isNaN(index)) index = 0;
-          }
-          // Handle negative indices
-          if (index < 0) {
-            const elements = getArrayElements(this.ctx, arrayName);
-            if (elements.length > 0) {
-              const maxIdx = Math.max(...elements.map((e) => e[0] as number));
-              index = maxIdx + 1 + index;
-            }
-          }
-          actualEnvKey = `${arrayName}_${index}`;
-        }
-      } else if (isArray(this.ctx, targetName)) {
-        actualEnvKey = `${targetName}_0`;
-      }
-
-      if (node.name) {
-        tempAssignments[actualEnvKey] = this.ctx.state.env[actualEnvKey];
-        this.ctx.state.env[actualEnvKey] = finalValue;
-      } else {
-        this.ctx.state.env[actualEnvKey] = finalValue;
-        // If allexport is enabled (set -a), auto-export the variable
-        if (this.ctx.state.options.allexport) {
-          this.ctx.state.exportedVars =
-            this.ctx.state.exportedVars || new Set();
-          this.ctx.state.exportedVars.add(targetName);
-        }
-        // Track if this is a mutation of a tempenv variable (for local-unset behavior)
-        // A tempenv is mutated when we assign to a variable that has a tempenv binding
-        if (this.ctx.state.tempEnvBindings?.some((b) => b.has(targetName))) {
-          this.ctx.state.mutatedTempEnvVars =
-            this.ctx.state.mutatedTempEnvVars || new Set();
-          this.ctx.state.mutatedTempEnvVars.add(targetName);
-        }
-      }
+    // Process all assignments (array, subscript, and scalar)
+    const assignmentResult = await processAssignments(this.ctx, node);
+    if (assignmentResult.error) {
+      return assignmentResult.error;
     }
+    const tempAssignments = assignmentResult.tempAssignments;
+    const xtraceAssignmentOutput = assignmentResult.xtraceOutput;
 
     if (!node.name) {
       // No command name - could be assignment-only or redirect-only (bare redirects)
@@ -1416,14 +658,20 @@ export class Interpreter {
 
     if (isLiteralAssignmentBuiltin) {
       for (const arg of node.args) {
-        const arrayAssignResult = await this.expandLocalArrayAssignment(arg);
+        const arrayAssignResult = await expandLocalArrayAssignmentHelper(
+          this.ctx,
+          arg,
+        );
         if (arrayAssignResult) {
           args.push(arrayAssignResult);
           quotedArgs.push(true);
         } else {
           // Check if this looks like a scalar assignment (name=value)
           // For assignments, we should NOT glob-expand the value part
-          const scalarAssignResult = await this.expandScalarAssignmentArg(arg);
+          const scalarAssignResult = await expandScalarAssignmentArgHelper(
+            this.ctx,
+            arg,
+          );
           if (scalarAssignResult !== null) {
             args.push(scalarAssignResult);
             quotedArgs.push(true);
@@ -1789,24 +1037,6 @@ export class Interpreter {
     return cmdResult;
   }
 
-  /**
-   * Check if a Word represents an array assignment (name=(...)) and expand it
-   */
-  private async expandLocalArrayAssignment(
-    word: WordNode,
-  ): Promise<string | null> {
-    return expandLocalArrayAssignmentHelper(this.ctx, word);
-  }
-
-  /**
-   * Check if a Word represents a scalar assignment and expand it WITHOUT glob expansion
-   */
-  private async expandScalarAssignmentArg(
-    word: WordNode,
-  ): Promise<string | null> {
-    return expandScalarAssignmentArgHelper(this.ctx, word);
-  }
-
   private async runCommand(
     commandName: string,
     args: string[],
@@ -1875,10 +1105,6 @@ export class Interpreter {
       this.executeStatement(stmt),
     );
   }
-
-  // ===========================================================================
-  // COMPOUND COMMANDS
-  // ===========================================================================
 
   private async executeArithmeticCommand(
     node: ArithmeticCommandNode,

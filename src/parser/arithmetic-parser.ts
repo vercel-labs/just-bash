@@ -16,24 +16,18 @@ import type {
   ArithmeticExpressionNode,
 } from "../ast/types.js";
 import { ArithmeticError } from "../interpreter/errors.js";
+import {
+  ARITH_ASSIGN_OPS,
+  parseAnsiCQuoting,
+  parseArithNumber,
+  parseLocalizationQuoting,
+  parseNestedArithmetic,
+  skipArithWhitespace,
+} from "./arithmetic-primary-helpers.js";
 import type { Parser } from "./parser.js";
 
-/**
- * Assignment operators in arithmetic expressions
- */
-const ARITH_ASSIGN_OPS = [
-  "=",
-  "+=",
-  "-=",
-  "*=",
-  "/=",
-  "%=",
-  "<<=",
-  ">>=",
-  "&=",
-  "|=",
-  "^=",
-] as const;
+// Re-export for external use
+export { parseArithNumber };
 
 /**
  * Preprocess arithmetic expression to handle double-quoted strings.
@@ -713,97 +707,21 @@ function parseArithPrimary(
   let currentPos = skipArithWhitespace(input, pos);
 
   // Nested arithmetic: $((expr))
-  if (input.slice(currentPos, currentPos + 3) === "$((") {
-    currentPos += 3;
-    // Find matching ))
-    let depth = 1;
-    const exprStart = currentPos;
-    while (currentPos < input.length - 1 && depth > 0) {
-      if (input[currentPos] === "(" && input[currentPos + 1] === "(") {
-        depth++;
-        currentPos += 2;
-      } else if (input[currentPos] === ")" && input[currentPos + 1] === ")") {
-        depth--;
-        if (depth > 0) currentPos += 2;
-      } else {
-        currentPos++;
-      }
-    }
-    const nestedExpr = input.slice(exprStart, currentPos);
-    const { expr } = parseArithExpr(p, nestedExpr, 0);
-    currentPos += 2; // Skip ))
-    return { expr: { type: "ArithNested", expression: expr }, pos: currentPos };
-  }
+  const nestedResult = parseNestedArithmetic(
+    parseArithExpr,
+    p,
+    input,
+    currentPos,
+  );
+  if (nestedResult) return nestedResult;
 
   // ANSI-C quoting: $'...' - evaluates to the string's numeric value
-  if (input.slice(currentPos, currentPos + 2) === "$'") {
-    currentPos += 2; // Skip $'
-    let content = "";
-    while (currentPos < input.length && input[currentPos] !== "'") {
-      if (input[currentPos] === "\\" && currentPos + 1 < input.length) {
-        // Handle escape sequences
-        const nextChar = input[currentPos + 1];
-        switch (nextChar) {
-          case "n":
-            content += "\n";
-            break;
-          case "t":
-            content += "\t";
-            break;
-          case "r":
-            content += "\r";
-            break;
-          case "\\":
-            content += "\\";
-            break;
-          case "'":
-            content += "'";
-            break;
-          default:
-            content += nextChar;
-        }
-        currentPos += 2;
-      } else {
-        content += input[currentPos];
-        currentPos++;
-      }
-    }
-    if (input[currentPos] === "'") currentPos++; // Skip closing '
-    // In bash arithmetic, a quoted string evaluates to its numeric value
-    // e.g., $'3' evaluates to 3
-    const numValue = Number.parseInt(content, 10);
-    return {
-      expr: {
-        type: "ArithNumber",
-        value: Number.isNaN(numValue) ? 0 : numValue,
-      },
-      pos: currentPos,
-    };
-  }
+  const ansiResult = parseAnsiCQuoting(input, currentPos);
+  if (ansiResult) return ansiResult;
 
   // Localization quoting: $"..." - same as double quotes in our context
-  if (input.slice(currentPos, currentPos + 2) === '$"') {
-    currentPos += 2; // Skip $"
-    let content = "";
-    while (currentPos < input.length && input[currentPos] !== '"') {
-      if (input[currentPos] === "\\" && currentPos + 1 < input.length) {
-        content += input[currentPos + 1];
-        currentPos += 2;
-      } else {
-        content += input[currentPos];
-        currentPos++;
-      }
-    }
-    if (input[currentPos] === '"') currentPos++; // Skip closing "
-    const numValue = Number.parseInt(content, 10);
-    return {
-      expr: {
-        type: "ArithNumber",
-        value: Number.isNaN(numValue) ? 0 : numValue,
-      },
-      pos: currentPos,
-    };
-  }
+  const locResult = parseLocalizationQuoting(input, currentPos);
+  if (locResult) return locResult;
 
   // Command substitution: $(cmd)
   if (
@@ -1229,80 +1147,4 @@ function parseArithPrimary(
 
   // Default: 0
   return { expr: { type: "ArithNumber", value: 0 }, pos: currentPos };
-}
-
-/**
- * Parse a number string with various bases (decimal, hex, octal, base#num)
- * Returns NaN for invalid numbers.
- */
-export function parseArithNumber(str: string): number {
-  // Handle base#num format
-  // Bash supports bases 2-64 with digits: 0-9, a-z (10-35), A-Z (36-61), @ (62), _ (63)
-  if (str.includes("#")) {
-    const [baseStr, numStr] = str.split("#");
-    const base = Number.parseInt(baseStr, 10);
-    if (base < 2 || base > 64) {
-      return Number.NaN;
-    }
-    // For bases <= 36, we can use parseInt
-    if (base <= 36) {
-      return Number.parseInt(numStr, base);
-    }
-    // For bases 37-64, we need to manually parse
-    let result = 0;
-    for (const char of numStr) {
-      let digit: number;
-      if (char >= "0" && char <= "9") {
-        digit = char.charCodeAt(0) - 48; // '0' = 48
-      } else if (char >= "a" && char <= "z") {
-        digit = char.charCodeAt(0) - 97 + 10; // 'a' = 97, value = 10
-      } else if (char >= "A" && char <= "Z") {
-        digit = char.charCodeAt(0) - 65 + 36; // 'A' = 65, value = 36
-      } else if (char === "@") {
-        digit = 62;
-      } else if (char === "_") {
-        digit = 63;
-      } else {
-        return Number.NaN;
-      }
-      if (digit >= base) {
-        return Number.NaN;
-      }
-      result = result * base + digit;
-    }
-    return result;
-  }
-
-  // Handle hex
-  if (str.startsWith("0x") || str.startsWith("0X")) {
-    return Number.parseInt(str.slice(2), 16);
-  }
-
-  // Handle octal
-  if (str.startsWith("0") && str.length > 1 && /^[0-9]+$/.test(str)) {
-    // If it looks like octal (0-prefixed digits) but has 8 or 9, it's an error
-    if (/[89]/.test(str)) {
-      return Number.NaN;
-    }
-    return Number.parseInt(str, 8);
-  }
-
-  return Number.parseInt(str, 10);
-}
-
-function skipArithWhitespace(input: string, pos: number): number {
-  while (pos < input.length) {
-    // Skip line continuations (backslash followed by newline)
-    if (input[pos] === "\\" && input[pos + 1] === "\n") {
-      pos += 2;
-      continue;
-    }
-    // Skip regular whitespace
-    if (/\s/.test(input[pos])) {
-      pos++;
-      continue;
-    }
-    break;
-  }
-  return pos;
 }

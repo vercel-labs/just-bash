@@ -83,53 +83,21 @@ export interface ShoptOptions {
   xpg_echo: boolean;
 }
 
-export interface InterpreterState {
-  env: Record<string, string>;
-  cwd: string;
-  previousDir: string;
-  functions: Map<string, FunctionDefNode>;
-  localScopes: Map<string, string | undefined>[];
-  callDepth: number;
-  /** Current source script nesting depth (for return in sourced scripts) */
-  sourceDepth: number;
-  commandCount: number;
-  lastExitCode: number;
-  /** Last argument of previous command, for $_ expansion */
-  lastArg: string;
-  /** Time when shell started (for $SECONDS) */
-  startTime: number;
-  /** PID of last background job (for $!) */
-  lastBackgroundPid: number;
-  /** Current BASHPID (changes in subshells, unlike $$) */
-  bashPid: number;
-  /** Counter for generating unique virtual PIDs for subshells */
-  nextVirtualPid: number;
-  /** Current line number being executed (for $LINENO) */
-  currentLine: number;
-  /** Shell options (set -e, etc.) */
-  options: ShellOptions;
-  /** Shopt options (shopt -s, etc.) */
-  shoptOptions: ShoptOptions;
-  /** True when executing condition for if/while/until (errexit doesn't apply) */
-  inCondition: boolean;
-  /** Current loop nesting depth (for break/continue) */
-  loopDepth: number;
-  /** True if this subshell was spawned from within a loop context (for break/continue to exit subshell) */
-  parentHasLoopContext?: boolean;
-  /** Stdin available for commands in compound commands (groups, subshells, while loops with piped input) */
-  groupStdin?: string;
-  /** Completion specifications set by the `complete` builtin */
-  completionSpecs?: Map<string, CompletionSpec>;
+// ============================================================================
+// Variable Attribute State
+// ============================================================================
+// Tracks type attributes and special behaviors for shell variables.
+// These are set via `declare`, `typeset`, `readonly`, `export`, etc.
+
+/**
+ * Tracks variable type attributes (declare -i, -l, -u, -n, -a, -A, etc.)
+ * and export status. These affect how variables are read, written, and expanded.
+ */
+export interface VariableAttributeState {
   /** Set of variable names that are readonly */
   readonlyVars?: Set<string>;
-  /** Exit code from expansion errors (arithmetic, etc.) - overrides command exit code */
-  expansionExitCode?: number;
-  /** Stderr from expansion errors */
-  expansionStderr?: string;
   /** Set of variable names that are associative arrays */
   associativeArrays?: Set<string>;
-  /** Directory stack for pushd/popd/dirs */
-  directoryStack?: string[];
   /** Set of variable names that are namerefs (declare -n) */
   namerefs?: Set<string>;
   /**
@@ -151,8 +119,6 @@ export interface InterpreterState {
   lowercaseVars?: Set<string>;
   /** Set of variable names that have uppercase attribute (declare -u) */
   uppercaseVars?: Set<string>;
-  /** Hash table for PATH command lookup caching */
-  hashTable?: Map<string, string>;
   /** Set of exported variable names */
   exportedVars?: Set<string>;
   /** Set of temporarily exported variable names (for prefix assignments like FOO=bar cmd) */
@@ -167,21 +133,26 @@ export interface InterpreterState {
   localExportedVars?: Set<string>[];
   /** Set of variable names that have been declared but not assigned a value */
   declaredVars?: Set<string>;
-  /** Stack of call line numbers for BASH_LINENO */
-  callLineStack?: number[];
-  /** Stack of function names for FUNCNAME */
-  funcNameStack?: string[];
-  /** Stack of source files for BASH_SOURCE (tracks where functions were defined) */
-  sourceStack?: string[];
-  /** Current source file context (for function definitions) */
-  currentSource?: string;
-  /** File descriptors for process substitution and here-docs */
-  fileDescriptors?: Map<number, string>;
-  /** Next available file descriptor for {varname}>file allocation (starts at 10) */
-  nextFd?: number;
-  /** True when the last executed statement's exit code is "safe" for errexit purposes
-   *  (e.g., from a &&/|| chain where the failure wasn't the final command) */
-  errexitSafe?: boolean;
+}
+
+// ============================================================================
+// Local Variable Scoping State
+// ============================================================================
+// Implements bash's complex local variable scoping rules including:
+// - Dynamic scoping (locals visible in called functions)
+// - Nested local declarations (local inside eval inside function)
+// - Unset behavior differences (local-unset vs dynamic-unset)
+// - Tempenv bindings from prefix assignments (FOO=bar cmd)
+
+/**
+ * Tracks the complex local variable scoping machinery.
+ * Bash's local variable behavior is intricate: variables are dynamically scoped,
+ * can be declared multiple times in nested contexts, and have different unset
+ * behaviors depending on whether the unset happens in the declaring scope.
+ */
+export interface LocalScopingState {
+  /** Stack of local variable scopes (one Map per function call) */
+  localScopes: Map<string, string | undefined>[];
   /**
    * Tracks at which call depth each local variable was declared.
    * Used for bash-specific unset scoping behavior:
@@ -226,6 +197,185 @@ export interface InterpreterState {
    * "observed" before a local declaration.
    */
   accessedTempEnvVars?: Set<string>;
+}
+
+// ============================================================================
+// Call Stack State
+// ============================================================================
+// Tracks function calls and source file nesting for:
+// - FUNCNAME, BASH_LINENO, BASH_SOURCE arrays
+// - Proper return behavior from functions vs sourced scripts
+// - Function definition context (which file defined a function)
+
+/**
+ * Tracks the function call stack and source file nesting.
+ * This state powers the FUNCNAME, BASH_LINENO, and BASH_SOURCE arrays,
+ * and determines the behavior of `return` in different contexts.
+ */
+export interface CallStackState {
+  /** Function definitions (name -> AST node) */
+  functions: Map<string, FunctionDefNode>;
+  /** Current function call depth (for recursion limits and local scoping) */
+  callDepth: number;
+  /** Current source script nesting depth (for return in sourced scripts) */
+  sourceDepth: number;
+  /** Stack of call line numbers for BASH_LINENO */
+  callLineStack?: number[];
+  /** Stack of function names for FUNCNAME */
+  funcNameStack?: string[];
+  /** Stack of source files for BASH_SOURCE (tracks where functions were defined) */
+  sourceStack?: string[];
+  /** Current source file context (for function definitions) */
+  currentSource?: string;
+}
+
+// ============================================================================
+// Control Flow State
+// ============================================================================
+// Tracks loop nesting and condition context for:
+// - break/continue with optional level argument
+// - errexit (set -e) suppression in conditions
+// - Subshell loop context for proper break/continue behavior
+
+/**
+ * Tracks loop nesting and condition context.
+ * Used to implement break/continue commands and to suppress errexit
+ * in condition contexts (if, while, until, ||, &&).
+ */
+export interface ControlFlowState {
+  /** True when executing condition for if/while/until (errexit doesn't apply) */
+  inCondition: boolean;
+  /** Current loop nesting depth (for break/continue) */
+  loopDepth: number;
+  /** True if this subshell was spawned from within a loop context (for break/continue to exit subshell) */
+  parentHasLoopContext?: boolean;
+  /** True when the last executed statement's exit code is "safe" for errexit purposes
+   *  (e.g., from a &&/|| chain where the failure wasn't the final command) */
+  errexitSafe?: boolean;
+}
+
+// ============================================================================
+// Process State
+// ============================================================================
+// Tracks process-related information for special variables:
+// - $$ (shell PID), $BASHPID (current subshell PID)
+// - $! (last background PID)
+// - $SECONDS (time since shell start)
+
+/**
+ * Tracks process IDs, timing, and execution counts.
+ * Powers special variables like $$, $BASHPID, $!, and $SECONDS.
+ */
+export interface ProcessState {
+  /** Total commands executed (for execution limits) */
+  commandCount: number;
+  /** Time when shell started (for $SECONDS) */
+  startTime: number;
+  /** PID of last background job (for $!) */
+  lastBackgroundPid: number;
+  /** Current BASHPID (changes in subshells, unlike $$) */
+  bashPid: number;
+  /** Counter for generating unique virtual PIDs for subshells */
+  nextVirtualPid: number;
+}
+
+// ============================================================================
+// I/O State
+// ============================================================================
+// Tracks file descriptors and stdin for:
+// - Process substitution (<() and >())
+// - Here-documents
+// - Compound command stdin piping
+
+/**
+ * Tracks file descriptors and stdin content for I/O operations.
+ * Used for process substitution, here-documents, and compound command stdin.
+ */
+export interface IOState {
+  /** Stdin available for commands in compound commands (groups, subshells, while loops with piped input) */
+  groupStdin?: string;
+  /** File descriptors for process substitution and here-docs */
+  fileDescriptors?: Map<number, string>;
+  /** Next available file descriptor for {varname}>file allocation (starts at 10) */
+  nextFd?: number;
+}
+
+// ============================================================================
+// Expansion State
+// ============================================================================
+// Captures errors during parameter expansion that need to be reported
+// after the expansion completes (arithmetic errors, etc.)
+
+/**
+ * Captures errors that occur during parameter expansion.
+ * Some expansion errors need to be reported after expansion completes,
+ * with their exit codes and stderr preserved.
+ */
+export interface ExpansionState {
+  /** Exit code from expansion errors (arithmetic, etc.) - overrides command exit code */
+  expansionExitCode?: number;
+  /** Stderr from expansion errors */
+  expansionStderr?: string;
+}
+
+// ============================================================================
+// Interpreter State (Composed)
+// ============================================================================
+// The complete interpreter state, composed from the focused interfaces above.
+// This provides backward compatibility while the sub-interfaces provide
+// better organization for understanding and maintaining specific features.
+
+/**
+ * Complete interpreter state for bash script execution.
+ *
+ * This interface is composed from focused sub-interfaces:
+ * - {@link VariableAttributeState} - Variable type attributes (readonly, integer, etc.)
+ * - {@link LocalScopingState} - Local variable scoping machinery
+ * - {@link CallStackState} - Function calls and source file tracking
+ * - {@link ControlFlowState} - Loop nesting and condition context
+ * - {@link ProcessState} - PIDs, timing, execution counts
+ * - {@link IOState} - File descriptors and stdin
+ * - {@link ExpansionState} - Expansion error capture
+ */
+export interface InterpreterState
+  extends VariableAttributeState,
+    LocalScopingState,
+    CallStackState,
+    ControlFlowState,
+    ProcessState,
+    IOState,
+    ExpansionState {
+  // ---- Core Environment ----
+  /** Environment variables (exported to commands) */
+  env: Record<string, string>;
+  /** Current working directory */
+  cwd: string;
+  /** Previous directory (for `cd -`) */
+  previousDir: string;
+
+  // ---- Execution Tracking ----
+  /** Exit code of last executed command */
+  lastExitCode: number;
+  /** Last argument of previous command, for $_ expansion */
+  lastArg: string;
+  /** Current line number being executed (for $LINENO) */
+  currentLine: number;
+
+  // ---- Shell Options ----
+  /** Shell options (set -e, etc.) */
+  options: ShellOptions;
+  /** Shopt options (shopt -s, etc.) */
+  shoptOptions: ShoptOptions;
+
+  // ---- Shell Features ----
+  /** Completion specifications set by the `complete` builtin */
+  completionSpecs?: Map<string, CompletionSpec>;
+  /** Directory stack for pushd/popd/dirs */
+  directoryStack?: string[];
+  /** Hash table for PATH command lookup caching */
+  hashTable?: Map<string, string>;
+
+  // ---- Output Control ----
   /**
    * Suppress verbose mode output (set -v) when inside command substitutions.
    * bash only prints verbose output for the main script, not for commands
