@@ -9,6 +9,7 @@
  */
 
 import type {
+  ArithExpr,
   AssignDefaultOp,
   DefaultValueOp,
   ErrorIfUnsetOp,
@@ -228,8 +229,8 @@ async function handleIndirectArraySlicing(
   arrayName: string,
   isStar: boolean,
   innerOp: {
-    offset?: { expression: any };
-    length?: { expression: any } | null;
+    offset?: { expression: ArithExpr };
+    length?: { expression: ArithExpr } | null;
   },
 ): Promise<IndirectExpansionResult> {
   const offset = innerOp.offset
