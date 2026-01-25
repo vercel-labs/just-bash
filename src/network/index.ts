@@ -6,6 +6,7 @@
 
 export {
   createSecureFetch,
+  createStandardFetch,
   type SecureFetch,
   type SecureFetchOptions,
 } from "./fetch.js";

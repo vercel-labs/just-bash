@@ -299,7 +299,7 @@ pnpm shell --no-network
 
 ### Network Commands
 
-`curl`, `html-to-markdown`
+`curl`, `html-to-markdown`, `specli`
 
 All commands support `--help` for usage information.
 
