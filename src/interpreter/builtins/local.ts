@@ -13,7 +13,7 @@ import { failure, result } from "../helpers/result.js";
 import { expandTildesInValue } from "../helpers/tilde.js";
 import type { InterpreterContext } from "../types.js";
 import { parseArrayElements } from "./declare-array-parsing.js";
-import { markLocalVarDepth, pushLocalVarStack } from "./variable-helpers.js";
+import { markLocalVarDepth, pushLocalVarStack } from "./variable-assignment.js";
 
 export async function handleLocal(
   ctx: InterpreterContext,

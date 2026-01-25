@@ -66,10 +66,6 @@ import {
 import { expandWord, expandWordWithGlob } from "./expansion.js";
 import { executeFunctionDef } from "./functions.js";
 import {
-  isWordLiteralMatch,
-  parseRwFdContent,
-} from "./helpers/interpreter-utils.js";
-import {
   failure,
   OK,
   result,
@@ -77,6 +73,10 @@ import {
   throwExecutionLimit,
 } from "./helpers/result.js";
 import { isPosixSpecialBuiltin } from "./helpers/shell-constants.js";
+import {
+  isWordLiteralMatch,
+  parseRwFdContent,
+} from "./helpers/word-matching.js";
 import { traceSimpleCommand } from "./helpers/xtrace.js";
 import { executePipeline as executePipelineHelper } from "./pipeline-execution.js";
 import {

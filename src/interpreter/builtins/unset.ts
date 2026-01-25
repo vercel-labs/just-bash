@@ -26,7 +26,7 @@ import {
   clearLocalVarDepth,
   getLocalVarDepth,
   popLocalVarStack,
-} from "./variable-helpers.js";
+} from "./variable-assignment.js";
 
 /**
  * Check if a name is a valid bash variable name.

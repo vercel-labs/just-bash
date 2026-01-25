@@ -30,7 +30,7 @@ import {
 } from "../helpers/ifs.js";
 import { escapeRegex } from "../helpers/regex.js";
 import type { InterpreterContext } from "../types.js";
-import { hasGlobPattern } from "./glob-helpers.js";
+import { hasGlobPattern } from "./glob-escape.js";
 import { patternToRegex } from "./pattern.js";
 import {
   applyPatternRemoval,

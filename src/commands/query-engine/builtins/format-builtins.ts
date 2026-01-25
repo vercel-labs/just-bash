@@ -4,8 +4,8 @@
  * Handles encoding/formatting functions like @base64, @uri, @csv, @json, etc.
  */
 
-import type { QueryValue } from "../value-utils.js";
-import { getValueDepth } from "../value-utils.js";
+import type { QueryValue } from "../value-operations.js";
+import { getValueDepth } from "../value-operations.js";
 
 // Default max depth for nested structures
 const DEFAULT_MAX_JQ_DEPTH = 2000;

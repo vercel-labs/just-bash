@@ -13,7 +13,7 @@ import type {
   WordNode,
 } from "../ast/types.js";
 import type { ExecResult } from "../types.js";
-import { clearLocalVarStackForScope } from "./builtins/variable-helpers.js";
+import { clearLocalVarStackForScope } from "./builtins/variable-assignment.js";
 import { ExitError, ReturnError } from "./errors.js";
 import { expandWord } from "./expansion.js";
 import { OK, result, throwExecutionLimit } from "./helpers/result.js";

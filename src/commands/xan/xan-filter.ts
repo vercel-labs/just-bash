@@ -5,8 +5,8 @@
 import type { CommandContext, ExecResult } from "../../types.js";
 import { showHelp } from "../help.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
+import { parseMoonbladeExpr } from "./column-selection.js";
 import { type CsvData, formatCsv, readCsvInput } from "./csv.js";
-import { parseMoonbladeExpr } from "./xan-utils.js";
 
 export async function cmdFilter(
   args: string[],

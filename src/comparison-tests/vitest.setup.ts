@@ -1,5 +1,5 @@
 import { afterAll } from "vitest";
-import { isRecordMode, writeAllFixtures } from "./test-helpers.js";
+import { isRecordMode, writeAllFixtures } from "./fixture-runner.js";
 
 // Write all accumulated fixtures after all tests complete
 afterAll(async () => {

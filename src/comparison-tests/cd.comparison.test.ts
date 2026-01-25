@@ -4,7 +4,7 @@ import {
   createTestDir,
   runRealBash,
   setupFiles,
-} from "./test-helpers.js";
+} from "./fixture-runner.js";
 
 describe("cd command - Real Bash Comparison", () => {
   let testDir: string;

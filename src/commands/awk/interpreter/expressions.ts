@@ -22,7 +22,7 @@ import {
   matchRegex,
   toAwkString,
   toNumber,
-} from "./helpers.js";
+} from "./type-coercion.js";
 import type { AwkValue } from "./types.js";
 import {
   getArrayElement,

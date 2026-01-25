@@ -9,7 +9,7 @@ import type { ScriptNode } from "../../ast/types.js";
 import { Parser } from "../../parser/parser.js";
 import { ExecutionLimitError, ExitError } from "../errors.js";
 import type { InterpreterContext } from "../types.js";
-import { escapeGlobChars } from "./glob-helpers.js";
+import { escapeGlobChars } from "./glob-escape.js";
 
 /**
  * Check if a pattern string contains command substitution $(...)

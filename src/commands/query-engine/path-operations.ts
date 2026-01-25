@@ -4,7 +4,7 @@
  * Utility functions for path-based operations on query values.
  */
 
-import type { QueryValue } from "./value-utils.js";
+import type { QueryValue } from "./value-operations.js";
 
 /**
  * Set a value at a given path within a query value.

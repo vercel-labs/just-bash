@@ -214,7 +214,7 @@ export const findCommand: Command = {
 
       // Comparison tests
       "/project/src/comparison-tests/ls.comparison.test.ts": `import { describe, it, beforeEach, afterEach } from 'vitest';
-import { createTestDir, cleanupTestDir, setupFiles, compareOutputs } from './test-helpers.js';
+import { createTestDir, cleanupTestDir, setupFiles, compareOutputs } from './fixture-runner.js';
 
 describe('ls command - Real Bash Comparison', () => {
   let testDir: string;
@@ -267,7 +267,7 @@ describe('ls command - Real Bash Comparison', () => {
 
       // grep comparison tests
       "/project/src/comparison-tests/grep.comparison.test.ts": `import { describe, it, beforeEach, afterEach } from 'vitest';
-import { createTestDir, cleanupTestDir, setupFiles, compareOutputs } from './test-helpers.js';
+import { createTestDir, cleanupTestDir, setupFiles, compareOutputs } from './fixture-runner.js';
 
 describe('grep command - Real Bash Comparison', () => {
   let testDir: string;

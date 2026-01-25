@@ -6,16 +6,10 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import { Bash } from "../Bash.js";
 
-export const execAsync: (
+const execAsync: (
   command: string,
   options?: { cwd?: string; shell?: string },
 ) => Promise<{ stdout: string; stderr: string }> = promisify(exec);
-
-/**
- * Returns true if running on Linux (for platform-specific tests)
- * Some behaviors differ between macOS/BSD and Linux/GNU coreutils
- */
-export const isLinux: boolean = os.platform() === "linux";
 
 /**
  * Check if we're in record mode (recording bash outputs to fixtures)
@@ -29,8 +23,7 @@ export const isRecordMode: boolean =
 /**
  * Force mode overwrites even locked fixtures
  */
-export const isForceRecordMode: boolean =
-  process.env.RECORD_FIXTURES === "force";
+const isForceRecordMode: boolean = process.env.RECORD_FIXTURES === "force";
 
 /**
  * Fixture entry for a single test case
@@ -249,61 +242,6 @@ export interface CompareOptions {
   compareStderr?: boolean;
   compareExitCode?: boolean;
   normalizeWhitespace?: boolean;
-}
-
-/**
- * Test context returned by setupFilesWithContext
- */
-export interface TestContext {
-  env: Bash;
-  files: Record<string, string>;
-  testDir: string;
-  compare: (command: string, options?: CompareOptions) => Promise<void>;
-}
-
-/**
- * Sets up test files and returns a context with comparison helper
- */
-export async function setupFilesWithContext(
-  testDir: string,
-  files: Record<string, string>,
-  testFile: string,
-): Promise<TestContext> {
-  // Create files in real FS (only needed in record mode)
-  if (isRecordMode) {
-    for (const [filePath, content] of Object.entries(files)) {
-      const fullPath = path.join(testDir, filePath);
-      await fs.mkdir(path.dirname(fullPath), { recursive: true });
-      await fs.writeFile(fullPath, content);
-    }
-  }
-
-  // Create equivalent BashEnv with normalized paths
-  const bashEnvFiles: Record<string, string> = {};
-  for (const [filePath, content] of Object.entries(files)) {
-    bashEnvFiles[path.join(testDir, filePath)] = content;
-  }
-
-  const env = new Bash({
-    files: bashEnvFiles,
-    cwd: testDir,
-  });
-
-  const compare = async (
-    command: string,
-    options?: CompareOptions,
-  ): Promise<void> => {
-    return compareOutputsInternal(
-      env,
-      testDir,
-      command,
-      files,
-      testFile,
-      options,
-    );
-  };
-
-  return { env, files, testDir, compare };
 }
 
 /**

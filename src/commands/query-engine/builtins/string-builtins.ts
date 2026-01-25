@@ -6,7 +6,7 @@
 
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
-import type { QueryValue } from "../value-utils.js";
+import type { QueryValue } from "../value-operations.js";
 
 type EvalFn = (
   value: QueryValue,

@@ -3,8 +3,8 @@
  */
 
 import type { CommandContext, ExecResult } from "../../types.js";
+import { parseColumnSpec } from "./column-selection.js";
 import { type CsvRow, formatCsv, readCsvInput } from "./csv.js";
-import { parseColumnSpec } from "./xan-utils.js";
 
 export async function cmdSelect(
   args: string[],

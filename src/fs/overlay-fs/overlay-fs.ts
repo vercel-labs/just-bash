@@ -7,6 +7,12 @@
 
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
+import {
+  type FileContent,
+  fromBuffer,
+  getEncoding,
+  toBuffer,
+} from "../encoding.js";
 import type {
   CpOptions,
   DirentEntry,
@@ -17,12 +23,6 @@ import type {
   RmOptions,
   WriteFileOptions,
 } from "../interface.js";
-import {
-  type FileContent,
-  fromBuffer,
-  getEncoding,
-  toBuffer,
-} from "../utils.js";
 
 interface MemoryFileEntry {
   type: "file";

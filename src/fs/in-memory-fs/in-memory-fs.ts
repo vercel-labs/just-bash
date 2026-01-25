@@ -1,3 +1,4 @@
+import { fromBuffer, getEncoding, toBuffer } from "../encoding.js";
 import type {
   BufferEncoding,
   CpOptions,
@@ -16,7 +17,6 @@ import type {
   SymlinkEntry,
   WriteFileOptions,
 } from "../interface.js";
-import { fromBuffer, getEncoding, toBuffer } from "../utils.js";
 
 // Re-export for backwards compatibility
 export type {

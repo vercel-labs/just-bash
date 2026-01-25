@@ -41,7 +41,7 @@ import {
   handleNamerefArrayExpansion,
   handleSimpleArrayExpansion,
 } from "./array-word-expansion.js";
-import { hasGlobPattern, unescapeGlobPattern } from "./glob-helpers.js";
+import { hasGlobPattern, unescapeGlobPattern } from "./glob-escape.js";
 import {
   handleIndirectArrayExpansion,
   handleIndirectInAlternative,

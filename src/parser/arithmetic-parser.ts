@@ -23,7 +23,7 @@ import {
   parseLocalizationQuoting,
   parseNestedArithmetic,
   skipArithWhitespace,
-} from "./arithmetic-primary-helpers.js";
+} from "./arithmetic-primaries.js";
 import type { Parser } from "./parser.js";
 
 // Re-export for external use

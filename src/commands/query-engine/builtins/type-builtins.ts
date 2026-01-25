@@ -4,7 +4,7 @@
  * Handles type checking and type filtering functions like type, numbers, strings, etc.
  */
 
-import type { QueryValue } from "../value-utils.js";
+import type { QueryValue } from "../value-operations.js";
 
 /**
  * Handle type builtins.

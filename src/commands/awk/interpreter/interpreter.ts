@@ -8,8 +8,8 @@ import type { AwkPattern, AwkProgram, AwkRule } from "../ast.js";
 import type { AwkRuntimeContext } from "./context.js";
 import { evalExpr } from "./expressions.js";
 import { setCurrentLine } from "./fields.js";
-import { isTruthy, matchRegex } from "./helpers.js";
 import { executeBlock } from "./statements.js";
+import { isTruthy, matchRegex } from "./type-coercion.js";
 
 export class AwkInterpreter {
   private ctx: AwkRuntimeContext;

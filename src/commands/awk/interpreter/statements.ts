@@ -9,7 +9,7 @@ import type { AwkArrayAccess, AwkExpr, AwkStmt, AwkVariable } from "../ast.js";
 import { formatPrintf } from "../builtins.js";
 import type { AwkRuntimeContext } from "./context.js";
 import { evalExpr, setBlockExecutor } from "./expressions.js";
-import { isTruthy, toAwkString, toNumber } from "./helpers.js";
+import { isTruthy, toAwkString, toNumber } from "./type-coercion.js";
 import { deleteArray, deleteArrayElement } from "./variables.js";
 
 // Register the block executor with expressions module (for user function calls)

@@ -7,7 +7,7 @@ import {
   path,
   runRealBash,
   setupFiles,
-} from "./test-helpers.js";
+} from "./fixture-runner.js";
 
 describe("Pipes - Real Bash Comparison", () => {
   let testDir: string;

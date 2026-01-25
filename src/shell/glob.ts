@@ -16,7 +16,7 @@ import {
   posixClassToRegex,
   splitExtglobAlternatives,
   splitGlobignorePatterns,
-} from "./glob-helpers.js";
+} from "./glob-to-regex.js";
 
 export interface GlobOptions {
   globstar?: boolean;

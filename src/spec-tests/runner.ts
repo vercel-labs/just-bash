@@ -14,7 +14,7 @@ import {
   type ParsedSpecFile,
   type TestCase,
 } from "./parser.js";
-import { testHelperCommands } from "./spec-helpers.js";
+import { testHelperCommands } from "./test-commands.js";
 
 export interface TestResult {
   testCase: TestCase;

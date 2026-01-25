@@ -52,7 +52,7 @@ import {
   markLocalVarDepth,
   parseAssignment,
   setVariable,
-} from "./variable-helpers.js";
+} from "./variable-assignment.js";
 
 /**
  * Mark a variable as having the integer attribute.

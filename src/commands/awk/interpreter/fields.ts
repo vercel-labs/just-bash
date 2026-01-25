@@ -5,7 +5,7 @@
  */
 
 import type { AwkRuntimeContext } from "./context.js";
-import { toAwkString } from "./helpers.js";
+import { toAwkString } from "./type-coercion.js";
 import type { AwkValue } from "./types.js";
 
 /**

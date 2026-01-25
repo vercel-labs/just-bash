@@ -6,7 +6,7 @@
 
 import type { AwkRuntimeContext } from "./context.js";
 import { setFieldSeparator } from "./fields.js";
-import { toAwkString, toNumber } from "./helpers.js";
+import { toAwkString, toNumber } from "./type-coercion.js";
 import type { AwkValue } from "./types.js";
 
 /**

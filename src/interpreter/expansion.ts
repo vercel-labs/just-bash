@@ -36,7 +36,7 @@ import {
   escapeGlobChars,
   escapeRegexChars,
   hasGlobPattern,
-} from "./expansion/glob-helpers.js";
+} from "./expansion/glob-escape.js";
 import {
   computeIsEmpty,
   handleArrayKeys,
@@ -76,7 +76,7 @@ import { getLiteralValue, isQuotedPart } from "./helpers/word-parts.js";
 import type { InterpreterContext } from "./types.js";
 
 // Re-export extracted functions for use elsewhere
-export { escapeGlobChars, escapeRegexChars } from "./expansion/glob-helpers.js";
+export { escapeGlobChars, escapeRegexChars } from "./expansion/glob-escape.js";
 // Re-export for backward compatibility
 export {
   getArrayElements,

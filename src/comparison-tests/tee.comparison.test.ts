@@ -6,7 +6,7 @@ import {
   path,
   runRealBash,
   setupFiles,
-} from "./test-helpers.js";
+} from "./fixture-runner.js";
 
 describe("tee command - Real Bash Comparison", () => {
   let testDir: string;

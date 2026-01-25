@@ -11,8 +11,12 @@ import { hasHelpFlag, showHelp } from "../help.js";
 import { generateMultipartBody } from "./form.js";
 import { curlHelp } from "./help.js";
 import { parseOptions } from "./parse.js";
+import {
+  applyWriteOut,
+  extractFilename,
+  formatHeaders,
+} from "./response-formatting.js";
 import type { CurlOptions } from "./types.js";
-import { applyWriteOut, extractFilename, formatHeaders } from "./utils.js";
 
 /**
  * Prepare request body from options, reading files if needed

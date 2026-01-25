@@ -21,7 +21,7 @@ import {
   evalTypeBuiltin,
 } from "./builtins/index.js";
 import type { AstNode, DestructurePattern } from "./parser.js";
-import { deletePath, setPath } from "./path-utils.js";
+import { deletePath, setPath } from "./path-operations.js";
 import {
   compare,
   compareJq,
@@ -31,9 +31,9 @@ import {
   getValueDepth,
   isTruthy,
   type QueryValue,
-} from "./value-utils.js";
+} from "./value-operations.js";
 
-export type { QueryValue } from "./value-utils.js";
+export type { QueryValue } from "./value-operations.js";
 
 class BreakError extends Error {
   constructor(

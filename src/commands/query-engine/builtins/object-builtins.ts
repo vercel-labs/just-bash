@@ -6,7 +6,7 @@
 
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
-import { getValueDepth, type QueryValue } from "../value-utils.js";
+import { getValueDepth, type QueryValue } from "../value-operations.js";
 
 // Default max depth for nested structures
 const DEFAULT_MAX_JQ_DEPTH = 2000;
