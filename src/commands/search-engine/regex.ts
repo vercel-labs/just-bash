@@ -2,6 +2,24 @@
  * Regex building utilities for search commands
  */
 
+/** POSIX character class to JavaScript regex character range mapping */
+const POSIX_CLASS_MAP: Record<string, string> = {
+  alpha: "a-zA-Z",
+  digit: "0-9",
+  alnum: "a-zA-Z0-9",
+  lower: "a-z",
+  upper: "A-Z",
+  xdigit: "0-9A-Fa-f",
+  space: " \\t\\n\\r\\f\\v",
+  blank: " \\t",
+  punct: "!-/:-@\\[-`{-~",
+  graph: "!-~",
+  print: " -~",
+  cntrl: "\\x00-\\x1F\\x7F",
+  ascii: "\\x00-\\x7F",
+  word: "a-zA-Z0-9_",
+};
+
 export type RegexMode = "basic" | "extended" | "fixed" | "perl";
 
 export interface RegexOptions {
@@ -21,6 +39,112 @@ export interface RegexResult {
 }
 
 /**
+ * Transform POSIX character classes in bracket expressions to JavaScript regex equivalents.
+ *
+ * Examples:
+ * - [[:alpha:]] → [a-zA-Z]
+ * - [[:digit:]] → [0-9]
+ * - [[:alpha:][:digit:]] → [a-zA-Z0-9]
+ * - [^[:alpha:]] → [^a-zA-Z]
+ * - [[:<:]] → (?<![\\w]) (word start boundary)
+ * - [[:>:]] → (?![\\w]) (word end boundary)
+ */
+function transformPosixCharacterClasses(pattern: string): string {
+  let result = "";
+  let i = 0;
+
+  while (i < pattern.length) {
+    // Check for word boundary extensions [[:<:]] and [[:>:]]
+    if (pattern.slice(i, i + 7) === "[[:<:]]") {
+      // Word start boundary - match position where previous char is non-word
+      result += "(?<![\\w])";
+      i += 7;
+      continue;
+    }
+    if (pattern.slice(i, i + 7) === "[[:>:]]") {
+      // Word end boundary - match position where next char is non-word
+      result += "(?![\\w])";
+      i += 7;
+      continue;
+    }
+
+    // Check for start of bracket expression
+    if (pattern[i] === "[") {
+      // Parse the entire bracket expression
+      let bracketExpr = "[";
+      i++;
+
+      // Handle negation
+      if (i < pattern.length && (pattern[i] === "^" || pattern[i] === "!")) {
+        bracketExpr += "^";
+        i++;
+      }
+
+      // Handle ] as first char (literal ])
+      if (i < pattern.length && pattern[i] === "]") {
+        bracketExpr += "\\]";
+        i++;
+      }
+
+      // Parse bracket expression contents
+      while (i < pattern.length && pattern[i] !== "]") {
+        // Check for POSIX character class [[:name:]]
+        if (
+          pattern[i] === "[" &&
+          i + 1 < pattern.length &&
+          pattern[i + 1] === ":"
+        ) {
+          // Find the closing :]
+          const closeIdx = pattern.indexOf(":]", i + 2);
+          if (closeIdx !== -1) {
+            const className = pattern.slice(i + 2, closeIdx);
+            const replacement = POSIX_CLASS_MAP[className];
+            if (replacement) {
+              bracketExpr += replacement;
+              i = closeIdx + 2;
+              continue;
+            }
+          }
+        }
+
+        // Handle escape sequences
+        if (pattern[i] === "\\" && i + 1 < pattern.length) {
+          bracketExpr += pattern[i] + pattern[i + 1];
+          i += 2;
+          continue;
+        }
+
+        // Regular character
+        bracketExpr += pattern[i];
+        i++;
+      }
+
+      // Close the bracket expression
+      if (i < pattern.length && pattern[i] === "]") {
+        bracketExpr += "]";
+        i++;
+      }
+
+      result += bracketExpr;
+      continue;
+    }
+
+    // Handle escape sequences outside bracket expressions
+    if (pattern[i] === "\\" && i + 1 < pattern.length) {
+      result += pattern[i] + pattern[i + 1];
+      i += 2;
+      continue;
+    }
+
+    // Regular character
+    result += pattern[i];
+    i++;
+  }
+
+  return result;
+}
+
+/**
  * Build a JavaScript RegExp from a pattern with the specified mode
  */
 export function buildRegex(
@@ -37,8 +161,11 @@ export function buildRegex(
       break;
     case "extended":
     case "perl": {
+      // Transform POSIX character classes first
+      regexPattern = transformPosixCharacterClasses(pattern);
+
       // Convert (?P<name>...) to JavaScript's (?<name>...) syntax
-      regexPattern = pattern.replace(/\(\?P<([^>]+)>/g, "(?<$1>");
+      regexPattern = regexPattern.replace(/\(\?P<([^>]+)>/g, "(?<$1>");
 
       // Handle Perl-specific features only in perl mode
       if (options.mode === "perl") {
@@ -59,7 +186,9 @@ export function buildRegex(
       break;
     }
     default:
-      regexPattern = escapeRegexForBasicGrep(pattern);
+      // BRE mode: transform POSIX classes first, then convert BRE to JS regex
+      regexPattern = transformPosixCharacterClasses(pattern);
+      regexPattern = escapeRegexForBasicGrep(regexPattern);
       break;
   }
 
@@ -540,30 +669,159 @@ export function convertReplacement(replacement: string): string {
  * In BRE:
  * - \| is alternation (becomes | in JS)
  * - \( \) are groups (become ( ) in JS)
- * - \{ \} are quantifiers (kept as literals for simplicity)
+ * - \{n\}, \{n,\}, \{n,m\} are interval expressions (become {n}, {n,}, {n,m} in JS)
+ * - \{,n\} and \{,\} are literal (invalid POSIX interval)
  * - + ? | ( ) { } are literal (must be escaped in JS)
+ * - * at pattern start or after ^ is literal
+ * - ^ is anchor at start of pattern or start of \(...\) group; literal elsewhere
+ * - $ is anchor at end of pattern or end of \(...\) group; literal elsewhere
  */
 function escapeRegexForBasicGrep(str: string): string {
   let result = "";
   let i = 0;
+  // Track if we're at a position where * would be literal
+  // (at start of pattern/group, or right after ^ anchor)
+  let atPatternStart = true;
+  // Track nesting depth for \( \) groups
+  let groupDepth = 0;
 
   while (i < str.length) {
     const char = str[i];
 
+    // Handle bracket expressions - copy them through without modification
+    // Bracket expressions have already been processed by transformPosixCharacterClasses
+    if (char === "[") {
+      result += char;
+      i++;
+      // Handle negation or first ] in bracket expression
+      if (i < str.length && (str[i] === "^" || str[i] === "!")) {
+        result += str[i];
+        i++;
+      }
+      // Handle ] as first char (literal ])
+      if (i < str.length && str[i] === "]") {
+        result += str[i];
+        i++;
+      }
+      // Copy everything until closing ]
+      while (i < str.length && str[i] !== "]") {
+        if (str[i] === "\\" && i + 1 < str.length) {
+          result += str[i] + str[i + 1];
+          i += 2;
+        } else {
+          result += str[i];
+          i++;
+        }
+      }
+      // Copy closing ]
+      if (i < str.length && str[i] === "]") {
+        result += str[i];
+        i++;
+      }
+      atPatternStart = false;
+      continue;
+    }
+
     if (char === "\\" && i + 1 < str.length) {
       const nextChar = str[i + 1];
       // BRE: \| becomes | (alternation)
-      // BRE: \( \) become ( ) (grouping)
-      if (nextChar === "|" || nextChar === "(" || nextChar === ")") {
-        result += nextChar;
+      if (nextChar === "|") {
+        result += "|";
         i += 2;
-        continue;
-      } else if (nextChar === "{" || nextChar === "}") {
-        // Keep as escaped for now (literal)
-        result += `\\${nextChar}`;
-        i += 2;
+        atPatternStart = true; // After alternation, ^ and * rules apply at start of alternative
         continue;
       }
+      // BRE: \( starts a group
+      if (nextChar === "(") {
+        result += "(";
+        i += 2;
+        groupDepth++;
+        atPatternStart = true; // ^ and * rules apply at group start
+        continue;
+      }
+      // BRE: \) ends a group
+      if (nextChar === ")") {
+        result += ")";
+        i += 2;
+        groupDepth = Math.max(0, groupDepth - 1);
+        atPatternStart = false;
+        continue;
+      }
+      if (nextChar === "{") {
+        // Check for BRE interval expression: \{n\}, \{n,\}, \{n,m\}
+        // Valid intervals start with a digit (not comma)
+        const remaining = str.slice(i);
+        const intervalMatch = remaining.match(/^\\{(\d+)(,(\d*)?)?\\}/);
+        if (intervalMatch) {
+          const min = intervalMatch[1];
+          const hasComma = intervalMatch[2] !== undefined;
+          const max = intervalMatch[3] || "";
+          // Convert to JavaScript interval syntax
+          if (hasComma) {
+            result += `{${min},${max}}`;
+          } else {
+            result += `{${min}}`;
+          }
+          i += intervalMatch[0].length;
+          atPatternStart = false;
+          continue;
+        }
+        // Not a valid interval - treat \{ as literal {
+        result += `\\{`;
+        i += 2;
+        atPatternStart = false;
+        continue;
+      }
+      if (nextChar === "}") {
+        // \} outside of interval - literal }
+        result += `\\}`;
+        i += 2;
+        atPatternStart = false;
+        continue;
+      }
+      // Any other escape - pass through
+      result += char + nextChar;
+      i += 2;
+      atPatternStart = false;
+      continue;
+    }
+
+    // Handle * - literal at pattern/group start or after ^
+    if (char === "*" && atPatternStart) {
+      result += "\\*";
+      i++;
+      // Stay at pattern start so consecutive *'s are also escaped
+      continue;
+    }
+
+    // Handle ^ - anchor at pattern/group start, literal elsewhere
+    if (char === "^") {
+      if (atPatternStart) {
+        result += "^";
+        i++;
+        // After ^, we're still at a position where * would be literal
+        continue;
+      }
+      // ^ in middle - literal
+      result += "\\^";
+      i++;
+      continue;
+    }
+
+    // Handle $ - anchor at pattern end or before \), literal elsewhere
+    if (char === "$") {
+      // Check if this is at end of pattern or followed by \)
+      const isAtEnd = i === str.length - 1;
+      const isBeforeGroupEnd =
+        i + 2 < str.length && str[i + 1] === "\\" && str[i + 2] === ")";
+      if (isAtEnd || isBeforeGroupEnd) {
+        result += "$";
+      } else {
+        result += "\\$";
+      }
+      i++;
+      atPatternStart = false;
+      continue;
     }
 
     // Escape characters that are special in JavaScript regex but not in BRE
@@ -581,6 +839,7 @@ function escapeRegexForBasicGrep(str: string): string {
       result += char;
     }
     i++;
+    atPatternStart = false;
   }
 
   return result;

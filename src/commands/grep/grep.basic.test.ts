@@ -493,4 +493,250 @@ describe("grep", () => {
       expect(result.stdout).toBe("CAT\nDOG\n");
     });
   });
+
+  describe("POSIX character classes", () => {
+    it("should match [[:alpha:]] for letters", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "abc\n123\na1b\n" },
+      });
+      const result = await env.exec('grep -E "^[[:alpha:]]+$" /test.txt');
+      expect(result.stdout).toBe("abc\n");
+    });
+
+    it("should match [[:digit:]] for digits", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "abc\n123\na1b\n" },
+      });
+      const result = await env.exec('grep -E "^[[:digit:]]+$" /test.txt');
+      expect(result.stdout).toBe("123\n");
+    });
+
+    it("should match [[:alnum:]] for alphanumeric", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "abc123\n!@#\na1b\n" },
+      });
+      const result = await env.exec('grep -E "^[[:alnum:]]+$" /test.txt');
+      expect(result.stdout).toBe("abc123\na1b\n");
+    });
+
+    it("should match [[:upper:]] for uppercase letters", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "ABC\nabc\nAbC\n" },
+      });
+      const result = await env.exec('grep -E "^[[:upper:]]+$" /test.txt');
+      expect(result.stdout).toBe("ABC\n");
+    });
+
+    it("should match [[:lower:]] for lowercase letters", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "ABC\nabc\nAbC\n" },
+      });
+      const result = await env.exec('grep -E "^[[:lower:]]+$" /test.txt');
+      expect(result.stdout).toBe("abc\n");
+    });
+
+    it("should match [[:xdigit:]] for hex digits", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "deadbeef\n12ab\nGHI\n" },
+      });
+      const result = await env.exec('grep -E "^[[:xdigit:]]+$" /test.txt');
+      expect(result.stdout).toBe("deadbeef\n12ab\n");
+    });
+
+    it("should match [[:space:]] for whitespace", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "hello world\nhelloworld\n" },
+      });
+      const result = await env.exec('grep -E "[[:space:]]" /test.txt');
+      expect(result.stdout).toBe("hello world\n");
+    });
+
+    it("should combine POSIX classes with other characters", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a1\nb2\nc!\n" },
+      });
+      const result = await env.exec(
+        'grep -E "^[[:alpha:]][[:digit:]]$" /test.txt',
+      );
+      expect(result.stdout).toBe("a1\nb2\n");
+    });
+
+    it("should negate POSIX classes with [^]", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "123\nabc\n!@#\n" },
+      });
+      const result = await env.exec('grep -E "^[^[:alpha:]]+$" /test.txt');
+      expect(result.stdout).toBe("123\n!@#\n");
+    });
+  });
+
+  describe("BRE interval expressions", () => {
+    it("should match exact count with \\{n\\}", async () => {
+      const env = new Bash({
+        // Use anchors to test exact match
+        files: { "/test.txt": "ab\naab\naaab\n" },
+      });
+      const result = await env.exec("grep '^a\\{2\\}b$' /test.txt");
+      expect(result.stdout).toBe("aab\n");
+    });
+
+    it("should match minimum count with \\{n,\\}", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "ab\naab\naaab\naaaab\n" },
+      });
+      const result = await env.exec("grep '^a\\{2,\\}b$' /test.txt");
+      expect(result.stdout).toBe("aab\naaab\naaaab\n");
+    });
+
+    it("should match range with \\{n,m\\}", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "ab\naab\naaab\naaaab\n" },
+      });
+      const result = await env.exec("grep '^a\\{2,3\\}b$' /test.txt");
+      expect(result.stdout).toBe("aab\naaab\n");
+    });
+
+    it("should match zero count with \\{0,0\\}", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "bc\nabc\nac\n" },
+      });
+      // a{0,0}bc means "zero a's followed by bc" = just "bc"
+      const result = await env.exec("grep 'a\\{0,0\\}bc' /test.txt");
+      expect(result.stdout).toBe("bc\nabc\n");
+    });
+  });
+
+  describe("word boundaries", () => {
+    it("should match word start with [[:<:]]", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "foo bar\nbarfoo\nfoobar\n" },
+      });
+      const result = await env.exec('grep -E "[[:<:]]foo" /test.txt');
+      expect(result.stdout).toBe("foo bar\nfoobar\n");
+    });
+
+    it("should match word end with [[:>:]]", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "foo bar\nbarfoo\nfoobar\n" },
+      });
+      const result = await env.exec('grep -E "foo[[:>:]]" /test.txt');
+      expect(result.stdout).toBe("foo bar\nbarfoo\n");
+    });
+
+    it("should match whole word with [[:<:]] and [[:>:]]", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "foo bar\nbarfoo\nfoobar\nfoo\n" },
+      });
+      const result = await env.exec('grep -E "[[:<:]]foo[[:>:]]" /test.txt');
+      expect(result.stdout).toBe("foo bar\nfoo\n");
+    });
+  });
+
+  describe("bracket expression edge cases", () => {
+    it("should match ] as first char in bracket expression", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a]b\na[b\nacb\n" },
+      });
+      const result = await env.exec('grep -E "a[][]b" /test.txt');
+      expect(result.stdout).toBe("a]b\na[b\n");
+    });
+
+    it("should match ] as first char in negated bracket", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a]c\nabc\nadc\n" },
+      });
+      const result = await env.exec('grep -E "a[^]b]c" /test.txt');
+      expect(result.stdout).toBe("adc\n");
+    });
+  });
+
+  describe("BRE anchor edge cases", () => {
+    it("should treat ^ as literal in middle of pattern", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a^b\nacb\nabc\n" },
+      });
+      const result = await env.exec("grep 'a^b' /test.txt");
+      expect(result.stdout).toBe("a^b\n");
+    });
+
+    it("should treat $ as literal in middle of pattern", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a$b\nacb\nabc\n" },
+      });
+      const result = await env.exec("grep 'a\\$b' /test.txt");
+      expect(result.stdout).toBe("a$b\n");
+    });
+
+    it("should treat ^ as anchor at start of BRE group", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "b\nab\nba\n" },
+      });
+      const result = await env.exec("grep 'a*\\(^b$\\)c*' /test.txt");
+      expect(result.stdout).toBe("b\n");
+    });
+
+    it("should treat $ as anchor at end of BRE group", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a\nab\nba\n" },
+      });
+      const result = await env.exec("grep '\\(^a$\\)' /test.txt");
+      expect(result.stdout).toBe("a\n");
+    });
+  });
+
+  describe("BRE literal * edge cases", () => {
+    it("should treat * as literal at pattern start", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "*\nabc\n*abc\n" },
+      });
+      const result = await env.exec("grep '^\\*' /test.txt");
+      expect(result.stdout).toBe("*\n*abc\n");
+    });
+
+    it("should treat * as literal after ^ anchor", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "*\nabc\n*abc\n" },
+      });
+      const result = await env.exec("grep '^*' /test.txt");
+      expect(result.stdout).toBe("*\n*abc\n");
+    });
+
+    it("should treat * in group as quantifier", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "ab\nabb\nabbb\n" },
+      });
+      const result = await env.exec("grep 'ab*' /test.txt");
+      expect(result.stdout).toBe("ab\nabb\nabbb\n");
+    });
+  });
+
+  describe("combined POSIX classes and quantifiers", () => {
+    it("should match POSIX class with BRE interval", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "ab\naab\naaab\n" },
+      });
+      const result = await env.exec("grep '[[:alpha:]]\\{2\\}b' /test.txt");
+      expect(result.stdout).toBe("aab\naaab\n");
+    });
+
+    it("should match multiple POSIX classes in one bracket", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "a1\n1a\n!!\nA9\n" },
+      });
+      const result = await env.exec(
+        'grep -E "^[[:alpha:][:digit:]]+$" /test.txt',
+      );
+      expect(result.stdout).toBe("a1\n1a\nA9\n");
+    });
+
+    it("should negate multiple POSIX classes", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "!@#\nabc\n123\na1!\n" },
+      });
+      const result = await env.exec(
+        'grep -E "^[^[:alpha:][:digit:]]+$" /test.txt',
+      );
+      expect(result.stdout).toBe("!@#\n");
+    });
+  });
 });

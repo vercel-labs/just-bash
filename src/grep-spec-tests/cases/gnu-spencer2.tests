@@ -203,11 +203,9 @@
 0@a[b]c@abc
 0@a[ab]c@abc
 0@a[^ab]c@adc
-# SKIP: ] as first char in bracket expression not supported
 0@a[]b]c@a]c
 0@a[[b]c@a[c
 0@a[-b]c@a-c
-# SKIP: ] as first char in negated bracket expression not supported
 0@a[^]b]c@adc
 0@a[^-b]c@adc
 0@a[b-]c@a-c
@@ -227,7 +225,6 @@
 1@a[[.one.]]b@a1b
 1@a[[.notdef.]]b@ECOLLATE
 1@a[[.].]]b@a]b
-# SKIP: POSIX character classes [[:alpha:]] not implemented
 0@a[[:alpha:]]c@abc
 2@a[[:notdef:]]c@ECTYPE
 2@a[[:@EBRACK
@@ -240,20 +237,13 @@
 2@a[[:alphabet:]]@ECTYPE
 1@[[:blank:]]+@aSSTb
 1@[[:cntrl:]]+@aNTb
-# SKIP: POSIX character classes [[:digit:]] not implemented
 0@[[:digit:]]+@a019b
-# SKIP: POSIX character classes [[:graph:]] not implemented
 0@[[:graph:]]+@Sa%bS
-# SKIP: POSIX character classes [[:lower:]] not implemented
 0@[[:lower:]]+@AabC
-# SKIP: POSIX character classes [[:print:]] not implemented
 0@[[:print:]]+@NaSbN
-# SKIP: POSIX character classes [[:punct:]] not implemented
 0@[[:punct:]]+@S%-&T
 1@[[:space:]]+@aSNTb
-# SKIP: POSIX character classes [[:upper:]] not implemented
 0@[[:upper:]]+@aBCd
-# SKIP: POSIX character classes [[:xdigit:]] not implemented
 0@[[:xdigit:]]+@p0f3Cq
 1@a[[=b=]]c@abc
 2@a[[=@EBRACK

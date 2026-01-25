@@ -77,11 +77,7 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   // -L option (print files without matches)
   ["busybox-grep.tests:grep -L exitcode 0", "-L option not implemented"],
 
-  // -o option (only matching)
-  [
-    "busybox-grep.tests:grep -E -o prints all matches",
-    "-o option not implemented",
-  ],
+  // -o option (only matching) - these tests now pass since POSIX character classes are implemented
   [
     "busybox-grep.tests:grep -o does not loop forever",
     "-o option not implemented",

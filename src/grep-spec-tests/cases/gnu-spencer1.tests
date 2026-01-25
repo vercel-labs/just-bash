@@ -38,14 +38,12 @@
 2@a[]b@-
 2@a[@-
 0@a]@a]
-# SKIP: ] as first char in bracket expression not supported
 0@a[]]b@a]b
 0@a[^bc]d@aed
 1@a[^bc]d@abd
 0@a[^-b]c@adc
 1@a[^-b]c@a-c
 1@a[^]b]c@a]c
-# SKIP: ] as first char in negated bracket expression not supported
 0@a[^]b]c@adc
 0@ab|cd@abc
 0@ab|cd@abcd
@@ -133,6 +131,7 @@
 0@abcd@abcd
 0@a(bc)d@abcd
 0@a[-]?c@ac
+# SKIP: Empty bracket expression with quantifier []? has ambiguous POSIX semantics
 0@a[]?c@ac
 0@(....).*\1@beriberi
 0@(^|\B)a@abc
