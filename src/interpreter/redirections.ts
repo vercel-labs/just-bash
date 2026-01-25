@@ -21,6 +21,35 @@ import { result as makeResult } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
 
 /**
+ * Check if a redirect target is valid for output (not a directory, respects noclobber).
+ * Returns an error message string if invalid, null if valid.
+ */
+async function checkOutputRedirectTarget(
+  ctx: InterpreterContext,
+  filePath: string,
+  target: string,
+  options: { checkNoclobber?: boolean; isClobber?: boolean },
+): Promise<string | null> {
+  try {
+    const stat = await ctx.fs.stat(filePath);
+    if (stat.isDirectory) {
+      return `bash: ${target}: Is a directory\n`;
+    }
+    if (
+      options.checkNoclobber &&
+      ctx.state.options.noclobber &&
+      !options.isClobber &&
+      target !== "/dev/null"
+    ) {
+      return `bash: ${target}: cannot overwrite existing file\n`;
+    }
+  } catch {
+    // File doesn't exist, that's ok - we'll create it
+  }
+  return null;
+}
+
+/**
  * Determine the encoding to use for file I/O.
  * If all character codes are <= 255, use binary encoding (byte data).
  * Otherwise, use UTF-8 encoding (text with Unicode characters).
@@ -419,29 +448,15 @@ export async function applyRedirections(
             break;
           }
           const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-          // Check if target is a directory
-          try {
-            const stat = await ctx.fs.stat(filePath);
-            if (stat.isDirectory) {
-              stderr += `bash: ${target}: Is a directory\n`;
-              exitCode = 1;
-              stdout = "";
-              break;
-            }
-            // Check noclobber: if file exists and noclobber is set, refuse to overwrite
-            // unless using >| (clobber operator) or writing to /dev/null
-            if (
-              ctx.state.options.noclobber &&
-              !isClobber &&
-              target !== "/dev/null"
-            ) {
-              stderr += `bash: ${target}: cannot overwrite existing file\n`;
-              exitCode = 1;
-              stdout = "";
-              break;
-            }
-          } catch {
-            // File doesn't exist, that's ok - we'll create it
+          const error = await checkOutputRedirectTarget(ctx, filePath, target, {
+            checkNoclobber: true,
+            isClobber,
+          });
+          if (error) {
+            stderr += error;
+            exitCode = 1;
+            stdout = "";
+            break;
           }
           // Smart encoding: binary for byte data, UTF-8 for Unicode text
           await ctx.fs.writeFile(filePath, stdout, getFileEncoding(stdout));
@@ -467,26 +482,19 @@ export async function applyRedirections(
             stderr = "";
           } else {
             const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-            // Check if target is a directory
-            try {
-              const stat = await ctx.fs.stat(filePath);
-              if (stat.isDirectory) {
-                stderr += `bash: ${target}: Is a directory\n`;
-                exitCode = 1;
-                break;
-              }
-              // Check noclobber for stderr too
-              if (
-                ctx.state.options.noclobber &&
-                !isClobber &&
-                target !== "/dev/null"
-              ) {
-                stderr += `bash: ${target}: cannot overwrite existing file\n`;
-                exitCode = 1;
-                break;
-              }
-            } catch {
-              // File doesn't exist, that's ok
+            const error = await checkOutputRedirectTarget(
+              ctx,
+              filePath,
+              target,
+              {
+                checkNoclobber: true,
+                isClobber,
+              },
+            );
+            if (error) {
+              stderr += error;
+              exitCode = 1;
+              break;
             }
             // Smart encoding: binary for byte data, UTF-8 for Unicode text
             await ctx.fs.writeFile(filePath, stderr, getFileEncoding(stderr));
@@ -517,17 +525,17 @@ export async function applyRedirections(
             break;
           }
           const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-          // Check if target is a directory
-          try {
-            const stat = await ctx.fs.stat(filePath);
-            if (stat.isDirectory) {
-              stderr += `bash: ${target}: Is a directory\n`;
-              exitCode = 1;
-              stdout = "";
-              break;
-            }
-          } catch {
-            // File doesn't exist, that's ok
+          const error = await checkOutputRedirectTarget(
+            ctx,
+            filePath,
+            target,
+            {},
+          );
+          if (error) {
+            stderr += error;
+            exitCode = 1;
+            stdout = "";
+            break;
           }
           // Smart encoding: binary for byte data, UTF-8 for Unicode text
           await ctx.fs.appendFile(filePath, stdout, getFileEncoding(stdout));
@@ -549,20 +557,20 @@ export async function applyRedirections(
             exitCode = 1;
             break;
           }
-          const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-          // Check if target is a directory
-          try {
-            const stat = await ctx.fs.stat(filePath);
-            if (stat.isDirectory) {
-              stderr += `bash: ${target}: Is a directory\n`;
-              exitCode = 1;
-              break;
-            }
-          } catch {
-            // File doesn't exist, that's ok
+          const filePath2 = ctx.fs.resolvePath(ctx.state.cwd, target);
+          const error2 = await checkOutputRedirectTarget(
+            ctx,
+            filePath2,
+            target,
+            {},
+          );
+          if (error2) {
+            stderr += error2;
+            exitCode = 1;
+            break;
           }
           // Smart encoding: binary for byte data, UTF-8 for Unicode text
-          await ctx.fs.appendFile(filePath, stderr, getFileEncoding(stderr));
+          await ctx.fs.appendFile(filePath2, stderr, getFileEncoding(stderr));
           stderr = "";
         }
         break;
@@ -737,24 +745,19 @@ export async function applyRedirections(
             // If no explicit fd (redir.fd == null), redirects BOTH stdout and stderr (equivalent to &>word)
             // If explicit fd (e.g., 1>&word), redirects just that fd to the file
             const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-            // Check if target is a directory
-            try {
-              const stat = await ctx.fs.stat(filePath);
-              if (stat.isDirectory) {
-                stderr = `bash: ${target}: Is a directory\n`;
-                exitCode = 1;
-                stdout = "";
-                break;
-              }
-              // Check noclobber: if file exists and noclobber is set, refuse to overwrite
-              if (ctx.state.options.noclobber && target !== "/dev/null") {
-                stderr = `bash: ${target}: cannot overwrite existing file\n`;
-                exitCode = 1;
-                stdout = "";
-                break;
-              }
-            } catch {
-              // File doesn't exist, that's ok - we'll create it
+            const error = await checkOutputRedirectTarget(
+              ctx,
+              filePath,
+              target,
+              {
+                checkNoclobber: true,
+              },
+            );
+            if (error) {
+              stderr = error;
+              exitCode = 1;
+              stdout = "";
+              break;
             }
             if (redir.fd == null) {
               // >&word (no explicit fd) - write both stdout and stderr to the file
@@ -789,24 +792,14 @@ export async function applyRedirections(
           break;
         }
         const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-        // Check if target is a directory
-        try {
-          const stat = await ctx.fs.stat(filePath);
-          if (stat.isDirectory) {
-            stderr = `bash: ${target}: Is a directory\n`;
-            exitCode = 1;
-            stdout = "";
-            break;
-          }
-          // Check noclobber: if file exists and noclobber is set, refuse to overwrite
-          if (ctx.state.options.noclobber && target !== "/dev/null") {
-            stderr = `bash: ${target}: cannot overwrite existing file\n`;
-            exitCode = 1;
-            stdout = "";
-            break;
-          }
-        } catch {
-          // File doesn't exist, that's ok
+        const error = await checkOutputRedirectTarget(ctx, filePath, target, {
+          checkNoclobber: true,
+        });
+        if (error) {
+          stderr = error;
+          exitCode = 1;
+          stdout = "";
+          break;
         }
         // Smart encoding: binary for byte data, UTF-8 for Unicode text
         const combined = stdout + stderr;
@@ -825,17 +818,17 @@ export async function applyRedirections(
           break;
         }
         const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-        // Check if target is a directory
-        try {
-          const stat = await ctx.fs.stat(filePath);
-          if (stat.isDirectory) {
-            stderr = `bash: ${target}: Is a directory\n`;
-            exitCode = 1;
-            stdout = "";
-            break;
-          }
-        } catch {
-          // File doesn't exist, that's ok
+        const error = await checkOutputRedirectTarget(
+          ctx,
+          filePath,
+          target,
+          {},
+        );
+        if (error) {
+          stderr = error;
+          exitCode = 1;
+          stdout = "";
+          break;
         }
         // Smart encoding: binary for byte data, UTF-8 for Unicode text
         const combined = stdout + stderr;

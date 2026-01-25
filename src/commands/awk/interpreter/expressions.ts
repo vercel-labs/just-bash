@@ -82,8 +82,8 @@ export async function evalExpr(
 
     case "ternary":
       return isTruthy(await evalExpr(ctx, expr.condition))
-        ? evalExpr(ctx, expr.consequent)
-        : evalExpr(ctx, expr.alternate);
+        ? await evalExpr(ctx, expr.consequent)
+        : await evalExpr(ctx, expr.alternate);
 
     case "call":
       return evalFunctionCall(ctx, expr.name, expr.args);
@@ -426,92 +426,60 @@ async function evalAssignment(
   return finalValue;
 }
 
+/**
+ * Helper for increment/decrement operations.
+ * Applies delta (+1 or -1) to the operand and returns either old or new value.
+ */
+async function applyIncDec(
+  ctx: AwkRuntimeContext,
+  operand: AwkVariable | AwkArrayAccess | AwkFieldRef,
+  delta: 1 | -1,
+  returnNew: boolean,
+): Promise<number> {
+  let oldVal: number;
+
+  if (operand.type === "field") {
+    const index = Math.floor(toNumber(await evalExpr(ctx, operand.index)));
+    oldVal = toNumber(getField(ctx, index));
+    setField(ctx, index, oldVal + delta);
+  } else if (operand.type === "variable") {
+    oldVal = toNumber(getVariable(ctx, operand.name));
+    setVariable(ctx, operand.name, oldVal + delta);
+  } else {
+    const key = toAwkString(await evalExpr(ctx, operand.key));
+    oldVal = toNumber(getArrayElement(ctx, operand.array, key));
+    setArrayElement(ctx, operand.array, key, oldVal + delta);
+  }
+
+  return returnNew ? oldVal + delta : oldVal;
+}
+
 async function evalPreIncrement(
   ctx: AwkRuntimeContext,
   operand: AwkVariable | AwkArrayAccess | AwkFieldRef,
 ): Promise<AwkValue> {
-  let val: number;
-
-  if (operand.type === "field") {
-    const index = Math.floor(toNumber(await evalExpr(ctx, operand.index)));
-    val = toNumber(getField(ctx, index)) + 1;
-    setField(ctx, index, val);
-  } else if (operand.type === "variable") {
-    val = toNumber(getVariable(ctx, operand.name)) + 1;
-    setVariable(ctx, operand.name, val);
-  } else {
-    const key = toAwkString(await evalExpr(ctx, operand.key));
-    val = toNumber(getArrayElement(ctx, operand.array, key)) + 1;
-    setArrayElement(ctx, operand.array, key, val);
-  }
-
-  return val;
+  return applyIncDec(ctx, operand, 1, true);
 }
 
 async function evalPreDecrement(
   ctx: AwkRuntimeContext,
   operand: AwkVariable | AwkArrayAccess | AwkFieldRef,
 ): Promise<AwkValue> {
-  let val: number;
-
-  if (operand.type === "field") {
-    const index = Math.floor(toNumber(await evalExpr(ctx, operand.index)));
-    val = toNumber(getField(ctx, index)) - 1;
-    setField(ctx, index, val);
-  } else if (operand.type === "variable") {
-    val = toNumber(getVariable(ctx, operand.name)) - 1;
-    setVariable(ctx, operand.name, val);
-  } else {
-    const key = toAwkString(await evalExpr(ctx, operand.key));
-    val = toNumber(getArrayElement(ctx, operand.array, key)) - 1;
-    setArrayElement(ctx, operand.array, key, val);
-  }
-
-  return val;
+  return applyIncDec(ctx, operand, -1, true);
 }
 
 async function evalPostIncrement(
   ctx: AwkRuntimeContext,
   operand: AwkVariable | AwkArrayAccess | AwkFieldRef,
 ): Promise<AwkValue> {
-  let oldVal: number;
-
-  if (operand.type === "field") {
-    const index = Math.floor(toNumber(await evalExpr(ctx, operand.index)));
-    oldVal = toNumber(getField(ctx, index));
-    setField(ctx, index, oldVal + 1);
-  } else if (operand.type === "variable") {
-    oldVal = toNumber(getVariable(ctx, operand.name));
-    setVariable(ctx, operand.name, oldVal + 1);
-  } else {
-    const key = toAwkString(await evalExpr(ctx, operand.key));
-    oldVal = toNumber(getArrayElement(ctx, operand.array, key));
-    setArrayElement(ctx, operand.array, key, oldVal + 1);
-  }
-
-  return oldVal;
+  return applyIncDec(ctx, operand, 1, false);
 }
 
 async function evalPostDecrement(
   ctx: AwkRuntimeContext,
   operand: AwkVariable | AwkArrayAccess | AwkFieldRef,
 ): Promise<AwkValue> {
-  let oldVal: number;
-
-  if (operand.type === "field") {
-    const index = Math.floor(toNumber(await evalExpr(ctx, operand.index)));
-    oldVal = toNumber(getField(ctx, index));
-    setField(ctx, index, oldVal - 1);
-  } else if (operand.type === "variable") {
-    oldVal = toNumber(getVariable(ctx, operand.name));
-    setVariable(ctx, operand.name, oldVal - 1);
-  } else {
-    const key = toAwkString(await evalExpr(ctx, operand.key));
-    oldVal = toNumber(getArrayElement(ctx, operand.array, key));
-    setArrayElement(ctx, operand.array, key, oldVal - 1);
-  }
-
-  return oldVal;
+  return applyIncDec(ctx, operand, -1, false);
 }
 
 async function evalInExpr(

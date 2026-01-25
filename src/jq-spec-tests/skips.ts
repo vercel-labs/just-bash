@@ -554,9 +554,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 
   // walk with generator
   { pattern: /walk\(\.,\d+\)/, reason: "walk with generator argument" },
-
-  // pow precision
-  { pattern: /\$powers\[\]\|pow\(2;/, reason: "pow precision" },
 ];
 
 /**

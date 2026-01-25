@@ -109,6 +109,29 @@ export class SedLexer {
     return ch;
   }
 
+  /**
+   * Read an escaped string until the delimiter is reached.
+   * Handles escape sequences: \n -> newline, \t -> tab, \X -> X
+   * Returns null if newline is encountered before delimiter.
+   */
+  private readEscapedString(delimiter: string): string | null {
+    let result = "";
+    while (this.pos < this.input.length && this.peek() !== delimiter) {
+      if (this.peek() === "\\") {
+        this.advance();
+        const escaped = this.advance();
+        if (escaped === "n") result += "\n";
+        else if (escaped === "t") result += "\t";
+        else result += escaped;
+      } else if (this.peek() === "\n") {
+        return null; // Unterminated - newline before delimiter
+      } else {
+        result += this.advance();
+      }
+    }
+    return result;
+  }
+
   private skipWhitespace(): void {
     while (this.pos < this.input.length) {
       const ch = this.peek();
@@ -648,22 +671,8 @@ export class SedLexer {
     }
 
     // Read source characters
-    let source = "";
-    while (this.pos < this.input.length && this.peek() !== delimiter) {
-      if (this.peek() === "\\") {
-        this.advance();
-        const escaped = this.advance();
-        if (escaped === "n") source += "\n";
-        else if (escaped === "t") source += "\t";
-        else source += escaped;
-      } else if (this.peek() === "\n") {
-        break;
-      } else {
-        source += this.advance();
-      }
-    }
-
-    if (this.peek() !== delimiter) {
+    const source = this.readEscapedString(delimiter);
+    if (source === null || this.peek() !== delimiter) {
       return {
         type: SedTokenType.ERROR,
         value: "unterminated transliteration source",
@@ -674,22 +683,8 @@ export class SedLexer {
     this.advance(); // skip middle delimiter
 
     // Read dest characters
-    let dest = "";
-    while (this.pos < this.input.length && this.peek() !== delimiter) {
-      if (this.peek() === "\\") {
-        this.advance();
-        const escaped = this.advance();
-        if (escaped === "n") dest += "\n";
-        else if (escaped === "t") dest += "\t";
-        else dest += escaped;
-      } else if (this.peek() === "\n") {
-        break;
-      } else {
-        dest += this.advance();
-      }
-    }
-
-    if (this.peek() !== delimiter) {
+    const dest = this.readEscapedString(delimiter);
+    if (dest === null || this.peek() !== delimiter) {
       return {
         type: SedTokenType.ERROR,
         value: "unterminated transliteration dest",

@@ -174,4 +174,42 @@ describe("awk ternary operator", () => {
       expect(result.exitCode).toBe(0);
     });
   });
+
+  describe("ternary with async expressions", () => {
+    it("should await getline in consequent branch", async () => {
+      const env = new Bash({
+        files: { "/data.txt": "hello world\n" },
+      });
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x = 1 ? (getline line < "/data.txt") : 0; print line }'`,
+      );
+      expect(result.stdout).toBe("hello world\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should await getline in alternate branch", async () => {
+      const env = new Bash({
+        files: { "/data.txt": "test data\n" },
+      });
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x = 0 ? 0 : (getline line < "/data.txt"); print line }'`,
+      );
+      expect(result.stdout).toBe("test data\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should await nested ternary with getline", async () => {
+      const env = new Bash({
+        files: {
+          "/data1.txt": "first\n",
+          "/data2.txt": "second\n",
+        },
+      });
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x = 1 ? (getline a < "/data1.txt") : (getline b < "/data2.txt"); print a }'`,
+      );
+      expect(result.stdout).toBe("first\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
 });

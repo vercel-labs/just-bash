@@ -37,6 +37,37 @@ const DEFAULT_MAX_JQ_ITERATIONS = 10000;
 // during JSON.stringify/parse which have their own recursion limits (~2000-10000 depending on V8 version)
 const DEFAULT_MAX_JQ_DEPTH = 2000;
 
+/**
+ * Simple math functions that take a single numeric argument and return a single numeric result.
+ * Maps jq function names to their JavaScript Math implementations.
+ */
+const SIMPLE_MATH_FUNCTIONS: Record<string, (x: number) => number> = {
+  floor: Math.floor,
+  ceil: Math.ceil,
+  round: Math.round,
+  sqrt: Math.sqrt,
+  log: Math.log,
+  log10: Math.log10,
+  log2: Math.log2,
+  exp: Math.exp,
+  sin: Math.sin,
+  cos: Math.cos,
+  tan: Math.tan,
+  asin: Math.asin,
+  acos: Math.acos,
+  atan: Math.atan,
+  sinh: Math.sinh,
+  cosh: Math.cosh,
+  tanh: Math.tanh,
+  asinh: Math.asinh,
+  acosh: Math.acosh,
+  atanh: Math.atanh,
+  cbrt: Math.cbrt,
+  expm1: Math.expm1,
+  log1p: Math.log1p,
+  trunc: Math.trunc,
+};
+
 export interface QueryExecutionLimits {
   maxIterations?: number;
   maxDepth?: number;
@@ -1383,6 +1414,13 @@ function evalBuiltin(
   args: AstNode[],
   ctx: EvalContext,
 ): QueryValue[] {
+  // Handle simple single-argument math functions via lookup table
+  const simpleMathFn = SIMPLE_MATH_FUNCTIONS[name];
+  if (simpleMathFn) {
+    if (typeof value === "number") return [simpleMathFn(value)];
+    return [null];
+  }
+
   switch (name) {
     case "keys":
       if (Array.isArray(value)) return [value.map((_, i) => i)];
@@ -2719,21 +2757,7 @@ function evalBuiltin(
       });
     }
 
-    case "floor":
-      if (typeof value === "number") return [Math.floor(value)];
-      return [null];
-
-    case "ceil":
-      if (typeof value === "number") return [Math.ceil(value)];
-      return [null];
-
-    case "round":
-      if (typeof value === "number") return [Math.round(value)];
-      return [null];
-
-    case "sqrt":
-      if (typeof value === "number") return [Math.sqrt(value)];
-      return [null];
+    // floor, ceil, round, sqrt handled by SIMPLE_MATH_FUNCTIONS lookup
 
     case "fabs":
     case "abs":
@@ -2742,21 +2766,7 @@ function evalBuiltin(
       if (typeof value === "string") return [value];
       return [null];
 
-    case "log":
-      if (typeof value === "number") return [Math.log(value)];
-      return [null];
-
-    case "log10":
-      if (typeof value === "number") return [Math.log10(value)];
-      return [null];
-
-    case "log2":
-      if (typeof value === "number") return [Math.log2(value)];
-      return [null];
-
-    case "exp":
-      if (typeof value === "number") return [Math.exp(value)];
-      return [null];
+    // log, log10, log2, exp handled by SIMPLE_MATH_FUNCTIONS lookup
 
     case "exp10":
       if (typeof value === "number") return [10 ** value];
@@ -2767,81 +2777,31 @@ function evalBuiltin(
       return [null];
 
     case "pow": {
-      if (typeof value !== "number" || args.length === 0) return [null];
-      const exps = evaluate(value, args[0], ctx);
-      const exp = exps[0] as number;
-      return [value ** exp];
+      // pow(base; exp) - two explicit arguments
+      if (args.length < 2) return [null];
+      const bases = evaluate(value, args[0], ctx);
+      const exps = evaluate(value, args[1], ctx);
+      const base = bases[0];
+      const exp = exps[0];
+      if (typeof base !== "number" || typeof exp !== "number") return [null];
+      return [base ** exp];
     }
 
-    case "sin":
-      if (typeof value === "number") return [Math.sin(value)];
-      return [null];
-
-    case "cos":
-      if (typeof value === "number") return [Math.cos(value)];
-      return [null];
-
-    case "tan":
-      if (typeof value === "number") return [Math.tan(value)];
-      return [null];
-
-    case "asin":
-      if (typeof value === "number") return [Math.asin(value)];
-      return [null];
-
-    case "acos":
-      if (typeof value === "number") return [Math.acos(value)];
-      return [null];
-
-    case "atan":
-      if (typeof value === "number") return [Math.atan(value)];
-      return [null];
+    // sin, cos, tan, asin, acos, atan handled by SIMPLE_MATH_FUNCTIONS lookup
 
     case "atan2": {
-      if (typeof value !== "number" || args.length === 0) return [null];
-      const x = evaluate(value, args[0], ctx)[0] as number;
-      return [Math.atan2(value, x)];
+      // atan2(y; x) - two explicit arguments
+      if (args.length < 2) return [null];
+      const ys = evaluate(value, args[0], ctx);
+      const xs = evaluate(value, args[1], ctx);
+      const y = ys[0];
+      const x = xs[0];
+      if (typeof y !== "number" || typeof x !== "number") return [null];
+      return [Math.atan2(y, x)];
     }
 
-    case "sinh":
-      if (typeof value === "number") return [Math.sinh(value)];
-      return [null];
-
-    case "cosh":
-      if (typeof value === "number") return [Math.cosh(value)];
-      return [null];
-
-    case "tanh":
-      if (typeof value === "number") return [Math.tanh(value)];
-      return [null];
-
-    case "asinh":
-      if (typeof value === "number") return [Math.asinh(value)];
-      return [null];
-
-    case "acosh":
-      if (typeof value === "number") return [Math.acosh(value)];
-      return [null];
-
-    case "atanh":
-      if (typeof value === "number") return [Math.atanh(value)];
-      return [null];
-
-    case "cbrt":
-      if (typeof value === "number") return [Math.cbrt(value)];
-      return [null];
-
-    case "expm1":
-      if (typeof value === "number") return [Math.expm1(value)];
-      return [null];
-
-    case "log1p":
-      if (typeof value === "number") return [Math.log1p(value)];
-      return [null];
-
-    case "trunc":
-      if (typeof value === "number") return [Math.trunc(value)];
-      return [null];
+    // sinh, cosh, tanh, asinh, acosh, atanh, cbrt, expm1, log1p, trunc
+    // handled by SIMPLE_MATH_FUNCTIONS lookup
 
     case "hypot": {
       if (typeof value !== "number" || args.length === 0) return [null];

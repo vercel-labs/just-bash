@@ -282,4 +282,47 @@ describe("jq builtin functions", () => {
       expect(result.stdout).toBe("[\n  1\n]\n");
     });
   });
+
+  describe("math functions with two arguments", () => {
+    it("should compute pow(base; exp)", async () => {
+      const env = new Bash();
+      const result = await env.exec("jq -n 'pow(2; 3)'");
+      expect(result.stdout).toBe("8\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should compute pow with non-integer exponent", async () => {
+      const env = new Bash();
+      const result = await env.exec("jq -n 'pow(4; 0.5)'");
+      expect(result.stdout).toBe("2\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should compute atan2(y; x)", async () => {
+      const env = new Bash();
+      const result = await env.exec("jq -n 'atan2(3; 4)'");
+      expect(result.stdout).toBe("0.6435011087932844\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should compute atan2 with negative values", async () => {
+      const env = new Bash();
+      const result = await env.exec("jq -n 'atan2(-1; -1)'");
+      // atan2(-1, -1) = -2.356194490192345 (third quadrant)
+      expect(result.stdout).toBe("-2.356194490192345\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should return null for pow with non-numeric args", async () => {
+      const env = new Bash();
+      const result = await env.exec("jq -n 'pow(\"a\"; 2)'");
+      expect(result.stdout).toBe("null\n");
+    });
+
+    it("should return null for atan2 with non-numeric args", async () => {
+      const env = new Bash();
+      const result = await env.exec("jq -n 'atan2(\"a\"; 2)'");
+      expect(result.stdout).toBe("null\n");
+    });
+  });
 });
