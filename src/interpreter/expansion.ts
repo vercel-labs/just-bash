@@ -754,11 +754,11 @@ function _getWordPartsValue(parts: WordPart[]): string {
 async function expandWordPartsAsync(
   ctx: InterpreterContext,
   parts: WordPart[],
-  _inDoubleQuotes = false,
+  inDoubleQuotes = false,
 ): Promise<string> {
   const results: string[] = [];
   for (const part of parts) {
-    results.push(await expandPart(ctx, part));
+    results.push(await expandPart(ctx, part, inDoubleQuotes));
   }
   return results.join("");
 }
@@ -5357,14 +5357,15 @@ function getFileReadShorthand(body: ScriptNode): { target: WordNode } | null {
 async function expandPart(
   ctx: InterpreterContext,
   part: WordPart,
+  inDoubleQuotes = false,
 ): Promise<string> {
   // Always use async expansion for ParameterExpansion
   if (part.type === "ParameterExpansion") {
-    return expandParameterAsync(ctx, part);
+    return expandParameterAsync(ctx, part, inDoubleQuotes);
   }
 
   // Try simple cases first (Literal, SingleQuoted, Escaped, TildeExpansion, Glob)
-  const simple = expandSimplePart(ctx, part);
+  const simple = expandSimplePart(ctx, part, inDoubleQuotes);
   if (simple !== null) return simple;
 
   // Handle cases that need recursion or async
@@ -5372,7 +5373,8 @@ async function expandPart(
     case "DoubleQuoted": {
       const parts: string[] = [];
       for (const p of part.parts) {
-        parts.push(await expandPart(ctx, p));
+        // Inside double quotes, suppress tilde expansion
+        parts.push(await expandPart(ctx, p, true));
       }
       return parts.join("");
     }
@@ -5470,7 +5472,10 @@ async function expandPart(
         originalText && /\$[a-zA-Z_][a-zA-Z0-9_]*(?![{[(])/.test(originalText);
       if (hasDollarVars) {
         // Expand $var patterns in the text
-        const expandedText = expandDollarVarsInArithText(ctx, originalText);
+        const expandedText = await expandDollarVarsInArithText(
+          ctx,
+          originalText,
+        );
         // Re-parse the expanded expression
         const parser = new Parser();
         const newExpr = parseArithmeticExpression(parser, expandedText);
@@ -5518,10 +5523,10 @@ async function expandPart(
  *
  * Only expands simple $var patterns, not ${...}, $(()), $(), etc.
  */
-function expandDollarVarsInArithText(
+async function expandDollarVarsInArithText(
   ctx: InterpreterContext,
   text: string,
-): string {
+): Promise<string> {
   let result = "";
   let i = 0;
   while (i < text.length) {
@@ -5561,7 +5566,7 @@ function expandDollarVarsInArithText(
           j++;
         }
         const varName = text.slice(i + 1, j);
-        const value = getVariable(ctx, varName);
+        const value = await getVariable(ctx, varName);
         result += value;
         i = j;
         continue;
@@ -5573,7 +5578,7 @@ function expandDollarVarsInArithText(
           j++;
         }
         const varName = text.slice(i + 1, j);
-        const value = getVariable(ctx, varName);
+        const value = await getVariable(ctx, varName);
         result += value;
         i = j;
         continue;
@@ -5581,7 +5586,7 @@ function expandDollarVarsInArithText(
       // Check for special vars: $*, $@, $#, $?, etc.
       if (/[*@#?\-!$]/.test(text[i + 1] || "")) {
         const varName = text[i + 1];
-        const value = getVariable(ctx, varName);
+        const value = await getVariable(ctx, varName);
         result += value;
         i += 2;
         continue;
@@ -5600,7 +5605,7 @@ function expandDollarVarsInArithText(
             j++;
           }
           const varName = text.slice(i + 1, j);
-          const value = getVariable(ctx, varName);
+          const value = await getVariable(ctx, varName);
           result += value;
           i = j;
         } else if (text[i] === "\\") {
@@ -5629,53 +5634,98 @@ function expandDollarVarsInArithText(
 }
 
 /**
- * Expand command substitutions in an array subscript.
- * e.g., "$(echo 1)" -> "1"
- * This is needed for cases like ${a[$(echo 1)]} where the subscript
- * contains a command that must be executed.
+ * Expand variable references and command substitutions in an array subscript.
+ * e.g., "${array[@]}" -> "1 2 3", "$(echo 1)" -> "1"
+ * This is needed for associative array subscripts like assoc["${array[@]}"]
+ * where the subscript may contain variable or array expansions.
  */
-async function expandSubscriptCommandSubst(
+async function expandSubscriptForAssocArray(
   ctx: InterpreterContext,
   subscript: string,
 ): Promise<string> {
-  // Look for $(...) patterns and execute them
+  // Remove surrounding quotes if present
+  let inner = subscript;
+  const hasDoubleQuotes = subscript.startsWith('"') && subscript.endsWith('"');
+  const hasSingleQuotes = subscript.startsWith("'") && subscript.endsWith("'");
+
+  if (hasDoubleQuotes || hasSingleQuotes) {
+    inner = subscript.slice(1, -1);
+  }
+
+  // For single-quoted strings, no expansion
+  if (hasSingleQuotes) {
+    return inner;
+  }
+
+  // Expand $(...), ${...}, and $var references in the string
   let result = "";
   let i = 0;
-  while (i < subscript.length) {
-    if (subscript[i] === "$" && subscript[i + 1] === "(") {
-      // Find matching closing paren
-      let depth = 1;
-      let j = i + 2;
-      while (j < subscript.length && depth > 0) {
-        if (subscript[j] === "(" && subscript[j - 1] === "$") {
-          depth++;
-        } else if (subscript[j] === "(") {
-          depth++;
-        } else if (subscript[j] === ")") {
-          depth--;
+  while (i < inner.length) {
+    if (inner[i] === "$") {
+      // Check for $(...) command substitution
+      if (inner[i + 1] === "(") {
+        // Find matching closing paren
+        let depth = 1;
+        let j = i + 2;
+        while (j < inner.length && depth > 0) {
+          if (inner[j] === "(" && inner[j - 1] === "$") {
+            depth++;
+          } else if (inner[j] === "(") {
+            depth++;
+          } else if (inner[j] === ")") {
+            depth--;
+          }
+          j++;
         }
-        j++;
-      }
-      // Extract and execute the command
-      const cmdStr = subscript.slice(i + 2, j - 1);
-      if (ctx.execFn) {
-        const cmdResult = await ctx.execFn(cmdStr);
-        // Strip trailing newlines like command substitution does
-        result += cmdResult.stdout.replace(/\n+$/, "");
-        // Forward stderr to expansion stderr
-        if (cmdResult.stderr) {
-          ctx.state.expansionStderr =
-            (ctx.state.expansionStderr || "") + cmdResult.stderr;
+        // Extract and execute the command
+        const cmdStr = inner.slice(i + 2, j - 1);
+        if (ctx.execFn) {
+          const cmdResult = await ctx.execFn(cmdStr);
+          // Strip trailing newlines like command substitution does
+          result += cmdResult.stdout.replace(/\n+$/, "");
+          // Forward stderr to expansion stderr
+          if (cmdResult.stderr) {
+            ctx.state.expansionStderr =
+              (ctx.state.expansionStderr || "") + cmdResult.stderr;
+          }
         }
+        i = j;
+      } else if (inner[i + 1] === "{") {
+        // Check for ${...} - find matching }
+        let depth = 1;
+        let j = i + 2;
+        while (j < inner.length && depth > 0) {
+          if (inner[j] === "{") depth++;
+          else if (inner[j] === "}") depth--;
+          j++;
+        }
+        const varExpr = inner.slice(i + 2, j - 1);
+        // Use getVariable to properly handle array expansions like array[@] and array[*]
+        const value = await getVariable(ctx, varExpr);
+        result += value;
+        i = j;
+      } else if (/[a-zA-Z_]/.test(inner[i + 1] || "")) {
+        // $name - find end of name
+        let j = i + 1;
+        while (j < inner.length && /[a-zA-Z0-9_]/.test(inner[j])) {
+          j++;
+        }
+        const varName = inner.slice(i + 1, j);
+        // Use getVariable for consistency
+        const value = await getVariable(ctx, varName);
+        result += value;
+        i = j;
+      } else {
+        result += inner[i];
+        i++;
       }
-      i = j;
-    } else if (subscript[i] === "`") {
+    } else if (inner[i] === "`") {
       // Legacy backtick command substitution
       let j = i + 1;
-      while (j < subscript.length && subscript[j] !== "`") {
+      while (j < inner.length && inner[j] !== "`") {
         j++;
       }
-      const cmdStr = subscript.slice(i + 1, j);
+      const cmdStr = inner.slice(i + 1, j);
       if (ctx.execFn) {
         const cmdResult = await ctx.execFn(cmdStr);
         result += cmdResult.stdout.replace(/\n+$/, "");
@@ -5686,7 +5736,7 @@ async function expandSubscriptCommandSubst(
       }
       i = j + 1;
     } else {
-      result += subscript[i];
+      result += inner[i];
       i++;
     }
   }
@@ -5702,14 +5752,22 @@ async function expandParameterAsync(
   let { parameter } = part;
   const { operation } = part;
 
-  // Handle command substitution in array subscript: ${a[$(echo 1)]}
+  // Handle subscript expansion for array access: ${a[...]}
   // We need to expand the subscript before calling getVariable
   const bracketMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
   if (bracketMatch) {
     const [, arrayName, subscript] = bracketMatch;
-    // Check if subscript contains command substitution
-    if (subscript.includes("$(") || subscript.includes("`")) {
-      const expandedSubscript = await expandSubscriptCommandSubst(
+    const isAssoc = ctx.state.associativeArrays?.has(arrayName);
+
+    // For associative arrays, expand the subscript to handle ${array[@]} and other expansions
+    // Also expand if subscript contains command substitution or variables
+    if (
+      isAssoc ||
+      subscript.includes("$(") ||
+      subscript.includes("`") ||
+      subscript.includes("${")
+    ) {
+      const expandedSubscript = await expandSubscriptForAssocArray(
         ctx,
         subscript,
       );
@@ -5729,8 +5787,14 @@ async function expandParameterAsync(
       );
       if (targetBracketMatch) {
         const [, targetArrayName, targetSubscript] = targetBracketMatch;
-        if (targetSubscript.includes("$(") || targetSubscript.includes("`")) {
-          const expandedSubscript = await expandSubscriptCommandSubst(
+        const isAssoc = ctx.state.associativeArrays?.has(targetArrayName);
+        if (
+          isAssoc ||
+          targetSubscript.includes("$(") ||
+          targetSubscript.includes("`") ||
+          targetSubscript.includes("${")
+        ) {
+          const expandedSubscript = await expandSubscriptForAssocArray(
             ctx,
             targetSubscript,
           );

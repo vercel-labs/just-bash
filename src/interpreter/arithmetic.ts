@@ -958,13 +958,13 @@ async function evalConcatPartToStringAsync(
       // If no $ prefix, use the literal name for building dynamic var names
       // If has $ prefix, expand to the variable's value
       if (expr.hasDollarPrefix) {
-        return getVariable(ctx, expr.name);
+        return await getVariable(ctx, expr.name);
       }
       return expr.name;
     case "ArithSpecialVar":
-      return getVariable(ctx, expr.name);
+      return await getVariable(ctx, expr.name);
     case "ArithBracedExpansion":
-      return expandBracedContent(ctx, expr.content);
+      return await expandBracedContent(ctx, expr.content);
     case "ArithCommandSubst": {
       if (ctx.execFn) {
         const result = await ctx.execFn(expr.command);

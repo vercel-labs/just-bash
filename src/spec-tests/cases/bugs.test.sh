@@ -275,7 +275,6 @@ echo $as_val
 ## END
 
 #### command execution $(echo 42 | tee PWNED) not allowed
-## SKIP (unimplementable): Security restriction for command substitution in arithmetic not implemented
 
 rm -f PWNED
 
@@ -322,7 +321,6 @@ NOPE
 
 
 #### unset doesn't allow command execution
-## SKIP (unimplementable): Security restriction for command substitution in unset not implemented
 
 typeset -a a  # for mksh
 a=(42)

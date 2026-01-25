@@ -510,7 +510,6 @@ cycle=
 ## END
 
 #### Var Ref Code Injection $(tee PWNED)
-## SKIP (unimplementable): OSH expects strict rejection (status 1); we safely evaluate without executing command substitution - bash actually executes it (marked BUG)
 
 typeset -a a
 a=(42)

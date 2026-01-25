@@ -119,7 +119,6 @@ typeset b[2]=/home/spec-test/src
 ## END
 
 #### LHS array is protected with shopt -s eval_unsafe_arith, e.g. 'a[$(echo 2)]'
-## SKIP (unimplementable): eval_unsafe_arith is an OSH-specific security feature
 case $SH in zsh|ash) exit ;; esac
 
 a=(0 1 2)

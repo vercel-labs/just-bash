@@ -417,7 +417,12 @@ export async function getVariable(
     if (resolved !== name) {
       // Recursively get the target variable's value
       // (this handles if target is also a nameref, array, etc.)
-      return await getVariable(ctx, resolved, checkNounset, _insideDoubleQuotes);
+      return await getVariable(
+        ctx,
+        resolved,
+        checkNounset,
+        _insideDoubleQuotes,
+      );
     }
     // Nameref points to empty/invalid target
     const value = ctx.state.env[name];
