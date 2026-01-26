@@ -94,7 +94,9 @@ export type CommandName =
   | "xan"
   | "sqlite3"
   | "time"
-  | "whoami";
+  | "whoami"
+  | "python3"
+  | "python";
 
 /** Network command names (only available when network is configured) */
 export type NetworkCommandName = "curl";
@@ -480,6 +482,14 @@ if (typeof __BROWSER__ === "undefined" || !__BROWSER__) {
   commandLoaders.push({
     name: "sqlite3" as CommandName,
     load: async () => (await import("./sqlite3/sqlite3.js")).sqlite3Command,
+  });
+  commandLoaders.push({
+    name: "python3" as CommandName,
+    load: async () => (await import("./python3/python3.js")).python3Command,
+  });
+  commandLoaders.push({
+    name: "python" as CommandName,
+    load: async () => (await import("./python3/python3.js")).pythonCommand,
   });
 }
 

@@ -37,7 +37,8 @@
       "!**/*.md",
       "!examples",
       "!**/*.parsed.json",
-      "!.claude"
+      "!.claude",
+      "!src/commands/python3/worker.js"
     ]
   }
 }

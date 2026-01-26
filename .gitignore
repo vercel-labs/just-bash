@@ -16,4 +16,4 @@ todo/
 *.parsed.json
 .pnpm-store
 .docs-test-tmp/
-.claude/
+src/commands/python3/worker.js
