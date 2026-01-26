@@ -195,4 +195,48 @@ python3 -c "import os; print(os.environ.get('MY_VAR', 'not found'))"
       expect(result.exitCode).toBe(0);
     });
   });
+
+  describe("concurrent executions", () => {
+    it("should handle multiple concurrent executions correctly", async () => {
+      // Run multiple Python commands in parallel and verify each gets correct result
+      const env1 = new Bash();
+      const env2 = new Bash();
+      const env3 = new Bash();
+
+      const [result1, result2, result3] = await Promise.all([
+        env1.exec('python3 -c "print(111)"'),
+        env2.exec('python3 -c "print(222)"'),
+        env3.exec('python3 -c "print(333)"'),
+      ]);
+
+      // Each result should have the correct output (no mixing)
+      expect(result1.stdout).toBe("111\n");
+      expect(result1.exitCode).toBe(0);
+
+      expect(result2.stdout).toBe("222\n");
+      expect(result2.exitCode).toBe(0);
+
+      expect(result3.stdout).toBe("333\n");
+      expect(result3.exitCode).toBe(0);
+    });
+
+    it("should queue concurrent executions and complete all", async () => {
+      const env = new Bash();
+
+      // Launch 5 concurrent executions
+      const results = await Promise.all([
+        env.exec('python3 -c "print(1)"'),
+        env.exec('python3 -c "print(2)"'),
+        env.exec('python3 -c "print(3)"'),
+        env.exec('python3 -c "print(4)"'),
+        env.exec('python3 -c "print(5)"'),
+      ]);
+
+      // All should complete successfully
+      for (let i = 0; i < 5; i++) {
+        expect(results[i].stdout).toBe(`${i + 1}\n`);
+        expect(results[i].exitCode).toBe(0);
+      }
+    });
+  });
 });

@@ -139,10 +139,31 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
 
 // Singleton worker for reusing Pyodide instance
 let sharedWorker: Worker | null = null;
-let pendingResolve: ((result: WorkerOutput) => void) | null = null;
 let workerIdleTimeout: ReturnType<typeof setTimeout> | null = null;
 
+// Queue for serializing Python executions (Pyodide is single-threaded)
+type QueuedExecution = {
+  input: WorkerInput;
+  resolve: (result: WorkerOutput) => void;
+};
+const executionQueue: QueuedExecution[] = [];
+let currentExecution: QueuedExecution | null = null;
+
 const workerPath = fileURLToPath(new URL("./worker.js", import.meta.url));
+
+function processNextExecution(): void {
+  if (currentExecution || executionQueue.length === 0) {
+    return;
+  }
+
+  const next = executionQueue.shift();
+  if (!next) {
+    return;
+  }
+  currentExecution = next;
+  const worker = getOrCreateWorker();
+  worker.postMessage(currentExecution.input);
+}
 
 function getOrCreateWorker(): Worker {
   // Clear any pending idle timeout
@@ -158,19 +179,28 @@ function getOrCreateWorker(): Worker {
   sharedWorker = new Worker(workerPath);
 
   sharedWorker.on("message", (result: WorkerOutput) => {
-    if (pendingResolve) {
-      pendingResolve(result);
-      pendingResolve = null;
+    if (currentExecution) {
+      currentExecution.resolve(result);
+      currentExecution = null;
     }
-    // Schedule worker termination after idle period
-    scheduleWorkerTermination();
+    // Process next queued execution or schedule termination
+    if (executionQueue.length > 0) {
+      processNextExecution();
+    } else {
+      scheduleWorkerTermination();
+    }
   });
 
   sharedWorker.on("error", (err: Error) => {
-    if (pendingResolve) {
-      pendingResolve({ success: false, error: err.message });
-      pendingResolve = null;
+    if (currentExecution) {
+      currentExecution.resolve({ success: false, error: err.message });
+      currentExecution = null;
     }
+    // Reject all queued executions
+    for (const queued of executionQueue) {
+      queued.resolve({ success: false, error: "Worker crashed" });
+    }
+    executionQueue.length = 0;
     sharedWorker = null;
   });
 
@@ -184,7 +214,7 @@ function getOrCreateWorker(): Worker {
 function scheduleWorkerTermination(): void {
   // Terminate worker after 5 seconds of inactivity
   workerIdleTimeout = setTimeout(() => {
-    if (sharedWorker && !pendingResolve) {
+    if (sharedWorker && !currentExecution && executionQueue.length === 0) {
       sharedWorker.terminate();
       sharedWorker = null;
     }
@@ -219,8 +249,6 @@ async function executePython(
     scriptPath,
   };
 
-  const worker = getOrCreateWorker();
-
   const workerPromise = new Promise<WorkerOutput>((resolve) => {
     const timeout = setTimeout(() => {
       resolve({
@@ -229,13 +257,14 @@ async function executePython(
       });
     }, timeoutMs);
 
-    pendingResolve = (result) => {
+    const wrappedResolve = (result: WorkerOutput) => {
       clearTimeout(timeout);
       resolve(result);
     };
 
-    // Send the work to the worker
-    worker.postMessage(workerInput);
+    // Queue the execution (serialized since Pyodide is single-threaded)
+    executionQueue.push({ input: workerInput, resolve: wrappedResolve });
+    processNextExecution();
   });
 
   const [bridgeOutput, workerResult] = await Promise.all([
