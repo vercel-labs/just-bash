@@ -1,3 +1,4 @@
+import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { fromBuffer, getEncoding, toBuffer } from "../encoding.js";
 import type {
   BufferEncoding,
@@ -661,6 +662,20 @@ export class InMemoryFs implements IFileSystem {
     }
 
     return resolved;
+  }
+
+  // ===========================================================================
+  // Workflow Serde Support
+  // ===========================================================================
+
+  static [WORKFLOW_SERIALIZE](instance: InMemoryFs) {
+    return { data: instance.data };
+  }
+
+  static [WORKFLOW_DESERIALIZE](serialized: { data: Map<string, FsEntry> }) {
+    const fs = new InMemoryFs();
+    fs.data = serialized.data;
+    return fs;
   }
 
   /**
