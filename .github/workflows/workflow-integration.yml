@@ -27,7 +27,7 @@ jobs:
         run: pnpm build
 
       - name: Install workflow-vite example dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
         working-directory: examples/workflow-vite
 
       - name: Start vite server
