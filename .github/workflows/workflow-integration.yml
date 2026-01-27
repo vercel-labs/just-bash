@@ -1,0 +1,79 @@
+name: Workflow Integration Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  workflow-integration:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build just-bash
+        run: pnpm build
+
+      - name: Install workflow-vite example dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: examples/workflow-vite
+
+      - name: Start vite server
+        run: |
+          pnpm dev > /tmp/vite.log 2>&1 &
+          echo $! > /tmp/vite.pid
+          # Wait for server to be ready
+          for i in {1..30}; do
+            if curl -s http://localhost:3000 > /dev/null 2>&1; then
+              echo "Server is ready"
+              break
+            fi
+            echo "Waiting for server... ($i/30)"
+            sleep 1
+          done
+        working-directory: examples/workflow-vite
+
+      - name: Test workflow API
+        run: |
+          response=$(curl -s -X POST http://localhost:3000/api/bash)
+          echo "Response: $response"
+
+          # Check if response contains expected data
+          if echo "$response" | grep -q '"message":"Bash workflow completed"'; then
+            echo "Message check passed"
+          else
+            echo "Message check failed"
+            exit 1
+          fi
+
+          if echo "$response" | grep -q '"log":"created\\nstep2: modified\\nstep3: modified\\nstep4: modified\\n"'; then
+            echo "Log check passed"
+          else
+            echo "Log check failed"
+            exit 1
+          fi
+
+          echo "All checks passed!"
+
+      - name: Stop vite server
+        if: always()
+        run: |
+          if [ -f /tmp/vite.pid ]; then
+            kill $(cat /tmp/vite.pid) 2>/dev/null || true
+          fi
+
+      - name: Show server logs on failure
+        if: failure()
+        run: cat /tmp/vite.log || true

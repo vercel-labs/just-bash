@@ -1,0 +1,4148 @@
+{
+  "eventType": "step_completed",
+  "correlationId": "step_01KG070MDBPQKQJSJ5QVEWSX9S",
+  "eventData": {
+    "result": [
+      [
+        "Instance",
+        1
+      ],
+      {
+        "classId": 2,
+        "data": 3
+      },
+      "just-bash/Bash",
+      {
+        "fs": 4,
+        "state": 1079,
+        "limits": 1119
+      },
+      [
+        "Instance",
+        5
+      ],
+      {
+        "classId": 6,
+        "data": 7
+      },
+      "just-bash/InMemoryFs",
+      {
+        "data": 8
+      },
+      [
+        "Map",
+        9
+      ],
+      [
+        10,
+        17,
+        21,
+        25,
+        29,
+        33,
+        37,
+        41,
+        45,
+        53,
+        58,
+        63,
+        69,
+        74,
+        78,
+        82,
+        86,
+        92,
+        98,
+        104,
+        110,
+        116,
+        122,
+        128,
+        134,
+        140,
+        145,
+        151,
+        156,
+        162,
+        167,
+        173,
+        178,
+        184,
+        189,
+        195,
+        200,
+        206,
+        211,
+        217,
+        222,
+        228,
+        233,
+        239,
+        244,
+        250,
+        255,
+        261,
+        266,
+        272,
+        277,
+        283,
+        288,
+        294,
+        299,
+        305,
+        310,
+        316,
+        321,
+        327,
+        332,
+        338,
+        343,
+        349,
+        354,
+        360,
+        365,
+        371,
+        376,
+        382,
+        387,
+        393,
+        398,
+        404,
+        409,
+        415,
+        420,
+        426,
+        431,
+        437,
+        442,
+        448,
+        453,
+        459,
+        464,
+        470,
+        475,
+        481,
+        486,
+        492,
+        497,
+        503,
+        508,
+        514,
+        519,
+        525,
+        530,
+        536,
+        541,
+        547,
+        552,
+        558,
+        563,
+        569,
+        574,
+        580,
+        585,
+        591,
+        596,
+        602,
+        607,
+        613,
+        618,
+        624,
+        629,
+        635,
+        640,
+        646,
+        651,
+        657,
+        662,
+        668,
+        673,
+        679,
+        684,
+        690,
+        695,
+        701,
+        706,
+        712,
+        717,
+        723,
+        728,
+        734,
+        739,
+        745,
+        750,
+        756,
+        761,
+        767,
+        772,
+        778,
+        783,
+        789,
+        794,
+        800,
+        805,
+        811,
+        816,
+        822,
+        827,
+        833,
+        838,
+        844,
+        849,
+        855,
+        860,
+        866,
+        871,
+        877,
+        882,
+        888,
+        893,
+        899,
+        904,
+        910,
+        915,
+        921,
+        926,
+        932,
+        937,
+        943,
+        948,
+        954,
+        959,
+        965,
+        970,
+        976,
+        981,
+        987,
+        992,
+        998,
+        1003,
+        1009,
+        1014,
+        1020,
+        1025,
+        1031,
+        1036,
+        1042,
+        1047,
+        1053,
+        1058,
+        1064,
+        1069,
+        1073
+      ],
+      [
+        11,
+        12
+      ],
+      "/",
+      {
+        "type": 13,
+        "mode": 14,
+        "mtime": 15
+      },
+      "directory",
+      493,
+      [
+        "Date",
+        16
+      ],
+      "2026-01-27T17:11:27.104Z",
+      [
+        18,
+        19
+      ],
+      "/bin",
+      {
+        "type": 13,
+        "mode": 14,
+        "mtime": 20
+      },
+      [
+        "Date",
+        16
+      ],
+      [
+        22,
+        23
+      ],
+      "/usr",
+      {
+        "type": 13,
+        "mode": 14,
+        "mtime": 24
+      },
+      [
+        "Date",
+        16
+      ],
+      [
+        26,
+        27
+      ],
+      "/usr/bin",
+      {
+        "type": 13,
+        "mode": 14,
+        "mtime": 28
+      },
+      [
+        "Date",
+        16
+      ],
+      [
+        30,
+        31
+      ],
+      "/home",
+      {
+        "type": 13,
+        "mode": 14,
+        "mtime": 32
+      },
+      [
+        "Date",
+        16
+      ],
+      [
+        34,
+        35
+      ],
+      "/home/user",
+      {
+        "type": 13,
+        "mode": 14,
+        "mtime": 36
+      },
+      [
+        "Date",
+        16
+      ],
+      [
+        38,
+        39
+      ],
+      "/tmp",
+      {
+        "type": 13,
+        "mode": 14,
+        "mtime": 40
+      },
+      [
+        "Date",
+        16
+      ],
+      [
+        42,
+        43
+      ],
+      "/dev",
+      {
+        "type": 13,
+        "mode": 14,
+        "mtime": 44
+      },
+      [
+        "Date",
+        16
+      ],
+      [
+        46,
+        47
+      ],
+      "/dev/null",
+      {
+        "type": 48,
+        "content": 49,
+        "mode": 51,
+        "mtime": 52
+      },
+      "file",
+      [
+        "Uint8Array",
+        50
+      ],
+      ".",
+      420,
+      [
+        "Date",
+        16
+      ],
+      [
+        54,
+        55
+      ],
+      "/dev/zero",
+      {
+        "type": 48,
+        "content": 56,
+        "mode": 51,
+        "mtime": 57
+      },
+      [
+        "Uint8Array",
+        50
+      ],
+      [
+        "Date",
+        16
+      ],
+      [
+        59,
+        60
+      ],
+      "/dev/stdin",
+      {
+        "type": 48,
+        "content": 61,
+        "mode": 51,
+        "mtime": 62
+      },
+      [
+        "Uint8Array",
+        50
+      ],
+      [
+        "Date",
+        16
+      ],
+      [
+        64,
+        65
+      ],
+      "/dev/stdout",
+      {
+        "type": 48,
+        "content": 66,
+        "mode": 51,
+        "mtime": 67
+      },
+      [
+        "Uint8Array",
+        50
+      ],
+      [
+        "Date",
+        68
+      ],
+      "2026-01-27T17:11:27.105Z",
+      [
+        70,
+        71
+      ],
+      "/dev/stderr",
+      {
+        "type": 48,
+        "content": 72,
+        "mode": 51,
+        "mtime": 73
+      },
+      [
+        "Uint8Array",
+        50
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        75,
+        76
+      ],
+      "/proc",
+      {
+        "type": 13,
+        "mode": 14,
+        "mtime": 77
+      },
+      [
+        "Date",
+        68
+      ],
+      [
+        79,
+        80
+      ],
+      "/proc/self",
+      {
+        "type": 13,
+        "mode": 14,
+        "mtime": 81
+      },
+      [
+        "Date",
+        68
+      ],
+      [
+        83,
+        84
+      ],
+      "/proc/self/fd",
+      {
+        "type": 13,
+        "mode": 14,
+        "mtime": 85
+      },
+      [
+        "Date",
+        68
+      ],
+      [
+        87,
+        88
+      ],
+      "/proc/version",
+      {
+        "type": 48,
+        "content": 89,
+        "mode": 51,
+        "mtime": 91
+      },
+      [
+        "Uint8Array",
+        90
+      ],
+      "TGludXggdmVyc2lvbiA1LjE1LjAtZ2VuZXJpYyAoanVzdC1iYXNoKSAjMSBTTVAgUFJFRU1QVAo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        93,
+        94
+      ],
+      "/proc/self/exe",
+      {
+        "type": 48,
+        "content": 95,
+        "mode": 51,
+        "mtime": 97
+      },
+      [
+        "Uint8Array",
+        96
+      ],
+      "L2Jpbi9iYXNo",
+      [
+        "Date",
+        68
+      ],
+      [
+        99,
+        100
+      ],
+      "/proc/self/cmdline",
+      {
+        "type": 48,
+        "content": 101,
+        "mode": 51,
+        "mtime": 103
+      },
+      [
+        "Uint8Array",
+        102
+      ],
+      "YmFzaAA=",
+      [
+        "Date",
+        68
+      ],
+      [
+        105,
+        106
+      ],
+      "/proc/self/comm",
+      {
+        "type": 48,
+        "content": 107,
+        "mode": 51,
+        "mtime": 109
+      },
+      [
+        "Uint8Array",
+        108
+      ],
+      "YmFzaAo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        111,
+        112
+      ],
+      "/proc/self/status",
+      {
+        "type": 48,
+        "content": 113,
+        "mode": 51,
+        "mtime": 115
+      },
+      [
+        "Uint8Array",
+        114
+      ],
+      "TmFtZToJYmFzaApTdGF0ZToJUiAocnVubmluZykKUGlkOgk0ODY2OApQUGlkOgk0ODYyOApVaWQ6CTUwMQk1MDEJNTAxCTUwMQpHaWQ6CTIwCTIwCTIwCTIwCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        117,
+        118
+      ],
+      "/proc/self/fd/0",
+      {
+        "type": 48,
+        "content": 119,
+        "mode": 51,
+        "mtime": 121
+      },
+      [
+        "Uint8Array",
+        120
+      ],
+      "L2Rldi9zdGRpbg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        123,
+        124
+      ],
+      "/proc/self/fd/1",
+      {
+        "type": 48,
+        "content": 125,
+        "mode": 51,
+        "mtime": 127
+      },
+      [
+        "Uint8Array",
+        126
+      ],
+      "L2Rldi9zdGRvdXQ=",
+      [
+        "Date",
+        68
+      ],
+      [
+        129,
+        130
+      ],
+      "/proc/self/fd/2",
+      {
+        "type": 48,
+        "content": 131,
+        "mode": 51,
+        "mtime": 133
+      },
+      [
+        "Uint8Array",
+        132
+      ],
+      "L2Rldi9zdGRlcnI=",
+      [
+        "Date",
+        68
+      ],
+      [
+        135,
+        136
+      ],
+      "/bin/echo",
+      {
+        "type": 48,
+        "content": 137,
+        "mode": 51,
+        "mtime": 139
+      },
+      [
+        "Uint8Array",
+        138
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBlY2hvCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        141,
+        142
+      ],
+      "/usr/bin/echo",
+      {
+        "type": 48,
+        "content": 143,
+        "mode": 51,
+        "mtime": 144
+      },
+      [
+        "Uint8Array",
+        138
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        146,
+        147
+      ],
+      "/bin/cat",
+      {
+        "type": 48,
+        "content": 148,
+        "mode": 51,
+        "mtime": 150
+      },
+      [
+        "Uint8Array",
+        149
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBjYXQK",
+      [
+        "Date",
+        68
+      ],
+      [
+        152,
+        153
+      ],
+      "/usr/bin/cat",
+      {
+        "type": 48,
+        "content": 154,
+        "mode": 51,
+        "mtime": 155
+      },
+      [
+        "Uint8Array",
+        149
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        157,
+        158
+      ],
+      "/bin/printf",
+      {
+        "type": 48,
+        "content": 159,
+        "mode": 51,
+        "mtime": 161
+      },
+      [
+        "Uint8Array",
+        160
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBwcmludGYK",
+      [
+        "Date",
+        68
+      ],
+      [
+        163,
+        164
+      ],
+      "/usr/bin/printf",
+      {
+        "type": 48,
+        "content": 165,
+        "mode": 51,
+        "mtime": 166
+      },
+      [
+        "Uint8Array",
+        160
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        168,
+        169
+      ],
+      "/bin/ls",
+      {
+        "type": 48,
+        "content": 170,
+        "mode": 51,
+        "mtime": 172
+      },
+      [
+        "Uint8Array",
+        171
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBscwo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        174,
+        175
+      ],
+      "/usr/bin/ls",
+      {
+        "type": 48,
+        "content": 176,
+        "mode": 51,
+        "mtime": 177
+      },
+      [
+        "Uint8Array",
+        171
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        179,
+        180
+      ],
+      "/bin/mkdir",
+      {
+        "type": 48,
+        "content": 181,
+        "mode": 51,
+        "mtime": 183
+      },
+      [
+        "Uint8Array",
+        182
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBta2Rpcgo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        185,
+        186
+      ],
+      "/usr/bin/mkdir",
+      {
+        "type": 48,
+        "content": 187,
+        "mode": 51,
+        "mtime": 188
+      },
+      [
+        "Uint8Array",
+        182
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        190,
+        191
+      ],
+      "/bin/rmdir",
+      {
+        "type": 48,
+        "content": 192,
+        "mode": 51,
+        "mtime": 194
+      },
+      [
+        "Uint8Array",
+        193
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBybWRpcgo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        196,
+        197
+      ],
+      "/usr/bin/rmdir",
+      {
+        "type": 48,
+        "content": 198,
+        "mode": 51,
+        "mtime": 199
+      },
+      [
+        "Uint8Array",
+        193
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        201,
+        202
+      ],
+      "/bin/touch",
+      {
+        "type": 48,
+        "content": 203,
+        "mode": 51,
+        "mtime": 205
+      },
+      [
+        "Uint8Array",
+        204
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB0b3VjaAo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        207,
+        208
+      ],
+      "/usr/bin/touch",
+      {
+        "type": 48,
+        "content": 209,
+        "mode": 51,
+        "mtime": 210
+      },
+      [
+        "Uint8Array",
+        204
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        212,
+        213
+      ],
+      "/bin/rm",
+      {
+        "type": 48,
+        "content": 214,
+        "mode": 51,
+        "mtime": 216
+      },
+      [
+        "Uint8Array",
+        215
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBybQo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        218,
+        219
+      ],
+      "/usr/bin/rm",
+      {
+        "type": 48,
+        "content": 220,
+        "mode": 51,
+        "mtime": 221
+      },
+      [
+        "Uint8Array",
+        215
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        223,
+        224
+      ],
+      "/bin/cp",
+      {
+        "type": 48,
+        "content": 225,
+        "mode": 51,
+        "mtime": 227
+      },
+      [
+        "Uint8Array",
+        226
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBjcAo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        229,
+        230
+      ],
+      "/usr/bin/cp",
+      {
+        "type": 48,
+        "content": 231,
+        "mode": 51,
+        "mtime": 232
+      },
+      [
+        "Uint8Array",
+        226
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        234,
+        235
+      ],
+      "/bin/mv",
+      {
+        "type": 48,
+        "content": 236,
+        "mode": 51,
+        "mtime": 238
+      },
+      [
+        "Uint8Array",
+        237
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBtdgo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        240,
+        241
+      ],
+      "/usr/bin/mv",
+      {
+        "type": 48,
+        "content": 242,
+        "mode": 51,
+        "mtime": 243
+      },
+      [
+        "Uint8Array",
+        237
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        245,
+        246
+      ],
+      "/bin/ln",
+      {
+        "type": 48,
+        "content": 247,
+        "mode": 51,
+        "mtime": 249
+      },
+      [
+        "Uint8Array",
+        248
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBsbgo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        251,
+        252
+      ],
+      "/usr/bin/ln",
+      {
+        "type": 48,
+        "content": 253,
+        "mode": 51,
+        "mtime": 254
+      },
+      [
+        "Uint8Array",
+        248
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        256,
+        257
+      ],
+      "/bin/chmod",
+      {
+        "type": 48,
+        "content": 258,
+        "mode": 51,
+        "mtime": 260
+      },
+      [
+        "Uint8Array",
+        259
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBjaG1vZAo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        262,
+        263
+      ],
+      "/usr/bin/chmod",
+      {
+        "type": 48,
+        "content": 264,
+        "mode": 51,
+        "mtime": 265
+      },
+      [
+        "Uint8Array",
+        259
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        267,
+        268
+      ],
+      "/bin/pwd",
+      {
+        "type": 48,
+        "content": 269,
+        "mode": 51,
+        "mtime": 271
+      },
+      [
+        "Uint8Array",
+        270
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBwd2QK",
+      [
+        "Date",
+        68
+      ],
+      [
+        273,
+        274
+      ],
+      "/usr/bin/pwd",
+      {
+        "type": 48,
+        "content": 275,
+        "mode": 51,
+        "mtime": 276
+      },
+      [
+        "Uint8Array",
+        270
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        278,
+        279
+      ],
+      "/bin/readlink",
+      {
+        "type": 48,
+        "content": 280,
+        "mode": 51,
+        "mtime": 282
+      },
+      [
+        "Uint8Array",
+        281
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiByZWFkbGluawo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        284,
+        285
+      ],
+      "/usr/bin/readlink",
+      {
+        "type": 48,
+        "content": 286,
+        "mode": 51,
+        "mtime": 287
+      },
+      [
+        "Uint8Array",
+        281
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        289,
+        290
+      ],
+      "/bin/head",
+      {
+        "type": 48,
+        "content": 291,
+        "mode": 51,
+        "mtime": 293
+      },
+      [
+        "Uint8Array",
+        292
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBoZWFkCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        295,
+        296
+      ],
+      "/usr/bin/head",
+      {
+        "type": 48,
+        "content": 297,
+        "mode": 51,
+        "mtime": 298
+      },
+      [
+        "Uint8Array",
+        292
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        300,
+        301
+      ],
+      "/bin/tail",
+      {
+        "type": 48,
+        "content": 302,
+        "mode": 51,
+        "mtime": 304
+      },
+      [
+        "Uint8Array",
+        303
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB0YWlsCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        306,
+        307
+      ],
+      "/usr/bin/tail",
+      {
+        "type": 48,
+        "content": 308,
+        "mode": 51,
+        "mtime": 309
+      },
+      [
+        "Uint8Array",
+        303
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        311,
+        312
+      ],
+      "/bin/wc",
+      {
+        "type": 48,
+        "content": 313,
+        "mode": 51,
+        "mtime": 315
+      },
+      [
+        "Uint8Array",
+        314
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB3Ywo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        317,
+        318
+      ],
+      "/usr/bin/wc",
+      {
+        "type": 48,
+        "content": 319,
+        "mode": 51,
+        "mtime": 320
+      },
+      [
+        "Uint8Array",
+        314
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        322,
+        323
+      ],
+      "/bin/stat",
+      {
+        "type": 48,
+        "content": 324,
+        "mode": 51,
+        "mtime": 326
+      },
+      [
+        "Uint8Array",
+        325
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBzdGF0Cg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        328,
+        329
+      ],
+      "/usr/bin/stat",
+      {
+        "type": 48,
+        "content": 330,
+        "mode": 51,
+        "mtime": 331
+      },
+      [
+        "Uint8Array",
+        325
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        333,
+        334
+      ],
+      "/bin/grep",
+      {
+        "type": 48,
+        "content": 335,
+        "mode": 51,
+        "mtime": 337
+      },
+      [
+        "Uint8Array",
+        336
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBncmVwCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        339,
+        340
+      ],
+      "/usr/bin/grep",
+      {
+        "type": 48,
+        "content": 341,
+        "mode": 51,
+        "mtime": 342
+      },
+      [
+        "Uint8Array",
+        336
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        344,
+        345
+      ],
+      "/bin/fgrep",
+      {
+        "type": 48,
+        "content": 346,
+        "mode": 51,
+        "mtime": 348
+      },
+      [
+        "Uint8Array",
+        347
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBmZ3JlcAo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        350,
+        351
+      ],
+      "/usr/bin/fgrep",
+      {
+        "type": 48,
+        "content": 352,
+        "mode": 51,
+        "mtime": 353
+      },
+      [
+        "Uint8Array",
+        347
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        355,
+        356
+      ],
+      "/bin/egrep",
+      {
+        "type": 48,
+        "content": 357,
+        "mode": 51,
+        "mtime": 359
+      },
+      [
+        "Uint8Array",
+        358
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBlZ3JlcAo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        361,
+        362
+      ],
+      "/usr/bin/egrep",
+      {
+        "type": 48,
+        "content": 363,
+        "mode": 51,
+        "mtime": 364
+      },
+      [
+        "Uint8Array",
+        358
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        366,
+        367
+      ],
+      "/bin/rg",
+      {
+        "type": 48,
+        "content": 368,
+        "mode": 51,
+        "mtime": 370
+      },
+      [
+        "Uint8Array",
+        369
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiByZwo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        372,
+        373
+      ],
+      "/usr/bin/rg",
+      {
+        "type": 48,
+        "content": 374,
+        "mode": 51,
+        "mtime": 375
+      },
+      [
+        "Uint8Array",
+        369
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        377,
+        378
+      ],
+      "/bin/sed",
+      {
+        "type": 48,
+        "content": 379,
+        "mode": 51,
+        "mtime": 381
+      },
+      [
+        "Uint8Array",
+        380
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBzZWQK",
+      [
+        "Date",
+        68
+      ],
+      [
+        383,
+        384
+      ],
+      "/usr/bin/sed",
+      {
+        "type": 48,
+        "content": 385,
+        "mode": 51,
+        "mtime": 386
+      },
+      [
+        "Uint8Array",
+        380
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        388,
+        389
+      ],
+      "/bin/awk",
+      {
+        "type": 48,
+        "content": 390,
+        "mode": 51,
+        "mtime": 392
+      },
+      [
+        "Uint8Array",
+        391
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBhd2sK",
+      [
+        "Date",
+        68
+      ],
+      [
+        394,
+        395
+      ],
+      "/usr/bin/awk",
+      {
+        "type": 48,
+        "content": 396,
+        "mode": 51,
+        "mtime": 397
+      },
+      [
+        "Uint8Array",
+        391
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        399,
+        400
+      ],
+      "/bin/sort",
+      {
+        "type": 48,
+        "content": 401,
+        "mode": 51,
+        "mtime": 403
+      },
+      [
+        "Uint8Array",
+        402
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBzb3J0Cg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        405,
+        406
+      ],
+      "/usr/bin/sort",
+      {
+        "type": 48,
+        "content": 407,
+        "mode": 51,
+        "mtime": 408
+      },
+      [
+        "Uint8Array",
+        402
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        410,
+        411
+      ],
+      "/bin/uniq",
+      {
+        "type": 48,
+        "content": 412,
+        "mode": 51,
+        "mtime": 414
+      },
+      [
+        "Uint8Array",
+        413
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB1bmlxCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        416,
+        417
+      ],
+      "/usr/bin/uniq",
+      {
+        "type": 48,
+        "content": 418,
+        "mode": 51,
+        "mtime": 419
+      },
+      [
+        "Uint8Array",
+        413
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        421,
+        422
+      ],
+      "/bin/comm",
+      {
+        "type": 48,
+        "content": 423,
+        "mode": 51,
+        "mtime": 425
+      },
+      [
+        "Uint8Array",
+        424
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBjb21tCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        427,
+        428
+      ],
+      "/usr/bin/comm",
+      {
+        "type": 48,
+        "content": 429,
+        "mode": 51,
+        "mtime": 430
+      },
+      [
+        "Uint8Array",
+        424
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        432,
+        433
+      ],
+      "/bin/cut",
+      {
+        "type": 48,
+        "content": 434,
+        "mode": 51,
+        "mtime": 436
+      },
+      [
+        "Uint8Array",
+        435
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBjdXQK",
+      [
+        "Date",
+        68
+      ],
+      [
+        438,
+        439
+      ],
+      "/usr/bin/cut",
+      {
+        "type": 48,
+        "content": 440,
+        "mode": 51,
+        "mtime": 441
+      },
+      [
+        "Uint8Array",
+        435
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        443,
+        444
+      ],
+      "/bin/paste",
+      {
+        "type": 48,
+        "content": 445,
+        "mode": 51,
+        "mtime": 447
+      },
+      [
+        "Uint8Array",
+        446
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBwYXN0ZQo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        449,
+        450
+      ],
+      "/usr/bin/paste",
+      {
+        "type": 48,
+        "content": 451,
+        "mode": 51,
+        "mtime": 452
+      },
+      [
+        "Uint8Array",
+        446
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        454,
+        455
+      ],
+      "/bin/tr",
+      {
+        "type": 48,
+        "content": 456,
+        "mode": 51,
+        "mtime": 458
+      },
+      [
+        "Uint8Array",
+        457
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB0cgo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        460,
+        461
+      ],
+      "/usr/bin/tr",
+      {
+        "type": 48,
+        "content": 462,
+        "mode": 51,
+        "mtime": 463
+      },
+      [
+        "Uint8Array",
+        457
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        465,
+        466
+      ],
+      "/bin/rev",
+      {
+        "type": 48,
+        "content": 467,
+        "mode": 51,
+        "mtime": 469
+      },
+      [
+        "Uint8Array",
+        468
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiByZXYK",
+      [
+        "Date",
+        68
+      ],
+      [
+        471,
+        472
+      ],
+      "/usr/bin/rev",
+      {
+        "type": 48,
+        "content": 473,
+        "mode": 51,
+        "mtime": 474
+      },
+      [
+        "Uint8Array",
+        468
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        476,
+        477
+      ],
+      "/bin/nl",
+      {
+        "type": 48,
+        "content": 478,
+        "mode": 51,
+        "mtime": 480
+      },
+      [
+        "Uint8Array",
+        479
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBubAo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        482,
+        483
+      ],
+      "/usr/bin/nl",
+      {
+        "type": 48,
+        "content": 484,
+        "mode": 51,
+        "mtime": 485
+      },
+      [
+        "Uint8Array",
+        479
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        487,
+        488
+      ],
+      "/bin/fold",
+      {
+        "type": 48,
+        "content": 489,
+        "mode": 51,
+        "mtime": 491
+      },
+      [
+        "Uint8Array",
+        490
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBmb2xkCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        493,
+        494
+      ],
+      "/usr/bin/fold",
+      {
+        "type": 48,
+        "content": 495,
+        "mode": 51,
+        "mtime": 496
+      },
+      [
+        "Uint8Array",
+        490
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        498,
+        499
+      ],
+      "/bin/expand",
+      {
+        "type": 48,
+        "content": 500,
+        "mode": 51,
+        "mtime": 502
+      },
+      [
+        "Uint8Array",
+        501
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBleHBhbmQK",
+      [
+        "Date",
+        68
+      ],
+      [
+        504,
+        505
+      ],
+      "/usr/bin/expand",
+      {
+        "type": 48,
+        "content": 506,
+        "mode": 51,
+        "mtime": 507
+      },
+      [
+        "Uint8Array",
+        501
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        509,
+        510
+      ],
+      "/bin/unexpand",
+      {
+        "type": 48,
+        "content": 511,
+        "mode": 51,
+        "mtime": 513
+      },
+      [
+        "Uint8Array",
+        512
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB1bmV4cGFuZAo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        515,
+        516
+      ],
+      "/usr/bin/unexpand",
+      {
+        "type": 48,
+        "content": 517,
+        "mode": 51,
+        "mtime": 518
+      },
+      [
+        "Uint8Array",
+        512
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        520,
+        521
+      ],
+      "/bin/strings",
+      {
+        "type": 48,
+        "content": 522,
+        "mode": 51,
+        "mtime": 524
+      },
+      [
+        "Uint8Array",
+        523
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBzdHJpbmdzCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        526,
+        527
+      ],
+      "/usr/bin/strings",
+      {
+        "type": 48,
+        "content": 528,
+        "mode": 51,
+        "mtime": 529
+      },
+      [
+        "Uint8Array",
+        523
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        531,
+        532
+      ],
+      "/bin/split",
+      {
+        "type": 48,
+        "content": 533,
+        "mode": 51,
+        "mtime": 535
+      },
+      [
+        "Uint8Array",
+        534
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBzcGxpdAo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        537,
+        538
+      ],
+      "/usr/bin/split",
+      {
+        "type": 48,
+        "content": 539,
+        "mode": 51,
+        "mtime": 540
+      },
+      [
+        "Uint8Array",
+        534
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        542,
+        543
+      ],
+      "/bin/column",
+      {
+        "type": 48,
+        "content": 544,
+        "mode": 51,
+        "mtime": 546
+      },
+      [
+        "Uint8Array",
+        545
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBjb2x1bW4K",
+      [
+        "Date",
+        68
+      ],
+      [
+        548,
+        549
+      ],
+      "/usr/bin/column",
+      {
+        "type": 48,
+        "content": 550,
+        "mode": 51,
+        "mtime": 551
+      },
+      [
+        "Uint8Array",
+        545
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        553,
+        554
+      ],
+      "/bin/join",
+      {
+        "type": 48,
+        "content": 555,
+        "mode": 51,
+        "mtime": 557
+      },
+      [
+        "Uint8Array",
+        556
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBqb2luCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        559,
+        560
+      ],
+      "/usr/bin/join",
+      {
+        "type": 48,
+        "content": 561,
+        "mode": 51,
+        "mtime": 562
+      },
+      [
+        "Uint8Array",
+        556
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        564,
+        565
+      ],
+      "/bin/tee",
+      {
+        "type": 48,
+        "content": 566,
+        "mode": 51,
+        "mtime": 568
+      },
+      [
+        "Uint8Array",
+        567
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB0ZWUK",
+      [
+        "Date",
+        68
+      ],
+      [
+        570,
+        571
+      ],
+      "/usr/bin/tee",
+      {
+        "type": 48,
+        "content": 572,
+        "mode": 51,
+        "mtime": 573
+      },
+      [
+        "Uint8Array",
+        567
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        575,
+        576
+      ],
+      "/bin/find",
+      {
+        "type": 48,
+        "content": 577,
+        "mode": 51,
+        "mtime": 579
+      },
+      [
+        "Uint8Array",
+        578
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBmaW5kCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        581,
+        582
+      ],
+      "/usr/bin/find",
+      {
+        "type": 48,
+        "content": 583,
+        "mode": 51,
+        "mtime": 584
+      },
+      [
+        "Uint8Array",
+        578
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        586,
+        587
+      ],
+      "/bin/basename",
+      {
+        "type": 48,
+        "content": 588,
+        "mode": 51,
+        "mtime": 590
+      },
+      [
+        "Uint8Array",
+        589
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBiYXNlbmFtZQo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        592,
+        593
+      ],
+      "/usr/bin/basename",
+      {
+        "type": 48,
+        "content": 594,
+        "mode": 51,
+        "mtime": 595
+      },
+      [
+        "Uint8Array",
+        589
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        597,
+        598
+      ],
+      "/bin/dirname",
+      {
+        "type": 48,
+        "content": 599,
+        "mode": 51,
+        "mtime": 601
+      },
+      [
+        "Uint8Array",
+        600
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBkaXJuYW1lCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        603,
+        604
+      ],
+      "/usr/bin/dirname",
+      {
+        "type": 48,
+        "content": 605,
+        "mode": 51,
+        "mtime": 606
+      },
+      [
+        "Uint8Array",
+        600
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        608,
+        609
+      ],
+      "/bin/tree",
+      {
+        "type": 48,
+        "content": 610,
+        "mode": 51,
+        "mtime": 612
+      },
+      [
+        "Uint8Array",
+        611
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB0cmVlCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        614,
+        615
+      ],
+      "/usr/bin/tree",
+      {
+        "type": 48,
+        "content": 616,
+        "mode": 51,
+        "mtime": 617
+      },
+      [
+        "Uint8Array",
+        611
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        619,
+        620
+      ],
+      "/bin/du",
+      {
+        "type": 48,
+        "content": 621,
+        "mode": 51,
+        "mtime": 623
+      },
+      [
+        "Uint8Array",
+        622
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBkdQo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        625,
+        626
+      ],
+      "/usr/bin/du",
+      {
+        "type": 48,
+        "content": 627,
+        "mode": 51,
+        "mtime": 628
+      },
+      [
+        "Uint8Array",
+        622
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        630,
+        631
+      ],
+      "/bin/env",
+      {
+        "type": 48,
+        "content": 632,
+        "mode": 51,
+        "mtime": 634
+      },
+      [
+        "Uint8Array",
+        633
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBlbnYK",
+      [
+        "Date",
+        68
+      ],
+      [
+        636,
+        637
+      ],
+      "/usr/bin/env",
+      {
+        "type": 48,
+        "content": 638,
+        "mode": 51,
+        "mtime": 639
+      },
+      [
+        "Uint8Array",
+        633
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        641,
+        642
+      ],
+      "/bin/printenv",
+      {
+        "type": 48,
+        "content": 643,
+        "mode": 51,
+        "mtime": 645
+      },
+      [
+        "Uint8Array",
+        644
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBwcmludGVudgo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        647,
+        648
+      ],
+      "/usr/bin/printenv",
+      {
+        "type": 48,
+        "content": 649,
+        "mode": 51,
+        "mtime": 650
+      },
+      [
+        "Uint8Array",
+        644
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        652,
+        653
+      ],
+      "/bin/alias",
+      {
+        "type": 48,
+        "content": 654,
+        "mode": 51,
+        "mtime": 656
+      },
+      [
+        "Uint8Array",
+        655
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBhbGlhcwo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        658,
+        659
+      ],
+      "/usr/bin/alias",
+      {
+        "type": 48,
+        "content": 660,
+        "mode": 51,
+        "mtime": 661
+      },
+      [
+        "Uint8Array",
+        655
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        663,
+        664
+      ],
+      "/bin/unalias",
+      {
+        "type": 48,
+        "content": 665,
+        "mode": 51,
+        "mtime": 667
+      },
+      [
+        "Uint8Array",
+        666
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB1bmFsaWFzCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        669,
+        670
+      ],
+      "/usr/bin/unalias",
+      {
+        "type": 48,
+        "content": 671,
+        "mode": 51,
+        "mtime": 672
+      },
+      [
+        "Uint8Array",
+        666
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        674,
+        675
+      ],
+      "/bin/history",
+      {
+        "type": 48,
+        "content": 676,
+        "mode": 51,
+        "mtime": 678
+      },
+      [
+        "Uint8Array",
+        677
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBoaXN0b3J5Cg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        680,
+        681
+      ],
+      "/usr/bin/history",
+      {
+        "type": 48,
+        "content": 682,
+        "mode": 51,
+        "mtime": 683
+      },
+      [
+        "Uint8Array",
+        677
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        685,
+        686
+      ],
+      "/bin/xargs",
+      {
+        "type": 48,
+        "content": 687,
+        "mode": 51,
+        "mtime": 689
+      },
+      [
+        "Uint8Array",
+        688
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB4YXJncwo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        691,
+        692
+      ],
+      "/usr/bin/xargs",
+      {
+        "type": 48,
+        "content": 693,
+        "mode": 51,
+        "mtime": 694
+      },
+      [
+        "Uint8Array",
+        688
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        696,
+        697
+      ],
+      "/bin/true",
+      {
+        "type": 48,
+        "content": 698,
+        "mode": 51,
+        "mtime": 700
+      },
+      [
+        "Uint8Array",
+        699
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB0cnVlCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        702,
+        703
+      ],
+      "/usr/bin/true",
+      {
+        "type": 48,
+        "content": 704,
+        "mode": 51,
+        "mtime": 705
+      },
+      [
+        "Uint8Array",
+        699
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        707,
+        708
+      ],
+      "/bin/false",
+      {
+        "type": 48,
+        "content": 709,
+        "mode": 51,
+        "mtime": 711
+      },
+      [
+        "Uint8Array",
+        710
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBmYWxzZQo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        713,
+        714
+      ],
+      "/usr/bin/false",
+      {
+        "type": 48,
+        "content": 715,
+        "mode": 51,
+        "mtime": 716
+      },
+      [
+        "Uint8Array",
+        710
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        718,
+        719
+      ],
+      "/bin/clear",
+      {
+        "type": 48,
+        "content": 720,
+        "mode": 51,
+        "mtime": 722
+      },
+      [
+        "Uint8Array",
+        721
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBjbGVhcgo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        724,
+        725
+      ],
+      "/usr/bin/clear",
+      {
+        "type": 48,
+        "content": 726,
+        "mode": 51,
+        "mtime": 727
+      },
+      [
+        "Uint8Array",
+        721
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        729,
+        730
+      ],
+      "/bin/bash",
+      {
+        "type": 48,
+        "content": 731,
+        "mode": 51,
+        "mtime": 733
+      },
+      [
+        "Uint8Array",
+        732
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBiYXNoCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        735,
+        736
+      ],
+      "/usr/bin/bash",
+      {
+        "type": 48,
+        "content": 737,
+        "mode": 51,
+        "mtime": 738
+      },
+      [
+        "Uint8Array",
+        732
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        740,
+        741
+      ],
+      "/bin/sh",
+      {
+        "type": 48,
+        "content": 742,
+        "mode": 51,
+        "mtime": 744
+      },
+      [
+        "Uint8Array",
+        743
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBzaAo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        746,
+        747
+      ],
+      "/usr/bin/sh",
+      {
+        "type": 48,
+        "content": 748,
+        "mode": 51,
+        "mtime": 749
+      },
+      [
+        "Uint8Array",
+        743
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        751,
+        752
+      ],
+      "/bin/jq",
+      {
+        "type": 48,
+        "content": 753,
+        "mode": 51,
+        "mtime": 755
+      },
+      [
+        "Uint8Array",
+        754
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBqcQo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        757,
+        758
+      ],
+      "/usr/bin/jq",
+      {
+        "type": 48,
+        "content": 759,
+        "mode": 51,
+        "mtime": 760
+      },
+      [
+        "Uint8Array",
+        754
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        762,
+        763
+      ],
+      "/bin/base64",
+      {
+        "type": 48,
+        "content": 764,
+        "mode": 51,
+        "mtime": 766
+      },
+      [
+        "Uint8Array",
+        765
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBiYXNlNjQK",
+      [
+        "Date",
+        68
+      ],
+      [
+        768,
+        769
+      ],
+      "/usr/bin/base64",
+      {
+        "type": 48,
+        "content": 770,
+        "mode": 51,
+        "mtime": 771
+      },
+      [
+        "Uint8Array",
+        765
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        773,
+        774
+      ],
+      "/bin/diff",
+      {
+        "type": 48,
+        "content": 775,
+        "mode": 51,
+        "mtime": 777
+      },
+      [
+        "Uint8Array",
+        776
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBkaWZmCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        779,
+        780
+      ],
+      "/usr/bin/diff",
+      {
+        "type": 48,
+        "content": 781,
+        "mode": 51,
+        "mtime": 782
+      },
+      [
+        "Uint8Array",
+        776
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        784,
+        785
+      ],
+      "/bin/date",
+      {
+        "type": 48,
+        "content": 786,
+        "mode": 51,
+        "mtime": 788
+      },
+      [
+        "Uint8Array",
+        787
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBkYXRlCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        790,
+        791
+      ],
+      "/usr/bin/date",
+      {
+        "type": 48,
+        "content": 792,
+        "mode": 51,
+        "mtime": 793
+      },
+      [
+        "Uint8Array",
+        787
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        795,
+        796
+      ],
+      "/bin/sleep",
+      {
+        "type": 48,
+        "content": 797,
+        "mode": 51,
+        "mtime": 799
+      },
+      [
+        "Uint8Array",
+        798
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBzbGVlcAo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        801,
+        802
+      ],
+      "/usr/bin/sleep",
+      {
+        "type": 48,
+        "content": 803,
+        "mode": 51,
+        "mtime": 804
+      },
+      [
+        "Uint8Array",
+        798
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        806,
+        807
+      ],
+      "/bin/timeout",
+      {
+        "type": 48,
+        "content": 808,
+        "mode": 51,
+        "mtime": 810
+      },
+      [
+        "Uint8Array",
+        809
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB0aW1lb3V0Cg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        812,
+        813
+      ],
+      "/usr/bin/timeout",
+      {
+        "type": 48,
+        "content": 814,
+        "mode": 51,
+        "mtime": 815
+      },
+      [
+        "Uint8Array",
+        809
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        817,
+        818
+      ],
+      "/bin/time",
+      {
+        "type": 48,
+        "content": 819,
+        "mode": 51,
+        "mtime": 821
+      },
+      [
+        "Uint8Array",
+        820
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB0aW1lCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        823,
+        824
+      ],
+      "/usr/bin/time",
+      {
+        "type": 48,
+        "content": 825,
+        "mode": 51,
+        "mtime": 826
+      },
+      [
+        "Uint8Array",
+        820
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        828,
+        829
+      ],
+      "/bin/seq",
+      {
+        "type": 48,
+        "content": 830,
+        "mode": 51,
+        "mtime": 832
+      },
+      [
+        "Uint8Array",
+        831
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBzZXEK",
+      [
+        "Date",
+        68
+      ],
+      [
+        834,
+        835
+      ],
+      "/usr/bin/seq",
+      {
+        "type": 48,
+        "content": 836,
+        "mode": 51,
+        "mtime": 837
+      },
+      [
+        "Uint8Array",
+        831
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        839,
+        840
+      ],
+      "/bin/expr",
+      {
+        "type": 48,
+        "content": 841,
+        "mode": 51,
+        "mtime": 843
+      },
+      [
+        "Uint8Array",
+        842
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBleHByCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        845,
+        846
+      ],
+      "/usr/bin/expr",
+      {
+        "type": 48,
+        "content": 847,
+        "mode": 51,
+        "mtime": 848
+      },
+      [
+        "Uint8Array",
+        842
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        850,
+        851
+      ],
+      "/bin/md5sum",
+      {
+        "type": 48,
+        "content": 852,
+        "mode": 51,
+        "mtime": 854
+      },
+      [
+        "Uint8Array",
+        853
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBtZDVzdW0K",
+      [
+        "Date",
+        68
+      ],
+      [
+        856,
+        857
+      ],
+      "/usr/bin/md5sum",
+      {
+        "type": 48,
+        "content": 858,
+        "mode": 51,
+        "mtime": 859
+      },
+      [
+        "Uint8Array",
+        853
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        861,
+        862
+      ],
+      "/bin/sha1sum",
+      {
+        "type": 48,
+        "content": 863,
+        "mode": 51,
+        "mtime": 865
+      },
+      [
+        "Uint8Array",
+        864
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBzaGExc3VtCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        867,
+        868
+      ],
+      "/usr/bin/sha1sum",
+      {
+        "type": 48,
+        "content": 869,
+        "mode": 51,
+        "mtime": 870
+      },
+      [
+        "Uint8Array",
+        864
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        872,
+        873
+      ],
+      "/bin/sha256sum",
+      {
+        "type": 48,
+        "content": 874,
+        "mode": 51,
+        "mtime": 876
+      },
+      [
+        "Uint8Array",
+        875
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBzaGEyNTZzdW0K",
+      [
+        "Date",
+        68
+      ],
+      [
+        878,
+        879
+      ],
+      "/usr/bin/sha256sum",
+      {
+        "type": 48,
+        "content": 880,
+        "mode": 51,
+        "mtime": 881
+      },
+      [
+        "Uint8Array",
+        875
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        883,
+        884
+      ],
+      "/bin/file",
+      {
+        "type": 48,
+        "content": 885,
+        "mode": 51,
+        "mtime": 887
+      },
+      [
+        "Uint8Array",
+        886
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBmaWxlCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        889,
+        890
+      ],
+      "/usr/bin/file",
+      {
+        "type": 48,
+        "content": 891,
+        "mode": 51,
+        "mtime": 892
+      },
+      [
+        "Uint8Array",
+        886
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        894,
+        895
+      ],
+      "/bin/html-to-markdown",
+      {
+        "type": 48,
+        "content": 896,
+        "mode": 51,
+        "mtime": 898
+      },
+      [
+        "Uint8Array",
+        897
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBodG1sLXRvLW1hcmtkb3duCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        900,
+        901
+      ],
+      "/usr/bin/html-to-markdown",
+      {
+        "type": 48,
+        "content": 902,
+        "mode": 51,
+        "mtime": 903
+      },
+      [
+        "Uint8Array",
+        897
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        905,
+        906
+      ],
+      "/bin/help",
+      {
+        "type": 48,
+        "content": 907,
+        "mode": 51,
+        "mtime": 909
+      },
+      [
+        "Uint8Array",
+        908
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBoZWxwCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        911,
+        912
+      ],
+      "/usr/bin/help",
+      {
+        "type": 48,
+        "content": 913,
+        "mode": 51,
+        "mtime": 914
+      },
+      [
+        "Uint8Array",
+        908
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        916,
+        917
+      ],
+      "/bin/which",
+      {
+        "type": 48,
+        "content": 918,
+        "mode": 51,
+        "mtime": 920
+      },
+      [
+        "Uint8Array",
+        919
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB3aGljaAo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        922,
+        923
+      ],
+      "/usr/bin/which",
+      {
+        "type": 48,
+        "content": 924,
+        "mode": 51,
+        "mtime": 925
+      },
+      [
+        "Uint8Array",
+        919
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        927,
+        928
+      ],
+      "/bin/tac",
+      {
+        "type": 48,
+        "content": 929,
+        "mode": 51,
+        "mtime": 931
+      },
+      [
+        "Uint8Array",
+        930
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB0YWMK",
+      [
+        "Date",
+        68
+      ],
+      [
+        933,
+        934
+      ],
+      "/usr/bin/tac",
+      {
+        "type": 48,
+        "content": 935,
+        "mode": 51,
+        "mtime": 936
+      },
+      [
+        "Uint8Array",
+        930
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        938,
+        939
+      ],
+      "/bin/hostname",
+      {
+        "type": 48,
+        "content": 940,
+        "mode": 51,
+        "mtime": 942
+      },
+      [
+        "Uint8Array",
+        941
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBob3N0bmFtZQo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        944,
+        945
+      ],
+      "/usr/bin/hostname",
+      {
+        "type": 48,
+        "content": 946,
+        "mode": 51,
+        "mtime": 947
+      },
+      [
+        "Uint8Array",
+        941
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        949,
+        950
+      ],
+      "/bin/whoami",
+      {
+        "type": 48,
+        "content": 951,
+        "mode": 51,
+        "mtime": 953
+      },
+      [
+        "Uint8Array",
+        952
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB3aG9hbWkK",
+      [
+        "Date",
+        68
+      ],
+      [
+        955,
+        956
+      ],
+      "/usr/bin/whoami",
+      {
+        "type": 48,
+        "content": 957,
+        "mode": 51,
+        "mtime": 958
+      },
+      [
+        "Uint8Array",
+        952
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        960,
+        961
+      ],
+      "/bin/od",
+      {
+        "type": 48,
+        "content": 962,
+        "mode": 51,
+        "mtime": 964
+      },
+      [
+        "Uint8Array",
+        963
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBvZAo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        966,
+        967
+      ],
+      "/usr/bin/od",
+      {
+        "type": 48,
+        "content": 968,
+        "mode": 51,
+        "mtime": 969
+      },
+      [
+        "Uint8Array",
+        963
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        971,
+        972
+      ],
+      "/bin/gzip",
+      {
+        "type": 48,
+        "content": 973,
+        "mode": 51,
+        "mtime": 975
+      },
+      [
+        "Uint8Array",
+        974
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBnemlwCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        977,
+        978
+      ],
+      "/usr/bin/gzip",
+      {
+        "type": 48,
+        "content": 979,
+        "mode": 51,
+        "mtime": 980
+      },
+      [
+        "Uint8Array",
+        974
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        982,
+        983
+      ],
+      "/bin/gunzip",
+      {
+        "type": 48,
+        "content": 984,
+        "mode": 51,
+        "mtime": 986
+      },
+      [
+        "Uint8Array",
+        985
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBndW56aXAK",
+      [
+        "Date",
+        68
+      ],
+      [
+        988,
+        989
+      ],
+      "/usr/bin/gunzip",
+      {
+        "type": 48,
+        "content": 990,
+        "mode": 51,
+        "mtime": 991
+      },
+      [
+        "Uint8Array",
+        985
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        993,
+        994
+      ],
+      "/bin/zcat",
+      {
+        "type": 48,
+        "content": 995,
+        "mode": 51,
+        "mtime": 997
+      },
+      [
+        "Uint8Array",
+        996
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB6Y2F0Cg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        999,
+        1000
+      ],
+      "/usr/bin/zcat",
+      {
+        "type": 48,
+        "content": 1001,
+        "mode": 51,
+        "mtime": 1002
+      },
+      [
+        "Uint8Array",
+        996
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        1004,
+        1005
+      ],
+      "/bin/tar",
+      {
+        "type": 48,
+        "content": 1006,
+        "mode": 51,
+        "mtime": 1008
+      },
+      [
+        "Uint8Array",
+        1007
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB0YXIK",
+      [
+        "Date",
+        68
+      ],
+      [
+        1010,
+        1011
+      ],
+      "/usr/bin/tar",
+      {
+        "type": 48,
+        "content": 1012,
+        "mode": 51,
+        "mtime": 1013
+      },
+      [
+        "Uint8Array",
+        1007
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        1015,
+        1016
+      ],
+      "/bin/yq",
+      {
+        "type": 48,
+        "content": 1017,
+        "mode": 51,
+        "mtime": 1019
+      },
+      [
+        "Uint8Array",
+        1018
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB5cQo=",
+      [
+        "Date",
+        68
+      ],
+      [
+        1021,
+        1022
+      ],
+      "/usr/bin/yq",
+      {
+        "type": 48,
+        "content": 1023,
+        "mode": 51,
+        "mtime": 1024
+      },
+      [
+        "Uint8Array",
+        1018
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        1026,
+        1027
+      ],
+      "/bin/xan",
+      {
+        "type": 48,
+        "content": 1028,
+        "mode": 51,
+        "mtime": 1030
+      },
+      [
+        "Uint8Array",
+        1029
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiB4YW4K",
+      [
+        "Date",
+        68
+      ],
+      [
+        1032,
+        1033
+      ],
+      "/usr/bin/xan",
+      {
+        "type": 48,
+        "content": 1034,
+        "mode": 51,
+        "mtime": 1035
+      },
+      [
+        "Uint8Array",
+        1029
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        1037,
+        1038
+      ],
+      "/bin/sqlite3",
+      {
+        "type": 48,
+        "content": 1039,
+        "mode": 51,
+        "mtime": 1041
+      },
+      [
+        "Uint8Array",
+        1040
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBzcWxpdGUzCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        1043,
+        1044
+      ],
+      "/usr/bin/sqlite3",
+      {
+        "type": 48,
+        "content": 1045,
+        "mode": 51,
+        "mtime": 1046
+      },
+      [
+        "Uint8Array",
+        1040
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        1048,
+        1049
+      ],
+      "/bin/python3",
+      {
+        "type": 48,
+        "content": 1050,
+        "mode": 51,
+        "mtime": 1052
+      },
+      [
+        "Uint8Array",
+        1051
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBweXRob24zCg==",
+      [
+        "Date",
+        68
+      ],
+      [
+        1054,
+        1055
+      ],
+      "/usr/bin/python3",
+      {
+        "type": 48,
+        "content": 1056,
+        "mode": 51,
+        "mtime": 1057
+      },
+      [
+        "Uint8Array",
+        1051
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        1059,
+        1060
+      ],
+      "/bin/python",
+      {
+        "type": 48,
+        "content": 1061,
+        "mode": 51,
+        "mtime": 1063
+      },
+      [
+        "Uint8Array",
+        1062
+      ],
+      "IyEvYmluL2Jhc2gKIyBCdWlsdC1pbiBjb21tYW5kOiBweXRob24K",
+      [
+        "Date",
+        68
+      ],
+      [
+        1065,
+        1066
+      ],
+      "/usr/bin/python",
+      {
+        "type": 48,
+        "content": 1067,
+        "mode": 51,
+        "mtime": 1068
+      },
+      [
+        "Uint8Array",
+        1062
+      ],
+      [
+        "Date",
+        68
+      ],
+      [
+        1070,
+        1071
+      ],
+      "/data",
+      {
+        "type": 13,
+        "mode": 14,
+        "mtime": 1072
+      },
+      [
+        "Date",
+        68
+      ],
+      [
+        1074,
+        1075
+      ],
+      "/data/log.txt",
+      {
+        "type": 48,
+        "content": 1076,
+        "mode": 51,
+        "mtime": 1078
+      },
+      [
+        "Uint8Array",
+        1077
+      ],
+      "Y3JlYXRlZAo=",
+      [
+        "Date",
+        68
+      ],
+      {
+        "env": 1080,
+        "cwd": 34,
+        "previousDir": 34,
+        "functions": 1090,
+        "localScopes": 1092,
+        "callDepth": 1093,
+        "sourceDepth": 1093,
+        "commandCount": 1094,
+        "lastExitCode": 1093,
+        "lastArg": 1095,
+        "startTime": 1096,
+        "lastBackgroundPid": 1093,
+        "bashPid": 1097,
+        "nextVirtualPid": 1098,
+        "currentLine": 1094,
+        "options": 1099,
+        "shoptOptions": 1101,
+        "inCondition": 1100,
+        "loopDepth": 1093,
+        "exportedVars": 1103,
+        "readonlyVars": 1109,
+        "hashTable": 1113
+      },
+      {
+        "HOME": 34,
+        "PATH": 1081,
+        "IFS": 1082,
+        "OSTYPE": 1083,
+        "MACHTYPE": 1084,
+        "HOSTTYPE": 1085,
+        "HOSTNAME": 1086,
+        "PWD": 34,
+        "OLDPWD": 34,
+        "OPTIND": 1087,
+        "SHELLOPTS": 1088,
+        "BASHOPTS": 1089
+      },
+      "/usr/bin:/bin",
+      " \t\n",
+      "linux-gnu",
+      "x86_64-pc-linux-gnu",
+      "x86_64",
+      "localhost",
+      "1",
+      "braceexpand:hashall:interactive-comments",
+      "globskipdots",
+      [
+        "Map",
+        1091
+      ],
+      [],
+      [],
+      0,
+      1,
+      "",
+      1769533887104,
+      48668,
+      48669,
+      {
+        "errexit": 1100,
+        "pipefail": 1100,
+        "nounset": 1100,
+        "xtrace": 1100,
+        "verbose": 1100,
+        "posix": 1100,
+        "allexport": 1100,
+        "noclobber": 1100,
+        "noglob": 1100,
+        "noexec": 1100,
+        "vi": 1100,
+        "emacs": 1100
+      },
+      false,
+      {
+        "extglob": 1100,
+        "dotglob": 1100,
+        "nullglob": 1100,
+        "failglob": 1100,
+        "globstar": 1100,
+        "globskipdots": 1102,
+        "nocaseglob": 1100,
+        "nocasematch": 1100,
+        "expand_aliases": 1100,
+        "lastpipe": 1100,
+        "xpg_echo": 1100
+      },
+      true,
+      [
+        "Set",
+        1104
+      ],
+      [
+        1105,
+        1106,
+        1107,
+        1108
+      ],
+      "HOME",
+      "PATH",
+      "PWD",
+      "OLDPWD",
+      [
+        "Set",
+        1110
+      ],
+      [
+        1111,
+        1112
+      ],
+      "SHELLOPTS",
+      "BASHOPTS",
+      [
+        "Map",
+        1114
+      ],
+      [
+        1115,
+        1117
+      ],
+      [
+        1116,
+        185
+      ],
+      "mkdir",
+      [
+        1118,
+        141
+      ],
+      "echo",
+      {
+        "maxCallDepth": 1120,
+        "maxCommandCount": 1121,
+        "maxLoopIterations": 1121,
+        "maxAwkIterations": 1121,
+        "maxSedIterations": 1121,
+        "maxJqIterations": 1121,
+        "maxSqliteTimeoutMs": 1122,
+        "maxPythonTimeoutMs": 1123
+      },
+      100,
+      10000,
+      5000,
+      30000
+    ]
+  },
+  "runId": "wrun_01KG070MAEBYPSW7H4QTFD3P96",
+  "eventId": "evnt_01KG070MM4NX76QCD8RBWQ1Q6N",
+  "createdAt": "2026-01-27T17:11:27.108Z"
+}

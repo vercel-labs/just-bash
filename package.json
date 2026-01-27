@@ -90,6 +90,7 @@
   },
   "dependencies": {
     "@mongodb-js/zstd": "^7.0.0",
+    "@workflow/serde": "^4.0.1-beta.1",
     "compressjs": "^1.0.3",
     "diff": "^8.0.2",
     "fast-xml-parser": "^5.3.3",

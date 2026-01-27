@@ -1,3 +1,5 @@
+// Re-export Workflow serde symbols for user convenience
+export { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 export type { BashLogger, BashOptions, ExecOptions } from "./Bash.js";
 export { Bash } from "./Bash.js";
 export type {

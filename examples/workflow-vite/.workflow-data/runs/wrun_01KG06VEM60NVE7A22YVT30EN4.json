@@ -1,0 +1,22 @@
+{
+  "runId": "wrun_01KG06VEM60NVE7A22YVT30EN4",
+  "status": "completed",
+  "deploymentId": "dpl_local@4.0.1-beta.20",
+  "workflowName": "workflow//workflows/bash-workflow.ts//serialBashWorkflow",
+  "executionContext": {
+    "traceCarrier": {}
+  },
+  "input": [
+    []
+  ],
+  "startedAt": "2026-01-27T17:08:37.217Z",
+  "createdAt": "2026-01-27T17:08:37.126Z",
+  "updatedAt": "2026-01-27T17:08:38.830Z",
+  "output": [
+    {
+      "log": 1
+    },
+    "created\nstep2: modified\nstep3: modified\nstep4: modified\n"
+  ],
+  "completedAt": "2026-01-27T17:08:38.830Z"
+}
