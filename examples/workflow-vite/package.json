@@ -12,7 +12,7 @@
   "dependencies": {
     "just-bash": "file:../..",
     "nitro": "3.0.1-alpha.2",
-    "workflow": "4.0.1-beta.50"
+    "workflow": "https://workflow-docs-14qh5q5oq.vercel.sh/workflow.tgz"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
