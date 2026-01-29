@@ -177,15 +177,18 @@ const fs = new MountableFs({
 import { Bash, LazyFs, MountableFs, InMemoryFs } from "just-bash";
 
 const lazyFs = new LazyFs({
-  // Called when reading a directory
+  // Called when reading a directory - return entries or null
   listDir: async (dirPath) => {
-    const entries = await fetchDirectoryFromAPI(dirPath);
-    return entries; // [{ name: "file.txt", type: "file" }, ...] or null
+    // Replace with your API call, e.g.: await fetchDirectoryFromAPI(dirPath)
+    return [
+      { name: "file.txt", type: "file" as const },
+      { name: "subdir", type: "directory" as const },
+    ];
   },
-  // Called when reading a file
+  // Called when reading a file - return content or null
   loadFile: async (filePath) => {
-    const content = await fetchFileFromAPI(filePath);
-    return content; // { content: "...", mode?, mtime? } or null
+    // Replace with your API call, e.g.: await fetchFileFromAPI(filePath)
+    return { content: "file content here" };
   },
   allowWrites: true, // default, writes go to in-memory cache
 });

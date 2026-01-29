@@ -3,6 +3,7 @@ package-lock.json
 .DS_Store
 .vscode
 .idea
+.claude/
 .env
 .env.*
 dist
