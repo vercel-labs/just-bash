@@ -99,7 +99,7 @@ Custom commands receive the full `CommandContext` with access to `fs`, `cwd`, `e
 
 ### Filesystem Options
 
-Four filesystem implementations are available:
+Five filesystem implementations are available:
 
 **InMemoryFs** (default) - Pure in-memory filesystem, no disk access:
 
@@ -170,6 +170,36 @@ const fs = new MountableFs({
   ],
 });
 ```
+
+**LazyFs** - Lazy-loading filesystem that loads content on-demand via callbacks. Ideal for remote content, API-backed storage, or large datasets where you don't want to load everything upfront:
+
+```typescript
+import { Bash, LazyFs, MountableFs, InMemoryFs } from "just-bash";
+
+const lazyFs = new LazyFs({
+  // Called when reading a directory
+  listDir: async (dirPath) => {
+    const entries = await fetchDirectoryFromAPI(dirPath);
+    return entries; // [{ name: "file.txt", type: "file" }, ...] or null
+  },
+  // Called when reading a file
+  loadFile: async (filePath) => {
+    const content = await fetchFileFromAPI(filePath);
+    return content; // { content: "...", mode?, mtime? } or null
+  },
+  allowWrites: true, // default, writes go to in-memory cache
+});
+
+// Mount it at a path
+const fs = new MountableFs({ base: new InMemoryFs() });
+fs.mount("/mnt/remote", lazyFs);
+
+const bash = new Bash({ fs });
+await bash.exec("ls /mnt/remote"); // triggers listDir("/")
+await bash.exec("cat /mnt/remote/data.txt"); // triggers loadFile("/data.txt")
+```
+
+Content is cached after first access. Writes and deletes stay in memory and shadow the lazy-loaded content.
 
 ### AI SDK Tool
 
