@@ -715,4 +715,87 @@ describe("LazyFs", () => {
       expect(entries).toContain("local.txt");
     });
   });
+
+  describe("parent directory tracking", () => {
+    it("should make parent directories visible after writeFile to nested path", async () => {
+      const lazyFs = new LazyFs({
+        loadFile: async () => null,
+        listDir: async (path) => (path === "/" ? [] : null),
+      });
+
+      await lazyFs.writeFile("/a/b/c/file.txt", "content");
+
+      // Parent directories should exist
+      expect(await lazyFs.exists("/a")).toBe(true);
+      expect(await lazyFs.exists("/a/b")).toBe(true);
+      expect(await lazyFs.exists("/a/b/c")).toBe(true);
+
+      // Stats should work
+      const stat = await lazyFs.stat("/a/b");
+      expect(stat.isDirectory).toBe(true);
+
+      // readdir should work
+      const entries = await lazyFs.readdir("/a");
+      expect(entries).toContain("b");
+    });
+
+    it("should make parent directories visible after symlink to nested path", async () => {
+      const lazyFs = new LazyFs({
+        loadFile: async () => null,
+        listDir: async (path) => (path === "/" ? [] : null),
+      });
+
+      await lazyFs.writeFile("/target.txt", "content");
+      await lazyFs.symlink("/target.txt", "/a/b/link");
+
+      // Parent directories should exist
+      expect(await lazyFs.exists("/a")).toBe(true);
+      expect(await lazyFs.exists("/a/b")).toBe(true);
+
+      // Stats should work
+      const stat = await lazyFs.stat("/a");
+      expect(stat.isDirectory).toBe(true);
+
+      // readdir should work
+      const entries = await lazyFs.readdir("/a");
+      expect(entries).toContain("b");
+    });
+
+    it("should make parent directories visible after link to nested path", async () => {
+      const lazyFs = new LazyFs({
+        loadFile: async (path) =>
+          path === "/src.txt" ? { content: "content" } : null,
+        listDir: async (path) => (path === "/" ? [] : null),
+      });
+
+      await lazyFs.link("/src.txt", "/a/b/hardlink.txt");
+
+      // Parent directories should exist
+      expect(await lazyFs.exists("/a")).toBe(true);
+      expect(await lazyFs.exists("/a/b")).toBe(true);
+
+      // Stats should work
+      const stat = await lazyFs.stat("/a");
+      expect(stat.isDirectory).toBe(true);
+
+      // readdir should work
+      const entries = await lazyFs.readdir("/a");
+      expect(entries).toContain("b");
+    });
+
+    it("should include nested parent dirs in getAllPaths", async () => {
+      const lazyFs = new LazyFs({
+        loadFile: async () => null,
+        listDir: async (path) => (path === "/" ? [] : null),
+      });
+
+      await lazyFs.writeFile("/x/y/z/file.txt", "content");
+
+      const paths = lazyFs.getAllPaths();
+      expect(paths).toContain("/x");
+      expect(paths).toContain("/x/y");
+      expect(paths).toContain("/x/y/z");
+      expect(paths).toContain("/x/y/z/file.txt");
+    });
+  });
 });

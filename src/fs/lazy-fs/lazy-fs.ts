@@ -123,6 +123,21 @@ export class LazyFs implements IFileSystem {
   }
 
   /**
+   * Mark all parent directories of a path as modified.
+   * This ensures parent dirs created by the cache are visible to LazyFs operations.
+   */
+  private markParentsModified(path: string): void {
+    let parent = this.dirname(path);
+    while (parent !== "/" && !this.modified.has(parent)) {
+      this.modified.add(parent);
+      this.loadedDirs.add(parent);
+      this.deleted.delete(parent);
+      this.notExistsAsDir.delete(parent);
+      parent = this.dirname(parent);
+    }
+  }
+
+  /**
    * Ensure a file has been loaded from the lazy loader
    */
   private async ensureFileLoaded(path: string): Promise<boolean> {
@@ -335,8 +350,9 @@ export class LazyFs implements IFileSystem {
     // Write to cache
     await this.cache.writeFile(normalized, content, options);
 
-    // Mark as modified
+    // Mark file and parent dirs as modified
     this.modified.add(normalized);
+    this.markParentsModified(normalized);
     this.deleted.delete(normalized);
     this.notExistsAsFile.delete(normalized);
     this.notExistsAsDir.delete(normalized);
@@ -521,17 +537,19 @@ export class LazyFs implements IFileSystem {
       throw new Error(`ENOENT: no such file or directory, scandir '${path}'`);
     }
 
-    // Get entries from loader
+    // Get entries from loader (may be null for locally-created dirs)
     const lazyEntries = await this.getDirEntries(normalized);
-    if (!lazyEntries) {
+
+    // If no lazy entries and directory is not locally modified, it doesn't exist
+    if (!lazyEntries && !this.modified.has(normalized)) {
       throw new Error(`ENOENT: no such file or directory, scandir '${path}'`);
     }
 
     // Build result from lazy entries plus any locally added files
     const entriesMap = new Map<string, DirentEntry>();
 
-    // Add lazy entries
-    for (const entry of lazyEntries) {
+    // Add lazy entries (if any)
+    for (const entry of lazyEntries ?? []) {
       const childPath =
         normalized === "/" ? `/${entry.name}` : `${normalized}/${entry.name}`;
 
@@ -732,6 +750,7 @@ export class LazyFs implements IFileSystem {
 
     await this.cache.symlink(target, normalized);
     this.modified.add(normalized);
+    this.markParentsModified(normalized);
     this.loadedFiles.add(normalized);
     this.deleted.delete(normalized);
     this.notExistsAsFile.delete(normalized);
@@ -773,6 +792,7 @@ export class LazyFs implements IFileSystem {
     await this.cache.link(existingNorm, newNorm);
 
     this.modified.add(newNorm);
+    this.markParentsModified(newNorm);
     this.loadedFiles.add(newNorm);
     this.deleted.delete(newNorm);
     this.notExistsAsFile.delete(newNorm);
