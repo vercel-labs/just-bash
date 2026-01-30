@@ -356,6 +356,16 @@ const env = new Bash({
 const env = new Bash({
   network: { dangerouslyAllowFullInternetAccess: true },
 });
+
+// Dynamic URL checking with custom function
+const env = new Bash({
+  network: {
+    isAllowed: ({ method, url }) => {
+      const hostname = new URL(url).hostname;
+      return hostname.endsWith(".internal.com") || hostname === "api.example.com";
+    },
+  },
+});
 ```
 
 **Note:** The `curl` command only exists when network is configured. Without network configuration, `curl` returns "command not found".

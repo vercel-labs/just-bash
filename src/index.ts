@@ -40,7 +40,7 @@ export {
   ReadWriteFs,
   type ReadWriteFsOptions,
 } from "./fs/read-write-fs/index.js";
-export type { NetworkConfig } from "./network/index.js";
+export type { NetworkConfig, NetworkRequest } from "./network/index.js";
 export {
   NetworkAccessDeniedError,
   RedirectNotAllowedError,
