@@ -5,7 +5,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "just-bash",
   description: "A sandboxed bash interpreter for AI agents. Pure TypeScript with in-memory filesystem.",
-  metadataBase: new URL("https://just-bash.vercel.app"),
+  metadataBase: new URL("https://justbash.dev"),
   openGraph: {
     title: "just-bash",
     description: "A sandboxed bash interpreter for AI agents. Pure TypeScript with in-memory filesystem.",
