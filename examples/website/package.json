@@ -5,7 +5,7 @@
   "scripts": {
     "generate": "node scripts/generate-terminal-content.mjs",
     "dev": "pnpm generate && next dev",
-    "build": "cd ../.. && pnpm build && cd examples/website && pnpm generate && next build",
+    "build": "cd ../.. && pnpm install && pnpm build && cd examples/website && pnpm generate && next build",
     "start": "next start",
     "lint": "eslint"
   },
