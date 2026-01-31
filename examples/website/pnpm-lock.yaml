@@ -21,8 +21,8 @@ importers:
         specifier: ^1.5.1
         version: 1.5.1(next@16.1.6(@babel/core@7.29.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))
       just-bash:
-        specifier: file:../..
-        version: file:../..
+        specifier: latest
+        version: 2.7.0
       next:
         specifier: 16.1.6
         version: 16.1.6(@babel/core@7.29.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -1481,8 +1481,8 @@ packages:
     resolution: {integrity: sha512-ZZow9HBI5O6EPgSJLUb8n2NKgmVWTwCvHGwFuJlMjvLFqlGG6pjirPhtdsseaLZjSibD8eegzmYpUZwoIlj2cQ==}
     engines: {node: '>=4.0'}
 
-  just-bash@file:../..:
-    resolution: {directory: ../.., type: directory}
+  just-bash@2.7.0:
+    resolution: {integrity: sha512-DM9rHO5L62ALIHuWVhmhwUVqAXHVmtO4UPlFFcgVYEQTtv1Qhis43/t1aBY0Mj59vibIfNKumqy5tGraXRHsbA==}
     hasBin: true
 
   keyv@4.5.4:
@@ -3723,7 +3723,7 @@ snapshots:
       object.assign: 4.1.7
       object.values: 1.2.1
 
-  just-bash@file:../..:
+  just-bash@2.7.0:
     dependencies:
       '@mongodb-js/zstd': 7.0.0
       compressjs: 1.0.3
