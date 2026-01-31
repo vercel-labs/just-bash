@@ -1,3 +1,0 @@
-{
-  "installCommand": "dnf install -y xz-devel && pnpm install"
-}
