@@ -339,7 +339,79 @@ export class Bash {
   }
 
   /**
+   * Rehydrate a Bash instance from serialized state.
+   * This method creates a Bash instance without invoking the constructor,
+   * making it safe to use in workflow environments that don't have Node.js APIs.
+   *
+   * @param serialized - The serialized Bash state (from WORKFLOW_SERIALIZE)
+   * @param options - Optional configuration for callbacks that aren't serialized
+   * @returns A rehydrated Bash instance
+   */
+  static from(
+    serialized: {
+      fs: IFileSystem;
+      state: InterpreterState;
+      limits: Required<ExecutionLimits>;
+    },
+    options?: {
+      commands?: CommandName[];
+      customCommands?: CustomCommand[];
+      network?: NetworkConfig;
+      sleep?: (ms: number) => Promise<void>;
+      trace?: TraceCallback;
+      logger?: BashLogger;
+    },
+  ): Bash {
+    // Create instance without calling constructor (avoids process.pid usage)
+    // Use `this.prototype` instead of `Bash.prototype` to handle bundler class renaming
+    const bash = Object.create(this.prototype) as Bash;
+
+    // Restore serialized state
+    (bash as { fs: IFileSystem }).fs = serialized.fs;
+    bash.state = serialized.state;
+    bash.limits = serialized.limits;
+
+    // Initialize non-serialized properties
+    bash.commands = new Map();
+    bash.useDefaultLayout = false;
+
+    // Optional callbacks
+    if (options?.network) {
+      bash.secureFetch = createSecureFetch(options.network);
+    }
+    bash.sleepFn = options?.sleep;
+    bash.traceFn = options?.trace;
+    bash.logger = options?.logger;
+
+    // Register commands
+    for (const cmd of createLazyCommands(options?.commands)) {
+      bash.registerCommand(cmd);
+    }
+
+    // Register network commands only when network is configured
+    if (options?.network) {
+      for (const cmd of createNetworkCommands()) {
+        bash.registerCommand(cmd);
+      }
+    }
+
+    // Register custom commands
+    if (options?.customCommands) {
+      for (const cmd of options.customCommands) {
+        if (isLazyCommand(cmd)) {
+          bash.registerCommand(createLazyCustomCommand(cmd));
+        } else {
+          bash.registerCommand(cmd);
+        }
+      }
+    }
+
+    return bash;
+  }
+
+  /**
    * Deserialize Bash instance for Workflow DevKit.
+   * Uses Bash.from() to avoid constructor's Node.js API usage.
    * Note: Only works with InMemoryFs. Callbacks must be re-configured after deserialize.
    */
   static [WORKFLOW_DESERIALIZE](serialized: {
@@ -347,12 +419,8 @@ export class Bash {
     state: InterpreterState;
     limits: Required<ExecutionLimits>;
   }) {
-    // Create a minimal Bash instance with the deserialized filesystem
-    const bash = new Bash({ fs: serialized.fs });
-    // Restore state and limits
-    bash.state = serialized.state;
-    bash.limits = serialized.limits;
-    return bash;
+    // Use `this.from()` instead of `Bash.from()` to handle bundler class renaming
+    return this.from(serialized);
   }
 
   registerCommand(command: Command): void {
@@ -396,6 +464,9 @@ export class Bash {
     commandLine: string,
     options?: ExecOptions,
   ): Promise<BashExecResult> {
+    // Note: This method uses Node.js APIs (via interpreter) but we do NOT add
+    // "use step" here because it causes bundler issues with class detection.
+    // Instead, callers should wrap exec() calls in their own step functions.
     if (this.state.callDepth === 0) {
       this.state.commandCount = 0;
     }

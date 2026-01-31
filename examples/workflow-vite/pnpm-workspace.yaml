@@ -1,0 +1,2 @@
+overrides:
+  workflow: link:../../../../vercel/workflow/packages/workflow
