@@ -67,8 +67,12 @@ export function fromBuffer(
       .join("");
   }
   if (encoding === "binary" || encoding === "latin1") {
-    // Use chunked approach to avoid call stack limit with large buffers
-    // String.fromCharCode(...buffer) fails with buffers > ~100KB
+    // Use Buffer if available (Node.js) - much more efficient and avoids spread operator limits
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(buffer).toString(encoding);
+    }
+    
+    // Browser fallback - String.fromCharCode(...buffer) fails with buffers > ~100KB
     const chunkSize = 65536; // 64KB chunks
     if (buffer.length <= chunkSize) {
       return String.fromCharCode(...buffer);
