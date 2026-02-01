@@ -993,7 +993,7 @@ Key types to explore:
 - \`InitialFiles\` - File specification format
 `;
 
-export const FILE_WTF_IS_THIS = `# WTF Is This?
+export const FILE_WTF_IS_THIS = `# just-bash website
 
 This is an interactive demo of **just-bash** running entirely in your browser, with an AI agent that can explore the source code.
 
@@ -1007,7 +1007,7 @@ This is an interactive demo of **just-bash** running entirely in your browser, w
 |  | Terminal |    | (browser)|    | (in-memory)    |      |
 |  +----------+    +----------+    +----------------+      |
 |       |                                                  |
-|       | \`agent\` command                                 |
+|       | \`agent\` command                                  |
 |       v                                                  |
 |  +--------------------------------------------------+   |
 |  |          SSE Stream (Server-Sent Events)         |   |
@@ -1049,7 +1049,7 @@ This is an interactive demo of **just-bash** running entirely in your browser, w
 
 ### 4. ToolLoopAgent (Server - AI SDK)
 - Uses Anthropic's Claude Haiku model
-- Loops automatically: think → tool call → observe → think → ...
+- Loops automatically: think -> tool call -> observe -> think -> ...
 - Stops after 20 tool calls or when done
 - Streams responses back to browser
 
@@ -1075,6 +1075,15 @@ This is an interactive demo of **just-bash** running entirely in your browser, w
 6. Each step streams back as SSE events
 7. Browser displays tool calls and final response
 8. Response added to conversation history for multi-turn chat
+
+## Development
+
+\`\`\`bash
+pnpm install
+pnpm dev
+\`\`\`
+
+Open [http://localhost:3000](http://localhost:3000) to see the terminal.
 
 ## Links
 
