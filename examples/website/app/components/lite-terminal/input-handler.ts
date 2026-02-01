@@ -259,6 +259,10 @@ export class InputHandler {
       switch (key) {
         case "Enter":
           data = "\r";
+          // Close virtual keyboard on mobile
+          if ("ontouchend" in window) {
+            this.textarea?.blur();
+          }
           break;
         case "Backspace":
           data = "\x7f";
