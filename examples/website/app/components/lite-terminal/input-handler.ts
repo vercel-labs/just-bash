@@ -10,15 +10,10 @@ export class InputHandler {
   private textarea: HTMLTextAreaElement | null = null;
   private composing = false;
 
-  // Touch scroll detection
-  private touchStartY = 0;
-  private isScrolling = false;
-  private recentTouch = false; // Track if a touch event just happened
-  private static readonly SCROLL_THRESHOLD = 10; // pixels
-
-  // Mouse selection detection
+  // Touch handling state
+  private touchStartPos: { x: number; y: number } | null = null;
   private mouseDownPos: { x: number; y: number } | null = null;
-  private static readonly SELECTION_THRESHOLD = 5; // pixels - movement beyond this suggests selection
+  private static readonly DRAG_THRESHOLD = 10; // pixels to consider it a drag/scroll
 
   /**
    * Attach input handling to an element
@@ -113,51 +108,15 @@ export class InputHandler {
       return;
     }
 
-    // Ignore click events that follow touch events (touch already handled focus)
-    if (this.recentTouch) {
-      this.recentTouch = false;
-      return;
-    }
-
     // Check if mouse moved significantly (user was trying to select)
-    const wasDragging = this.mouseDownPos && e instanceof MouseEvent && (
-      Math.abs(e.clientX - this.mouseDownPos.x) > InputHandler.SELECTION_THRESHOLD ||
-      Math.abs(e.clientY - this.mouseDownPos.y) > InputHandler.SELECTION_THRESHOLD
-    );
-    this.mouseDownPos = null;
-
-    if (wasDragging) {
-      return; // User was dragging/selecting, don't focus
-    }
-
-    // Defer focus to let selection state settle
-    setTimeout(() => {
-      // Don't interfere with text selection
-      const selection = window.getSelection();
-      if (selection && selection.toString().length > 0) {
+    if (this.mouseDownPos && e instanceof MouseEvent) {
+      const wasDragging =
+        Math.abs(e.clientX - this.mouseDownPos.x) > InputHandler.DRAG_THRESHOLD ||
+        Math.abs(e.clientY - this.mouseDownPos.y) > InputHandler.DRAG_THRESHOLD;
+      this.mouseDownPos = null;
+      if (wasDragging) {
         return;
       }
-      this.textarea?.focus({ preventScroll: true });
-    }, 0);
-  };
-
-  private handleTouchStart = (e: TouchEvent): void => {
-    this.touchStartY = e.touches[0].clientY;
-    this.isScrolling = false;
-    this.recentTouch = true;
-  };
-
-  private handleTouchMove = (e: TouchEvent): void => {
-    const deltaY = Math.abs(e.touches[0].clientY - this.touchStartY);
-    if (deltaY > InputHandler.SCROLL_THRESHOLD) {
-      this.isScrolling = true;
-    }
-  };
-
-  private handleTouchEnd = (e: TouchEvent): void => {
-    // Don't focus if user was scrolling
-    if (this.isScrolling) {
-      return;
     }
 
     // Don't interfere with text selection
@@ -167,8 +126,43 @@ export class InputHandler {
     }
 
     this.textarea?.focus({ preventScroll: true });
+  };
 
-    // Scroll to show the input area after keyboard appears
+  private handleTouchStart = (e: TouchEvent): void => {
+    this.touchStartPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+
+  private handleTouchMove = (): void => {
+    // We check distance in touchEnd
+  };
+
+  private handleTouchEnd = (e: TouchEvent): void => {
+    // Don't interfere with link clicks
+    if (e.target instanceof HTMLAnchorElement) {
+      return;
+    }
+
+    // Check if touch moved (scrolling)
+    if (this.touchStartPos && e.changedTouches.length > 0) {
+      const touch = e.changedTouches[0];
+      const dx = Math.abs(touch.clientX - this.touchStartPos.x);
+      const dy = Math.abs(touch.clientY - this.touchStartPos.y);
+      this.touchStartPos = null;
+      if (dx > InputHandler.DRAG_THRESHOLD || dy > InputHandler.DRAG_THRESHOLD) {
+        return; // User was scrolling
+      }
+    }
+
+    // Don't interfere with text selection
+    const selection = window.getSelection();
+    if (selection && selection.toString().length > 0) {
+      return;
+    }
+
+    // Focus the textarea to bring up keyboard
+    this.textarea?.focus();
+
+    // Scroll cursor into view after keyboard appears
     setTimeout(() => {
       this.scrollCursorIntoView();
     }, 300);
