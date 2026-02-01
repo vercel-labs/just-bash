@@ -28,6 +28,8 @@ Key features of just-bash:
 - Custom command support via defineCommand
 - Network access control with URL allowlists
 
+Only use the readFile tool if you are sure a file exists. readFile cannot read directories.
+
 Keep responses concise. You do not have access to pnpm, npm, or node.`;
 
 export async function POST(req: Request) {

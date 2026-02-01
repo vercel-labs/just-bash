@@ -236,6 +236,38 @@ export class AnsiParser {
           continue;
         }
 
+        // OSC sequence: ESC ] (Operating System Command)
+        if (nextChar === "]") {
+          // Find the end of OSC sequence (BEL \x07 or ST \x1b\\)
+          let j = i + 2;
+          while (j < this.buffer.length) {
+            if (this.buffer[j] === "\x07") {
+              break;
+            }
+            if (this.buffer[j] === "\x1b" && this.buffer[j + 1] === "\\") {
+              break;
+            }
+            j++;
+          }
+
+          if (j >= this.buffer.length) {
+            // Incomplete OSC sequence
+            this.buffer = this.buffer.slice(i);
+            return results;
+          }
+
+          const oscContent = this.buffer.slice(i + 2, j);
+          const result = this.handleOSC(oscContent);
+          if (result) {
+            results.push(result);
+          }
+
+          // Skip past the terminator
+          i = this.buffer[j] === "\x07" ? j + 1 : j + 2;
+          textStart = i;
+          continue;
+        }
+
         // SS3 sequence: ESC O (for Home/End on some terminals)
         if (nextChar === "O") {
           if (i + 2 >= this.buffer.length) {
@@ -351,6 +383,33 @@ export class AnsiParser {
       default:
         return null;
     }
+  }
+
+  /**
+   * Handle OSC (Operating System Command) sequences
+   */
+  private handleOSC(content: string): ParseResult | null {
+    // OSC 8 - Hyperlinks: 8;;URL or 8;params;URL
+    if (content.startsWith("8;")) {
+      const parts = content.slice(2).split(";");
+      // Format: 8;params;URL - params can be empty
+      const url = parts.length > 1 ? parts.slice(1).join(";") : parts[0];
+
+      if (url) {
+        // Start hyperlink
+        this.currentStyle.link = url;
+      } else {
+        // End hyperlink (empty URL)
+        delete this.currentStyle.link;
+      }
+
+      return {
+        type: "style",
+        style: { ...this.currentStyle },
+      };
+    }
+
+    return null;
   }
 
   /**

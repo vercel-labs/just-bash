@@ -73,6 +73,7 @@ noscript pre {
   outline: none;
   min-height: 100dvh;
   max-width: 100%;
+  padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: calc(50vh + env(safe-area-inset-bottom, 0px));
   overflow-wrap: break-word;
 }

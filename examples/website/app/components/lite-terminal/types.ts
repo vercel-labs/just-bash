@@ -31,6 +31,7 @@ export interface TextStyle {
   italic?: boolean;
   underline?: boolean;
   color?: string;
+  link?: string; // URL for hyperlinks (OSC 8)
 }
 
 /**
