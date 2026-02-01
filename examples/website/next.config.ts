@@ -2,8 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
-    "/api/agent": ["./app/api/agent/agent-data/**/*"],
-    "/api/fs": ["./app/api/agent/agent-data/**/*"],
+    "/api/agent": ["./app/api/agent/_agent-data/**/*"],
+    "/api/fs": ["./app/api/agent/_agent-data/**/*"],
   },
   rewrites: async () => {
     return {

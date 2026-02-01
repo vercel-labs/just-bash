@@ -30,5 +30,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "app/api/agent/agent-data"]
+  "exclude": ["node_modules", "app/api/agent/_agent-data"]
 }

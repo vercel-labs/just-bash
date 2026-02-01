@@ -4,7 +4,7 @@ import { execSync } from "child_process";
 import { existsSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 
-const AGENT_DATA_DIR = "app/api/agent/agent-data";
+const AGENT_DATA_DIR = "app/api/agent/_agent-data";
 
 const repos = [
   {

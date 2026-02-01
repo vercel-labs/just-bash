@@ -2,10 +2,10 @@ import { readdir, readFile } from "fs/promises";
 import { dirname, join, relative } from "path";
 import { fileURLToPath } from "url";
 
-export const dynamic = "force-dynamic";
+export const dynamic = "force-static";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const AGENT_DATA_DIR = join(__dirname, "../agent/agent-data");
+const AGENT_DATA_DIR = join(__dirname, "../agent/_agent-data");
 
 // Recursively read all files in a directory
 async function readAllFiles(
@@ -13,9 +13,6 @@ async function readAllFiles(
   baseDir: string
 ): Promise<Record<string, string>> {
   const result: Record<string, string> = {};
-  if (dir.endsWith("agent-data") && dir !== baseDir) {
-    return result;
-  }
   const entries = await readdir(dir, { withFileTypes: true });
 
   for (const entry of entries) {
