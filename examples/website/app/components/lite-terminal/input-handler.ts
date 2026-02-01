@@ -13,6 +13,7 @@ export class InputHandler {
   // Touch scroll detection
   private touchStartY = 0;
   private isScrolling = false;
+  private recentTouch = false; // Track if a touch event just happened
   private static readonly SCROLL_THRESHOLD = 10; // pixels
 
   // Mouse selection detection
@@ -112,9 +113,10 @@ export class InputHandler {
       return;
     }
 
-    // Only handle mouse clicks, touch is handled separately
-    if (e.type === "click" && "ontouchend" in window) {
-      return; // Ignore click events on touch devices (handled by touchend)
+    // Ignore click events that follow touch events (touch already handled focus)
+    if (this.recentTouch) {
+      this.recentTouch = false;
+      return;
     }
 
     // Check if mouse moved significantly (user was trying to select)
@@ -142,6 +144,7 @@ export class InputHandler {
   private handleTouchStart = (e: TouchEvent): void => {
     this.touchStartY = e.touches[0].clientY;
     this.isScrolling = false;
+    this.recentTouch = true;
   };
 
   private handleTouchMove = (e: TouchEvent): void => {
