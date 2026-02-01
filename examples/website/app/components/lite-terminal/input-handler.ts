@@ -10,6 +10,11 @@ export class InputHandler {
   private textarea: HTMLTextAreaElement | null = null;
   private composing = false;
 
+  // Touch scroll detection
+  private touchStartY = 0;
+  private isScrolling = false;
+  private static readonly SCROLL_THRESHOLD = 10; // pixels
+
   /**
    * Attach input handling to an element
    */
@@ -37,9 +42,11 @@ export class InputHandler {
     this.textarea.addEventListener("focus", this.handleFocus);
     this.textarea.addEventListener("blur", this.handleBlur);
 
-    // Focus textarea when container is tapped
+    // Focus textarea when container is tapped (not scrolled)
     container.addEventListener("click", this.handleContainerClick);
-    container.addEventListener("touchend", this.handleContainerClick);
+    container.addEventListener("touchstart", this.handleTouchStart, { passive: true });
+    container.addEventListener("touchmove", this.handleTouchMove, { passive: true });
+    container.addEventListener("touchend", this.handleTouchEnd);
   }
 
   /**
@@ -59,7 +66,9 @@ export class InputHandler {
     }
     if (this.container) {
       this.container.removeEventListener("click", this.handleContainerClick);
-      this.container.removeEventListener("touchend", this.handleContainerClick);
+      this.container.removeEventListener("touchstart", this.handleTouchStart);
+      this.container.removeEventListener("touchmove", this.handleTouchMove);
+      this.container.removeEventListener("touchend", this.handleTouchEnd);
       this.container = null;
     }
   }
@@ -88,6 +97,38 @@ export class InputHandler {
   }
 
   private handleContainerClick = (e: Event): void => {
+    // Only handle mouse clicks, touch is handled separately
+    if (e.type === "click" && "ontouchend" in window) {
+      return; // Ignore click events on touch devices (handled by touchend)
+    }
+
+    // Don't interfere with text selection
+    const selection = window.getSelection();
+    if (selection && selection.toString().length > 0) {
+      return;
+    }
+
+    this.textarea?.focus();
+  };
+
+  private handleTouchStart = (e: TouchEvent): void => {
+    this.touchStartY = e.touches[0].clientY;
+    this.isScrolling = false;
+  };
+
+  private handleTouchMove = (e: TouchEvent): void => {
+    const deltaY = Math.abs(e.touches[0].clientY - this.touchStartY);
+    if (deltaY > InputHandler.SCROLL_THRESHOLD) {
+      this.isScrolling = true;
+    }
+  };
+
+  private handleTouchEnd = (e: TouchEvent): void => {
+    // Don't focus if user was scrolling
+    if (this.isScrolling) {
+      return;
+    }
+
     // Don't interfere with text selection
     const selection = window.getSelection();
     if (selection && selection.toString().length > 0) {
@@ -96,23 +137,14 @@ export class InputHandler {
 
     this.textarea?.focus();
 
-    // On mobile, scroll to show the input area after keyboard appears
-    if ("ontouchend" in window) {
-      setTimeout(() => {
-        this.scrollCursorIntoView();
-      }, 300); // Wait for keyboard animation
-    }
+    // Scroll to show the input area after keyboard appears
+    setTimeout(() => {
+      this.scrollCursorIntoView();
+    }, 300);
   };
 
   private handleFocus = (): void => {
     this.container?.classList.add("focused");
-
-    // Scroll cursor into view on mobile when keyboard opens
-    if ("ontouchend" in window) {
-      setTimeout(() => {
-        this.scrollCursorIntoView();
-      }, 300);
-    }
   };
 
   private handleBlur = (): void => {
