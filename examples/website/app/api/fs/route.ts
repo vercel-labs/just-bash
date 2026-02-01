@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "fs/promises";
+import { readdir, readFile } from "fs/promises";
 import { dirname, join, relative } from "path";
 import { fileURLToPath } from "url";
 
@@ -13,6 +13,9 @@ async function readAllFiles(
   baseDir: string
 ): Promise<Record<string, string>> {
   const result: Record<string, string> = {};
+  if (dir == "agent-data" && dir != baseDir) {
+    return result;
+  }
   const entries = await readdir(dir, { withFileTypes: true });
 
   for (const entry of entries) {
@@ -70,6 +73,7 @@ async function readAllFiles(
       if (!isTextFile) {
         continue;
       }
+      if (fullPath.includes("agent/agent-data")) {
 
       try {
         const content = await readFile(fullPath, "utf-8");
