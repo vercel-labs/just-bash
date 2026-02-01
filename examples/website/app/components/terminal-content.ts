@@ -691,44 +691,395 @@ export const FILE_PACKAGE_JSON = `{
   "license": "Apache-2.0"
 }`;
 
-export const FILE_AGENTS_MD = `# Agent instructions
+export const FILE_AGENTS_MD = `<!--
+This file is distributed as dist/AGENTS.md in the npm package.
+It provides instructions for AI agents using just-bash in their projects.
+The build process copies this file to dist/AGENTS.md (removing this comment).
+TypeScript and bash examples are validated by src/readme.test.ts.
+-->
 
-- use \`pnpm dev:exec\` for evaluating scripts using BashEnv during development. See Debugging info below.
-- Install packages via pnpm rather than editing package.json directly
-- Bias towards making new test files that are roughly logically grouped rather than letting test files gets too large. Try to stay below 300 lines. Prefer making a new file when you want to add a \`describe()\`
-- Prefer asserting the full STDOUT/STDERR output rather than using toContain or not.toContain
-- Always also add \`comparison-tests\` for major command functionality, but edge cases should always be covered in unit tests which are mush faster (\`pnpm test:comparison\`)
-- When you are unsure about bash/command behavior, create a \`comparison-tests\` test file to ensure compat.
-- \`--help\` does not need to pass comparison tests and should reflect actual capability
-- Commands must handle unknown arguments correctly
-- Always ensure all tests pass in the end and there are no compile and lint errors
-- Use \`pnpm lint:fix\`
-- Always also run \`pnpm knip\`
-- Strongly prefer running a temporary comparison test or unit test over an ad-hoc script to figure out the behavior of some bash script or API.
-- The implementation should align with the real behavior of bash, not what is convenient for TS or TE tests.
-- Always make sure to build before using dist
-- Biome rules often have the same name as eslint rules (if you are lookinf for one)
-- Error / show usage on unknown flags in commands and built-ins (unless real bash also ignores)
-- Dependencies that use wasm are not allowed (exception: sql.js for SQLite, approved for security sandboxing). Binary npm packages are fine
-- When you implement multiple tasks (such as multiple commands or builtins or discovered bugs), so them one at a time, create tests, validate, and then move on
-- Running tests does not require building first
+# AGENTS.md - just-bash
 
-## Debugging
+Instructions for AI agents using just-bash in projects.
 
-- Don't use \`cat > test-direct.ts << 'SCRIPT'\` style test scripts because they constantly require 1-off approval.
-- Instead use \`pnpm dev:exec\`
-  - use \`--real-bash\` to also get comparison output from the system bash
-  - use \`--print-ast\` to also print the AST of the program as parsed by our parser.ts
+## What is just-bash?
 
-## Commands
+A sandboxed bash interpreter with an in-memory virtual filesystem. Use it when you need to:
 
-- Must have usage statement
-- Must error on unknown options (unless bash ignores them)
-- Must have extensive unit tests collocated with the command
-- Should have comparison tests if there is doubt about behavior
+- Execute shell commands without real filesystem access
+- Run untrusted scripts safely
+- Process text with standard Unix tools (grep, sed, awk, jq, etc.)
 
-## Interpreter
+## For AI Agents
 
-- We explicitly don't support 64bit integers
-- Must never hang. All parsing and execution should have reasonable max limits to avoid runaway compute.
+If you're building an AI agent that needs a bash tool, use [\`bash-tool\`](https://github.com/vercel-labs/bash-tool) which is optimized for just-bash:
+
+\`\`\`sh
+npm install bash-tool
+\`\`\`
+
+\`\`\`typescript
+import { createBashTool } from "bash-tool";
+import { generateText } from "ai";
+
+const bashTool = createBashTool({
+  files: { "/data/users.json": '[{"name": "Alice"}, {"name": "Bob"}]' },
+});
+
+const result = await generateText({
+  model: "anthropic/claude-sonnet-4",
+  tools: { bash: bashTool },
+  prompt: "Count the users in /data/users.json",
+});
+\`\`\`
+
+See the [bash-tool documentation](https://github.com/vercel-labs/bash-tool) for more details.
+
+## Quick Reference
+
+\`\`\`typescript
+import { Bash } from "just-bash";
+
+const bash = new Bash({
+  files: { "/data/input.txt": "content" }, // Initial files
+  cwd: "/data", // Working directory
+});
+
+const result = await bash.exec("cat input.txt | grep pattern");
+// result.stdout  - command output
+// result.stderr  - error output
+// result.exitCode - 0 = success, non-zero = failure
+\`\`\`
+
+## Key Behaviors
+
+1. **Isolation**: Each \`exec()\` call is isolated. Environment variables, functions, and cwd changes don't persist between calls. Only filesystem changes persist.
+
+2. **No real filesystem**: By default, commands only see the virtual filesystem. Use \`OverlayFs\` to read from a real directory (writes stay in memory).
+
+3. **No network by default**: \`curl\` doesn't exist unless you configure \`network\` options with URL allowlists.
+
+4. **No binaries/WASM**: Only built-in commands work. You cannot run node, python, or other binaries.
+
+## Available Commands
+
+**Text processing**: \`awk\`, \`cat\`, \`column\`, \`comm\`, \`cut\`, \`egrep\`, \`expand\`, \`fgrep\`, \`fold\`, \`grep\`, \`head\`, \`join\`, \`nl\`, \`paste\`, \`rev\`, \`rg\`, \`sed\`, \`sort\`, \`strings\`, \`tac\`, \`tail\`, \`tr\`, \`unexpand\`, \`uniq\`, \`wc\`, \`xargs\`
+
+**Data processing**: \`jq\` (JSON), \`python3\`/\`python\` (Python via Pyodide), \`sqlite3\` (SQLite), \`xan\` (CSV), \`yq\` (YAML/XML/TOML/CSV)
+
+**File operations**: \`basename\`, \`chmod\`, \`cp\`, \`dirname\`, \`du\`, \`file\`, \`find\`, \`ln\`, \`ls\`, \`mkdir\`, \`mv\`, \`od\`, \`pwd\`, \`readlink\`, \`rm\`, \`rmdir\`, \`split\`, \`stat\`, \`touch\`, \`tree\`
+
+**Utilities**: \`alias\`, \`base64\`, \`bash\`, \`clear\`, \`curl\`, \`date\`, \`diff\`, \`echo\`, \`env\`, \`expr\`, \`false\`, \`gzip\`, \`gunzip\`, \`help\`, \`history\`, \`hostname\`, \`html-to-markdown\`, \`md5sum\`, \`printenv\`, \`printf\`, \`seq\`, \`sh\`, \`sha1sum\`, \`sha256sum\`, \`sleep\`, \`tar\`, \`tee\`, \`time\`, \`timeout\`, \`true\`, \`unalias\`, \`which\`, \`whoami\`, \`zcat\`
+
+All commands support \`--help\` for usage details.
+
+## Tools by File Format
+
+### JSON - \`jq\`
+
+\`\`\`bash
+# Extract field
+jq '.name' data.json
+
+# Filter array
+jq '.users[] | select(.active == true)' data.json
+
+# Transform structure
+jq '[.items[] | {id, name}]' data.json
+
+# From stdin
+echo '{"x":1}' | jq '.x'
+\`\`\`
+
+### YAML - \`yq\`
+
+\`\`\`bash
+# Extract value
+yq '.config.database.host' config.yaml
+
+# Output as JSON
+yq -o json '.' config.yaml
+
+# Filter with jq syntax
+yq '.users[] | select(.role == "admin")' users.yaml
+
+# Modify file in-place
+yq -i '.version = "2.0"' config.yaml
+\`\`\`
+
+### TOML - \`yq\`
+
+\`\`\`bash
+# Read TOML (auto-detected from .toml extension)
+yq '.package.name' Cargo.toml
+yq '.tool.poetry.version' pyproject.toml
+
+# Convert TOML to JSON
+yq -o json '.' config.toml
+
+# Convert YAML to TOML
+yq -o toml '.' config.yaml
+\`\`\`
+
+### CSV/TSV - \`yq -p csv\`
+
+\`\`\`bash
+# Read CSV (auto-detects from .csv/.tsv extension)
+yq '.[0].name' data.csv
+yq '.[0].name' data.tsv
+
+# Filter rows
+yq '[.[] | select(.status == "active")]' data.csv
+
+# Convert CSV to JSON
+yq -o json '.' data.csv
+\`\`\`
+
+### Front-matter - \`yq --front-matter\`
+
+\`\`\`bash
+# Extract YAML front-matter from markdown
+yq --front-matter '.title' post.md
+yq -f '.tags[]' blog-post.md
+
+# Works with TOML front-matter (+++) too
+yq -f '.date' hugo-post.md
+\`\`\`
+
+### XML - \`yq -p xml\`
+
+\`\`\`bash
+# Extract element
+yq '.root.users.user[0].name' data.xml
+
+# Access attributes (use +@ prefix)
+yq '.root.item["+@id"]' data.xml
+
+# Convert XML to JSON
+yq -p xml -o json '.' data.xml
+\`\`\`
+
+### INI - \`yq -p ini\`
+
+\`\`\`bash
+# Read INI section value
+yq '.database.host' config.ini
+
+# Convert INI to JSON
+yq -p ini -o json '.' config.ini
+\`\`\`
+
+### HTML - \`html-to-markdown\`
+
+\`\`\`bash
+# Convert HTML to markdown
+html-to-markdown page.html
+
+# From stdin
+echo '<h1>Title</h1><p>Text</p>' | html-to-markdown
+\`\`\`
+
+### Format Conversion with yq
+
+\`\`\`bash
+# JSON to YAML
+yq -p json '.' data.json
+
+# YAML to JSON
+yq -o json '.' data.yaml
+
+# YAML to TOML
+yq -o toml '.' config.yaml
+
+# TOML to JSON
+yq -o json '.' Cargo.toml
+
+# CSV to JSON
+yq -p csv -o json '.' data.csv
+
+# XML to YAML
+yq -p xml '.' data.xml
+\`\`\`
+
+## Common Patterns
+
+### Process JSON with jq
+
+\`\`\`bash
+cat data.json | jq '.items[] | select(.active) | .name'
+\`\`\`
+
+### Find and process files
+
+\`\`\`bash
+find . -name "*.ts" -type f | xargs grep -l "TODO"
+\`\`\`
+
+### Text transformation pipeline
+
+\`\`\`bash
+cat input.txt | grep -v "^#" | sort | uniq -c | sort -rn | head -10
+\`\`\`
+
+### AWK for columnar data
+
+\`\`\`bash
+cat data.csv | awk -F',' '{sum += $3} END {print sum}'
+\`\`\`
+
+## Limitations
+
+- **32-bit integers only**: Arithmetic operations use 32-bit signed integers
+- **No job control**: No \`&\`, \`bg\`, \`fg\`, or process suspension
+- **No external binaries**: Only built-in commands are available
+- **Execution limits**: Loops, recursion, and command counts have configurable limits to prevent runaway execution
+
+## Error Handling
+
+Always check \`exitCode\`:
+
+\`\`\`typescript
+import { Bash } from "just-bash";
+
+const bash = new Bash({ files: { "/file.txt": "some content" } });
+const result = await bash.exec("grep pattern file.txt");
+if (result.exitCode !== 0) {
+  // Command failed - check result.stderr for details
+}
+\`\`\`
+
+Common exit codes:
+
+- \`0\` - Success
+- \`1\` - General error or no matches (grep)
+- \`2\` - Misuse of command (invalid options)
+- \`127\` - Command not found
+
+## Debugging Tips
+
+1. **Check stderr**: Error messages go to \`result.stderr\`
+2. **Use --help**: All commands support \`--help\` for usage
+3. **Test incrementally**: Build pipelines step by step
+4. **Quote variables**: Use \`"$var"\` to handle spaces in values
+
+## Security Model
+
+- Virtual filesystem is isolated from the real system
+- Network access requires explicit URL allowlists
+- Execution limits prevent infinite loops
+- No shell injection possible (commands are parsed, not eval'd)
+
+## Discovering Types
+
+TypeScript types are available in the \`.d.ts\` files. Use JSDoc-style exploration to understand the API:
+
+\`\`\`bash
+# Find all type definition files
+find node_modules/just-bash/dist -name "*.d.ts" | head -20
+
+# View main exports and their types
+cat node_modules/just-bash/dist/index.d.ts
+
+# View Bash class options
+grep -A 30 "interface BashOptions" node_modules/just-bash/dist/Bash.d.ts
+
+# Search for specific types
+grep -r "interface.*Options" node_modules/just-bash/dist/*.d.ts
+\`\`\`
+
+Key types to explore:
+- \`BashOptions\` - Constructor options for \`new Bash()\`
+- \`ExecResult\` - Return type of \`bash.exec()\`
+- \`InitialFiles\` - File specification format
+`;
+
+export const FILE_WTF_IS_THIS = `# WTF Is This?
+
+This is an interactive demo of **just-bash** running entirely in your browser, with an AI agent that can explore the source code.
+
+## Architecture
+
+\`\`\`
++----------------------------------------------------------+
+|                        BROWSER                           |
+|  +----------+    +----------+    +----------------+      |
+|  | xterm.js |--->| just-bash|--->| Virtual FS     |      |
+|  | Terminal |    | (browser)|    | (in-memory)    |      |
+|  +----------+    +----------+    +----------------+      |
+|       |                                                  |
+|       | \`agent\` command                                 |
+|       v                                                  |
+|  +--------------------------------------------------+   |
+|  |          SSE Stream (Server-Sent Events)         |   |
+|  +--------------------------------------------------+   |
++----------------------------|-----------------------------+
+                             |
+                             v
++----------------------------------------------------------+
+|                        SERVER                            |
+|  +-------------+    +----------+    +----------------+   |
+|  |ToolLoopAgent|--->| bash-tool|--->| just-bash      |   |
+|  | (AI SDK)    |    |          |    | + OverlayFS    |   |
+|  |Claude Haiku |    | - bash   |    |                |   |
+|  +-------------+    | - read   |    | Real files:    |   |
+|                     | - write  |    | - just-bash/   |   |
+|                     +----------+    | - bash-tool/   |   |
+|                                     +----------------+   |
++----------------------------------------------------------+
+\`\`\`
+
+## Components
+
+### 1. xterm.js (Browser Terminal)
+- Renders a real terminal in the browser
+- Handles keyboard input, cursor, colors, scrolling
+- Supports ANSI escape codes for styling
+
+### 2. just-bash (Browser)
+- Pure TypeScript bash interpreter
+- Runs locally in browser for regular commands
+- In-memory virtual filesystem with pre-loaded files
+- No network calls for basic commands like \`ls\`, \`cat\`, \`grep\`
+
+### 3. \`agent\` Command
+- Custom command that calls the server
+- Sends conversation history to \`/api/agent\`
+- Streams response via Server-Sent Events (SSE)
+- Displays tool calls (bash commands, file reads) in real-time
+
+### 4. ToolLoopAgent (Server - AI SDK)
+- Uses Anthropic's Claude Haiku model
+- Loops automatically: think → tool call → observe → think → ...
+- Stops after 20 tool calls or when done
+- Streams responses back to browser
+
+### 5. bash-tool (Server)
+- Provides tools for the AI agent:
+  - \`bash\` - Execute bash commands
+  - \`readFile\` - Read file contents
+  - \`writeFile\` - Write files (disabled in this demo)
+- Integrates with just-bash sandbox
+
+### 6. OverlayFS (Server)
+- Overlays real filesystem (this source code) as read-only
+- Agent can explore just-bash and bash-tool source
+- Writes go to memory, not disk
+
+## Data Flow
+
+1. You type \`agent "how does grep work?"\`
+2. Browser just-bash runs the \`agent\` command
+3. Command POSTs to \`/api/agent\` with message history
+4. Server creates ToolLoopAgent with bash-tool
+5. Agent thinks, calls tools (bash, readFile), observes results
+6. Each step streams back as SSE events
+7. Browser displays tool calls and final response
+8. Response added to conversation history for multi-turn chat
+
+## Links
+
+- **just-bash**: https://github.com/vercel-labs/just-bash
+- **bash-tool**: https://github.com/vercel-labs/bash-tool
+- **AI SDK**: https://ai-sdk.dev
+- **xterm.js**: https://xtermjs.org
 `;

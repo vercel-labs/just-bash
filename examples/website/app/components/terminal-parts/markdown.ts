@@ -35,9 +35,9 @@ export function formatMarkdown(text: string): string {
     return `_${ITALIC}${content}${RESET}_`;
   });
 
-  // Inline code: `code`
-  result = result.replace(/`([^`]+)`/g, (_, content) => {
-    return `\`${DIM}${content}${RESET}\``;
+  // Inline code: `code` (single line only, no nested backticks)
+  result = result.replace(/`([^`\n]+)`/g, (match) => {
+    return `${CYAN}${match}${RESET}`;
   });
 
   // Links: [text](url) - highlight the URL part

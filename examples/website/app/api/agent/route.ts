@@ -12,6 +12,7 @@ const SYSTEM_INSTRUCTIONS = `You are an expert on just-bash, a TypeScript bash i
 You have access to a bash sandbox with the full source code of:
 - just-bash/ - The main bash interpreter
 - bash-tool/ - AI SDK tool for bash
+- wtf-is-this.md - Explains how this demo works (xterm.js + just-bash + ToolLoopAgent + bash-tool)
 
 Use the sandbox to explore the source code, demonstrate commands, and help users understand:
 - How to use just-bash and bash-tool

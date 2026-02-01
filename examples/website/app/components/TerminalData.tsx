@@ -8,6 +8,7 @@ import {
   FILE_LICENSE,
   FILE_PACKAGE_JSON,
   FILE_AGENTS_MD,
+  FILE_WTF_IS_THIS,
 } from "./terminal-content";
 
 // Valid data IDs
@@ -18,7 +19,8 @@ export type TerminalDataId =
   | "file-readme"
   | "file-license"
   | "file-package-json"
-  | "file-agents-md";
+  | "file-agents-md"
+  | "file-wtf-is-this";
 
 // Hidden data element component
 function DataElement({ id, children }: { id: TerminalDataId; children: string }) {
@@ -43,6 +45,7 @@ export function TerminalData() {
       <DataElement id="file-license">{FILE_LICENSE}</DataElement>
       <DataElement id="file-package-json">{FILE_PACKAGE_JSON}</DataElement>
       <DataElement id="file-agents-md">{FILE_AGENTS_MD}</DataElement>
+      <DataElement id="file-wtf-is-this">{FILE_WTF_IS_THIS}</DataElement>
     </>
   );
 }
