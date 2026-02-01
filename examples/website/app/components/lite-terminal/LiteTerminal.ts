@@ -93,7 +93,6 @@ export class LiteTerminal {
     // Create terminal structure
     container.innerHTML = "";
     container.className = "lite-terminal";
-    container.tabIndex = 0;
 
     // Output area
     this.outputElement = document.createElement("pre");
@@ -164,7 +163,7 @@ export class LiteTerminal {
    * Focus the terminal
    */
   focus(): void {
-    this.container?.focus();
+    this.inputHandler.focus();
   }
 
   /**

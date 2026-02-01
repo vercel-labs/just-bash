@@ -67,6 +67,23 @@ noscript pre {
 }
 
 /* Lite Terminal styles */
+.lite-terminal-input {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  border: none;
+  padding: 0;
+  margin: 0;
+  resize: none;
+  outline: none;
+  overflow: hidden;
+  white-space: nowrap;
+  z-index: -1;
+}
+
 .lite-terminal {
   font-family: var(--font-geist-mono), "Geist Mono", "SF Mono", Menlo, monospace;
   font-size: 15px;

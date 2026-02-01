@@ -6,40 +6,69 @@ import type { DataCallback } from "./types";
  */
 export class InputHandler {
   private callbacks: DataCallback[] = [];
-  private element: HTMLElement | null = null;
+  private container: HTMLElement | null = null;
+  private textarea: HTMLTextAreaElement | null = null;
   private composing = false;
 
   /**
    * Attach input handling to an element
    */
-  attach(element: HTMLElement): void {
-    this.element = element;
+  attach(container: HTMLElement): void {
+    this.container = container;
 
-    element.addEventListener("keydown", this.handleKeyDown);
-    element.addEventListener("compositionstart", this.handleCompositionStart);
-    element.addEventListener("compositionend", this.handleCompositionEnd);
+    // Create hidden textarea for mobile keyboard support
+    this.textarea = document.createElement("textarea");
+    this.textarea.className = "lite-terminal-input";
+    this.textarea.setAttribute("autocapitalize", "off");
+    this.textarea.setAttribute("autocomplete", "off");
+    this.textarea.setAttribute("autocorrect", "off");
+    this.textarea.setAttribute("spellcheck", "false");
+    this.textarea.setAttribute("tabindex", "0");
+    // Prevent zoom on iOS
+    this.textarea.style.fontSize = "16px";
+    container.appendChild(this.textarea);
 
-    // Handle paste
-    element.addEventListener("paste", this.handlePaste);
+    // Attach events to textarea
+    this.textarea.addEventListener("keydown", this.handleKeyDown);
+    this.textarea.addEventListener("input", this.handleInput);
+    this.textarea.addEventListener("compositionstart", this.handleCompositionStart);
+    this.textarea.addEventListener("compositionend", this.handleCompositionEnd);
+    this.textarea.addEventListener("paste", this.handlePaste);
+    this.textarea.addEventListener("focus", this.handleFocus);
+    this.textarea.addEventListener("blur", this.handleBlur);
+
+    // Focus textarea when container is tapped
+    container.addEventListener("click", this.handleContainerClick);
+    container.addEventListener("touchend", this.handleContainerClick);
   }
 
   /**
    * Detach input handling
    */
   detach(): void {
-    if (this.element) {
-      this.element.removeEventListener("keydown", this.handleKeyDown);
-      this.element.removeEventListener(
-        "compositionstart",
-        this.handleCompositionStart
-      );
-      this.element.removeEventListener(
-        "compositionend",
-        this.handleCompositionEnd
-      );
-      this.element.removeEventListener("paste", this.handlePaste);
-      this.element = null;
+    if (this.textarea) {
+      this.textarea.removeEventListener("keydown", this.handleKeyDown);
+      this.textarea.removeEventListener("input", this.handleInput);
+      this.textarea.removeEventListener("compositionstart", this.handleCompositionStart);
+      this.textarea.removeEventListener("compositionend", this.handleCompositionEnd);
+      this.textarea.removeEventListener("paste", this.handlePaste);
+      this.textarea.removeEventListener("focus", this.handleFocus);
+      this.textarea.removeEventListener("blur", this.handleBlur);
+      this.textarea.remove();
+      this.textarea = null;
     }
+    if (this.container) {
+      this.container.removeEventListener("click", this.handleContainerClick);
+      this.container.removeEventListener("touchend", this.handleContainerClick);
+      this.container = null;
+    }
+  }
+
+  /**
+   * Focus the input
+   */
+  focus(): void {
+    this.textarea?.focus();
   }
 
   /**
@@ -57,6 +86,60 @@ export class InputHandler {
       cb(data);
     }
   }
+
+  private handleContainerClick = (e: Event): void => {
+    // Don't interfere with text selection
+    const selection = window.getSelection();
+    if (selection && selection.toString().length > 0) {
+      return;
+    }
+
+    this.textarea?.focus();
+
+    // On mobile, scroll to show the input area after keyboard appears
+    if ("ontouchend" in window) {
+      setTimeout(() => {
+        this.scrollCursorIntoView();
+      }, 300); // Wait for keyboard animation
+    }
+  };
+
+  private handleFocus = (): void => {
+    this.container?.classList.add("focused");
+
+    // Scroll cursor into view on mobile when keyboard opens
+    if ("ontouchend" in window) {
+      setTimeout(() => {
+        this.scrollCursorIntoView();
+      }, 300);
+    }
+  };
+
+  private handleBlur = (): void => {
+    this.container?.classList.remove("focused");
+  };
+
+  private scrollCursorIntoView(): void {
+    if (!this.container) return;
+
+    const cursor = this.container.querySelector(".lite-terminal-cursor");
+    if (cursor) {
+      cursor.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }
+
+  private handleInput = (e: Event): void => {
+    // Handle input from mobile keyboard (for characters that don't trigger keydown)
+    if (this.composing) return;
+
+    const textarea = e.target as HTMLTextAreaElement;
+    const data = textarea.value;
+
+    if (data) {
+      this.emit(data);
+      textarea.value = "";
+    }
+  };
 
   private handleKeyDown = (e: KeyboardEvent): void => {
     // Skip during IME composition
@@ -217,9 +300,10 @@ export class InputHandler {
           data = "\x1b[2~";
           break;
         default:
-          // Printable characters
+          // Don't handle printable characters here - let handleInput do it
+          // This avoids double-input on desktop
           if (key.length === 1 && !ctrl && !alt) {
-            data = key;
+            handled = false;
           } else {
             handled = false;
           }
@@ -228,6 +312,10 @@ export class InputHandler {
 
     if (data !== null) {
       e.preventDefault();
+      // Clear the textarea to prevent handleInput from re-emitting
+      if (this.textarea) {
+        this.textarea.value = "";
+      }
       this.emit(data);
     } else if (!handled) {
       // Let the browser handle it (for things like Cmd+C for copy, etc.)
@@ -246,13 +334,16 @@ export class InputHandler {
     if (e.data) {
       this.emit(e.data);
     }
+    // Clear the textarea
+    if (this.textarea) {
+      this.textarea.value = "";
+    }
   };
 
   private handlePaste = (e: ClipboardEvent): void => {
     e.preventDefault();
     const text = e.clipboardData?.getData("text");
     if (text) {
-      // Emit pasted text character by character for proper handling
       this.emit(text);
     }
   };
