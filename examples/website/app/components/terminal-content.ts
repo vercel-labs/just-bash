@@ -1030,16 +1030,16 @@ This is an interactive demo of **just-bash** running entirely in your browser, w
 
 ## Components
 
-### 1. xterm.js (Browser Terminal)
-- Renders a real terminal in the browser
-- Handles keyboard input, cursor, colors, scrolling
-- Supports ANSI escape codes for styling
-
-### 2. just-bash (Browser)
+### 1. just-bash (Browser)
 - Pure TypeScript bash interpreter
 - Runs locally in browser for regular commands
 - In-memory virtual filesystem with pre-loaded files
 - No network calls for basic commands like \`ls\`, \`cat\`, \`grep\`
+
+### 2. xterm.js (Browser Terminal)
+- Renders a real terminal in the browser
+- Handles keyboard input, cursor, colors, scrolling
+- Supports ANSI escape codes for styling
 
 ### 3. \`agent\` Command
 - Custom command that calls the server

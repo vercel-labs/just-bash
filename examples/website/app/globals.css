@@ -55,20 +55,6 @@ body {
   }
 }
 
-.xterm {
-  height: 100%;
-  width: 100%;
-}
-
-.xterm a {
-  color: #22d3ee;
-  text-decoration: underline;
-}
-
-.xterm a:hover {
-  color: #67e8f9;
-}
-
 noscript pre {
   padding: 20px;
   white-space: pre-wrap;
@@ -79,3 +65,64 @@ noscript pre {
   max-width: 80ch;
   margin: 0 auto;
 }
+
+/* Lite Terminal styles */
+.lite-terminal {
+  font-family: var(--font-geist-mono), "Geist Mono", "SF Mono", Menlo, monospace;
+  font-size: 15px;
+  line-height: 1.2;
+  letter-spacing: 0;
+  overflow: auto;
+  position: relative;
+  outline: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.lite-terminal-output {
+  margin: 0;
+  padding: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.lite-terminal-cursor {
+  display: inline-block;
+  vertical-align: text-bottom;
+  pointer-events: none;
+  opacity: 1;
+}
+
+.lite-terminal-cursor.blink {
+  animation: lite-terminal-blink 1s step-end infinite;
+}
+
+@keyframes lite-terminal-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Lite Terminal text styles */
+.lite-terminal .bold { font-weight: bold; }
+.lite-terminal .dim { opacity: 0.6; }
+.lite-terminal .italic { font-style: italic; }
+.lite-terminal .underline { text-decoration: underline; }
+
+/* Lite Terminal standard colors */
+.lite-terminal .black { color: var(--term-black, #000); }
+.lite-terminal .red { color: var(--term-red, #cd0000); }
+.lite-terminal .green { color: var(--term-green, #00cd00); }
+.lite-terminal .yellow { color: var(--term-yellow, #cdcd00); }
+.lite-terminal .blue { color: var(--term-blue, #0000cd); }
+.lite-terminal .magenta { color: var(--term-magenta, #cd00cd); }
+.lite-terminal .cyan { color: var(--term-cyan); }
+.lite-terminal .white { color: var(--term-white, #e5e5e5); }
+
+/* Lite Terminal bright colors */
+.lite-terminal .brightBlack { color: var(--term-brightBlack); }
+.lite-terminal .brightRed { color: var(--term-brightRed, #ff0000); }
+.lite-terminal .brightGreen { color: var(--term-brightGreen, #00ff00); }
+.lite-terminal .brightYellow { color: var(--term-brightYellow, #ffff00); }
+.lite-terminal .brightBlue { color: var(--term-brightBlue, #0000ff); }
+.lite-terminal .brightMagenta { color: var(--term-brightMagenta, #ff00ff); }
+.lite-terminal .brightCyan { color: var(--term-brightCyan); }
+.lite-terminal .brightWhite { color: var(--term-brightWhite, #fff); }

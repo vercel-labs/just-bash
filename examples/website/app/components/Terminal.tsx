@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from "react";
 import { Bash } from "just-bash/browser";
-import "@xterm/xterm/css/xterm.css";
 import { getTerminalData } from "./TerminalData";
 import {
   createStaticCommands,
@@ -10,6 +9,7 @@ import {
   createInputHandler,
   showWelcome,
 } from "./terminal-parts";
+import { LiteTerminal } from "./lite-terminal";
 
 async function fetchFiles(
   bash: Bash,
@@ -23,6 +23,17 @@ async function fetchFiles(
   onFilesLoaded?.(files);
 }
 
+function getTheme(isDark: boolean) {
+  return {
+    background: isDark ? "#000" : "#fff",
+    foreground: isDark ? "#e0e0e0" : "#1a1a1a",
+    cursor: isDark ? "#fff" : "#000",
+    cyan: isDark ? "#0AC5B3" : "#089485",
+    brightCyan: isDark ? "#3DD9C8" : "#067A6D",
+    brightBlack: isDark ? "#666" : "#525252",
+  };
+}
+
 export default function TerminalComponent() {
   const terminalRef = useRef<HTMLDivElement>(null);
 
@@ -30,38 +41,12 @@ export default function TerminalComponent() {
     const container = terminalRef.current;
     if (!container) return;
 
-    // Load xterm at runtime (uses `self` at module evaluation)
-    const { Terminal } = require("@xterm/xterm");
-    const { FitAddon } = require("@xterm/addon-fit");
-    const { WebLinksAddon } = require("@xterm/addon-web-links");
-
     const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
 
-    const term = new Terminal({
+    const term = new LiteTerminal({
       cursorBlink: true,
-      fontSize: 15,
-      fontFamily: '"Geist Mono", "SF Mono", Menlo, monospace',
-      lineHeight: 1.2,
-      letterSpacing: 0,
-      theme: {
-        background: isDark ? "#000" : "#fff",
-        foreground: isDark ? "#e0e0e0" : "#1a1a1a",
-        cursor: isDark ? "#fff" : "#000",
-        cyan: isDark ? "#0AC5B3" : "#089485",
-        brightCyan: isDark ? "#3DD9C8" : "#067A6D",
-        brightBlack: isDark ? "#666" : "#525252",
-      },
+      theme: getTheme(isDark),
     });
-
-    const fitAddon = new FitAddon();
-    const webLinksAddon = new WebLinksAddon(undefined, {
-      decorations: {
-        pointerCursor: true,
-        underline: true,
-      },
-    });
-    term.loadAddon(fitAddon);
-    term.loadAddon(webLinksAddon);
     term.open(container);
 
     // Create commands
@@ -83,15 +68,15 @@ export default function TerminalComponent() {
       files,
       cwd: "/home/user",
     });
+
     // Set up input handling with file autocomplete
     const inputHandler = createInputHandler(term, bash, { files });
 
     // Load additional files from API and add to autocomplete
     void fetchFiles(bash, (apiFiles) => inputHandler.addFiles(apiFiles));
 
-    // Show welcome after fit completes
+    // Show welcome
     requestAnimationFrame(() => {
-      fitAddon.fit();
       showWelcome(term);
 
       // Pre-populate command if history is empty
@@ -100,31 +85,18 @@ export default function TerminalComponent() {
       }
     });
 
-    // Resize handling
-    const onResize = () => requestAnimationFrame(() => fitAddon.fit());
-    window.addEventListener("resize", onResize);
-
     // Color scheme change handling
     const colorSchemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const onColorSchemeChange = (e: MediaQueryListEvent) => {
-      const dark = e.matches;
-      term.options.theme = {
-        background: dark ? "#000" : "#fff",
-        foreground: dark ? "#e0e0e0" : "#1a1a1a",
-        cursor: dark ? "#fff" : "#000",
-        cyan: dark ? "#0AC5B3" : "#089485",
-        brightCyan: dark ? "#3DD9C8" : "#067A6D",
-        brightBlack: dark ? "#666" : "#525252",
-      };
+      term.options.theme = getTheme(e.matches);
     };
     colorSchemeQuery.addEventListener("change", onColorSchemeChange);
 
     // Focus
     term.focus();
-    terminalRef.current?.addEventListener("click", () => term.focus());
+    container.addEventListener("click", () => term.focus());
 
     return () => {
-      window.removeEventListener("resize", onResize);
       colorSchemeQuery.removeEventListener("change", onColorSchemeChange);
       term.dispose();
     };
