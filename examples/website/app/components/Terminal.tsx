@@ -11,6 +11,18 @@ import {
   showWelcome,
 } from "./terminal-parts";
 
+async function fetchFiles(
+  bash: Bash,
+  onFilesLoaded?: (files: Record<string, string>) => void
+) {
+  const response = await fetch("/api/fs");
+  const files: Record<string, string> = await response.json();
+  for (const [path, content] of Object.entries(files)) {
+    bash.writeFile(path, content);
+  }
+  onFilesLoaded?.(files);
+}
+
 export default function TerminalComponent() {
   const terminalRef = useRef<HTMLDivElement>(null);
 
@@ -71,9 +83,11 @@ export default function TerminalComponent() {
       files,
       cwd: "/home/user",
     });
-
     // Set up input handling with file autocomplete
     const inputHandler = createInputHandler(term, bash, { files });
+
+    // Load additional files from API and add to autocomplete
+    void fetchFiles(bash, (apiFiles) => inputHandler.addFiles(apiFiles));
 
     // Show welcome after fit completes
     requestAnimationFrame(() => {

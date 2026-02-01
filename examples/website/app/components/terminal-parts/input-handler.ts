@@ -61,20 +61,35 @@ export function createInputHandler(
   let cursorPos = 0;
   let historyIndex = history.length;
 
-  // Build list of completable paths from files
-  const filePaths = options.files ? Object.keys(options.files) : [];
   // Extract just filenames and relative paths for completion
   const completionCandidates: string[] = [];
-  for (const fullPath of filePaths) {
-    // Add full path
-    completionCandidates.push(fullPath);
-    // Add filename only
-    const filename = fullPath.split("/").pop();
-    if (filename) completionCandidates.push(filename);
-    // Add path relative to /home/user/
-    if (fullPath.startsWith("/home/user/")) {
-      completionCandidates.push(fullPath.slice("/home/user/".length));
+  const addedPaths = new Set<string>();
+
+  // Helper to add file paths for completion
+  const addFilePaths = (paths: string[]) => {
+    for (const fullPath of paths) {
+      if (addedPaths.has(fullPath)) continue;
+      addedPaths.add(fullPath);
+      // Add full path
+      completionCandidates.push(fullPath);
+      // Add filename only
+      const filename = fullPath.split("/").pop();
+      if (filename && !completionCandidates.includes(filename)) {
+        completionCandidates.push(filename);
+      }
+      // Add path relative to /home/user/
+      if (fullPath.startsWith("/home/user/")) {
+        const relative = fullPath.slice("/home/user/".length);
+        if (!completionCandidates.includes(relative)) {
+          completionCandidates.push(relative);
+        }
+      }
     }
+  };
+
+  // Add initial files
+  if (options.files) {
+    addFilePaths(Object.keys(options.files));
   }
   // Add common commands and bash builtins for completion
   const commands = [
@@ -473,6 +488,9 @@ export function createInputHandler(
       cmd = initialCmd;
       cursorPos = initialCmd.length;
       term.write(initialCmd);
+    },
+    addFiles: (files: Record<string, string>) => {
+      addFilePaths(Object.keys(files));
     },
   };
 }

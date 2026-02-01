@@ -25,6 +25,10 @@ export function showWelcome(term: Terminal) {
   term.writeln("");
   term.writeln("  \x1b[1m\x1b[36mnpm install just-bash\x1b[0m");
   term.writeln("");
+  term.writeln("\x1b[2m  import { Bash } from 'just-bash';\x1b[0m");
+  term.writeln("\x1b[2m  const bash = new Bash();\x1b[0m");
+  term.writeln("\x1b[2m  const { stdout } = await bash.exec('echo hello');\x1b[0m");
+  term.writeln("");
   term.writeln(
     "\x1b[2mCommands:\x1b[0m \x1b[36mabout\x1b[0m, \x1b[36minstall\x1b[0m, \x1b[36mgithub\x1b[0m, \x1b[36magent\x1b[0m, \x1b[36mhelp\x1b[0m"
   );
