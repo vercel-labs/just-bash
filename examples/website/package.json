@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "generate": "node scripts/generate-terminal-content.mjs",
+    "fetch-agent-data": "node scripts/fetch-agent-data.mjs",
     "dev": "pnpm generate && next dev",
-    "build": "pnpm generate && next build",
+    "build": "pnpm generate && pnpm fetch-agent-data && next build",
     "start": "next start",
     "lint": "eslint"
   },
@@ -13,6 +14,8 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^5.5.0",
+    "ai": "^6.0.66",
+    "bash-tool": "^1.3.9",
     "geist": "^1.5.1",
     "just-bash": "latest",
     "next": "16.1.6",

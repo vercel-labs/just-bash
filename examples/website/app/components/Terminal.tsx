@@ -74,6 +74,212 @@ export default function TerminalComponent() {
       exitCode: 0,
     }));
 
+    // Multi-turn agent chat state (useChat-style)
+    type UIMessage = {
+      id: string;
+      role: "user" | "assistant";
+      parts: Array<{ type: "text"; text: string }>;
+    };
+    const agentMessages: UIMessage[] = [];
+    let messageIdCounter = 0;
+
+    const agentCmd = defineCommand("agent", async (args) => {
+      const prompt = args.join(" ");
+      if (!prompt) {
+        return {
+          stdout: "",
+          stderr: "Usage: agent <message>\nExample: agent how do I use custom commands?\n\nThis is a multi-turn chat. Use 'agent reset' to clear history.\n",
+          exitCode: 1,
+        };
+      }
+
+      // Handle reset command
+      if (prompt.toLowerCase() === "reset") {
+        agentMessages.length = 0;
+        return {
+          stdout: "Agent conversation reset.\n",
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+
+      // Add user message to history
+      agentMessages.push({
+        id: `msg-${++messageIdCounter}`,
+        role: "user",
+        parts: [{ type: "text", text: prompt }],
+      });
+
+      try {
+        const response = await fetch("/api/agent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: agentMessages }),
+        });
+
+        if (!response.ok) {
+          // Remove the user message on error
+          agentMessages.pop();
+          return {
+            stdout: "",
+            stderr: `Error: ${response.status}\n`,
+            exitCode: 1,
+          };
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+          agentMessages.pop();
+          return { stdout: "", stderr: "Error: No response body\n", exitCode: 1 };
+        }
+
+        let fullText = "";
+        const toolCallsMap = new Map<string, { toolName: string; args: unknown; result?: string }>();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        // Helper to format and display tool result
+        const formatToolResult = (tc: { toolName: string; args: unknown; result?: string }) => {
+          if (!tc.result) return;
+          let displayResult = tc.result;
+          try {
+            const parsed = JSON.parse(tc.result);
+            if (tc.toolName === "bash") {
+              if (parsed.stderr && parsed.stderr.trim()) {
+                displayResult = `stderr: ${parsed.stderr}`;
+              } else if (parsed.stdout !== undefined) {
+                displayResult = parsed.stdout;
+              }
+            } else if (tc.toolName === "readFile") {
+              if (parsed.content !== undefined) {
+                displayResult = parsed.content;
+              }
+            }
+          } catch {
+            // Keep original if not valid JSON
+          }
+
+          if (displayResult && displayResult.trim()) {
+            const resultLines = displayResult.split("\n").filter((l: string) => l.trim());
+            const maxLines = 3;
+            const linesToShow = resultLines.slice(0, maxLines);
+            for (const line of linesToShow) {
+              term.write(`\x1b[2m${line}\x1b[0m\r\n`);
+            }
+            if (resultLines.length > maxLines) {
+              term.write(`\x1b[2m... (${resultLines.length - maxLines} more lines)\x1b[0m\r\n`);
+            }
+          }
+        };
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          // SSE events are separated by double newlines, but we process line by line
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue;
+
+            if (!trimmedLine.startsWith("data:")) continue;
+
+            const jsonStr = trimmedLine.slice(5).trim();
+            if (jsonStr === "[DONE]") continue;
+
+            try {
+              const data = JSON.parse(jsonStr);
+
+              // Stream text-delta directly to terminal
+              if (data.type === "text-delta" && data.delta) {
+                fullText += data.delta;
+                // Write to terminal, converting newlines for xterm
+                term.write(data.delta.replace(/\n/g, "\r\n"));
+              }
+              // Handle tool input - show header immediately
+              else if (data.type === "tool-input-available" && data.toolCallId) {
+                // Add line break after text before tool calls
+                if (fullText && !fullText.endsWith("\n")) {
+                  term.write("\r\n");
+                  fullText += "\n";
+                }
+                const args = data.input as Record<string, unknown>;
+                let header = "";
+                if (data.toolName === "bash" && args.command) {
+                  header = `$ ${args.command}`;
+                } else if (data.toolName === "readFile" && args.path) {
+                  header = `[readFile] ${args.path}`;
+                } else if (data.toolName === "writeFile" && args.path) {
+                  header = `[writeFile] ${args.path}`;
+                } else {
+                  header = `[${data.toolName}]`;
+                }
+                term.write(`\x1b[36m${header}\x1b[0m\r\n`);
+
+                toolCallsMap.set(data.toolCallId, {
+                  toolName: data.toolName,
+                  args: data.input,
+                });
+              }
+              // Handle tool output - show result immediately
+              else if (data.type === "tool-output-available" && data.toolCallId) {
+                const existing = toolCallsMap.get(data.toolCallId);
+                const result = data.output;
+                const resultStr = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+
+                const tc = {
+                  toolName: existing?.toolName || "tool",
+                  args: existing?.args || {},
+                  result: resultStr,
+                };
+                formatToolResult(tc);
+
+                if (existing) {
+                  existing.result = resultStr;
+                } else {
+                  toolCallsMap.set(data.toolCallId, tc);
+                }
+              }
+            } catch (e) {
+              console.log("Parse error for line:", trimmedLine, e);
+            }
+          }
+        }
+
+        // Ensure we end with a newline
+        if (fullText && !fullText.endsWith("\n")) {
+          term.write("\r\n");
+        }
+
+        // Add assistant message to history (only text parts)
+        if (fullText) {
+          agentMessages.push({
+            id: `msg-${++messageIdCounter}`,
+            role: "assistant",
+            parts: [{ type: "text", text: fullText }],
+          });
+        }
+
+        // Return empty since we already wrote to terminal
+        return {
+          stdout: "",
+          stderr: "",
+          exitCode: 0,
+        };
+      } catch (error) {
+        agentMessages.pop();
+        return {
+          stdout: "",
+          stderr: `Error: ${error instanceof Error ? error.message : "Unknown error"}\n`,
+          exitCode: 1,
+        };
+      }
+    });
+
     // Files from DOM
     const files = {
       "/home/user/README.md": getTerminalData("file-readme"),
@@ -83,7 +289,7 @@ export default function TerminalComponent() {
     };
 
     const bash = new Bash({
-      customCommands: [aboutCmd, installCmd, githubCmd],
+      customCommands: [aboutCmd, installCmd, githubCmd, agentCmd],
       files,
       cwd: "/home/user",
     });
@@ -112,31 +318,44 @@ export default function TerminalComponent() {
       term.writeln("  \x1b[1m\x1b[36mnpm install just-bash\x1b[0m");
       term.writeln("");
       term.writeln(
-        "\x1b[2mCommands:\x1b[0m \x1b[36mabout\x1b[0m, \x1b[36minstall\x1b[0m, \x1b[36mgithub\x1b[0m, \x1b[36mhelp\x1b[0m"
+        "\x1b[2mCommands:\x1b[0m \x1b[36mabout\x1b[0m, \x1b[36minstall\x1b[0m, \x1b[36mgithub\x1b[0m, \x1b[36magent\x1b[0m, \x1b[36mhelp\x1b[0m"
       );
       term.writeln(
         "\x1b[2mTry:\x1b[0m \x1b[36mls\x1b[0m | \x1b[36mhead\x1b[0m, \x1b[36mgrep\x1b[0m bash README.md, \x1b[36mcat\x1b[0m package.json | \x1b[36mjq\x1b[0m .version"
       );
       term.writeln("");
       term.write("$ ");
+
+      // Pre-populate command if history is empty
+      if (history.length === 0) {
+        const initialCmd = 'agent "Explain what just-bash is for"';
+        cmd = initialCmd;
+        cursorPos = initialCmd.length;
+        term.write(initialCmd);
+      }
     });
 
-    // Input handling with history
+    // Input handling with history (persisted in sessionStorage)
+    const HISTORY_KEY = "just-bash-history";
+    const history: string[] = JSON.parse(sessionStorage.getItem(HISTORY_KEY) || "[]");
     let cmd = "";
-    const history: string[] = [];
-    let historyIndex = -1;
+    let cursorPos = 0;
+    let historyIndex = history.length;
 
-    const clearLine = () => {
-      // Move cursor to start of input and clear to end of line
-      for (let i = 0; i < cmd.length; i++) {
-        term.write("\b \b");
+    const redrawLine = () => {
+      // Move cursor to start, clear line, rewrite, reposition cursor
+      term.write("\r$ " + cmd + "\x1b[K"); // \x1b[K clears to end of line
+      // Move cursor back to correct position
+      const moveBack = cmd.length - cursorPos;
+      if (moveBack > 0) {
+        term.write(`\x1b[${moveBack}D`);
       }
     };
 
     const setCmd = (newCmd: string) => {
-      clearLine();
       cmd = newCmd;
-      term.write(cmd);
+      cursorPos = newCmd.length;
+      redrawLine();
     };
 
     // Colorize URLs in output
@@ -153,6 +372,7 @@ export default function TerminalComponent() {
         if (cmd.trim()) {
           history.push(cmd);
           historyIndex = history.length;
+          sessionStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(-100))); // Keep last 100
           if (cmd.trim() === "clear") {
             term.clear();
           } else {
@@ -164,6 +384,7 @@ export default function TerminalComponent() {
           }
         }
         cmd = "";
+        cursorPos = 0;
         term.write("$ ");
       } else if (e === "\x1b[A") {
         // Up arrow - previous history
@@ -180,14 +401,36 @@ export default function TerminalComponent() {
           historyIndex = history.length;
           setCmd("");
         }
-      } else if (e === "\x7F") {
-        if (cmd.length > 0) {
-          cmd = cmd.slice(0, -1);
-          term.write("\b \b");
+      } else if (e === "\x1b[D") {
+        // Left arrow
+        if (cursorPos > 0) {
+          cursorPos--;
+          term.write("\x1b[D");
+        }
+      } else if (e === "\x1b[C") {
+        // Right arrow
+        if (cursorPos < cmd.length) {
+          cursorPos++;
+          term.write("\x1b[C");
+        }
+      } else if (e === "\x7F" || e === "\b") {
+        // Backspace - delete char before cursor
+        if (cursorPos > 0) {
+          cmd = cmd.slice(0, cursorPos - 1) + cmd.slice(cursorPos);
+          cursorPos--;
+          redrawLine();
+        }
+      } else if (e === "\x1b[3~") {
+        // Delete key - delete char at cursor
+        if (cursorPos < cmd.length) {
+          cmd = cmd.slice(0, cursorPos) + cmd.slice(cursorPos + 1);
+          redrawLine();
         }
       } else if (e >= " " && e <= "~") {
-        cmd += e;
-        term.write(e);
+        // Insert character at cursor position
+        cmd = cmd.slice(0, cursorPos) + e + cmd.slice(cursorPos);
+        cursorPos++;
+        redrawLine();
       }
     });
 
