@@ -2,6 +2,8 @@ import { readdir, readFile } from "fs/promises";
 import { dirname, join, relative } from "path";
 import { fileURLToPath } from "url";
 
+export const dynamic = "force-dynamic";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const AGENT_DATA_DIR = join(__dirname, "../agent/agent-data");
 
