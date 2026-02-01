@@ -13,7 +13,7 @@ async function readAllFiles(
   baseDir: string
 ): Promise<Record<string, string>> {
   const result: Record<string, string> = {};
-  if (dir == "agent-data" && dir != baseDir) {
+  if (dir === "agent-data" && dir !== baseDir) {
     return result;
   }
   const entries = await readdir(dir, { withFileTypes: true });
@@ -73,7 +73,6 @@ async function readAllFiles(
       if (!isTextFile) {
         continue;
       }
-      if (fullPath.includes("agent/agent-data")) {
 
       try {
         const content = await readFile(fullPath, "utf-8");
