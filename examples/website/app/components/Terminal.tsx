@@ -106,7 +106,8 @@ export default function TerminalComponent() {
     <div
       ref={terminalRef}
       style={{
-        padding: "16px",
+        padding:
+          "calc(16px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) 16px calc(16px + env(safe-area-inset-left, 0px))",
         boxSizing: "border-box",
       }}
     />

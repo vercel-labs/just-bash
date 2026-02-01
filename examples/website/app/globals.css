@@ -70,8 +70,8 @@ noscript pre {
   letter-spacing: 0;
   position: relative;
   outline: none;
-  min-height: 100vh;
-  padding-bottom: 50vh;
+  min-height: 100dvh;
+  padding-bottom: calc(50vh + env(safe-area-inset-bottom, 0px));
 }
 
 .lite-terminal-output {
