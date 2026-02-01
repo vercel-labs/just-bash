@@ -63,13 +63,50 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
    * Checks if a URL is allowed by the configuration.
    * @throws NetworkAccessDeniedError if the URL is not allowed
    */
-  function checkAllowed(url: string): void {
+  async function checkAllowed(url: string, method: string): Promise<void> {
     if (config.dangerouslyAllowFullInternetAccess) {
       return;
     }
 
+    // Use isAllowed function if provided
+    if (config.isAllowed) {
+      const allowed = await config.isAllowed({ method, url });
+      if (!allowed) {
+        throw new NetworkAccessDeniedError(url);
+      }
+      return;
+    }
+
+    // Fall back to static allow list
     if (!isUrlAllowed(url, config.allowedUrlPrefixes ?? [])) {
       throw new NetworkAccessDeniedError(url);
+    }
+  }
+
+  /**
+   * Checks if a redirect URL is allowed by the configuration.
+   * @throws RedirectNotAllowedError if the redirect target is not allowed
+   */
+  async function checkRedirectAllowed(
+    url: string,
+    method: string,
+  ): Promise<void> {
+    if (config.dangerouslyAllowFullInternetAccess) {
+      return;
+    }
+
+    // Use isAllowed function if provided
+    if (config.isAllowed) {
+      const allowed = await config.isAllowed({ method, url });
+      if (!allowed) {
+        throw new RedirectNotAllowedError(url);
+      }
+      return;
+    }
+
+    // Fall back to static allow list
+    if (!isUrlAllowed(url, config.allowedUrlPrefixes ?? [])) {
+      throw new RedirectNotAllowedError(url);
     }
   }
 
@@ -98,7 +135,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     const method = options.method?.toUpperCase() ?? "GET";
 
     // Check if URL and method are allowed
-    checkAllowed(url);
+    await checkAllowed(url, method);
     checkMethodAllowed(method);
 
     let currentUrl = url;
@@ -142,11 +179,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
           const redirectUrl = new URL(location, currentUrl).href;
 
           // Check if redirect target is allowed
-          if (!config.dangerouslyAllowFullInternetAccess) {
-            if (!isUrlAllowed(redirectUrl, config.allowedUrlPrefixes ?? [])) {
-              throw new RedirectNotAllowedError(redirectUrl);
-            }
-          }
+          await checkRedirectAllowed(redirectUrl, method);
 
           redirectCount++;
           if (redirectCount > maxRedirects) {
