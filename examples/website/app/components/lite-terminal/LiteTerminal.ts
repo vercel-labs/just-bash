@@ -67,21 +67,18 @@ export class LiteTerminal {
    * Get/set terminal options (for theme updates)
    */
   get options(): { theme: ThemeConfig } {
+    // Capture `this` so the inner setter can call back to the instance
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const terminal = this;
     return {
       get theme() {
-        return {} as ThemeConfig;
+        return terminal._options.theme as ThemeConfig;
       },
       set theme(newTheme: ThemeConfig) {
-        // This is accessed by the setter below
+        terminal._options.theme = { ...terminal._options.theme, ...newTheme };
+        terminal.applyTheme();
       },
     };
-  }
-
-  set options(value: { theme: ThemeConfig }) {
-    if (value.theme) {
-      this._options.theme = { ...this._options.theme, ...value.theme };
-      this.applyTheme();
-    }
   }
 
   /**
