@@ -1,4 +1,4 @@
-import { ToolLoopAgent, createAgentUIStreamResponse } from "ai";
+import { ToolLoopAgent, createAgentUIStreamResponse, stepCountIs } from "ai";
 import { createBashTool } from "bash-tool";
 import { Bash, OverlayFs } from "just-bash";
 import { dirname, join } from "path";
@@ -7,19 +7,7 @@ import { fileURLToPath } from "url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const AGENT_DATA_DIR = join(__dirname, "./agent-data");
 
-async function getAgent() {
-  // Create OverlayFS with agent-data as root (read-only, writes stay in memory)
-  const overlayFs = new OverlayFs({ root: AGENT_DATA_DIR,readOnly: true });
-  const sandbox = new Bash({ fs: overlayFs, cwd: overlayFs.getMountPoint() });
-
-  const bashToolkit = await createBashTool({
-    sandbox,
-    destination: overlayFs.getMountPoint(),
-  });
-
-  return new ToolLoopAgent({
-    model: "claude-haiku-4-5",
-    instructions: `You are an expert on just-bash, a TypeScript bash interpreter with an in-memory virtual filesystem.
+const SYSTEM_INSTRUCTIONS = `You are an expert on just-bash, a TypeScript bash interpreter with an in-memory virtual filesystem.
 
 You have access to a bash sandbox with the full source code of:
 - just-bash/ - The main bash interpreter
@@ -37,19 +25,24 @@ Key features of just-bash:
 - Custom command support via defineCommand
 - Network access control with URL allowlists
 
-Keep responses concise. When demonstrating something, actually run the commands.`,
-    tools: bashToolkit.tools,
-  });
-}
-
-const agentPromise = getAgent();
+Keep responses concise. You do not have access to pnpm, npm, or node.`;
 
 export async function POST(req: Request) {
   const { messages } = await req.json();
+  const overlayFs = new OverlayFs({ root: AGENT_DATA_DIR, readOnly: true });
+  const sandbox = new Bash({ fs: overlayFs, cwd: overlayFs.getMountPoint() });
+  const bashToolkit = await createBashTool({
+    sandbox,
+    destination: overlayFs.getMountPoint(),
+  });
 
-  const agent = await agentPromise;
-
-  console.log("Received messages:", messages);
+  // Create a fresh agent per request for proper streaming
+  const agent = new ToolLoopAgent({
+    model: "claude-haiku-4-5",
+    instructions: SYSTEM_INSTRUCTIONS,
+    tools: bashToolkit.tools,
+    stopWhen: stepCountIs(20),
+  });
 
   return createAgentUIStreamResponse({
     agent,
