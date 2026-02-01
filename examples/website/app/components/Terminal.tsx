@@ -104,21 +104,11 @@ export default function TerminalComponent() {
 
   return (
     <div
+      ref={terminalRef}
       style={{
-        width: "100vw",
-        height: "100dvh",
-        padding: "16px 16px 32px 16px",
+        padding: "16px",
         boxSizing: "border-box",
-        overflow: "hidden",
       }}
-    >
-      <div
-        ref={terminalRef}
-        style={{
-          width: "100%",
-          height: "100%",
-        }}
-      />
-    </div>
+    />
   );
 }

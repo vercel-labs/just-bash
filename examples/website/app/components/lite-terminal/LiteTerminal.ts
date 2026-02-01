@@ -586,12 +586,10 @@ export class LiteTerminal {
 
 
   /**
-   * Scroll to bottom of terminal
+   * Scroll to bottom of terminal (uses window scroll)
    */
   private scrollToBottom(): void {
-    if (this.container) {
-      this.container.scrollTop = this.container.scrollHeight;
-    }
+    window.scrollTo(0, document.body.scrollHeight);
   }
 
   /**

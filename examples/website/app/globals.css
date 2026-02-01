@@ -28,31 +28,10 @@ html,
 body {
   margin: 0;
   padding: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
+  min-height: 100%;
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-mono), "Geist Mono", "SF Mono", Menlo, monospace;
-}
-
-#__next {
-  height: 100%;
-  overflow: hidden;
-}
-
-#terminal-container {
-  width: 100vw;
-  height: 100dvh;
-  padding: 16px;
-  margin: 0;
-  box-sizing: border-box;
-}
-
-@media (min-width: 640px) {
-  #terminal-container {
-    padding: 24px;
-  }
 }
 
 noscript pre {
@@ -89,10 +68,10 @@ noscript pre {
   font-size: 15px;
   line-height: 1.2;
   letter-spacing: 0;
-  overflow: auto;
   position: relative;
   outline: none;
-  -webkit-overflow-scrolling: touch;
+  min-height: 100vh;
+  padding-bottom: 50vh;
 }
 
 .lite-terminal-output {
