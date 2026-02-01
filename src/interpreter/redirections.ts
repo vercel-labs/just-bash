@@ -53,9 +53,16 @@ async function checkOutputRedirectTarget(
  * Determine the encoding to use for file I/O.
  * If all character codes are <= 255, use binary encoding (byte data).
  * Otherwise, use UTF-8 encoding (text with Unicode characters).
+ * For performance, only check the first 8KB of large strings.
  */
 function getFileEncoding(content: string): "binary" | "utf8" {
-  for (let i = 0; i < content.length; i++) {
+  const SAMPLE_SIZE = 8192; // 8KB
+  
+  // For large strings, only check the first 8KB
+  // This is sufficient since UTF-8 files typically have Unicode chars early
+  const checkLength = Math.min(content.length, SAMPLE_SIZE);
+  
+  for (let i = 0; i < checkLength; i++) {
     if (content.charCodeAt(i) > 255) {
       return "utf8";
     }

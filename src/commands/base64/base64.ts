@@ -93,7 +93,19 @@ export const base64Command: Command = {
         // For decoding, read as text and strip whitespace
         const readResult = await readBinary(ctx, files, "base64");
         if (!readResult.ok) return readResult.error;
-        // Use binary string (latin1) to preserve bytes for input
+        
+        // Use Buffer if available (Node.js) for better large file handling
+        if (typeof Buffer !== "undefined") {
+          const buffer = Buffer.from(readResult.data);
+          const cleaned = buffer.toString("utf8").replace(/\s/g, "");
+          const decoded = Buffer.from(cleaned, "base64");
+          // Convert to binary string (each char code = byte value)
+          // Use Buffer's latin1 encoding which treats each byte as a character
+          const result = decoded.toString("latin1");
+          return { stdout: result, stderr: "", exitCode: 0 };
+        }
+        
+        // Browser fallback - use binary string (latin1) to preserve bytes for input
         const input = String.fromCharCode(...readResult.data);
         const cleaned = input.replace(/\s/g, "");
         // Decode base64 to binary string (each char code = byte value)
@@ -105,8 +117,15 @@ export const base64Command: Command = {
       const readResult = await readBinary(ctx, files, "base64");
       if (!readResult.ok) return readResult.error;
 
-      // Convert binary to base64
-      let encoded = btoa(String.fromCharCode(...readResult.data));
+      // Use Buffer if available (Node.js) for better large file handling
+      let encoded: string;
+      if (typeof Buffer !== "undefined") {
+        const buffer = Buffer.from(readResult.data);
+        encoded = buffer.toString("base64");
+      } else {
+        // Browser fallback - convert binary to base64
+        encoded = btoa(String.fromCharCode(...readResult.data));
+      }
 
       if (wrapCols > 0) {
         const lines: string[] = [];
