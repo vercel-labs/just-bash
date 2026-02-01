@@ -14,6 +14,13 @@ const FILES: Record<string, string> = {
   "wtf-is-this.md": FILE_WTF_IS_THIS,
 };
 
+export function generateStaticParams() {
+  return [
+    { path: [] }, // /md -> README.md
+    ...Object.keys(FILES).map((file) => ({ path: [file] })),
+  ];
+}
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ path?: string[] }> }
