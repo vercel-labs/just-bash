@@ -124,7 +124,7 @@ export class InputHandler {
 
     const cursor = this.container.querySelector(".lite-terminal-cursor");
     if (cursor) {
-      cursor.scrollIntoView({ block: "center", behavior: "smooth" });
+      cursor.scrollIntoView({ block: "center" });
     }
   }
 
