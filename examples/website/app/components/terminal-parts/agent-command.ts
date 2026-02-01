@@ -74,6 +74,7 @@ export function createAgentCommand(term: TerminalWriter) {
       const toolCallsMap = new Map<string, { toolName: string; args: unknown; result?: string }>();
       const decoder = new TextDecoder();
       let buffer = "";
+      let isStreaming = false; // Track if we're streaming thinking
 
       // Helper to format and display tool result
       const formatToolResult = (tc: { toolName: string; args: unknown; result?: string }) => {
@@ -179,6 +180,42 @@ export function createAgentCommand(term: TerminalWriter) {
               } else {
                 toolCallsMap.set(data.toolCallId, tc);
               }
+            }
+            // Handle reasoning/thinking tokens - stream in real-time
+            else if (data.type === "reasoning-start") {
+              // Start streaming thinking in dim italic
+              isStreaming = true;
+              term.write("\x1b[2m\x1b[3m"); // dim + italic
+            }
+            else if (data.type === "reasoning-delta" && data.delta) {
+              // Stream thinking tokens as they arrive
+              term.write(formatForTerminal(data.delta));
+            }
+            else if (data.type === "reasoning-end") {
+              // End thinking block
+              if (isStreaming) {
+                term.write("\x1b[0m\r\n"); // reset styling + newline
+                isStreaming = false;
+              }
+            }
+            // Handle errors
+            else if (data.type === "error") {
+              const errorMsg = data.error || data.message || "Unknown error";
+              term.write(`\x1b[31mError: ${formatForTerminal(String(errorMsg))}\x1b[0m\r\n`);
+            }
+            else if (data.type === "tool-input-error") {
+              const errorMsg = data.error || "Tool input error";
+              term.write(`\x1b[31m[Tool Error] ${formatForTerminal(String(errorMsg))}\x1b[0m\r\n`);
+            }
+            else if (data.type === "tool-output-error") {
+              const errorMsg = data.error || "Tool execution error";
+              term.write(`\x1b[31m[Tool Error] ${formatForTerminal(String(errorMsg))}\x1b[0m\r\n`);
+            }
+            else if (data.type === "tool-output-denied") {
+              term.write(`\x1b[33m[Tool Denied]\x1b[0m\r\n`);
+            }
+            else if (data.type === "abort") {
+              term.write(`\x1b[33m[Aborted]\x1b[0m\r\n`);
             }
           } catch (e) {
             console.log("Parse error for line:", trimmedLine, e);

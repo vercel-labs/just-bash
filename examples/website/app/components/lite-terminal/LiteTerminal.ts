@@ -294,8 +294,14 @@ export class LiteTerminal {
       if (gap > 0) {
         line.push({ text: " ".repeat(gap), style: {} });
       }
-      // Add new segment with current style
-      line.push({ text: char, style: { ...this.currentStyle } });
+      // Try to append to last segment if styles match
+      const lastSeg = line[line.length - 1];
+      if (lastSeg && this.stylesEqual(lastSeg.style, this.currentStyle)) {
+        lastSeg.text += char;
+      } else {
+        // Add new segment with current style
+        line.push({ text: char, style: { ...this.currentStyle } });
+      }
     } else if (charInSegment > 0) {
       // We're in the middle of a segment, need to split it
       const seg = line[segmentIndex];
@@ -452,7 +458,8 @@ export class LiteTerminal {
       a.dim === b.dim &&
       a.italic === b.italic &&
       a.underline === b.underline &&
-      a.color === b.color
+      a.color === b.color &&
+      a.link === b.link
     );
   }
 
@@ -585,18 +592,100 @@ export class LiteTerminal {
     }
   }
 
+  // URL detection regex for plain URLs (fallback when no OSC 8)
+  private static readonly URL_REGEX = /(https?:\/\/[^\s)<>]+)/g;
+
   /**
-   * Create a styled span element
+   * Create a styled element - span, anchor, or text node
    */
-  private createStyledSpan(text: string, style: TextStyle): HTMLSpanElement | Text {
+  private createStyledSpan(text: string, style: TextStyle): HTMLSpanElement | HTMLAnchorElement | Text | DocumentFragment {
     const classes = this.getStyleClasses(style);
     const inlineStyle = this.getInlineStyle(style);
+
+    // If style has a link (from OSC 8), create an anchor element
+    if (style.link) {
+      const link = document.createElement("a");
+      link.href = style.link;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = text;
+      if (classes) link.className = classes;
+      if (inlineStyle) link.style.cssText = inlineStyle;
+      link.style.cursor = "pointer";
+      return link;
+    }
+
+    // Check if text contains plain URLs (fallback detection)
+    const urlMatch = text.match(LiteTerminal.URL_REGEX);
+    if (urlMatch) {
+      return this.createTextWithLinks(text, classes, inlineStyle);
+    }
 
     if (!classes && !inlineStyle) {
       // Use text node for unstyled content (more efficient)
       return document.createTextNode(text);
     }
 
+    const span = document.createElement("span");
+    if (classes) span.className = classes;
+    if (inlineStyle) span.style.cssText = inlineStyle;
+    span.textContent = text;
+    return span;
+  }
+
+  /**
+   * Create text content with clickable URL links (for plain URLs without OSC 8)
+   */
+  private createTextWithLinks(
+    text: string,
+    classes: string,
+    inlineStyle: string
+  ): DocumentFragment {
+    const fragment = document.createDocumentFragment();
+    let lastIndex = 0;
+
+    // Reset regex state
+    LiteTerminal.URL_REGEX.lastIndex = 0;
+
+    let match;
+    while ((match = LiteTerminal.URL_REGEX.exec(text)) !== null) {
+      // Add text before the URL
+      if (match.index > lastIndex) {
+        const beforeText = text.slice(lastIndex, match.index);
+        fragment.appendChild(this.createStyledElement(beforeText, classes, inlineStyle));
+      }
+
+      // Add the URL as a clickable link
+      const url = match[0];
+      const link = document.createElement("a");
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = url;
+      if (classes) link.className = classes;
+      if (inlineStyle) link.style.cssText = inlineStyle;
+      link.style.cursor = "pointer";
+      fragment.appendChild(link);
+
+      lastIndex = match.index + url.length;
+    }
+
+    // Add remaining text after last URL
+    if (lastIndex < text.length) {
+      const afterText = text.slice(lastIndex);
+      fragment.appendChild(this.createStyledElement(afterText, classes, inlineStyle));
+    }
+
+    return fragment;
+  }
+
+  /**
+   * Create a styled element (span or text node) - helper for createTextWithLinks
+   */
+  private createStyledElement(text: string, classes: string, inlineStyle: string): HTMLSpanElement | Text {
+    if (!classes && !inlineStyle) {
+      return document.createTextNode(text);
+    }
     const span = document.createElement("span");
     if (classes) span.className = classes;
     if (inlineStyle) span.style.cssText = inlineStyle;

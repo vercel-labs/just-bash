@@ -9,9 +9,6 @@ type Terminal = {
   onData: (callback: (data: string) => void) => void;
 };
 
-export type InputHandlerOptions = {
-  files?: Record<string, string>;
-};
 
 // Find the start of the previous word
 function findPrevWordBoundary(str: string, pos: number): number {
@@ -49,11 +46,7 @@ function getCompletionContext(cmd: string, cursorPos: number): { prefix: string;
   };
 }
 
-export function createInputHandler(
-  term: Terminal,
-  bash: Bash,
-  options: InputHandlerOptions = {}
-) {
+export function createInputHandler(term: Terminal, bash: Bash) {
   const history: string[] = JSON.parse(
     sessionStorage.getItem(HISTORY_KEY) || "[]"
   );
@@ -61,37 +54,7 @@ export function createInputHandler(
   let cursorPos = 0;
   let historyIndex = history.length;
 
-  // Extract just filenames and relative paths for completion
-  const completionCandidates: string[] = [];
-  const addedPaths = new Set<string>();
-
-  // Helper to add file paths for completion
-  const addFilePaths = (paths: string[]) => {
-    for (const fullPath of paths) {
-      if (addedPaths.has(fullPath)) continue;
-      addedPaths.add(fullPath);
-      // Add full path
-      completionCandidates.push(fullPath);
-      // Add filename only
-      const filename = fullPath.split("/").pop();
-      if (filename && !completionCandidates.includes(filename)) {
-        completionCandidates.push(filename);
-      }
-      // Add path relative to /home/user/
-      if (fullPath.startsWith("/home/user/")) {
-        const relative = fullPath.slice("/home/user/".length);
-        if (!completionCandidates.includes(relative)) {
-          completionCandidates.push(relative);
-        }
-      }
-    }
-  };
-
-  // Add initial files
-  if (options.files) {
-    addFilePaths(Object.keys(options.files));
-  }
-  // Add common commands and bash builtins for completion
+  // Commands for completion (first word only)
   const commands = [
     // Custom commands
     "agent",
@@ -201,7 +164,6 @@ export function createInputHandler(
     "wait",
     "clear",
   ];
-  completionCandidates.push(...commands);
 
   const redrawLine = () => {
     term.write("\r$ " + cmd + "\x1b[K");
@@ -222,12 +184,28 @@ export function createInputHandler(
   };
 
   // Tab completion
-  const handleTabCompletion = () => {
+  const handleTabCompletion = async () => {
     const { prefix, wordStart } = getCompletionContext(cmd, cursorPos);
     if (!prefix) return;
 
+    // Determine if we're completing a command (first word) or a file argument
+    const isFirstWord = cmd.slice(0, wordStart).trim() === "";
+
+    let candidates: string[];
+    if (isFirstWord) {
+      // Complete commands
+      candidates = commands;
+    } else {
+      // Complete files from current directory
+      const lsResult = await bash.exec("ls -1");
+      candidates = lsResult.stdout
+        .split("\n")
+        .map((f) => f.trim())
+        .filter((f) => f.length > 0);
+    }
+
     // Find matching candidates
-    const matches = completionCandidates.filter((c) =>
+    const matches = candidates.filter((c) =>
       c.toLowerCase().startsWith(prefix.toLowerCase())
     );
 
@@ -307,7 +285,7 @@ export function createInputHandler(
 
     // Tab - autocomplete
     if (e === "\t") {
-      handleTabCompletion();
+      await handleTabCompletion();
       return;
     }
 
@@ -488,9 +466,6 @@ export function createInputHandler(
       cmd = initialCmd;
       cursorPos = initialCmd.length;
       term.write(initialCmd);
-    },
-    addFiles: (files: Record<string, string>) => {
-      addFilePaths(Object.keys(files));
     },
   };
 }

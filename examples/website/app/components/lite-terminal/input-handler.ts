@@ -10,10 +10,10 @@ export class InputHandler {
   private textarea: HTMLTextAreaElement | null = null;
   private composing = false;
 
-  // Touch scroll detection
-  private touchStartY = 0;
-  private isScrolling = false;
-  private static readonly SCROLL_THRESHOLD = 10; // pixels
+  // Touch handling state
+  private touchStartPos: { x: number; y: number } | null = null;
+  private mouseDownPos: { x: number; y: number } | null = null;
+  private static readonly DRAG_THRESHOLD = 10; // pixels to consider it a drag/scroll
 
   /**
    * Attach input handling to an element
@@ -43,6 +43,7 @@ export class InputHandler {
     this.textarea.addEventListener("blur", this.handleBlur);
 
     // Focus textarea when container is tapped (not scrolled)
+    container.addEventListener("mousedown", this.handleMouseDown);
     container.addEventListener("click", this.handleContainerClick);
     container.addEventListener("touchstart", this.handleTouchStart, { passive: true });
     container.addEventListener("touchmove", this.handleTouchMove, { passive: true });
@@ -65,6 +66,7 @@ export class InputHandler {
       this.textarea = null;
     }
     if (this.container) {
+      this.container.removeEventListener("mousedown", this.handleMouseDown);
       this.container.removeEventListener("click", this.handleContainerClick);
       this.container.removeEventListener("touchstart", this.handleTouchStart);
       this.container.removeEventListener("touchmove", this.handleTouchMove);
@@ -77,7 +79,7 @@ export class InputHandler {
    * Focus the input
    */
   focus(): void {
-    this.textarea?.focus();
+    this.textarea?.focus({ preventScroll: true });
   }
 
   /**
@@ -96,10 +98,25 @@ export class InputHandler {
     }
   }
 
+  private handleMouseDown = (e: MouseEvent): void => {
+    this.mouseDownPos = { x: e.clientX, y: e.clientY };
+  };
+
   private handleContainerClick = (e: Event): void => {
-    // Only handle mouse clicks, touch is handled separately
-    if (e.type === "click" && "ontouchend" in window) {
-      return; // Ignore click events on touch devices (handled by touchend)
+    // Don't interfere with link clicks
+    if (e.target instanceof HTMLAnchorElement) {
+      return;
+    }
+
+    // Check if mouse moved significantly (user was trying to select)
+    if (this.mouseDownPos && e instanceof MouseEvent) {
+      const wasDragging =
+        Math.abs(e.clientX - this.mouseDownPos.x) > InputHandler.DRAG_THRESHOLD ||
+        Math.abs(e.clientY - this.mouseDownPos.y) > InputHandler.DRAG_THRESHOLD;
+      this.mouseDownPos = null;
+      if (wasDragging) {
+        return;
+      }
     }
 
     // Don't interfere with text selection
@@ -108,25 +125,32 @@ export class InputHandler {
       return;
     }
 
-    this.textarea?.focus();
+    this.textarea?.focus({ preventScroll: true });
   };
 
   private handleTouchStart = (e: TouchEvent): void => {
-    this.touchStartY = e.touches[0].clientY;
-    this.isScrolling = false;
+    this.touchStartPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   };
 
-  private handleTouchMove = (e: TouchEvent): void => {
-    const deltaY = Math.abs(e.touches[0].clientY - this.touchStartY);
-    if (deltaY > InputHandler.SCROLL_THRESHOLD) {
-      this.isScrolling = true;
-    }
+  private handleTouchMove = (): void => {
+    // We check distance in touchEnd
   };
 
   private handleTouchEnd = (e: TouchEvent): void => {
-    // Don't focus if user was scrolling
-    if (this.isScrolling) {
+    // Don't interfere with link clicks
+    if (e.target instanceof HTMLAnchorElement) {
       return;
+    }
+
+    // Check if touch moved (scrolling)
+    if (this.touchStartPos && e.changedTouches.length > 0) {
+      const touch = e.changedTouches[0];
+      const dx = Math.abs(touch.clientX - this.touchStartPos.x);
+      const dy = Math.abs(touch.clientY - this.touchStartPos.y);
+      this.touchStartPos = null;
+      if (dx > InputHandler.DRAG_THRESHOLD || dy > InputHandler.DRAG_THRESHOLD) {
+        return; // User was scrolling
+      }
     }
 
     // Don't interfere with text selection
@@ -135,9 +159,10 @@ export class InputHandler {
       return;
     }
 
+    // Focus the textarea to bring up keyboard
     this.textarea?.focus();
 
-    // Scroll to show the input area after keyboard appears
+    // Scroll cursor into view after keyboard appears
     setTimeout(() => {
       this.scrollCursorIntoView();
     }, 300);

@@ -11,16 +11,12 @@ import {
 } from "./terminal-parts";
 import { LiteTerminal } from "./lite-terminal";
 
-async function fetchFiles(
-  bash: Bash,
-  onFilesLoaded?: (files: Record<string, string>) => void
-) {
+async function fetchFiles(bash: Bash) {
   const response = await fetch("/api/fs");
   const files: Record<string, string> = await response.json();
   for (const [path, content] of Object.entries(files)) {
     bash.writeFile(path, content);
   }
-  onFilesLoaded?.(files);
 }
 
 function getTheme(isDark: boolean) {
@@ -69,11 +65,11 @@ export default function TerminalComponent() {
       cwd: "/home/user",
     });
 
-    // Set up input handling with file autocomplete
-    const inputHandler = createInputHandler(term, bash, { files });
+    // Set up input handling
+    const inputHandler = createInputHandler(term, bash);
 
-    // Load additional files from API and add to autocomplete
-    void fetchFiles(bash, (apiFiles) => inputHandler.addFiles(apiFiles));
+    // Load additional files from API into bash filesystem
+    void fetchFiles(bash);
 
     // Show welcome
     requestAnimationFrame(() => {
@@ -92,9 +88,8 @@ export default function TerminalComponent() {
     };
     colorSchemeQuery.addEventListener("change", onColorSchemeChange);
 
-    // Focus
+    // Initial focus
     term.focus();
-    container.addEventListener("click", () => term.focus());
 
     return () => {
       colorSchemeQuery.removeEventListener("change", onColorSchemeChange);

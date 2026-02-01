@@ -40,7 +40,7 @@ export function formatMarkdown(text: string): string {
     return `${CYAN}${match}${RESET}`;
   });
 
-  // Links: [text](url) - highlight the URL part
+  // Links: [text](url) - style the URL part (will be made clickable by terminal renderer)
   result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, url) => {
     return `[${linkText}](${UNDERLINE}${CYAN}${url}${RESET})`;
   });
