@@ -1,5 +1,6 @@
 import type { Bash } from "just-bash/browser";
 import { HISTORY_KEY, MAX_HISTORY } from "./constants";
+import { formatMarkdown } from "./markdown";
 
 type Terminal = {
   write: (data: string) => void;
@@ -47,7 +48,7 @@ export function createInputHandler(term: Terminal, bash: Bash) {
         } else {
           const result = await bash.exec(cmd.trim());
           if (result.stdout)
-            term.write(colorizeUrls(result.stdout).replace(/\n/g, "\r\n"));
+            term.write(formatMarkdown(colorizeUrls(result.stdout)).replace(/\n/g, "\r\n"));
           if (result.stderr)
             term.write(result.stderr.replace(/\n/g, "\r\n"));
         }

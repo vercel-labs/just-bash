@@ -1,5 +1,6 @@
 import { defineCommand } from "just-bash/browser";
 import { MAX_TOOL_OUTPUT_LINES } from "./constants";
+import { formatMarkdown } from "./markdown";
 
 type UIMessage = {
   id: string;
@@ -187,7 +188,7 @@ export function createAgentCommand(term: TerminalWriter) {
 
       // Write collected text at the end (not streamed to avoid ASCII art rendering issues)
       if (fullText) {
-        term.write(formatForTerminal(fullText));
+        term.write(formatForTerminal(formatMarkdown(fullText)));
         if (!fullText.endsWith("\n")) {
           term.write("\r\n");
         }

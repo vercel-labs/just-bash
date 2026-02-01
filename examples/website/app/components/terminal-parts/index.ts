@@ -3,3 +3,4 @@ export { createStaticCommands } from "./commands";
 export { createAgentCommand } from "./agent-command";
 export { createInputHandler } from "./input-handler";
 export { showWelcome } from "./welcome";
+export { formatMarkdown } from "./markdown";
