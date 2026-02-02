@@ -188,7 +188,7 @@ export function handleArrayTransform(
 
   // If no elements, check for scalar (treat as single-element array)
   if (elements.length === 0) {
-    const scalarValue = ctx.state.env[arrayName];
+    const scalarValue = ctx.state.env.get(arrayName);
     if (scalarValue !== undefined) {
       // Scalar variable - return based on operator
       let resultValue: string;

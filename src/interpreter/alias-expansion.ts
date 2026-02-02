@@ -23,7 +23,7 @@ const ALIAS_PREFIX = "BASH_ALIAS_";
  * Context needed for alias expansion operations
  */
 export interface AliasExpansionContext {
-  env: Record<string, string | undefined>;
+  env: Map<string, string>;
 }
 
 /**
@@ -57,7 +57,7 @@ function getAlias(
   ctx: AliasExpansionContext,
   name: string,
 ): string | undefined {
-  return ctx.env[`${ALIAS_PREFIX}${name}`];
+  return ctx.env.get(`${ALIAS_PREFIX}${name}`);
 }
 
 /**

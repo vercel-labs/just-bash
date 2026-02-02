@@ -23,7 +23,7 @@ export const aliasCommand: Command = {
     // No arguments: list all aliases
     if (args.length === 0) {
       let stdout = "";
-      for (const [key, value] of Object.entries(ctx.env)) {
+      for (const [key, value] of ctx.env) {
         if (key.startsWith(ALIAS_PREFIX)) {
           const name = key.slice(ALIAS_PREFIX.length);
           stdout += `alias ${name}='${value}'\n`;
@@ -40,9 +40,9 @@ export const aliasCommand: Command = {
       if (eqIdx === -1) {
         // Show single alias
         const key = ALIAS_PREFIX + arg;
-        if (ctx.env[key]) {
+        if (ctx.env.get(key)) {
           return {
-            stdout: `alias ${arg}='${ctx.env[key]}'\n`,
+            stdout: `alias ${arg}='${ctx.env.get(key)}'\n`,
             stderr: "",
             exitCode: 0,
           };
@@ -64,7 +64,7 @@ export const aliasCommand: Command = {
         ) {
           value = value.slice(1, -1);
         }
-        ctx.env[ALIAS_PREFIX + name] = value;
+        ctx.env.set(ALIAS_PREFIX + name, value);
       }
     }
 
@@ -98,9 +98,9 @@ export const unaliasCommand: Command = {
 
     // Handle -a to remove all aliases
     if (args[0] === "-a") {
-      for (const key of Object.keys(ctx.env)) {
+      for (const key of ctx.env.keys()) {
         if (key.startsWith(ALIAS_PREFIX)) {
-          delete ctx.env[key];
+          ctx.env.delete(key);
         }
       }
       return { stdout: "", stderr: "", exitCode: 0 };
@@ -113,8 +113,8 @@ export const unaliasCommand: Command = {
     let stderr = "";
     for (const name of processArgs) {
       const key = ALIAS_PREFIX + name;
-      if (ctx.env[key]) {
-        delete ctx.env[key];
+      if (ctx.env.get(key)) {
+        ctx.env.delete(key);
       } else {
         stderr += `unalias: ${name}: not found\n`;
         anyError = true;

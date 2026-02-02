@@ -23,7 +23,7 @@ export const historyCommand: Command = {
     }
 
     // Get history from environment
-    const historyStr = ctx.env[HISTORY_KEY] || "[]";
+    const historyStr = ctx.env.get(HISTORY_KEY) || "[]";
     let history: string[];
     try {
       history = JSON.parse(historyStr);
@@ -33,7 +33,7 @@ export const historyCommand: Command = {
 
     // Handle -c (clear)
     if (args[0] === "-c") {
-      ctx.env[HISTORY_KEY] = "[]";
+      ctx.env.set(HISTORY_KEY, "[]");
       return { stdout: "", stderr: "", exitCode: 0 };
     }
 

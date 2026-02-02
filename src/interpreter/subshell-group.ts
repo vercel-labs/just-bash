@@ -58,7 +58,7 @@ export async function executeSubshell(
     return preOpenError;
   }
 
-  const savedEnv = { ...ctx.state.env };
+  const savedEnv = new Map(ctx.state.env);
   const savedCwd = ctx.state.cwd;
   // Save options so subshell changes (like set -e) don't affect parent
   const savedOptions = { ...ctx.state.options };
@@ -337,7 +337,7 @@ export async function executeUserScript(
   }
 
   // Save current state for restoration after script execution
-  const savedEnv = { ...ctx.state.env };
+  const savedEnv = new Map(ctx.state.env);
   const savedCwd = ctx.state.cwd;
   const savedOptions = { ...ctx.state.options };
   const savedLoopDepth = ctx.state.loopDepth;
@@ -358,16 +358,16 @@ export async function executeUserScript(
 
   // Set positional parameters ($1, $2, etc.) from args
   // $0 should be the script path
-  ctx.state.env["0"] = scriptPath;
-  ctx.state.env["#"] = String(args.length);
-  ctx.state.env["@"] = args.join(" ");
-  ctx.state.env["*"] = args.join(" ");
+  ctx.state.env.set("0", scriptPath);
+  ctx.state.env.set("#", String(args.length));
+  ctx.state.env.set("@", args.join(" "));
+  ctx.state.env.set("*", args.join(" "));
   for (let i = 0; i < args.length && i < 9; i++) {
-    ctx.state.env[String(i + 1)] = args[i];
+    ctx.state.env.set(String(i + 1), args[i]);
   }
   // Clear any remaining positional parameters
   for (let i = args.length + 1; i <= 9; i++) {
-    delete ctx.state.env[String(i)];
+    ctx.state.env.delete(String(i));
   }
 
   const cleanup = (): void => {

@@ -22,6 +22,7 @@ import {
 import { InMemoryFs } from "./fs/in-memory-fs/in-memory-fs.js";
 import { initFilesystem } from "./fs/init.js";
 import type { IFileSystem, InitialFiles } from "./fs/interface.js";
+import { mapToRecord, mapToRecordWithExtras } from "./helpers/env.js";
 import {
   ArithmeticError,
   ExecutionLimitError,
@@ -174,19 +175,21 @@ export class Bash {
 
     this.useDefaultLayout = !options.cwd && !options.files;
     const cwd = options.cwd || (this.useDefaultLayout ? "/home/user" : "/");
-    const env: Record<string, string> = {
-      HOME: this.useDefaultLayout ? "/home/user" : "/",
-      PATH: "/usr/bin:/bin",
-      IFS: " \t\n",
-      OSTYPE: "linux-gnu",
-      MACHTYPE: "x86_64-pc-linux-gnu",
-      HOSTTYPE: "x86_64",
-      HOSTNAME: "localhost", // Match hostname command in sandboxed environment
-      PWD: cwd,
-      OLDPWD: cwd,
-      OPTIND: "1", // getopts option index
-      ...options.env,
-    };
+    // Use Map for env to prevent prototype pollution attacks
+    const env = new Map<string, string>([
+      ["HOME", this.useDefaultLayout ? "/home/user" : "/"],
+      ["PATH", "/usr/bin:/bin"],
+      ["IFS", " \t\n"],
+      ["OSTYPE", "linux-gnu"],
+      ["MACHTYPE", "x86_64-pc-linux-gnu"],
+      ["HOSTTYPE", "x86_64"],
+      ["HOSTNAME", "localhost"], // Match hostname command in sandboxed environment
+      ["PWD", cwd],
+      ["OLDPWD", cwd],
+      ["OPTIND", "1"], // getopts option index
+      // Add user-provided env vars
+      ...Object.entries(options.env ?? {}),
+    ]);
 
     // Resolve limits: new executionLimits takes precedence, then deprecated individual options
     this.limits = resolveLimits({
@@ -280,9 +283,9 @@ export class Bash {
     };
 
     // Initialize SHELLOPTS to reflect current shell options (initially empty string since all are false)
-    this.state.env.SHELLOPTS = buildShellopts(this.state.options);
+    this.state.env.set("SHELLOPTS", buildShellopts(this.state.options));
     // Initialize BASHOPTS to reflect current shopt options
-    this.state.env.BASHOPTS = buildBashopts(this.state.shoptOptions);
+    this.state.env.set("BASHOPTS", buildBashopts(this.state.shoptOptions));
 
     // Initialize filesystem with standard directories and device files
     // Only applies to InMemoryFs - other filesystems use real directories
@@ -370,7 +373,7 @@ export class Bash {
         stdout: "",
         stderr: `bash: maximum command count (${this.limits.maxCommandCount}) exceeded (possible infinite loop). Increase with executionLimits.maxCommandCount option.\n`,
         exitCode: 1,
-        env: { ...this.state.env, ...options?.env },
+        env: mapToRecordWithExtras(this.state.env, options?.env),
       };
     }
 
@@ -379,7 +382,7 @@ export class Bash {
         stdout: "",
         stderr: "",
         exitCode: 0,
-        env: { ...this.state.env, ...options?.env },
+        env: mapToRecordWithExtras(this.state.env, options?.env),
       };
     }
 
@@ -417,14 +420,22 @@ export class Bash {
       }
     }
 
+    // Create a copy of env Map for this execution
+    const execEnv = new Map(this.state.env);
+    // Merge in options.env
+    if (options?.env) {
+      for (const [key, value] of Object.entries(options.env)) {
+        execEnv.set(key, value);
+      }
+    }
+    // Update PWD when cwd option is provided
+    if (newPwd !== undefined) {
+      execEnv.set("PWD", newPwd);
+    }
+
     const execState: InterpreterState = {
       ...this.state,
-      env: {
-        ...this.state.env,
-        ...options?.env,
-        // Update PWD when cwd option is provided
-        ...(newPwd !== undefined ? { PWD: newPwd } : {}),
-      },
+      env: execEnv,
       cwd: newCwd,
       // Deep copy mutable objects to prevent interference
       functions: new Map(this.state.functions),
@@ -467,7 +478,7 @@ export class Bash {
           stdout: error.stdout,
           stderr: error.stderr,
           exitCode: error.exitCode,
-          env: { ...this.state.env, ...options?.env },
+          env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }
       // PosixFatalError propagates from special builtins in POSIX mode
@@ -476,7 +487,7 @@ export class Bash {
           stdout: error.stdout,
           stderr: error.stderr,
           exitCode: error.exitCode,
-          env: { ...this.state.env, ...options?.env },
+          env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }
       if (error instanceof ArithmeticError) {
@@ -484,7 +495,7 @@ export class Bash {
           stdout: error.stdout,
           stderr: error.stderr,
           exitCode: 1,
-          env: { ...this.state.env, ...options?.env },
+          env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }
       // ExecutionLimitError is thrown when our conservative limits are exceeded
@@ -494,7 +505,7 @@ export class Bash {
           stdout: error.stdout,
           stderr: error.stderr,
           exitCode: ExecutionLimitError.EXIT_CODE,
-          env: { ...this.state.env, ...options?.env },
+          env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }
       if ((error as ParseException).name === "ParseException") {
@@ -502,7 +513,7 @@ export class Bash {
           stdout: "",
           stderr: `bash: syntax error: ${(error as Error).message}\n`,
           exitCode: 2,
-          env: { ...this.state.env, ...options?.env },
+          env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }
       // LexerError is thrown for lexer-level issues like unterminated quotes
@@ -511,7 +522,7 @@ export class Bash {
           stdout: "",
           stderr: `bash: ${error.message}\n`,
           exitCode: 2,
-          env: { ...this.state.env, ...options?.env },
+          env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }
       // RangeError occurs when JavaScript call stack is exceeded (deep recursion)
@@ -520,7 +531,7 @@ export class Bash {
           stdout: "",
           stderr: `bash: ${error.message}\n`,
           exitCode: 1,
-          env: { ...this.state.env, ...options?.env },
+          env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }
       throw error;
@@ -547,7 +558,7 @@ export class Bash {
   }
 
   getEnv(): Record<string, string> {
-    return { ...this.state.env };
+    return mapToRecord(this.state.env);
   }
 }
 

@@ -564,8 +564,6 @@ const SKIP_INPUT_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\t/, reason: "Literal tab in input" },
   // Emoji flag characters (multi-codepoint indexing issues)
   { pattern: /🇬🇧/, reason: "Emoji flag codepoint indexing differs" },
-  // delpaths bug with specific input
-  { pattern: /^\{"bar":false\}$/, reason: "delpaths with string path bug" },
   // unique sort order bug
   { pattern: /^\[1,2,5,3,5,3,1,3\]$/, reason: "unique sort order differs" },
   // nan/NaN/Infinity literals in JSON input (not valid standard JSON)

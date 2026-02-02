@@ -215,7 +215,7 @@ export const printfCommand: Command = {
       let errorMessage = "";
 
       // Get TZ from shell environment for strftime formatting
-      const tz = ctx.env.TZ;
+      const tz = ctx.env.get("TZ");
 
       do {
         const { result, argsConsumed, error, errMsg, stopped } = formatOnce(
@@ -252,11 +252,11 @@ export const printfCommand: Command = {
           let key = arrayMatch[3];
           // Expand variables in the subscript (e.g., $key -> value)
           key = key.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, varName) => {
-            return ctx.env[varName] ?? "";
+            return ctx.env.get(varName) ?? "";
           });
-          ctx.env[`${arrayName}_${key}`] = output;
+          ctx.env.set(`${arrayName}_${key}`, output);
         } else {
-          ctx.env[targetVar] = output;
+          ctx.env.set(targetVar, output);
         }
         return { stdout: "", stderr: errorMessage, exitCode: hadError ? 1 : 0 };
       }

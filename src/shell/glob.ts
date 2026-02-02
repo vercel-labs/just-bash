@@ -40,7 +40,7 @@ export class GlobExpander {
   constructor(
     private fs: IFileSystem,
     private cwd: string,
-    env?: Record<string, string>,
+    env?: Map<string, string>,
     options?: GlobOptions | boolean, // boolean for backwards compatibility (globstar)
   ) {
     if (typeof options === "boolean") {
@@ -54,7 +54,7 @@ export class GlobExpander {
       this.globskipdots = options.globskipdots ?? true;
     }
     // Parse GLOBIGNORE if set
-    const globignore = env?.GLOBIGNORE;
+    const globignore = env?.get("GLOBIGNORE");
     if (globignore !== undefined && globignore !== "") {
       this.hasGlobignore = true;
       this.globignorePatterns = splitGlobignorePatterns(globignore);

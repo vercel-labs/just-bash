@@ -33,8 +33,8 @@ export function getVariableAttributes(
 
   // Check for indexed array (has numeric elements via name_0, name_1, etc. or __length marker)
   const isIndexedArray =
-    ctx.state.env[`${name}__length`] !== undefined ||
-    Object.keys(ctx.state.env).some(
+    ctx.state.env.has(`${name}__length`) ||
+    Array.from(ctx.state.env.keys()).some(
       (k) =>
         k.startsWith(`${name}_`) && /^[0-9]+$/.test(k.slice(name.length + 1)),
     );

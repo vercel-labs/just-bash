@@ -48,7 +48,7 @@ export function getVarNamesWithPrefix(
   ctx: InterpreterContext,
   prefix: string,
 ): string[] {
-  const envKeys = Object.keys(ctx.state.env);
+  const envKeys = Array.from(ctx.state.env.keys());
   const matchingVars = new Set<string>();
 
   // Get sets of array names for filtering

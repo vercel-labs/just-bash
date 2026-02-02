@@ -124,23 +124,23 @@ export async function handleAssignDefault(
           const arithAst = parseArithmeticExpression(parser, subscriptExpr);
           index = await evaluateArithmetic(ctx, arithAst.expression);
         } catch {
-          const varValue = ctx.state.env[subscriptExpr];
+          const varValue = ctx.state.env.get(subscriptExpr);
           index = varValue ? Number.parseInt(varValue, 10) : 0;
         }
         if (Number.isNaN(index)) index = 0;
       }
       // Set array element
-      ctx.state.env[`${arrayName}_${index}`] = defaultValue;
+      ctx.state.env.set(`${arrayName}_${index}`, defaultValue);
       // Update array length if needed
       const currentLength = Number.parseInt(
-        ctx.state.env[`${arrayName}__length`] || "0",
+        ctx.state.env.get(`${arrayName}__length`) || "0",
         10,
       );
       if (index >= currentLength) {
-        ctx.state.env[`${arrayName}__length`] = String(index + 1);
+        ctx.state.env.set(`${arrayName}__length`, String(index + 1));
       }
     } else {
-      ctx.state.env[parameter] = defaultValue;
+      ctx.state.env.set(parameter, defaultValue);
     }
     return defaultValue;
   }
@@ -344,7 +344,7 @@ export function handleLength(
     }
     // If no array elements, check if scalar variable exists
     // In bash, ${#s[@]} for scalar s returns 1
-    const scalarValue = ctx.state.env[arrayName];
+    const scalarValue = ctx.state.env.get(arrayName);
     if (scalarValue !== undefined) {
       return "1";
     }
@@ -363,7 +363,7 @@ export function handleLength(
         firstElement !== undefined ? [...String(firstElement)].length : 0,
       );
     }
-    const firstElement = ctx.state.env[`${parameter}_0`] || "";
+    const firstElement = ctx.state.env.get(`${parameter}_0`) || "";
     return String([...firstElement].length);
   }
   // Use spread to count Unicode code points, not UTF-16 code units
@@ -386,12 +386,12 @@ export async function handleSubstring(
 
   // Handle special case for ${@:offset} and ${*:offset}
   if (parameter === "@" || parameter === "*") {
-    const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+    const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
     const params: string[] = [];
     for (let i = 1; i <= numParams; i++) {
-      params.push(ctx.state.env[String(i)] || "");
+      params.push(ctx.state.env.get(String(i)) || "");
     }
-    const shellName = ctx.state.env["0"] || "bash";
+    const shellName = ctx.state.env.get("0") || "bash";
     let allArgs: string[];
     let startIdx: number;
 
@@ -722,7 +722,7 @@ export function computeIsEmpty(
   value: string,
   inDoubleQuotes: boolean,
 ): { isEmpty: boolean; effectiveValue: string } {
-  const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+  const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
 
   // Check if this is an array expansion: varname[*] or varname[@]
   const arrayExpMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/);
@@ -736,7 +736,7 @@ export function computeIsEmpty(
     // $@ is "empty" if no params OR exactly one empty param
     return {
       isEmpty:
-        numParams === 0 || (numParams === 1 && ctx.state.env["1"] === ""),
+        numParams === 0 || (numParams === 1 && ctx.state.env.get("1") === ""),
       effectiveValue: value,
     };
   }

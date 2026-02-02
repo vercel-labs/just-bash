@@ -249,10 +249,10 @@ export function handleRead(
       clearArray(ctx, arrayName);
     } else {
       for (const name of varNames) {
-        ctx.state.env[name] = "";
+        ctx.state.env.set(name, "");
       }
       if (varNames.length === 0) {
-        ctx.state.env.REPLY = "";
+        ctx.state.env.set("REPLY", "");
       }
     }
     return result("", "", 0); // Always succeed - stdin is valid
@@ -325,10 +325,10 @@ export function handleRead(
 
     // With -N, assign entire content to first variable (no IFS splitting)
     const varName = varNames[0] || "REPLY";
-    ctx.state.env[varName] = line;
+    ctx.state.env.set(varName, line);
     // Set remaining variables to empty
     for (let j = 1; j < varNames.length; j++) {
-      ctx.state.env[varNames[j]] = "";
+      ctx.state.env.set(varNames[j], "");
     }
     return result("", "", foundDelimiter ? 0 : 1);
   } else if (nchars >= 0) {
@@ -435,7 +435,7 @@ export function handleRead(
       if (line.length === 0 && effectiveStdin.length === 0) {
         // No input at all - return failure
         for (const name of varNames) {
-          ctx.state.env[name] = "";
+          ctx.state.env.set(name, "");
         }
         if (arrayName) {
           clearArray(ctx, arrayName);
@@ -462,7 +462,7 @@ export function handleRead(
   // If no variable names given (only REPLY), store whole line without IFS splitting
   // This preserves leading/trailing whitespace
   if (varNames.length === 1 && varNames[0] === "REPLY") {
-    ctx.state.env.REPLY = processBackslashEscapes(line);
+    ctx.state.env.set("REPLY", processBackslashEscapes(line));
     return result("", "", foundDelimiter ? 0 : 1);
   }
 
@@ -476,7 +476,7 @@ export function handleRead(
     clearArray(ctx, arrayName);
     // Assign words to array elements, processing backslash escapes after splitting
     for (let j = 0; j < words.length; j++) {
-      ctx.state.env[`${arrayName}_${j}`] = processBackslashEscapes(words[j]);
+      ctx.state.env.set(`${arrayName}_${j}`, processBackslashEscapes(words[j]));
     }
     return result("", "", foundDelimiter ? 0 : 1);
   }
@@ -491,7 +491,7 @@ export function handleRead(
     const name = varNames[j];
     if (j < varNames.length - 1) {
       // Assign single word, processing backslash escapes
-      ctx.state.env[name] = processBackslashEscapes(words[j] ?? "");
+      ctx.state.env.set(name, processBackslashEscapes(words[j] ?? ""));
     } else {
       // Last variable gets all remaining content from original line
       // This preserves original separators (tabs, etc.) but strips trailing IFS
@@ -500,9 +500,9 @@ export function handleRead(
         let value = line.substring(wordStarts[j]);
         value = stripTrailingIfsWhitespace(value, ifs, raw);
         value = processBackslashEscapes(value);
-        ctx.state.env[name] = value;
+        ctx.state.env.set(name, value);
       } else {
-        ctx.state.env[name] = "";
+        ctx.state.env.set(name, "");
       }
     }
   }

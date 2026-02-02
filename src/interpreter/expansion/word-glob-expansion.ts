@@ -691,16 +691,16 @@ async function expandDoubleQuotedWithWordProducing(
     const elements = getArrayElements(ctx, info.name);
     values = elements.map(([, v]) => v);
     if (values.length === 0) {
-      const scalarValue = ctx.state.env[info.name];
+      const scalarValue = ctx.state.env.get(info.name);
       if (scalarValue !== undefined) {
         values = [scalarValue];
       }
     }
   } else {
-    const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+    const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
     values = [];
     for (let i = 1; i <= numParams; i++) {
-      values.push(ctx.state.env[String(i)] || "");
+      values.push(ctx.state.env.get(String(i)) || "");
     }
   }
 

@@ -129,15 +129,15 @@ export async function callFunction(
   }
   ctx.state.localExportedVars.push(new Set());
 
-  const savedPositional: Record<string, string | undefined> = {};
+  const savedPositional = new Map<string, string | undefined>();
   for (let i = 0; i < args.length; i++) {
-    savedPositional[String(i + 1)] = ctx.state.env[String(i + 1)];
-    ctx.state.env[String(i + 1)] = args[i];
+    savedPositional.set(String(i + 1), ctx.state.env.get(String(i + 1)));
+    ctx.state.env.set(String(i + 1), args[i]);
   }
-  savedPositional["@"] = ctx.state.env["@"];
-  savedPositional["#"] = ctx.state.env["#"];
-  ctx.state.env["@"] = args.join(" ");
-  ctx.state.env["#"] = String(args.length);
+  savedPositional.set("@", ctx.state.env.get("@"));
+  savedPositional.set("#", ctx.state.env.get("#"));
+  ctx.state.env.set("@", args.join(" "));
+  ctx.state.env.set("#", String(args.length));
 
   const cleanup = (): void => {
     // Get the scope index before popping (for localVarStack cleanup)
@@ -147,9 +147,9 @@ export async function callFunction(
     if (localScope) {
       for (const [varName, originalValue] of localScope) {
         if (originalValue === undefined) {
-          delete ctx.state.env[varName];
+          ctx.state.env.delete(varName);
         } else {
-          ctx.state.env[varName] = originalValue;
+          ctx.state.env.set(varName, originalValue);
         }
       }
     }
@@ -178,11 +178,11 @@ export async function callFunction(
       }
     }
 
-    for (const [key, value] of Object.entries(savedPositional)) {
+    for (const [key, value] of savedPositional) {
       if (value === undefined) {
-        delete ctx.state.env[key];
+        ctx.state.env.delete(key);
       } else {
-        ctx.state.env[key] = value;
+        ctx.state.env.set(key, value);
       }
     }
 

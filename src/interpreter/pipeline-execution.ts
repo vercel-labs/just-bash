@@ -59,7 +59,7 @@ export async function executePipeline(
 
     // Save environment for commands running in subshell context
     // This prevents variable assignments (e.g., ${cmd=echo}) from leaking to parent
-    const savedEnv = runsInSubshell ? { ...ctx.state.env } : null;
+    const savedEnv = runsInSubshell ? new Map(ctx.state.env) : null;
 
     let result: ExecResult;
     try {
@@ -148,16 +148,16 @@ export async function executePipeline(
 
   if (shouldSetPipestatus) {
     // Clear any previous PIPESTATUS entries
-    for (const key of Object.keys(ctx.state.env)) {
+    for (const key of ctx.state.env.keys()) {
       if (key.startsWith("PIPESTATUS_")) {
-        delete ctx.state.env[key];
+        ctx.state.env.delete(key);
       }
     }
     // Set new PIPESTATUS entries
     for (let i = 0; i < pipestatusExitCodes.length; i++) {
-      ctx.state.env[`PIPESTATUS_${i}`] = String(pipestatusExitCodes[i]);
+      ctx.state.env.set(`PIPESTATUS_${i}`, String(pipestatusExitCodes[i]));
     }
-    ctx.state.env.PIPESTATUS__length = String(pipestatusExitCodes.length);
+    ctx.state.env.set("PIPESTATUS__length", String(pipestatusExitCodes.length));
   }
 
   // If pipefail is enabled, use the rightmost failing exit code

@@ -96,10 +96,10 @@ export async function handleIndirectArrayExpansion(
     // Handle ${!ref} where ref='@' or ref='*' (no array)
     if (!indirOp.innerOp) {
       if (refValue === "@" || refValue === "*") {
-        const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+        const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
         const params: string[] = [];
         for (let i = 1; i <= numParams; i++) {
-          params.push(ctx.state.env[String(i)] || "");
+          params.push(ctx.state.env.get(String(i)) || "");
         }
         if (refValue === "*") {
           // ref='*' - join with IFS into one word (like "$*")
@@ -174,16 +174,16 @@ export async function handleIndirectArrayExpansion(
         operation: indirOp.innerOp,
       };
       // Temporarily set the element value
-      const oldVal = ctx.state.env._indirect_elem_;
-      ctx.state.env._indirect_elem_ = elemValue;
+      const oldVal = ctx.state.env.get("_indirect_elem_");
+      ctx.state.env.set("_indirect_elem_", elemValue);
       try {
         const result = await expandParameterAsync(ctx, syntheticPart, true);
         values.push(result);
       } finally {
         if (oldVal !== undefined) {
-          ctx.state.env._indirect_elem_ = oldVal;
+          ctx.state.env.set("_indirect_elem_", oldVal);
         } else {
-          delete ctx.state.env._indirect_elem_;
+          ctx.state.env.delete("_indirect_elem_");
         }
       }
     }
@@ -211,7 +211,7 @@ export async function handleIndirectArrayExpansion(
   }
 
   // No array elements - check for scalar variable
-  const scalarValue = ctx.state.env[arrayName];
+  const scalarValue = ctx.state.env.get(arrayName);
   if (scalarValue !== undefined) {
     return { values: [scalarValue], quoted: true };
   }
@@ -341,8 +341,8 @@ async function handleIndirectArrayDefaultAlternative(
         true,
       );
       // Assign to the target array
-      ctx.state.env[`${arrayName}_0`] = assignValue;
-      ctx.state.env[`${arrayName}__length`] = "1";
+      ctx.state.env.set(`${arrayName}_0`, assignValue);
+      ctx.state.env.set(`${arrayName}__length`, "1");
       return { values: [assignValue], quoted: true };
     }
     if (isStar) {
@@ -446,7 +446,7 @@ export async function handleIndirectInAlternative(
       return { values, quoted: true };
     }
     // No array elements - check for scalar variable
-    const scalarValue = ctx.state.env[arrayName];
+    const scalarValue = ctx.state.env.get(arrayName);
     if (scalarValue !== undefined) {
       return { values: [scalarValue], quoted: true };
     }
@@ -554,7 +554,7 @@ export async function handleIndirectionWithInnerAlternative(
       return { values, quoted: true };
     }
     // No array elements - check for scalar variable
-    const scalarValue = ctx.state.env[arrayName];
+    const scalarValue = ctx.state.env.get(arrayName);
     if (scalarValue !== undefined) {
       return { values: [scalarValue], quoted: true };
     }

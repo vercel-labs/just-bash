@@ -112,21 +112,24 @@ export async function setVariable(
   if (isArray && arrayElements) {
     // Set array elements
     for (let i = 0; i < arrayElements.length; i++) {
-      ctx.state.env[`${name}_${i}`] = arrayElements[i];
+      ctx.state.env.set(`${name}_${i}`, arrayElements[i]);
     }
-    ctx.state.env[`${name}__length`] = String(arrayElements.length);
+    ctx.state.env.set(`${name}__length`, String(arrayElements.length));
   } else if (arrayIndex !== undefined && value !== undefined) {
     // Array index assignment: a[index]=value
     const index = await evaluateArrayIndex(ctx, arrayIndex);
-    ctx.state.env[`${name}_${index}`] = value;
+    ctx.state.env.set(`${name}_${index}`, value);
     // Update array length if needed (sparse arrays may have gaps)
-    const currentLength = parseInt(ctx.state.env[`${name}__length`] ?? "0", 10);
+    const currentLength = parseInt(
+      ctx.state.env.get(`${name}__length`) ?? "0",
+      10,
+    );
     if (index >= currentLength) {
-      ctx.state.env[`${name}__length`] = String(index + 1);
+      ctx.state.env.set(`${name}__length`, String(index + 1));
     }
   } else if (value !== undefined) {
     // Set scalar value
-    ctx.state.env[name] = value;
+    ctx.state.env.set(name, value);
   }
 
   // Mark as readonly if requested

@@ -142,7 +142,7 @@ export async function handleType(
 
     // Check aliases
     // Aliases are stored in env with BASH_ALIAS_ prefix
-    const alias = ctx.state.env[`BASH_ALIAS_${name}`];
+    const alias = ctx.state.env.get(`BASH_ALIAS_${name}`);
     const hasAlias = alias !== undefined;
     if (hasAlias && (showAll || !foundAny)) {
       // -p: print nothing for aliases (no path), but count as "found"
@@ -407,7 +407,7 @@ export async function handleCommandV(
     }
 
     // Check aliases first (before other checks)
-    const alias = ctx.state.env[`BASH_ALIAS_${name}`];
+    const alias = ctx.state.env.get(`BASH_ALIAS_${name}`);
     if (alias !== undefined) {
       if (verboseDescribe) {
         stdout += `${name} is an alias for "${alias}"\n`;
@@ -464,7 +464,7 @@ export async function handleCommandV(
       }
     } else if (ctx.commands.has(name)) {
       // Search PATH for the command file (registered commands exist in both /usr/bin and /bin)
-      const pathEnv = ctx.state.env.PATH ?? "/usr/bin:/bin";
+      const pathEnv = ctx.state.env.get("PATH") ?? "/usr/bin:/bin";
       const pathDirs = pathEnv.split(":");
       let foundPath: string | null = null;
       for (const dir of pathDirs) {
@@ -536,7 +536,7 @@ export async function findFirstInPath(
   }
 
   // Search PATH directories
-  const pathEnv = ctx.state.env.PATH ?? "/usr/bin:/bin";
+  const pathEnv = ctx.state.env.get("PATH") ?? "/usr/bin:/bin";
   const pathDirs = pathEnv.split(":");
 
   for (const dir of pathDirs) {

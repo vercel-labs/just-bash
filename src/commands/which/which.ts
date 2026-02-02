@@ -37,7 +37,7 @@ export const whichCommand: Command = {
       return { stdout: "", stderr: "", exitCode: 1 };
     }
 
-    const pathEnv = ctx.env.PATH || "/usr/bin:/bin";
+    const pathEnv = ctx.env.get("PATH") || "/usr/bin:/bin";
     const pathDirs = pathEnv.split(":");
 
     let stdout = "";

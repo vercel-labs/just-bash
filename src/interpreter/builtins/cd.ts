@@ -38,9 +38,9 @@ export async function handleCd(
   // Get the target directory
   const remainingArgs = args.slice(i);
   if (remainingArgs.length === 0) {
-    target = ctx.state.env.HOME || "/";
+    target = ctx.state.env.get("HOME") || "/";
   } else if (remainingArgs[0] === "~") {
-    target = ctx.state.env.HOME || "/";
+    target = ctx.state.env.get("HOME") || "/";
   } else if (remainingArgs[0] === "-") {
     target = ctx.state.previousDir;
     printPath = true; // cd - prints the new directory
@@ -57,7 +57,7 @@ export async function handleCd(
     target !== "." &&
     target !== ".."
   ) {
-    const cdpath = ctx.state.env.CDPATH;
+    const cdpath = ctx.state.env.get("CDPATH");
     if (cdpath) {
       const cdpathDirs = cdpath.split(":").filter((d) => d);
       for (const dir of cdpathDirs) {
@@ -116,8 +116,8 @@ export async function handleCd(
 
   ctx.state.previousDir = ctx.state.cwd;
   ctx.state.cwd = newDir;
-  ctx.state.env.PWD = ctx.state.cwd;
-  ctx.state.env.OLDPWD = ctx.state.previousDir;
+  ctx.state.env.set("PWD", ctx.state.cwd);
+  ctx.state.env.set("OLDPWD", ctx.state.previousDir);
 
   // cd - prints the new directory
   return success(printPath ? `${newDir}\n` : "");

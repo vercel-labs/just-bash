@@ -274,20 +274,20 @@ function handleSetOptions(
   quietFlag: boolean,
 ): ExecResult {
   // Map set -o option names to ShellOptions (implemented options)
-  const SET_OPTIONS: Record<string, keyof typeof ctx.state.options> = {
-    errexit: "errexit",
-    pipefail: "pipefail",
-    nounset: "nounset",
-    xtrace: "xtrace",
-    verbose: "verbose",
-    posix: "posix",
-    allexport: "allexport",
-    noclobber: "noclobber",
-    noglob: "noglob",
-    noexec: "noexec",
-    vi: "vi",
-    emacs: "emacs",
-  };
+  const SET_OPTIONS = new Map<string, keyof typeof ctx.state.options>([
+    ["errexit", "errexit"],
+    ["pipefail", "pipefail"],
+    ["nounset", "nounset"],
+    ["xtrace", "xtrace"],
+    ["verbose", "verbose"],
+    ["posix", "posix"],
+    ["allexport", "allexport"],
+    ["noclobber", "noclobber"],
+    ["noglob", "noglob"],
+    ["noexec", "noexec"],
+    ["vi", "vi"],
+    ["emacs", "emacs"],
+  ]);
 
   // No-op options (recognized but always off, for compatibility with set -o)
   const NOOP_OPTIONS = [
@@ -308,14 +308,15 @@ function handleSetOptions(
     "privileged",
   ];
 
-  const ALL_SET_OPTIONS = [...Object.keys(SET_OPTIONS), ...NOOP_OPTIONS].sort();
+  const ALL_SET_OPTIONS = [...SET_OPTIONS.keys(), ...NOOP_OPTIONS].sort();
 
   if (optionNames.length === 0) {
     // Print all set -o options
     const output: string[] = [];
     for (const opt of ALL_SET_OPTIONS) {
       const isNoOp = NOOP_OPTIONS.includes(opt);
-      const value = isNoOp ? false : ctx.state.options[SET_OPTIONS[opt]];
+      const optKey = SET_OPTIONS.get(opt);
+      const value = isNoOp || !optKey ? false : ctx.state.options[optKey];
       if (setFlag && !value) continue;
       if (unsetFlag && value) continue;
       output.push(
@@ -336,7 +337,7 @@ function handleSetOptions(
   const output: string[] = [];
 
   for (const name of optionNames) {
-    const isImplemented = name in SET_OPTIONS;
+    const isImplemented = SET_OPTIONS.has(name);
     const isNoOp = NOOP_OPTIONS.includes(name);
 
     if (!isImplemented && !isNoOp) {
@@ -364,7 +365,8 @@ function handleSetOptions(
       continue;
     }
 
-    const key = SET_OPTIONS[name];
+    const key = SET_OPTIONS.get(name);
+    if (!key) continue; // Should not happen since we validated above
 
     if (setFlag) {
       // Handle mutual exclusivity of vi and emacs

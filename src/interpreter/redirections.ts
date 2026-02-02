@@ -182,7 +182,7 @@ export async function processFdVariableRedirections(
       const target = await expandWord(ctx, redir.target as WordNode);
       if (target === "-") {
         // Close operation - look up the FD from the variable and close it
-        const existingFd = ctx.state.env[redir.fdVariable];
+        const existingFd = ctx.state.env.get(redir.fdVariable);
         if (existingFd !== undefined) {
           const fdNum = Number.parseInt(existingFd, 10);
           if (!Number.isNaN(fdNum)) {
@@ -198,7 +198,7 @@ export async function processFdVariableRedirections(
     const fd = allocateFd(ctx);
 
     // Set the variable to the allocated FD number
-    ctx.state.env[redir.fdVariable] = String(fd);
+    ctx.state.env.set(redir.fdVariable, String(fd));
 
     // For file redirections, store the file path mapping
     if (redir.target.type === "Word") {

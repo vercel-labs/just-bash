@@ -5,6 +5,7 @@
  * Used by jq, yq, and other query-based commands.
  */
 
+import { mapToRecord } from "../../helpers/env.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import {
   evalArrayBuiltin,
@@ -22,6 +23,7 @@ import {
 } from "./builtins/index.js";
 import type { AstNode, DestructurePattern } from "./parser.js";
 import { deletePath, setPath } from "./path-operations.js";
+import { isSafeKey, safeHasOwn, safeSet } from "./safe-object.js";
 import {
   compare,
   compareJq,
@@ -65,33 +67,34 @@ const DEFAULT_MAX_JQ_DEPTH = 2000;
 /**
  * Simple math functions that take a single numeric argument and return a single numeric result.
  * Maps jq function names to their JavaScript Math implementations.
+ * Uses Map to avoid prototype pollution (e.g., if someone tries to call "constructor" as a function).
  */
-const SIMPLE_MATH_FUNCTIONS: Record<string, (x: number) => number> = {
-  floor: Math.floor,
-  ceil: Math.ceil,
-  round: Math.round,
-  sqrt: Math.sqrt,
-  log: Math.log,
-  log10: Math.log10,
-  log2: Math.log2,
-  exp: Math.exp,
-  sin: Math.sin,
-  cos: Math.cos,
-  tan: Math.tan,
-  asin: Math.asin,
-  acos: Math.acos,
-  atan: Math.atan,
-  sinh: Math.sinh,
-  cosh: Math.cosh,
-  tanh: Math.tanh,
-  asinh: Math.asinh,
-  acosh: Math.acosh,
-  atanh: Math.atanh,
-  cbrt: Math.cbrt,
-  expm1: Math.expm1,
-  log1p: Math.log1p,
-  trunc: Math.trunc,
-};
+const SIMPLE_MATH_FUNCTIONS = new Map<string, (x: number) => number>([
+  ["floor", Math.floor],
+  ["ceil", Math.ceil],
+  ["round", Math.round],
+  ["sqrt", Math.sqrt],
+  ["log", Math.log],
+  ["log10", Math.log10],
+  ["log2", Math.log2],
+  ["exp", Math.exp],
+  ["sin", Math.sin],
+  ["cos", Math.cos],
+  ["tan", Math.tan],
+  ["asin", Math.asin],
+  ["acos", Math.acos],
+  ["atan", Math.atan],
+  ["sinh", Math.sinh],
+  ["cosh", Math.cosh],
+  ["tanh", Math.tanh],
+  ["asinh", Math.asinh],
+  ["acosh", Math.acosh],
+  ["atanh", Math.atanh],
+  ["cbrt", Math.cbrt],
+  ["expm1", Math.expm1],
+  ["log1p", Math.log1p],
+  ["trunc", Math.trunc],
+]);
 
 export interface QueryExecutionLimits {
   maxIterations?: number;
@@ -102,7 +105,7 @@ export interface EvalContext {
   vars: Map<string, QueryValue>;
   limits: Required<Pick<QueryExecutionLimits, "maxIterations">> &
     QueryExecutionLimits;
-  env?: Record<string, string | undefined>;
+  env?: Map<string, string>;
   /** Original document root for parent/root navigation */
   root?: QueryValue;
   /** Current path from root for parent navigation */
@@ -187,7 +190,7 @@ function bindPattern(
           if (keyVals.length === 0) return null;
           key = String(keyVals[0]);
         }
-        const fieldValue = key in obj ? obj[key] : null;
+        const fieldValue = safeHasOwn(obj, key) ? obj[key] : null;
         // If keyVar is set (e.g., $b:[$c,$d]), also bind the key variable to the whole value
         if (field.keyVar) {
           newCtx = withVar(newCtx, field.keyVar, fieldValue);
@@ -323,7 +326,7 @@ function applyPathTransform(
 
 export interface EvaluateOptions {
   limits?: QueryExecutionLimits;
-  env?: Record<string, string | undefined>;
+  env?: Map<string, string>;
 }
 
 /**
@@ -530,8 +533,18 @@ export function evaluate(
                 `Cannot use ${typeName} (${JSON.stringify(k)}) as object key`,
               );
             }
+            // Defense against prototype pollution: skip dangerous keys
+            if (!isSafeKey(k)) {
+              // Still produce output but without the dangerous key
+              for (const _v of values) {
+                newResults.push({ ...obj });
+              }
+              continue;
+            }
             for (const v of values) {
-              newResults.push({ ...obj, [k]: v });
+              const newObj = { ...obj };
+              safeSet(newObj, k, v);
+              newResults.push(newObj);
             }
           }
         }
@@ -645,7 +658,8 @@ export function evaluate(
       // Special case: $ENV returns environment variables
       // Note: ast.name includes the $ prefix (e.g., "$ENV")
       if (ast.name === "$ENV") {
-        return [ctx.env ?? {}];
+        // Convert Map to object for jq's internal representation (null-prototype prevents prototype pollution)
+        return [ctx.env ? mapToRecord(ctx.env) : {}];
       }
       const v = ctx.vars.get(ast.name);
       return v !== undefined ? [v] : [null];
@@ -861,6 +875,10 @@ function applyUpdate(
         return transform(val);
 
       case "Field": {
+        // Defense against prototype pollution: skip dangerous keys
+        if (!isSafeKey(path.name)) {
+          return val;
+        }
         if (path.base) {
           return updateRecursive(val, path.base, (baseVal) => {
             if (
@@ -869,7 +887,10 @@ function applyUpdate(
               !Array.isArray(baseVal)
             ) {
               const obj = { ...baseVal } as Record<string, unknown>;
-              obj[path.name] = transform(obj[path.name]);
+              const current = Object.hasOwn(obj, path.name)
+                ? obj[path.name]
+                : undefined;
+              safeSet(obj, path.name, transform(current));
               return obj;
             }
             return baseVal;
@@ -877,7 +898,10 @@ function applyUpdate(
         }
         if (val && typeof val === "object" && !Array.isArray(val)) {
           const obj = { ...val } as Record<string, unknown>;
-          obj[path.name] = transform(obj[path.name]);
+          const current = Object.hasOwn(obj, path.name)
+            ? obj[path.name]
+            : undefined;
+          safeSet(obj, path.name, transform(current));
           return obj;
         }
         return val;
@@ -915,8 +939,13 @@ function applyUpdate(
               typeof baseVal === "object" &&
               !Array.isArray(baseVal)
             ) {
+              // Defense against prototype pollution: skip dangerous keys
+              if (!isSafeKey(idx)) {
+                return baseVal;
+              }
               const obj = { ...baseVal } as Record<string, unknown>;
-              obj[idx] = transform(obj[idx]);
+              const current = Object.hasOwn(obj, idx) ? obj[idx] : undefined;
+              safeSet(obj, idx, transform(current));
               return obj;
             }
             return baseVal;
@@ -958,8 +987,13 @@ function applyUpdate(
           typeof val === "object" &&
           !Array.isArray(val)
         ) {
+          // Defense against prototype pollution: skip dangerous keys
+          if (!isSafeKey(idx)) {
+            return val;
+          }
           const obj = { ...val } as Record<string, unknown>;
-          obj[idx] = transform(obj[idx]);
+          const current = Object.hasOwn(obj, idx) ? obj[idx] : undefined;
+          safeSet(obj, idx, transform(current));
           return obj;
         }
         return val;
@@ -973,7 +1007,10 @@ function applyUpdate(
           if (container && typeof container === "object") {
             const obj: Record<string, unknown> = {};
             for (const [k, v] of Object.entries(container)) {
-              obj[k] = transform(v);
+              // Defense against prototype pollution: skip dangerous keys
+              if (isSafeKey(k)) {
+                safeSet(obj, k, transform(v));
+              }
             }
             return obj;
           }
@@ -1022,6 +1059,10 @@ function applyDel(
       case "Identity":
         return newVal;
       case "Field": {
+        // Defense against prototype pollution: skip dangerous keys
+        if (!isSafeKey(pathNode.name)) {
+          return obj;
+        }
         if (pathNode.base) {
           // Nested field: recurse into base
           const nested = evaluate(obj, pathNode.base, ctx)[0];
@@ -1034,7 +1075,9 @@ function applyDel(
         }
         // Direct field
         if (obj && typeof obj === "object" && !Array.isArray(obj)) {
-          return { ...obj, [pathNode.name]: newVal };
+          const result = { ...obj } as Record<string, unknown>;
+          safeSet(result, pathNode.name, newVal);
+          return result;
         }
         return obj;
       }
@@ -1066,7 +1109,13 @@ function applyDel(
           typeof obj === "object" &&
           !Array.isArray(obj)
         ) {
-          return { ...obj, [idx]: newVal };
+          // Defense against prototype pollution: skip dangerous keys
+          if (!isSafeKey(idx)) {
+            return obj;
+          }
+          const result = { ...obj } as Record<string, unknown>;
+          safeSet(result, idx, newVal);
+          return result;
         }
         return obj;
       }
@@ -1081,6 +1130,10 @@ function applyDel(
         return null;
 
       case "Field": {
+        // Defense against prototype pollution: skip dangerous keys
+        if (!isSafeKey(path.name)) {
+          return val;
+        }
         // If there's a base (nested field like .a.b), recurse
         if (path.base) {
           // Evaluate base to get the nested object
@@ -1136,6 +1189,10 @@ function applyDel(
           typeof val === "object" &&
           !Array.isArray(val)
         ) {
+          // Defense against prototype pollution: skip dangerous keys
+          if (!isSafeKey(idx)) {
+            return val;
+          }
           const obj = { ...val } as Record<string, unknown>;
           delete obj[idx];
           return obj;
@@ -1168,8 +1225,14 @@ function applyDel(
             case "Identity":
               return newVal;
             case "Field": {
+              // Defense against prototype pollution: skip dangerous keys
+              if (!isSafeKey(pathNode.name)) {
+                return obj;
+              }
               if (obj && typeof obj === "object" && !Array.isArray(obj)) {
-                return { ...obj, [pathNode.name]: newVal };
+                const result = { ...obj } as Record<string, unknown>;
+                safeSet(result, pathNode.name, newVal);
+                return result;
               }
               return obj;
             }
@@ -1190,7 +1253,13 @@ function applyDel(
                 typeof obj === "object" &&
                 !Array.isArray(obj)
               ) {
-                return { ...obj, [idx]: newVal };
+                // Defense against prototype pollution: skip dangerous keys
+                if (!isSafeKey(idx)) {
+                  return obj;
+                }
+                const result = { ...obj } as Record<string, unknown>;
+                safeSet(result, idx, newVal);
+                return result;
               }
               return obj;
             }
@@ -1379,7 +1448,7 @@ function evalBuiltin(
   ctx: EvalContext,
 ): QueryValue[] {
   // Handle simple single-argument math functions via lookup table
-  const simpleMathFn = SIMPLE_MATH_FUNCTIONS[name];
+  const simpleMathFn = SIMPLE_MATH_FUNCTIONS.get(name);
   if (simpleMathFn) {
     if (typeof value === "number") return [simpleMathFn(value)];
     return [null];
@@ -1653,7 +1722,8 @@ function evalBuiltin(
     // index, rindex, indices handled by evalIndexBuiltin
 
     case "env":
-      return [ctx.env ?? {}];
+      // Convert Map to object for jq's internal representation (null-prototype prevents prototype pollution)
+      return [ctx.env ? mapToRecord(ctx.env) : {}];
 
     // recurse, recurse_down, walk, transpose, combinations, parent, parents, root
     // handled by evalNavigationBuiltin

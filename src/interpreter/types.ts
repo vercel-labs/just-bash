@@ -346,8 +346,8 @@ export interface InterpreterState
     IOState,
     ExpansionState {
   // ---- Core Environment ----
-  /** Environment variables (exported to commands) */
-  env: Record<string, string>;
+  /** Environment variables (exported to commands) - uses Map to prevent prototype pollution */
+  env: Map<string, string>;
   /** Current working directory */
   cwd: string;
   /** Previous directory (for `cd -`) */

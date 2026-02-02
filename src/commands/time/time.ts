@@ -1,3 +1,4 @@
+import { mapToRecord } from "../../helpers/env.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 
 /**
@@ -109,7 +110,10 @@ export const timeCommand: Command = {
           exitCode: 1,
         };
       }
-      result = await ctx.exec(commandString, { env: ctx.env, cwd: ctx.cwd });
+      result = await ctx.exec(commandString, {
+        env: mapToRecord(ctx.env),
+        cwd: ctx.cwd,
+      });
     } catch (error) {
       result = {
         stdout: "",

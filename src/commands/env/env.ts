@@ -22,7 +22,7 @@ export const envCommand: Command = {
 
     let ignoreEnv = false;
     const unsetVars: string[] = [];
-    const setVars: Record<string, string> = {};
+    const setVars = new Map<string, string>();
     let commandStart = -1;
 
     // Parse arguments
@@ -52,7 +52,7 @@ export const envCommand: Command = {
         const eqIdx = arg.indexOf("=");
         const name = arg.slice(0, eqIdx);
         const value = arg.slice(eqIdx + 1);
-        setVars[name] = value;
+        setVars.set(name, value);
       } else {
         // Start of command
         commandStart = i;
@@ -61,23 +61,25 @@ export const envCommand: Command = {
     }
 
     // Build the new environment
-    let newEnv: Record<string, string>;
+    let newEnv: Map<string, string>;
     if (ignoreEnv) {
-      newEnv = { ...setVars };
+      newEnv = new Map(setVars);
     } else {
-      newEnv = { ...ctx.env };
+      newEnv = new Map(ctx.env);
       // Unset variables
       for (const name of unsetVars) {
-        delete newEnv[name];
+        newEnv.delete(name);
       }
       // Set new variables
-      Object.assign(newEnv, setVars);
+      for (const [name, value] of setVars) {
+        newEnv.set(name, value);
+      }
     }
 
     // If no command, just print environment
     if (commandStart === -1) {
       const lines: string[] = [];
-      for (const [key, value] of Object.entries(newEnv)) {
+      for (const [key, value] of newEnv) {
         lines.push(`${key}=${value}`);
       }
       return {
@@ -146,7 +148,7 @@ export const printenvCommand: Command = {
     if (vars.length === 0) {
       // Print all
       const lines: string[] = [];
-      for (const [key, value] of Object.entries(ctx.env)) {
+      for (const [key, value] of ctx.env) {
         lines.push(`${key}=${value}`);
       }
       return {
@@ -160,8 +162,8 @@ export const printenvCommand: Command = {
     const lines: string[] = [];
     let exitCode = 0;
     for (const varName of vars) {
-      if (varName in ctx.env) {
-        lines.push(ctx.env[varName]);
+      if (ctx.env.has(varName)) {
+        lines.push(ctx.env.get(varName)!);
       } else {
         exitCode = 1;
       }

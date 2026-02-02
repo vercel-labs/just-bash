@@ -67,8 +67,8 @@ export interface CommandContext {
   fs: IFileSystem;
   /** Current working directory */
   cwd: string;
-  /** Environment variables */
-  env: Record<string, string>;
+  /** Environment variables - uses Map to prevent prototype pollution */
+  env: Map<string, string>;
   /**
    * Exported environment variables only.
    * Used by commands like printenv and env that should only show exported vars.

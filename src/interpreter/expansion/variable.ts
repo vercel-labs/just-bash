@@ -35,12 +35,12 @@ function expandSimpleVarsInSubscript(
   // Replace ${varname} patterns
   let result = subscript.replace(
     /\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g,
-    (_, name) => ctx.state.env[name] ?? "",
+    (_, name) => ctx.state.env.get(name) ?? "",
   );
   // Replace $varname patterns (must be careful not to match ${})
   result = result.replace(
     /\$([a-zA-Z_][a-zA-Z0-9_]*)/g,
-    (_, name) => ctx.state.env[name] ?? "",
+    (_, name) => ctx.state.env.get(name) ?? "",
   );
   return result;
 }
@@ -74,14 +74,17 @@ export function getArrayElements(
   if (isAssoc) {
     // For associative arrays, get string keys
     const keys = getAssocArrayKeys(ctx, arrayName);
-    return keys.map((key) => [key, ctx.state.env[`${arrayName}_${key}`]]);
+    return keys.map((key) => [
+      key,
+      ctx.state.env.get(`${arrayName}_${key}`) ?? "",
+    ]);
   }
 
   // For indexed arrays, get numeric indices
   const indices = getArrayIndices(ctx, arrayName);
   return indices.map((index) => [
     index,
-    ctx.state.env[`${arrayName}_${index}`],
+    ctx.state.env.get(`${arrayName}_${index}`) ?? "",
   ]);
 }
 
@@ -126,9 +129,9 @@ export async function getVariable(
     case "$":
       return String(process.pid);
     case "#":
-      return ctx.state.env["#"] || "0";
+      return ctx.state.env.get("#") || "0";
     case "@":
-      return ctx.state.env["@"] || "";
+      return ctx.state.env.get("@") || "";
     case "_":
       // $_ is the last argument of the previous command
       return ctx.state.lastArg;
@@ -156,29 +159,22 @@ export async function getVariable(
       // $* uses first character of IFS as separator when inside double quotes
       // When IFS is empty string, no separator is used
       // When IFS is unset, space is used (default behavior)
-      const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+      const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
       if (numParams === 0) return "";
       const params: string[] = [];
       for (let i = 1; i <= numParams; i++) {
-        params.push(ctx.state.env[String(i)] || "");
+        params.push(ctx.state.env.get(String(i)) || "");
       }
       return params.join(getIfsSeparator(ctx.state.env));
     }
     case "0":
-      return ctx.state.env["0"] || "bash";
+      return ctx.state.env.get("0") || "bash";
     case "PWD":
       // Check if PWD is in env (might have been unset)
-      if (ctx.state.env.PWD !== undefined) {
-        return ctx.state.env.PWD;
-      }
-      // PWD was unset, return empty string
-      return "";
+      return ctx.state.env.get("PWD") ?? "";
     case "OLDPWD":
       // Check if OLDPWD is in env (might have been unset)
-      if (ctx.state.env.OLDPWD !== undefined) {
-        return ctx.state.env.OLDPWD;
-      }
-      return "";
+      return ctx.state.env.get("OLDPWD") ?? "";
     case "PPID": {
       // Parent process ID (from shared metadata)
       const { ppid } = getProcessInfo();
@@ -284,7 +280,7 @@ export async function getVariable(
       }
       // If no array elements, treat scalar variable as single-element array
       // ${s[@]} where s='abc' returns 'abc'
-      const scalarValue = ctx.state.env[arrayName];
+      const scalarValue = ctx.state.env.get(arrayName);
       if (scalarValue !== undefined) {
         return scalarValue;
       }
@@ -323,7 +319,7 @@ export async function getVariable(
       let key = unquoteKey(subscript);
       // Expand simple variable references like $var or ${var}
       key = expandSimpleVarsInSubscript(ctx, key);
-      const value = ctx.state.env[`${arrayName}_${key}`];
+      const value = ctx.state.env.get(`${arrayName}_${key}`);
       if (value === undefined && checkNounset && ctx.state.options.nounset) {
         throw new NounsetError(`${arrayName}[${subscript}]`);
       }
@@ -344,7 +340,7 @@ export async function getVariable(
         index = await evaluateArithmetic(ctx, arithAst.expression);
       } catch {
         // Fall back to simple variable lookup for backwards compatibility
-        const evalValue = ctx.state.env[subscript];
+        const evalValue = ctx.state.env.get(subscript);
         index = evalValue ? Number.parseInt(evalValue, 10) : 0;
         if (Number.isNaN(index)) index = 0;
       }
@@ -376,18 +372,18 @@ export async function getVariable(
         return "";
       }
       // Look up by actual index, not position
-      const value = ctx.state.env[`${arrayName}_${actualIdx}`];
+      const value = ctx.state.env.get(`${arrayName}_${actualIdx}`);
       return value || "";
     }
 
-    const value = ctx.state.env[`${arrayName}_${index}`];
+    const value = ctx.state.env.get(`${arrayName}_${index}`);
     if (value !== undefined) {
       return value;
     }
     // If array element doesn't exist, check if it's a scalar variable accessed as c[0]
     // In bash, c[0] for scalar c returns the value of c
     if (index === 0) {
-      const scalarValue = ctx.state.env[arrayName];
+      const scalarValue = ctx.state.env.get(arrayName);
       if (scalarValue !== undefined) {
         return scalarValue;
       }
@@ -400,7 +396,7 @@ export async function getVariable(
 
   // Positional parameters ($1, $2, etc.) - check nounset
   if (/^[1-9][0-9]*$/.test(name)) {
-    const value = ctx.state.env[name];
+    const value = ctx.state.env.get(name);
     if (value === undefined && checkNounset && ctx.state.options.nounset) {
       throw new NounsetError(name);
     }
@@ -425,7 +421,7 @@ export async function getVariable(
       );
     }
     // Nameref points to empty/invalid target
-    const value = ctx.state.env[name];
+    const value = ctx.state.env.get(name);
     // Empty nameref (no target) should trigger nounset error
     if (
       (value === undefined || value === "") &&
@@ -438,7 +434,7 @@ export async function getVariable(
   }
 
   // Regular variables - check nounset
-  const value = ctx.state.env[name];
+  const value = ctx.state.env.get(name);
   if (value !== undefined) {
     // Track tempenv access for local-unset scoping behavior
     // If this variable has a tempenv binding and we're reading it,
@@ -456,7 +452,7 @@ export async function getVariable(
   // In bash, $a where a is an array returns ${a[0]} (first element)
   if (isArray(ctx, name)) {
     // Return the first element (index 0)
-    const firstValue = ctx.state.env[`${name}_0`];
+    const firstValue = ctx.state.env.get(`${name}_0`);
     if (firstValue !== undefined) {
       return firstValue;
     }
@@ -506,14 +502,14 @@ export async function isVariableSet(
 
   // $@ and $* are considered "set" only if there are positional parameters
   if (name === "@" || name === "*") {
-    const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+    const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
     return numParams > 0;
   }
 
   // PWD and OLDPWD are special - they are set unless explicitly unset
   // We check ctx.state.env for them since they can be unset
   if (name === "PWD" || name === "OLDPWD") {
-    return name in ctx.state.env;
+    return ctx.state.env.has(name);
   }
 
   // Check for array subscript: varName[subscript]
@@ -542,7 +538,7 @@ export async function isVariableSet(
       const elements = getArrayElements(ctx, arrayName);
       if (elements.length > 0) return true;
       // Also check if scalar variable exists
-      return arrayName in ctx.state.env;
+      return ctx.state.env.has(arrayName);
     }
 
     const isAssoc = ctx.state.associativeArrays?.has(arrayName);
@@ -550,7 +546,7 @@ export async function isVariableSet(
     if (isAssoc) {
       // For associative arrays, use subscript as string key (remove quotes if present)
       const key = unquoteKey(subscript);
-      return `${arrayName}_${key}` in ctx.state.env;
+      return ctx.state.env.has(`${arrayName}_${key}`);
     }
 
     // Evaluate subscript as arithmetic expression for indexed arrays
@@ -563,7 +559,7 @@ export async function isVariableSet(
         const arithAst = parseArithmeticExpression(parser, subscript);
         index = await evaluateArithmetic(ctx, arithAst.expression);
       } catch {
-        const evalValue = ctx.state.env[subscript];
+        const evalValue = ctx.state.env.get(subscript);
         index = evalValue ? Number.parseInt(evalValue, 10) : 0;
         if (Number.isNaN(index)) index = 0;
       }
@@ -578,10 +574,10 @@ export async function isVariableSet(
       );
       const actualIdx = maxIndex + 1 + index;
       if (actualIdx < 0) return false;
-      return `${arrayName}_${actualIdx}` in ctx.state.env;
+      return ctx.state.env.has(`${arrayName}_${actualIdx}`);
     }
 
-    return `${arrayName}_${index}` in ctx.state.env;
+    return ctx.state.env.has(`${arrayName}_${index}`);
   }
 
   // Check if this is a nameref - resolve and check target
@@ -589,14 +585,14 @@ export async function isVariableSet(
     const resolved = resolveNameref(ctx, name);
     if (resolved === undefined || resolved === name) {
       // Circular or invalid nameref
-      return name in ctx.state.env;
+      return ctx.state.env.has(name);
     }
     // Recursively check the target
     return isVariableSet(ctx, resolved);
   }
 
   // Regular variable - check if scalar value exists
-  if (name in ctx.state.env) {
+  if (ctx.state.env.has(name)) {
     return true;
   }
 

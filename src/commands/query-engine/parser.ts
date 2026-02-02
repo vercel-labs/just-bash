@@ -56,28 +56,29 @@ import type {
 // Tokenizer
 // ============================================================================
 
-const KEYWORDS: Record<string, TokenType> = {
-  and: "AND",
-  or: "OR",
-  not: "NOT",
-  if: "IF",
-  // biome-ignore lint/suspicious/noThenProperty: jq keyword
-  then: "THEN",
-  elif: "ELIF",
-  else: "ELSE",
-  end: "END",
-  as: "AS",
-  try: "TRY",
-  catch: "CATCH",
-  true: "TRUE",
-  false: "FALSE",
-  null: "NULL",
-  reduce: "REDUCE",
-  foreach: "FOREACH",
-  label: "LABEL",
-  break: "BREAK",
-  def: "DEF",
-};
+// Use Map instead of plain object to avoid prototype pollution
+// (e.g., "__proto__" lookup returning Object.prototype.__proto__)
+const KEYWORDS: Map<string, TokenType> = new Map([
+  ["and", "AND"],
+  ["or", "OR"],
+  ["not", "NOT"],
+  ["if", "IF"],
+  ["then", "THEN"],
+  ["elif", "ELIF"],
+  ["else", "ELSE"],
+  ["end", "END"],
+  ["as", "AS"],
+  ["try", "TRY"],
+  ["catch", "CATCH"],
+  ["true", "TRUE"],
+  ["false", "FALSE"],
+  ["null", "NULL"],
+  ["reduce", "REDUCE"],
+  ["foreach", "FOREACH"],
+  ["label", "LABEL"],
+  ["break", "BREAK"],
+  ["def", "DEF"],
+]);
 
 function tokenize(input: string): Token[] {
   const tokens: Token[] = [];
@@ -322,7 +323,7 @@ function tokenize(input: string): Token[] {
       while (!isEof() && isAlnum(peek())) {
         ident += advance();
       }
-      const keyword = KEYWORDS[ident];
+      const keyword = KEYWORDS.get(ident);
       if (keyword) {
         tokens.push({ type: keyword, pos: start });
       } else {
@@ -553,16 +554,17 @@ class Parser {
 
   private parseUpdate(): AstNode {
     const left = this.parseAlt();
-    const opMap: Record<string, UpdateOpNode["op"]> = {
-      ASSIGN: "=",
-      UPDATE_ADD: "+=",
-      UPDATE_SUB: "-=",
-      UPDATE_MUL: "*=",
-      UPDATE_DIV: "/=",
-      UPDATE_MOD: "%=",
-      UPDATE_ALT: "//=",
-      UPDATE_PIPE: "|=",
-    };
+    // Use Map to avoid prototype pollution
+    const opMap = new Map<string, UpdateOpNode["op"]>([
+      ["ASSIGN", "="],
+      ["UPDATE_ADD", "+="],
+      ["UPDATE_SUB", "-="],
+      ["UPDATE_MUL", "*="],
+      ["UPDATE_DIV", "/="],
+      ["UPDATE_MOD", "%="],
+      ["UPDATE_ALT", "//="],
+      ["UPDATE_PIPE", "|="],
+    ]);
     const tok = this.match(
       "ASSIGN",
       "UPDATE_ADD",
@@ -575,7 +577,10 @@ class Parser {
     );
     if (tok) {
       const value = this.parseVarBind();
-      return { type: "UpdateOp", op: opMap[tok.type], path: left, value };
+      const op = opMap.get(tok.type);
+      if (op) {
+        return { type: "UpdateOp", op, path: left, value };
+      }
     }
     return left;
   }
@@ -613,18 +618,22 @@ class Parser {
 
   private parseComparison(): AstNode {
     let left = this.parseAddSub();
-    const opMap: Record<string, BinaryOpNode["op"]> = {
-      EQ: "==",
-      NE: "!=",
-      LT: "<",
-      LE: "<=",
-      GT: ">",
-      GE: ">=",
-    };
+    // Use Map to avoid prototype pollution
+    const opMap = new Map<string, BinaryOpNode["op"]>([
+      ["EQ", "=="],
+      ["NE", "!="],
+      ["LT", "<"],
+      ["LE", "<="],
+      ["GT", ">"],
+      ["GE", ">="],
+    ]);
     const tok = this.match("EQ", "NE", "LT", "LE", "GT", "GE");
     if (tok) {
-      const right = this.parseAddSub();
-      left = { type: "BinaryOp", op: opMap[tok.type], left, right };
+      const op = opMap.get(tok.type);
+      if (op) {
+        const right = this.parseAddSub();
+        left = { type: "BinaryOp", op, left, right };
+      }
     }
     return left;
   }

@@ -4,6 +4,7 @@
  * This is the new implementation using proper lexer/parser/interpreter architecture.
  */
 
+import { mapToRecord } from "../../helpers/env.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -130,8 +131,8 @@ export const awkCommand2: Command = {
       runtimeCtx.ARGV[String(i + 1)] = files[i];
     }
 
-    // Set up ENVIRON from shell environment
-    runtimeCtx.ENVIRON = { ...ctx.env };
+    // Set up ENVIRON from shell environment (null-prototype prevents prototype pollution)
+    runtimeCtx.ENVIRON = mapToRecord(ctx.env);
 
     // Create interpreter
     const interp = new AwkInterpreter(runtimeCtx);

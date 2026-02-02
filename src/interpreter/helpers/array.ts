@@ -16,7 +16,7 @@ export function getArrayIndices(
   const prefix = `${arrayName}_`;
   const indices: number[] = [];
 
-  for (const key of Object.keys(ctx.state.env)) {
+  for (const key of ctx.state.env.keys()) {
     if (key.startsWith(prefix)) {
       const indexStr = key.slice(prefix.length);
       const index = Number.parseInt(indexStr, 10);
@@ -35,9 +35,9 @@ export function getArrayIndices(
  */
 export function clearArray(ctx: InterpreterContext, arrayName: string): void {
   const prefix = `${arrayName}_`;
-  for (const key of Object.keys(ctx.state.env)) {
+  for (const key of ctx.state.env.keys()) {
     if (key.startsWith(prefix)) {
-      delete ctx.state.env[key];
+      ctx.state.env.delete(key);
     }
   }
 }
@@ -54,7 +54,7 @@ export function getAssocArrayKeys(
   const metadataSuffix = `${arrayName}__length`;
   const keys: string[] = [];
 
-  for (const envKey of Object.keys(ctx.state.env)) {
+  for (const envKey of ctx.state.env.keys()) {
     // Skip the metadata entry (name__length)
     if (envKey === metadataSuffix) {
       continue;

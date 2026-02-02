@@ -130,17 +130,18 @@ export function handleMapfile(
   }
 
   for (let j = 0; j < lines.length; j++) {
-    ctx.state.env[`${arrayName}_${origin + j}`] = lines[j];
+    ctx.state.env.set(`${arrayName}_${origin + j}`, lines[j]);
   }
 
   // Set array length metadata to be the max of existing length and new end position
   const existingLength = parseInt(
-    ctx.state.env[`${arrayName}__length`] || "0",
+    ctx.state.env.get(`${arrayName}__length`) || "0",
     10,
   );
   const newEndIndex = origin + lines.length;
-  ctx.state.env[`${arrayName}__length`] = String(
-    Math.max(existingLength, newEndIndex),
+  ctx.state.env.set(
+    `${arrayName}__length`,
+    String(Math.max(existingLength, newEndIndex)),
   );
 
   // Consume from groupStdin if we used it

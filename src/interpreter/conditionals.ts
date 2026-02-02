@@ -121,7 +121,7 @@ export async function evaluateConditional(
             if (match) {
               // Store full match at index 0, capture groups at indices 1, 2, ...
               for (let i = 0; i < match.length; i++) {
-                ctx.state.env[`BASH_REMATCH_${i}`] = match[i] || "";
+                ctx.state.env.set(`BASH_REMATCH_${i}`, match[i] || "");
               }
             }
             return match !== null;
@@ -788,19 +788,19 @@ function computePatternLength(
 function evaluateShellOption(ctx: InterpreterContext, option: string): boolean {
   // Map of option names to their state in ctx.state.options
   // Only includes options that are actually implemented
-  const optionMap: Record<string, () => boolean> = {
+  const optionMap = new Map<string, () => boolean>([
     // Implemented options (set -o)
-    errexit: () => ctx.state.options.errexit === true,
-    nounset: () => ctx.state.options.nounset === true,
-    pipefail: () => ctx.state.options.pipefail === true,
-    xtrace: () => ctx.state.options.xtrace === true,
+    ["errexit", () => ctx.state.options.errexit === true],
+    ["nounset", () => ctx.state.options.nounset === true],
+    ["pipefail", () => ctx.state.options.pipefail === true],
+    ["xtrace", () => ctx.state.options.xtrace === true],
     // Single-letter aliases for implemented options
-    e: () => ctx.state.options.errexit === true,
-    u: () => ctx.state.options.nounset === true,
-    x: () => ctx.state.options.xtrace === true,
-  };
+    ["e", () => ctx.state.options.errexit === true],
+    ["u", () => ctx.state.options.nounset === true],
+    ["x", () => ctx.state.options.xtrace === true],
+  ]);
 
-  const getter = optionMap[option];
+  const getter = optionMap.get(option);
   if (getter) {
     return getter();
   }
@@ -1111,22 +1111,22 @@ function convertPosixCharClass(
  * Convert POSIX character class name to JS regex equivalent.
  */
 function posixClassToJsClass(className: string): string {
-  const mapping: Record<string, string> = {
-    alnum: "a-zA-Z0-9",
-    alpha: "a-zA-Z",
-    ascii: "\\x00-\\x7F",
-    blank: " \\t",
-    cntrl: "\\x00-\\x1F\\x7F",
-    digit: "0-9",
-    graph: "!-~",
-    lower: "a-z",
-    print: " -~",
-    punct: "!-/:-@\\[-`{-~",
-    space: " \\t\\n\\r\\f\\v",
-    upper: "A-Z",
-    word: "a-zA-Z0-9_",
-    xdigit: "0-9A-Fa-f",
-  };
+  const mapping = new Map<string, string>([
+    ["alnum", "a-zA-Z0-9"],
+    ["alpha", "a-zA-Z"],
+    ["ascii", "\\x00-\\x7F"],
+    ["blank", " \\t"],
+    ["cntrl", "\\x00-\\x1F\\x7F"],
+    ["digit", "0-9"],
+    ["graph", "!-~"],
+    ["lower", "a-z"],
+    ["print", " -~"],
+    ["punct", "!-/:-@\\[-`{-~"],
+    ["space", " \\t\\n\\r\\f\\v"],
+    ["upper", "A-Z"],
+    ["word", "a-zA-Z0-9_"],
+    ["xdigit", "0-9A-Fa-f"],
+  ]);
 
-  return mapping[className] ?? "";
+  return mapping.get(className) ?? "";
 }

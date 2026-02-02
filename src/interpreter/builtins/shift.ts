@@ -37,7 +37,7 @@ export function handleShift(
   }
 
   // Get current positional parameter count
-  const currentCount = Number.parseInt(ctx.state.env["#"] || "0", 10);
+  const currentCount = Number.parseInt(ctx.state.env.get("#") || "0", 10);
 
   // Check if shift count exceeds available parameters
   if (n > currentCount) {
@@ -57,7 +57,7 @@ export function handleShift(
   // Get current positional parameters
   const params: string[] = [];
   for (let i = 1; i <= currentCount; i++) {
-    params.push(ctx.state.env[String(i)] || "");
+    params.push(ctx.state.env.get(String(i)) || "");
   }
 
   // Remove first n parameters
@@ -65,17 +65,17 @@ export function handleShift(
 
   // Clear all old positional parameters
   for (let i = 1; i <= currentCount; i++) {
-    delete ctx.state.env[String(i)];
+    ctx.state.env.delete(String(i));
   }
 
   // Set new positional parameters
   for (let i = 0; i < newParams.length; i++) {
-    ctx.state.env[String(i + 1)] = newParams[i];
+    ctx.state.env.set(String(i + 1), newParams[i]);
   }
 
   // Update $# and $@
-  ctx.state.env["#"] = String(newParams.length);
-  ctx.state.env["@"] = newParams.join(" ");
+  ctx.state.env.set("#", String(newParams.length));
+  ctx.state.env.set("@", newParams.join(" "));
 
   return OK;
 }

@@ -16,7 +16,7 @@ export function expandTildesInValue(
   ctx: InterpreterContext,
   value: string,
 ): string {
-  const home = ctx.state.env.HOME || "/home/user";
+  const home = ctx.state.env.get("HOME") || "/home/user";
 
   // Split by : to handle PATH-like values
   const parts = value.split(":");

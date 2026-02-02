@@ -102,7 +102,7 @@ export async function handleArrayPatternReplacement(
 
   // If no elements, check for scalar (treat as single-element array)
   if (elements.length === 0) {
-    const scalarValue = ctx.state.env[arrayName];
+    const scalarValue = ctx.state.env.get(arrayName);
     if (scalarValue !== undefined) {
       values.push(scalarValue);
     }
@@ -203,7 +203,7 @@ export async function handleArrayPatternRemoval(
 
   // If no elements, check for scalar (treat as single-element array)
   if (elements.length === 0) {
-    const scalarValue = ctx.state.env[arrayName];
+    const scalarValue = ctx.state.env.get(arrayName);
     if (scalarValue !== undefined) {
       values.push(scalarValue);
     }

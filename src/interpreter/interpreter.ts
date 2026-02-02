@@ -24,6 +24,7 @@ import type {
   WordNode,
 } from "../ast/types.js";
 import type { IFileSystem } from "../fs/interface.js";
+import { mapToRecord } from "../helpers/env.js";
 import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
 import { ParseException } from "../parser/types.js";
@@ -160,7 +161,7 @@ export class Interpreter {
 
     const env: Record<string, string> = {};
     for (const name of allExported) {
-      const value = this.ctx.state.env[name];
+      const value = this.ctx.state.env.get(name);
       if (value !== undefined) {
         env[name] = value;
       }
@@ -180,7 +181,7 @@ export class Interpreter {
         stderr += result.stderr;
         exitCode = result.exitCode;
         this.ctx.state.lastExitCode = exitCode;
-        this.ctx.state.env["?"] = String(exitCode);
+        this.ctx.state.env.set("?", String(exitCode));
       } catch (error) {
         // ExitError always propagates up to terminate the script
         // This allows 'eval exit 42' and 'source exit.sh' to exit properly
@@ -195,8 +196,13 @@ export class Interpreter {
           stderr += error.stderr;
           exitCode = error.exitCode;
           this.ctx.state.lastExitCode = exitCode;
-          this.ctx.state.env["?"] = String(exitCode);
-          return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
+          this.ctx.state.env.set("?", String(exitCode));
+          return {
+            stdout,
+            stderr,
+            exitCode,
+            env: mapToRecord(this.ctx.state.env),
+          };
         }
         // ExecutionLimitError must always propagate - these are safety limits
         if (error instanceof ExecutionLimitError) {
@@ -207,24 +213,39 @@ export class Interpreter {
           stderr += error.stderr;
           exitCode = error.exitCode;
           this.ctx.state.lastExitCode = exitCode;
-          this.ctx.state.env["?"] = String(exitCode);
-          return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
+          this.ctx.state.env.set("?", String(exitCode));
+          return {
+            stdout,
+            stderr,
+            exitCode,
+            env: mapToRecord(this.ctx.state.env),
+          };
         }
         if (error instanceof NounsetError) {
           stdout += error.stdout;
           stderr += error.stderr;
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
-          this.ctx.state.env["?"] = String(exitCode);
-          return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
+          this.ctx.state.env.set("?", String(exitCode));
+          return {
+            stdout,
+            stderr,
+            exitCode,
+            env: mapToRecord(this.ctx.state.env),
+          };
         }
         if (error instanceof BadSubstitutionError) {
           stdout += error.stdout;
           stderr += error.stderr;
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
-          this.ctx.state.env["?"] = String(exitCode);
-          return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
+          this.ctx.state.env.set("?", String(exitCode));
+          return {
+            stdout,
+            stderr,
+            exitCode,
+            env: mapToRecord(this.ctx.state.env),
+          };
         }
         // ArithmeticError in expansion (e.g., echo $((42x))) - the command fails
         // but the script continues execution. This matches bash behavior.
@@ -233,7 +254,7 @@ export class Interpreter {
           stderr += error.stderr;
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
-          this.ctx.state.env["?"] = String(exitCode);
+          this.ctx.state.env.set("?", String(exitCode));
           // Continue to next statement instead of terminating script
           continue;
         }
@@ -244,7 +265,7 @@ export class Interpreter {
           stderr += error.stderr;
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
-          this.ctx.state.env["?"] = String(exitCode);
+          this.ctx.state.env.set("?", String(exitCode));
           // Continue to next statement instead of terminating script
           continue;
         }
@@ -269,7 +290,12 @@ export class Interpreter {
       }
     }
 
-    return { stdout, stderr, exitCode, env: { ...this.ctx.state.env } };
+    return {
+      stdout,
+      stderr,
+      exitCode,
+      env: mapToRecord(this.ctx.state.env),
+    };
   }
 
   /**
@@ -343,7 +369,7 @@ export class Interpreter {
 
       // Update $? after each pipeline so it's available for subsequent commands
       this.ctx.state.lastExitCode = exitCode;
-      this.ctx.state.env["?"] = String(exitCode);
+      this.ctx.state.env.set("?", String(exitCode));
     }
 
     // Track whether this exit code is "safe" for errexit purposes
@@ -522,7 +548,7 @@ export class Interpreter {
         "export",
         "readonly",
       ]);
-    const tempExportedVars = Object.keys(tempAssignments);
+    const tempExportedVars = Array.from(tempAssignments.keys());
     if (tempExportedVars.length > 0 && !isLiteralAssignmentBuiltinForExport) {
       this.ctx.state.tempExportedVars =
         this.ctx.state.tempExportedVars || new Set();
@@ -538,9 +564,9 @@ export class Interpreter {
       node.redirections,
     );
     if (fdVarError) {
-      for (const [name, value] of Object.entries(tempAssignments)) {
-        if (value === undefined) delete this.ctx.state.env[name];
-        else this.ctx.state.env[name] = value;
+      for (const [name, value] of tempAssignments) {
+        if (value === undefined) this.ctx.state.env.delete(name);
+        else this.ctx.state.env.set(name, value);
       }
       return fdVarError;
     }
@@ -588,9 +614,9 @@ export class Interpreter {
           stdin = await this.ctx.fs.readFile(filePath);
         } catch {
           const target = await expandWord(this.ctx, redir.target as WordNode);
-          for (const [name, value] of Object.entries(tempAssignments)) {
-            if (value === undefined) delete this.ctx.state.env[name];
-            else this.ctx.state.env[name] = value;
+          for (const [name, value] of tempAssignments) {
+            if (value === undefined) this.ctx.state.env.delete(name);
+            else this.ctx.state.env.set(name, value);
           }
           return failure(`bash: ${target}: No such file or directory\n`);
         }
@@ -896,13 +922,13 @@ export class Interpreter {
       // In bash, "exec" with only redirections does NOT persist prefix assignments
       // This is the "special case of the special case" - unlike other special builtins
       // (like ":"), exec without a command restores temp assignments
-      for (const [name, value] of Object.entries(tempAssignments)) {
-        if (value === undefined) delete this.ctx.state.env[name];
-        else this.ctx.state.env[name] = value;
+      for (const [name, value] of tempAssignments) {
+        if (value === undefined) this.ctx.state.env.delete(name);
+        else this.ctx.state.env.set(name, value);
       }
       // Clear temp exported vars
       if (this.ctx.state.tempExportedVars) {
-        for (const name of Object.keys(tempAssignments)) {
+        for (const name of tempAssignments.keys()) {
           this.ctx.state.tempExportedVars.delete(name);
         }
       }
@@ -915,11 +941,9 @@ export class Interpreter {
     // Push tempEnvBindings onto the stack so unset can see them
     // This allows `unset v` to reveal the underlying global value when
     // v was set by a prefix assignment like `v=tempenv cmd`
-    if (Object.keys(tempAssignments).length > 0) {
+    if (tempAssignments.size > 0) {
       this.ctx.state.tempEnvBindings = this.ctx.state.tempEnvBindings || [];
-      this.ctx.state.tempEnvBindings.push(
-        new Map(Object.entries(tempAssignments)),
-      );
+      this.ctx.state.tempEnvBindings.push(new Map(tempAssignments));
     }
 
     let cmdResult: ExecResult;
@@ -998,30 +1022,27 @@ export class Interpreter {
       !this.ctx.state.options.posix || !isPosixSpecialWithPersistence;
 
     if (shouldRestoreTempAssignments) {
-      for (const [name, value] of Object.entries(tempAssignments)) {
+      for (const [name, value] of tempAssignments) {
         // Skip restoration if this variable was a local that was fully unset
         // This implements bash's behavior where unsetting all local cells
         // prevents the tempenv from being restored
         if (this.ctx.state.fullyUnsetLocals?.has(name)) {
           continue;
         }
-        if (value === undefined) delete this.ctx.state.env[name];
-        else this.ctx.state.env[name] = value;
+        if (value === undefined) this.ctx.state.env.delete(name);
+        else this.ctx.state.env.set(name, value);
       }
     }
 
     // Clear temp exported vars after command execution
     if (this.ctx.state.tempExportedVars) {
-      for (const name of Object.keys(tempAssignments)) {
+      for (const name of tempAssignments.keys()) {
         this.ctx.state.tempExportedVars.delete(name);
       }
     }
 
     // Pop tempEnvBindings from the stack
-    if (
-      Object.keys(tempAssignments).length > 0 &&
-      this.ctx.state.tempEnvBindings
-    ) {
+    if (tempAssignments.size > 0 && this.ctx.state.tempEnvBindings) {
       this.ctx.state.tempEnvBindings.pop();
     }
 

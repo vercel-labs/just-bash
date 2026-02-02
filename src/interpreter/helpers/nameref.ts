@@ -69,7 +69,7 @@ export function targetExists(ctx: InterpreterContext, target: string): boolean {
   if (arrayMatch) {
     const arrayName = arrayMatch[1];
     // Check if array exists (has any elements or is declared as assoc)
-    const hasElements = Object.keys(ctx.state.env).some(
+    const hasElements = Array.from(ctx.state.env.keys()).some(
       (k) => k.startsWith(`${arrayName}_`) && !k.includes("__"),
     );
     const isAssoc = ctx.state.associativeArrays?.has(arrayName) ?? false;
@@ -77,7 +77,7 @@ export function targetExists(ctx: InterpreterContext, target: string): boolean {
   }
 
   // Check if it's an array (stored as target_0, target_1, etc.)
-  const hasArrayElements = Object.keys(ctx.state.env).some(
+  const hasArrayElements = Array.from(ctx.state.env.keys()).some(
     (k) => k.startsWith(`${target}_`) && !k.includes("__"),
   );
   if (hasArrayElements) {
@@ -85,7 +85,7 @@ export function targetExists(ctx: InterpreterContext, target: string): boolean {
   }
 
   // Check if scalar variable exists
-  return ctx.state.env[target] !== undefined;
+  return ctx.state.env.has(target);
 }
 
 /**
@@ -130,7 +130,7 @@ export function resolveNameref(
     }
 
     // Get the target name from the variable's value
-    const target = ctx.state.env[current];
+    const target = ctx.state.env.get(current);
     if (target === undefined || target === "") {
       // Empty or unset nameref - return the nameref itself
       return current;
@@ -165,7 +165,7 @@ export function getNamerefTarget(
   if (!isNameref(ctx, name)) {
     return undefined;
   }
-  return ctx.state.env[name];
+  return ctx.state.env.get(name);
 }
 
 /**
@@ -215,7 +215,7 @@ export function resolveNamerefForAssignment(
     }
 
     // Get the target name from the variable's value
-    const target = ctx.state.env[current];
+    const target = ctx.state.env.get(current);
     if (target === undefined || target === "") {
       // Empty or unset nameref - special handling based on value being assigned
       // If the value is a valid variable name AND that variable exists, set it as target

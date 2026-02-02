@@ -71,7 +71,12 @@ export const printenvCommand: Command = defineCommand(
   async (args, ctx) => {
     // Use exportedEnv if available (only exported vars), fall back to full env
     const env = ctx.exportedEnv || ctx.env;
-    const output = args.map((name) => env[name] ?? "None").join("\n");
+    const output = args
+      .map((name) => {
+        const value = env instanceof Map ? env.get(name) : env[name];
+        return value ?? "None";
+      })
+      .join("\n");
     return {
       stdout: output ? `${output}\n` : "",
       stderr: "",

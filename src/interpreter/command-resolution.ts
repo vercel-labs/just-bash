@@ -104,7 +104,7 @@ export async function resolveCommand(
   }
 
   // Search PATH directories (use override if provided, for command -p)
-  const pathEnv = pathOverride ?? ctx.state.env.PATH ?? "/usr/bin:/bin";
+  const pathEnv = pathOverride ?? ctx.state.env.get("PATH") ?? "/usr/bin:/bin";
   const pathDirs = pathEnv.split(":");
 
   for (const dir of pathDirs) {
@@ -195,7 +195,7 @@ export async function findCommandInPath(
     return paths;
   }
 
-  const pathEnv = ctx.state.env.PATH || "/usr/bin:/bin";
+  const pathEnv = ctx.state.env.get("PATH") || "/usr/bin:/bin";
   const pathDirs = pathEnv.split(":");
 
   for (const dir of pathDirs) {

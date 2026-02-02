@@ -60,10 +60,10 @@ export type ExpandWordPartsAsyncFn = (
  * Get positional parameters from context
  */
 function getPositionalParams(ctx: InterpreterContext): string[] {
-  const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+  const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
   const params: string[] = [];
   for (let i = 1; i <= numParams; i++) {
-    params.push(ctx.state.env[String(i)] || "");
+    params.push(ctx.state.env.get(String(i)) || "");
   }
   return params;
 }
@@ -116,13 +116,13 @@ export async function handlePositionalSlicing(
     : undefined;
 
   // Get positional parameters
-  const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+  const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
   const allParams: string[] = [];
   for (let i = 1; i <= numParams; i++) {
-    allParams.push(ctx.state.env[String(i)] || "");
+    allParams.push(ctx.state.env.get(String(i)) || "");
   }
 
-  const shellName = ctx.state.env["0"] || "bash";
+  const shellName = ctx.state.env.get("0") || "bash";
 
   // Build sliced params array
   let slicedParams: string[];
@@ -510,7 +510,7 @@ export async function handleSimplePositionalExpansion(
   }
 
   // Get positional parameters
-  const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+  const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
 
   // Expand prefix (parts before $@/$*)
   let prefix = "";
@@ -537,7 +537,7 @@ export async function handleSimplePositionalExpansion(
   // Get individual positional parameters
   const params: string[] = [];
   for (let i = 1; i <= numParams; i++) {
-    params.push(ctx.state.env[String(i)] || "");
+    params.push(ctx.state.env.get(String(i)) || "");
   }
 
   if (isStar) {

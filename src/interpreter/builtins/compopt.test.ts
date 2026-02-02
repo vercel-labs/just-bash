@@ -6,7 +6,7 @@ import { handleCompopt } from "./compopt.js";
 // Minimal mock for testing
 function createMockCtx(): InterpreterContext {
   const state: InterpreterState = {
-    env: {},
+    env: new Map(),
     cwd: "/",
     previousDir: "/",
     functions: new Map(),

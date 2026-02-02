@@ -146,9 +146,7 @@ function expandSimplePart(
       }
       if (part.user === null) {
         // Use HOME if set (even if empty), otherwise fall back to /home/user
-        return ctx.state.env.HOME !== undefined
-          ? ctx.state.env.HOME
-          : "/home/user";
+        return ctx.state.env.get("HOME") ?? "/home/user";
       }
       // ~username only expands if user exists
       // In sandboxed environment, we can only verify 'root' exists universally
@@ -495,7 +493,7 @@ export function hasQuotedMultiValueAt(
   ctx: InterpreterContext,
   word: WordNode,
 ): boolean {
-  const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+  const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
   // Only a problem if there are 2+ positional parameters
   if (numParams < 2) return false;
 
@@ -702,13 +700,13 @@ async function expandPart(
           // Read the file
           const content = await ctx.fs.readFile(resolvedPath);
           ctx.state.lastExitCode = 0;
-          ctx.state.env["?"] = "0";
+          ctx.state.env.set("?", "0");
           // Strip trailing newlines (like command substitution does)
           return content.replace(/\n+$/, "");
         } catch {
           // File not found or read error - return empty string, set exit code
           ctx.state.lastExitCode = 1;
-          ctx.state.env["?"] = "1";
+          ctx.state.env.set("?", "1");
           return "";
         }
       }
@@ -721,7 +719,7 @@ async function expandPart(
       ctx.state.bashPid = ctx.state.nextVirtualPid++;
       // Save environment - command substitutions run in a subshell and should not
       // modify parent environment (e.g., aliases defined inside $() should not leak)
-      const savedEnv = { ...ctx.state.env };
+      const savedEnv = new Map(ctx.state.env);
       const savedCwd = ctx.state.cwd;
       // Suppress verbose mode (set -v) inside command substitutions
       // bash only prints verbose output for the main script
@@ -736,7 +734,7 @@ async function expandPart(
         ctx.state.suppressVerbose = savedSuppressVerbose;
         // Store the exit code for $?
         ctx.state.lastExitCode = exitCode;
-        ctx.state.env["?"] = String(exitCode);
+        ctx.state.env.set("?", String(exitCode));
         // Command substitution stderr should go to the shell's stderr at expansion time,
         // NOT be affected by later redirections on the outer command
         if (result.stderr) {
@@ -758,7 +756,7 @@ async function expandPart(
         if (error instanceof ExitError) {
           // Catch exit in command substitution - return output so far
           ctx.state.lastExitCode = error.exitCode;
-          ctx.state.env["?"] = String(error.exitCode);
+          ctx.state.env.set("?", String(error.exitCode));
           // Also forward stderr from the exit
           if (error.stderr) {
             ctx.state.expansionStderr =
