@@ -1,4 +1,5 @@
 import type { Bash } from "just-bash/browser";
+import { track } from "@vercel/analytics";
 import { HISTORY_KEY, MAX_HISTORY } from "./constants";
 import { formatMarkdown } from "./markdown";
 
@@ -258,6 +259,8 @@ export function createInputHandler(term: Terminal, bash: Bash) {
   const executeCommand = async (command: string) => {
     const trimmed = command.trim();
     if (!trimmed) return;
+
+    track("command", { fullCommand: trimmed, command: trimmed.split(" ")[0] });
 
     history.push(trimmed);
     historyIndex = history.length;
