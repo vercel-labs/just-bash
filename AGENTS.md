@@ -38,3 +38,47 @@
 
 - We explicitly don't support 64bit integers
 - Must never hang. All parsing and execution should have reasonable max limits to avoid runaway compute.
+
+## Prototype Pollution Defense
+
+User-controlled data (stdin, arguments, file content, HTTP headers, environment variables) can become JavaScript object keys. To prevent prototype pollution attacks:
+
+### Rules
+
+1. **Always use `Object.create(null)` for objects with user-controlled keys:**
+   ```typescript
+   // BAD - vulnerable to prototype pollution
+   const obj: Record<string, string> = {};
+   obj[userKey] = value;  // userKey could be "__proto__" or "constructor"
+
+   // GOOD - safe from prototype pollution
+   const obj: Record<string, string> = Object.create(null);
+   obj[userKey] = value;  // null-prototype prevents prototype chain access
+   ```
+
+2. **Use `Map<string, T>` instead of plain objects when possible** - Maps don't have prototype pollution issues.
+
+3. **Use helper functions from `src/helpers/env.ts`:**
+   - `mapToRecord()` - safely converts Map to null-prototype Record
+   - `mapToRecordWithExtras()` - same but merges extra properties
+   - `mergeToNullPrototype()` - safely merges objects
+
+4. **Use safe-object utilities from `src/commands/query-engine/safe-object.ts`:**
+   - `isSafeKey()` - checks if key is safe (not `__proto__`, `constructor`, `prototype`)
+   - `safeSet()` - sets property only if key is safe
+   - `safeFromEntries()` - creates null-prototype object from entries
+
+### Common Vulnerable Patterns
+
+- HTTP header parsing (curl, fetch responses)
+- CSV/JSON/YAML parsing where keys come from data
+- Command argument parsing
+- Environment variable handling
+- AWK/jq variable and array storage
+
+### Testing
+
+Add prototype pollution tests for any code that stores user-controlled keys:
+- Test with keywords: `constructor`, `__proto__`, `prototype`, `hasOwnProperty`, `toString`, `valueOf`
+- Verify `Object.prototype` is not modified after processing
+- See existing tests in `src/interpreter/prototype-pollution.test.ts` and `src/commands/*/prototype-pollution.test.ts`
