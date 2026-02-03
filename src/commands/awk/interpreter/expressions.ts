@@ -299,7 +299,8 @@ async function callUserFunction(
   }
 
   // Save only parameter variables (they are local in AWK)
-  const savedParams: Record<string, AwkValue | undefined> = {};
+  // Use null-prototype to prevent prototype pollution via user-controlled param names
+  const savedParams: Record<string, AwkValue | undefined> = Object.create(null);
   for (const param of func.params) {
     savedParams[param] = ctx.vars[param];
   }

@@ -174,7 +174,8 @@ async function responseToResult(
   response: Response,
   url: string,
 ): Promise<FetchResult> {
-  const headers: Record<string, string> = {};
+  // Use null-prototype to prevent prototype pollution via malicious response headers
+  const headers: Record<string, string> = Object.create(null);
   response.headers.forEach((value, key) => {
     headers[key.toLowerCase()] = value;
   });

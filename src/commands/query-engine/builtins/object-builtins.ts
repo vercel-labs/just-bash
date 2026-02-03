@@ -78,7 +78,7 @@ export function evalObjectBuiltin(
 
     case "from_entries":
       if (Array.isArray(value)) {
-        const result: Record<string, unknown> = {};
+        const result: Record<string, unknown> = Object.create(null);
         for (const item of value) {
           if (item && typeof item === "object") {
             const obj = item as Record<string, unknown>;
@@ -109,7 +109,7 @@ export function evalObjectBuiltin(
           }),
         );
         const mapped = entries.flatMap((e) => evaluate(e, args[0], ctx));
-        const result: Record<string, unknown> = {};
+        const result: Record<string, unknown> = Object.create(null);
         for (const item of mapped) {
           if (item && typeof item === "object") {
             const obj = item as Record<string, unknown>;

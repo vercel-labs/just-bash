@@ -273,7 +273,8 @@ export function evalArrayBuiltin(
         return [value.flatMap((item) => evaluate(item, args[0], ctx))];
       }
       if (value && typeof value === "object") {
-        const result: Record<string, unknown> = {};
+        // Use null-prototype for additional safety
+        const result: Record<string, unknown> = Object.create(null);
         for (const [k, v] of Object.entries(value)) {
           // Defense against prototype pollution
           if (!isSafeKey(k)) continue;

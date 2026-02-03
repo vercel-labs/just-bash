@@ -94,7 +94,8 @@ export function safeDelete<T>(obj: Record<string, T>, key: string): void {
 export function safeFromEntries<T>(
   entries: Iterable<[string, T]>,
 ): Record<string, T> {
-  const result: Record<string, T> = {};
+  // Use null-prototype for additional safety
+  const result: Record<string, T> = Object.create(null);
   for (const [key, value] of entries) {
     safeSet(result, key, value);
   }

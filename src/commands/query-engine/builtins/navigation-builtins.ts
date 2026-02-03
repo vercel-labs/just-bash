@@ -96,7 +96,8 @@ export function evalNavigationBuiltin(
         if (Array.isArray(v)) {
           transformed = v.map(walkFn);
         } else if (v && typeof v === "object") {
-          const obj: Record<string, unknown> = {};
+          // Use null-prototype for additional safety
+          const obj: Record<string, unknown> = Object.create(null);
           for (const [k, val] of Object.entries(v)) {
             // Defense against prototype pollution
             if (isSafeKey(k)) {

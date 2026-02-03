@@ -60,7 +60,7 @@ export function evalSqlBuiltin(
       if (args.length === 1) {
         // INDEX(stream) - index by the values themselves (like group_by)
         const streamVals = evaluate(value, args[0], ctx);
-        const result: Record<string, unknown> = {};
+        const result: Record<string, unknown> = Object.create(null);
         for (const v of streamVals) {
           const key = String(v);
           // Defense against prototype pollution
@@ -73,7 +73,7 @@ export function evalSqlBuiltin(
       if (args.length === 2) {
         // INDEX(stream; idx_expr) - index by idx_expr applied to each value
         const streamVals = evaluate(value, args[0], ctx);
-        const result: Record<string, unknown> = {};
+        const result: Record<string, unknown> = Object.create(null);
         for (const v of streamVals) {
           const keys = evaluate(v, args[1], ctx);
           if (keys.length > 0) {
@@ -88,7 +88,7 @@ export function evalSqlBuiltin(
       }
       // INDEX(stream; idx_expr; val_expr)
       const streamVals = evaluate(value, args[0], ctx);
-      const result: Record<string, unknown> = {};
+      const result: Record<string, unknown> = Object.create(null);
       for (const v of streamVals) {
         const keys = evaluate(v, args[1], ctx);
         const vals = evaluate(v, args[2], ctx);

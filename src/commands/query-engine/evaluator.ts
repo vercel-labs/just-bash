@@ -1005,7 +1005,8 @@ function applyUpdate(
             return container.map((item) => transform(item));
           }
           if (container && typeof container === "object") {
-            const obj: Record<string, unknown> = {};
+            // Use null-prototype to prevent prototype pollution
+            const obj: Record<string, unknown> = Object.create(null);
             for (const [k, v] of Object.entries(container)) {
               // Defense against prototype pollution: skip dangerous keys
               if (isSafeKey(k)) {

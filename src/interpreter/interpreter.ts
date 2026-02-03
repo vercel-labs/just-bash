@@ -156,10 +156,11 @@ export class Interpreter {
     if (allExported.size === 0) {
       // No exported vars - return empty env
       // This matches bash behavior where variables must be exported to be visible to children
-      return {};
+      return Object.create(null);
     }
 
-    const env: Record<string, string> = {};
+    // Use null-prototype to prevent prototype pollution via user-controlled variable names
+    const env: Record<string, string> = Object.create(null);
     for (const name of allExported) {
       const value = this.ctx.state.env.get(name);
       if (value !== undefined) {
