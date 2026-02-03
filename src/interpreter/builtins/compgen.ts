@@ -1022,9 +1022,12 @@ function getCompreplyValues(ctx: InterpreterContext): string[] {
     for (const [, value] of elements) {
       values.push(value);
     }
-  } else if (ctx.state.env.has("COMPREPLY")) {
-    // It's a scalar value
-    values.push(ctx.state.env.get("COMPREPLY")!);
+  } else {
+    // Check if it's a scalar value
+    const scalarValue = ctx.state.env.get("COMPREPLY");
+    if (scalarValue !== undefined) {
+      values.push(scalarValue);
+    }
   }
 
   return values;

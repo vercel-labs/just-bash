@@ -162,8 +162,9 @@ export const printenvCommand: Command = {
     const lines: string[] = [];
     let exitCode = 0;
     for (const varName of vars) {
-      if (ctx.env.has(varName)) {
-        lines.push(ctx.env.get(varName)!);
+      const value = ctx.env.get(varName);
+      if (value !== undefined) {
+        lines.push(value);
       } else {
         exitCode = 1;
       }

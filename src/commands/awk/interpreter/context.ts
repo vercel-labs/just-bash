@@ -124,13 +124,15 @@ export function createRuntimeContext(
     fields: [],
     line: "",
 
-    vars: {},
-    arrays: {},
+    // Use null-prototype objects to prevent prototype pollution
+    // when user-controlled keys like "__proto__" or "constructor" are used
+    vars: Object.create(null) as Record<string, AwkValue>,
+    arrays: Object.create(null) as Record<string, Record<string, AwkValue>>,
     arrayAliases: new Map(),
 
     ARGC: 0,
-    ARGV: {},
-    ENVIRON: {},
+    ARGV: Object.create(null) as Record<string, string>,
+    ENVIRON: Object.create(null) as Record<string, string>,
 
     functions: new Map(),
 

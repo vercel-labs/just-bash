@@ -498,11 +498,13 @@ async function processSimpleArrayAssignment(
         ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
       );
       startIndex = maxIndex + 1;
-    } else if (ctx.state.env.has(name)) {
-      const scalarValue = ctx.state.env.get(name)!;
-      ctx.state.env.set(`${name}_0`, scalarValue);
-      ctx.state.env.delete(name);
-      startIndex = 1;
+    } else {
+      const scalarValue = ctx.state.env.get(name);
+      if (scalarValue !== undefined) {
+        ctx.state.env.set(`${name}_0`, scalarValue);
+        ctx.state.env.delete(name);
+        startIndex = 1;
+      }
     }
   } else {
     clearExistingElements();

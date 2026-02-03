@@ -185,7 +185,8 @@ async function awkSplit(
 
   const parts = str.split(sep);
 
-  ctx.arrays[arrayName] = {};
+  // Use null-prototype to prevent prototype pollution with user-controlled keys
+  ctx.arrays[arrayName] = Object.create(null);
   for (let i = 0; i < parts.length; i++) {
     ctx.arrays[arrayName][String(i + 1)] = parts[i];
   }

@@ -167,9 +167,9 @@ export async function handleLocal(
 
       // If variable was a scalar, convert it to array element 0
       let startIndex = 0;
-      if (existingIndices.length === 0 && ctx.state.env.has(name)) {
+      const scalarValue = ctx.state.env.get(name);
+      if (existingIndices.length === 0 && scalarValue !== undefined) {
         // Variable exists as scalar - convert to array element 0
-        const scalarValue = ctx.state.env.get(name)!;
         ctx.state.env.set(`${name}_0`, scalarValue);
         ctx.state.env.delete(name);
         startIndex = 1;

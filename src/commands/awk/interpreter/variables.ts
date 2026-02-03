@@ -150,7 +150,8 @@ export function setArrayElement(
   // Resolve aliases for function parameter passing
   const resolvedArray = resolveArrayName(ctx, array);
   if (!ctx.arrays[resolvedArray]) {
-    ctx.arrays[resolvedArray] = {};
+    // Use null-prototype to prevent prototype pollution with user-controlled keys
+    ctx.arrays[resolvedArray] = Object.create(null);
   }
   ctx.arrays[resolvedArray][key] = value;
 }
