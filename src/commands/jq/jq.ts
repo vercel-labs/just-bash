@@ -1,19 +1,85 @@
 /**
  * jq - Command-line JSON processor
  *
- * Full jq implementation with proper parser and evaluator.
+ * Uses jq-web (real jq compiled to WebAssembly) for full jq compatibility.
+ * Executes in a worker thread with timeout protection to prevent runaway compute.
  */
 
-import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { readFiles } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
-import {
-  type EvaluateOptions,
-  evaluate,
-  parse,
-  type QueryValue,
-} from "../query-engine/index.js";
+import { Worker } from "node:worker_threads";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+// Timeout for jq execution (1000ms = 1 second)
+// This prevents infinite loops from hanging the process while allowing
+// normal operations to complete
+const JQ_TIMEOUT_MS = 1000;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Worker path: try current directory first (dist), then fall back to src
+// When running tests, we're in src/commands/jq/, worker is in src/commands/jq/jq-worker.ts
+// When running from dist, we're in dist/commands/jq/, worker is in dist/commands/jq/jq-worker.js
+let workerPath = join(__dirname, "jq-worker.js");
+// For tests running from source, use the TypeScript file
+if (__filename.includes("/src/")) {
+  workerPath = join(__dirname, "jq-worker.ts");
+}
+
+/**
+ * Execute jq in a worker thread with timeout protection.
+ * Returns the result or throws an error if timeout is exceeded.
+ */
+async function executeJqWithTimeout(
+  input: string,
+  filter: string,
+  flags: string[],
+): Promise<{ output: string; exitCode: number }> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(workerPath);
+    let timedOut = false;
+
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      worker.terminate();
+      reject(new Error("jq execution timeout: operation took too long"));
+    }, JQ_TIMEOUT_MS);
+
+    worker.on("message", (result: any) => {
+      clearTimeout(timeout);
+      worker.terminate();
+      
+      if (timedOut) return;
+
+      if (result.success) {
+        resolve({ output: result.output, exitCode: result.exitCode });
+      } else {
+        const error: any = new Error(result.error);
+        error.exitCode = result.exitCode;
+        error.stderr = result.stderr;
+        reject(error);
+      }
+    });
+
+    worker.on("error", (err) => {
+      clearTimeout(timeout);
+      worker.terminate();
+      if (!timedOut) reject(err);
+    });
+
+    worker.on("exit", (code) => {
+      clearTimeout(timeout);
+      if (!timedOut && code !== 0) {
+        reject(new Error(`Worker exited with code ${code}`));
+      }
+    });
+
+    worker.postMessage({ input, filter, flags });
+  });
+}
 
 /**
  * Parse a JSON stream (concatenated JSON values).
@@ -125,60 +191,23 @@ const jqHelp = {
   ],
 };
 
-function formatValue(
-  v: QueryValue,
-  compact: boolean,
-  raw: boolean,
-  sortKeys: boolean,
-  useTab: boolean,
-  indent = 0,
-): string {
-  if (v === null) return "null";
-  if (v === undefined) return "null";
-  if (typeof v === "boolean") return String(v);
-  if (typeof v === "number") {
-    if (!Number.isFinite(v)) return "null";
-    return String(v);
-  }
-  if (typeof v === "string") return raw ? v : JSON.stringify(v);
-
-  const indentStr = useTab ? "\t" : "  ";
-
-  if (Array.isArray(v)) {
-    if (v.length === 0) return "[]";
-    if (compact) {
-      return `[${v.map((x) => formatValue(x, true, false, sortKeys, useTab)).join(",")}]`;
-    }
-    const items = v.map(
-      (x) =>
-        indentStr.repeat(indent + 1) +
-        formatValue(x, false, false, sortKeys, useTab, indent + 1),
-    );
-    return `[\n${items.join(",\n")}\n${indentStr.repeat(indent)}]`;
-  }
-
-  if (typeof v === "object") {
-    let keys = Object.keys(v as object);
-    if (sortKeys) keys = keys.sort();
-    if (keys.length === 0) return "{}";
-    if (compact) {
-      return `{${keys.map((k) => `${JSON.stringify(k)}:${formatValue((v as Record<string, unknown>)[k], true, false, sortKeys, useTab)}`).join(",")}}`;
-    }
-    const items = keys.map((k) => {
-      const val = formatValue(
-        (v as Record<string, unknown>)[k],
-        false,
-        false,
-        sortKeys,
-        useTab,
-        indent + 1,
-      );
-      return `${indentStr.repeat(indent + 1)}${JSON.stringify(k)}: ${val}`;
-    });
-    return `{\n${items.join(",\n")}\n${indentStr.repeat(indent)}}`;
-  }
-
-  return String(v);
+/**
+ * Build jq flags string from options
+ */
+function buildJqFlags(options: {
+  raw: boolean;
+  compact: boolean;
+  sortKeys: boolean;
+  useTab: boolean;
+  joinOutput: boolean;
+}): string {
+  const flags: string[] = [];
+  if (options.raw) flags.push("-r");
+  if (options.compact) flags.push("-c");
+  if (options.sortKeys) flags.push("-S");
+  if (options.useTab) flags.push("--tab");
+  if (options.joinOutput) flags.push("-j");
+  return flags.join(" ");
 }
 
 export const jqCommand: Command = {
@@ -268,81 +297,125 @@ export const jqCommand: Command = {
     }
 
     try {
-      const ast = parse(filter);
-      let values: QueryValue[] = [];
+      // Build jq flags array (jq-web expects an array, not a string)
+      const flags: string[] = [];
+      if (raw) flags.push("-r");
+      if (compact) flags.push("-c");
+      if (sortKeys) flags.push("-S");
+      if (useTab) flags.push("--tab");
+      if (joinOutput) flags.push("-j");
 
-      const evalOptions: EvaluateOptions = {
-        limits: ctx.limits
-          ? { maxIterations: ctx.limits.maxJqIterations }
-          : undefined,
-        env: ctx.env,
-      };
+      const outputParts: string[] = [];
 
       if (nullInput) {
-        values = evaluate(null, ast, evalOptions);
+        // Null input mode: run filter with null input
+        const { output } = await executeJqWithTimeout("null", filter, flags);
+        if (output !== undefined) {
+          outputParts.push(output);
+        }
       } else if (slurp) {
         // Slurp mode: combine all inputs into single array
-        // Use JSON stream parser to handle concatenated JSON (not just NDJSON)
-        const items: QueryValue[] = [];
+        const items: unknown[] = [];
         for (const { content } of inputs) {
           const trimmed = content.trim();
           if (trimmed) {
             items.push(...parseJsonStream(trimmed));
           }
         }
-        values = evaluate(items, ast, evalOptions);
+        const jsonInput = JSON.stringify(items);
+        const { output } = await executeJqWithTimeout(jsonInput, filter, flags);
+        if (output !== undefined) {
+          outputParts.push(output);
+        }
       } else {
-        // Process each input file separately
-        // Use JSON stream parser to handle concatenated JSON (e.g., cat file1.json file2.json | jq .)
+        // Process each input separately
         for (const { content } of inputs) {
           const trimmed = content.trim();
           if (!trimmed) continue;
 
           const jsonValues = parseJsonStream(trimmed);
           for (const jsonValue of jsonValues) {
-            values.push(...evaluate(jsonValue, ast, evalOptions));
+            const jsonInput = JSON.stringify(jsonValue);
+            const { output } = await executeJqWithTimeout(jsonInput, filter, flags);
+            // Include result even if undefined/empty (e.g., 'empty' filter)
+            if (output !== undefined) {
+              outputParts.push(output);
+            }
           }
         }
       }
 
-      const formatted = values.map((v) =>
-        formatValue(v, compact, raw, sortKeys, useTab),
-      );
-      const separator = joinOutput ? "" : "\n";
-      const output = formatted.join(separator);
-      const exitCode =
-        exitStatus &&
-        (values.length === 0 ||
-          values.every((v) => v === null || v === undefined || v === false))
-          ? 1
-          : 0;
+      // executeJqWithTimeout() returns formatted output
+      // - Without -j: includes newlines between values but NOT a trailing newline
+      // - With -j: no newlines at all
+      // We need to add the final newline (unless -j is used) and handle multiple inputs
+      
+      let output: string;
+      if (joinOutput) {
+        // With -j: concatenate all outputs with no separators or trailing newline
+        output = outputParts.join("");
+      } else {
+        // Without -j: each output part needs a trailing newline
+        // jq-web doesn't add the final newline, so we need to add it
+        output = outputParts.map(part => part.endsWith("\n") ? part : `${part}\n`).join("");
+      }
+      
+      // Calculate exit code for -e flag
+      // We need to check if output represents null/false/empty
+      let exitCode = 0;
+      if (exitStatus) {
+        const trimmed = output.trim();
+        if (!trimmed || trimmed === "null" || trimmed === "false") {
+          exitCode = 1;
+        }
+      }
 
       return {
-        stdout: output ? (joinOutput ? output : `${output}\n`) : "",
+        stdout: output,
         stderr: "",
         exitCode,
       };
     } catch (e) {
-      if (e instanceof ExecutionLimitError) {
+      const error = e as any;
+      const msg = error.message;
+      
+      // Check for timeout
+      if (msg.includes("timeout")) {
         return {
           stdout: "",
-          stderr: `jq: ${e.message}\n`,
-          exitCode: ExecutionLimitError.EXIT_CODE,
+          stderr: "jq: execution timeout: operation took too long\n",
+          exitCode: 124, // Standard timeout exit code
         };
       }
-      const msg = (e as Error).message;
-      if (msg.includes("Unknown function")) {
+      
+      // Check if jq-web provided an exit code
+      const exitCode = error.exitCode || 3;
+      
+      // Use stderr from jq-web if available, otherwise format the message
+      let stderr = error.stderr || msg;
+      
+      // For JSON parse errors from parseJsonStream, format as parse error
+      if (msg.includes("Invalid JSON") || msg.includes("Unexpected")) {
+        stderr = `jq: parse error: ${msg}`;
         return {
           stdout: "",
-          stderr: `jq: error: ${msg}\n`,
-          exitCode: 3,
+          stderr: `${stderr}\n`,
+          exitCode: 5,
         };
       }
+      
+      // Ensure stderr ends with newline
+      if (!stderr.endsWith('\n')) {
+        stderr += '\n';
+      }
+      
       return {
         stdout: "",
-        stderr: `jq: parse error: ${msg}\n`,
-        exitCode: 5,
+        stderr,
+        exitCode,
       };
     }
   },
 };
+
+// Made with Bob

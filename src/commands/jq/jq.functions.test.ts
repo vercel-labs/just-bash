@@ -313,16 +313,18 @@ describe("jq builtin functions", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should return null for pow with non-numeric args", async () => {
+    it("should error for pow with non-numeric args", async () => {
       const env = new Bash();
       const result = await env.exec("jq -n 'pow(\"a\"; 2)'");
-      expect(result.stdout).toBe("null\n");
+      expect(result.exitCode).toBe(5);
+      expect(result.stderr).toContain("number required");
     });
 
-    it("should return null for atan2 with non-numeric args", async () => {
+    it("should error for atan2 with non-numeric args", async () => {
       const env = new Bash();
       const result = await env.exec("jq -n 'atan2(\"a\"; 2)'");
-      expect(result.stdout).toBe("null\n");
+      expect(result.exitCode).toBe(5);
+      expect(result.stderr).toContain("number required");
     });
   });
 });

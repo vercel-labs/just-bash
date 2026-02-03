@@ -23,6 +23,9 @@ dependencies:
   ini:
     specifier: ^6.0.0
     version: 6.0.0
+  jq-web:
+    specifier: ^0.6.2
+    version: 0.6.2
   minimatch:
     specifier: ^10.1.1
     version: 10.1.1
@@ -1389,6 +1392,10 @@ packages:
     resolution: {integrity: sha512-ekilCSN1jwRvIbgeg/57YFh8qQDNbwDb9xT/qu2DAHbFFZUicIl4ygVaAvzveMhMVr3LnpSKTNnwt8PoOfmKhQ==}
     hasBin: true
     dev: true
+
+  /jq-web@0.6.2:
+    resolution: {integrity: sha512-+7XvjBYwTx4vP5PYkf6Q6orubO/v+UgMU6By1GritrmShr9QpT3UKa4ANzXWQfhdqtBnQYXsm7ZNbdIHT6tYpQ==}
+    dev: false
 
   /js-tokens@9.0.1:
     resolution: {integrity: sha512-mxa9E9ITFOt0ban3j6L5MpjwegGz6lBQmM1IJkWeBZGcMxto50+eWdjC/52xDbS2vy0k7vIMK0Fe2wfL9OQSpQ==}
