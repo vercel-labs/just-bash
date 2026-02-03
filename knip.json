@@ -3,7 +3,7 @@
   "entry": ["src/cli/just-bash.ts"],
   "project": ["src/**/*.ts"],
   "ignore": ["src/**/*.test.ts", "src/spec-tests/**"],
-  "ignoreBinaries": ["tsx"],
+  "ignoreBinaries": ["tsx", "dev"],
   "rules": {
     "unlisted": "off",
     "unresolved": "off",

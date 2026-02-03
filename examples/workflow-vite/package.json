@@ -1,0 +1,21 @@
+{
+  "name": "workflow-vite-example",
+  "version": "1.0.0",
+  "description": "Vite app demonstrating Bash serialization with Workflow",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "just-bash": "file:../..",
+    "nitro": "3.0.1-alpha.2",
+    "workflow": "https://workflow-docs-14qh5q5oq.vercel.sh/workflow.tgz"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^7.0.0"
+  }
+}

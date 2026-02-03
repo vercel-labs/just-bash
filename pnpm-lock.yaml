@@ -8,6 +8,9 @@ dependencies:
   '@mongodb-js/zstd':
     specifier: ^7.0.0
     version: 7.0.0
+  '@workflow/serde':
+    specifier: ^4.0.1-beta.1
+    version: 4.0.1-beta.1
   compressjs:
     specifier: ^1.0.3
     version: 1.0.3
@@ -1057,6 +1060,10 @@ packages:
       '@vitest/pretty-format': 4.0.18
       tinyrainbow: 3.0.3
     dev: true
+
+  /@workflow/serde@4.0.1-beta.1:
+    resolution: {integrity: sha512-JdCvZk0sD1qk2XzteSHVNGbpRM8YcvRBglSJy3FysYgi19pBkk3me2P9gzFpPrnQS6IhAPnEqnJOAODHg1iZrA==}
+    dev: false
 
   /amdefine@1.0.1:
     resolution: {integrity: sha512-S2Hw0TtNkMJhIabBwIojKL9YHO5T0n5eNqWJ7Lrlel/zDbftQpxpapi8tZs3X1HWa+u+QeydGmzzNU0m09+Rcg==}

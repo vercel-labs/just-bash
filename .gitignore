@@ -17,3 +17,5 @@ todo/
 .pnpm-store
 .docs-test-tmp/
 src/commands/python3/worker.js
+.workflow-data
+.output/

@@ -8,6 +8,7 @@
  * and delegates execution to the Interpreter.
  */
 
+import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import type { FunctionDefNode } from "./ast/types.js";
 import {
   type CommandName,
@@ -299,6 +300,7 @@ export class Bash {
       }
     }
 
+    // Register all commands
     for (const cmd of createLazyCommands(options.commands)) {
       this.registerCommand(cmd);
     }
@@ -320,6 +322,40 @@ export class Bash {
         }
       }
     }
+  }
+
+  // ===========================================================================
+  // Workflow Serde Support
+  // ===========================================================================
+
+  /**
+   * Serialize Bash instance for Workflow DevKit.
+   * Serializes filesystem and interpreter state. Callbacks (logger, trace, sleep,
+   * secureFetch) and custom commands are NOT serialized - re-register after deserialize.
+   */
+  static [WORKFLOW_SERIALIZE](instance: Bash) {
+    return {
+      fs: instance.fs,
+      state: instance.state,
+      limits: instance.limits,
+    };
+  }
+
+  /**
+   * Deserialize Bash instance for Workflow DevKit.
+   * Note: Only works with InMemoryFs. Callbacks must be re-configured after deserialize.
+   */
+  static [WORKFLOW_DESERIALIZE](serialized: {
+    fs: IFileSystem;
+    state: InterpreterState;
+    limits: Required<ExecutionLimits>;
+  }) {
+    // Create a minimal Bash instance with the deserialized filesystem
+    const bash = new Bash({ fs: serialized.fs });
+    // Restore state and limits
+    bash.state = serialized.state;
+    bash.limits = serialized.limits;
+    return bash;
   }
 
   registerCommand(command: Command): void {
