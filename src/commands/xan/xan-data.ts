@@ -5,7 +5,14 @@
 
 import Papa from "papaparse";
 import type { CommandContext, ExecResult } from "../../types.js";
-import { type CsvData, type CsvRow, formatCsv, readCsvInput } from "./csv.js";
+import {
+  type CsvData,
+  type CsvRow,
+  createSafeRow,
+  formatCsv,
+  readCsvInput,
+  safeSetRow,
+} from "./csv.js";
 
 /**
  * Transpose: swap rows and columns
@@ -39,9 +46,10 @@ export async function cmdTranspose(
   const newData: CsvData = [];
   for (let i = 1; i < headers.length; i++) {
     const col = headers[i];
-    const newRow: CsvRow = { [firstCol]: col };
+    const newRow: CsvRow = createSafeRow();
+    safeSetRow(newRow, firstCol, col);
     for (let j = 0; j < data.length; j++) {
-      newRow[newHeaders[j + 1]] = data[j][col];
+      safeSetRow(newRow, newHeaders[j + 1], data[j][col]);
     }
     newData.push(newRow);
   }
@@ -462,13 +470,13 @@ async function cmdFromJson(
       // Array of arrays - first row is headers
       const [headers, ...rows] = data as unknown[][];
       const csvData: CsvData = rows.map((row) => {
-        const obj: CsvRow = {};
+        const obj: CsvRow = createSafeRow();
         for (let i = 0; i < (headers as string[]).length; i++) {
-          obj[(headers as string[])[i]] = row[i] as
-            | string
-            | number
-            | boolean
-            | null;
+          safeSetRow(
+            obj,
+            (headers as string[])[i],
+            row[i] as string | number | boolean | null,
+          );
         }
         return obj;
       });

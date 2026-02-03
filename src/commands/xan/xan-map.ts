@@ -4,7 +4,14 @@
 
 import type { CommandContext, ExecResult } from "../../types.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
-import { type CsvData, type CsvRow, formatCsv, readCsvInput } from "./csv.js";
+import {
+  type CsvData,
+  type CsvRow,
+  formatCsv,
+  readCsvInput,
+  safeSetRow,
+  toSafeRow,
+} from "./csv.js";
 import { parseNamedExpressions } from "./moonblade-parser.js";
 import { moonbladeToJq } from "./moonblade-to-jq.js";
 
@@ -73,7 +80,7 @@ export async function cmdMap(
   const newData: CsvData = [];
   for (let rowIndex = 0; rowIndex < data.length; rowIndex++) {
     const row = data[rowIndex];
-    const newRow: CsvRow = { ...row };
+    const newRow: CsvRow = toSafeRow(row);
     let skip = false;
 
     // Add row index for index() function
@@ -89,7 +96,7 @@ export async function cmdMap(
         break;
       }
 
-      newRow[spec.alias] = value as string | number | boolean | null;
+      safeSetRow(newRow, spec.alias, value as string | number | boolean | null);
     }
 
     if (!skip) {
@@ -178,7 +185,7 @@ export async function cmdTransform(
 
   const newData: CsvData = [];
   for (const row of data) {
-    const newRow: CsvRow = { ...row };
+    const newRow: CsvRow = toSafeRow(row);
 
     for (let i = 0; i < targetCols.length; i++) {
       const col = targetCols[i];
@@ -193,7 +200,7 @@ export async function cmdTransform(
       if (newColName !== col) {
         delete newRow[col];
       }
-      newRow[newColName] = value as string | number | boolean | null;
+      safeSetRow(newRow, newColName, value as string | number | boolean | null);
     }
 
     newData.push(newRow);

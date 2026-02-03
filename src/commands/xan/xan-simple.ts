@@ -8,9 +8,12 @@ import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
 import {
   type CsvData,
   type CsvRow,
+  createSafeRow,
   formatCsv,
   parseCsv,
   readCsvInput,
+  safeSetRow,
+  toSafeRow,
 } from "./csv.js";
 import { parseNamedExpressions } from "./moonblade-parser.js";
 import { moonbladeToJq } from "./moonblade-to-jq.js";
@@ -188,9 +191,9 @@ export async function cmdCat(
   const allData: CsvData = [];
   for (const { headers, data } of allFiles) {
     for (const row of data) {
-      const newRow: CsvRow = {};
+      const newRow: CsvRow = createSafeRow();
       for (const h of allHeaders) {
-        newRow[h] = headers.includes(h) ? row[h] : "";
+        safeSetRow(newRow, h, headers.includes(h) ? row[h] : "");
       }
       allData.push(newRow);
     }
@@ -338,10 +341,14 @@ export async function cmdFlatmap(
 
     // Create rows for each result
     for (let i = 0; i < maxLen; i++) {
-      const newRow: CsvRow = { ...row };
+      const newRow: CsvRow = toSafeRow(row);
       for (let j = 0; j < specs.length; j++) {
         const val = results[j][i] ?? null;
-        newRow[specs[j].alias] = val as string | number | boolean | null;
+        safeSetRow(
+          newRow,
+          specs[j].alias,
+          val as string | number | boolean | null,
+        );
       }
       newData.push(newRow);
     }
