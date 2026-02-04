@@ -43,6 +43,21 @@ const BANNED_PATTERNS = [
     ],
     autoSafe: [/Object\.create\s*\(\s*null\s*\)/],
   },
+  {
+    name: "Empty object literal assignment",
+    // Match: const/let/var NAME = {} or NAME: TYPE = {}
+    // Does NOT match: type definitions, interfaces, or object patterns
+    pattern: /(?:const|let|var)\s+\w+\s*(?::\s*[^=]+)?\s*=\s*\{\s*\}/,
+    message:
+      "Empty object literals {} have a prototype chain and are vulnerable to\n" +
+      "prototype pollution when populated with user-controlled keys.",
+    solutions: [
+      "Use new Map() instead (recommended)",
+      "Use Object.create(null) for a prototype-free object",
+      "Initialize with known static keys: { knownKey: value }",
+    ],
+    autoSafe: [/Object\.create\s*\(\s*null\s*\)/],
+  },
   // Add more banned patterns here as needed
   // Example:
   // {

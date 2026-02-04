@@ -106,6 +106,7 @@ async function loadFixtures(testFile: string): Promise<FixturesFile> {
     return fixtures;
   } catch {
     // No fixtures file yet
+    // @banned-pattern-ignore: test infrastructure, keys are fixture IDs from developer-controlled test files
     const empty: FixturesFile = {};
     fixturesCache.set(testFile, empty);
     return empty;
@@ -164,6 +165,7 @@ export async function writeAllFixtures(): Promise<void> {
     await fs.mkdir(path.dirname(fixturesPath), { recursive: true });
 
     // Load existing fixtures and merge
+    // @banned-pattern-ignore: test infrastructure, keys are fixture IDs from developer-controlled test files
     let existingFixtures: FixturesFile = {};
     try {
       const content = await fs.readFile(fixturesPath, "utf-8");
@@ -185,6 +187,7 @@ export async function writeAllFixtures(): Promise<void> {
     }
 
     // Sort by fixture ID for consistent output
+    // @banned-pattern-ignore: test infrastructure, keys are fixture IDs from developer-controlled test files
     const sortedFixtures: FixturesFile = {};
     for (const key of Object.keys(mergedFixtures).sort()) {
       sortedFixtures[key] = mergedFixtures[key];
