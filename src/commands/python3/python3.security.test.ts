@@ -50,6 +50,22 @@ describe("python3 security", () => {
   });
 
   describe("hidden original function references", () => {
+    it("should not expose _original_import (critical sandbox escape)", async () => {
+      const env = new Bash();
+      await env.exec(`cat > /tmp/test_import.py << 'EOF'
+try:
+    # If _original_import is accessible, attacker can bypass import blocking
+    js = _original_import('js')
+    print('VULNERABLE: _original_import accessible')
+except NameError:
+    print('SECURE: _original_import not accessible')
+EOF`);
+      const result = await env.exec("python3 /tmp/test_import.py");
+      expect(result.stdout).toContain("SECURE");
+      expect(result.stdout).not.toContain("VULNERABLE");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should not expose _jb_original_open on builtins", async () => {
       const env = new Bash();
       const result = await env.exec(

@@ -724,12 +724,14 @@ if not hasattr(builtins, '_jb_sandbox_initialized'):
             del sys.modules[_blocked_mod]
 
     # Patch __import__ to block dangerous modules (bypasses sys.meta_path)
-    _original_import = builtins.__import__
-    def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name in _BLOCKED_MODULES or name.startswith('js.'):
+    # Use default args to capture values - makes them inaccessible from user code
+    def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0,
+                           *, _orig=builtins.__import__, _blocked=frozenset({'js', 'pyodide.ffi'})):
+        if name in _blocked or name.startswith('js.'):
             raise ImportError(f"Module '{name}' is blocked in this sandbox")
-        return _original_import(name, globals, locals, fromlist, level)
+        return _orig(name, globals, locals, fromlist, level)
     builtins.__import__ = _restricted_import
+    del _BLOCKED_MODULES  # Clean up global
 
     # ------------------------------------------------------------
     # 2. Path redirection helper
