@@ -171,6 +171,7 @@ function createHOSTFS(
   FS: EmscriptenFS,
   PATH: EmscriptenPATH,
 ) {
+  // @banned-pattern-ignore: only accessed via dot notation with literal keys
   const ERRNO_CODES: Record<string, number> = {
     EPERM: 63,
     ENOENT: 44,

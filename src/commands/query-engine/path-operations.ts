@@ -87,6 +87,7 @@ export function deletePath(
       if (!isSafeKey(strKey)) {
         return value;
       }
+      // @banned-pattern-ignore: protected by isSafeKey above
       const obj = { ...value } as Record<string, unknown>;
       delete obj[strKey];
       return obj;
@@ -106,6 +107,7 @@ export function deletePath(
     if (!isSafeKey(strHead)) {
       return value;
     }
+    // @banned-pattern-ignore: protected by isSafeKey above + Object.hasOwn/safeSet
     const obj = { ...value } as Record<string, unknown>;
     if (Object.hasOwn(obj, strHead)) {
       safeSet(obj, strHead, deletePath(obj[strHead], rest));

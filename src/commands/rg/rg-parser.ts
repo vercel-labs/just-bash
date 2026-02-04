@@ -120,210 +120,381 @@ const VALUE_OPTS: ValueOptDef[] = [
 // Declarative boolean flag definitions
 type BoolFlagHandler = (options: RgOptions) => void;
 
-const BOOL_FLAGS: Record<string, BoolFlagHandler> = {
+const BOOL_FLAGS = new Map<string, BoolFlagHandler>([
   // Case sensitivity
-  i: (o) => {
-    o.ignoreCase = true;
-    o.caseSensitive = false;
-    o.smartCase = false;
-  },
-  "--ignore-case": (o) => {
-    o.ignoreCase = true;
-    o.caseSensitive = false;
-    o.smartCase = false;
-  },
-  s: (o) => {
-    o.caseSensitive = true;
-    o.ignoreCase = false;
-    o.smartCase = false;
-  },
-  "--case-sensitive": (o) => {
-    o.caseSensitive = true;
-    o.ignoreCase = false;
-    o.smartCase = false;
-  },
-  S: (o) => {
-    o.smartCase = true;
-    o.ignoreCase = false;
-    o.caseSensitive = false;
-  },
-  "--smart-case": (o) => {
-    o.smartCase = true;
-    o.ignoreCase = false;
-    o.caseSensitive = false;
-  },
+  [
+    "i",
+    (o) => {
+      o.ignoreCase = true;
+      o.caseSensitive = false;
+      o.smartCase = false;
+    },
+  ],
+  [
+    "--ignore-case",
+    (o) => {
+      o.ignoreCase = true;
+      o.caseSensitive = false;
+      o.smartCase = false;
+    },
+  ],
+  [
+    "s",
+    (o) => {
+      o.caseSensitive = true;
+      o.ignoreCase = false;
+      o.smartCase = false;
+    },
+  ],
+  [
+    "--case-sensitive",
+    (o) => {
+      o.caseSensitive = true;
+      o.ignoreCase = false;
+      o.smartCase = false;
+    },
+  ],
+  [
+    "S",
+    (o) => {
+      o.smartCase = true;
+      o.ignoreCase = false;
+      o.caseSensitive = false;
+    },
+  ],
+  [
+    "--smart-case",
+    (o) => {
+      o.smartCase = true;
+      o.ignoreCase = false;
+      o.caseSensitive = false;
+    },
+  ],
 
   // Pattern matching
-  F: (o) => {
-    o.fixedStrings = true;
-  },
-  "--fixed-strings": (o) => {
-    o.fixedStrings = true;
-  },
-  w: (o) => {
-    o.wordRegexp = true;
-  },
-  "--word-regexp": (o) => {
-    o.wordRegexp = true;
-  },
-  x: (o) => {
-    o.lineRegexp = true;
-  },
-  "--line-regexp": (o) => {
-    o.lineRegexp = true;
-  },
-  v: (o) => {
-    o.invertMatch = true;
-  },
-  "--invert-match": (o) => {
-    o.invertMatch = true;
-  },
-  U: (o) => {
-    o.multiline = true;
-  },
-  "--multiline": (o) => {
-    o.multiline = true;
-  },
-  "--multiline-dotall": (o) => {
-    o.multilineDotall = true;
-    o.multiline = true; // dotall implies multiline
-  },
+  [
+    "F",
+    (o) => {
+      o.fixedStrings = true;
+    },
+  ],
+  [
+    "--fixed-strings",
+    (o) => {
+      o.fixedStrings = true;
+    },
+  ],
+  [
+    "w",
+    (o) => {
+      o.wordRegexp = true;
+    },
+  ],
+  [
+    "--word-regexp",
+    (o) => {
+      o.wordRegexp = true;
+    },
+  ],
+  [
+    "x",
+    (o) => {
+      o.lineRegexp = true;
+    },
+  ],
+  [
+    "--line-regexp",
+    (o) => {
+      o.lineRegexp = true;
+    },
+  ],
+  [
+    "v",
+    (o) => {
+      o.invertMatch = true;
+    },
+  ],
+  [
+    "--invert-match",
+    (o) => {
+      o.invertMatch = true;
+    },
+  ],
+  [
+    "U",
+    (o) => {
+      o.multiline = true;
+    },
+  ],
+  [
+    "--multiline",
+    (o) => {
+      o.multiline = true;
+    },
+  ],
+  [
+    "--multiline-dotall",
+    (o) => {
+      o.multilineDotall = true;
+      o.multiline = true; // dotall implies multiline
+    },
+  ],
 
   // Output modes
-  c: (o) => {
-    o.count = true;
-  },
-  "--count": (o) => {
-    o.count = true;
-  },
-  "--count-matches": (o) => {
-    o.countMatches = true;
-  },
-  l: (o) => {
-    o.filesWithMatches = true;
-  },
-  "--files": (o) => {
-    o.files = true;
-  },
-  "--files-with-matches": (o) => {
-    o.filesWithMatches = true;
-  },
-  "--files-without-match": (o) => {
-    o.filesWithoutMatch = true;
-  },
-  "--stats": (o) => {
-    o.stats = true;
-  },
-  o: (o) => {
-    o.onlyMatching = true;
-  },
-  "--only-matching": (o) => {
-    o.onlyMatching = true;
-  },
-  q: (o) => {
-    o.quiet = true;
-  },
-  "--quiet": (o) => {
-    o.quiet = true;
-  },
+  [
+    "c",
+    (o) => {
+      o.count = true;
+    },
+  ],
+  [
+    "--count",
+    (o) => {
+      o.count = true;
+    },
+  ],
+  [
+    "--count-matches",
+    (o) => {
+      o.countMatches = true;
+    },
+  ],
+  [
+    "l",
+    (o) => {
+      o.filesWithMatches = true;
+    },
+  ],
+  [
+    "--files",
+    (o) => {
+      o.files = true;
+    },
+  ],
+  [
+    "--files-with-matches",
+    (o) => {
+      o.filesWithMatches = true;
+    },
+  ],
+  [
+    "--files-without-match",
+    (o) => {
+      o.filesWithoutMatch = true;
+    },
+  ],
+  [
+    "--stats",
+    (o) => {
+      o.stats = true;
+    },
+  ],
+  [
+    "o",
+    (o) => {
+      o.onlyMatching = true;
+    },
+  ],
+  [
+    "--only-matching",
+    (o) => {
+      o.onlyMatching = true;
+    },
+  ],
+  [
+    "q",
+    (o) => {
+      o.quiet = true;
+    },
+  ],
+  [
+    "--quiet",
+    (o) => {
+      o.quiet = true;
+    },
+  ],
 
   // Line numbers
-  N: (o) => {
-    o.lineNumber = false;
-  },
-  "--no-line-number": (o) => {
-    o.lineNumber = false;
-  },
+  [
+    "N",
+    (o) => {
+      o.lineNumber = false;
+    },
+  ],
+  [
+    "--no-line-number",
+    (o) => {
+      o.lineNumber = false;
+    },
+  ],
 
   // Filename display
-  H: (o) => {
-    o.withFilename = true;
-  },
-  "--with-filename": (o) => {
-    o.withFilename = true;
-  },
-  I: (o) => {
-    o.noFilename = true;
-  },
-  "--no-filename": (o) => {
-    o.noFilename = true;
-  },
-  "0": (o) => {
-    o.nullSeparator = true;
-  },
-  "--null": (o) => {
-    o.nullSeparator = true;
-  },
+  [
+    "H",
+    (o) => {
+      o.withFilename = true;
+    },
+  ],
+  [
+    "--with-filename",
+    (o) => {
+      o.withFilename = true;
+    },
+  ],
+  [
+    "I",
+    (o) => {
+      o.noFilename = true;
+    },
+  ],
+  [
+    "--no-filename",
+    (o) => {
+      o.noFilename = true;
+    },
+  ],
+  [
+    "0",
+    (o) => {
+      o.nullSeparator = true;
+    },
+  ],
+  [
+    "--null",
+    (o) => {
+      o.nullSeparator = true;
+    },
+  ],
 
   // Column and byte offset
-  b: (o) => {
-    o.byteOffset = true;
-  },
-  "--byte-offset": (o) => {
-    o.byteOffset = true;
-  },
-  "--column": (o) => {
-    o.column = true;
-    o.lineNumber = true;
-  },
-  "--no-column": (o) => {
-    o.column = false;
-  },
-  "--vimgrep": (o) => {
-    o.vimgrep = true;
-    o.column = true;
-    o.lineNumber = true;
-  },
-  "--json": (o) => {
-    o.json = true;
-  },
+  [
+    "b",
+    (o) => {
+      o.byteOffset = true;
+    },
+  ],
+  [
+    "--byte-offset",
+    (o) => {
+      o.byteOffset = true;
+    },
+  ],
+  [
+    "--column",
+    (o) => {
+      o.column = true;
+      o.lineNumber = true;
+    },
+  ],
+  [
+    "--no-column",
+    (o) => {
+      o.column = false;
+    },
+  ],
+  [
+    "--vimgrep",
+    (o) => {
+      o.vimgrep = true;
+      o.column = true;
+      o.lineNumber = true;
+    },
+  ],
+  [
+    "--json",
+    (o) => {
+      o.json = true;
+    },
+  ],
 
   // File selection
-  "--hidden": (o) => {
-    o.hidden = true;
-  },
-  "--no-ignore": (o) => {
-    o.noIgnore = true;
-  },
-  "--no-ignore-dot": (o) => {
-    o.noIgnoreDot = true;
-  },
-  "--no-ignore-vcs": (o) => {
-    o.noIgnoreVcs = true;
-  },
-  L: (o) => {
-    o.followSymlinks = true;
-  },
-  "--follow": (o) => {
-    o.followSymlinks = true;
-  },
-  z: (o) => {
-    o.searchZip = true;
-  },
-  "--search-zip": (o) => {
-    o.searchZip = true;
-  },
-  a: (o) => {
-    o.searchBinary = true;
-  },
-  "--text": (o) => {
-    o.searchBinary = true;
-  },
+  [
+    "--hidden",
+    (o) => {
+      o.hidden = true;
+    },
+  ],
+  [
+    "--no-ignore",
+    (o) => {
+      o.noIgnore = true;
+    },
+  ],
+  [
+    "--no-ignore-dot",
+    (o) => {
+      o.noIgnoreDot = true;
+    },
+  ],
+  [
+    "--no-ignore-vcs",
+    (o) => {
+      o.noIgnoreVcs = true;
+    },
+  ],
+  [
+    "L",
+    (o) => {
+      o.followSymlinks = true;
+    },
+  ],
+  [
+    "--follow",
+    (o) => {
+      o.followSymlinks = true;
+    },
+  ],
+  [
+    "z",
+    (o) => {
+      o.searchZip = true;
+    },
+  ],
+  [
+    "--search-zip",
+    (o) => {
+      o.searchZip = true;
+    },
+  ],
+  [
+    "a",
+    (o) => {
+      o.searchBinary = true;
+    },
+  ],
+  [
+    "--text",
+    (o) => {
+      o.searchBinary = true;
+    },
+  ],
 
   // Output formatting
-  "--heading": (o) => {
-    o.heading = true;
-  },
-  "--passthru": (o) => {
-    o.passthru = true;
-  },
-  "--include-zero": (o) => {
-    o.includeZero = true;
-  },
-  "--glob-case-insensitive": (o) => {
-    o.globCaseInsensitive = true;
-  },
-};
+  [
+    "--heading",
+    (o) => {
+      o.heading = true;
+    },
+  ],
+  [
+    "--passthru",
+    (o) => {
+      o.passthru = true;
+    },
+  ],
+  [
+    "--include-zero",
+    (o) => {
+      o.includeZero = true;
+    },
+  ],
+  [
+    "--glob-case-insensitive",
+    (o) => {
+      o.globCaseInsensitive = true;
+    },
+  ],
+]);
 
 // Special flags that return a value indicating line number was explicitly set
 const LINE_NUMBER_FLAGS = new Set(["n", "--line-number"]);
@@ -578,7 +749,7 @@ export function parseArgs(args: string[]): ParseArgsResult {
         }
 
         // Try boolean flags
-        const handler = BOOL_FLAGS[flag];
+        const handler = BOOL_FLAGS.get(flag);
         if (handler) {
           handler(options);
           continue;

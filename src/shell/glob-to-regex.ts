@@ -6,29 +6,29 @@
 
 import { createUserRegex, type RegexLike } from "../regex/index.js";
 
-/** POSIX character class name to regex equivalent mapping */
-const POSIX_CLASSES: Record<string, string> = {
-  alnum: "a-zA-Z0-9",
-  alpha: "a-zA-Z",
-  ascii: "\\x00-\\x7F",
-  blank: " \\t",
-  cntrl: "\\x00-\\x1F\\x7F",
-  digit: "0-9",
-  graph: "!-~",
-  lower: "a-z",
-  print: " -~",
-  punct: "!-/:-@\\[-`{-~",
-  space: " \\t\\n\\r\\f\\v",
-  upper: "A-Z",
-  word: "a-zA-Z0-9_",
-  xdigit: "0-9a-fA-F",
-};
+/** POSIX character class name to regex equivalent mapping (Map prevents prototype pollution) */
+const POSIX_CLASSES = new Map<string, string>([
+  ["alnum", "a-zA-Z0-9"],
+  ["alpha", "a-zA-Z"],
+  ["ascii", "\\x00-\\x7F"],
+  ["blank", " \\t"],
+  ["cntrl", "\\x00-\\x1F\\x7F"],
+  ["digit", "0-9"],
+  ["graph", "!-~"],
+  ["lower", "a-z"],
+  ["print", " -~"],
+  ["punct", "!-/:-@\\[-`{-~"],
+  ["space", " \\t\\n\\r\\f\\v"],
+  ["upper", "A-Z"],
+  ["word", "a-zA-Z0-9_"],
+  ["xdigit", "0-9a-fA-F"],
+]);
 
 /**
- * Convert POSIX character class name to regex equivalent
+ * Convert POSIX character class name to regex equivalent.
  */
 export function posixClassToRegex(className: string): string {
-  return POSIX_CLASSES[className] || "";
+  return POSIX_CLASSES.get(className) ?? "";
 }
 
 /**

@@ -1,54 +1,53 @@
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 
 // Command categories for organized display
-const CATEGORIES: Record<string, string[]> = {
-  "File operations": [
-    "ls",
-    "cat",
-    "head",
-    "tail",
-    "wc",
-    "touch",
-    "mkdir",
-    "rm",
-    "cp",
-    "mv",
-    "ln",
-    "chmod",
-    "stat",
-    "readlink",
+const CATEGORIES = new Map<string, string[]>([
+  [
+    "File operations",
+    [
+      "ls",
+      "cat",
+      "head",
+      "tail",
+      "wc",
+      "touch",
+      "mkdir",
+      "rm",
+      "cp",
+      "mv",
+      "ln",
+      "chmod",
+      "stat",
+      "readlink",
+    ],
   ],
-  "Text processing": [
-    "grep",
-    "sed",
-    "awk",
-    "sort",
-    "uniq",
-    "cut",
-    "tr",
-    "tee",
-    "diff",
+  [
+    "Text processing",
+    ["grep", "sed", "awk", "sort", "uniq", "cut", "tr", "tee", "diff"],
   ],
-  Search: ["find"],
-  "Navigation & paths": ["pwd", "basename", "dirname", "tree", "du"],
-  "Environment & shell": [
-    "echo",
-    "printf",
-    "env",
-    "printenv",
-    "export",
-    "alias",
-    "unalias",
-    "history",
-    "clear",
-    "true",
-    "false",
-    "bash",
-    "sh",
+  ["Search", ["find"]],
+  ["Navigation & paths", ["pwd", "basename", "dirname", "tree", "du"]],
+  [
+    "Environment & shell",
+    [
+      "echo",
+      "printf",
+      "env",
+      "printenv",
+      "export",
+      "alias",
+      "unalias",
+      "history",
+      "clear",
+      "true",
+      "false",
+      "bash",
+      "sh",
+    ],
   ],
-  "Data processing": ["xargs", "jq", "base64", "date"],
-  Network: ["curl", "html-to-markdown"],
-};
+  ["Data processing", ["xargs", "jq", "base64", "date"]],
+  ["Network", ["curl", "html-to-markdown"]],
+]);
 
 function formatHelp(commands: string[]): string {
   const lines: string[] = [];
@@ -59,7 +58,7 @@ function formatHelp(commands: string[]): string {
   // Group commands by category
   const uncategorized: string[] = [];
 
-  for (const [category, cmds] of Object.entries(CATEGORIES)) {
+  for (const [category, cmds] of CATEGORIES) {
     const available = cmds.filter((c) => commandSet.has(c));
     if (available.length > 0) {
       lines.push(`  ${category}:`);

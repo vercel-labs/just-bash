@@ -4,23 +4,23 @@
 
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
 
-/** POSIX character class to JavaScript regex character range mapping */
-const POSIX_CLASS_MAP: Record<string, string> = {
-  alpha: "a-zA-Z",
-  digit: "0-9",
-  alnum: "a-zA-Z0-9",
-  lower: "a-z",
-  upper: "A-Z",
-  xdigit: "0-9A-Fa-f",
-  space: " \\t\\n\\r\\f\\v",
-  blank: " \\t",
-  punct: "!-/:-@\\[-`{-~",
-  graph: "!-~",
-  print: " -~",
-  cntrl: "\\x00-\\x1F\\x7F",
-  ascii: "\\x00-\\x7F",
-  word: "a-zA-Z0-9_",
-};
+/** POSIX character class to JavaScript regex character range mapping (Map prevents prototype pollution) */
+const POSIX_CLASS_MAP = new Map<string, string>([
+  ["alpha", "a-zA-Z"],
+  ["digit", "0-9"],
+  ["alnum", "a-zA-Z0-9"],
+  ["lower", "a-z"],
+  ["upper", "A-Z"],
+  ["xdigit", "0-9A-Fa-f"],
+  ["space", " \\t\\n\\r\\f\\v"],
+  ["blank", " \\t"],
+  ["punct", "!-/:-@\\[-`{-~"],
+  ["graph", "!-~"],
+  ["print", " -~"],
+  ["cntrl", "\\x00-\\x1F\\x7F"],
+  ["ascii", "\\x00-\\x7F"],
+  ["word", "a-zA-Z0-9_"],
+]);
 
 export type RegexMode = "basic" | "extended" | "fixed" | "perl";
 
@@ -101,7 +101,7 @@ function transformPosixCharacterClasses(pattern: string): string {
           const closeIdx = pattern.indexOf(":]", i + 2);
           if (closeIdx !== -1) {
             const className = pattern.slice(i + 2, closeIdx);
-            const replacement = POSIX_CLASS_MAP[className];
+            const replacement = POSIX_CLASS_MAP.get(className);
             if (replacement) {
               bracketExpr += replacement;
               i = closeIdx + 2;

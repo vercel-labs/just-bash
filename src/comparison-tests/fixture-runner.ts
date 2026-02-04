@@ -262,6 +262,7 @@ export async function setupFiles(
   }
 
   // Create equivalent BashEnv with normalized paths
+  // @banned-pattern-ignore: path.join() produces full paths like "/tmp/test/file", never "__proto__"
   const bashEnvFiles: Record<string, string> = {};
   for (const [filePath, content] of Object.entries(files)) {
     bashEnvFiles[path.join(testDir, filePath)] = content;

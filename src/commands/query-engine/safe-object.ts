@@ -120,7 +120,7 @@ export function safeAssign<T>(
  * Create a shallow copy of an object, filtering dangerous keys.
  */
 export function safeCopy<T extends Record<string, unknown>>(obj: T): T {
-  const result = {} as T;
+  const result = Object.create(null) as T;
   for (const key of Object.keys(obj)) {
     if (isSafeKey(key)) {
       (result as Record<string, unknown>)[key] = obj[key];

@@ -856,43 +856,46 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
 
 // ─── Built-in Function Registry ─────────────────────────────────
 
-export const awkBuiltins: Record<string, AwkBuiltinFn> = {
+export const awkBuiltins: Map<string, AwkBuiltinFn> = new Map([
   // String functions
-  length: awkLength,
-  substr: awkSubstr,
-  index: awkIndex,
-  split: awkSplit,
-  sub: awkSub,
-  gsub: awkGsub,
-  match: awkMatch,
-  gensub: awkGensub,
-  tolower: awkTolower,
-  toupper: awkToupper,
-  sprintf: awkSprintf,
+  ["length", awkLength],
+  ["substr", awkSubstr],
+  ["index", awkIndex],
+  ["split", awkSplit],
+  ["sub", awkSub],
+  ["gsub", awkGsub],
+  ["match", awkMatch],
+  ["gensub", awkGensub],
+  ["tolower", awkTolower],
+  ["toupper", awkToupper],
+  ["sprintf", awkSprintf],
 
   // Math functions
-  int: awkInt,
-  sqrt: awkSqrt,
-  sin: awkSin,
-  cos: awkCos,
-  atan2: awkAtan2,
-  log: awkLog,
-  exp: awkExp,
-  rand: awkRand,
-  srand: awkSrand,
+  ["int", awkInt],
+  ["sqrt", awkSqrt],
+  ["sin", awkSin],
+  ["cos", awkCos],
+  ["atan2", awkAtan2],
+  ["log", awkLog],
+  ["exp", awkExp],
+  ["rand", awkRand],
+  ["srand", awkSrand],
 
   // Unsupported functions (security/sandboxing)
-  system: unsupported(
+  [
     "system",
-    "shell execution not allowed in sandboxed environment",
-  ),
+    unsupported(
+      "system",
+      "shell execution not allowed in sandboxed environment",
+    ),
+  ],
   // close() and fflush() are no-ops in our environment (no real file handles)
   // Return 0 for success to allow programs that use them to work
-  close: () => 0,
-  fflush: () => 0,
+  ["close", () => 0],
+  ["fflush", () => 0],
 
   // Unimplemented functions
-  systime: unimplemented("systime"),
-  mktime: unimplemented("mktime"),
-  strftime: unimplemented("strftime"),
-};
+  ["systime", unimplemented("systime")],
+  ["mktime", unimplemented("mktime")],
+  ["strftime", unimplemented("strftime")],
+]);

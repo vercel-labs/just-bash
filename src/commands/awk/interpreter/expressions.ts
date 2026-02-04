@@ -268,7 +268,7 @@ async function evalFunctionCall(
   args: AwkExpr[],
 ): Promise<AwkValue> {
   // Check for built-in functions first
-  const builtin = awkBuiltins[name];
+  const builtin = awkBuiltins.get(name);
   if (builtin) {
     // Built-ins use a wrapper that handles async
     return builtin(args, ctx, { evalExpr: (e: AwkExpr) => evalExpr(ctx, e) });

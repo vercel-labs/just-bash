@@ -344,41 +344,42 @@ class Parser {
     const token = this.peek();
 
     // Binary operators that map to functions
-    const binaryOps: Record<string, string> = {
-      "+": "add",
-      "-": "sub",
-      "*": "mul",
-      "/": "div",
-      "//": "idiv",
-      "%": "mod",
-      "**": "pow",
-      "++": "concat",
-      "==": "==",
-      "!=": "!=",
-      "<": "<",
-      "<=": "<=",
-      ">": ">",
-      ">=": ">=",
-      eq: "eq",
-      ne: "ne",
-      lt: "lt",
-      le: "le",
-      gt: "gt",
-      ge: "ge",
-      "&&": "and",
-      and: "and",
-      "||": "or",
-      or: "or",
-    };
+    const binaryOps = new Map<string, string>([
+      ["+", "add"],
+      ["-", "sub"],
+      ["*", "mul"],
+      ["/", "div"],
+      ["//", "idiv"],
+      ["%", "mod"],
+      ["**", "pow"],
+      ["++", "concat"],
+      ["==", "=="],
+      ["!=", "!="],
+      ["<", "<"],
+      ["<=", "<="],
+      [">", ">"],
+      [">=", ">="],
+      ["eq", "eq"],
+      ["ne", "ne"],
+      ["lt", "lt"],
+      ["le", "le"],
+      ["gt", "gt"],
+      ["ge", "ge"],
+      ["&&", "and"],
+      ["and", "and"],
+      ["||", "or"],
+      ["or", "or"],
+    ]);
 
-    if (token.type in binaryOps) {
+    const opName = binaryOps.get(token.type);
+    if (opName !== undefined) {
       this.advance();
       const right = this.parseExpr(
         prec + (this.isRightAssoc(token.type) ? 0 : 1),
       );
       return {
         type: "func",
-        name: binaryOps[token.type],
+        name: opName,
         args: [{ expr: left }, { expr: right }],
       };
     }

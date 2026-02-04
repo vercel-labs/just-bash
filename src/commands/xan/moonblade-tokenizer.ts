@@ -160,31 +160,32 @@ export class Tokenizer {
     if (this.match("||")) return { type: "||", value: "||", pos: start };
 
     // Single-character operators
-    const singleOps: Record<string, TokenType> = {
-      "(": "(",
-      ")": ")",
-      "[": "[",
-      "]": "]",
-      "{": "{",
-      "}": "}",
-      ",": ",",
-      ":": ":",
-      ";": ";",
-      "+": "+",
-      "-": "-",
-      "*": "*",
-      "%": "%",
-      "<": "<",
-      ">": ">",
-      "!": "!",
-      ".": ".",
-      "|": "|",
-      "=": "=",
-    };
+    const singleOps = new Map<string, TokenType>([
+      ["(", "("],
+      [")", ")"],
+      ["[", "["],
+      ["]", "]"],
+      ["{", "{"],
+      ["}", "}"],
+      [",", ","],
+      [":", ":"],
+      [";", ";"],
+      ["+", "+"],
+      ["-", "-"],
+      ["*", "*"],
+      ["%", "%"],
+      ["<", "<"],
+      [">", ">"],
+      ["!", "!"],
+      [".", "."],
+      ["|", "|"],
+      ["=", "="],
+    ]);
 
-    if (ch in singleOps) {
+    const opType = singleOps.get(ch);
+    if (opType !== undefined) {
       this.pos++;
-      return { type: singleOps[ch], value: ch, pos: start };
+      return { type: opType, value: ch, pos: start };
     }
 
     // Identifiers and keywords
@@ -366,26 +367,27 @@ export class Tokenizer {
     if (unsure) value += "?";
 
     // Keywords
-    const keywords: Record<string, TokenType> = {
-      true: "true",
-      false: "false",
-      null: "null",
-      and: "and",
-      or: "or",
-      eq: "eq",
-      ne: "ne",
-      lt: "lt",
-      le: "le",
-      gt: "gt",
-      ge: "ge",
-      in: "in",
-      as: "as",
-      _: "_",
-    };
+    const keywords = new Map<string, TokenType>([
+      ["true", "true"],
+      ["false", "false"],
+      ["null", "null"],
+      ["and", "and"],
+      ["or", "or"],
+      ["eq", "eq"],
+      ["ne", "ne"],
+      ["lt", "lt"],
+      ["le", "le"],
+      ["gt", "gt"],
+      ["ge", "ge"],
+      ["in", "in"],
+      ["as", "as"],
+      ["_", "_"],
+    ]);
 
     const baseValue = value.replace(/\?$/, "");
-    if (baseValue in keywords && !unsure) {
-      return { type: keywords[baseValue], value: baseValue, pos: start };
+    const keywordType = keywords.get(baseValue);
+    if (keywordType !== undefined && !unsure) {
+      return { type: keywordType, value: baseValue, pos: start };
     }
 
     return { type: "ident", value, pos: start };

@@ -16,6 +16,7 @@ export interface FileType {
  * Built-in file type definitions
  * Use `rg --type-list` to see all types in real ripgrep
  */
+// @banned-pattern-ignore: converted to Map in FileTypeRegistry constructor, never direct bracket access
 const FILE_TYPES: Record<string, FileType> = {
   // Web languages
   js: { extensions: [".js", ".mjs", ".cjs", ".jsx"], globs: [] },

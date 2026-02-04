@@ -60,16 +60,16 @@ function parseSize(sizeStr: string): number | null {
   }
 
   const suffix = (match[2] || "").toUpperCase();
-  const multipliers: Record<string, number> = {
-    "": 1,
-    K: 1024,
-    M: 1024 * 1024,
-    G: 1024 * 1024 * 1024,
-    T: 1024 * 1024 * 1024 * 1024,
-    P: 1024 * 1024 * 1024 * 1024 * 1024,
-  };
+  const multipliers = new Map<string, number>([
+    ["", 1],
+    ["K", 1024],
+    ["M", 1024 * 1024],
+    ["G", 1024 * 1024 * 1024],
+    ["T", 1024 * 1024 * 1024 * 1024],
+    ["P", 1024 * 1024 * 1024 * 1024 * 1024],
+  ]);
 
-  const multiplier = multipliers[suffix];
+  const multiplier = multipliers.get(suffix);
   if (multiplier === undefined) {
     return null;
   }

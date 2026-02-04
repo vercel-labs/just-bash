@@ -513,6 +513,7 @@ export function evaluate(
     }
 
     case "Object": {
+      // @banned-pattern-ignore: all key access goes through isSafeKey/safeSet below
       const results: Record<string, unknown>[] = [{}];
 
       for (const entry of ast.entries) {
@@ -522,6 +523,7 @@ export function evaluate(
             : evaluate(value, entry.key, ctx);
         const values = evaluate(value, entry.value, ctx);
 
+        // @banned-pattern-ignore: all key access goes through isSafeKey/safeSet below
         const newResults: Record<string, unknown>[] = [];
         for (const obj of results) {
           for (const k of keys) {
@@ -886,6 +888,7 @@ function applyUpdate(
               typeof baseVal === "object" &&
               !Array.isArray(baseVal)
             ) {
+              // @banned-pattern-ignore: uses Object.hasOwn + safeSet for protection
               const obj = { ...baseVal } as Record<string, unknown>;
               const current = Object.hasOwn(obj, path.name)
                 ? obj[path.name]
@@ -897,6 +900,7 @@ function applyUpdate(
           });
         }
         if (val && typeof val === "object" && !Array.isArray(val)) {
+          // @banned-pattern-ignore: uses Object.hasOwn + safeSet for protection
           const obj = { ...val } as Record<string, unknown>;
           const current = Object.hasOwn(obj, path.name)
             ? obj[path.name]
@@ -943,6 +947,7 @@ function applyUpdate(
               if (!isSafeKey(idx)) {
                 return baseVal;
               }
+              // @banned-pattern-ignore: protected by isSafeKey above + safeSet below
               const obj = { ...baseVal } as Record<string, unknown>;
               const current = Object.hasOwn(obj, idx) ? obj[idx] : undefined;
               safeSet(obj, idx, transform(current));
@@ -991,6 +996,7 @@ function applyUpdate(
           if (!isSafeKey(idx)) {
             return val;
           }
+          // @banned-pattern-ignore: protected by isSafeKey above + safeSet below
           const obj = { ...val } as Record<string, unknown>;
           const current = Object.hasOwn(obj, idx) ? obj[idx] : undefined;
           safeSet(obj, idx, transform(current));
@@ -1076,6 +1082,7 @@ function applyDel(
         }
         // Direct field
         if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+          // @banned-pattern-ignore: uses safeSet for protection
           const result = { ...obj } as Record<string, unknown>;
           safeSet(result, pathNode.name, newVal);
           return result;
@@ -1114,6 +1121,7 @@ function applyDel(
           if (!isSafeKey(idx)) {
             return obj;
           }
+          // @banned-pattern-ignore: protected by isSafeKey above + safeSet below
           const result = { ...obj } as Record<string, unknown>;
           safeSet(result, idx, newVal);
           return result;
@@ -1149,6 +1157,11 @@ function applyDel(
         }
         // Direct field deletion (no base)
         if (val && typeof val === "object" && !Array.isArray(val)) {
+          // Defense against prototype pollution: skip dangerous keys
+          if (!isSafeKey(path.name)) {
+            return val;
+          }
+          // @banned-pattern-ignore: protected by isSafeKey above
           const obj = { ...val } as Record<string, unknown>;
           delete obj[path.name];
           return obj;
@@ -1194,6 +1207,7 @@ function applyDel(
           if (!isSafeKey(idx)) {
             return val;
           }
+          // @banned-pattern-ignore: protected by isSafeKey above
           const obj = { ...val } as Record<string, unknown>;
           delete obj[idx];
           return obj;
@@ -1231,6 +1245,7 @@ function applyDel(
                 return obj;
               }
               if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+                // @banned-pattern-ignore: protected by isSafeKey above + safeSet below
                 const result = { ...obj } as Record<string, unknown>;
                 safeSet(result, pathNode.name, newVal);
                 return result;
@@ -1258,6 +1273,7 @@ function applyDel(
                 if (!isSafeKey(idx)) {
                   return obj;
                 }
+                // @banned-pattern-ignore: protected by isSafeKey above + safeSet below
                 const result = { ...obj } as Record<string, unknown>;
                 safeSet(result, idx, newVal);
                 return result;
