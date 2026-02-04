@@ -10,6 +10,9 @@
  * - Escape sequences
  */
 
+// Max heredoc size to prevent memory exhaustion (10MB)
+const MAX_HEREDOC_SIZE = 10_485_760;
+
 export enum TokenType {
   // End of input
   EOF = "EOF",
@@ -1851,6 +1854,14 @@ export class Lexer {
         }
 
         content += line;
+        // Check heredoc size limit to prevent memory exhaustion
+        if (content.length > MAX_HEREDOC_SIZE) {
+          throw new LexerError(
+            `Heredoc size limit exceeded (${MAX_HEREDOC_SIZE} bytes)`,
+            startLine,
+            startColumn,
+          );
+        }
         if (this.pos < this.input.length && this.input[this.pos] === "\n") {
           content += "\n";
           this.pos++;

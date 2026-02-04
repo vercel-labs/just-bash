@@ -473,6 +473,17 @@ export function handleRead(
   if (arrayName) {
     // Pass raw flag - splitting respects backslash escapes in non-raw mode
     const { words } = splitByIfsForRead(line, ifs, undefined, raw);
+
+    // Check array element limit
+    const maxArrayElements = ctx.limits?.maxArrayElements ?? 100000;
+    if (words.length > maxArrayElements) {
+      return result(
+        "",
+        `read: array element limit exceeded (${maxArrayElements})\n`,
+        1,
+      );
+    }
+
     clearArray(ctx, arrayName);
     // Assign words to array elements, processing backslash escapes after splitting
     for (let j = 0; j < words.length; j++) {

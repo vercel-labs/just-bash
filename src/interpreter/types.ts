@@ -403,4 +403,6 @@ export interface InterpreterContext {
   sleep?: (ms: number) => Promise<void>;
   /** Optional trace callback for performance profiling */
   trace?: TraceCallback;
+  /** Current command substitution nesting depth (for limit enforcement) */
+  substitutionDepth?: number;
 }

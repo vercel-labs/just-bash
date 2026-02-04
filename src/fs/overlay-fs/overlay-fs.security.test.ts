@@ -450,11 +450,11 @@ describe("OverlayFs Security - Path Traversal Prevention", () => {
       expect(entries).not.toContain("secret.txt");
     });
 
-    it("should handle readdir with null bytes", async () => {
-      // Path normalization handles null bytes safely - results in root contents (secure)
-      const entries = await overlay.readdir("/subdir\x00/../..");
-      expect(entries).toContain("allowed.txt");
-      expect(entries).not.toContain("secret.txt");
+    it("should reject readdir with null bytes", async () => {
+      // Null bytes in paths are rejected to prevent truncation attacks
+      await expect(overlay.readdir("/subdir\x00/../..")).rejects.toThrow(
+        "path contains null byte",
+      );
     });
 
     it("should handle readdir with special characters in path", async () => {

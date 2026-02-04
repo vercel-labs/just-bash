@@ -73,6 +73,7 @@ export function handleMapfile(
   let remaining = effectiveStdin;
   let lineCount = 0;
   let skipped = 0;
+  const maxArrayElements = ctx.limits?.maxArrayElements ?? 100000;
 
   while (remaining.length > 0) {
     const delimIndex = remaining.indexOf(delimiter);
@@ -83,6 +84,14 @@ export function handleMapfile(
         if (skipped < skipCount) {
           skipped++;
         } else if (maxCount === 0 || lineCount < maxCount) {
+          // Check array element limit
+          if (origin + lineCount >= maxArrayElements) {
+            return result(
+              "",
+              `mapfile: array element limit exceeded (${maxArrayElements})\n`,
+              1,
+            );
+          }
           // Bash truncates at NUL bytes
           let lastLine = remaining;
           const nulIdx = lastLine.indexOf("\0");
@@ -117,6 +126,15 @@ export function handleMapfile(
 
     if (maxCount > 0 && lineCount >= maxCount) {
       break;
+    }
+
+    // Check array element limit
+    if (origin + lineCount >= maxArrayElements) {
+      return result(
+        "",
+        `mapfile: array element limit exceeded (${maxArrayElements})\n`,
+        1,
+      );
     }
 
     lines.push(line);

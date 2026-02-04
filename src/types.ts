@@ -123,6 +123,11 @@ export interface CommandContext {
    * When true, echo interprets backslash escapes by default (like echo -e).
    */
   xpgEcho?: boolean;
+  /**
+   * Current command substitution nesting depth.
+   * Used to prevent stack exhaustion from deeply nested $(...).
+   */
+  substitutionDepth?: number;
 }
 
 export interface Command {

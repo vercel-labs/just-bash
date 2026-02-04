@@ -202,7 +202,13 @@ export class ExecutionLimitError extends ControlFlowError {
 
   constructor(
     message: string,
-    public readonly limitType: "recursion" | "commands" | "iterations",
+    public readonly limitType:
+      | "recursion"
+      | "commands"
+      | "iterations"
+      | "string_length"
+      | "glob_operations"
+      | "substitution_depth",
     stdout: string = "",
     stderr: string = "",
   ) {

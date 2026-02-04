@@ -24,6 +24,24 @@ import {
   ExecutionLimitError,
   ExitError,
 } from "./errors.js";
+
+/**
+ * Check if a string exceeds the maximum allowed length.
+ * Throws ExecutionLimitError if the limit is exceeded.
+ */
+function checkStringLength(
+  str: string,
+  maxLength: number,
+  context: string,
+): void {
+  if (str.length > maxLength) {
+    throw new ExecutionLimitError(
+      `${context}: string length limit exceeded (${maxLength} bytes)`,
+      "string_length",
+    );
+  }
+}
+
 import { analyzeWordParts } from "./expansion/analysis.js";
 import {
   expandDollarVarsInArithText,
@@ -650,14 +668,18 @@ async function expandWordAsync(
   const len = wordParts.length;
 
   if (len === 1) {
-    return expandPart(ctx, wordParts[0]);
+    const result = await expandPart(ctx, wordParts[0]);
+    checkStringLength(result, ctx.limits.maxStringLength, "word expansion");
+    return result;
   }
 
   const parts: string[] = [];
   for (let i = 0; i < len; i++) {
     parts.push(await expandPart(ctx, wordParts[i]));
   }
-  return parts.join("");
+  const result = parts.join("");
+  checkStringLength(result, ctx.limits.maxStringLength, "word expansion");
+  return result;
 }
 
 async function expandPart(
@@ -702,8 +724,19 @@ async function expandPart(
           ctx.state.lastExitCode = 0;
           ctx.state.env.set("?", "0");
           // Strip trailing newlines (like command substitution does)
-          return content.replace(/\n+$/, "");
-        } catch {
+          const result = content.replace(/\n+$/, "");
+          // Check string length limit
+          checkStringLength(
+            result,
+            ctx.limits.maxStringLength,
+            "command substitution",
+          );
+          return result;
+        } catch (error) {
+          // ExecutionLimitError must propagate
+          if (error instanceof ExecutionLimitError) {
+            throw error;
+          }
           // File not found or read error - return empty string, set exit code
           ctx.state.lastExitCode = 1;
           ctx.state.env.set("?", "1");
@@ -714,6 +747,19 @@ async function expandPart(
       // Command substitution runs in a subshell-like context
       // ExitError should NOT terminate the main script, just this substitution
       // But ExecutionLimitError MUST propagate to protect against infinite recursion
+      // Check command substitution nesting depth limit
+      const currentDepth = ctx.substitutionDepth ?? 0;
+      const maxDepth = ctx.limits.maxSubstitutionDepth;
+      if (currentDepth >= maxDepth) {
+        throw new ExecutionLimitError(
+          `Command substitution nesting limit exceeded (${maxDepth})`,
+          "substitution_depth",
+        );
+      }
+      // Increment depth for nested substitutions
+      const savedDepth = ctx.substitutionDepth;
+      ctx.substitutionDepth = currentDepth + 1;
+
       // Command substitutions get a new BASHPID (unlike $$ which stays the same)
       const savedBashPid = ctx.state.bashPid;
       ctx.state.bashPid = ctx.state.nextVirtualPid++;
@@ -742,12 +788,21 @@ async function expandPart(
             (ctx.state.expansionStderr || "") + result.stderr;
         }
         ctx.state.bashPid = savedBashPid;
-        return result.stdout.replace(/\n+$/, "");
+        ctx.substitutionDepth = savedDepth;
+        const output = result.stdout.replace(/\n+$/, "");
+        // Check string length limit for command substitution output
+        checkStringLength(
+          output,
+          ctx.limits.maxStringLength,
+          "command substitution",
+        );
+        return output;
       } catch (error) {
         // Restore environment on error as well
         ctx.state.env = savedEnv;
         ctx.state.cwd = savedCwd;
         ctx.state.bashPid = savedBashPid;
+        ctx.substitutionDepth = savedDepth;
         ctx.state.suppressVerbose = savedSuppressVerbose;
         // ExecutionLimitError must always propagate - these are safety limits
         if (error instanceof ExecutionLimitError) {
@@ -762,7 +817,14 @@ async function expandPart(
             ctx.state.expansionStderr =
               (ctx.state.expansionStderr || "") + error.stderr;
           }
-          return error.stdout.replace(/\n+$/, "");
+          const exitOutput = error.stdout.replace(/\n+$/, "");
+          // Check string length limit for command substitution output
+          checkStringLength(
+            exitOutput,
+            ctx.limits.maxStringLength,
+            "command substitution",
+          );
+          return exitOutput;
         }
         throw error;
       }

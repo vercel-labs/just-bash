@@ -33,6 +33,21 @@ export interface ExecutionLimits {
 
   /** Maximum Python execution time in milliseconds (default: 30000) */
   maxPythonTimeoutMs?: number;
+
+  /** Maximum glob filesystem operations (default: 100000) */
+  maxGlobOperations?: number;
+
+  /** Maximum string length in bytes (default: 10MB = 10485760) */
+  maxStringLength?: number;
+
+  /** Maximum array elements (default: 100000) */
+  maxArrayElements?: number;
+
+  /** Maximum heredoc size in bytes (default: 10MB = 10485760) */
+  maxHeredocSize?: number;
+
+  /** Maximum command substitution nesting depth (default: 50) */
+  maxSubstitutionDepth?: number;
 }
 
 /**
@@ -49,6 +64,11 @@ const DEFAULT_LIMITS: Required<ExecutionLimits> = {
   maxJqIterations: 10000,
   maxSqliteTimeoutMs: 5000,
   maxPythonTimeoutMs: 30000,
+  maxGlobOperations: 100000,
+  maxStringLength: 10485760, // 10MB
+  maxArrayElements: 100000,
+  maxHeredocSize: 10485760, // 10MB
+  maxSubstitutionDepth: 50,
 };
 
 /**
@@ -76,5 +96,14 @@ export function resolveLimits(
       userLimits.maxSqliteTimeoutMs ?? DEFAULT_LIMITS.maxSqliteTimeoutMs,
     maxPythonTimeoutMs:
       userLimits.maxPythonTimeoutMs ?? DEFAULT_LIMITS.maxPythonTimeoutMs,
+    maxGlobOperations:
+      userLimits.maxGlobOperations ?? DEFAULT_LIMITS.maxGlobOperations,
+    maxStringLength:
+      userLimits.maxStringLength ?? DEFAULT_LIMITS.maxStringLength,
+    maxArrayElements:
+      userLimits.maxArrayElements ?? DEFAULT_LIMITS.maxArrayElements,
+    maxHeredocSize: userLimits.maxHeredocSize ?? DEFAULT_LIMITS.maxHeredocSize,
+    maxSubstitutionDepth:
+      userLimits.maxSubstitutionDepth ?? DEFAULT_LIMITS.maxSubstitutionDepth,
   };
 }
