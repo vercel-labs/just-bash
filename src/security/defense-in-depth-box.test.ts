@@ -809,6 +809,235 @@ describe("DefenseInDepthBox", () => {
       });
     });
 
+    describe("WebAssembly blocking", () => {
+      it("should block WebAssembly.Module", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            // Accessing WebAssembly should throw
+            WebAssembly.Module;
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+        expect(error?.message).toContain("WebAssembly");
+      });
+
+      it("should block WebAssembly.compile", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            WebAssembly.compile;
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+      });
+
+      it("should block new WebAssembly.Module()", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            // Even trying to construct should fail when accessing WebAssembly
+            const WA = WebAssembly;
+            new WA.Module(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+      });
+
+      it("should allow WebAssembly outside sandbox context", () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        // Outside run() context - should work
+        expect(typeof WebAssembly).toBe("object");
+        expect(typeof WebAssembly.Module).toBe("function");
+
+        handle.deactivate();
+      });
+    });
+
+    describe("Error.prepareStackTrace blocking", () => {
+      it("should allow Error.prepareStackTrace reading (V8 needs this)", async () => {
+        // Reading is allowed because V8 uses this internally for stack traces
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let didThrow = false;
+        await handle.run(async () => {
+          try {
+            // Reading prepareStackTrace should work (not throw)
+            const _pst = Error.prepareStackTrace;
+          } catch {
+            didThrow = true;
+          }
+        });
+
+        handle.deactivate();
+
+        // Should not throw - reading is allowed
+        expect(didThrow).toBe(false);
+      });
+
+      it("should block Error.prepareStackTrace assignment", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            // Assigning to prepareStackTrace should throw
+            Error.prepareStackTrace = () => "hacked";
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+        expect(error?.message).toContain("Error.prepareStackTrace");
+      });
+
+      it("should block the actual attack vector", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            // This is the actual attack - set prepareStackTrace to leak Function
+            Error.prepareStackTrace = (_err, stack) => {
+              return stack[0]?.getFunction?.()?.constructor;
+            };
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+      });
+
+      it("should allow Error.prepareStackTrace assignment outside sandbox context", () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        // Outside run() context - should work
+        const original = Error.prepareStackTrace;
+        Error.prepareStackTrace = (_err, _stack) => "test";
+        Error.prepareStackTrace = original;
+
+        handle.deactivate();
+      });
+    });
+
+    describe("process.binding blocking", () => {
+      it("should block process.binding calls", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            // Calling process.binding should throw
+            // Use type assertion since binding is deprecated and not in types
+            (
+              process as unknown as { binding: (name: string) => unknown }
+            ).binding("fs");
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+        expect(error?.message).toContain("process.binding");
+      });
+
+      it("should block process._linkedBinding calls", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            // Calling process._linkedBinding should throw
+            (
+              process as NodeJS.Process & {
+                _linkedBinding: (name: string) => unknown;
+              }
+            )._linkedBinding("fs");
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+        expect(error?.message).toContain("process._linkedBinding");
+      });
+
+      it("should block process.dlopen calls", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            // Calling process.dlopen should throw
+            // We pass invalid args since we just want to test the blocking
+            process.dlopen({} as NodeJS.Module, "/nonexistent.node");
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+        expect(error?.message).toContain("process.dlopen");
+      });
+
+      it("should allow process.binding outside sandbox context", () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        // Outside run() context - should work (binding exists)
+        expect(
+          typeof (process as unknown as { binding: unknown }).binding,
+        ).toBe("function");
+
+        handle.deactivate();
+      });
+    });
+
     describe("other blocked globals", () => {
       it("should block WeakRef", async () => {
         const box = DefenseInDepthBox.getInstance(true);

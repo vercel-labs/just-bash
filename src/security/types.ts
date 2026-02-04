@@ -55,7 +55,11 @@ export type SecurityViolationType =
   | "finalization_registry"
   | "reflect"
   | "proxy"
-  | "process_env";
+  | "process_env"
+  | "process_binding"
+  | "process_dlopen"
+  | "webassembly"
+  | "error_prepare_stack_trace";
 
 /**
  * Information about a detected security violation.

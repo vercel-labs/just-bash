@@ -100,13 +100,35 @@ export function getBlockedGlobals(): BlockedGlobal[] {
     // 1. Node.js internals (Promise resolution, etc.) use process.nextTick
     // 2. Blocking process entirely breaks normal async operation
     // 3. The primary code execution vectors (Function, eval) are already blocked
-    // However, we DO block process.env to prevent leaking secrets.
+    // However, we DO block specific dangerous process properties.
     {
       prop: "env",
       target: process,
       violationType: "process_env",
       strategy: "throw",
       reason: "process.env could leak sensitive environment variables",
+    },
+    {
+      prop: "binding",
+      target: process,
+      violationType: "process_binding",
+      strategy: "throw",
+      reason: "process.binding provides access to native Node.js modules",
+    },
+    {
+      prop: "_linkedBinding",
+      target: process,
+      violationType: "process_binding",
+      strategy: "throw",
+      reason:
+        "process._linkedBinding provides access to native Node.js modules",
+    },
+    {
+      prop: "dlopen",
+      target: process,
+      violationType: "process_dlopen",
+      strategy: "throw",
+      reason: "process.dlopen allows loading native addons",
     },
 
     // We also don't block `require` because:
@@ -145,6 +167,18 @@ export function getBlockedGlobals(): BlockedGlobal[] {
       strategy: "throw",
       reason: "Proxy allows intercepting and modifying object behavior",
     },
+
+    // WebAssembly allows arbitrary code execution
+    {
+      prop: "WebAssembly",
+      target: globalThis,
+      violationType: "webassembly",
+      strategy: "throw",
+      reason: "WebAssembly allows executing arbitrary compiled code",
+    },
+
+    // Note: Error.prepareStackTrace is handled specially in defense-in-depth-box.ts
+    // because we only want to block SETTING it, not reading (V8 reads it internally)
   ];
 
   // Add async/generator function constructors if they exist

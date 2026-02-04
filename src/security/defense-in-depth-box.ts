@@ -29,6 +29,13 @@ import type {
 } from "./types.js";
 
 /**
+ * Suffix added to all security violation messages.
+ */
+const DEFENSE_IN_DEPTH_NOTICE =
+  "\n\nThis is a defense-in-depth measure and indicates a bug in just-bash. " +
+  "Please report this at security@vercel.com";
+
+/**
  * Error thrown when a security violation is detected and blocking is enabled.
  */
 export class SecurityViolationError extends Error {
@@ -36,7 +43,7 @@ export class SecurityViolationError extends Error {
     message: string,
     public readonly violation: SecurityViolation,
   ) {
-    super(message);
+    super(message + DEFENSE_IN_DEPTH_NOTICE);
     this.name = "SecurityViolationError";
   }
 }
@@ -255,6 +262,9 @@ export class DefenseInDepthBox {
     if (target === process) {
       return `process.${prop}`;
     }
+    if (target === Error) {
+      return `Error.${prop}`;
+    }
     // For prototype targets, try to identify them
     if (target === Function.prototype) {
       return `Function.prototype.${prop}`;
@@ -468,6 +478,9 @@ export class DefenseInDepthBox {
     // Protect against .constructor.constructor escape vector
     // by patching Function.prototype.constructor (and similar)
     this.protectConstructorChain();
+
+    // Protect Error.prepareStackTrace (only block setting, not reading)
+    this.protectErrorPrepareStackTrace();
   }
 
   /**
@@ -537,6 +550,73 @@ export class DefenseInDepthBox {
       }
     } catch {
       // AsyncGeneratorFunction not available
+    }
+  }
+
+  /**
+   * Protect Error.prepareStackTrace from being set in sandbox context.
+   *
+   * The attack vector is:
+   * ```
+   * Error.prepareStackTrace = (err, stack) => {
+   *   return stack[0].getFunction().constructor; // Gets Function
+   * };
+   * const F = new Error().stack;
+   * F("return process")();
+   * ```
+   *
+   * We only block SETTING, not reading, because V8 reads it internally
+   * when creating error stack traces.
+   */
+  private protectErrorPrepareStackTrace(): void {
+    const box = this;
+
+    try {
+      const originalDescriptor = Object.getOwnPropertyDescriptor(
+        Error,
+        "prepareStackTrace",
+      );
+      this.originalDescriptors.push({
+        target: Error,
+        prop: "prepareStackTrace",
+        descriptor: originalDescriptor,
+      });
+
+      let currentValue = originalDescriptor?.value;
+
+      Object.defineProperty(Error, "prepareStackTrace", {
+        get() {
+          // Always allow reading (V8 needs this internally)
+          return currentValue;
+        },
+        set(value) {
+          if (box.shouldBlock()) {
+            const message =
+              "Error.prepareStackTrace modification is blocked during script execution";
+            const violation = box.recordViolation(
+              "error_prepare_stack_trace",
+              "Error.prepareStackTrace",
+              message,
+            );
+            throw new SecurityViolationError(message, violation);
+          }
+          // Record in audit mode
+          if (
+            box.config.auditMode &&
+            executionContext.getStore()?.sandboxActive === true
+          ) {
+            box.recordViolation(
+              "error_prepare_stack_trace",
+              "Error.prepareStackTrace",
+              "Error.prepareStackTrace set (audit mode)",
+            );
+          }
+          currentValue = value;
+        },
+        configurable: true,
+      });
+    } catch {
+      // May fail in some environments
     }
   }
 
