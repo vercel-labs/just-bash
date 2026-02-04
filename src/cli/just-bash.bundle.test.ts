@@ -105,7 +105,11 @@ describe("just-bash bundled binary", () => {
   });
 
   it("should lazy-load commands (python3 with external pyodide)", async () => {
-    const result = await runBin(["-c", 'python3 -c "print(1 + 2)"']);
+    const result = await runBin([
+      "--python",
+      "-c",
+      'python3 -c "print(1 + 2)"',
+    ]);
     expect(result.stdout).toBe("3\n");
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);

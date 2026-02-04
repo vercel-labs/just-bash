@@ -49,6 +49,7 @@ interface CliOptions {
   cwdOverridden: boolean;
   errexit: boolean;
   allowWrite: boolean;
+  python: boolean;
   json: boolean;
   help: boolean;
   version: boolean;
@@ -68,6 +69,7 @@ Options:
   --root <path>     Root directory for OverlayFS (default: current directory)
   --cwd <path>      Working directory within the sandbox (default: project mount point)
   --allow-write     Allow write operations (default: read-only)
+  --python          Enable python3/python commands (disabled by default)
   --json            Output results as JSON (stdout, stderr, exitCode)
   -h, --help        Show this help message
   -v, --version     Show version
@@ -114,6 +116,7 @@ function parseArgs(args: string[]): CliOptions {
     cwdOverridden: false,
     errexit: false,
     allowWrite: false,
+    python: false,
     json: false,
     help: false,
     version: false,
@@ -159,6 +162,9 @@ function parseArgs(args: string[]): CliOptions {
       i++;
     } else if (arg === "--allow-write") {
       options.allowWrite = true;
+      i++;
+    } else if (arg === "--python") {
+      options.python = true;
       i++;
     } else if (arg.startsWith("-")) {
       // Handle combined short options like -ec
@@ -278,6 +284,7 @@ async function main(): Promise<void> {
   const env = new Bash({
     fs,
     cwd,
+    python: options.python,
   });
 
   // Prepend set -e if errexit is enabled
