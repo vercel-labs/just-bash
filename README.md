@@ -283,7 +283,7 @@ pnpm shell --no-network
 
 ### Data Processing
 
-`jq` (JSON), `python3`/`python` (Python via Pyodide), `sqlite3` (SQLite), `xan` (CSV), `yq` (YAML/XML/TOML/CSV)
+`jq` (JSON), `python3`/`python` (Python via Pyodide; required opt-in), `sqlite3` (SQLite), `xan` (CSV), `yq` (YAML/XML/TOML/CSV)
 
 ### Compression & Archives
 
