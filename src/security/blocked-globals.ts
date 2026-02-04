@@ -183,6 +183,29 @@ export function getBlockedGlobals(): BlockedGlobal[] {
     // GeneratorFunction not available in this environment
   }
 
+  try {
+    const AsyncGeneratorFunction = Object.getPrototypeOf(
+      async function* () {},
+    ).constructor;
+    if (
+      AsyncGeneratorFunction &&
+      AsyncGeneratorFunction !== Function &&
+      AsyncGeneratorFunction !==
+        Object.getPrototypeOf(async () => {}).constructor
+    ) {
+      globals.push({
+        prop: "constructor",
+        target: Object.getPrototypeOf(async function* () {}),
+        violationType: "async_generator_function_constructor",
+        strategy: "throw",
+        reason:
+          "AsyncGeneratorFunction constructor allows arbitrary async generator code execution",
+      });
+    }
+  } catch {
+    // AsyncGeneratorFunction not available in this environment
+  }
+
   // Filter out globals that don't exist in the current environment
   return globals.filter((g) => {
     try {

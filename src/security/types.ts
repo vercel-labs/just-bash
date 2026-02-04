@@ -50,6 +50,7 @@ export type SecurityViolationType =
   | "setImmediate"
   | "async_function_constructor"
   | "generator_function_constructor"
+  | "async_generator_function_constructor"
   | "weak_ref"
   | "finalization_registry"
   | "reflect"

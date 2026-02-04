@@ -517,6 +517,27 @@ export class DefenseInDepthBox {
     } catch {
       // GeneratorFunction not available
     }
+
+    // Patch AsyncGeneratorFunction.prototype.constructor if it exists
+    try {
+      const AsyncGeneratorFunction = Object.getPrototypeOf(
+        async function* () {},
+      ).constructor;
+      const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+      if (
+        AsyncGeneratorFunction &&
+        AsyncGeneratorFunction !== Function &&
+        AsyncGeneratorFunction !== AsyncFunction
+      ) {
+        this.patchPrototypeConstructor(
+          AsyncGeneratorFunction.prototype,
+          "AsyncGeneratorFunction.prototype.constructor",
+          "async_generator_function_constructor",
+        );
+      }
+    } catch {
+      // AsyncGeneratorFunction not available
+    }
   }
 
   /**

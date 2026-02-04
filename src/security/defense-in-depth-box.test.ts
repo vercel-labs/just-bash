@@ -646,6 +646,48 @@ describe("DefenseInDepthBox", () => {
         expect(error).toBeInstanceOf(SecurityViolationError);
       });
 
+      it("should block (async function*(){}).constructor (AsyncGeneratorFunction access)", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            const asyncGenFn = async function* () {};
+            const AsyncGenFn = asyncGenFn.constructor;
+            AsyncGenFn("yield 1");
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+      });
+
+      it("should block AsyncGeneratorFunction via .constructor.constructor", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            // Access AsyncGeneratorFunction via prototype chain
+            const asyncGenFn = async function* () {};
+            const proto = Object.getPrototypeOf(asyncGenFn);
+            const AsyncGenFn = proto.constructor;
+            AsyncGenFn("yield await Promise.resolve(1)");
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+      });
+
       it("should block chained constructor access through prototype", async () => {
         const box = DefenseInDepthBox.getInstance(true);
         const handle = box.activate();
