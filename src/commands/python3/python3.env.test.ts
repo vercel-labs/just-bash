@@ -4,7 +4,7 @@ import { Bash } from "../../Bash.js";
 describe("python3 environment", () => {
   describe("environment variables", () => {
     it("should access exported env vars", { timeout: 60000 }, async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`
 export MY_VAR=hello
 python3 -c "import os; print(os.environ.get('MY_VAR', 'not found'))"
@@ -15,7 +15,7 @@ python3 -c "import os; print(os.environ.get('MY_VAR', 'not found'))"
     });
 
     it("should access multiple env vars", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`
 export VAR1=one
 export VAR2=two
@@ -28,7 +28,7 @@ python3 -c "import os; print(os.environ['VAR1'], os.environ['VAR2'], os.environ[
     });
 
     it("should handle env vars with spaces", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`
 export MY_VAR="hello world"
 python3 -c "import os; print(os.environ['MY_VAR'])"
@@ -39,7 +39,7 @@ python3 -c "import os; print(os.environ['MY_VAR'])"
     });
 
     it("should handle env vars with special characters", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`
 export SPECIAL='foo=bar&baz=qux'
 python3 -c "import os; print(os.environ['SPECIAL'])"
@@ -50,7 +50,7 @@ python3 -c "import os; print(os.environ['SPECIAL'])"
     });
 
     it("should access HOME env var", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "import os; print(os.environ.get('HOME', 'not set'))"`,
       );
@@ -60,7 +60,7 @@ python3 -c "import os; print(os.environ['SPECIAL'])"
     });
 
     it("should access PATH env var", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "import os; print('PATH' in os.environ)"`,
       );
@@ -70,7 +70,7 @@ python3 -c "import os; print(os.environ['SPECIAL'])"
     });
 
     it("should access PWD env var", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "import os; print(os.environ.get('PWD', 'not set'))"`,
       );
@@ -80,7 +80,7 @@ python3 -c "import os; print(os.environ['SPECIAL'])"
     });
 
     it("should return None for undefined env var with get()", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "import os; print(os.environ.get('UNDEFINED_VAR_12345'))"`,
       );
@@ -90,7 +90,7 @@ python3 -c "import os; print(os.environ['SPECIAL'])"
     });
 
     it("should raise KeyError for undefined env var with []", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "import os; print(os.environ['UNDEFINED_VAR_12345'])"`,
       );
@@ -101,7 +101,7 @@ python3 -c "import os; print(os.environ['SPECIAL'])"
 
   describe("working directory", () => {
     it("should have correct cwd", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "import os; print(os.getcwd())"`,
       );
@@ -111,7 +111,7 @@ python3 -c "import os; print(os.environ['SPECIAL'])"
     });
 
     it("should match bash pwd", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const bashPwd = await env.exec("pwd");
       const pythonCwd = await env.exec(
         `python3 -c "import os; print(os.getcwd())"`,
@@ -122,7 +122,7 @@ python3 -c "import os; print(os.environ['SPECIAL'])"
     });
 
     it("should work with cd", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`
 cd /tmp
 python3 -c "import os; print(os.getcwd())"
@@ -135,25 +135,25 @@ python3 -c "import os; print(os.getcwd())"
 
   describe("exit codes", () => {
     it("should return exit code 0 on success", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`python3 -c "print('ok')"`);
       expect(result.exitCode).toBe(0);
     });
 
     it("should return exit code from sys.exit()", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`python3 -c "import sys; sys.exit(42)"`);
       expect(result.exitCode).toBe(42);
     });
 
     it("should return exit code 0 from sys.exit(0)", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`python3 -c "import sys; sys.exit(0)"`);
       expect(result.exitCode).toBe(0);
     });
 
     it("should return exit code 1 on exception", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "raise ValueError('test error')"`,
       );
@@ -162,7 +162,7 @@ python3 -c "import os; print(os.getcwd())"
     });
 
     it("should return exit code 1 from sys.exit(string)", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "import sys; sys.exit('error message')"`,
       );
@@ -171,7 +171,7 @@ python3 -c "import os; print(os.getcwd())"
     });
 
     it("should return exit code 1 from sys.exit(None)", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`python3 -c "import sys; sys.exit(None)"`);
       // sys.exit(None) is equivalent to sys.exit(0)
       expect(result.exitCode).toBe(0);
@@ -180,42 +180,42 @@ python3 -c "import os; print(os.getcwd())"
 
   describe("crash handling", () => {
     it("should handle NameError", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`python3 -c "print(undefined_variable)"`);
       expect(result.stderr).toContain("NameError");
       expect(result.exitCode).toBe(1);
     });
 
     it("should handle TypeError", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`python3 -c "'string' + 5"`);
       expect(result.stderr).toContain("TypeError");
       expect(result.exitCode).toBe(1);
     });
 
     it("should handle IndexError", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`python3 -c "[][0]"`);
       expect(result.stderr).toContain("IndexError");
       expect(result.exitCode).toBe(1);
     });
 
     it("should handle KeyError", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`python3 -c "{}['missing']"`);
       expect(result.stderr).toContain("KeyError");
       expect(result.exitCode).toBe(1);
     });
 
     it("should handle AttributeError", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`python3 -c "'string'.nonexistent()"`);
       expect(result.stderr).toContain("AttributeError");
       expect(result.exitCode).toBe(1);
     });
 
     it("should handle import errors", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "import nonexistent_module_xyz"`,
       );
@@ -226,7 +226,7 @@ python3 -c "import os; print(os.getcwd())"
 
   describe("unicode handling", () => {
     it("should handle unicode in output", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`python3 -c "print('hello 世界')"`);
       expect(result.stderr).toBe("");
       expect(result.stdout).toBe("hello 世界\n");
@@ -234,7 +234,7 @@ python3 -c "import os; print(os.getcwd())"
     });
 
     it("should handle emoji", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`python3 -c "print('🎉 party')"`);
       expect(result.stderr).toBe("");
       expect(result.stdout).toBe("🎉 party\n");
@@ -242,7 +242,7 @@ python3 -c "import os; print(os.getcwd())"
     });
 
     it("should handle unicode env vars", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`
 export UNICODE_VAR="привет мир"
 python3 -c "import os; print(os.environ['UNICODE_VAR'])"
@@ -255,7 +255,7 @@ python3 -c "import os; print(os.environ['UNICODE_VAR'])"
 
   describe("binary file I/O", () => {
     it("should write and read binary data", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_binary.py << 'EOF'
 with open('/tmp/binary.bin', 'wb') as f:
     f.write(bytes([0, 1, 2, 255, 254, 253]))
@@ -270,7 +270,7 @@ EOF`);
     });
 
     it("should handle binary data with null bytes", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       // Use bytes() constructor to create null bytes - avoid literal null in heredoc
       await env.exec(`cat > /tmp/test_nullbytes.py << 'EOF'
 with open('/tmp/nullbytes.bin', 'wb') as f:
@@ -288,7 +288,7 @@ EOF`);
 
   describe("multiline output", () => {
     it("should handle multiple print statements", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`python3 -c "
 print('line1')
 print('line2')
@@ -300,7 +300,7 @@ print('line3')
     });
 
     it("should handle for loop output", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       // Use heredoc to preserve indentation
       await env.exec(`cat > /tmp/test_forloop.py << 'EOF'
 for i in range(3):

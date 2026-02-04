@@ -13,6 +13,7 @@ import {
   type CommandName,
   createLazyCommands,
   createNetworkCommands,
+  createPythonCommands,
 } from "./commands/registry.js";
 import {
   type CustomCommand,
@@ -93,6 +94,12 @@ export interface BashOptions {
    * Network access is disabled by default - you must explicitly configure allowed URLs.
    */
   network?: NetworkConfig;
+  /**
+   * Enable python3/python commands.
+   * Python is disabled by default as it introduces additional security surface
+   * (arbitrary code execution via pyodide).
+   */
+  python?: boolean;
   /**
    * Optional list of command names to register.
    * If not provided, all built-in commands are available.
@@ -306,6 +313,14 @@ export class Bash {
     // Register network commands only when network is configured
     if (options.network) {
       for (const cmd of createNetworkCommands()) {
+        this.registerCommand(cmd);
+      }
+    }
+
+    // Register python commands only when explicitly enabled
+    // Python introduces additional security surface (arbitrary code execution)
+    if (options.python) {
+      for (const cmd of createPythonCommands()) {
         this.registerCommand(cmd);
       }
     }

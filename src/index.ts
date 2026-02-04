@@ -4,10 +4,12 @@ export type {
   AllCommandName,
   CommandName,
   NetworkCommandName,
+  PythonCommandName,
 } from "./commands/registry.js";
 export {
   getCommandNames,
   getNetworkCommandNames,
+  getPythonCommandNames,
 } from "./commands/registry.js";
 // Custom commands API
 export type { CustomCommand, LazyCommand } from "./custom-commands.js";

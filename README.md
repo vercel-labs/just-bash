@@ -360,6 +360,24 @@ const env = new Bash({
 
 **Note:** The `curl` command only exists when network is configured. Without network configuration, `curl` returns "command not found".
 
+## Python Support
+
+Python support via Pyodide is opt-in due to additional security surface. Enable it explicitly, but be aware of the risk:
+
+```typescript
+const env = new Bash({
+  python: true,
+});
+
+// Execute Python code
+await env.exec('python3 -c "print(1 + 2)"');
+
+// Run Python scripts
+await env.exec('python3 script.py');
+```
+
+**Note:** The `python3` and `python` commands only exist when `python: true` is configured. Python is not available in browser environments.
+
 ## SQLite Support
 
 The `sqlite3` command uses sql.js (WASM-based SQLite) which is fully sandboxed and cannot access the real filesystem:

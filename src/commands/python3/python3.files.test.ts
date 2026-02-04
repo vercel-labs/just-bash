@@ -7,7 +7,7 @@ import { Bash } from "../../Bash.js";
 describe("python3 script files", () => {
   describe("script file execution", () => {
     it("should execute a Python script file", { timeout: 60000 }, async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/script.py << 'EOF'
 print("Hello from script")
 EOF`);
@@ -17,7 +17,7 @@ EOF`);
     });
 
     it("should pass arguments to script", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/args.py << 'EOF'
 import sys
 print(f"Args: {sys.argv[1:]}")
@@ -28,7 +28,7 @@ EOF`);
     });
 
     it("should have correct sys.argv[0] for script file", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/argv0.py << 'EOF'
 import sys
 print(sys.argv[0])
@@ -39,14 +39,14 @@ EOF`);
     });
 
     it("should error on missing script file", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec("python3 /tmp/nonexistent.py");
       expect(result.stderr).toContain("can't open file");
       expect(result.exitCode).toBe(2);
     });
 
     it("should handle script with multiline code", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/multiline.py << 'EOF'
 def greet(name):
     return f"Hello, {name}!"
@@ -60,7 +60,7 @@ EOF`);
     });
 
     it("should handle script with imports", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/imports.py << 'EOF'
 import json
 import math
@@ -75,7 +75,7 @@ EOF`);
     });
 
     it("should handle script with syntax error", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/syntax_error.py << 'EOF'
 print("hello"
 EOF`);
@@ -85,7 +85,7 @@ EOF`);
     });
 
     it("should handle script with runtime error", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/runtime_error.py << 'EOF'
 x = 1 / 0
 EOF`);
@@ -99,7 +99,7 @@ EOF`);
 describe("python3 file I/O", () => {
   describe("file read/write", () => {
     it("should read files created by bash", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec('echo "content from bash" > /tmp/bashfile.txt');
       const result = await env.exec(
         `python3 -c "with open('/tmp/bashfile.txt') as f: print(f.read().strip())"`,
@@ -110,7 +110,7 @@ describe("python3 file I/O", () => {
     });
 
     it("should write files readable by bash", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const pyResult = await env.exec(
         `python3 -c "with open('/tmp/pyfile.txt', 'w') as f: f.write('content from python')"`,
       );
@@ -122,7 +122,7 @@ describe("python3 file I/O", () => {
     });
 
     it("should append to files", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec('echo "line1" > /tmp/append.txt');
       const pyResult = await env.exec(
         `python3 -c "with open('/tmp/append.txt', 'a') as f: f.write('line2\\n')"`,
@@ -137,7 +137,7 @@ describe("python3 file I/O", () => {
 
   describe("directory operations", () => {
     it("should list directory contents", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec("mkdir -p /tmp/testdir");
       await env.exec("touch /tmp/testdir/a.txt /tmp/testdir/b.txt");
       const result = await env.exec(`python3 -c "
@@ -151,7 +151,7 @@ print(files)
     });
 
     it("should create directories", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const pyResult = await env.exec(
         "python3 -c \"import os; os.makedirs('/tmp/newdir/subdir', exist_ok=True)\"",
       );
@@ -168,7 +168,7 @@ print(files)
     // uses internal C-level operations that bypass our Python-level path patches.
     // Regular file operations (open, os.listdir, etc.) work with normal paths.
     it("should import local module with sys.path", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/mymodule.py << 'EOF'
 def greet(name):
     return f"Hello, {name}!"

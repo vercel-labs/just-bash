@@ -4,7 +4,7 @@ import { Bash } from "../../Bash.js";
 describe("python3 data structures", () => {
   describe("lists", () => {
     it("should create and manipulate lists", { timeout: 60000 }, async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_list.py << 'EOF'
 lst = [1, 2, 3]
 lst.append(4)
@@ -19,7 +19,7 @@ EOF`);
     });
 
     it("should support list slicing", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_slice.py << 'EOF'
 lst = [0, 1, 2, 3, 4, 5]
 print(lst[2:4])
@@ -33,7 +33,7 @@ EOF`);
     });
 
     it("should support list comprehensions", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "print([x**2 for x in range(5)])"`,
       );
@@ -43,7 +43,7 @@ EOF`);
     });
 
     it("should support nested list comprehensions", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_nested_comp.py << 'EOF'
 matrix = [[i*j for j in range(3)] for i in range(3)]
 print(matrix)
@@ -57,7 +57,7 @@ EOF`);
 
   describe("dictionaries", () => {
     it("should create and access dicts", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_dict.py << 'EOF'
 d = {'a': 1, 'b': 2}
 d['c'] = 3
@@ -71,7 +71,7 @@ EOF`);
     });
 
     it("should support dict comprehensions", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_dict_comp.py << 'EOF'
 d = {x: x**2 for x in range(4)}
 print(sorted(d.items()))
@@ -83,7 +83,7 @@ EOF`);
     });
 
     it("should support dict methods", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_dict_methods.py << 'EOF'
 d = {'a': 1, 'b': 2}
 print(d.get('c', 'default'))
@@ -99,7 +99,7 @@ EOF`);
 
   describe("sets", () => {
     it("should create and manipulate sets", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_set.py << 'EOF'
 s = {1, 2, 3}
 s.add(4)
@@ -113,7 +113,7 @@ EOF`);
     });
 
     it("should support set operations", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_set_ops.py << 'EOF'
 a = {1, 2, 3}
 b = {2, 3, 4}
@@ -128,7 +128,7 @@ EOF`);
     });
 
     it("should support set comprehensions", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "print(sorted({x%3 for x in range(10)}))"`,
       );
@@ -140,7 +140,7 @@ EOF`);
 
   describe("tuples", () => {
     it("should create and unpack tuples", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_tuple.py << 'EOF'
 t = (1, 2, 3)
 a, b, c = t
@@ -154,7 +154,7 @@ EOF`);
     });
 
     it("should support named tuples", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_namedtuple.py << 'EOF'
 from collections import namedtuple
 Point = namedtuple('Point', ['x', 'y'])
@@ -172,7 +172,7 @@ EOF`);
 describe("python3 OOP", () => {
   describe("classes", () => {
     it("should define and instantiate classes", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_class.py << 'EOF'
 class Dog:
     def __init__(self, name):
@@ -191,7 +191,7 @@ EOF`);
     });
 
     it("should support inheritance", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_inheritance.py << 'EOF'
 class Animal:
     def speak(self):
@@ -216,7 +216,7 @@ EOF`);
     });
 
     it("should support class methods and static methods", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_classmethods.py << 'EOF'
 class Counter:
     count = 0
@@ -244,7 +244,7 @@ EOF`);
     });
 
     it("should support properties", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_property.py << 'EOF'
 class Circle:
     def __init__(self, radius):
@@ -272,7 +272,7 @@ EOF`);
     });
 
     it("should support dataclasses", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_dataclass.py << 'EOF'
 from dataclasses import dataclass
 
@@ -294,7 +294,7 @@ EOF`);
 
   describe("magic methods", () => {
     it("should support __str__ and __repr__", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_magic.py << 'EOF'
 class Point:
     def __init__(self, x, y):
@@ -318,7 +318,7 @@ EOF`);
     });
 
     it("should support comparison methods", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_comparison.py << 'EOF'
 class Number:
     def __init__(self, value):
@@ -343,7 +343,7 @@ EOF`);
     });
 
     it("should support arithmetic methods", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_arithmetic.py << 'EOF'
 class Vector:
     def __init__(self, x, y):
@@ -368,7 +368,7 @@ EOF`);
     });
 
     it("should support __len__ and __getitem__", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_container.py << 'EOF'
 class MyList:
     def __init__(self, items):
@@ -393,7 +393,7 @@ EOF`);
 
   describe("exception handling", () => {
     it("should handle try/except", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_exception.py << 'EOF'
 try:
     x = 1 / 0
@@ -407,7 +407,7 @@ EOF`);
     });
 
     it("should handle multiple exceptions", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_multi_except.py << 'EOF'
 def test(x):
     try:
@@ -429,7 +429,7 @@ EOF`);
     });
 
     it("should handle finally", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_finally.py << 'EOF'
 def test():
     try:
@@ -447,7 +447,7 @@ EOF`);
     });
 
     it("should support custom exceptions", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_custom_exception.py << 'EOF'
 class MyError(Exception):
     def __init__(self, message):

@@ -12,7 +12,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Bash } from "./Bash.js";
 import { BROWSER_EXCLUDED_COMMANDS } from "./commands/browser-excluded.js";
-import { getCommandNames } from "./commands/registry.js";
+import { getCommandNames, getPythonCommandNames } from "./commands/registry.js";
 
 const browserBundlePath = resolve(__dirname, "../dist/bundle/browser.js");
 
@@ -93,7 +93,8 @@ describe("browser bundle safety", () => {
     it("should have browser-excluded commands available in Node.js registry", () => {
       // In Node.js environment (where tests run), all commands are available
       // This verifies that browser-excluded commands exist in the full registry
-      const commandNames = getCommandNames();
+      // Note: python commands are opt-in, so they're in a separate list
+      const commandNames = [...getCommandNames(), ...getPythonCommandNames()];
 
       for (const excludedCmd of BROWSER_EXCLUDED_COMMANDS) {
         // These commands should be available in Node.js

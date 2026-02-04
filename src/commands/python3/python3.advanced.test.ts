@@ -4,7 +4,7 @@ import { Bash } from "../../Bash.js";
 describe("python3 advanced features", () => {
   describe("generators", () => {
     it("should create simple generators", { timeout: 60000 }, async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_generator.py << 'EOF'
 def countdown(n):
     while n > 0:
@@ -20,7 +20,7 @@ EOF`);
     });
 
     it("should support generator expressions", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "print(sum(x**2 for x in range(5)))"`,
       );
@@ -30,7 +30,7 @@ EOF`);
     });
 
     it("should support infinite generators with itertools", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_infinite_gen.py << 'EOF'
 from itertools import islice, count
 result = list(islice(count(10), 5))
@@ -45,7 +45,7 @@ EOF`);
 
   describe("decorators", () => {
     it("should support simple decorators", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_decorator.py << 'EOF'
 def uppercase(func):
     def wrapper(*args, **kwargs):
@@ -66,7 +66,7 @@ EOF`);
     });
 
     it("should support decorators with arguments", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_decorator_args.py << 'EOF'
 def repeat(times):
     def decorator(func):
@@ -91,7 +91,7 @@ EOF`);
     });
 
     it("should support stacked decorators", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_stacked_decorators.py << 'EOF'
 def add_prefix(func):
     def wrapper():
@@ -119,7 +119,7 @@ EOF`);
 
   describe("context managers", () => {
     it("should support custom context managers with class", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_context_class.py << 'EOF'
 class Timer:
     def __enter__(self):
@@ -140,7 +140,7 @@ EOF`);
     });
 
     it("should support contextlib.contextmanager", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_contextlib.py << 'EOF'
 from contextlib import contextmanager
 
@@ -162,7 +162,7 @@ EOF`);
 
   describe("lambda functions", () => {
     it("should create and use lambdas", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "f = lambda x, y: x + y; print(f(3, 4))"`,
       );
@@ -172,7 +172,7 @@ EOF`);
     });
 
     it("should use lambdas with map/filter", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_lambda.py << 'EOF'
 numbers = [1, 2, 3, 4, 5]
 squared = list(map(lambda x: x**2, numbers))
@@ -187,7 +187,7 @@ EOF`);
     });
 
     it("should use lambdas with sorted", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_lambda_sort.py << 'EOF'
 pairs = [(1, 'one'), (2, 'two'), (3, 'three')]
 sorted_by_name = sorted(pairs, key=lambda x: x[1])
@@ -202,7 +202,7 @@ EOF`);
 
   describe("closures", () => {
     it("should create closures", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_closure.py << 'EOF'
 def make_multiplier(n):
     def multiply(x):
@@ -221,7 +221,7 @@ EOF`);
     });
 
     it("should support nonlocal", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_nonlocal.py << 'EOF'
 def make_counter():
     count = 0
@@ -245,7 +245,7 @@ EOF`);
 
   describe("type hints", () => {
     it("should support basic type hints", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_types.py << 'EOF'
 def greet(name: str) -> str:
     return f"Hello, {name}"
@@ -263,7 +263,7 @@ EOF`);
     });
 
     it("should support typing module", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_typing.py << 'EOF'
 from typing import List, Dict, Optional
 
@@ -288,7 +288,7 @@ EOF`);
 
   describe("walrus operator", () => {
     it("should support assignment expressions", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_walrus.py << 'EOF'
 numbers = [1, 2, 3, 4, 5]
 if (n := len(numbers)) > 3:
@@ -301,7 +301,7 @@ EOF`);
     });
 
     it("should work in list comprehensions", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_walrus_comp.py << 'EOF'
 data = [1, 2, 3, 4, 5]
 results = [y for x in data if (y := x * 2) > 4]
@@ -316,7 +316,7 @@ EOF`);
 
   describe("f-strings", () => {
     it("should support basic f-strings", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "name='World'; print(f'Hello, {name}!')"`,
       );
@@ -326,7 +326,7 @@ EOF`);
     });
 
     it("should support f-string expressions", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(`python3 -c "print(f'{2 + 2 = }')"`);
       expect(result.stderr).toBe("");
       expect(result.stdout).toBe("2 + 2 = 4\n");
@@ -334,7 +334,7 @@ EOF`);
     });
 
     it("should support f-string formatting", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_fstring.py << 'EOF'
 pi = 3.14159
 print(f"{pi:.2f}")
@@ -350,7 +350,7 @@ EOF`);
 
   describe("unpacking", () => {
     it("should support extended unpacking", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_unpack.py << 'EOF'
 first, *middle, last = [1, 2, 3, 4, 5]
 print(first)
@@ -364,7 +364,7 @@ EOF`);
     });
 
     it("should support dictionary unpacking", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_dict_unpack.py << 'EOF'
 d1 = {'a': 1, 'b': 2}
 d2 = {'c': 3, 'd': 4}
@@ -380,7 +380,7 @@ EOF`);
 
   describe("match statement (Python 3.10+)", () => {
     it("should support basic match", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_match.py << 'EOF'
 def describe(x):
     match x:
@@ -402,7 +402,7 @@ EOF`);
     });
 
     it("should support match with patterns", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_match_pattern.py << 'EOF'
 def process(data):
     match data:
@@ -427,7 +427,7 @@ EOF`);
   // supported in our JavaScript runtime. These tests are skipped.
   describe("async/await", () => {
     it.skip("should support async functions", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_async.py << 'EOF'
 import asyncio
 
@@ -447,7 +447,7 @@ EOF`);
     });
 
     it.skip("should support async list operations", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_async_list.py << 'EOF'
 import asyncio
 
@@ -470,7 +470,7 @@ EOF`);
 
   describe("enum", () => {
     it("should support basic enums", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_enum.py << 'EOF'
 from enum import Enum
 

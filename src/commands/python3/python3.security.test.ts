@@ -14,7 +14,7 @@ describe("python3 security", () => {
       "should block import js (sandbox escape vector)",
       { timeout: 60000 },
       async () => {
-        const env = new Bash();
+        const env = new Bash({ python: true });
         const result = await env.exec('python3 -c "import js"');
         expect(result.stderr).toContain("ImportError");
         expect(result.stderr).toContain("blocked");
@@ -23,7 +23,7 @@ describe("python3 security", () => {
     );
 
     it("should block import js.globalThis", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec('python3 -c "from js import globalThis"');
       expect(result.stderr).toContain("ImportError");
       expect(result.stderr).toContain("blocked");
@@ -31,7 +31,7 @@ describe("python3 security", () => {
     });
 
     it("should block import pyodide.ffi", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec('python3 -c "import pyodide.ffi"');
       expect(result.stderr).toContain("ImportError");
       expect(result.stderr).toContain("blocked");
@@ -39,7 +39,7 @@ describe("python3 security", () => {
     });
 
     it("should block from pyodide.ffi import create_proxy", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         'python3 -c "from pyodide.ffi import create_proxy"',
       );
@@ -49,7 +49,7 @@ describe("python3 security", () => {
     });
 
     it("should block import pyodide (sandbox escape via ffi)", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec('python3 -c "import pyodide"');
       expect(result.stderr).toContain("ImportError");
       expect(result.stderr).toContain("blocked");
@@ -57,7 +57,7 @@ describe("python3 security", () => {
     });
 
     it("should block import pyodide_js (exposes _original_* via globals)", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec('python3 -c "import pyodide_js"');
       expect(result.stderr).toContain("ImportError");
       expect(result.stderr).toContain("blocked");
@@ -65,7 +65,7 @@ describe("python3 security", () => {
     });
 
     it("should block pyodide_js.globals access to _original_import", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_pyodide_js.py << 'EOF'
 try:
     import pyodide_js
@@ -90,7 +90,7 @@ EOF`);
 
   describe("hidden original function references", () => {
     it("should not expose _original_import (critical sandbox escape)", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_import.py << 'EOF'
 try:
     # If _original_import is accessible, attacker can bypass import blocking
@@ -106,7 +106,7 @@ EOF`);
     });
 
     it("should not expose _jb_original_open on builtins", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         "python3 -c \"import builtins; print(hasattr(builtins, '_jb_original_open'))\"",
       );
@@ -115,7 +115,7 @@ EOF`);
     });
 
     it("should not expose _jb_original_listdir on os", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         "python3 -c \"import os; print(hasattr(os, '_jb_original_listdir'))\"",
       );
@@ -124,7 +124,7 @@ EOF`);
     });
 
     it("should not expose _jb_original_exists on os.path", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         "python3 -c \"import os; print(hasattr(os.path, '_jb_original_exists'))\"",
       );
@@ -133,7 +133,7 @@ EOF`);
     });
 
     it("should not expose _jb_original_stat on os", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         "python3 -c \"import os; print(hasattr(os, '_jb_original_stat'))\"",
       );
@@ -142,7 +142,7 @@ EOF`);
     });
 
     it("should not expose _jb_original_chdir on os", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         "python3 -c \"import os; print(hasattr(os, '_jb_original_chdir'))\"",
       );
@@ -153,7 +153,7 @@ EOF`);
 
   describe("introspection bypass attempts", () => {
     it("should block __kwdefaults__ access on __import__ (critical bypass)", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_kwdefaults.py << 'EOF'
 import builtins
 try:
@@ -174,7 +174,7 @@ EOF`);
     });
 
     it("should block __closure__ access on __import__", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_closure.py << 'EOF'
 import builtins
 try:
@@ -190,7 +190,7 @@ EOF`);
     });
 
     it("should block __globals__ access on __import__", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_globals.py << 'EOF'
 import builtins
 try:
@@ -205,7 +205,7 @@ EOF`);
     });
 
     it("should block __closure__ access on builtins.open", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_open_closure.py << 'EOF'
 import builtins
 try:
@@ -220,7 +220,7 @@ EOF`);
     });
 
     it("should block __closure__ access on os.listdir", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_listdir_closure.py << 'EOF'
 import os
 try:
@@ -235,7 +235,7 @@ EOF`);
     });
 
     it("should redirect shutil.copy to /host and block introspection", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec('echo "shutil test" > /tmp/shutil_src.txt');
       await env.exec(`cat > /tmp/test_shutil.py << 'EOF'
 import shutil
@@ -257,7 +257,7 @@ EOF`);
     });
 
     it("should redirect pathlib.Path operations to /host", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec('echo "pathlib test content" > /tmp/pathlib_test.txt');
       await env.exec(`cat > /tmp/test_pathlib.py << 'EOF'
 from pathlib import Path
@@ -297,7 +297,7 @@ EOF`);
 
   describe("file operation redirects", () => {
     it("should redirect glob.glob to /host", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec('echo "test content" > /tmp/test_glob.txt');
       const result = await env.exec(`python3 -c "
 import glob
@@ -310,7 +310,7 @@ print(files)
     });
 
     it("should redirect os.walk to /host", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec("mkdir -p /tmp/test_walk_dir");
       await env.exec('echo "content1" > /tmp/test_walk_dir/file1.txt');
       await env.exec(`cat > /tmp/test_walk.py << 'EOF'
@@ -325,7 +325,7 @@ EOF`);
     });
 
     it("should redirect os.scandir to /host", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec("mkdir -p /tmp/test_scandir");
       await env.exec('echo "content" > /tmp/test_scandir/scanfile.txt');
       const result = await env.exec(`python3 -c "
@@ -338,7 +338,7 @@ print([e.name for e in entries])
     });
 
     it("should redirect io.open to /host", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec('echo "io.open test content" > /tmp/test_io_open.txt');
       await env.exec(`cat > /tmp/test_io.py << 'EOF'
 import io
@@ -353,7 +353,7 @@ EOF`);
 
   describe("legitimate operations still work", () => {
     it("should allow normal file operations", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec('echo "allowed content" > /tmp/allowed_file.txt');
       await env.exec(`cat > /tmp/test_read.py << 'EOF'
 with open('/tmp/allowed_file.txt', 'r') as f:
@@ -365,7 +365,7 @@ EOF`);
     });
 
     it("should allow normal imports", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         "python3 -c \"import json; print(json.dumps({'a': 1}))\"",
       );
@@ -374,7 +374,7 @@ EOF`);
     });
 
     it("should allow list comprehensions and lambdas", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         'python3 -c "print(list(map(lambda x: x*2, [1,2,3])))"',
       );
@@ -383,7 +383,7 @@ EOF`);
     });
 
     it("should allow os.getcwd and os.chdir", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec("mkdir -p /tmp/test_chdir_dir");
       const result = await env.exec(`python3 -c "
 import os

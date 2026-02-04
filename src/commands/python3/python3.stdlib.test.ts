@@ -4,7 +4,7 @@ import { Bash } from "../../Bash.js";
 describe("python3 standard library", () => {
   describe("json module", () => {
     it("should serialize to JSON", { timeout: 60000 }, async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "import json; print(json.dumps({'name': 'test', 'value': 42}))"`,
       );
@@ -15,7 +15,7 @@ describe("python3 standard library", () => {
     });
 
     it("should parse JSON", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "import json; data = json.loads('[1, 2, 3]'); print(sum(data))"`,
       );
@@ -25,7 +25,7 @@ describe("python3 standard library", () => {
     });
 
     it("should handle nested JSON", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_json.py << 'EOF'
 import json
 data = {"users": [{"name": "alice"}, {"name": "bob"}]}
@@ -41,7 +41,7 @@ EOF`);
 
   describe("math module", () => {
     it("should calculate sqrt", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "import math; print(math.sqrt(16))"`,
       );
@@ -51,7 +51,7 @@ EOF`);
     });
 
     it("should provide constants", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "import math; print(round(math.pi, 5))"`,
       );
@@ -61,7 +61,7 @@ EOF`);
     });
 
     it("should handle trigonometry", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "import math; print(int(math.sin(math.pi/2)))"`,
       );
@@ -73,7 +73,7 @@ EOF`);
 
   describe("re module", () => {
     it("should match patterns", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "import re; print(bool(re.match(r'hello', 'hello world')))"`,
       );
@@ -83,7 +83,7 @@ EOF`);
     });
 
     it("should find all matches", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_regex.py << 'EOF'
 import re
 text = "cat bat rat"
@@ -97,7 +97,7 @@ EOF`);
     });
 
     it("should substitute patterns", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       const result = await env.exec(
         `python3 -c "import re; print(re.sub(r'\\\\d+', 'X', 'a1b2c3'))"`,
       );
@@ -109,7 +109,7 @@ EOF`);
 
   describe("datetime module", () => {
     it("should create dates", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_date.py << 'EOF'
 from datetime import date
 d = date(2024, 1, 15)
@@ -122,7 +122,7 @@ EOF`);
     });
 
     it("should format dates", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_dateformat.py << 'EOF'
 from datetime import datetime
 dt = datetime(2024, 6, 15, 10, 30)
@@ -137,7 +137,7 @@ EOF`);
 
   describe("collections module", () => {
     it("should use Counter", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_counter.py << 'EOF'
 from collections import Counter
 c = Counter('abracadabra')
@@ -150,7 +150,7 @@ EOF`);
     });
 
     it("should use defaultdict", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_defaultdict.py << 'EOF'
 from collections import defaultdict
 d = defaultdict(list)
@@ -165,7 +165,7 @@ EOF`);
     });
 
     it("should use OrderedDict", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_ordereddict.py << 'EOF'
 from collections import OrderedDict
 d = OrderedDict()
@@ -183,7 +183,7 @@ EOF`);
 
   describe("itertools module", () => {
     it("should use chain", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_chain.py << 'EOF'
 from itertools import chain
 result = list(chain([1, 2], [3, 4]))
@@ -196,7 +196,7 @@ EOF`);
     });
 
     it("should use combinations", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_combinations.py << 'EOF'
 from itertools import combinations
 result = list(combinations('ABC', 2))
@@ -211,7 +211,7 @@ EOF`);
 
   describe("functools module", () => {
     it("should use reduce", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_reduce.py << 'EOF'
 from functools import reduce
 result = reduce(lambda x, y: x + y, [1, 2, 3, 4])
@@ -224,7 +224,7 @@ EOF`);
     });
 
     it("should use lru_cache", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_lru_cache.py << 'EOF'
 from functools import lru_cache
 
@@ -245,7 +245,7 @@ EOF`);
 
   describe("hashlib module", () => {
     it("should calculate md5", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_md5.py << 'EOF'
 import hashlib
 h = hashlib.md5(b'hello').hexdigest()
@@ -258,7 +258,7 @@ EOF`);
     });
 
     it("should calculate sha256", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_sha256.py << 'EOF'
 import hashlib
 h = hashlib.sha256(b'hello').hexdigest()
@@ -273,7 +273,7 @@ EOF`);
 
   describe("base64 module", () => {
     it("should encode base64", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_b64encode.py << 'EOF'
 import base64
 encoded = base64.b64encode(b'hello world').decode()
@@ -286,7 +286,7 @@ EOF`);
     });
 
     it("should decode base64", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_b64decode.py << 'EOF'
 import base64
 decoded = base64.b64decode('aGVsbG8gd29ybGQ=').decode()
@@ -301,7 +301,7 @@ EOF`);
 
   describe("pathlib module", () => {
     it("should handle path operations", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_pathlib.py << 'EOF'
 from pathlib import PurePosixPath
 p = PurePosixPath('/home/user/file.txt')
@@ -316,7 +316,7 @@ EOF`);
     });
 
     it("should join paths", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_pathjoin.py << 'EOF'
 from pathlib import PurePosixPath
 p = PurePosixPath('/home') / 'user' / 'file.txt'
@@ -331,7 +331,7 @@ EOF`);
 
   describe("random module", () => {
     it("should generate random choice", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_random.py << 'EOF'
 import random
 random.seed(42)
@@ -345,7 +345,7 @@ EOF`);
     });
 
     it("should shuffle list", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_shuffle.py << 'EOF'
 import random
 random.seed(42)
@@ -362,7 +362,7 @@ EOF`);
 
   describe("textwrap module", () => {
     it("should wrap text", async () => {
-      const env = new Bash();
+      const env = new Bash({ python: true });
       await env.exec(`cat > /tmp/test_textwrap.py << 'EOF'
 import textwrap
 text = "Hello World"
