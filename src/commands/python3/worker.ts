@@ -706,96 +706,186 @@ jb_http.request = jb_http._client.request
 jb_http.Response = _JbHttpResponse
 sys.modules['jb_http'] = jb_http
 
-# Redirect root paths to /host for file operations
-# Only patch once - check if already patched
-if not hasattr(builtins, '_jb_original_open'):
-    builtins._jb_original_open = builtins.open
+# ============================================================
+# SANDBOX SECURITY SETUP
+# ============================================================
+# Only apply sandbox restrictions once per Pyodide instance
+if not hasattr(builtins, '_jb_sandbox_initialized'):
+    builtins._jb_sandbox_initialized = True
 
+    # ------------------------------------------------------------
+    # 1. Block dangerous module imports (js, pyodide.ffi)
+    # ------------------------------------------------------------
+    _BLOCKED_MODULES = {'js', 'pyodide.ffi'}
+
+    # Remove pre-loaded dangerous modules from sys.modules
+    for _blocked_mod in list(sys.modules.keys()):
+        if _blocked_mod in _BLOCKED_MODULES or _blocked_mod.startswith('js.'):
+            del sys.modules[_blocked_mod]
+
+    # Patch __import__ to block dangerous modules (bypasses sys.meta_path)
+    _original_import = builtins.__import__
+    def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name in _BLOCKED_MODULES or name.startswith('js.'):
+            raise ImportError(f"Module '{name}' is blocked in this sandbox")
+        return _original_import(name, globals, locals, fromlist, level)
+    builtins.__import__ = _restricted_import
+
+    # ------------------------------------------------------------
+    # 2. Path redirection helper
+    # ------------------------------------------------------------
+    def _should_redirect(path):
+        """Check if a path should be redirected to /host."""
+        return (isinstance(path, str) and
+                path.startswith('/') and
+                not path.startswith('/lib') and
+                not path.startswith('/proc') and
+                not path.startswith('/host'))
+
+    # ------------------------------------------------------------
+    # 3. Redirect file operations to /host (using closures, not module attrs)
+    # ------------------------------------------------------------
+    # builtins.open
+    _original_open = builtins.open
     def _redirected_open(path, mode='r', *args, **kwargs):
-        if isinstance(path, str) and path.startswith('/') and not path.startswith('/lib') and not path.startswith('/proc') and not path.startswith('/host'):
+        if _should_redirect(path):
             path = '/host' + path
-        return builtins._jb_original_open(path, mode, *args, **kwargs)
+        return _original_open(path, mode, *args, **kwargs)
     builtins.open = _redirected_open
 
-    os._jb_original_listdir = os.listdir
+    # os.listdir
+    _original_listdir = os.listdir
     def _redirected_listdir(path='.'):
-        if isinstance(path, str) and path.startswith('/') and not path.startswith('/lib') and not path.startswith('/proc') and not path.startswith('/host'):
+        if _should_redirect(path):
             path = '/host' + path
-        return os._jb_original_listdir(path)
+        return _original_listdir(path)
     os.listdir = _redirected_listdir
 
-    os.path._jb_original_exists = os.path.exists
+    # os.path.exists
+    _original_exists = os.path.exists
     def _redirected_exists(path):
-        if isinstance(path, str) and path.startswith('/') and not path.startswith('/lib') and not path.startswith('/proc') and not path.startswith('/host'):
+        if _should_redirect(path):
             path = '/host' + path
-        return os.path._jb_original_exists(path)
+        return _original_exists(path)
     os.path.exists = _redirected_exists
 
-    os.path._jb_original_isfile = os.path.isfile
+    # os.path.isfile
+    _original_isfile = os.path.isfile
     def _redirected_isfile(path):
-        if isinstance(path, str) and path.startswith('/') and not path.startswith('/lib') and not path.startswith('/proc') and not path.startswith('/host'):
+        if _should_redirect(path):
             path = '/host' + path
-        return os.path._jb_original_isfile(path)
+        return _original_isfile(path)
     os.path.isfile = _redirected_isfile
 
-    os.path._jb_original_isdir = os.path.isdir
+    # os.path.isdir
+    _original_isdir = os.path.isdir
     def _redirected_isdir(path):
-        if isinstance(path, str) and path.startswith('/') and not path.startswith('/lib') and not path.startswith('/proc') and not path.startswith('/host'):
+        if _should_redirect(path):
             path = '/host' + path
-        return os.path._jb_original_isdir(path)
+        return _original_isdir(path)
     os.path.isdir = _redirected_isdir
 
-    os._jb_original_stat = os.stat
+    # os.stat
+    _original_stat = os.stat
     def _redirected_stat(path, *args, **kwargs):
-        if isinstance(path, str) and path.startswith('/') and not path.startswith('/lib') and not path.startswith('/proc') and not path.startswith('/host'):
+        if _should_redirect(path):
             path = '/host' + path
-        return os._jb_original_stat(path, *args, **kwargs)
+        return _original_stat(path, *args, **kwargs)
     os.stat = _redirected_stat
 
-    os._jb_original_mkdir = os.mkdir
+    # os.mkdir
+    _original_mkdir = os.mkdir
     def _redirected_mkdir(path, *args, **kwargs):
-        if isinstance(path, str) and path.startswith('/') and not path.startswith('/lib') and not path.startswith('/proc') and not path.startswith('/host'):
+        if _should_redirect(path):
             path = '/host' + path
-        return os._jb_original_mkdir(path, *args, **kwargs)
+        return _original_mkdir(path, *args, **kwargs)
     os.mkdir = _redirected_mkdir
 
-    os._jb_original_makedirs = os.makedirs
+    # os.makedirs
+    _original_makedirs = os.makedirs
     def _redirected_makedirs(path, *args, **kwargs):
-        if isinstance(path, str) and path.startswith('/') and not path.startswith('/lib') and not path.startswith('/proc') and not path.startswith('/host'):
+        if _should_redirect(path):
             path = '/host' + path
-        return os._jb_original_makedirs(path, *args, **kwargs)
+        return _original_makedirs(path, *args, **kwargs)
     os.makedirs = _redirected_makedirs
 
-    os._jb_original_remove = os.remove
+    # os.remove
+    _original_remove = os.remove
     def _redirected_remove(path, *args, **kwargs):
-        if isinstance(path, str) and path.startswith('/') and not path.startswith('/lib') and not path.startswith('/proc') and not path.startswith('/host'):
+        if _should_redirect(path):
             path = '/host' + path
-        return os._jb_original_remove(path, *args, **kwargs)
+        return _original_remove(path, *args, **kwargs)
     os.remove = _redirected_remove
 
-    os._jb_original_rmdir = os.rmdir
+    # os.rmdir
+    _original_rmdir = os.rmdir
     def _redirected_rmdir(path, *args, **kwargs):
-        if isinstance(path, str) and path.startswith('/') and not path.startswith('/lib') and not path.startswith('/proc') and not path.startswith('/host'):
+        if _should_redirect(path):
             path = '/host' + path
-        return os._jb_original_rmdir(path, *args, **kwargs)
+        return _original_rmdir(path, *args, **kwargs)
     os.rmdir = _redirected_rmdir
 
-    # Patch os.getcwd to strip /host prefix
-    os._jb_original_getcwd = os.getcwd
+    # os.getcwd - strip /host prefix
+    _original_getcwd = os.getcwd
     def _redirected_getcwd():
-        cwd = os._jb_original_getcwd()
+        cwd = _original_getcwd()
         if cwd.startswith('/host'):
             return cwd[5:]  # Strip '/host' prefix
         return cwd
     os.getcwd = _redirected_getcwd
 
-    # Patch os.chdir to add /host prefix
-    os._jb_original_chdir = os.chdir
+    # os.chdir
+    _original_chdir = os.chdir
     def _redirected_chdir(path):
-        if isinstance(path, str) and path.startswith('/') and not path.startswith('/lib') and not path.startswith('/proc') and not path.startswith('/host'):
+        if _should_redirect(path):
             path = '/host' + path
-        return os._jb_original_chdir(path)
+        return _original_chdir(path)
     os.chdir = _redirected_chdir
+
+    # ------------------------------------------------------------
+    # 4. Additional file operations (glob, walk, scandir, io.open)
+    # ------------------------------------------------------------
+    # glob.glob and glob.iglob
+    import glob as _glob_module
+    _original_glob = _glob_module.glob
+    def _redirected_glob(pathname, *args, **kwargs):
+        if _should_redirect(pathname):
+            pathname = '/host' + pathname
+        return _original_glob(pathname, *args, **kwargs)
+    _glob_module.glob = _redirected_glob
+
+    _original_iglob = _glob_module.iglob
+    def _redirected_iglob(pathname, *args, **kwargs):
+        if _should_redirect(pathname):
+            pathname = '/host' + pathname
+        return _original_iglob(pathname, *args, **kwargs)
+    _glob_module.iglob = _redirected_iglob
+
+    # os.walk
+    _original_walk = os.walk
+    def _redirected_walk(top, *args, **kwargs):
+        redirected = False
+        if _should_redirect(top):
+            top = '/host' + top
+            redirected = True
+        for dirpath, dirnames, filenames in _original_walk(top, *args, **kwargs):
+            # Strip /host prefix from dirpath if we redirected
+            if redirected and dirpath.startswith('/host'):
+                dirpath = dirpath[5:] if len(dirpath) > 5 else '/'
+            yield dirpath, dirnames, filenames
+    os.walk = _redirected_walk
+
+    # os.scandir
+    _original_scandir = os.scandir
+    def _redirected_scandir(path='.'):
+        if _should_redirect(path):
+            path = '/host' + path
+        return _original_scandir(path)
+    os.scandir = _redirected_scandir
+
+    # io.open (same as builtins.open)
+    import io as _io_module
+    _io_module.open = _redirected_open
 
 # Set cwd to host mount
 os.chdir('/host' + ${JSON.stringify(input.cwd)})
