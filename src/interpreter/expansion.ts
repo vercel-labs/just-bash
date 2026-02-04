@@ -636,6 +636,7 @@ export async function expandRedirectTarget(
     dotglob: ctx.state.shoptOptions.dotglob,
     extglob: ctx.state.shoptOptions.extglob,
     globskipdots: ctx.state.shoptOptions.globskipdots,
+    maxGlobOperations: ctx.limits.maxGlobOperations,
   });
 
   const matches = await globExpander.expand(globPattern);

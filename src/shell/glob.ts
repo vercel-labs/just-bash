@@ -9,6 +9,7 @@
  */
 
 import type { IFileSystem } from "../fs/interface.js";
+import { ExecutionLimitError } from "../interpreter/errors.js";
 import { createUserRegex, type RegexLike } from "../regex/index.js";
 import { DEFAULT_BATCH_SIZE } from "../utils/constants.js";
 import {
@@ -76,7 +77,10 @@ export class GlobExpander {
    */
   private checkOpsLimit(): void {
     if (++this.ops.count > this.maxOps) {
-      throw new Error(`Glob operation limit exceeded (${this.maxOps})`);
+      throw new ExecutionLimitError(
+        `Glob operation limit exceeded (${this.maxOps})`,
+        "glob_operations",
+      );
     }
   }
 
@@ -488,7 +492,11 @@ export class GlobExpander {
                         remainingSegments,
                       );
                     }
-                  } catch {
+                  } catch (error) {
+                    // ExecutionLimitError must propagate
+                    if (error instanceof ExecutionLimitError) {
+                      throw error;
+                    }
                     // Entry doesn't exist or can't be stat'd
                   }
                   return [];
@@ -503,7 +511,11 @@ export class GlobExpander {
           results.push(...pathList);
         }
       }
-    } catch {
+    } catch (error) {
+      // ExecutionLimitError must propagate
+      if (error instanceof ExecutionLimitError) {
+        throw error;
+      }
       // Directory doesn't exist - return empty
     }
 
@@ -605,7 +617,11 @@ export class GlobExpander {
             if (stat.isDirectory) {
               dirs.push(entryPath);
             }
-          } catch {
+          } catch (error) {
+            // ExecutionLimitError must propagate
+            if (error instanceof ExecutionLimitError) {
+              throw error;
+            }
             // Entry doesn't exist
           }
         }
@@ -626,7 +642,11 @@ export class GlobExpander {
           );
         }
       }
-    } catch {
+    } catch (error) {
+      // ExecutionLimitError must propagate
+      if (error instanceof ExecutionLimitError) {
+        throw error;
+      }
       // Directory doesn't exist
     }
   }
@@ -705,7 +725,11 @@ export class GlobExpander {
                   path: entryPath,
                   isDirectory: stat.isDirectory,
                 };
-              } catch {
+              } catch (error) {
+                // ExecutionLimitError must propagate
+                if (error instanceof ExecutionLimitError) {
+                  throw error;
+                }
                 return null;
               }
             }),
@@ -735,7 +759,11 @@ export class GlobExpander {
           );
         }
       }
-    } catch {
+    } catch (error) {
+      // ExecutionLimitError must propagate
+      if (error instanceof ExecutionLimitError) {
+        throw error;
+      }
       // Directory doesn't exist
     }
   }

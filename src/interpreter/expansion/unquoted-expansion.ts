@@ -84,6 +84,7 @@ function createGlobExpander(ctx: InterpreterContext): GlobExpander {
     dotglob: ctx.state.shoptOptions.dotglob,
     extglob: ctx.state.shoptOptions.extglob,
     globskipdots: ctx.state.shoptOptions.globskipdots,
+    maxGlobOperations: ctx.limits.maxGlobOperations,
   });
 }
 
