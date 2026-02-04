@@ -29,6 +29,14 @@ import type {
 } from "./types.js";
 
 /**
+ * Whether we're running in a browser environment.
+ * This is defined by the bundler via --define:__BROWSER__=true
+ * In Node.js builds, this will be false (or undefined, which is falsy).
+ */
+declare const __BROWSER__: boolean | undefined;
+const IS_BROWSER = typeof __BROWSER__ !== "undefined" && __BROWSER__;
+
+/**
  * Suffix added to all security violation messages.
  */
 const DEFENSE_IN_DEPTH_NOTICE =
@@ -59,7 +67,10 @@ interface DefenseContext {
 }
 
 // AsyncLocalStorage instance to track whether current async context is within bash.exec()
-const executionContext = new AsyncLocalStorage<DefenseContext>();
+// Only created in Node.js environments (not in browser builds)
+const executionContext = IS_BROWSER
+  ? null
+  : new AsyncLocalStorage<DefenseContext>();
 
 // Maximum number of violations to store (prevent memory issues)
 const MAX_STORED_VIOLATIONS = 1000;
@@ -142,14 +153,16 @@ export class DefenseInDepthBox {
    * Check if the current async context is within sandboxed execution.
    */
   static isInSandboxedContext(): boolean {
-    return executionContext.getStore()?.sandboxActive === true;
+    if (!executionContext) return false;
+    return executionContext?.getStore()?.sandboxActive === true;
   }
 
   /**
    * Get the current execution ID if in a sandboxed context.
    */
   static getCurrentExecutionId(): string | undefined {
-    return executionContext.getStore()?.executionId;
+    if (!executionContext) return undefined;
+    return executionContext?.getStore()?.executionId;
   }
 
   /**
@@ -175,8 +188,10 @@ export class DefenseInDepthBox {
    * ```
    */
   activate(): DefenseInDepthHandle {
-    if (!this.config.enabled) {
-      // Return a no-op handle when disabled
+    // In browser environments, defense-in-depth is disabled (no AsyncLocalStorage)
+    // Also disabled when config.enabled is false
+    if (IS_BROWSER || !this.config.enabled) {
+      // Return a no-op handle
       const executionId = randomUUID();
       return {
         run: <T>(fn: () => Promise<T>): Promise<T> => fn(),
@@ -195,7 +210,9 @@ export class DefenseInDepthBox {
 
     return {
       run: <T>(fn: () => Promise<T>): Promise<T> => {
-        return executionContext.run({ sandboxActive: true, executionId }, fn);
+        // executionContext is guaranteed to be non-null here (checked IS_BROWSER above)
+        // biome-ignore lint/style/noNonNullAssertion: guarded by IS_BROWSER check
+        return executionContext!.run({ sandboxActive: true, executionId }, fn);
       },
       deactivate: () => {
         this.refCount--;
@@ -278,13 +295,13 @@ export class DefenseInDepthBox {
 
   /**
    * Check if current context should be blocked.
-   * Returns false in audit mode or outside sandboxed context.
+   * Returns false in audit mode, browser environment, or outside sandboxed context.
    */
   private shouldBlock(): boolean {
-    if (this.config.auditMode) {
+    if (IS_BROWSER || this.config.auditMode || !executionContext) {
       return false;
     }
-    return executionContext.getStore()?.sandboxActive === true;
+    return executionContext?.getStore()?.sandboxActive === true;
   }
 
   /**
@@ -301,7 +318,7 @@ export class DefenseInDepthBox {
       message,
       path,
       stack: new Error().stack,
-      executionId: executionContext.getStore()?.executionId,
+      executionId: executionContext?.getStore()?.executionId,
     };
 
     // Store violation (with cap to prevent memory issues)
@@ -343,7 +360,7 @@ export class DefenseInDepthBox {
         // Record violation in audit mode but allow the call
         if (
           box.config.auditMode &&
-          executionContext.getStore()?.sandboxActive === true
+          executionContext?.getStore()?.sandboxActive === true
         ) {
           box.recordViolation(
             violationType,
@@ -362,7 +379,7 @@ export class DefenseInDepthBox {
         // Record violation in audit mode but allow the call
         if (
           box.config.auditMode &&
-          executionContext.getStore()?.sandboxActive === true
+          executionContext?.getStore()?.sandboxActive === true
         ) {
           box.recordViolation(
             violationType,
@@ -401,7 +418,7 @@ export class DefenseInDepthBox {
         // Record violation in audit mode but allow access
         if (
           box.config.auditMode &&
-          executionContext.getStore()?.sandboxActive === true
+          executionContext?.getStore()?.sandboxActive === true
         ) {
           const fullPath = `${path}.${String(prop)}`;
           box.recordViolation(
@@ -603,7 +620,7 @@ export class DefenseInDepthBox {
           // Record in audit mode
           if (
             box.config.auditMode &&
-            executionContext.getStore()?.sandboxActive === true
+            executionContext?.getStore()?.sandboxActive === true
           ) {
             box.recordViolation(
               "error_prepare_stack_trace",
@@ -653,7 +670,7 @@ export class DefenseInDepthBox {
           // Record in audit mode
           if (
             box.config.auditMode &&
-            executionContext.getStore()?.sandboxActive === true
+            executionContext?.getStore()?.sandboxActive === true
           ) {
             box.recordViolation(
               violationType,
