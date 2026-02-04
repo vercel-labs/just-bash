@@ -77,7 +77,6 @@ export class UserRegex implements RegexLike {
   private readonly _global: boolean;
   private readonly _ignoreCase: boolean;
   private readonly _multiline: boolean;
-  private readonly _dotAll: boolean;
   private _lastIndex = 0;
   // Cache native RegExp for compatibility - created lazily
   private _nativeRegex: RegExp | null = null;
@@ -88,7 +87,6 @@ export class UserRegex implements RegexLike {
     this._global = flags.includes("g");
     this._ignoreCase = flags.includes("i");
     this._multiline = flags.includes("m");
-    this._dotAll = flags.includes("s");
 
     try {
       const translatedPattern = translatePattern(pattern);
