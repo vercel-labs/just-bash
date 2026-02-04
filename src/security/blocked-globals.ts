@@ -1,0 +1,192 @@
+/**
+ * Blocked Globals for Defense-in-Depth Box
+ *
+ * This module defines which JavaScript globals should be blocked during
+ * bash script execution to prevent code execution escape vectors.
+ *
+ * IMPORTANT: This is a SECONDARY defense layer. The primary security comes
+ * from proper sandboxing and architectural constraints.
+ */
+
+import type { SecurityViolationType } from "./types.js";
+
+/**
+ * Strategy for handling a blocked global.
+ * - "throw": Replace with a proxy that throws on access/call
+ * - "freeze": Freeze the object to prevent modification
+ */
+export type BlockStrategy = "throw" | "freeze";
+
+/**
+ * Configuration for a blocked global.
+ */
+export interface BlockedGlobal {
+  /**
+   * The property name on the target object (e.g., "Function", "eval").
+   */
+  prop: string;
+
+  /**
+   * The target object containing the property.
+   * Usually globalThis, but can be other objects like Object.prototype.
+   */
+  target: object;
+
+  /**
+   * Type of violation to record when this global is accessed.
+   */
+  violationType: SecurityViolationType;
+
+  /**
+   * Strategy for blocking this global.
+   */
+  strategy: BlockStrategy;
+
+  /**
+   * Human-readable description of why this is blocked.
+   */
+  reason: string;
+}
+
+/**
+ * Get the list of globals to block during script execution.
+ *
+ * Note: This function must be called at runtime (not module load time)
+ * because some globals may not exist in all environments.
+ */
+// @banned-pattern-ignore: intentional reference to Function/eval for security blocking
+export function getBlockedGlobals(): BlockedGlobal[] {
+  const globals: BlockedGlobal[] = [
+    // Direct code execution vectors
+    {
+      prop: "Function",
+      target: globalThis,
+      violationType: "function_constructor",
+      strategy: "throw",
+      reason: "Function constructor allows arbitrary code execution",
+    },
+    {
+      prop: "eval",
+      target: globalThis,
+      violationType: "eval",
+      strategy: "throw",
+      reason: "eval() allows arbitrary code execution",
+    },
+
+    // Timer functions with string argument allow code execution
+    {
+      prop: "setTimeout",
+      target: globalThis,
+      violationType: "setTimeout",
+      strategy: "throw",
+      reason: "setTimeout with string argument allows code execution",
+    },
+    {
+      prop: "setInterval",
+      target: globalThis,
+      violationType: "setInterval",
+      strategy: "throw",
+      reason: "setInterval with string argument allows code execution",
+    },
+    {
+      prop: "setImmediate",
+      target: globalThis,
+      violationType: "setImmediate",
+      strategy: "throw",
+      reason: "setImmediate could be used to escape sandbox context",
+    },
+
+    // Note: We intentionally do NOT block `process` because:
+    // 1. Node.js internals (Promise resolution, etc.) use process.nextTick
+    // 2. Blocking process entirely breaks normal async operation
+    // 3. The primary code execution vectors (Function, eval) are already blocked
+    // If needed, specific dangerous process methods could be blocked individually.
+
+    // We also don't block `require` because:
+    // 1. It may not exist in all environments (ESM)
+    // 2. import() is the modern escape vector and can't be blocked this way
+
+    // Reference leak vectors
+    {
+      prop: "WeakRef",
+      target: globalThis,
+      violationType: "weak_ref",
+      strategy: "throw",
+      reason: "WeakRef could be used to leak references outside sandbox",
+    },
+    {
+      prop: "FinalizationRegistry",
+      target: globalThis,
+      violationType: "finalization_registry",
+      strategy: "throw",
+      reason:
+        "FinalizationRegistry could be used to leak references outside sandbox",
+    },
+
+    // Introspection/interception vectors (freeze instead of throw)
+    {
+      prop: "Reflect",
+      target: globalThis,
+      violationType: "reflect",
+      strategy: "freeze",
+      reason: "Reflect provides introspection capabilities",
+    },
+    {
+      prop: "Proxy",
+      target: globalThis,
+      violationType: "proxy",
+      strategy: "throw",
+      reason: "Proxy allows intercepting and modifying object behavior",
+    },
+  ];
+
+  // Add async/generator function constructors if they exist
+  // These are accessed via: (async function(){}).constructor
+  try {
+    const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+    if (AsyncFunction && AsyncFunction !== Function) {
+      globals.push({
+        prop: "constructor",
+        target: Object.getPrototypeOf(async () => {}),
+        violationType: "async_function_constructor",
+        strategy: "throw",
+        reason:
+          "AsyncFunction constructor allows arbitrary async code execution",
+      });
+    }
+  } catch {
+    // AsyncFunction not available in this environment
+  }
+
+  try {
+    const GeneratorFunction = Object.getPrototypeOf(
+      function* () {},
+    ).constructor;
+    if (GeneratorFunction && GeneratorFunction !== Function) {
+      globals.push({
+        prop: "constructor",
+        target: Object.getPrototypeOf(function* () {}),
+        violationType: "generator_function_constructor",
+        strategy: "throw",
+        reason:
+          "GeneratorFunction constructor allows arbitrary generator code execution",
+      });
+    }
+  } catch {
+    // GeneratorFunction not available in this environment
+  }
+
+  // Filter out globals that don't exist in the current environment
+  return globals.filter((g) => {
+    try {
+      return (g.target as Record<string, unknown>)[g.prop] !== undefined;
+    } catch {
+      return false;
+    }
+  });
+}
+
+// Note: We don't protect Object.prototype.constructor because:
+// 1. It's too aggressive and breaks normal JavaScript (e.g., new Error())
+// 2. Accessing .constructor.constructor just returns our blocked Function proxy
+// The protection of globalThis.Function is sufficient for the constructor escape vector.

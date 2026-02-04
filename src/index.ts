@@ -54,6 +54,20 @@ export type {
 } from "./sandbox/index.js";
 // Vercel Sandbox API compatible exports
 export { Command as SandboxCommand, Sandbox } from "./sandbox/index.js";
+// Security module - defense-in-depth
+export type {
+  DefenseInDepthConfig,
+  DefenseInDepthHandle,
+  DefenseInDepthStats,
+  SecurityViolation,
+  SecurityViolationType,
+} from "./security/index.js";
+export {
+  createConsoleViolationCallback,
+  DefenseInDepthBox,
+  SecurityViolationError,
+  SecurityViolationLogger,
+} from "./security/index.js";
 export type {
   BashExecResult,
   Command,

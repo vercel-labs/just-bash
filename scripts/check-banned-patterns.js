@@ -136,6 +136,7 @@ const SKIP_PATTERNS = [
   /\.comparison\.test\.ts$/,
   /spec-tests/,
   /prototype-pollution\.test/, // These test the protection
+  /src\/security\//, // Security module intentionally references blocked patterns
 ];
 
 /**

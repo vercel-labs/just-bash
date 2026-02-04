@@ -47,6 +47,11 @@ import {
 } from "./network/index.js";
 import { LexerError } from "./parser/lexer.js";
 import { type ParseException, parse } from "./parser/parser.js";
+import {
+  DefenseInDepthBox,
+  SecurityViolationError,
+} from "./security/defense-in-depth-box.js";
+import type { DefenseInDepthConfig } from "./security/types.js";
 import type {
   BashExecResult,
   Command,
@@ -142,6 +147,33 @@ export interface BashOptions {
    * Useful for identifying performance bottlenecks.
    */
   trace?: TraceCallback;
+  /**
+   * Defense-in-depth configuration.
+   *
+   * When enabled, monkey-patches dangerous JavaScript globals (Function, eval,
+   * setTimeout, process, etc.) during script execution to block potential
+   * escape vectors.
+   *
+   * IMPORTANT: This is a SECONDARY defense layer. It should never be relied
+   * upon as the primary security mechanism. The primary security comes from
+   * proper sandboxing, input validation, and architectural constraints.
+   *
+   * @example
+   * ```ts
+   * // Simple enable
+   * const bash = new Bash({ defenseInDepth: true });
+   *
+   * // With custom configuration
+   * const bash = new Bash({
+   *   defenseInDepth: {
+   *     enabled: true,
+   *     auditMode: false, // Set to true to log but not block
+   *     onViolation: (v) => console.warn('Violation:', v),
+   *   },
+   * });
+   * ```
+   */
+  defenseInDepth?: DefenseInDepthConfig | boolean;
 }
 
 export interface ExecOptions {
@@ -172,6 +204,7 @@ export class Bash {
   private sleepFn?: (ms: number) => Promise<void>;
   private traceFn?: TraceCallback;
   private logger?: BashLogger;
+  private defenseInDepthConfig?: DefenseInDepthConfig | boolean;
 
   // Interpreter state (shared with interpreter instances)
   private state: InterpreterState;
@@ -226,6 +259,9 @@ export class Bash {
 
     // Store logger if provided
     this.logger = options.logger;
+
+    // Store defense-in-depth config if provided
+    this.defenseInDepthConfig = options.defenseInDepth;
 
     // Initialize interpreter state
     this.state = {
@@ -468,24 +504,40 @@ export class Bash {
       normalized = normalizeScript(commandLine);
     }
 
-    try {
-      const ast = parse(normalized);
+    // Activate defense-in-depth box if configured
+    // This wraps execution in AsyncLocalStorage context for context-aware blocking
+    const defenseBox = this.defenseInDepthConfig
+      ? DefenseInDepthBox.getInstance(this.defenseInDepthConfig)
+      : null;
+    const defenseHandle = defenseBox?.activate();
 
-      // Create interpreter with appropriate state
-      const interpreterOptions: InterpreterOptions = {
-        fs: this.fs,
-        commands: this.commands,
-        limits: this.limits,
-        exec: this.exec.bind(this),
-        fetch: this.secureFetch,
-        sleep: this.sleepFn,
-        trace: this.traceFn,
+    try {
+      // Run execution inside defense-in-depth context if enabled
+      const executeScript = async (): Promise<BashExecResult> => {
+        const ast = parse(normalized);
+
+        // Create interpreter with appropriate state
+        const interpreterOptions: InterpreterOptions = {
+          fs: this.fs,
+          commands: this.commands,
+          limits: this.limits,
+          exec: this.exec.bind(this),
+          fetch: this.secureFetch,
+          sleep: this.sleepFn,
+          trace: this.traceFn,
+        };
+
+        const interpreter = new Interpreter(interpreterOptions, execState);
+        const result = await interpreter.executeScript(ast);
+        // Interpreter always sets env, assert it for type safety
+        return this.logResult(result as BashExecResult);
       };
 
-      const interpreter = new Interpreter(interpreterOptions, execState);
-      const result = await interpreter.executeScript(ast);
-      // Interpreter always sets env, assert it for type safety
-      return this.logResult(result as BashExecResult);
+      // If defense-in-depth is enabled, run within the protected context
+      if (defenseHandle) {
+        return await defenseHandle.run(executeScript);
+      }
+      return await executeScript();
     } catch (error) {
       // ExitError propagates from 'exit' builtin (including via eval/source)
       if (error instanceof ExitError) {
@@ -523,6 +575,15 @@ export class Bash {
           env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }
+      // SecurityViolationError is thrown when defense-in-depth detects a blocked operation
+      if (error instanceof SecurityViolationError) {
+        return this.logResult({
+          stdout: "",
+          stderr: `bash: security violation: ${error.message}\n`,
+          exitCode: 1,
+          env: mapToRecordWithExtras(this.state.env, options?.env),
+        });
+      }
       if ((error as ParseException).name === "ParseException") {
         return this.logResult({
           stdout: "",
@@ -550,6 +611,9 @@ export class Bash {
         });
       }
       throw error;
+    } finally {
+      // Always deactivate defense-in-depth box when done
+      defenseHandle?.deactivate();
     }
   }
 
