@@ -1310,4 +1310,343 @@ describe("DefenseInDepthBox", () => {
       expect(finalStats.refCount).toBe(0);
     });
   });
+
+  describe("nested handle.run() with different execution IDs", () => {
+    it("should maintain separate execution IDs for nested run() calls", async () => {
+      const box = DefenseInDepthBox.getInstance(true);
+      const handle1 = box.activate();
+      const handle2 = box.activate();
+
+      // Execution IDs should be different
+      expect(handle1.executionId).not.toBe(handle2.executionId);
+
+      // Track execution IDs seen during nested runs
+      const seenIds: (string | undefined)[] = [];
+
+      await handle1.run(async () => {
+        seenIds.push(DefenseInDepthBox.getCurrentExecutionId());
+
+        // Nested run with different handle
+        await handle2.run(async () => {
+          seenIds.push(DefenseInDepthBox.getCurrentExecutionId());
+        });
+
+        // After nested run, should be back to handle1's context
+        seenIds.push(DefenseInDepthBox.getCurrentExecutionId());
+      });
+
+      handle2.deactivate();
+      handle1.deactivate();
+
+      expect(seenIds[0]).toBe(handle1.executionId);
+      expect(seenIds[1]).toBe(handle2.executionId);
+      expect(seenIds[2]).toBe(handle1.executionId);
+    });
+
+    it("should block in all nested contexts", async () => {
+      const box = DefenseInDepthBox.getInstance(true);
+      const handle1 = box.activate();
+      const handle2 = box.activate();
+
+      const errors: Error[] = [];
+
+      await handle1.run(async () => {
+        try {
+          new Function("return 1");
+        } catch (e) {
+          errors.push(e as Error);
+        }
+
+        await handle2.run(async () => {
+          try {
+            new Function("return 2");
+          } catch (e) {
+            errors.push(e as Error);
+          }
+        });
+      });
+
+      handle2.deactivate();
+      handle1.deactivate();
+
+      expect(errors.length).toBe(2);
+      expect(errors[0]).toBeInstanceOf(SecurityViolationError);
+      expect(errors[1]).toBeInstanceOf(SecurityViolationError);
+    });
+
+    it("should correlate violations to correct execution ID", async () => {
+      const violations: SecurityViolation[] = [];
+      const box = DefenseInDepthBox.getInstance({
+        enabled: true,
+        onViolation: (v) => violations.push(v),
+      });
+      const handle1 = box.activate();
+      const handle2 = box.activate();
+
+      await handle1.run(async () => {
+        try {
+          new Function("return 1");
+        } catch {
+          // Expected
+        }
+
+        await handle2.run(async () => {
+          try {
+            // biome-ignore lint/security/noGlobalEval: intentional test
+            eval("1");
+          } catch {
+            // Expected
+          }
+        });
+      });
+
+      handle2.deactivate();
+      handle1.deactivate();
+
+      expect(violations.length).toBe(2);
+      expect(violations[0].executionId).toBe(handle1.executionId);
+      expect(violations[1].executionId).toBe(handle2.executionId);
+    });
+  });
+
+  describe("bypass attempt vectors", () => {
+    describe("Proxy.revocable attack vector", () => {
+      it("should allow Proxy.revocable to create proxies (known limitation)", async () => {
+        // This demonstrates that Proxy.revocable bypasses our protection.
+        // It's a known limitation documented in the code.
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let interceptedValue: string | undefined;
+        await handle.run(async () => {
+          // Attacker can create a proxy using Proxy.revocable
+          const { proxy } = Proxy.revocable(
+            { secret: "original" },
+            {
+              get: (_target, prop) => {
+                if (prop === "secret") return "intercepted!";
+                return undefined;
+              },
+            },
+          );
+          interceptedValue = (proxy as { secret: string }).secret;
+        });
+
+        handle.deactivate();
+
+        // This succeeds - Proxy.revocable bypasses our blocking
+        expect(interceptedValue).toBe("intercepted!");
+      });
+
+      it("should demonstrate Proxy.revocable could be used for malicious interception", async () => {
+        // This shows a more realistic attack: intercepting function calls
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let wasIntercepted = false;
+        let result: number | undefined;
+        await handle.run(async () => {
+          const originalFn = (x: number) => x * 2;
+
+          // Create intercepting proxy via revocable
+          const { proxy: interceptedFn } = Proxy.revocable(originalFn, {
+            apply: (_target, _thisArg, args) => {
+              wasIntercepted = true;
+              return (args[0] as number) * 100; // Malicious modification
+            },
+          });
+
+          result = (interceptedFn as (x: number) => number)(5);
+        });
+
+        handle.deactivate();
+
+        // Attacker successfully intercepted and modified the result
+        expect(wasIntercepted).toBe(true);
+        expect(result).toBe(500);
+      });
+    });
+
+    describe("Object.getOwnPropertyDescriptor bypass attempts", () => {
+      it("should still block Function access via getOwnPropertyDescriptor", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            // Attempt to get the original Function via descriptor
+            const descriptor = Object.getOwnPropertyDescriptor(
+              globalThis,
+              "Function",
+            );
+            if (descriptor?.value) {
+              // The descriptor.value is our proxy, so using it should throw
+              const Fn = descriptor.value as typeof Function;
+              new Fn("return 1");
+            }
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        // Should throw because descriptor.value contains our blocking proxy
+        expect(error).toBeInstanceOf(SecurityViolationError);
+      });
+
+      it("should block process.env access even via getOwnPropertyDescriptor", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            // Attempt to get process.env via descriptor
+            const descriptor = Object.getOwnPropertyDescriptor(process, "env");
+            if (descriptor?.value) {
+              // The descriptor.value is our blocking proxy for env
+              const _path = (descriptor.value as NodeJS.ProcessEnv).PATH;
+            }
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        // Should throw because process.env descriptor returns our blocking proxy
+        expect(error).toBeInstanceOf(SecurityViolationError);
+      });
+    });
+
+    describe("globalThis modification attempts", () => {
+      it("should allow globalThis.Function reassignment (known limitation)", async () => {
+        // KNOWN LIMITATION: Since globalThis.Function is writable, attackers can
+        // reassign it to bypass our proxy. This is why defense-in-depth is a
+        // SECONDARY layer - primary sandboxing should prevent this.
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let result: string | undefined;
+        await handle.run(async () => {
+          // Attacker overwrites with their own function (factory pattern)
+          globalThis.Function = (() => () =>
+            "hacked") as unknown as FunctionConstructor;
+
+          // Now use it as a factory - bypasses our protection
+          // Note: can't use `new` since arrow functions aren't constructors
+          const fn = Function();
+          result = (fn as () => string)();
+        });
+
+        handle.deactivate();
+
+        // This succeeds - it's a known bypass via reassignment
+        expect(result).toBe("hacked");
+      });
+
+      it("should lose protection if Function is deleted (known limitation)", async () => {
+        // KNOWN LIMITATION: If Function is deleted from globalThis, the bare
+        // identifier `Function` will throw ReferenceError. This is actually a
+        // security win (code can't execute), but documents the behavior.
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            // Delete the patched property
+            delete (globalThis as Record<string, unknown>).Function;
+
+            // Now accessing Function throws ReferenceError (not SecurityViolationError)
+            new Function("return 1");
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        // Throws ReferenceError because Function is now undefined
+        expect(error).toBeInstanceOf(ReferenceError);
+        expect(error?.message).toContain("not defined");
+      });
+
+      it("should allow Object.defineProperty to shadow blocked globals (known limitation)", async () => {
+        // KNOWN LIMITATION: Object.defineProperty can replace our proxy with
+        // a custom function. Primary sandboxing should prevent this.
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let result: string | undefined;
+        await handle.run(async () => {
+          // Replace Function with attacker's version (factory pattern)
+          Object.defineProperty(globalThis, "Function", {
+            value: () => () => "shadowed",
+            writable: true,
+            configurable: true,
+          });
+
+          // Use the shadowed version as a factory
+          // Note: can't use `new` since arrow functions aren't constructors
+          const fn = Function();
+          result = (fn as () => string)();
+        });
+
+        handle.deactivate();
+
+        // This succeeds - defineProperty bypasses our protection
+        expect(result).toBe("shadowed");
+      });
+    });
+
+    describe("prototype chain manipulation", () => {
+      it("should block attempts to access Function via Object.getPrototypeOf chain", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            // Navigate prototype chain to find Function
+            const fn = () => {};
+            const fnProto = Object.getPrototypeOf(fn);
+            const Fn = fnProto.constructor;
+            Fn("return 1");
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+      });
+
+      it("should block attempts to access Function via __proto__", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            // Use __proto__ to access Function
+            const fn = () => {};
+            const Fn = (
+              fn as unknown as { __proto__: { constructor: typeof Function } }
+            ).__proto__.constructor;
+            Fn("return 1");
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+      });
+    });
+  });
 });

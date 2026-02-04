@@ -330,8 +330,12 @@ export class DefenseInDepthBox {
     if (this.config.onViolation) {
       try {
         this.config.onViolation(violation);
-      } catch {
-        // Ignore callback errors
+      } catch (e) {
+        // Ignore callback errors but log for debugging
+        console.debug(
+          "[DefenseInDepthBox] onViolation callback threw:",
+          e instanceof Error ? e.message : e,
+        );
       }
     }
 
@@ -528,8 +532,11 @@ export class DefenseInDepthBox {
           "async_function_constructor",
         );
       }
-    } catch {
-      // AsyncFunction not available
+    } catch (e) {
+      console.debug(
+        "[DefenseInDepthBox] Could not patch AsyncFunction.prototype.constructor:",
+        e instanceof Error ? e.message : e,
+      );
     }
 
     // Patch GeneratorFunction.prototype.constructor if it exists
@@ -544,8 +551,11 @@ export class DefenseInDepthBox {
           "generator_function_constructor",
         );
       }
-    } catch {
-      // GeneratorFunction not available
+    } catch (e) {
+      console.debug(
+        "[DefenseInDepthBox] Could not patch GeneratorFunction.prototype.constructor:",
+        e instanceof Error ? e.message : e,
+      );
     }
 
     // Patch AsyncGeneratorFunction.prototype.constructor if it exists
@@ -565,8 +575,11 @@ export class DefenseInDepthBox {
           "async_generator_function_constructor",
         );
       }
-    } catch {
-      // AsyncGeneratorFunction not available
+    } catch (e) {
+      console.debug(
+        "[DefenseInDepthBox] Could not patch AsyncGeneratorFunction.prototype.constructor:",
+        e instanceof Error ? e.message : e,
+      );
     }
   }
 
@@ -632,8 +645,11 @@ export class DefenseInDepthBox {
         },
         configurable: true,
       });
-    } catch {
-      // May fail in some environments
+    } catch (e) {
+      console.debug(
+        "[DefenseInDepthBox] Could not protect Error.prepareStackTrace:",
+        e instanceof Error ? e.message : e,
+      );
     }
   }
 
@@ -695,8 +711,11 @@ export class DefenseInDepthBox {
         },
         configurable: true,
       });
-    } catch {
-      // May fail in some environments
+    } catch (e) {
+      console.debug(
+        `[DefenseInDepthBox] Could not patch ${path}:`,
+        e instanceof Error ? e.message : e,
+      );
     }
   }
 
@@ -745,9 +764,12 @@ export class DefenseInDepthBox {
           configurable: true, // Must be configurable for restoration
         });
       }
-    } catch {
-      // Some properties may not be patchable (e.g., in strict mode)
-      // Continue with other patches
+    } catch (e) {
+      const path = this.getPathForTarget(target, prop);
+      console.debug(
+        `[DefenseInDepthBox] Could not patch ${path}:`,
+        e instanceof Error ? e.message : e,
+      );
     }
   }
 
@@ -766,9 +788,12 @@ export class DefenseInDepthBox {
           // Property didn't exist originally, delete it
           delete (target as Record<string, unknown>)[prop];
         }
-      } catch {
-        // Some properties may not be restorable
-        // Continue with other restorations
+      } catch (e) {
+        const path = this.getPathForTarget(target, prop);
+        console.debug(
+          `[DefenseInDepthBox] Could not restore ${path}:`,
+          e instanceof Error ? e.message : e,
+        );
       }
     }
 
