@@ -14,6 +14,7 @@ import type {
   WordNode,
   WordPart,
 } from "../../ast/types.js";
+import { createUserRegex } from "../../regex/index.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
 import { escapeRegex } from "../helpers/regex.js";
 import type { InterpreterContext } from "../types.js";
@@ -310,9 +311,9 @@ export async function handlePositionalPatternReplacement(
   // Apply replacement to each param
   const replacedParams: string[] = [];
   try {
-    const re = new RegExp(regexPattern, operation.all ? "g" : "");
+    const re = createUserRegex(regexPattern, operation.all ? "g" : "");
     for (const param of params) {
-      replacedParams.push(param.replace(re, replacement));
+      replacedParams.push(re.replace(param, replacement));
     }
   } catch {
     // Invalid regex - return params unchanged

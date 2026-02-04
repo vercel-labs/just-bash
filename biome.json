@@ -19,10 +19,30 @@
       },
       "style": {
         "noNonNullAssertion": "error",
-        "useTemplate": "error"
+        "useTemplate": "error",
+        "noRestrictedGlobals": {
+          "level": "error",
+          "options": {
+            "deniedGlobals": {
+              "RegExp": "Use createUserRegex() for user patterns or new ConstantRegex() for internal patterns. See src/regex/index.ts"
+            }
+          }
+        }
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["**/*.test.ts", "**/spec-tests/**", "**/regex/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": "off"
+          }
+        }
+      }
+    }
+  ],
   "formatter": {
     "enabled": true,
     "indentStyle": "space",

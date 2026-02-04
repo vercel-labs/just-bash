@@ -2,6 +2,8 @@
  * Core content matching logic for search commands
  */
 
+import type { UserRegex } from "../../regex/index.js";
+
 /**
  * Apply a replacement pattern using capture groups from a regex match
  * Supports: $& (full match), $1-$9 (numbered groups), $<name> (named groups)
@@ -83,7 +85,7 @@ export interface SearchResult {
  */
 export function searchContent(
   content: string,
-  regex: RegExp,
+  regex: UserRegex,
   options: SearchOptions = {},
 ): SearchResult {
   const {
@@ -225,7 +227,7 @@ export function searchContent(
           if (replace !== null) {
             regex.lastIndex = 0;
             // Use replacer function to skip empty matches (ripgrep behavior)
-            outputLine = line.replace(regex, (...args) => {
+            outputLine = regex.replace(line, (...args) => {
               const matchText = args[0] as string;
               // Skip empty matches to avoid double replacement with patterns like .*
               if (matchText.length === 0) return "";
@@ -397,7 +399,7 @@ export function searchContent(
  */
 function searchContentMultiline(
   content: string,
-  regex: RegExp,
+  regex: UserRegex,
   options: {
     invertMatch: boolean;
     showLineNumbers: boolean;
@@ -602,7 +604,7 @@ function searchContentMultiline(
           // Apply replacement if specified (for the first line of the match)
           if (replace !== null && i === span.startLine) {
             regex.lastIndex = 0;
-            line = line.replace(regex, replace);
+            line = regex.replace(line, replace);
           }
           let prefix = filename ? `${filename}:` : "";
           if (showByteOffset && i === span.startLine)

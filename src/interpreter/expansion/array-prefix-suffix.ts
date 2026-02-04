@@ -14,6 +14,7 @@ import type {
   WordNode,
   WordPart,
 } from "../../ast/types.js";
+import { createUserRegex } from "../../regex/index.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
 import { escapeRegex } from "../helpers/regex.js";
 import type { InterpreterContext } from "../types.js";
@@ -349,8 +350,8 @@ export async function handleArrayPatternWithPrefixSuffix(
 
     // Apply replacement to each element
     try {
-      const re = new RegExp(regexPattern, op.all ? "g" : "");
-      values = values.map((value) => value.replace(re, replacement));
+      const re = createUserRegex(regexPattern, op.all ? "g" : "");
+      values = values.map((value) => re.replace(value, replacement));
     } catch {
       // Invalid regex - leave values unchanged
     }

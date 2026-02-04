@@ -4,6 +4,8 @@
  * Pure helper functions for glob pattern parsing and regex conversion.
  */
 
+import { createUserRegex, type RegexLike } from "../regex/index.js";
+
 /** POSIX character class name to regex equivalent mapping */
 const POSIX_CLASSES: Record<string, string> = {
   alnum: "a-zA-Z0-9",
@@ -126,7 +128,7 @@ export function splitGlobignorePatterns(globignore: string): string[] {
  * Convert a GLOBIGNORE pattern to a RegExp.
  * Unlike regular glob patterns, * does NOT match /.
  */
-export function globignorePatternToRegex(pattern: string): RegExp {
+export function globignorePatternToRegex(pattern: string): RegexLike {
   let regex = "^";
 
   for (let i = 0; i < pattern.length; i++) {
@@ -245,7 +247,7 @@ export function globignorePatternToRegex(pattern: string): RegExp {
   }
 
   regex += "$";
-  return new RegExp(regex);
+  return createUserRegex(regex);
 }
 
 /**

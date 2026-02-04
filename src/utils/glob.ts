@@ -4,8 +4,10 @@
  * Used by grep, find, and other commands that need glob matching.
  */
 
+import { createUserRegex, type RegexLike } from "../regex/index.js";
+
 // Cache compiled regexes for glob patterns (key: pattern + flags)
-const globRegexCache = new Map<string, RegExp>();
+const globRegexCache = new Map<string, RegexLike>();
 
 export interface MatchGlobOptions {
   /** Case-insensitive matching */
@@ -63,7 +65,7 @@ export function matchGlob(
 /**
  * Convert a glob pattern to a RegExp.
  */
-function globToRegex(pattern: string, ignoreCase?: boolean): RegExp {
+function globToRegex(pattern: string, ignoreCase?: boolean): RegexLike {
   let regex = "^";
 
   for (let i = 0; i < pattern.length; i++) {
@@ -97,5 +99,5 @@ function globToRegex(pattern: string, ignoreCase?: boolean): RegExp {
   }
 
   regex += "$";
-  return new RegExp(regex, ignoreCase ? "i" : "");
+  return createUserRegex(regex, ignoreCase ? "i" : "");
 }

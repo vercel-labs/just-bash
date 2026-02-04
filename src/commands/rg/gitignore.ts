@@ -10,12 +10,13 @@
  */
 
 import type { IFileSystem } from "../../fs/interface.js";
+import { createUserRegex, type RegexLike } from "../../regex/index.js";
 
 interface GitignorePattern {
   /** Original pattern string */
   pattern: string;
   /** Compiled regex for matching */
-  regex: RegExp;
+  regex: RegexLike;
   /** Whether this is a negation pattern (starts with !) */
   negated: boolean;
   /** Whether this only matches directories (ends with /) */
@@ -87,7 +88,7 @@ export class GitignoreParser {
   /**
    * Convert a gitignore pattern to a regex
    */
-  private patternToRegex(pattern: string, rooted: boolean): RegExp {
+  private patternToRegex(pattern: string, rooted: boolean): RegexLike {
     let regexStr = "";
 
     // If not rooted, can match at any depth
@@ -160,7 +161,7 @@ export class GitignoreParser {
     // Pattern should match the full path component
     regexStr += "(?:/.*)?$";
 
-    return new RegExp(regexStr);
+    return createUserRegex(regexStr);
   }
 
   /**

@@ -22,6 +22,7 @@ import type {
 } from "../../ast/types.js";
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
+import { createUserRegex } from "../../regex/index.js";
 import { evaluateArithmetic } from "../arithmetic.js";
 import { ArithmeticError, BadSubstitutionError, ExitError } from "../errors.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
@@ -231,11 +232,11 @@ export async function handlePatternRemoval(
 
   // Use 's' flag (dotall) so that . matches newlines (bash ? matches any char including newline)
   if (operation.side === "prefix") {
-    return value.replace(new RegExp(`^${regexStr}`, "s"), "");
+    return createUserRegex(`^${regexStr}`, "s").replace(value, "");
   }
-  const regex = new RegExp(`${regexStr}$`, "s");
+  const regex = createUserRegex(`${regexStr}$`, "s");
   if (operation.greedy) {
-    return value.replace(regex, "");
+    return regex.replace(value, "");
   }
   for (let i = value.length; i >= 0; i--) {
     const suffix = value.slice(i);
@@ -301,7 +302,7 @@ export async function handlePatternReplacement(
   const flags = operation.all ? "gs" : "s";
 
   try {
-    const re = new RegExp(regex, flags);
+    const re = createUserRegex(regex, flags);
     if (operation.all) {
       let result = "";
       let lastIndex = 0;
@@ -320,7 +321,7 @@ export async function handlePatternReplacement(
       result += value.slice(lastIndex);
       return result;
     }
-    return value.replace(re, replacement);
+    return re.replace(value, replacement);
   } catch {
     return value;
   }
@@ -510,7 +511,7 @@ export async function handleCaseModification(
         patternRegexStr += patternToRegex(expanded, true, extglob);
       }
     }
-    const charPattern = new RegExp(`^(?:${patternRegexStr})$`);
+    const charPattern = createUserRegex(`^(?:${patternRegexStr})$`);
     const transform =
       operation.direction === "upper"
         ? (c: string) => c.toUpperCase()

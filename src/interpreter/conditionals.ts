@@ -13,6 +13,7 @@
 import type { ConditionalExpressionNode } from "../ast/types.js";
 import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
+import { createUserRegex } from "../regex/index.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import {
@@ -114,8 +115,8 @@ export async function evaluateConditional(
             const nocasematch = ctx.state.shoptOptions.nocasematch;
             // Convert POSIX ERE syntax to JavaScript regex syntax
             const jsPattern = posixEreToJsRegex(right);
-            const regex = new RegExp(jsPattern, nocasematch ? "i" : "");
-            const match = left.match(regex);
+            const regex = createUserRegex(jsPattern, nocasematch ? "i" : "");
+            const match = regex.match(left);
             // Always clear BASH_REMATCH first (bash clears it on failed match)
             clearArray(ctx, "BASH_REMATCH");
             if (match) {
@@ -512,7 +513,7 @@ export function matchPattern(
   // Use 's' flag (dotAll) so that * matches newlines in the value
   // This matches bash behavior where patterns like *foo* match multiline values
   const flags = nocasematch ? "is" : "s";
-  return new RegExp(regex, flags).test(value);
+  return createUserRegex(regex, flags).test(value);
 }
 
 /**

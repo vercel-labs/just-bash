@@ -2,6 +2,8 @@
  * Regex building utilities for search commands
  */
 
+import { createUserRegex, type UserRegex } from "../../regex/index.js";
+
 /** POSIX character class to JavaScript regex character range mapping */
 const POSIX_CLASS_MAP: Record<string, string> = {
   alpha: "a-zA-Z",
@@ -33,7 +35,7 @@ export interface RegexOptions {
 }
 
 export interface RegexResult {
-  regex: RegExp;
+  regex: UserRegex;
   /** If \K was used, this is the 1-based index of the capture group containing the "real" match */
   kResetGroup?: number;
 }
@@ -216,7 +218,7 @@ export function buildRegex(
     (options.multiline ? "m" : "") +
     (options.multilineDotall ? "s" : "") +
     (needsUnicode ? "u" : "");
-  return { regex: new RegExp(regexPattern, flags), kResetGroup };
+  return { regex: createUserRegex(regexPattern, flags), kResetGroup };
 }
 
 /**

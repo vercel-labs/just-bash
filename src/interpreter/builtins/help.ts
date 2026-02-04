@@ -8,6 +8,7 @@
  * for each builtin command matching PATTERN to a short usage synopsis.
  */
 
+import { createUserRegex } from "../../regex/index.js";
 import type { ExecResult } from "../../types.js";
 import { failure, success } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
@@ -688,7 +689,7 @@ function findMatchingBuiltins(pattern: string): string[] {
     .replace(/\*/g, ".*")
     .replace(/\?/g, ".");
 
-  const regex = new RegExp(`^${regexPattern}$`);
+  const regex = createUserRegex(`^${regexPattern}$`);
   return ALL_BUILTINS.filter((name) => regex.test(name));
 }
 

@@ -5,6 +5,7 @@
  */
 
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
+import { createUserRegex } from "../../../regex/index.js";
 import { applyNumericBinaryOp } from "../../../shared/operators.js";
 import type {
   AwkArrayAccess,
@@ -161,7 +162,7 @@ async function evalBinaryOp(
         ? expr.right.pattern
         : toAwkString(await evalExpr(ctx, expr.right));
     try {
-      return new RegExp(pattern).test(toAwkString(left)) ? 1 : 0;
+      return createUserRegex(pattern).test(toAwkString(left)) ? 1 : 0;
     } catch {
       return 0;
     }
@@ -173,7 +174,7 @@ async function evalBinaryOp(
         ? expr.right.pattern
         : toAwkString(await evalExpr(ctx, expr.right));
     try {
-      return new RegExp(pattern).test(toAwkString(left)) ? 0 : 1;
+      return createUserRegex(pattern).test(toAwkString(left)) ? 0 : 1;
     } catch {
       return 1;
     }

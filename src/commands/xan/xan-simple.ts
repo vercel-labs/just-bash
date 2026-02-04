@@ -2,6 +2,7 @@
  * Simple commands: behead, sample, cat, search, flatmap, fmt
  */
 
+import { createUserRegex, type RegexLike } from "../../regex/index.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 import { readFiles } from "../../utils/file-reader.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
@@ -251,9 +252,9 @@ export async function cmdSearch(
 
   const searchCols = selectCols.length > 0 ? selectCols : headers;
 
-  let regex: RegExp;
+  let regex: RegexLike;
   try {
-    regex = new RegExp(pattern, ignoreCase ? "i" : "");
+    regex = createUserRegex(pattern, ignoreCase ? "i" : "");
   } catch {
     return {
       stdout: "",

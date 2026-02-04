@@ -1,6 +1,7 @@
 // Executor for sed commands
 
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { createUserRegex } from "../../regex/index.js";
 import { breToEre, escapeForList, normalizeForJs } from "./sed-regex.js";
 import type {
   AddressRange,
@@ -92,7 +93,7 @@ function matchesAddress(
       // Convert BRE to ERE for JavaScript regex compatibility
       // Then normalize for JavaScript (e.g., {,n} → {0,n})
       const pattern = normalizeForJs(breToEre(rawPattern));
-      const regex = new RegExp(pattern);
+      const regex = createUserRegex(pattern);
       return regex.test(line);
     } catch {
       return false;
@@ -335,7 +336,7 @@ function isInRange(
  */
 function globalReplace(
   input: string,
-  regex: RegExp,
+  regex: import("../../regex/index.js").UserRegex,
   _replacement: string,
   replaceFn: (match: string, groups: string[]) => string,
 ): string {
@@ -517,7 +518,7 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
       );
 
       try {
-        const regex = new RegExp(pattern, flags);
+        const regex = createUserRegex(pattern, flags);
 
         // Check if pattern matches FIRST - for t/T command tracking
         // t should branch if substitution matched, even if replacement is same as original
@@ -537,8 +538,12 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
           ) {
             let count = 0;
             const nth = subCmd.nthOccurrence;
-            state.patternSpace = state.patternSpace.replace(
-              new RegExp(pattern, `g${subCmd.ignoreCase ? "i" : ""}`),
+            const nthRegex = createUserRegex(
+              pattern,
+              `g${subCmd.ignoreCase ? "i" : ""}`,
+            );
+            state.patternSpace = nthRegex.replace(
+              state.patternSpace,
               (match, ...args) => {
                 count++;
                 if (count === nth) {
@@ -550,16 +555,20 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
             );
           } else if (subCmd.global) {
             // Use custom global replace for POSIX-compliant zero-length match handling
+            const globalRegex = createUserRegex(
+              pattern,
+              `g${subCmd.ignoreCase ? "i" : ""}`,
+            );
             state.patternSpace = globalReplace(
               state.patternSpace,
-              new RegExp(pattern, `g${subCmd.ignoreCase ? "i" : ""}`),
+              globalRegex,
               subCmd.replacement,
               (match, groups) =>
                 processReplacement(subCmd.replacement, match, groups),
             );
           } else {
-            state.patternSpace = state.patternSpace.replace(
-              regex,
+            state.patternSpace = regex.replace(
+              state.patternSpace,
               (match, ...args) => {
                 // Extract captured groups (all args before the last two which are offset and string)
                 const groups = args.slice(0, -2) as string[];
