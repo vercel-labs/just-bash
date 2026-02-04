@@ -300,18 +300,24 @@ EOF
     });
 
     it("should prevent extremely large allocations", async () => {
-      const defaultBash = new Bash();
+      // Use reduced limits to make test fast
+      const limitedBash = new Bash({
+        executionLimits: {
+          maxStringLength: 1000,
+          maxLoopIterations: 500,
+        },
+      });
 
-      // Try to create a very long string (default limit is 10MB)
-      // This should fail before completing
-      const result = await defaultBash.exec(`
+      // Try to create a string that exceeds the limit
+      const result = await limitedBash.exec(`
         x=""
-        for i in {1..10000}; do
-          x="\${x}$(printf '%1000s' 'x')"
+        for i in {1..100}; do
+          x="\${x}$(printf '%50s' 'x')"
         done
       `);
-      // Should hit either string limit or loop limit
+      // Should hit string limit (100 * 50 = 5000 > 1000 limit)
       expect(result.exitCode).toBe(126);
+      expect(result.stderr).toContain("limit");
     });
   });
 });
