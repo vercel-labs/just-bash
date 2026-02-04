@@ -31,12 +31,22 @@ export {
 
 // Generators
 export * from "./generators/index.js";
+// Assertions
+export {
+  assertExecResultSafe,
+  assertNoNativeCode,
+  assertNoPollutionIndicators,
+  assertOutputSafe,
+  checkForNativeCode,
+  checkForPollutionIndicators,
+  checkOutputSecurity,
+  type SecurityCheckResult,
+} from "./oracles/assertions.js";
 export {
   type DOSIssue,
   DOSOracle,
   type DOSOracleResult,
 } from "./oracles/dos-oracle.js";
-
 // Oracles
 export {
   type SandboxIssue,

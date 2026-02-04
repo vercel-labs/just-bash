@@ -7,6 +7,10 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
+  awkGrammarCommand,
+  awkPollutionCommand,
+  awkPollutionProgram,
+  awkProgram,
   bashArithmetic,
   bashCommand,
   bashCompound,
@@ -15,16 +19,31 @@ import {
   bashSimpleCommand,
   bashStatement,
   bashWord,
+  catCommand,
   commandName,
+  commandPipeline,
+  commandScript,
   dangerousIdentifier,
+  grepCommand,
   identifier,
   integerLiteral,
+  jqFilter,
+  jqGrammarCommand,
+  jqPollutionCommand,
+  jqPollutionFilter,
+  lsCommand,
   pollutionAssignment,
   pollutionChain,
   pollutionExpansion,
   pollutionScript,
+  sedGrammarCommand,
+  sedPollutionCommand,
+  sedPollutionProgram,
+  sedProgram,
   simpleWord,
   strictPollutionIdentifier,
+  supportedCommand,
+  testCommand,
 } from "./grammar-generator.js";
 
 describe("Grammar Generator", () => {
@@ -240,6 +259,296 @@ describe("Grammar Generator", () => {
         console.log(script);
       }
       expect(samples.length).toBe(10);
+    });
+  });
+
+  describe("AWK Grammar Generator", () => {
+    it("generates valid AWK programs", () => {
+      const samples = fc.sample(awkProgram, 15);
+      console.log("Sample AWK programs:");
+      for (const prog of samples) {
+        console.log(`  ${prog}`);
+      }
+      expect(samples.length).toBe(15);
+    });
+
+    it("generates variety of AWK constructs", () => {
+      const samples = fc.sample(awkProgram, 50);
+      const hasBegin = samples.some((s) => s.includes("BEGIN"));
+      const hasEnd = samples.some((s) => s.includes("END"));
+      const hasPrint = samples.some((s) => s.includes("print"));
+      const hasPattern = samples.some((s) => s.includes("/"));
+      const hasField = samples.some((s) => s.includes("$"));
+
+      console.log("AWK constructs found:", {
+        BEGIN: hasBegin,
+        END: hasEnd,
+        print: hasPrint,
+        pattern: hasPattern,
+        field: hasField,
+      });
+
+      expect(hasPrint).toBe(true);
+      expect(hasField).toBe(true);
+    });
+
+    it("generates complete AWK commands", () => {
+      const samples = fc.sample(awkGrammarCommand, 10);
+      console.log("Sample AWK commands:");
+      for (const cmd of samples) {
+        console.log(`  ${cmd}`);
+      }
+      const allAwk = samples.every((s) => s.includes("awk"));
+      expect(allAwk).toBe(true);
+    });
+
+    it("generates AWK pollution programs with dangerous names", () => {
+      const samples = fc.sample(awkPollutionProgram, 20);
+      console.log("Sample AWK pollution programs:");
+      for (const prog of samples.slice(0, 10)) {
+        console.log(`  ${prog}`);
+      }
+      // Should contain pollution identifiers
+      const hasPollution = samples.some(
+        (s) =>
+          s.includes("__proto__") ||
+          s.includes("constructor") ||
+          s.includes("prototype") ||
+          s.includes("toString") ||
+          s.includes("valueOf"),
+      );
+      expect(hasPollution).toBe(true);
+    });
+
+    it("generates complete AWK pollution commands", () => {
+      const samples = fc.sample(awkPollutionCommand, 10);
+      console.log("Sample AWK pollution commands:");
+      for (const cmd of samples) {
+        console.log(`  ${cmd}`);
+      }
+      const allAwk = samples.every((s) => s.includes("awk"));
+      expect(allAwk).toBe(true);
+    });
+  });
+
+  describe("SED Grammar Generator", () => {
+    it("generates valid SED programs", () => {
+      const samples = fc.sample(sedProgram, 15);
+      console.log("Sample SED programs:");
+      for (const prog of samples) {
+        console.log(`  ${prog}`);
+      }
+      expect(samples.length).toBe(15);
+    });
+
+    it("generates variety of SED commands", () => {
+      const samples = fc.sample(sedProgram, 50);
+      const hasSubstitute = samples.some((s) => s.includes("s/"));
+      const hasDelete = samples.some((s) => s.includes("d"));
+      const hasPrint = samples.some(
+        (s) => s.includes("p") && !s.includes("s/"),
+      );
+      const hasAddress = samples.some(
+        (s) => /^\d/.test(s) || s.startsWith("/"),
+      );
+
+      console.log("SED commands found:", {
+        substitute: hasSubstitute,
+        delete: hasDelete,
+        print: hasPrint,
+        address: hasAddress,
+      });
+
+      expect(hasSubstitute).toBe(true);
+    });
+
+    it("generates complete SED commands", () => {
+      const samples = fc.sample(sedGrammarCommand, 10);
+      console.log("Sample SED commands:");
+      for (const cmd of samples) {
+        console.log(`  ${cmd}`);
+      }
+      const allSed = samples.every((s) => s.includes("sed"));
+      expect(allSed).toBe(true);
+    });
+
+    it("generates SED pollution programs with dangerous patterns", () => {
+      const samples = fc.sample(sedPollutionProgram, 20);
+      console.log("Sample SED pollution programs:");
+      for (const prog of samples.slice(0, 10)) {
+        console.log(`  ${prog}`);
+      }
+      // Should contain pollution identifiers
+      const hasPollution = samples.some(
+        (s) =>
+          s.includes("__proto__") ||
+          s.includes("constructor") ||
+          s.includes("prototype") ||
+          s.includes("toString") ||
+          s.includes("valueOf"),
+      );
+      expect(hasPollution).toBe(true);
+    });
+
+    it("generates complete SED pollution commands", () => {
+      const samples = fc.sample(sedPollutionCommand, 10);
+      console.log("Sample SED pollution commands:");
+      for (const cmd of samples) {
+        console.log(`  ${cmd}`);
+      }
+      const allSed = samples.every((s) => s.includes("sed"));
+      expect(allSed).toBe(true);
+    });
+  });
+
+  describe("JQ Grammar Generator", () => {
+    it("generates valid JQ filters", () => {
+      const samples = fc.sample(jqFilter, 15);
+      console.log("Sample JQ filters:");
+      for (const filter of samples) {
+        console.log(`  ${filter}`);
+      }
+      expect(samples.length).toBe(15);
+    });
+
+    it("generates variety of JQ constructs", () => {
+      const samples = fc.sample(jqFilter, 50);
+      const hasIdentity = samples.some((s) => s === ".");
+      const hasKey = samples.some((s) => /^\.[a-z]/i.test(s));
+      const hasArray = samples.some((s) => s.includes("[]"));
+      const hasPipe = samples.some((s) => s.includes("|"));
+      const hasBuiltin = samples.some(
+        (s) =>
+          s.includes("length") ||
+          s.includes("keys") ||
+          s.includes("map") ||
+          s.includes("select"),
+      );
+
+      console.log("JQ constructs found:", {
+        identity: hasIdentity,
+        key: hasKey,
+        array: hasArray,
+        pipe: hasPipe,
+        builtin: hasBuiltin,
+      });
+
+      expect(hasKey || hasArray || hasIdentity).toBe(true);
+    });
+
+    it("generates complete JQ commands", () => {
+      const samples = fc.sample(jqGrammarCommand, 10);
+      console.log("Sample JQ commands:");
+      for (const cmd of samples) {
+        console.log(`  ${cmd}`);
+      }
+      const allJq = samples.every((s) => s.includes("jq"));
+      expect(allJq).toBe(true);
+    });
+
+    it("generates JQ pollution filters with dangerous keys", () => {
+      const samples = fc.sample(jqPollutionFilter, 20);
+      console.log("Sample JQ pollution filters:");
+      for (const filter of samples.slice(0, 10)) {
+        console.log(`  ${filter}`);
+      }
+      // Should contain pollution identifiers
+      const hasPollution = samples.some(
+        (s) =>
+          s.includes("__proto__") ||
+          s.includes("constructor") ||
+          s.includes("prototype") ||
+          s.includes("toString") ||
+          s.includes("valueOf"),
+      );
+      expect(hasPollution).toBe(true);
+    });
+
+    it("generates complete JQ pollution commands", () => {
+      const samples = fc.sample(jqPollutionCommand, 10);
+      console.log("Sample JQ pollution commands:");
+      for (const cmd of samples) {
+        console.log(`  ${cmd}`);
+      }
+      const allJq = samples.every((s) => s.includes("jq"));
+      expect(allJq).toBe(true);
+    });
+  });
+
+  describe("Command Generators", () => {
+    it("generates cat commands", () => {
+      const samples = fc.sample(catCommand, 10);
+      console.log("Sample cat commands:");
+      for (const cmd of samples) {
+        console.log(`  ${cmd}`);
+      }
+      const allCat = samples.every((s) => s.includes("cat"));
+      expect(allCat).toBe(true);
+    });
+
+    it("generates grep commands", () => {
+      const samples = fc.sample(grepCommand, 10);
+      console.log("Sample grep commands:");
+      for (const cmd of samples) {
+        console.log(`  ${cmd}`);
+      }
+      const allGrep = samples.every((s) => s.includes("grep"));
+      expect(allGrep).toBe(true);
+    });
+
+    it("generates ls commands", () => {
+      const samples = fc.sample(lsCommand, 10);
+      console.log("Sample ls commands:");
+      for (const cmd of samples) {
+        console.log(`  ${cmd}`);
+      }
+      const allLs = samples.every((s) => s.includes("ls"));
+      expect(allLs).toBe(true);
+    });
+
+    it("generates test commands", () => {
+      const samples = fc.sample(testCommand, 10);
+      console.log("Sample test commands:");
+      for (const cmd of samples) {
+        console.log(`  ${cmd}`);
+      }
+      const allTest = samples.every(
+        (s) => s.includes("test") || s.includes("["),
+      );
+      expect(allTest).toBe(true);
+    });
+
+    it("generates variety of supported commands", () => {
+      const samples = fc.sample(supportedCommand, 30);
+      console.log("Sample supported commands:");
+      for (const cmd of samples.slice(0, 15)) {
+        console.log(`  ${cmd}`);
+      }
+      // Check we get variety
+      const commands = new Set(
+        samples.map((s) => s.split(/\s/)[0].replace(/^echo$/, "echo")),
+      );
+      console.log("Unique commands:", [...commands]);
+      expect(commands.size).toBeGreaterThan(5);
+    });
+
+    it("generates command pipelines", () => {
+      const samples = fc.sample(commandPipeline, 10);
+      console.log("Sample command pipelines:");
+      for (const cmd of samples) {
+        console.log(`  ${cmd}`);
+      }
+      expect(samples.length).toBe(10);
+    });
+
+    it("generates command scripts", () => {
+      const samples = fc.sample(commandScript, 5);
+      console.log("Sample command scripts:");
+      for (const script of samples) {
+        console.log("---");
+        console.log(script);
+      }
+      expect(samples.length).toBe(5);
     });
   });
 

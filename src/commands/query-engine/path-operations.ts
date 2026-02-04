@@ -55,6 +55,7 @@ export function setPath(
     value && typeof value === "object" && !Array.isArray(value)
       ? { ...value }
       : {};
+  // @banned-pattern-ignore: protected by Object.hasOwn() check before access
   const currentVal = Object.hasOwn(obj, head)
     ? (obj as Record<string, unknown>)[head]
     : undefined;

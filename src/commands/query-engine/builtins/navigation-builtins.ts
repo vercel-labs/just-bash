@@ -52,6 +52,7 @@ export function evalNavigationBuiltin(
           if (Array.isArray(v)) {
             for (const item of v) walk(item);
           } else if (v && typeof v === "object") {
+            // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
             for (const key of Object.keys(v)) {
               walk((v as Record<string, unknown>)[key]);
             }

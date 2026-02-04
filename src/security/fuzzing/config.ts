@@ -172,11 +172,20 @@ export function createProgressTracker(config: FuzzingConfig): {
 }
 
 /**
- * Create fast-check options (numRuns only).
+ * Create fast-check options.
  * Progress reporting is handled via createProgressReporter().
+ *
+ * Note: endOnFailure=true disables shrinking, which means we see the original
+ * failing input instead of a "simplified" version that may actually pass.
  */
-export function createFcOptions(config: FuzzingConfig): { numRuns: number } {
-  return { numRuns: config.numRuns };
+export function createFcOptions(config: FuzzingConfig): {
+  numRuns: number;
+  endOnFailure: boolean;
+} {
+  return {
+    numRuns: config.numRuns,
+    endOnFailure: true, // Disable shrinking - show original failure
+  };
 }
 
 /**

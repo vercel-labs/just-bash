@@ -73,17 +73,7 @@ export class FuzzRunner {
       }
     }
 
-    // Clear the failure log file at start if configured
-    if (this.config.failureLogFile) {
-      try {
-        writeFileSync(
-          this.config.failureLogFile,
-          `# Fuzz test FAILURES - ${new Date().toISOString()}\n# Config: numRuns=${this.config.numRuns}, timeout=${this.config.timeoutMs}ms\n\n`,
-        );
-      } catch {
-        // Ignore errors if file can't be written
-      }
-    }
+    // Note: failure log is append-only, never cleared
   }
 
   /**

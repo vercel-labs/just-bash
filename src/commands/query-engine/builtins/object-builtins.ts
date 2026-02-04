@@ -258,6 +258,7 @@ export function evalObjectBuiltin(
             // Empty object - output [path, {}]
             results.push([path, {}]);
           } else {
+            // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
             for (const key of keys) {
               walk((v as Record<string, unknown>)[key], [...path, key]);
             }

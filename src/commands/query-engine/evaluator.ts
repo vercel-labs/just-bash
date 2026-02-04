@@ -211,7 +211,21 @@ function getValueAtPath(
   let v = root;
   for (const key of path) {
     if (v && typeof v === "object") {
-      v = (v as Record<string, unknown>)[key as string];
+      if (Array.isArray(v)) {
+        if (typeof key === "number") {
+          v = v[key];
+        } else {
+          return undefined;
+        }
+      } else {
+        // Defense against prototype pollution: only access own properties
+        const obj = v as Record<string, unknown>;
+        if (typeof key === "string" && Object.hasOwn(obj, key)) {
+          v = obj[key];
+        } else {
+          return undefined;
+        }
+      }
     } else {
       return undefined;
     }
@@ -387,7 +401,13 @@ export function evaluate(
       const bases = ast.base ? evaluate(value, ast.base, ctx) : [value];
       return bases.flatMap((v) => {
         if (v && typeof v === "object" && !Array.isArray(v)) {
-          const result = (v as Record<string, unknown>)[ast.name];
+          // Defense against prototype pollution: only return own properties
+          // This prevents access to inherited methods like __defineGetter__, constructor, etc.
+          const obj = v as Record<string, unknown>;
+          if (!Object.hasOwn(obj, ast.name)) {
+            return [null];
+          }
+          const result = obj[ast.name];
           return [result === undefined ? null : result];
         }
         // jq: indexing null always returns null
@@ -422,7 +442,12 @@ export function evaluate(
             typeof v === "object" &&
             !Array.isArray(v)
           ) {
-            return [(v as Record<string, unknown>)[idx]];
+            // Defense against prototype pollution: only return own properties
+            const obj = v as Record<string, unknown>;
+            if (!Object.hasOwn(obj, idx)) {
+              return [null];
+            }
+            return [obj[idx]];
           }
           return [null];
         });
@@ -679,6 +704,7 @@ export function evaluate(
         if (Array.isArray(val)) {
           for (const item of val) walk(item);
         } else if (val && typeof val === "object") {
+          // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
           for (const key of Object.keys(val)) {
             walk((val as Record<string, unknown>)[key]);
           }
@@ -1862,6 +1888,7 @@ function collectPaths(
             walkPaths(v[i], [...path, i]);
           }
         } else {
+          // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
           for (const key of Object.keys(v)) {
             walkPaths((v as Record<string, unknown>)[key], [...path, key]);
           }

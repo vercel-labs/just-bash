@@ -162,9 +162,11 @@ function formatValue(
     if (sortKeys) keys = keys.sort();
     if (keys.length === 0) return "{}";
     if (compact) {
+      // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
       return `{${keys.map((k) => `${JSON.stringify(k)}:${formatValue((v as Record<string, unknown>)[k], true, false, sortKeys, useTab)}`).join(",")}}`;
     }
     const items = keys.map((k) => {
+      // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
       const val = formatValue(
         (v as Record<string, unknown>)[k],
         false,

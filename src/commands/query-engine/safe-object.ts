@@ -123,6 +123,7 @@ export function safeCopy<T extends Record<string, unknown>>(obj: T): T {
   const result = Object.create(null) as T;
   for (const key of Object.keys(obj)) {
     if (isSafeKey(key)) {
+      // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
       (result as Record<string, unknown>)[key] = obj[key];
     }
   }

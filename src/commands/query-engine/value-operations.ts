@@ -85,6 +85,7 @@ export function getValueDepth(value: QueryValue, maxCheck = 3000): number {
     } else if (current !== null && typeof current === "object") {
       const keys = Object.keys(current);
       if (keys.length === 0) return depth + 1;
+      // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
       current = (current as Record<string, unknown>)[keys[0]];
       depth++;
     } else {

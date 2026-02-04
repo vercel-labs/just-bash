@@ -123,6 +123,26 @@ const BANNED_PATTERNS = [
       "Validate that the object is not user-controlled",
     ],
   },
+  {
+    name: "Unsafe bracket notation on Record<string, T>",
+    // Match: (x as Record<string, T>)[variable] where variable is not a string/number literal
+    // This catches patterns like: (obj as Record<string, unknown>)[key]
+    // But NOT: (obj as Record<string, unknown>)["literal"] or [0]
+    // Skip comment lines
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*as\s+Record\s*<\s*string\s*,\s*[^>]+>\s*\)\s*\[\s*(?!["'`0-9])[a-zA-Z_]/,
+    message:
+      "Accessing Record<string, T> with bracket notation using a variable key can\n" +
+      "expose inherited prototype properties like __proto__, constructor, __defineGetter__.\n" +
+      "This is a prototype pollution vulnerability.",
+    solutions: [
+      "Add Object.hasOwn(obj, key) check before accessing: if (Object.hasOwn(obj, key)) { obj[key] }",
+      "Use Object.keys(obj) to iterate, which only returns own properties",
+      "Use the safeGet() helper from safe-object.ts",
+    ],
+    // Safe if Object.hasOwn is checked on same line or nearby, or if using Object.keys
+    autoSafe: [/Object\.hasOwn/, /Object\.keys/, /Object\.entries/],
+  },
 ];
 
 const IGNORE_COMMENT = /@banned-pattern-ignore:/;
