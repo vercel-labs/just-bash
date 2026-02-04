@@ -303,19 +303,24 @@ EOF
       // Use reduced limits to make test fast
       const limitedBash = new Bash({
         executionLimits: {
-          maxStringLength: 1000,
-          maxLoopIterations: 500,
+          maxStringLength: 10000,
         },
       });
 
-      // Try to create a string that exceeds the limit
+      // Use exponential string growth: x becomes x+x each iteration
+      // After 5 iterations: 100 -> 200 -> 400 -> 800 -> 1600 -> 3200...
+      // This hits limits in just a few iterations instead of 10000 loops
       const result = await limitedBash.exec(`
-        x=""
-        for i in {1..100}; do
-          x="\${x}$(printf '%50s' 'x')"
-        done
+        x=$(printf '%100s' 'x')
+        x="$x$x"
+        x="$x$x"
+        x="$x$x"
+        x="$x$x"
+        x="$x$x"
+        x="$x$x"
+        x="$x$x"
       `);
-      // Should hit string limit (100 * 50 = 5000 > 1000 limit)
+      // 100 * 2^7 = 12800 > 10000 limit
       expect(result.exitCode).toBe(126);
       expect(result.stderr).toContain("limit");
     });
