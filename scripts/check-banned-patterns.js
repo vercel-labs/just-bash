@@ -58,14 +58,71 @@ const BANNED_PATTERNS = [
     ],
     autoSafe: [/Object\.create\s*\(\s*null\s*\)/],
   },
-  // Add more banned patterns here as needed
-  // Example:
-  // {
-  //   name: "eval()",
-  //   pattern: /\beval\s*\(/,
-  //   message: "eval() can execute arbitrary code and is a security risk.",
-  //   solutions: ["Use JSON.parse() for JSON data", "Use Function constructor if absolutely necessary"],
-  // },
+  {
+    name: "eval() usage",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*\beval\s*\(/,
+    message: "eval() executes arbitrary code and is a security risk.",
+    solutions: [
+      "Use JSON.parse() for parsing JSON data",
+      "Use a proper parser for structured data",
+      "Refactor to avoid dynamic code execution",
+    ],
+  },
+  {
+    name: "new Function() constructor",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*new\s+Function\s*\(/,
+    message:
+      "The Function constructor is equivalent to eval() and executes arbitrary code.",
+    solutions: [
+      "Use a proper parser or interpreter",
+      "Refactor to avoid dynamic code generation",
+    ],
+  },
+  {
+    name: "for...in loop",
+    // Skip comment lines
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*for\s*\(\s*(?:const|let|var)?\s*\w+\s+in\s+/,
+    message:
+      "for...in iterates over the prototype chain and can expose inherited properties\n" +
+      "like __proto__. It's also slower than alternatives.",
+    solutions: [
+      "Use Object.keys(obj).forEach() or for...of Object.keys(obj)",
+      "Use Object.entries(obj) for key-value pairs",
+      "Use for...of with arrays",
+    ],
+    autoSafe: [/Object\.hasOwn/, /\.hasOwnProperty\s*\(/],
+  },
+  {
+    name: "Direct __proto__ access",
+    // Match __proto__ in code, not in comments or strings used for validation
+    // Skip lines that are comments (// or * at start after whitespace)
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*(?<!['"]\s*)__proto__(?!\s*['"])/,
+    message:
+      "__proto__ is a deprecated way to access/modify prototypes and is a\n" +
+      "prototype pollution vector. It should never appear in production code.",
+    solutions: [
+      "Use Object.getPrototypeOf() to read the prototype",
+      "Use Object.setPrototypeOf() to set the prototype (rarely needed)",
+      "Use Object.create() to create objects with a specific prototype",
+    ],
+    // Allow __proto__ in string literals (for validation sets like DANGEROUS_KEYS)
+    autoSafe: [/["']__proto__["']/],
+  },
+  {
+    name: "constructor.prototype access",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*\.constructor\.prototype/,
+    message:
+      "Accessing constructor.prototype can be used for prototype pollution attacks\n" +
+      "and should be avoided with user-controlled data.",
+    solutions: [
+      "Use Object.getPrototypeOf() if you need prototype access",
+      "Validate that the object is not user-controlled",
+    ],
+  },
 ];
 
 const IGNORE_COMMENT = /@banned-pattern-ignore:/;
@@ -94,6 +151,17 @@ const SKIP_PATTERNS = [
 const violations = [];
 
 /**
+ * @typedef {Object} IgnoreComment
+ * @property {string} file
+ * @property {number} line
+ * @property {string} content
+ * @property {boolean} used
+ */
+
+/** @type {IgnoreComment[]} */
+const ignoreComments = [];
+
+/**
  * Check if a file should be skipped
  * @param {string} filePath
  * @returns {boolean}
@@ -107,22 +175,30 @@ function shouldSkipFile(filePath) {
  * @param {string[]} lines
  * @param {number} lineIndex
  * @param {BannedPattern} pattern
- * @returns {boolean}
+ * @param {string} filePath
+ * @returns {{safe: boolean, usedIgnoreComment: IgnoreComment | null}}
  */
-function isLineSafe(lines, lineIndex, pattern) {
+function isLineSafe(lines, lineIndex, pattern, filePath) {
   const line = lines[lineIndex];
-  const prevLine = lineIndex > 0 ? lines[lineIndex - 1] : "";
 
-  // Check for @banned-pattern-ignore comment on current or previous line
-  if (IGNORE_COMMENT.test(line) || IGNORE_COMMENT.test(prevLine)) {
-    return true;
+  // Check for @banned-pattern-ignore comment on current line or up to 2 lines before
+  // (to allow for other ignore comments like biome-ignore between)
+  for (let offset = 0; offset <= 2; offset++) {
+    const checkIndex = lineIndex - offset;
+    if (checkIndex < 0) break;
+    if (IGNORE_COMMENT.test(lines[checkIndex])) {
+      const comment = ignoreComments.find(
+        (c) => c.file === filePath && c.line === checkIndex + 1,
+      );
+      return { safe: true, usedIgnoreComment: comment || null };
+    }
   }
 
   // Check auto-safe patterns on current line
   if (pattern.autoSafe) {
     for (const safePat of pattern.autoSafe) {
       if (safePat.test(line)) {
-        return true;
+        return { safe: true, usedIgnoreComment: null };
       }
     }
   }
@@ -136,7 +212,7 @@ function isLineSafe(lines, lineIndex, pattern) {
     ) {
       for (const safePat of pattern.autoSafe) {
         if (safePat.test(lines[i])) {
-          return true;
+          return { safe: true, usedIgnoreComment: null };
         }
       }
       // Stop if we hit a semicolon or closing brace (end of statement)
@@ -149,7 +225,7 @@ function isLineSafe(lines, lineIndex, pattern) {
     }
   }
 
-  return false;
+  return { safe: false, usedIgnoreComment: null };
 }
 
 /**
@@ -164,6 +240,19 @@ function scanFile(filePath) {
   const content = readFileSync(filePath, "utf-8");
   const lines = content.split("\n");
 
+  // First pass: collect all ignore comments in this file
+  for (let i = 0; i < lines.length; i++) {
+    if (IGNORE_COMMENT.test(lines[i])) {
+      ignoreComments.push({
+        file: filePath,
+        line: i + 1,
+        content: lines[i].trim(),
+        used: false,
+      });
+    }
+  }
+
+  // Second pass: check for pattern violations
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
@@ -175,7 +264,8 @@ function scanFile(filePath) {
         pattern.pattern.flags,
       );
       if (testPattern.test(line)) {
-        if (!isLineSafe(lines, i, pattern)) {
+        const result = isLineSafe(lines, i, pattern, filePath);
+        if (!result.safe) {
           violations.push({
             file: filePath,
             line: i + 1,
@@ -183,6 +273,8 @@ function scanFile(filePath) {
             context: getContext(lines, i),
             pattern,
           });
+        } else if (result.usedIgnoreComment) {
+          result.usedIgnoreComment.used = true;
         }
       }
     }
@@ -243,7 +335,13 @@ for (const dir of SCAN_DIRS) {
   }
 }
 
+// Check for unused ignore comments
+const unusedIgnores = ignoreComments.filter((c) => !c.used);
+
+let hasErrors = false;
+
 if (violations.length > 0) {
+  hasErrors = true;
   // Group violations by pattern
   /** @type {Map<string, Violation[]>} */
   const byPattern = new Map();
@@ -287,6 +385,29 @@ if (violations.length > 0) {
   console.error(
     `\x1b[31m✖ ${violations.length} total violation(s) found\x1b[0m\n`,
   );
+}
+
+if (unusedIgnores.length > 0) {
+  hasErrors = true;
+  console.error("\n\x1b[31m✖ Unused @banned-pattern-ignore Comments\x1b[0m\n");
+  console.error(
+    "The following ignore comments don't suppress any banned pattern.\n" +
+      "Remove them or ensure the pattern they're meant to suppress is correct.\n",
+  );
+
+  for (const ignore of unusedIgnores) {
+    const relPath = relative(rootDir, ignore.file);
+    console.error(`\x1b[36m${relPath}:${ignore.line}\x1b[0m`);
+    console.error(`  ${ignore.content}`);
+    console.error("");
+  }
+
+  console.error(
+    `\x1b[31m✖ ${unusedIgnores.length} unused ignore comment(s) found\x1b[0m\n`,
+  );
+}
+
+if (hasErrors) {
   process.exit(1);
 } else {
   console.log("\x1b[32m✓ No banned patterns detected\x1b[0m");

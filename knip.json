@@ -2,7 +2,11 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "entry": ["src/cli/just-bash.ts"],
   "project": ["src/**/*.ts"],
-  "ignore": ["src/**/*.test.ts", "src/spec-tests/**"],
+  "ignore": [
+    "src/**/*.test.ts",
+    "src/spec-tests/**",
+    "src/banned-patterns-test.ts"
+  ],
   "ignoreBinaries": ["tsx"],
   "rules": {
     "unlisted": "off",
