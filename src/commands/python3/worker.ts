@@ -714,24 +714,41 @@ if not hasattr(builtins, '_jb_sandbox_initialized'):
     builtins._jb_sandbox_initialized = True
 
     # ------------------------------------------------------------
-    # 1. Block dangerous module imports (js, pyodide.ffi)
+    # 1. Block dangerous module imports (js, pyodide, pyodide_js, pyodide.ffi)
+    # These allow sandbox escape via JavaScript execution
     # ------------------------------------------------------------
-    _BLOCKED_MODULES = {'js', 'pyodide.ffi'}
+    _BLOCKED_MODULES = frozenset({'js', 'pyodide', 'pyodide_js', 'pyodide.ffi'})
+    _BLOCKED_PREFIXES = ('js.', 'pyodide.', 'pyodide_js.')
 
     # Remove pre-loaded dangerous modules from sys.modules
     for _blocked_mod in list(sys.modules.keys()):
-        if _blocked_mod in _BLOCKED_MODULES or _blocked_mod.startswith('js.'):
+        if _blocked_mod in _BLOCKED_MODULES or any(_blocked_mod.startswith(p) for p in _BLOCKED_PREFIXES):
             del sys.modules[_blocked_mod]
 
-    # Patch __import__ to block dangerous modules (bypasses sys.meta_path)
-    # Use default args to capture values - makes them inaccessible from user code
-    def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0,
-                           *, _orig=builtins.__import__, _blocked=frozenset({'js', 'pyodide.ffi'})):
-        if name in _blocked or name.startswith('js.'):
-            raise ImportError(f"Module '{name}' is blocked in this sandbox")
-        return _orig(name, globals, locals, fromlist, level)
-    builtins.__import__ = _restricted_import
-    del _BLOCKED_MODULES  # Clean up global
+    # Create a secure callable wrapper that hides introspection attributes
+    # This prevents access to __closure__, __kwdefaults__, __globals__, etc.
+    def _make_secure_import(orig_import, blocked, prefixes):
+        """Create import function wrapped to block introspection."""
+        def _inner(name, globals=None, locals=None, fromlist=(), level=0):
+            if name in blocked or any(name.startswith(p) for p in prefixes):
+                raise ImportError(f"Module '{name}' is blocked in this sandbox")
+            return orig_import(name, globals, locals, fromlist, level)
+
+        class _SecureImport:
+            """Wrapper that hides function internals from introspection."""
+            __slots__ = ()
+            def __call__(self, name, globals=None, locals=None, fromlist=(), level=0):
+                return _inner(name, globals, locals, fromlist, level)
+            def __getattribute__(self, name):
+                if name in ('__call__', '__class__'):
+                    return object.__getattribute__(self, name)
+                raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+            def __repr__(self):
+                return '<built-in function __import__>'
+        return _SecureImport()
+
+    builtins.__import__ = _make_secure_import(builtins.__import__, _BLOCKED_MODULES, _BLOCKED_PREFIXES)
+    del _BLOCKED_MODULES, _BLOCKED_PREFIXES, _make_secure_import
 
     # ------------------------------------------------------------
     # 2. Path redirection helper
@@ -745,149 +762,358 @@ if not hasattr(builtins, '_jb_sandbox_initialized'):
                 not path.startswith('/host'))
 
     # ------------------------------------------------------------
-    # 3. Redirect file operations to /host (using closures, not module attrs)
+    # 3. Secure wrapper factory for file operations
+    # ------------------------------------------------------------
+    # This creates callable wrappers that hide __closure__, __globals__, etc.
+    def _make_secure_wrapper(func, name):
+        """Wrap a function to block introspection attributes."""
+        class _SecureWrapper:
+            __slots__ = ()
+            def __call__(self, *args, **kwargs):
+                return func(*args, **kwargs)
+            def __getattribute__(self, attr):
+                if attr in ('__call__', '__class__'):
+                    return object.__getattribute__(self, attr)
+                raise AttributeError(f"'{type(self).__name__}' object has no attribute '{attr}'")
+            def __repr__(self):
+                return f'<built-in function {name}>'
+        return _SecureWrapper()
+
+    # ------------------------------------------------------------
+    # 4. Redirect file operations to /host (with secure wrappers)
     # ------------------------------------------------------------
     # builtins.open
-    _original_open = builtins.open
-    def _redirected_open(path, mode='r', *args, **kwargs):
+    _orig_open = builtins.open
+    def _redir_open(path, mode='r', *args, **kwargs):
         if _should_redirect(path):
             path = '/host' + path
-        return _original_open(path, mode, *args, **kwargs)
-    builtins.open = _redirected_open
+        return _orig_open(path, mode, *args, **kwargs)
+    builtins.open = _make_secure_wrapper(_redir_open, 'open')
 
     # os.listdir
-    _original_listdir = os.listdir
-    def _redirected_listdir(path='.'):
+    _orig_listdir = os.listdir
+    def _redir_listdir(path='.'):
         if _should_redirect(path):
             path = '/host' + path
-        return _original_listdir(path)
-    os.listdir = _redirected_listdir
+        return _orig_listdir(path)
+    os.listdir = _make_secure_wrapper(_redir_listdir, 'listdir')
 
     # os.path.exists
-    _original_exists = os.path.exists
-    def _redirected_exists(path):
+    _orig_exists = os.path.exists
+    def _redir_exists(path):
         if _should_redirect(path):
             path = '/host' + path
-        return _original_exists(path)
-    os.path.exists = _redirected_exists
+        return _orig_exists(path)
+    os.path.exists = _make_secure_wrapper(_redir_exists, 'exists')
 
     # os.path.isfile
-    _original_isfile = os.path.isfile
-    def _redirected_isfile(path):
+    _orig_isfile = os.path.isfile
+    def _redir_isfile(path):
         if _should_redirect(path):
             path = '/host' + path
-        return _original_isfile(path)
-    os.path.isfile = _redirected_isfile
+        return _orig_isfile(path)
+    os.path.isfile = _make_secure_wrapper(_redir_isfile, 'isfile')
 
     # os.path.isdir
-    _original_isdir = os.path.isdir
-    def _redirected_isdir(path):
+    _orig_isdir = os.path.isdir
+    def _redir_isdir(path):
         if _should_redirect(path):
             path = '/host' + path
-        return _original_isdir(path)
-    os.path.isdir = _redirected_isdir
+        return _orig_isdir(path)
+    os.path.isdir = _make_secure_wrapper(_redir_isdir, 'isdir')
 
     # os.stat
-    _original_stat = os.stat
-    def _redirected_stat(path, *args, **kwargs):
+    _orig_stat = os.stat
+    def _redir_stat(path, *args, **kwargs):
         if _should_redirect(path):
             path = '/host' + path
-        return _original_stat(path, *args, **kwargs)
-    os.stat = _redirected_stat
+        return _orig_stat(path, *args, **kwargs)
+    os.stat = _make_secure_wrapper(_redir_stat, 'stat')
 
     # os.mkdir
-    _original_mkdir = os.mkdir
-    def _redirected_mkdir(path, *args, **kwargs):
+    _orig_mkdir = os.mkdir
+    def _redir_mkdir(path, *args, **kwargs):
         if _should_redirect(path):
             path = '/host' + path
-        return _original_mkdir(path, *args, **kwargs)
-    os.mkdir = _redirected_mkdir
+        return _orig_mkdir(path, *args, **kwargs)
+    os.mkdir = _make_secure_wrapper(_redir_mkdir, 'mkdir')
 
     # os.makedirs
-    _original_makedirs = os.makedirs
-    def _redirected_makedirs(path, *args, **kwargs):
+    _orig_makedirs = os.makedirs
+    def _redir_makedirs(path, *args, **kwargs):
         if _should_redirect(path):
             path = '/host' + path
-        return _original_makedirs(path, *args, **kwargs)
-    os.makedirs = _redirected_makedirs
+        return _orig_makedirs(path, *args, **kwargs)
+    os.makedirs = _make_secure_wrapper(_redir_makedirs, 'makedirs')
 
     # os.remove
-    _original_remove = os.remove
-    def _redirected_remove(path, *args, **kwargs):
+    _orig_remove = os.remove
+    def _redir_remove(path, *args, **kwargs):
         if _should_redirect(path):
             path = '/host' + path
-        return _original_remove(path, *args, **kwargs)
-    os.remove = _redirected_remove
+        return _orig_remove(path, *args, **kwargs)
+    os.remove = _make_secure_wrapper(_redir_remove, 'remove')
 
     # os.rmdir
-    _original_rmdir = os.rmdir
-    def _redirected_rmdir(path, *args, **kwargs):
+    _orig_rmdir = os.rmdir
+    def _redir_rmdir(path, *args, **kwargs):
         if _should_redirect(path):
             path = '/host' + path
-        return _original_rmdir(path, *args, **kwargs)
-    os.rmdir = _redirected_rmdir
+        return _orig_rmdir(path, *args, **kwargs)
+    os.rmdir = _make_secure_wrapper(_redir_rmdir, 'rmdir')
 
     # os.getcwd - strip /host prefix
-    _original_getcwd = os.getcwd
-    def _redirected_getcwd():
-        cwd = _original_getcwd()
+    _orig_getcwd = os.getcwd
+    def _redir_getcwd():
+        cwd = _orig_getcwd()
         if cwd.startswith('/host'):
             return cwd[5:]  # Strip '/host' prefix
         return cwd
-    os.getcwd = _redirected_getcwd
+    os.getcwd = _make_secure_wrapper(_redir_getcwd, 'getcwd')
 
     # os.chdir
-    _original_chdir = os.chdir
-    def _redirected_chdir(path):
+    _orig_chdir = os.chdir
+    def _redir_chdir(path):
         if _should_redirect(path):
             path = '/host' + path
-        return _original_chdir(path)
-    os.chdir = _redirected_chdir
+        return _orig_chdir(path)
+    os.chdir = _make_secure_wrapper(_redir_chdir, 'chdir')
 
     # ------------------------------------------------------------
-    # 4. Additional file operations (glob, walk, scandir, io.open)
+    # 5. Additional file operations (glob, walk, scandir, io.open)
     # ------------------------------------------------------------
-    # glob.glob and glob.iglob
     import glob as _glob_module
-    _original_glob = _glob_module.glob
-    def _redirected_glob(pathname, *args, **kwargs):
+
+    _orig_glob = _glob_module.glob
+    def _redir_glob(pathname, *args, **kwargs):
         if _should_redirect(pathname):
             pathname = '/host' + pathname
-        return _original_glob(pathname, *args, **kwargs)
-    _glob_module.glob = _redirected_glob
+        return _orig_glob(pathname, *args, **kwargs)
+    _glob_module.glob = _make_secure_wrapper(_redir_glob, 'glob')
 
-    _original_iglob = _glob_module.iglob
-    def _redirected_iglob(pathname, *args, **kwargs):
+    _orig_iglob = _glob_module.iglob
+    def _redir_iglob(pathname, *args, **kwargs):
         if _should_redirect(pathname):
             pathname = '/host' + pathname
-        return _original_iglob(pathname, *args, **kwargs)
-    _glob_module.iglob = _redirected_iglob
+        return _orig_iglob(pathname, *args, **kwargs)
+    _glob_module.iglob = _make_secure_wrapper(_redir_iglob, 'iglob')
 
-    # os.walk
-    _original_walk = os.walk
-    def _redirected_walk(top, *args, **kwargs):
+    # os.walk (generator - needs special handling)
+    _orig_walk = os.walk
+    def _redir_walk(top, *args, **kwargs):
         redirected = False
         if _should_redirect(top):
             top = '/host' + top
             redirected = True
-        for dirpath, dirnames, filenames in _original_walk(top, *args, **kwargs):
-            # Strip /host prefix from dirpath if we redirected
+        for dirpath, dirnames, filenames in _orig_walk(top, *args, **kwargs):
             if redirected and dirpath.startswith('/host'):
                 dirpath = dirpath[5:] if len(dirpath) > 5 else '/'
             yield dirpath, dirnames, filenames
-    os.walk = _redirected_walk
+    os.walk = _make_secure_wrapper(_redir_walk, 'walk')
 
     # os.scandir
-    _original_scandir = os.scandir
-    def _redirected_scandir(path='.'):
+    _orig_scandir = os.scandir
+    def _redir_scandir(path='.'):
         if _should_redirect(path):
             path = '/host' + path
-        return _original_scandir(path)
-    os.scandir = _redirected_scandir
+        return _orig_scandir(path)
+    os.scandir = _make_secure_wrapper(_redir_scandir, 'scandir')
 
-    # io.open (same as builtins.open)
+    # io.open (same secure wrapper as builtins.open)
     import io as _io_module
-    _io_module.open = _redirected_open
+    _io_module.open = builtins.open
+
+    # ------------------------------------------------------------
+    # 6. shutil file operations
+    # ------------------------------------------------------------
+    import shutil as _shutil_module
+
+    # shutil.copy(src, dst)
+    _orig_shutil_copy = _shutil_module.copy
+    def _redir_shutil_copy(src, dst, *args, **kwargs):
+        if _should_redirect(src):
+            src = '/host' + src
+        if _should_redirect(dst):
+            dst = '/host' + dst
+        return _orig_shutil_copy(src, dst, *args, **kwargs)
+    _shutil_module.copy = _make_secure_wrapper(_redir_shutil_copy, 'copy')
+
+    # shutil.copy2(src, dst)
+    _orig_shutil_copy2 = _shutil_module.copy2
+    def _redir_shutil_copy2(src, dst, *args, **kwargs):
+        if _should_redirect(src):
+            src = '/host' + src
+        if _should_redirect(dst):
+            dst = '/host' + dst
+        return _orig_shutil_copy2(src, dst, *args, **kwargs)
+    _shutil_module.copy2 = _make_secure_wrapper(_redir_shutil_copy2, 'copy2')
+
+    # shutil.copyfile(src, dst)
+    _orig_shutil_copyfile = _shutil_module.copyfile
+    def _redir_shutil_copyfile(src, dst, *args, **kwargs):
+        if _should_redirect(src):
+            src = '/host' + src
+        if _should_redirect(dst):
+            dst = '/host' + dst
+        return _orig_shutil_copyfile(src, dst, *args, **kwargs)
+    _shutil_module.copyfile = _make_secure_wrapper(_redir_shutil_copyfile, 'copyfile')
+
+    # shutil.copytree(src, dst)
+    _orig_shutil_copytree = _shutil_module.copytree
+    def _redir_shutil_copytree(src, dst, *args, **kwargs):
+        if _should_redirect(src):
+            src = '/host' + src
+        if _should_redirect(dst):
+            dst = '/host' + dst
+        return _orig_shutil_copytree(src, dst, *args, **kwargs)
+    _shutil_module.copytree = _make_secure_wrapper(_redir_shutil_copytree, 'copytree')
+
+    # shutil.move(src, dst)
+    _orig_shutil_move = _shutil_module.move
+    def _redir_shutil_move(src, dst, *args, **kwargs):
+        if _should_redirect(src):
+            src = '/host' + src
+        if _should_redirect(dst):
+            dst = '/host' + dst
+        return _orig_shutil_move(src, dst, *args, **kwargs)
+    _shutil_module.move = _make_secure_wrapper(_redir_shutil_move, 'move')
+
+    # shutil.rmtree(path)
+    _orig_shutil_rmtree = _shutil_module.rmtree
+    def _redir_shutil_rmtree(path, *args, **kwargs):
+        if _should_redirect(path):
+            path = '/host' + path
+        return _orig_shutil_rmtree(path, *args, **kwargs)
+    _shutil_module.rmtree = _make_secure_wrapper(_redir_shutil_rmtree, 'rmtree')
+
+    # ------------------------------------------------------------
+    # 7. pathlib.Path - redirect path resolution
+    # ------------------------------------------------------------
+    from pathlib import Path, PurePosixPath
+
+    def _redirect_path(p):
+        """Convert a Path to redirect /absolute paths to /host."""
+        s = str(p)
+        if _should_redirect(s):
+            return Path('/host' + s)
+        return p
+
+    # Helper to create method wrappers for Path
+    def _wrap_path_method(orig_method, name):
+        def wrapper(self, *args, **kwargs):
+            redirected = _redirect_path(self)
+            return getattr(redirected, '_orig_' + name)(*args, **kwargs)
+        return wrapper
+
+    # Store original methods with _orig_ prefix, then replace with redirecting versions
+    # Path.stat()
+    Path._orig_stat = Path.stat
+    def _path_stat(self, *args, **kwargs):
+        return _redirect_path(self)._orig_stat(*args, **kwargs)
+    Path.stat = _path_stat
+
+    # Path.exists()
+    Path._orig_exists = Path.exists
+    def _path_exists(self):
+        return _redirect_path(self)._orig_exists()
+    Path.exists = _path_exists
+
+    # Path.is_file()
+    Path._orig_is_file = Path.is_file
+    def _path_is_file(self):
+        return _redirect_path(self)._orig_is_file()
+    Path.is_file = _path_is_file
+
+    # Path.is_dir()
+    Path._orig_is_dir = Path.is_dir
+    def _path_is_dir(self):
+        return _redirect_path(self)._orig_is_dir()
+    Path.is_dir = _path_is_dir
+
+    # Path.open()
+    Path._orig_open = Path.open
+    def _path_open(self, *args, **kwargs):
+        return _redirect_path(self)._orig_open(*args, **kwargs)
+    Path.open = _path_open
+
+    # Path.read_text()
+    Path._orig_read_text = Path.read_text
+    def _path_read_text(self, *args, **kwargs):
+        return _redirect_path(self)._orig_read_text(*args, **kwargs)
+    Path.read_text = _path_read_text
+
+    # Path.read_bytes()
+    Path._orig_read_bytes = Path.read_bytes
+    def _path_read_bytes(self):
+        return _redirect_path(self)._orig_read_bytes()
+    Path.read_bytes = _path_read_bytes
+
+    # Path.write_text()
+    Path._orig_write_text = Path.write_text
+    def _path_write_text(self, *args, **kwargs):
+        return _redirect_path(self)._orig_write_text(*args, **kwargs)
+    Path.write_text = _path_write_text
+
+    # Path.write_bytes()
+    Path._orig_write_bytes = Path.write_bytes
+    def _path_write_bytes(self, data):
+        return _redirect_path(self)._orig_write_bytes(data)
+    Path.write_bytes = _path_write_bytes
+
+    # Path.mkdir()
+    Path._orig_mkdir = Path.mkdir
+    def _path_mkdir(self, *args, **kwargs):
+        return _redirect_path(self)._orig_mkdir(*args, **kwargs)
+    Path.mkdir = _path_mkdir
+
+    # Path.rmdir()
+    Path._orig_rmdir = Path.rmdir
+    def _path_rmdir(self):
+        return _redirect_path(self)._orig_rmdir()
+    Path.rmdir = _path_rmdir
+
+    # Path.unlink()
+    Path._orig_unlink = Path.unlink
+    def _path_unlink(self, *args, **kwargs):
+        return _redirect_path(self)._orig_unlink(*args, **kwargs)
+    Path.unlink = _path_unlink
+
+    # Path.iterdir()
+    Path._orig_iterdir = Path.iterdir
+    def _path_iterdir(self):
+        redirected = _redirect_path(self)
+        for p in redirected._orig_iterdir():
+            # Strip /host prefix from results
+            s = str(p)
+            if s.startswith('/host'):
+                yield Path(s[5:])
+            else:
+                yield p
+    Path.iterdir = _path_iterdir
+
+    # Path.glob()
+    Path._orig_glob = Path.glob
+    def _path_glob(self, pattern):
+        redirected = _redirect_path(self)
+        for p in redirected._orig_glob(pattern):
+            s = str(p)
+            if s.startswith('/host'):
+                yield Path(s[5:])
+            else:
+                yield p
+    Path.glob = _path_glob
+
+    # Path.rglob()
+    Path._orig_rglob = Path.rglob
+    def _path_rglob(self, pattern):
+        redirected = _redirect_path(self)
+        for p in redirected._orig_rglob(pattern):
+            s = str(p)
+            if s.startswith('/host'):
+                yield Path(s[5:])
+            else:
+                yield p
+    Path.rglob = _path_rglob
 
 # Set cwd to host mount
 os.chdir('/host' + ${JSON.stringify(input.cwd)})
