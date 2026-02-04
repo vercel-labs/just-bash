@@ -4,6 +4,7 @@
  * Functions for ${var#pattern}, ${var%pattern}, ${!prefix*} etc.
  */
 
+import { createUserRegex } from "../../regex/index.js";
 import type { InterpreterContext } from "../types.js";
 
 /**
@@ -19,14 +20,14 @@ export function applyPatternRemoval(
   // Use 's' flag (dotall) so that . matches newlines (bash ? matches any char including newline)
   if (side === "prefix") {
     // Prefix removal: greedy matches longest from start, non-greedy matches shortest
-    return value.replace(new RegExp(`^${regexStr}`, "s"), "");
+    return createUserRegex(`^${regexStr}`, "s").replace(value, "");
   }
   // Suffix removal needs special handling because we need to find
   // the rightmost (shortest) or leftmost (longest) match
-  const regex = new RegExp(`${regexStr}$`, "s");
+  const regex = createUserRegex(`${regexStr}$`, "s");
   if (greedy) {
     // %% - longest match: use regex directly (finds leftmost match)
-    return value.replace(regex, "");
+    return regex.replace(value, "");
   }
   // % - shortest match: find rightmost position where pattern matches to end
   for (let i = value.length; i >= 0; i--) {

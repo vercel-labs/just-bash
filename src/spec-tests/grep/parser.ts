@@ -128,6 +128,7 @@ function parseGnuGrepTests(
       infile: "",
       stdin,
       lineNumber: i + 1,
+      expectedExitCode: exitCode,
     };
 
     // Apply pending skip if any

@@ -6,6 +6,7 @@
 
 import { mapToRecord } from "../../helpers/env.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { ConstantRegex, createUserRegex } from "../../regex/index.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import type { AwkProgram } from "./ast.js";
@@ -35,7 +36,9 @@ export const awkCommand2: Command = {
       return showHelp(awkHelp);
     }
 
-    let fieldSep = /\s+/;
+    let fieldSep: import("../../regex/index.js").RegexLike = new ConstantRegex(
+      /\s+/,
+    );
     let fieldSepStr = " ";
     // Use null-prototype to prevent prototype pollution with user-controlled -v names
     const vars: Record<string, string | number> = Object.create(null);
@@ -258,21 +261,23 @@ function processEscapes(str: string): string {
     .replace(/\\\\/g, "\\");
 }
 
-function createFieldSepRegex(sep: string): RegExp {
+function createFieldSepRegex(
+  sep: string,
+): import("../../regex/index.js").UserRegex {
   if (sep === " ") {
-    return /\s+/;
+    return createUserRegex("\\s+");
   }
 
   const regexMetachars = /[[\](){}.*+?^$|\\]/;
   if (regexMetachars.test(sep)) {
     try {
-      return new RegExp(sep);
+      return createUserRegex(sep);
     } catch {
-      return new RegExp(escapeForRegex(sep));
+      return createUserRegex(escapeForRegex(sep));
     }
   }
 
-  return new RegExp(escapeForRegex(sep));
+  return createUserRegex(escapeForRegex(sep));
 }
 
 function escapeForRegex(str: string): string {

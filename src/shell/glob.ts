@@ -9,6 +9,7 @@
  */
 
 import type { IFileSystem } from "../fs/interface.js";
+import { createUserRegex, type RegexLike } from "../regex/index.js";
 import { DEFAULT_BATCH_SIZE } from "../utils/constants.js";
 import {
   findMatchingParen,
@@ -714,9 +715,9 @@ export class GlobExpander {
   /**
    * Convert a glob pattern to a RegExp
    */
-  private patternToRegex(pattern: string): RegExp {
+  private patternToRegex(pattern: string): RegexLike {
     const regex = this.patternToRegexStr(pattern);
-    return new RegExp(`^${regex}$`);
+    return createUserRegex(`^${regex}$`);
   }
 
   /**

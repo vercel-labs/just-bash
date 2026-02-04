@@ -3,6 +3,7 @@
  */
 
 import { gunzipSync } from "node:zlib";
+import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 import {
   buildRegex,
@@ -120,7 +121,7 @@ export async function executeSearch(
   const effectiveIgnoreCase = determineIgnoreCase(options, patterns);
 
   // Build regex
-  let regex: RegExp;
+  let regex: UserRegex;
   let kResetGroup: number | undefined;
   try {
     const regexResult = buildSearchRegex(
@@ -627,7 +628,7 @@ function matchGlob(str: string, pattern: string, ignoreCase = false): boolean {
   }
   regexStr += "$";
 
-  return new RegExp(regexStr, ignoreCase ? "i" : "").test(str);
+  return createUserRegex(regexStr, ignoreCase ? "i" : "").test(str);
 }
 
 /**
@@ -778,7 +779,7 @@ interface JsonMatch {
 async function searchFiles(
   ctx: CommandContext,
   files: string[],
-  regex: RegExp,
+  regex: UserRegex,
   options: RgOptions,
   showFilename: boolean,
   effectiveLineNumbers: boolean,

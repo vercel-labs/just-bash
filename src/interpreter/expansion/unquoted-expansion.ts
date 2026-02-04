@@ -19,6 +19,7 @@ import type {
   WordNode,
   WordPart,
 } from "../../ast/types.js";
+import { createUserRegex } from "../../regex/index.js";
 import { GlobExpander } from "../../shell/glob.js";
 import { GlobError } from "../errors.js";
 import {
@@ -229,9 +230,9 @@ export async function handleUnquotedArrayPatternReplacement(
   // Apply replacement to each element
   const replacedValues: string[] = [];
   try {
-    const re = new RegExp(regexPattern, operation.all ? "g" : "");
+    const re = createUserRegex(regexPattern, operation.all ? "g" : "");
     for (const value of values) {
-      replacedValues.push(value.replace(re, replacement));
+      replacedValues.push(re.replace(value, replacement));
     }
   } catch {
     // Invalid regex - return values unchanged

@@ -1,3 +1,4 @@
+import { createUserRegex } from "../../regex/index.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 
 /**
@@ -165,8 +166,8 @@ function evaluateExpr(args: string[]): string {
       i++;
       const pattern = parsePrimary();
       // Match from beginning of string
-      const regex = new RegExp(`^${pattern}`);
-      const match = left.match(regex);
+      const regex = createUserRegex(`^${pattern}`);
+      const match = regex.match(left);
       if (match) {
         // If pattern has capturing group, return the captured string
         // Otherwise return length of match
@@ -190,8 +191,8 @@ function evaluateExpr(args: string[]): string {
       i++;
       const str = parsePrimary();
       const pattern = parsePrimary();
-      const regex = new RegExp(pattern);
-      const match = str.match(regex);
+      const regex = createUserRegex(pattern);
+      const match = regex.match(str);
       if (match) {
         return match[1] !== undefined ? match[1] : String(match[0].length);
       }

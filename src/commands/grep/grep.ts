@@ -1,3 +1,4 @@
+import type { UserRegex } from "../../regex/index.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { matchGlob } from "../../utils/glob.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -203,7 +204,7 @@ export const grepCommand: Command = {
           ? "perl"
           : "basic";
 
-    let regex: RegExp;
+    let regex: UserRegex;
     let kResetGroup: number | undefined;
     try {
       const regexResult = buildRegex(pattern, {

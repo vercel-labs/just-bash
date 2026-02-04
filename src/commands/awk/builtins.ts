@@ -4,6 +4,7 @@
  * Implementation of AWK built-in functions for the AST-based interpreter.
  */
 
+import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { AwkExpr } from "./ast.js";
 import type { AwkRuntimeContext } from "./interpreter/context.js";
 import type { AwkValue } from "./interpreter/types.js";
@@ -100,7 +101,7 @@ function applyTargetValue(
     ctx.fields =
       ctx.FS === " "
         ? newValue.trim().split(/\s+/).filter(Boolean)
-        : newValue.split(ctx.fieldSep);
+        : ctx.fieldSep.split(newValue);
     ctx.NF = ctx.fields.length;
   } else if (targetName.startsWith("$")) {
     const idx = parseInt(targetName.slice(1), 10) - 1;
@@ -169,21 +170,21 @@ async function awkSplit(
   }
   const arrayName = arrayExpr.name;
 
-  let sep: string | RegExp = ctx.FS;
+  let sep: string | UserRegex = ctx.FS;
   if (args.length >= 3) {
     const sepExpr = args[2];
     // Check if the separator is a regex literal
     if (sepExpr.type === "regex") {
-      sep = new RegExp(sepExpr.pattern);
+      sep = createUserRegex(sepExpr.pattern);
     } else {
       const sepVal = toAwkString(await evaluator.evalExpr(sepExpr));
-      sep = sepVal === " " ? /\s+/ : sepVal;
+      sep = sepVal === " " ? createUserRegex("\\s+") : sepVal;
     }
   } else if (ctx.FS === " ") {
-    sep = /\s+/;
+    sep = createUserRegex("\\s+");
   }
 
-  const parts = str.split(sep);
+  const parts = typeof sep === "string" ? str.split(sep) : sep.split(str);
 
   // Use null-prototype to prevent prototype pollution with user-controlled keys
   ctx.arrays[arrayName] = Object.create(null);
@@ -207,8 +208,8 @@ async function awkSub(
   const target = getTargetValue(targetName, ctx);
 
   try {
-    const regex = new RegExp(pattern);
-    const newTarget = target.replace(regex, createSubReplacer(replacement));
+    const regex = createUserRegex(pattern);
+    const newTarget = regex.replace(target, createSubReplacer(replacement));
     const changed = newTarget !== target ? 1 : 0;
     applyTargetValue(targetName, newTarget, ctx);
     return changed;
@@ -230,10 +231,10 @@ async function awkGsub(
   const target = getTargetValue(targetName, ctx);
 
   try {
-    const regex = new RegExp(pattern, "g");
-    const matches = target.match(regex);
+    const regex = createUserRegex(pattern, "g");
+    const matches = regex.match(target);
     const count = matches ? matches.length : 0;
-    const newTarget = target.replace(regex, createSubReplacer(replacement));
+    const newTarget = regex.replace(target, createSubReplacer(replacement));
     applyTargetValue(targetName, newTarget, ctx);
     return count;
   } catch {
@@ -285,7 +286,7 @@ async function awkMatch(
   const pattern = await extractPatternArg(args[1], evaluator);
 
   try {
-    const regex = new RegExp(pattern);
+    const regex = createUserRegex(pattern);
     const match = regex.exec(str);
     if (match) {
       ctx.RSTART = match.index + 1;
@@ -321,19 +322,27 @@ async function awkGensub(
     const occurrenceNum = isGlobal ? 0 : parseInt(how, 10) || 1;
 
     if (isGlobal) {
-      const regex = new RegExp(pattern, "g");
-      return target.replace(regex, (match, ...groups) =>
-        processGensub(replacement, match, groups.slice(0, -2)),
+      const regex = createUserRegex(pattern, "g");
+      return regex.replace(target, (match, ...groups) =>
+        processGensub(
+          replacement,
+          match as string,
+          groups.slice(0, -2) as string[],
+        ),
       );
     } else {
       let count = 0;
-      const regex = new RegExp(pattern, "g");
-      return target.replace(regex, (match, ...groups) => {
+      const regex = createUserRegex(pattern, "g");
+      return regex.replace(target, (match, ...groups) => {
         count++;
         if (count === occurrenceNum) {
-          return processGensub(replacement, match, groups.slice(0, -2));
+          return processGensub(
+            replacement,
+            match as string,
+            groups.slice(0, -2) as string[],
+          );
         }
-        return match;
+        return match as string;
       });
     }
   } catch {

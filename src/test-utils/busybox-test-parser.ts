@@ -20,6 +20,8 @@ export interface BusyBoxTestCase {
   lineNumber: number;
   /** If set, test is expected to fail (value is reason) */
   skip?: string;
+  /** Expected exit code (optional - if not set, only output is checked) */
+  expectedExitCode?: number;
 }
 
 export interface ParsedBusyBoxTestFile {

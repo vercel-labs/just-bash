@@ -4,6 +4,7 @@
  * Pure functions for type conversion and truthiness checking.
  */
 
+import { createUserRegex } from "../../../regex/index.js";
 import type { AwkValue } from "./types.js";
 
 /**
@@ -65,7 +66,7 @@ export function looksLikeNumber(val: AwkValue): boolean {
  */
 export function matchRegex(pattern: string, text: string): boolean {
   try {
-    return new RegExp(pattern).test(text);
+    return createUserRegex(pattern).test(text);
   } catch {
     return false;
   }

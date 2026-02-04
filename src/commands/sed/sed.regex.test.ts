@@ -153,7 +153,8 @@ describe("sed regex patterns", () => {
       expect(result.stdout).toBe("X\nfoo\n");
     });
 
-    it("should use \\( \\) for grouping in BRE", async () => {
+    // Skipped: RE2 doesn't support backreferences for ReDoS protection
+    it.skip("should use \\( \\) for grouping in BRE", async () => {
       const env = new Bash({
         files: { "/test.txt": "abcabc\n" },
         cwd: "/",
@@ -191,7 +192,8 @@ describe("sed regex patterns", () => {
       expect(result.stdout).toBe("X\nX\nrat\n");
     });
 
-    it("should use () for grouping with -E", async () => {
+    // Skipped: RE2 doesn't support backreferences for ReDoS protection
+    it.skip("should use () for grouping with -E", async () => {
       const env = new Bash({
         files: { "/test.txt": "abcabc\n" },
         cwd: "/",

@@ -1,5 +1,6 @@
 // Matcher functions for find command
 
+import { createUserRegex } from "../../regex/index.js";
 import { matchGlob } from "../../utils/glob.js";
 import type { EvalContext, EvalResult, Expression } from "./types.js";
 
@@ -95,7 +96,7 @@ export function evaluateExpressionWithPrune(
     case "regex": {
       try {
         const flags = expr.ignoreCase ? "i" : "";
-        const regex = new RegExp(expr.pattern, flags);
+        const regex = createUserRegex(expr.pattern, flags);
         return {
           matches: regex.test(ctx.relativePath),
           pruned: false,
@@ -525,7 +526,7 @@ export function evaluateSimpleExpression(
     case "regex": {
       try {
         const flags = expr.ignoreCase ? "i" : "";
-        const regex = new RegExp(expr.pattern, flags);
+        const regex = createUserRegex(expr.pattern, flags);
         return {
           matches: regex.test(relativePath),
           pruned: false,

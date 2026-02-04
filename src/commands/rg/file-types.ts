@@ -5,6 +5,8 @@
  * Based on ripgrep's default type definitions.
  */
 
+import { createUserRegex } from "../../regex/index.js";
+
 export interface FileType {
   extensions: string[];
   globs: string[];
@@ -201,7 +203,7 @@ export class FileTypeRegistry {
       for (const glob of fileType.globs) {
         if (glob.includes("*")) {
           const pattern = glob.replace(/\./g, "\\.").replace(/\*/g, ".*");
-          if (new RegExp(`^${pattern}$`, "i").test(filename)) {
+          if (createUserRegex(`^${pattern}$`, "i").test(filename)) {
             return true;
           }
         } else if (lowerFilename === glob.toLowerCase()) {
@@ -229,7 +231,7 @@ export class FileTypeRegistry {
       for (const glob of fileType.globs) {
         if (glob.includes("*")) {
           const pattern = glob.replace(/\./g, "\\.").replace(/\*/g, ".*");
-          if (new RegExp(`^${pattern}$`, "i").test(filename)) {
+          if (createUserRegex(`^${pattern}$`, "i").test(filename)) {
             return true;
           }
         } else if (lowerFilename === glob.toLowerCase()) {
