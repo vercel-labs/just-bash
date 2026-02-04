@@ -36,7 +36,16 @@ export function toBuffer(
     return bytes;
   }
   if (encoding === "binary" || encoding === "latin1") {
-    return Uint8Array.from(content, (c) => c.charCodeAt(0));
+    // Use chunked approach for large strings to avoid performance issues
+    const chunkSize = 65536; // 64KB chunks
+    if (content.length <= chunkSize) {
+      return Uint8Array.from(content, (c) => c.charCodeAt(0));
+    }
+    const result = new Uint8Array(content.length);
+    for (let i = 0; i < content.length; i++) {
+      result[i] = content.charCodeAt(i);
+    }
+    return result;
   }
   // Default to UTF-8 for text content
   return textEncoder.encode(content);
@@ -58,7 +67,22 @@ export function fromBuffer(
       .join("");
   }
   if (encoding === "binary" || encoding === "latin1") {
-    return String.fromCharCode(...buffer);
+    // Use Buffer if available (Node.js) - much more efficient and avoids spread operator limits
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(buffer).toString(encoding);
+    }
+    
+    // Browser fallback - String.fromCharCode(...buffer) fails with buffers > ~100KB
+    const chunkSize = 65536; // 64KB chunks
+    if (buffer.length <= chunkSize) {
+      return String.fromCharCode(...buffer);
+    }
+    let result = "";
+    for (let i = 0; i < buffer.length; i += chunkSize) {
+      const chunk = buffer.subarray(i, i + chunkSize);
+      result += String.fromCharCode(...chunk);
+    }
+    return result;
   }
   // Default to UTF-8 for text content
   return textDecoder.decode(buffer);

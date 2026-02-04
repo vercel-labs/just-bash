@@ -95,6 +95,7 @@
     "fast-xml-parser": "^5.3.3",
     "file-type": "^21.2.0",
     "ini": "^6.0.0",
+    "jq-web": "^0.6.2",
     "minimatch": "^10.1.1",
     "modern-tar": "^0.7.3",
     "papaparse": "^5.5.3",

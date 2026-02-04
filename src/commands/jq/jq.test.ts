@@ -253,8 +253,8 @@ describe("jq", () => {
       const output = JSON.parse(result.stdout);
       // group_by sorts by key: false < true (alphabetically)
       expect(output).toEqual([
-        { merged: true, count: 2 },
         { merged: false, count: 1 },
+        { merged: true, count: 2 },
       ]);
     });
 
