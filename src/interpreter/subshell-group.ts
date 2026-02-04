@@ -63,6 +63,13 @@ export async function executeSubshell(
   // Save options so subshell changes (like set -e) don't affect parent
   const savedOptions = { ...ctx.state.options };
 
+  // Save functions so subshell definitions don't leak to parent
+  // This is critical for proper subshell isolation - in real bash, function
+  // definitions inside (...) are isolated and don't affect the parent shell
+  // Note: Aliases are stored in env with BASH_ALIAS_ prefix, so they're
+  // already isolated via savedEnv
+  const savedFunctions = new Map(ctx.state.functions);
+
   // Save local variable scoping state for subshell isolation
   // Subshell gets a copy of these, but changes don't affect parent
   const savedLocalScopes = ctx.state.localScopes;
@@ -116,6 +123,7 @@ export async function executeSubshell(
     ctx.state.env = savedEnv;
     ctx.state.cwd = savedCwd;
     ctx.state.options = savedOptions;
+    ctx.state.functions = savedFunctions;
     ctx.state.localScopes = savedLocalScopes;
     ctx.state.localVarStack = savedLocalVarStack;
     ctx.state.localVarDepth = savedLocalVarDepth;

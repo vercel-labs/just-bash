@@ -222,9 +222,9 @@ describe("Sandbox Escape Prevention", () => {
       expect(result.stdout).not.toMatch(/outer:.*subdir/);
     });
 
-    it("should define and call functions in subshell", async () => {
-      // Note: In just-bash, function definitions may leak out of subshells
-      // (differs from real bash behavior where subshells isolate functions)
+    it("should isolate function definitions in subshell", async () => {
+      // Functions defined in subshells should NOT leak to parent scope
+      // This matches real bash behavior
       const result = await bash.exec(`
         (
           myfunc() { echo "defined"; }
@@ -233,8 +233,8 @@ describe("Sandbox Escape Prevention", () => {
         myfunc 2>/dev/null || echo "not defined"
       `);
       expect(result.exitCode).toBe(0);
-      // Function leaks out in just-bash implementation
-      expect(result.stdout).toBe("defined\ndefined\n");
+      // Function should be isolated to subshell - not callable from parent
+      expect(result.stdout).toBe("defined\nnot defined\n");
     });
   });
 

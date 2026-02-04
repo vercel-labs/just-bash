@@ -200,6 +200,110 @@ describe("OverlayFs Security - Path Traversal Prevention", () => {
         overlay.link("/nonexistent.txt", "/link.txt"),
       ).rejects.toThrow("ENOENT");
     });
+
+    it("should not allow hard linking to real files outside overlay", async () => {
+      // Try to create a hard link to a file outside the overlay root
+      await expect(overlay.link(outsideFile, "/stolen.txt")).rejects.toThrow(
+        "ENOENT",
+      );
+      // Verify the real file was not accessed
+      const realContent = fs.readFileSync(outsideFile, "utf8");
+      expect(realContent).toBe("TOP SECRET DATA - YOU SHOULD NOT SEE THIS");
+    });
+
+    it("should not allow hard linking via path traversal", async () => {
+      await overlay.writeFile("/inside.txt", "inside");
+      // Try to use path traversal in source
+      await expect(
+        overlay.link("/../../../etc/passwd", "/passwd-link.txt"),
+      ).rejects.toThrow("ENOENT");
+    });
+
+    it("should not allow hard linking to create file outside root", async () => {
+      await overlay.writeFile("/inside.txt", "inside");
+      // Try to use path traversal in destination - should normalize and stay inside
+      await overlay.link("/inside.txt", "/../outside.txt");
+      // The link should be created as /outside.txt in the overlay, not in the real parent
+      expect(await overlay.exists("/outside.txt")).toBe(true);
+      expect(fs.existsSync(path.join(outsideDir, "outside.txt"))).toBe(false);
+    });
+
+    it("should not share content between hardlink and original (copy semantics)", async () => {
+      // SECURITY: Our hardlinks copy content, not share it
+      // This is secure because modifying one doesn't affect the other
+      await overlay.writeFile("/original.txt", "original content");
+      await overlay.link("/original.txt", "/hardlink.txt");
+
+      // Modify the original
+      await overlay.writeFile("/original.txt", "modified content");
+
+      // The hardlink should still have the original content (copy semantics)
+      const hardlinkContent = await overlay.readFile("/hardlink.txt");
+      expect(hardlinkContent).toBe("original content");
+    });
+
+    it("should not allow hard linking directories", async () => {
+      await overlay.mkdir("/testdir");
+      // Hard linking directories is not permitted
+      await expect(overlay.link("/testdir", "/dir-hardlink")).rejects.toThrow(
+        "EPERM",
+      );
+    });
+
+    it("should validate null bytes in hardlink paths", async () => {
+      await overlay.writeFile("/inside.txt", "inside");
+      await expect(
+        overlay.link("/inside\x00.txt", "/link.txt"),
+      ).rejects.toThrow("null byte");
+      await expect(
+        overlay.link("/inside.txt", "/link\x00.txt"),
+      ).rejects.toThrow("null byte");
+    });
+
+    it("should not allow hard linking to symlinks pointing outside", async () => {
+      // Create a symlink pointing outside
+      await overlay.symlink(outsideFile, "/outside-symlink");
+      // Trying to hardlink it should fail because the target doesn't exist in overlay
+      // The stat() follows the symlink and fails
+      await expect(
+        overlay.link("/outside-symlink", "/link.txt"),
+      ).rejects.toThrow();
+    });
+
+    it("should reject hardlink to existing destination", async () => {
+      await overlay.writeFile("/source.txt", "source");
+      await overlay.writeFile("/existing.txt", "existing");
+      await expect(
+        overlay.link("/source.txt", "/existing.txt"),
+      ).rejects.toThrow("EEXIST");
+    });
+
+    it("should copy file permissions with hardlink", async () => {
+      await overlay.writeFile("/source.txt", "source");
+      await overlay.chmod("/source.txt", 0o755);
+      await overlay.link("/source.txt", "/hardlink.txt");
+      const stat = await overlay.stat("/hardlink.txt");
+      expect(stat.mode & 0o777).toBe(0o755);
+    });
+
+    it("should handle concurrent hardlink creation attempts", async () => {
+      await overlay.writeFile("/source.txt", "content");
+      const promises = Array(10)
+        .fill(null)
+        .map((_, i) =>
+          overlay.link("/source.txt", `/link${i}.txt`).catch((e) => e.message),
+        );
+
+      const results = await Promise.all(promises);
+      // All should succeed or fail cleanly (no crashes)
+      for (const result of results) {
+        if (typeof result === "string") {
+          // It's an error message
+          expect(result).not.toContain("outside");
+          expect(result).not.toContain(outsideDir);
+        }
+      }
+    });
   });
 
   describe("special characters and encoding attacks", () => {
