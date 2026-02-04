@@ -53,7 +53,8 @@ export type SecurityViolationType =
   | "weak_ref"
   | "finalization_registry"
   | "reflect"
-  | "proxy";
+  | "proxy"
+  | "process_env";
 
 /**
  * Information about a detected security violation.

@@ -697,6 +697,76 @@ describe("DefenseInDepthBox", () => {
       });
     });
 
+    describe("process.env blocking", () => {
+      it("should block process.env access", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            // Accessing any property on process.env should throw
+            const _home = process.env.HOME;
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+        expect(error?.message).toContain("process.env");
+      });
+
+      it("should block process.env iteration", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            // Trying to iterate over env should throw
+            Object.keys(process.env);
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+      });
+
+      it("should block process.env modification", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            process.env.MALICIOUS_VAR = "bad";
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+      });
+
+      it("should allow process.env outside sandbox context", () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        // Outside run() context - should work
+        const path = process.env.PATH;
+        expect(typeof path).toBe("string");
+
+        handle.deactivate();
+      });
+    });
+
     describe("other blocked globals", () => {
       it("should block WeakRef", async () => {
         const box = DefenseInDepthBox.getInstance(true);

@@ -96,11 +96,18 @@ export function getBlockedGlobals(): BlockedGlobal[] {
       reason: "setImmediate could be used to escape sandbox context",
     },
 
-    // Note: We intentionally do NOT block `process` because:
+    // Note: We intentionally do NOT block `process` entirely because:
     // 1. Node.js internals (Promise resolution, etc.) use process.nextTick
     // 2. Blocking process entirely breaks normal async operation
     // 3. The primary code execution vectors (Function, eval) are already blocked
-    // If needed, specific dangerous process methods could be blocked individually.
+    // However, we DO block process.env to prevent leaking secrets.
+    {
+      prop: "env",
+      target: process,
+      violationType: "process_env",
+      strategy: "throw",
+      reason: "process.env could leak sensitive environment variables",
+    },
 
     // We also don't block `require` because:
     // 1. It may not exist in all environments (ESM)

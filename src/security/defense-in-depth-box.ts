@@ -246,6 +246,27 @@ export class DefenseInDepthBox {
   }
 
   /**
+   * Get a human-readable path for a target object and property.
+   */
+  private getPathForTarget(target: object, prop: string): string {
+    if (target === globalThis) {
+      return `globalThis.${prop}`;
+    }
+    if (target === process) {
+      return `process.${prop}`;
+    }
+    // For prototype targets, try to identify them
+    if (target === Function.prototype) {
+      return `Function.prototype.${prop}`;
+    }
+    if (target === Object.prototype) {
+      return `Object.prototype.${prop}`;
+    }
+    // Fallback
+    return `<object>.${prop}`;
+  }
+
+  /**
    * Check if current context should be blocked.
    * Returns false in audit mode or outside sandboxed context.
    */
@@ -393,6 +414,43 @@ export class DefenseInDepthBox {
           throw new SecurityViolationError(message, violation);
         }
         return Reflect.set(target, prop, value, receiver);
+      },
+      // Block enumeration (Object.keys, Object.entries, for...in, etc.)
+      ownKeys(target) {
+        if (box.shouldBlock()) {
+          const message = `${path} enumeration is blocked during script execution`;
+          const violation = box.recordViolation(violationType, path, message);
+          throw new SecurityViolationError(message, violation);
+        }
+        return Reflect.ownKeys(target);
+      },
+      // Block Object.getOwnPropertyDescriptor
+      getOwnPropertyDescriptor(target, prop) {
+        if (box.shouldBlock()) {
+          const fullPath = `${path}.${String(prop)}`;
+          const message = `${fullPath} descriptor access is blocked during script execution`;
+          const violation = box.recordViolation(
+            violationType,
+            fullPath,
+            message,
+          );
+          throw new SecurityViolationError(message, violation);
+        }
+        return Reflect.getOwnPropertyDescriptor(target, prop);
+      },
+      // Block 'in' operator
+      has(target, prop) {
+        if (box.shouldBlock()) {
+          const fullPath = `${path}.${String(prop)}`;
+          const message = `${fullPath} existence check is blocked during script execution`;
+          const violation = box.recordViolation(
+            violationType,
+            fullPath,
+            message,
+          );
+          throw new SecurityViolationError(message, violation);
+        }
+        return Reflect.has(target, prop);
       },
     }) as T;
   }
@@ -547,7 +605,8 @@ export class DefenseInDepthBox {
         }
       } else {
         // For throw strategy, create a blocking proxy
-        const path = `globalThis.${prop}`;
+        // Construct path based on target
+        const path = this.getPathForTarget(target, prop);
         // @banned-pattern-ignore: intentional check for function type in security code
         const proxy =
           typeof original === "function"
