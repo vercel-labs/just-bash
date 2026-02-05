@@ -560,11 +560,12 @@ export class DefenseInDepthBox {
     // Protect Error.prepareStackTrace (only block setting, not reading)
     this.protectErrorPrepareStackTrace();
 
+    // Protect Module._load BEFORE process.mainModule, since protectModuleLoad()
+    // needs to read process.mainModule to find the Module class.
+    this.protectModuleLoad();
+
     // Protect process.mainModule (may be undefined in ESM but still blockable)
     this.protectProcessMainModule();
-
-    // Protect Module._load (prevents require-based escape vectors)
-    this.protectModuleLoad();
   }
 
   /**

@@ -451,14 +451,15 @@ export class WorkerDefenseInDepth {
       this.protectErrorPrepareStackTrace();
     }
 
+    // Protect Module._load BEFORE process.mainModule, since protectModuleLoad()
+    // needs to read process.mainModule to find the Module class.
+    if (!excludeTypes.has("module_load")) {
+      this.protectModuleLoad();
+    }
+
     // Protect process.mainModule (may be undefined in ESM but still blockable)
     if (!excludeTypes.has("process_main_module")) {
       this.protectProcessMainModule();
-    }
-
-    // Protect Module._load (prevents require-based escape vectors)
-    if (!excludeTypes.has("module_load")) {
-      this.protectModuleLoad();
     }
   }
 
