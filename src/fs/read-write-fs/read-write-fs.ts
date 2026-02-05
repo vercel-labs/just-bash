@@ -2,7 +2,10 @@
  * ReadWriteFs - Direct wrapper around the real filesystem
  *
  * All operations go directly to the underlying Node.js filesystem.
- * This is a true read-write filesystem with no overlay or sandboxing.
+ * Paths are relative to the configured root directory.
+ *
+ * Security: Symlink targets are validated and transformed to stay within root,
+ * preventing symlink-based sandbox escape attacks.
  */
 
 import * as fs from "node:fs";
@@ -366,8 +369,28 @@ export class ReadWriteFs implements IFileSystem {
   async symlink(target: string, linkPath: string): Promise<void> {
     const realLinkPath = this.toRealPath(linkPath);
 
+    // Validate and transform symlink target to prevent sandbox escape.
+    // Resolve the target: if absolute, treat as virtual path; if relative, resolve from link's dir
+    const normalizedLinkPath = this.normalizePath(linkPath);
+    const linkDir = this.normalizePath(nodePath.dirname(normalizedLinkPath));
+    const resolvedVirtualTarget = target.startsWith("/")
+      ? this.normalizePath(target)
+      : this.normalizePath(
+          linkDir === "/" ? `/${target}` : `${linkDir}/${target}`,
+        );
+
+    // Convert to real path - this is where the symlink should actually point
+    const resolvedRealTarget = nodePath.join(this.root, resolvedVirtualTarget);
+
+    // For relative symlinks, compute the correct relative path from link to target within root
+    // For absolute symlinks, use the absolute path within root
+    const realLinkDir = nodePath.dirname(realLinkPath);
+    const safeTarget = target.startsWith("/")
+      ? resolvedRealTarget
+      : nodePath.relative(realLinkDir, resolvedRealTarget);
+
     try {
-      await fs.promises.symlink(target, realLinkPath);
+      await fs.promises.symlink(safeTarget, realLinkPath);
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err.code === "EEXIST") {

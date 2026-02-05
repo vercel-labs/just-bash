@@ -4,6 +4,7 @@
 
 import type { CommandContext, ExecResult } from "../../types.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
+import { nullPrototypeCopy } from "../query-engine/safe-object.js";
 import {
   type CsvData,
   type CsvRow,
@@ -84,7 +85,9 @@ export async function cmdMap(
     let skip = false;
 
     // Add row index for index() function
-    const rowWithIndex = { ...row, _row_index: rowIndex };
+    const rowWithIndex = Object.assign(nullPrototypeCopy(row), {
+      _row_index: rowIndex,
+    });
 
     for (const spec of specs) {
       const results = evaluate(rowWithIndex, spec.ast, evalOptions);
@@ -191,7 +194,9 @@ export async function cmdTransform(
       const col = targetCols[i];
       // For implicit expressions like "upper", wrap in function call
       // The _ variable represents the current column value
-      const rowWithUnderscore = { ...row, _: row[col] };
+      const rowWithUnderscore = Object.assign(nullPrototypeCopy(row), {
+        _: row[col],
+      });
       const results = evaluate(rowWithUnderscore, ast, evalOptions);
       const value = results.length > 0 ? results[0] : null;
 

@@ -226,11 +226,8 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
   });
 
   describe("symlink behavior", () => {
-    // NOTE: ReadWriteFs creates REAL symlinks on the filesystem.
-    // Unlike OverlayFs, it does NOT prevent symlink escapes because
-    // symlinks are real filesystem entities that Node.js follows.
-    // This is intentional - ReadWriteFs is a direct filesystem wrapper.
-    // For sandboxed symlink behavior, use OverlayFs instead.
+    // ReadWriteFs validates symlink targets to prevent sandbox escapes.
+    // All symlink targets are normalized and transformed to point within root.
 
     it("should create symlinks within root", async () => {
       fs.writeFileSync(path.join(tempDir, "target.txt"), "content");
@@ -261,6 +258,50 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
 
       const content = await rwfs.readFile("/link");
       expect(content).toBe("nested");
+    });
+
+    it("should prevent symlink escape with absolute path", async () => {
+      // Attempting to create a symlink to /etc/passwd should NOT allow reading real /etc/passwd
+      try {
+        await rwfs.symlink("/etc/passwd", "/escape-link");
+      } catch {
+        // Skip on systems that don't support symlinks
+        return;
+      }
+
+      // The symlink should point to ${root}/etc/passwd, not real /etc/passwd
+      // Since that file doesn't exist within our sandbox, reading should fail
+      await expect(rwfs.readFile("/escape-link")).rejects.toThrow("ENOENT");
+    });
+
+    it("should prevent symlink escape with relative path traversal", async () => {
+      // Attempting to escape via relative path
+      try {
+        await rwfs.symlink("../../../etc/passwd", "/escape-link2");
+      } catch {
+        return;
+      }
+
+      // The symlink should be transformed to point within root
+      // Reading should fail since /etc/passwd doesn't exist in sandbox
+      await expect(rwfs.readFile("/escape-link2")).rejects.toThrow("ENOENT");
+    });
+
+    it("should prevent reading outside files via symlink to absolute path", async () => {
+      // Create symlink pointing to the real outside file's path
+      try {
+        await rwfs.symlink(outsideFile, "/steal-secret");
+      } catch {
+        return;
+      }
+
+      // Should NOT be able to read the real outside file
+      const result = await rwfs.readFile("/steal-secret").catch((e) => e);
+      expect(result).toBeInstanceOf(Error);
+      // If it somehow succeeded, it must not contain the secret
+      if (typeof result === "string") {
+        expect(result).not.toContain("TOP SECRET");
+      }
     });
   });
 

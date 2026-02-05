@@ -67,6 +67,23 @@ User-controlled data (stdin, arguments, file content, HTTP headers, environment 
    - `isSafeKey()` - checks if key is safe (not `__proto__`, `constructor`, `prototype`)
    - `safeSet()` - sets property only if key is safe
    - `safeFromEntries()` - creates null-prototype object from entries
+   - `nullPrototypeCopy(obj)` - creates a null-prototype shallow copy of an object
+   - `nullPrototypeMerge(...objs)` - merges objects into a new null-prototype object
+
+5. **Prefer `nullPrototypeCopy` over object spread for user data:**
+   ```typescript
+   // BAD - spread creates object with Object.prototype
+   const copy = { ...userObject };
+
+   // GOOD - null-prototype copy
+   const copy = nullPrototypeCopy(userObject);
+
+   // BAD - merging user objects
+   const merged = { ...objA, ...objB };
+
+   // GOOD - null-prototype merge
+   const merged = nullPrototypeMerge(objA, objB);
+   ```
 
 ### Common Vulnerable Patterns
 

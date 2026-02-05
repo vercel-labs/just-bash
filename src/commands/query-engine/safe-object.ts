@@ -136,3 +136,23 @@ export function safeCopy<T extends Record<string, unknown>>(obj: T): T {
 export function safeHasOwn(obj: object, key: string): boolean {
   return Object.hasOwn(obj, key);
 }
+
+/**
+ * Create a null-prototype shallow copy of an object.
+ * This prevents prototype chain lookups without filtering any keys.
+ */
+export function nullPrototypeCopy<T extends object>(
+  obj: T,
+): T & Record<string, unknown> {
+  return Object.assign(Object.create(null), obj);
+}
+
+/**
+ * Merge multiple objects into a new null-prototype object.
+ * This prevents prototype chain lookups without filtering any keys.
+ */
+export function nullPrototypeMerge<T extends object>(
+  ...objs: T[]
+): T & Record<string, unknown> {
+  return Object.assign(Object.create(null), ...objs);
+}

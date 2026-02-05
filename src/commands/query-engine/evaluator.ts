@@ -23,7 +23,13 @@ import {
 } from "./builtins/index.js";
 import type { AstNode, DestructurePattern } from "./parser.js";
 import { deletePath, setPath } from "./path-operations.js";
-import { isSafeKey, safeHasOwn, safeSet } from "./safe-object.js";
+import {
+  isSafeKey,
+  nullPrototypeCopy,
+  nullPrototypeMerge,
+  safeHasOwn,
+  safeSet,
+} from "./safe-object.js";
 import {
   compare,
   compareJq,
@@ -564,12 +570,12 @@ export function evaluate(
             if (!isSafeKey(k)) {
               // Still produce output but without the dangerous key
               for (const _v of values) {
-                newResults.push({ ...obj });
+                newResults.push(nullPrototypeCopy(obj));
               }
               continue;
             }
             for (const v of values) {
-              const newObj = { ...obj };
+              const newObj = nullPrototypeCopy(obj);
               safeSet(newObj, k, v);
               newResults.push(newObj);
             }
@@ -867,7 +873,7 @@ function applyUpdate(
           typeof current === "object" &&
           typeof newVal === "object"
         ) {
-          return { ...current, ...newVal };
+          return nullPrototypeMerge(current, newVal);
         }
         return newVal;
       case "-=":
@@ -915,7 +921,7 @@ function applyUpdate(
               !Array.isArray(baseVal)
             ) {
               // @banned-pattern-ignore: uses Object.hasOwn + safeSet for protection
-              const obj = { ...baseVal } as Record<string, unknown>;
+              const obj = nullPrototypeCopy(baseVal);
               const current = Object.hasOwn(obj, path.name)
                 ? obj[path.name]
                 : undefined;
@@ -927,7 +933,7 @@ function applyUpdate(
         }
         if (val && typeof val === "object" && !Array.isArray(val)) {
           // @banned-pattern-ignore: uses Object.hasOwn + safeSet for protection
-          const obj = { ...val } as Record<string, unknown>;
+          const obj = nullPrototypeCopy(val);
           const current = Object.hasOwn(obj, path.name)
             ? obj[path.name]
             : undefined;
@@ -974,7 +980,7 @@ function applyUpdate(
                 return baseVal;
               }
               // @banned-pattern-ignore: protected by isSafeKey above + safeSet below
-              const obj = { ...baseVal } as Record<string, unknown>;
+              const obj = nullPrototypeCopy(baseVal);
               const current = Object.hasOwn(obj, idx) ? obj[idx] : undefined;
               safeSet(obj, idx, transform(current));
               return obj;
@@ -1023,7 +1029,7 @@ function applyUpdate(
             return val;
           }
           // @banned-pattern-ignore: protected by isSafeKey above + safeSet below
-          const obj = { ...val } as Record<string, unknown>;
+          const obj = nullPrototypeCopy(val);
           const current = Object.hasOwn(obj, idx) ? obj[idx] : undefined;
           safeSet(obj, idx, transform(current));
           return obj;
@@ -1109,7 +1115,7 @@ function applyDel(
         // Direct field
         if (obj && typeof obj === "object" && !Array.isArray(obj)) {
           // @banned-pattern-ignore: uses safeSet for protection
-          const result = { ...obj } as Record<string, unknown>;
+          const result = nullPrototypeCopy(obj);
           safeSet(result, pathNode.name, newVal);
           return result;
         }
@@ -1148,7 +1154,7 @@ function applyDel(
             return obj;
           }
           // @banned-pattern-ignore: protected by isSafeKey above + safeSet below
-          const result = { ...obj } as Record<string, unknown>;
+          const result = nullPrototypeCopy(obj);
           safeSet(result, idx, newVal);
           return result;
         }
@@ -1188,7 +1194,7 @@ function applyDel(
             return val;
           }
           // @banned-pattern-ignore: protected by isSafeKey above
-          const obj = { ...val } as Record<string, unknown>;
+          const obj = nullPrototypeCopy(val);
           delete obj[path.name];
           return obj;
         }
@@ -1234,7 +1240,7 @@ function applyDel(
             return val;
           }
           // @banned-pattern-ignore: protected by isSafeKey above
-          const obj = { ...val } as Record<string, unknown>;
+          const obj = nullPrototypeCopy(val);
           delete obj[idx];
           return obj;
         }
@@ -1272,7 +1278,7 @@ function applyDel(
               }
               if (obj && typeof obj === "object" && !Array.isArray(obj)) {
                 // @banned-pattern-ignore: protected by isSafeKey above + safeSet below
-                const result = { ...obj } as Record<string, unknown>;
+                const result = nullPrototypeCopy(obj);
                 safeSet(result, pathNode.name, newVal);
                 return result;
               }
@@ -1300,7 +1306,7 @@ function applyDel(
                   return obj;
                 }
                 // @banned-pattern-ignore: protected by isSafeKey above + safeSet below
-                const result = { ...obj } as Record<string, unknown>;
+                const result = nullPrototypeCopy(obj);
                 safeSet(result, idx, newVal);
                 return result;
               }
@@ -1394,7 +1400,7 @@ function evalBinaryOp(
             !Array.isArray(l) &&
             !Array.isArray(r)
           ) {
-            return { ...l, ...r };
+            return nullPrototypeMerge(l, r);
           }
           return null;
         case "-":

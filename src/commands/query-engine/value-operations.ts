@@ -4,7 +4,12 @@
  * Utility functions for working with jq/query values.
  */
 
-import { isSafeKey, safeHasOwn, safeSet } from "./safe-object.js";
+import {
+  isSafeKey,
+  nullPrototypeCopy,
+  safeHasOwn,
+  safeSet,
+} from "./safe-object.js";
 
 export type QueryValue = unknown;
 
@@ -37,12 +42,13 @@ export function compare(a: QueryValue, b: QueryValue): number {
  * Deep merge two objects.
  * Values from b override values from a, except nested objects are merged recursively.
  * Filters out dangerous keys (__proto__, constructor, prototype) to prevent prototype pollution.
+ * Uses null-prototype objects to prevent prototype pollution via inherited properties.
  */
 export function deepMerge(
   a: Record<string, unknown>,
   b: Record<string, unknown>,
 ): Record<string, unknown> {
-  const result = { ...a };
+  const result = nullPrototypeCopy(a);
   for (const key of Object.keys(b)) {
     // Skip dangerous keys to prevent prototype pollution
     if (!isSafeKey(key)) continue;
