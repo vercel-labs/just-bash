@@ -1200,6 +1200,7 @@ if (parentPort) {
         parentPort?.postMessage({
           success: false,
           error: (e as Error).message,
+          defenseStats: defense?.getStats(),
         });
       });
   }
@@ -1214,7 +1215,11 @@ if (parentPort) {
       result.defenseStats = defense?.getStats();
       parentPort?.postMessage(result);
     } catch (e) {
-      parentPort?.postMessage({ success: false, error: (e as Error).message });
+      parentPort?.postMessage({
+        success: false,
+        error: (e as Error).message,
+        defenseStats: defense?.getStats(),
+      });
     }
   });
 }

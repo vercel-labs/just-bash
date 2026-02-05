@@ -15,14 +15,16 @@
 
 import { parentPort, workerData } from "node:worker_threads";
 import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
-import { WorkerDefenseInDepth } from "../../security/index.js";
+import {
+  WorkerDefenseInDepth,
+  type WorkerDefenseStats,
+} from "../../security/index.js";
 
 // Cached SQL.js module (initialized once)
 let cachedSQL: SqlJsStatic | null = null;
 
 // Defense instance (activated after sql.js init)
-// Named with underscore since we only need the side effect of activation
-let _defense: WorkerDefenseInDepth | null = null;
+let defense: WorkerDefenseInDepth | null = null;
 
 /**
  * Initialize sql.js and activate defense-in-depth.
@@ -37,7 +39,7 @@ async function initializeWithDefense(): Promise<SqlJsStatic> {
   cachedSQL = await initSqlJs();
 
   // Activate defense after sql.js is loaded (no exclusions needed)
-  _defense = new WorkerDefenseInDepth({
+  defense = new WorkerDefenseInDepth({
     onViolation: (v) => {
       parentPort?.postMessage({ type: "security-violation", violation: v });
     },
@@ -60,6 +62,8 @@ export interface WorkerSuccess {
   results: StatementResult[];
   hasModifications: boolean;
   dbBuffer: Uint8Array | null; // serialized db if modified
+  /** Defense-in-depth stats if enabled */
+  defenseStats?: WorkerDefenseStats;
 }
 
 export interface StatementResult {
@@ -72,6 +76,8 @@ export interface StatementResult {
 export interface WorkerError {
   success: false;
   error: string;
+  /** Defense-in-depth stats if enabled */
+  defenseStats?: WorkerDefenseStats;
 }
 
 export type WorkerOutput = WorkerSuccess | WorkerError;
@@ -139,7 +145,11 @@ async function executeQuery(data: WorkerInput): Promise<WorkerOutput> {
       db = new SQL.Database();
     }
   } catch (e) {
-    return { success: false, error: (e as Error).message };
+    return {
+      success: false,
+      error: (e as Error).message,
+      defenseStats: defense?.getStats(),
+    };
   }
 
   const results: StatementResult[] = [];
@@ -182,10 +192,20 @@ async function executeQuery(data: WorkerInput): Promise<WorkerOutput> {
     }
 
     db.close();
-    return { success: true, results, hasModifications, dbBuffer: resultBuffer };
+    return {
+      success: true,
+      results,
+      hasModifications,
+      dbBuffer: resultBuffer,
+      defenseStats: defense?.getStats(),
+    };
   } catch (e) {
     db.close();
-    return { success: false, error: (e as Error).message };
+    return {
+      success: false,
+      error: (e as Error).message,
+      defenseStats: defense?.getStats(),
+    };
   }
 }
 

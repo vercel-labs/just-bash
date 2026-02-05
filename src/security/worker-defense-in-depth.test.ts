@@ -767,4 +767,169 @@ describe("WorkerDefenseInDepth", () => {
       expect(errorMessage).toContain("worker context");
     });
   });
+
+  describe("excludeViolationTypes", () => {
+    it("should allow excluded violation types to work normally", () => {
+      defense = new WorkerDefenseInDepth({
+        excludeViolationTypes: ["proxy"],
+      });
+
+      // Proxy should work when excluded
+      let proxyWorked = false;
+      let error: Error | undefined;
+      try {
+        const proxy = new Proxy({}, {});
+        proxyWorked = proxy !== null;
+      } catch (e) {
+        error = e as Error;
+      }
+
+      defense.deactivate();
+      expect(error).toBeUndefined();
+      expect(proxyWorked).toBe(true);
+    });
+
+    it("should still block non-excluded violation types", () => {
+      defense = new WorkerDefenseInDepth({
+        excludeViolationTypes: ["proxy"],
+      });
+
+      // Function should still be blocked
+      let error: Error | undefined;
+      try {
+        new Function("return 1");
+      } catch (e) {
+        error = e as Error;
+      }
+
+      defense.deactivate();
+      expect(error).toBeInstanceOf(WorkerSecurityViolationError);
+    });
+
+    it("should allow setImmediate when excluded (as used by Python worker)", () => {
+      defense = new WorkerDefenseInDepth({
+        excludeViolationTypes: ["setImmediate"],
+      });
+
+      let callbackScheduled = false;
+      let error: Error | undefined;
+      try {
+        const handle = setImmediate(() => {
+          callbackScheduled = true;
+        });
+        clearImmediate(handle);
+        callbackScheduled = true; // If we got here, it worked
+      } catch (e) {
+        error = e as Error;
+      }
+
+      defense.deactivate();
+      expect(error).toBeUndefined();
+      expect(callbackScheduled).toBe(true);
+    });
+
+    it("should allow multiple exclusions (as used by Python worker)", () => {
+      defense = new WorkerDefenseInDepth({
+        excludeViolationTypes: ["proxy", "setImmediate"],
+      });
+
+      let proxyWorked = false;
+      let setImmediateWorked = false;
+      let functionBlocked = false;
+
+      try {
+        const proxy = new Proxy({}, {});
+        proxyWorked = proxy !== null;
+      } catch {
+        // Should not throw
+      }
+
+      try {
+        const handle = setImmediate(() => {});
+        clearImmediate(handle);
+        setImmediateWorked = true;
+      } catch {
+        // Should not throw
+      }
+
+      try {
+        new Function("return 1");
+      } catch (e) {
+        functionBlocked = e instanceof WorkerSecurityViolationError;
+      }
+
+      defense.deactivate();
+      expect(proxyWorked).toBe(true);
+      expect(setImmediateWorked).toBe(true);
+      expect(functionBlocked).toBe(true);
+    });
+
+    it("should not record violations for excluded types", () => {
+      const violations: SecurityViolation[] = [];
+      defense = new WorkerDefenseInDepth({
+        excludeViolationTypes: ["proxy"],
+        onViolation: (v) => violations.push(v),
+      });
+
+      // Use Proxy (excluded - should not record violation)
+      try {
+        new Proxy({}, {});
+      } catch {
+        // Should not throw
+      }
+
+      // Use Function (not excluded - should record violation)
+      try {
+        new Function("return 1");
+      } catch {
+        // Expected to throw
+      }
+
+      defense.deactivate();
+
+      // Should only have Function violation, not Proxy
+      expect(violations.some((v) => v.type === "proxy")).toBe(false);
+      expect(violations.some((v) => v.type === "function_constructor")).toBe(
+        true,
+      );
+    });
+
+    it("should exclude function_constructor when specified", () => {
+      defense = new WorkerDefenseInDepth({
+        excludeViolationTypes: ["function_constructor"],
+      });
+
+      let result: unknown;
+      let error: Error | undefined;
+      try {
+        const fn = new Function("return 42");
+        result = fn();
+      } catch (e) {
+        error = e as Error;
+      }
+
+      defense.deactivate();
+      expect(error).toBeUndefined();
+      expect(result).toBe(42);
+    });
+
+    it("should exclude WebAssembly when specified", () => {
+      defense = new WorkerDefenseInDepth({
+        excludeViolationTypes: ["webassembly"],
+      });
+
+      let wasmAccessible = false;
+      let error: Error | undefined;
+      try {
+        // Just check that we can access WebAssembly without throwing
+        wasmAccessible = typeof WebAssembly.Module === "function";
+      } catch (e) {
+        error = e as Error;
+      }
+
+      defense.deactivate();
+      expect(error).toBeUndefined();
+      expect(wasmAccessible).toBe(true);
+    });
+  });
 });
