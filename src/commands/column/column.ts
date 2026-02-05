@@ -240,3 +240,18 @@ export const column: Command = {
     };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "column",
+  flags: [
+    { flag: "-t", type: "boolean" },
+    { flag: "-s", type: "value", valueHint: "delimiter" },
+    { flag: "-o", type: "value", valueHint: "string" },
+    { flag: "-c", type: "value", valueHint: "number" },
+    { flag: "-n", type: "boolean" },
+  ],
+  stdinType: "text",
+  needsFiles: true,
+};

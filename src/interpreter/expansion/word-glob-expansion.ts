@@ -118,6 +118,7 @@ export async function expandWordWithGlobImpl(
   word: WordNode,
   deps: WordGlobExpansionDeps,
 ): Promise<{ values: string[]; quoted: boolean }> {
+  ctx.coverage?.hit("bash:expansion:word_glob");
   const wordParts = word.parts;
   const {
     hasQuoted,

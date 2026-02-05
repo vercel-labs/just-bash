@@ -124,3 +124,15 @@ export const unaliasCommand: Command = {
     return { stdout: "", stderr, exitCode: anyError ? 1 : 0 };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "alias",
+  flags: [],
+};
+
+export const unaliasFlagsForFuzzing: CommandFuzzInfo = {
+  name: "unalias",
+  flags: [{ flag: "-a", type: "boolean" }],
+};

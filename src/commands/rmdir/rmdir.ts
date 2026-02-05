@@ -195,3 +195,14 @@ function getParentPath(path: string): string {
 
   return normalized.substring(0, lastSlash);
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "rmdir",
+  flags: [
+    { flag: "-p", type: "boolean" },
+    { flag: "-v", type: "boolean" },
+  ],
+  needsArgs: true,
+};

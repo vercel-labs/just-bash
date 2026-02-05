@@ -278,6 +278,7 @@ export const jqCommand: Command = {
           ? { maxIterations: ctx.limits.maxJqIterations }
           : undefined,
         env: ctx.env,
+        coverage: ctx.coverage,
       };
 
       if (nullInput) {
@@ -361,4 +362,22 @@ export const jqCommand: Command = {
       };
     }
   },
+};
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "jq",
+  flags: [
+    { flag: "-r", type: "boolean" },
+    { flag: "-c", type: "boolean" },
+    { flag: "-e", type: "boolean" },
+    { flag: "-s", type: "boolean" },
+    { flag: "-n", type: "boolean" },
+    { flag: "-j", type: "boolean" },
+    { flag: "-S", type: "boolean" },
+    { flag: "--tab", type: "boolean" },
+  ],
+  stdinType: "json",
+  needsArgs: true,
 };

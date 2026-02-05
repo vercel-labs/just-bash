@@ -7,6 +7,7 @@
 
 import { mapToRecord } from "../../helpers/env.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import type { FeatureCoverageWriter } from "../../types.js";
 import {
   evalArrayBuiltin,
   evalControlBuiltin,
@@ -121,6 +122,8 @@ export interface EvalContext {
     { params: string[]; body: AstNode; closure?: Map<string, unknown> }
   >;
   labels?: Set<string>;
+  /** Feature coverage writer for fuzzing instrumentation */
+  coverage?: FeatureCoverageWriter;
 }
 
 function createContext(options?: EvaluateOptions): EvalContext {
@@ -132,6 +135,7 @@ function createContext(options?: EvaluateOptions): EvalContext {
       maxDepth: options?.limits?.maxDepth ?? DEFAULT_MAX_JQ_DEPTH,
     },
     env: options?.env,
+    coverage: options?.coverage,
   };
 }
 
@@ -347,6 +351,7 @@ function applyPathTransform(
 export interface EvaluateOptions {
   limits?: QueryExecutionLimits;
   env?: Map<string, string>;
+  coverage?: FeatureCoverageWriter;
 }
 
 /**
@@ -399,6 +404,7 @@ export function evaluate(
     ctx = { ...ctx, root: value, currentPath: [] };
   }
 
+  ctx.coverage?.hit(`jq:node:${ast.type}`);
   switch (ast.type) {
     case "Identity":
       return [value];

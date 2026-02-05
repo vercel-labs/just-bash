@@ -112,3 +112,33 @@ export const rgCommand: Command = {
     });
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "rg",
+  flags: [
+    { flag: "-i", type: "boolean" },
+    { flag: "-s", type: "boolean" },
+    { flag: "-S", type: "boolean" },
+    { flag: "-F", type: "boolean" },
+    { flag: "-w", type: "boolean" },
+    { flag: "-x", type: "boolean" },
+    { flag: "-v", type: "boolean" },
+    { flag: "-c", type: "boolean" },
+    { flag: "-l", type: "boolean" },
+    { flag: "-o", type: "boolean" },
+    { flag: "-n", type: "boolean" },
+    { flag: "-N", type: "boolean" },
+    { flag: "--hidden", type: "boolean" },
+    { flag: "--no-ignore", type: "boolean" },
+    { flag: "-m", type: "value", valueHint: "number" },
+    { flag: "-A", type: "value", valueHint: "number" },
+    { flag: "-B", type: "value", valueHint: "number" },
+    { flag: "-C", type: "value", valueHint: "number" },
+    { flag: "-g", type: "value", valueHint: "pattern" },
+    { flag: "-t", type: "value", valueHint: "string" },
+    { flag: "-T", type: "value", valueHint: "string" },
+  ],
+  needsArgs: true,
+};

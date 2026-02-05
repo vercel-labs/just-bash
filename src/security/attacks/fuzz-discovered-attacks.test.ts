@@ -499,5 +499,27 @@ rg vHlanutW || export __defineGetter__=\${!__proto__}`;
       const result = await env.exec(script);
       assertExecResultSafe(result);
     });
+
+    it("arithmetic in pipe with assoc array and prototype names", async () => {
+      // Originally took 49843ms to timeout - execution limits didn't trigger
+      const env = new Bash({
+        executionLimits: { maxLoopIterations: 100, maxCommandCount: 100 },
+      });
+      const script = `declare -A Q_RHb04ugQ; Q_RHb04ugQ[__defineGetter__]=GSGqLBCa
+if ((-516)) | declare -A hpLXpICxv9; hpLXpICxv9[__proto__]="T2\${hasOwnProperty}"; then ((jq /= 917)); fi`;
+      const result = await env.exec(script);
+      assertExecResultSafe(result);
+    });
+
+    it("indirect expansion with @ suffix and command substitution", async () => {
+      // Fuzz-discovered: crashed without producing a result
+      const env = new Bash({
+        executionLimits: { maxLoopIterations: 100, maxCommandCount: 100 },
+      });
+      const script = `A=\${!zxBPjKVee@} sh
+! EUQoB4pyO="KzDp$(false)"`;
+      const result = await env.exec(script);
+      assertExecResultSafe(result);
+    });
   });
 });

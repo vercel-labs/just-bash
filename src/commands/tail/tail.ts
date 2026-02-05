@@ -40,3 +40,17 @@ export const tailCommand: Command = {
     );
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "tail",
+  flags: [
+    { flag: "-n", type: "value", valueHint: "number" },
+    { flag: "-c", type: "value", valueHint: "number" },
+    { flag: "-q", type: "boolean" },
+    { flag: "-v", type: "boolean" },
+  ],
+  stdinType: "text",
+  needsFiles: true,
+};

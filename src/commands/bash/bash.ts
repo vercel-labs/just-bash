@@ -157,3 +157,17 @@ async function executeScript(
   });
   return result;
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "bash",
+  flags: [{ flag: "-c", type: "value", valueHint: "string" }],
+  stdinType: "text",
+};
+
+export const shFlagsForFuzzing: CommandFuzzInfo = {
+  name: "sh",
+  flags: [{ flag: "-c", type: "value", valueHint: "string" }],
+  stdinType: "text",
+};

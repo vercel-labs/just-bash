@@ -5,6 +5,7 @@
  */
 
 import { ConstantRegex, type RegexLike } from "../../../regex/index.js";
+import type { FeatureCoverageWriter } from "../../../types.js";
 import type { AwkFunctionDef } from "../ast.js";
 import type { AwkFileSystem, AwkValue } from "./types.js";
 
@@ -87,6 +88,9 @@ export interface AwkRuntimeContext {
   exec?: (
     cmd: string,
   ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
+
+  // Feature coverage writer for fuzzing instrumentation
+  coverage?: FeatureCoverageWriter;
 }
 
 export interface CreateContextOptions {
@@ -99,6 +103,7 @@ export interface CreateContextOptions {
   exec?: (
     cmd: string,
   ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
+  coverage?: FeatureCoverageWriter;
 }
 
 export function createRuntimeContext(
@@ -112,6 +117,7 @@ export function createRuntimeContext(
     fs,
     cwd,
     exec,
+    coverage,
   } = options;
 
   return {
@@ -163,5 +169,6 @@ export function createRuntimeContext(
     fs,
     cwd,
     exec,
+    coverage,
   };
 }

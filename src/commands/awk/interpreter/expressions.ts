@@ -55,6 +55,7 @@ export async function evalExpr(
   ctx: AwkRuntimeContext,
   expr: AwkExpr,
 ): Promise<AwkValue> {
+  ctx.coverage?.hit(`awk:expr:${expr.type}`);
   switch (expr.type) {
     case "number":
       return expr.value;

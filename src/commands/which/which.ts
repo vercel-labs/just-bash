@@ -72,3 +72,14 @@ export const whichCommand: Command = {
     };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "which",
+  flags: [
+    { flag: "-a", type: "boolean" },
+    { flag: "-s", type: "boolean" },
+  ],
+  needsArgs: true,
+};

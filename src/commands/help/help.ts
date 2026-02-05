@@ -119,3 +119,10 @@ Otherwise, lists all available commands.
     };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "help",
+  flags: [],
+};

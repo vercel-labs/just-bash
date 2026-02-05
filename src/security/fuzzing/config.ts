@@ -66,6 +66,9 @@ export interface FuzzingConfig {
 
   /** Path to log failed tests (git-ignored, useful for debugging) */
   failureLogFile?: string;
+
+  /** Whether to enable feature coverage tracking */
+  enableCoverage?: boolean;
 }
 
 /**

@@ -447,3 +447,15 @@ export const fileCommand: Command = {
     return { stdout: output, stderr: "", exitCode };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "file",
+  flags: [
+    { flag: "-b", type: "boolean" },
+    { flag: "-i", type: "boolean" },
+    { flag: "-L", type: "boolean" },
+  ],
+  needsArgs: true,
+};

@@ -112,3 +112,17 @@ export const diffCommand: Command = {
     return { stdout: output, stderr: "", exitCode: 1 };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "diff",
+  flags: [
+    { flag: "-u", type: "boolean" },
+    { flag: "-q", type: "boolean" },
+    { flag: "-s", type: "boolean" },
+    { flag: "-i", type: "boolean" },
+  ],
+  needsArgs: true,
+  minArgs: 2,
+};

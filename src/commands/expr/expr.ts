@@ -246,3 +246,11 @@ function evaluateExpr(args: string[]): string {
 
   return parseOr();
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "expr",
+  flags: [],
+  needsArgs: true,
+};

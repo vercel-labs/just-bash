@@ -124,6 +124,7 @@ export const awkCommand2: Command = {
         ? // biome-ignore lint/style/noNonNullAssertion: exec checked in ternary
           (cmd: string) => ctx.exec!(cmd, { cwd: ctx.cwd })
         : undefined,
+      coverage: ctx.coverage,
     });
     runtimeCtx.FS = fieldSepStr;
     // Use Object.assign with null-prototype to preserve safety
@@ -284,3 +285,15 @@ function createFieldSepRegex(
 function escapeForRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "awk",
+  flags: [
+    { flag: "-F", type: "value", valueHint: "delimiter" },
+    { flag: "-v", type: "value", valueHint: "string" },
+  ],
+  stdinType: "text",
+  needsArgs: true,
+};

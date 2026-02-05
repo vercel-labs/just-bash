@@ -6,7 +6,7 @@ package-lock.json
 .env
 .env.*
 dist
-coverage
+/coverage
 debug-*.ts
 test-*.ts
 profile-*.mjs

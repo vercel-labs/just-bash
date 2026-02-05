@@ -217,3 +217,16 @@ export const echoCommand: Command = {
     };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "echo",
+  flags: [
+    { flag: "-n", type: "boolean" },
+    { flag: "-e", type: "boolean" },
+    { flag: "-E", type: "boolean" },
+  ],
+  stdinType: "none",
+  needsArgs: true,
+};
