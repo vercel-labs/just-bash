@@ -200,8 +200,7 @@ export function handleComplete(
   }
 
   for (const cmd of commands) {
-    // @banned-pattern-ignore: only literal property names assigned (wordlist, function, command, options, actions)
-    const spec: CompletionSpec = {};
+    const spec: CompletionSpec = Object.create(null);
     if (wordlist !== undefined) spec.wordlist = wordlist;
     if (funcName !== undefined) spec.function = funcName;
     if (commandStr !== undefined) spec.command = commandStr;

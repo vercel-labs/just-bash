@@ -638,6 +638,7 @@ class _JbHttpResponse:
     def __init__(self, data):
         self.status_code = data.get('status', 0)
         self.reason = data.get('statusText', '')
+        # @banned-pattern-ignore: Python code, not JavaScript
         self.headers = data.get('headers', {})
         self.text = data.get('body', '')
         self.url = data.get('url', '')

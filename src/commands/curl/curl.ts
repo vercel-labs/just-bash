@@ -66,6 +66,7 @@ async function prepareRequestBody(
     return { body: options.data };
   }
 
+  // @banned-pattern-ignore: returns typed object with known keys (body, contentType), not user data
   return {};
 }
 

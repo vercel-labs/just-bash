@@ -48,7 +48,7 @@ export function setPath(
   // Defense against prototype pollution: skip dangerous keys
   if (!isSafeKey(head)) {
     // Return the value unchanged - silently ignore dangerous keys
-    return value ?? {};
+    return value ?? Object.create(null);
   }
 
   const obj =
@@ -88,7 +88,6 @@ export function deletePath(
       if (!isSafeKey(strKey)) {
         return value;
       }
-      // @banned-pattern-ignore: protected by isSafeKey above
       const obj = nullPrototypeCopy(value);
       delete obj[strKey];
       return obj;
@@ -108,7 +107,6 @@ export function deletePath(
     if (!isSafeKey(strHead)) {
       return value;
     }
-    // @banned-pattern-ignore: protected by isSafeKey above + Object.hasOwn/safeSet
     const obj = nullPrototypeCopy(value);
     if (Object.hasOwn(obj, strHead)) {
       safeSet(obj, strHead, deletePath(obj[strHead], rest));

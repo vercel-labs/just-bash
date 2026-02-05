@@ -485,6 +485,7 @@ export async function compareOutputs(
     ? fileUrlToPath(testFileUrl)
     : getCallingTestFile();
   // Get files from registry if not provided
+  // @banned-pattern-ignore: test infrastructure with known file paths, not user data
   const testFiles = files || setupFilesRegistry.get(testDir) || {};
   return compareOutputsInternal(
     env,

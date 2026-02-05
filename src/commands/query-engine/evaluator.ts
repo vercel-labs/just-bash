@@ -544,8 +544,7 @@ export function evaluate(
     }
 
     case "Object": {
-      // @banned-pattern-ignore: all key access goes through isSafeKey/safeSet below
-      const results: Record<string, unknown>[] = [{}];
+      const results: Record<string, unknown>[] = [Object.create(null)];
 
       for (const entry of ast.entries) {
         const keys =
@@ -554,7 +553,7 @@ export function evaluate(
             : evaluate(value, entry.key, ctx);
         const values = evaluate(value, entry.value, ctx);
 
-        // @banned-pattern-ignore: all key access goes through isSafeKey/safeSet below
+        // @banned-pattern-ignore: array declaration, objects added via nullPrototypeCopy
         const newResults: Record<string, unknown>[] = [];
         for (const obj of results) {
           for (const k of keys) {
@@ -692,7 +691,7 @@ export function evaluate(
       // Note: ast.name includes the $ prefix (e.g., "$ENV")
       if (ast.name === "$ENV") {
         // Convert Map to object for jq's internal representation (null-prototype prevents prototype pollution)
-        return [ctx.env ? mapToRecord(ctx.env) : {}];
+        return [ctx.env ? mapToRecord(ctx.env) : Object.create(null)];
       }
       const v = ctx.vars.get(ast.name);
       return v !== undefined ? [v] : [null];
@@ -920,7 +919,6 @@ function applyUpdate(
               typeof baseVal === "object" &&
               !Array.isArray(baseVal)
             ) {
-              // @banned-pattern-ignore: uses Object.hasOwn + safeSet for protection
               const obj = nullPrototypeCopy(baseVal);
               const current = Object.hasOwn(obj, path.name)
                 ? obj[path.name]
@@ -932,7 +930,6 @@ function applyUpdate(
           });
         }
         if (val && typeof val === "object" && !Array.isArray(val)) {
-          // @banned-pattern-ignore: uses Object.hasOwn + safeSet for protection
           const obj = nullPrototypeCopy(val);
           const current = Object.hasOwn(obj, path.name)
             ? obj[path.name]
@@ -979,7 +976,6 @@ function applyUpdate(
               if (!isSafeKey(idx)) {
                 return baseVal;
               }
-              // @banned-pattern-ignore: protected by isSafeKey above + safeSet below
               const obj = nullPrototypeCopy(baseVal);
               const current = Object.hasOwn(obj, idx) ? obj[idx] : undefined;
               safeSet(obj, idx, transform(current));
@@ -1028,7 +1024,6 @@ function applyUpdate(
           if (!isSafeKey(idx)) {
             return val;
           }
-          // @banned-pattern-ignore: protected by isSafeKey above + safeSet below
           const obj = nullPrototypeCopy(val);
           const current = Object.hasOwn(obj, idx) ? obj[idx] : undefined;
           safeSet(obj, idx, transform(current));
@@ -1114,7 +1109,6 @@ function applyDel(
         }
         // Direct field
         if (obj && typeof obj === "object" && !Array.isArray(obj)) {
-          // @banned-pattern-ignore: uses safeSet for protection
           const result = nullPrototypeCopy(obj);
           safeSet(result, pathNode.name, newVal);
           return result;
@@ -1153,7 +1147,6 @@ function applyDel(
           if (!isSafeKey(idx)) {
             return obj;
           }
-          // @banned-pattern-ignore: protected by isSafeKey above + safeSet below
           const result = nullPrototypeCopy(obj);
           safeSet(result, idx, newVal);
           return result;
@@ -1193,7 +1186,6 @@ function applyDel(
           if (!isSafeKey(path.name)) {
             return val;
           }
-          // @banned-pattern-ignore: protected by isSafeKey above
           const obj = nullPrototypeCopy(val);
           delete obj[path.name];
           return obj;
@@ -1239,7 +1231,6 @@ function applyDel(
           if (!isSafeKey(idx)) {
             return val;
           }
-          // @banned-pattern-ignore: protected by isSafeKey above
           const obj = nullPrototypeCopy(val);
           delete obj[idx];
           return obj;
@@ -1252,7 +1243,7 @@ function applyDel(
           return [];
         }
         if (val && typeof val === "object") {
-          return {};
+          return Object.create(null);
         }
         return val;
       }
@@ -1277,7 +1268,6 @@ function applyDel(
                 return obj;
               }
               if (obj && typeof obj === "object" && !Array.isArray(obj)) {
-                // @banned-pattern-ignore: protected by isSafeKey above + safeSet below
                 const result = nullPrototypeCopy(obj);
                 safeSet(result, pathNode.name, newVal);
                 return result;
@@ -1305,7 +1295,6 @@ function applyDel(
                 if (!isSafeKey(idx)) {
                   return obj;
                 }
-                // @banned-pattern-ignore: protected by isSafeKey above + safeSet below
                 const result = nullPrototypeCopy(obj);
                 safeSet(result, idx, newVal);
                 return result;
@@ -1772,7 +1761,7 @@ function evalBuiltin(
 
     case "env":
       // Convert Map to object for jq's internal representation (null-prototype prevents prototype pollution)
-      return [ctx.env ? mapToRecord(ctx.env) : {}];
+      return [ctx.env ? mapToRecord(ctx.env) : Object.create(null)];
 
     // recurse, recurse_down, walk, transpose, combinations, parent, parents, root
     // handled by evalNavigationBuiltin

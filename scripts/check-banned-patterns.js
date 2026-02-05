@@ -59,6 +59,29 @@ const BANNED_PATTERNS = [
     autoSafe: [/Object\.create\s*\(\s*null\s*\)/],
   },
   {
+    name: "Empty object literal in expression",
+    // Match: ?? {}, || {}, return {}, ( {} ), , {}
+    // Skip comment lines
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*(?:\?\?|\|\||return\s|[,(])\s*\{\s*\}(?:\s*[;,)\]]|$)/,
+    message:
+      "Empty object literals {} have Object.prototype and are vulnerable to\n" +
+      "prototype pollution. Use Object.create(null) instead.",
+    solutions: [
+      "Use Object.create(null) for a prototype-free object",
+      "Use nullPrototypeCopy() or nullPrototypeMerge() from safe-object.ts",
+    ],
+    autoSafe: [
+      /Object\.create\s*\(\s*null\s*\)/,
+      /nullPrototypeCopy\s*\(/,
+      /nullPrototypeMerge\s*\(/,
+      /mergeToNullPrototype\s*\(/,
+      /Object\.entries\s*\(/,
+      /Object\.keys\s*\(/,
+      /new Headers\s*\(/,
+    ],
+  },
+  {
     name: "eval() usage",
     // Skip comment lines
     pattern: /^(?!\s*(?:\/\/|\/?\*)).*\beval\s*\(/,

@@ -256,7 +256,7 @@ export function evalObjectBuiltin(
           const keys = Object.keys(v);
           if (keys.length === 0) {
             // Empty object - output [path, {}]
-            results.push([path, {}]);
+            results.push([path, Object.create(null)]);
           } else {
             // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
             for (const key of keys) {

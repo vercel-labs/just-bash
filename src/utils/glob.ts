@@ -35,6 +35,7 @@ export function matchGlob(
   options?: MatchGlobOptions | boolean,
 ): boolean {
   // Support legacy signature: matchGlob(name, pattern, ignoreCase)
+  // @banned-pattern-ignore: options object with known structure (ignoreCase, stripQuotes, etc.)
   const opts: MatchGlobOptions =
     typeof options === "boolean" ? { ignoreCase: options } : (options ?? {});
 
