@@ -28,7 +28,12 @@ import { mapToRecord } from "../helpers/env.js";
 import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
 import { ParseException } from "../parser/types.js";
-import type { CommandRegistry, ExecResult, TraceCallback } from "../types.js";
+import type {
+  CommandRegistry,
+  ExecResult,
+  FeatureCoverageWriter,
+  TraceCallback,
+} from "../types.js";
 import { expandAlias as expandAliasHelper } from "./alias-expansion.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import {
@@ -109,6 +114,8 @@ export interface InterpreterOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Optional trace callback for performance profiling */
   trace?: TraceCallback;
+  /** Optional feature coverage writer for fuzzing instrumentation */
+  coverage?: FeatureCoverageWriter;
 }
 
 export class Interpreter {
@@ -127,6 +134,7 @@ export class Interpreter {
       fetch: options.fetch,
       sleep: options.sleep,
       trace: options.trace,
+      coverage: options.coverage,
     };
   }
 
@@ -412,6 +420,7 @@ export class Interpreter {
     node: CommandNode,
     stdin: string,
   ): Promise<ExecResult> {
+    this.ctx.coverage?.hit(`bash:cmd:${node.type}`);
     switch (node.type) {
       case "SimpleCommand":
         return this.executeSimpleCommand(node, stdin);

@@ -208,6 +208,7 @@ export async function smartWordSplit(
   _ifsPattern: string,
   expandPartFn: ExpandPartFn,
 ): Promise<string[]> {
+  ctx.coverage?.hit("bash:expansion:word_split");
   // Check for special case: ParameterExpansion with a default value that should be used
   // In this case, we need to recursively word-split the default value's parts
   // to preserve quote boundaries within the default value.

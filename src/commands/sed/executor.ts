@@ -493,6 +493,7 @@ function executeCommand(cmd: SedCommand, state: SedState): void {
     return;
   }
 
+  state.coverage?.hit(`sed:cmd:${cmd.type}`);
   switch (cmd.type) {
     case "substitute": {
       const subCmd = cmd as SubstituteCommand;

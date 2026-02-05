@@ -123,6 +123,7 @@ export const awkCommand2: Command = {
         ? // biome-ignore lint/style/noNonNullAssertion: exec checked in ternary
           (cmd: string) => ctx.exec!(cmd, { cwd: ctx.cwd })
         : undefined,
+      coverage: ctx.coverage,
     });
     runtimeCtx.FS = fieldSepStr;
     // Use Object.assign with null-prototype to preserve safety

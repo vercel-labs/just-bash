@@ -297,6 +297,7 @@ export const yqCommand: Command = {
           ? { maxIterations: ctx.limits.maxJqIterations }
           : undefined,
         env: ctx.env,
+        coverage: ctx.coverage,
       };
 
       if (options.nullInput) {

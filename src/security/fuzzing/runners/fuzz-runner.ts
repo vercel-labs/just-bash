@@ -9,6 +9,10 @@ import { Bash } from "../../../Bash.js";
 import type { BashExecResult } from "../../../types.js";
 import type { SecurityViolation } from "../../types.js";
 import { DEFAULT_FUZZ_CONFIG, type FuzzingConfig } from "../config.js";
+import {
+  type CoverageSnapshot,
+  FeatureCoverage,
+} from "../coverage/feature-coverage.js";
 
 /**
  * Result of a fuzz test execution.
@@ -49,6 +53,9 @@ export interface FuzzResult {
 
   /** Stdout output (if available) */
   stdout?: string;
+
+  /** Feature coverage snapshot (if coverage enabled) */
+  coverage?: CoverageSnapshot;
 }
 
 /**
@@ -128,6 +135,11 @@ export class FuzzRunner {
     const startTime = Date.now();
     const startMemory = process.memoryUsage().heapUsed;
 
+    // Create coverage collector if enabled
+    const coverageCollector = this.config.enableCoverage
+      ? new FeatureCoverage()
+      : undefined;
+
     // Create bash instance with fuzzing config
     const bash = new Bash({
       executionLimits: this.config.executionLimits,
@@ -138,6 +150,7 @@ export class FuzzRunner {
             onViolation: (v) => violations.push(v),
           }
         : false,
+      coverage: coverageCollector,
     });
 
     const result: FuzzResult = {
@@ -198,6 +211,11 @@ export class FuzzRunner {
         errorMsg.includes("limit") ||
         errorMsg.includes("maximum") ||
         errorMsg.includes("exceeded");
+    }
+
+    // Capture coverage snapshot if enabled
+    if (coverageCollector) {
+      result.coverage = coverageCollector.snapshot();
     }
 
     // Log script completion

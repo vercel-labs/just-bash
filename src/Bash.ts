@@ -56,6 +56,7 @@ import type {
   BashExecResult,
   Command,
   CommandRegistry,
+  FeatureCoverageWriter,
   TraceCallback,
 } from "./types.js";
 
@@ -174,6 +175,11 @@ export interface BashOptions {
    * ```
    */
   defenseInDepth?: DefenseInDepthConfig | boolean;
+  /**
+   * Feature coverage writer for fuzzing instrumentation.
+   * When provided, interpreter emits coverage hits for analysis.
+   */
+  coverage?: FeatureCoverageWriter;
 }
 
 export interface ExecOptions {
@@ -205,6 +211,7 @@ export class Bash {
   private traceFn?: TraceCallback;
   private logger?: BashLogger;
   private defenseInDepthConfig?: DefenseInDepthConfig | boolean;
+  private coverageWriter?: FeatureCoverageWriter;
 
   // Interpreter state (shared with interpreter instances)
   private state: InterpreterState;
@@ -262,6 +269,9 @@ export class Bash {
 
     // Store defense-in-depth config if provided
     this.defenseInDepthConfig = options.defenseInDepth;
+
+    // Store coverage writer if provided (for fuzzing instrumentation)
+    this.coverageWriter = options.coverage;
 
     // Initialize interpreter state
     this.state = {
@@ -525,6 +535,7 @@ export class Bash {
           fetch: this.secureFetch,
           sleep: this.sleepFn,
           trace: this.traceFn,
+          coverage: this.coverageWriter,
         };
 
         const interpreter = new Interpreter(interpreterOptions, execState);

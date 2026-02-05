@@ -18,6 +18,7 @@ export function applyTildeExpansion(
   if (!value.startsWith("~")) {
     return value;
   }
+  ctx.coverage?.hit("bash:expansion:tilde");
 
   // Use HOME if set (even if empty), otherwise fall back to /home/user
   const home =

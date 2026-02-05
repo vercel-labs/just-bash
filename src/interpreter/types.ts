@@ -11,7 +11,12 @@ import type {
 import type { IFileSystem } from "../fs/interface.js";
 import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
-import type { CommandRegistry, ExecResult, TraceCallback } from "../types.js";
+import type {
+  CommandRegistry,
+  ExecResult,
+  FeatureCoverageWriter,
+  TraceCallback,
+} from "../types.js";
 
 /**
  * Completion specification for a command, set by the `complete` builtin.
@@ -405,4 +410,6 @@ export interface InterpreterContext {
   trace?: TraceCallback;
   /** Current command substitution nesting depth (for limit enforcement) */
   substitutionDepth?: number;
+  /** Optional feature coverage writer for fuzzing instrumentation */
+  coverage?: FeatureCoverageWriter;
 }

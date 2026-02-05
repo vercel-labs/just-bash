@@ -6,7 +6,7 @@
  */
 
 import fc from "fast-check";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFcOptions, createFuzzConfig } from "../config.js";
 import { ARITHMETIC_ATTACKS, DOS_ATTACKS } from "../corpus/known-attacks.js";
 import {
@@ -27,6 +27,9 @@ import type { FuzzResult } from "../runners/fuzz-runner.js";
 import { FuzzRunner } from "../runners/fuzz-runner.js";
 
 const numRuns = Number(process.env.FUZZ_RUNS) || 50;
+// Scale vitest timeout: ~5ms per run + generous baseline
+const testTimeout = Math.max(10_000, numRuns * 5 + 5000);
+vi.setConfig({ testTimeout });
 const config = createFuzzConfig({
   numRuns,
   timeoutMs: 2000,

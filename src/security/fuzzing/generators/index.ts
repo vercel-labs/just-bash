@@ -5,3 +5,4 @@
  */
 
 export * from "./grammar-generator.js";
+export * from "./malformed-generator.js";

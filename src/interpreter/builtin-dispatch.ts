@@ -105,6 +105,11 @@ export async function dispatchBuiltin(
 ): Promise<ExecResult | null> {
   const { ctx, runCommand } = dispatchCtx;
 
+  // Coverage tracking for builtins (lightweight: only fires when coverage is enabled)
+  if (ctx.coverage && SHELL_BUILTINS.has(commandName)) {
+    ctx.coverage.hit(`bash:builtin:${commandName}`);
+  }
+
   // Built-in commands (special builtins that cannot be overridden by functions)
   if (commandName === "export") {
     return handleExport(ctx, args);
@@ -420,6 +425,7 @@ export async function executeExternalCommand(
     trace: ctx.trace,
     fileDescriptors: ctx.state.fileDescriptors,
     xpgEcho: ctx.state.shoptOptions.xpg_echo,
+    coverage: ctx.coverage,
   };
 
   try {

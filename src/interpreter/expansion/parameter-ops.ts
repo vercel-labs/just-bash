@@ -83,6 +83,7 @@ export async function handleDefaultValue(
   opCtx: ParameterOpContext,
   expandWordPartsAsync: ExpandWordPartsAsyncFn,
 ): Promise<string> {
+  ctx.coverage?.hit("bash:expansion:default_value");
   const useDefault = opCtx.isUnset || (operation.checkEmpty && opCtx.isEmpty);
   if (useDefault && operation.word) {
     return expandWordPartsAsync(
@@ -104,6 +105,7 @@ export async function handleAssignDefault(
   opCtx: ParameterOpContext,
   expandWordPartsAsync: ExpandWordPartsAsyncFn,
 ): Promise<string> {
+  ctx.coverage?.hit("bash:expansion:assign_default");
   const useDefault = opCtx.isUnset || (operation.checkEmpty && opCtx.isEmpty);
   if (useDefault && operation.word) {
     const defaultValue = await expandWordPartsAsync(
@@ -158,6 +160,7 @@ export async function handleErrorIfUnset(
   opCtx: ParameterOpContext,
   expandWordPartsAsync: ExpandWordPartsAsyncFn,
 ): Promise<string> {
+  ctx.coverage?.hit("bash:expansion:error_if_unset");
   const shouldError = opCtx.isUnset || (operation.checkEmpty && opCtx.isEmpty);
   if (shouldError) {
     const message = operation.word
@@ -181,6 +184,7 @@ export async function handleUseAlternative(
   opCtx: ParameterOpContext,
   expandWordPartsAsync: ExpandWordPartsAsyncFn,
 ): Promise<string> {
+  ctx.coverage?.hit("bash:expansion:use_alternative");
   const useAlternative = !(
     opCtx.isUnset ||
     (operation.checkEmpty && opCtx.isEmpty)
@@ -205,6 +209,7 @@ export async function handlePatternRemoval(
   expandWordPartsAsync: ExpandWordPartsAsyncFn,
   expandPart: ExpandPartFn,
 ): Promise<string> {
+  ctx.coverage?.hit("bash:expansion:pattern_removal");
   // Build regex pattern from parts, preserving literal vs glob distinction
   let regexStr = "";
   const extglob = ctx.state.shoptOptions.extglob;
@@ -257,6 +262,7 @@ export async function handlePatternReplacement(
   expandWordPartsAsync: ExpandWordPartsAsyncFn,
   expandPart: ExpandPartFn,
 ): Promise<string> {
+  ctx.coverage?.hit("bash:expansion:pattern_replacement");
   let regex = "";
   const extglob = ctx.state.shoptOptions.extglob;
   if (operation.pattern) {
@@ -335,6 +341,7 @@ export function handleLength(
   parameter: string,
   value: string,
 ): string {
+  ctx.coverage?.hit("bash:expansion:length");
   // Check if this is an array length: ${#a[@]} or ${#a[*]}
   const arrayMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/);
   if (arrayMatch) {
@@ -380,6 +387,7 @@ export async function handleSubstring(
   value: string,
   operation: SubstringOp,
 ): Promise<string> {
+  ctx.coverage?.hit("bash:expansion:substring");
   const offset = await evaluateArithmetic(ctx, operation.offset.expression);
   const length = operation.length
     ? await evaluateArithmetic(ctx, operation.length.expression)
@@ -493,6 +501,7 @@ export async function handleCaseModification(
   expandWordPartsAsync: ExpandWordPartsAsyncFn,
   expandParameterAsync: ExpandParameterAsyncFn,
 ): Promise<string> {
+  ctx.coverage?.hit("bash:expansion:case_modification");
   if (operation.pattern) {
     const extglob = ctx.state.shoptOptions.extglob;
     let patternRegexStr = "";
@@ -552,6 +561,7 @@ export function handleTransform(
   isUnset: boolean,
   operation: { operator: string },
 ): string {
+  ctx.coverage?.hit("bash:expansion:transform");
   const arrayMatchTransform = parameter.match(
     /^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/,
   );
@@ -638,6 +648,7 @@ export async function handleIndirection(
   expandParameterAsync: ExpandParameterAsyncFn,
   inDoubleQuotes = false,
 ): Promise<string> {
+  ctx.coverage?.hit("bash:expansion:indirection");
   if (isNameref(ctx, parameter)) {
     return getNamerefTarget(ctx, parameter) || "";
   }
@@ -691,6 +702,7 @@ export function handleArrayKeys(
   ctx: InterpreterContext,
   operation: { array: string; star: boolean },
 ): string {
+  ctx.coverage?.hit("bash:expansion:array_keys");
   const elements = getArrayElements(ctx, operation.array);
   const keys = elements.map(([k]) => String(k));
   if (operation.star) {
@@ -706,6 +718,7 @@ export function handleVarNamePrefix(
   ctx: InterpreterContext,
   operation: { prefix: string; star: boolean },
 ): string {
+  ctx.coverage?.hit("bash:expansion:var_name_prefix");
   const matchingVars = getVarNamesWithPrefix(ctx, operation.prefix);
   if (operation.star) {
     return matchingVars.join(getIfsSeparator(ctx.state.env));
