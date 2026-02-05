@@ -16,13 +16,13 @@ importers:
         version: 6.0.66(zod@4.3.6)
       bash-tool:
         specifier: ^1.3.13
-        version: 1.3.13(ai@6.0.66(zod@4.3.6))(just-bash@2.9.3)
+        version: 1.3.13(ai@6.0.66(zod@4.3.6))(just-bash@2.9.5)
       geist:
         specifier: ^1.5.1
         version: 1.5.1(next@16.2.0-canary.26(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))
       just-bash:
-        specifier: ^2.9.3
-        version: 2.9.3
+        specifier: ^2.9.5
+        version: 2.9.5
       next:
         specifier: 16.2.0-canary.26
         version: 16.2.0-canary.26(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -1584,8 +1584,8 @@ packages:
     resolution: {integrity: sha512-ZZow9HBI5O6EPgSJLUb8n2NKgmVWTwCvHGwFuJlMjvLFqlGG6pjirPhtdsseaLZjSibD8eegzmYpUZwoIlj2cQ==}
     engines: {node: '>=4.0'}
 
-  just-bash@2.9.3:
-    resolution: {integrity: sha512-eJos/+y5OFYCQX1pMGuukQtcKvs3Vs9MFMssK5ve9YBO7TYeS9UWcT0EnhGIdJ94tT0pMBEQwVXyR3ZnNxfOqw==}
+  just-bash@2.9.5:
+    resolution: {integrity: sha512-ZYc4wVxE+jLDgjcwVVqKOT2hM8DG+gUUKMZAhfUULjbP9wT8U9V0uItA8tREpl2VnDLjzrxxK6jV7vbY/TLhNw==}
     hasBin: true
 
   keyv@4.5.4:
@@ -3069,14 +3069,14 @@ snapshots:
 
   baseline-browser-mapping@2.9.19: {}
 
-  bash-tool@1.3.13(ai@6.0.66(zod@4.3.6))(just-bash@2.9.3):
+  bash-tool@1.3.13(ai@6.0.66(zod@4.3.6))(just-bash@2.9.5):
     dependencies:
       ai: 6.0.66(zod@4.3.6)
       fast-glob: 3.3.3
       gray-matter: 4.0.3
       zod: 3.25.76
     optionalDependencies:
-      just-bash: 2.9.3
+      just-bash: 2.9.5
 
   bl@4.1.0:
     dependencies:
@@ -3941,7 +3941,7 @@ snapshots:
       object.assign: 4.1.7
       object.values: 1.2.1
 
-  just-bash@2.9.3:
+  just-bash@2.9.5:
     dependencies:
       compressjs: 1.0.3
       diff: 8.0.3
