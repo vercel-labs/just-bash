@@ -39,19 +39,14 @@ describe("WorkerDefenseInDepth", () => {
 
   describe("activation", () => {
     it("should activate when enabled", () => {
-      defense = new WorkerDefenseInDepth({ enabled: true });
+      defense = new WorkerDefenseInDepth({});
       const isActive = defense.getStats().isActive;
       defense.deactivate();
       expect(isActive).toBe(true);
     });
 
-    it("should not activate when disabled", () => {
-      defense = new WorkerDefenseInDepth({ enabled: false });
-      expect(defense.getStats().isActive).toBe(false);
-    });
-
     it("should generate an execution ID", () => {
-      defense = new WorkerDefenseInDepth({ enabled: true });
+      defense = new WorkerDefenseInDepth({});
       const executionId = defense.getExecutionId();
       defense.deactivate();
       expect(executionId).toBeDefined();
@@ -59,7 +54,7 @@ describe("WorkerDefenseInDepth", () => {
     });
 
     it("should deactivate and restore globals", () => {
-      defense = new WorkerDefenseInDepth({ enabled: true });
+      defense = new WorkerDefenseInDepth({});
       const wasActive = defense.getStats().isActive;
       defense.deactivate();
 
@@ -75,7 +70,7 @@ describe("WorkerDefenseInDepth", () => {
   describe("blocking in worker context", () => {
     describe("Function constructor blocking", () => {
       it("should block new Function()", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -89,7 +84,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should block Function() call without new", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -103,7 +98,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should block Function accessed via globalThis", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -120,7 +115,7 @@ describe("WorkerDefenseInDepth", () => {
 
     describe("eval blocking", () => {
       it("should block direct eval", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -135,7 +130,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should block indirect eval via globalThis", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -153,7 +148,7 @@ describe("WorkerDefenseInDepth", () => {
 
     describe("setTimeout/setInterval blocking", () => {
       it("should block setTimeout", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -167,7 +162,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should block setInterval", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -181,7 +176,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should block setImmediate", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -197,7 +192,7 @@ describe("WorkerDefenseInDepth", () => {
 
     describe("Proxy blocking", () => {
       it("should block new Proxy()", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -213,7 +208,7 @@ describe("WorkerDefenseInDepth", () => {
 
     describe(".constructor.constructor escape vector", () => {
       it("should block {}.constructor.constructor", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -229,7 +224,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should block [].constructor.constructor", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -245,7 +240,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should block (() => {}).constructor", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -261,7 +256,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should block (async () => {}).constructor", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -277,7 +272,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should block (function*(){}).constructor", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -295,7 +290,7 @@ describe("WorkerDefenseInDepth", () => {
 
     describe(".constructor property reads (allowed for type introspection)", () => {
       it("should allow reading .constructor.name", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let name: string | undefined;
         let error: Error | undefined;
@@ -312,7 +307,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should allow reading Function.prototype.constructor.name", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let name: string | undefined;
         let error: Error | undefined;
@@ -328,7 +323,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should allow reading .constructor.length", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let length: number | undefined;
         let error: Error | undefined;
@@ -345,7 +340,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should allow reading .constructor.prototype", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let proto: unknown;
         let error: Error | undefined;
@@ -362,7 +357,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should allow checking .constructor with typeof", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let typeofResult: string | undefined;
         let error: Error | undefined;
@@ -379,7 +374,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should block .constructor() invocation while allowing property reads", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let name: string | undefined;
         let invokeError: Error | undefined;
@@ -401,7 +396,7 @@ describe("WorkerDefenseInDepth", () => {
 
     describe("process.env blocking", () => {
       it("should block process.env access", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -416,7 +411,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should block process.env iteration", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -432,7 +427,7 @@ describe("WorkerDefenseInDepth", () => {
 
     describe("WebAssembly blocking", () => {
       it("should block WebAssembly.Module access", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -448,7 +443,7 @@ describe("WorkerDefenseInDepth", () => {
 
     describe("Error.prepareStackTrace blocking", () => {
       it("should allow Error.prepareStackTrace reading", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let didThrow = false;
         try {
@@ -462,7 +457,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should block Error.prepareStackTrace assignment", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -478,7 +473,7 @@ describe("WorkerDefenseInDepth", () => {
 
     describe("process.binding blocking", () => {
       it("should block process.binding calls", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -494,7 +489,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should block process.dlopen calls", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -510,7 +505,7 @@ describe("WorkerDefenseInDepth", () => {
 
     describe("other blocked globals", () => {
       it("should block WeakRef", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -524,7 +519,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should block FinalizationRegistry", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         let error: Error | undefined;
         try {
@@ -538,7 +533,7 @@ describe("WorkerDefenseInDepth", () => {
       });
 
       it("should freeze Reflect (not block it)", () => {
-        defense = new WorkerDefenseInDepth({ enabled: true });
+        defense = new WorkerDefenseInDepth({});
 
         const result = Reflect.get({ test: 42 }, "test");
         const isFrozen = Object.isFrozen(Reflect);
@@ -554,7 +549,6 @@ describe("WorkerDefenseInDepth", () => {
     it("should log but not block in audit mode", () => {
       const violations: SecurityViolation[] = [];
       defense = new WorkerDefenseInDepth({
-        enabled: true,
         auditMode: true,
         onViolation: (v) => violations.push(v),
       });
@@ -577,7 +571,6 @@ describe("WorkerDefenseInDepth", () => {
     it("should record violations in audit mode", () => {
       const violations: SecurityViolation[] = [];
       defense = new WorkerDefenseInDepth({
-        enabled: true,
         auditMode: true,
         onViolation: (v) => violations.push(v),
       });
@@ -598,7 +591,6 @@ describe("WorkerDefenseInDepth", () => {
     it("should record violations with correct information", () => {
       const violations: SecurityViolation[] = [];
       defense = new WorkerDefenseInDepth({
-        enabled: true,
         onViolation: (v) => violations.push(v),
       });
 
@@ -624,7 +616,7 @@ describe("WorkerDefenseInDepth", () => {
     });
 
     it("should include violations in stats", () => {
-      defense = new WorkerDefenseInDepth({ enabled: true });
+      defense = new WorkerDefenseInDepth({});
 
       try {
         new Function("return 1");
@@ -643,7 +635,7 @@ describe("WorkerDefenseInDepth", () => {
     });
 
     it("should clear violations when requested", () => {
-      defense = new WorkerDefenseInDepth({ enabled: true });
+      defense = new WorkerDefenseInDepth({});
 
       try {
         new Function("return 1");
@@ -664,7 +656,6 @@ describe("WorkerDefenseInDepth", () => {
     it("should invoke onViolation callback", () => {
       const violations: SecurityViolation[] = [];
       defense = new WorkerDefenseInDepth({
-        enabled: true,
         onViolation: (v) => violations.push(v),
       });
 
@@ -687,7 +678,7 @@ describe("WorkerDefenseInDepth", () => {
 
   describe("restoration", () => {
     it("should restore Function constructor after deactivation", () => {
-      defense = new WorkerDefenseInDepth({ enabled: true });
+      defense = new WorkerDefenseInDepth({});
 
       // Should throw while active
       let threwWhileActive = false;
@@ -707,7 +698,7 @@ describe("WorkerDefenseInDepth", () => {
     });
 
     it("should restore all globals after deactivation", () => {
-      defense = new WorkerDefenseInDepth({ enabled: true });
+      defense = new WorkerDefenseInDepth({});
 
       // All blocked while active
       let functionBlocked = false;
@@ -748,7 +739,7 @@ describe("WorkerDefenseInDepth", () => {
 
   describe("worker-specific behavior", () => {
     it("should always block (no context tracking needed)", () => {
-      defense = new WorkerDefenseInDepth({ enabled: true });
+      defense = new WorkerDefenseInDepth({});
 
       // Unlike DefenseInDepthBox, WorkerDefenseInDepth always blocks
       let threw = false;
@@ -763,7 +754,7 @@ describe("WorkerDefenseInDepth", () => {
     });
 
     it("should include 'worker context' in error messages", () => {
-      defense = new WorkerDefenseInDepth({ enabled: true });
+      defense = new WorkerDefenseInDepth({});
 
       let errorMessage = "";
       try {

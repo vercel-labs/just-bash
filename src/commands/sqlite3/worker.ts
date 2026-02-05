@@ -38,7 +38,6 @@ async function initializeWithDefense(): Promise<SqlJsStatic> {
 
   // Activate defense after sql.js is loaded (no exclusions needed)
   _defense = new WorkerDefenseInDepth({
-    enabled: true,
     onViolation: (v) => {
       parentPort?.postMessage({ type: "security-violation", violation: v });
     },

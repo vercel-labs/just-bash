@@ -17,7 +17,6 @@
  *
  * // Apply patches at worker startup
  * const defense = new WorkerDefenseInDepth({
- *   enabled: true,
  *   onViolation: (v) => parentPort?.postMessage({ type: 'security-violation', violation: v }),
  * });
  *
@@ -134,7 +133,8 @@ export class WorkerDefenseInDepth {
     this.config = config;
     this.executionId = generateExecutionId();
 
-    if (config.enabled) {
+    // Default to enabled if not explicitly set to false
+    if (config.enabled !== false) {
       this.activate();
     }
   }

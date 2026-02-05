@@ -14,9 +14,9 @@
  */
 export interface DefenseInDepthConfig {
   /**
-   * Enable or disable the defense layer (default: true when option is provided).
+   * Enable or disable the defense layer. Default: true
    */
-  enabled: boolean;
+  enabled?: boolean;
 
   /**
    * Audit mode: log violations but don't block them.

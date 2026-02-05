@@ -1180,7 +1180,6 @@ async function initializeWithDefense(): Promise<void> {
   // - proxy: Python-JS interop wraps JS objects in Proxy for Python access
   // - setImmediate: Pyodide's webloop uses it for async task scheduling
   defense = new WorkerDefenseInDepth({
-    enabled: true,
     excludeViolationTypes: ["proxy", "setImmediate"],
     onViolation: (v) => {
       parentPort?.postMessage({ type: "security-violation", violation: v });
