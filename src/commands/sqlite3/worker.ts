@@ -38,8 +38,11 @@ async function initializeWithDefense(): Promise<SqlJsStatic> {
   // Initialize sql.js WASM first (needs unrestricted JS features)
   cachedSQL = await initSqlJs();
 
-  // Activate defense after sql.js is loaded (no exclusions needed)
+  // Activate defense after sql.js is loaded.
+  // SharedArrayBuffer/Atomics exclusions needed because sql.js WASM runtime
+  // may use them internally for memory management on some platforms (e.g., Linux).
   defense = new WorkerDefenseInDepth({
+    excludeViolationTypes: ["shared_array_buffer", "atomics"],
     onViolation: (v) => {
       parentPort?.postMessage({ type: "security-violation", violation: v });
     },
