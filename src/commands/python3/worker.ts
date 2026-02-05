@@ -1175,10 +1175,24 @@ async function initializeWithDefense(): Promise<void> {
   // Load Pyodide first (needs unrestricted JS features for WASM init)
   await getPyodide();
 
-  // Activate defense after Pyodide is loaded
-  // Exclusions required by Pyodide:
-  // - proxy: Python-JS interop wraps JS objects in Proxy for Python access
-  // - setImmediate: Pyodide's webloop uses it for async task scheduling
+  // Activate defense after Pyodide is loaded.
+  //
+  // Security exclusions required for Pyodide operation:
+  //
+  // 1. proxy: Pyodide's Python-JS interop (pyodide.ffi) wraps JavaScript objects
+  //    in Proxy to make them accessible from Python. Without this, basic operations
+  //    like accessing JS object properties from Python would fail.
+  //    Security impact: Proxy alone cannot execute arbitrary code strings. An attacker
+  //    would need access to Function/eval (which remain blocked) to achieve code execution.
+  //    See: https://pyodide.org/en/stable/usage/type-conversions.html
+  //
+  // 2. setImmediate: Pyodide's webloop (asyncio implementation) uses setImmediate
+  //    for scheduling microtasks and async task execution. Without this, any Python
+  //    code using async/await would hang indefinitely.
+  //    Security impact: setImmediate only accepts function callbacks, not code strings,
+  //    so it cannot be used for arbitrary code execution like setTimeout("code") could.
+  //    See: https://pyodide.org/en/stable/usage/webloop.html
+  //
   defense = new WorkerDefenseInDepth({
     excludeViolationTypes: ["proxy", "setImmediate"],
     onViolation: (v) => {
