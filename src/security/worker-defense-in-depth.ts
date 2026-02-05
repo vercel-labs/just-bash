@@ -724,41 +724,48 @@ export class WorkerDefenseInDepth {
         descriptor: originalDescriptor,
       });
 
-      Object.defineProperty(process, "mainModule", {
-        get() {
-          const message =
-            "process.mainModule access is blocked in worker context";
-          const violation = self.recordViolation(
-            "process_main_module",
-            "process.mainModule",
-            message,
-          );
+      // Only protect if mainModule exists (CJS contexts).
+      // In ESM/workers, mainModule is undefined and Node.js internals
+      // (createRequire) access this property during module loading -
+      // blocking it would crash the worker silently.
+      const currentValue = originalDescriptor?.value;
+      if (currentValue !== undefined) {
+        Object.defineProperty(process, "mainModule", {
+          get() {
+            const message =
+              "process.mainModule access is blocked in worker context";
+            const violation = self.recordViolation(
+              "process_main_module",
+              "process.mainModule",
+              message,
+            );
 
-          if (!auditMode) {
-            throw new WorkerSecurityViolationError(message, violation);
-          }
-          return originalDescriptor?.value;
-        },
-        set(value) {
-          const message =
-            "process.mainModule modification is blocked in worker context";
-          const violation = self.recordViolation(
-            "process_main_module",
-            "process.mainModule",
-            message,
-          );
+            if (!auditMode) {
+              throw new WorkerSecurityViolationError(message, violation);
+            }
+            return currentValue;
+          },
+          set(value) {
+            const message =
+              "process.mainModule modification is blocked in worker context";
+            const violation = self.recordViolation(
+              "process_main_module",
+              "process.mainModule",
+              message,
+            );
 
-          if (!auditMode) {
-            throw new WorkerSecurityViolationError(message, violation);
-          }
-          Object.defineProperty(process, "mainModule", {
-            value,
-            writable: true,
-            configurable: true,
-          });
-        },
-        configurable: true,
-      });
+            if (!auditMode) {
+              throw new WorkerSecurityViolationError(message, violation);
+            }
+            Object.defineProperty(process, "mainModule", {
+              value,
+              writable: true,
+              configurable: true,
+            });
+          },
+          configurable: true,
+        });
+      }
     } catch {
       // Could not protect process.mainModule
     }

@@ -488,20 +488,39 @@ describe("WorkerDefenseInDepth", () => {
         expect(error).toBeInstanceOf(WorkerSecurityViolationError);
       });
 
-      it("should block process.mainModule access", () => {
-        defense = new WorkerDefenseInDepth({});
+      it("should block process.mainModule access when it exists (CJS contexts)", () => {
+        // In ESM/workers, process.mainModule is undefined and not blocked
+        // (Node.js internals like createRequire read it during module loading).
+        // We test by temporarily setting mainModule before activation.
+        const origMainModule = (process as unknown as Record<string, unknown>)
+          .mainModule;
+        (process as unknown as Record<string, unknown>).mainModule = {
+          require: () => {},
+        };
 
-        let error: Error | undefined;
         try {
-          const _mod = (process as unknown as { mainModule: unknown })
-            .mainModule;
-        } catch (e) {
-          error = e as Error;
-        }
+          defense = new WorkerDefenseInDepth({});
 
-        defense.deactivate();
-        expect(error).toBeInstanceOf(WorkerSecurityViolationError);
-        expect(error?.message).toContain("process.mainModule");
+          let error: Error | undefined;
+          try {
+            const _mod = (process as unknown as { mainModule: unknown })
+              .mainModule;
+          } catch (e) {
+            error = e as Error;
+          }
+
+          defense.deactivate();
+          defense = null;
+          expect(error).toBeInstanceOf(WorkerSecurityViolationError);
+          expect(error?.message).toContain("process.mainModule");
+        } finally {
+          if (origMainModule === undefined) {
+            delete (process as unknown as Record<string, unknown>).mainModule;
+          } else {
+            (process as unknown as Record<string, unknown>).mainModule =
+              origMainModule;
+          }
+        }
       });
 
       it("should block process.dlopen calls", () => {
