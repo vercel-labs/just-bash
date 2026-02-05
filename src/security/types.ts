@@ -30,6 +30,13 @@ export interface DefenseInDepthConfig {
    * Called regardless of auditMode setting.
    */
   onViolation?: (violation: SecurityViolation) => void;
+
+  /**
+   * Violation types to exclude from blocking.
+   * Use this when certain globals are required for legitimate purposes
+   * (e.g., WebAssembly for sql.js in sqlite3 worker).
+   */
+  excludeViolationTypes?: SecurityViolationType[];
 }
 
 /**

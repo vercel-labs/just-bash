@@ -6,10 +6,46 @@
  *
  * Uses sql.js (WASM-based SQLite) which is fully sandboxed and cannot
  * access the real filesystem.
+ *
+ * Security: Uses phased defense-in-depth:
+ * 1. Init phase: sql.js WASM loads without restrictions
+ * 2. Defense phase: Activate full blocking after sql.js init
+ * 3. Execute phase: User SQL runs with all dangerous globals blocked
  */
 
 import { parentPort, workerData } from "node:worker_threads";
-import initSqlJs, { type Database } from "sql.js";
+import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
+import { WorkerDefenseInDepth } from "../../security/index.js";
+
+// Cached SQL.js module (initialized once)
+let cachedSQL: SqlJsStatic | null = null;
+
+// Defense instance (activated after sql.js init)
+// Named with underscore since we only need the side effect of activation
+let _defense: WorkerDefenseInDepth | null = null;
+
+/**
+ * Initialize sql.js and activate defense-in-depth.
+ * Called once per worker lifetime.
+ */
+async function initializeWithDefense(): Promise<SqlJsStatic> {
+  if (cachedSQL) {
+    return cachedSQL;
+  }
+
+  // Initialize sql.js WASM first (needs unrestricted JS features)
+  cachedSQL = await initSqlJs();
+
+  // Activate defense after sql.js is loaded (no exclusions needed)
+  _defense = new WorkerDefenseInDepth({
+    enabled: true,
+    onViolation: (v) => {
+      parentPort?.postMessage({ type: "security-violation", violation: v });
+    },
+  });
+
+  return cachedSQL;
+}
 
 export interface WorkerInput {
   dbBuffer: Uint8Array | null; // null for :memory:
@@ -96,7 +132,8 @@ async function executeQuery(data: WorkerInput): Promise<WorkerOutput> {
   let db: Database;
 
   try {
-    const SQL = await initSqlJs();
+    const SQL = await initializeWithDefense();
+
     if (data.dbBuffer) {
       db = new SQL.Database(data.dbBuffer);
     } else {

@@ -1,10 +1,17 @@
 /**
  * Worker thread for Python execution via Pyodide.
  * Keeps Pyodide loaded and handles multiple execution requests.
+ *
+ * Defense-in-depth activates AFTER Pyodide loads (WASM init needs unrestricted JS).
+ * User Python code runs with dangerous globals blocked.
  */
 
 import { parentPort, workerData } from "node:worker_threads";
 import { loadPyodide, type PyodideInterface } from "pyodide";
+import {
+  WorkerDefenseInDepth,
+  type WorkerDefenseStats,
+} from "../../security/index.js";
 import { SyncFsBackend } from "./sync-fs-backend.js";
 
 export interface WorkerInput {
@@ -19,6 +26,8 @@ export interface WorkerInput {
 export interface WorkerOutput {
   success: boolean;
   error?: string;
+  /** Defense-in-depth stats if enabled */
+  defenseStats?: WorkerDefenseStats;
 }
 
 let pyodideInstance: PyodideInterface | null = null;
@@ -1154,17 +1163,56 @@ except SystemExit as e:
   }
 }
 
+// Defense-in-depth instance - activated AFTER Pyodide loads
+let defense: WorkerDefenseInDepth | null = null;
+
+/**
+ * Initialize Pyodide and then activate defense-in-depth.
+ * This phased approach allows Pyodide to load without restrictions,
+ * then blocks dangerous globals before user code runs.
+ */
+async function initializeWithDefense(): Promise<void> {
+  // Load Pyodide first (needs unrestricted JS features for WASM init)
+  await getPyodide();
+
+  // Activate defense after Pyodide is loaded
+  // Exclusions required by Pyodide:
+  // - proxy: Python-JS interop wraps JS objects in Proxy for Python access
+  // - setImmediate: Pyodide's webloop uses it for async task scheduling
+  defense = new WorkerDefenseInDepth({
+    enabled: true,
+    excludeViolationTypes: ["proxy", "setImmediate"],
+    onViolation: (v) => {
+      parentPort?.postMessage({ type: "security-violation", violation: v });
+    },
+  });
+}
+
 // Handle messages from parent
 if (parentPort) {
   if (workerData) {
-    runPython(workerData as WorkerInput).then((result) => {
-      parentPort?.postMessage(result);
-    });
+    initializeWithDefense()
+      .then(() => runPython(workerData as WorkerInput))
+      .then((result) => {
+        result.defenseStats = defense?.getStats();
+        parentPort?.postMessage(result);
+      })
+      .catch((e) => {
+        parentPort?.postMessage({
+          success: false,
+          error: (e as Error).message,
+        });
+      });
   }
 
   parentPort.on("message", async (input: WorkerInput) => {
     try {
+      // Defense should already be active from initial load
+      if (!defense) {
+        await initializeWithDefense();
+      }
       const result = await runPython(input);
+      result.defenseStats = defense?.getStats();
       parentPort?.postMessage(result);
     } catch (e) {
       parentPort?.postMessage({ success: false, error: (e as Error).message });
