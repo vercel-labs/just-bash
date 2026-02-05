@@ -7,7 +7,8 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { Bash } from "../../index.js";
-import { parse } from "../../parser/parser.js";
+import { Lexer } from "../../parser/lexer.js";
+import { Parser, parse } from "../../parser/parser.js";
 
 describe("DoS Prevention - Execution Limits", () => {
   let bash: Bash;
@@ -590,6 +591,43 @@ describe("DoS Prevention - Execution Limits", () => {
       }
 
       expect(() => parse(script)).not.toThrow();
+    });
+
+    it("should reset depth when reusing Parser via parseTokens", () => {
+      const parser = new Parser();
+
+      // First parse: deeply nested script that triggers the limit
+      const depth = 300;
+      let deepScript = "";
+      for (let i = 0; i < depth; i++) {
+        deepScript += "if true; then\n";
+      }
+      deepScript += "echo deep\n";
+      for (let i = 0; i < depth; i++) {
+        deepScript += "fi\n";
+      }
+      expect(() => parser.parse(deepScript)).toThrow(
+        /Maximum parser nesting depth exceeded/,
+      );
+
+      // Second parse on the same instance: simple script via parseTokens
+      // This must succeed — counters should be reset
+      const simpleTokens = new Lexer("echo hello").tokenize();
+      expect(() => parser.parseTokens(simpleTokens)).not.toThrow();
+    });
+
+    it("should reset iteration count when reusing Parser via parseTokens", () => {
+      const parser = new Parser();
+
+      // First parse: a valid script
+      const first = parser.parse("echo first");
+      expect(first.statements.length).toBe(1);
+
+      // Second parse via parseTokens: should work without hitting
+      // a stale iteration count from the first parse
+      const tokens = new Lexer("echo second").tokenize();
+      const second = parser.parseTokens(tokens);
+      expect(second.statements.length).toBe(1);
     });
   });
 });

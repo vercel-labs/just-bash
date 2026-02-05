@@ -149,6 +149,8 @@ export class Parser {
     this.tokens = tokens;
     this.pos = 0;
     this.pendingHeredocs = [];
+    this.parseIterations = 0;
+    this.parseDepth = 0;
     return this.parseScript();
   }
 
