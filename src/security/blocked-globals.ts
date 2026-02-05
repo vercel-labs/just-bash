@@ -6,6 +6,10 @@
  *
  * IMPORTANT: This is a SECONDARY defense layer. The primary security comes
  * from proper sandboxing and architectural constraints.
+ *
+ * NOTE: Dynamic import() CANNOT be blocked by this approach. See the
+ * "KNOWN LIMITATION" section in defense-in-depth-box.ts for details
+ * and recommended mitigations.
  */
 
 import type { SecurityViolationType } from "./types.js";
@@ -130,6 +134,9 @@ export function getBlockedGlobals(): BlockedGlobal[] {
       strategy: "throw",
       reason: "process.dlopen allows loading native addons",
     },
+    // Note: process.mainModule is handled specially in defense-in-depth-box.ts
+    // and worker-defense-in-depth.ts because it may be undefined in ESM contexts
+    // but we still want to block both reading and setting it.
 
     // We also don't block `require` because:
     // 1. It may not exist in all environments (ESM)
@@ -175,6 +182,24 @@ export function getBlockedGlobals(): BlockedGlobal[] {
       violationType: "webassembly",
       strategy: "throw",
       reason: "WebAssembly allows executing arbitrary compiled code",
+    },
+
+    // SharedArrayBuffer and Atomics can enable side-channel attacks
+    {
+      prop: "SharedArrayBuffer",
+      target: globalThis,
+      violationType: "shared_array_buffer",
+      strategy: "throw",
+      reason:
+        "SharedArrayBuffer could enable side-channel communication or timing attacks",
+    },
+    {
+      prop: "Atomics",
+      target: globalThis,
+      violationType: "atomics",
+      strategy: "throw",
+      reason:
+        "Atomics could enable side-channel communication or timing attacks",
     },
 
     // Note: Error.prepareStackTrace is handled specially in defense-in-depth-box.ts

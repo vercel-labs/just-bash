@@ -32,6 +32,18 @@
  * IMPORTANT: This is a SECONDARY defense layer. It should never be relied upon
  * as the primary security mechanism. The primary security comes from proper
  * sandboxing, input validation, and architectural constraints.
+ *
+ * KNOWN LIMITATION - Dynamic import() cannot be blocked:
+ * Dynamic `import()` is a language-level feature that cannot be intercepted
+ * by property proxies or monkey-patching. An attacker with write access to
+ * the filesystem could create a malicious JS module and import it:
+ *   import('data:text/javascript,console.log("escaped")')
+ *   import('/tmp/malicious.js')
+ *
+ * Mitigations for import() must be applied at other layers:
+ * - Filesystem restrictions (prevent writing .js/.mjs files)
+ * - Node.js module resolution hooks (--experimental-loader)
+ * - Worker isolation (separate V8 contexts)
  */
 
 import { type BlockedGlobal, getBlockedGlobals } from "./blocked-globals.js";
@@ -438,6 +450,16 @@ export class WorkerDefenseInDepth {
     if (!excludeTypes.has("error_prepare_stack_trace")) {
       this.protectErrorPrepareStackTrace();
     }
+
+    // Protect process.mainModule (may be undefined in ESM but still blockable)
+    if (!excludeTypes.has("process_main_module")) {
+      this.protectProcessMainModule();
+    }
+
+    // Protect Module._load (prevents require-based escape vectors)
+    if (!excludeTypes.has("module_load")) {
+      this.protectModuleLoad();
+    }
   }
 
   /**
@@ -670,6 +692,149 @@ export class WorkerDefenseInDepth {
       });
     } catch {
       // Could not patch constructor
+    }
+  }
+
+  /**
+   * Protect process.mainModule from being accessed or set.
+   *
+   * The attack vector is:
+   * ```
+   * process.mainModule.require('child_process').execSync('whoami')
+   * process.mainModule.constructor._load('vm')
+   * ```
+   *
+   * process.mainModule may be undefined in ESM contexts but could exist in
+   * CommonJS workers. We block both reading and setting.
+   */
+  private protectProcessMainModule(): void {
+    if (typeof process === "undefined") return;
+
+    const self = this;
+    const auditMode = this.config.auditMode;
+
+    try {
+      const originalDescriptor = Object.getOwnPropertyDescriptor(
+        process,
+        "mainModule",
+      );
+      this.originalDescriptors.push({
+        target: process,
+        prop: "mainModule",
+        descriptor: originalDescriptor,
+      });
+
+      Object.defineProperty(process, "mainModule", {
+        get() {
+          const message =
+            "process.mainModule access is blocked in worker context";
+          const violation = self.recordViolation(
+            "process_main_module",
+            "process.mainModule",
+            message,
+          );
+
+          if (!auditMode) {
+            throw new WorkerSecurityViolationError(message, violation);
+          }
+          return originalDescriptor?.value;
+        },
+        set(value) {
+          const message =
+            "process.mainModule modification is blocked in worker context";
+          const violation = self.recordViolation(
+            "process_main_module",
+            "process.mainModule",
+            message,
+          );
+
+          if (!auditMode) {
+            throw new WorkerSecurityViolationError(message, violation);
+          }
+          Object.defineProperty(process, "mainModule", {
+            value,
+            writable: true,
+            configurable: true,
+          });
+        },
+        configurable: true,
+      });
+    } catch {
+      // Could not protect process.mainModule
+    }
+  }
+
+  /**
+   * Protect Module._load from being called.
+   *
+   * The attack vector is:
+   * ```
+   * module.constructor._load('child_process')
+   * require.main.constructor._load('vm')
+   * ```
+   *
+   * We access the Module class and replace _load with a blocking proxy.
+   */
+  private protectModuleLoad(): void {
+    const self = this;
+    const auditMode = this.config.auditMode;
+
+    try {
+      let ModuleClass: Record<string, unknown> | null = null;
+
+      // Path 1: via process.mainModule (CJS contexts)
+      if (typeof process !== "undefined") {
+        const mainModule = (process as unknown as Record<string, unknown>)
+          .mainModule;
+        if (mainModule && typeof mainModule === "object") {
+          ModuleClass = (mainModule as unknown as Record<string, unknown>)
+            .constructor as unknown as Record<string, unknown>;
+        }
+      }
+
+      // Path 2: via require.main (CJS contexts)
+      if (
+        !ModuleClass &&
+        typeof require !== "undefined" &&
+        typeof require.main !== "undefined"
+      ) {
+        ModuleClass = (require.main as unknown as Record<string, unknown>)
+          .constructor as unknown as Record<string, unknown>;
+      }
+
+      if (!ModuleClass || typeof ModuleClass._load !== "function") {
+        return;
+      }
+
+      const original = ModuleClass._load as (...args: unknown[]) => unknown;
+      const descriptor = Object.getOwnPropertyDescriptor(ModuleClass, "_load");
+      this.originalDescriptors.push({
+        target: ModuleClass,
+        prop: "_load",
+        descriptor,
+      });
+
+      const path = "Module._load";
+      // @banned-pattern-ignore: intentional Proxy usage for security blocking
+      const proxy = new this.originalProxy(original, {
+        apply(_target, _thisArg, _args) {
+          const message = `${path} is blocked in worker context`;
+          const violation = self.recordViolation("module_load", path, message);
+
+          if (!auditMode) {
+            throw new WorkerSecurityViolationError(message, violation);
+          }
+          return Reflect.apply(_target, _thisArg, _args);
+        },
+      }) as typeof original;
+
+      Object.defineProperty(ModuleClass, "_load", {
+        value: proxy,
+        writable: true,
+        configurable: true,
+      });
+    } catch {
+      // Could not protect Module._load (expected in ESM contexts)
     }
   }
 

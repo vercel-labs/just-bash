@@ -488,6 +488,22 @@ describe("WorkerDefenseInDepth", () => {
         expect(error).toBeInstanceOf(WorkerSecurityViolationError);
       });
 
+      it("should block process.mainModule access", () => {
+        defense = new WorkerDefenseInDepth({});
+
+        let error: Error | undefined;
+        try {
+          const _mod = (process as unknown as { mainModule: unknown })
+            .mainModule;
+        } catch (e) {
+          error = e as Error;
+        }
+
+        defense.deactivate();
+        expect(error).toBeInstanceOf(WorkerSecurityViolationError);
+        expect(error?.message).toContain("process.mainModule");
+      });
+
       it("should block process.dlopen calls", () => {
         defense = new WorkerDefenseInDepth({});
 
@@ -530,6 +546,36 @@ describe("WorkerDefenseInDepth", () => {
 
         defense.deactivate();
         expect(error).toBeInstanceOf(WorkerSecurityViolationError);
+      });
+
+      it("should block SharedArrayBuffer", () => {
+        defense = new WorkerDefenseInDepth({});
+
+        let error: Error | undefined;
+        try {
+          new SharedArrayBuffer(1024);
+        } catch (e) {
+          error = e as Error;
+        }
+
+        defense.deactivate();
+        expect(error).toBeInstanceOf(WorkerSecurityViolationError);
+        expect(error?.message).toContain("SharedArrayBuffer");
+      });
+
+      it("should block Atomics access", () => {
+        defense = new WorkerDefenseInDepth({});
+
+        let error: Error | undefined;
+        try {
+          Atomics.wait;
+        } catch (e) {
+          error = e as Error;
+        }
+
+        defense.deactivate();
+        expect(error).toBeInstanceOf(WorkerSecurityViolationError);
+        expect(error?.message).toContain("Atomics");
       });
 
       it("should freeze Reflect (not block it)", () => {

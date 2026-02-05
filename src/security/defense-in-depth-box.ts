@@ -15,6 +15,18 @@
  * - Reference counting for nested exec() calls
  * - Patches are process-wide but checks are context-aware
  * - Violations are recorded even in audit mode
+ *
+ * KNOWN LIMITATION - Dynamic import() cannot be blocked:
+ * Dynamic `import()` is a language-level feature that cannot be intercepted
+ * by property proxies or monkey-patching. An attacker with write access to
+ * the filesystem could create a malicious JS module and import it:
+ *   import('data:text/javascript,console.log("escaped")')
+ *   import('/tmp/malicious.js')
+ *
+ * Mitigations for import() must be applied at other layers:
+ * - Filesystem restrictions (prevent writing .js/.mjs files)
+ * - Node.js module resolution hooks (--experimental-loader)
+ * - Worker isolation (separate V8 contexts)
  */
 
 import { type BlockedGlobal, getBlockedGlobals } from "./blocked-globals.js";
@@ -547,6 +559,12 @@ export class DefenseInDepthBox {
 
     // Protect Error.prepareStackTrace (only block setting, not reading)
     this.protectErrorPrepareStackTrace();
+
+    // Protect process.mainModule (may be undefined in ESM but still blockable)
+    this.protectProcessMainModule();
+
+    // Protect Module._load (prevents require-based escape vectors)
+    this.protectModuleLoad();
   }
 
   /**
@@ -759,6 +777,161 @@ export class DefenseInDepthBox {
     } catch (e) {
       console.debug(
         `[DefenseInDepthBox] Could not patch ${path}:`,
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
+
+  /**
+   * Protect process.mainModule from being accessed or set in sandbox context.
+   *
+   * The attack vector is:
+   * ```
+   * process.mainModule.require('child_process').execSync('whoami')
+   * process.mainModule.constructor._load('vm')
+   * ```
+   *
+   * process.mainModule may be undefined in ESM contexts but could exist in
+   * CommonJS workers. We block both reading and setting.
+   */
+  private protectProcessMainModule(): void {
+    if (typeof process === "undefined") return;
+
+    const box = this;
+
+    try {
+      const originalDescriptor = Object.getOwnPropertyDescriptor(
+        process,
+        "mainModule",
+      );
+      this.originalDescriptors.push({
+        target: process,
+        prop: "mainModule",
+        descriptor: originalDescriptor,
+      });
+
+      const currentValue = originalDescriptor?.value;
+
+      // Only protect if mainModule exists (CJS contexts).
+      // In ESM, mainModule is undefined and Node.js internals (createRequire)
+      // access this property during module loading - blocking it would break
+      // module loading within the sandbox context.
+      if (currentValue !== undefined) {
+        Object.defineProperty(process, "mainModule", {
+          get() {
+            if (box.shouldBlock()) {
+              const message =
+                "process.mainModule access is blocked during script execution";
+              const violation = box.recordViolation(
+                "process_main_module",
+                "process.mainModule",
+                message,
+              );
+              throw new SecurityViolationError(message, violation);
+            }
+            if (
+              box.config.auditMode &&
+              executionContext?.getStore()?.sandboxActive === true
+            ) {
+              box.recordViolation(
+                "process_main_module",
+                "process.mainModule",
+                "process.mainModule accessed (audit mode)",
+              );
+            }
+            return currentValue;
+          },
+          set(value) {
+            if (box.shouldBlock()) {
+              const message =
+                "process.mainModule modification is blocked during script execution";
+              const violation = box.recordViolation(
+                "process_main_module",
+                "process.mainModule",
+                message,
+              );
+              throw new SecurityViolationError(message, violation);
+            }
+            // Allow setting outside sandbox context
+            Object.defineProperty(process, "mainModule", {
+              value,
+              writable: true,
+              configurable: true,
+            });
+          },
+          configurable: true,
+        });
+      }
+    } catch (e) {
+      console.debug(
+        "[DefenseInDepthBox] Could not protect process.mainModule:",
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
+
+  /**
+   * Protect Module._load from being called in sandbox context.
+   *
+   * The attack vector is:
+   * ```
+   * module.constructor._load('child_process')
+   * require.main.constructor._load('vm')
+   * ```
+   *
+   * We access the Module class and replace _load with a blocking proxy.
+   */
+  private protectModuleLoad(): void {
+    if (IS_BROWSER) return;
+
+    try {
+      // Access the Module class via Function.prototype (which exists before patching starts)
+      // Try multiple paths to find Module
+      let ModuleClass: Record<string, unknown> | null = null;
+
+      // Path 1: via process.mainModule (CJS contexts)
+      if (typeof process !== "undefined") {
+        const mainModule = (process as unknown as Record<string, unknown>)
+          .mainModule;
+        if (mainModule && typeof mainModule === "object") {
+          ModuleClass = (mainModule as unknown as Record<string, unknown>)
+            .constructor as unknown as Record<string, unknown>;
+        }
+      }
+
+      // Path 2: via require.main (CJS contexts)
+      if (
+        !ModuleClass &&
+        typeof require !== "undefined" &&
+        typeof require.main !== "undefined"
+      ) {
+        ModuleClass = (require.main as unknown as Record<string, unknown>)
+          .constructor as unknown as Record<string, unknown>;
+      }
+
+      if (!ModuleClass || typeof ModuleClass._load !== "function") {
+        return;
+      }
+
+      const original = ModuleClass._load as (...args: unknown[]) => unknown;
+      const descriptor = Object.getOwnPropertyDescriptor(ModuleClass, "_load");
+      this.originalDescriptors.push({
+        target: ModuleClass,
+        prop: "_load",
+        descriptor,
+      });
+
+      const path = "Module._load";
+      const proxy = this.createBlockingProxy(original, path, "module_load");
+
+      Object.defineProperty(ModuleClass, "_load", {
+        value: proxy,
+        writable: true,
+        configurable: true,
+      });
+    } catch (e) {
+      console.debug(
+        "[DefenseInDepthBox] Could not protect Module._load:",
         e instanceof Error ? e.message : e,
       );
     }

@@ -1195,7 +1195,15 @@ async function initializeWithDefense(): Promise<void> {
   //    See: https://pyodide.org/en/stable/usage/webloop.html
   //
   defense = new WorkerDefenseInDepth({
-    excludeViolationTypes: ["proxy", "setImmediate"],
+    excludeViolationTypes: [
+      "proxy",
+      "setImmediate",
+      // 3. SharedArrayBuffer/Atomics: Used by sync-fs-backend.ts for synchronous
+      //    filesystem communication between Pyodide's WASM thread and the main thread.
+      //    Without this, Pyodide cannot perform synchronous file I/O operations.
+      "shared_array_buffer",
+      "atomics",
+    ],
     onViolation: (v) => {
       parentPort?.postMessage({ type: "security-violation", violation: v });
     },

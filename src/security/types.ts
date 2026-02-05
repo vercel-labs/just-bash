@@ -65,7 +65,11 @@ export type SecurityViolationType =
   | "process_env"
   | "process_binding"
   | "process_dlopen"
+  | "process_main_module"
+  | "module_load"
   | "webassembly"
+  | "shared_array_buffer"
+  | "atomics"
   | "error_prepare_stack_trace";
 
 /**

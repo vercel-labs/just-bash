@@ -1025,6 +1025,46 @@ describe("DefenseInDepthBox", () => {
         expect(error?.message).toContain("process.dlopen");
       });
 
+      it("should block process.mainModule access when it exists (CJS contexts)", async () => {
+        // In ESM, process.mainModule is undefined and not blocked
+        // (Node.js internals like createRequire read it during module loading).
+        // In CJS contexts where mainModule exists, it would be blocked.
+        // We test by temporarily setting mainModule before activation.
+        const origMainModule = (process as unknown as Record<string, unknown>)
+          .mainModule;
+        (process as unknown as Record<string, unknown>).mainModule = {
+          require: () => {},
+        };
+
+        try {
+          const box = DefenseInDepthBox.getInstance(true);
+          const handle = box.activate();
+
+          let error: Error | undefined;
+          await handle.run(async () => {
+            try {
+              const _mod = (process as unknown as { mainModule: unknown })
+                .mainModule;
+            } catch (e) {
+              error = e as Error;
+            }
+          });
+
+          handle.deactivate();
+
+          expect(error).toBeInstanceOf(SecurityViolationError);
+          expect(error?.message).toContain("process.mainModule");
+        } finally {
+          // Restore original value
+          if (origMainModule === undefined) {
+            delete (process as unknown as Record<string, unknown>).mainModule;
+          } else {
+            (process as unknown as Record<string, unknown>).mainModule =
+              origMainModule;
+          }
+        }
+      });
+
       it("should allow process.binding outside sandbox context", () => {
         const box = DefenseInDepthBox.getInstance(true);
         const handle = box.activate();
@@ -1097,6 +1137,57 @@ describe("DefenseInDepthBox", () => {
         expect(result).toBe(42);
         // Verify Reflect is frozen
         expect(Object.isFrozen(Reflect)).toBe(true);
+      });
+    });
+
+    describe("SharedArrayBuffer blocking", () => {
+      it("should block new SharedArrayBuffer()", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            new SharedArrayBuffer(1024);
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+        expect(error?.message).toContain("SharedArrayBuffer");
+      });
+
+      it("should block Atomics access", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            Atomics.wait;
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+        expect(error?.message).toContain("Atomics");
+      });
+
+      it("should allow SharedArrayBuffer outside sandbox context", () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        // Outside run() context - should work
+        const sab = new SharedArrayBuffer(16);
+        expect(sab.byteLength).toBe(16);
+
+        handle.deactivate();
       });
     });
 
