@@ -1110,3 +1110,12 @@ function processBEscapes(str: string): { value: string; stopped: boolean } {
 
   return { value: result, stopped: false };
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "printf",
+  flags: [{ flag: "-v", type: "value", valueHint: "string" }],
+  stdinType: "none",
+  needsArgs: true,
+};

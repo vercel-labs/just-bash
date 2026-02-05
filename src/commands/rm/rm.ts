@@ -71,3 +71,16 @@ export const rmCommand: Command = {
     return { stdout, stderr, exitCode };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "rm",
+  flags: [
+    { flag: "-r", type: "boolean" },
+    { flag: "-R", type: "boolean" },
+    { flag: "-f", type: "boolean" },
+    { flag: "-v", type: "boolean" },
+  ],
+  needsArgs: true,
+};

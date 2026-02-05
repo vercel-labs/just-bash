@@ -57,3 +57,12 @@ export const tac: Command = {
   name: "tac",
   execute: tacExecute,
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "tac",
+  flags: [],
+  stdinType: "text",
+  needsFiles: true,
+};

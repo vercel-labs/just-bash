@@ -577,3 +577,18 @@ export const sedCommand: Command = {
     }
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "sed",
+  flags: [
+    { flag: "-n", type: "boolean" },
+    { flag: "-i", type: "boolean" },
+    { flag: "-E", type: "boolean" },
+    { flag: "-r", type: "boolean" },
+    { flag: "-e", type: "value", valueHint: "string" },
+  ],
+  stdinType: "text",
+  needsArgs: true,
+};

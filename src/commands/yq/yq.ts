@@ -380,3 +380,18 @@ export const yqCommand: Command = {
     }
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "yq",
+  flags: [
+    { flag: "-r", type: "boolean" },
+    { flag: "-c", type: "boolean" },
+    { flag: "-s", type: "boolean" },
+    { flag: "-i", type: "value", valueHint: "string" },
+    { flag: "-o", type: "value", valueHint: "string" },
+  ],
+  stdinType: "text",
+  needsArgs: true,
+};

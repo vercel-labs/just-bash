@@ -159,3 +159,16 @@ export const commCommand: Command = {
     return { stdout: output, stderr: "", exitCode: 0 };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "comm",
+  flags: [
+    { flag: "-1", type: "boolean" },
+    { flag: "-2", type: "boolean" },
+    { flag: "-3", type: "boolean" },
+  ],
+  needsArgs: true,
+  minArgs: 2,
+};

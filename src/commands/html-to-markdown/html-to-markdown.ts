@@ -142,3 +142,11 @@ export const htmlToMarkdownCommand: Command = {
     }
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "html-to-markdown",
+  flags: [],
+  stdinType: "text",
+};

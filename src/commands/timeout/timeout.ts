@@ -171,3 +171,17 @@ export const timeoutCommand: Command = {
     return outcome.result;
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "timeout",
+  flags: [
+    { flag: "-k", type: "value", valueHint: "string" },
+    { flag: "-s", type: "value", valueHint: "string" },
+    { flag: "--preserve-status", type: "boolean" },
+    { flag: "--foreground", type: "boolean" },
+  ],
+  needsArgs: true,
+  minArgs: 2,
+};

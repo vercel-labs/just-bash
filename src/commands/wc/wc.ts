@@ -184,3 +184,17 @@ function formatStats(
 
   return result;
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "wc",
+  flags: [
+    { flag: "-l", type: "boolean" },
+    { flag: "-w", type: "boolean" },
+    { flag: "-c", type: "boolean" },
+    { flag: "-m", type: "boolean" },
+  ],
+  stdinType: "text",
+  needsFiles: true,
+};

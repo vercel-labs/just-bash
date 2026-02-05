@@ -226,3 +226,17 @@ export const trCommand: Command = {
     return { stdout: output, stderr: "", exitCode: 0 };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "tr",
+  flags: [
+    { flag: "-c", type: "boolean" },
+    { flag: "-C", type: "boolean" },
+    { flag: "-d", type: "boolean" },
+    { flag: "-s", type: "boolean" },
+  ],
+  stdinType: "text",
+  needsArgs: true,
+};

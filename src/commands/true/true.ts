@@ -15,3 +15,15 @@ export const falseCommand: Command = {
     return { stdout: "", stderr: "", exitCode: 1 };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "true",
+  flags: [],
+};
+
+export const falseFlagsForFuzzing: CommandFuzzInfo = {
+  name: "false",
+  flags: [],
+};

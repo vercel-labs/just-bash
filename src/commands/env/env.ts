@@ -177,3 +177,18 @@ export const printenvCommand: Command = {
     };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "env",
+  flags: [
+    { flag: "-i", type: "boolean" },
+    { flag: "-u", type: "value", valueHint: "string" },
+  ],
+};
+
+export const printenvFlagsForFuzzing: CommandFuzzInfo = {
+  name: "printenv",
+  flags: [],
+};

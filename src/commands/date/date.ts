@@ -213,3 +213,15 @@ export const dateCommand: Command = {
     return { stdout: `${out}\n`, stderr: "", exitCode: 0 };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "date",
+  flags: [
+    { flag: "-d", type: "value", valueHint: "string" },
+    { flag: "-u", type: "boolean" },
+    { flag: "-I", type: "boolean" },
+    { flag: "-R", type: "boolean" },
+  ],
+};

@@ -790,3 +790,49 @@ export const zcatCommand: Command = {
     return executeGzip(args, ctx, "zcat");
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "gzip",
+  flags: [
+    { flag: "-c", type: "boolean" },
+    { flag: "-d", type: "boolean" },
+    { flag: "-f", type: "boolean" },
+    { flag: "-k", type: "boolean" },
+    { flag: "-l", type: "boolean" },
+    { flag: "-n", type: "boolean" },
+    { flag: "-q", type: "boolean" },
+    { flag: "-r", type: "boolean" },
+    { flag: "-t", type: "boolean" },
+    { flag: "-v", type: "boolean" },
+    { flag: "-1", type: "boolean" },
+    { flag: "-9", type: "boolean" },
+  ],
+  stdinType: "binary",
+  needsFiles: true,
+};
+
+export const gunzipFlagsForFuzzing: CommandFuzzInfo = {
+  name: "gunzip",
+  flags: [
+    { flag: "-c", type: "boolean" },
+    { flag: "-f", type: "boolean" },
+    { flag: "-k", type: "boolean" },
+    { flag: "-q", type: "boolean" },
+    { flag: "-v", type: "boolean" },
+  ],
+  stdinType: "binary",
+  needsFiles: true,
+};
+
+export const zcatFlagsForFuzzing: CommandFuzzInfo = {
+  name: "zcat",
+  flags: [
+    { flag: "-f", type: "boolean" },
+    { flag: "-q", type: "boolean" },
+    { flag: "-v", type: "boolean" },
+  ],
+  stdinType: "binary",
+  needsFiles: true,
+};

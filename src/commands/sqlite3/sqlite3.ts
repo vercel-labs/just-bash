@@ -450,3 +450,11 @@ export const sqlite3Command: Command = {
     return { stdout, stderr: "", exitCode: hadError && options.bail ? 1 : 0 };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "sqlite3",
+  flags: [],
+  needsArgs: true,
+};

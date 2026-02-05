@@ -274,3 +274,17 @@ function formatSize(bytes: number, humanReadable: boolean): string {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}G`;
   }
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "du",
+  flags: [
+    { flag: "-a", type: "boolean" },
+    { flag: "-h", type: "boolean" },
+    { flag: "-s", type: "boolean" },
+    { flag: "-c", type: "boolean" },
+    { flag: "--max-depth", type: "value", valueHint: "number" },
+  ],
+  needsFiles: true,
+};

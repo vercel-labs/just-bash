@@ -529,6 +529,12 @@ function createLazyCommand(def: LazyCommandDef): Command {
         cache.set(def.name, cmd);
       }
 
+      // Emit flag coverage hits when fuzzing
+      if (ctx.coverage) {
+        const { emitFlagCoverage } = await import("./flag-coverage.js");
+        emitFlagCoverage(ctx.coverage, def.name, args);
+      }
+
       return cmd.execute(args, ctx);
     },
   };

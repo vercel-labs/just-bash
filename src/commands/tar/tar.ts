@@ -1090,3 +1090,22 @@ export const tarCommand: Command = {
     }
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "tar",
+  flags: [
+    { flag: "-c", type: "boolean" },
+    { flag: "-x", type: "boolean" },
+    { flag: "-t", type: "boolean" },
+    { flag: "-f", type: "value", valueHint: "path" },
+    { flag: "-z", type: "boolean" },
+    { flag: "-j", type: "boolean" },
+    { flag: "-v", type: "boolean" },
+    { flag: "-C", type: "value", valueHint: "path" },
+    { flag: "--strip-components", type: "value", valueHint: "number" },
+    { flag: "--exclude", type: "value", valueHint: "pattern" },
+  ],
+  needsArgs: true,
+};
