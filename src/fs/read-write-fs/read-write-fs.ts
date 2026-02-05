@@ -37,7 +37,7 @@ export interface ReadWriteFsOptions {
   /**
    * Maximum file size in bytes that can be read.
    * Files larger than this will throw an EFBIG error.
-   * Defaults to 0 (no limit).
+   * Defaults to 10MB (10485760).
    */
   maxFileReadSize?: number;
 }
@@ -48,7 +48,7 @@ export class ReadWriteFs implements IFileSystem {
 
   constructor(options: ReadWriteFsOptions) {
     this.root = nodePath.resolve(options.root);
-    this.maxFileReadSize = options.maxFileReadSize ?? 0;
+    this.maxFileReadSize = options.maxFileReadSize ?? 10485760;
 
     // Verify root exists and is a directory
     if (!fs.existsSync(this.root)) {

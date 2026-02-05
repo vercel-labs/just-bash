@@ -49,7 +49,7 @@ export class Sandbox {
       if (opts?.fs) {
         throw new Error("Cannot specify both 'fs' and 'overlayRoot' options");
       }
-      fs = new OverlayFs({ root: opts.overlayRoot, maxFileReadSize: 10485760 });
+      fs = new OverlayFs({ root: opts.overlayRoot });
     }
 
     const bashEnv = new Bash({

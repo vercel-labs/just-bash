@@ -69,7 +69,7 @@ export interface OverlayFsOptions {
   /**
    * Maximum file size in bytes that can be read from the real filesystem.
    * Files larger than this will throw an EFBIG error.
-   * Defaults to 0 (no limit).
+   * Defaults to 10MB (10485760).
    */
   maxFileReadSize?: number;
 }
@@ -109,8 +109,8 @@ export class OverlayFs implements IFileSystem {
     // Set read-only mode
     this.readOnly = options.readOnly ?? false;
 
-    // Set max file read size (0 = no limit)
-    this.maxFileReadSize = options.maxFileReadSize ?? 0;
+    // Set max file read size (default 10MB)
+    this.maxFileReadSize = options.maxFileReadSize ?? 10485760;
 
     // Verify root exists and is a directory
     if (!fs.existsSync(this.root)) {

@@ -239,7 +239,7 @@ cat data.csv | awk -F',' '{sum += $3} END {print sum}'
 - **32-bit integers only**: Arithmetic operations use 32-bit signed integers
 - **No job control**: No `&`, `bg`, `fg`, or process suspension
 - **No external binaries**: Only built-in commands are available
-- **Execution limits**: Loops, recursion, and command counts have configurable limits to prevent runaway execution
+- **Execution limits**: Loops, recursion, command counts, and output sizes have configurable limits to prevent runaway execution (exit code 126 when exceeded)
 
 ## Error Handling
 
@@ -260,6 +260,7 @@ Common exit codes:
 - `0` - Success
 - `1` - General error or no matches (grep)
 - `2` - Misuse of command (invalid options)
+- `126` - Execution limit exceeded (loops, output size, string length)
 - `127` - Command not found
 
 ## Debugging Tips
@@ -273,8 +274,36 @@ Common exit codes:
 
 - Virtual filesystem is isolated from the real system
 - Network access requires explicit URL allowlists
-- Execution limits prevent infinite loops
+- Execution limits prevent infinite loops and resource exhaustion
 - No shell injection possible (commands are parsed, not eval'd)
+
+### Execution Limits
+
+All limits are configurable via `executionLimits` in `BashOptions`:
+
+```typescript
+const bash = new Bash({
+  executionLimits: {
+    maxCommandCount: 10000,      // Max commands per exec()
+    maxLoopIterations: 10000,    // Max bash loop iterations
+    maxCallDepth: 100,           // Max function recursion depth
+    maxStringLength: 10485760,   // Max string size (10MB)
+    maxArrayElements: 100000,    // Max array elements
+    maxGlobOperations: 100000,   // Max glob filesystem operations
+    maxAwkIterations: 10000,     // Max AWK loop iterations
+    maxSedIterations: 10000,     // Max sed branch loop iterations
+    maxJqIterations: 10000,      // Max jq loop iterations
+    maxSubstitutionDepth: 50,    // Max $() nesting depth
+    maxHeredocSize: 10485760,    // Max heredoc size (10MB)
+  },
+});
+```
+
+**Output size limits**: AWK, sed, jq, and printf enforce `maxStringLength` on their output buffers. Commands that exceed the limit exit with code 126.
+
+**File read size limits**: `OverlayFs` and `ReadWriteFs` default to a 10MB max file read size. Override with `maxFileReadSize` in filesystem options (set to `0` to disable).
+
+**Network response size**: `maxResponseSize` in `NetworkConfig` caps HTTP response bodies (default: 10MB).
 
 ## Discovering Types
 

@@ -46,7 +46,6 @@ class VirtualShell {
     const overlayFs = new OverlayFs({
       root,
       mountPoint: "/",
-      maxFileReadSize: 10485760,
     });
 
     this.env = new Bash({
