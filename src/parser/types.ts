@@ -10,6 +10,7 @@ import { type Token, TokenType } from "./lexer.js";
 export const MAX_INPUT_SIZE = 1_000_000; // 1MB max input
 export const MAX_TOKENS = 100_000; // Max tokens to parse
 export const MAX_PARSE_ITERATIONS = 1_000_000; // Max iterations in parsing loops
+export const MAX_PARSER_DEPTH = 200; // Max recursion depth for nested constructs
 
 // Pre-computed Sets for fast redirection token lookup (avoids array allocation per call)
 export const REDIRECTION_TOKENS: Set<TokenType> = new Set([

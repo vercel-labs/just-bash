@@ -457,4 +457,32 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
       // Real bashrc should not be modified
     });
   });
+
+  describe("realpath escape prevention", () => {
+    it("should throw when realpath resolves outside root via symlink", async () => {
+      // Create a symlink inside the sandbox pointing outside
+      const linkPath = path.join(tempDir, "escape-link");
+      fs.symlinkSync(outsideFile, linkPath);
+
+      // realpath should throw, not leak the outside path
+      await expect(rwfs.realpath("/escape-link")).rejects.toThrow("ENOENT");
+    });
+
+    it("should throw when realpath resolves to parent directory via symlink", async () => {
+      const linkPath = path.join(tempDir, "parent-link");
+      fs.symlinkSync(outsideDir, linkPath);
+
+      await expect(rwfs.realpath("/parent-link")).rejects.toThrow("ENOENT");
+    });
+
+    it("should allow realpath for paths within root", async () => {
+      const result = await rwfs.realpath("/allowed.txt");
+      expect(result).toBe("/allowed.txt");
+    });
+
+    it("should allow realpath for nested paths within root", async () => {
+      const result = await rwfs.realpath("/subdir/nested.txt");
+      expect(result).toBe("/subdir/nested.txt");
+    });
+  });
 });

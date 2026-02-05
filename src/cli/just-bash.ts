@@ -211,6 +211,28 @@ function parseArgs(args: string[]): CliOptions {
   return options;
 }
 
+/**
+ * Normalize a virtual path: resolve . and .., ensure starts with /
+ */
+function normalizePath(path: string): string {
+  if (!path || path === "/") return "/";
+  let normalized =
+    path.endsWith("/") && path !== "/" ? path.slice(0, -1) : path;
+  if (!normalized.startsWith("/")) {
+    normalized = `/${normalized}`;
+  }
+  const parts = normalized.split("/").filter((p) => p && p !== ".");
+  const resolved: string[] = [];
+  for (const part of parts) {
+    if (part === "..") {
+      resolved.pop();
+    } else {
+      resolved.push(part);
+    }
+  }
+  return `/${resolved.join("/")}` || "/";
+}
+
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) {
@@ -279,7 +301,8 @@ async function main(): Promise<void> {
   const mountPoint = fs.getMountPoint();
 
   // Use mount point as cwd unless explicitly overridden
-  const cwd = options.cwdOverridden ? options.cwd : mountPoint;
+  // Normalize --cwd to prevent path traversal (resolve . and ..)
+  const cwd = options.cwdOverridden ? normalizePath(options.cwd) : mountPoint;
 
   const env = new Bash({
     fs,

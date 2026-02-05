@@ -320,6 +320,32 @@ describe("just-bash CLI", () => {
       ]);
       expect(result.stdout.trim()).toBe("/tmp");
     });
+
+    it("should normalize --cwd to prevent path traversal", () => {
+      // --cwd with .. should be normalized so it can't escape
+      const result = runCli([
+        "-c",
+        "'pwd'",
+        "--root",
+        tempDir,
+        "--cwd",
+        "/home/user/project/../../..",
+      ]);
+      // .. components should be resolved, landing at /
+      expect(result.stdout.trim()).toBe("/");
+    });
+
+    it("should normalize --cwd with relative-style path", () => {
+      const result = runCli([
+        "-c",
+        "'pwd'",
+        "--root",
+        tempDir,
+        "--cwd",
+        "/home/./user/../user/project",
+      ]);
+      expect(result.stdout.trim()).toBe("/home/user/project");
+    });
   });
 
   describe("error handling", () => {

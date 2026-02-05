@@ -453,13 +453,15 @@ export class ReadWriteFs implements IFileSystem {
 
     try {
       const resolved = await fs.promises.realpath(realPath);
+      // Canonicalize root too (e.g., on macOS /var -> /private/var)
+      const canonicalRoot = await fs.promises.realpath(this.root);
       // Convert back to virtual path (relative to root)
-      if (resolved.startsWith(this.root)) {
-        const relative = resolved.slice(this.root.length);
+      if (resolved.startsWith(canonicalRoot)) {
+        const relative = resolved.slice(canonicalRoot.length);
         return relative || "/";
       }
-      // If resolved path is outside root (shouldn't happen), return as-is
-      return resolved;
+      // Resolved path is outside root - reject it to prevent sandbox escape
+      throw new Error(`ENOENT: no such file or directory, realpath '${path}'`);
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err.code === "ENOENT") {
