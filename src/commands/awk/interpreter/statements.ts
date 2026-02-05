@@ -16,6 +16,20 @@ import { deleteArray, deleteArrayElement } from "./variables.js";
 setBlockExecutor(executeBlock);
 
 /**
+ * Check if AWK output buffer has exceeded the maximum size.
+ * Throws ExecutionLimitError if the limit is set and exceeded.
+ */
+function checkAwkOutputSize(ctx: AwkRuntimeContext): void {
+  if (ctx.maxOutputSize > 0 && ctx.output.length > ctx.maxOutputSize) {
+    throw new ExecutionLimitError(
+      `awk: output size limit exceeded (${ctx.maxOutputSize} bytes)`,
+      "string_length",
+      ctx.output,
+    );
+  }
+}
+
+/**
  * Execute a block of statements.
  */
 export async function executeBlock(
@@ -154,6 +168,7 @@ async function executePrint(
     await writeToFile(ctx, output.redirect, output.file, text);
   } else {
     ctx.output += text;
+    checkAwkOutputSize(ctx);
   }
 }
 
@@ -178,6 +193,7 @@ async function executePrintf(
     await writeToFile(ctx, output.redirect, output.file, text);
   } else {
     ctx.output += text;
+    checkAwkOutputSize(ctx);
   }
 }
 
@@ -193,6 +209,7 @@ async function writeToFile(
   if (!ctx.fs || !ctx.cwd) {
     // No filesystem access - just append to output
     ctx.output += text;
+    checkAwkOutputSize(ctx);
     return;
   }
 

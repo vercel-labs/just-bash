@@ -24,7 +24,7 @@ describe("Security Limits", () => {
         'x=$(printf "%200s" " "); echo "done"',
       );
       expect(result.exitCode).toBe(126); // ExecutionLimitError exit code
-      expect(result.stderr).toContain("string length limit exceeded");
+      expect(result.stderr).toContain("limit exceeded");
     });
 
     it("should allow strings within the limit", async () => {

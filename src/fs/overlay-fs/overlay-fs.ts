@@ -65,6 +65,13 @@ export interface OverlayFsOptions {
    * Defaults to false.
    */
   readOnly?: boolean;
+
+  /**
+   * Maximum file size in bytes that can be read from the real filesystem.
+   * Files larger than this will throw an EFBIG error.
+   * Defaults to 0 (no limit).
+   */
+  maxFileReadSize?: number;
 }
 
 /** Default mount point for OverlayFs */
@@ -84,6 +91,7 @@ export class OverlayFs implements IFileSystem {
   private readonly root: string;
   private readonly mountPoint: string;
   private readonly readOnly: boolean;
+  private readonly maxFileReadSize: number;
   private readonly memory: Map<string, MemoryEntry> = new Map();
   private readonly deleted: Set<string> = new Set();
 
@@ -100,6 +108,9 @@ export class OverlayFs implements IFileSystem {
 
     // Set read-only mode
     this.readOnly = options.readOnly ?? false;
+
+    // Set max file read size (0 = no limit)
+    this.maxFileReadSize = options.maxFileReadSize ?? 0;
 
     // Verify root exists and is a directory
     if (!fs.existsSync(this.root)) {
@@ -390,6 +401,11 @@ export class OverlayFs implements IFileSystem {
       if (stat.isDirectory()) {
         throw new Error(
           `EISDIR: illegal operation on a directory, read '${path}'`,
+        );
+      }
+      if (this.maxFileReadSize > 0 && stat.size > this.maxFileReadSize) {
+        throw new Error(
+          `EFBIG: file too large, read '${path}' (${stat.size} bytes, max ${this.maxFileReadSize})`,
         );
       }
       const content = await fs.promises.readFile(realPath);

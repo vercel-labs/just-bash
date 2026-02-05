@@ -15,11 +15,13 @@ import {
   NetworkAccessDeniedError,
   type NetworkConfig,
   RedirectNotAllowedError,
+  ResponseTooLargeError,
   TooManyRedirectsError,
 } from "./types.js";
 
 const DEFAULT_MAX_REDIRECTS = 20;
 const DEFAULT_TIMEOUT_MS = 30000;
+const DEFAULT_MAX_RESPONSE_SIZE = 10485760; // 10MB
 const DEFAULT_ALLOWED_METHODS: HttpMethod[] = ["GET", "HEAD"];
 
 /**
@@ -55,6 +57,7 @@ export type SecureFetch = (
 export function createSecureFetch(config: NetworkConfig): SecureFetch {
   const maxRedirects = config.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxResponseSize = config.maxResponseSize ?? DEFAULT_MAX_RESPONSE_SIZE;
   const allowedMethods = config.dangerouslyAllowFullInternetAccess
     ? ["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
     : (config.allowedMethods ?? DEFAULT_ALLOWED_METHODS);
@@ -135,7 +138,11 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
           const location = response.headers.get("location");
           if (!location) {
             // No location header, return the response as-is
-            return await responseToResult(response, currentUrl);
+            return await responseToResult(
+              response,
+              currentUrl,
+              maxResponseSize,
+            );
           }
 
           // Resolve relative URLs
@@ -157,7 +164,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
           continue;
         }
 
-        return await responseToResult(response, currentUrl);
+        return await responseToResult(response, currentUrl, maxResponseSize);
       } finally {
         clearTimeout(timeoutId);
       }
@@ -168,11 +175,12 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
 }
 
 /**
- * Converts a Response to a FetchResult.
+ * Converts a Response to a FetchResult, enforcing response size limits.
  */
 async function responseToResult(
   response: Response,
   url: string,
+  maxResponseSize: number,
 ): Promise<FetchResult> {
   // Use null-prototype to prevent prototype pollution via malicious response headers
   const headers: Record<string, string> = Object.create(null);
@@ -180,11 +188,46 @@ async function responseToResult(
     headers[key.toLowerCase()] = value;
   });
 
+  // Fast path: check Content-Length header
+  if (maxResponseSize > 0) {
+    const contentLength = response.headers.get("content-length");
+    if (contentLength) {
+      const size = parseInt(contentLength, 10);
+      if (!Number.isNaN(size) && size > maxResponseSize) {
+        throw new ResponseTooLargeError(maxResponseSize);
+      }
+    }
+  }
+
+  // Read body with size tracking
+  let body: string;
+  if (maxResponseSize > 0 && response.body) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    let totalSize = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalSize += value.byteLength;
+      if (totalSize > maxResponseSize) {
+        reader.cancel();
+        throw new ResponseTooLargeError(maxResponseSize);
+      }
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    body = chunks.join("");
+  } else {
+    body = await response.text();
+  }
+
   return {
     status: response.status,
     statusText: response.statusText,
     headers,
-    body: await response.text(),
+    body,
     url,
   };
 }

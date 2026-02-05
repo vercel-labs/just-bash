@@ -185,7 +185,15 @@ async function evalBinaryOp(
 
   // String concatenation
   if (op === " ") {
-    return toAwkString(left) + toAwkString(right);
+    const result = toAwkString(left) + toAwkString(right);
+    if (ctx.maxOutputSize > 0 && result.length > ctx.maxOutputSize) {
+      throw new ExecutionLimitError(
+        `awk: string concatenation size limit exceeded (${ctx.maxOutputSize} bytes)`,
+        "string_length",
+        ctx.output,
+      );
+    }
+    return result;
   }
 
   // Comparison operators

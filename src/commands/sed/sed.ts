@@ -89,6 +89,18 @@ async function processContent(
   // Only auto-print should have its trailing newline stripped when input has no trailing newline
   let lastOutputWasAutoPrint = false;
 
+  // Extract max output size from limits
+  const maxOutputSize = limits?.maxStringLength ?? 0;
+  const appendOutput = (text: string): void => {
+    output += text;
+    if (maxOutputSize > 0 && output.length > maxOutputSize) {
+      throw new ExecutionLimitError(
+        `sed: output size limit exceeded (${maxOutputSize} bytes)`,
+        "string_length",
+      );
+    }
+  };
+
   // Persistent state across all lines
   let holdSpace = "";
   let lastPattern: string | undefined;
@@ -192,14 +204,14 @@ async function processContent(
     // Output from n command (respects silent mode) - must come before other outputs
     if (!silent) {
       for (const ln of state.nCommandOutput) {
-        output += `${ln}\n`;
+        appendOutput(`${ln}\n`);
       }
     }
 
     // Output line numbers from = command (and l, F commands, p command)
     const hadLineNumberOutput = state.lineNumberOutput.length > 0;
     for (const ln of state.lineNumberOutput) {
-      output += `${ln}\n`;
+      appendOutput(`${ln}\n`);
     }
 
     // Handle insert commands (marked with __INSERT__ prefix)
@@ -215,7 +227,7 @@ async function processContent(
 
     // Output inserts before the line
     for (const text of inserts) {
-      output += `${text}\n`;
+      appendOutput(`${text}\n`);
     }
 
     // Handle output - Q (quitSilent) suppresses the final print
@@ -224,22 +236,22 @@ async function processContent(
     if (!state.deleted && !state.quitSilent) {
       if (silent) {
         if (state.printed) {
-          output += `${state.patternSpace}\n`;
+          appendOutput(`${state.patternSpace}\n`);
           hadPatternSpaceOutput = true; // Explicit print in silent mode
         }
       } else {
-        output += `${state.patternSpace}\n`;
+        appendOutput(`${state.patternSpace}\n`);
         hadPatternSpaceOutput = true; // Auto-print in non-silent mode
       }
     } else if (state.changedText !== undefined) {
       // c command: output changed text in place of pattern space
-      output += `${state.changedText}\n`;
+      appendOutput(`${state.changedText}\n`);
       hadPatternSpaceOutput = true;
     }
 
     // Output appends after the line
     for (const text of appends) {
-      output += `${text}\n`;
+      appendOutput(`${text}\n`);
     }
 
     // Track if this line produced output that should have trailing newline stripped

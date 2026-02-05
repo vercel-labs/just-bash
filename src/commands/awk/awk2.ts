@@ -116,6 +116,7 @@ export const awkCommand2: Command = {
     const runtimeCtx = createRuntimeContext({
       fieldSep,
       maxIterations: ctx.limits?.maxAwkIterations,
+      maxOutputSize: ctx.limits?.maxStringLength,
       fs: awkFs,
       cwd: ctx.cwd,
       // Wrap ctx.exec to match the expected signature for command pipe getline

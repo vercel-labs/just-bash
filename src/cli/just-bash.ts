@@ -297,6 +297,7 @@ async function main(): Promise<void> {
   const fs = new OverlayFs({
     root: options.root,
     readOnly: !options.allowWrite,
+    maxFileReadSize: 10485760, // 10MB
   });
   const mountPoint = fs.getMountPoint();
 

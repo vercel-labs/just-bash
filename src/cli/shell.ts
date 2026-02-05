@@ -43,7 +43,11 @@ class VirtualShell {
   constructor(options: ShellOptions = {}) {
     // Use OverlayFs with current directory as root
     const root = process.cwd();
-    const overlayFs = new OverlayFs({ root, mountPoint: "/" });
+    const overlayFs = new OverlayFs({
+      root,
+      mountPoint: "/",
+      maxFileReadSize: 10485760,
+    });
 
     this.env = new Bash({
       fs: overlayFs,

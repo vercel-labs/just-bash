@@ -524,6 +524,8 @@ function unimplemented(name: string): AwkBuiltinFn {
 
 // ─── Printf Formatting ──────────────────────────────────────────
 
+const MAX_PRINTF_WIDTH = 10000;
+
 export function formatPrintf(format: string, values: AwkValue[]): string {
   let valueIdx = 0;
   let result = "";
@@ -580,15 +582,19 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
         const w = widthVal !== undefined ? Math.floor(Number(widthVal)) : 0;
         if (w < 0) {
           flags += "-";
-          width = String(-w);
+          width = String(Math.min(-w, MAX_PRINTF_WIDTH));
         } else {
-          width = String(w);
+          width = String(Math.min(w, MAX_PRINTF_WIDTH));
         }
         j++;
       } else {
         while (j < format.length && /\d/.test(format[j])) {
           width += format[j++];
         }
+      }
+      // Cap width to prevent memory bombs
+      if (width && parseInt(width, 10) > MAX_PRINTF_WIDTH) {
+        width = String(MAX_PRINTF_WIDTH);
       }
 
       if (format[j] === ".") {
@@ -597,13 +603,20 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
         if (format[j] === "*") {
           const precVal = values[valueIdx++];
           precision = String(
-            precVal !== undefined ? Math.floor(Number(precVal)) : 0,
+            Math.min(
+              precVal !== undefined ? Math.floor(Number(precVal)) : 0,
+              MAX_PRINTF_WIDTH,
+            ),
           );
           j++;
         } else {
           while (j < format.length && /\d/.test(format[j])) {
             precision += format[j++];
           }
+        }
+        // Cap precision to prevent memory bombs
+        if (precision && parseInt(precision, 10) > MAX_PRINTF_WIDTH) {
+          precision = String(MAX_PRINTF_WIDTH);
         }
       }
 

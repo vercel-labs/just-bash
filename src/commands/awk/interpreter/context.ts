@@ -56,6 +56,7 @@ export interface AwkRuntimeContext {
   // Execution limits
   maxIterations: number;
   maxRecursionDepth: number;
+  maxOutputSize: number;
   currentRecursionDepth: number;
 
   // Control flow
@@ -92,6 +93,7 @@ export interface CreateContextOptions {
   fieldSep?: RegexLike;
   maxIterations?: number;
   maxRecursionDepth?: number;
+  maxOutputSize?: number;
   fs?: AwkFileSystem;
   cwd?: string;
   exec?: (
@@ -106,6 +108,7 @@ export function createRuntimeContext(
     fieldSep = DEFAULT_FIELD_SEP,
     maxIterations = DEFAULT_MAX_ITERATIONS,
     maxRecursionDepth = DEFAULT_MAX_RECURSION_DEPTH,
+    maxOutputSize = 0,
     fs,
     cwd,
     exec,
@@ -142,6 +145,7 @@ export function createRuntimeContext(
     fieldSep,
     maxIterations,
     maxRecursionDepth,
+    maxOutputSize,
     currentRecursionDepth: 0,
 
     exitCode: 0,

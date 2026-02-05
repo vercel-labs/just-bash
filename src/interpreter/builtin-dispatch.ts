@@ -41,6 +41,7 @@ import {
   resolveCommand as resolveCommandHelper,
 } from "./command-resolution.js";
 import { evaluateTestArgs } from "./conditionals.js";
+import { ExecutionLimitError } from "./errors.js";
 import { callFunction } from "./functions.js";
 import { getErrorMessage } from "./helpers/errors.js";
 import { failure, OK, testResult } from "./helpers/result.js";
@@ -425,6 +426,10 @@ export async function executeExternalCommand(
   try {
     return await cmd.execute(args, cmdCtx);
   } catch (error) {
+    // ExecutionLimitError must propagate - these are safety limits
+    if (error instanceof ExecutionLimitError) {
+      throw error;
+    }
     return failure(`${commandName}: ${getErrorMessage(error)}\n`);
   }
 }

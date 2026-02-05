@@ -92,7 +92,7 @@ const executionLimits = noLimit
 
 let env: Bash;
 if (rootPath) {
-  const fs = new OverlayFs({ root: rootPath });
+  const fs = new OverlayFs({ root: rootPath, maxFileReadSize: 10485760 });
   const mountPoint = fs.getMountPoint();
   env = new Bash({ fs, cwd: mountPoint, executionLimits });
   console.log(`OverlayFS: ${rootPath} mounted at ${mountPoint}`);

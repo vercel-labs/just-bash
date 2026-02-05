@@ -312,6 +312,20 @@ export const jqCommand: Command = {
       );
       const separator = joinOutput ? "" : "\n";
       const output = formatted.join(separator);
+
+      // Check output size against limit
+      const maxStringLength = ctx.limits?.maxStringLength;
+      if (
+        maxStringLength !== undefined &&
+        maxStringLength > 0 &&
+        output.length > maxStringLength
+      ) {
+        throw new ExecutionLimitError(
+          `jq: output size limit exceeded (${maxStringLength} bytes)`,
+          "string_length",
+        );
+      }
+
       const exitCode =
         exitStatus &&
         (values.length === 0 ||

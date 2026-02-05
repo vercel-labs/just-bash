@@ -29,7 +29,7 @@ describe("Memory Exhaustion Prevention", () => {
         'x=$(printf "%200s" " "); echo "done"',
       );
       expect(result.exitCode).toBe(126);
-      expect(result.stderr).toContain("string length limit exceeded");
+      expect(result.stderr).toContain("limit exceeded");
     });
 
     it("should limit string concatenation growth in loops", async () => {
@@ -69,7 +69,7 @@ describe("Memory Exhaustion Prevention", () => {
         cat <<< "$longvar"
       `);
       expect(result.exitCode).toBe(126);
-      expect(result.stderr).toContain("limit");
+      expect(result.stderr).toContain("limit exceeded");
     });
 
     it("should handle printf via command substitution", async () => {
@@ -82,7 +82,7 @@ describe("Memory Exhaustion Prevention", () => {
         'x=$(printf "%200s" "a"); echo "done"',
       );
       expect(result.exitCode).toBe(126);
-      expect(result.stderr).toContain("string length limit exceeded");
+      expect(result.stderr).toContain("limit exceeded");
     });
   });
 
@@ -278,7 +278,7 @@ EOF
         echo "\${x^^}"
       `);
       expect(result.exitCode).toBe(126);
-      expect(result.stderr).toContain("limit");
+      expect(result.stderr).toContain("limit exceeded");
     });
   });
 

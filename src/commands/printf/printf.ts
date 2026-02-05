@@ -1,4 +1,5 @@
 import { sprintf } from "sprintf-js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -217,6 +218,8 @@ export const printfCommand: Command = {
       // Get TZ from shell environment for strftime formatting
       const tz = ctx.env.get("TZ");
 
+      const maxStringLength = ctx.limits?.maxStringLength;
+
       do {
         const { result, argsConsumed, error, errMsg, stopped } = formatOnce(
           processedFormat,
@@ -225,6 +228,17 @@ export const printfCommand: Command = {
           tz,
         );
         output += result;
+        // Check output size against limit
+        if (
+          maxStringLength !== undefined &&
+          maxStringLength > 0 &&
+          output.length > maxStringLength
+        ) {
+          throw new ExecutionLimitError(
+            `printf: output size limit exceeded (${maxStringLength} bytes)`,
+            "string_length",
+          );
+        }
         argPos += argsConsumed;
         if (error) {
           hadError = true;
@@ -267,6 +281,9 @@ export const printfCommand: Command = {
         exitCode: hadError ? 1 : 0,
       };
     } catch (error) {
+      if (error instanceof ExecutionLimitError) {
+        throw error;
+      }
       return {
         stdout: "",
         stderr: `printf: ${getErrorMessage(error)}\n`,

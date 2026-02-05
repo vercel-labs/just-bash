@@ -33,13 +33,22 @@ export interface ReadWriteFsOptions {
    * All paths are relative to this root.
    */
   root: string;
+
+  /**
+   * Maximum file size in bytes that can be read.
+   * Files larger than this will throw an EFBIG error.
+   * Defaults to 0 (no limit).
+   */
+  maxFileReadSize?: number;
 }
 
 export class ReadWriteFs implements IFileSystem {
   private readonly root: string;
+  private readonly maxFileReadSize: number;
 
   constructor(options: ReadWriteFsOptions) {
     this.root = nodePath.resolve(options.root);
+    this.maxFileReadSize = options.maxFileReadSize ?? 0;
 
     // Verify root exists and is a directory
     if (!fs.existsSync(this.root)) {
@@ -100,6 +109,14 @@ export class ReadWriteFs implements IFileSystem {
     const realPath = this.toRealPath(path);
 
     try {
+      if (this.maxFileReadSize > 0) {
+        const stat = await fs.promises.lstat(realPath);
+        if (stat.size > this.maxFileReadSize) {
+          throw new Error(
+            `EFBIG: file too large, read '${path}' (${stat.size} bytes, max ${this.maxFileReadSize})`,
+          );
+        }
+      }
       const content = await fs.promises.readFile(realPath);
       return new Uint8Array(content);
     } catch (e) {
