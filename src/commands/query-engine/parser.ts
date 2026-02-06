@@ -390,6 +390,22 @@ class Parser {
     return next.pos === dot.pos + 1;
   }
 
+  private isIdentLike(): boolean {
+    const t = this.peek().type;
+    return t === "IDENT" || KEYWORD_TOKEN_TYPES.has(t);
+  }
+
+  private consumeFieldNameAfterDot(dotToken: Token): string | null {
+    const next = this.peek();
+    if (next.type === "IDENT" || next.type === "STRING") {
+      return this.advance().value as string;
+    }
+    if (KEYWORD_TOKEN_TYPES.has(next.type) && next.pos === dotToken.pos + 1) {
+      return this.advance().value as string;
+    }
+    return null;
+  }
+
   parse(): AstNode {
     const expr = this.parseExpr();
     if (!this.check("EOF")) {
@@ -471,7 +487,7 @@ class Parser {
 
     // Check for shorthand: $name or $name:pattern
     const tok = this.peek();
-    if (tok.type === "IDENT") {
+    if (tok.type === "IDENT" || KEYWORD_TOKEN_TYPES.has(tok.type)) {
       const name = tok.value as string;
       if (name.startsWith("$")) {
         this.advance();
@@ -761,14 +777,9 @@ class Parser {
         return { type: "Index", index: indexExpr };
       }
       // .field or ."quoted-field" (keywords like .label are valid field names)
-      const next = this.peek();
-      if (next.type === "IDENT" || next.type === "STRING") {
-        const name = this.advance().value as string;
-        return { type: "Field", name };
-      }
-      if (KEYWORD_TOKEN_TYPES.has(next.type) && next.pos === dotToken.pos + 1) {
-        const name = this.advance().value as string;
-        return { type: "Field", name };
+      const fieldName = this.consumeFieldNameAfterDot(dotToken);
+      if (fieldName !== null) {
+        return { type: "Field", name: fieldName };
       }
       // Just identity
       return { type: "Identity" };
@@ -1002,7 +1013,7 @@ class Parser {
           this.expect("RPAREN", "Expected ')'");
           this.expect("COLON", "Expected ':'");
           value = this.parseObjectValue();
-        } else if (this.check("IDENT")) {
+        } else if (this.isIdentLike()) {
           const ident = this.advance().value as string;
           if (this.match("COLON")) {
             // {key: value}

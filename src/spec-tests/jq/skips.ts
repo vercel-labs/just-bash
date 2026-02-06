@@ -506,7 +506,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\.foo\[\.baz\]/, reason: "Dynamic field access" },
 
   // Keywords as identifiers
-  { pattern: /\{if:\d+,and:\d+/, reason: "Keywords as object keys" },
   { pattern: /\$foreach.*\$and.*\$or/, reason: "Keywords as variables" },
   { pattern: /\{ \$x, as,/, reason: "Complex object shorthand" },
   { pattern: /\. as \{as:/, reason: "Complex destructuring" },

@@ -110,4 +110,60 @@ describe("jq keyword field access", () => {
       expect(result.exitCode).toBe(0);
     });
   });
+
+  describe("keyword as object key", () => {
+    it("should allow keyword as object construction key with value", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo '{\"label\":\"hello\"}' | jq -c '{label: .label}'",
+      );
+      expect(result.stdout).toBe('{"label":"hello"}\n');
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should allow keyword as object shorthand key", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo '{\"label\":\"hello\"}' | jq -c '{label}'",
+      );
+      expect(result.stdout).toBe('{"label":"hello"}\n');
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should allow 'not' as object key", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo '{\"not\":true}' | jq -c '{not: .not}'",
+      );
+      expect(result.stdout).toBe('{"not":true}\n');
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should allow 'and' as object shorthand key", async () => {
+      const env = new Bash();
+      const result = await env.exec("echo '{\"and\":1}' | jq -c '{and}'");
+      expect(result.stdout).toBe('{"and":1}\n');
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe("keyword as object destructuring pattern key", () => {
+    it("should allow keyword key in object destructuring", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo '{\"label\":\"hello\"}' | jq -c '. as {label: $l} | $l'",
+      );
+      expect(result.stdout).toBe('"hello"\n');
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should allow keyword shorthand in object destructuring", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo '{\"not\":42}' | jq '. as {$not} | $not'",
+      );
+      expect(result.stdout).toBe("42\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
 });
