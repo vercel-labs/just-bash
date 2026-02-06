@@ -382,7 +382,7 @@ class Parser {
     return this.advance();
   }
 
-  private isAdjacentFieldName(dotOffset = 0): boolean {
+  private isFieldNameAfterDot(dotOffset = 0): boolean {
     const dot = this.peek(dotOffset);
     const next = this.peek(dotOffset + 1);
     if (next.type === "IDENT" || next.type === "STRING") return true;
@@ -713,7 +713,7 @@ class Parser {
     while (true) {
       if (this.match("QUESTION")) {
         expr = { type: "Optional", expr };
-      } else if (this.check("DOT") && this.isAdjacentFieldName()) {
+      } else if (this.check("DOT") && this.isFieldNameAfterDot()) {
         this.advance(); // consume DOT
         const token = this.advance();
         const name = token.value as string;

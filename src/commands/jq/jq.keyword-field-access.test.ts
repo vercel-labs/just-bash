@@ -111,6 +111,26 @@ describe("jq keyword field access", () => {
     });
   });
 
+  describe("space-separated keyword after dot should NOT be field access", () => {
+    it("should error on '. if' (space before keyword)", async () => {
+      const env = new Bash();
+      const result = await env.exec("echo '{\"if\":\"value\"}' | jq '. if'");
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    it("should error on '. and' (space before keyword)", async () => {
+      const env = new Bash();
+      const result = await env.exec("echo '{\"and\":true}' | jq '. and'");
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    it("should error on '. try' (space before keyword)", async () => {
+      const env = new Bash();
+      const result = await env.exec("echo '{\"try\":1}' | jq '. try'");
+      expect(result.exitCode).not.toBe(0);
+    });
+  });
+
   describe("keyword as object key", () => {
     it("should allow keyword as object construction key with value", async () => {
       const env = new Bash();
