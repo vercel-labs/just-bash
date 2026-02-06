@@ -224,9 +224,7 @@ cat /tmp/test.txt`,
 
     it("should handle stdin piping to sh -c", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        'echo "from stdin" | sh -c \'cat\'',
-      );
+      const result = await env.exec("echo \"from stdin\" | sh -c 'cat'");
       expect(result.stdout).toBe("from stdin\n");
       expect(result.exitCode).toBe(0);
     });
@@ -234,7 +232,7 @@ cat /tmp/test.txt`,
     it("should handle complex piping with bash -c", async () => {
       const env = new Bash();
       const result = await env.exec(
-        'echo -e "line1\\nline2\\nline3" | bash -c \'grep line2\'',
+        "echo -e \"line1\\nline2\\nline3\" | bash -c 'grep line2'",
       );
       expect(result.stdout).toBe("line2\n");
       expect(result.exitCode).toBe(0);
