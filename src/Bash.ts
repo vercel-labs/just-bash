@@ -199,6 +199,11 @@ export interface ExecOptions {
    * Default: false
    */
   rawScript?: boolean;
+  /**
+   * Standard input to pass to the script.
+   * This will be available to commands via stdin (e.g., for `bash -c 'cat'`).
+   */
+  stdin?: string;
 }
 
 export class Bash {
@@ -504,6 +509,8 @@ export class Bash {
       options: { ...this.state.options },
       // Share hashTable reference - it should persist across exec calls
       hashTable: this.state.hashTable,
+      // Pass stdin through to commands (for bash -c with piped input)
+      groupStdin: options?.stdin,
     };
 
     // Normalize indented multi-line scripts (unless rawScript is true)
