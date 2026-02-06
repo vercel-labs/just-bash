@@ -71,7 +71,7 @@ export function fromBuffer(
     if (typeof Buffer !== "undefined") {
       return Buffer.from(buffer).toString(encoding);
     }
-    
+
     // Browser fallback - String.fromCharCode(...buffer) fails with buffers > ~100KB
     const chunkSize = 65536; // 64KB chunks
     if (buffer.length <= chunkSize) {

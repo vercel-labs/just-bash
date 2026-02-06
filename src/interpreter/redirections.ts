@@ -57,11 +57,11 @@ async function checkOutputRedirectTarget(
  */
 function getFileEncoding(content: string): "binary" | "utf8" {
   const SAMPLE_SIZE = 8192; // 8KB
-  
+
   // For large strings, only check the first 8KB
   // This is sufficient since UTF-8 files typically have Unicode chars early
   const checkLength = Math.min(content.length, SAMPLE_SIZE);
-  
+
   for (let i = 0; i < checkLength; i++) {
     if (content.charCodeAt(i) > 255) {
       return "utf8";

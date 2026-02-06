@@ -36,7 +36,7 @@ describe("ReadWriteFs - Piping with large data", () => {
   it("should handle large data with wc -l using ReadWriteFs", async () => {
     // Create large text data with trailing newline (standard for text files)
     const lines = Array.from({ length: 50000 }, (_, i) => `Line ${i + 1}`);
-    const largeText = lines.join("\n") + "\n";
+    const largeText = `${lines.join("\n")}\n`;
 
     console.log(
       `Generated text size: ${(largeText.length / 1024 / 1024).toFixed(2)}MB`,
@@ -60,7 +60,7 @@ describe("ReadWriteFs - Piping with large data", () => {
   it("should handle large data with wc -l FILENAME using ReadWriteFs", async () => {
     // Create large text data with trailing newline
     const lines = Array.from({ length: 50000 }, (_, i) => `Line ${i + 1}`);
-    const largeText = lines.join("\n") + "\n";
+    const largeText = `${lines.join("\n")}\n`;
 
     // Write to file
     await fs.writeFile("/data2.txt", largeText);
@@ -78,7 +78,7 @@ describe("ReadWriteFs - Piping with large data", () => {
   it("should handle small data with wc -l using ReadWriteFs", async () => {
     // Create small text data with trailing newline
     const lines = Array.from({ length: 100 }, (_, i) => `Line ${i + 1}`);
-    const smallText = lines.join("\n") + "\n";
+    const smallText = `${lines.join("\n")}\n`;
 
     // Write to file
     await fs.writeFile("/small.txt", smallText);

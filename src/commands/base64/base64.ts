@@ -93,7 +93,7 @@ export const base64Command: Command = {
         // For decoding, read as text and strip whitespace
         const readResult = await readBinary(ctx, files, "base64");
         if (!readResult.ok) return readResult.error;
-        
+
         // Use Buffer if available (Node.js) for better large file handling
         if (typeof Buffer !== "undefined") {
           const buffer = Buffer.from(readResult.data);
@@ -104,7 +104,7 @@ export const base64Command: Command = {
           const result = decoded.toString("latin1");
           return { stdout: result, stderr: "", exitCode: 0 };
         }
-        
+
         // Browser fallback - use binary string (latin1) to preserve bytes for input
         const input = String.fromCharCode(...readResult.data);
         const cleaned = input.replace(/\s/g, "");
