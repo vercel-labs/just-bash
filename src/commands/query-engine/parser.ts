@@ -80,6 +80,8 @@ const KEYWORDS: Map<string, TokenType> = new Map([
   ["def", "DEF"],
 ]);
 
+const KEYWORD_TOKEN_TYPES: Set<TokenType> = new Set(KEYWORDS.values());
+
 function tokenize(input: string): Token[] {
   const tokens: Token[] = [];
   let pos = 0;
@@ -325,7 +327,7 @@ function tokenize(input: string): Token[] {
       }
       const keyword = KEYWORDS.get(ident);
       if (keyword) {
-        tokens.push({ type: keyword, pos: start });
+        tokens.push({ type: keyword, value: ident, pos: start });
       } else {
         tokens.push({ type: "IDENT", value: ident, pos: start });
       }
@@ -378,6 +380,14 @@ class Parser {
       );
     }
     return this.advance();
+  }
+
+  private isAdjacentFieldName(dotOffset = 0): boolean {
+    const dot = this.peek(dotOffset);
+    const next = this.peek(dotOffset + 1);
+    if (next.type === "IDENT" || next.type === "STRING") return true;
+    if (!KEYWORD_TOKEN_TYPES.has(next.type)) return false;
+    return next.pos === dot.pos + 1;
   }
 
   parse(): AstNode {
@@ -687,10 +697,7 @@ class Parser {
     while (true) {
       if (this.match("QUESTION")) {
         expr = { type: "Optional", expr };
-      } else if (
-        this.check("DOT") &&
-        (this.peek(1).type === "IDENT" || this.peek(1).type === "STRING")
-      ) {
+      } else if (this.check("DOT") && this.isAdjacentFieldName()) {
         this.advance(); // consume DOT
         const token = this.advance();
         const name = token.value as string;
@@ -730,7 +737,8 @@ class Parser {
     }
 
     // Identity or field access starting with dot
-    if (this.match("DOT")) {
+    if (this.check("DOT")) {
+      const dotToken = this.advance();
       // Check for .[] or .[n] or .[n:m]
       if (this.check("LBRACKET")) {
         this.advance();
@@ -752,8 +760,13 @@ class Parser {
         this.expect("RBRACKET", "Expected ']'");
         return { type: "Index", index: indexExpr };
       }
-      // .field or ."quoted-field"
-      if (this.check("IDENT") || this.check("STRING")) {
+      // .field or ."quoted-field" (keywords like .label are valid field names)
+      const next = this.peek();
+      if (next.type === "IDENT" || next.type === "STRING") {
+        const name = this.advance().value as string;
+        return { type: "Field", name };
+      }
+      if (KEYWORD_TOKEN_TYPES.has(next.type) && next.pos === dotToken.pos + 1) {
         const name = this.advance().value as string;
         return { type: "Field", name };
       }
