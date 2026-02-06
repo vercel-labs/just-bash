@@ -94,15 +94,19 @@ export type CommandName =
   | "xan"
   | "sqlite3"
   | "time"
-  | "whoami"
-  | "python3"
-  | "python";
+  | "whoami";
 
 /** Network command names (only available when network is configured) */
 export type NetworkCommandName = "curl";
 
-/** All command names including network commands */
-export type AllCommandName = CommandName | NetworkCommandName;
+/** Python command names (only available when python is explicitly enabled) */
+export type PythonCommandName = "python3" | "python";
+
+/** All command names including network and python commands */
+export type AllCommandName =
+  | CommandName
+  | NetworkCommandName
+  | PythonCommandName;
 
 // Statically analyzable loaders - each import() call is a literal string
 const commandLoaders: LazyCommandDef<CommandName>[] = [
@@ -483,12 +487,19 @@ if (typeof __BROWSER__ === "undefined" || !__BROWSER__) {
     name: "sqlite3" as CommandName,
     load: async () => (await import("./sqlite3/sqlite3.js")).sqlite3Command,
   });
-  commandLoaders.push({
-    name: "python3" as CommandName,
+}
+
+// Python commands - only registered when python is explicitly enabled
+// These introduce additional security surface (arbitrary code execution)
+const pythonCommandLoaders: LazyCommandDef<PythonCommandName>[] = [];
+// __BROWSER__ is defined by esbuild at build time for browser bundles
+if (typeof __BROWSER__ === "undefined" || !__BROWSER__) {
+  pythonCommandLoaders.push({
+    name: "python3",
     load: async () => (await import("./python3/python3.js")).python3Command,
   });
-  commandLoaders.push({
-    name: "python" as CommandName,
+  pythonCommandLoaders.push({
+    name: "python",
     load: async () => (await import("./python3/python3.js")).pythonCommand,
   });
 }
@@ -516,6 +527,15 @@ function createLazyCommand(def: LazyCommandDef): Command {
       if (!cmd) {
         cmd = await def.load();
         cache.set(def.name, cmd);
+      }
+
+      // Emit flag coverage hits when fuzzing (not available in browser bundles)
+      if (
+        ctx.coverage &&
+        (typeof __BROWSER__ === "undefined" || !__BROWSER__)
+      ) {
+        const { emitFlagCoverage } = await import("./flag-coverage.js");
+        emitFlagCoverage(ctx.coverage, def.name, args);
       }
 
       return cmd.execute(args, ctx);
@@ -554,6 +574,22 @@ export function createLazyCommands(filter?: CommandName[]): Command[] {
  */
 export function createNetworkCommands(): Command[] {
   return networkCommandLoaders.map(createLazyCommand);
+}
+
+/**
+ * Gets all python command names
+ */
+export function getPythonCommandNames(): string[] {
+  return pythonCommandLoaders.map((def) => def.name);
+}
+
+/**
+ * Creates python commands for registration (python3, python).
+ * These are only registered when python is explicitly enabled.
+ * Note: Python introduces additional security surface (arbitrary code execution).
+ */
+export function createPythonCommands(): Command[] {
+  return pythonCommandLoaders.map(createLazyCommand);
 }
 
 /**

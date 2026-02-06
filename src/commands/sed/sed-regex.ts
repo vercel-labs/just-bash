@@ -2,23 +2,23 @@
  * Regex conversion utilities for sed command
  */
 
-/** POSIX character class to JavaScript regex mapping */
-const POSIX_CLASSES: Record<string, string> = {
-  alnum: "a-zA-Z0-9",
-  alpha: "a-zA-Z",
-  ascii: "\\x00-\\x7F",
-  blank: " \\t",
-  cntrl: "\\x00-\\x1F\\x7F",
-  digit: "0-9",
-  graph: "!-~",
-  lower: "a-z",
-  print: " -~",
-  punct: "!-/:-@\\[-`{-~",
-  space: " \\t\\n\\r\\f\\v",
-  upper: "A-Z",
-  word: "a-zA-Z0-9_",
-  xdigit: "0-9A-Fa-f",
-};
+/** POSIX character class to JavaScript regex mapping (Map prevents prototype pollution) */
+const POSIX_CLASSES = new Map<string, string>([
+  ["alnum", "a-zA-Z0-9"],
+  ["alpha", "a-zA-Z"],
+  ["ascii", "\\x00-\\x7F"],
+  ["blank", " \\t"],
+  ["cntrl", "\\x00-\\x1F\\x7F"],
+  ["digit", "0-9"],
+  ["graph", "!-~"],
+  ["lower", "a-z"],
+  ["print", " -~"],
+  ["punct", "!-/:-@\\[-`{-~"],
+  ["space", " \\t\\n\\r\\f\\v"],
+  ["upper", "A-Z"],
+  ["word", "a-zA-Z0-9_"],
+  ["xdigit", "0-9A-Fa-f"],
+]);
 
 /**
  * Convert Basic Regular Expression (BRE) to Extended Regular Expression (ERE).
@@ -44,7 +44,7 @@ export function breToEre(pattern: string): string {
         const closeIdx = pattern.indexOf(":]]", i + 3);
         if (closeIdx !== -1) {
           const className = pattern.slice(i + 3, closeIdx);
-          const jsClass = POSIX_CLASSES[className];
+          const jsClass = POSIX_CLASSES.get(className);
           if (jsClass) {
             result += `[${jsClass}]`;
             i = closeIdx + 3;
@@ -62,7 +62,7 @@ export function breToEre(pattern: string): string {
         const closeIdx = pattern.indexOf(":]]", i + 4);
         if (closeIdx !== -1) {
           const className = pattern.slice(i + 4, closeIdx);
-          const jsClass = POSIX_CLASSES[className];
+          const jsClass = POSIX_CLASSES.get(className);
           if (jsClass) {
             result += `[^${jsClass}]`;
             i = closeIdx + 3;
@@ -104,7 +104,7 @@ export function breToEre(pattern: string): string {
         const closeIdx = pattern.indexOf(":]", i + 2);
         if (closeIdx !== -1) {
           const className = pattern.slice(i + 2, closeIdx);
-          const jsClass = POSIX_CLASSES[className];
+          const jsClass = POSIX_CLASSES.get(className);
           if (jsClass) {
             result += jsClass;
             i = closeIdx + 2;

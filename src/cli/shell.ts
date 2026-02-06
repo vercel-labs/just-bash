@@ -43,7 +43,10 @@ class VirtualShell {
   constructor(options: ShellOptions = {}) {
     // Use OverlayFs with current directory as root
     const root = process.cwd();
-    const overlayFs = new OverlayFs({ root, mountPoint: "/" });
+    const overlayFs = new OverlayFs({
+      root,
+      mountPoint: "/",
+    });
 
     this.env = new Bash({
       fs: overlayFs,

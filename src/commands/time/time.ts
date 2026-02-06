@@ -1,3 +1,4 @@
+import { mapToRecord } from "../../helpers/env.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 
 /**
@@ -109,7 +110,10 @@ export const timeCommand: Command = {
           exitCode: 1,
         };
       }
-      result = await ctx.exec(commandString, { env: ctx.env, cwd: ctx.cwd });
+      result = await ctx.exec(commandString, {
+        env: mapToRecord(ctx.env),
+        cwd: ctx.cwd,
+      });
     } catch (error) {
       result = {
         stdout: "",
@@ -190,3 +194,11 @@ function formatElapsedTime(seconds: number): string {
   }
   return `${minutes}:${secs.toFixed(2).padStart(5, "0")}`;
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "time",
+  flags: [{ flag: "-p", type: "boolean" }],
+  needsArgs: true,
+};

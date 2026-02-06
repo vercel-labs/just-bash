@@ -8,6 +8,7 @@
  */
 
 import type { WordNode, WordPart } from "../../ast/types.js";
+import { createUserRegex } from "../../regex/index.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
 import { escapeRegex } from "../helpers/regex.js";
 import type { InterpreterContext } from "../types.js";
@@ -102,7 +103,7 @@ export async function handleArrayPatternReplacement(
 
   // If no elements, check for scalar (treat as single-element array)
   if (elements.length === 0) {
-    const scalarValue = ctx.state.env[arrayName];
+    const scalarValue = ctx.state.env.get(arrayName);
     if (scalarValue !== undefined) {
       values.push(scalarValue);
     }
@@ -138,9 +139,9 @@ export async function handleArrayPatternReplacement(
   // Apply replacement to each element
   const replacedValues: string[] = [];
   try {
-    const re = new RegExp(regexPattern, operation.all ? "g" : "");
+    const re = createUserRegex(regexPattern, operation.all ? "g" : "");
     for (const value of values) {
-      replacedValues.push(value.replace(re, replacement));
+      replacedValues.push(re.replace(value, replacement));
     }
   } catch {
     // Invalid regex - return values unchanged
@@ -203,7 +204,7 @@ export async function handleArrayPatternRemoval(
 
   // If no elements, check for scalar (treat as single-element array)
   if (elements.length === 0) {
-    const scalarValue = ctx.state.env[arrayName];
+    const scalarValue = ctx.state.env.get(arrayName);
     if (scalarValue !== undefined) {
       values.push(scalarValue);
     }

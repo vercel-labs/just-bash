@@ -117,7 +117,7 @@ async function executeCommandSubstitutionFromString(
   // Execute in subshell-like context
   const savedBashPid = ctx.state.bashPid;
   ctx.state.bashPid = ctx.state.nextVirtualPid++;
-  const savedEnv = { ...ctx.state.env };
+  const savedEnv = new Map(ctx.state.env);
   const savedCwd = ctx.state.cwd;
   const savedSuppressVerbose = ctx.state.suppressVerbose;
   ctx.state.suppressVerbose = true;
@@ -130,7 +130,7 @@ async function executeCommandSubstitutionFromString(
     ctx.state.cwd = savedCwd;
     ctx.state.suppressVerbose = savedSuppressVerbose;
     ctx.state.lastExitCode = exitCode;
-    ctx.state.env["?"] = String(exitCode);
+    ctx.state.env.set("?", String(exitCode));
     if (result.stderr) {
       ctx.state.expansionStderr =
         (ctx.state.expansionStderr || "") + result.stderr;
@@ -147,7 +147,7 @@ async function executeCommandSubstitutionFromString(
     }
     if (error instanceof ExitError) {
       ctx.state.lastExitCode = error.exitCode;
-      ctx.state.env["?"] = String(error.exitCode);
+      ctx.state.env.set("?", String(error.exitCode));
       return error.stdout?.replace(/\n+$/, "") ?? "";
     }
     return "";
@@ -220,7 +220,7 @@ export function expandVariablesInPattern(
           if (closeIdx !== -1) {
             const varName = pattern.slice(i + 2, closeIdx);
             // Simple variable expansion (no complex operations)
-            result += ctx.state.env[varName] ?? "";
+            result += ctx.state.env.get(varName) ?? "";
             i = closeIdx + 1;
             continue;
           }
@@ -231,7 +231,7 @@ export function expandVariablesInPattern(
             end++;
           }
           const varName = pattern.slice(i + 1, end);
-          result += ctx.state.env[varName] ?? "";
+          result += ctx.state.env.get(varName) ?? "";
           i = end;
           continue;
         }
@@ -291,7 +291,7 @@ function expandVariablesInDoubleQuotedPattern(
           const closeIdx = content.indexOf("}", i + 2);
           if (closeIdx !== -1) {
             const varName = content.slice(i + 2, closeIdx);
-            result += ctx.state.env[varName] ?? "";
+            result += ctx.state.env.get(varName) ?? "";
             i = closeIdx + 1;
             continue;
           }
@@ -302,7 +302,7 @@ function expandVariablesInDoubleQuotedPattern(
             end++;
           }
           const varName = content.slice(i + 1, end);
-          result += ctx.state.env[varName] ?? "";
+          result += ctx.state.env.get(varName) ?? "";
           i = end;
           continue;
         }
@@ -415,7 +415,7 @@ export async function expandVariablesInPatternAsync(
           if (closeIdx !== -1) {
             const varName = pattern.slice(i + 2, closeIdx);
             // Simple variable expansion (no complex operations)
-            result += ctx.state.env[varName] ?? "";
+            result += ctx.state.env.get(varName) ?? "";
             i = closeIdx + 1;
             continue;
           }
@@ -426,7 +426,7 @@ export async function expandVariablesInPatternAsync(
             end++;
           }
           const varName = pattern.slice(i + 1, end);
-          result += ctx.state.env[varName] ?? "";
+          result += ctx.state.env.get(varName) ?? "";
           i = end;
           continue;
         }
@@ -515,7 +515,7 @@ async function expandVariablesInDoubleQuotedPatternAsync(
           const closeIdx = content.indexOf("}", i + 2);
           if (closeIdx !== -1) {
             const varName = content.slice(i + 2, closeIdx);
-            result += ctx.state.env[varName] ?? "";
+            result += ctx.state.env.get(varName) ?? "";
             i = closeIdx + 1;
             continue;
           }
@@ -526,7 +526,7 @@ async function expandVariablesInDoubleQuotedPatternAsync(
             end++;
           }
           const varName = content.slice(i + 1, end);
-          result += ctx.state.env[varName] ?? "";
+          result += ctx.state.env.get(varName) ?? "";
           i = end;
           continue;
         }

@@ -143,3 +143,15 @@ function joinWithDelimiters(parts: string[], delimiters: string): string {
   }
   return result;
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "paste",
+  flags: [
+    { flag: "-d", type: "value", valueHint: "delimiter" },
+    { flag: "-s", type: "boolean" },
+  ],
+  stdinType: "text",
+  needsFiles: true,
+};

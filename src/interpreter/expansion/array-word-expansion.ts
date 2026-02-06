@@ -91,7 +91,7 @@ export function handleSimpleArrayExpansion(
   // No array elements - check for scalar variable
   // ${s[@]} where s='abc' should return 'abc' (treat scalar as single-element array)
   // But NOT if the scalar value is actually from a nameref to array[@]
-  const scalarValue = ctx.state.env[arrayName];
+  const scalarValue = ctx.state.env.get(arrayName);
   if (scalarValue !== undefined) {
     return { values: [scalarValue], quoted: true };
   }
@@ -148,7 +148,7 @@ export function handleNamerefArrayExpansion(
   }
 
   // No array elements - check for scalar variable
-  const scalarValue = ctx.state.env[arrayName];
+  const scalarValue = ctx.state.env.get(arrayName);
   if (scalarValue !== undefined) {
     return { values: [scalarValue], quoted: true };
   }

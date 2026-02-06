@@ -37,7 +37,7 @@ export async function handleSource(
     }
   } else {
     // Filename doesn't contain '/' - search in PATH first, then current directory
-    const pathEnv = ctx.state.env.PATH || "";
+    const pathEnv = ctx.state.env.get("PATH") || "";
     const pathDirs = pathEnv.split(":").filter((d) => d);
 
     for (const dir of pathDirs) {
@@ -73,25 +73,25 @@ export async function handleSource(
   }
 
   // Save and set positional parameters from additional args
-  const savedPositional: Record<string, string | undefined> = {};
+  const savedPositional = new Map<string, string | undefined>();
   if (sourceArgs.length > 1) {
     // Save current positional parameters
     for (let i = 1; i <= 9; i++) {
-      savedPositional[String(i)] = ctx.state.env[String(i)];
+      savedPositional.set(String(i), ctx.state.env.get(String(i)));
     }
-    savedPositional["#"] = ctx.state.env["#"];
-    savedPositional["@"] = ctx.state.env["@"];
+    savedPositional.set("#", ctx.state.env.get("#"));
+    savedPositional.set("@", ctx.state.env.get("@"));
 
     // Set new positional parameters
     const scriptArgs = sourceArgs.slice(1);
-    ctx.state.env["#"] = String(scriptArgs.length);
-    ctx.state.env["@"] = scriptArgs.join(" ");
+    ctx.state.env.set("#", String(scriptArgs.length));
+    ctx.state.env.set("@", scriptArgs.join(" "));
     for (let i = 0; i < scriptArgs.length && i < 9; i++) {
-      ctx.state.env[String(i + 1)] = scriptArgs[i];
+      ctx.state.env.set(String(i + 1), scriptArgs[i]);
     }
     // Clear any remaining positional parameters
     for (let i = scriptArgs.length + 1; i <= 9; i++) {
-      delete ctx.state.env[String(i)];
+      ctx.state.env.delete(String(i));
     }
   }
 
@@ -103,11 +103,11 @@ export async function handleSource(
     ctx.state.currentSource = savedSource;
     // Restore positional parameters if we changed them
     if (sourceArgs.length > 1) {
-      for (const [key, value] of Object.entries(savedPositional)) {
+      for (const [key, value] of savedPositional) {
         if (value === undefined) {
-          delete ctx.state.env[key];
+          ctx.state.env.delete(key);
         } else {
-          ctx.state.env[key] = value;
+          ctx.state.env.set(key, value);
         }
       }
     }

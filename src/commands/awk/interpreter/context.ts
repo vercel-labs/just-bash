@@ -4,12 +4,16 @@
  * Holds all state for AWK program execution.
  */
 
+import { ConstantRegex, type RegexLike } from "../../../regex/index.js";
+import type { FeatureCoverageWriter } from "../../../types.js";
 import type { AwkFunctionDef } from "../ast.js";
 import type { AwkFileSystem, AwkValue } from "./types.js";
 
 const DEFAULT_MAX_ITERATIONS = 10000;
 // Keep low to prevent JS stack overflow (each AWK call uses ~10-20 JS stack frames)
 const DEFAULT_MAX_RECURSION_DEPTH = 100;
+// Default field separator for AWK (whitespace)
+const DEFAULT_FIELD_SEP = new ConstantRegex(/\s+/);
 
 export interface AwkRuntimeContext {
   // Built-in variables
@@ -48,11 +52,12 @@ export interface AwkRuntimeContext {
   // For getline support (current file)
   lines?: string[];
   lineIndex?: number;
-  fieldSep: RegExp;
+  fieldSep: RegexLike;
 
   // Execution limits
   maxIterations: number;
   maxRecursionDepth: number;
+  maxOutputSize: number;
   currentRecursionDepth: number;
 
   // Control flow
@@ -83,29 +88,36 @@ export interface AwkRuntimeContext {
   exec?: (
     cmd: string,
   ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
+
+  // Feature coverage writer for fuzzing instrumentation
+  coverage?: FeatureCoverageWriter;
 }
 
 export interface CreateContextOptions {
-  fieldSep?: RegExp;
+  fieldSep?: RegexLike;
   maxIterations?: number;
   maxRecursionDepth?: number;
+  maxOutputSize?: number;
   fs?: AwkFileSystem;
   cwd?: string;
   exec?: (
     cmd: string,
   ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
+  coverage?: FeatureCoverageWriter;
 }
 
 export function createRuntimeContext(
   options: CreateContextOptions = {},
 ): AwkRuntimeContext {
   const {
-    fieldSep = /\s+/,
+    fieldSep = DEFAULT_FIELD_SEP,
     maxIterations = DEFAULT_MAX_ITERATIONS,
     maxRecursionDepth = DEFAULT_MAX_RECURSION_DEPTH,
+    maxOutputSize = 0,
     fs,
     cwd,
     exec,
+    coverage,
   } = options;
 
   return {
@@ -124,19 +136,22 @@ export function createRuntimeContext(
     fields: [],
     line: "",
 
-    vars: {},
-    arrays: {},
+    // Use null-prototype objects to prevent prototype pollution
+    // when user-controlled keys like "__proto__" or "constructor" are used
+    vars: Object.create(null) as Record<string, AwkValue>,
+    arrays: Object.create(null) as Record<string, Record<string, AwkValue>>,
     arrayAliases: new Map(),
 
     ARGC: 0,
-    ARGV: {},
-    ENVIRON: {},
+    ARGV: Object.create(null) as Record<string, string>,
+    ENVIRON: Object.create(null) as Record<string, string>,
 
     functions: new Map(),
 
     fieldSep,
     maxIterations,
     maxRecursionDepth,
+    maxOutputSize,
     currentRecursionDepth: 0,
 
     exitCode: 0,
@@ -154,5 +169,6 @@ export function createRuntimeContext(
     fs,
     cwd,
     exec,
+    coverage,
   };
 }

@@ -4,8 +4,10 @@
  * Handles array manipulation functions like sort, sort_by, group_by, max, min, add, etc.
  */
 
+import { mergeToNullPrototype } from "../../../helpers/env.js";
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
+import { isSafeKey, safeHasOwn, safeSet } from "../safe-object.js";
 import type { QueryValue } from "../value-operations.js";
 
 type EvalFn = (
@@ -177,7 +179,8 @@ export function evalArrayBuiltin(
         if (
           filtered.every((x) => x && typeof x === "object" && !Array.isArray(x))
         ) {
-          return Object.assign({}, ...filtered);
+          // Use null-prototype to prevent prototype pollution from user-controlled JSON
+          return mergeToNullPrototype(...(filtered as object[]));
         }
         return null;
       };
@@ -270,10 +273,13 @@ export function evalArrayBuiltin(
         return [value.flatMap((item) => evaluate(item, args[0], ctx))];
       }
       if (value && typeof value === "object") {
-        const result: Record<string, unknown> = {};
+        // Use null-prototype for additional safety
+        const result: Record<string, unknown> = Object.create(null);
         for (const [k, v] of Object.entries(value)) {
+          // Defense against prototype pollution
+          if (!isSafeKey(k)) continue;
           const mapped = evaluate(v, args[0], ctx);
-          if (mapped.length > 0) result[k] = mapped[0];
+          if (mapped.length > 0) safeSet(result, k, mapped[0]);
         }
         return [result];
       }
@@ -288,7 +294,8 @@ export function evalArrayBuiltin(
         return [key >= 0 && key < value.length];
       }
       if (value && typeof value === "object" && typeof key === "string") {
-        return [key in value];
+        // Use safeHasOwn to check own properties only (not inherited like __proto__)
+        return [safeHasOwn(value, key)];
       }
       return [false];
     }
@@ -301,7 +308,8 @@ export function evalArrayBuiltin(
         return [value >= 0 && value < obj.length];
       }
       if (obj && typeof obj === "object" && typeof value === "string") {
-        return [value in obj];
+        // Use safeHasOwn to check own properties only (not inherited like __proto__)
+        return [safeHasOwn(obj, value)];
       }
       return [false];
     }

@@ -37,7 +37,7 @@ export const whichCommand: Command = {
       return { stdout: "", stderr: "", exitCode: 1 };
     }
 
-    const pathEnv = ctx.env.PATH || "/usr/bin:/bin";
+    const pathEnv = ctx.env.get("PATH") || "/usr/bin:/bin";
     const pathDirs = pathEnv.split(":");
 
     let stdout = "";
@@ -71,4 +71,15 @@ export const whichCommand: Command = {
       exitCode: allFound ? 0 : 1,
     };
   },
+};
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "which",
+  flags: [
+    { flag: "-a", type: "boolean" },
+    { flag: "-s", type: "boolean" },
+  ],
+  needsArgs: true,
 };

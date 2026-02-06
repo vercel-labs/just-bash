@@ -1,3 +1,4 @@
+import { mergeToNullPrototype } from "../../helpers/env.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
@@ -127,15 +128,13 @@ async function executeScript(
   // Build environment for the exec call
   // Include exported environment from parent (for prefix assignments like "FOO=bar exec sh -c '...'")
   // plus positional parameters
-  const positionalEnv: Record<string, string> = {
-    // Inherit exported environment from parent context
-    ...(ctx.exportedEnv || {}),
-    // Override with positional parameters
+  // Use null-prototype object to prevent prototype pollution
+  const positionalEnv = mergeToNullPrototype(ctx.exportedEnv || {}, {
     "0": scriptName,
     "#": String(scriptArgs.length),
     "@": scriptArgs.join(" "),
     "*": scriptArgs.join(" "),
-  };
+  }) as Record<string, string>;
   scriptArgs.forEach((arg, i) => {
     positionalEnv[String(i + 1)] = arg;
   });
@@ -158,3 +157,17 @@ async function executeScript(
   });
   return result;
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "bash",
+  flags: [{ flag: "-c", type: "value", valueHint: "string" }],
+  stdinType: "text",
+};
+
+export const shFlagsForFuzzing: CommandFuzzInfo = {
+  name: "sh",
+  flags: [{ flag: "-c", type: "value", valueHint: "string" }],
+  stdinType: "text",
+};

@@ -189,7 +189,7 @@ export async function processFdVariableRedirections(
       const target = await expandWord(ctx, redir.target as WordNode);
       if (target === "-") {
         // Close operation - look up the FD from the variable and close it
-        const existingFd = ctx.state.env[redir.fdVariable];
+        const existingFd = ctx.state.env.get(redir.fdVariable);
         if (existingFd !== undefined) {
           const fdNum = Number.parseInt(existingFd, 10);
           if (!Number.isNaN(fdNum)) {
@@ -205,7 +205,7 @@ export async function processFdVariableRedirections(
     const fd = allocateFd(ctx);
 
     // Set the variable to the allocated FD number
-    ctx.state.env[redir.fdVariable] = String(fd);
+    ctx.state.env.set(redir.fdVariable, String(fd));
 
     // For file redirections, store the file path mapping
     if (redir.target.type === "Word") {
@@ -331,6 +331,12 @@ export async function preOpenOutputRedirects(
     const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
     const isClobber = redir.operator === ">|";
 
+    // Reject paths containing null bytes - these cause filesystem errors
+    // and are never valid in bash
+    if (filePath.includes("\0")) {
+      return makeResult("", `bash: ${target}: No such file or directory\n`, 1);
+    }
+
     // Check if target is a directory or noclobber prevents overwrite
     try {
       const stat = await ctx.fs.stat(filePath);
@@ -428,6 +434,14 @@ export async function applyRedirections(
     // Skip FD variable redirections in applyRedirections - they're already handled
     // by processFdVariableRedirections and don't affect stdout/stderr directly
     if (redir.fdVariable) {
+      continue;
+    }
+
+    // Reject paths containing null bytes - these cause filesystem errors
+    if (target.includes("\0")) {
+      stderr += `bash: ${target.replace(/\0/g, "")}: No such file or directory\n`;
+      exitCode = 1;
+      stdout = "";
       continue;
     }
 

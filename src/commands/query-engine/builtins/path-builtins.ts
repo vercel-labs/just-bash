@@ -67,7 +67,13 @@ export function evalPathBuiltin(
           if (Array.isArray(current) && typeof key === "number") {
             current = current[key];
           } else if (typeof current === "object" && typeof key === "string") {
-            current = (current as Record<string, unknown>)[key];
+            // Defense against prototype pollution: only access own properties
+            const obj = current as Record<string, unknown>;
+            if (!Object.hasOwn(obj, key)) {
+              current = null;
+              break;
+            }
+            current = obj[key];
           } else {
             current = null;
             break;
@@ -134,7 +140,13 @@ export function evalPathBuiltin(
           if (Array.isArray(current) && typeof key === "number") {
             current = current[key];
           } else if (typeof current === "object" && typeof key === "string") {
-            current = (current as Record<string, unknown>)[key];
+            // Defense against prototype pollution: only access own properties
+            const obj = current as Record<string, unknown>;
+            if (!Object.hasOwn(obj, key)) {
+              current = null;
+              break;
+            }
+            current = obj[key];
           } else {
             current = null;
             break;
@@ -158,6 +170,7 @@ export function evalPathBuiltin(
           } else {
             for (const key of Object.keys(v)) {
               paths.push([...path, key]);
+              // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
               walk((v as Record<string, unknown>)[key], [...path, key]);
             }
           }
@@ -171,7 +184,12 @@ export function evalPathBuiltin(
             if (Array.isArray(v) && typeof k === "number") {
               v = v[k];
             } else if (v && typeof v === "object" && typeof k === "string") {
-              v = (v as Record<string, unknown>)[k];
+              // Defense against prototype pollution: only access own properties
+              const obj = v as Record<string, unknown>;
+              if (!Object.hasOwn(obj, k)) {
+                return false;
+              }
+              v = obj[k];
             } else {
               return false;
             }
@@ -193,6 +211,7 @@ export function evalPathBuiltin(
             walk(v[i], [...path, i]);
           }
         } else {
+          // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
           for (const key of Object.keys(v)) {
             walk((v as Record<string, unknown>)[key], [...path, key]);
           }

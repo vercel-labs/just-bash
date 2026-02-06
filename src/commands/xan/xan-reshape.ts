@@ -3,7 +3,15 @@
  */
 
 import type { CommandContext, ExecResult } from "../../types.js";
-import { type CsvData, type CsvRow, formatCsv, readCsvInput } from "./csv.js";
+import {
+  type CsvData,
+  type CsvRow,
+  createSafeRow,
+  formatCsv,
+  readCsvInput,
+  safeSetRow,
+  toSafeRow,
+} from "./csv.js";
 
 /**
  * Explode: split delimited column values into multiple rows
@@ -70,21 +78,21 @@ export async function cmdExplode(
 
     if (strValue === "") {
       if (!dropEmpty) {
-        const newRow: CsvRow = { ...row };
+        const newRow: CsvRow = toSafeRow(row);
         if (rename) {
           delete newRow[column];
-          newRow[targetCol] = "";
+          safeSetRow(newRow, targetCol, "");
         }
         newData.push(newRow);
       }
     } else {
       const parts = strValue.split(separator);
       for (const part of parts) {
-        const newRow: CsvRow = { ...row };
+        const newRow: CsvRow = toSafeRow(row);
         if (rename) {
           delete newRow[column];
         }
-        newRow[targetCol] = part;
+        safeSetRow(newRow, targetCol, part);
         newData.push(newRow);
       }
     }
@@ -164,11 +172,11 @@ export async function cmdImplode(
     if (key !== currentKey) {
       // Flush previous group
       if (currentRow !== null) {
-        const newRow: CsvRow = { ...currentRow };
+        const newRow: CsvRow = toSafeRow(currentRow);
         if (rename) {
           delete newRow[column];
         }
-        newRow[targetCol] = currentValues.join(separator);
+        safeSetRow(newRow, targetCol, currentValues.join(separator));
         newData.push(newRow);
       }
       // Start new group
@@ -183,11 +191,11 @@ export async function cmdImplode(
 
   // Flush last group
   if (currentRow !== null) {
-    const newRow: CsvRow = { ...currentRow };
+    const newRow: CsvRow = toSafeRow(currentRow);
     if (rename) {
       delete newRow[column];
     }
-    newRow[targetCol] = currentValues.join(separator);
+    safeSetRow(newRow, targetCol, currentValues.join(separator));
     newData.push(newRow);
   }
 
@@ -292,23 +300,23 @@ export async function cmdJoin(
     if (matches && matches.length > 0) {
       matched2Keys.add(keyVal);
       for (const row2 of matches) {
-        const newRow: CsvRow = {};
+        const newRow: CsvRow = createSafeRow();
         for (const h of headers1) {
-          newRow[h] = row1[h];
+          safeSetRow(newRow, h, row1[h]);
         }
         for (const h of headers2Unique) {
-          newRow[h] = row2[h];
+          safeSetRow(newRow, h, row2[h]);
         }
         newData.push(newRow);
       }
     } else if (joinType === "left" || joinType === "full") {
       // No match, include left row with defaults for right columns
-      const newRow: CsvRow = {};
+      const newRow: CsvRow = createSafeRow();
       for (const h of headers1) {
-        newRow[h] = row1[h];
+        safeSetRow(newRow, h, row1[h]);
       }
       for (const h of headers2Unique) {
-        newRow[h] = defaultValue;
+        safeSetRow(newRow, h, defaultValue);
       }
       newData.push(newRow);
     }
@@ -319,13 +327,13 @@ export async function cmdJoin(
     for (const row2 of data2) {
       const keyVal = String(row2[key2] ?? "");
       if (!matched2Keys.has(keyVal)) {
-        const newRow: CsvRow = {};
+        const newRow: CsvRow = createSafeRow();
         for (const h of headers1) {
           // Use value from row2 if it exists in headers2, else default
-          newRow[h] = headers2.includes(h) ? row2[h] : defaultValue;
+          safeSetRow(newRow, h, headers2.includes(h) ? row2[h] : defaultValue);
         }
         for (const h of headers2Unique) {
-          newRow[h] = row2[h];
+          safeSetRow(newRow, h, row2[h]);
         }
         newData.push(newRow);
       }
@@ -440,17 +448,17 @@ export async function cmdPivot(
     const groupKeyParts = groupKey.split("\0");
     const group = groups.get(groupKey);
     if (!group) continue;
-    const row: CsvRow = {};
+    const row: CsvRow = createSafeRow();
 
     // Add group key values
     for (let i = 0; i < groupCols.length; i++) {
-      row[groupCols[i]] = groupKeyParts[i];
+      safeSetRow(row, groupCols[i], groupKeyParts[i]);
     }
 
     // Add aggregated values for each pivot column
     for (const pivotVal of pivotValues) {
       const values = group.get(pivotVal) || [];
-      row[pivotVal] = computeSimpleAgg(aggFunc, values);
+      safeSetRow(row, pivotVal, computeSimpleAgg(aggFunc, values));
     }
 
     newData.push(row);

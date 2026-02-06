@@ -87,7 +87,7 @@ export async function executeFor(
 
   let words: string[] = [];
   if (node.words === null) {
-    words = (ctx.state.env["@"] || "").split(" ").filter(Boolean);
+    words = (ctx.state.env.get("@") || "").split(" ").filter(Boolean);
   } else if (node.words.length === 0) {
     words = [];
   } else {
@@ -118,7 +118,7 @@ export async function executeFor(
         );
       }
 
-      ctx.state.env[node.variable] = value;
+      ctx.state.env.set(node.variable, value);
 
       try {
         for (const stmt of node.body) {
@@ -151,7 +151,7 @@ export async function executeFor(
   }
 
   // Note: In bash, the loop variable persists after the loop with its last value
-  // Do NOT delete ctx.state.env[node.variable] here
+  // Do NOT ctx.state.env.delete(node.variable) here
 
   // Apply output redirections
   const bodyResult = result(stdout, stderr, exitCode);

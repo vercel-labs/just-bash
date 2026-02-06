@@ -15,6 +15,7 @@ import { Bash } from "./Bash.js";
 import {
   getCommandNames,
   getNetworkCommandNames,
+  getPythonCommandNames,
 } from "./commands/registry.js";
 
 const README_PATH = path.join(import.meta.dirname, "..", "README.md");
@@ -309,6 +310,7 @@ describe("README validation", () => {
       const registryCommands = new Set([
         ...getCommandNames(),
         ...getNetworkCommandNames(),
+        ...getPythonCommandNames(),
       ]);
 
       // Commands in registry but not in README
@@ -370,6 +372,7 @@ describe("AGENTS.npm.md validation", () => {
       const registryCommands = new Set([
         ...getCommandNames(),
         ...getNetworkCommandNames(),
+        ...getPythonCommandNames(),
       ]);
 
       // Commands in registry but not in AGENTS.npm.md

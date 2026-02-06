@@ -60,16 +60,16 @@ function parseSize(sizeStr: string): number | null {
   }
 
   const suffix = (match[2] || "").toUpperCase();
-  const multipliers: Record<string, number> = {
-    "": 1,
-    K: 1024,
-    M: 1024 * 1024,
-    G: 1024 * 1024 * 1024,
-    T: 1024 * 1024 * 1024 * 1024,
-    P: 1024 * 1024 * 1024 * 1024 * 1024,
-  };
+  const multipliers = new Map<string, number>([
+    ["", 1],
+    ["K", 1024],
+    ["M", 1024 * 1024],
+    ["G", 1024 * 1024 * 1024],
+    ["T", 1024 * 1024 * 1024 * 1024],
+    ["P", 1024 * 1024 * 1024 * 1024 * 1024],
+  ]);
 
-  const multiplier = multipliers[suffix];
+  const multiplier = multipliers.get(suffix);
   if (multiplier === undefined) {
     return null;
   }
@@ -398,4 +398,18 @@ export const split: Command = {
       stderr: "",
     };
   },
+};
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "split",
+  flags: [
+    { flag: "-l", type: "value", valueHint: "number" },
+    { flag: "-b", type: "value", valueHint: "string" },
+    { flag: "-n", type: "value", valueHint: "number" },
+    { flag: "-d", type: "boolean" },
+    { flag: "-a", type: "value", valueHint: "number" },
+  ],
+  needsFiles: true,
 };

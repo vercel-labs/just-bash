@@ -312,3 +312,16 @@ async function buildTreeRecursive(
 
   return result;
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "tree",
+  flags: [
+    { flag: "-a", type: "boolean" },
+    { flag: "-d", type: "boolean" },
+    { flag: "-f", type: "boolean" },
+    { flag: "-L", type: "value", valueHint: "number" },
+  ],
+  needsFiles: true,
+};

@@ -296,7 +296,7 @@ export async function handleDeclare(
     const currentScope =
       ctx.state.localScopes[ctx.state.localScopes.length - 1];
     if (!currentScope.has(name)) {
-      currentScope.set(name, ctx.state.env[name]);
+      currentScope.set(name, ctx.state.env.get(name));
     }
   };
 
@@ -307,24 +307,21 @@ export async function handleDeclare(
       ctx.state.localScopes[ctx.state.localScopes.length - 1];
     // Save the base variable
     if (!currentScope.has(name)) {
-      currentScope.set(name, ctx.state.env[name]);
+      currentScope.set(name, ctx.state.env.get(name));
     }
     // Save array elements
     const prefix = `${name}_`;
-    for (const key of Object.keys(ctx.state.env)) {
+    for (const key of ctx.state.env.keys()) {
       if (key.startsWith(prefix) && !key.includes("__")) {
         if (!currentScope.has(key)) {
-          currentScope.set(key, ctx.state.env[key]);
+          currentScope.set(key, ctx.state.env.get(key));
         }
       }
     }
     // Save length metadata
     const lengthKey = `${name}__length`;
-    if (
-      ctx.state.env[lengthKey] !== undefined &&
-      !currentScope.has(lengthKey)
-    ) {
-      currentScope.set(lengthKey, ctx.state.env[lengthKey]);
+    if (ctx.state.env.has(lengthKey) && !currentScope.has(lengthKey)) {
+      currentScope.set(lengthKey, ctx.state.env.get(lengthKey));
     }
   };
 
@@ -460,8 +457,8 @@ export async function handleDeclare(
       // This ensures arr=(a b c); arr=(d e) results in just (d e), not merged
       clearArray(ctx, name);
       // Also clear the scalar value and length marker
-      delete ctx.state.env[name];
-      delete ctx.state.env[`${name}__length`];
+      ctx.state.env.delete(name);
+      ctx.state.env.delete(`${name}__length`);
 
       // Check if this is associative array literal syntax: (['key']=value ...)
       if (declareAssoc && content.includes("[")) {
@@ -469,7 +466,7 @@ export async function handleDeclare(
         for (const [key, rawValue] of entries) {
           // Apply tilde expansion to the value
           const value = expandTildesInValue(ctx, rawValue);
-          ctx.state.env[`${name}_${key}`] = value;
+          ctx.state.env.set(`${name}_${key}`, value);
         }
       } else if (declareAssoc) {
         // For associative arrays without [key]=value syntax,
@@ -482,7 +479,7 @@ export async function handleDeclare(
             i + 1 < elements.length
               ? expandTildesInValue(ctx, elements[i + 1])
               : "";
-          ctx.state.env[`${name}_${key}`] = value;
+          ctx.state.env.set(`${name}_${key}`, value);
         }
       } else {
         // Parse as indexed array elements
@@ -515,22 +512,22 @@ export async function handleDeclare(
                   index = 0;
                 }
               }
-              ctx.state.env[`${name}_${index}`] = value;
+              ctx.state.env.set(`${name}_${index}`, value);
               currentIndex = index + 1;
             } else {
               // Non-keyed element: use currentIndex and increment
               const value = expandTildesInValue(ctx, element);
-              ctx.state.env[`${name}_${currentIndex}`] = value;
+              ctx.state.env.set(`${name}_${currentIndex}`, value);
               currentIndex++;
             }
           }
         } else {
           // Simple sequential assignment
           for (let i = 0; i < elements.length; i++) {
-            ctx.state.env[`${name}_${i}`] = elements[i];
+            ctx.state.env.set(`${name}_${i}`, elements[i]);
           }
           // Store array length marker
-          ctx.state.env[`${name}__length`] = String(elements.length);
+          ctx.state.env.set(`${name}__length`, String(elements.length));
         }
       }
 
@@ -593,15 +590,15 @@ export async function handleDeclare(
       }
 
       // Set the array element
-      ctx.state.env[`${name}_${index}`] = value;
+      ctx.state.env.set(`${name}_${index}`, value);
 
       // Update array length if needed
       const currentLength = parseInt(
-        ctx.state.env[`${name}__length`] ?? "0",
+        ctx.state.env.get(`${name}__length`) ?? "0",
         10,
       );
       if (index >= currentLength) {
-        ctx.state.env[`${name}__length`] = String(index + 1);
+        ctx.state.env.set(`${name}__length`, String(index + 1));
       }
 
       // Mark as local if inside a function
@@ -640,7 +637,7 @@ export async function handleDeclare(
         const entries = parseAssocArrayLiteral(content);
         for (const [key, rawValue] of entries) {
           const value = expandTildesInValue(ctx, rawValue);
-          ctx.state.env[`${name}_${key}`] = value;
+          ctx.state.env.set(`${name}_${key}`, value);
         }
       } else {
         // For indexed arrays, get current highest index and append
@@ -648,11 +645,11 @@ export async function handleDeclare(
 
         // If variable was a scalar, convert it to array element 0
         let startIndex = 0;
-        if (existingIndices.length === 0 && ctx.state.env[name] !== undefined) {
+        const scalarValue = ctx.state.env.get(name);
+        if (existingIndices.length === 0 && scalarValue !== undefined) {
           // Variable exists as scalar - convert to array element 0
-          const scalarValue = ctx.state.env[name];
-          ctx.state.env[`${name}_0`] = scalarValue;
-          delete ctx.state.env[name];
+          ctx.state.env.set(`${name}_0`, scalarValue);
+          ctx.state.env.delete(name);
           startIndex = 1;
         } else if (existingIndices.length > 0) {
           // Find highest existing index + 1
@@ -661,15 +658,15 @@ export async function handleDeclare(
 
         // Append new elements
         for (let i = 0; i < newElements.length; i++) {
-          ctx.state.env[`${name}_${startIndex + i}`] = expandTildesInValue(
-            ctx,
-            newElements[i],
+          ctx.state.env.set(
+            `${name}_${startIndex + i}`,
+            expandTildesInValue(ctx, newElements[i]),
           );
         }
 
         // Update length marker
         const newLength = startIndex + newElements.length;
-        ctx.state.env[`${name}__length`] = String(newLength);
+        ctx.state.env.set(`${name}__length`, String(newLength));
       }
 
       // Mark as local if inside a function
@@ -719,25 +716,25 @@ export async function handleDeclare(
 
       // If variable has integer attribute, evaluate as arithmetic and add
       if (isInteger(ctx, name)) {
-        const existing = ctx.state.env[name] ?? "0";
+        const existing = ctx.state.env.get(name) ?? "0";
         const existingNum = parseInt(existing, 10) || 0;
         const appendNum =
           parseInt(await evaluateIntegerValue(ctx, appendValue), 10) || 0;
         appendValue = String(existingNum + appendNum);
-        ctx.state.env[name] = appendValue;
+        ctx.state.env.set(name, appendValue);
       } else if (isArray) {
         // For arrays, append to element 0 (bash behavior)
         appendValue = applyCaseTransform(ctx, name, appendValue);
         const element0Key = `${name}_0`;
-        const existing = ctx.state.env[element0Key] ?? "";
-        ctx.state.env[element0Key] = existing + appendValue;
+        const existing = ctx.state.env.get(element0Key) ?? "";
+        ctx.state.env.set(element0Key, existing + appendValue);
       } else {
         // Apply case transformation
         appendValue = applyCaseTransform(ctx, name, appendValue);
 
         // Append to existing value (or set if not defined)
-        const existing = ctx.state.env[name] ?? "";
-        ctx.state.env[name] = existing + appendValue;
+        const existing = ctx.state.env.get(name) ?? "";
+        ctx.state.env.set(name, existing + appendValue);
       }
 
       // Mark as local if inside a function
@@ -788,7 +785,7 @@ export async function handleDeclare(
           exitCode = 1;
           continue;
         }
-        ctx.state.env[name] = value;
+        ctx.state.env.set(name, value);
         markNameref(ctx, name);
         // If the target variable exists at creation time, mark this nameref as "bound".
         // Bound namerefs always resolve through to their target, even if unset later.
@@ -833,12 +830,12 @@ export async function handleDeclare(
       if (isNameref(ctx, name)) {
         const resolved = resolveNameref(ctx, name);
         if (resolved && resolved !== name) {
-          ctx.state.env[resolved] = value;
+          ctx.state.env.set(resolved, value);
         } else {
-          ctx.state.env[name] = value;
+          ctx.state.env.set(name, value);
         }
       } else {
-        ctx.state.env[name] = value;
+        ctx.state.env.set(name, value);
       }
 
       // Mark as local if inside a function
@@ -878,7 +875,7 @@ export async function handleDeclare(
         markNameref(ctx, name);
         // If the existing value is not a valid variable name, mark as invalid nameref.
         // Invalid namerefs act as regular variables (no resolution).
-        const existingValue = ctx.state.env[name];
+        const existingValue = ctx.state.env.get(name);
         if (
           existingValue !== undefined &&
           existingValue !== "" &&
@@ -929,14 +926,14 @@ export async function handleDeclare(
       }
 
       // Check if any array elements exist (numeric or string keys)
-      const hasArrayElements = Object.keys(ctx.state.env).some(
+      const hasArrayElements = Array.from(ctx.state.env.keys()).some(
         (key) =>
           key.startsWith(`${name}_`) && !key.startsWith(`${name}__length`),
       );
-      if (!(name in ctx.state.env) && !hasArrayElements) {
+      if (!ctx.state.env.has(name) && !hasArrayElements) {
         // If declaring as array, initialize empty array
         if (declareArray || declareAssoc) {
-          ctx.state.env[`${name}__length`] = "0";
+          ctx.state.env.set(`${name}__length`, "0");
         } else {
           // Mark variable as declared but don't set a value
           // This distinguishes "declare x" (unset) from "declare x=" (empty string)
@@ -998,7 +995,7 @@ export async function handleReadonly(
     let stdout = "";
     const readonlyNames = Array.from(ctx.state.readonlyVars || []).sort();
     for (const name of readonlyNames) {
-      const value = ctx.state.env[name];
+      const value = ctx.state.env.get(name);
       if (value !== undefined) {
         const escapedValue = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
         stdout += `declare -r ${name}="${escapedValue}"\n`;
@@ -1029,7 +1026,7 @@ export async function handleReadonly(
         const entries = parseAssocArrayLiteral(content);
         for (const [key, rawValue] of entries) {
           const value = expandTildesInValue(ctx, rawValue);
-          ctx.state.env[`${name}_${key}`] = value;
+          ctx.state.env.set(`${name}_${key}`, value);
         }
       } else {
         // For indexed arrays, get current highest index and append
@@ -1037,11 +1034,11 @@ export async function handleReadonly(
 
         // If variable was a scalar, convert it to array element 0
         let startIndex = 0;
-        if (existingIndices.length === 0 && ctx.state.env[name] !== undefined) {
+        const scalarValue = ctx.state.env.get(name);
+        if (existingIndices.length === 0 && scalarValue !== undefined) {
           // Variable exists as scalar - convert to array element 0
-          const scalarValue = ctx.state.env[name];
-          ctx.state.env[`${name}_0`] = scalarValue;
-          delete ctx.state.env[name];
+          ctx.state.env.set(`${name}_0`, scalarValue);
+          ctx.state.env.delete(name);
           startIndex = 1;
         } else if (existingIndices.length > 0) {
           // Find highest existing index + 1
@@ -1050,15 +1047,15 @@ export async function handleReadonly(
 
         // Append new elements
         for (let i = 0; i < newElements.length; i++) {
-          ctx.state.env[`${name}_${startIndex + i}`] = expandTildesInValue(
-            ctx,
-            newElements[i],
+          ctx.state.env.set(
+            `${name}_${startIndex + i}`,
+            expandTildesInValue(ctx, newElements[i]),
           );
         }
 
         // Update length marker
         const newLength = startIndex + newElements.length;
-        ctx.state.env[`${name}__length`] = String(newLength);
+        ctx.state.env.set(`${name}__length`, String(newLength));
       }
 
       markReadonly(ctx, name);
@@ -1076,8 +1073,8 @@ export async function handleReadonly(
       if (error) return error;
 
       // Append to existing value (or set if not defined)
-      const existing = ctx.state.env[name] ?? "";
-      ctx.state.env[name] = existing + appendValue;
+      const existing = ctx.state.env.get(name) ?? "";
+      ctx.state.env.set(name, existing + appendValue);
       markReadonly(ctx, name);
       continue;
     }

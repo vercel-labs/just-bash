@@ -37,9 +37,9 @@ export async function evaluateVariableTest(
       }
       // Expand variables in key
       key = key.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, varName) => {
-        return ctx.state.env[varName] || "";
+        return ctx.state.env.get(varName) || "";
       });
-      return `${arrayName}_${key}` in ctx.state.env;
+      return ctx.state.env.has(`${arrayName}_${key}`);
     }
 
     // Evaluate as arithmetic expression (handles variables like zero+0)
@@ -54,7 +54,7 @@ export async function evaluateVariableTest(
         index = Number.parseInt(indexExpr, 10);
       } else {
         // Last resort: try looking up as variable
-        const varValue = ctx.state.env[indexExpr];
+        const varValue = ctx.state.env.get(indexExpr);
         index = varValue ? Number.parseInt(varValue, 10) : 0;
       }
     }
@@ -81,11 +81,11 @@ export async function evaluateVariableTest(
       }
     }
 
-    return `${arrayName}_${index}` in ctx.state.env;
+    return ctx.state.env.has(`${arrayName}_${index}`);
   }
 
   // Check if it's a regular variable
-  if (operand in ctx.state.env) {
+  if (ctx.state.env.has(operand)) {
     return true;
   }
 

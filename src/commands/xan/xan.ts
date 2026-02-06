@@ -437,3 +437,12 @@ export const xanCommand: Command = {
     }
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "xan",
+  flags: [],
+  stdinType: "text",
+  needsArgs: true,
+};

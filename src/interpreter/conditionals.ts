@@ -13,6 +13,7 @@
 import type { ConditionalExpressionNode } from "../ast/types.js";
 import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
+import { createUserRegex } from "../regex/index.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import {
@@ -114,14 +115,14 @@ export async function evaluateConditional(
             const nocasematch = ctx.state.shoptOptions.nocasematch;
             // Convert POSIX ERE syntax to JavaScript regex syntax
             const jsPattern = posixEreToJsRegex(right);
-            const regex = new RegExp(jsPattern, nocasematch ? "i" : "");
-            const match = left.match(regex);
+            const regex = createUserRegex(jsPattern, nocasematch ? "i" : "");
+            const match = regex.match(left);
             // Always clear BASH_REMATCH first (bash clears it on failed match)
             clearArray(ctx, "BASH_REMATCH");
             if (match) {
               // Store full match at index 0, capture groups at indices 1, 2, ...
               for (let i = 0; i < match.length; i++) {
-                ctx.state.env[`BASH_REMATCH_${i}`] = match[i] || "";
+                ctx.state.env.set(`BASH_REMATCH_${i}`, match[i] || "");
               }
             }
             return match !== null;
@@ -512,7 +513,7 @@ export function matchPattern(
   // Use 's' flag (dotAll) so that * matches newlines in the value
   // This matches bash behavior where patterns like *foo* match multiline values
   const flags = nocasematch ? "is" : "s";
-  return new RegExp(regex, flags).test(value);
+  return createUserRegex(regex, flags).test(value);
 }
 
 /**
@@ -788,19 +789,19 @@ function computePatternLength(
 function evaluateShellOption(ctx: InterpreterContext, option: string): boolean {
   // Map of option names to their state in ctx.state.options
   // Only includes options that are actually implemented
-  const optionMap: Record<string, () => boolean> = {
+  const optionMap = new Map<string, () => boolean>([
     // Implemented options (set -o)
-    errexit: () => ctx.state.options.errexit === true,
-    nounset: () => ctx.state.options.nounset === true,
-    pipefail: () => ctx.state.options.pipefail === true,
-    xtrace: () => ctx.state.options.xtrace === true,
+    ["errexit", () => ctx.state.options.errexit === true],
+    ["nounset", () => ctx.state.options.nounset === true],
+    ["pipefail", () => ctx.state.options.pipefail === true],
+    ["xtrace", () => ctx.state.options.xtrace === true],
     // Single-letter aliases for implemented options
-    e: () => ctx.state.options.errexit === true,
-    u: () => ctx.state.options.nounset === true,
-    x: () => ctx.state.options.xtrace === true,
-  };
+    ["e", () => ctx.state.options.errexit === true],
+    ["u", () => ctx.state.options.nounset === true],
+    ["x", () => ctx.state.options.xtrace === true],
+  ]);
 
-  const getter = optionMap[option];
+  const getter = optionMap.get(option);
   if (getter) {
     return getter();
   }
@@ -1111,22 +1112,22 @@ function convertPosixCharClass(
  * Convert POSIX character class name to JS regex equivalent.
  */
 function posixClassToJsClass(className: string): string {
-  const mapping: Record<string, string> = {
-    alnum: "a-zA-Z0-9",
-    alpha: "a-zA-Z",
-    ascii: "\\x00-\\x7F",
-    blank: " \\t",
-    cntrl: "\\x00-\\x1F\\x7F",
-    digit: "0-9",
-    graph: "!-~",
-    lower: "a-z",
-    print: " -~",
-    punct: "!-/:-@\\[-`{-~",
-    space: " \\t\\n\\r\\f\\v",
-    upper: "A-Z",
-    word: "a-zA-Z0-9_",
-    xdigit: "0-9A-Fa-f",
-  };
+  const mapping = new Map<string, string>([
+    ["alnum", "a-zA-Z0-9"],
+    ["alpha", "a-zA-Z"],
+    ["ascii", "\\x00-\\x7F"],
+    ["blank", " \\t"],
+    ["cntrl", "\\x00-\\x1F\\x7F"],
+    ["digit", "0-9"],
+    ["graph", "!-~"],
+    ["lower", "a-z"],
+    ["print", " -~"],
+    ["punct", "!-/:-@\\[-`{-~"],
+    ["space", " \\t\\n\\r\\f\\v"],
+    ["upper", "A-Z"],
+    ["word", "a-zA-Z0-9_"],
+    ["xdigit", "0-9A-Fa-f"],
+  ]);
 
-  return mapping[className] ?? "";
+  return mapping.get(className) ?? "";
 }

@@ -14,6 +14,7 @@ import type {
   WordNode,
   WordPart,
 } from "../../ast/types.js";
+import { createUserRegex } from "../../regex/index.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
 import { escapeRegex } from "../helpers/regex.js";
 import type { InterpreterContext } from "../types.js";
@@ -88,7 +89,7 @@ export async function handleArrayDefaultValue(
     outerIsStar = arrayMatch[2] === "*";
 
     const elements = getArrayElements(ctx, arrayName);
-    const isSet = elements.length > 0 || ctx.state.env[arrayName] !== undefined;
+    const isSet = elements.length > 0 || ctx.state.env.has(arrayName);
     const isEmpty =
       elements.length === 0 ||
       (elements.length === 1 && elements.every(([, v]) => v === ""));
@@ -110,7 +111,7 @@ export async function handleArrayDefaultValue(
         }
         return { values, quoted: true };
       }
-      const scalarValue = ctx.state.env[arrayName];
+      const scalarValue = ctx.state.env.get(arrayName);
       if (scalarValue !== undefined) {
         return { values: [scalarValue], quoted: true };
       }
@@ -170,7 +171,7 @@ export async function handleArrayDefaultValue(
         return { values, quoted: true };
       }
       // Default array is empty - check for scalar
-      const scalarValue = ctx.state.env[defaultArrayName];
+      const scalarValue = ctx.state.env.get(defaultArrayName);
       if (scalarValue !== undefined) {
         return { values: [scalarValue], quoted: true };
       }
@@ -255,7 +256,7 @@ export async function handleArrayPatternWithPrefixSuffix(
 
   // If no elements, check for scalar (treat as single-element array)
   if (elements.length === 0) {
-    const scalarValue = ctx.state.env[arrayName];
+    const scalarValue = ctx.state.env.get(arrayName);
     if (scalarValue !== undefined) {
       values = [scalarValue];
     } else {
@@ -349,8 +350,8 @@ export async function handleArrayPatternWithPrefixSuffix(
 
     // Apply replacement to each element
     try {
-      const re = new RegExp(regexPattern, op.all ? "g" : "");
-      values = values.map((value) => value.replace(re, replacement));
+      const re = createUserRegex(regexPattern, op.all ? "g" : "");
+      values = values.map((value) => re.replace(value, replacement));
     } catch {
       // Invalid regex - leave values unchanged
     }
@@ -439,7 +440,7 @@ export async function handleArrayWithPrefixSuffix(
 
   // If no elements, check for scalar (treat as single-element array)
   if (elements.length === 0) {
-    const scalarValue = ctx.state.env[arrayName];
+    const scalarValue = ctx.state.env.get(arrayName);
     if (scalarValue !== undefined) {
       // Scalar treated as single-element array
       return { values: [prefix + scalarValue + suffix], quoted: true };

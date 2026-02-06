@@ -33,59 +33,59 @@ Options:
 
 // Map short options to their corresponding shell option property
 // Options not in this map are valid but no-ops
-const SHORT_OPTION_MAP: Record<string, keyof ShellOptions | null> = {
-  e: "errexit",
-  u: "nounset",
-  x: "xtrace",
-  v: "verbose",
+const SHORT_OPTION_MAP = new Map<string, keyof ShellOptions | null>([
+  ["e", "errexit"],
+  ["u", "nounset"],
+  ["x", "xtrace"],
+  ["v", "verbose"],
   // Implemented options
-  f: "noglob",
-  C: "noclobber",
-  a: "allexport",
-  n: "noexec",
+  ["f", "noglob"],
+  ["C", "noclobber"],
+  ["a", "allexport"],
+  ["n", "noexec"],
   // No-ops (accepted for compatibility)
-  h: null,
-  b: null,
-  m: null,
-  B: null,
-  H: null,
-  P: null,
-  T: null,
-  E: null,
-  p: null,
-};
+  ["h", null],
+  ["b", null],
+  ["m", null],
+  ["B", null],
+  ["H", null],
+  ["P", null],
+  ["T", null],
+  ["E", null],
+  ["p", null],
+]);
 
 // Map long options to their corresponding shell option property
 // Options not mapped to a property are valid but no-ops
-const LONG_OPTION_MAP: Record<string, keyof ShellOptions | null> = {
-  errexit: "errexit",
-  pipefail: "pipefail",
-  nounset: "nounset",
-  xtrace: "xtrace",
-  verbose: "verbose",
+const LONG_OPTION_MAP = new Map<string, keyof ShellOptions | null>([
+  ["errexit", "errexit"],
+  ["pipefail", "pipefail"],
+  ["nounset", "nounset"],
+  ["xtrace", "xtrace"],
+  ["verbose", "verbose"],
   // Implemented options
-  noclobber: "noclobber",
-  noglob: "noglob",
-  allexport: "allexport",
-  noexec: "noexec",
-  posix: "posix",
-  vi: "vi",
-  emacs: "emacs",
+  ["noclobber", "noclobber"],
+  ["noglob", "noglob"],
+  ["allexport", "allexport"],
+  ["noexec", "noexec"],
+  ["posix", "posix"],
+  ["vi", "vi"],
+  ["emacs", "emacs"],
   // No-ops (accepted for compatibility)
-  notify: null,
-  monitor: null,
-  braceexpand: null,
-  histexpand: null,
-  physical: null,
-  functrace: null,
-  errtrace: null,
-  privileged: null,
-  hashall: null,
-  ignoreeof: null,
-  "interactive-comments": null,
-  keyword: null,
-  onecmd: null,
-};
+  ["notify", null],
+  ["monitor", null],
+  ["braceexpand", null],
+  ["histexpand", null],
+  ["physical", null],
+  ["functrace", null],
+  ["errtrace", null],
+  ["privileged", null],
+  ["hashall", null],
+  ["ignoreeof", null],
+  ["interactive-comments", null],
+  ["keyword", null],
+  ["onecmd", null],
+]);
 
 // List of implemented options to display in `set -o` / `set +o` output
 const DISPLAY_OPTIONS: (keyof ShellOptions)[] = [
@@ -168,7 +168,7 @@ function formatArrayOutput(ctx: InterpreterContext, arrayName: string): string {
   }
 
   const elements = indices.map((i) => {
-    const value = ctx.state.env[`${arrayName}_${i}`] ?? "";
+    const value = ctx.state.env.get(`${arrayName}_${i}`) ?? "";
     return `[${i}]=${quoteArrayValue(value)}`;
   });
 
@@ -206,7 +206,7 @@ function formatAssocArrayOutput(
   }
 
   const elements = keys.map((k) => {
-    const value = ctx.state.env[`${arrayName}_${k}`] ?? "";
+    const value = ctx.state.env.get(`${arrayName}_${k}`) ?? "";
     return `[${quoteAssocKey(k)}]=${quoteArrayValue(value)}`;
   });
 
@@ -221,7 +221,7 @@ function getIndexedArrayNames(ctx: InterpreterContext): Set<string> {
   const arrayNames = new Set<string>();
   const assocArrays = ctx.state.associativeArrays ?? new Set<string>();
 
-  for (const key of Object.keys(ctx.state.env)) {
+  for (const key of ctx.state.env.keys()) {
     // Match array element pattern: name_index where index is numeric
     const match = key.match(/^([a-zA-Z_][a-zA-Z0-9_]*)_(\d+)$/);
     if (match) {
@@ -275,7 +275,7 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
 
     // Collect scalar variables (excluding array elements and internal metadata)
     const scalarEntries: [string, string][] = [];
-    for (const [key, value] of Object.entries(ctx.state.env)) {
+    for (const [key, value] of ctx.state.env) {
       // Only valid variable names
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
         continue;
@@ -353,7 +353,7 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
     // Handle -o / +o with option name
     if ((arg === "-o" || arg === "+o") && hasNonOptionArg(args, i)) {
       const optName = args[i + 1];
-      if (!(optName in LONG_OPTION_MAP)) {
+      if (!LONG_OPTION_MAP.has(optName)) {
         const errorMsg = `bash: set: ${optName}: invalid option name\n${SET_USAGE}`;
         // In POSIX mode, invalid option is fatal
         if (ctx.state.options.posix) {
@@ -361,7 +361,7 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
         }
         return failure(errorMsg);
       }
-      setShellOption(ctx, LONG_OPTION_MAP[optName], arg === "-o");
+      setShellOption(ctx, LONG_OPTION_MAP.get(optName) ?? null, arg === "-o");
       i += 2;
       continue;
     }
@@ -397,7 +397,7 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
       const enable = arg[0] === "-";
       for (let j = 1; j < arg.length; j++) {
         const flag = arg[j];
-        if (!(flag in SHORT_OPTION_MAP)) {
+        if (!SHORT_OPTION_MAP.has(flag)) {
           const errorMsg = `bash: set: ${arg[0]}${flag}: invalid option\n${SET_USAGE}`;
           // In POSIX mode, invalid option is fatal
           if (ctx.state.options.posix) {
@@ -405,7 +405,7 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
           }
           return failure(errorMsg);
         }
-        setShellOption(ctx, SHORT_OPTION_MAP[flag], enable);
+        setShellOption(ctx, SHORT_OPTION_MAP.get(flag) ?? null, enable);
       }
       i++;
       continue;
@@ -463,22 +463,22 @@ function setPositionalParameters(
 ): void {
   // Clear existing positional parameters
   let i = 1;
-  while (ctx.state.env[String(i)] !== undefined) {
-    delete ctx.state.env[String(i)];
+  while (ctx.state.env.has(String(i))) {
+    ctx.state.env.delete(String(i));
     i++;
   }
 
   // Set new positional parameters
   for (let j = 0; j < params.length; j++) {
-    ctx.state.env[String(j + 1)] = params[j];
+    ctx.state.env.set(String(j + 1), params[j]);
   }
 
   // Update $# (number of parameters)
-  ctx.state.env["#"] = String(params.length);
+  ctx.state.env.set("#", String(params.length));
 
   // Update $@ and $* (all parameters)
-  ctx.state.env["@"] = params.join(" ");
-  ctx.state.env["*"] = params.join(" ");
+  ctx.state.env.set("@", params.join(" "));
+  ctx.state.env.set("*", params.join(" "));
 
   // Note: bash does NOT reset OPTIND when positional parameters change.
   // This is intentional to match bash behavior.

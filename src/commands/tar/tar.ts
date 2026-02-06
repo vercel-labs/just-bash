@@ -5,6 +5,7 @@
  * with optional gzip, bzip2, and xz compression.
  */
 
+import { createUserRegex } from "../../regex/index.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import {
@@ -99,14 +100,17 @@ function matchesExclude(path: string, patterns: string[]): boolean {
 
     // Check full path match
     if (
-      new RegExp(`^${regex}$`).test(path) ||
-      new RegExp(`^${regex}/`).test(path)
+      createUserRegex(`^${regex}$`).test(path) ||
+      createUserRegex(`^${regex}/`).test(path)
     ) {
       return true;
     }
 
     // Check basename match (for patterns like *.log)
-    if (!pattern.includes("/") && new RegExp(`^${regex}$`).test(basename)) {
+    if (
+      !pattern.includes("/") &&
+      createUserRegex(`^${regex}$`).test(basename)
+    ) {
       return true;
     }
   }
@@ -132,8 +136,8 @@ function matchesWildcard(name: string, pattern: string): boolean {
     : name;
 
   return (
-    new RegExp(`^${regex}$`).test(name) ||
-    new RegExp(`^${regex}$`).test(basename)
+    createUserRegex(`^${regex}$`).test(name) ||
+    createUserRegex(`^${regex}$`).test(basename)
   );
 }
 
@@ -1085,4 +1089,23 @@ export const tarCommand: Command = {
       return listTarArchive(ctx, options, finalFiles);
     }
   },
+};
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "tar",
+  flags: [
+    { flag: "-c", type: "boolean" },
+    { flag: "-x", type: "boolean" },
+    { flag: "-t", type: "boolean" },
+    { flag: "-f", type: "value", valueHint: "path" },
+    { flag: "-z", type: "boolean" },
+    { flag: "-j", type: "boolean" },
+    { flag: "-v", type: "boolean" },
+    { flag: "-C", type: "value", valueHint: "path" },
+    { flag: "--strip-components", type: "value", valueHint: "number" },
+    { flag: "--exclude", type: "value", valueHint: "pattern" },
+  ],
+  needsArgs: true,
 };

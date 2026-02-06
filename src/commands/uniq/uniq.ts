@@ -99,3 +99,17 @@ export const uniqCommand: Command = {
     return { stdout: output, stderr: "", exitCode: 0 };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "uniq",
+  flags: [
+    { flag: "-c", type: "boolean" },
+    { flag: "-d", type: "boolean" },
+    { flag: "-u", type: "boolean" },
+    { flag: "-i", type: "boolean" },
+  ],
+  stdinType: "text",
+  needsFiles: true,
+};

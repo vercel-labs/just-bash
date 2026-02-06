@@ -1,3 +1,4 @@
+import type { UserRegex } from "../../regex/index.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { matchGlob } from "../../utils/glob.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -203,7 +204,7 @@ export const grepCommand: Command = {
           ? "perl"
           : "basic";
 
-    let regex: RegExp;
+    let regex: UserRegex;
     let kResetGroup: number | undefined;
     try {
       const regexResult = buildRegex(pattern, {
@@ -672,4 +673,48 @@ export const egrepCommand: Command = {
     // Insert -E at the beginning of args
     return grepCommand.execute(["-E", ...args], ctx);
   },
+};
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "grep",
+  flags: [
+    { flag: "-E", type: "boolean" },
+    { flag: "-F", type: "boolean" },
+    { flag: "-P", type: "boolean" },
+    { flag: "-i", type: "boolean" },
+    { flag: "-v", type: "boolean" },
+    { flag: "-w", type: "boolean" },
+    { flag: "-x", type: "boolean" },
+    { flag: "-c", type: "boolean" },
+    { flag: "-l", type: "boolean" },
+    { flag: "-L", type: "boolean" },
+    { flag: "-n", type: "boolean" },
+    { flag: "-h", type: "boolean" },
+    { flag: "-o", type: "boolean" },
+    { flag: "-q", type: "boolean" },
+    { flag: "-r", type: "boolean" },
+    { flag: "-m", type: "value", valueHint: "number" },
+    { flag: "-A", type: "value", valueHint: "number" },
+    { flag: "-B", type: "value", valueHint: "number" },
+    { flag: "-C", type: "value", valueHint: "number" },
+    { flag: "-e", type: "value", valueHint: "pattern" },
+  ],
+  stdinType: "text",
+  needsArgs: true,
+};
+
+export const fgrepFlagsForFuzzing: CommandFuzzInfo = {
+  name: "fgrep",
+  flags: [],
+  stdinType: "text",
+  needsArgs: true,
+};
+
+export const egrepFlagsForFuzzing: CommandFuzzInfo = {
+  name: "egrep",
+  flags: [],
+  stdinType: "text",
+  needsArgs: true,
 };

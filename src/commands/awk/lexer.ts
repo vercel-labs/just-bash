@@ -88,27 +88,27 @@ export enum TokenType {
   EOF = "EOF",
 }
 
-const KEYWORDS: Record<string, TokenType> = {
-  BEGIN: TokenType.BEGIN,
-  END: TokenType.END,
-  if: TokenType.IF,
-  else: TokenType.ELSE,
-  while: TokenType.WHILE,
-  do: TokenType.DO,
-  for: TokenType.FOR,
-  in: TokenType.IN,
-  break: TokenType.BREAK,
-  continue: TokenType.CONTINUE,
-  next: TokenType.NEXT,
-  nextfile: TokenType.NEXTFILE,
-  exit: TokenType.EXIT,
-  return: TokenType.RETURN,
-  delete: TokenType.DELETE,
-  function: TokenType.FUNCTION,
-  print: TokenType.PRINT,
-  printf: TokenType.PRINTF,
-  getline: TokenType.GETLINE,
-};
+const KEYWORDS = new Map<string, TokenType>([
+  ["BEGIN", TokenType.BEGIN],
+  ["END", TokenType.END],
+  ["if", TokenType.IF],
+  ["else", TokenType.ELSE],
+  ["while", TokenType.WHILE],
+  ["do", TokenType.DO],
+  ["for", TokenType.FOR],
+  ["in", TokenType.IN],
+  ["break", TokenType.BREAK],
+  ["continue", TokenType.CONTINUE],
+  ["next", TokenType.NEXT],
+  ["nextfile", TokenType.NEXTFILE],
+  ["exit", TokenType.EXIT],
+  ["return", TokenType.RETURN],
+  ["delete", TokenType.DELETE],
+  ["function", TokenType.FUNCTION],
+  ["print", TokenType.PRINT],
+  ["printf", TokenType.PRINTF],
+  ["getline", TokenType.GETLINE],
+]);
 
 export interface Token {
   type: TokenType;
@@ -463,8 +463,8 @@ export class AwkLexer {
       name += this.advance();
     }
 
-    const keywordType = KEYWORDS[name];
-    if (keywordType) {
+    const keywordType = KEYWORDS.get(name);
+    if (keywordType !== undefined) {
       return {
         type: keywordType,
         value: name,

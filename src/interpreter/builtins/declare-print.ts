@@ -103,7 +103,7 @@ export function printSpecificVariables(
         stdout += `declare -A ${name}=()\n`;
       } else {
         const elements = keys.map((key) => {
-          const value = ctx.state.env[`${name}_${key}`] ?? "";
+          const value = ctx.state.env.get(`${name}_${key}`) ?? "";
           // Format: ['key']=value (single quotes around key)
           const formattedValue = formatAssocValue(value);
           return `['${key}']=${formattedValue}`;
@@ -117,7 +117,7 @@ export function printSpecificVariables(
     const arrayIndices = getArrayIndices(ctx, name);
     if (arrayIndices.length > 0) {
       const elements = arrayIndices.map((index) => {
-        const value = ctx.state.env[`${name}_${index}`] ?? "";
+        const value = ctx.state.env.get(`${name}_${index}`) ?? "";
         return `[${index}]=${quoteArrayValue(value)}`;
       });
       stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
@@ -125,13 +125,13 @@ export function printSpecificVariables(
     }
 
     // Check if this is an empty array (has __length marker but no elements)
-    if (ctx.state.env[`${name}__length`] !== undefined) {
+    if (ctx.state.env.has(`${name}__length`)) {
       stdout += `declare -a ${name}=()\n`;
       continue;
     }
 
     // Regular scalar variable
-    const value = ctx.state.env[name];
+    const value = ctx.state.env.get(name);
     if (value !== undefined) {
       // Use $'...' quoting for control characters, double quotes otherwise
       stdout += `declare ${flags} ${name}=${quoteDeclareValue(value)}\n`;
@@ -187,7 +187,7 @@ export function printAllVariables(
 
   // Collect all variable names (excluding internal markers like __length)
   const varNames = new Set<string>();
-  for (const key of Object.keys(ctx.state.env)) {
+  for (const key of ctx.state.env.keys()) {
     if (key.startsWith("BASH_")) continue;
     // For __length markers, extract the base name (for empty arrays)
     if (key.endsWith("__length")) {
@@ -235,8 +235,7 @@ export function printAllVariables(
     const arrayIndices = getArrayIndices(ctx, name);
     const isIndexedArray =
       !isAssoc &&
-      (arrayIndices.length > 0 ||
-        ctx.state.env[`${name}__length`] !== undefined);
+      (arrayIndices.length > 0 || ctx.state.env.has(`${name}__length`));
 
     // Apply filters if set
     if (hasFilter) {
@@ -258,7 +257,7 @@ export function printAllVariables(
         stdout += `declare -A ${name}=()\n`;
       } else {
         const elements = keys.map((key) => {
-          const value = ctx.state.env[`${name}_${key}`] ?? "";
+          const value = ctx.state.env.get(`${name}_${key}`) ?? "";
           // Format: ['key']=value (single quotes around key)
           const formattedValue = formatAssocValue(value);
           return `['${key}']=${formattedValue}`;
@@ -271,7 +270,7 @@ export function printAllVariables(
     // Check if this is an indexed array
     if (arrayIndices.length > 0) {
       const elements = arrayIndices.map((index) => {
-        const value = ctx.state.env[`${name}_${index}`] ?? "";
+        const value = ctx.state.env.get(`${name}_${index}`) ?? "";
         return `[${index}]=${quoteArrayValue(value)}`;
       });
       stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
@@ -279,13 +278,13 @@ export function printAllVariables(
     }
 
     // Check if this is an empty array
-    if (ctx.state.env[`${name}__length`] !== undefined) {
+    if (ctx.state.env.has(`${name}__length`)) {
       stdout += `declare -a ${name}=()\n`;
       continue;
     }
 
     // Regular scalar variable
-    const value = ctx.state.env[name];
+    const value = ctx.state.env.get(name);
     if (value !== undefined) {
       stdout += `declare ${flags} ${name}=${quoteDeclareValue(value)}\n`;
     }
@@ -312,7 +311,7 @@ export function listAssociativeArrays(ctx: InterpreterContext): ExecResult {
     } else {
       // Non-empty associative array: format as (['key']=value ...)
       const elements = keys.map((key) => {
-        const value = ctx.state.env[`${name}_${key}`] ?? "";
+        const value = ctx.state.env.get(`${name}_${key}`) ?? "";
         // Format: ['key']=value (single quotes around key)
         const formattedValue = formatAssocValue(value);
         return `['${key}']=${formattedValue}`;
@@ -333,7 +332,7 @@ export function listIndexedArrays(ctx: InterpreterContext): ExecResult {
 
   // Find all indexed arrays
   const arrayNames = new Set<string>();
-  for (const key of Object.keys(ctx.state.env)) {
+  for (const key of ctx.state.env.keys()) {
     if (key.startsWith("BASH_")) continue;
     // Check for __length marker (empty arrays)
     if (key.endsWith("__length")) {
@@ -369,7 +368,7 @@ export function listIndexedArrays(ctx: InterpreterContext): ExecResult {
     } else {
       // Non-empty array: format as ([index]="value" ...)
       const elements = indices.map((index) => {
-        const value = ctx.state.env[`${name}_${index}`] ?? "";
+        const value = ctx.state.env.get(`${name}_${index}`) ?? "";
         return `[${index}]=${quoteArrayValue(value)}`;
       });
       stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
@@ -388,7 +387,7 @@ export function listAllVariables(ctx: InterpreterContext): ExecResult {
 
   // Collect all variable names (excluding internal markers)
   const varNames = new Set<string>();
-  for (const key of Object.keys(ctx.state.env)) {
+  for (const key of ctx.state.env.keys()) {
     if (key.startsWith("BASH_")) continue;
     // For __length markers, extract the base name (for arrays)
     if (key.endsWith("__length")) {
@@ -421,16 +420,13 @@ export function listAllVariables(ctx: InterpreterContext): ExecResult {
 
     // Check if this is an indexed array
     const arrayIndices = getArrayIndices(ctx, name);
-    if (
-      arrayIndices.length > 0 ||
-      ctx.state.env[`${name}__length`] !== undefined
-    ) {
+    if (arrayIndices.length > 0 || ctx.state.env.has(`${name}__length`)) {
       // Skip indexed arrays for simple declare output
       continue;
     }
 
     // Regular scalar variable - output as name=value
-    const value = ctx.state.env[name];
+    const value = ctx.state.env.get(name);
     if (value !== undefined) {
       stdout += `${name}=${quoteValue(value)}\n`;
     }

@@ -2,6 +2,7 @@
  * Shared utilities for xan subcommands
  */
 
+import { createUserRegex, type RegexLike } from "../../regex/index.js";
 import type { AstNode } from "../query-engine/parser.js";
 import { parseMoonblade } from "./moonblade-parser.js";
 import { moonbladeToJq } from "./moonblade-to-jq.js";
@@ -18,10 +19,10 @@ export function parseMoonbladeExpr(expr: string): AstNode {
  * Convert a glob pattern to a regular expression
  * Only supports * as wildcard
  */
-function globToRegex(pattern: string): RegExp {
+function globToRegex(pattern: string): RegexLike {
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
   const regexStr = escaped.replace(/\*/g, ".*");
-  return new RegExp(`^${regexStr}$`);
+  return createUserRegex(`^${regexStr}$`);
 }
 
 /**

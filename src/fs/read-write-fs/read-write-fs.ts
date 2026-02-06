@@ -2,7 +2,10 @@
  * ReadWriteFs - Direct wrapper around the real filesystem
  *
  * All operations go directly to the underlying Node.js filesystem.
- * This is a true read-write filesystem with no overlay or sandboxing.
+ * Paths are relative to the configured root directory.
+ *
+ * Security: Symlink targets are validated and transformed to stay within root,
+ * preventing symlink-based sandbox escape attacks.
  */
 
 import * as fs from "node:fs";
@@ -30,13 +33,22 @@ export interface ReadWriteFsOptions {
    * All paths are relative to this root.
    */
   root: string;
+
+  /**
+   * Maximum file size in bytes that can be read.
+   * Files larger than this will throw an EFBIG error.
+   * Defaults to 10MB (10485760).
+   */
+  maxFileReadSize?: number;
 }
 
 export class ReadWriteFs implements IFileSystem {
   private readonly root: string;
+  private readonly maxFileReadSize: number;
 
   constructor(options: ReadWriteFsOptions) {
     this.root = nodePath.resolve(options.root);
+    this.maxFileReadSize = options.maxFileReadSize ?? 10485760;
 
     // Verify root exists and is a directory
     if (!fs.existsSync(this.root)) {
@@ -97,6 +109,14 @@ export class ReadWriteFs implements IFileSystem {
     const realPath = this.toRealPath(path);
 
     try {
+      if (this.maxFileReadSize > 0) {
+        const stat = await fs.promises.lstat(realPath);
+        if (stat.size > this.maxFileReadSize) {
+          throw new Error(
+            `EFBIG: file too large, read '${path}' (${stat.size} bytes, max ${this.maxFileReadSize})`,
+          );
+        }
+      }
       const content = await fs.promises.readFile(realPath);
       return new Uint8Array(content);
     } catch (e) {
@@ -366,8 +386,28 @@ export class ReadWriteFs implements IFileSystem {
   async symlink(target: string, linkPath: string): Promise<void> {
     const realLinkPath = this.toRealPath(linkPath);
 
+    // Validate and transform symlink target to prevent sandbox escape.
+    // Resolve the target: if absolute, treat as virtual path; if relative, resolve from link's dir
+    const normalizedLinkPath = this.normalizePath(linkPath);
+    const linkDir = this.normalizePath(nodePath.dirname(normalizedLinkPath));
+    const resolvedVirtualTarget = target.startsWith("/")
+      ? this.normalizePath(target)
+      : this.normalizePath(
+          linkDir === "/" ? `/${target}` : `${linkDir}/${target}`,
+        );
+
+    // Convert to real path - this is where the symlink should actually point
+    const resolvedRealTarget = nodePath.join(this.root, resolvedVirtualTarget);
+
+    // For relative symlinks, compute the correct relative path from link to target within root
+    // For absolute symlinks, use the absolute path within root
+    const realLinkDir = nodePath.dirname(realLinkPath);
+    const safeTarget = target.startsWith("/")
+      ? resolvedRealTarget
+      : nodePath.relative(realLinkDir, resolvedRealTarget);
+
     try {
-      await fs.promises.symlink(target, realLinkPath);
+      await fs.promises.symlink(safeTarget, realLinkPath);
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err.code === "EEXIST") {
@@ -430,13 +470,15 @@ export class ReadWriteFs implements IFileSystem {
 
     try {
       const resolved = await fs.promises.realpath(realPath);
+      // Canonicalize root too (e.g., on macOS /var -> /private/var)
+      const canonicalRoot = await fs.promises.realpath(this.root);
       // Convert back to virtual path (relative to root)
-      if (resolved.startsWith(this.root)) {
-        const relative = resolved.slice(this.root.length);
+      if (resolved.startsWith(canonicalRoot)) {
+        const relative = resolved.slice(canonicalRoot.length);
         return relative || "/";
       }
-      // If resolved path is outside root (shouldn't happen), return as-is
-      return resolved;
+      // Resolved path is outside root - reject it to prevent sandbox escape
+      throw new Error(`ENOENT: no such file or directory, realpath '${path}'`);
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err.code === "ENOENT") {

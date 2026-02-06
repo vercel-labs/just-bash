@@ -4,7 +4,13 @@
 
 import type { CommandContext, ExecResult } from "../../types.js";
 import { parseColumnSpec } from "./column-selection.js";
-import { type CsvRow, formatCsv, readCsvInput } from "./csv.js";
+import {
+  type CsvRow,
+  createSafeRow,
+  formatCsv,
+  readCsvInput,
+  safeSetRow,
+} from "./csv.js";
 
 export async function cmdSelect(
   args: string[],
@@ -37,9 +43,9 @@ export async function cmdSelect(
   // Use parseColumnSpec to handle names, indices, and ranges
   const newHeaders = parseColumnSpec(colSpec, headers);
   const newData = data.map((row) => {
-    const newRow: CsvRow = {};
+    const newRow: CsvRow = createSafeRow();
     for (const col of newHeaders) {
-      newRow[col] = row[col];
+      safeSetRow(newRow, col, row[col]);
     }
     return newRow;
   });
@@ -79,9 +85,9 @@ export async function cmdDrop(
   const dropCols = new Set(parseColumnSpec(colSpec, headers));
   const newHeaders = headers.filter((h) => !dropCols.has(h));
   const newData = data.map((row) => {
-    const newRow: CsvRow = {};
+    const newRow: CsvRow = createSafeRow();
     for (const col of newHeaders) {
-      newRow[col] = row[col];
+      safeSetRow(newRow, col, row[col]);
     }
     return newRow;
   });
@@ -143,9 +149,9 @@ export async function cmdRename(
   }
 
   const newData = data.map((row) => {
-    const newRow: CsvRow = {};
+    const newRow: CsvRow = createSafeRow();
     for (let i = 0; i < headers.length; i++) {
-      newRow[newHeaders[i]] = row[headers[i]];
+      safeSetRow(newRow, newHeaders[i], row[headers[i]]);
     }
     return newRow;
   });
@@ -173,9 +179,10 @@ export async function cmdEnum(
 
   const newHeaders = [colName, ...headers];
   const newData = data.map((row, idx) => {
-    const newRow: CsvRow = { [colName]: idx };
+    const newRow: CsvRow = createSafeRow();
+    safeSetRow(newRow, colName, idx);
     for (const h of headers) {
-      newRow[h] = row[h];
+      safeSetRow(newRow, h, row[h]);
     }
     return newRow;
   });

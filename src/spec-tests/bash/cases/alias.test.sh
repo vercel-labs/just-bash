@@ -542,7 +542,6 @@ a $((1 + 2))
 ## stdout: ['3']
 
 #### Alias and PS4
-## SKIP (unimplementable): alias expansion not implemented - parsing happens before execution
 # dash enters an infinite loop!
 case $SH in
   dash)

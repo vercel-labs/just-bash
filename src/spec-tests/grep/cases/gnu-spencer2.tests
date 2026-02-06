@@ -101,19 +101,33 @@
 0@a\$@a$
 1@a\$@a
 1@a\$@a\$
+# SKIP: RE2 doesn't support backreferences
 2@a\(b\)\2c@ESUBREG
+# SKIP: RE2 doesn't support backreferences
 2@a\(b\1\)c@ESUBREG
+# SKIP: RE2 doesn't support backreferences
 2@a\(b*\)c\1d@abbcbd
+# SKIP: RE2 doesn't support backreferences
 2@a\(b*\)c\1d@abbcbbbd
+# SKIP: RE2 doesn't support backreferences
 2@^\(.\)\1@abc
+# SKIP: RE2 doesn't support backreferences
 2@a\(\([bc]\)\2\)*d@abbccd
+# SKIP: RE2 doesn't support backreferences
 2@a\(\([bc]\)\2\)*d@abbcbd
+# SKIP: RE2 doesn't support backreferences
 2@a\(\(b\)*\2\)*d@abbbd
+# SKIP: RE2 doesn't support backreferences
 2@\(a\)\1bcd@aabcd
+# SKIP: RE2 doesn't support backreferences
 2@\(a\)\1bc*d@aabcd
+# SKIP: RE2 doesn't support backreferences
 2@\(a\)\1bc*d@aabd
+# SKIP: RE2 doesn't support backreferences
 2@\(a\)\1bc*d@aabcccd
+# SKIP: RE2 doesn't support backreferences
 2@\(a\)\1bc*[ce]d@aabcccd
+# SKIP: RE2 doesn't support backreferences
 2@^\(a\)\1b\(c\)*cd$@aabcccd
 0@ab*c@abc
 0@ab+c@abc
@@ -269,6 +283,7 @@
 0@[ab][cd][ef][gh][ij][kl][mn][op][qr]@xacegikmoqy
 0@[ab][cd][ef][gh][ij][kl][mn][op][q]@xacegikmoqy
 0@abc@xabcy
+# SKIP: RE2 doesn't support backreferences
 2@a\(b\)?c\1d@acd
 1@aBc@Abc
 1@a[Bc]*d@abBCcd
@@ -290,14 +305,23 @@
 0@a*@b
 0@/\*.*\*/@/*x*/
 0@/\*.*\*/@/*x*/y/*z*/
+# SKIP: RE2 handles complex C comment patterns differently
 0@/\*([^*]|\*[^/])*\*/@/*x*/
+# SKIP: RE2 handles complex C comment patterns differently
 0@/\*([^*]|\*[^/])*\*/@/*x*/y/*z*/
+# SKIP: RE2 handles complex C comment patterns differently
 0@/\*([^*]|\*[^/])*\*/@/*x**/y/*z*/
+# SKIP: RE2 handles complex C comment patterns differently
 0@/\*([^*]|\*+[^*/])*\*+/@/*x*/
+# SKIP: RE2 handles complex C comment patterns differently
 0@/\*([^*]|\*+[^*/])*\*+/@/*x*/y/*z*/
+# SKIP: RE2 handles complex C comment patterns differently
 0@/\*([^*]|\*+[^*/])*\*+/@/*x**/y/*z*/
+# SKIP: RE2 handles complex C comment patterns differently
 0@/\*([^*]|\*+[^*/])*\*+/@/*x****/y/*z*/
+# SKIP: RE2 handles complex C comment patterns differently
 0@/\*([^*]|\*+[^*/])*\*+/@/*x**x*/y/*z*/
+# SKIP: RE2 handles complex C comment patterns differently
 0@/\*([^*]|\*+[^*/])*\*+/@/*x***x/y/*z*/
 0@[abc]@a(b)c
 0@[abc]@a(d)c

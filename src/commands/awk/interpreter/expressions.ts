@@ -5,6 +5,7 @@
  */
 
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
+import { createUserRegex } from "../../../regex/index.js";
 import { applyNumericBinaryOp } from "../../../shared/operators.js";
 import type {
   AwkArrayAccess,
@@ -54,6 +55,7 @@ export async function evalExpr(
   ctx: AwkRuntimeContext,
   expr: AwkExpr,
 ): Promise<AwkValue> {
+  ctx.coverage?.hit(`awk:expr:${expr.type}`);
   switch (expr.type) {
     case "number":
       return expr.value;
@@ -156,24 +158,26 @@ async function evalBinaryOp(
   // Regex match operators - handle regex literal specially
   if (op === "~") {
     const left = await evalExpr(ctx, expr.left);
+    if (expr.right.type === "regex") ctx.coverage?.hit("awk:expr:regex");
     const pattern =
       expr.right.type === "regex"
         ? expr.right.pattern
         : toAwkString(await evalExpr(ctx, expr.right));
     try {
-      return new RegExp(pattern).test(toAwkString(left)) ? 1 : 0;
+      return createUserRegex(pattern).test(toAwkString(left)) ? 1 : 0;
     } catch {
       return 0;
     }
   }
   if (op === "!~") {
     const left = await evalExpr(ctx, expr.left);
+    if (expr.right.type === "regex") ctx.coverage?.hit("awk:expr:regex");
     const pattern =
       expr.right.type === "regex"
         ? expr.right.pattern
         : toAwkString(await evalExpr(ctx, expr.right));
     try {
-      return new RegExp(pattern).test(toAwkString(left)) ? 0 : 1;
+      return createUserRegex(pattern).test(toAwkString(left)) ? 0 : 1;
     } catch {
       return 1;
     }
@@ -184,7 +188,15 @@ async function evalBinaryOp(
 
   // String concatenation
   if (op === " ") {
-    return toAwkString(left) + toAwkString(right);
+    const result = toAwkString(left) + toAwkString(right);
+    if (ctx.maxOutputSize > 0 && result.length > ctx.maxOutputSize) {
+      throw new ExecutionLimitError(
+        `awk: string concatenation size limit exceeded (${ctx.maxOutputSize} bytes)`,
+        "string_length",
+        ctx.output,
+      );
+    }
+    return result;
   }
 
   // Comparison operators
@@ -267,7 +279,7 @@ async function evalFunctionCall(
   args: AwkExpr[],
 ): Promise<AwkValue> {
   // Check for built-in functions first
-  const builtin = awkBuiltins[name];
+  const builtin = awkBuiltins.get(name);
   if (builtin) {
     // Built-ins use a wrapper that handles async
     return builtin(args, ctx, { evalExpr: (e: AwkExpr) => evalExpr(ctx, e) });
@@ -299,7 +311,8 @@ async function callUserFunction(
   }
 
   // Save only parameter variables (they are local in AWK)
-  const savedParams: Record<string, AwkValue | undefined> = {};
+  // Use null-prototype to prevent prototype pollution via user-controlled param names
+  const savedParams: Record<string, AwkValue | undefined> = Object.create(null);
   for (const param of func.params) {
     savedParams[param] = ctx.vars[param];
   }
@@ -489,6 +502,7 @@ async function evalInExpr(
 ): Promise<AwkValue> {
   let keyStr: string;
   if (key.type === "tuple") {
+    ctx.coverage?.hit("awk:expr:tuple");
     // Multi-dimensional key: join with SUBSEP
     const parts: string[] = [];
     for (const e of key.elements) {

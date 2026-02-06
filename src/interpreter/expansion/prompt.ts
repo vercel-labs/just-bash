@@ -141,11 +141,12 @@ export function expandPrompt(ctx: InterpreterContext, value: string): string {
   let i = 0;
 
   // Get environment values for prompt escapes
-  const user = ctx.state.env.USER || ctx.state.env.LOGNAME || "user";
-  const hostname = ctx.state.env.HOSTNAME || "localhost";
+  const user =
+    ctx.state.env.get("USER") || ctx.state.env.get("LOGNAME") || "user";
+  const hostname = ctx.state.env.get("HOSTNAME") || "localhost";
   const shortHost = hostname.split(".")[0];
-  const pwd = ctx.state.env.PWD || "/";
-  const home = ctx.state.env.HOME || "/";
+  const pwd = ctx.state.env.get("PWD") || "/";
+  const home = ctx.state.env.get("HOME") || "/";
 
   // Replace $HOME with ~ in pwd for \w
   const tildeExpanded = pwd.startsWith(home)
@@ -172,7 +173,7 @@ export function expandPrompt(ctx: InterpreterContext, value: string): string {
   ];
 
   // Command number (we'll use a simple counter from the state if available)
-  const cmdNum = ctx.state.env.__COMMAND_NUMBER || "1";
+  const cmdNum = ctx.state.env.get("__COMMAND_NUMBER") || "1";
 
   while (i < value.length) {
     const char = value[i];

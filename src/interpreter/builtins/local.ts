@@ -63,7 +63,7 @@ export async function handleLocal(
       .sort();
 
     for (const name of localNames) {
-      const value = ctx.state.env[name];
+      const value = ctx.state.env.get(name);
       if (value !== undefined) {
         stdout += `${name}=${value}\n`;
       }
@@ -93,13 +93,13 @@ export async function handleLocal(
 
       // Save previous value for scope restoration
       if (!currentScope.has(name)) {
-        currentScope.set(name, ctx.state.env[name]);
+        currentScope.set(name, ctx.state.env.get(name));
         // Also save array elements
         const prefix = `${name}_`;
-        for (const key of Object.keys(ctx.state.env)) {
+        for (const key of ctx.state.env.keys()) {
           if (key.startsWith(prefix) && !key.includes("__")) {
             if (!currentScope.has(key)) {
-              currentScope.set(key, ctx.state.env[key]);
+              currentScope.set(key, ctx.state.env.get(key));
             }
           }
         }
@@ -107,18 +107,18 @@ export async function handleLocal(
 
       // Clear existing array elements
       const prefix = `${name}_`;
-      for (const key of Object.keys(ctx.state.env)) {
+      for (const key of ctx.state.env.keys()) {
         if (key.startsWith(prefix) && !key.includes("__")) {
-          delete ctx.state.env[key];
+          ctx.state.env.delete(key);
         }
       }
 
       // Parse array elements (respects quotes)
       const elements = parseArrayElements(content);
       for (let i = 0; i < elements.length; i++) {
-        ctx.state.env[`${name}_${i}`] = elements[i];
+        ctx.state.env.set(`${name}_${i}`, elements[i]);
       }
-      ctx.state.env[`${name}__length`] = String(elements.length);
+      ctx.state.env.set(`${name}__length`, String(elements.length));
 
       // Track local variable depth for bash-specific unset scoping
       markLocalVarDepth(ctx, name);
@@ -143,22 +143,19 @@ export async function handleLocal(
 
       // Save previous value for scope restoration
       if (!currentScope.has(name)) {
-        currentScope.set(name, ctx.state.env[name]);
+        currentScope.set(name, ctx.state.env.get(name));
         // Also save array elements
         const prefix = `${name}_`;
-        for (const key of Object.keys(ctx.state.env)) {
+        for (const key of ctx.state.env.keys()) {
           if (key.startsWith(prefix) && !key.includes("__")) {
             if (!currentScope.has(key)) {
-              currentScope.set(key, ctx.state.env[key]);
+              currentScope.set(key, ctx.state.env.get(key));
             }
           }
         }
         const lengthKey = `${name}__length`;
-        if (
-          ctx.state.env[lengthKey] !== undefined &&
-          !currentScope.has(lengthKey)
-        ) {
-          currentScope.set(lengthKey, ctx.state.env[lengthKey]);
+        if (ctx.state.env.has(lengthKey) && !currentScope.has(lengthKey)) {
+          currentScope.set(lengthKey, ctx.state.env.get(lengthKey));
         }
       }
 
@@ -170,11 +167,11 @@ export async function handleLocal(
 
       // If variable was a scalar, convert it to array element 0
       let startIndex = 0;
-      if (existingIndices.length === 0 && ctx.state.env[name] !== undefined) {
+      const scalarValue = ctx.state.env.get(name);
+      if (existingIndices.length === 0 && scalarValue !== undefined) {
         // Variable exists as scalar - convert to array element 0
-        const scalarValue = ctx.state.env[name];
-        ctx.state.env[`${name}_0`] = scalarValue;
-        delete ctx.state.env[name];
+        ctx.state.env.set(`${name}_0`, scalarValue);
+        ctx.state.env.delete(name);
         startIndex = 1;
       } else if (existingIndices.length > 0) {
         // Find highest existing index + 1
@@ -183,15 +180,15 @@ export async function handleLocal(
 
       // Append new elements
       for (let i = 0; i < newElements.length; i++) {
-        ctx.state.env[`${name}_${startIndex + i}`] = expandTildesInValue(
-          ctx,
-          newElements[i],
+        ctx.state.env.set(
+          `${name}_${startIndex + i}`,
+          expandTildesInValue(ctx, newElements[i]),
         );
       }
 
       // Update length marker
       const newLength = startIndex + newElements.length;
-      ctx.state.env[`${name}__length`] = String(newLength);
+      ctx.state.env.set(`${name}__length`, String(newLength));
 
       // Track local variable depth for bash-specific unset scoping
       markLocalVarDepth(ctx, name);
@@ -214,12 +211,12 @@ export async function handleLocal(
 
       // Save previous value for scope restoration
       if (!currentScope.has(name)) {
-        currentScope.set(name, ctx.state.env[name]);
+        currentScope.set(name, ctx.state.env.get(name));
       }
 
       // Append to existing value (or set if not defined)
-      const existing = ctx.state.env[name] ?? "";
-      ctx.state.env[name] = existing + appendValue;
+      const existing = ctx.state.env.get(name) ?? "";
+      ctx.state.env.set(name, existing + appendValue);
 
       // Track local variable depth for bash-specific unset scoping
       markLocalVarDepth(ctx, name);
@@ -245,22 +242,19 @@ export async function handleLocal(
 
       // Save previous array values for scope restoration
       if (!currentScope.has(name)) {
-        currentScope.set(name, ctx.state.env[name]);
+        currentScope.set(name, ctx.state.env.get(name));
         // Also save array elements
         const prefix = `${name}_`;
-        for (const key of Object.keys(ctx.state.env)) {
+        for (const key of ctx.state.env.keys()) {
           if (key.startsWith(prefix) && !key.includes("__")) {
             if (!currentScope.has(key)) {
-              currentScope.set(key, ctx.state.env[key]);
+              currentScope.set(key, ctx.state.env.get(key));
             }
           }
         }
         const lengthKey = `${name}__length`;
-        if (
-          ctx.state.env[lengthKey] !== undefined &&
-          !currentScope.has(lengthKey)
-        ) {
-          currentScope.set(lengthKey, ctx.state.env[lengthKey]);
+        if (ctx.state.env.has(lengthKey) && !currentScope.has(lengthKey)) {
+          currentScope.set(lengthKey, ctx.state.env.get(lengthKey));
         }
       }
 
@@ -277,15 +271,15 @@ export async function handleLocal(
       }
 
       // Set the array element
-      ctx.state.env[`${name}_${index}`] = indexValue;
+      ctx.state.env.set(`${name}_${index}`, indexValue);
 
       // Update array length if needed
       const currentLength = parseInt(
-        ctx.state.env[`${name}__length`] ?? "0",
+        ctx.state.env.get(`${name}__length`) ?? "0",
         10,
       );
       if (index >= currentLength) {
-        ctx.state.env[`${name}__length`] = String(index + 1);
+        ctx.state.env.set(`${name}__length`, String(index + 1));
       }
 
       // Track local variable depth for bash-specific unset scoping
@@ -326,7 +320,7 @@ export async function handleLocal(
     // - If NOT accessed at all: save the underlying value (for dynamic-unset to reveal)
     //   but local-unset will still just delete (value-unset)
     if (value !== undefined) {
-      let savedValue: string | undefined = ctx.state.env[name];
+      let savedValue: string | undefined = ctx.state.env.get(name);
       // Check if there's a tempenv binding
       if (ctx.state.tempEnvBindings) {
         const tempEnvAccessed = ctx.state.accessedTempEnvVars?.has(name);
@@ -341,7 +335,7 @@ export async function handleLocal(
             }
           }
         }
-        // If accessed or mutated, keep savedValue as ctx.state.env[name]
+        // If accessed or mutated, keep savedValue as ctx.state.env.get(name)
       }
       pushLocalVarStack(ctx, name, savedValue);
     }
@@ -350,7 +344,7 @@ export async function handleLocal(
       // For bash 5.1 behavior: when saving the outer value for a local variable,
       // if there's a tempenv binding, save the underlying (global) value, not the tempenv value.
       // This way, dynamic-unset will correctly reveal the global value.
-      let savedValue: string | undefined = ctx.state.env[name];
+      let savedValue: string | undefined = ctx.state.env.get(name);
       if (ctx.state.tempEnvBindings) {
         for (let i = ctx.state.tempEnvBindings.length - 1; i >= 0; i--) {
           const bindings = ctx.state.tempEnvBindings[i];
@@ -364,20 +358,17 @@ export async function handleLocal(
       // Also save array elements if -a flag is used
       if (declareArray) {
         const prefix = `${name}_`;
-        for (const key of Object.keys(ctx.state.env)) {
+        for (const key of ctx.state.env.keys()) {
           if (key.startsWith(prefix) && !key.includes("__")) {
             if (!currentScope.has(key)) {
-              currentScope.set(key, ctx.state.env[key]);
+              currentScope.set(key, ctx.state.env.get(key));
             }
           }
         }
         // Save length metadata too
         const lengthKey = `${name}__length`;
-        if (
-          ctx.state.env[lengthKey] !== undefined &&
-          !currentScope.has(lengthKey)
-        ) {
-          currentScope.set(lengthKey, ctx.state.env[lengthKey]);
+        if (ctx.state.env.has(lengthKey) && !currentScope.has(lengthKey)) {
+          currentScope.set(lengthKey, ctx.state.env.get(lengthKey));
         }
       }
     }
@@ -386,13 +377,13 @@ export async function handleLocal(
     if (declareArray && value === undefined) {
       // Clear existing array elements
       const prefix = `${name}_`;
-      for (const key of Object.keys(ctx.state.env)) {
+      for (const key of ctx.state.env.keys()) {
         if (key.startsWith(prefix) && !key.includes("__")) {
-          delete ctx.state.env[key];
+          ctx.state.env.delete(key);
         }
       }
       // Mark as empty array
-      ctx.state.env[`${name}__length`] = "0";
+      ctx.state.env.set(`${name}__length`, "0");
     } else if (value !== undefined) {
       // Check if variable is readonly
       checkReadonlyError(ctx, name, "bash");
@@ -407,7 +398,7 @@ export async function handleLocal(
         exitCode = 1;
         continue;
       }
-      ctx.state.env[name] = value;
+      ctx.state.env.set(name, value);
       // If allexport is enabled (set -a), auto-export the variable
       if (ctx.state.options.allexport) {
         ctx.state.exportedVars = ctx.state.exportedVars || new Set();
@@ -423,7 +414,7 @@ export async function handleLocal(
       );
       if (!wasAlreadyLocal && !hasTempEnvBinding) {
         // Not already local, no tempenv binding - make the variable unset
-        delete ctx.state.env[name];
+        ctx.state.env.delete(name);
       }
       // If already local or has tempenv binding, keep the current value
     }

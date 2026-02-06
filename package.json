@@ -1,6 +1,6 @@
 {
   "name": "just-bash",
-  "version": "2.7.0",
+  "version": "2.9.5",
   "description": "A simulated bash environment with virtual filesystem",
   "repository": {
     "type": "git",
@@ -57,17 +57,20 @@
     "prepublishOnly": "pnpm validate",
     "validate": "pnpm lint && pnpm knip && pnpm typecheck &&  pnpm build && pnpm test:run && pnpm test:dist",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check .",
+    "lint": "biome check . && pnpm lint:banned",
+    "lint:banned": "node scripts/check-banned-patterns.js",
     "lint:fix": "biome check --write .",
     "knip": "knip",
     "test": "vitest",
-    "test:run": "vitest run",
+    "test:run": "vitest run --exclude src/security/fuzzing/",
     "test:dist": "vitest run src/cli/just-bash.bundle.test.ts",
     "test:unit": "vitest run --config vitest.unit.config.ts",
     "test:comparison": "vitest run --config vitest.comparison.config.ts",
     "test:comparison:record": "RECORD_FIXTURES=1 vitest run --config vitest.comparison.config.ts",
     "test:coverage": "vitest run --coverage",
     "test:coverage:unit": "vitest run --config vitest.unit.config.ts --coverage",
+    "test:fuzz": "vitest run src/security/fuzzing/",
+    "test:fuzz:long": "FUZZ_RUNS=10000 vitest run src/security/fuzzing/",
     "shell": "npx tsx src/cli/shell.ts",
     "dev:exec": "npx tsx src/cli/exec.ts"
   },
@@ -76,6 +79,7 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@biomejs/biome": "^2.3.10",
+    "fast-check": "^3.23.2",
     "@types/ini": "^4.1.1",
     "@types/node": "^25.0.3",
     "@types/papaparse": "^5.5.2",
@@ -89,7 +93,6 @@
     "vitest": "^4.0.16"
   },
   "dependencies": {
-    "@mongodb-js/zstd": "^7.0.0",
     "compressjs": "^1.0.3",
     "diff": "^8.0.2",
     "fast-xml-parser": "^5.3.3",
@@ -99,6 +102,7 @@
     "modern-tar": "^0.7.3",
     "papaparse": "^5.5.3",
     "pyodide": "^0.27.0",
+    "re2js": "^1.2.1",
     "smol-toml": "^1.6.0",
     "sprintf-js": "^1.1.3",
     "sql.js": "^1.13.0",
@@ -106,6 +110,7 @@
     "yaml": "^2.8.2"
   },
   "optionalDependencies": {
+    "@mongodb-js/zstd": "^7.0.0",
     "node-liblzma": "^2.0.3"
   },
   "packageManager": "pnpm@8.15.9+sha512.499434c9d8fdd1a2794ebf4552b3b25c0a633abcee5bb15e7b5de90f32f47b513aca98cd5cfd001c31f0db454bc3804edccd578501e4ca293a6816166bbd9f81"

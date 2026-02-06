@@ -1152,3 +1152,20 @@ function formatTimeDirective(date: Date, format: string): string {
       return `%T${format}`;
   }
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "find",
+  flags: [
+    { flag: "-name", type: "value", valueHint: "pattern" },
+    { flag: "-iname", type: "value", valueHint: "pattern" },
+    { flag: "-type", type: "value", valueHint: "string" },
+    { flag: "-maxdepth", type: "value", valueHint: "number" },
+    { flag: "-mindepth", type: "value", valueHint: "number" },
+    { flag: "-empty", type: "boolean" },
+    { flag: "-print", type: "boolean" },
+    { flag: "-print0", type: "boolean" },
+  ],
+  needsFiles: true,
+};

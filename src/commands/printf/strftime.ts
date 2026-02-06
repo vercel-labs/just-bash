@@ -75,15 +75,16 @@ function getDatePartsInTimezone(
       parts.find((p) => p.type === type)?.value ?? "";
 
     // Convert weekday abbreviation to number (0=Sunday, 6=Saturday)
-    const weekdayMap: Record<string, number> = {
-      Sun: 0,
-      Mon: 1,
-      Tue: 2,
-      Wed: 3,
-      Thu: 4,
-      Fri: 5,
-      Sat: 6,
-    };
+    // Map prevents prototype pollution
+    const weekdayMap = new Map<string, number>([
+      ["Sun", 0],
+      ["Mon", 1],
+      ["Tue", 2],
+      ["Wed", 3],
+      ["Thu", 4],
+      ["Fri", 5],
+      ["Sat", 6],
+    ]);
     const weekdayStr = getValue("weekday");
 
     return {
@@ -93,7 +94,7 @@ function getDatePartsInTimezone(
       hour: Number.parseInt(getValue("hour"), 10) || date.getHours(),
       minute: Number.parseInt(getValue("minute"), 10) || date.getMinutes(),
       second: Number.parseInt(getValue("second"), 10) || date.getSeconds(),
-      weekday: weekdayMap[weekdayStr] ?? date.getDay(),
+      weekday: weekdayMap.get(weekdayStr) ?? date.getDay(),
     };
   } catch {
     // Fall back to local time if timezone is invalid

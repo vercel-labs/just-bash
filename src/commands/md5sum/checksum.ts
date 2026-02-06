@@ -8,10 +8,11 @@ import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 export type HashAlgorithm = "md5" | "sha1" | "sha256";
 
-const WEBCRYPTO_ALGORITHMS: Record<string, string> = {
-  sha1: "SHA-1",
-  sha256: "SHA-256",
-};
+// Map prevents prototype pollution
+const WEBCRYPTO_ALGORITHMS = new Map<string, string>([
+  ["sha1", "SHA-1"],
+  ["sha256", "SHA-256"],
+]);
 
 // Pure JS MD5 implementation (WebCrypto doesn't support MD5)
 function md5(bytes: Uint8Array): string {
@@ -112,8 +113,12 @@ async function computeHash(
     return md5(data);
   }
 
+  const algoName = WEBCRYPTO_ALGORITHMS.get(algorithm);
+  if (!algoName) {
+    throw new Error(`Unknown algorithm: ${algorithm}`);
+  }
   const hashBuffer = await globalThis.crypto.subtle.digest(
-    WEBCRYPTO_ALGORITHMS[algorithm],
+    algoName,
     new Uint8Array(data).buffer as ArrayBuffer,
   );
   return Array.from(new Uint8Array(hashBuffer))

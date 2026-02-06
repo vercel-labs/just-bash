@@ -73,6 +73,7 @@ export function handleMapfile(
   let remaining = effectiveStdin;
   let lineCount = 0;
   let skipped = 0;
+  const maxArrayElements = ctx.limits?.maxArrayElements ?? 100000;
 
   while (remaining.length > 0) {
     const delimIndex = remaining.indexOf(delimiter);
@@ -83,6 +84,14 @@ export function handleMapfile(
         if (skipped < skipCount) {
           skipped++;
         } else if (maxCount === 0 || lineCount < maxCount) {
+          // Check array element limit
+          if (origin + lineCount >= maxArrayElements) {
+            return result(
+              "",
+              `mapfile: array element limit exceeded (${maxArrayElements})\n`,
+              1,
+            );
+          }
           // Bash truncates at NUL bytes
           let lastLine = remaining;
           const nulIdx = lastLine.indexOf("\0");
@@ -119,6 +128,15 @@ export function handleMapfile(
       break;
     }
 
+    // Check array element limit
+    if (origin + lineCount >= maxArrayElements) {
+      return result(
+        "",
+        `mapfile: array element limit exceeded (${maxArrayElements})\n`,
+        1,
+      );
+    }
+
     lines.push(line);
     lineCount++;
   }
@@ -130,17 +148,18 @@ export function handleMapfile(
   }
 
   for (let j = 0; j < lines.length; j++) {
-    ctx.state.env[`${arrayName}_${origin + j}`] = lines[j];
+    ctx.state.env.set(`${arrayName}_${origin + j}`, lines[j]);
   }
 
   // Set array length metadata to be the max of existing length and new end position
   const existingLength = parseInt(
-    ctx.state.env[`${arrayName}__length`] || "0",
+    ctx.state.env.get(`${arrayName}__length`) || "0",
     10,
   );
   const newEndIndex = origin + lines.length;
-  ctx.state.env[`${arrayName}__length`] = String(
-    Math.max(existingLength, newEndIndex),
+  ctx.state.env.set(
+    `${arrayName}__length`,
+    String(Math.max(existingLength, newEndIndex)),
   );
 
   // Consume from groupStdin if we used it

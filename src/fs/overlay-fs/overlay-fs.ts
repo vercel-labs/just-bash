@@ -65,15 +65,33 @@ export interface OverlayFsOptions {
    * Defaults to false.
    */
   readOnly?: boolean;
+
+  /**
+   * Maximum file size in bytes that can be read from the real filesystem.
+   * Files larger than this will throw an EFBIG error.
+   * Defaults to 10MB (10485760).
+   */
+  maxFileReadSize?: number;
 }
 
 /** Default mount point for OverlayFs */
 const DEFAULT_MOUNT_POINT = "/home/user/project";
 
+/**
+ * Validate that a path does not contain null bytes.
+ * Null bytes in paths can be used to truncate filenames or bypass security filters.
+ */
+function validatePath(path: string, operation: string): void {
+  if (path.includes("\0")) {
+    throw new Error(`ENOENT: path contains null byte, ${operation} '${path}'`);
+  }
+}
+
 export class OverlayFs implements IFileSystem {
   private readonly root: string;
   private readonly mountPoint: string;
   private readonly readOnly: boolean;
+  private readonly maxFileReadSize: number;
   private readonly memory: Map<string, MemoryEntry> = new Map();
   private readonly deleted: Set<string> = new Set();
 
@@ -90,6 +108,9 @@ export class OverlayFs implements IFileSystem {
 
     // Set read-only mode
     this.readOnly = options.readOnly ?? false;
+
+    // Set max file read size (default 10MB)
+    this.maxFileReadSize = options.maxFileReadSize ?? 10485760;
 
     // Verify root exists and is a directory
     if (!fs.existsSync(this.root)) {
@@ -333,6 +354,7 @@ export class OverlayFs implements IFileSystem {
     path: string,
     seen: Set<string> = new Set(),
   ): Promise<Uint8Array> {
+    validatePath(path, "open");
     const normalized = this.normalizePath(path);
 
     // Detect symlink loops
@@ -381,6 +403,11 @@ export class OverlayFs implements IFileSystem {
           `EISDIR: illegal operation on a directory, read '${path}'`,
         );
       }
+      if (this.maxFileReadSize > 0 && stat.size > this.maxFileReadSize) {
+        throw new Error(
+          `EFBIG: file too large, read '${path}' (${stat.size} bytes, max ${this.maxFileReadSize})`,
+        );
+      }
       const content = await fs.promises.readFile(realPath);
       return new Uint8Array(content);
     } catch (e) {
@@ -396,6 +423,7 @@ export class OverlayFs implements IFileSystem {
     content: FileContent,
     options?: WriteFileOptions | BufferEncoding,
   ): Promise<void> {
+    validatePath(path, "write");
     this.assertWritable(`write '${path}'`);
     const normalized = this.normalizePath(path);
     this.ensureParentDirs(normalized);
@@ -417,6 +445,7 @@ export class OverlayFs implements IFileSystem {
     content: FileContent,
     options?: WriteFileOptions | BufferEncoding,
   ): Promise<void> {
+    validatePath(path, "append");
     this.assertWritable(`append '${path}'`);
     const normalized = this.normalizePath(path);
     const encoding = getEncoding(options);
@@ -445,10 +474,14 @@ export class OverlayFs implements IFileSystem {
   }
 
   async exists(path: string): Promise<boolean> {
+    if (path.includes("\0")) {
+      return false;
+    }
     return this.existsInOverlay(path);
   }
 
   async stat(path: string, seen: Set<string> = new Set()): Promise<FsStat> {
+    validatePath(path, "stat");
     const normalized = this.normalizePath(path);
 
     // Detect symlink loops
@@ -512,6 +545,7 @@ export class OverlayFs implements IFileSystem {
   }
 
   async lstat(path: string): Promise<FsStat> {
+    validatePath(path, "lstat");
     const normalized = this.normalizePath(path);
 
     if (this.deleted.has(normalized)) {
@@ -580,6 +614,7 @@ export class OverlayFs implements IFileSystem {
   }
 
   async mkdir(path: string, options?: MkdirOptions): Promise<void> {
+    validatePath(path, "mkdir");
     this.assertWritable(`mkdir '${path}'`);
     const normalized = this.normalizePath(path);
 
@@ -762,6 +797,7 @@ export class OverlayFs implements IFileSystem {
   }
 
   async readdir(path: string): Promise<string[]> {
+    validatePath(path, "scandir");
     const { normalized, outsideOverlay } = await this.resolveForReaddir(path);
     if (outsideOverlay) {
       // Security: symlink points outside overlay, return empty
@@ -775,6 +811,7 @@ export class OverlayFs implements IFileSystem {
   }
 
   async readdirWithFileTypes(path: string): Promise<DirentEntry[]> {
+    validatePath(path, "scandir");
     const { normalized, outsideOverlay } = await this.resolveForReaddir(path);
     if (outsideOverlay) {
       // Security: symlink points outside overlay, return empty
@@ -788,6 +825,7 @@ export class OverlayFs implements IFileSystem {
   }
 
   async rm(path: string, options?: RmOptions): Promise<void> {
+    validatePath(path, "rm");
     this.assertWritable(`rm '${path}'`);
     const normalized = this.normalizePath(path);
 
@@ -823,6 +861,8 @@ export class OverlayFs implements IFileSystem {
   }
 
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
+    validatePath(src, "cp");
+    validatePath(dest, "cp");
     this.assertWritable(`cp '${dest}'`);
     const srcNorm = this.normalizePath(src);
     const destNorm = this.normalizePath(dest);
@@ -908,6 +948,7 @@ export class OverlayFs implements IFileSystem {
   }
 
   async chmod(path: string, mode: number): Promise<void> {
+    validatePath(path, "chmod");
     this.assertWritable(`chmod '${path}'`);
     const normalized = this.normalizePath(path);
 
@@ -943,6 +984,7 @@ export class OverlayFs implements IFileSystem {
   }
 
   async symlink(target: string, linkPath: string): Promise<void> {
+    validatePath(linkPath, "symlink");
     this.assertWritable(`symlink '${linkPath}'`);
     const normalized = this.normalizePath(linkPath);
 
@@ -962,6 +1004,8 @@ export class OverlayFs implements IFileSystem {
   }
 
   async link(existingPath: string, newPath: string): Promise<void> {
+    validatePath(existingPath, "link");
+    validatePath(newPath, "link");
     this.assertWritable(`link '${newPath}'`);
     const existingNorm = this.normalizePath(existingPath);
     const newNorm = this.normalizePath(newPath);
@@ -996,6 +1040,7 @@ export class OverlayFs implements IFileSystem {
   }
 
   async readlink(path: string): Promise<string> {
+    validatePath(path, "readlink");
     const normalized = this.normalizePath(path);
 
     if (this.deleted.has(normalized)) {
@@ -1037,6 +1082,7 @@ export class OverlayFs implements IFileSystem {
    * This is equivalent to POSIX realpath().
    */
   async realpath(path: string): Promise<string> {
+    validatePath(path, "realpath");
     const normalized = this.normalizePath(path);
     const seen = new Set<string>();
 
@@ -1141,6 +1187,7 @@ export class OverlayFs implements IFileSystem {
    * @param mtime - Modification time
    */
   async utimes(path: string, _atime: Date, mtime: Date): Promise<void> {
+    validatePath(path, "utimes");
     this.assertWritable(`utimes '${path}'`);
     const normalized = this.normalizePath(path);
 

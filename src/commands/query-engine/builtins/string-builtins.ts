@@ -4,6 +4,7 @@
  * Handles string manipulation functions like join, split, test, match, gsub, etc.
  */
 
+import { createUserRegex } from "../../../regex/index.js";
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
 import type { QueryValue } from "../value-operations.js";
@@ -60,11 +61,11 @@ export function evalStringBuiltin(
         const flags =
           args.length > 1 ? String(evaluate(value, args[1], ctx)[0]) : "g";
         // Ensure global flag is set for split
-        const regex = new RegExp(
+        const regex = createUserRegex(
           pattern,
           flags.includes("g") ? flags : `${flags}g`,
         );
-        return value.split(regex);
+        return regex.split(value);
       } catch {
         return [];
       }
@@ -79,11 +80,11 @@ export function evalStringBuiltin(
         const flags =
           args.length > 1 ? String(evaluate(value, args[1], ctx)[0]) : "";
         // Ensure global flag is set for matchAll
-        const regex = new RegExp(
+        const regex = createUserRegex(
           pattern,
           flags.includes("g") ? flags : `${flags}g`,
         );
-        const matches = [...value.matchAll(regex)];
+        const matches = [...regex.matchAll(value)];
         // Return each match - if groups exist, return array of groups, else return match string
         return matches.map((m) => {
           if (m.length > 1) {
@@ -105,7 +106,7 @@ export function evalStringBuiltin(
       try {
         const flags =
           args.length > 1 ? String(evaluate(value, args[1], ctx)[0]) : "";
-        return [new RegExp(pattern, flags).test(value)];
+        return [createUserRegex(pattern, flags).test(value)];
       } catch {
         return [false];
       }
@@ -118,7 +119,7 @@ export function evalStringBuiltin(
       try {
         const flags =
           args.length > 1 ? String(evaluate(value, args[1], ctx)[0]) : "";
-        const re = new RegExp(pattern, `${flags}d`);
+        const re = createUserRegex(pattern, `${flags}d`);
         const m = re.exec(value);
         if (!m) return [];
         const indices = (
@@ -152,8 +153,8 @@ export function evalStringBuiltin(
       try {
         const flags =
           args.length > 1 ? String(evaluate(value, args[1], ctx)[0]) : "";
-        const re = new RegExp(pattern, flags);
-        const m = value.match(re);
+        const re = createUserRegex(pattern, flags);
+        const m = re.match(value);
         if (!m || !m.groups) return [{}];
         return [m.groups];
       } catch {
@@ -170,7 +171,7 @@ export function evalStringBuiltin(
       try {
         const flags =
           args.length > 2 ? String(evaluate(value, args[2], ctx)[0]) : "";
-        return [value.replace(new RegExp(pattern, flags), replacement)];
+        return [createUserRegex(pattern, flags).replace(value, replacement)];
       } catch {
         return [value];
       }
@@ -187,7 +188,7 @@ export function evalStringBuiltin(
           args.length > 2 ? String(evaluate(value, args[2], ctx)[0]) : "g";
         const effectiveFlags = flags.includes("g") ? flags : `${flags}g`;
         return [
-          value.replace(new RegExp(pattern, effectiveFlags), replacement),
+          createUserRegex(pattern, effectiveFlags).replace(value, replacement),
         ];
       } catch {
         return [value];

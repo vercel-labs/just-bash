@@ -2,6 +2,14 @@ import type { IFileSystem } from "./fs/interface.js";
 import type { ExecutionLimits } from "./limits.js";
 import type { SecureFetch } from "./network/index.js";
 
+/**
+ * Lightweight interface for feature coverage tracking during fuzzing.
+ * Lives here to avoid circular dependencies between fuzzing → core modules.
+ */
+export interface FeatureCoverageWriter {
+  hit(feature: string): void;
+}
+
 export interface ExecResult {
   stdout: string;
   stderr: string;
@@ -67,8 +75,8 @@ export interface CommandContext {
   fs: IFileSystem;
   /** Current working directory */
   cwd: string;
-  /** Environment variables */
-  env: Record<string, string>;
+  /** Environment variables - uses Map to prevent prototype pollution */
+  env: Map<string, string>;
   /**
    * Exported environment variables only.
    * Used by commands like printenv and env that should only show exported vars.
@@ -123,6 +131,16 @@ export interface CommandContext {
    * When true, echo interprets backslash escapes by default (like echo -e).
    */
   xpgEcho?: boolean;
+  /**
+   * Current command substitution nesting depth.
+   * Used to prevent stack exhaustion from deeply nested $(...).
+   */
+  substitutionDepth?: number;
+  /**
+   * Feature coverage writer for fuzzing instrumentation.
+   * When provided, commands emit coverage hits for analysis.
+   */
+  coverage?: FeatureCoverageWriter;
 }
 
 export interface Command {

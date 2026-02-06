@@ -6,6 +6,7 @@
 
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
+import { isSafeKey, safeHasOwn, safeSet } from "../safe-object.js";
 import type { QueryValue } from "../value-operations.js";
 
 type EvalFn = (
@@ -59,35 +60,44 @@ export function evalSqlBuiltin(
       if (args.length === 1) {
         // INDEX(stream) - index by the values themselves (like group_by)
         const streamVals = evaluate(value, args[0], ctx);
-        const result: Record<string, unknown> = {};
+        const result: Record<string, unknown> = Object.create(null);
         for (const v of streamVals) {
           const key = String(v);
-          result[key] = v;
+          // Defense against prototype pollution
+          if (isSafeKey(key)) {
+            safeSet(result, key, v);
+          }
         }
         return [result];
       }
       if (args.length === 2) {
         // INDEX(stream; idx_expr) - index by idx_expr applied to each value
         const streamVals = evaluate(value, args[0], ctx);
-        const result: Record<string, unknown> = {};
+        const result: Record<string, unknown> = Object.create(null);
         for (const v of streamVals) {
           const keys = evaluate(v, args[1], ctx);
           if (keys.length > 0) {
             const key = String(keys[0]);
-            result[key] = v;
+            // Defense against prototype pollution
+            if (isSafeKey(key)) {
+              safeSet(result, key, v);
+            }
           }
         }
         return [result];
       }
       // INDEX(stream; idx_expr; val_expr)
       const streamVals = evaluate(value, args[0], ctx);
-      const result: Record<string, unknown> = {};
+      const result: Record<string, unknown> = Object.create(null);
       for (const v of streamVals) {
         const keys = evaluate(v, args[1], ctx);
         const vals = evaluate(v, args[2], ctx);
         if (keys.length > 0 && vals.length > 0) {
           const key = String(keys[0]);
-          result[key] = vals[0];
+          // Defense against prototype pollution
+          if (isSafeKey(key)) {
+            safeSet(result, key, vals[0]);
+          }
         }
       }
       return [result];
@@ -106,7 +116,7 @@ export function evalSqlBuiltin(
       for (const item of value) {
         const keys = evaluate(item, args[1], ctx);
         const key = keys.length > 0 ? String(keys[0]) : "";
-        const lookup = key in idxObj ? idxObj[key] : null;
+        const lookup = safeHasOwn(idxObj, key) ? idxObj[key] : null;
         results.push([item, lookup]);
       }
       return [results];

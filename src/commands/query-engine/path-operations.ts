@@ -4,6 +4,7 @@
  * Utility functions for path-based operations on query values.
  */
 
+import { isSafeKey, nullPrototypeCopy, safeSet } from "./safe-object.js";
 import type { QueryValue } from "./value-operations.js";
 
 /**
@@ -43,14 +44,25 @@ export function setPath(
   if (Array.isArray(value)) {
     throw new Error("Cannot index array with string");
   }
+
+  // Defense against prototype pollution: skip dangerous keys
+  if (!isSafeKey(head)) {
+    // Return the value unchanged - silently ignore dangerous keys
+    return value ?? Object.create(null);
+  }
+
   const obj =
     value && typeof value === "object" && !Array.isArray(value)
-      ? { ...value }
-      : {};
-  (obj as Record<string, unknown>)[head] = setPath(
-    (obj as Record<string, unknown>)[head],
-    rest,
-    newVal,
+      ? nullPrototypeCopy(value)
+      : Object.create(null);
+  // @banned-pattern-ignore: protected by Object.hasOwn() check before access
+  const currentVal = Object.hasOwn(obj, head)
+    ? (obj as Record<string, unknown>)[head]
+    : undefined;
+  safeSet(
+    obj as Record<string, unknown>,
+    head,
+    setPath(currentVal, rest, newVal),
   );
   return obj;
 }
@@ -71,8 +83,13 @@ export function deletePath(
       return arr;
     }
     if (value && typeof value === "object" && !Array.isArray(value)) {
-      const obj = { ...value } as Record<string, unknown>;
-      delete obj[String(key)];
+      const strKey = String(key);
+      // Defense against prototype pollution: skip dangerous keys
+      if (!isSafeKey(strKey)) {
+        return value;
+      }
+      const obj = nullPrototypeCopy(value);
+      delete obj[strKey];
       return obj;
     }
     return value;
@@ -85,8 +102,15 @@ export function deletePath(
     return arr;
   }
   if (value && typeof value === "object" && !Array.isArray(value)) {
-    const obj = { ...value } as Record<string, unknown>;
-    obj[String(head)] = deletePath(obj[String(head)], rest);
+    const strHead = String(head);
+    // Defense against prototype pollution: skip dangerous keys
+    if (!isSafeKey(strHead)) {
+      return value;
+    }
+    const obj = nullPrototypeCopy(value);
+    if (Object.hasOwn(obj, strHead)) {
+      safeSet(obj, strHead, deletePath(obj[strHead], rest));
+    }
     return obj;
   }
   return value;

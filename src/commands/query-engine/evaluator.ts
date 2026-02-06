@@ -5,7 +5,9 @@
  * Used by jq, yq, and other query-based commands.
  */
 
+import { mapToRecord } from "../../helpers/env.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import type { FeatureCoverageWriter } from "../../types.js";
 import {
   evalArrayBuiltin,
   evalControlBuiltin,
@@ -22,6 +24,13 @@ import {
 } from "./builtins/index.js";
 import type { AstNode, DestructurePattern } from "./parser.js";
 import { deletePath, setPath } from "./path-operations.js";
+import {
+  isSafeKey,
+  nullPrototypeCopy,
+  nullPrototypeMerge,
+  safeHasOwn,
+  safeSet,
+} from "./safe-object.js";
 import {
   compare,
   compareJq,
@@ -65,33 +74,34 @@ const DEFAULT_MAX_JQ_DEPTH = 2000;
 /**
  * Simple math functions that take a single numeric argument and return a single numeric result.
  * Maps jq function names to their JavaScript Math implementations.
+ * Uses Map to avoid prototype pollution (e.g., if someone tries to call "constructor" as a function).
  */
-const SIMPLE_MATH_FUNCTIONS: Record<string, (x: number) => number> = {
-  floor: Math.floor,
-  ceil: Math.ceil,
-  round: Math.round,
-  sqrt: Math.sqrt,
-  log: Math.log,
-  log10: Math.log10,
-  log2: Math.log2,
-  exp: Math.exp,
-  sin: Math.sin,
-  cos: Math.cos,
-  tan: Math.tan,
-  asin: Math.asin,
-  acos: Math.acos,
-  atan: Math.atan,
-  sinh: Math.sinh,
-  cosh: Math.cosh,
-  tanh: Math.tanh,
-  asinh: Math.asinh,
-  acosh: Math.acosh,
-  atanh: Math.atanh,
-  cbrt: Math.cbrt,
-  expm1: Math.expm1,
-  log1p: Math.log1p,
-  trunc: Math.trunc,
-};
+const SIMPLE_MATH_FUNCTIONS = new Map<string, (x: number) => number>([
+  ["floor", Math.floor],
+  ["ceil", Math.ceil],
+  ["round", Math.round],
+  ["sqrt", Math.sqrt],
+  ["log", Math.log],
+  ["log10", Math.log10],
+  ["log2", Math.log2],
+  ["exp", Math.exp],
+  ["sin", Math.sin],
+  ["cos", Math.cos],
+  ["tan", Math.tan],
+  ["asin", Math.asin],
+  ["acos", Math.acos],
+  ["atan", Math.atan],
+  ["sinh", Math.sinh],
+  ["cosh", Math.cosh],
+  ["tanh", Math.tanh],
+  ["asinh", Math.asinh],
+  ["acosh", Math.acosh],
+  ["atanh", Math.atanh],
+  ["cbrt", Math.cbrt],
+  ["expm1", Math.expm1],
+  ["log1p", Math.log1p],
+  ["trunc", Math.trunc],
+]);
 
 export interface QueryExecutionLimits {
   maxIterations?: number;
@@ -102,7 +112,7 @@ export interface EvalContext {
   vars: Map<string, QueryValue>;
   limits: Required<Pick<QueryExecutionLimits, "maxIterations">> &
     QueryExecutionLimits;
-  env?: Record<string, string | undefined>;
+  env?: Map<string, string>;
   /** Original document root for parent/root navigation */
   root?: QueryValue;
   /** Current path from root for parent navigation */
@@ -112,6 +122,8 @@ export interface EvalContext {
     { params: string[]; body: AstNode; closure?: Map<string, unknown> }
   >;
   labels?: Set<string>;
+  /** Feature coverage writer for fuzzing instrumentation */
+  coverage?: FeatureCoverageWriter;
 }
 
 function createContext(options?: EvaluateOptions): EvalContext {
@@ -123,6 +135,7 @@ function createContext(options?: EvaluateOptions): EvalContext {
       maxDepth: options?.limits?.maxDepth ?? DEFAULT_MAX_JQ_DEPTH,
     },
     env: options?.env,
+    coverage: options?.coverage,
   };
 }
 
@@ -141,6 +154,7 @@ function withVar(
     currentPath: ctx.currentPath,
     funcs: ctx.funcs,
     labels: ctx.labels,
+    coverage: ctx.coverage,
   };
 }
 
@@ -187,7 +201,7 @@ function bindPattern(
           if (keyVals.length === 0) return null;
           key = String(keyVals[0]);
         }
-        const fieldValue = key in obj ? obj[key] : null;
+        const fieldValue = safeHasOwn(obj, key) ? obj[key] : null;
         // If keyVar is set (e.g., $b:[$c,$d]), also bind the key variable to the whole value
         if (field.keyVar) {
           newCtx = withVar(newCtx, field.keyVar, fieldValue);
@@ -208,7 +222,21 @@ function getValueAtPath(
   let v = root;
   for (const key of path) {
     if (v && typeof v === "object") {
-      v = (v as Record<string, unknown>)[key as string];
+      if (Array.isArray(v)) {
+        if (typeof key === "number") {
+          v = v[key];
+        } else {
+          return undefined;
+        }
+      } else {
+        // Defense against prototype pollution: only access own properties
+        const obj = v as Record<string, unknown>;
+        if (typeof key === "string" && Object.hasOwn(obj, key)) {
+          v = obj[key];
+        } else {
+          return undefined;
+        }
+      }
     } else {
       return undefined;
     }
@@ -323,7 +351,8 @@ function applyPathTransform(
 
 export interface EvaluateOptions {
   limits?: QueryExecutionLimits;
-  env?: Record<string, string | undefined>;
+  env?: Map<string, string>;
+  coverage?: FeatureCoverageWriter;
 }
 
 /**
@@ -376,6 +405,7 @@ export function evaluate(
     ctx = { ...ctx, root: value, currentPath: [] };
   }
 
+  ctx.coverage?.hit(`jq:node:${ast.type}`);
   switch (ast.type) {
     case "Identity":
       return [value];
@@ -384,7 +414,13 @@ export function evaluate(
       const bases = ast.base ? evaluate(value, ast.base, ctx) : [value];
       return bases.flatMap((v) => {
         if (v && typeof v === "object" && !Array.isArray(v)) {
-          const result = (v as Record<string, unknown>)[ast.name];
+          // Defense against prototype pollution: only return own properties
+          // This prevents access to inherited methods like __defineGetter__, constructor, etc.
+          const obj = v as Record<string, unknown>;
+          if (!Object.hasOwn(obj, ast.name)) {
+            return [null];
+          }
+          const result = obj[ast.name];
           return [result === undefined ? null : result];
         }
         // jq: indexing null always returns null
@@ -419,7 +455,12 @@ export function evaluate(
             typeof v === "object" &&
             !Array.isArray(v)
           ) {
-            return [(v as Record<string, unknown>)[idx]];
+            // Defense against prototype pollution: only return own properties
+            const obj = v as Record<string, unknown>;
+            if (!Object.hasOwn(obj, idx)) {
+              return [null];
+            }
+            return [obj[idx]];
           }
           return [null];
         });
@@ -510,7 +551,7 @@ export function evaluate(
     }
 
     case "Object": {
-      const results: Record<string, unknown>[] = [{}];
+      const results: Record<string, unknown>[] = [Object.create(null)];
 
       for (const entry of ast.entries) {
         const keys =
@@ -519,6 +560,7 @@ export function evaluate(
             : evaluate(value, entry.key, ctx);
         const values = evaluate(value, entry.value, ctx);
 
+        // @banned-pattern-ignore: array declaration, objects added via nullPrototypeCopy
         const newResults: Record<string, unknown>[] = [];
         for (const obj of results) {
           for (const k of keys) {
@@ -530,8 +572,18 @@ export function evaluate(
                 `Cannot use ${typeName} (${JSON.stringify(k)}) as object key`,
               );
             }
+            // Defense against prototype pollution: skip dangerous keys
+            if (!isSafeKey(k)) {
+              // Still produce output but without the dangerous key
+              for (const _v of values) {
+                newResults.push(nullPrototypeCopy(obj));
+              }
+              continue;
+            }
             for (const v of values) {
-              newResults.push({ ...obj, [k]: v });
+              const newObj = nullPrototypeCopy(obj);
+              safeSet(newObj, k, v);
+              newResults.push(newObj);
             }
           }
         }
@@ -645,7 +697,8 @@ export function evaluate(
       // Special case: $ENV returns environment variables
       // Note: ast.name includes the $ prefix (e.g., "$ENV")
       if (ast.name === "$ENV") {
-        return [ctx.env ?? {}];
+        // Convert Map to object for jq's internal representation (null-prototype prevents prototype pollution)
+        return [ctx.env ? mapToRecord(ctx.env) : Object.create(null)];
       }
       const v = ctx.vars.get(ast.name);
       return v !== undefined ? [v] : [null];
@@ -663,6 +716,7 @@ export function evaluate(
         if (Array.isArray(val)) {
           for (const item of val) walk(item);
         } else if (val && typeof val === "object") {
+          // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
           for (const key of Object.keys(val)) {
             walk((val as Record<string, unknown>)[key]);
           }
@@ -825,7 +879,7 @@ function applyUpdate(
           typeof current === "object" &&
           typeof newVal === "object"
         ) {
-          return { ...current, ...newVal };
+          return nullPrototypeMerge(current, newVal);
         }
         return newVal;
       case "-=":
@@ -861,6 +915,10 @@ function applyUpdate(
         return transform(val);
 
       case "Field": {
+        // Defense against prototype pollution: skip dangerous keys
+        if (!isSafeKey(path.name)) {
+          return val;
+        }
         if (path.base) {
           return updateRecursive(val, path.base, (baseVal) => {
             if (
@@ -868,16 +926,22 @@ function applyUpdate(
               typeof baseVal === "object" &&
               !Array.isArray(baseVal)
             ) {
-              const obj = { ...baseVal } as Record<string, unknown>;
-              obj[path.name] = transform(obj[path.name]);
+              const obj = nullPrototypeCopy(baseVal);
+              const current = Object.hasOwn(obj, path.name)
+                ? obj[path.name]
+                : undefined;
+              safeSet(obj, path.name, transform(current));
               return obj;
             }
             return baseVal;
           });
         }
         if (val && typeof val === "object" && !Array.isArray(val)) {
-          const obj = { ...val } as Record<string, unknown>;
-          obj[path.name] = transform(obj[path.name]);
+          const obj = nullPrototypeCopy(val);
+          const current = Object.hasOwn(obj, path.name)
+            ? obj[path.name]
+            : undefined;
+          safeSet(obj, path.name, transform(current));
           return obj;
         }
         return val;
@@ -915,8 +979,13 @@ function applyUpdate(
               typeof baseVal === "object" &&
               !Array.isArray(baseVal)
             ) {
-              const obj = { ...baseVal } as Record<string, unknown>;
-              obj[idx] = transform(obj[idx]);
+              // Defense against prototype pollution: skip dangerous keys
+              if (!isSafeKey(idx)) {
+                return baseVal;
+              }
+              const obj = nullPrototypeCopy(baseVal);
+              const current = Object.hasOwn(obj, idx) ? obj[idx] : undefined;
+              safeSet(obj, idx, transform(current));
               return obj;
             }
             return baseVal;
@@ -958,8 +1027,13 @@ function applyUpdate(
           typeof val === "object" &&
           !Array.isArray(val)
         ) {
-          const obj = { ...val } as Record<string, unknown>;
-          obj[idx] = transform(obj[idx]);
+          // Defense against prototype pollution: skip dangerous keys
+          if (!isSafeKey(idx)) {
+            return val;
+          }
+          const obj = nullPrototypeCopy(val);
+          const current = Object.hasOwn(obj, idx) ? obj[idx] : undefined;
+          safeSet(obj, idx, transform(current));
           return obj;
         }
         return val;
@@ -971,9 +1045,13 @@ function applyUpdate(
             return container.map((item) => transform(item));
           }
           if (container && typeof container === "object") {
-            const obj: Record<string, unknown> = {};
+            // Use null-prototype to prevent prototype pollution
+            const obj: Record<string, unknown> = Object.create(null);
             for (const [k, v] of Object.entries(container)) {
-              obj[k] = transform(v);
+              // Defense against prototype pollution: skip dangerous keys
+              if (isSafeKey(k)) {
+                safeSet(obj, k, transform(v));
+              }
             }
             return obj;
           }
@@ -1022,6 +1100,10 @@ function applyDel(
       case "Identity":
         return newVal;
       case "Field": {
+        // Defense against prototype pollution: skip dangerous keys
+        if (!isSafeKey(pathNode.name)) {
+          return obj;
+        }
         if (pathNode.base) {
           // Nested field: recurse into base
           const nested = evaluate(obj, pathNode.base, ctx)[0];
@@ -1034,7 +1116,9 @@ function applyDel(
         }
         // Direct field
         if (obj && typeof obj === "object" && !Array.isArray(obj)) {
-          return { ...obj, [pathNode.name]: newVal };
+          const result = nullPrototypeCopy(obj);
+          safeSet(result, pathNode.name, newVal);
+          return result;
         }
         return obj;
       }
@@ -1066,7 +1150,13 @@ function applyDel(
           typeof obj === "object" &&
           !Array.isArray(obj)
         ) {
-          return { ...obj, [idx]: newVal };
+          // Defense against prototype pollution: skip dangerous keys
+          if (!isSafeKey(idx)) {
+            return obj;
+          }
+          const result = nullPrototypeCopy(obj);
+          safeSet(result, idx, newVal);
+          return result;
         }
         return obj;
       }
@@ -1081,6 +1171,10 @@ function applyDel(
         return null;
 
       case "Field": {
+        // Defense against prototype pollution: skip dangerous keys
+        if (!isSafeKey(path.name)) {
+          return val;
+        }
         // If there's a base (nested field like .a.b), recurse
         if (path.base) {
           // Evaluate base to get the nested object
@@ -1095,7 +1189,11 @@ function applyDel(
         }
         // Direct field deletion (no base)
         if (val && typeof val === "object" && !Array.isArray(val)) {
-          const obj = { ...val } as Record<string, unknown>;
+          // Defense against prototype pollution: skip dangerous keys
+          if (!isSafeKey(path.name)) {
+            return val;
+          }
+          const obj = nullPrototypeCopy(val);
           delete obj[path.name];
           return obj;
         }
@@ -1136,7 +1234,11 @@ function applyDel(
           typeof val === "object" &&
           !Array.isArray(val)
         ) {
-          const obj = { ...val } as Record<string, unknown>;
+          // Defense against prototype pollution: skip dangerous keys
+          if (!isSafeKey(idx)) {
+            return val;
+          }
+          const obj = nullPrototypeCopy(val);
           delete obj[idx];
           return obj;
         }
@@ -1148,7 +1250,7 @@ function applyDel(
           return [];
         }
         if (val && typeof val === "object") {
-          return {};
+          return Object.create(null);
         }
         return val;
       }
@@ -1168,8 +1270,14 @@ function applyDel(
             case "Identity":
               return newVal;
             case "Field": {
+              // Defense against prototype pollution: skip dangerous keys
+              if (!isSafeKey(pathNode.name)) {
+                return obj;
+              }
               if (obj && typeof obj === "object" && !Array.isArray(obj)) {
-                return { ...obj, [pathNode.name]: newVal };
+                const result = nullPrototypeCopy(obj);
+                safeSet(result, pathNode.name, newVal);
+                return result;
               }
               return obj;
             }
@@ -1190,7 +1298,13 @@ function applyDel(
                 typeof obj === "object" &&
                 !Array.isArray(obj)
               ) {
-                return { ...obj, [idx]: newVal };
+                // Defense against prototype pollution: skip dangerous keys
+                if (!isSafeKey(idx)) {
+                  return obj;
+                }
+                const result = nullPrototypeCopy(obj);
+                safeSet(result, idx, newVal);
+                return result;
               }
               return obj;
             }
@@ -1282,7 +1396,7 @@ function evalBinaryOp(
             !Array.isArray(l) &&
             !Array.isArray(r)
           ) {
-            return { ...l, ...r };
+            return nullPrototypeMerge(l, r);
           }
           return null;
         case "-":
@@ -1379,7 +1493,7 @@ function evalBuiltin(
   ctx: EvalContext,
 ): QueryValue[] {
   // Handle simple single-argument math functions via lookup table
-  const simpleMathFn = SIMPLE_MATH_FUNCTIONS[name];
+  const simpleMathFn = SIMPLE_MATH_FUNCTIONS.get(name);
   if (simpleMathFn) {
     if (typeof value === "number") return [simpleMathFn(value)];
     return [null];
@@ -1653,7 +1767,8 @@ function evalBuiltin(
     // index, rindex, indices handled by evalIndexBuiltin
 
     case "env":
-      return [ctx.env ?? {}];
+      // Convert Map to object for jq's internal representation (null-prototype prevents prototype pollution)
+      return [ctx.env ? mapToRecord(ctx.env) : Object.create(null)];
 
     // recurse, recurse_down, walk, transpose, combinations, parent, parents, root
     // handled by evalNavigationBuiltin
@@ -1775,6 +1890,7 @@ function collectPaths(
             walkPaths(v[i], [...path, i]);
           }
         } else {
+          // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
           for (const key of Object.keys(v)) {
             walkPaths((v as Record<string, unknown>)[key], [...path, key]);
           }

@@ -11,7 +11,12 @@ import type {
 import type { IFileSystem } from "../fs/interface.js";
 import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
-import type { CommandRegistry, ExecResult, TraceCallback } from "../types.js";
+import type {
+  CommandRegistry,
+  ExecResult,
+  FeatureCoverageWriter,
+  TraceCallback,
+} from "../types.js";
 
 /**
  * Completion specification for a command, set by the `complete` builtin.
@@ -346,8 +351,8 @@ export interface InterpreterState
     IOState,
     ExpansionState {
   // ---- Core Environment ----
-  /** Environment variables (exported to commands) */
-  env: Record<string, string>;
+  /** Environment variables (exported to commands) - uses Map to prevent prototype pollution */
+  env: Map<string, string>;
   /** Current working directory */
   cwd: string;
   /** Previous directory (for `cd -`) */
@@ -403,4 +408,8 @@ export interface InterpreterContext {
   sleep?: (ms: number) => Promise<void>;
   /** Optional trace callback for performance profiling */
   trace?: TraceCallback;
+  /** Current command substitution nesting depth (for limit enforcement) */
+  substitutionDepth?: number;
+  /** Optional feature coverage writer for fuzzing instrumentation */
+  coverage?: FeatureCoverageWriter;
 }

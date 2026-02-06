@@ -5,7 +5,14 @@
 import type { CommandContext, ExecResult } from "../../types.js";
 import type { EvaluateOptions } from "../query-engine/index.js";
 import { buildAggRow, computeAgg, parseAggExpr } from "./aggregation.js";
-import { type CsvData, type CsvRow, formatCsv, readCsvInput } from "./csv.js";
+import {
+  type CsvData,
+  type CsvRow,
+  createSafeRow,
+  formatCsv,
+  readCsvInput,
+  safeSetRow,
+} from "./csv.js";
 
 export async function cmdAgg(
   args: string[],
@@ -110,14 +117,14 @@ export async function cmdGroupby(
   for (const key of groupOrder) {
     const groupData = groups.get(key);
     if (!groupData) continue;
-    const row: CsvRow = {};
+    const row: CsvRow = createSafeRow();
     // Copy group key values
     for (const k of groupKeys) {
-      row[k] = groupData[0][k];
+      safeSetRow(row, k, groupData[0][k]);
     }
     // Compute aggregates
     for (const spec of specs) {
-      row[spec.alias] = computeAgg(groupData, spec, evalOptions);
+      safeSetRow(row, spec.alias, computeAgg(groupData, spec, evalOptions));
     }
     results.push(row);
   }

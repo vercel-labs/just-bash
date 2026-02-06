@@ -48,7 +48,7 @@ export interface AssignmentResult {
   /** Accumulated xtrace output for assignments */
   xtraceOutput: string;
   /** Temporary assignments for prefix bindings (FOO=bar cmd) */
-  tempAssignments: Record<string, string | undefined>;
+  tempAssignments: Map<string, string | undefined>;
   /** Error result if assignment failed */
   error?: ExecResult;
 }
@@ -61,7 +61,7 @@ export async function processAssignments(
   ctx: InterpreterContext,
   node: SimpleCommandNode,
 ): Promise<AssignmentResult> {
-  const tempAssignments: Record<string, string | undefined> = {};
+  const tempAssignments = new Map<string, string | undefined>();
   let xtraceOutput = "";
 
   for (const assignment of node.assignments) {
@@ -175,7 +175,7 @@ async function processArrayAssignment(
   name: string,
   array: WordNode[],
   append: boolean,
-  tempAssignments: Record<string, string | undefined>,
+  tempAssignments: Map<string, string | undefined>,
 ): Promise<SingleAssignmentResult> {
   let xtraceOutput = "";
 
@@ -233,12 +233,12 @@ async function processArrayAssignment(
   // Helper to clear existing array elements
   const clearExistingElements = () => {
     const prefix = `${name}_`;
-    for (const key of Object.keys(ctx.state.env)) {
+    for (const key of ctx.state.env.keys()) {
       if (key.startsWith(prefix) && !key.includes("__")) {
-        delete ctx.state.env[key];
+        ctx.state.env.delete(key);
       }
     }
-    delete ctx.state.env[name];
+    ctx.state.env.delete(name);
   };
 
   if (isAssoc && hasKeyedElements) {
@@ -273,10 +273,10 @@ async function processArrayAssignment(
 
   // For prefix assignments with a command, bash stringifies the array syntax
   if (node.name) {
-    tempAssignments[name] = ctx.state.env[name];
+    tempAssignments.set(name, ctx.state.env.get(name));
     const elements = array.map((el) => wordToLiteralString(el));
     const stringified = `(${elements.join(" ")})`;
-    ctx.state.env[name] = stringified;
+    ctx.state.env.set(name, stringified);
   }
 
   return { continueToNext: true, xtraceOutput };
@@ -375,10 +375,10 @@ async function processAssociativeArrayAssignment(
   for (const pending of pendingElements) {
     if (pending.type === "keyed") {
       if (pending.append) {
-        const existing = ctx.state.env[`${name}_${pending.key}`] ?? "";
-        ctx.state.env[`${name}_${pending.key}`] = existing + pending.value;
+        const existing = ctx.state.env.get(`${name}_${pending.key}`) ?? "";
+        ctx.state.env.set(`${name}_${pending.key}`, existing + pending.value);
       } else {
-        ctx.state.env[`${name}_${pending.key}`] = pending.value;
+        ctx.state.env.set(`${name}_${pending.key}`, pending.value);
       }
     } else {
       const lineNum = node.line ?? ctx.state.currentLine ?? 1;
@@ -454,21 +454,21 @@ async function processIndexedArrayWithKeysAssignment(
         if (/^-?\d+$/.test(pending.indexExpr)) {
           index = Number.parseInt(pending.indexExpr, 10);
         } else {
-          const varValue = ctx.state.env[pending.indexExpr];
+          const varValue = ctx.state.env.get(pending.indexExpr);
           index = varValue ? Number.parseInt(varValue, 10) : 0;
           if (Number.isNaN(index)) index = 0;
         }
       }
       if (pending.append) {
-        const existing = ctx.state.env[`${name}_${index}`] ?? "";
-        ctx.state.env[`${name}_${index}`] = existing + pending.value;
+        const existing = ctx.state.env.get(`${name}_${index}`) ?? "";
+        ctx.state.env.set(`${name}_${index}`, existing + pending.value);
       } else {
-        ctx.state.env[`${name}_${index}`] = pending.value;
+        ctx.state.env.set(`${name}_${index}`, pending.value);
       }
       currentIndex = index + 1;
     } else {
       for (const val of pending.values) {
-        ctx.state.env[`${name}_${currentIndex++}`] = val;
+        ctx.state.env.set(`${name}_${currentIndex++}`, val);
       }
     }
   }
@@ -498,21 +498,23 @@ async function processSimpleArrayAssignment(
         ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
       );
       startIndex = maxIndex + 1;
-    } else if (ctx.state.env[name] !== undefined) {
-      const scalarValue = ctx.state.env[name];
-      ctx.state.env[`${name}_0`] = scalarValue;
-      delete ctx.state.env[name];
-      startIndex = 1;
+    } else {
+      const scalarValue = ctx.state.env.get(name);
+      if (scalarValue !== undefined) {
+        ctx.state.env.set(`${name}_0`, scalarValue);
+        ctx.state.env.delete(name);
+        startIndex = 1;
+      }
     }
   } else {
     clearExistingElements();
   }
 
   for (let i = 0; i < allElements.length; i++) {
-    ctx.state.env[`${name}_${startIndex + i}`] = allElements[i];
+    ctx.state.env.set(`${name}_${startIndex + i}`, allElements[i]);
   }
   if (!append) {
-    ctx.state.env[`${name}__length`] = String(allElements.length);
+    ctx.state.env.set(`${name}__length`, String(allElements.length));
   }
 }
 
@@ -526,7 +528,7 @@ async function processSubscriptAssignment(
   subscriptExpr: string,
   value: string,
   append: boolean,
-  tempAssignments: Record<string, string | undefined>,
+  tempAssignments: Map<string, string | undefined>,
 ): Promise<SingleAssignmentResult> {
   let resolvedArrayName = arrayName;
 
@@ -585,11 +587,11 @@ async function processSubscriptAssignment(
     envKey = `${resolvedArrayName}_${indexResult.index}`;
   }
 
-  const finalValue = append ? (ctx.state.env[envKey] || "") + value : value;
+  const finalValue = append ? (ctx.state.env.get(envKey) || "") + value : value;
 
   if (node.name) {
-    tempAssignments[envKey] = ctx.state.env[envKey];
-    ctx.state.env[envKey] = finalValue;
+    tempAssignments.set(envKey, ctx.state.env.get(envKey));
+    ctx.state.env.set(envKey, finalValue);
   } else {
     const localDepth = getLocalVarDepth(ctx, resolvedArrayName);
     if (
@@ -600,10 +602,10 @@ async function processSubscriptAssignment(
       const currentScope =
         ctx.state.localScopes[ctx.state.localScopes.length - 1];
       if (!currentScope.has(envKey)) {
-        currentScope.set(envKey, ctx.state.env[envKey]);
+        currentScope.set(envKey, ctx.state.env.get(envKey));
       }
     }
-    ctx.state.env[envKey] = finalValue;
+    ctx.state.env.set(envKey, finalValue);
   }
 
   return { continueToNext: true, xtraceOutput: "" };
@@ -669,7 +671,7 @@ async function computeIndexedArrayIndex(
         }
         return { index: 0, error: result("", errorMsg, 1) };
       }
-      const varValue = ctx.state.env[subscriptExpr];
+      const varValue = ctx.state.env.get(subscriptExpr);
       index = varValue ? Number.parseInt(varValue, 10) : 0;
     }
     if (Number.isNaN(index)) index = 0;
@@ -718,7 +720,7 @@ async function processScalarAssignment(
   name: string,
   value: string,
   append: boolean,
-  tempAssignments: Record<string, string | undefined>,
+  tempAssignments: Map<string, string | undefined>,
 ): Promise<SingleAssignmentResult> {
   let xtraceOutput = "";
 
@@ -771,7 +773,7 @@ async function processScalarAssignment(
     try {
       const parser = new Parser();
       if (append) {
-        const currentVal = ctx.state.env[targetName] || "0";
+        const currentVal = ctx.state.env.get(targetName) || "0";
         const expr = `(${currentVal}) + (${value})`;
         const arithAst = parseArithmeticExpression(parser, expr);
         finalValue = String(await evaluateArithmetic(ctx, arithAst.expression));
@@ -785,7 +787,7 @@ async function processScalarAssignment(
   } else {
     const { isArray } = await import("./expansion.js");
     const appendKey = isArray(ctx, targetName) ? `${targetName}_0` : targetName;
-    finalValue = append ? (ctx.state.env[appendKey] || "") + value : value;
+    finalValue = append ? (ctx.state.env.get(appendKey) || "") + value : value;
   }
 
   finalValue = applyCaseTransform(ctx, targetName, finalValue);
@@ -804,10 +806,10 @@ async function processScalarAssignment(
   }
 
   if (node.name) {
-    tempAssignments[actualEnvKey] = ctx.state.env[actualEnvKey];
-    ctx.state.env[actualEnvKey] = finalValue;
+    tempAssignments.set(actualEnvKey, ctx.state.env.get(actualEnvKey));
+    ctx.state.env.set(actualEnvKey, finalValue);
   } else {
-    ctx.state.env[actualEnvKey] = finalValue;
+    ctx.state.env.set(actualEnvKey, finalValue);
     if (ctx.state.options.allexport) {
       ctx.state.exportedVars = ctx.state.exportedVars || new Set();
       ctx.state.exportedVars.add(targetName);
@@ -844,7 +846,7 @@ async function computeNamerefArrayEnvKey(
       const arithAst = parseArithmeticExpression(parser, subscriptExpr);
       index = await evaluateArithmetic(ctx, arithAst.expression, false);
     } catch {
-      const varValue = ctx.state.env[subscriptExpr];
+      const varValue = ctx.state.env.get(subscriptExpr);
       index = varValue ? Number.parseInt(varValue, 10) : 0;
     }
     if (Number.isNaN(index)) index = 0;

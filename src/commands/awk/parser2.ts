@@ -660,17 +660,17 @@ export class AwkParser {
     ) {
       const opToken = this.advance();
       const right = this.parseAddSub();
-      const opMap: Record<string, "<" | "<=" | ">" | ">=" | "==" | "!="> = {
-        "<": "<",
-        "<=": "<=",
-        ">": ">",
-        ">=": ">=",
-        "==": "==",
-        "!=": "!=",
-      };
+      const opMap = new Map<string, "<" | "<=" | ">" | ">=" | "==" | "!=">([
+        ["<", "<"],
+        ["<=", "<="],
+        [">", ">"],
+        [">=", ">="],
+        ["==", "=="],
+        ["!=", "!="],
+      ]);
       left = {
         type: "binary",
-        operator: opMap[opToken.value as string],
+        operator: opMap.get(opToken.value as string) ?? "==",
         left,
         right,
       };
@@ -747,14 +747,14 @@ export class AwkParser {
     while (this.match(TokenType.STAR, TokenType.SLASH, TokenType.PERCENT)) {
       const opToken = this.advance();
       const right = this.parseUnary();
-      const opMap: Record<string, "*" | "/" | "%"> = {
-        "*": "*",
-        "/": "/",
-        "%": "%",
-      };
+      const opMap = new Map<string, "*" | "/" | "%">([
+        ["*", "*"],
+        ["/", "/"],
+        ["%", "%"],
+      ]);
       left = {
         type: "binary",
-        operator: opMap[opToken.value as string],
+        operator: opMap.get(opToken.value as string) ?? "*",
         left,
         right,
       };

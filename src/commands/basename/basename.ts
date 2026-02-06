@@ -70,3 +70,14 @@ export const basenameCommand: Command = {
     };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "basename",
+  flags: [
+    { flag: "-a", type: "boolean" },
+    { flag: "-s", type: "value", valueHint: "string" },
+  ],
+  needsArgs: true,
+};

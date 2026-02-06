@@ -61,7 +61,7 @@ export function buildShellopts(options: ShellOptions): string {
  * Should be called whenever shell options change (via set -o or shopt -o).
  */
 export function updateShellopts(ctx: InterpreterContext): void {
-  ctx.state.env.SHELLOPTS = buildShellopts(ctx.state.options);
+  ctx.state.env.set("SHELLOPTS", buildShellopts(ctx.state.options));
 }
 
 /**
@@ -101,5 +101,5 @@ export function buildBashopts(shoptOptions: ShoptOptions): string {
  * Should be called whenever shopt options change.
  */
 export function updateBashopts(ctx: InterpreterContext): void {
-  ctx.state.env.BASHOPTS = buildBashopts(ctx.state.shoptOptions);
+  ctx.state.env.set("BASHOPTS", buildBashopts(ctx.state.shoptOptions));
 }

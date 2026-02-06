@@ -5,7 +5,7 @@ import { handleComplete } from "./complete.js";
 // Minimal mock for testing
 function createMockCtx(): InterpreterContext {
   const state: InterpreterState = {
-    env: {},
+    env: new Map(),
     cwd: "/",
     previousDir: "/",
     functions: new Map(),

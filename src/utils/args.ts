@@ -81,7 +81,9 @@ export function parseArgs<T extends Record<string, ArgDef>>(
   // Initialize with defaults
   // Boolean flags default to false, but string/number flags without
   // explicit defaults remain undefined (allowing callers to detect if set)
-  const flags: Record<string, boolean | string | number | undefined> = {};
+  // Use null-prototype to prevent prototype pollution
+  const flags: Record<string, boolean | string | number | undefined> =
+    Object.create(null);
   for (const [name, def] of Object.entries(defs)) {
     if (def.default !== undefined) {
       flags[name] = def.default;

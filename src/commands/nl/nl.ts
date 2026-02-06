@@ -307,3 +307,19 @@ export const nl: Command = {
     };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "nl",
+  flags: [
+    { flag: "-b", type: "value", valueHint: "string" },
+    { flag: "-n", type: "value", valueHint: "string" },
+    { flag: "-w", type: "value", valueHint: "number" },
+    { flag: "-s", type: "value", valueHint: "string" },
+    { flag: "-v", type: "value", valueHint: "number" },
+    { flag: "-i", type: "value", valueHint: "number" },
+  ],
+  stdinType: "text",
+  needsFiles: true,
+};

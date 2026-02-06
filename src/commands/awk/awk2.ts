@@ -4,7 +4,9 @@
  * This is the new implementation using proper lexer/parser/interpreter architecture.
  */
 
+import { mapToRecord } from "../../helpers/env.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { ConstantRegex, createUserRegex } from "../../regex/index.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import type { AwkProgram } from "./ast.js";
@@ -34,9 +36,12 @@ export const awkCommand2: Command = {
       return showHelp(awkHelp);
     }
 
-    let fieldSep = /\s+/;
+    let fieldSep: import("../../regex/index.js").RegexLike = new ConstantRegex(
+      /\s+/,
+    );
     let fieldSepStr = " ";
-    const vars: Record<string, string | number> = {};
+    // Use null-prototype to prevent prototype pollution with user-controlled -v names
+    const vars: Record<string, string | number> = Object.create(null);
     let programIdx = 0;
 
     // Parse options
@@ -111,6 +116,7 @@ export const awkCommand2: Command = {
     const runtimeCtx = createRuntimeContext({
       fieldSep,
       maxIterations: ctx.limits?.maxAwkIterations,
+      maxOutputSize: ctx.limits?.maxStringLength,
       fs: awkFs,
       cwd: ctx.cwd,
       // Wrap ctx.exec to match the expected signature for command pipe getline
@@ -118,20 +124,24 @@ export const awkCommand2: Command = {
         ? // biome-ignore lint/style/noNonNullAssertion: exec checked in ternary
           (cmd: string) => ctx.exec!(cmd, { cwd: ctx.cwd })
         : undefined,
+      coverage: ctx.coverage,
     });
     runtimeCtx.FS = fieldSepStr;
-    runtimeCtx.vars = { ...vars };
+    // Use Object.assign with null-prototype to preserve safety
+    runtimeCtx.vars = Object.assign(Object.create(null), vars);
 
     // Set up ARGC/ARGV
     // ARGV[0] is "awk", ARGV[1..n] are the input files
     runtimeCtx.ARGC = files.length + 1;
-    runtimeCtx.ARGV = { "0": "awk" };
+    // Use null-prototype to prevent prototype pollution
+    runtimeCtx.ARGV = Object.create(null);
+    runtimeCtx.ARGV["0"] = "awk";
     for (let i = 0; i < files.length; i++) {
       runtimeCtx.ARGV[String(i + 1)] = files[i];
     }
 
-    // Set up ENVIRON from shell environment
-    runtimeCtx.ENVIRON = { ...ctx.env };
+    // Set up ENVIRON from shell environment (null-prototype prevents prototype pollution)
+    runtimeCtx.ENVIRON = mapToRecord(ctx.env);
 
     // Create interpreter
     const interp = new AwkInterpreter(runtimeCtx);
@@ -253,23 +263,37 @@ function processEscapes(str: string): string {
     .replace(/\\\\/g, "\\");
 }
 
-function createFieldSepRegex(sep: string): RegExp {
+function createFieldSepRegex(
+  sep: string,
+): import("../../regex/index.js").UserRegex {
   if (sep === " ") {
-    return /\s+/;
+    return createUserRegex("\\s+");
   }
 
   const regexMetachars = /[[\](){}.*+?^$|\\]/;
   if (regexMetachars.test(sep)) {
     try {
-      return new RegExp(sep);
+      return createUserRegex(sep);
     } catch {
-      return new RegExp(escapeForRegex(sep));
+      return createUserRegex(escapeForRegex(sep));
     }
   }
 
-  return new RegExp(escapeForRegex(sep));
+  return createUserRegex(escapeForRegex(sep));
 }
 
 function escapeForRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "awk",
+  flags: [
+    { flag: "-F", type: "value", valueHint: "delimiter" },
+    { flag: "-v", type: "value", valueHint: "string" },
+  ],
+  stdinType: "text",
+  needsArgs: true,
+};

@@ -6,10 +6,47 @@
  *
  * Uses sql.js (WASM-based SQLite) which is fully sandboxed and cannot
  * access the real filesystem.
+ *
+ * Security: Uses phased defense-in-depth:
+ * 1. Init phase: sql.js WASM loads without restrictions
+ * 2. Defense phase: Activate full blocking after sql.js init
+ * 3. Execute phase: User SQL runs with all dangerous globals blocked
  */
 
 import { parentPort, workerData } from "node:worker_threads";
-import initSqlJs, { type Database } from "sql.js";
+import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
+import {
+  WorkerDefenseInDepth,
+  type WorkerDefenseStats,
+} from "../../security/index.js";
+
+// Cached SQL.js module (initialized once)
+let cachedSQL: SqlJsStatic | null = null;
+
+// Defense instance (activated after sql.js init)
+let defense: WorkerDefenseInDepth | null = null;
+
+/**
+ * Initialize sql.js and activate defense-in-depth.
+ * Called once per worker lifetime.
+ */
+async function initializeWithDefense(): Promise<SqlJsStatic> {
+  if (cachedSQL) {
+    return cachedSQL;
+  }
+
+  // Initialize sql.js WASM first (needs unrestricted JS features)
+  cachedSQL = await initSqlJs();
+
+  // Activate defense after sql.js is loaded (no exclusions needed)
+  defense = new WorkerDefenseInDepth({
+    onViolation: (v) => {
+      parentPort?.postMessage({ type: "security-violation", violation: v });
+    },
+  });
+
+  return cachedSQL;
+}
 
 export interface WorkerInput {
   dbBuffer: Uint8Array | null; // null for :memory:
@@ -25,6 +62,8 @@ export interface WorkerSuccess {
   results: StatementResult[];
   hasModifications: boolean;
   dbBuffer: Uint8Array | null; // serialized db if modified
+  /** Defense-in-depth stats if enabled */
+  defenseStats?: WorkerDefenseStats;
 }
 
 export interface StatementResult {
@@ -37,6 +76,8 @@ export interface StatementResult {
 export interface WorkerError {
   success: false;
   error: string;
+  /** Defense-in-depth stats if enabled */
+  defenseStats?: WorkerDefenseStats;
 }
 
 export type WorkerOutput = WorkerSuccess | WorkerError;
@@ -96,14 +137,19 @@ async function executeQuery(data: WorkerInput): Promise<WorkerOutput> {
   let db: Database;
 
   try {
-    const SQL = await initSqlJs();
+    const SQL = await initializeWithDefense();
+
     if (data.dbBuffer) {
       db = new SQL.Database(data.dbBuffer);
     } else {
       db = new SQL.Database();
     }
   } catch (e) {
-    return { success: false, error: (e as Error).message };
+    return {
+      success: false,
+      error: (e as Error).message,
+      defenseStats: defense?.getStats(),
+    };
   }
 
   const results: StatementResult[] = [];
@@ -146,10 +192,20 @@ async function executeQuery(data: WorkerInput): Promise<WorkerOutput> {
     }
 
     db.close();
-    return { success: true, results, hasModifications, dbBuffer: resultBuffer };
+    return {
+      success: true,
+      results,
+      hasModifications,
+      dbBuffer: resultBuffer,
+      defenseStats: defense?.getStats(),
+    };
   } catch (e) {
     db.close();
-    return { success: false, error: (e as Error).message };
+    return {
+      success: false,
+      error: (e as Error).message,
+      defenseStats: defense?.getStats(),
+    };
   }
 }
 

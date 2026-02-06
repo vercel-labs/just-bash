@@ -330,28 +330,28 @@ function convertCharClass(content: string): string {
   return result;
 }
 
-/** Valid POSIX character class names */
-const POSIX_CLASSES: Record<string, string> = {
-  alnum: "a-zA-Z0-9",
-  alpha: "a-zA-Z",
-  ascii: "\\x00-\\x7F",
-  blank: " \\t",
-  cntrl: "\\x00-\\x1F\\x7F",
-  digit: "0-9",
-  graph: "!-~",
-  lower: "a-z",
-  print: " -~",
-  punct: "!-/:-@\\[-`{-~",
-  space: " \\t\\n\\r\\f\\v",
-  upper: "A-Z",
-  word: "a-zA-Z0-9_",
-  xdigit: "0-9A-Fa-f",
-};
+/** Valid POSIX character class names (Map prevents prototype pollution) */
+const POSIX_CLASSES = new Map<string, string>([
+  ["alnum", "a-zA-Z0-9"],
+  ["alpha", "a-zA-Z"],
+  ["ascii", "\\x00-\\x7F"],
+  ["blank", " \\t"],
+  ["cntrl", "\\x00-\\x1F\\x7F"],
+  ["digit", "0-9"],
+  ["graph", "!-~"],
+  ["lower", "a-z"],
+  ["print", " -~"],
+  ["punct", "!-/:-@\\[-`{-~"],
+  ["space", " \\t\\n\\r\\f\\v"],
+  ["upper", "A-Z"],
+  ["word", "a-zA-Z0-9_"],
+  ["xdigit", "0-9A-Fa-f"],
+]);
 
 /**
  * Convert POSIX character class name to regex equivalent.
  * Returns empty string for unknown class names (matches bash behavior).
  */
 function posixClassToRegex(name: string): string {
-  return POSIX_CLASSES[name] ?? "";
+  return POSIX_CLASSES.get(name) ?? "";
 }

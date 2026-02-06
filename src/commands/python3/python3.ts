@@ -9,6 +9,7 @@
 
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
+import { mapToRecord } from "../../helpers/env.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import { FsBridgeHandler } from "./fs-bridge-handler.js";
@@ -244,7 +245,9 @@ async function executePython(
     sharedBuffer,
     pythonCode,
     cwd: ctx.cwd,
-    env: ctx.env,
+    // Convert Map to null-prototype object for worker transfer
+    // (Maps can't be postMessage'd, and null-prototype prevents prototype pollution)
+    env: mapToRecord(ctx.env),
     args: scriptArgs,
     scriptPath,
   };

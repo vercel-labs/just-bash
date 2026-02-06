@@ -8,6 +8,7 @@
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
+import { nullPrototypeCopy } from "../query-engine/safe-object.js";
 import { generateMultipartBody } from "./form.js";
 import { curlHelp } from "./help.js";
 import { parseOptions } from "./parse.js";
@@ -65,17 +66,19 @@ async function prepareRequestBody(
     return { body: options.data };
   }
 
+  // @banned-pattern-ignore: returns typed object with known keys (body, contentType), not user data
   return {};
 }
 
 /**
- * Prepare request headers from options
+ * Prepare request headers from options.
+ * Uses null-prototype object to prevent prototype pollution from user-controlled header names.
  */
 function prepareHeaders(
   options: CurlOptions,
   contentType?: string,
 ): Record<string, string> {
-  const headers = { ...options.headers };
+  const headers = nullPrototypeCopy(options.headers ?? {});
 
   // Add authentication header
   if (options.user) {

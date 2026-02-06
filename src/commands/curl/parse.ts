@@ -13,7 +13,8 @@ import type { CurlOptions } from "./types.js";
 export function parseOptions(args: string[]): CurlOptions | ExecResult {
   const options: CurlOptions = {
     method: "GET",
-    headers: {},
+    // Use null-prototype to prevent prototype pollution via user-controlled header names
+    headers: Object.create(null) as Record<string, string>,
     dataBinary: false,
     formFields: [],
     useRemoteName: false,

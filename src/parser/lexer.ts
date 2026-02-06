@@ -10,6 +10,9 @@
  * - Escape sequences
  */
 
+// Max heredoc size to prevent memory exhaustion (10MB)
+const MAX_HEREDOC_SIZE = 10_485_760;
+
 export enum TokenType {
   // End of input
   EOF = "EOF",
@@ -119,27 +122,27 @@ export class LexerError extends Error {
 
 /**
  * Reserved words in bash
+ * Using Map to prevent prototype pollution (e.g., "constructor", "__proto__")
  */
-const RESERVED_WORDS: Record<string, TokenType> = {
-  if: TokenType.IF,
-  // biome-ignore lint/suspicious/noThenProperty: "then" is a bash reserved word
-  then: TokenType.THEN,
-  else: TokenType.ELSE,
-  elif: TokenType.ELIF,
-  fi: TokenType.FI,
-  for: TokenType.FOR,
-  while: TokenType.WHILE,
-  until: TokenType.UNTIL,
-  do: TokenType.DO,
-  done: TokenType.DONE,
-  case: TokenType.CASE,
-  esac: TokenType.ESAC,
-  in: TokenType.IN,
-  function: TokenType.FUNCTION,
-  select: TokenType.SELECT,
-  time: TokenType.TIME,
-  coproc: TokenType.COPROC,
-};
+const RESERVED_WORDS = new Map<string, TokenType>([
+  ["if", TokenType.IF],
+  ["then", TokenType.THEN],
+  ["else", TokenType.ELSE],
+  ["elif", TokenType.ELIF],
+  ["fi", TokenType.FI],
+  ["for", TokenType.FOR],
+  ["while", TokenType.WHILE],
+  ["until", TokenType.UNTIL],
+  ["do", TokenType.DO],
+  ["done", TokenType.DONE],
+  ["case", TokenType.CASE],
+  ["esac", TokenType.ESAC],
+  ["in", TokenType.IN],
+  ["function", TokenType.FUNCTION],
+  ["select", TokenType.SELECT],
+  ["time", TokenType.TIME],
+  ["coproc", TokenType.COPROC],
+]);
 
 /**
  * Check if a string is a valid assignment LHS with optional nested array subscript
@@ -235,15 +238,15 @@ const TWO_CHAR_OPS: Array<[string, string, TokenType]> = [
  * Single-character operators (simple ones without special handling)
  * Note: {, }, ! have special handling, not included here
  */
-const SINGLE_CHAR_OPS: Record<string, TokenType> = {
-  "|": TokenType.PIPE,
-  "&": TokenType.AMP,
-  ";": TokenType.SEMICOLON,
-  "(": TokenType.LPAREN,
-  ")": TokenType.RPAREN,
-  "<": TokenType.LESS,
-  ">": TokenType.GREAT,
-};
+const SINGLE_CHAR_OPS = new Map<string, TokenType>([
+  ["|", TokenType.PIPE],
+  ["&", TokenType.AMP],
+  [";", TokenType.SEMICOLON],
+  ["(", TokenType.LPAREN],
+  [")", TokenType.RPAREN],
+  ["<", TokenType.LESS],
+  [">", TokenType.GREAT],
+]);
 
 /**
  * Check if a string is a valid variable name
@@ -582,8 +585,8 @@ export class Lexer {
       return this.makeToken(TokenType.RPAREN, ")", pos, startLine, startColumn);
     }
     // Table-driven simple single-char operators
-    const singleCharType = SINGLE_CHAR_OPS[c0];
-    if (singleCharType) {
+    const singleCharType = SINGLE_CHAR_OPS.get(c0);
+    if (singleCharType !== undefined) {
       this.pos = pos + 1;
       this.column = startColumn + 1;
       return this.makeToken(singleCharType, c0, pos, startLine, startColumn);
@@ -908,9 +911,10 @@ export class Lexer {
         this.column = column + (pos - fastStart);
 
         // Check for reserved words
-        if (RESERVED_WORDS[value]) {
+        const reservedType = RESERVED_WORDS.get(value);
+        if (reservedType !== undefined) {
           return {
-            type: RESERVED_WORDS[value],
+            type: reservedType,
             value,
             start,
             end: pos,
@@ -1744,9 +1748,10 @@ export class Lexer {
     }
 
     // Check for reserved words (only if not quoted)
-    if (!quoted && RESERVED_WORDS[value]) {
+    const reservedType2 = RESERVED_WORDS.get(value);
+    if (!quoted && reservedType2 !== undefined) {
       return {
-        type: RESERVED_WORDS[value],
+        type: reservedType2,
         value,
         start,
         end: pos,
@@ -1849,6 +1854,14 @@ export class Lexer {
         }
 
         content += line;
+        // Check heredoc size limit to prevent memory exhaustion
+        if (content.length > MAX_HEREDOC_SIZE) {
+          throw new LexerError(
+            `Heredoc size limit exceeded (${MAX_HEREDOC_SIZE} bytes)`,
+            startLine,
+            startColumn,
+          );
+        }
         if (this.pos < this.input.length && this.input[this.pos] === "\n") {
           content += "\n";
           this.pos++;

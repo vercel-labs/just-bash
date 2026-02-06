@@ -44,6 +44,7 @@ import {
 import {
   MAX_INPUT_SIZE,
   MAX_PARSE_ITERATIONS,
+  MAX_PARSER_DEPTH,
   MAX_TOKENS,
   ParseException,
 } from "./types.js";
@@ -65,6 +66,7 @@ export class Parser {
     quoted: boolean;
   }[] = [];
   private parseIterations = 0;
+  private parseDepth = 0;
   private _input = "";
 
   /**
@@ -87,6 +89,24 @@ export class Parser {
         this.current().column,
       );
     }
+  }
+
+  /**
+   * Increment parse depth and check limit to prevent stack overflow
+   * from deeply nested constructs. Returns a function to decrement depth.
+   */
+  enterDepth(): () => void {
+    this.parseDepth++;
+    if (this.parseDepth > MAX_PARSER_DEPTH) {
+      throw new ParseException(
+        `Maximum parser nesting depth exceeded (${MAX_PARSER_DEPTH})`,
+        this.current().line,
+        this.current().column,
+      );
+    }
+    return () => {
+      this.parseDepth--;
+    };
   }
 
   /**
@@ -118,6 +138,7 @@ export class Parser {
     this.pos = 0;
     this.pendingHeredocs = [];
     this.parseIterations = 0;
+    this.parseDepth = 0;
     return this.parseScript();
   }
 
@@ -128,6 +149,8 @@ export class Parser {
     this.tokens = tokens;
     this.pos = 0;
     this.pendingHeredocs = [];
+    this.parseIterations = 0;
+    this.parseDepth = 0;
     return this.parseScript();
   }
 
@@ -1088,6 +1111,7 @@ export class Parser {
   // ===========================================================================
 
   parseCompoundList(): StatementNode[] {
+    const exitDepth = this.enterDepth();
     const statements: StatementNode[] = [];
 
     this.skipNewlines();
@@ -1125,6 +1149,7 @@ export class Parser {
       }
     }
 
+    exitDepth();
     return statements;
   }
 

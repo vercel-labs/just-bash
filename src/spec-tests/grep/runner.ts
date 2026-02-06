@@ -77,8 +77,14 @@ export async function runGrepTestCase(
 
     const actualOutput = result.stdout;
     const expectedOutput = testCase.expectedOutput;
+    const actualExitCode = result.exitCode;
+    const expectedExitCode = testCase.expectedExitCode;
 
-    const passed = actualOutput === expectedOutput;
+    // Check both output and exit code (if expected exit code is specified)
+    const outputMatches = actualOutput === expectedOutput;
+    const exitCodeMatches =
+      expectedExitCode === undefined || actualExitCode === expectedExitCode;
+    const passed = outputMatches && exitCodeMatches;
 
     // Handle skip tests
     if (expectedToFail) {
@@ -107,6 +113,22 @@ export async function runGrepTestCase(
       };
     }
 
+    let error: string | undefined;
+    if (!passed) {
+      const parts: string[] = [];
+      if (!outputMatches) {
+        parts.push(
+          `Output mismatch:\n  expected: ${JSON.stringify(expectedOutput)}\n  actual:   ${JSON.stringify(actualOutput)}`,
+        );
+      }
+      if (!exitCodeMatches) {
+        parts.push(
+          `Exit code mismatch:\n  expected: ${expectedExitCode}\n  actual:   ${actualExitCode}`,
+        );
+      }
+      error = parts.join("\n");
+    }
+
     return {
       testCase,
       passed,
@@ -115,9 +137,7 @@ export async function runGrepTestCase(
       actualStderr: result.stderr,
       actualStatus: result.exitCode,
       expectedOutput,
-      error: passed
-        ? undefined
-        : `Output mismatch:\n  expected: ${JSON.stringify(expectedOutput)}\n  actual:   ${JSON.stringify(actualOutput)}`,
+      error,
     };
   } catch (e) {
     // If test was expected to fail and threw an error, that counts as expected failure

@@ -511,3 +511,22 @@ async function listPath(
     };
   }
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "ls",
+  flags: [
+    { flag: "-a", type: "boolean" },
+    { flag: "-A", type: "boolean" },
+    { flag: "-l", type: "boolean" },
+    { flag: "-h", type: "boolean" },
+    { flag: "-R", type: "boolean" },
+    { flag: "-r", type: "boolean" },
+    { flag: "-S", type: "boolean" },
+    { flag: "-d", type: "boolean" },
+    { flag: "-t", type: "boolean" },
+    { flag: "-1", type: "boolean" },
+  ],
+  needsFiles: true,
+};

@@ -18,10 +18,13 @@ export function applyTildeExpansion(
   if (!value.startsWith("~")) {
     return value;
   }
+  ctx.coverage?.hit("bash:expansion:tilde");
 
   // Use HOME if set (even if empty), otherwise fall back to /home/user
   const home =
-    ctx.state.env.HOME !== undefined ? ctx.state.env.HOME : "/home/user";
+    ctx.state.env.get("HOME") !== undefined
+      ? ctx.state.env.get("HOME")
+      : "/home/user";
 
   // ~/ or just ~
   if (value === "~" || value.startsWith("~/")) {

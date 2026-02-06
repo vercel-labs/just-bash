@@ -133,6 +133,7 @@
 0@a[-]?c@ac
 # SKIP: Empty bracket expression with quantifier []? has ambiguous POSIX semantics
 0@a[]?c@ac
+# SKIP: RE2 doesn't support backreferences
 0@(....).*\1@beriberi
 0@(^|\B)a@abc
 0@(^|\B)a@xyzabc

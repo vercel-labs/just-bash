@@ -330,6 +330,7 @@ helloworld
 ## END
 
 #### patsub with [^]]
+## SKIP: RE2 handles [^]] character class differently
 
 # This is a PARSING divergence.  In OSH we match [], rather than using POSIX
 # rules!

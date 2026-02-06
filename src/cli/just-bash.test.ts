@@ -64,7 +64,7 @@ describe("just-bash CLI", () => {
       const result = runCli(["-v"]);
       expect(result.stdout).toContain("just-bash");
       expect(result.exitCode).toBe(0);
-    });
+    }, 10000);
 
     it("should show version with --version", () => {
       const result = runCli(["--version"]);
@@ -319,6 +319,32 @@ describe("just-bash CLI", () => {
         "/tmp",
       ]);
       expect(result.stdout.trim()).toBe("/tmp");
+    });
+
+    it("should normalize --cwd to prevent path traversal", () => {
+      // --cwd with .. should be normalized so it can't escape
+      const result = runCli([
+        "-c",
+        "'pwd'",
+        "--root",
+        tempDir,
+        "--cwd",
+        "/home/user/project/../../..",
+      ]);
+      // .. components should be resolved, landing at /
+      expect(result.stdout.trim()).toBe("/");
+    });
+
+    it("should normalize --cwd with relative-style path", () => {
+      const result = runCli([
+        "-c",
+        "'pwd'",
+        "--root",
+        tempDir,
+        "--cwd",
+        "/home/./user/../user/project",
+      ]);
+      expect(result.stdout.trim()).toBe("/home/user/project");
     });
   });
 

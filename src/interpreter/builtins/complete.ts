@@ -200,7 +200,7 @@ export function handleComplete(
   }
 
   for (const cmd of commands) {
-    const spec: CompletionSpec = {};
+    const spec: CompletionSpec = Object.create(null);
     if (wordlist !== undefined) spec.wordlist = wordlist;
     if (funcName !== undefined) spec.function = funcName;
     if (commandStr !== undefined) spec.command = commandStr;

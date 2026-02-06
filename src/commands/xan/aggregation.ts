@@ -3,7 +3,7 @@
  */
 
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
-import type { CsvData, CsvRow } from "./csv.js";
+import { type CsvData, type CsvRow, createSafeRow, safeSetRow } from "./csv.js";
 import { parseMoonblade } from "./moonblade-parser.js";
 import { moonbladeToJq } from "./moonblade-to-jq.js";
 
@@ -239,9 +239,9 @@ export function buildAggRow(
   specs: AggSpec[],
   evalOptions: EvaluateOptions = {},
 ): CsvRow {
-  const row: CsvRow = {};
+  const row: CsvRow = createSafeRow();
   for (const spec of specs) {
-    row[spec.alias] = computeAgg(data, spec, evalOptions);
+    safeSetRow(row, spec.alias, computeAgg(data, spec, evalOptions));
   }
   return row;
 }

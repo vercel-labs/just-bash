@@ -4,6 +4,7 @@
  * Handles $0, $1, $2, etc. field access and modification.
  */
 
+import { ConstantRegex, createUserRegex } from "../../../regex/index.js";
 import type { AwkRuntimeContext } from "./context.js";
 import { toAwkString } from "./type-coercion.js";
 import type { AwkValue } from "./types.js";
@@ -20,7 +21,7 @@ function splitFields(ctx: AwkRuntimeContext, line: string): string[] {
     // Default FS: split on runs of whitespace, skip leading/trailing
     return line.trim().split(/\s+/).filter(Boolean);
   }
-  return line.split(ctx.fieldSep);
+  return ctx.fieldSep.split(line);
 }
 
 /**
@@ -78,12 +79,12 @@ export function setCurrentLine(ctx: AwkRuntimeContext, line: string): void {
 export function setFieldSeparator(ctx: AwkRuntimeContext, fs: string): void {
   ctx.FS = fs;
   if (fs === " ") {
-    ctx.fieldSep = /\s+/;
+    ctx.fieldSep = new ConstantRegex(/\s+/);
   } else {
     try {
-      ctx.fieldSep = new RegExp(fs);
+      ctx.fieldSep = createUserRegex(fs);
     } catch {
-      ctx.fieldSep = new RegExp(fs.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      ctx.fieldSep = createUserRegex(fs.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     }
   }
 }

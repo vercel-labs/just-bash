@@ -81,7 +81,7 @@ describe("custom-commands", () => {
       const result1 = await cmd.execute([], {
         fs: {} as never,
         cwd: "/",
-        env: {},
+        env: new Map(),
         stdin: "",
       });
       expect(loadCount).toBe(1);
@@ -91,7 +91,7 @@ describe("custom-commands", () => {
       const result2 = await cmd.execute([], {
         fs: {} as never,
         cwd: "/",
-        env: {},
+        env: new Map(),
         stdin: "",
       });
       expect(loadCount).toBe(1);
@@ -145,7 +145,7 @@ describe("custom-commands", () => {
 
     it("custom command can access environment variables", async () => {
       const showenv = defineCommand("showenv", async (args, ctx) => ({
-        stdout: `${args[0]}=${ctx.env[args[0]] || ""}\n`,
+        stdout: `${args[0]}=${ctx.env.get(args[0]) || ""}\n`,
         stderr: "",
         exitCode: 0,
       }));

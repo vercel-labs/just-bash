@@ -75,3 +75,20 @@ function addLineNumbers(
     nextLineNumber: startLine + linesToNumber.length,
   };
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "cat",
+  flags: [
+    { flag: "-n", type: "boolean" },
+    { flag: "-A", type: "boolean" },
+    { flag: "-b", type: "boolean" },
+    { flag: "-s", type: "boolean" },
+    { flag: "-v", type: "boolean" },
+    { flag: "-e", type: "boolean" },
+    { flag: "-t", type: "boolean" },
+  ],
+  stdinType: "text",
+  needsFiles: true,
+};

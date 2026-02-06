@@ -5,7 +5,6 @@
  * with optional gzip, bzip2, and xz compression.
  */
 
-import * as zstd from "@mongodb-js/zstd";
 // @ts-expect-error - compressjs doesn't have types
 import compressjs from "compressjs";
 import {
@@ -35,6 +34,25 @@ async function getLzma(): Promise<typeof import("node-liblzma")> {
         "Install liblzma-dev (apt) or xz (brew) and reinstall dependencies.",
     );
     throw lzmaLoadError;
+  }
+}
+
+// Lazy load @mongodb-js/zstd since it's an optional dependency
+let zstd: typeof import("@mongodb-js/zstd") | null = null;
+let zstdLoadError: Error | null = null;
+
+async function getZstd(): Promise<typeof import("@mongodb-js/zstd")> {
+  if (zstd) return zstd;
+  if (zstdLoadError) throw zstdLoadError;
+  try {
+    zstd = await import("@mongodb-js/zstd");
+    return zstd;
+  } catch {
+    zstdLoadError = new Error(
+      "zstd compression requires @mongodb-js/zstd which is not installed. " +
+        "Install it with: npm install @mongodb-js/zstd",
+    );
+    throw zstdLoadError;
   }
 }
 
@@ -430,7 +448,8 @@ export function isZstdCompressed(data: Uint8Array): boolean {
  * zstd compression using @mongodb-js/zstd
  */
 async function compressZstd(data: Uint8Array): Promise<Uint8Array> {
-  const compressed = await zstd.compress(Buffer.from(data), 3);
+  const zstdModule = await getZstd();
+  const compressed = await zstdModule.compress(Buffer.from(data), 3);
   return new Uint8Array(compressed);
 }
 
@@ -438,7 +457,8 @@ async function compressZstd(data: Uint8Array): Promise<Uint8Array> {
  * zstd decompression using @mongodb-js/zstd
  */
 async function decompressZstd(data: Uint8Array): Promise<Uint8Array> {
-  const decompressed = await zstd.decompress(Buffer.from(data));
+  const zstdModule = await getZstd();
+  const decompressed = await zstdModule.decompress(Buffer.from(data));
   return new Uint8Array(decompressed);
 }
 

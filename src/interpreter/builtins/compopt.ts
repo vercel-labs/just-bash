@@ -119,6 +119,7 @@ export function handleCompopt(
 
   // If -E flag is set, modify empty-line completion
   if (isEmptyLine) {
+    // @banned-pattern-ignore: completion spec with known structure (options array)
     const spec = ctx.state.completionSpecs.get("__empty__") ?? {};
     const currentOptions = new Set(spec.options ?? []);
 
@@ -141,6 +142,7 @@ export function handleCompopt(
   // If command names are provided, modify their completion specs
   if (commands.length > 0) {
     for (const cmd of commands) {
+      // @banned-pattern-ignore: completion spec with known structure (options array)
       const spec = ctx.state.completionSpecs.get(cmd) ?? {};
       const currentOptions = new Set(spec.options ?? []);
 

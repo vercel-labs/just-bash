@@ -162,9 +162,11 @@ function formatValue(
     if (sortKeys) keys = keys.sort();
     if (keys.length === 0) return "{}";
     if (compact) {
+      // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
       return `{${keys.map((k) => `${JSON.stringify(k)}:${formatValue((v as Record<string, unknown>)[k], true, false, sortKeys, useTab)}`).join(",")}}`;
     }
     const items = keys.map((k) => {
+      // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
       const val = formatValue(
         (v as Record<string, unknown>)[k],
         false,
@@ -276,6 +278,7 @@ export const jqCommand: Command = {
           ? { maxIterations: ctx.limits.maxJqIterations }
           : undefined,
         env: ctx.env,
+        coverage: ctx.coverage,
       };
 
       if (nullInput) {
@@ -310,6 +313,20 @@ export const jqCommand: Command = {
       );
       const separator = joinOutput ? "" : "\n";
       const output = formatted.join(separator);
+
+      // Check output size against limit
+      const maxStringLength = ctx.limits?.maxStringLength;
+      if (
+        maxStringLength !== undefined &&
+        maxStringLength > 0 &&
+        output.length > maxStringLength
+      ) {
+        throw new ExecutionLimitError(
+          `jq: output size limit exceeded (${maxStringLength} bytes)`,
+          "string_length",
+        );
+      }
+
       const exitCode =
         exitStatus &&
         (values.length === 0 ||
@@ -345,4 +362,22 @@ export const jqCommand: Command = {
       };
     }
   },
+};
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "jq",
+  flags: [
+    { flag: "-r", type: "boolean" },
+    { flag: "-c", type: "boolean" },
+    { flag: "-e", type: "boolean" },
+    { flag: "-s", type: "boolean" },
+    { flag: "-n", type: "boolean" },
+    { flag: "-j", type: "boolean" },
+    { flag: "-S", type: "boolean" },
+    { flag: "--tab", type: "boolean" },
+  ],
+  stdinType: "json",
+  needsArgs: true,
 };

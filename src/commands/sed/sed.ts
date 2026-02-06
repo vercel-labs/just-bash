@@ -1,6 +1,11 @@
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { ExecutionLimits } from "../../limits.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  Command,
+  CommandContext,
+  ExecResult,
+  FeatureCoverageWriter,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import {
   createInitialState,
@@ -64,6 +69,7 @@ interface ProcessContentOptions {
   filename?: string;
   fs?: CommandContext["fs"];
   cwd?: string;
+  coverage?: FeatureCoverageWriter;
 }
 
 async function processContent(
@@ -72,7 +78,7 @@ async function processContent(
   silent: boolean,
   options: ProcessContentOptions = {},
 ): Promise<{ output: string; exitCode?: number; errorMessage?: string }> {
-  const { limits, filename, fs, cwd } = options;
+  const { limits, filename, fs, cwd, coverage } = options;
 
   // Track if input ended with newline - needed for preserving trailing newline behavior
   const inputEndsWithNewline = content.endsWith("\n");
@@ -88,6 +94,18 @@ async function processContent(
   // Track if the last output came from auto-print (to determine trailing newline behavior)
   // Only auto-print should have its trailing newline stripped when input has no trailing newline
   let lastOutputWasAutoPrint = false;
+
+  // Extract max output size from limits
+  const maxOutputSize = limits?.maxStringLength ?? 0;
+  const appendOutput = (text: string): void => {
+    output += text;
+    if (maxOutputSize > 0 && output.length > maxOutputSize) {
+      throw new ExecutionLimitError(
+        `sed: output size limit exceeded (${maxOutputSize} bytes)`,
+        "string_length",
+      );
+    }
+  };
 
   // Persistent state across all lines
   let holdSpace = "";
@@ -113,6 +131,7 @@ async function processContent(
       lineNumber: lineIndex + 1,
       totalLines,
       substitutionMade: false, // Reset for each new line (T command behavior)
+      coverage,
     };
 
     // Create execution context for N command
@@ -192,14 +211,14 @@ async function processContent(
     // Output from n command (respects silent mode) - must come before other outputs
     if (!silent) {
       for (const ln of state.nCommandOutput) {
-        output += `${ln}\n`;
+        appendOutput(`${ln}\n`);
       }
     }
 
     // Output line numbers from = command (and l, F commands, p command)
     const hadLineNumberOutput = state.lineNumberOutput.length > 0;
     for (const ln of state.lineNumberOutput) {
-      output += `${ln}\n`;
+      appendOutput(`${ln}\n`);
     }
 
     // Handle insert commands (marked with __INSERT__ prefix)
@@ -215,7 +234,7 @@ async function processContent(
 
     // Output inserts before the line
     for (const text of inserts) {
-      output += `${text}\n`;
+      appendOutput(`${text}\n`);
     }
 
     // Handle output - Q (quitSilent) suppresses the final print
@@ -224,22 +243,22 @@ async function processContent(
     if (!state.deleted && !state.quitSilent) {
       if (silent) {
         if (state.printed) {
-          output += `${state.patternSpace}\n`;
+          appendOutput(`${state.patternSpace}\n`);
           hadPatternSpaceOutput = true; // Explicit print in silent mode
         }
       } else {
-        output += `${state.patternSpace}\n`;
+        appendOutput(`${state.patternSpace}\n`);
         hadPatternSpaceOutput = true; // Auto-print in non-silent mode
       }
     } else if (state.changedText !== undefined) {
       // c command: output changed text in place of pattern space
-      output += `${state.changedText}\n`;
+      appendOutput(`${state.changedText}\n`);
       hadPatternSpaceOutput = true;
     }
 
     // Output appends after the line
     for (const text of appends) {
-      output += `${text}\n`;
+      appendOutput(`${text}\n`);
     }
 
     // Track if this line produced output that should have trailing newline stripped
@@ -438,6 +457,7 @@ export const sedCommand: Command = {
               filename: file,
               fs: ctx.fs,
               cwd: ctx.cwd,
+              coverage: ctx.coverage,
             },
           );
           if (result.errorMessage) {
@@ -480,6 +500,7 @@ export const sedCommand: Command = {
             limits: ctx.limits,
             fs: ctx.fs,
             cwd: ctx.cwd,
+            coverage: ctx.coverage,
           },
         );
         return {
@@ -549,6 +570,7 @@ export const sedCommand: Command = {
         filename: files.length === 1 ? files[0] : undefined,
         fs: ctx.fs,
         cwd: ctx.cwd,
+        coverage: ctx.coverage,
       });
       return {
         stdout: result.output,
@@ -566,4 +588,19 @@ export const sedCommand: Command = {
       throw e;
     }
   },
+};
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "sed",
+  flags: [
+    { flag: "-n", type: "boolean" },
+    { flag: "-i", type: "boolean" },
+    { flag: "-E", type: "boolean" },
+    { flag: "-r", type: "boolean" },
+    { flag: "-e", type: "value", valueHint: "string" },
+  ],
+  stdinType: "text",
+  needsArgs: true,
 };

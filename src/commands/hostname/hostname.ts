@@ -20,3 +20,10 @@ export const hostname: Command = {
   name: "hostname",
   execute: hostnameExecute,
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "hostname",
+  flags: [],
+};

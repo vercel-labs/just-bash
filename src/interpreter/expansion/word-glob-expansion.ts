@@ -118,6 +118,7 @@ export async function expandWordWithGlobImpl(
   word: WordNode,
   deps: WordGlobExpansionDeps,
 ): Promise<{ values: string[]; quoted: boolean }> {
+  ctx.coverage?.hit("bash:expansion:word_glob");
   const wordParts = word.parts;
   const {
     hasQuoted,
@@ -691,16 +692,16 @@ async function expandDoubleQuotedWithWordProducing(
     const elements = getArrayElements(ctx, info.name);
     values = elements.map(([, v]) => v);
     if (values.length === 0) {
-      const scalarValue = ctx.state.env[info.name];
+      const scalarValue = ctx.state.env.get(info.name);
       if (scalarValue !== undefined) {
         values = [scalarValue];
       }
     }
   } else {
-    const numParams = Number.parseInt(ctx.state.env["#"] || "0", 10);
+    const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
     values = [];
     for (let i = 1; i <= numParams; i++) {
-      values.push(ctx.state.env[String(i)] || "");
+      values.push(ctx.state.env.get(String(i)) || "");
     }
   }
 
@@ -843,6 +844,7 @@ async function expandGlobPattern(
     dotglob: ctx.state.shoptOptions.dotglob,
     extglob: ctx.state.shoptOptions.extglob,
     globskipdots: ctx.state.shoptOptions.globskipdots,
+    maxGlobOperations: ctx.limits.maxGlobOperations,
   });
   const matches = await globExpander.expand(pattern);
   if (matches.length > 0) {

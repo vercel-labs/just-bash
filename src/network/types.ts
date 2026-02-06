@@ -61,6 +61,12 @@ export interface NetworkConfig {
    * Request timeout in milliseconds (default: 30000)
    */
   timeoutMs?: number;
+
+  /**
+   * Maximum response body size in bytes (default: 10MB).
+   * Responses larger than this will be rejected with ResponseTooLargeError.
+   */
+  maxResponseSize?: number;
 }
 
 /**
@@ -115,5 +121,15 @@ export class MethodNotAllowedError extends Error {
       )}`,
     );
     this.name = "MethodNotAllowedError";
+  }
+}
+
+/**
+ * Error thrown when a response body exceeds the maximum allowed size
+ */
+export class ResponseTooLargeError extends Error {
+  constructor(maxSize: number) {
+    super(`Response body too large (max: ${maxSize} bytes)`);
+    this.name = "ResponseTooLargeError";
   }
 }

@@ -6,6 +6,7 @@
 
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
+import { isSafeKey, safeSet } from "../safe-object.js";
 import { getValueDepth, type QueryValue } from "../value-operations.js";
 
 // Default max depth for nested structures
@@ -77,7 +78,7 @@ export function evalObjectBuiltin(
 
     case "from_entries":
       if (Array.isArray(value)) {
-        const result: Record<string, unknown> = {};
+        const result: Record<string, unknown> = Object.create(null);
         for (const item of value) {
           if (item && typeof item === "object") {
             const obj = item as Record<string, unknown>;
@@ -85,7 +86,13 @@ export function evalObjectBuiltin(
             const key = obj.key ?? obj.Key ?? obj.name ?? obj.Name ?? obj.k;
             // jq supports: value, Value, v for the value
             const val = obj.value ?? obj.Value ?? obj.v;
-            if (key !== undefined) result[String(key)] = val;
+            if (key !== undefined) {
+              const strKey = String(key);
+              // Defense against prototype pollution: skip dangerous keys
+              if (isSafeKey(strKey)) {
+                safeSet(result, strKey, val);
+              }
+            }
           }
         }
         return [result];
@@ -102,13 +109,19 @@ export function evalObjectBuiltin(
           }),
         );
         const mapped = entries.flatMap((e) => evaluate(e, args[0], ctx));
-        const result: Record<string, unknown> = {};
+        const result: Record<string, unknown> = Object.create(null);
         for (const item of mapped) {
           if (item && typeof item === "object") {
             const obj = item as Record<string, unknown>;
             const key = obj.key ?? obj.name ?? obj.k;
             const val = obj.value ?? obj.v;
-            if (key !== undefined) result[String(key)] = val;
+            if (key !== undefined) {
+              const strKey = String(key);
+              // Defense against prototype pollution: skip dangerous keys
+              if (isSafeKey(strKey)) {
+                safeSet(result, strKey, val);
+              }
+            }
           }
         }
         return [result];
@@ -243,8 +256,9 @@ export function evalObjectBuiltin(
           const keys = Object.keys(v);
           if (keys.length === 0) {
             // Empty object - output [path, {}]
-            results.push([path, {}]);
+            results.push([path, Object.create(null)]);
           } else {
+            // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
             for (const key of keys) {
               walk((v as Record<string, unknown>)[key], [...path, key]);
             }
@@ -307,11 +321,14 @@ export function evalObjectBuiltin(
             typeof current === "object" &&
             !Array.isArray(current)
           ) {
+            const strKey = String(key);
+            // Defense against prototype pollution: skip dangerous keys
+            if (!isSafeKey(strKey)) continue;
             const obj = current as Record<string, unknown>;
-            if (obj[String(key)] === null || obj[String(key)] === undefined) {
-              obj[String(key)] = typeof nextKey === "number" ? [] : {};
+            if (obj[strKey] === null || obj[strKey] === undefined) {
+              safeSet(obj, strKey, typeof nextKey === "number" ? [] : {});
             }
-            current = obj[String(key)] as QueryValue;
+            current = obj[strKey] as QueryValue;
           }
         }
 
@@ -327,7 +344,11 @@ export function evalObjectBuiltin(
           typeof current === "object" &&
           !Array.isArray(current)
         ) {
-          (current as Record<string, unknown>)[String(lastKey)] = val;
+          const strLastKey = String(lastKey);
+          // Defense against prototype pollution: skip dangerous keys
+          if (isSafeKey(strLastKey)) {
+            safeSet(current as Record<string, unknown>, strLastKey, val);
+          }
         }
       }
 

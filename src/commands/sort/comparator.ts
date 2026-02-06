@@ -2,32 +2,32 @@
 
 import type { KeySpec, SortOptions } from "./types.js";
 
-// Human-readable size suffixes (case insensitive)
-const SIZE_SUFFIXES: Record<string, number> = {
-  "": 1,
-  k: 1024,
-  m: 1024 ** 2,
-  g: 1024 ** 3,
-  t: 1024 ** 4,
-  p: 1024 ** 5,
-  e: 1024 ** 6,
-};
+// Human-readable size suffixes (case insensitive) - Map prevents prototype pollution
+const SIZE_SUFFIXES = new Map<string, number>([
+  ["", 1],
+  ["k", 1024],
+  ["m", 1024 ** 2],
+  ["g", 1024 ** 3],
+  ["t", 1024 ** 4],
+  ["p", 1024 ** 5],
+  ["e", 1024 ** 6],
+]);
 
-// Month names for -M
-const MONTHS: Record<string, number> = {
-  jan: 1,
-  feb: 2,
-  mar: 3,
-  apr: 4,
-  may: 5,
-  jun: 6,
-  jul: 7,
-  aug: 8,
-  sep: 9,
-  oct: 10,
-  nov: 11,
-  dec: 12,
-};
+// Month names for -M - Map prevents prototype pollution
+const MONTHS = new Map<string, number>([
+  ["jan", 1],
+  ["feb", 2],
+  ["mar", 3],
+  ["apr", 4],
+  ["may", 5],
+  ["jun", 6],
+  ["jul", 7],
+  ["aug", 8],
+  ["sep", 9],
+  ["oct", 10],
+  ["nov", 11],
+  ["dec", 12],
+]);
 
 /**
  * Parse a human-readable size like "1K", "2.5M", "3G"
@@ -44,7 +44,7 @@ function parseHumanSize(s: string): number {
   }
   const num = parseFloat(match[1]);
   const suffix = (match[2] || "").toLowerCase();
-  const multiplier = SIZE_SUFFIXES[suffix] || 1;
+  const multiplier = SIZE_SUFFIXES.get(suffix) ?? 1;
   return num * multiplier;
 }
 
@@ -53,7 +53,7 @@ function parseHumanSize(s: string): number {
  */
 function parseMonth(s: string): number {
   const trimmed = s.trim().toLowerCase().slice(0, 3);
-  return MONTHS[trimmed] || 0;
+  return MONTHS.get(trimmed) ?? 0;
 }
 
 /**

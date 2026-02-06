@@ -4,7 +4,15 @@
 
 import type { CommandContext, ExecResult } from "../../types.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
-import { type CsvData, type CsvRow, formatCsv, readCsvInput } from "./csv.js";
+import { nullPrototypeCopy } from "../query-engine/safe-object.js";
+import {
+  type CsvData,
+  type CsvRow,
+  formatCsv,
+  readCsvInput,
+  safeSetRow,
+  toSafeRow,
+} from "./csv.js";
 import { parseNamedExpressions } from "./moonblade-parser.js";
 import { moonbladeToJq } from "./moonblade-to-jq.js";
 
@@ -73,11 +81,13 @@ export async function cmdMap(
   const newData: CsvData = [];
   for (let rowIndex = 0; rowIndex < data.length; rowIndex++) {
     const row = data[rowIndex];
-    const newRow: CsvRow = { ...row };
+    const newRow: CsvRow = toSafeRow(row);
     let skip = false;
 
     // Add row index for index() function
-    const rowWithIndex = { ...row, _row_index: rowIndex };
+    const rowWithIndex = Object.assign(nullPrototypeCopy(row), {
+      _row_index: rowIndex,
+    });
 
     for (const spec of specs) {
       const results = evaluate(rowWithIndex, spec.ast, evalOptions);
@@ -89,7 +99,7 @@ export async function cmdMap(
         break;
       }
 
-      newRow[spec.alias] = value as string | number | boolean | null;
+      safeSetRow(newRow, spec.alias, value as string | number | boolean | null);
     }
 
     if (!skip) {
@@ -178,13 +188,15 @@ export async function cmdTransform(
 
   const newData: CsvData = [];
   for (const row of data) {
-    const newRow: CsvRow = { ...row };
+    const newRow: CsvRow = toSafeRow(row);
 
     for (let i = 0; i < targetCols.length; i++) {
       const col = targetCols[i];
       // For implicit expressions like "upper", wrap in function call
       // The _ variable represents the current column value
-      const rowWithUnderscore = { ...row, _: row[col] };
+      const rowWithUnderscore = Object.assign(nullPrototypeCopy(row), {
+        _: row[col],
+      });
       const results = evaluate(rowWithUnderscore, ast, evalOptions);
       const value = results.length > 0 ? results[0] : null;
 
@@ -193,7 +205,7 @@ export async function cmdTransform(
       if (newColName !== col) {
         delete newRow[col];
       }
-      newRow[newColName] = value as string | number | boolean | null;
+      safeSetRow(newRow, newColName, value as string | number | boolean | null);
     }
 
     newData.push(newRow);

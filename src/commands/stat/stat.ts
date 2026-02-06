@@ -101,3 +101,14 @@ function formatModeString(mode: number, isDirectory: boolean): string {
   ];
   return typeChar + perms.join("");
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "stat",
+  flags: [
+    { flag: "-c", type: "value", valueHint: "format" },
+    { flag: "-L", type: "boolean" },
+  ],
+  needsArgs: true,
+};

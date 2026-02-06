@@ -431,34 +431,37 @@ export async function handleCompgen(
       // COMP_CWORD: -1
       // COMP_LINE: empty string
       // COMP_POINT: 0
-      const savedEnv: Record<string, string | undefined> = {};
+      const savedEnv = new Map<string, string | undefined>();
 
       // Save and set COMP_WORDS (empty array - no elements)
-      savedEnv.COMP_WORDS__length = ctx.state.env.COMP_WORDS__length;
-      ctx.state.env.COMP_WORDS__length = "0";
+      savedEnv.set(
+        "COMP_WORDS__length",
+        ctx.state.env.get("COMP_WORDS__length"),
+      );
+      ctx.state.env.set("COMP_WORDS__length", "0");
 
       // Save and set COMP_CWORD
-      savedEnv.COMP_CWORD = ctx.state.env.COMP_CWORD;
-      ctx.state.env.COMP_CWORD = "-1";
+      savedEnv.set("COMP_CWORD", ctx.state.env.get("COMP_CWORD"));
+      ctx.state.env.set("COMP_CWORD", "-1");
 
       // Save and set COMP_LINE
-      savedEnv.COMP_LINE = ctx.state.env.COMP_LINE;
-      ctx.state.env.COMP_LINE = "";
+      savedEnv.set("COMP_LINE", ctx.state.env.get("COMP_LINE"));
+      ctx.state.env.set("COMP_LINE", "");
 
       // Save and set COMP_POINT
-      savedEnv.COMP_POINT = ctx.state.env.COMP_POINT;
-      ctx.state.env.COMP_POINT = "0";
+      savedEnv.set("COMP_POINT", ctx.state.env.get("COMP_POINT"));
+      ctx.state.env.set("COMP_POINT", "0");
 
       // Clear any existing COMPREPLY
-      const savedCompreply: Record<string, string | undefined> = {};
-      for (const key of Object.keys(ctx.state.env)) {
+      const savedCompreply = new Map<string, string | undefined>();
+      for (const key of ctx.state.env.keys()) {
         if (
           key === "COMPREPLY" ||
           key.startsWith("COMPREPLY_") ||
           key === "COMPREPLY__length"
         ) {
-          savedCompreply[key] = ctx.state.env[key];
-          delete ctx.state.env[key];
+          savedCompreply.set(key, ctx.state.env.get(key));
+          ctx.state.env.delete(key);
         }
       }
 
@@ -577,7 +580,7 @@ function getVariableNames(
   const names: Set<string> = new Set();
 
   // Add all environment variables
-  for (const key of Object.keys(ctx.state.env)) {
+  for (const key of ctx.state.env.keys()) {
     // Skip internal array markers
     if (key.includes("_") && /^[a-zA-Z_][a-zA-Z0-9_]*_\d+$/.test(key)) {
       continue;
@@ -592,7 +595,7 @@ function getVariableNames(
     } else if (
       baseName &&
       /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(baseName) &&
-      ctx.state.env[`${baseName}__length`] !== undefined
+      ctx.state.env.has(`${baseName}__length`)
     ) {
       names.add(baseName);
     }
@@ -631,7 +634,7 @@ function getExportedVariableNames(
     if (n.endsWith("__length")) {
       return false;
     }
-    return ctx.state.env[n] !== undefined;
+    return ctx.state.env.has(n);
   });
 
   // Sort alphabetically
@@ -696,7 +699,7 @@ function getAliasNames(
   const names: string[] = [];
 
   // Look for BASH_ALIAS_ prefixed variables
-  for (const key of Object.keys(ctx.state.env)) {
+  for (const key of ctx.state.env.keys()) {
     if (key.startsWith("BASH_ALIAS_")) {
       const aliasName = key.slice("BASH_ALIAS_".length);
       names.push(aliasName);
@@ -885,7 +888,7 @@ async function getCommandCompletions(
   }
 
   // Add aliases
-  for (const key of Object.keys(ctx.state.env)) {
+  for (const key of ctx.state.env.keys()) {
     if (key.startsWith("BASH_ALIAS_")) {
       commands.add(key.slice("BASH_ALIAS_".length));
     }
@@ -897,7 +900,7 @@ async function getCommandCompletions(
   }
 
   // Add external commands from PATH
-  const path = ctx.state.env.PATH ?? "/usr/bin:/bin";
+  const path = ctx.state.env.get("PATH") ?? "/usr/bin:/bin";
   for (const dir of path.split(":")) {
     if (!dir) continue;
     try {
@@ -941,7 +944,7 @@ async function expandWordlistString(
  * Backslash-escaped IFS characters are treated as literal characters, not delimiters
  */
 function splitWordlist(ctx: InterpreterContext, wordlist: string): string[] {
-  const ifs = ctx.state.env.IFS ?? " \t\n";
+  const ifs = ctx.state.env.get("IFS") ?? " \t\n";
 
   if (ifs.length === 0) {
     return [wordlist];
@@ -990,13 +993,13 @@ function splitWordlist(ctx: InterpreterContext, wordlist: string): string[] {
  */
 function restoreEnv(
   ctx: InterpreterContext,
-  saved: Record<string, string | undefined>,
+  saved: Map<string, string | undefined>,
 ): void {
-  for (const [key, value] of Object.entries(saved)) {
+  for (const [key, value] of saved) {
     if (value === undefined) {
-      delete ctx.state.env[key];
+      ctx.state.env.delete(key);
     } else {
-      ctx.state.env[key] = value;
+      ctx.state.env.set(key, value);
     }
   }
 }
@@ -1010,7 +1013,7 @@ function getCompreplyValues(ctx: InterpreterContext): string[] {
 
   // Check if COMPREPLY is an array
   const lengthKey = "COMPREPLY__length";
-  const arrayLength = ctx.state.env[lengthKey];
+  const arrayLength = ctx.state.env.get(lengthKey);
 
   if (arrayLength !== undefined) {
     // It's an array - get elements using getArrayElements helper
@@ -1019,9 +1022,12 @@ function getCompreplyValues(ctx: InterpreterContext): string[] {
     for (const [, value] of elements) {
       values.push(value);
     }
-  } else if (ctx.state.env.COMPREPLY !== undefined) {
-    // It's a scalar value
-    values.push(ctx.state.env.COMPREPLY);
+  } else {
+    // Check if it's a scalar value
+    const scalarValue = ctx.state.env.get("COMPREPLY");
+    if (scalarValue !== undefined) {
+      values.push(scalarValue);
+    }
   }
 
   return values;

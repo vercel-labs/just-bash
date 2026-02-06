@@ -103,7 +103,8 @@ describe("grep Perl regex (-P)", () => {
         expect(result.exitCode).toBe(0);
       });
 
-      it("should work with \\K and lookahead", async () => {
+      // Skipped: RE2 doesn't support lookahead/lookbehind for ReDoS protection
+      it.skip("should work with \\K and lookahead", async () => {
         const env = new Bash({
           files: { "/test.txt": "foo123\nfooabc\n" },
         });
@@ -112,7 +113,8 @@ describe("grep Perl regex (-P)", () => {
         expect(result.exitCode).toBe(0);
       });
 
-      it("should work with \\K and lookbehind", async () => {
+      // Skipped: RE2 doesn't support lookahead/lookbehind for ReDoS protection
+      it.skip("should work with \\K and lookbehind", async () => {
         const env = new Bash({
           files: { "/test.txt": "price: $100\ncost: $200\n" },
         });
@@ -658,7 +660,8 @@ describe("grep Perl regex (-P)", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should support positive lookahead", async () => {
+    // Skipped: RE2 doesn't support lookahead for ReDoS protection
+    it.skip("should support positive lookahead", async () => {
       const env = new Bash({
         files: { "/test.txt": "foo1\nfoo\nfoo2\n" },
       });
@@ -667,7 +670,8 @@ describe("grep Perl regex (-P)", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should support negative lookahead", async () => {
+    // Skipped: RE2 doesn't support lookahead for ReDoS protection
+    it.skip("should support negative lookahead", async () => {
       const env = new Bash({
         files: { "/test.txt": "foo1\nfoo\nfoobar\n" },
       });
@@ -676,7 +680,8 @@ describe("grep Perl regex (-P)", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should support positive lookbehind", async () => {
+    // Skipped: RE2 doesn't support lookbehind for ReDoS protection
+    it.skip("should support positive lookbehind", async () => {
       const env = new Bash({
         files: { "/test.txt": "$100\n100\n€100\n" },
       });
@@ -685,7 +690,8 @@ describe("grep Perl regex (-P)", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should support negative lookbehind", async () => {
+    // Skipped: RE2 doesn't support lookbehind for ReDoS protection
+    it.skip("should support negative lookbehind", async () => {
       const env = new Bash({
         files: { "/test.txt": "$100\n100\n€100\n" },
       });
@@ -752,7 +758,8 @@ describe("grep Perl regex (-P)", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should handle real-world log parsing pattern", async () => {
+    // Skipped: RE2 doesn't support lookahead for ReDoS protection
+    it.skip("should handle real-world log parsing pattern", async () => {
       const env = new Bash({
         files: {
           "/test.txt":

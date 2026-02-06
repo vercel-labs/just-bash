@@ -30,6 +30,7 @@ function makePipeFunc(funcName: string, args: AstNode[]): AstNode {
 /**
  * Map of moonblade function names to jq equivalents
  */
+// @banned-pattern-ignore: accessed via Object.hasOwn() check in moonbladeToJq()
 const FUNCTION_MAP: Record<string, string | ((args: AstNode[]) => AstNode)> = {
   // Arithmetic
   add: (args) => makeBinaryOp("+", args[0], args[1]),
@@ -297,6 +298,7 @@ function makeCond(
   thenBranch: AstNode,
   elseBranch?: AstNode,
 ): AstNode {
+  // @banned-pattern-ignore: THEN_PROP is a constant "then", not user input
   const node: Record<string, unknown> = {
     type: "Cond",
     cond,
@@ -356,7 +358,10 @@ export function moonbladeToJq(expr: MoonbladeExpr, rowContext = true): AstNode {
 
     case "func": {
       const args = expr.args.map((a) => moonbladeToJq(a.expr, rowContext));
-      const handler = FUNCTION_MAP[expr.name];
+      // Use Object.hasOwn to prevent prototype pollution
+      const handler = Object.hasOwn(FUNCTION_MAP, expr.name)
+        ? FUNCTION_MAP[expr.name]
+        : undefined;
 
       if (typeof handler === "function") {
         return handler(args);

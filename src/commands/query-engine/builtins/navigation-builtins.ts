@@ -6,6 +6,7 @@
 
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
+import { isSafeKey, safeSet } from "../safe-object.js";
 import type { QueryValue } from "../value-operations.js";
 
 type EvalFn = (
@@ -51,6 +52,7 @@ export function evalNavigationBuiltin(
           if (Array.isArray(v)) {
             for (const item of v) walk(item);
           } else if (v && typeof v === "object") {
+            // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
             for (const key of Object.keys(v)) {
               walk((v as Record<string, unknown>)[key]);
             }
@@ -95,9 +97,13 @@ export function evalNavigationBuiltin(
         if (Array.isArray(v)) {
           transformed = v.map(walkFn);
         } else if (v && typeof v === "object") {
-          const obj: Record<string, unknown> = {};
+          // Use null-prototype for additional safety
+          const obj: Record<string, unknown> = Object.create(null);
           for (const [k, val] of Object.entries(v)) {
-            obj[k] = walkFn(val);
+            // Defense against prototype pollution
+            if (isSafeKey(k)) {
+              safeSet(obj, k, walkFn(val));
+            }
           }
           transformed = obj;
         } else {

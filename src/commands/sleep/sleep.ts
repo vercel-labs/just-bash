@@ -79,3 +79,11 @@ export const sleepCommand: Command = {
     return { stdout: "", stderr: "", exitCode: 0 };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "sleep",
+  flags: [],
+  needsArgs: true,
+};

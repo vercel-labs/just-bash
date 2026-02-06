@@ -2,23 +2,25 @@
  * Regex building utilities for search commands
  */
 
-/** POSIX character class to JavaScript regex character range mapping */
-const POSIX_CLASS_MAP: Record<string, string> = {
-  alpha: "a-zA-Z",
-  digit: "0-9",
-  alnum: "a-zA-Z0-9",
-  lower: "a-z",
-  upper: "A-Z",
-  xdigit: "0-9A-Fa-f",
-  space: " \\t\\n\\r\\f\\v",
-  blank: " \\t",
-  punct: "!-/:-@\\[-`{-~",
-  graph: "!-~",
-  print: " -~",
-  cntrl: "\\x00-\\x1F\\x7F",
-  ascii: "\\x00-\\x7F",
-  word: "a-zA-Z0-9_",
-};
+import { createUserRegex, type UserRegex } from "../../regex/index.js";
+
+/** POSIX character class to JavaScript regex character range mapping (Map prevents prototype pollution) */
+const POSIX_CLASS_MAP = new Map<string, string>([
+  ["alpha", "a-zA-Z"],
+  ["digit", "0-9"],
+  ["alnum", "a-zA-Z0-9"],
+  ["lower", "a-z"],
+  ["upper", "A-Z"],
+  ["xdigit", "0-9A-Fa-f"],
+  ["space", " \\t\\n\\r\\f\\v"],
+  ["blank", " \\t"],
+  ["punct", "!-/:-@\\[-`{-~"],
+  ["graph", "!-~"],
+  ["print", " -~"],
+  ["cntrl", "\\x00-\\x1F\\x7F"],
+  ["ascii", "\\x00-\\x7F"],
+  ["word", "a-zA-Z0-9_"],
+]);
 
 export type RegexMode = "basic" | "extended" | "fixed" | "perl";
 
@@ -33,7 +35,7 @@ export interface RegexOptions {
 }
 
 export interface RegexResult {
-  regex: RegExp;
+  regex: UserRegex;
   /** If \K was used, this is the 1-based index of the capture group containing the "real" match */
   kResetGroup?: number;
 }
@@ -55,15 +57,16 @@ function transformPosixCharacterClasses(pattern: string): string {
 
   while (i < pattern.length) {
     // Check for word boundary extensions [[:<:]] and [[:>:]]
+    // Using \b instead of lookahead/lookbehind for RE2 compatibility
     if (pattern.slice(i, i + 7) === "[[:<:]]") {
-      // Word start boundary - match position where previous char is non-word
-      result += "(?<![\\w])";
+      // Word start boundary - use \b (works at word/non-word boundary)
+      result += "\\b";
       i += 7;
       continue;
     }
     if (pattern.slice(i, i + 7) === "[[:>:]]") {
-      // Word end boundary - match position where next char is non-word
-      result += "(?![\\w])";
+      // Word end boundary - use \b (works at word/non-word boundary)
+      result += "\\b";
       i += 7;
       continue;
     }
@@ -98,7 +101,7 @@ function transformPosixCharacterClasses(pattern: string): string {
           const closeIdx = pattern.indexOf(":]", i + 2);
           if (closeIdx !== -1) {
             const className = pattern.slice(i + 2, closeIdx);
-            const replacement = POSIX_CLASS_MAP[className];
+            const replacement = POSIX_CLASS_MAP.get(className);
             if (replacement) {
               bracketExpr += replacement;
               i = closeIdx + 2;
@@ -195,9 +198,8 @@ export function buildRegex(
   if (options.wholeWord) {
     // Wrap in non-capturing group to handle alternation properly
     // e.g., min|max should become \b(?:min|max)\b, not \bmin|max\b
-    // Use (?<!\w) and (?!\w) instead of \b to handle non-word characters
-    // This ensures patterns like '.' match individual non-word chars correctly
-    regexPattern = `(?<![\\w])(?:${regexPattern})(?![\\w])`;
+    // Using \b for RE2 compatibility (RE2 doesn't support lookahead/lookbehind)
+    regexPattern = `\\b(?:${regexPattern})\\b`;
   }
   if (options.lineRegexp) {
     regexPattern = `^${regexPattern}$`;
@@ -216,7 +218,7 @@ export function buildRegex(
     (options.multiline ? "m" : "") +
     (options.multilineDotall ? "s" : "") +
     (needsUnicode ? "u" : "");
-  return { regex: new RegExp(regexPattern, flags), kResetGroup };
+  return { regex: createUserRegex(regexPattern, flags), kResetGroup };
 }
 
 /**

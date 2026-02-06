@@ -4,6 +4,13 @@
  * Utility functions for working with jq/query values.
  */
 
+import {
+  isSafeKey,
+  nullPrototypeCopy,
+  safeHasOwn,
+  safeSet,
+} from "./safe-object.js";
+
 export type QueryValue = unknown;
 
 /**
@@ -34,15 +41,20 @@ export function compare(a: QueryValue, b: QueryValue): number {
 /**
  * Deep merge two objects.
  * Values from b override values from a, except nested objects are merged recursively.
+ * Filters out dangerous keys (__proto__, constructor, prototype) to prevent prototype pollution.
+ * Uses null-prototype objects to prevent prototype pollution via inherited properties.
  */
 export function deepMerge(
   a: Record<string, unknown>,
   b: Record<string, unknown>,
 ): Record<string, unknown> {
-  const result = { ...a };
+  const result = nullPrototypeCopy(a);
   for (const key of Object.keys(b)) {
+    // Skip dangerous keys to prevent prototype pollution
+    if (!isSafeKey(key)) continue;
+
     if (
-      key in result &&
+      safeHasOwn(result, key) &&
       result[key] &&
       typeof result[key] === "object" &&
       !Array.isArray(result[key]) &&
@@ -50,12 +62,16 @@ export function deepMerge(
       typeof b[key] === "object" &&
       !Array.isArray(b[key])
     ) {
-      result[key] = deepMerge(
-        result[key] as Record<string, unknown>,
-        b[key] as Record<string, unknown>,
+      safeSet(
+        result,
+        key,
+        deepMerge(
+          result[key] as Record<string, unknown>,
+          b[key] as Record<string, unknown>,
+        ),
       );
     } else {
-      result[key] = b[key];
+      safeSet(result, key, b[key]);
     }
   }
   return result;
@@ -75,6 +91,7 @@ export function getValueDepth(value: QueryValue, maxCheck = 3000): number {
     } else if (current !== null && typeof current === "object") {
       const keys = Object.keys(current);
       if (keys.length === 0) return depth + 1;
+      // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
       current = (current as Record<string, unknown>)[keys[0]];
       depth++;
     } else {
@@ -160,7 +177,7 @@ export function containsDeep(a: QueryValue, b: QueryValue): boolean {
     const aObj = a as Record<string, unknown>;
     const bObj = b as Record<string, unknown>;
     return Object.keys(bObj).every(
-      (k) => k in aObj && containsDeep(aObj[k], bObj[k]),
+      (k) => safeHasOwn(aObj, k) && containsDeep(aObj[k], bObj[k]),
     );
   }
   return false;

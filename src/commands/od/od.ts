@@ -162,3 +162,17 @@ export const od: Command = {
   name: "od",
   execute: odExecute,
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "od",
+  flags: [
+    { flag: "-c", type: "boolean" },
+    { flag: "-A", type: "value", valueHint: "string" },
+    { flag: "-t", type: "value", valueHint: "string" },
+    { flag: "-N", type: "value", valueHint: "number" },
+  ],
+  stdinType: "text",
+  needsFiles: true,
+};

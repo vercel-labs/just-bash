@@ -14,15 +14,15 @@ const DEFAULT_IFS = " \t\n";
  * Get the effective IFS value from environment.
  * Returns DEFAULT_IFS if IFS is undefined, or the actual value (including empty string).
  */
-export function getIfs(env: Record<string, string>): string {
-  return env.IFS ?? DEFAULT_IFS;
+export function getIfs(env: Map<string, string>): string {
+  return env.get("IFS") ?? DEFAULT_IFS;
 }
 
 /**
  * Check if IFS is set to empty string (disables word splitting).
  */
-export function isIfsEmpty(env: Record<string, string>): boolean {
-  return env.IFS === "";
+export function isIfsEmpty(env: Map<string, string>): boolean {
+  return env.get("IFS") === "";
 }
 
 /**
@@ -31,7 +31,7 @@ export function isIfsEmpty(env: Record<string, string>): boolean {
  * When IFS has non-whitespace chars, empty params are preserved.
  * When IFS has only whitespace, empty params are dropped.
  */
-export function isIfsWhitespaceOnly(env: Record<string, string>): boolean {
+export function isIfsWhitespaceOnly(env: Map<string, string>): boolean {
   const ifs = getIfs(env);
   if (ifs === "") return true; // Empty IFS counts as "whitespace only" for this purpose
   for (const ch of ifs) {
@@ -63,8 +63,8 @@ export function buildIfsCharClassPattern(ifs: string): string {
  * Get the first character of IFS (used for joining with $* and ${!prefix*}).
  * Returns space if IFS is undefined, empty string if IFS is empty.
  */
-export function getIfsSeparator(env: Record<string, string>): string {
-  const ifs = env.IFS;
+export function getIfsSeparator(env: Map<string, string>): string {
+  const ifs = env.get("IFS");
   if (ifs === undefined) return " ";
   return ifs[0] || "";
 }

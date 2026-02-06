@@ -9,6 +9,8 @@
  */
 
 import type { IFileSystem } from "../fs/interface.js";
+import { ExecutionLimitError } from "../interpreter/errors.js";
+import { createUserRegex, type RegexLike } from "../regex/index.js";
 import { DEFAULT_BATCH_SIZE } from "../utils/constants.js";
 import {
   findMatchingParen,
@@ -25,6 +27,8 @@ export interface GlobOptions {
   dotglob?: boolean;
   extglob?: boolean;
   globskipdots?: boolean;
+  /** Maximum number of glob filesystem operations (default: 100000) */
+  maxGlobOperations?: number;
 }
 
 export class GlobExpander {
@@ -36,15 +40,18 @@ export class GlobExpander {
   private dotglob = false;
   private extglob = false;
   private globskipdots = true; // Default to true in bash >=5.2
+  private ops: { count: number } = { count: 0 };
+  private maxOps: number;
 
   constructor(
     private fs: IFileSystem,
     private cwd: string,
-    env?: Record<string, string>,
+    env?: Map<string, string>,
     options?: GlobOptions | boolean, // boolean for backwards compatibility (globstar)
   ) {
     if (typeof options === "boolean") {
       this.globstar = options;
+      this.maxOps = 100000;
     } else if (options) {
       this.globstar = options.globstar ?? false;
       this.nullglob = options.nullglob ?? false;
@@ -52,12 +59,28 @@ export class GlobExpander {
       this.dotglob = options.dotglob ?? false;
       this.extglob = options.extglob ?? false;
       this.globskipdots = options.globskipdots ?? true;
+      this.maxOps = options.maxGlobOperations ?? 100000;
+    } else {
+      this.maxOps = 100000;
     }
     // Parse GLOBIGNORE if set
-    const globignore = env?.GLOBIGNORE;
+    const globignore = env?.get("GLOBIGNORE");
     if (globignore !== undefined && globignore !== "") {
       this.hasGlobignore = true;
       this.globignorePatterns = splitGlobignorePatterns(globignore);
+    }
+  }
+
+  /**
+   * Check and increment the glob operations counter.
+   * Throws an error if the limit is exceeded.
+   */
+  private checkOpsLimit(): void {
+    if (++this.ops.count > this.maxOps) {
+      throw new ExecutionLimitError(
+        `Glob operation limit exceeded (${this.maxOps})`,
+        "glob_operations",
+      );
     }
   }
 
@@ -311,6 +334,9 @@ export class GlobExpander {
     resultPrefix: string,
     segments: string[],
   ): Promise<string[]> {
+    // Check glob operation limit at entry point
+    this.checkOpsLimit();
+
     if (segments.length === 0) {
       return [resultPrefix];
     }
@@ -321,6 +347,7 @@ export class GlobExpander {
     try {
       // Use readdirWithFileTypes if available to avoid stat calls
       if (this.fs.readdirWithFileTypes) {
+        this.checkOpsLimit(); // Count readdir operation
         const entriesWithTypes = await this.fs.readdirWithFileTypes(fsPath);
         const matchPromises: Promise<string[]>[] = [];
 
@@ -403,6 +430,7 @@ export class GlobExpander {
         }
       } else {
         // Fall back to readdir + stat
+        this.checkOpsLimit(); // Count readdir operation
         const entries = await this.fs.readdir(fsPath);
         const matchPromises: Promise<string[]>[] = [];
 
@@ -455,6 +483,7 @@ export class GlobExpander {
               matchPromises.push(
                 (async (): Promise<string[]> => {
                   try {
+                    this.checkOpsLimit(); // Count stat operation
                     const stat = await this.fs.stat(newFsPath);
                     if (stat.isDirectory) {
                       return this.expandSegments(
@@ -463,7 +492,11 @@ export class GlobExpander {
                         remainingSegments,
                       );
                     }
-                  } catch {
+                  } catch (error) {
+                    // ExecutionLimitError must propagate
+                    if (error instanceof ExecutionLimitError) {
+                      throw error;
+                    }
                     // Entry doesn't exist or can't be stat'd
                   }
                   return [];
@@ -478,7 +511,11 @@ export class GlobExpander {
           results.push(...pathList);
         }
       }
-    } catch {
+    } catch (error) {
+      // ExecutionLimitError must propagate
+      if (error instanceof ExecutionLimitError) {
+        throw error;
+      }
       // Directory doesn't exist - return empty
     }
 
@@ -527,10 +564,14 @@ export class GlobExpander {
     subPattern: string,
     results: string[],
   ): Promise<void> {
+    // Check glob operation limit before directory scan
+    this.checkOpsLimit();
+
     const fullPath = this.fs.resolvePath(this.cwd, dir);
 
     try {
       // Get all directories at this level
+      this.checkOpsLimit(); // Count readdir operation
       const entriesWithTypes = this.fs.readdirWithFileTypes
         ? await this.fs.readdirWithFileTypes(fullPath)
         : null;
@@ -563,6 +604,7 @@ export class GlobExpander {
         }
       } else {
         // Fall back to readdir + stat
+        this.checkOpsLimit(); // Count readdir operation
         const entries = await this.fs.readdir(fullPath);
         const dirs: string[] = [];
 
@@ -570,11 +612,16 @@ export class GlobExpander {
           const entryPath = dir === "." ? entry : `${dir}/${entry}`;
           const fullEntryPath = this.fs.resolvePath(this.cwd, entryPath);
           try {
+            this.checkOpsLimit(); // Count stat operation
             const stat = await this.fs.stat(fullEntryPath);
             if (stat.isDirectory) {
               dirs.push(entryPath);
             }
-          } catch {
+          } catch (error) {
+            // ExecutionLimitError must propagate
+            if (error instanceof ExecutionLimitError) {
+              throw error;
+            }
             // Entry doesn't exist
           }
         }
@@ -595,7 +642,11 @@ export class GlobExpander {
           );
         }
       }
-    } catch {
+    } catch (error) {
+      // ExecutionLimitError must propagate
+      if (error instanceof ExecutionLimitError) {
+        throw error;
+      }
       // Directory doesn't exist
     }
   }
@@ -608,11 +659,15 @@ export class GlobExpander {
     filePattern: string,
     results: string[],
   ): Promise<void> {
+    // Check glob operation limit before directory scan
+    this.checkOpsLimit();
+
     const fullPath = this.fs.resolvePath(this.cwd, dir);
 
     try {
       // Use readdirWithFileTypes if available to avoid stat calls
       if (this.fs.readdirWithFileTypes) {
+        this.checkOpsLimit(); // Count readdir operation
         const entriesWithTypes = await this.fs.readdirWithFileTypes(fullPath);
 
         // Separate files and directories
@@ -645,6 +700,7 @@ export class GlobExpander {
         }
       } else {
         // Fall back to readdir + parallel stat
+        this.checkOpsLimit(); // Count readdir operation
         const entries = await this.fs.readdir(fullPath);
 
         // Get entry info in parallel batches
@@ -662,13 +718,18 @@ export class GlobExpander {
               const entryPath = dir === "." ? entry : `${dir}/${entry}`;
               const fullEntryPath = this.fs.resolvePath(this.cwd, entryPath);
               try {
+                this.checkOpsLimit(); // Count stat operation
                 const stat = await this.fs.stat(fullEntryPath);
                 return {
                   name: entry,
                   path: entryPath,
                   isDirectory: stat.isDirectory,
                 };
-              } catch {
+              } catch (error) {
+                // ExecutionLimitError must propagate
+                if (error instanceof ExecutionLimitError) {
+                  throw error;
+                }
                 return null;
               }
             }),
@@ -698,7 +759,11 @@ export class GlobExpander {
           );
         }
       }
-    } catch {
+    } catch (error) {
+      // ExecutionLimitError must propagate
+      if (error instanceof ExecutionLimitError) {
+        throw error;
+      }
       // Directory doesn't exist
     }
   }
@@ -714,9 +779,9 @@ export class GlobExpander {
   /**
    * Convert a glob pattern to a RegExp
    */
-  private patternToRegex(pattern: string): RegExp {
+  private patternToRegex(pattern: string): RegexLike {
     const regex = this.patternToRegexStr(pattern);
-    return new RegExp(`^${regex}$`);
+    return createUserRegex(`^${regex}$`);
   }
 
   /**

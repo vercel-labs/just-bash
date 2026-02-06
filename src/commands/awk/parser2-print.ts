@@ -171,20 +171,22 @@ function parsePrintAssignment(
       throw new Error("Invalid assignment target");
     }
 
-    const opMap: Record<string, "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "^="> =
-      {
-        "=": "=",
-        "+=": "+=",
-        "-=": "-=",
-        "*=": "*=",
-        "/=": "/=",
-        "%=": "%=",
-        "^=": "^=",
-      };
+    const opMap = new Map<
+      string,
+      "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "^="
+    >([
+      ["=", "="],
+      ["+=", "+="],
+      ["-=", "-="],
+      ["*=", "*="],
+      ["/=", "/="],
+      ["%=", "%="],
+      ["^=", "^="],
+    ]);
 
     return {
       type: "assignment",
-      operator: opMap[opToken.value as string],
+      operator: opMap.get(opToken.value as string) ?? "=",
       target: expr as AwkVariable | AwkFieldRef | AwkArrayAccess,
       value,
     };
@@ -308,16 +310,16 @@ function parsePrintComparison(p: PrintParserContext): AwkExpr {
   ) {
     const opToken = p.advance();
     const right = p.parseAddSub();
-    const opMap: Record<string, "<" | "<=" | ">=" | "==" | "!="> = {
-      "<": "<",
-      "<=": "<=",
-      ">=": ">=",
-      "==": "==",
-      "!=": "!=",
-    };
+    const opMap = new Map<string, "<" | "<=" | ">=" | "==" | "!=">([
+      ["<", "<"],
+      ["<=", "<="],
+      [">=", ">="],
+      ["==", "=="],
+      ["!=", "!="],
+    ]);
     left = {
       type: "binary",
-      operator: opMap[opToken.value as string],
+      operator: opMap.get(opToken.value as string) ?? "==",
       left,
       right,
     };

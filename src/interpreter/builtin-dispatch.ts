@@ -41,6 +41,7 @@ import {
   resolveCommand as resolveCommandHelper,
 } from "./command-resolution.js";
 import { evaluateTestArgs } from "./conditionals.js";
+import { ExecutionLimitError } from "./errors.js";
 import { callFunction } from "./functions.js";
 import { getErrorMessage } from "./helpers/errors.js";
 import { failure, OK, testResult } from "./helpers/result.js";
@@ -104,6 +105,11 @@ export async function dispatchBuiltin(
   stdinSourceFd: number,
 ): Promise<ExecResult | null> {
   const { ctx, runCommand } = dispatchCtx;
+
+  // Coverage tracking for builtins (lightweight: only fires when coverage is enabled)
+  if (ctx.coverage && SHELL_BUILTINS.has(commandName)) {
+    ctx.coverage.hit(`bash:builtin:${commandName}`);
+  }
 
   // Built-in commands (special builtins that cannot be overridden by functions)
   if (commandName === "export") {
@@ -420,11 +426,16 @@ export async function executeExternalCommand(
     trace: ctx.trace,
     fileDescriptors: ctx.state.fileDescriptors,
     xpgEcho: ctx.state.shoptOptions.xpg_echo,
+    coverage: ctx.coverage,
   };
 
   try {
     return await cmd.execute(args, cmdCtx);
   } catch (error) {
+    // ExecutionLimitError must propagate - these are safety limits
+    if (error instanceof ExecutionLimitError) {
+      throw error;
+    }
     return failure(`${commandName}: ${getErrorMessage(error)}\n`);
   }
 }

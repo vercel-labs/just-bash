@@ -42,7 +42,7 @@ export function handleExport(
     const sortedNames = Array.from(exportedVars).sort();
 
     for (const name of sortedNames) {
-      const value = ctx.state.env[name];
+      const value = ctx.state.env.get(name);
       if (value !== undefined) {
         // Quote the value with double quotes, escaping backslashes and double quotes
         const escapedValue = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -64,7 +64,7 @@ export function handleExport(
         name = arg.slice(0, eqIdx);
         value = expandTildesInValue(ctx, arg.slice(eqIdx + 1));
         // Set the value
-        ctx.state.env[name] = value;
+        ctx.state.env.set(name, value);
       } else {
         name = arg;
       }
@@ -109,15 +109,15 @@ export function handleExport(
     if (value !== undefined) {
       if (isAppend) {
         // Append to existing value (or set if not defined)
-        const existing = ctx.state.env[name] ?? "";
-        ctx.state.env[name] = existing + value;
+        const existing = ctx.state.env.get(name) ?? "";
+        ctx.state.env.set(name, existing + value);
       } else {
-        ctx.state.env[name] = value;
+        ctx.state.env.set(name, value);
       }
     } else {
       // If variable doesn't exist, create it as empty
-      if (!(name in ctx.state.env)) {
-        ctx.state.env[name] = "";
+      if (!ctx.state.env.has(name)) {
+        ctx.state.env.set(name, "");
       }
     }
     // Mark the variable as exported

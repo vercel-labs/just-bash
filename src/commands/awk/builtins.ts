@@ -4,6 +4,7 @@
  * Implementation of AWK built-in functions for the AST-based interpreter.
  */
 
+import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { AwkExpr } from "./ast.js";
 import type { AwkRuntimeContext } from "./interpreter/context.js";
 import type { AwkValue } from "./interpreter/types.js";
@@ -100,7 +101,7 @@ function applyTargetValue(
     ctx.fields =
       ctx.FS === " "
         ? newValue.trim().split(/\s+/).filter(Boolean)
-        : newValue.split(ctx.fieldSep);
+        : ctx.fieldSep.split(newValue);
     ctx.NF = ctx.fields.length;
   } else if (targetName.startsWith("$")) {
     const idx = parseInt(targetName.slice(1), 10) - 1;
@@ -169,23 +170,24 @@ async function awkSplit(
   }
   const arrayName = arrayExpr.name;
 
-  let sep: string | RegExp = ctx.FS;
+  let sep: string | UserRegex = ctx.FS;
   if (args.length >= 3) {
     const sepExpr = args[2];
     // Check if the separator is a regex literal
     if (sepExpr.type === "regex") {
-      sep = new RegExp(sepExpr.pattern);
+      sep = createUserRegex(sepExpr.pattern);
     } else {
       const sepVal = toAwkString(await evaluator.evalExpr(sepExpr));
-      sep = sepVal === " " ? /\s+/ : sepVal;
+      sep = sepVal === " " ? createUserRegex("\\s+") : sepVal;
     }
   } else if (ctx.FS === " ") {
-    sep = /\s+/;
+    sep = createUserRegex("\\s+");
   }
 
-  const parts = str.split(sep);
+  const parts = typeof sep === "string" ? str.split(sep) : sep.split(str);
 
-  ctx.arrays[arrayName] = {};
+  // Use null-prototype to prevent prototype pollution with user-controlled keys
+  ctx.arrays[arrayName] = Object.create(null);
   for (let i = 0; i < parts.length; i++) {
     ctx.arrays[arrayName][String(i + 1)] = parts[i];
   }
@@ -206,8 +208,8 @@ async function awkSub(
   const target = getTargetValue(targetName, ctx);
 
   try {
-    const regex = new RegExp(pattern);
-    const newTarget = target.replace(regex, createSubReplacer(replacement));
+    const regex = createUserRegex(pattern);
+    const newTarget = regex.replace(target, createSubReplacer(replacement));
     const changed = newTarget !== target ? 1 : 0;
     applyTargetValue(targetName, newTarget, ctx);
     return changed;
@@ -229,10 +231,10 @@ async function awkGsub(
   const target = getTargetValue(targetName, ctx);
 
   try {
-    const regex = new RegExp(pattern, "g");
-    const matches = target.match(regex);
+    const regex = createUserRegex(pattern, "g");
+    const matches = regex.match(target);
     const count = matches ? matches.length : 0;
-    const newTarget = target.replace(regex, createSubReplacer(replacement));
+    const newTarget = regex.replace(target, createSubReplacer(replacement));
     applyTargetValue(targetName, newTarget, ctx);
     return count;
   } catch {
@@ -284,7 +286,7 @@ async function awkMatch(
   const pattern = await extractPatternArg(args[1], evaluator);
 
   try {
-    const regex = new RegExp(pattern);
+    const regex = createUserRegex(pattern);
     const match = regex.exec(str);
     if (match) {
       ctx.RSTART = match.index + 1;
@@ -320,19 +322,27 @@ async function awkGensub(
     const occurrenceNum = isGlobal ? 0 : parseInt(how, 10) || 1;
 
     if (isGlobal) {
-      const regex = new RegExp(pattern, "g");
-      return target.replace(regex, (match, ...groups) =>
-        processGensub(replacement, match, groups.slice(0, -2)),
+      const regex = createUserRegex(pattern, "g");
+      return regex.replace(target, (match, ...groups) =>
+        processGensub(
+          replacement,
+          match as string,
+          groups.slice(0, -2) as string[],
+        ),
       );
     } else {
       let count = 0;
-      const regex = new RegExp(pattern, "g");
-      return target.replace(regex, (match, ...groups) => {
+      const regex = createUserRegex(pattern, "g");
+      return regex.replace(target, (match, ...groups) => {
         count++;
         if (count === occurrenceNum) {
-          return processGensub(replacement, match, groups.slice(0, -2));
+          return processGensub(
+            replacement,
+            match as string,
+            groups.slice(0, -2) as string[],
+          );
         }
-        return match;
+        return match as string;
       });
     }
   } catch {
@@ -514,6 +524,8 @@ function unimplemented(name: string): AwkBuiltinFn {
 
 // ─── Printf Formatting ──────────────────────────────────────────
 
+const MAX_PRINTF_WIDTH = 10000;
+
 export function formatPrintf(format: string, values: AwkValue[]): string {
   let valueIdx = 0;
   let result = "";
@@ -570,15 +582,19 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
         const w = widthVal !== undefined ? Math.floor(Number(widthVal)) : 0;
         if (w < 0) {
           flags += "-";
-          width = String(-w);
+          width = String(Math.min(-w, MAX_PRINTF_WIDTH));
         } else {
-          width = String(w);
+          width = String(Math.min(w, MAX_PRINTF_WIDTH));
         }
         j++;
       } else {
         while (j < format.length && /\d/.test(format[j])) {
           width += format[j++];
         }
+      }
+      // Cap width to prevent memory bombs
+      if (width && parseInt(width, 10) > MAX_PRINTF_WIDTH) {
+        width = String(MAX_PRINTF_WIDTH);
       }
 
       if (format[j] === ".") {
@@ -587,13 +603,20 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
         if (format[j] === "*") {
           const precVal = values[valueIdx++];
           precision = String(
-            precVal !== undefined ? Math.floor(Number(precVal)) : 0,
+            Math.min(
+              precVal !== undefined ? Math.floor(Number(precVal)) : 0,
+              MAX_PRINTF_WIDTH,
+            ),
           );
           j++;
         } else {
           while (j < format.length && /\d/.test(format[j])) {
             precision += format[j++];
           }
+        }
+        // Cap precision to prevent memory bombs
+        if (precision && parseInt(precision, 10) > MAX_PRINTF_WIDTH) {
+          precision = String(MAX_PRINTF_WIDTH);
         }
       }
 
@@ -846,43 +869,46 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
 
 // ─── Built-in Function Registry ─────────────────────────────────
 
-export const awkBuiltins: Record<string, AwkBuiltinFn> = {
+export const awkBuiltins: Map<string, AwkBuiltinFn> = new Map([
   // String functions
-  length: awkLength,
-  substr: awkSubstr,
-  index: awkIndex,
-  split: awkSplit,
-  sub: awkSub,
-  gsub: awkGsub,
-  match: awkMatch,
-  gensub: awkGensub,
-  tolower: awkTolower,
-  toupper: awkToupper,
-  sprintf: awkSprintf,
+  ["length", awkLength],
+  ["substr", awkSubstr],
+  ["index", awkIndex],
+  ["split", awkSplit],
+  ["sub", awkSub],
+  ["gsub", awkGsub],
+  ["match", awkMatch],
+  ["gensub", awkGensub],
+  ["tolower", awkTolower],
+  ["toupper", awkToupper],
+  ["sprintf", awkSprintf],
 
   // Math functions
-  int: awkInt,
-  sqrt: awkSqrt,
-  sin: awkSin,
-  cos: awkCos,
-  atan2: awkAtan2,
-  log: awkLog,
-  exp: awkExp,
-  rand: awkRand,
-  srand: awkSrand,
+  ["int", awkInt],
+  ["sqrt", awkSqrt],
+  ["sin", awkSin],
+  ["cos", awkCos],
+  ["atan2", awkAtan2],
+  ["log", awkLog],
+  ["exp", awkExp],
+  ["rand", awkRand],
+  ["srand", awkSrand],
 
   // Unsupported functions (security/sandboxing)
-  system: unsupported(
+  [
     "system",
-    "shell execution not allowed in sandboxed environment",
-  ),
+    unsupported(
+      "system",
+      "shell execution not allowed in sandboxed environment",
+    ),
+  ],
   // close() and fflush() are no-ops in our environment (no real file handles)
   // Return 0 for success to allow programs that use them to work
-  close: () => 0,
-  fflush: () => 0,
+  ["close", () => 0],
+  ["fflush", () => 0],
 
   // Unimplemented functions
-  systime: unimplemented("systime"),
-  mktime: unimplemented("mktime"),
-  strftime: unimplemented("strftime"),
-};
+  ["systime", unimplemented("systime")],
+  ["mktime", unimplemented("mktime")],
+  ["strftime", unimplemented("strftime")],
+]);

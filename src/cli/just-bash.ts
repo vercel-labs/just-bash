@@ -49,6 +49,7 @@ interface CliOptions {
   cwdOverridden: boolean;
   errexit: boolean;
   allowWrite: boolean;
+  python: boolean;
   json: boolean;
   help: boolean;
   version: boolean;
@@ -68,6 +69,7 @@ Options:
   --root <path>     Root directory for OverlayFS (default: current directory)
   --cwd <path>      Working directory within the sandbox (default: project mount point)
   --allow-write     Allow write operations (default: read-only)
+  --python          Enable python3/python commands (disabled by default)
   --json            Output results as JSON (stdout, stderr, exitCode)
   -h, --help        Show this help message
   -v, --version     Show version
@@ -114,6 +116,7 @@ function parseArgs(args: string[]): CliOptions {
     cwdOverridden: false,
     errexit: false,
     allowWrite: false,
+    python: false,
     json: false,
     help: false,
     version: false,
@@ -160,6 +163,9 @@ function parseArgs(args: string[]): CliOptions {
     } else if (arg === "--allow-write") {
       options.allowWrite = true;
       i++;
+    } else if (arg === "--python") {
+      options.python = true;
+      i++;
     } else if (arg.startsWith("-")) {
       // Handle combined short options like -ec
       if (arg.length > 2 && !arg.startsWith("--")) {
@@ -203,6 +209,28 @@ function parseArgs(args: string[]): CliOptions {
   }
 
   return options;
+}
+
+/**
+ * Normalize a virtual path: resolve . and .., ensure starts with /
+ */
+function normalizePath(path: string): string {
+  if (!path || path === "/") return "/";
+  let normalized =
+    path.endsWith("/") && path !== "/" ? path.slice(0, -1) : path;
+  if (!normalized.startsWith("/")) {
+    normalized = `/${normalized}`;
+  }
+  const parts = normalized.split("/").filter((p) => p && p !== ".");
+  const resolved: string[] = [];
+  for (const part of parts) {
+    if (part === "..") {
+      resolved.pop();
+    } else {
+      resolved.push(part);
+    }
+  }
+  return `/${resolved.join("/")}` || "/";
 }
 
 async function readStdin(): Promise<string> {
@@ -273,11 +301,13 @@ async function main(): Promise<void> {
   const mountPoint = fs.getMountPoint();
 
   // Use mount point as cwd unless explicitly overridden
-  const cwd = options.cwdOverridden ? options.cwd : mountPoint;
+  // Normalize --cwd to prevent path traversal (resolve . and ..)
+  const cwd = options.cwdOverridden ? normalizePath(options.cwd) : mountPoint;
 
   const env = new Bash({
     fs,
     cwd,
+    python: options.python,
   });
 
   // Prepend set -e if errexit is enabled

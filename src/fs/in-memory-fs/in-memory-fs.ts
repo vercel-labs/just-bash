@@ -49,6 +49,16 @@ function isFileInit(value: FileContent | FileInit): value is FileInit {
   );
 }
 
+/**
+ * Validate that a path does not contain null bytes.
+ * Null bytes in paths can be used to truncate filenames or bypass security filters.
+ */
+function validatePath(path: string, operation: string): void {
+  if (path.includes("\0")) {
+    throw new Error(`ENOENT: path contains null byte, ${operation} '${path}'`);
+  }
+}
+
 export class InMemoryFs implements IFileSystem {
   private data: Map<string, FsEntry> = new Map();
 
@@ -124,6 +134,7 @@ export class InMemoryFs implements IFileSystem {
     options?: WriteFileOptions | BufferEncoding,
     metadata?: { mode?: number; mtime?: Date },
   ): void {
+    validatePath(path, "write");
     const normalized = this.normalizePath(path);
     this.ensureParentDirs(normalized);
 
@@ -150,6 +161,7 @@ export class InMemoryFs implements IFileSystem {
   }
 
   async readFileBuffer(path: string): Promise<Uint8Array> {
+    validatePath(path, "open");
     // Resolve all symlinks in the path (including intermediate components)
     const resolvedPath = this.resolvePathWithSymlinks(path);
     const entry = this.data.get(resolvedPath);
@@ -184,6 +196,7 @@ export class InMemoryFs implements IFileSystem {
     content: FileContent,
     options?: WriteFileOptions | BufferEncoding,
   ): Promise<void> {
+    validatePath(path, "append");
     const normalized = this.normalizePath(path);
     const existing = this.data.get(normalized);
 
@@ -220,6 +233,9 @@ export class InMemoryFs implements IFileSystem {
   }
 
   async exists(path: string): Promise<boolean> {
+    if (path.includes("\0")) {
+      return false;
+    }
     try {
       const resolvedPath = this.resolvePathWithSymlinks(path);
       return this.data.has(resolvedPath);
@@ -230,6 +246,7 @@ export class InMemoryFs implements IFileSystem {
   }
 
   async stat(path: string): Promise<FsStat> {
+    validatePath(path, "stat");
     // Resolve all symlinks in the path (including intermediate components)
     const resolvedPath = this.resolvePathWithSymlinks(path);
     const entry = this.data.get(resolvedPath);
@@ -260,6 +277,7 @@ export class InMemoryFs implements IFileSystem {
   }
 
   async lstat(path: string): Promise<FsStat> {
+    validatePath(path, "lstat");
     // Resolve intermediate symlinks but NOT the final component
     const resolvedPath = this.resolveIntermediateSymlinks(path);
     const entry = this.data.get(resolvedPath);
@@ -410,6 +428,7 @@ export class InMemoryFs implements IFileSystem {
    * Synchronous version of mkdir
    */
   mkdirSync(path: string, options?: MkdirOptions): void {
+    validatePath(path, "mkdir");
     const normalized = this.normalizePath(path);
 
     if (this.data.has(normalized)) {
@@ -446,6 +465,7 @@ export class InMemoryFs implements IFileSystem {
   }
 
   async readdirWithFileTypes(path: string): Promise<DirentEntry[]> {
+    validatePath(path, "scandir");
     let normalized = this.normalizePath(path);
     let entry = this.data.get(normalized);
 
@@ -500,6 +520,7 @@ export class InMemoryFs implements IFileSystem {
   }
 
   async rm(path: string, options?: RmOptions): Promise<void> {
+    validatePath(path, "rm");
     const normalized = this.normalizePath(path);
     const entry = this.data.get(normalized);
 
@@ -526,6 +547,8 @@ export class InMemoryFs implements IFileSystem {
   }
 
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
+    validatePath(src, "cp");
+    validatePath(dest, "cp");
     const srcNorm = this.normalizePath(src);
     const destNorm = this.normalizePath(dest);
     const srcEntry = this.data.get(srcNorm);
@@ -573,6 +596,7 @@ export class InMemoryFs implements IFileSystem {
 
   // Change file/directory permissions
   async chmod(path: string, mode: number): Promise<void> {
+    validatePath(path, "chmod");
     const normalized = this.normalizePath(path);
     const entry = this.data.get(normalized);
 
@@ -585,6 +609,7 @@ export class InMemoryFs implements IFileSystem {
 
   // Create a symbolic link
   async symlink(target: string, linkPath: string): Promise<void> {
+    validatePath(linkPath, "symlink");
     const normalized = this.normalizePath(linkPath);
 
     if (this.data.has(normalized)) {
@@ -602,6 +627,8 @@ export class InMemoryFs implements IFileSystem {
 
   // Create a hard link
   async link(existingPath: string, newPath: string): Promise<void> {
+    validatePath(existingPath, "link");
+    validatePath(newPath, "link");
     const existingNorm = this.normalizePath(existingPath);
     const newNorm = this.normalizePath(newPath);
 
@@ -633,6 +660,7 @@ export class InMemoryFs implements IFileSystem {
 
   // Read the target of a symbolic link
   async readlink(path: string): Promise<string> {
+    validatePath(path, "readlink");
     const normalized = this.normalizePath(path);
     const entry = this.data.get(normalized);
 
@@ -652,6 +680,7 @@ export class InMemoryFs implements IFileSystem {
    * This is equivalent to POSIX realpath().
    */
   async realpath(path: string): Promise<string> {
+    validatePath(path, "realpath");
     // resolvePathWithSymlinks already resolves all symlinks
     const resolved = this.resolvePathWithSymlinks(path);
 
@@ -670,6 +699,7 @@ export class InMemoryFs implements IFileSystem {
    * @param mtime - Modification time
    */
   async utimes(path: string, _atime: Date, mtime: Date): Promise<void> {
+    validatePath(path, "utimes");
     const normalized = this.normalizePath(path);
     const resolved = this.resolvePathWithSymlinks(normalized);
     const entry = this.data.get(resolved);

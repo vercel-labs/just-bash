@@ -21,7 +21,7 @@ const DEFAULT_PS4 = "+ ";
  * If PS4 expansion fails, falls back to default "+ ".
  */
 async function getXtracePrefix(ctx: InterpreterContext): Promise<string> {
-  const ps4 = ctx.state.env.PS4;
+  const ps4 = ctx.state.env.get("PS4");
 
   // If PS4 is not set, return default
   if (ps4 === undefined) {

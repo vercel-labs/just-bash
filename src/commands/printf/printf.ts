@@ -1,4 +1,5 @@
 import { sprintf } from "sprintf-js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -215,7 +216,9 @@ export const printfCommand: Command = {
       let errorMessage = "";
 
       // Get TZ from shell environment for strftime formatting
-      const tz = ctx.env.TZ;
+      const tz = ctx.env.get("TZ");
+
+      const maxStringLength = ctx.limits?.maxStringLength;
 
       do {
         const { result, argsConsumed, error, errMsg, stopped } = formatOnce(
@@ -225,6 +228,17 @@ export const printfCommand: Command = {
           tz,
         );
         output += result;
+        // Check output size against limit
+        if (
+          maxStringLength !== undefined &&
+          maxStringLength > 0 &&
+          output.length > maxStringLength
+        ) {
+          throw new ExecutionLimitError(
+            `printf: output size limit exceeded (${maxStringLength} bytes)`,
+            "string_length",
+          );
+        }
         argPos += argsConsumed;
         if (error) {
           hadError = true;
@@ -252,11 +266,11 @@ export const printfCommand: Command = {
           let key = arrayMatch[3];
           // Expand variables in the subscript (e.g., $key -> value)
           key = key.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, varName) => {
-            return ctx.env[varName] ?? "";
+            return ctx.env.get(varName) ?? "";
           });
-          ctx.env[`${arrayName}_${key}`] = output;
+          ctx.env.set(`${arrayName}_${key}`, output);
         } else {
-          ctx.env[targetVar] = output;
+          ctx.env.set(targetVar, output);
         }
         return { stdout: "", stderr: errorMessage, exitCode: hadError ? 1 : 0 };
       }
@@ -267,6 +281,9 @@ export const printfCommand: Command = {
         exitCode: hadError ? 1 : 0,
       };
     } catch (error) {
+      if (error instanceof ExecutionLimitError) {
+        throw error;
+      }
       return {
         stdout: "",
         stderr: `printf: ${getErrorMessage(error)}\n`,
@@ -1110,3 +1127,12 @@ function processBEscapes(str: string): { value: string; stopped: boolean } {
 
   return { value: result, stopped: false };
 }
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "printf",
+  flags: [{ flag: "-v", type: "value", valueHint: "string" }],
+  stdinType: "none",
+  needsArgs: true,
+};

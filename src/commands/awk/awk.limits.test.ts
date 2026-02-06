@@ -86,10 +86,9 @@ describe("AWK Execution Limits", () => {
         `echo "test" | awk 'BEGIN { for(i=0; i<1000000; i++) print "x" }'`,
       );
 
-      // Should either error or limit output
-      if (result.exitCode === 0) {
-        expect(result.stdout.length).toBeLessThan(10_000_000);
-      }
+      // Should hit iteration or output size limit before completing 1M iterations
+      expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+      expect(result.stderr).toContain("exceeded");
     });
 
     it("should limit string concatenation growth", async () => {
@@ -98,8 +97,9 @@ describe("AWK Execution Limits", () => {
         `echo "test" | awk 'BEGIN { s="x"; for(i=0; i<30; i++) s=s s; print length(s) }'`,
       );
 
-      // Should either error or limit string size
-      expect(result.exitCode).toBeDefined();
+      // Doubling 30 times would be 2^30 = 1GB, must hit string length limit
+      expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+      expect(result.stderr).toContain("exceeded");
     });
   });
 

@@ -161,3 +161,17 @@ export const cutCommand: Command = {
     return { stdout: output, stderr: "", exitCode: 0 };
   },
 };
+
+import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
+
+export const flagsForFuzzing: CommandFuzzInfo = {
+  name: "cut",
+  flags: [
+    { flag: "-d", type: "value", valueHint: "delimiter" },
+    { flag: "-f", type: "value", valueHint: "string" },
+    { flag: "-c", type: "value", valueHint: "string" },
+    { flag: "-s", type: "boolean" },
+  ],
+  stdinType: "text",
+  needsFiles: true,
+};

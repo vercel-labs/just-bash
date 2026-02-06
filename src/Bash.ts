@@ -13,6 +13,7 @@ import {
   type CommandName,
   createLazyCommands,
   createNetworkCommands,
+  createPythonCommands,
 } from "./commands/registry.js";
 import {
   type CustomCommand,
@@ -22,6 +23,7 @@ import {
 import { InMemoryFs } from "./fs/in-memory-fs/in-memory-fs.js";
 import { initFilesystem } from "./fs/init.js";
 import type { IFileSystem, InitialFiles } from "./fs/interface.js";
+import { mapToRecord, mapToRecordWithExtras } from "./helpers/env.js";
 import {
   ArithmeticError,
   ExecutionLimitError,
@@ -45,10 +47,16 @@ import {
 } from "./network/index.js";
 import { LexerError } from "./parser/lexer.js";
 import { type ParseException, parse } from "./parser/parser.js";
+import {
+  DefenseInDepthBox,
+  SecurityViolationError,
+} from "./security/defense-in-depth-box.js";
+import type { DefenseInDepthConfig } from "./security/types.js";
 import type {
   BashExecResult,
   Command,
   CommandRegistry,
+  FeatureCoverageWriter,
   TraceCallback,
 } from "./types.js";
 
@@ -93,6 +101,12 @@ export interface BashOptions {
    */
   network?: NetworkConfig;
   /**
+   * Enable python3/python commands.
+   * Python is disabled by default as it introduces additional security surface
+   * (arbitrary code execution via pyodide).
+   */
+  python?: boolean;
+  /**
    * Optional list of command names to register.
    * If not provided, all built-in commands are available.
    * Use this to restrict which commands can be executed.
@@ -134,6 +148,38 @@ export interface BashOptions {
    * Useful for identifying performance bottlenecks.
    */
   trace?: TraceCallback;
+  /**
+   * Defense-in-depth configuration.
+   *
+   * When enabled, monkey-patches dangerous JavaScript globals (Function, eval,
+   * setTimeout, process, etc.) during script execution to block potential
+   * escape vectors.
+   *
+   * IMPORTANT: This is a SECONDARY defense layer. It should never be relied
+   * upon as the primary security mechanism. The primary security comes from
+   * proper sandboxing, input validation, and architectural constraints.
+   *
+   * @example
+   * ```ts
+   * // Simple enable
+   * const bash = new Bash({ defenseInDepth: true });
+   *
+   * // With custom configuration
+   * const bash = new Bash({
+   *   defenseInDepth: {
+   *     enabled: true,
+   *     auditMode: false, // Set to true to log but not block
+   *     onViolation: (v) => console.warn('Violation:', v),
+   *   },
+   * });
+   * ```
+   */
+  defenseInDepth?: DefenseInDepthConfig | boolean;
+  /**
+   * Feature coverage writer for fuzzing instrumentation.
+   * When provided, interpreter emits coverage hits for analysis.
+   */
+  coverage?: FeatureCoverageWriter;
 }
 
 export interface ExecOptions {
@@ -164,6 +210,8 @@ export class Bash {
   private sleepFn?: (ms: number) => Promise<void>;
   private traceFn?: TraceCallback;
   private logger?: BashLogger;
+  private defenseInDepthConfig?: DefenseInDepthConfig | boolean;
+  private coverageWriter?: FeatureCoverageWriter;
 
   // Interpreter state (shared with interpreter instances)
   private state: InterpreterState;
@@ -174,19 +222,21 @@ export class Bash {
 
     this.useDefaultLayout = !options.cwd && !options.files;
     const cwd = options.cwd || (this.useDefaultLayout ? "/home/user" : "/");
-    const env: Record<string, string> = {
-      HOME: this.useDefaultLayout ? "/home/user" : "/",
-      PATH: "/usr/bin:/bin",
-      IFS: " \t\n",
-      OSTYPE: "linux-gnu",
-      MACHTYPE: "x86_64-pc-linux-gnu",
-      HOSTTYPE: "x86_64",
-      HOSTNAME: "localhost", // Match hostname command in sandboxed environment
-      PWD: cwd,
-      OLDPWD: cwd,
-      OPTIND: "1", // getopts option index
-      ...options.env,
-    };
+    // Use Map for env to prevent prototype pollution attacks
+    const env = new Map<string, string>([
+      ["HOME", this.useDefaultLayout ? "/home/user" : "/"],
+      ["PATH", "/usr/bin:/bin"],
+      ["IFS", " \t\n"],
+      ["OSTYPE", "linux-gnu"],
+      ["MACHTYPE", "x86_64-pc-linux-gnu"],
+      ["HOSTTYPE", "x86_64"],
+      ["HOSTNAME", "localhost"], // Match hostname command in sandboxed environment
+      ["PWD", cwd],
+      ["OLDPWD", cwd],
+      ["OPTIND", "1"], // getopts option index
+      // Add user-provided env vars
+      ...Object.entries(options.env ?? {}),
+    ]);
 
     // Resolve limits: new executionLimits takes precedence, then deprecated individual options
     this.limits = resolveLimits({
@@ -216,6 +266,12 @@ export class Bash {
 
     // Store logger if provided
     this.logger = options.logger;
+
+    // Store defense-in-depth config if provided
+    this.defenseInDepthConfig = options.defenseInDepth;
+
+    // Store coverage writer if provided (for fuzzing instrumentation)
+    this.coverageWriter = options.coverage;
 
     // Initialize interpreter state
     this.state = {
@@ -280,9 +336,9 @@ export class Bash {
     };
 
     // Initialize SHELLOPTS to reflect current shell options (initially empty string since all are false)
-    this.state.env.SHELLOPTS = buildShellopts(this.state.options);
+    this.state.env.set("SHELLOPTS", buildShellopts(this.state.options));
     // Initialize BASHOPTS to reflect current shopt options
-    this.state.env.BASHOPTS = buildBashopts(this.state.shoptOptions);
+    this.state.env.set("BASHOPTS", buildBashopts(this.state.shoptOptions));
 
     // Initialize filesystem with standard directories and device files
     // Only applies to InMemoryFs - other filesystems use real directories
@@ -303,6 +359,14 @@ export class Bash {
     // Register network commands only when network is configured
     if (options.network) {
       for (const cmd of createNetworkCommands()) {
+        this.registerCommand(cmd);
+      }
+    }
+
+    // Register python commands only when explicitly enabled
+    // Python introduces additional security surface (arbitrary code execution)
+    if (options.python) {
+      for (const cmd of createPythonCommands()) {
         this.registerCommand(cmd);
       }
     }
@@ -370,7 +434,7 @@ export class Bash {
         stdout: "",
         stderr: `bash: maximum command count (${this.limits.maxCommandCount}) exceeded (possible infinite loop). Increase with executionLimits.maxCommandCount option.\n`,
         exitCode: 1,
-        env: { ...this.state.env, ...options?.env },
+        env: mapToRecordWithExtras(this.state.env, options?.env),
       };
     }
 
@@ -379,7 +443,7 @@ export class Bash {
         stdout: "",
         stderr: "",
         exitCode: 0,
-        env: { ...this.state.env, ...options?.env },
+        env: mapToRecordWithExtras(this.state.env, options?.env),
       };
     }
 
@@ -417,14 +481,22 @@ export class Bash {
       }
     }
 
+    // Create a copy of env Map for this execution
+    const execEnv = new Map(this.state.env);
+    // Merge in options.env
+    if (options?.env) {
+      for (const [key, value] of Object.entries(options.env)) {
+        execEnv.set(key, value);
+      }
+    }
+    // Update PWD when cwd option is provided
+    if (newPwd !== undefined) {
+      execEnv.set("PWD", newPwd);
+    }
+
     const execState: InterpreterState = {
       ...this.state,
-      env: {
-        ...this.state.env,
-        ...options?.env,
-        // Update PWD when cwd option is provided
-        ...(newPwd !== undefined ? { PWD: newPwd } : {}),
-      },
+      env: execEnv,
       cwd: newCwd,
       // Deep copy mutable objects to prevent interference
       functions: new Map(this.state.functions),
@@ -442,24 +514,41 @@ export class Bash {
       normalized = normalizeScript(commandLine);
     }
 
-    try {
-      const ast = parse(normalized);
+    // Activate defense-in-depth box if configured
+    // This wraps execution in AsyncLocalStorage context for context-aware blocking
+    const defenseBox = this.defenseInDepthConfig
+      ? DefenseInDepthBox.getInstance(this.defenseInDepthConfig)
+      : null;
+    const defenseHandle = defenseBox?.activate();
 
-      // Create interpreter with appropriate state
-      const interpreterOptions: InterpreterOptions = {
-        fs: this.fs,
-        commands: this.commands,
-        limits: this.limits,
-        exec: this.exec.bind(this),
-        fetch: this.secureFetch,
-        sleep: this.sleepFn,
-        trace: this.traceFn,
+    try {
+      // Run execution inside defense-in-depth context if enabled
+      const executeScript = async (): Promise<BashExecResult> => {
+        const ast = parse(normalized);
+
+        // Create interpreter with appropriate state
+        const interpreterOptions: InterpreterOptions = {
+          fs: this.fs,
+          commands: this.commands,
+          limits: this.limits,
+          exec: this.exec.bind(this),
+          fetch: this.secureFetch,
+          sleep: this.sleepFn,
+          trace: this.traceFn,
+          coverage: this.coverageWriter,
+        };
+
+        const interpreter = new Interpreter(interpreterOptions, execState);
+        const result = await interpreter.executeScript(ast);
+        // Interpreter always sets env, assert it for type safety
+        return this.logResult(result as BashExecResult);
       };
 
-      const interpreter = new Interpreter(interpreterOptions, execState);
-      const result = await interpreter.executeScript(ast);
-      // Interpreter always sets env, assert it for type safety
-      return this.logResult(result as BashExecResult);
+      // If defense-in-depth is enabled, run within the protected context
+      if (defenseHandle) {
+        return await defenseHandle.run(executeScript);
+      }
+      return await executeScript();
     } catch (error) {
       // ExitError propagates from 'exit' builtin (including via eval/source)
       if (error instanceof ExitError) {
@@ -467,7 +556,7 @@ export class Bash {
           stdout: error.stdout,
           stderr: error.stderr,
           exitCode: error.exitCode,
-          env: { ...this.state.env, ...options?.env },
+          env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }
       // PosixFatalError propagates from special builtins in POSIX mode
@@ -476,7 +565,7 @@ export class Bash {
           stdout: error.stdout,
           stderr: error.stderr,
           exitCode: error.exitCode,
-          env: { ...this.state.env, ...options?.env },
+          env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }
       if (error instanceof ArithmeticError) {
@@ -484,7 +573,7 @@ export class Bash {
           stdout: error.stdout,
           stderr: error.stderr,
           exitCode: 1,
-          env: { ...this.state.env, ...options?.env },
+          env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }
       // ExecutionLimitError is thrown when our conservative limits are exceeded
@@ -494,7 +583,16 @@ export class Bash {
           stdout: error.stdout,
           stderr: error.stderr,
           exitCode: ExecutionLimitError.EXIT_CODE,
-          env: { ...this.state.env, ...options?.env },
+          env: mapToRecordWithExtras(this.state.env, options?.env),
+        });
+      }
+      // SecurityViolationError is thrown when defense-in-depth detects a blocked operation
+      if (error instanceof SecurityViolationError) {
+        return this.logResult({
+          stdout: "",
+          stderr: `bash: security violation: ${error.message}\n`,
+          exitCode: 1,
+          env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }
       if ((error as ParseException).name === "ParseException") {
@@ -502,7 +600,7 @@ export class Bash {
           stdout: "",
           stderr: `bash: syntax error: ${(error as Error).message}\n`,
           exitCode: 2,
-          env: { ...this.state.env, ...options?.env },
+          env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }
       // LexerError is thrown for lexer-level issues like unterminated quotes
@@ -511,7 +609,7 @@ export class Bash {
           stdout: "",
           stderr: `bash: ${error.message}\n`,
           exitCode: 2,
-          env: { ...this.state.env, ...options?.env },
+          env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }
       // RangeError occurs when JavaScript call stack is exceeded (deep recursion)
@@ -520,10 +618,13 @@ export class Bash {
           stdout: "",
           stderr: `bash: ${error.message}\n`,
           exitCode: 1,
-          env: { ...this.state.env, ...options?.env },
+          env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }
       throw error;
+    } finally {
+      // Always deactivate defense-in-depth box when done
+      defenseHandle?.deactivate();
     }
   }
 
@@ -547,7 +648,7 @@ export class Bash {
   }
 
   getEnv(): Record<string, string> {
-    return { ...this.state.env };
+    return mapToRecord(this.state.env);
   }
 }
 
