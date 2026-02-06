@@ -200,4 +200,44 @@ cat /tmp/test.txt`,
       expect(result.exitCode).toBe(0);
     });
   });
+
+  describe("stdin piping to nested bash -c", () => {
+    it("should handle stdin when piping to bash -c with command substitution", async () => {
+      const env = new Bash();
+      // This is the key test case: piping stdin to a nested bash -c command
+      // The stdin should be available to commands inside the bash -c script
+      const result = await env.exec(
+        'echo "hello world" | bash -c \'DATA=$(cat); echo "$DATA"\'',
+      );
+      expect(result.stdout).toBe("hello world\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle stdin with multiple commands in bash -c", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        'echo "test data" | bash -c \'read LINE; echo "Got: $LINE"\'',
+      );
+      expect(result.stdout).toBe("Got: test data\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle stdin piping to sh -c", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        'echo "from stdin" | sh -c \'cat\'',
+      );
+      expect(result.stdout).toBe("from stdin\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle complex piping with bash -c", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        'echo -e "line1\\nline2\\nline3" | bash -c \'grep line2\'',
+      );
+      expect(result.stdout).toBe("line2\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
 });
