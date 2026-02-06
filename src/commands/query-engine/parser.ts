@@ -385,9 +385,11 @@ class Parser {
   private isFieldNameAfterDot(dotOffset = 0): boolean {
     const dot = this.peek(dotOffset);
     const next = this.peek(dotOffset + 1);
-    if (next.type === "IDENT" || next.type === "STRING") return true;
-    if (!KEYWORD_TOKEN_TYPES.has(next.type)) return false;
-    return next.pos === dot.pos + 1;
+    if (next.type === "STRING") return true;
+    if (next.type === "IDENT" || KEYWORD_TOKEN_TYPES.has(next.type)) {
+      return next.pos === dot.pos + 1;
+    }
+    return false;
   }
 
   private isIdentLike(): boolean {
@@ -397,10 +399,13 @@ class Parser {
 
   private consumeFieldNameAfterDot(dotToken: Token): string | null {
     const next = this.peek();
-    if (next.type === "IDENT" || next.type === "STRING") {
+    if (next.type === "STRING") {
       return this.advance().value as string;
     }
-    if (KEYWORD_TOKEN_TYPES.has(next.type) && next.pos === dotToken.pos + 1) {
+    if (
+      (next.type === "IDENT" || KEYWORD_TOKEN_TYPES.has(next.type)) &&
+      next.pos === dotToken.pos + 1
+    ) {
       return this.advance().value as string;
     }
     return null;

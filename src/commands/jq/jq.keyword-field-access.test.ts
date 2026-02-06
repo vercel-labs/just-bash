@@ -131,6 +131,40 @@ describe("jq keyword field access", () => {
     });
   });
 
+  describe("space-separated identifier after dot should NOT be field access", () => {
+    it("should error on '. foo' (space before identifier)", async () => {
+      const env = new Bash();
+      const result = await env.exec("echo '{\"foo\":\"bar\"}' | jq '. foo'");
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    it("should error on '.data. foo' (chained, space before identifier)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        'echo \'{"data":{"foo":"bar"}}\' | jq \'.data. foo\'',
+      );
+      expect(result.exitCode).not.toBe(0);
+    });
+  });
+
+  describe("space-separated string after dot SHOULD be field access", () => {
+    it("should allow '. \"foo\"' (space before string)", async () => {
+      const env = new Bash();
+      const result = await env.exec('echo \'{"foo":"bar"}\' | jq \'. "foo"\'');
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe('"bar"\n');
+    });
+
+    it("should allow '.data. \"foo\"' (chained, space before string)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        'echo \'{"data":{"foo":"bar"}}\' | jq \'.data. "foo"\'',
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe('"bar"\n');
+    });
+  });
+
   describe("keyword as object key", () => {
     it("should allow keyword as object construction key with value", async () => {
       const env = new Bash();
