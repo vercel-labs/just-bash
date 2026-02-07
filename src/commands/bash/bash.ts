@@ -151,9 +151,11 @@ async function executeScript(
   // Execute the script as-is, preserving newlines for proper parsing
   // The parser needs to see the original structure to correctly handle
   // multi-line constructs like (( ... )) vs ( ( ... ) )
+  // Pass stdin through to the nested script
   const result = await ctx.exec(scriptToRun, {
     env: positionalEnv,
     cwd: ctx.cwd,
+    stdin: ctx.stdin,
   });
   return result;
 }
