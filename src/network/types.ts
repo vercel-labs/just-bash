@@ -18,6 +18,16 @@ export type HttpMethod =
   | "OPTIONS";
 
 /**
+ * Request information passed to the isAllowed function
+ */
+export interface NetworkRequest {
+  /** The HTTP method (e.g., "GET", "POST") */
+  method: string;
+  /** The full URL being requested */
+  url: string;
+}
+
+/**
  * Configuration for network access
  */
 export interface NetworkConfig {
@@ -67,6 +77,24 @@ export interface NetworkConfig {
    * Responses larger than this will be rejected with ResponseTooLargeError.
    */
   maxResponseSize?: number;
+
+  /**
+   * Dynamic URL/method checker function.
+   * Called for each request to determine if it should be allowed.
+   * Takes precedence over allowedUrlPrefixes when provided.
+   *
+   * @example
+   * // Simple hostname check
+   * isAllowed: ({ method, url }) => new URL(url).hostname.endsWith('.internal')
+   *
+   * @example
+   * // Async check with external service
+   * isAllowed: async ({ method, url }) => {
+   *   const response = await authService.checkAccess(url);
+   *   return response.allowed;
+   * }
+   */
+  isAllowed?: (request: NetworkRequest) => boolean | Promise<boolean>;
 }
 
 /**
