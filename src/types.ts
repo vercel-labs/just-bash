@@ -33,6 +33,11 @@ export interface CommandExecOptions {
    * Always pass `ctx.cwd` from the calling command's context.
    */
   cwd: string;
+  /**
+   * Standard input to pass to the subcommand.
+   * Optional - if not provided, stdin will be empty.
+   */
+  stdin?: string;
 }
 
 /**
