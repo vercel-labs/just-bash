@@ -43,12 +43,21 @@ export async function executePipeline(
   for (let i = 0; i < node.commands.length; i++) {
     const command = node.commands[i];
     const isLast = i === node.commands.length - 1;
+    const isFirst = i === 0;
 
     // In a multi-command pipeline, each command runs in a subshell context
     // where $_ starts empty (subshells don't inherit $_ from parent in same way)
     if (isMultiCommandPipeline) {
       // Clear $_ for each pipeline command - they each get fresh subshell context
       ctx.state.lastArg = "";
+      
+      // After the first command, clear groupStdin so subsequent commands
+      // only see stdin from the pipeline (even if empty), not the original groupStdin
+      // This prevents commands like head from incorrectly falling back to groupStdin
+      // when they receive empty output from a previous command (e.g., grep with no matches)
+      if (!isFirst) {
+        ctx.state.groupStdin = undefined;
+      }
     }
 
     // Determine if this command runs in a subshell context
