@@ -50,7 +50,7 @@ export async function executePipeline(
     if (isMultiCommandPipeline) {
       // Clear $_ for each pipeline command - they each get fresh subshell context
       ctx.state.lastArg = "";
-      
+
       // After the first command, clear groupStdin so subsequent commands
       // only see stdin from the pipeline (even if empty), not the original groupStdin
       // This prevents commands like head from incorrectly falling back to groupStdin
