@@ -66,18 +66,14 @@ describe("jq string key shorthand in object construction", () => {
 
     it('should evaluate {"if"} keyword string shorthand', async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo '{"if":"val"}' | jq -c '{"if"}'`,
-      );
+      const result = await env.exec(`echo '{"if":"val"}' | jq -c '{"if"}'`);
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toBe('{"if":"val"}\n');
     });
 
     it('should evaluate {"true"} keyword string shorthand', async () => {
       const env = new Bash();
-      const result = await env.exec(
-        `echo '{"true":"val"}' | jq -c '{"true"}'`,
-      );
+      const result = await env.exec(`echo '{"true":"val"}' | jq -c '{"true"}'`);
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toBe('{"true":"val"}\n');
     });

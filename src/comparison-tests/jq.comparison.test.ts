@@ -241,11 +241,7 @@ describe("jq command - Real Bash Comparison", () => {
       const env = await setupFiles(testDir, {
         "data.json": '{"name":"foo","label":"bar","extra":"baz"}',
       });
-      await compareOutputs(
-        env,
-        testDir,
-        `jq -c '{"name", "label"}' data.json`,
-      );
+      await compareOutputs(env, testDir, `jq -c '{"name", "label"}' data.json`);
     });
 
     it('should handle {"if"} keyword string shorthand', async () => {
