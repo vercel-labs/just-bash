@@ -28,12 +28,20 @@ export function buildConnectionOptions(
 
 /**
  * Get SQL to execute from options
+ * Returns empty string only if no SQL source is available (no -c, no -f, no stdin)
  */
 export function getSqlToExecute(options: PsqlOptions, stdin: string): string {
+  // -c takes precedence
   if (options.command) {
     return options.command;
   }
 
+  // -f will be read later, return placeholder
+  if (options.file) {
+    return "FILE"; // Non-empty placeholder to pass validation
+  }
+
+  // Check stdin
   if (stdin.trim()) {
     return stdin.trim();
   }

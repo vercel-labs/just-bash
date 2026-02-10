@@ -29,7 +29,7 @@ export function parseArgs(args: string[]): PsqlOptions | ExecResult {
     tuplesOnly: false,
     quiet: false,
     singleTransaction: false,
-    variables: {},
+    variables: Object.create(null) as Record<string, string>,
   };
 
   let i = 0;

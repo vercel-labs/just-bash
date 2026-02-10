@@ -10,10 +10,7 @@ import type {
 } from "../ast/types.js";
 import type { IFileSystem } from "../fs/interface.js";
 import type { ExecutionLimits } from "../limits.js";
-import type {
-  SecureFetch,
-  SecurePostgresConnect,
-} from "../network/index.js";
+import type { SecureFetch, SecurePostgresConnect } from "../network/index.js";
 import type {
   CommandRegistry,
   ExecResult,

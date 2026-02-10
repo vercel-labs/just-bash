@@ -157,13 +157,13 @@ export const psqlCommand: Command = {
     if (!sql) {
       return {
         stdout: "",
-        stderr: "psql: no SQL provided (use -c or stdin)\n",
+        stderr: "psql: no SQL provided (use -c, -f, or stdin)\n",
         exitCode: 1,
       };
     }
 
     // Read SQL from file if specified
-    let sqlToExecute = sql;
+    let sqlToExecute: string;
     if (options.file) {
       try {
         const filePath = ctx.fs.resolvePath(ctx.cwd, options.file);
@@ -175,6 +175,9 @@ export const psqlCommand: Command = {
           exitCode: 1,
         };
       }
+    } else {
+      // Use SQL from -c or stdin
+      sqlToExecute = sql;
     }
 
     // Connect to PostgreSQL
