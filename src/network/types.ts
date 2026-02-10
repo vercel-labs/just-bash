@@ -18,6 +18,51 @@ export type HttpMethod =
   | "OPTIONS";
 
 /**
+ * Configuration for a PostgreSQL host with optional credential injection
+ */
+export interface PostgresHostConfig {
+  /**
+   * PostgreSQL server hostname
+   */
+  host: string;
+
+  /**
+   * PostgreSQL server port (default: 5432)
+   */
+  port?: number;
+
+  /**
+   * Database name to connect to
+   */
+  database?: string;
+
+  /**
+   * Username for authentication (will override user-provided username)
+   */
+  username?: string;
+
+  /**
+   * Password for authentication (will be injected, not exposed to user code)
+   */
+  password?: string;
+
+  /**
+   * SSL/TLS configuration (default: 'prefer')
+   */
+  ssl?: boolean | "prefer" | "require" | "disable";
+
+  /**
+   * Connection timeout in seconds (default: 10)
+   */
+  connectTimeout?: number;
+
+  /**
+   * Application name for connection identification
+   */
+  applicationName?: string;
+}
+
+/**
  * Configuration for network access
  */
 export interface NetworkConfig {
@@ -45,6 +90,18 @@ export interface NetworkConfig {
    * dangerouslyAllowFullInternetAccess to enables all methods.
    */
   allowedMethods?: HttpMethod[];
+
+  /**
+   * List of allowed PostgreSQL hosts. Can be either:
+   * - String: Allow connections to this host with user-provided credentials
+   *   Example: 'localhost' - allows any connection to localhost
+   * - Object: Allow connections with specific credentials injected transparently
+   *   Example: { host: 'prod.db.com', username: 'readonly', password: 'secret' }
+   *
+   * When an object is provided, the configured credentials will override any
+   * user-provided values (Deno Sandbox-style secrets management).
+   */
+  allowedPostgresHosts?: (string | PostgresHostConfig)[];
 
   /**
    * Bypass the allow-list and allow all URLs and methods.
@@ -131,5 +188,17 @@ export class ResponseTooLargeError extends Error {
   constructor(maxSize: number) {
     super(`Response body too large (max: ${maxSize} bytes)`);
     this.name = "ResponseTooLargeError";
+  }
+}
+
+/**
+ * Error thrown when a PostgreSQL connection is not allowed
+ */
+export class PostgresAccessDeniedError extends Error {
+  constructor(host: string) {
+    super(
+      `PostgreSQL access denied: Host not in allow-list: ${host}. Configure 'allowedPostgresHosts' in network options.`,
+    );
+    this.name = "PostgresAccessDeniedError";
   }
 }

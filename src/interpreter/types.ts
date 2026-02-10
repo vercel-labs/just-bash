@@ -10,7 +10,10 @@ import type {
 } from "../ast/types.js";
 import type { IFileSystem } from "../fs/interface.js";
 import type { ExecutionLimits } from "../limits.js";
-import type { SecureFetch } from "../network/index.js";
+import type {
+  SecureFetch,
+  SecurePostgresConnect,
+} from "../network/index.js";
 import type {
   CommandRegistry,
   ExecResult,
@@ -404,6 +407,8 @@ export interface InterpreterContext {
   executeCommand: (node: CommandNode, stdin: string) => Promise<ExecResult>;
   /** Optional secure fetch function for network-enabled commands */
   fetch?: SecureFetch;
+  /** Optional secure PostgreSQL connection function for psql command */
+  connectPostgres?: SecurePostgresConnect;
   /** Optional sleep function for testing with mock clocks */
   sleep?: (ms: number) => Promise<void>;
   /** Optional trace callback for performance profiling */
