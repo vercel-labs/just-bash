@@ -229,6 +229,51 @@ describe("jq command - Real Bash Comparison", () => {
     });
   });
 
+  describe("object construction with string key shorthand", () => {
+    it('should handle {"name"} shorthand', async () => {
+      const env = await setupFiles(testDir, {
+        "data.json": '{"name":"foo","extra":"bar"}',
+      });
+      await compareOutputs(env, testDir, `jq -c '{"name"}' data.json`);
+    });
+
+    it('should handle {"name", "label"} shorthand', async () => {
+      const env = await setupFiles(testDir, {
+        "data.json": '{"name":"foo","label":"bar","extra":"baz"}',
+      });
+      await compareOutputs(
+        env,
+        testDir,
+        `jq -c '{"name", "label"}' data.json`,
+      );
+    });
+
+    it('should handle {"if"} keyword string shorthand', async () => {
+      const env = await setupFiles(testDir, {
+        "data.json": '{"if":"val"}',
+      });
+      await compareOutputs(env, testDir, `jq -c '{"if"}' data.json`);
+    });
+
+    it('should handle {"true"} keyword string shorthand', async () => {
+      const env = await setupFiles(testDir, {
+        "data.json": '{"true":"val"}',
+      });
+      await compareOutputs(env, testDir, `jq -c '{"true"}' data.json`);
+    });
+
+    it("should handle mixed shorthand and explicit keys", async () => {
+      const env = await setupFiles(testDir, {
+        "data.json": '{"name":"foo","value":42}',
+      });
+      await compareOutputs(
+        env,
+        testDir,
+        `jq -c '{"name", "v": .value}' data.json`,
+      );
+    });
+  });
+
   describe("string functions", () => {
     it("should split strings", async () => {
       const env = await setupFiles(testDir, {

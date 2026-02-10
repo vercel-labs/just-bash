@@ -195,6 +195,24 @@
     "stderr": "",
     "exitCode": 0
   },
+  "dec647b75a377ca2": {
+    "command": "jq -c '{\"true\"}' data.json",
+    "files": {
+      "data.json": "{\"true\":\"val\"}"
+    },
+    "stdout": "{\"true\":\"val\"}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e32062f2c537fbe0": {
+    "command": "jq -c '{\"name\", \"v\": .value}' data.json",
+    "files": {
+      "data.json": "{\"name\":\"foo\",\"value\":42}"
+    },
+    "stdout": "{\"name\":\"foo\",\"v\":42}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "e433b214be1f80db": {
     "command": "jq 'type' data.json",
     "files": {
@@ -210,6 +228,15 @@
       "data.json": "6"
     },
     "stdout": "42\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ea65254b095a5b4d": {
+    "command": "jq -c '{\"name\", \"label\"}' data.json",
+    "files": {
+      "data.json": "{\"name\":\"foo\",\"label\":\"bar\",\"extra\":\"baz\"}"
+    },
+    "stdout": "{\"name\":\"foo\",\"label\":\"bar\"}\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -235,6 +262,24 @@
       "data.json": "5"
     },
     "stdout": "\"big\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f9870901c3117349": {
+    "command": "jq -c '{\"if\"}' data.json",
+    "files": {
+      "data.json": "{\"if\":\"val\"}"
+    },
+    "stdout": "{\"if\":\"val\"}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fef2973c52922ba7": {
+    "command": "jq -c '{\"name\"}' data.json",
+    "files": {
+      "data.json": "{\"name\":\"foo\",\"extra\":\"bar\"}"
+    },
+    "stdout": "{\"name\":\"foo\"}\n",
     "stderr": "",
     "exitCode": 0
   },
