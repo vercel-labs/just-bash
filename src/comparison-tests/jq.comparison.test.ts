@@ -268,6 +268,27 @@ describe("jq command - Real Bash Comparison", () => {
         `jq -c '{"name", "v": .value}' data.json`,
       );
     });
+
+    it('should handle non-identifier key {"a-b"} shorthand', async () => {
+      const env = await setupFiles(testDir, {
+        "data.json": '{"a-b":"val","extra":"x"}',
+      });
+      await compareOutputs(env, testDir, `jq -c '{"a-b"}' data.json`);
+    });
+
+    it('should handle numeric string key {"1"} shorthand', async () => {
+      const env = await setupFiles(testDir, {
+        "data.json": '{"1":"val","extra":"x"}',
+      });
+      await compareOutputs(env, testDir, `jq -c '{"1"}' data.json`);
+    });
+
+    it('should handle empty string key {""} shorthand', async () => {
+      const env = await setupFiles(testDir, {
+        "data.json": '{"":"val","extra":"x"}',
+      });
+      await compareOutputs(env, testDir, `jq -c '{""}'  data.json`);
+    });
   });
 
   describe("string functions", () => {

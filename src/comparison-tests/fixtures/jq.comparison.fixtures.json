@@ -62,6 +62,15 @@
     "stderr": "",
     "exitCode": 0
   },
+  "348c7a17b8cc0a03": {
+    "command": "jq -c '{\"\"}'  data.json",
+    "files": {
+      "data.json": "{\"\":\"val\",\"extra\":\"x\"}"
+    },
+    "stdout": "{\"\":\"val\"}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "3a5bd13032387ef1": {
     "command": "jq 'reverse' data.json",
     "files": {
@@ -113,6 +122,15 @@
       "data.json": "[3,1,2]"
     },
     "stdout": "[\n  1,\n  2,\n  3\n]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "889ffd5c41c5b865": {
+    "command": "jq -c '{\"a-b\"}' data.json",
+    "files": {
+      "data.json": "{\"a-b\":\"val\",\"extra\":\"x\"}"
+    },
+    "stdout": "{\"a-b\":\"val\"}\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -262,6 +280,15 @@
       "data.json": "5"
     },
     "stdout": "\"big\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f3069be0bd4e62b6": {
+    "command": "jq -c '{\"1\"}' data.json",
+    "files": {
+      "data.json": "{\"1\":\"val\",\"extra\":\"x\"}"
+    },
+    "stdout": "{\"1\":\"val\"}\n",
     "stderr": "",
     "exitCode": 0
   },
