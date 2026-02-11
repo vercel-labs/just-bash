@@ -6,6 +6,8 @@
  * User Python code runs with dangerous globals blocked.
  */
 
+import { createRequire } from "node:module";
+import { dirname } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
 import { loadPyodide, type PyodideInterface } from "pyodide";
 import {
@@ -32,6 +34,8 @@ export interface WorkerOutput {
 
 let pyodideInstance: PyodideInterface | null = null;
 let pyodideLoading: Promise<PyodideInterface> | null = null;
+const require = createRequire(import.meta.url);
+const pyodideIndexURL = `${dirname(require.resolve("pyodide/pyodide.mjs"))}/`;
 
 async function getPyodide(): Promise<PyodideInterface> {
   if (pyodideInstance) {
@@ -40,7 +44,7 @@ async function getPyodide(): Promise<PyodideInterface> {
   if (pyodideLoading) {
     return pyodideLoading;
   }
-  pyodideLoading = loadPyodide();
+  pyodideLoading = loadPyodide({ indexURL: pyodideIndexURL });
   pyodideInstance = await pyodideLoading;
   return pyodideInstance;
 }
