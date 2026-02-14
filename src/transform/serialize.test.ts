@@ -376,8 +376,7 @@ describe("serialize", () => {
       execEquiv('echo "end\\$"'));
     it("escaped dollar at start of double quotes", () =>
       execEquiv('echo "\\$start"'));
-    it("multiple escaped dollars", () =>
-      execEquiv('echo "\\$a \\$b \\$c"'));
+    it("multiple escaped dollars", () => execEquiv('echo "\\$a \\$b \\$c"'));
     it("escaped backslash before dollar", () =>
       execEquiv('x=val; echo "\\\\$x"'));
     it("escaped backslash before escaped dollar", () =>
@@ -385,8 +384,7 @@ describe("serialize", () => {
     it("dollar in single quotes then double quotes", () =>
       execEquiv("echo '$literal' \"$HOME\""));
     it("empty command substitution", () => execEquiv('echo "$(true)"'));
-    it("here-string with quotes", () =>
-      execEquiv('cat <<< "hello world"'));
+    it("here-string with quotes", () => execEquiv('cat <<< "hello world"'));
     it("here-string with variable", () =>
       execEquiv('x=hello; cat <<< "$x world"'));
     it("nested subshell in double quotes", () =>
@@ -395,10 +393,8 @@ describe("serialize", () => {
       execEquiv("echo hello\\\nworld"));
     it("while loop with read", () =>
       execEquiv('echo "a b c" | while read x y z; do echo "$x:$y:$z"; done'));
-    it("array in subshell", () =>
-      execEquiv("(arr=(x y z); echo ${arr[1]})"));
-    it("double quoted glob stays literal", () =>
-      execEquiv('echo "*.txt"'));
+    it("array in subshell", () => execEquiv("(arr=(x y z); echo ${arr[1]})"));
+    it("double quoted glob stays literal", () => execEquiv('echo "*.txt"'));
     it("unquoted backslash before newline in heredoc", () =>
       execEquiv("cat <<EOF\nline1\\\nline2\nEOF"));
   });

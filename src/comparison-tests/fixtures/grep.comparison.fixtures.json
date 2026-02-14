@@ -55,7 +55,8 @@
     },
     "stdout": "dir/file1.txt:hello from file1\ndir/sub/file3.txt:hello from file3\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "36f9ac8925c0108b": {
     "command": "grep -B 2 match test.txt",
