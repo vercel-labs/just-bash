@@ -20,7 +20,8 @@ export class BashTransformPipeline<
 
   transform(script: string): BashTransformResult<TMetadata> {
     let ast = parse(script);
-    let metadata: Record<string, unknown> = {};
+    // @banned-pattern-ignore: metadata is plugin-controlled, not user input
+    let metadata: Record<string, unknown> = Object.create(null);
     for (const plugin of this.plugins) {
       const result = plugin.transform({ ast, metadata });
       ast = result.ast;

@@ -541,9 +541,11 @@ export class Bash {
         let ast = parse(normalized);
 
         // Apply transform plugins if any are registered
+        // @banned-pattern-ignore: metadata is plugin-controlled, not user input
         let metadata: Record<string, unknown> | undefined;
         if (this.transformPlugins.length > 0) {
-          let meta: Record<string, unknown> = {};
+          // @banned-pattern-ignore: metadata is plugin-controlled, not user input
+          let meta: Record<string, unknown> = Object.create(null);
           for (const plugin of this.transformPlugins) {
             const pluginResult = plugin.transform({ ast, metadata: meta });
             ast = pluginResult.ast;
@@ -691,7 +693,8 @@ export class Bash {
   transform(commandLine: string): BashTransformResult {
     const normalized = normalizeScript(commandLine);
     let ast = parse(normalized);
-    let metadata: Record<string, unknown> = {};
+    // @banned-pattern-ignore: metadata is plugin-controlled, not user input
+    let metadata: Record<string, unknown> = Object.create(null);
 
     for (const plugin of this.transformPlugins) {
       const result = plugin.transform({ ast, metadata });
