@@ -26,6 +26,7 @@ Supports optional network access via `curl` with secure-by-default URL filtering
 - [Default Layout](#default-layout)
 - [Network Access](#network-access)
 - [Execution Protection](#execution-protection)
+- [AST Transform Plugins](#ast-transform-plugins)
 - [Development](#development)
 
 ## Security model
@@ -434,6 +435,30 @@ const env = new Bash({
 ```
 
 All limits have sensible defaults. Error messages include hints on which limit to increase. Feel free to increase if your scripts intentionally go beyond them.
+
+## AST Transform Plugins
+
+Parse bash scripts into an AST, run transform plugins, and serialize back to executable bash. Useful for instrumenting scripts (e.g., capturing per-command stdout/stderr) or analyzing them (e.g., extracting command names) before execution.
+
+```typescript
+import { Bash, BashTransformPipeline, TeePlugin, CommandCollectorPlugin } from "just-bash";
+
+// Standalone pipeline — output can be run by any shell
+const pipeline = new BashTransformPipeline()
+  .use(new TeePlugin({ outputDir: "/tmp/logs" }))
+  .use(new CommandCollectorPlugin());
+const result = pipeline.transform("echo hello | grep hello");
+result.script;             // transformed bash string
+result.metadata.commands;  // ["echo", "grep", "tee"]
+
+// Integrated API — exec() auto-applies transforms and returns metadata
+const bash = new Bash();
+bash.registerTransformPlugin(new CommandCollectorPlugin());
+const execResult = await bash.exec("echo hello | grep hello");
+execResult.metadata.commands; // ["echo", "grep"]
+```
+
+See [src/transform/README.md](src/transform/README.md) for the full API, built-in plugins, and how to write custom plugins.
 
 ## Development
 
