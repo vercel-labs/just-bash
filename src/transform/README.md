@@ -1,4 +1,4 @@
-# BASH AST Transforms
+# Experimental: BASH AST Transforms
 
 Parse bash scripts into an AST, run transform plugins, and serialize back to bash.
 
