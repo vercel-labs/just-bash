@@ -52,6 +52,11 @@ import {
   SecurityViolationError,
 } from "./security/defense-in-depth-box.js";
 import type { DefenseInDepthConfig } from "./security/types.js";
+import { serialize } from "./transform/serialize.js";
+import type {
+  BashTransformResult,
+  TransformPlugin,
+} from "./transform/types.js";
 import type {
   BashExecResult,
   Command,
@@ -217,6 +222,8 @@ export class Bash {
   private logger?: BashLogger;
   private defenseInDepthConfig?: DefenseInDepthConfig | boolean;
   private coverageWriter?: FeatureCoverageWriter;
+  // biome-ignore lint/suspicious/noExplicitAny: type-erased plugin storage for untyped API
+  private transformPlugins: TransformPlugin<any>[] = [];
 
   // Interpreter state (shared with interpreter instances)
   private state: InterpreterState;
@@ -531,7 +538,21 @@ export class Bash {
     try {
       // Run execution inside defense-in-depth context if enabled
       const executeScript = async (): Promise<BashExecResult> => {
-        const ast = parse(normalized);
+        let ast = parse(normalized);
+
+        // Apply transform plugins if any are registered
+        let metadata: Record<string, unknown> | undefined;
+        if (this.transformPlugins.length > 0) {
+          let meta: Record<string, unknown> = {};
+          for (const plugin of this.transformPlugins) {
+            const pluginResult = plugin.transform({ ast, metadata: meta });
+            ast = pluginResult.ast;
+            if (pluginResult.metadata) {
+              meta = { ...meta, ...pluginResult.metadata };
+            }
+          }
+          metadata = meta;
+        }
 
         // Create interpreter with appropriate state
         const interpreterOptions: InterpreterOptions = {
@@ -548,7 +569,11 @@ export class Bash {
         const interpreter = new Interpreter(interpreterOptions, execState);
         const result = await interpreter.executeScript(ast);
         // Interpreter always sets env, assert it for type safety
-        return this.logResult(result as BashExecResult);
+        const execResult = result as BashExecResult;
+        if (metadata) {
+          execResult.metadata = metadata;
+        }
+        return this.logResult(execResult);
       };
 
       // If defense-in-depth is enabled, run within the protected context
@@ -656,6 +681,31 @@ export class Bash {
 
   getEnv(): Record<string, string> {
     return mapToRecord(this.state.env);
+  }
+
+  // biome-ignore lint/suspicious/noExplicitAny: accepts any plugin for untyped API
+  registerTransformPlugin(plugin: TransformPlugin<any>): void {
+    this.transformPlugins.push(plugin);
+  }
+
+  transform(commandLine: string): BashTransformResult {
+    const normalized = normalizeScript(commandLine);
+    let ast = parse(normalized);
+    let metadata: Record<string, unknown> = {};
+
+    for (const plugin of this.transformPlugins) {
+      const result = plugin.transform({ ast, metadata });
+      ast = result.ast;
+      if (result.metadata) {
+        metadata = { ...metadata, ...result.metadata };
+      }
+    }
+
+    return {
+      script: serialize(ast),
+      ast,
+      metadata,
+    };
   }
 }
 

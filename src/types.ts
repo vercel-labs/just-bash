@@ -21,6 +21,7 @@ export interface ExecResult {
 /** Result from BashEnv.exec() - always includes env */
 export interface BashExecResult extends ExecResult {
   env: Record<string, string>;
+  metadata?: Record<string, unknown>;
 }
 
 /** Options for exec calls within commands (internal API) */

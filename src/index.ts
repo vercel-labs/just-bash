@@ -1,3 +1,12 @@
+// AST types (for plugin authors)
+export type {
+  CommandNode,
+  PipelineNode,
+  ScriptNode,
+  SimpleCommandNode,
+  StatementNode,
+  WordNode,
+} from "./ast/types.js";
 export type { BashLogger, BashOptions, ExecOptions } from "./Bash.js";
 export { Bash } from "./Bash.js";
 export type {
@@ -46,6 +55,8 @@ export {
   RedirectNotAllowedError,
   TooManyRedirectsError,
 } from "./network/index.js";
+// Parser
+export { parse } from "./parser/parser.js";
 export type {
   CommandFinished as SandboxCommandFinished,
   OutputMessage,
@@ -68,6 +79,23 @@ export {
   SecurityViolationError,
   SecurityViolationLogger,
 } from "./security/index.js";
+// Transform API
+export { BashTransformPipeline } from "./transform/pipeline.js";
+export type { CommandCollectorMetadata } from "./transform/plugins/command-collector.js";
+export { CommandCollectorPlugin } from "./transform/plugins/command-collector.js";
+export type {
+  TeeFileInfo,
+  TeePluginMetadata,
+  TeePluginOptions,
+} from "./transform/plugins/tee-plugin.js";
+export { TeePlugin } from "./transform/plugins/tee-plugin.js";
+export { serialize } from "./transform/serialize.js";
+export type {
+  BashTransformResult,
+  TransformContext,
+  TransformPlugin,
+  TransformResult,
+} from "./transform/types.js";
 export type {
   BashExecResult,
   Command,
