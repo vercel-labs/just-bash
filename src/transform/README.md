@@ -65,7 +65,7 @@ bash.registerTransformPlugin(new CommandCollectorPlugin());
 
 // exec() applies transforms automatically and returns metadata
 const result = await bash.exec("echo hello | grep hello");
-result.metadata.commands; // ["echo", "grep", "tee"]
+result.metadata?.commands; // ["echo", "grep", "tee"]
 
 // transform() is also available for transform-only (no execution)
 const transformed = bash.transform("echo hello | grep hello");
@@ -113,7 +113,7 @@ const myPlugin: TransformPlugin<MyMetadata> = {
     // context.metadata - accumulated metadata from prior plugins
 
     return {
-      ast: transformedAst,            // required: return the (possibly modified) AST
+      ast: context.ast,               // required: return the (possibly modified) AST
       metadata: { myKey: "value" },   // optional: merged into metadata for next plugin
     };
   },
@@ -201,7 +201,7 @@ echo hello | grep foo
 Walks the entire AST and collects all command names into sorted metadata. Does not modify the AST.
 
 ```typescript
-import { CommandCollectorPlugin } from "just-bash";
+import { BashTransformPipeline, CommandCollectorPlugin } from "just-bash";
 
 const pipeline = new BashTransformPipeline()
   .use(new CommandCollectorPlugin());

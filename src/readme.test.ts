@@ -20,6 +20,11 @@ import {
 
 const README_PATH = path.join(import.meta.dirname, "..", "README.md");
 const AGENTS_PATH = path.join(import.meta.dirname, "..", "AGENTS.npm.md");
+const TRANSFORM_README_PATH = path.join(
+  import.meta.dirname,
+  "transform",
+  "README.md",
+);
 
 function parseReadme(): string {
   return fs.readFileSync(README_PATH, "utf-8");
@@ -27,6 +32,10 @@ function parseReadme(): string {
 
 function parseAgents(): string {
   return fs.readFileSync(AGENTS_PATH, "utf-8");
+}
+
+function parseTransformReadme(): string {
+  return fs.readFileSync(TRANSFORM_README_PATH, "utf-8");
 }
 
 /**
@@ -423,17 +432,28 @@ describe("Documentation TypeScript examples", () => {
     expect(blocks.length).toBeGreaterThan(0);
   });
 
+  it("should have TypeScript code blocks in transform README", () => {
+    const transformReadme = parseTransformReadme();
+    const blocks = extractTypeScriptBlocks(transformReadme);
+    expect(blocks.length).toBeGreaterThan(0);
+  });
+
   it(
     "should have valid TypeScript syntax in all examples",
     { timeout: 30000 },
     () => {
       const readme = parseReadme();
       const agents = parseAgents();
+      const transformReadme = parseTransformReadme();
 
       // Compile all TypeScript blocks from both files in a single tsc run
       compileTypeScriptBlocks([
         { source: "README", blocks: extractTypeScriptBlocks(readme) },
         { source: "AGENTS", blocks: extractTypeScriptBlocks(agents) },
+        {
+          source: "transform-README",
+          blocks: extractTypeScriptBlocks(transformReadme),
+        },
       ]);
     },
   );

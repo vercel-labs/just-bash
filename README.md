@@ -455,7 +455,7 @@ result.metadata.commands;  // ["echo", "grep", "tee"]
 const bash = new Bash();
 bash.registerTransformPlugin(new CommandCollectorPlugin());
 const execResult = await bash.exec("echo hello | grep hello");
-execResult.metadata.commands; // ["echo", "grep"]
+execResult.metadata?.commands; // ["echo", "grep"]
 ```
 
 See [src/transform/README.md](src/transform/README.md) for the full API, built-in plugins, and how to write custom plugins.
