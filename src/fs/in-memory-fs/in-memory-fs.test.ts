@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { InMemoryFs } from "./in-memory-fs.js";
+import { InMemoryFs, type InMemoryFsBackingStore } from "./in-memory-fs.js";
 
 describe("InMemoryFs Buffer and Encoding Support", () => {
   describe("basic Buffer operations", () => {
@@ -221,6 +221,78 @@ describe("InMemoryFs Buffer and Encoding Support", () => {
 
       const result = await fs.readFileBuffer("/link.bin");
       expect(result).toEqual(data);
+    });
+  });
+
+  describe("custom backing store", () => {
+    it("should use provided backing store", async () => {
+      const backingStore: InMemoryFsBackingStore = new Map();
+      const fs = new InMemoryFs(undefined, backingStore);
+
+      await fs.writeFile("/test.txt", "hello");
+
+      // The backing store should contain the file
+      expect(backingStore.has("/test.txt")).toBe(true);
+      expect(backingStore.get("/test.txt")).toMatchObject({
+        type: "file",
+      });
+    });
+
+    it("should create root directory if not present in backing store", () => {
+      const backingStore: InMemoryFsBackingStore = new Map();
+      new InMemoryFs(undefined, backingStore);
+
+      expect(backingStore.has("/")).toBe(true);
+      expect(backingStore.get("/")).toMatchObject({
+        type: "directory",
+      });
+    });
+
+    it("should not overwrite existing root directory in backing store", () => {
+      const existingRoot = {
+        type: "directory" as const,
+        mode: 0o700,
+        mtime: new Date("2020-01-01"),
+      };
+      const backingStore: InMemoryFsBackingStore = new Map([["/", existingRoot]]);
+
+      new InMemoryFs(undefined, backingStore);
+
+      expect(backingStore.get("/")).toBe(existingRoot);
+      expect(backingStore.get("/")?.mode).toBe(0o700);
+    });
+
+    it("should allow sharing backing store between instances", async () => {
+      const backingStore: InMemoryFsBackingStore = new Map();
+      const fs1 = new InMemoryFs(undefined, backingStore);
+      const fs2 = new InMemoryFs(undefined, backingStore);
+
+      await fs1.writeFile("/shared.txt", "from fs1");
+
+      // fs2 should see the file written by fs1
+      const content = await fs2.readFile("/shared.txt");
+      expect(content).toBe("from fs1");
+    });
+
+    it("should work with initial files and backing store", async () => {
+      const backingStore: InMemoryFsBackingStore = new Map();
+      const fs = new InMemoryFs({ "/initial.txt": "initial content" }, backingStore);
+
+      expect(backingStore.has("/initial.txt")).toBe(true);
+      const content = await fs.readFile("/initial.txt");
+      expect(content).toBe("initial content");
+    });
+
+    it("should use pre-populated backing store", async () => {
+      const backingStore: InMemoryFsBackingStore = new Map([
+        ["/", { type: "directory", mode: 0o755, mtime: new Date() }],
+        ["/existing.txt", { type: "file", content: new TextEncoder().encode("pre-existing"), mode: 0o644, mtime: new Date() }],
+      ]);
+
+      const fs = new InMemoryFs(undefined, backingStore);
+
+      const content = await fs.readFile("/existing.txt");
+      expect(content).toBe("pre-existing");
     });
   });
 });

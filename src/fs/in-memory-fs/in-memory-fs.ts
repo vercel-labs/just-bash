@@ -34,6 +34,12 @@ export interface FsData {
   [path: string]: FsEntry;
 }
 
+/**
+ * The backing store type for InMemoryFs.
+ * You can provide your own Map instance to the constructor.
+ */
+export type InMemoryFsBackingStore = Map<string, FsEntry>;
+
 // Text encoder for legacy string content conversion
 const textEncoder = new TextEncoder();
 
@@ -60,11 +66,21 @@ function validatePath(path: string, operation: string): void {
 }
 
 export class InMemoryFs implements IFileSystem {
-  private data: Map<string, FsEntry> = new Map();
+  private data: Map<string, FsEntry>;
 
-  constructor(initialFiles?: InitialFiles) {
-    // Create root directory
-    this.data.set("/", { type: "directory", mode: 0o755, mtime: new Date() });
+  /**
+   * Create a new InMemoryFs instance.
+   * @param initialFiles - Optional initial files to populate the filesystem
+   * @param backingStore - Optional Map to use as the backing store. If provided,
+   *                       the root directory will only be created if it doesn't exist.
+   */
+  constructor(initialFiles?: InitialFiles, backingStore?: InMemoryFsBackingStore) {
+    this.data = backingStore ?? new Map();
+
+    // Create root directory if it doesn't exist
+    if (!this.data.has("/")) {
+      this.data.set("/", { type: "directory", mode: 0o755, mtime: new Date() });
+    }
 
     if (initialFiles) {
       for (const [path, value] of Object.entries(initialFiles)) {
