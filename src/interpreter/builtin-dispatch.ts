@@ -421,6 +421,7 @@ export async function executeExternalCommand(
     limits: ctx.limits,
     exec: ctx.execFn,
     fetch: ctx.fetch,
+    connectPostgres: ctx.connectPostgres,
     getRegisteredCommands: () => Array.from(ctx.commands.keys()),
     sleep: ctx.sleep,
     trace: ctx.trace,
