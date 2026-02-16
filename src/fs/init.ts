@@ -15,6 +15,10 @@ import type { IFileSystem } from "./interface.js";
 interface SyncInitFs {
   mkdirSync(path: string, options?: { recursive?: boolean }): void;
   writeFileSync(path: string, content: string | Uint8Array): void;
+  writeFileLazy?(
+    path: string,
+    lazy: () => string | Uint8Array | Promise<string | Uint8Array>,
+  ): void;
 }
 
 /**
@@ -71,7 +75,11 @@ function initProcFiles(fs: SyncInitFs): void {
   fs.writeFileSync("/proc/self/exe", "/bin/bash");
   fs.writeFileSync("/proc/self/cmdline", "bash\0");
   fs.writeFileSync("/proc/self/comm", "bash\n");
-  fs.writeFileSync("/proc/self/status", formatProcStatus());
+  if (fs.writeFileLazy) {
+    fs.writeFileLazy("/proc/self/status", formatProcStatus);
+  } else {
+    fs.writeFileSync("/proc/self/status", formatProcStatus());
+  }
 
   // File descriptors
   fs.writeFileSync("/proc/self/fd/0", "/dev/stdin");

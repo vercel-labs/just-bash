@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { InMemoryFs } from "./in-memory-fs.js";
 
 describe("InMemoryFs Buffer and Encoding Support", () => {
@@ -308,5 +308,155 @@ describe("InMemoryFs readdirWithFileTypes", () => {
     const namesFromWithTypes = entriesWithTypes.map((e) => e.name);
 
     expect(namesFromWithTypes).toEqual(namesFromReaddir);
+  });
+});
+
+describe("InMemoryFs lazy files", () => {
+  it("should read lazy file content", async () => {
+    const fs = new InMemoryFs({
+      "/lazy.txt": () => "lazy content",
+    });
+
+    const result = await fs.readFile("/lazy.txt");
+    expect(result).toBe("lazy content");
+  });
+
+  it("should call the lazy function only once", async () => {
+    const provider = vi.fn(() => "computed");
+    const fs = new InMemoryFs({
+      "/lazy.txt": provider,
+    });
+
+    await fs.readFile("/lazy.txt");
+    await fs.readFile("/lazy.txt");
+    await fs.readFile("/lazy.txt");
+
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+
+  it("should return Uint8Array from lazy provider", async () => {
+    const data = new Uint8Array([0x48, 0x69]);
+    const fs = new InMemoryFs({
+      "/lazy.bin": () => data,
+    });
+
+    const result = await fs.readFileBuffer("/lazy.bin");
+    expect(result).toEqual(data);
+  });
+
+  it("should replace lazy entry when written to", async () => {
+    const provider = vi.fn(() => "original");
+    const fs = new InMemoryFs({
+      "/lazy.txt": provider,
+    });
+
+    await fs.writeFile("/lazy.txt", "overwritten");
+    const result = await fs.readFile("/lazy.txt");
+
+    expect(result).toBe("overwritten");
+    expect(provider).not.toHaveBeenCalled();
+  });
+
+  it("should materialize on stat and return correct size", async () => {
+    const fs = new InMemoryFs({
+      "/lazy.txt": () => "hello",
+    });
+
+    const stat = await fs.stat("/lazy.txt");
+    expect(stat.isFile).toBe(true);
+    expect(stat.size).toBe(5);
+  });
+
+  it("should materialize on lstat and return correct size", async () => {
+    const fs = new InMemoryFs({
+      "/lazy.txt": () => "hello",
+    });
+
+    const stat = await fs.lstat("/lazy.txt");
+    expect(stat.isFile).toBe(true);
+    expect(stat.size).toBe(5);
+  });
+
+  it("should handle appendFile on lazy file", async () => {
+    const fs = new InMemoryFs({
+      "/lazy.txt": () => "hello",
+    });
+
+    await fs.appendFile("/lazy.txt", " world");
+    const result = await fs.readFile("/lazy.txt");
+    expect(result).toBe("hello world");
+  });
+
+  it("should work via writeFileLazy", async () => {
+    const fs = new InMemoryFs();
+    fs.writeFileLazy("/dynamic.txt", () => "dynamic content");
+
+    const result = await fs.readFile("/dynamic.txt");
+    expect(result).toBe("dynamic content");
+  });
+
+  it("should copy lazy files via cp", async () => {
+    const provider = vi.fn(() => "lazy data");
+    const fs = new InMemoryFs({
+      "/src.txt": provider,
+    });
+
+    await fs.cp("/src.txt", "/dst.txt");
+
+    // Neither copy has been read yet
+    expect(provider).not.toHaveBeenCalled();
+
+    const result = await fs.readFile("/dst.txt");
+    expect(result).toBe("lazy data");
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+
+  it("should show lazy file in exists check", async () => {
+    const fs = new InMemoryFs({
+      "/lazy.txt": () => "exists",
+    });
+
+    expect(await fs.exists("/lazy.txt")).toBe(true);
+  });
+
+  it("should show lazy file in readdir", async () => {
+    const fs = new InMemoryFs({
+      "/dir/lazy.txt": () => "content",
+      "/dir/eager.txt": "content",
+    });
+
+    const entries = await fs.readdir("/dir");
+    expect(entries).toContain("lazy.txt");
+    expect(entries).toContain("eager.txt");
+  });
+
+  it("should support async lazy providers", async () => {
+    const fs = new InMemoryFs({
+      "/async.txt": async () => "async content",
+    });
+
+    const result = await fs.readFile("/async.txt");
+    expect(result).toBe("async content");
+  });
+
+  it("should support async lazy provider returning Uint8Array", async () => {
+    const data = new Uint8Array([0x41, 0x42]);
+    const fs = new InMemoryFs({
+      "/async.bin": async () => data,
+    });
+
+    const result = await fs.readFileBuffer("/async.bin");
+    expect(result).toEqual(data);
+  });
+
+  it("should call async lazy provider only once", async () => {
+    const provider = vi.fn(async () => "once");
+    const fs = new InMemoryFs({
+      "/async.txt": provider,
+    });
+
+    await fs.readFile("/async.txt");
+    await fs.readFile("/async.txt");
+    expect(provider).toHaveBeenCalledTimes(1);
   });
 });

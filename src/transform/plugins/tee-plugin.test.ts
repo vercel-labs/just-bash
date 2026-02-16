@@ -169,9 +169,7 @@ describe("TeePlugin exec", () => {
     bash.registerTransformPlugin(
       new TeePlugin({ outputDir: "/tmp/logs", timestamp: FIXED_DATE }),
     );
-    const result = await bash.exec(
-      "cat /data/words.txt | grep ^a | sort",
-    );
+    const result = await bash.exec("cat /data/words.txt | grep ^a | sort");
     expect(result.stdout).toBe("apple\napricot\navocado\n");
 
     const meta = result.metadata as unknown as TeePluginMetadata;

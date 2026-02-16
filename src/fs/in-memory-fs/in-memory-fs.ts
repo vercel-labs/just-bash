@@ -11,6 +11,8 @@ import type {
   FsStat,
   IFileSystem,
   InitialFiles,
+  LazyFileEntry,
+  LazyFileProvider,
   MkdirOptions,
   ReadFileOptions,
   RmOptions,
@@ -23,6 +25,7 @@ export type {
   BufferEncoding,
   FileContent,
   FileEntry,
+  LazyFileEntry,
   DirectoryEntry,
   SymlinkEntry,
   FsEntry,
@@ -40,7 +43,9 @@ const textEncoder = new TextEncoder();
 /**
  * Type guard to check if a value is a FileInit object
  */
-function isFileInit(value: FileContent | FileInit): value is FileInit {
+function isFileInit(
+  value: FileContent | FileInit | LazyFileProvider,
+): value is FileInit {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -68,7 +73,10 @@ export class InMemoryFs implements IFileSystem {
 
     if (initialFiles) {
       for (const [path, value] of Object.entries(initialFiles)) {
-        if (isFileInit(value)) {
+        if (typeof value === "function") {
+          // Lazy file - store provider function, called on first read
+          this.writeFileLazy(path, value);
+        } else if (isFileInit(value)) {
           // Extended init with metadata
           this.writeFileSync(path, value.content, undefined, {
             mode: value.mode,
@@ -150,6 +158,48 @@ export class InMemoryFs implements IFileSystem {
     });
   }
 
+  /**
+   * Store a lazy file entry whose content is provided by a function on first read.
+   * Writing to the path replaces the lazy entry, so the function is never called.
+   */
+  writeFileLazy(
+    path: string,
+    lazy: () => string | Uint8Array | Promise<string | Uint8Array>,
+    metadata?: { mode?: number; mtime?: Date },
+  ): void {
+    validatePath(path, "write");
+    const normalized = this.normalizePath(path);
+    this.ensureParentDirs(normalized);
+
+    this.data.set(normalized, {
+      type: "file",
+      lazy,
+      mode: metadata?.mode ?? 0o644,
+      mtime: metadata?.mtime ?? new Date(),
+    });
+  }
+
+  /**
+   * Materialize a lazy file entry, replacing it with a concrete FileEntry.
+   * Returns the materialized FileEntry.
+   */
+  private async materializeLazy(
+    path: string,
+    entry: LazyFileEntry,
+  ): Promise<FileEntry> {
+    const content = await entry.lazy();
+    const buffer =
+      typeof content === "string" ? textEncoder.encode(content) : content;
+    const materialized: FileEntry = {
+      type: "file",
+      content: buffer,
+      mode: entry.mode,
+      mtime: entry.mtime,
+    };
+    this.data.set(path, materialized);
+    return materialized;
+  }
+
   // Async public API
   async readFile(
     path: string,
@@ -173,6 +223,14 @@ export class InMemoryFs implements IFileSystem {
       throw new Error(
         `EISDIR: illegal operation on a directory, read '${path}'`,
       );
+    }
+
+    // Materialize lazy files on first read
+    if ("lazy" in entry) {
+      const materialized = await this.materializeLazy(resolvedPath, entry);
+      return materialized.content instanceof Uint8Array
+        ? materialized.content
+        : textEncoder.encode(materialized.content);
     }
 
     // Return content as Uint8Array
@@ -210,11 +268,19 @@ export class InMemoryFs implements IFileSystem {
     const newBuffer = toBuffer(content, encoding);
 
     if (existing?.type === "file") {
+      // Materialize lazy files before appending
+      let materialized = existing;
+      if ("lazy" in materialized) {
+        materialized = await this.materializeLazy(normalized, materialized);
+      }
+
       // Get existing content as buffer
       const existingBuffer =
-        existing.content instanceof Uint8Array
-          ? existing.content
-          : textEncoder.encode(existing.content);
+        "content" in materialized && materialized.content instanceof Uint8Array
+          ? materialized.content
+          : textEncoder.encode(
+              "content" in materialized ? (materialized.content as string) : "",
+            );
 
       // Concatenate buffers
       const combined = new Uint8Array(existingBuffer.length + newBuffer.length);
@@ -224,7 +290,7 @@ export class InMemoryFs implements IFileSystem {
       this.data.set(normalized, {
         type: "file",
         content: combined,
-        mode: existing.mode,
+        mode: materialized.mode,
         mtime: new Date(),
       });
     } else {
@@ -249,15 +315,20 @@ export class InMemoryFs implements IFileSystem {
     validatePath(path, "stat");
     // Resolve all symlinks in the path (including intermediate components)
     const resolvedPath = this.resolvePathWithSymlinks(path);
-    const entry = this.data.get(resolvedPath);
+    let entry = this.data.get(resolvedPath);
 
     if (!entry) {
       throw new Error(`ENOENT: no such file or directory, stat '${path}'`);
     }
 
+    // Materialize lazy files to get accurate size
+    if (entry.type === "file" && "lazy" in entry) {
+      entry = await this.materializeLazy(resolvedPath, entry);
+    }
+
     // Calculate size: for files, it's the byte length; for directories, it's 0
     let size = 0;
-    if (entry.type === "file" && entry.content) {
+    if (entry.type === "file" && "content" in entry && entry.content) {
       if (entry.content instanceof Uint8Array) {
         size = entry.content.length;
       } else {
@@ -280,7 +351,7 @@ export class InMemoryFs implements IFileSystem {
     validatePath(path, "lstat");
     // Resolve intermediate symlinks but NOT the final component
     const resolvedPath = this.resolveIntermediateSymlinks(path);
-    const entry = this.data.get(resolvedPath);
+    let entry = this.data.get(resolvedPath);
 
     if (!entry) {
       throw new Error(`ENOENT: no such file or directory, lstat '${path}'`);
@@ -298,9 +369,14 @@ export class InMemoryFs implements IFileSystem {
       };
     }
 
+    // Materialize lazy files to get accurate size
+    if (entry.type === "file" && "lazy" in entry) {
+      entry = await this.materializeLazy(resolvedPath, entry);
+    }
+
     // Calculate size: for files, it's the byte length; for directories, it's 0
     let size = 0;
-    if (entry.type === "file" && entry.content) {
+    if (entry.type === "file" && "content" in entry && entry.content) {
       if (entry.content instanceof Uint8Array) {
         size = entry.content.length;
       } else {
@@ -647,14 +723,20 @@ export class InMemoryFs implements IFileSystem {
       throw new Error(`EEXIST: file already exists, link '${newPath}'`);
     }
 
+    // Materialize lazy files before creating a hard link
+    let resolved = entry;
+    if ("lazy" in resolved) {
+      resolved = await this.materializeLazy(existingNorm, resolved);
+    }
+
     this.ensureParentDirs(newNorm);
     // For hard links, we create a copy (simulating inode sharing)
     // In a real fs, they'd share the same inode
     this.data.set(newNorm, {
       type: "file",
-      content: entry.content,
-      mode: entry.mode,
-      mtime: entry.mtime,
+      content: (resolved as FileEntry).content,
+      mode: resolved.mode,
+      mtime: resolved.mtime,
     });
   }
 

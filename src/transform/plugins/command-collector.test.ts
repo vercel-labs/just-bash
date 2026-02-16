@@ -41,7 +41,7 @@ describe("CommandCollectorPlugin exec", () => {
     const bash = new Bash();
     bash.registerTransformPlugin(new CommandCollectorPlugin());
     const result = await bash.exec(
-      'x=a; case $x in a) echo matched;; b) printf nope;; esac',
+      "x=a; case $x in a) echo matched;; b) printf nope;; esac",
     );
     expect(result.stdout).toBe("matched\n");
     expect(result.metadata).toEqual({ commands: ["echo", "printf"] });

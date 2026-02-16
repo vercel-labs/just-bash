@@ -52,7 +52,14 @@ export interface SymlinkEntry {
   mtime: Date;
 }
 
-export type FsEntry = FileEntry | DirectoryEntry | SymlinkEntry;
+export interface LazyFileEntry {
+  type: "file";
+  lazy: () => string | Uint8Array | Promise<string | Uint8Array>;
+  mode: number;
+  mtime: Date;
+}
+
+export type FsEntry = FileEntry | LazyFileEntry | DirectoryEntry | SymlinkEntry;
 
 /**
  * Directory entry with type information (similar to Node's Dirent)
@@ -264,9 +271,20 @@ export interface FileInit {
 }
 
 /**
- * Initial files can be simple content or extended options with metadata
+ * Lazy file provider - a function whose return value becomes the file content on first read
  */
-export type InitialFiles = Record<string, FileContent | FileInit>;
+export type LazyFileProvider = () =>
+  | string
+  | Uint8Array
+  | Promise<string | Uint8Array>;
+
+/**
+ * Initial files can be simple content, extended options with metadata, or lazy providers
+ */
+export type InitialFiles = Record<
+  string,
+  FileContent | FileInit | LazyFileProvider
+>;
 
 /**
  * Factory function type for creating filesystem instances

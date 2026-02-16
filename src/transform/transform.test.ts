@@ -302,5 +302,4 @@ describe("transform", () => {
       expect(result.metadata).toEqual({ commands: ["echo"], custom: true });
     });
   });
-
 });
