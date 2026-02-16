@@ -35,6 +35,8 @@ export type {
   FsEntry,
   FsStat,
   InitialFiles,
+  LazyFileEntry,
+  LazyFileProvider,
   MkdirOptions,
   RmOptions,
   SymlinkEntry,

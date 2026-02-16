@@ -74,6 +74,22 @@ const env = new Bash({
 await env.exec("echo $TEMP", { env: { TEMP: "value" }, cwd: "/tmp" });
 ```
 
+#### Lazy Files
+
+File values can be functions (sync or async). The function is called on first read and the result is cached — if the file is written to before being read, the function is never called:
+
+```typescript
+const env = new Bash({
+  files: {
+    "/data/config.json": () => JSON.stringify({ key: "value" }),
+    "/data/remote.txt": async () => (await fetch("https://example.com")).text(),
+    "/data/static.txt": "always loaded",
+  },
+});
+```
+
+This is useful for large or expensive-to-compute content that may not be needed.
+
 ### Custom Commands
 
 Extend just-bash with your own TypeScript commands using `defineCommand`:
