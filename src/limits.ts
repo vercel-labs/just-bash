@@ -31,6 +31,9 @@ export interface ExecutionLimits {
   /** Maximum sqlite3 query execution time in milliseconds (default: 5000) */
   maxSqliteTimeoutMs?: number;
 
+  /** Maximum PostgreSQL query execution time in milliseconds (default: 5000) */
+  maxPostgresTimeoutMs?: number;
+
   /** Maximum Python execution time in milliseconds (default: 30000) */
   maxPythonTimeoutMs?: number;
 
@@ -63,6 +66,7 @@ const DEFAULT_LIMITS: Required<ExecutionLimits> = {
   maxSedIterations: 10000,
   maxJqIterations: 10000,
   maxSqliteTimeoutMs: 5000,
+  maxPostgresTimeoutMs: 5000,
   maxPythonTimeoutMs: 30000,
   maxGlobOperations: 100000,
   maxStringLength: 10485760, // 10MB
@@ -94,6 +98,8 @@ export function resolveLimits(
       userLimits.maxJqIterations ?? DEFAULT_LIMITS.maxJqIterations,
     maxSqliteTimeoutMs:
       userLimits.maxSqliteTimeoutMs ?? DEFAULT_LIMITS.maxSqliteTimeoutMs,
+    maxPostgresTimeoutMs:
+      userLimits.maxPostgresTimeoutMs ?? DEFAULT_LIMITS.maxPostgresTimeoutMs,
     maxPythonTimeoutMs:
       userLimits.maxPythonTimeoutMs ?? DEFAULT_LIMITS.maxPythonTimeoutMs,
     maxGlobOperations:
