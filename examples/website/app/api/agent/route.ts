@@ -1,6 +1,6 @@
 import { ToolLoopAgent, createAgentUIStreamResponse, stepCountIs } from "ai";
 import { createBashTool } from "bash-tool";
-import { Bash, OverlayFs } from "just-bash";
+import { Bash, InMemoryFs, MountableFs, OverlayFs } from "just-bash";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
@@ -37,8 +37,13 @@ export async function POST(req: Request) {
   const { messages } = await req.json();
   const lastUserMessage = messages.filter((m: { role: string }) => m.role === "user").pop();
   console.log("Prompt:", lastUserMessage?.parts?.[0]?.text);
+  
   const overlayFs = new OverlayFs({ root: AGENT_DATA_DIR, readOnly: true });
-  const sandbox = new Bash({ fs: overlayFs, cwd: overlayFs.getMountPoint() });
+  const fs = new MountableFs({
+    base: overlayFs,
+  })
+  fs.mount("/tmp", new InMemoryFs());
+  const sandbox = new Bash({ fs, cwd: overlayFs.getMountPoint() });
   const bashToolkit = await createBashTool({
     sandbox,
     destination: overlayFs.getMountPoint(),
