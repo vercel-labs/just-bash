@@ -13,9 +13,9 @@
   "dependencies": {
     "@vercel/analytics": "^1.6.1",
     "ai": "^6.0.66",
-    "bash-tool": "^1.3.13",
+    "bash-tool": "^1.3.15",
     "geist": "^1.5.1",
-    "just-bash": "^2.9.5",
+    "just-bash": "^2.10.2",
     "next": "16.2.0-canary.26",
     "react": "19.2.3",
     "react-dom": "19.2.3"

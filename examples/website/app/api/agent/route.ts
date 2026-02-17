@@ -42,6 +42,7 @@ export async function POST(req: Request) {
   const bashToolkit = await createBashTool({
     sandbox,
     destination: overlayFs.getMountPoint(),
+    experimentalTeeTransform: true,
   });
 
   // Create a fresh agent per request for proper streaming
