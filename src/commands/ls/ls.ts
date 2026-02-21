@@ -1,4 +1,5 @@
 import { minimatch } from "minimatch";
+import type { FsStat } from "../../fs/interface.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
@@ -50,6 +51,14 @@ function formatDate(date: Date): string {
   return `${month} ${day}  ${year}`;
 }
 
+// Classify suffix for ls -F: / directory, @ symlink, * executable
+function classifySuffix(stat: FsStat): string {
+  if (stat.isDirectory) return "/";
+  if (stat.isSymbolicLink) return "@";
+  if ((stat.mode & 0o111) !== 0) return "*";
+  return "";
+}
+
 const lsHelp = {
   name: "ls",
   summary: "list directory contents",
@@ -58,6 +67,7 @@ const lsHelp = {
     "-a, --all            do not ignore entries starting with .",
     "-A, --almost-all     do not list . and ..",
     "-d, --directory      list directories themselves, not their contents",
+    "-F, --classify       append indicator (one of */=>@) to entries",
     "-h, --human-readable with -l, print sizes like 1K 234M 2G etc.",
     "-l                   use a long listing format",
     "-r, --reverse        reverse order while sorting",
@@ -81,6 +91,7 @@ const argDefs = {
   recursive: { short: "R", long: "recursive", type: "boolean" as const },
   reverse: { short: "r", long: "reverse", type: "boolean" as const },
   sortBySize: { short: "S", type: "boolean" as const },
+  classifyFiles: { short: "F", long: "classify", type: "boolean" as const },
   directoryOnly: { short: "d", long: "directory", type: "boolean" as const },
   sortByTime: { short: "t", type: "boolean" as const },
   onePerLine: { short: "1", type: "boolean" as const },
@@ -104,6 +115,7 @@ export const lsCommand: Command = {
     const recursive = parsed.result.flags.recursive;
     const reverse = parsed.result.flags.reverse;
     const sortBySize = parsed.result.flags.sortBySize;
+    const classifyFiles = parsed.result.flags.classifyFiles;
     const directoryOnly = parsed.result.flags.directoryOnly;
     const _sortByTime = parsed.result.flags.sortByTime;
     // Note: onePerLine is accepted but implicit in our output
@@ -134,16 +146,23 @@ export const lsCommand: Command = {
           const stat = await ctx.fs.stat(fullPath);
           if (longFormat) {
             const mode = stat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
-            const type = stat.isDirectory ? "/" : "";
+            const suffix = classifyFiles
+              ? classifySuffix(await ctx.fs.lstat(fullPath))
+              : stat.isDirectory
+                ? "/"
+                : "";
             const size = stat.size ?? 0;
             const sizeStr = humanReadable
               ? formatHumanSize(size).padStart(5)
               : String(size).padStart(5);
             const mtime = stat.mtime ?? new Date(0);
             const dateStr = formatDate(mtime);
-            stdout += `${mode} 1 user user ${sizeStr} ${dateStr} ${path}${type}\n`;
+            stdout += `${mode} 1 user user ${sizeStr} ${dateStr} ${path}${suffix}\n`;
           } else {
-            stdout += `${path}\n`;
+            const suffix = classifyFiles
+              ? classifySuffix(await ctx.fs.lstat(fullPath))
+              : "";
+            stdout += `${path}${suffix}\n`;
           }
         } catch {
           stderr += `ls: cannot access '${path}': No such file or directory\n`;
@@ -163,6 +182,7 @@ export const lsCommand: Command = {
           reverse,
           humanReadable,
           sortBySize,
+          classifyFiles,
         );
         stdout += result.stdout;
         stderr += result.stderr;
@@ -179,6 +199,7 @@ export const lsCommand: Command = {
           reverse,
           humanReadable,
           sortBySize,
+          classifyFiles,
         );
         stdout += result.stdout;
         stderr += result.stderr;
@@ -199,6 +220,7 @@ async function listGlob(
   reverse: boolean = false,
   humanReadable: boolean = false,
   sortBySize: boolean = false,
+  classifyFiles: boolean = false,
 ): Promise<ExecResult> {
   const showHidden = showAll || showAlmostAll;
   const allPaths = ctx.fs.getAllPaths();
@@ -257,19 +279,39 @@ async function listGlob(
       try {
         const stat = await ctx.fs.stat(fullPath);
         const mode = stat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
-        const type = stat.isDirectory ? "/" : "";
+        const suffix = classifyFiles
+          ? classifySuffix(await ctx.fs.lstat(fullPath))
+          : stat.isDirectory
+            ? "/"
+            : "";
         const size = stat.size ?? 0;
         const sizeStr = humanReadable
           ? formatHumanSize(size).padStart(5)
           : String(size).padStart(5);
         const mtime = stat.mtime ?? new Date(0);
         const dateStr = formatDate(mtime);
-        lines.push(`${mode} 1 user user ${sizeStr} ${dateStr} ${match}${type}`);
+        lines.push(
+          `${mode} 1 user user ${sizeStr} ${dateStr} ${match}${suffix}`,
+        );
       } catch {
         lines.push(`-rw-r--r-- 1 user user     0 Jan  1 00:00 ${match}`);
       }
     }
     return { stdout: `${lines.join("\n")}\n`, stderr: "", exitCode: 0 };
+  }
+
+  if (classifyFiles) {
+    const classified: string[] = [];
+    for (const match of matches) {
+      const fullPath = ctx.fs.resolvePath(ctx.cwd, match);
+      try {
+        const stat = await ctx.fs.lstat(fullPath);
+        classified.push(`${match}${classifySuffix(stat)}`);
+      } catch {
+        classified.push(match);
+      }
+    }
+    return { stdout: `${classified.join("\n")}\n`, stderr: "", exitCode: 0 };
   }
 
   return { stdout: `${matches.join("\n")}\n`, stderr: "", exitCode: 0 };
@@ -286,6 +328,7 @@ async function listPath(
   reverse: boolean = false,
   humanReadable: boolean = false,
   sortBySize: boolean = false,
+  classifyFiles: boolean = false,
   _isSubdir: boolean = false,
 ): Promise<ExecResult> {
   const showHidden = showAll || showAlmostAll;
@@ -296,6 +339,9 @@ async function listPath(
 
     if (!stat.isDirectory) {
       // It's a file, just show it
+      const fileSuffix = classifyFiles
+        ? classifySuffix(await ctx.fs.lstat(fullPath))
+        : "";
       if (longFormat) {
         const size = stat.size ?? 0;
         const sizeStr = humanReadable
@@ -304,12 +350,12 @@ async function listPath(
         const mtime = stat.mtime ?? new Date(0);
         const dateStr = formatDate(mtime);
         return {
-          stdout: `-rw-r--r-- 1 user user ${sizeStr} ${dateStr} ${path}\n`,
+          stdout: `-rw-r--r-- 1 user user ${sizeStr} ${dateStr} ${path}${fileSuffix}\n`,
           stderr: "",
           exitCode: 0,
         };
       }
-      return { stdout: `${path}\n`, stderr: "", exitCode: 0 };
+      return { stdout: `${path}${fileSuffix}\n`, stderr: "", exitCode: 0 };
     }
 
     // It's a directory
@@ -387,7 +433,11 @@ async function listPath(
             try {
               const entryStat = await ctx.fs.stat(entryPath);
               const mode = entryStat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
-              const suffix = entryStat.isDirectory ? "/" : "";
+              const suffix = classifyFiles
+                ? classifySuffix(await ctx.fs.lstat(entryPath))
+                : entryStat.isDirectory
+                  ? "/"
+                  : "";
               const size = entryStat.size ?? 0;
               const sizeStr = humanReadable
                 ? formatHumanSize(size).padStart(5)
@@ -418,6 +468,34 @@ async function listPath(
       for (const { line } of entryStats) {
         stdout += line;
       }
+    } else if (classifyFiles) {
+      // Classify each entry with type suffix
+      const classified: string[] = [];
+      const regularEntries = entries.filter((e) => e !== "." && e !== "..");
+      const specialEntries = entries.filter((e) => e === "." || e === "..");
+
+      for (const entry of specialEntries) {
+        classified.push(`${entry}/`);
+      }
+
+      for (let i = 0; i < regularEntries.length; i += DEFAULT_BATCH_SIZE) {
+        const batch = regularEntries.slice(i, i + DEFAULT_BATCH_SIZE);
+        const batchResults = await Promise.all(
+          batch.map(async (entry) => {
+            const entryPath =
+              fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
+            try {
+              const entryStat = await ctx.fs.lstat(entryPath);
+              return `${entry}${classifySuffix(entryStat)}`;
+            } catch {
+              return entry;
+            }
+          }),
+        );
+        classified.push(...batchResults);
+      }
+
+      stdout += classified.join("\n") + (classified.length ? "\n" : "");
     } else {
       stdout += entries.join("\n") + (entries.length ? "\n" : "");
     }
@@ -481,6 +559,7 @@ async function listPath(
               reverse,
               humanReadable,
               sortBySize,
+              classifyFiles,
               true,
             );
             return { name: dir.name, result };
@@ -524,6 +603,7 @@ export const flagsForFuzzing: CommandFuzzInfo = {
     { flag: "-R", type: "boolean" },
     { flag: "-r", type: "boolean" },
     { flag: "-S", type: "boolean" },
+    { flag: "-F", type: "boolean" },
     { flag: "-d", type: "boolean" },
     { flag: "-t", type: "boolean" },
     { flag: "-1", type: "boolean" },

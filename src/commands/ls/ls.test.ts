@@ -209,6 +209,122 @@ describe("ls", () => {
     });
   });
 
+  describe("-F flag (classify)", () => {
+    it("should append / to directories", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/subdir/file.txt": "",
+          "/dir/regular.txt": "",
+        },
+      });
+      const result = await env.exec("ls -F /dir");
+      expect(result.stdout).toBe("regular.txt\nsubdir/\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should append * to executable files", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/script.sh": { content: "#!/bin/bash", mode: 0o755 },
+          "/dir/data.txt": "",
+        },
+      });
+      const result = await env.exec("ls -F /dir");
+      expect(result.stdout).toBe("data.txt\nscript.sh*\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should append @ to symlinks", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/target.txt": "content",
+        },
+      });
+      await env.exec("ln -s /dir/target.txt /dir/link");
+      const result = await env.exec("ls -F /dir");
+      expect(result.stdout).toBe("link@\ntarget.txt\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should append @ to symlinks pointing to directories", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/realdir/file.txt": "",
+        },
+      });
+      await env.exec("ln -s /dir/realdir /dir/linkdir");
+      const result = await env.exec("ls -F /dir");
+      expect(result.stdout).toBe("linkdir@\nrealdir/\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should show directory mode for symlinks to directories in long format", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/realdir/file.txt": "",
+        },
+      });
+      await env.exec("ln -s /dir/realdir /dir/linkdir");
+      const result = await env.exec("ls -lF /dir");
+      const lines = result.stdout.split("\n").filter((l) => l);
+      expect(lines[0]).toBe("total 2");
+      // symlink to dir should show drwxr-xr-x mode but @ suffix
+      expect(lines[1]).toMatch(/^drwxr-xr-x.*linkdir@$/);
+      // real directory should show drwxr-xr-x mode with / suffix
+      expect(lines[2]).toMatch(/^drwxr-xr-x.*realdir\/$/);
+    });
+
+    it("should work with -l flag", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/subdir/file.txt": "",
+          "/dir/script.sh": { content: "#!/bin/bash", mode: 0o755 },
+          "/dir/regular.txt": "",
+        },
+      });
+      const result = await env.exec("ls -lF /dir");
+      const lines = result.stdout.split("\n").filter((l) => l);
+      expect(lines[0]).toBe("total 3");
+      expect(lines[1]).toMatch(/regular\.txt$/);
+      expect(lines[2]).toMatch(/script\.sh\*$/);
+      expect(lines[3]).toMatch(/subdir\/$/);
+    });
+
+    it("should work with -a flag", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/.hidden": "",
+          "/dir/subdir/file.txt": "",
+        },
+      });
+      const result = await env.exec("ls -aF /dir");
+      expect(result.stdout).toBe("./\n../\n.hidden\nsubdir/\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should work with single file argument", async () => {
+      const env = new Bash({
+        files: {
+          "/script.sh": { content: "#!/bin/bash", mode: 0o755 },
+        },
+      });
+      const result = await env.exec("ls -F /script.sh");
+      expect(result.stdout).toBe("/script.sh*\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should work with -d flag on directory", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/file.txt": "",
+        },
+      });
+      const result = await env.exec("ls -dF /dir");
+      expect(result.stdout).toBe("/dir/\n");
+      expect(result.stderr).toBe("");
+    });
+  });
+
   describe("-r flag (reverse)", () => {
     it("should reverse sort order", async () => {
       const env = new Bash({
