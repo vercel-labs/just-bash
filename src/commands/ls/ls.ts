@@ -143,11 +143,11 @@ export const lsCommand: Command = {
       if (directoryOnly) {
         const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
         try {
-          const stat = await ctx.fs.lstat(fullPath);
+          const stat = await ctx.fs.stat(fullPath);
           if (longFormat) {
             const mode = stat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
             const suffix = classifyFiles
-              ? classifySuffix(stat)
+              ? classifySuffix(await ctx.fs.lstat(fullPath))
               : stat.isDirectory
                 ? "/"
                 : "";
@@ -159,7 +159,9 @@ export const lsCommand: Command = {
             const dateStr = formatDate(mtime);
             stdout += `${mode} 1 user user ${sizeStr} ${dateStr} ${path}${suffix}\n`;
           } else {
-            const suffix = classifyFiles ? classifySuffix(stat) : "";
+            const suffix = classifyFiles
+              ? classifySuffix(await ctx.fs.lstat(fullPath))
+              : "";
             stdout += `${path}${suffix}\n`;
           }
         } catch {
@@ -275,10 +277,10 @@ async function listGlob(
     for (const match of matches) {
       const fullPath = ctx.fs.resolvePath(ctx.cwd, match);
       try {
-        const stat = await ctx.fs.lstat(fullPath);
+        const stat = await ctx.fs.stat(fullPath);
         const mode = stat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
         const suffix = classifyFiles
-          ? classifySuffix(stat)
+          ? classifySuffix(await ctx.fs.lstat(fullPath))
           : stat.isDirectory
             ? "/"
             : "";
@@ -429,10 +431,10 @@ async function listPath(
             const entryPath =
               fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
             try {
-              const entryStat = await ctx.fs.lstat(entryPath);
+              const entryStat = await ctx.fs.stat(entryPath);
               const mode = entryStat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
               const suffix = classifyFiles
-                ? classifySuffix(entryStat)
+                ? classifySuffix(await ctx.fs.lstat(entryPath))
                 : entryStat.isDirectory
                   ? "/"
                   : "";

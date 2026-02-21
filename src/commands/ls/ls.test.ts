@@ -246,6 +246,34 @@ describe("ls", () => {
       expect(result.stderr).toBe("");
     });
 
+    it("should append @ to symlinks pointing to directories", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/realdir/file.txt": "",
+        },
+      });
+      await env.exec("ln -s /dir/realdir /dir/linkdir");
+      const result = await env.exec("ls -F /dir");
+      expect(result.stdout).toBe("linkdir@\nrealdir/\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should show directory mode for symlinks to directories in long format", async () => {
+      const env = new Bash({
+        files: {
+          "/dir/realdir/file.txt": "",
+        },
+      });
+      await env.exec("ln -s /dir/realdir /dir/linkdir");
+      const result = await env.exec("ls -lF /dir");
+      const lines = result.stdout.split("\n").filter((l) => l);
+      expect(lines[0]).toBe("total 2");
+      // symlink to dir should show drwxr-xr-x mode but @ suffix
+      expect(lines[1]).toMatch(/^drwxr-xr-x.*linkdir@$/);
+      // real directory should show drwxr-xr-x mode with / suffix
+      expect(lines[2]).toMatch(/^drwxr-xr-x.*realdir\/$/);
+    });
+
     it("should work with -l flag", async () => {
       const env = new Bash({
         files: {
