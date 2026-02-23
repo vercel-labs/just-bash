@@ -11,6 +11,7 @@
 import type { FunctionDefNode } from "./ast/types.js";
 import {
   type CommandName,
+  createJavaScriptCommands,
   createLazyCommands,
   createNetworkCommands,
   createPythonCommands,
@@ -78,6 +79,11 @@ export interface BashLogger {
   debug(message: string, data?: Record<string, unknown>): void;
 }
 
+export interface JavaScriptConfig {
+  /** Bootstrap JavaScript code to run before user scripts */
+  bootstrap?: string;
+}
+
 export interface BashOptions {
   files?: InitialFiles;
   env?: Record<string, string>;
@@ -111,6 +117,11 @@ export interface BashOptions {
    * (arbitrary code execution via pyodide).
    */
   python?: boolean;
+  /**
+   * Enable js-exec command for sandboxed JavaScript execution via QuickJS.
+   * Disabled by default. Can be a boolean or a config object with bootstrap code.
+   */
+  javascript?: boolean | JavaScriptConfig;
   /**
    * Optional list of command names to register.
    * If not provided, all built-in commands are available.
@@ -380,6 +391,19 @@ export class Bash {
     if (options.python) {
       for (const cmd of createPythonCommands()) {
         this.registerCommand(cmd);
+      }
+    }
+
+    // Register javascript commands only when explicitly enabled
+    if (options.javascript) {
+      for (const cmd of createJavaScriptCommands()) {
+        this.registerCommand(cmd);
+      }
+      // Store bootstrap code in env for the worker to pick up
+      const jsConfig =
+        typeof options.javascript === "object" ? options.javascript : {};
+      if (jsConfig.bootstrap) {
+        this.state.env.set("__JSEXEC_BOOTSTRAP__", jsConfig.bootstrap);
       }
     }
 

@@ -1,12 +1,13 @@
 /**
- * Main thread filesystem bridge handler
+ * Main thread bridge handler
  *
- * Runs on the main thread and processes filesystem requests from the worker thread.
- * Uses SharedArrayBuffer + Atomics for synchronization.
+ * Runs on the main thread and processes filesystem, I/O, HTTP, and exec
+ * requests from a worker thread via SharedArrayBuffer + Atomics.
  */
 
 import type { IFileSystem } from "../../fs/interface.js";
 import type { SecureFetch } from "../../network/fetch.js";
+import type { CommandExecOptions, ExecResult } from "../../types.js";
 import {
   ErrorCode,
   type ErrorCodeType,
@@ -17,25 +18,29 @@ import {
   Status,
 } from "./protocol.js";
 
-export interface FsBridgeOutput {
+export interface BridgeOutput {
   stdout: string;
   stderr: string;
   exitCode: number;
 }
 
 /**
- * Handles filesystem requests from the worker thread.
+ * Handles requests from a worker thread.
  */
-export class FsBridgeHandler {
+export class BridgeHandler {
   private protocol: ProtocolBuffer;
   private running = false;
-  private output: FsBridgeOutput = { stdout: "", stderr: "", exitCode: 0 };
+  private output: BridgeOutput = { stdout: "", stderr: "", exitCode: 0 };
 
   constructor(
     sharedBuffer: SharedArrayBuffer,
     private fs: IFileSystem,
     private cwd: string,
+    private commandName: string,
     private secureFetch: SecureFetch | undefined = undefined,
+    private exec:
+      | ((command: string, options: CommandExecOptions) => Promise<ExecResult>)
+      | undefined = undefined,
   ) {
     this.protocol = new ProtocolBuffer(sharedBuffer);
   }
@@ -43,14 +48,14 @@ export class FsBridgeHandler {
   /**
    * Run the handler loop until EXIT operation or timeout.
    */
-  async run(timeoutMs: number): Promise<FsBridgeOutput> {
+  async run(timeoutMs: number): Promise<BridgeOutput> {
     this.running = true;
     const startTime = Date.now();
 
     while (this.running) {
       const elapsed = Date.now() - startTime;
       if (elapsed >= timeoutMs) {
-        this.output.stderr += "\npython3: execution timeout exceeded\n";
+        this.output.stderr += `\n${this.commandName}: execution timeout exceeded\n`;
         this.output.exitCode = 124;
         break;
       }
@@ -59,7 +64,7 @@ export class FsBridgeHandler {
       const remainingMs = timeoutMs - elapsed;
       const ready = await this.protocol.waitUntilReady(remainingMs);
       if (!ready) {
-        this.output.stderr += "\npython3: execution timeout exceeded\n";
+        this.output.stderr += `\n${this.commandName}: execution timeout exceeded\n`;
         this.output.exitCode = 124;
         break;
       }
@@ -132,6 +137,9 @@ export class FsBridgeHandler {
           break;
         case OpCode.HTTP_REQUEST:
           await this.handleHttpRequest();
+          break;
+        case OpCode.EXEC_COMMAND:
+          await this.handleExecCommand();
           break;
         default:
           this.protocol.setErrorCode(ErrorCode.IO_ERROR);
@@ -352,6 +360,45 @@ export class FsBridgeHandler {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       this.protocol.setErrorCode(ErrorCode.NETWORK_ERROR);
+      this.protocol.setResultFromString(message);
+      this.protocol.setStatus(Status.ERROR);
+    }
+  }
+
+  private async handleExecCommand(): Promise<void> {
+    if (!this.exec) {
+      this.protocol.setErrorCode(ErrorCode.IO_ERROR);
+      this.protocol.setResultFromString(
+        "Command execution not available in this context.",
+      );
+      this.protocol.setStatus(Status.ERROR);
+      return;
+    }
+
+    const command = this.protocol.getPath();
+    const dataStr = this.protocol.getDataAsString();
+
+    try {
+      const options: CommandExecOptions = { cwd: this.cwd };
+      if (dataStr) {
+        const parsed = JSON.parse(dataStr);
+        if (parsed.stdin) {
+          options.stdin = parsed.stdin;
+        }
+      }
+
+      const result = await this.exec(command, options);
+
+      const response = JSON.stringify({
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: result.exitCode,
+      });
+      this.protocol.setResultFromString(response);
+      this.protocol.setStatus(Status.SUCCESS);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      this.protocol.setErrorCode(ErrorCode.IO_ERROR);
       this.protocol.setResultFromString(message);
       this.protocol.setStatus(Status.ERROR);
     }

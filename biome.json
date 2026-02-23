@@ -59,7 +59,8 @@
       "!**/*.parsed.json",
       "!.claude",
       "!.pnpm-store",
-      "!src/commands/python3/worker.js"
+      "!src/commands/python3/worker.js",
+      "!src/commands/js-exec/worker.js"
     ]
   }
 }

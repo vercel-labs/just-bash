@@ -1,8 +1,8 @@
 /**
- * SharedArrayBuffer protocol for synchronous filesystem bridge
+ * SharedArrayBuffer protocol for synchronous worker bridge
  *
- * This protocol enables synchronous filesystem access from a worker thread
- * (where Pyodide/Python runs) to the main thread (which has async IFileSystem).
+ * This protocol enables synchronous filesystem and I/O access from a worker thread
+ * to the main thread (which has async IFileSystem).
  */
 
 // Type declaration for Atomics.waitAsync (available in Node.js but not in TS lib)
@@ -35,12 +35,14 @@ export const OpCode = {
   LSTAT: 11,
   CHMOD: 12,
   REALPATH: 13,
-  // Special operations for Python I/O
+  // Special operations for I/O
   WRITE_STDOUT: 100,
   WRITE_STDERR: 101,
   EXIT: 102,
   // HTTP operations
   HTTP_REQUEST: 200,
+  // Sub-shell execution
+  EXEC_COMMAND: 300,
 } as const;
 
 export type OpCodeType = (typeof OpCode)[keyof typeof OpCode];
