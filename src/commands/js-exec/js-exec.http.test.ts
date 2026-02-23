@@ -5,7 +5,7 @@ describe("js-exec http operations", () => {
   it("should error when network is not configured", async () => {
     const env = new Bash({ javascript: true });
     const result = await env.exec(
-      `js-exec -c "try { fetch('http://example.com'); } catch(e) { console.log('error: ' + e.message); }"`,
+      `js-exec -c "fetch('http://example.com').then(function(r) { console.log('status: ' + r.status); }, function(e) { console.log('error: ' + e.message); })"`,
     );
     expect(result.stdout).toContain("error:");
     expect(result.stdout).toContain("Network access not configured");

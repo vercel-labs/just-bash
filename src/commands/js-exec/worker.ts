@@ -20,6 +20,8 @@ import {
   type WorkerDefenseStats,
 } from "../../security/index.js";
 import { SyncBackend } from "../worker-bridge/sync-backend.js";
+import { FETCH_POLYFILL_SOURCE } from "./fetch-polyfill.js";
+import { PATH_MODULE_SOURCE } from "./path-polyfill.js";
 
 export interface JsExecWorkerInput {
   sharedBuffer: SharedArrayBuffer;
@@ -59,6 +61,34 @@ const MEMORY_LIMIT = 64 * 1024 * 1024;
 
 /** Maximum execution cycles before interrupt check */
 const INTERRUPT_CYCLES = 100000;
+
+/**
+ * Format a dumped QuickJS error value into a readable error string
+ * that includes the file name and line number from the stack trace.
+ */
+function formatError(errorVal: unknown): string {
+  if (
+    typeof errorVal === "object" &&
+    errorVal !== null &&
+    "message" in errorVal
+  ) {
+    const err = errorVal as { message: string; stack?: string };
+    const msg = err.message;
+    // Extract file:line from the stack trace
+    if (err.stack) {
+      const lines = err.stack.split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("at ")) {
+          // Stack line like "at /home/user/file.mjs:3" or "at func (/file.mjs:3)"
+          return `${trimmed}: ${msg}`;
+        }
+      }
+    }
+    return msg;
+  }
+  return String(errorVal);
+}
 
 /**
  * Create an error result for returning from a host function.
@@ -137,42 +167,93 @@ const VIRTUAL_MODULES: Record<string, string> = {
   fs: `
     const _fs = globalThis.fs;
     export const readFile = _fs.readFile;
+    export const readFileSync = _fs.readFileSync;
     export const readFileBuffer = _fs.readFileBuffer;
     export const writeFile = _fs.writeFile;
+    export const writeFileSync = _fs.writeFileSync;
     export const stat = _fs.stat;
+    export const statSync = _fs.statSync;
+    export const lstat = _fs.lstat;
+    export const lstatSync = _fs.lstatSync;
     export const readdir = _fs.readdir;
+    export const readdirSync = _fs.readdirSync;
     export const mkdir = _fs.mkdir;
+    export const mkdirSync = _fs.mkdirSync;
     export const rm = _fs.rm;
+    export const rmSync = _fs.rmSync;
     export const exists = _fs.exists;
+    export const existsSync = _fs.existsSync;
     export const appendFile = _fs.appendFile;
+    export const appendFileSync = _fs.appendFileSync;
+    export const symlink = _fs.symlink;
+    export const symlinkSync = _fs.symlinkSync;
+    export const readlink = _fs.readlink;
+    export const readlinkSync = _fs.readlinkSync;
+    export const chmod = _fs.chmod;
+    export const chmodSync = _fs.chmodSync;
+    export const realpath = _fs.realpath;
+    export const realpathSync = _fs.realpathSync;
+    export const rename = _fs.rename;
+    export const renameSync = _fs.renameSync;
+    export const copyFile = _fs.copyFile;
+    export const copyFileSync = _fs.copyFileSync;
+    export const unlinkSync = _fs.unlinkSync;
+    export const unlink = _fs.unlink;
+    export const rmdirSync = _fs.rmdirSync;
+    export const rmdir = _fs.rmdir;
+    export const promises = _fs.promises;
     export default _fs;
   `,
-  exec: `
-    const _exec = globalThis.exec;
-    export function exec(cmd, opts) { return _exec(cmd, opts); }
-    export default _exec;
-  `,
-  fetch: `
-    const _fetch = globalThis.fetch;
-    export default _fetch;
-    export { _fetch as fetch };
+  path: `${PATH_MODULE_SOURCE}
+    const _path = globalThis.__path;
+    export const join = _path.join;
+    export const resolve = _path.resolve;
+    export const normalize = _path.normalize;
+    export const isAbsolute = _path.isAbsolute;
+    export const dirname = _path.dirname;
+    export const basename = _path.basename;
+    export const extname = _path.extname;
+    export const relative = _path.relative;
+    export const parse = _path.parse;
+    export const format = _path.format;
+    export const sep = _path.sep;
+    export const delimiter = _path.delimiter;
+    export const posix = _path.posix;
+    export default _path;
   `,
   process: `
     const _process = globalThis.process;
     export const argv = _process.argv;
     export const cwd = _process.cwd;
     export const exit = _process.exit;
+    export const env = _process.env;
+    export const platform = _process.platform;
+    export const arch = _process.arch;
+    export const versions = _process.versions;
+    export const version = _process.version;
     export default _process;
   `,
-  env: `
-    export default globalThis.env;
-  `,
-  console: `
-    const _console = globalThis.console;
-    export const log = _console.log;
-    export const error = _console.error;
-    export const warn = _console.warn;
-    export default _console;
+  child_process: `
+    const _exec = globalThis.__exec;
+    export function execSync(cmd, opts) {
+      var r = _exec(cmd, opts);
+      if (r.exitCode !== 0) {
+        var e = new Error('Command failed: ' + cmd);
+        e.status = r.exitCode;
+        e.stderr = r.stderr;
+        e.stdout = r.stdout;
+        throw e;
+      }
+      return r.stdout;
+    }
+    export function exec(cmd, opts) { return _exec(cmd, opts); }
+    export function spawnSync(cmd, args, opts) {
+      var command = cmd;
+      if (args && args.length) command += ' ' + args.join(' ');
+      var r = _exec(command, opts);
+      return { stdout: r.stdout, stderr: r.stderr, status: r.exitCode };
+    }
+    export default { exec: exec, execSync: execSync, spawnSync: spawnSync };
   `,
 };
 
@@ -389,6 +470,119 @@ function setupContext(
   context.setProp(fsObj, "appendFile", appendFileFn);
   appendFileFn.dispose();
 
+  const lstatFn = context.newFunction("lstat", (pathHandle: QuickJSHandle) => {
+    const path = context.getString(pathHandle);
+    try {
+      const s = backend.lstat(path);
+      return jsToHandle(context, {
+        isFile: s.isFile,
+        isDirectory: s.isDirectory,
+        isSymbolicLink: s.isSymbolicLink,
+        mode: s.mode,
+        size: s.size,
+        mtime: s.mtime.toISOString(),
+      });
+    } catch (e) {
+      return throwError(context, (e as Error).message || "lstat failed");
+    }
+  });
+  context.setProp(fsObj, "lstat", lstatFn);
+  lstatFn.dispose();
+
+  const symlinkFn = context.newFunction(
+    "symlink",
+    (targetHandle: QuickJSHandle, pathHandle: QuickJSHandle) => {
+      const target = context.getString(targetHandle);
+      const linkPath = context.getString(pathHandle);
+      try {
+        backend.symlink(target, linkPath);
+        return context.undefined;
+      } catch (e) {
+        return throwError(context, (e as Error).message || "symlink failed");
+      }
+    },
+  );
+  context.setProp(fsObj, "symlink", symlinkFn);
+  symlinkFn.dispose();
+
+  const readlinkFn = context.newFunction(
+    "readlink",
+    (pathHandle: QuickJSHandle) => {
+      const path = context.getString(pathHandle);
+      try {
+        const target = backend.readlink(path);
+        return context.newString(target);
+      } catch (e) {
+        return throwError(context, (e as Error).message || "readlink failed");
+      }
+    },
+  );
+  context.setProp(fsObj, "readlink", readlinkFn);
+  readlinkFn.dispose();
+
+  const chmodFn = context.newFunction(
+    "chmod",
+    (pathHandle: QuickJSHandle, modeHandle: QuickJSHandle) => {
+      const path = context.getString(pathHandle);
+      const mode = context.dump(modeHandle);
+      try {
+        backend.chmod(path, typeof mode === "number" ? mode : 0);
+        return context.undefined;
+      } catch (e) {
+        return throwError(context, (e as Error).message || "chmod failed");
+      }
+    },
+  );
+  context.setProp(fsObj, "chmod", chmodFn);
+  chmodFn.dispose();
+
+  const realpathFn = context.newFunction(
+    "realpath",
+    (pathHandle: QuickJSHandle) => {
+      const path = context.getString(pathHandle);
+      try {
+        const resolved = backend.realpath(path);
+        return context.newString(resolved);
+      } catch (e) {
+        return throwError(context, (e as Error).message || "realpath failed");
+      }
+    },
+  );
+  context.setProp(fsObj, "realpath", realpathFn);
+  realpathFn.dispose();
+
+  const renameFn = context.newFunction(
+    "rename",
+    (oldHandle: QuickJSHandle, newHandle: QuickJSHandle) => {
+      const oldPath = context.getString(oldHandle);
+      const newPath = context.getString(newHandle);
+      try {
+        backend.rename(oldPath, newPath);
+        return context.undefined;
+      } catch (e) {
+        return throwError(context, (e as Error).message || "rename failed");
+      }
+    },
+  );
+  context.setProp(fsObj, "rename", renameFn);
+  renameFn.dispose();
+
+  const copyFileFn = context.newFunction(
+    "copyFile",
+    (srcHandle: QuickJSHandle, destHandle: QuickJSHandle) => {
+      const src = context.getString(srcHandle);
+      const dest = context.getString(destHandle);
+      try {
+        backend.copyFile(src, dest);
+        return context.undefined;
+      } catch (e) {
+        return throwError(context, (e as Error).message || "copyFile failed");
+      }
+    },
+  );
+  context.setProp(fsObj, "copyFile", copyFileFn);
+  copyFileFn.dispose();
+
   context.setProp(context.global, "fs", fsObj);
   fsObj.dispose();
 
@@ -413,7 +607,7 @@ function setupContext(
       }
     },
   );
-  context.setProp(context.global, "fetch", fetchFn);
+  context.setProp(context.global, "__fetch", fetchFn);
   fetchFn.dispose();
 
   // --- exec ---
@@ -436,7 +630,7 @@ function setupContext(
       }
     },
   );
-  context.setProp(context.global, "exec", execFn);
+  context.setProp(context.global, "__exec", execFn);
   execFn.dispose();
 
   // --- env ---
@@ -476,6 +670,145 @@ function setupContext(
 
   context.setProp(context.global, "process", processObj);
   processObj.dispose();
+
+  // Set up Node.js compatibility: sync aliases, promises, callback detection, process enhancements
+  const compatResult = context.evalCode(
+    `(function() {
+  var _fs = globalThis.fs;
+  // Save original native functions
+  var orig = {};
+  var allNames = [
+    'readFile', 'readFileBuffer', 'writeFile', 'stat', 'lstat', 'readdir',
+    'mkdir', 'rm', 'exists', 'appendFile', 'symlink', 'readlink',
+    'chmod', 'realpath', 'rename', 'copyFile'
+  ];
+  for (var i = 0; i < allNames.length; i++) {
+    orig[allNames[i]] = _fs[allNames[i]];
+  }
+
+  // Wrap async-style methods with callback detection
+  function wrapCb(fn, name) {
+    return function() {
+      for (var j = 0; j < arguments.length; j++) {
+        if (typeof arguments[j] === 'function') {
+          throw new Error(
+            "fs." + name + "() with callbacks is not supported. " +
+            "Use fs." + name + "Sync() or fs.promises." + name + "() instead."
+          );
+        }
+      }
+      return fn.apply(null, arguments);
+    };
+  }
+  var cbNames = [
+    'readFile', 'writeFile', 'stat', 'lstat', 'readdir', 'mkdir',
+    'rm', 'appendFile', 'symlink', 'readlink', 'chmod', 'realpath',
+    'rename', 'copyFile'
+  ];
+  for (var i = 0; i < cbNames.length; i++) {
+    if (orig[cbNames[i]]) _fs[cbNames[i]] = wrapCb(orig[cbNames[i]], cbNames[i]);
+  }
+  // exists: callback is especially common in legacy Node.js
+  _fs.exists = wrapCb(orig.exists, 'exists');
+
+  // Sync aliases point to original unwrapped native functions
+  _fs.readFileSync = orig.readFile;
+  _fs.writeFileSync = orig.writeFile;
+  _fs.statSync = orig.stat;
+  _fs.lstatSync = orig.lstat;
+  _fs.readdirSync = orig.readdir;
+  _fs.mkdirSync = orig.mkdir;
+  _fs.rmSync = orig.rm;
+  _fs.existsSync = orig.exists;
+  _fs.appendFileSync = orig.appendFile;
+  _fs.symlinkSync = orig.symlink;
+  _fs.readlinkSync = orig.readlink;
+  _fs.chmodSync = orig.chmod;
+  _fs.realpathSync = orig.realpath;
+  _fs.renameSync = orig.rename;
+  _fs.copyFileSync = orig.copyFile;
+  _fs.unlinkSync = orig.rm;
+  _fs.rmdirSync = orig.rm;
+  _fs.unlink = wrapCb(orig.rm, 'unlink');
+  _fs.rmdir = wrapCb(orig.rm, 'rmdir');
+
+  // promises namespace
+  _fs.promises = {};
+  for (var i = 0; i < allNames.length; i++) {
+    var m = allNames[i];
+    (function(fn) {
+      _fs.promises[m] = function() {
+        try { return Promise.resolve(fn.apply(null, arguments)); }
+        catch(e) { return Promise.reject(e); }
+      };
+    })(orig[m]);
+  }
+  _fs.promises.unlink = _fs.promises.rm;
+  _fs.promises.rmdir = _fs.promises.rm;
+  _fs.promises.access = function(p) {
+    return orig.exists(p) ? Promise.resolve() : Promise.reject(new Error('ENOENT: no such file or directory: ' + p));
+  };
+
+  // process enhancements
+  var _p = globalThis.process;
+  _p.env = globalThis.env;
+  _p.platform = 'linux';
+  _p.arch = 'x64';
+  _p.versions = { node: '22.0.0', quickjs: '2024' };
+  _p.version = 'v22.0.0';
+
+  // Initialize path module on globalThis so require('path') works
+  ${PATH_MODULE_SOURCE}
+
+  // Initialize fetch polyfill (URL, Headers, Request, Response, fetch)
+  ${FETCH_POLYFILL_SOURCE}
+
+  // require() shim for CommonJS compatibility
+  var _execFn = globalThis.__exec;
+  var _childProcess = {
+    exec: function(cmd, opts) { return _execFn(cmd, opts); },
+    execSync: function(cmd, opts) {
+      var r = _execFn(cmd, opts);
+      if (r.exitCode !== 0) {
+        var e = new Error('Command failed: ' + cmd);
+        e.status = r.exitCode;
+        e.stderr = r.stderr;
+        e.stdout = r.stdout;
+        throw e;
+      }
+      return r.stdout;
+    },
+    spawnSync: function(cmd, args, opts) {
+      var command = cmd;
+      if (args && args.length) command += ' ' + args.join(' ');
+      var r = _execFn(command, opts);
+      return { stdout: r.stdout, stderr: r.stderr, status: r.exitCode };
+    }
+  };
+
+  var _modules = {
+    fs: _fs,
+    path: globalThis.__path,
+    child_process: _childProcess,
+    process: _p,
+    console: globalThis.console
+  };
+
+  globalThis.require = function(name) {
+    if (name.startsWith('node:')) name = name.slice(5);
+    var mod = _modules[name];
+    if (mod) return mod;
+    throw new Error("Cannot find module '" + name + "'");
+  };
+  globalThis.require.resolve = function(name) { return name; };
+})();`,
+    "<compat>",
+  );
+  if (compatResult.error) {
+    compatResult.error.dispose();
+  } else {
+    compatResult.value.dispose();
+  }
 }
 
 // Defense-in-depth instance - activated AFTER QuickJS loads
@@ -553,6 +886,10 @@ async function executeCode(
           }
         },
         (baseModuleName: string, requestedName: string) => {
+          // Strip node: prefix for Node.js compatibility
+          if (requestedName.startsWith("node:")) {
+            requestedName = requestedName.slice(5);
+          }
           // Bare specifiers (built-in names) pass through
           if (
             !requestedName.startsWith("./") &&
@@ -581,12 +918,7 @@ async function executeCode(
       if (bootstrapResult.error) {
         const errorVal = context.dump(bootstrapResult.error);
         bootstrapResult.error.dispose();
-        const errorMsg =
-          typeof errorVal === "object" &&
-          errorVal !== null &&
-          "message" in errorVal
-            ? (errorVal as { message: string }).message
-            : String(errorVal);
+        const errorMsg = formatError(errorVal);
         backend.writeStderr(`js-exec: bootstrap error: ${errorMsg}\n`);
         backend.exit(1);
         return { success: true };
@@ -608,38 +940,41 @@ async function executeCode(
     if (result.error) {
       const errorVal = context.dump(result.error);
       result.error.dispose();
-      const errorMsg =
+
+      // Check if this is a process.exit() call (check raw message before formatting)
+      const rawMsg =
         typeof errorVal === "object" &&
         errorVal !== null &&
         "message" in errorVal
           ? (errorVal as { message: string }).message
           : String(errorVal);
-
-      // Check if this is a process.exit() call
-      if (errorMsg === "__EXIT__") {
+      if (rawMsg === "__EXIT__") {
         // Exit was already signaled via backend.exit()
         return { success: true };
       }
 
+      const errorMsg = formatError(errorVal);
       backend.writeStderr(`${errorMsg}\n`);
       backend.exit(1);
       return { success: true };
     }
 
-    // Execute pending jobs for module evaluation (module bodies may
-    // be deferred). Must happen before exit so bridge is still alive.
-    if (input.isModule) {
+    // Execute pending jobs (promise callbacks, module bodies).
+    // Must always run so .then() chains work in both script and module mode.
+    // Must happen before exit so bridge is still alive.
+    {
       const pendingResult = runtime.executePendingJobs();
       if ("error" in pendingResult && pendingResult.error) {
         const errorVal = context.dump(pendingResult.error);
         pendingResult.error.dispose();
-        const errorMsg =
+        const rawPendingMsg =
           typeof errorVal === "object" &&
           errorVal !== null &&
           "message" in errorVal
             ? (errorVal as { message: string }).message
             : String(errorVal);
-        if (errorMsg !== "__EXIT__") {
+        if (rawPendingMsg !== "__EXIT__") {
+          const errorMsg = formatError(errorVal);
           backend.writeStderr(`${errorMsg}\n`);
           backend.exit(1);
           return { success: true };

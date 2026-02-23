@@ -2,24 +2,31 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
 describe("js-exec security", () => {
-  it("should not have access to Node.js require", async () => {
+  it("should support require for known modules but not arbitrary ones", async () => {
     const env = new Bash({ javascript: true });
-    const result = await env.exec(
-      `js-exec -c "try { require('fs'); console.log('FAIL'); } catch(e) { console.log('blocked'); }"`,
+    // require('fs') should work (sandboxed)
+    const r1 = await env.exec(
+      `js-exec -c "const fs = require('fs'); console.log(typeof fs.readFileSync)"`,
     );
-    expect(result.stdout).toBe("blocked\n");
-    expect(result.exitCode).toBe(0);
+    expect(r1.stdout).toBe("function\n");
+    expect(r1.exitCode).toBe(0);
+
+    // require('http') should throw (not a supported module)
+    const r2 = await env.exec(
+      `js-exec -c "try { require('http'); console.log('FAIL'); } catch(e) { console.log('blocked'); }"`,
+    );
+    expect(r2.stdout).toBe("blocked\n");
+    expect(r2.exitCode).toBe(0);
   });
 
-  it("should not have access to Node.js global process module", async () => {
+  it("should have sandboxed process (not real Node.js process)", async () => {
     const env = new Bash({ javascript: true });
-    // process.env in QuickJS is not the real Node.js process.env
-    // Our sandboxed process only has argv, cwd, exit
+    // process.env is our sandboxed env object, not the real Node.js process.env
     const result = await env.exec(
-      `js-exec -c "console.log(typeof process.env)"`,
+      `js-exec -c "console.log(typeof process.env, typeof process.pid)"`,
     );
-    // process.env should be undefined (we expose env as a separate global)
-    expect(result.stdout).toBe("undefined\n");
+    // process.env exists (sandboxed), process.pid does not (not exposed)
+    expect(result.stdout).toBe("object undefined\n");
     expect(result.exitCode).toBe(0);
   });
 

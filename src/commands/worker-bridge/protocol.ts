@@ -35,6 +35,8 @@ export const OpCode = {
   LSTAT: 11,
   CHMOD: 12,
   REALPATH: 13,
+  RENAME: 14,
+  COPY_FILE: 15,
   // Special operations for I/O
   WRITE_STDOUT: 100,
   WRITE_STDERR: 101,

@@ -26,18 +26,16 @@ describe("js-exec ESM modules", () => {
           // Virtual fs default
           "/home/user/test-fs-default.mjs":
             "import fs from 'fs';\nconsole.log(fs.exists('/etc/hostname'));\n",
-          // Virtual exec module
+          // child_process module (idiomatic)
           "/home/user/test-exec.mjs":
-            "import { exec } from 'exec';\nconst r = exec('echo hi');\nconsole.log(r.stdout.trim());\n",
-          // Virtual process module
+            "import { execSync } from 'node:child_process';\nconsole.log(execSync('echo hi').trim());\n",
+          // Globals (process, env, console) accessible without import
           "/home/user/test-process.mjs":
-            "import process from 'process';\nconsole.log(typeof process.cwd);\n",
-          // Virtual env module
+            "console.log(typeof process.cwd);\nexport {};\n",
           "/home/user/test-env.mjs":
-            "import env from 'env';\nconsole.log(env.MY_VAR);\n",
-          // Virtual console module
+            "console.log(process.env.MY_VAR);\nexport {};\n",
           "/home/user/test-console.mjs":
-            "import { log } from 'console';\nlog('from import');\n",
+            "console.log('from import');\nexport {};\n",
         },
       });
 
@@ -134,10 +132,8 @@ describe("js-exec ESM modules", () => {
     expect(r1.stdout).toBe("myhost\n");
     expect(r1.exitCode).toBe(0);
 
-    // --module flag
-    const r2 = await env.exec(
-      `js-exec --module -c "import { log } from 'console'; log('ok')"`,
-    );
+    // --module flag with global
+    const r2 = await env.exec(`js-exec --module -c "console.log('ok')"`);
     expect(r2.stdout).toBe("ok\n");
     expect(r2.exitCode).toBe(0);
 

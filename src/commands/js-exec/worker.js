@@ -887,6 +887,8 @@ var OpCode = {
   LSTAT: 11,
   CHMOD: 12,
   REALPATH: 13,
+  RENAME: 14,
+  COPY_FILE: 15,
   // Special operations for I/O
   WRITE_STDOUT: 100,
   WRITE_STDERR: 101,
@@ -1290,6 +1292,20 @@ var SyncBackend = class {
     }
     return this.protocol.getResultAsString();
   }
+  rename(oldPath, newPath) {
+    const newPathData = new TextEncoder().encode(newPath);
+    const result = this.execSync(OpCode.RENAME, oldPath, newPathData);
+    if (!result.success) {
+      throw new Error(result.error || "Failed to rename");
+    }
+  }
+  copyFile(src, dest) {
+    const destData = new TextEncoder().encode(dest);
+    const result = this.execSync(OpCode.COPY_FILE, src, destData);
+    if (!result.success) {
+      throw new Error(result.error || "Failed to copyFile");
+    }
+  }
   writeStdout(data) {
     const encoded = new TextEncoder().encode(data);
     this.execSync(OpCode.WRITE_STDOUT, "", encoded);
@@ -1329,6 +1345,650 @@ var SyncBackend = class {
   }
 };
 
+// src/commands/js-exec/fetch-polyfill.ts
+var FETCH_POLYFILL_SOURCE = `
+(function() {
+  // --- URLSearchParams ---
+  function URLSearchParams(init) {
+    this._entries = [];
+    if (!init) return;
+    if (typeof init === 'string') {
+      var s = init;
+      if (s.charAt(0) === '?') s = s.slice(1);
+      var pairs = s.split('&');
+      for (var i = 0; i < pairs.length; i++) {
+        var pair = pairs[i];
+        if (pair === '') continue;
+        var eq = pair.indexOf('=');
+        if (eq === -1) {
+          this._entries.push([decodeURIComponent(pair), '']);
+        } else {
+          this._entries.push([
+            decodeURIComponent(pair.slice(0, eq)),
+            decodeURIComponent(pair.slice(eq + 1))
+          ]);
+        }
+      }
+    } else if (typeof init === 'object' && init !== null) {
+      if (init instanceof URLSearchParams) {
+        this._entries = init._entries.slice();
+      } else {
+        var keys = Object.keys(init);
+        for (var i = 0; i < keys.length; i++) {
+          this._entries.push([keys[i], String(init[keys[i]])]);
+        }
+      }
+    }
+  }
+
+  URLSearchParams.prototype.append = function(name, value) {
+    this._entries.push([String(name), String(value)]);
+  };
+
+  URLSearchParams.prototype.delete = function(name) {
+    var n = String(name);
+    this._entries = this._entries.filter(function(e) { return e[0] !== n; });
+  };
+
+  URLSearchParams.prototype.get = function(name) {
+    var n = String(name);
+    for (var i = 0; i < this._entries.length; i++) {
+      if (this._entries[i][0] === n) return this._entries[i][1];
+    }
+    return null;
+  };
+
+  URLSearchParams.prototype.getAll = function(name) {
+    var n = String(name);
+    var result = [];
+    for (var i = 0; i < this._entries.length; i++) {
+      if (this._entries[i][0] === n) result.push(this._entries[i][1]);
+    }
+    return result;
+  };
+
+  URLSearchParams.prototype.has = function(name) {
+    var n = String(name);
+    for (var i = 0; i < this._entries.length; i++) {
+      if (this._entries[i][0] === n) return true;
+    }
+    return false;
+  };
+
+  URLSearchParams.prototype.set = function(name, value) {
+    var n = String(name);
+    var v = String(value);
+    var found = false;
+    var newEntries = [];
+    for (var i = 0; i < this._entries.length; i++) {
+      if (this._entries[i][0] === n) {
+        if (!found) {
+          newEntries.push([n, v]);
+          found = true;
+        }
+      } else {
+        newEntries.push(this._entries[i]);
+      }
+    }
+    if (!found) newEntries.push([n, v]);
+    this._entries = newEntries;
+  };
+
+  URLSearchParams.prototype.sort = function() {
+    this._entries.sort(function(a, b) {
+      if (a[0] < b[0]) return -1;
+      if (a[0] > b[0]) return 1;
+      return 0;
+    });
+  };
+
+  URLSearchParams.prototype.toString = function() {
+    return this._entries.map(function(e) {
+      return encodeURIComponent(e[0]) + '=' + encodeURIComponent(e[1]);
+    }).join('&');
+  };
+
+  URLSearchParams.prototype.forEach = function(callback, thisArg) {
+    for (var i = 0; i < this._entries.length; i++) {
+      callback.call(thisArg, this._entries[i][1], this._entries[i][0], this);
+    }
+  };
+
+  URLSearchParams.prototype.entries = function() {
+    var idx = 0;
+    var entries = this._entries;
+    return {
+      next: function() {
+        if (idx >= entries.length) return { done: true, value: undefined };
+        return { done: false, value: entries[idx++].slice() };
+      },
+      [Symbol.iterator]: function() { return this; }
+    };
+  };
+
+  URLSearchParams.prototype.keys = function() {
+    var idx = 0;
+    var entries = this._entries;
+    return {
+      next: function() {
+        if (idx >= entries.length) return { done: true, value: undefined };
+        return { done: false, value: entries[idx++][0] };
+      },
+      [Symbol.iterator]: function() { return this; }
+    };
+  };
+
+  URLSearchParams.prototype.values = function() {
+    var idx = 0;
+    var entries = this._entries;
+    return {
+      next: function() {
+        if (idx >= entries.length) return { done: true, value: undefined };
+        return { done: false, value: entries[idx++][1] };
+      },
+      [Symbol.iterator]: function() { return this; }
+    };
+  };
+
+  URLSearchParams.prototype[Symbol.iterator] = URLSearchParams.prototype.entries;
+
+  Object.defineProperty(URLSearchParams.prototype, 'size', {
+    get: function() { return this._entries.length; }
+  });
+
+  // --- URL ---
+  var urlRegex = /^([a-zA-Z][a-zA-Z0-9+.-]*):(?:\\/\\/(?:([^:@/?#]*)(?::([^@/?#]*))?@)?([^:/?#]*)(?::([0-9]+))?)?(\\/[^?#]*)?(?:\\?([^#]*))?(?:#(.*))?$/;
+
+  function URL(url, base) {
+    var input = String(url);
+
+    if (base !== undefined) {
+      var baseUrl = (base instanceof URL) ? base : new URL(String(base));
+      // Resolve relative URL against base
+      if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(input)) {
+        // Absolute URL - parse as-is
+      } else if (input.charAt(0) === '/' && input.charAt(1) === '/') {
+        // Protocol-relative
+        input = baseUrl.protocol + input;
+      } else if (input.charAt(0) === '/') {
+        // Absolute path
+        input = baseUrl.origin + input;
+      } else if (input.charAt(0) === '?' || input.charAt(0) === '#') {
+        // Query or hash only
+        var basePath = baseUrl.protocol + '//' + baseUrl.host + baseUrl.pathname;
+        if (input.charAt(0) === '#') {
+          input = basePath + baseUrl.search + input;
+        } else {
+          input = basePath + input;
+        }
+      } else {
+        // Relative path
+        var basePath = baseUrl.protocol + '//' + baseUrl.host;
+        var dirPath = baseUrl.pathname;
+        var lastSlash = dirPath.lastIndexOf('/');
+        if (lastSlash >= 0) dirPath = dirPath.slice(0, lastSlash + 1);
+        else dirPath = '/';
+        input = basePath + dirPath + input;
+      }
+    }
+
+    var m = urlRegex.exec(input);
+    if (!m) throw new TypeError("Invalid URL: " + String(url));
+
+    this.protocol = m[1].toLowerCase() + ':';
+    this.username = m[2] ? decodeURIComponent(m[2]) : '';
+    this.password = m[3] ? decodeURIComponent(m[3]) : '';
+    this.hostname = m[4] || '';
+    this.port = m[5] || '';
+    this.pathname = m[6] || '/';
+    this.hash = m[8] ? '#' + m[8] : '';
+
+    // Normalize pathname (resolve . and ..)
+    var parts = this.pathname.split('/');
+    var resolved = [];
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i] === '..') { if (resolved.length > 1) resolved.pop(); }
+      else if (parts[i] !== '.') resolved.push(parts[i]);
+    }
+    this.pathname = resolved.join('/') || '/';
+
+    // searchParams is live
+    this._searchParamsStr = m[7] || '';
+    this.searchParams = new URLSearchParams(this._searchParamsStr);
+  }
+
+  Object.defineProperty(URL.prototype, 'search', {
+    get: function() {
+      var s = this.searchParams.toString();
+      return s ? '?' + s : '';
+    },
+    set: function(v) {
+      this.searchParams = new URLSearchParams(String(v));
+    }
+  });
+
+  Object.defineProperty(URL.prototype, 'host', {
+    get: function() {
+      return this.port ? this.hostname + ':' + this.port : this.hostname;
+    }
+  });
+
+  Object.defineProperty(URL.prototype, 'origin', {
+    get: function() {
+      return this.protocol + '//' + this.host;
+    }
+  });
+
+  Object.defineProperty(URL.prototype, 'href', {
+    get: function() {
+      var auth = '';
+      if (this.username) {
+        auth = this.username;
+        if (this.password) auth += ':' + this.password;
+        auth += '@';
+      }
+      return this.protocol + '//' + auth + this.host + this.pathname + this.search + this.hash;
+    },
+    set: function(v) {
+      var parsed = new URL(String(v));
+      this.protocol = parsed.protocol;
+      this.username = parsed.username;
+      this.password = parsed.password;
+      this.hostname = parsed.hostname;
+      this.port = parsed.port;
+      this.pathname = parsed.pathname;
+      this.searchParams = parsed.searchParams;
+      this.hash = parsed.hash;
+    }
+  });
+
+  URL.prototype.toString = function() { return this.href; };
+  URL.prototype.toJSON = function() { return this.href; };
+
+  // --- Headers ---
+  function Headers(init) {
+    this._map = {};
+    if (!init) return;
+    if (init instanceof Headers) {
+      var keys = Object.keys(init._map);
+      for (var i = 0; i < keys.length; i++) {
+        this._map[keys[i]] = init._map[keys[i]].slice();
+      }
+    } else if (typeof init === 'object') {
+      var keys = Object.keys(init);
+      for (var i = 0; i < keys.length; i++) {
+        this._map[keys[i].toLowerCase()] = [String(init[keys[i]])];
+      }
+    }
+  }
+
+  Headers.prototype.append = function(name, value) {
+    var key = String(name).toLowerCase();
+    if (!this._map[key]) this._map[key] = [];
+    this._map[key].push(String(value));
+  };
+
+  Headers.prototype.delete = function(name) {
+    delete this._map[String(name).toLowerCase()];
+  };
+
+  Headers.prototype.get = function(name) {
+    var vals = this._map[String(name).toLowerCase()];
+    return vals ? vals.join(', ') : null;
+  };
+
+  Headers.prototype.has = function(name) {
+    return String(name).toLowerCase() in this._map;
+  };
+
+  Headers.prototype.set = function(name, value) {
+    this._map[String(name).toLowerCase()] = [String(value)];
+  };
+
+  Headers.prototype.forEach = function(callback, thisArg) {
+    var keys = Object.keys(this._map).sort();
+    for (var i = 0; i < keys.length; i++) {
+      callback.call(thisArg, this._map[keys[i]].join(', '), keys[i], this);
+    }
+  };
+
+  Headers.prototype.entries = function() {
+    var keys = Object.keys(this._map).sort();
+    var map = this._map;
+    var idx = 0;
+    return {
+      next: function() {
+        if (idx >= keys.length) return { done: true, value: undefined };
+        var k = keys[idx++];
+        return { done: false, value: [k, map[k].join(', ')] };
+      },
+      [Symbol.iterator]: function() { return this; }
+    };
+  };
+
+  Headers.prototype.keys = function() {
+    var keys = Object.keys(this._map).sort();
+    var idx = 0;
+    return {
+      next: function() {
+        if (idx >= keys.length) return { done: true, value: undefined };
+        return { done: false, value: keys[idx++] };
+      },
+      [Symbol.iterator]: function() { return this; }
+    };
+  };
+
+  Headers.prototype.values = function() {
+    var keys = Object.keys(this._map).sort();
+    var map = this._map;
+    var idx = 0;
+    return {
+      next: function() {
+        if (idx >= keys.length) return { done: true, value: undefined };
+        return { done: false, value: map[keys[idx++]].join(', ') };
+      },
+      [Symbol.iterator]: function() { return this; }
+    };
+  };
+
+  Headers.prototype[Symbol.iterator] = Headers.prototype.entries;
+
+  // --- Response ---
+  function Response(body, init) {
+    if (init === undefined) init = {};
+    this.status = init.status !== undefined ? init.status : 200;
+    this.statusText = init.statusText !== undefined ? init.statusText : '';
+    this.headers = init.headers instanceof Headers ? init.headers : new Headers(init.headers);
+    this.body = body !== undefined && body !== null ? String(body) : '';
+    this.ok = this.status >= 200 && this.status <= 299;
+    this.url = '';
+    this.redirected = false;
+    this.type = 'basic';
+    this.bodyUsed = false;
+  }
+
+  Response.prototype.text = function() {
+    this.bodyUsed = true;
+    return Promise.resolve(this.body);
+  };
+
+  Response.prototype.json = function() {
+    this.bodyUsed = true;
+    try {
+      return Promise.resolve(JSON.parse(this.body));
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  };
+
+  Response.prototype.clone = function() {
+    var r = new Response(this.body, {
+      status: this.status,
+      statusText: this.statusText,
+      headers: new Headers(this.headers)
+    });
+    r.url = this.url;
+    r.redirected = this.redirected;
+    r.type = this.type;
+    return r;
+  };
+
+  Response.json = function(data, init) {
+    if (init === undefined) init = {};
+    var headers = init.headers instanceof Headers ? init.headers : new Headers(init.headers);
+    if (!headers.has('content-type')) {
+      headers.set('content-type', 'application/json');
+    }
+    return new Response(JSON.stringify(data), {
+      status: init.status !== undefined ? init.status : 200,
+      statusText: init.statusText || '',
+      headers: headers
+    });
+  };
+
+  Response.error = function() {
+    var r = new Response(null, { status: 0, statusText: '' });
+    r.type = 'error';
+    r.ok = false;
+    return r;
+  };
+
+  Response.redirect = function(url, status) {
+    if (status === undefined) status = 302;
+    var r = new Response(null, {
+      status: status,
+      statusText: '',
+      headers: new Headers({ location: String(url) })
+    });
+    r.redirected = true;
+    return r;
+  };
+
+  // --- Request ---
+  function Request(input, init) {
+    if (init === undefined) init = {};
+    if (input instanceof Request) {
+      this.url = input.url;
+      this.method = input.method;
+      this.headers = new Headers(input.headers);
+      this.body = input.body;
+    } else {
+      this.url = String(input);
+      this.method = 'GET';
+      this.headers = new Headers();
+      this.body = null;
+    }
+    if (init.method !== undefined) this.method = String(init.method).toUpperCase();
+    if (init.headers !== undefined) this.headers = init.headers instanceof Headers ? init.headers : new Headers(init.headers);
+    if (init.body !== undefined) this.body = init.body !== null ? String(init.body) : null;
+  }
+
+  Request.prototype.clone = function() {
+    return new Request(this);
+  };
+
+  // --- Assign to globalThis ---
+  globalThis.URLSearchParams = URLSearchParams;
+  globalThis.URL = URL;
+  globalThis.Headers = Headers;
+  globalThis.Response = Response;
+  globalThis.Request = Request;
+
+  // --- Wrap native fetch ---
+  var _nativeFetch = globalThis.__fetch;
+  globalThis.fetch = function fetch(input, init) {
+    try {
+      var url, method, headers, body;
+
+      if (input instanceof Request) {
+        url = input.url;
+        method = input.method;
+        headers = {};
+        input.headers.forEach(function(v, k) { headers[k] = v; });
+        body = input.body;
+      } else {
+        url = String(input);
+        method = undefined;
+        headers = undefined;
+        body = undefined;
+      }
+
+      if (init) {
+        if (init.method !== undefined) method = String(init.method).toUpperCase();
+        if (init.headers !== undefined) {
+          var h = init.headers instanceof Headers ? init.headers : new Headers(init.headers);
+          headers = {};
+          h.forEach(function(v, k) { headers[k] = v; });
+        }
+        if (init.body !== undefined) body = init.body !== null ? String(init.body) : undefined;
+      }
+
+      var opts = {};
+      if (method) opts.method = method;
+      if (headers) opts.headers = headers;
+      if (body) opts.body = body;
+
+      var raw = _nativeFetch(url, opts);
+
+      var respHeaders = new Headers(raw.headers || {});
+      var response = new Response(raw.body, {
+        status: raw.status,
+        statusText: raw.statusText || '',
+        headers: respHeaders
+      });
+      response.url = raw.url || url;
+
+      return Promise.resolve(response);
+    } catch (e) {
+      return Promise.reject(new TypeError(e.message || 'fetch failed'));
+    }
+  };
+})();
+`;
+
+// src/commands/js-exec/path-polyfill.ts
+var PATH_MODULE_SOURCE = `
+(function() {
+  var sep = '/';
+  var delimiter = ':';
+
+  function normalize(p) {
+    if (p === '') return '.';
+    var isAbs = p.charCodeAt(0) === 47;
+    var trailingSlash = p.charCodeAt(p.length - 1) === 47;
+    var parts = p.split('/');
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+      var seg = parts[i];
+      if (seg === '' || seg === '.') continue;
+      if (seg === '..') {
+        if (out.length > 0 && out[out.length - 1] !== '..') out.pop();
+        else if (!isAbs) out.push('..');
+      } else {
+        out.push(seg);
+      }
+    }
+    var result = out.join('/');
+    if (isAbs) result = '/' + result;
+    if (trailingSlash && result[result.length - 1] !== '/') result += '/';
+    return result || (isAbs ? '/' : '.');
+  }
+
+  function join() {
+    var joined = '';
+    for (var i = 0; i < arguments.length; i++) {
+      var arg = arguments[i];
+      if (typeof arg !== 'string') throw new TypeError('Path must be a string');
+      if (arg.length > 0) {
+        if (joined.length > 0) joined += '/' + arg;
+        else joined = arg;
+      }
+    }
+    if (joined.length === 0) return '.';
+    return normalize(joined);
+  }
+
+  function resolve() {
+    var resolved = '';
+    var resolvedAbsolute = false;
+    for (var i = arguments.length - 1; i >= -1 && !resolvedAbsolute; i--) {
+      var path = i >= 0 ? arguments[i] : globalThis.process.cwd();
+      if (typeof path !== 'string') throw new TypeError('Path must be a string');
+      if (path.length === 0) continue;
+      if (resolved.length > 0) resolved = path + '/' + resolved;
+      else resolved = path;
+      resolvedAbsolute = path.charCodeAt(0) === 47;
+    }
+    resolved = normalize(resolved);
+    if (resolvedAbsolute) return '/' + resolved.replace(/^\\/+/, '');
+    return resolved.length > 0 ? resolved : '.';
+  }
+
+  function isAbsolute(p) {
+    return typeof p === 'string' && p.length > 0 && p.charCodeAt(0) === 47;
+  }
+
+  function dirname(p) {
+    if (p.length === 0) return '.';
+    var hasRoot = p.charCodeAt(0) === 47;
+    var end = -1;
+    for (var i = p.length - 1; i >= 1; i--) {
+      if (p.charCodeAt(i) === 47) { end = i; break; }
+    }
+    if (end === -1) return hasRoot ? '/' : '.';
+    if (hasRoot && end === 0) return '/';
+    return p.slice(0, end);
+  }
+
+  function basename(p, ext) {
+    var start = 0;
+    for (var i = p.length - 1; i >= 0; i--) {
+      if (p.charCodeAt(i) === 47) { start = i + 1; break; }
+    }
+    var base = p.slice(start);
+    if (ext && base.endsWith(ext)) {
+      base = base.slice(0, base.length - ext.length);
+    }
+    return base;
+  }
+
+  function extname(p) {
+    var startDot = -1;
+    var startPart = 0;
+    for (var i = p.length - 1; i >= 0; i--) {
+      var code = p.charCodeAt(i);
+      if (code === 47) { startPart = i + 1; break; }
+      if (code === 46 && startDot === -1) startDot = i;
+    }
+    if (startDot === -1 || startDot === startPart ||
+        (startDot === startPart + 1 && p.charCodeAt(startPart) === 46)) {
+      return '';
+    }
+    return p.slice(startDot);
+  }
+
+  function relative(from, to) {
+    if (from === to) return '';
+    from = resolve(from);
+    to = resolve(to);
+    if (from === to) return '';
+    var fromParts = from.split('/').filter(Boolean);
+    var toParts = to.split('/').filter(Boolean);
+    var common = 0;
+    var length = Math.min(fromParts.length, toParts.length);
+    for (var i = 0; i < length; i++) {
+      if (fromParts[i] !== toParts[i]) break;
+      common++;
+    }
+    var ups = [];
+    for (var i = common; i < fromParts.length; i++) ups.push('..');
+    return ups.concat(toParts.slice(common)).join('/') || '.';
+  }
+
+  function parse(p) {
+    var root = p.charCodeAt(0) === 47 ? '/' : '';
+    var dir = dirname(p);
+    var base = basename(p);
+    var ext = extname(p);
+    var name = ext ? base.slice(0, base.length - ext.length) : base;
+    return { root: root, dir: dir, base: base, ext: ext, name: name };
+  }
+
+  function format(obj) {
+    var dir = obj.dir || obj.root || '';
+    var base = obj.base || ((obj.name || '') + (obj.ext || ''));
+    if (!dir) return base;
+    if (dir === obj.root) return dir + base;
+    return dir + '/' + base;
+  }
+
+  var posix = { sep: sep, delimiter: delimiter, join: join, resolve: resolve, normalize: normalize, isAbsolute: isAbsolute, dirname: dirname, basename: basename, extname: extname, relative: relative, parse: parse, format: format };
+  posix.posix = posix;
+
+  globalThis.__path = posix;
+})();
+`;
+
 // src/commands/js-exec/worker.ts
 var quickjsModule = null;
 var quickjsLoading = null;
@@ -1345,6 +2005,23 @@ async function getQuickJSModule() {
 }
 var MEMORY_LIMIT = 64 * 1024 * 1024;
 var INTERRUPT_CYCLES = 1e5;
+function formatError(errorVal) {
+  if (typeof errorVal === "object" && errorVal !== null && "message" in errorVal) {
+    const err = errorVal;
+    const msg = err.message;
+    if (err.stack) {
+      const lines = err.stack.split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("at ")) {
+          return `${trimmed}: ${msg}`;
+        }
+      }
+    }
+    return msg;
+  }
+  return String(errorVal);
+}
 function throwError(context, message) {
   return { error: context.newError(message) };
 }
@@ -1396,42 +2073,93 @@ var VIRTUAL_MODULES = {
   fs: `
     const _fs = globalThis.fs;
     export const readFile = _fs.readFile;
+    export const readFileSync = _fs.readFileSync;
     export const readFileBuffer = _fs.readFileBuffer;
     export const writeFile = _fs.writeFile;
+    export const writeFileSync = _fs.writeFileSync;
     export const stat = _fs.stat;
+    export const statSync = _fs.statSync;
+    export const lstat = _fs.lstat;
+    export const lstatSync = _fs.lstatSync;
     export const readdir = _fs.readdir;
+    export const readdirSync = _fs.readdirSync;
     export const mkdir = _fs.mkdir;
+    export const mkdirSync = _fs.mkdirSync;
     export const rm = _fs.rm;
+    export const rmSync = _fs.rmSync;
     export const exists = _fs.exists;
+    export const existsSync = _fs.existsSync;
     export const appendFile = _fs.appendFile;
+    export const appendFileSync = _fs.appendFileSync;
+    export const symlink = _fs.symlink;
+    export const symlinkSync = _fs.symlinkSync;
+    export const readlink = _fs.readlink;
+    export const readlinkSync = _fs.readlinkSync;
+    export const chmod = _fs.chmod;
+    export const chmodSync = _fs.chmodSync;
+    export const realpath = _fs.realpath;
+    export const realpathSync = _fs.realpathSync;
+    export const rename = _fs.rename;
+    export const renameSync = _fs.renameSync;
+    export const copyFile = _fs.copyFile;
+    export const copyFileSync = _fs.copyFileSync;
+    export const unlinkSync = _fs.unlinkSync;
+    export const unlink = _fs.unlink;
+    export const rmdirSync = _fs.rmdirSync;
+    export const rmdir = _fs.rmdir;
+    export const promises = _fs.promises;
     export default _fs;
   `,
-  exec: `
-    const _exec = globalThis.exec;
-    export function exec(cmd, opts) { return _exec(cmd, opts); }
-    export default _exec;
-  `,
-  fetch: `
-    const _fetch = globalThis.fetch;
-    export default _fetch;
-    export { _fetch as fetch };
+  path: `${PATH_MODULE_SOURCE}
+    const _path = globalThis.__path;
+    export const join = _path.join;
+    export const resolve = _path.resolve;
+    export const normalize = _path.normalize;
+    export const isAbsolute = _path.isAbsolute;
+    export const dirname = _path.dirname;
+    export const basename = _path.basename;
+    export const extname = _path.extname;
+    export const relative = _path.relative;
+    export const parse = _path.parse;
+    export const format = _path.format;
+    export const sep = _path.sep;
+    export const delimiter = _path.delimiter;
+    export const posix = _path.posix;
+    export default _path;
   `,
   process: `
     const _process = globalThis.process;
     export const argv = _process.argv;
     export const cwd = _process.cwd;
     export const exit = _process.exit;
+    export const env = _process.env;
+    export const platform = _process.platform;
+    export const arch = _process.arch;
+    export const versions = _process.versions;
+    export const version = _process.version;
     export default _process;
   `,
-  env: `
-    export default globalThis.env;
-  `,
-  console: `
-    const _console = globalThis.console;
-    export const log = _console.log;
-    export const error = _console.error;
-    export const warn = _console.warn;
-    export default _console;
+  child_process: `
+    const _exec = globalThis.__exec;
+    export function execSync(cmd, opts) {
+      var r = _exec(cmd, opts);
+      if (r.exitCode !== 0) {
+        var e = new Error('Command failed: ' + cmd);
+        e.status = r.exitCode;
+        e.stderr = r.stderr;
+        e.stdout = r.stdout;
+        throw e;
+      }
+      return r.stdout;
+    }
+    export function exec(cmd, opts) { return _exec(cmd, opts); }
+    export function spawnSync(cmd, args, opts) {
+      var command = cmd;
+      if (args && args.length) command += ' ' + args.join(' ');
+      var r = _exec(command, opts);
+      return { stdout: r.stdout, stderr: r.stderr, status: r.exitCode };
+    }
+    export default { exec: exec, execSync: execSync, spawnSync: spawnSync };
   `
 };
 function setupContext(context, backend, input) {
@@ -1624,6 +2352,112 @@ function setupContext(context, backend, input) {
   );
   context.setProp(fsObj, "appendFile", appendFileFn);
   appendFileFn.dispose();
+  const lstatFn = context.newFunction("lstat", (pathHandle) => {
+    const path = context.getString(pathHandle);
+    try {
+      const s = backend.lstat(path);
+      return jsToHandle(context, {
+        isFile: s.isFile,
+        isDirectory: s.isDirectory,
+        isSymbolicLink: s.isSymbolicLink,
+        mode: s.mode,
+        size: s.size,
+        mtime: s.mtime.toISOString()
+      });
+    } catch (e) {
+      return throwError(context, e.message || "lstat failed");
+    }
+  });
+  context.setProp(fsObj, "lstat", lstatFn);
+  lstatFn.dispose();
+  const symlinkFn = context.newFunction(
+    "symlink",
+    (targetHandle, pathHandle) => {
+      const target = context.getString(targetHandle);
+      const linkPath = context.getString(pathHandle);
+      try {
+        backend.symlink(target, linkPath);
+        return context.undefined;
+      } catch (e) {
+        return throwError(context, e.message || "symlink failed");
+      }
+    }
+  );
+  context.setProp(fsObj, "symlink", symlinkFn);
+  symlinkFn.dispose();
+  const readlinkFn = context.newFunction(
+    "readlink",
+    (pathHandle) => {
+      const path = context.getString(pathHandle);
+      try {
+        const target = backend.readlink(path);
+        return context.newString(target);
+      } catch (e) {
+        return throwError(context, e.message || "readlink failed");
+      }
+    }
+  );
+  context.setProp(fsObj, "readlink", readlinkFn);
+  readlinkFn.dispose();
+  const chmodFn = context.newFunction(
+    "chmod",
+    (pathHandle, modeHandle) => {
+      const path = context.getString(pathHandle);
+      const mode = context.dump(modeHandle);
+      try {
+        backend.chmod(path, typeof mode === "number" ? mode : 0);
+        return context.undefined;
+      } catch (e) {
+        return throwError(context, e.message || "chmod failed");
+      }
+    }
+  );
+  context.setProp(fsObj, "chmod", chmodFn);
+  chmodFn.dispose();
+  const realpathFn = context.newFunction(
+    "realpath",
+    (pathHandle) => {
+      const path = context.getString(pathHandle);
+      try {
+        const resolved = backend.realpath(path);
+        return context.newString(resolved);
+      } catch (e) {
+        return throwError(context, e.message || "realpath failed");
+      }
+    }
+  );
+  context.setProp(fsObj, "realpath", realpathFn);
+  realpathFn.dispose();
+  const renameFn = context.newFunction(
+    "rename",
+    (oldHandle, newHandle) => {
+      const oldPath = context.getString(oldHandle);
+      const newPath = context.getString(newHandle);
+      try {
+        backend.rename(oldPath, newPath);
+        return context.undefined;
+      } catch (e) {
+        return throwError(context, e.message || "rename failed");
+      }
+    }
+  );
+  context.setProp(fsObj, "rename", renameFn);
+  renameFn.dispose();
+  const copyFileFn = context.newFunction(
+    "copyFile",
+    (srcHandle, destHandle) => {
+      const src = context.getString(srcHandle);
+      const dest = context.getString(destHandle);
+      try {
+        backend.copyFile(src, dest);
+        return context.undefined;
+      } catch (e) {
+        return throwError(context, e.message || "copyFile failed");
+      }
+    }
+  );
+  context.setProp(fsObj, "copyFile", copyFileFn);
+  copyFileFn.dispose();
   context.setProp(context.global, "fs", fsObj);
   fsObj.dispose();
   const fetchFn = context.newFunction(
@@ -1646,7 +2480,7 @@ function setupContext(context, backend, input) {
       }
     }
   );
-  context.setProp(context.global, "fetch", fetchFn);
+  context.setProp(context.global, "__fetch", fetchFn);
   fetchFn.dispose();
   const execFn = context.newFunction(
     "exec",
@@ -1667,7 +2501,7 @@ function setupContext(context, backend, input) {
       }
     }
   );
-  context.setProp(context.global, "exec", execFn);
+  context.setProp(context.global, "__exec", execFn);
   execFn.dispose();
   const envObj = jsToHandle(context, input.env);
   context.setProp(context.global, "env", envObj);
@@ -1695,6 +2529,143 @@ function setupContext(context, backend, input) {
   exitFn.dispose();
   context.setProp(context.global, "process", processObj);
   processObj.dispose();
+  const compatResult = context.evalCode(
+    `(function() {
+  var _fs = globalThis.fs;
+  // Save original native functions
+  var orig = {};
+  var allNames = [
+    'readFile', 'readFileBuffer', 'writeFile', 'stat', 'lstat', 'readdir',
+    'mkdir', 'rm', 'exists', 'appendFile', 'symlink', 'readlink',
+    'chmod', 'realpath', 'rename', 'copyFile'
+  ];
+  for (var i = 0; i < allNames.length; i++) {
+    orig[allNames[i]] = _fs[allNames[i]];
+  }
+
+  // Wrap async-style methods with callback detection
+  function wrapCb(fn, name) {
+    return function() {
+      for (var j = 0; j < arguments.length; j++) {
+        if (typeof arguments[j] === 'function') {
+          throw new Error(
+            "fs." + name + "() with callbacks is not supported. " +
+            "Use fs." + name + "Sync() or fs.promises." + name + "() instead."
+          );
+        }
+      }
+      return fn.apply(null, arguments);
+    };
+  }
+  var cbNames = [
+    'readFile', 'writeFile', 'stat', 'lstat', 'readdir', 'mkdir',
+    'rm', 'appendFile', 'symlink', 'readlink', 'chmod', 'realpath',
+    'rename', 'copyFile'
+  ];
+  for (var i = 0; i < cbNames.length; i++) {
+    if (orig[cbNames[i]]) _fs[cbNames[i]] = wrapCb(orig[cbNames[i]], cbNames[i]);
+  }
+  // exists: callback is especially common in legacy Node.js
+  _fs.exists = wrapCb(orig.exists, 'exists');
+
+  // Sync aliases point to original unwrapped native functions
+  _fs.readFileSync = orig.readFile;
+  _fs.writeFileSync = orig.writeFile;
+  _fs.statSync = orig.stat;
+  _fs.lstatSync = orig.lstat;
+  _fs.readdirSync = orig.readdir;
+  _fs.mkdirSync = orig.mkdir;
+  _fs.rmSync = orig.rm;
+  _fs.existsSync = orig.exists;
+  _fs.appendFileSync = orig.appendFile;
+  _fs.symlinkSync = orig.symlink;
+  _fs.readlinkSync = orig.readlink;
+  _fs.chmodSync = orig.chmod;
+  _fs.realpathSync = orig.realpath;
+  _fs.renameSync = orig.rename;
+  _fs.copyFileSync = orig.copyFile;
+  _fs.unlinkSync = orig.rm;
+  _fs.rmdirSync = orig.rm;
+  _fs.unlink = wrapCb(orig.rm, 'unlink');
+  _fs.rmdir = wrapCb(orig.rm, 'rmdir');
+
+  // promises namespace
+  _fs.promises = {};
+  for (var i = 0; i < allNames.length; i++) {
+    var m = allNames[i];
+    (function(fn) {
+      _fs.promises[m] = function() {
+        try { return Promise.resolve(fn.apply(null, arguments)); }
+        catch(e) { return Promise.reject(e); }
+      };
+    })(orig[m]);
+  }
+  _fs.promises.unlink = _fs.promises.rm;
+  _fs.promises.rmdir = _fs.promises.rm;
+  _fs.promises.access = function(p) {
+    return orig.exists(p) ? Promise.resolve() : Promise.reject(new Error('ENOENT: no such file or directory: ' + p));
+  };
+
+  // process enhancements
+  var _p = globalThis.process;
+  _p.env = globalThis.env;
+  _p.platform = 'linux';
+  _p.arch = 'x64';
+  _p.versions = { node: '22.0.0', quickjs: '2024' };
+  _p.version = 'v22.0.0';
+
+  // Initialize path module on globalThis so require('path') works
+  ${PATH_MODULE_SOURCE}
+
+  // Initialize fetch polyfill (URL, Headers, Request, Response, fetch)
+  ${FETCH_POLYFILL_SOURCE}
+
+  // require() shim for CommonJS compatibility
+  var _execFn = globalThis.__exec;
+  var _childProcess = {
+    exec: function(cmd, opts) { return _execFn(cmd, opts); },
+    execSync: function(cmd, opts) {
+      var r = _execFn(cmd, opts);
+      if (r.exitCode !== 0) {
+        var e = new Error('Command failed: ' + cmd);
+        e.status = r.exitCode;
+        e.stderr = r.stderr;
+        e.stdout = r.stdout;
+        throw e;
+      }
+      return r.stdout;
+    },
+    spawnSync: function(cmd, args, opts) {
+      var command = cmd;
+      if (args && args.length) command += ' ' + args.join(' ');
+      var r = _execFn(command, opts);
+      return { stdout: r.stdout, stderr: r.stderr, status: r.exitCode };
+    }
+  };
+
+  var _modules = {
+    fs: _fs,
+    path: globalThis.__path,
+    child_process: _childProcess,
+    process: _p,
+    console: globalThis.console
+  };
+
+  globalThis.require = function(name) {
+    if (name.startsWith('node:')) name = name.slice(5);
+    var mod = _modules[name];
+    if (mod) return mod;
+    throw new Error("Cannot find module '" + name + "'");
+  };
+  globalThis.require.resolve = function(name) { return name; };
+})();`,
+    "<compat>"
+  );
+  if (compatResult.error) {
+    compatResult.error.dispose();
+  } else {
+    compatResult.value.dispose();
+  }
 }
 var defense = null;
 async function initializeWithDefense() {
@@ -1744,6 +2715,9 @@ async function executeCode(input) {
           }
         },
         (baseModuleName, requestedName) => {
+          if (requestedName.startsWith("node:")) {
+            requestedName = requestedName.slice(5);
+          }
           if (!requestedName.startsWith("./") && !requestedName.startsWith("../") && !requestedName.startsWith("/")) {
             return requestedName;
           }
@@ -1760,7 +2734,7 @@ async function executeCode(input) {
       if (bootstrapResult.error) {
         const errorVal = context.dump(bootstrapResult.error);
         bootstrapResult.error.dispose();
-        const errorMsg = typeof errorVal === "object" && errorVal !== null && "message" in errorVal ? errorVal.message : String(errorVal);
+        const errorMsg = formatError(errorVal);
         backend.writeStderr(`js-exec: bootstrap error: ${errorMsg}
 `);
         backend.exit(1);
@@ -1779,22 +2753,24 @@ async function executeCode(input) {
     if (result.error) {
       const errorVal = context.dump(result.error);
       result.error.dispose();
-      const errorMsg = typeof errorVal === "object" && errorVal !== null && "message" in errorVal ? errorVal.message : String(errorVal);
-      if (errorMsg === "__EXIT__") {
+      const rawMsg = typeof errorVal === "object" && errorVal !== null && "message" in errorVal ? errorVal.message : String(errorVal);
+      if (rawMsg === "__EXIT__") {
         return { success: true };
       }
+      const errorMsg = formatError(errorVal);
       backend.writeStderr(`${errorMsg}
 `);
       backend.exit(1);
       return { success: true };
     }
-    if (input.isModule) {
+    {
       const pendingResult = runtime.executePendingJobs();
       if ("error" in pendingResult && pendingResult.error) {
         const errorVal = context.dump(pendingResult.error);
         pendingResult.error.dispose();
-        const errorMsg = typeof errorVal === "object" && errorVal !== null && "message" in errorVal ? errorVal.message : String(errorVal);
-        if (errorMsg !== "__EXIT__") {
+        const rawPendingMsg = typeof errorVal === "object" && errorVal !== null && "message" in errorVal ? errorVal.message : String(errorVal);
+        if (rawPendingMsg !== "__EXIT__") {
+          const errorMsg = formatError(errorVal);
           backend.writeStderr(`${errorMsg}
 `);
           backend.exit(1);

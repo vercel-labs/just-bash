@@ -126,6 +126,12 @@ export class BridgeHandler {
         case OpCode.REALPATH:
           await this.handleRealpath();
           break;
+        case OpCode.RENAME:
+          await this.handleRename();
+          break;
+        case OpCode.COPY_FILE:
+          await this.handleCopyFile();
+          break;
         case OpCode.WRITE_STDOUT:
           this.handleWriteStdout();
           break;
@@ -301,6 +307,28 @@ export class BridgeHandler {
     try {
       const realpath = await this.fs.realpath(path);
       this.protocol.setResultFromString(realpath);
+      this.protocol.setStatus(Status.SUCCESS);
+    } catch (e) {
+      this.setErrorFromException(e);
+    }
+  }
+
+  private async handleRename(): Promise<void> {
+    const oldPath = this.resolvePath(this.protocol.getPath());
+    const newPath = this.resolvePath(this.protocol.getDataAsString());
+    try {
+      await this.fs.mv(oldPath, newPath);
+      this.protocol.setStatus(Status.SUCCESS);
+    } catch (e) {
+      this.setErrorFromException(e);
+    }
+  }
+
+  private async handleCopyFile(): Promise<void> {
+    const src = this.resolvePath(this.protocol.getPath());
+    const dest = this.resolvePath(this.protocol.getDataAsString());
+    try {
+      await this.fs.cp(src, dest);
       this.protocol.setStatus(Status.SUCCESS);
     } catch (e) {
       this.setErrorFromException(e);

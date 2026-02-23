@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { mapToRecord } from "../../helpers/env.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
-import { hasHelpFlag, showHelp } from "../help.js";
+import { hasHelpFlag } from "../help.js";
 import { BridgeHandler } from "../worker-bridge/bridge-handler.js";
 import { createSharedBuffer } from "../worker-bridge/protocol.js";
 import type { JsExecWorkerInput, JsExecWorkerOutput } from "./worker.js";
@@ -19,41 +19,65 @@ import type { JsExecWorkerInput, JsExecWorkerOutput } from "./worker.js";
 /** Default JavaScript execution timeout in milliseconds */
 const DEFAULT_JS_TIMEOUT_MS = 30000;
 
-const jsExecHelp = {
-  name: "js-exec",
-  summary: "Execute JavaScript code via QuickJS",
-  usage: "js-exec [OPTIONS] [-c CODE | FILE] [ARGS...]",
-  description: [
-    "Execute JavaScript code using QuickJS (compiled to WebAssembly).",
-    "",
-    "This command runs JavaScript in a sandboxed environment with access to",
-    "the virtual filesystem, HTTP requests, and sub-shell execution.",
-  ],
-  options: [
-    "-c CODE          Execute CODE as JavaScript",
-    "-m, --module     Enable ES module mode (import/export)",
-    "--strip-types    Strip TypeScript type annotations before execution",
-    "--version        Show QuickJS version",
-    "--help           Show this help",
-  ],
-  examples: [
-    'js-exec -c "console.log(1 + 2)"',
-    "js-exec -c \"console.log(fs.readFile('/etc/hostname'))\"",
-    "js-exec -c \"const r = exec('echo hello'); console.log(r.stdout)\"",
-    "js-exec script.js",
-    "js-exec script.ts",
-    "js-exec -m -c \"import { readFile } from 'fs'; console.log(readFile('/etc/hostname'))\"",
-    "echo 'console.log(\"hello\")' | js-exec",
-  ],
-  notes: [
-    "QuickJS runs in WebAssembly for security isolation.",
-    "Available globals: console, fs, fetch, exec, env, process.",
-    "ES module mode auto-enabled for .mjs, .ts, .mts files.",
-    "TypeScript type stripping auto-enabled for .ts, .mts files.",
-    "Virtual modules: fs, exec, fetch, process, env, console.",
-    "Maximum execution time is 30 seconds by default.",
-  ],
-};
+const JS_EXEC_HELP = `js-exec - Sandboxed JavaScript/TypeScript runtime with Node.js-compatible APIs
+
+Usage: js-exec [OPTIONS] [-c CODE | FILE] [ARGS...]
+
+Options:
+  -c CODE          Execute inline code
+  -m, --module     Enable ES module mode (import/export)
+  --strip-types    Strip TypeScript type annotations
+  --version, -V    Show version
+  --help           Show this help
+
+Examples:
+  js-exec -c "console.log(1 + 2)"
+  js-exec script.js
+  js-exec app.ts
+  echo 'console.log("hello")' | js-exec
+
+File Extension Auto-Detection:
+  .js              script mode (module mode if top-level await detected)
+  .mjs             ES module mode
+  .ts, .mts        ES module mode + TypeScript stripping
+
+Node.js Compatibility:
+  Code written for Node.js largely works here. Both require() and import
+  are supported, the node: prefix works, and standard globals like process,
+  console, and fetch are available. All I/O is synchronous.
+
+  Modules: fs, path, child_process, process, console
+    const fs = require('node:fs');
+    import { execSync } from 'node:child_process';
+
+  fs (global, require('fs'), or import from 'node:fs'):
+    readFileSync, writeFileSync, appendFileSync, copyFileSync, renameSync
+    readdirSync, mkdirSync, rmSync, unlinkSync, rmdirSync
+    statSync, lstatSync, existsSync, realpathSync, chmodSync
+    symlinkSync, readlinkSync, readFileBuffer
+    fs.promises.readFile, fs.promises.writeFile, fs.promises.access, ...
+
+  path (global, require('path'), or import from 'node:path'):
+    join, resolve, dirname, basename, extname, normalize, relative,
+    isAbsolute, parse, format, sep, delimiter
+
+  child_process (require('child_process') or import from 'node:child_process'):
+    execSync(cmd)       throws on non-zero exit, returns stdout
+    spawnSync(cmd, args) returns { stdout, stderr, status }
+
+  process (global or require('process')):
+    argv, cwd(), exit(), env, platform, arch, version, versions
+
+Other Globals:
+  console            log (stdout), error/warn (stderr)
+  fetch(url, opts)   HTTP; returns Promise<Response> (Web Fetch API)
+  URL, URLSearchParams, Headers, Request, Response
+
+Limits:
+  Memory: 64 MB per execution
+  Timeout: 30 seconds (configurable via maxJsTimeoutMs)
+  Engine: QuickJS (compiled to WebAssembly)
+`;
 
 interface ParsedArgs {
   code: string | null;
@@ -298,7 +322,7 @@ export const jsExecCommand: Command = {
 
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
-      return showHelp(jsExecHelp);
+      return { stdout: JS_EXEC_HELP, stderr: "", exitCode: 0 };
     }
 
     const parsed = parseArgs(args);
@@ -365,6 +389,11 @@ export const jsExecCommand: Command = {
       if (scriptPath.endsWith(".ts") || scriptPath.endsWith(".mts")) {
         stripTypes = true;
       }
+    }
+
+    // Auto-detect top-level await → enable module mode
+    if (!isModule && /\bawait\s/.test(jsCode)) {
+      isModule = true;
     }
 
     // Get bootstrap code from context env if set

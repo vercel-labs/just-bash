@@ -177,6 +177,22 @@ export class SyncBackend {
     return this.protocol.getResultAsString();
   }
 
+  rename(oldPath: string, newPath: string): void {
+    const newPathData = new TextEncoder().encode(newPath);
+    const result = this.execSync(OpCode.RENAME, oldPath, newPathData);
+    if (!result.success) {
+      throw new Error(result.error || "Failed to rename");
+    }
+  }
+
+  copyFile(src: string, dest: string): void {
+    const destData = new TextEncoder().encode(dest);
+    const result = this.execSync(OpCode.COPY_FILE, src, destData);
+    if (!result.success) {
+      throw new Error(result.error || "Failed to copyFile");
+    }
+  }
+
   writeStdout(data: string): void {
     const encoded = new TextEncoder().encode(data);
     this.execSync(OpCode.WRITE_STDOUT, "", encoded);

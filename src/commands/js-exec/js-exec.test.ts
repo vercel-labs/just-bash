@@ -57,7 +57,7 @@ describe("js-exec", () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec("js-exec --help");
       expect(result.stdout).toContain("js-exec");
-      expect(result.stdout).toContain("Execute JavaScript code");
+      expect(result.stdout).toContain("Node.js Compatibility");
       expect(result.exitCode).toBe(0);
     });
 
