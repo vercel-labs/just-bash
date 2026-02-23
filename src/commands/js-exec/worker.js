@@ -2543,18 +2543,15 @@ function setupContext(context, backend, input) {
     orig[allNames[i]] = _fs[allNames[i]];
   }
 
-  // Wrap async-style methods with callback detection
+  // Wrap async-style methods to always throw (matching Node.js which requires a callback).
+  // In Node.js, calling fs.readFile() without a callback throws TypeError.
+  // We don't support callbacks, so the async form always errors.
   function wrapCb(fn, name) {
     return function() {
-      for (var j = 0; j < arguments.length; j++) {
-        if (typeof arguments[j] === 'function') {
-          throw new Error(
-            "fs." + name + "() with callbacks is not supported. " +
-            "Use fs." + name + "Sync() or fs.promises." + name + "() instead."
-          );
-        }
-      }
-      return fn.apply(null, arguments);
+      throw new Error(
+        "fs." + name + "() with callbacks is not supported. " +
+        "Use fs." + name + "Sync() or fs.promises." + name + "() instead."
+      );
     };
   }
   var cbNames = [

@@ -11,7 +11,7 @@ describe("js-exec fs operations", () => {
         },
       });
       const result = await env.exec(
-        `js-exec -c "console.log(fs.readFile('/home/user/test.txt'))"`,
+        `js-exec -c "console.log(fs.readFileSync('/home/user/test.txt'))"`,
       );
       expect(result.stdout).toBe("hello world\n");
       expect(result.exitCode).toBe(0);
@@ -20,7 +20,7 @@ describe("js-exec fs operations", () => {
     it("should throw on non-existent file", async () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec(
-        `js-exec -c "try { fs.readFile('/no/such/file'); } catch(e) { console.log('error: ' + e.message); }"`,
+        `js-exec -c "try { fs.readFileSync('/no/such/file'); } catch(e) { console.log('error: ' + e.message); }"`,
       );
       expect(result.stdout).toContain("error:");
       expect(result.exitCode).toBe(0);
@@ -31,7 +31,7 @@ describe("js-exec fs operations", () => {
     it("should write and read back a file", async () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec(
-        `js-exec -c "fs.writeFile('/tmp/out.txt', 'test data'); console.log(fs.readFile('/tmp/out.txt'))"`,
+        `js-exec -c "fs.writeFileSync('/tmp/out.txt', 'test data'); console.log(fs.readFileSync('/tmp/out.txt'))"`,
       );
       expect(result.stdout).toBe("test data\n");
       expect(result.exitCode).toBe(0);
@@ -45,7 +45,7 @@ describe("js-exec fs operations", () => {
         files: { "/home/user/file.txt": "data" },
       });
       const result = await env.exec(
-        `js-exec -c "console.log(fs.exists('/home/user/file.txt'))"`,
+        `js-exec -c "console.log(fs.existsSync('/home/user/file.txt'))"`,
       );
       expect(result.stdout).toBe("true\n");
       expect(result.exitCode).toBe(0);
@@ -54,7 +54,7 @@ describe("js-exec fs operations", () => {
     it("should return false for non-existing file", async () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec(
-        `js-exec -c "console.log(fs.exists('/no/such/file'))"`,
+        `js-exec -c "console.log(fs.existsSync('/no/such/file'))"`,
       );
       expect(result.stdout).toBe("false\n");
       expect(result.exitCode).toBe(0);
@@ -68,7 +68,7 @@ describe("js-exec fs operations", () => {
         files: { "/home/user/file.txt": "12345" },
       });
       const result = await env.exec(
-        `js-exec -c "const s = fs.stat('/home/user/file.txt'); console.log(s.isFile, s.size)"`,
+        `js-exec -c "const s = fs.statSync('/home/user/file.txt'); console.log(s.isFile, s.size)"`,
       );
       expect(result.stdout).toBe("true 5\n");
       expect(result.exitCode).toBe(0);
@@ -77,7 +77,7 @@ describe("js-exec fs operations", () => {
     it("should stat a directory", async () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec(
-        `js-exec -c "const s = fs.stat('/home'); console.log(s.isDirectory)"`,
+        `js-exec -c "const s = fs.statSync('/home'); console.log(s.isDirectory)"`,
       );
       expect(result.stdout).toBe("true\n");
       expect(result.exitCode).toBe(0);
@@ -94,7 +94,7 @@ describe("js-exec fs operations", () => {
         },
       });
       const result = await env.exec(
-        `js-exec -c "const entries = fs.readdir('/home/user'); console.log(JSON.stringify(entries.sort()))"`,
+        `js-exec -c "const entries = fs.readdirSync('/home/user'); console.log(JSON.stringify(entries.sort()))"`,
       );
       const entries = JSON.parse(result.stdout.trim());
       expect(entries).toContain("a.txt");
@@ -107,7 +107,7 @@ describe("js-exec fs operations", () => {
     it("should create a directory", async () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec(
-        `js-exec -c "fs.mkdir('/tmp/newdir'); console.log(fs.exists('/tmp/newdir'))"`,
+        `js-exec -c "fs.mkdirSync('/tmp/newdir'); console.log(fs.existsSync('/tmp/newdir'))"`,
       );
       expect(result.stdout).toBe("true\n");
       expect(result.exitCode).toBe(0);
@@ -116,7 +116,7 @@ describe("js-exec fs operations", () => {
     it("should create directories recursively", async () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec(
-        `js-exec -c "fs.mkdir('/tmp/a/b/c', {recursive: true}); console.log(fs.exists('/tmp/a/b/c'))"`,
+        `js-exec -c "fs.mkdirSync('/tmp/a/b/c', {recursive: true}); console.log(fs.existsSync('/tmp/a/b/c'))"`,
       );
       expect(result.stdout).toBe("true\n");
       expect(result.exitCode).toBe(0);
@@ -127,7 +127,7 @@ describe("js-exec fs operations", () => {
     it("should remove a file", async () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec(
-        `js-exec -c "fs.writeFile('/tmp/del.txt', 'x'); fs.rm('/tmp/del.txt'); console.log(fs.exists('/tmp/del.txt'))"`,
+        `js-exec -c "fs.writeFileSync('/tmp/del.txt', 'x'); fs.rmSync('/tmp/del.txt'); console.log(fs.existsSync('/tmp/del.txt'))"`,
       );
       expect(result.stdout).toBe("false\n");
       expect(result.exitCode).toBe(0);
@@ -136,7 +136,7 @@ describe("js-exec fs operations", () => {
     it("should remove directory recursively", async () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec(
-        `js-exec -c "fs.mkdir('/tmp/rmdir'); fs.writeFile('/tmp/rmdir/f.txt', 'x'); fs.rm('/tmp/rmdir', {recursive: true}); console.log(fs.exists('/tmp/rmdir'))"`,
+        `js-exec -c "fs.mkdirSync('/tmp/rmdir'); fs.writeFileSync('/tmp/rmdir/f.txt', 'x'); fs.rmSync('/tmp/rmdir', {recursive: true}); console.log(fs.existsSync('/tmp/rmdir'))"`,
       );
       expect(result.stdout).toBe("false\n");
       expect(result.exitCode).toBe(0);
@@ -147,7 +147,7 @@ describe("js-exec fs operations", () => {
     it("should append to a file", async () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec(
-        `js-exec -c "fs.writeFile('/tmp/app.txt', 'hello'); fs.appendFile('/tmp/app.txt', ' world'); console.log(fs.readFile('/tmp/app.txt'))"`,
+        `js-exec -c "fs.writeFileSync('/tmp/app.txt', 'hello'); fs.appendFileSync('/tmp/app.txt', ' world'); console.log(fs.readFileSync('/tmp/app.txt'))"`,
       );
       expect(result.stdout).toBe("hello world\n");
       expect(result.exitCode).toBe(0);

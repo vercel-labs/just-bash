@@ -21,11 +21,11 @@ describe("js-exec ESM modules", () => {
             "import val from './data.mjs';\nconsole.log(val);\n",
           // Virtual fs module
           "/home/user/test-fs.mjs":
-            "import { readFile } from 'fs';\nconsole.log(readFile('/etc/hostname'));\n",
+            "import { readFileSync } from 'fs';\nconsole.log(readFileSync('/etc/hostname'));\n",
           "/etc/hostname": "testhost\n",
           // Virtual fs default
           "/home/user/test-fs-default.mjs":
-            "import fs from 'fs';\nconsole.log(fs.exists('/etc/hostname'));\n",
+            "import fs from 'fs';\nconsole.log(fs.existsSync('/etc/hostname'));\n",
           // child_process module (idiomatic)
           "/home/user/test-exec.mjs":
             "import { execSync } from 'node:child_process';\nconsole.log(execSync('echo hi').trim());\n",
@@ -127,7 +127,7 @@ describe("js-exec ESM modules", () => {
 
     // -m flag with inline code
     const r1 = await env.exec(
-      `js-exec -m -c "import { readFile } from 'fs'; console.log(readFile('/etc/hostname').trim())"`,
+      `js-exec -m -c "import { readFileSync } from 'fs'; console.log(readFileSync('/etc/hostname').trim())"`,
     );
     expect(r1.stdout).toBe("myhost\n");
     expect(r1.exitCode).toBe(0);
