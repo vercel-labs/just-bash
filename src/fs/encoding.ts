@@ -59,7 +59,19 @@ export function fromBuffer(
   encoding?: BufferEncoding | null,
 ): string {
   if (encoding === "base64") {
-    return btoa(String.fromCharCode(...buffer));
+    // Use chunked String.fromCharCode to avoid RangeError on large buffers.
+    // The spread operator (...buffer) creates one argument per byte and crashes
+    // on buffers larger than ~100KB due to call stack limits.
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(buffer).toString("base64");
+    }
+    const chunkSize = 65536;
+    let binary = "";
+    for (let i = 0; i < buffer.length; i += chunkSize) {
+      const chunk = buffer.subarray(i, i + chunkSize);
+      binary += String.fromCharCode(...chunk);
+    }
+    return btoa(binary);
   }
   if (encoding === "hex") {
     return Array.from(buffer)

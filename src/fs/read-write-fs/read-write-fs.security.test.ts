@@ -458,6 +458,182 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
     });
   });
 
+  describe("pre-existing OS symlink escape prevention", () => {
+    it("should block readFile via pre-existing OS symlink pointing outside", async () => {
+      // Simulate a malicious git repo with a pre-existing symlink
+      const linkPath = path.join(tempDir, "evil-link");
+      try {
+        fs.symlinkSync(outsideFile, linkPath);
+      } catch {
+        return; // Skip on systems that don't support symlinks
+      }
+
+      await expect(rwfs.readFile("/evil-link")).rejects.toThrow();
+      // Verify the real file was not accessed
+      const realContent = fs.readFileSync(outsideFile, "utf8");
+      expect(realContent).toBe("TOP SECRET DATA - YOU SHOULD NOT SEE THIS");
+    });
+
+    it("should block writeFile via pre-existing OS symlink pointing outside", async () => {
+      const linkPath = path.join(tempDir, "write-escape");
+      try {
+        fs.symlinkSync(outsideFile, linkPath);
+      } catch {
+        return;
+      }
+
+      await expect(rwfs.writeFile("/write-escape", "PWNED")).rejects.toThrow();
+      // Verify the real file was not modified
+      const realContent = fs.readFileSync(outsideFile, "utf8");
+      expect(realContent).toBe("TOP SECRET DATA - YOU SHOULD NOT SEE THIS");
+    });
+
+    it("should block stat via pre-existing OS symlink pointing outside", async () => {
+      const linkPath = path.join(tempDir, "stat-escape");
+      try {
+        fs.symlinkSync(outsideFile, linkPath);
+      } catch {
+        return;
+      }
+
+      await expect(rwfs.stat("/stat-escape")).rejects.toThrow();
+    });
+
+    it("should block appendFile via pre-existing OS symlink pointing outside", async () => {
+      const linkPath = path.join(tempDir, "append-escape");
+      try {
+        fs.symlinkSync(outsideFile, linkPath);
+      } catch {
+        return;
+      }
+
+      await expect(
+        rwfs.appendFile("/append-escape", "PWNED"),
+      ).rejects.toThrow();
+      const realContent = fs.readFileSync(outsideFile, "utf8");
+      expect(realContent).toBe("TOP SECRET DATA - YOU SHOULD NOT SEE THIS");
+    });
+
+    it("should block rm via pre-existing OS symlink pointing outside", async () => {
+      const linkPath = path.join(tempDir, "rm-escape");
+      try {
+        fs.symlinkSync(outsideFile, linkPath);
+      } catch {
+        return;
+      }
+
+      await expect(rwfs.rm("/rm-escape")).rejects.toThrow();
+      // Verify the real file still exists
+      expect(fs.existsSync(outsideFile)).toBe(true);
+    });
+
+    it("should block chmod via pre-existing OS symlink pointing outside", async () => {
+      const linkPath = path.join(tempDir, "chmod-escape");
+      try {
+        fs.symlinkSync(outsideFile, linkPath);
+      } catch {
+        return;
+      }
+
+      await expect(rwfs.chmod("/chmod-escape", 0o777)).rejects.toThrow();
+    });
+
+    it("should return false for exists via pre-existing OS symlink pointing outside", async () => {
+      const linkPath = path.join(tempDir, "exists-escape");
+      try {
+        fs.symlinkSync(outsideFile, linkPath);
+      } catch {
+        return;
+      }
+
+      expect(await rwfs.exists("/exists-escape")).toBe(false);
+    });
+  });
+
+  describe("readlink path leak prevention", () => {
+    it("should return virtual path instead of real OS path", async () => {
+      // Create a file and a symlink to it
+      fs.writeFileSync(path.join(tempDir, "target.txt"), "content");
+      try {
+        fs.symlinkSync(
+          path.join(tempDir, "target.txt"),
+          path.join(tempDir, "link-to-target"),
+        );
+      } catch {
+        return;
+      }
+
+      const target = await rwfs.readlink("/link-to-target");
+      // Should NOT contain the real filesystem path
+      expect(target).not.toContain(tempDir);
+      // Should be a virtual path
+      expect(target).toBe("target.txt");
+    });
+
+    it("should return virtual path for symlinks in subdirectories", async () => {
+      fs.writeFileSync(
+        path.join(tempDir, "subdir", "file.txt"),
+        "nested content",
+      );
+      try {
+        fs.symlinkSync(
+          path.join(tempDir, "subdir", "file.txt"),
+          path.join(tempDir, "subdir", "link"),
+        );
+      } catch {
+        return;
+      }
+
+      const target = await rwfs.readlink("/subdir/link");
+      expect(target).not.toContain(tempDir);
+      expect(target).toBe("file.txt");
+    });
+  });
+
+  describe("mv + symlink escape prevention", () => {
+    it("should block mv of symlink that would escape sandbox at destination", async () => {
+      // Create a deep directory structure
+      fs.mkdirSync(path.join(tempDir, "a", "b", "c"), { recursive: true });
+
+      // Create a relative symlink deep in the tree that is safe at its current location
+      // The symlink ../../../ from a/b/c/ resolves to tempDir root (still inside)
+      try {
+        fs.symlinkSync(
+          "../../../allowed.txt",
+          path.join(tempDir, "a", "b", "c", "safe-link"),
+        );
+      } catch {
+        return;
+      }
+
+      // Moving this symlink to the root would make ../../../ escape the sandbox
+      await expect(rwfs.mv("/a/b/c/safe-link", "/escape")).rejects.toThrow();
+
+      // Verify the real file was not modified
+      expect(fs.existsSync(outsideFile)).toBe(true);
+    });
+
+    it("should allow mv of symlink when target stays within sandbox", async () => {
+      fs.mkdirSync(path.join(tempDir, "dir1"), { recursive: true });
+      fs.mkdirSync(path.join(tempDir, "dir2"), { recursive: true });
+      fs.writeFileSync(path.join(tempDir, "target.txt"), "content");
+
+      try {
+        // Create symlink ../target.txt in dir1 (points to tempDir/target.txt)
+        fs.symlinkSync("../target.txt", path.join(tempDir, "dir1", "my-link"));
+      } catch {
+        return;
+      }
+
+      // Moving to dir2 - ../target.txt from dir2 still points to tempDir/target.txt (inside sandbox)
+      await rwfs.mv("/dir1/my-link", "/dir2/my-link");
+
+      // Should be able to read through the moved symlink
+      const content = await rwfs.readFile("/dir2/my-link");
+      expect(content).toBe("content");
+    });
+  });
+
   describe("realpath escape prevention", () => {
     it("should throw when realpath resolves outside root via symlink", async () => {
       // Create a symlink inside the sandbox pointing outside
@@ -483,6 +659,372 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
     it("should allow realpath for nested paths within root", async () => {
       const result = await rwfs.realpath("/subdir/nested.txt");
       expect(result).toBe("/subdir/nested.txt");
+    });
+  });
+
+  describe("mkdir escape via pre-existing OS symlink", () => {
+    it("should block mkdir through symlink pointing outside", async () => {
+      // Create a symlink to outside directory
+      try {
+        fs.symlinkSync(outsideDir, path.join(tempDir, "dir-escape"));
+      } catch {
+        return;
+      }
+
+      // Trying to create a subdirectory through the escape symlink should fail
+      await expect(
+        rwfs.mkdir("/dir-escape/pwned", { recursive: true }),
+      ).rejects.toThrow();
+
+      // Verify no directory was created outside
+      expect(fs.existsSync(path.join(outsideDir, "pwned"))).toBe(false);
+    });
+
+    it("should block mkdir at a path that is a symlink to outside", async () => {
+      try {
+        fs.symlinkSync(
+          path.join(outsideDir, "newdir"),
+          path.join(tempDir, "mkdir-escape"),
+        );
+      } catch {
+        return;
+      }
+
+      await expect(rwfs.mkdir("/mkdir-escape")).rejects.toThrow();
+      expect(fs.existsSync(path.join(outsideDir, "newdir"))).toBe(false);
+    });
+  });
+
+  describe("getAllPaths symlink leak prevention", () => {
+    it("should not follow symlinks to outside directories in getAllPaths", () => {
+      try {
+        fs.symlinkSync(outsideDir, path.join(tempDir, "dir-link"));
+      } catch {
+        return;
+      }
+
+      const paths = rwfs.getAllPaths();
+      // Should list the symlink itself but NOT traverse into it
+      expect(paths).toContain("/dir-link");
+      // Should NOT contain any paths from the outside directory
+      for (const p of paths) {
+        expect(p).not.toContain("secret");
+      }
+    });
+
+    it("should not follow symlinks to outside files in getAllPaths", () => {
+      try {
+        fs.symlinkSync(outsideFile, path.join(tempDir, "file-link"));
+      } catch {
+        return;
+      }
+
+      const paths = rwfs.getAllPaths();
+      // Should list the symlink itself
+      expect(paths).toContain("/file-link");
+      // Should not leak outside paths
+      for (const p of paths) {
+        expect(p).not.toContain(outsideDir);
+      }
+    });
+  });
+
+  describe("intermediate directory symlink escape", () => {
+    it("should block readFile when intermediate directory is symlink to outside", async () => {
+      // Create: /subdir -> outsideDir (symlink)
+      // Then try to read /subdir/secret.txt
+      try {
+        // Remove existing subdir first
+        fs.rmSync(path.join(tempDir, "escape-dir"), {
+          recursive: true,
+          force: true,
+        });
+        fs.symlinkSync(outsideDir, path.join(tempDir, "escape-dir"));
+      } catch {
+        return;
+      }
+
+      await expect(rwfs.readFile("/escape-dir/secret.txt")).rejects.toThrow();
+    });
+
+    it("should block writeFile when intermediate directory is symlink to outside", async () => {
+      try {
+        fs.symlinkSync(outsideDir, path.join(tempDir, "write-dir-escape"));
+      } catch {
+        return;
+      }
+
+      await expect(
+        rwfs.writeFile("/write-dir-escape/pwned.txt", "PWNED"),
+      ).rejects.toThrow();
+
+      // Verify nothing was written outside
+      expect(fs.existsSync(path.join(outsideDir, "pwned.txt"))).toBe(false);
+    });
+  });
+
+  describe("symlink creation validation edge cases", () => {
+    it("should not create symlink that resolves outside via deeply nested relative", async () => {
+      fs.mkdirSync(path.join(tempDir, "a", "b", "c"), { recursive: true });
+
+      // Create symlink at /a/b/c/link -> ../../../../etc/passwd
+      // This resolves to outside the root
+      try {
+        await rwfs.symlink("../../../../etc/passwd", "/a/b/c/link");
+      } catch {
+        return; // If symlink creation fails, that's also acceptable
+      }
+
+      // Even if symlink was created, reading through it should fail
+      await expect(rwfs.readFile("/a/b/c/link")).rejects.toThrow();
+    });
+  });
+
+  describe("symlink creation via parent OS symlink (Finding 6)", () => {
+    it("should not create symlink outside sandbox via parent symlink", async () => {
+      // Create an OS symlink: root/parent-escape -> outsideDir
+      try {
+        fs.symlinkSync(outsideDir, path.join(tempDir, "parent-escape"));
+      } catch {
+        return;
+      }
+
+      // Attempting to create a symlink at /parent-escape/new-link
+      // should fail because parent-escape resolves outside sandbox
+      await expect(
+        rwfs.symlink("target.txt", "/parent-escape/new-link"),
+      ).rejects.toThrow();
+
+      // Verify no symlink was created outside
+      expect(fs.existsSync(path.join(outsideDir, "new-link"))).toBe(false);
+    });
+  });
+
+  describe("cp recursive symlink escape prevention (Finding 5)", () => {
+    it("should not copy files from outside via symlink during recursive cp", async () => {
+      // Create a directory with a symlink pointing outside
+      fs.mkdirSync(path.join(tempDir, "src-dir"));
+      fs.writeFileSync(path.join(tempDir, "src-dir", "safe.txt"), "safe");
+      try {
+        fs.symlinkSync(
+          outsideFile,
+          path.join(tempDir, "src-dir", "escape-link"),
+        );
+      } catch {
+        return;
+      }
+
+      // Recursive copy should skip the escape symlink
+      await rwfs.cp("/src-dir", "/dest-dir", { recursive: true });
+
+      // safe.txt should be copied
+      const safe = await rwfs.readFile("/dest-dir/safe.txt");
+      expect(safe).toBe("safe");
+
+      // escape-link should NOT be copied (or should not point outside)
+      const destLinkPath = path.join(tempDir, "dest-dir", "escape-link");
+      if (fs.existsSync(destLinkPath)) {
+        // If it was copied, verify it doesn't point outside
+        try {
+          const resolved = fs.realpathSync(destLinkPath);
+          const canonicalRoot = fs.realpathSync(tempDir);
+          expect(
+            resolved.startsWith(canonicalRoot) || resolved === canonicalRoot,
+          ).toBe(true);
+        } catch {
+          // ENOENT is fine - broken symlink is safe
+        }
+      }
+    });
+  });
+
+  describe("maxFileReadSize bypass via internal symlink (Finding 4)", () => {
+    it("should enforce maxFileReadSize through symlinks", async () => {
+      // Create a large file inside the sandbox
+      const largeContent = "x".repeat(1000);
+      fs.writeFileSync(path.join(tempDir, "large.txt"), largeContent);
+
+      // Create a symlink to it
+      try {
+        fs.symlinkSync(
+          path.join(tempDir, "large.txt"),
+          path.join(tempDir, "link-to-large"),
+        );
+      } catch {
+        return;
+      }
+
+      // Create fs with small maxFileReadSize
+      const smallFs = new ReadWriteFs({
+        root: tempDir,
+        maxFileReadSize: 100,
+      });
+
+      // Direct read should be blocked
+      await expect(smallFs.readFile("/large.txt")).rejects.toThrow("EFBIG");
+
+      // Read through symlink should also be blocked (not bypass the size check)
+      await expect(smallFs.readFile("/link-to-large")).rejects.toThrow("EFBIG");
+    });
+  });
+
+  describe("mv directory containing escape symlinks (Finding 3)", () => {
+    it("should still validate reads after mv of directory with relative symlinks", async () => {
+      // Create /deep/dir/ with a relative symlink safe at that depth
+      fs.mkdirSync(path.join(tempDir, "deep", "dir"), { recursive: true });
+      fs.writeFileSync(path.join(tempDir, "deep", "target.txt"), "safe");
+
+      try {
+        // ../target.txt from deep/dir/ resolves to deep/target.txt (inside sandbox)
+        fs.symlinkSync(
+          "../target.txt",
+          path.join(tempDir, "deep", "dir", "rel-link"),
+        );
+      } catch {
+        return;
+      }
+
+      // Move dir up - the relative symlink now resolves differently
+      await rwfs.mv("/deep/dir", "/moved-dir");
+
+      // Reading through the symlink should either work (if target exists) or fail safely
+      // It should NOT read files outside the sandbox
+      try {
+        const content = await rwfs.readFile("/moved-dir/rel-link");
+        // If read succeeds, it must have read something inside the sandbox
+        expect(content).not.toContain("TOP SECRET");
+      } catch {
+        // Throwing is also acceptable (ENOENT or EACCES)
+      }
+    });
+  });
+
+  describe("readlink target leak for pre-existing outside symlinks (Finding 17)", () => {
+    it("should not leak absolute real path for pre-existing OS symlink pointing outside", async () => {
+      try {
+        fs.symlinkSync(outsideFile, path.join(tempDir, "abs-leak"));
+      } catch {
+        return;
+      }
+
+      const target = await rwfs.readlink("/abs-leak");
+      // Should NOT return the full real path like /var/folders/.../secret.txt
+      expect(target).not.toBe(outsideFile);
+      expect(target).not.toContain(outsideDir);
+    });
+
+    it("should return relative target as-is for pre-existing relative symlinks", async () => {
+      try {
+        fs.symlinkSync(
+          "../../../etc/passwd",
+          path.join(tempDir, "rel-outside"),
+        );
+      } catch {
+        return;
+      }
+
+      const target = await rwfs.readlink("/rel-outside");
+      // Relative targets don't leak real paths (they're already relative)
+      expect(target).toBe("../../../etc/passwd");
+    });
+  });
+
+  describe("realpath prefix boundary safety (Finding 18)", () => {
+    it("should correctly handle realpath for paths within root", async () => {
+      const result = await rwfs.realpath("/allowed.txt");
+      expect(result).toBe("/allowed.txt");
+    });
+
+    it("should reject symlinks that resolve outside root via realpath", async () => {
+      try {
+        fs.symlinkSync(outsideFile, path.join(tempDir, "rp-escape"));
+      } catch {
+        return;
+      }
+
+      await expect(rwfs.realpath("/rp-escape")).rejects.toThrow("ENOENT");
+    });
+  });
+
+  describe("error message path leak prevention", () => {
+    it("should not leak real root path in ENOENT errors", async () => {
+      try {
+        await rwfs.readFile("/nonexistent-file-xyz");
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).not.toContain(tempDir);
+        expect(msg).toContain("/nonexistent-file-xyz");
+      }
+    });
+
+    it("should not leak real root path in stat errors", async () => {
+      try {
+        await rwfs.stat("/no-such-path-abc");
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).not.toContain(tempDir);
+      }
+    });
+
+    it("should not leak real root path in mkdir errors", async () => {
+      // Create a file then try to mkdir the same path (non-recursive)
+      try {
+        await rwfs.mkdir("/allowed.txt");
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).not.toContain(tempDir);
+      }
+    });
+  });
+
+  describe("base64 encoding with large files", () => {
+    it("should handle base64 read of large file without crashing", async () => {
+      const largeContent = "x".repeat(200_000);
+      fs.writeFileSync(path.join(tempDir, "large-b64.txt"), largeContent);
+
+      // Should NOT throw RangeError
+      const result = await rwfs.readFile("/large-b64.txt", "base64");
+      expect(typeof result).toBe("string");
+      expect(result.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("chmod through real-fs symlink to outside", () => {
+    it("should block chmod through pre-existing OS symlink to outside file", async () => {
+      try {
+        fs.symlinkSync(outsideFile, path.join(tempDir, "chmod-sym-escape"));
+      } catch {
+        return;
+      }
+
+      await expect(rwfs.chmod("/chmod-sym-escape", 0o755)).rejects.toThrow();
+    });
+  });
+
+  describe("utimes through real-fs symlink to outside", () => {
+    it("should block utimes through pre-existing OS symlink to outside file", async () => {
+      try {
+        fs.symlinkSync(outsideFile, path.join(tempDir, "utimes-sym-escape"));
+      } catch {
+        return;
+      }
+
+      const now = new Date();
+      await expect(
+        rwfs.utimes("/utimes-sym-escape", now, now),
+      ).rejects.toThrow();
+    });
+  });
+
+  describe("cp through real-fs symlink to outside", () => {
+    it("should block cp of file through pre-existing OS symlink to outside", async () => {
+      try {
+        fs.symlinkSync(outsideFile, path.join(tempDir, "cp-sym-escape"));
+      } catch {
+        return;
+      }
+
+      await expect(rwfs.cp("/cp-sym-escape", "/stolen.txt")).rejects.toThrow();
     });
   });
 });

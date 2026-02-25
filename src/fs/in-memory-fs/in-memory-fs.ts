@@ -635,6 +635,20 @@ export class InMemoryFs implements IFileSystem {
 
     if (srcEntry.type === "file") {
       this.ensureParentDirs(destNorm);
+      // Deep copy: create a new Uint8Array to avoid sharing the buffer reference
+      if ("content" in srcEntry) {
+        const contentCopy =
+          srcEntry.content instanceof Uint8Array
+            ? new Uint8Array(srcEntry.content)
+            : srcEntry.content;
+        this.data.set(destNorm, { ...srcEntry, content: contentCopy });
+      } else {
+        // Lazy file - copy the lazy reference (will be materialized on read)
+        this.data.set(destNorm, { ...srcEntry });
+      }
+    } else if (srcEntry.type === "symlink") {
+      // Copy the symlink itself (not its target)
+      this.ensureParentDirs(destNorm);
       this.data.set(destNorm, { ...srcEntry });
     } else if (srcEntry.type === "directory") {
       if (!options?.recursive) {

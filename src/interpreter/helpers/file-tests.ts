@@ -180,7 +180,7 @@ export async function evaluateFileTest(
         "/dev/stdout",
         "/dev/stderr",
       ];
-      return charDevices.some((dev) => path === dev || path.endsWith(dev));
+      return charDevices.includes(path);
     }
 
     case "-p":

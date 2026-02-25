@@ -44,6 +44,7 @@ export interface ReadWriteFsOptions {
 
 export class ReadWriteFs implements IFileSystem {
   private readonly root: string;
+  private readonly canonicalRoot: string;
   private readonly maxFileReadSize: number;
 
   constructor(options: ReadWriteFsOptions) {
@@ -58,6 +59,64 @@ export class ReadWriteFs implements IFileSystem {
     if (!stat.isDirectory()) {
       throw new Error(`ReadWriteFs root is not a directory: ${this.root}`);
     }
+
+    // Compute canonical root (resolves symlinks like /var -> /private/var on macOS)
+    this.canonicalRoot = fs.realpathSync(this.root);
+  }
+
+  /**
+   * Validate that a resolved real path stays within the sandbox root.
+   * Resolves all symlinks to detect escape attempts via OS-level symlinks.
+   * Throws EACCES if the path escapes the root.
+   */
+  private async resolveAndValidate(
+    realPath: string,
+    virtualPath: string,
+  ): Promise<void> {
+    try {
+      const resolved = await fs.promises.realpath(realPath);
+      if (
+        resolved !== this.canonicalRoot &&
+        !resolved.startsWith(`${this.canonicalRoot}/`)
+      ) {
+        throw new Error(
+          `EACCES: permission denied, '${virtualPath}' resolves outside sandbox`,
+        );
+      }
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") {
+        // File doesn't exist yet (e.g., new file being created).
+        // Validate the parent directory instead.
+        const parent = nodePath.dirname(realPath);
+        if (parent === realPath) {
+          // Reached filesystem root without finding a valid parent
+          throw new Error(
+            `EACCES: permission denied, '${virtualPath}' resolves outside sandbox`,
+          );
+        }
+        await this.resolveAndValidate(parent, virtualPath);
+      } else if (
+        err.message?.includes("EACCES") ||
+        err.message?.includes("resolves outside sandbox")
+      ) {
+        throw e;
+      } else {
+        throw e;
+      }
+    }
+  }
+
+  /**
+   * Validate the parent directory of a path (for operations like lstat/readlink
+   * that should not follow the final component's symlink).
+   */
+  private async validateParent(
+    realPath: string,
+    virtualPath: string,
+  ): Promise<void> {
+    const parent = nodePath.dirname(realPath);
+    await this.resolveAndValidate(parent, virtualPath);
   }
 
   /**
@@ -107,10 +166,15 @@ export class ReadWriteFs implements IFileSystem {
 
   async readFileBuffer(path: string): Promise<Uint8Array> {
     const realPath = this.toRealPath(path);
+    await this.resolveAndValidate(realPath, path);
 
     try {
       if (this.maxFileReadSize > 0) {
-        const stat = await fs.promises.lstat(realPath);
+        // Use stat (not lstat) so that symlinks resolve to the target's actual
+        // size. lstat would return the symlink's target path length, bypassing
+        // the size limit for symlinks pointing to large files.
+        // resolveAndValidate already confirmed the resolved path is within sandbox.
+        const stat = await fs.promises.stat(realPath);
         if (stat.size > this.maxFileReadSize) {
           throw new Error(
             `EFBIG: file too large, read '${path}' (${stat.size} bytes, max ${this.maxFileReadSize})`,
@@ -139,6 +203,7 @@ export class ReadWriteFs implements IFileSystem {
     options?: WriteFileOptions | BufferEncoding,
   ): Promise<void> {
     const realPath = this.toRealPath(path);
+    await this.resolveAndValidate(realPath, path);
     const encoding = getEncoding(options);
     const buffer = toBuffer(content, encoding);
 
@@ -155,6 +220,7 @@ export class ReadWriteFs implements IFileSystem {
     options?: WriteFileOptions | BufferEncoding,
   ): Promise<void> {
     const realPath = this.toRealPath(path);
+    await this.resolveAndValidate(realPath, path);
     const encoding = getEncoding(options);
     const buffer = toBuffer(content, encoding);
 
@@ -168,6 +234,7 @@ export class ReadWriteFs implements IFileSystem {
   async exists(path: string): Promise<boolean> {
     const realPath = this.toRealPath(path);
     try {
+      await this.resolveAndValidate(realPath, path);
       await fs.promises.access(realPath);
       return true;
     } catch {
@@ -177,6 +244,7 @@ export class ReadWriteFs implements IFileSystem {
 
   async stat(path: string): Promise<FsStat> {
     const realPath = this.toRealPath(path);
+    await this.resolveAndValidate(realPath, path);
 
     try {
       const stat = await fs.promises.stat(realPath);
@@ -199,6 +267,7 @@ export class ReadWriteFs implements IFileSystem {
 
   async lstat(path: string): Promise<FsStat> {
     const realPath = this.toRealPath(path);
+    await this.validateParent(realPath, path);
 
     try {
       const stat = await fs.promises.lstat(realPath);
@@ -221,6 +290,7 @@ export class ReadWriteFs implements IFileSystem {
 
   async mkdir(path: string, options?: MkdirOptions): Promise<void> {
     const realPath = this.toRealPath(path);
+    await this.resolveAndValidate(realPath, path);
 
     try {
       await fs.promises.mkdir(realPath, { recursive: options?.recursive });
@@ -243,6 +313,7 @@ export class ReadWriteFs implements IFileSystem {
 
   async readdirWithFileTypes(path: string): Promise<DirentEntry[]> {
     const realPath = this.toRealPath(path);
+    await this.resolveAndValidate(realPath, path);
 
     try {
       const entries = await fs.promises.readdir(realPath, {
@@ -270,6 +341,7 @@ export class ReadWriteFs implements IFileSystem {
 
   async rm(path: string, options?: RmOptions): Promise<void> {
     const realPath = this.toRealPath(path);
+    await this.resolveAndValidate(realPath, path);
 
     try {
       await fs.promises.rm(realPath, {
@@ -291,10 +363,34 @@ export class ReadWriteFs implements IFileSystem {
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
     const srcReal = this.toRealPath(src);
     const destReal = this.toRealPath(dest);
+    await this.resolveAndValidate(srcReal, src);
+    await this.resolveAndValidate(destReal, dest);
 
     try {
       await fs.promises.cp(srcReal, destReal, {
         recursive: options?.recursive ?? false,
+        // Validate each entry during recursive copy to prevent:
+        // 1. Following symlinks that point outside the sandbox
+        // 2. Creating raw symlinks that bypass target transformation
+        filter: async (source: string) => {
+          try {
+            const stat = fs.lstatSync(source);
+            if (stat.isSymbolicLink()) {
+              // Validate the symlink's resolved target stays within sandbox
+              const resolved = await fs.promises
+                .realpath(source)
+                .catch(() => null);
+              if (resolved === null) return false;
+              return (
+                resolved === this.canonicalRoot ||
+                resolved.startsWith(`${this.canonicalRoot}/`)
+              );
+            }
+            return true;
+          } catch {
+            return true;
+          }
+        },
       });
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
@@ -311,6 +407,45 @@ export class ReadWriteFs implements IFileSystem {
   async mv(src: string, dest: string): Promise<void> {
     const srcReal = this.toRealPath(src);
     const destReal = this.toRealPath(dest);
+    await this.resolveAndValidate(srcReal, src);
+    await this.resolveAndValidate(destReal, dest);
+
+    // Check if source is a symlink - if so, validate that its target
+    // will still be valid after the move (prevents mv+symlink escape)
+    try {
+      const srcStat = await fs.promises.lstat(srcReal);
+      if (srcStat.isSymbolicLink()) {
+        const target = await fs.promises.readlink(srcReal);
+        // Resolve the target relative to the destination location
+        const resolvedTarget = nodePath.resolve(
+          nodePath.dirname(destReal),
+          target,
+        );
+        const canonicalTarget = await fs.promises
+          .realpath(resolvedTarget)
+          .catch(() => resolvedTarget);
+        if (
+          canonicalTarget !== this.canonicalRoot &&
+          !canonicalTarget.startsWith(`${this.canonicalRoot}/`)
+        ) {
+          throw new Error(
+            `EACCES: permission denied, mv '${src}' -> '${dest}' would create symlink escaping sandbox`,
+          );
+        }
+      }
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") {
+        throw new Error(`ENOENT: no such file or directory, mv '${src}'`);
+      }
+      if (
+        err.message?.includes("EACCES") ||
+        err.message?.includes("escaping sandbox")
+      ) {
+        throw e;
+      }
+      // For other errors, let the rename below handle it
+    }
 
     // Ensure destination parent directory exists
     const destDir = nodePath.dirname(destReal);
@@ -359,7 +494,9 @@ export class ReadWriteFs implements IFileSystem {
         paths.push(virtualPath);
 
         const entryRealPath = nodePath.join(realPath, entry);
-        const stat = fs.statSync(entryRealPath);
+        // Use lstatSync to avoid following OS symlinks that could point
+        // outside the sandbox root. Symlinks are listed but not traversed.
+        const stat = fs.lstatSync(entryRealPath);
         if (stat.isDirectory()) {
           this.scanDir(virtualPath, paths);
         }
@@ -371,6 +508,7 @@ export class ReadWriteFs implements IFileSystem {
 
   async chmod(path: string, mode: number): Promise<void> {
     const realPath = this.toRealPath(path);
+    await this.resolveAndValidate(realPath, path);
 
     try {
       await fs.promises.chmod(realPath, mode);
@@ -385,6 +523,9 @@ export class ReadWriteFs implements IFileSystem {
 
   async symlink(target: string, linkPath: string): Promise<void> {
     const realLinkPath = this.toRealPath(linkPath);
+    // Validate that the link path's parent stays within sandbox
+    // (prevents creating symlinks outside via pre-existing OS symlinks in parent path)
+    await this.validateParent(realLinkPath, linkPath);
 
     // Validate and transform symlink target to prevent sandbox escape.
     // Resolve the target: if absolute, treat as virtual path; if relative, resolve from link's dir
@@ -420,6 +561,8 @@ export class ReadWriteFs implements IFileSystem {
   async link(existingPath: string, newPath: string): Promise<void> {
     const realExisting = this.toRealPath(existingPath);
     const realNew = this.toRealPath(newPath);
+    await this.resolveAndValidate(realExisting, existingPath);
+    await this.resolveAndValidate(realNew, newPath);
 
     try {
       await fs.promises.link(realExisting, realNew);
@@ -444,9 +587,50 @@ export class ReadWriteFs implements IFileSystem {
 
   async readlink(path: string): Promise<string> {
     const realPath = this.toRealPath(path);
+    await this.validateParent(realPath, path);
 
     try {
-      return await fs.promises.readlink(realPath);
+      const rawTarget = await fs.promises.readlink(realPath);
+
+      // Convert the raw OS target to a virtual path to prevent
+      // leaking real filesystem paths outside the sandbox.
+      const normalizedVirtual = this.normalizePath(path);
+      const linkDir = nodePath.dirname(normalizedVirtual);
+
+      // Resolve the raw target to an absolute real path
+      const resolvedRealTarget = nodePath.isAbsolute(rawTarget)
+        ? rawTarget
+        : nodePath.resolve(nodePath.dirname(realPath), rawTarget);
+      const canonicalTarget = await fs.promises
+        .realpath(resolvedRealTarget)
+        .catch(() => resolvedRealTarget);
+
+      if (
+        canonicalTarget === this.canonicalRoot ||
+        canonicalTarget.startsWith(`${this.canonicalRoot}/`)
+      ) {
+        // Within root - compute virtual target path and return as relative
+        const virtualTarget =
+          canonicalTarget.slice(this.canonicalRoot.length) || "/";
+        // Return as relative path from the link's virtual directory
+        if (linkDir === "/") {
+          return virtualTarget.startsWith("/")
+            ? virtualTarget.slice(1) || "."
+            : virtualTarget;
+        }
+        return nodePath.relative(linkDir, virtualTarget);
+      }
+
+      // Outside root - the symlink target points outside the sandbox.
+      // For symlinks created through our API, targets are sanitized. But
+      // pre-existing OS symlinks (e.g., in a malicious git repo) may have
+      // unsanitized targets. Return a relative version of the raw target
+      // to avoid leaking real OS paths, but only if it's relative.
+      // For absolute targets, return just the basename to avoid path leaks.
+      if (nodePath.isAbsolute(rawTarget)) {
+        return nodePath.basename(rawTarget);
+      }
+      return rawTarget;
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err.code === "ENOENT") {
@@ -470,11 +654,15 @@ export class ReadWriteFs implements IFileSystem {
 
     try {
       const resolved = await fs.promises.realpath(realPath);
-      // Canonicalize root too (e.g., on macOS /var -> /private/var)
-      const canonicalRoot = await fs.promises.realpath(this.root);
       // Convert back to virtual path (relative to root)
-      if (resolved.startsWith(canonicalRoot)) {
-        const relative = resolved.slice(canonicalRoot.length);
+      // Use canonicalRoot (computed at construction) for consistent comparison
+      // with resolveAndValidate. Use boundary-safe prefix check to prevent
+      // /data matching /datastore.
+      if (
+        resolved === this.canonicalRoot ||
+        resolved.startsWith(`${this.canonicalRoot}/`)
+      ) {
+        const relative = resolved.slice(this.canonicalRoot.length);
         return relative || "/";
       }
       // Resolved path is outside root - reject it to prevent sandbox escape
@@ -503,6 +691,7 @@ export class ReadWriteFs implements IFileSystem {
    */
   async utimes(path: string, atime: Date, mtime: Date): Promise<void> {
     const realPath = this.toRealPath(path);
+    await this.resolveAndValidate(realPath, path);
 
     try {
       await fs.promises.utimes(realPath, atime, mtime);

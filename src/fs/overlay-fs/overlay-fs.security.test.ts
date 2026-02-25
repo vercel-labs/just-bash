@@ -795,6 +795,48 @@ describe("OverlayFs Security - Path Traversal Prevention", () => {
     });
   });
 
+  describe("stat symlink info leak prevention", () => {
+    it("should not leak metadata of files outside sandbox via real-fs symlink", async () => {
+      // Create a real symlink on the filesystem pointing to the outside secret file
+      const realSymlink = path.join(tempDir, "stat-escape-link");
+      try {
+        fs.symlinkSync(outsideFile, realSymlink);
+      } catch {
+        // Skip on systems that don't support symlinks
+        return;
+      }
+
+      // stat should NOT follow the OS symlink and return the outside file's metadata
+      // Instead it should throw ENOENT because the virtual target doesn't exist
+      await expect(overlay.stat("/stat-escape-link")).rejects.toThrow("ENOENT");
+    });
+
+    it("should not leak metadata of directories outside sandbox via real-fs symlink", async () => {
+      const realSymlink = path.join(tempDir, "dir-escape-link");
+      try {
+        fs.symlinkSync(outsideDir, realSymlink);
+      } catch {
+        return;
+      }
+
+      await expect(overlay.stat("/dir-escape-link")).rejects.toThrow("ENOENT");
+    });
+
+    it("should follow real-fs symlink to file within sandbox correctly", async () => {
+      // Create a real symlink that points to a file WITHIN the sandbox
+      const realSymlink = path.join(tempDir, "internal-link");
+      try {
+        fs.symlinkSync(path.join(tempDir, "allowed.txt"), realSymlink);
+      } catch {
+        return;
+      }
+
+      // This should work fine - the symlink target is within the sandbox
+      const stat = await overlay.stat("/internal-link");
+      expect(stat.isFile).toBe(true);
+    });
+  });
+
   describe("readlink security", () => {
     it("should not leak information about outside paths via readlink", async () => {
       // Create a symlink in memory
@@ -804,6 +846,47 @@ describe("OverlayFs Security - Path Traversal Prevention", () => {
       // The security is in not being able to READ through it
       expect(target).toBe("/etc/passwd");
       await expect(overlay.readFile("/link")).rejects.toThrow();
+    });
+
+    it("should not leak real OS paths via readlink on real-fs symlink", async () => {
+      // Create a real symlink on disk pointing to a file within the sandbox
+      const realSymlink = path.join(tempDir, "real-link");
+      try {
+        fs.symlinkSync(path.join(tempDir, "allowed.txt"), realSymlink);
+      } catch {
+        return;
+      }
+
+      const target = await overlay.readlink("/real-link");
+      // readlink should NOT return the real OS path
+      expect(target).not.toContain(tempDir);
+      // Should return a virtual path
+      expect(target).toBe("/allowed.txt");
+    });
+
+    it("should not leak real OS paths via readlink on real-fs symlink to subdirectory", async () => {
+      const realSymlink = path.join(tempDir, "subdir", "link-to-nested");
+      try {
+        fs.symlinkSync(path.join(tempDir, "subdir", "nested.txt"), realSymlink);
+      } catch {
+        return;
+      }
+
+      const target = await overlay.readlink("/subdir/link-to-nested");
+      expect(target).not.toContain(tempDir);
+    });
+
+    it("should return relative target for real-fs relative symlink", async () => {
+      const realSymlink = path.join(tempDir, "relative-link");
+      try {
+        fs.symlinkSync("allowed.txt", realSymlink);
+      } catch {
+        return;
+      }
+
+      const target = await overlay.readlink("/relative-link");
+      // Relative symlinks should pass through as-is (no real path leaked)
+      expect(target).toBe("allowed.txt");
     });
   });
 
@@ -836,6 +919,408 @@ describe("OverlayFs Security - Path Traversal Prevention", () => {
     it("should handle alternate data streams syntax", async () => {
       // Windows NTFS alternate data streams: file.txt:stream
       await expect(overlay.readFile("/file.txt:secret")).rejects.toThrow();
+    });
+  });
+
+  describe("exists() symlink info leak prevention", () => {
+    it("should not leak existence of outside files via real-fs symlink", async () => {
+      // Create a real symlink pointing to the outside secret file
+      const realSymlink = path.join(tempDir, "exists-escape");
+      try {
+        fs.symlinkSync(outsideFile, realSymlink);
+      } catch {
+        return;
+      }
+
+      // exists() should still return true (the symlink itself exists on disk)
+      // but should NOT follow the symlink to probe outside existence
+      const result = await overlay.exists("/exists-escape");
+      // The symlink entry exists in the real FS, so lstat will find it
+      expect(result).toBe(true);
+
+      // But reading through it should fail
+      await expect(overlay.readFile("/exists-escape")).rejects.toThrow();
+    });
+
+    it("should not leak existence of outside directories via real-fs symlink", async () => {
+      const realSymlink = path.join(tempDir, "dir-exists-escape");
+      try {
+        fs.symlinkSync(outsideDir, realSymlink);
+      } catch {
+        return;
+      }
+
+      // lstat will find the symlink itself
+      const result = await overlay.exists("/dir-exists-escape");
+      expect(result).toBe(true);
+
+      // But stat (which follows symlinks) should fail
+      await expect(overlay.stat("/dir-exists-escape")).rejects.toThrow(
+        "ENOENT",
+      );
+    });
+  });
+
+  describe("getAllPaths symlink leak prevention", () => {
+    it("should not traverse into symlinked outside directories", () => {
+      try {
+        fs.symlinkSync(outsideDir, path.join(tempDir, "scan-escape"));
+      } catch {
+        return;
+      }
+
+      const allPaths = overlay.getAllPaths();
+      // Should list the symlink entry itself
+      expect(allPaths).toContain("/scan-escape");
+      // But should NOT list contents of the outside directory
+      for (const p of allPaths) {
+        expect(p).not.toContain("secret");
+      }
+    });
+  });
+
+  describe("chmod through real-fs symlink to outside", () => {
+    it("should not copy outside file content to memory via chmod", async () => {
+      const realSymlink = path.join(tempDir, "chmod-escape");
+      try {
+        fs.symlinkSync(outsideFile, realSymlink);
+      } catch {
+        return;
+      }
+
+      // chmod calls stat() then readFileBuffer() - both should fail
+      // because stat() uses lstat + virtual resolution
+      await expect(overlay.chmod("/chmod-escape", 0o755)).rejects.toThrow();
+    });
+  });
+
+  describe("cp through real-fs symlink to outside", () => {
+    it("should not copy outside file content via cp on symlink source", async () => {
+      const realSymlink = path.join(tempDir, "cp-escape");
+      try {
+        fs.symlinkSync(outsideFile, realSymlink);
+      } catch {
+        return;
+      }
+
+      // cp calls stat() on source which follows symlinks via virtual resolution
+      // The symlink target resolves outside, so stat should fail
+      await expect(overlay.cp("/cp-escape", "/stolen.txt")).rejects.toThrow();
+
+      // Verify /stolen.txt was not created with outside content
+      await expect(overlay.readFile("/stolen.txt")).rejects.toThrow("ENOENT");
+    });
+  });
+
+  describe("utimes through real-fs symlink to outside", () => {
+    it("should not access outside file via utimes on symlink", async () => {
+      const realSymlink = path.join(tempDir, "utimes-escape");
+      try {
+        fs.symlinkSync(outsideFile, realSymlink);
+      } catch {
+        return;
+      }
+
+      const now = new Date();
+      // utimes calls stat() which will fail via virtual resolution
+      await expect(
+        overlay.utimes("/utimes-escape", now, now),
+      ).rejects.toThrow();
+    });
+  });
+
+  describe("lstat behavior on real-fs symlinks", () => {
+    it("should correctly identify real-fs symlinks via lstat", async () => {
+      const realSymlink = path.join(tempDir, "lstat-test");
+      try {
+        fs.symlinkSync(outsideFile, realSymlink);
+      } catch {
+        return;
+      }
+
+      // lstat should identify it as a symlink without following it
+      const stat = await overlay.lstat("/lstat-test");
+      expect(stat.isSymbolicLink).toBe(true);
+      expect(stat.isFile).toBe(false);
+    });
+
+    it("should correctly identify internal real-fs symlinks via lstat", async () => {
+      const realSymlink = path.join(tempDir, "lstat-internal");
+      try {
+        fs.symlinkSync(path.join(tempDir, "allowed.txt"), realSymlink);
+      } catch {
+        return;
+      }
+
+      const stat = await overlay.lstat("/lstat-internal");
+      expect(stat.isSymbolicLink).toBe(true);
+    });
+  });
+
+  describe("parent-path symlink escape prevention", () => {
+    it("should block readFile when parent directory is OS symlink to outside", async () => {
+      // Create root/evil-dir -> outsideDir (symlink), then try to read root/evil-dir/secret.txt
+      try {
+        fs.symlinkSync(outsideDir, path.join(tempDir, "evil-dir"));
+      } catch {
+        return;
+      }
+
+      // This should fail because evil-dir resolves outside sandbox
+      await expect(overlay.readFile("/evil-dir/secret.txt")).rejects.toThrow();
+    });
+
+    it("should block stat when parent directory is OS symlink to outside", async () => {
+      try {
+        fs.symlinkSync(outsideDir, path.join(tempDir, "stat-dir-escape"));
+      } catch {
+        return;
+      }
+
+      await expect(
+        overlay.stat("/stat-dir-escape/secret.txt"),
+      ).rejects.toThrow();
+    });
+
+    it("should block readdir when directory is OS symlink to outside", async () => {
+      try {
+        fs.symlinkSync(outsideDir, path.join(tempDir, "readdir-escape"));
+      } catch {
+        return;
+      }
+
+      // Should return empty (symlink points outside overlay)
+      const entries = await overlay.readdir("/readdir-escape");
+      expect(entries).toEqual([]);
+    });
+
+    it("should block lstat when parent directory is OS symlink to outside", async () => {
+      try {
+        fs.symlinkSync(outsideDir, path.join(tempDir, "lstat-dir-escape"));
+      } catch {
+        return;
+      }
+
+      await expect(
+        overlay.lstat("/lstat-dir-escape/secret.txt"),
+      ).rejects.toThrow();
+    });
+
+    it("should not include entries from symlinked outside directory in getAllPaths", () => {
+      try {
+        fs.symlinkSync(outsideDir, path.join(tempDir, "scan-dir-escape"));
+      } catch {
+        return;
+      }
+
+      const paths = overlay.getAllPaths();
+      for (const p of paths) {
+        expect(p).not.toContain("secret");
+      }
+    });
+
+    it("should block exists when parent directory is OS symlink to outside", async () => {
+      try {
+        fs.symlinkSync(outsideDir, path.join(tempDir, "exists-dir-escape"));
+      } catch {
+        return;
+      }
+
+      // The symlink itself exists on disk (lstat finds it), but the child path
+      // resolves outside the sandbox and should be blocked
+      expect(await overlay.exists("/exists-dir-escape/secret.txt")).toBe(false);
+    });
+  });
+
+  describe("rm ENOTEMPTY correctness", () => {
+    it("should throw ENOTEMPTY when rm non-empty directory without recursive", async () => {
+      await overlay.writeFile("/rmdir/child.txt", "content");
+
+      await expect(overlay.rm("/rmdir")).rejects.toThrow("ENOTEMPTY");
+      // Directory should still exist
+      expect(await overlay.exists("/rmdir")).toBe(true);
+      expect(await overlay.exists("/rmdir/child.txt")).toBe(true);
+    });
+
+    it("should throw ENOTEMPTY for real-fs non-empty directory without recursive", async () => {
+      // subdir has nested.txt from beforeEach
+      await expect(overlay.rm("/subdir")).rejects.toThrow("ENOTEMPTY");
+      expect(await overlay.exists("/subdir/nested.txt")).toBe(true);
+    });
+
+    it("should succeed with recursive rm of non-empty directory", async () => {
+      await overlay.writeFile("/rmdir2/a.txt", "a");
+      await overlay.writeFile("/rmdir2/b.txt", "b");
+
+      await overlay.rm("/rmdir2", { recursive: true });
+      expect(await overlay.exists("/rmdir2")).toBe(false);
+      expect(await overlay.exists("/rmdir2/a.txt")).toBe(false);
+    });
+  });
+
+  describe("ensureParentDirs and deleted set interaction", () => {
+    it("should not re-expose deleted real-fs children after writeFile re-creates parent", async () => {
+      // Delete a real-fs directory recursively
+      await overlay.rm("/subdir", { recursive: true });
+      expect(await overlay.exists("/subdir")).toBe(false);
+      expect(await overlay.exists("/subdir/nested.txt")).toBe(false);
+
+      // Write a new file under the same directory name
+      await overlay.writeFile("/subdir/new.txt", "new content");
+
+      // The old real-fs file should NOT be re-exposed
+      const entries = await overlay.readdir("/subdir");
+      expect(entries).toContain("new.txt");
+      expect(entries).not.toContain("nested.txt");
+    });
+  });
+
+  describe("maxFileReadSize enforcement through symlinks", () => {
+    it("should enforce maxFileReadSize when reading through internal symlink", async () => {
+      // Create a file larger than a small limit
+      const largeContent = "x".repeat(1000);
+      fs.writeFileSync(path.join(tempDir, "large-file.txt"), largeContent);
+
+      // Create symlink to it
+      try {
+        fs.symlinkSync(
+          path.join(tempDir, "large-file.txt"),
+          path.join(tempDir, "link-to-large"),
+        );
+      } catch {
+        return;
+      }
+
+      // Create overlay with small maxFileReadSize
+      const smallOverlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        maxFileReadSize: 100,
+      });
+
+      // Direct read should be blocked
+      await expect(smallOverlay.readFile("/large-file.txt")).rejects.toThrow(
+        "EFBIG",
+      );
+
+      // Read through symlink should also be blocked
+      await expect(smallOverlay.readFile("/link-to-large")).rejects.toThrow(
+        "EFBIG",
+      );
+    });
+  });
+
+  describe("readlink path leak for real-fs outside symlinks", () => {
+    it("should not leak absolute real path via readlink on real-fs symlink pointing outside", async () => {
+      const realSymlink = path.join(tempDir, "readlink-abs-leak");
+      try {
+        fs.symlinkSync(outsideFile, realSymlink);
+      } catch {
+        return;
+      }
+
+      // readlink should NOT return the full outside path
+      const target = await overlay.readlink("/readlink-abs-leak");
+      expect(target).not.toBe(outsideFile);
+      expect(target).not.toContain(outsideDir);
+    });
+  });
+
+  describe("error message path leak prevention", () => {
+    it("should not leak real root path in ENOENT errors", async () => {
+      try {
+        await overlay.readFile("/nonexistent-file");
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).not.toContain(tempDir);
+        expect(msg).toContain("/nonexistent-file");
+      }
+    });
+
+    it("should not leak real root path in stat errors", async () => {
+      try {
+        await overlay.stat("/no-such-path");
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).not.toContain(tempDir);
+      }
+    });
+  });
+
+  describe("base64 encoding with large files", () => {
+    it("should handle base64 read of large file without crashing", async () => {
+      // Create a file larger than the spread operator limit (~100KB)
+      const largeContent = "x".repeat(200_000);
+      await overlay.writeFile("/large-b64.txt", largeContent);
+
+      // Reading with base64 encoding should NOT throw RangeError
+      const result = await overlay.readFile("/large-b64.txt", "base64");
+      expect(typeof result).toBe("string");
+      expect(result.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("writeFile/appendFile symlink behavior", () => {
+    it("should overwrite memory symlink with file on writeFile", async () => {
+      await overlay.writeFile("/wf-target.txt", "original");
+      await overlay.symlink("/wf-target.txt", "/wf-link");
+
+      // Writing to the symlink should replace it with a file, not modify target
+      await overlay.writeFile("/wf-link", "new content");
+
+      expect(await overlay.readFile("/wf-link")).toBe("new content");
+      expect(await overlay.readFile("/wf-target.txt")).toBe("original");
+    });
+
+    it("should overwrite memory symlink with file on appendFile", async () => {
+      await overlay.writeFile("/af-target.txt", "base");
+      await overlay.symlink("/af-target.txt", "/af-link");
+
+      await overlay.appendFile("/af-link", " appended");
+
+      // appendFile reads through symlink then writes to raw path
+      const linkContent = await overlay.readFile("/af-link");
+      expect(linkContent).toBe("base appended");
+      // Target unchanged
+      expect(await overlay.readFile("/af-target.txt")).toBe("base");
+    });
+  });
+
+  describe("test -c character device false positive prevention", () => {
+    it("should not identify non-device paths ending in /dev/null as char devices", async () => {
+      const env = new Bash({ fs: overlay });
+      // Create a regular file at a path ending in /dev/null
+      await overlay.mkdir("/fake/dev", { recursive: true });
+      await overlay.writeFile("/fake/dev/null", "not a device");
+
+      const result = await env.exec(
+        "test -c /fake/dev/null && echo yes || echo no",
+      );
+      expect(result.stdout.trim()).toBe("no");
+    });
+
+    it("should correctly identify actual /dev/null as char device", async () => {
+      const env = new Bash({ fs: overlay });
+      const result = await env.exec("test -c /dev/null && echo yes || echo no");
+      expect(result.stdout.trim()).toBe("yes");
+    });
+  });
+
+  describe("/dev file overwrite behavior", () => {
+    it("should allow overwriting /dev/null content in memory", async () => {
+      await overlay.writeFile("/dev/null", "injected");
+      const content = await overlay.readFile("/dev/null");
+      expect(content).toBe("injected");
+    });
+
+    it("should write to /dev/null file on stdout redirect (not a true discard device)", async () => {
+      const env = new Bash({ fs: overlay });
+
+      // stdout redirect to /dev/null actually writes to the file
+      // (only pre-truncation and noclobber are special-cased for /dev/null)
+      const result = await env.exec("echo hello > /dev/null; cat /dev/null");
+      // /dev/null receives the content since it's a regular file in the VFS
+      expect(result.stdout.trim()).toBe("hello");
     });
   });
 });
