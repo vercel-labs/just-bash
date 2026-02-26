@@ -18,13 +18,17 @@ describe("OverlayFs", () => {
 
   describe("constructor", () => {
     it("should create with valid root directory", () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       expect(overlay).toBeInstanceOf(OverlayFs);
     });
 
     it("should throw for non-existent root", () => {
       expect(() => {
-        new OverlayFs({ root: "/nonexistent/path/12345" });
+        new OverlayFs({ root: "/nonexistent/path/12345", allowSymlinks: true });
       }).toThrow("does not exist");
     });
 
@@ -32,25 +36,29 @@ describe("OverlayFs", () => {
       const filePath = path.join(tempDir, "file.txt");
       fs.writeFileSync(filePath, "content");
       expect(() => {
-        new OverlayFs({ root: filePath });
+        new OverlayFs({ root: filePath, allowSymlinks: true });
       }).toThrow("not a directory");
     });
   });
 
   describe("mount point", () => {
     it("should default to /home/user/project", () => {
-      const overlay = new OverlayFs({ root: tempDir });
+      const overlay = new OverlayFs({ root: tempDir, allowSymlinks: true });
       expect(overlay.getMountPoint()).toBe("/home/user/project");
     });
 
     it("should allow custom mount point", () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/app" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/app",
+        allowSymlinks: true,
+      });
       expect(overlay.getMountPoint()).toBe("/app");
     });
 
     it("should read files at default mount point", async () => {
       fs.writeFileSync(path.join(tempDir, "test.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir });
+      const overlay = new OverlayFs({ root: tempDir, allowSymlinks: true });
 
       const content = await overlay.readFile("/home/user/project/test.txt");
       expect(content).toBe("content");
@@ -58,7 +66,7 @@ describe("OverlayFs", () => {
 
     it("should not read files outside mount point", async () => {
       fs.writeFileSync(path.join(tempDir, "test.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir });
+      const overlay = new OverlayFs({ root: tempDir, allowSymlinks: true });
 
       await expect(overlay.readFile("/test.txt")).rejects.toThrow("ENOENT");
     });
@@ -66,7 +74,7 @@ describe("OverlayFs", () => {
     it("should list files at mount point", async () => {
       fs.writeFileSync(path.join(tempDir, "a.txt"), "a");
       fs.writeFileSync(path.join(tempDir, "b.txt"), "b");
-      const overlay = new OverlayFs({ root: tempDir });
+      const overlay = new OverlayFs({ root: tempDir, allowSymlinks: true });
 
       const entries = await overlay.readdir("/home/user/project");
       expect(entries).toContain("a.txt");
@@ -74,7 +82,7 @@ describe("OverlayFs", () => {
     });
 
     it("should create mount point parent directories", async () => {
-      const overlay = new OverlayFs({ root: tempDir });
+      const overlay = new OverlayFs({ root: tempDir, allowSymlinks: true });
 
       expect(await overlay.exists("/home")).toBe(true);
       expect(await overlay.exists("/home/user")).toBe(true);
@@ -83,7 +91,7 @@ describe("OverlayFs", () => {
 
     it("should work with BashEnv at mount point", async () => {
       fs.writeFileSync(path.join(tempDir, "file.txt"), "hello");
-      const overlay = new OverlayFs({ root: tempDir });
+      const overlay = new OverlayFs({ root: tempDir, allowSymlinks: true });
       const env = new Bash({ fs: overlay, cwd: overlay.getMountPoint() });
 
       const result = await env.exec("cat file.txt");
@@ -94,7 +102,11 @@ describe("OverlayFs", () => {
   describe("reading from real filesystem", () => {
     it("should read files from real filesystem", async () => {
       fs.writeFileSync(path.join(tempDir, "test.txt"), "real content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       const content = await overlay.readFile("/test.txt");
       expect(content).toBe("real content");
@@ -103,7 +115,11 @@ describe("OverlayFs", () => {
     it("should read nested files", async () => {
       fs.mkdirSync(path.join(tempDir, "subdir"));
       fs.writeFileSync(path.join(tempDir, "subdir", "file.txt"), "nested");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       const content = await overlay.readFile("/subdir/file.txt");
       expect(content).toBe("nested");
@@ -113,7 +129,11 @@ describe("OverlayFs", () => {
       fs.writeFileSync(path.join(tempDir, "a.txt"), "a");
       fs.writeFileSync(path.join(tempDir, "b.txt"), "b");
       fs.mkdirSync(path.join(tempDir, "subdir"));
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       const entries = await overlay.readdir("/");
       expect(entries).toContain("a.txt");
@@ -123,7 +143,11 @@ describe("OverlayFs", () => {
 
     it("should stat files from real filesystem", async () => {
       fs.writeFileSync(path.join(tempDir, "test.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       const stat = await overlay.stat("/test.txt");
       expect(stat.isFile).toBe(true);
@@ -134,7 +158,11 @@ describe("OverlayFs", () => {
 
   describe("writing to memory layer", () => {
     it("should write files to memory without affecting real fs", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.writeFile("/new.txt", "memory content");
 
@@ -148,7 +176,11 @@ describe("OverlayFs", () => {
 
     it("should override real files in memory", async () => {
       fs.writeFileSync(path.join(tempDir, "test.txt"), "real");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.writeFile("/test.txt", "modified");
       const content = await overlay.readFile("/test.txt");
@@ -161,7 +193,11 @@ describe("OverlayFs", () => {
     });
 
     it("should create directories in memory", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.mkdir("/newdir");
       const stat = await overlay.stat("/newdir");
@@ -173,7 +209,11 @@ describe("OverlayFs", () => {
 
     it("should append to files", async () => {
       fs.writeFileSync(path.join(tempDir, "append.txt"), "start");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.appendFile("/append.txt", "-end");
       const content = await overlay.readFile("/append.txt");
@@ -189,7 +229,11 @@ describe("OverlayFs", () => {
   describe("deletion tracking", () => {
     it("should mark files as deleted", async () => {
       fs.writeFileSync(path.join(tempDir, "delete.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.rm("/delete.txt");
 
@@ -203,7 +247,11 @@ describe("OverlayFs", () => {
     it("should hide deleted files from readdir", async () => {
       fs.writeFileSync(path.join(tempDir, "a.txt"), "a");
       fs.writeFileSync(path.join(tempDir, "b.txt"), "b");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.rm("/a.txt");
 
@@ -214,7 +262,11 @@ describe("OverlayFs", () => {
 
     it("should allow recreating deleted files", async () => {
       fs.writeFileSync(path.join(tempDir, "recreate.txt"), "original");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.rm("/recreate.txt");
       await overlay.writeFile("/recreate.txt", "new content");
@@ -226,7 +278,11 @@ describe("OverlayFs", () => {
     it("should delete directories recursively", async () => {
       fs.mkdirSync(path.join(tempDir, "dir"));
       fs.writeFileSync(path.join(tempDir, "dir", "file.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.rm("/dir", { recursive: true });
 
@@ -238,7 +294,11 @@ describe("OverlayFs", () => {
   describe("directory merging", () => {
     it("should merge memory and real filesystem entries", async () => {
       fs.writeFileSync(path.join(tempDir, "real.txt"), "real");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.writeFile("/memory.txt", "memory");
 
@@ -249,7 +309,11 @@ describe("OverlayFs", () => {
 
     it("should not duplicate entries", async () => {
       fs.writeFileSync(path.join(tempDir, "file.txt"), "real");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       // Override in memory
       await overlay.writeFile("/file.txt", "memory");
@@ -262,7 +326,11 @@ describe("OverlayFs", () => {
 
   describe("path traversal protection", () => {
     it("should prevent reading outside root with ..", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await expect(overlay.readFile("/../../../etc/passwd")).rejects.toThrow(
         "ENOENT",
@@ -272,14 +340,22 @@ describe("OverlayFs", () => {
     it("should normalize paths with .. correctly", async () => {
       fs.mkdirSync(path.join(tempDir, "subdir"));
       fs.writeFileSync(path.join(tempDir, "root.txt"), "root content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       const content = await overlay.readFile("/subdir/../root.txt");
       expect(content).toBe("root content");
     });
 
     it("should prevent escaping via symlink", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       // Create a symlink in memory that points outside
       await overlay.symlink("/etc/passwd", "/escape-link");
@@ -291,7 +367,11 @@ describe("OverlayFs", () => {
 
   describe("symlinks", () => {
     it("should create and read symlinks in memory", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.writeFile("/target.txt", "target content");
       await overlay.symlink("/target.txt", "/link");
@@ -301,7 +381,11 @@ describe("OverlayFs", () => {
     });
 
     it("should read symlink target", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.symlink("/target.txt", "/link");
       const target = await overlay.readlink("/link");
@@ -309,7 +393,11 @@ describe("OverlayFs", () => {
     });
 
     it("should lstat symlinks without following", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.symlink("/target.txt", "/link");
       const stat = await overlay.lstat("/link");
@@ -320,7 +408,11 @@ describe("OverlayFs", () => {
   describe("copy and move", () => {
     it("should copy files within overlay", async () => {
       fs.writeFileSync(path.join(tempDir, "source.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.cp("/source.txt", "/copy.txt");
 
@@ -333,7 +425,11 @@ describe("OverlayFs", () => {
 
     it("should move files within overlay", async () => {
       fs.writeFileSync(path.join(tempDir, "source.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.mv("/source.txt", "/moved.txt");
 
@@ -344,7 +440,11 @@ describe("OverlayFs", () => {
     it("should copy directories recursively", async () => {
       fs.mkdirSync(path.join(tempDir, "srcdir"));
       fs.writeFileSync(path.join(tempDir, "srcdir", "file.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.cp("/srcdir", "/destdir", { recursive: true });
 
@@ -356,7 +456,11 @@ describe("OverlayFs", () => {
   describe("chmod", () => {
     it("should change permissions in memory", async () => {
       fs.writeFileSync(path.join(tempDir, "file.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.chmod("/file.txt", 0o755);
       const stat = await overlay.stat("/file.txt");
@@ -366,7 +470,11 @@ describe("OverlayFs", () => {
 
   describe("hard links", () => {
     it("should create hard links in memory", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.writeFile("/original.txt", "content");
       await overlay.link("/original.txt", "/hardlink.txt");
@@ -379,13 +487,21 @@ describe("OverlayFs", () => {
   describe("exists", () => {
     it("should return true for real files", async () => {
       fs.writeFileSync(path.join(tempDir, "real.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       expect(await overlay.exists("/real.txt")).toBe(true);
     });
 
     it("should return true for memory files", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       await overlay.writeFile("/memory.txt", "content");
 
       expect(await overlay.exists("/memory.txt")).toBe(true);
@@ -393,14 +509,22 @@ describe("OverlayFs", () => {
 
     it("should return false for deleted files", async () => {
       fs.writeFileSync(path.join(tempDir, "deleted.txt"), "content");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.rm("/deleted.txt");
       expect(await overlay.exists("/deleted.txt")).toBe(false);
     });
 
     it("should return false for non-existent files", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       expect(await overlay.exists("/nonexistent.txt")).toBe(false);
     });
   });
@@ -411,6 +535,7 @@ describe("OverlayFs", () => {
         root: tempDir,
         mountPoint: "/",
         readOnly: true,
+        allowSymlinks: true,
       });
 
       await expect(overlay.writeFile("/test.txt", "content")).rejects.toThrow(
@@ -424,6 +549,7 @@ describe("OverlayFs", () => {
         root: tempDir,
         mountPoint: "/",
         readOnly: true,
+        allowSymlinks: true,
       });
 
       await expect(overlay.appendFile("/existing.txt", "more")).rejects.toThrow(
@@ -436,6 +562,7 @@ describe("OverlayFs", () => {
         root: tempDir,
         mountPoint: "/",
         readOnly: true,
+        allowSymlinks: true,
       });
 
       await expect(overlay.mkdir("/newdir")).rejects.toThrow(
@@ -449,6 +576,7 @@ describe("OverlayFs", () => {
         root: tempDir,
         mountPoint: "/",
         readOnly: true,
+        allowSymlinks: true,
       });
 
       await expect(overlay.rm("/delete.txt")).rejects.toThrow(
@@ -462,6 +590,7 @@ describe("OverlayFs", () => {
         root: tempDir,
         mountPoint: "/",
         readOnly: true,
+        allowSymlinks: true,
       });
 
       await expect(overlay.cp("/source.txt", "/dest.txt")).rejects.toThrow(
@@ -475,6 +604,7 @@ describe("OverlayFs", () => {
         root: tempDir,
         mountPoint: "/",
         readOnly: true,
+        allowSymlinks: true,
       });
 
       await expect(overlay.mv("/source.txt", "/dest.txt")).rejects.toThrow(
@@ -488,6 +618,7 @@ describe("OverlayFs", () => {
         root: tempDir,
         mountPoint: "/",
         readOnly: true,
+        allowSymlinks: true,
       });
 
       await expect(overlay.chmod("/file.txt", 0o755)).rejects.toThrow(
@@ -500,6 +631,7 @@ describe("OverlayFs", () => {
         root: tempDir,
         mountPoint: "/",
         readOnly: true,
+        allowSymlinks: true,
       });
 
       await expect(overlay.symlink("/target", "/link")).rejects.toThrow(
@@ -513,6 +645,7 @@ describe("OverlayFs", () => {
         root: tempDir,
         mountPoint: "/",
         readOnly: true,
+        allowSymlinks: true,
       });
 
       await expect(
@@ -527,6 +660,7 @@ describe("OverlayFs", () => {
         root: tempDir,
         mountPoint: "/",
         readOnly: true,
+        allowSymlinks: true,
       });
 
       // All read operations should work
@@ -537,7 +671,11 @@ describe("OverlayFs", () => {
     });
 
     it("should default to readOnly false", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       // Should not throw
       await overlay.writeFile("/test.txt", "content");
@@ -550,6 +688,7 @@ describe("OverlayFs", () => {
         root: tempDir,
         mountPoint: "/",
         readOnly: true,
+        allowSymlinks: true,
       });
       const env = new Bash({ fs: overlay, cwd: "/" });
 
@@ -571,7 +710,11 @@ describe("OverlayFs", () => {
   describe("integration with BashEnv", () => {
     it("should work with BashEnv for basic commands", async () => {
       fs.writeFileSync(path.join(tempDir, "input.txt"), "hello world");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       const env = new Bash({ fs: overlay });
 
       const result = await env.exec("cat /input.txt");
@@ -580,7 +723,11 @@ describe("OverlayFs", () => {
     });
 
     it("should allow writing without affecting real fs", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       const env = new Bash({ fs: overlay });
 
       await env.exec('echo "new content" > /output.txt');
@@ -594,7 +741,11 @@ describe("OverlayFs", () => {
 
     it("should work with grep on real files", async () => {
       fs.writeFileSync(path.join(tempDir, "data.txt"), "apple\nbanana\ncherry");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       const env = new Bash({ fs: overlay });
 
       const result = await env.exec("grep banana /data.txt");
@@ -603,7 +754,11 @@ describe("OverlayFs", () => {
 
     it("should work with find on mixed real/memory files", async () => {
       fs.writeFileSync(path.join(tempDir, "real.txt"), "real");
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       const env = new Bash({ fs: overlay, cwd: "/" });
 
       await env.exec('echo "memory" > /memory.txt');
@@ -619,7 +774,11 @@ describe("OverlayFs", () => {
       fs.writeFileSync(path.join(tempDir, "file.txt"), "content");
       fs.mkdirSync(path.join(tempDir, "subdir"));
 
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       const entries = await overlay.readdirWithFileTypes("/");
 
       const file = entries.find((e) => e.name === "file.txt");
@@ -634,7 +793,11 @@ describe("OverlayFs", () => {
     });
 
     it("should include memory layer entries with correct types", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.writeFile("/memory.txt", "memory content");
       await overlay.mkdir("/memdir");
@@ -653,7 +816,11 @@ describe("OverlayFs", () => {
     it("should merge real and memory entries", async () => {
       fs.writeFileSync(path.join(tempDir, "real.txt"), "real");
 
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       await overlay.writeFile("/memory.txt", "memory");
 
       const entries = await overlay.readdirWithFileTypes("/");
@@ -667,7 +834,11 @@ describe("OverlayFs", () => {
       fs.writeFileSync(path.join(tempDir, "a.txt"), "a");
       fs.writeFileSync(path.join(tempDir, "b.txt"), "b");
 
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       await overlay.rm("/a.txt");
 
       const entries = await overlay.readdirWithFileTypes("/");
@@ -682,7 +853,11 @@ describe("OverlayFs", () => {
       fs.writeFileSync(path.join(tempDir, "apple.txt"), "a");
       fs.writeFileSync(path.join(tempDir, "Banana.txt"), "b");
 
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       const entries = await overlay.readdirWithFileTypes("/");
       const names = entries.map((e) => e.name);
 
@@ -691,7 +866,11 @@ describe("OverlayFs", () => {
     });
 
     it("should identify symlinks in memory layer", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       await overlay.writeFile("/real.txt", "content");
       await overlay.symlink("/real.txt", "/link.txt");
 
@@ -703,7 +882,11 @@ describe("OverlayFs", () => {
     });
 
     it("should throw ENOENT for non-existent directory", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await expect(
         overlay.readdirWithFileTypes("/nonexistent"),
@@ -714,7 +897,11 @@ describe("OverlayFs", () => {
       fs.writeFileSync(path.join(tempDir, "a.txt"), "a");
       fs.mkdirSync(path.join(tempDir, "sub"));
 
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       await overlay.writeFile("/b.txt", "b");
 
       const namesFromReaddir = await overlay.readdir("/");

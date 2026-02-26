@@ -8,7 +8,7 @@ const fixturesDir = path.join(import.meta.dirname, "fixtures");
 describe("sqlite3 with fixtures", () => {
   describe("users.db", () => {
     it("should query all users", async () => {
-      const fs = new OverlayFs({ root: fixturesDir });
+      const fs = new OverlayFs({ root: fixturesDir, allowSymlinks: true });
       const env = new Bash({ fs, cwd: fs.getMountPoint() });
 
       const result = await env.exec('sqlite3 users.db "SELECT * FROM users"');
@@ -22,7 +22,7 @@ describe("sqlite3 with fixtures", () => {
     });
 
     it("should filter users with WHERE clause", async () => {
-      const fs = new OverlayFs({ root: fixturesDir });
+      const fs = new OverlayFs({ root: fixturesDir, allowSymlinks: true });
       const env = new Bash({ fs, cwd: fs.getMountPoint() });
 
       const result = await env.exec(
@@ -33,7 +33,7 @@ describe("sqlite3 with fixtures", () => {
     });
 
     it("should aggregate users with COUNT", async () => {
-      const fs = new OverlayFs({ root: fixturesDir });
+      const fs = new OverlayFs({ root: fixturesDir, allowSymlinks: true });
       const env = new Bash({ fs, cwd: fs.getMountPoint() });
 
       const result = await env.exec(
@@ -44,7 +44,7 @@ describe("sqlite3 with fixtures", () => {
     });
 
     it("should output users as JSON", async () => {
-      const fs = new OverlayFs({ root: fixturesDir });
+      const fs = new OverlayFs({ root: fixturesDir, allowSymlinks: true });
       const env = new Bash({ fs, cwd: fs.getMountPoint() });
 
       const result = await env.exec(
@@ -57,7 +57,7 @@ describe("sqlite3 with fixtures", () => {
 
   describe("products.db", () => {
     it("should query all products", async () => {
-      const fs = new OverlayFs({ root: fixturesDir });
+      const fs = new OverlayFs({ root: fixturesDir, allowSymlinks: true });
       const env = new Bash({ fs, cwd: fs.getMountPoint() });
 
       const result = await env.exec(
@@ -71,7 +71,7 @@ describe("sqlite3 with fixtures", () => {
     });
 
     it("should join products with categories", async () => {
-      const fs = new OverlayFs({ root: fixturesDir });
+      const fs = new OverlayFs({ root: fixturesDir, allowSymlinks: true });
       const env = new Bash({ fs, cwd: fs.getMountPoint() });
 
       const result = await env.exec(
@@ -84,7 +84,7 @@ describe("sqlite3 with fixtures", () => {
     });
 
     it("should calculate sum with GROUP BY", async () => {
-      const fs = new OverlayFs({ root: fixturesDir });
+      const fs = new OverlayFs({ root: fixturesDir, allowSymlinks: true });
       const env = new Bash({ fs, cwd: fs.getMountPoint() });
 
       const result = await env.exec(
@@ -96,7 +96,7 @@ describe("sqlite3 with fixtures", () => {
     });
 
     it("should output products in box mode", async () => {
-      const fs = new OverlayFs({ root: fixturesDir });
+      const fs = new OverlayFs({ root: fixturesDir, allowSymlinks: true });
       const env = new Bash({ fs, cwd: fs.getMountPoint() });
 
       const result = await env.exec(
@@ -112,7 +112,7 @@ describe("sqlite3 with fixtures", () => {
 
   describe("datatypes.db", () => {
     it("should handle NULL values", async () => {
-      const fs = new OverlayFs({ root: fixturesDir });
+      const fs = new OverlayFs({ root: fixturesDir, allowSymlinks: true });
       const env = new Bash({ fs, cwd: fs.getMountPoint() });
 
       const result = await env.exec(
@@ -123,7 +123,7 @@ describe("sqlite3 with fixtures", () => {
     });
 
     it("should handle different numeric types", async () => {
-      const fs = new OverlayFs({ root: fixturesDir });
+      const fs = new OverlayFs({ root: fixturesDir, allowSymlinks: true });
       const env = new Bash({ fs, cwd: fs.getMountPoint() });
 
       const result = await env.exec(
@@ -138,7 +138,7 @@ describe("sqlite3 with fixtures", () => {
     });
 
     it("should handle empty strings vs NULL", async () => {
-      const fs = new OverlayFs({ root: fixturesDir });
+      const fs = new OverlayFs({ root: fixturesDir, allowSymlinks: true });
       const env = new Bash({ fs, cwd: fs.getMountPoint() });
 
       const result = await env.exec(
@@ -151,7 +151,7 @@ describe("sqlite3 with fixtures", () => {
 
   describe("read-only access", () => {
     it("should not modify fixture with -readonly", async () => {
-      const fs = new OverlayFs({ root: fixturesDir });
+      const fs = new OverlayFs({ root: fixturesDir, allowSymlinks: true });
       const env = new Bash({ fs, cwd: fs.getMountPoint() });
 
       // Try to insert with readonly
@@ -168,7 +168,7 @@ describe("sqlite3 with fixtures", () => {
     });
 
     it("should allow writes to overlay (not persisted to disk)", async () => {
-      const fs = new OverlayFs({ root: fixturesDir });
+      const fs = new OverlayFs({ root: fixturesDir, allowSymlinks: true });
       const env = new Bash({ fs, cwd: fs.getMountPoint() });
 
       // Insert new user
@@ -187,7 +187,7 @@ describe("sqlite3 with fixtures", () => {
 
   describe("schema queries", () => {
     it("should list tables", async () => {
-      const fs = new OverlayFs({ root: fixturesDir });
+      const fs = new OverlayFs({ root: fixturesDir, allowSymlinks: true });
       const env = new Bash({ fs, cwd: fs.getMountPoint() });
 
       const result = await env.exec(
@@ -198,7 +198,7 @@ describe("sqlite3 with fixtures", () => {
     });
 
     it("should describe table schema", async () => {
-      const fs = new OverlayFs({ root: fixturesDir });
+      const fs = new OverlayFs({ root: fixturesDir, allowSymlinks: true });
       const env = new Bash({ fs, cwd: fs.getMountPoint() });
 
       const result = await env.exec(

@@ -17,13 +17,16 @@ describe("ReadWriteFs", () => {
 
   describe("constructor", () => {
     it("should create with valid root directory", () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       expect(rwfs).toBeInstanceOf(ReadWriteFs);
     });
 
     it("should throw for non-existent root", () => {
       expect(() => {
-        new ReadWriteFs({ root: "/nonexistent/path/12345" });
+        new ReadWriteFs({
+          root: "/nonexistent/path/12345",
+          allowSymlinks: true,
+        });
       }).toThrow("does not exist");
     });
 
@@ -31,7 +34,7 @@ describe("ReadWriteFs", () => {
       const filePath = path.join(tempDir, "file.txt");
       fs.writeFileSync(filePath, "content");
       expect(() => {
-        new ReadWriteFs({ root: filePath });
+        new ReadWriteFs({ root: filePath, allowSymlinks: true });
       }).toThrow("not a directory");
     });
   });
@@ -39,7 +42,7 @@ describe("ReadWriteFs", () => {
   describe("reading files", () => {
     it("should read files from filesystem", async () => {
       fs.writeFileSync(path.join(tempDir, "test.txt"), "real content");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       const content = await rwfs.readFile("/test.txt");
       expect(content).toBe("real content");
@@ -48,7 +51,7 @@ describe("ReadWriteFs", () => {
     it("should read nested files", async () => {
       fs.mkdirSync(path.join(tempDir, "subdir"));
       fs.writeFileSync(path.join(tempDir, "subdir", "file.txt"), "nested");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       const content = await rwfs.readFile("/subdir/file.txt");
       expect(content).toBe("nested");
@@ -57,27 +60,27 @@ describe("ReadWriteFs", () => {
     it("should read files as buffer", async () => {
       const data = Buffer.from([0x48, 0x65, 0x6c, 0x6c, 0x6f]); // "Hello"
       fs.writeFileSync(path.join(tempDir, "binary.bin"), data);
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       const buffer = await rwfs.readFileBuffer("/binary.bin");
       expect(buffer).toEqual(new Uint8Array(data));
     });
 
     it("should throw ENOENT for non-existent file", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(rwfs.readFile("/nonexistent.txt")).rejects.toThrow("ENOENT");
     });
 
     it("should throw EISDIR when reading a directory", async () => {
       fs.mkdirSync(path.join(tempDir, "dir"));
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(rwfs.readFile("/dir")).rejects.toThrow("EISDIR");
     });
   });
 
   describe("writing files", () => {
     it("should write files to filesystem", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await rwfs.writeFile("/new.txt", "new content");
 
@@ -92,7 +95,7 @@ describe("ReadWriteFs", () => {
     });
 
     it("should create parent directories when writing", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await rwfs.writeFile("/deep/nested/file.txt", "content");
 
@@ -103,7 +106,7 @@ describe("ReadWriteFs", () => {
 
     it("should overwrite existing files", async () => {
       fs.writeFileSync(path.join(tempDir, "test.txt"), "original");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await rwfs.writeFile("/test.txt", "modified");
 
@@ -113,7 +116,7 @@ describe("ReadWriteFs", () => {
     });
 
     it("should write binary content", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       const data = new Uint8Array([0x00, 0x01, 0x02, 0xff]);
 
       await rwfs.writeFile("/binary.bin", data);
@@ -126,7 +129,7 @@ describe("ReadWriteFs", () => {
   describe("appending files", () => {
     it("should append to existing files", async () => {
       fs.writeFileSync(path.join(tempDir, "append.txt"), "start");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await rwfs.appendFile("/append.txt", "-end");
 
@@ -136,7 +139,7 @@ describe("ReadWriteFs", () => {
     });
 
     it("should create file if it does not exist", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await rwfs.appendFile("/new.txt", "content");
 
@@ -149,20 +152,20 @@ describe("ReadWriteFs", () => {
   describe("exists", () => {
     it("should return true for existing files", async () => {
       fs.writeFileSync(path.join(tempDir, "exists.txt"), "content");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       expect(await rwfs.exists("/exists.txt")).toBe(true);
     });
 
     it("should return true for existing directories", async () => {
       fs.mkdirSync(path.join(tempDir, "dir"));
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       expect(await rwfs.exists("/dir")).toBe(true);
     });
 
     it("should return false for non-existent paths", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       expect(await rwfs.exists("/nonexistent")).toBe(false);
     });
   });
@@ -170,7 +173,7 @@ describe("ReadWriteFs", () => {
   describe("stat", () => {
     it("should stat files", async () => {
       fs.writeFileSync(path.join(tempDir, "file.txt"), "content");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       const stat = await rwfs.stat("/file.txt");
       expect(stat.isFile).toBe(true);
@@ -180,7 +183,7 @@ describe("ReadWriteFs", () => {
 
     it("should stat directories", async () => {
       fs.mkdirSync(path.join(tempDir, "dir"));
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       const stat = await rwfs.stat("/dir");
       expect(stat.isFile).toBe(false);
@@ -188,7 +191,7 @@ describe("ReadWriteFs", () => {
     });
 
     it("should throw ENOENT for non-existent paths", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(rwfs.stat("/nonexistent")).rejects.toThrow("ENOENT");
     });
   });
@@ -205,7 +208,7 @@ describe("ReadWriteFs", () => {
         // Skip on systems that don't support symlinks
         return;
       }
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       const stat = await rwfs.lstat("/link");
       expect(stat.isSymbolicLink).toBe(true);
@@ -214,7 +217,7 @@ describe("ReadWriteFs", () => {
 
   describe("mkdir", () => {
     it("should create directories", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await rwfs.mkdir("/newdir");
 
@@ -224,7 +227,7 @@ describe("ReadWriteFs", () => {
     });
 
     it("should create nested directories with recursive option", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await rwfs.mkdir("/a/b/c", { recursive: true });
 
@@ -232,14 +235,14 @@ describe("ReadWriteFs", () => {
     });
 
     it("should throw ENOENT without recursive for missing parent", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await expect(rwfs.mkdir("/missing/dir")).rejects.toThrow("ENOENT");
     });
 
     it("should throw EEXIST for existing directory without recursive", async () => {
       fs.mkdirSync(path.join(tempDir, "existing"));
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await expect(rwfs.mkdir("/existing")).rejects.toThrow("EEXIST");
     });
@@ -250,7 +253,7 @@ describe("ReadWriteFs", () => {
       fs.writeFileSync(path.join(tempDir, "a.txt"), "a");
       fs.writeFileSync(path.join(tempDir, "b.txt"), "b");
       fs.mkdirSync(path.join(tempDir, "subdir"));
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       const entries = await rwfs.readdir("/");
       expect(entries).toContain("a.txt");
@@ -259,13 +262,13 @@ describe("ReadWriteFs", () => {
     });
 
     it("should throw ENOENT for non-existent directory", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(rwfs.readdir("/nonexistent")).rejects.toThrow("ENOENT");
     });
 
     it("should throw ENOTDIR for files", async () => {
       fs.writeFileSync(path.join(tempDir, "file.txt"), "content");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(rwfs.readdir("/file.txt")).rejects.toThrow("ENOTDIR");
     });
   });
@@ -273,7 +276,7 @@ describe("ReadWriteFs", () => {
   describe("rm", () => {
     it("should delete files", async () => {
       fs.writeFileSync(path.join(tempDir, "delete.txt"), "content");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await rwfs.rm("/delete.txt");
 
@@ -283,7 +286,7 @@ describe("ReadWriteFs", () => {
     it("should delete directories recursively", async () => {
       fs.mkdirSync(path.join(tempDir, "dir"));
       fs.writeFileSync(path.join(tempDir, "dir", "file.txt"), "content");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await rwfs.rm("/dir", { recursive: true });
 
@@ -291,12 +294,12 @@ describe("ReadWriteFs", () => {
     });
 
     it("should throw ENOENT without force option", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(rwfs.rm("/nonexistent")).rejects.toThrow("ENOENT");
     });
 
     it("should not throw with force option for non-existent files", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(
         rwfs.rm("/nonexistent", { force: true }),
       ).resolves.not.toThrow();
@@ -306,7 +309,7 @@ describe("ReadWriteFs", () => {
   describe("cp", () => {
     it("should copy files", async () => {
       fs.writeFileSync(path.join(tempDir, "source.txt"), "content");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await rwfs.cp("/source.txt", "/dest.txt");
 
@@ -318,7 +321,7 @@ describe("ReadWriteFs", () => {
     it("should copy directories recursively", async () => {
       fs.mkdirSync(path.join(tempDir, "srcdir"));
       fs.writeFileSync(path.join(tempDir, "srcdir", "file.txt"), "content");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await rwfs.cp("/srcdir", "/destdir", { recursive: true });
 
@@ -328,7 +331,7 @@ describe("ReadWriteFs", () => {
     });
 
     it("should throw ENOENT for non-existent source", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(rwfs.cp("/nonexistent", "/dest")).rejects.toThrow("ENOENT");
     });
   });
@@ -336,7 +339,7 @@ describe("ReadWriteFs", () => {
   describe("mv", () => {
     it("should move files", async () => {
       fs.writeFileSync(path.join(tempDir, "source.txt"), "content");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await rwfs.mv("/source.txt", "/dest.txt");
 
@@ -349,7 +352,7 @@ describe("ReadWriteFs", () => {
     it("should move directories", async () => {
       fs.mkdirSync(path.join(tempDir, "srcdir"));
       fs.writeFileSync(path.join(tempDir, "srcdir", "file.txt"), "content");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await rwfs.mv("/srcdir", "/destdir");
 
@@ -363,7 +366,7 @@ describe("ReadWriteFs", () => {
   describe("chmod", () => {
     it("should change file permissions", async () => {
       fs.writeFileSync(path.join(tempDir, "file.txt"), "content");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await rwfs.chmod("/file.txt", 0o755);
 
@@ -372,14 +375,14 @@ describe("ReadWriteFs", () => {
     });
 
     it("should throw ENOENT for non-existent file", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(rwfs.chmod("/nonexistent", 0o755)).rejects.toThrow("ENOENT");
     });
   });
 
   describe("symlink", () => {
     it("should create symbolic links", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       try {
         await rwfs.symlink("target.txt", "/link");
@@ -394,7 +397,7 @@ describe("ReadWriteFs", () => {
 
     it("should throw EEXIST for existing path", async () => {
       fs.writeFileSync(path.join(tempDir, "existing"), "content");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await expect(rwfs.symlink("target", "/existing")).rejects.toThrow(
         "EEXIST",
@@ -405,7 +408,7 @@ describe("ReadWriteFs", () => {
   describe("link", () => {
     it("should create hard links", async () => {
       fs.writeFileSync(path.join(tempDir, "original.txt"), "content");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await rwfs.link("/original.txt", "/hardlink.txt");
 
@@ -417,7 +420,7 @@ describe("ReadWriteFs", () => {
     });
 
     it("should throw ENOENT for non-existent source", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(rwfs.link("/nonexistent", "/link")).rejects.toThrow(
         "ENOENT",
       );
@@ -426,7 +429,7 @@ describe("ReadWriteFs", () => {
     it("should throw EEXIST for existing destination", async () => {
       fs.writeFileSync(path.join(tempDir, "source.txt"), "content");
       fs.writeFileSync(path.join(tempDir, "existing.txt"), "existing");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await expect(rwfs.link("/source.txt", "/existing.txt")).rejects.toThrow(
         "EEXIST",
@@ -442,20 +445,20 @@ describe("ReadWriteFs", () => {
         // Skip on systems that don't support symlinks
         return;
       }
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       const target = await rwfs.readlink("/link");
       expect(target).toBe("target.txt");
     });
 
     it("should throw ENOENT for non-existent symlink", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(rwfs.readlink("/nonexistent")).rejects.toThrow("ENOENT");
     });
 
     it("should throw EINVAL for non-symlink", async () => {
       fs.writeFileSync(path.join(tempDir, "file.txt"), "content");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await expect(rwfs.readlink("/file.txt")).rejects.toThrow("EINVAL");
     });
@@ -463,14 +466,14 @@ describe("ReadWriteFs", () => {
 
   describe("resolvePath", () => {
     it("should resolve relative paths", () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       expect(rwfs.resolvePath("/dir", "file.txt")).toBe("/dir/file.txt");
       expect(rwfs.resolvePath("/dir", "../file.txt")).toBe("/file.txt");
     });
 
     it("should handle absolute paths", () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       expect(rwfs.resolvePath("/dir", "/other/file.txt")).toBe(
         "/other/file.txt",
@@ -483,7 +486,7 @@ describe("ReadWriteFs", () => {
       fs.writeFileSync(path.join(tempDir, "a.txt"), "a");
       fs.mkdirSync(path.join(tempDir, "subdir"));
       fs.writeFileSync(path.join(tempDir, "subdir", "b.txt"), "b");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       const paths = rwfs.getAllPaths();
       expect(paths).toContain("/a.txt");
@@ -494,7 +497,7 @@ describe("ReadWriteFs", () => {
 
   describe("encoding support", () => {
     it("should write and read with base64 encoding", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       const base64Content = btoa("Hello World");
 
       await rwfs.writeFile("/base64.txt", base64Content, "base64");
@@ -503,7 +506,7 @@ describe("ReadWriteFs", () => {
     });
 
     it("should write and read with hex encoding", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       const hexContent = "48656c6c6f"; // "Hello"
 
       await rwfs.writeFile("/hex.txt", hexContent, "hex");
@@ -514,7 +517,7 @@ describe("ReadWriteFs", () => {
 
   describe("readdirWithFileTypes", () => {
     it("should return entries with correct type info", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       fs.writeFileSync(path.join(tempDir, "file.txt"), "content");
       fs.mkdirSync(path.join(tempDir, "subdir"));
@@ -535,7 +538,7 @@ describe("ReadWriteFs", () => {
     });
 
     it("should return entries sorted case-sensitively", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       fs.writeFileSync(path.join(tempDir, "Zebra.txt"), "z");
       fs.writeFileSync(path.join(tempDir, "apple.txt"), "a");
@@ -549,7 +552,7 @@ describe("ReadWriteFs", () => {
     });
 
     it("should identify symlinks correctly", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       fs.writeFileSync(path.join(tempDir, "real.txt"), "content");
       fs.symlinkSync(
@@ -567,7 +570,7 @@ describe("ReadWriteFs", () => {
     });
 
     it("should throw ENOENT for non-existent directory", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       await expect(rwfs.readdirWithFileTypes("/nonexistent")).rejects.toThrow(
         "ENOENT",
@@ -575,7 +578,7 @@ describe("ReadWriteFs", () => {
     });
 
     it("should throw ENOTDIR for file path", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       fs.writeFileSync(path.join(tempDir, "file.txt"), "content");
 
       await expect(rwfs.readdirWithFileTypes("/file.txt")).rejects.toThrow(
@@ -584,7 +587,7 @@ describe("ReadWriteFs", () => {
     });
 
     it("should return same names as readdir", async () => {
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       fs.writeFileSync(path.join(tempDir, "a.txt"), "a");
       fs.writeFileSync(path.join(tempDir, "b.txt"), "b");

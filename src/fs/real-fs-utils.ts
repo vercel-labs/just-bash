@@ -107,6 +107,37 @@ export function resolveCanonicalPath(
 }
 
 /**
+ * Resolve a real filesystem path to its canonical form, verify it stays
+ * within the sandbox root, AND reject the path if any symlinks were
+ * traversed.
+ *
+ * Detection: compare the relative path from `root` (unresolved) with the
+ * relative path from `canonicalRoot` (resolved).  A mismatch means a
+ * symlink was followed somewhere in the path.
+ *
+ * This piggybacks on the `realpathSync` call inside `resolveCanonicalPath`
+ * — the only extra cost is one string comparison.
+ */
+export function resolveCanonicalPathNoSymlinks(
+  realPath: string,
+  root: string,
+  canonicalRoot: string,
+): string | null {
+  const canonical = resolveCanonicalPath(realPath, canonicalRoot);
+  if (canonical === null) return null;
+
+  const resolvedReal = nodePath.resolve(realPath);
+  const relFromRoot = resolvedReal.slice(root.length);
+  const relFromCanonical = canonical.slice(canonicalRoot.length);
+
+  if (relFromRoot !== relFromCanonical) {
+    return null; // symlink was traversed
+  }
+
+  return canonical;
+}
+
+/**
  * Validate that a root directory exists and is actually a directory.
  * Throws with a descriptive message including `fsName` (e.g. "OverlayFs",
  * "ReadWriteFs") on failure.

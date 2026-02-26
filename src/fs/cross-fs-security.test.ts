@@ -30,11 +30,11 @@ interface TestContext {
 }
 
 function setupOverlay(tempDir: string): IFileSystem {
-  return new OverlayFs({ root: tempDir, mountPoint: "/" });
+  return new OverlayFs({ root: tempDir, mountPoint: "/", allowSymlinks: true });
 }
 
 function setupReadWrite(tempDir: string): IFileSystem {
-  return new ReadWriteFs({ root: tempDir });
+  return new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -661,8 +661,13 @@ describe.each([
               root: ctx.tempDir,
               mountPoint: "/",
               maxFileReadSize: 100,
+              allowSymlinks: true,
             })
-          : new ReadWriteFs({ root: ctx.tempDir, maxFileReadSize: 100 });
+          : new ReadWriteFs({
+              root: ctx.tempDir,
+              maxFileReadSize: 100,
+              allowSymlinks: true,
+            });
 
       await expect(small.readFile("/big.txt")).rejects.toThrow("EFBIG");
     });
@@ -685,8 +690,13 @@ describe.each([
               root: ctx.tempDir,
               mountPoint: "/",
               maxFileReadSize: 100,
+              allowSymlinks: true,
             })
-          : new ReadWriteFs({ root: ctx.tempDir, maxFileReadSize: 100 });
+          : new ReadWriteFs({
+              root: ctx.tempDir,
+              maxFileReadSize: 100,
+              allowSymlinks: true,
+            });
 
       await expect(small.readFile("/big2-link")).rejects.toThrow("EFBIG");
     });
@@ -1070,21 +1080,33 @@ describe("OverlayFs-specific security", () => {
       // writeFileSync doesn't call validatePath — it normalizes only.
       // Null bytes become part of the key. The file is in memory only,
       // so there's no real FS risk, but let's verify no crash.
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       expect(() =>
         overlay.writeFileSync("/init\x00file.txt", "data"),
       ).not.toThrow();
     });
 
     it("mkdirSync with null byte in path doesn't crash", () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       expect(() => overlay.mkdirSync("/init\x00dir")).not.toThrow();
     });
   });
 
   describe("memory layer isolation", () => {
     it("writeFile never modifies real filesystem", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.writeFile("/hello.txt", "MODIFIED IN OVERLAY");
 
@@ -1100,7 +1122,11 @@ describe("OverlayFs-specific security", () => {
     });
 
     it("rm never deletes from real filesystem", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.rm("/hello.txt");
 
@@ -1112,7 +1138,11 @@ describe("OverlayFs-specific security", () => {
     });
 
     it("mkdir never creates on real filesystem", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.mkdir("/new-overlay-dir");
 
@@ -1121,7 +1151,11 @@ describe("OverlayFs-specific security", () => {
     });
 
     it("chmod never modifies real filesystem permissions", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       const originalMode = fs.statSync(path.join(tempDir, "hello.txt")).mode;
 
       await overlay.chmod("/hello.txt", 0o777);
@@ -1137,6 +1171,7 @@ describe("OverlayFs-specific security", () => {
       const overlay = new OverlayFs({
         root: tempDir,
         mountPoint: "/mnt/data///",
+        allowSymlinks: true,
       });
       expect(overlay.getMountPoint()).toBe("/mnt/data");
     });
@@ -1145,6 +1180,7 @@ describe("OverlayFs-specific security", () => {
       const overlay = new OverlayFs({
         root: tempDir,
         mountPoint: "/",
+        allowSymlinks: true,
       });
       const content = await overlay.readFile("/hello.txt");
       expect(content).toBe("hello");
@@ -1152,14 +1188,23 @@ describe("OverlayFs-specific security", () => {
 
     it("rejects non-absolute mount point", () => {
       expect(
-        () => new OverlayFs({ root: tempDir, mountPoint: "relative/path" }),
+        () =>
+          new OverlayFs({
+            root: tempDir,
+            mountPoint: "relative/path",
+            allowSymlinks: true,
+          }),
       ).toThrow("absolute path");
     });
   });
 
   describe("deleted set interactions", () => {
     it("delete file, re-create same name, old content gone", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       // Real-fs file exists
       expect(await overlay.readFile("/hello.txt")).toBe("hello");
@@ -1179,7 +1224,11 @@ describe("OverlayFs-specific security", () => {
     });
 
     it("delete directory, children don't reappear", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       await overlay.rm("/sub", { recursive: true });
       expect(await overlay.exists("/sub")).toBe(false);
@@ -1194,7 +1243,11 @@ describe("OverlayFs-specific security", () => {
     });
 
     it("double delete doesn't crash", async () => {
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       await overlay.rm("/hello.txt");
       // Second delete should throw ENOENT
       await expect(overlay.rm("/hello.txt")).rejects.toThrow("ENOENT");
@@ -1209,6 +1262,7 @@ describe("OverlayFs-specific security", () => {
         root: tempDir,
         mountPoint: "/",
         readOnly: true,
+        allowSymlinks: true,
       });
 
       await expect(overlay.writeFile("/x", "data")).rejects.toThrow("EROFS");
@@ -1237,6 +1291,7 @@ describe("OverlayFs-specific security", () => {
         root: tempDir,
         mountPoint: "/",
         readOnly: true,
+        allowSymlinks: true,
       });
 
       expect(await overlay.readFile("/hello.txt")).toBe("hello");
@@ -1258,7 +1313,11 @@ describe("OverlayFs-specific security", () => {
         return;
       }
 
-      const overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
 
       // Before shadowing, reading through escape symlink should fail
       await expect(overlay.readFile("/shadow-link")).rejects.toThrow();

@@ -40,7 +40,7 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
       "Nested allowed",
     );
 
-    rwfs = new ReadWriteFs({ root: tempDir });
+    rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
   });
 
   afterEach(() => {
@@ -231,7 +231,7 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
 
     it("should create symlinks within root", async () => {
       fs.writeFileSync(path.join(tempDir, "target.txt"), "content");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       try {
         await rwfs.symlink("target.txt", "/link");
@@ -248,7 +248,7 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
       // Use a different directory name to avoid conflict with beforeEach's subdir
       fs.mkdirSync(path.join(tempDir, "linkdir"));
       fs.writeFileSync(path.join(tempDir, "linkdir", "file.txt"), "nested");
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
 
       try {
         await rwfs.symlink("linkdir/file.txt", "/link");
@@ -858,6 +858,7 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
       const smallFs = new ReadWriteFs({
         root: tempDir,
         maxFileReadSize: 100,
+        allowSymlinks: true,
       });
 
       // Direct read should be blocked

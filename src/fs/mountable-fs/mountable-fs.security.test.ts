@@ -180,7 +180,7 @@ describe("MountableFs Security", () => {
         return;
       }
 
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       const mfs = new MountableFs();
       mfs.mount("/workspace", rwfs);
 
@@ -199,7 +199,7 @@ describe("MountableFs Security", () => {
         return;
       }
 
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       const mfs = new MountableFs();
       mfs.mount("/workspace", rwfs);
 
@@ -219,7 +219,7 @@ describe("MountableFs Security", () => {
         return;
       }
 
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       const mfs = new MountableFs();
       mfs.mount("/workspace", rwfs);
 
@@ -252,7 +252,11 @@ describe("MountableFs Security", () => {
         return;
       }
 
-      const ofs = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const ofs = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       const mfs = new MountableFs();
       mfs.mount("/overlay", ofs);
 
@@ -266,7 +270,11 @@ describe("MountableFs Security", () => {
         return;
       }
 
-      const ofs = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const ofs = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       const mfs = new MountableFs();
       mfs.mount("/overlay", ofs);
 
@@ -274,7 +282,11 @@ describe("MountableFs Security", () => {
     });
 
     it("should allow reading legitimate files through mounted OverlayFs", async () => {
-      const ofs = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const ofs = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       const mfs = new MountableFs();
       mfs.mount("/overlay", ofs);
 
@@ -289,7 +301,7 @@ describe("MountableFs Security", () => {
         return;
       }
 
-      const rwfs = new ReadWriteFs({ root: tempDir });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       const mfs = new MountableFs();
       mfs.mount("/workspace", rwfs);
 
@@ -307,7 +319,11 @@ describe("MountableFs Security", () => {
         return;
       }
 
-      const ofs = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const ofs = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       const mfs = new MountableFs();
       mfs.mount("/overlay", ofs);
 
@@ -324,7 +340,11 @@ describe("MountableFs Security", () => {
         return;
       }
 
-      const ofs = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const ofs = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       const mfs = new MountableFs();
       mfs.mount("/overlay", ofs);
 

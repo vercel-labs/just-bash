@@ -4,8 +4,11 @@
  * All operations go directly to the underlying Node.js filesystem.
  * Paths are relative to the configured root directory.
  *
- * Security: Symlink targets are validated and transformed to stay within root,
- * preventing symlink-based sandbox escape attacks.
+ * Security: Symlinks are blocked by default (allowSymlinks: false).
+ * All real-FS access goes through resolveAndValidate() / validateParent()
+ * gates which detect symlink traversal via path comparison. When symlinks
+ * are allowed, targets are validated and transformed to stay within root.
+ * New methods must use these gates — never access the real FS directly.
  */
 
 import * as fs from "node:fs";
@@ -30,6 +33,7 @@ import {
   isPathWithinRoot,
   normalizePath,
   resolveCanonicalPath,
+  resolveCanonicalPathNoSymlinks,
   validatePath,
   validateRootDirectory,
 } from "../real-fs-utils.js";
@@ -47,16 +51,25 @@ export interface ReadWriteFsOptions {
    * Defaults to 10MB (10485760).
    */
   maxFileReadSize?: number;
+
+  /**
+   * Whether to allow following and creating symlinks.
+   * When false (default), any path traversing a symlink is rejected
+   * and symlink() throws EPERM.
+   */
+  allowSymlinks?: boolean;
 }
 
 export class ReadWriteFs implements IFileSystem {
   private readonly root: string;
   private readonly canonicalRoot: string;
   private readonly maxFileReadSize: number;
+  private readonly allowSymlinks: boolean;
 
   constructor(options: ReadWriteFsOptions) {
     this.root = nodePath.resolve(options.root);
     this.maxFileReadSize = options.maxFileReadSize ?? 10485760;
+    this.allowSymlinks = options.allowSymlinks ?? false;
 
     // Verify root exists and is a directory
     validateRootDirectory(this.root, "ReadWriteFs");
@@ -73,7 +86,9 @@ export class ReadWriteFs implements IFileSystem {
    * Throws EACCES if the path escapes the root.
    */
   private resolveAndValidate(realPath: string, virtualPath: string): string {
-    const canonical = resolveCanonicalPath(realPath, this.canonicalRoot);
+    const canonical = this.allowSymlinks
+      ? resolveCanonicalPath(realPath, this.canonicalRoot)
+      : resolveCanonicalPathNoSymlinks(realPath, this.root, this.canonicalRoot);
     if (canonical === null) {
       throw new Error(
         `EACCES: permission denied, '${virtualPath}' resolves outside sandbox`,
@@ -561,6 +576,9 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async symlink(target: string, linkPath: string): Promise<void> {
+    if (!this.allowSymlinks) {
+      throw new Error(`EPERM: operation not permitted, symlink '${linkPath}'`);
+    }
     validatePath(linkPath, "symlink");
     const realLinkPath = this.toRealPath(linkPath);
     // Validate that the link path's parent stays within sandbox
@@ -698,6 +716,17 @@ export class ReadWriteFs implements IFileSystem {
   async realpath(path: string): Promise<string> {
     validatePath(path, "realpath");
     const realPath = this.toRealPath(path);
+
+    // Validate the path respects the symlink policy before resolving.
+    // Without this, realpath() would follow symlinks that other methods
+    // (readFile, stat, etc.) correctly reject via resolveAndValidate().
+    // Convert EACCES to ENOENT because realpath semantically "doesn't find"
+    // the canonical path rather than "denies access".
+    try {
+      this.resolveAndValidate(realPath, path);
+    } catch {
+      throw new Error(`ENOENT: no such file or directory, realpath '${path}'`);
+    }
 
     let resolved: string;
     try {

@@ -256,7 +256,7 @@ describe("find performance tracing", () => {
 
   it("should trace against real filesystem (current project)", async () => {
     // Use OverlayFs to read from the actual project directory
-    const fs = new OverlayFs({ root: process.cwd() });
+    const fs = new OverlayFs({ root: process.cwd(), allowSymlinks: true });
     const mountPoint = fs.getMountPoint();
 
     const events: TraceEvent[] = [];

@@ -21,7 +21,7 @@ describe("ReadWriteFs - Piping with large data", () => {
     console.log("Created temp dir:", tempDir);
 
     // Use ReadWriteFs with real filesystem
-    fs = new ReadWriteFs({ root: tempDir });
+    fs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
     bash = new Bash({ fs });
   });
 

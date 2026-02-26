@@ -123,6 +123,11 @@ Input Script → Parser (src/parser/) → AST (src/ast/) → Interpreter (src/in
 
 **Filesystem** (`src/fs.ts`, `src/overlay-fs/`): In-memory VFS with optional overlay on real filesystem
 
+- `real-fs-utils.ts` - Shared security helpers for real-FS-backed implementations
+- `OverlayFs` / `ReadWriteFs` - Both default to `allowSymlinks: false` (symlinks blocked)
+- Symlink policy is enforced at central gate functions (`resolveAndValidate`, `validateRealPath_`) so new methods get protection automatically
+- Pass `allowSymlinks: true` only when symlink support is explicitly needed
+
 **AWK** (`src/commands/awk/`): AWK text processing implementation
 
 - `parser.ts` - Parses AWK programs (BEGIN/END blocks, rules, user-defined functions)
@@ -175,6 +180,21 @@ When adding comparison tests:
 2. Run with `RECORD_FIXTURES=1` to generate fixtures
 3. Commit both the test file and the generated fixture JSON
 4. If manually adjusting for Linux behavior, add `"locked": true` to the fixture
+
+## Filesystem Security: Default-Deny Symlinks
+
+`OverlayFs` and `ReadWriteFs` default to `allowSymlinks: false`. This means:
+
+- `symlink()` throws EPERM
+- Any path traversing a real-FS symlink is rejected (ENOENT/EACCES)
+- `lstat()` and `readlink()` still work on symlinks (they inspect without following)
+- `readdir()` lists symlink entries but operations through them fail
+
+**How it works**: Central gate functions (`resolveAndValidate` in ReadWriteFs, `validateRealPath_` in OverlayFs) compare `realPath.slice(root.length)` vs `canonical.slice(canonicalRoot.length)`. A mismatch means a symlink was traversed — zero extra I/O cost.
+
+**When adding new FS methods**: Route all real-FS access through the existing gates. Never call `fs.promises.stat()`, `fs.realpathSync()`, or similar directly on unvalidated paths. The gate-based design means any method that goes through the gate is automatically protected.
+
+**In tests**: Pass `allowSymlinks: true` to the constructor when testing symlink behavior. The `cross-fs-no-symlinks.test.ts` file tests the default-deny behavior.
 
 ## Development Guidelines
 

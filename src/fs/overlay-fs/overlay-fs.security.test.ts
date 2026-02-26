@@ -37,7 +37,11 @@ describe("OverlayFs Security - Path Traversal Prevention", () => {
       "Nested allowed",
     );
 
-    overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+    overlay = new OverlayFs({
+      root: tempDir,
+      mountPoint: "/",
+      allowSymlinks: true,
+    });
   });
 
   afterEach(() => {
@@ -1196,6 +1200,7 @@ describe("OverlayFs Security - Path Traversal Prevention", () => {
         root: tempDir,
         mountPoint: "/",
         maxFileReadSize: 100,
+        allowSymlinks: true,
       });
 
       // Direct read should be blocked

@@ -19,7 +19,11 @@ describe("BashEnv with OverlayFs - E2E", () => {
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "overlay-e2e-"));
-    overlay = new OverlayFs({ root: tempDir, mountPoint: "/" });
+    overlay = new OverlayFs({
+      root: tempDir,
+      mountPoint: "/",
+      allowSymlinks: true,
+    });
     env = new Bash({ fs: overlay, cwd: "/" });
   });
 
@@ -593,7 +597,11 @@ describe("BashEnv with OverlayFs - E2E", () => {
       await env.exec('echo "first" > /shared.txt');
 
       // Create second overlay with same root
-      const overlay2 = new OverlayFs({ root: tempDir, mountPoint: "/" });
+      const overlay2 = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
       const env2 = new Bash({ fs: overlay2, cwd: "/" });
 
       // Second overlay should not see first overlay's writes
