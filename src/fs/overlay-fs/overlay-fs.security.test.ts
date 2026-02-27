@@ -1451,6 +1451,111 @@ describe("OverlayFs Security - Path Traversal Prevention", () => {
         expect(err.path).toBeUndefined();
       }
     });
+
+    it("errors from all operations should never have .path property", async () => {
+      // Comprehensive check: every error from OverlayFs should be a plain Error,
+      // not a Node.js ErrnoException with .path
+      const ops: Array<{ name: string; fn: () => Promise<unknown> }> = [
+        { name: "readFile", fn: () => overlay.readFile("/no-such-file-xyz") },
+        { name: "stat", fn: () => overlay.stat("/no-such-stat-xyz") },
+        { name: "lstat", fn: () => overlay.lstat("/no-such-lstat-xyz") },
+        { name: "readdir", fn: () => overlay.readdir("/allowed.txt") },
+        {
+          name: "readlink",
+          fn: () => overlay.readlink("/allowed.txt"),
+        },
+        {
+          name: "realpath",
+          fn: () => overlay.realpath("/no-such-realpath-xyz"),
+        },
+      ];
+
+      for (const op of ops) {
+        try {
+          await op.fn();
+        } catch (e) {
+          const err = e as NodeJS.ErrnoException;
+          expect(
+            err.path,
+            `${op.name} error should not have .path property`,
+          ).toBeUndefined();
+          expect(
+            err.message,
+            `${op.name} error message should not contain real path`,
+          ).not.toContain(tempDir);
+        }
+      }
+    });
+
+    it("should not pass through errors with .path property even if message contains EPERM", async () => {
+      // Create a permission-denied scenario: make a dir unreadable
+      const restrictedDir = path.join(tempDir, "restricted");
+      fs.mkdirSync(restrictedDir);
+      fs.writeFileSync(path.join(restrictedDir, "secret.txt"), "secret");
+      fs.chmodSync(restrictedDir, 0o000);
+
+      try {
+        await overlay.readFile("/restricted/secret.txt");
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        // Must not contain the real temp dir
+        expect(err.message).not.toContain(tempDir);
+        // Must not carry the real .path property
+        expect(err.path).toBeUndefined();
+      } finally {
+        fs.chmodSync(restrictedDir, 0o755);
+      }
+    });
+
+    it("should not pass through permission errors from stat", async () => {
+      const restrictedDir = path.join(tempDir, "restricted-stat");
+      fs.mkdirSync(restrictedDir);
+      fs.writeFileSync(path.join(restrictedDir, "file.txt"), "data");
+      fs.chmodSync(restrictedDir, 0o000);
+
+      try {
+        await overlay.stat("/restricted-stat/file.txt");
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        expect(err.message).not.toContain(tempDir);
+        expect(err.path).toBeUndefined();
+      } finally {
+        fs.chmodSync(restrictedDir, 0o755);
+      }
+    });
+
+    it("should not pass through permission errors from lstat", async () => {
+      const restrictedDir = path.join(tempDir, "restricted-lstat");
+      fs.mkdirSync(restrictedDir);
+      fs.writeFileSync(path.join(restrictedDir, "file.txt"), "data");
+      fs.chmodSync(restrictedDir, 0o000);
+
+      try {
+        await overlay.lstat("/restricted-lstat/file.txt");
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        expect(err.message).not.toContain(tempDir);
+        expect(err.path).toBeUndefined();
+      } finally {
+        fs.chmodSync(restrictedDir, 0o755);
+      }
+    });
+
+    it("should not pass through permission errors from readdir", async () => {
+      const restrictedDir = path.join(tempDir, "restricted-readdir");
+      fs.mkdirSync(restrictedDir);
+      fs.chmodSync(restrictedDir, 0o000);
+
+      try {
+        await overlay.readdir("/restricted-readdir");
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        expect(err.message).not.toContain(tempDir);
+        expect(err.path).toBeUndefined();
+      } finally {
+        fs.chmodSync(restrictedDir, 0o755);
+      }
+    });
   });
 
   describe("/dev file overwrite behavior", () => {

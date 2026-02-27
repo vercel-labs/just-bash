@@ -173,9 +173,12 @@ export class ReadWriteFs implements IFileSystem {
 
     // Ensure parent directory exists
     const dir = nodePath.dirname(canonical);
-    await fs.promises.mkdir(dir, { recursive: true });
-
-    await fs.promises.writeFile(canonical, buffer);
+    try {
+      await fs.promises.mkdir(dir, { recursive: true });
+      await fs.promises.writeFile(canonical, buffer);
+    } catch (e) {
+      this.sanitizeError(e, path, "write");
+    }
   }
 
   async appendFile(
@@ -191,9 +194,12 @@ export class ReadWriteFs implements IFileSystem {
 
     // Ensure parent directory exists
     const dir = nodePath.dirname(canonical);
-    await fs.promises.mkdir(dir, { recursive: true });
-
-    await fs.promises.appendFile(canonical, buffer);
+    try {
+      await fs.promises.mkdir(dir, { recursive: true });
+      await fs.promises.appendFile(canonical, buffer);
+    } catch (e) {
+      this.sanitizeError(e, path, "append");
+    }
   }
 
   async exists(path: string): Promise<boolean> {
@@ -421,7 +427,11 @@ export class ReadWriteFs implements IFileSystem {
 
     // Ensure destination parent directory exists
     const destDir = nodePath.dirname(destCanonical);
-    await fs.promises.mkdir(destDir, { recursive: true });
+    try {
+      await fs.promises.mkdir(destDir, { recursive: true });
+    } catch (e) {
+      this.sanitizeError(e, dest, "mv");
+    }
 
     try {
       await fs.promises.rename(srcCanonical, destCanonical);
@@ -490,13 +500,18 @@ export class ReadWriteFs implements IFileSystem {
     operation: string,
   ): never {
     const err = e as NodeJS.ErrnoException;
-    if (
-      err.message?.includes("EACCES") ||
-      err.message?.includes("escaping sandbox") ||
-      err.message?.includes("EFBIG")
-    ) {
-      // These are our own errors with virtual paths — rethrow as-is
-      throw e;
+    // Node.js ErrnoException objects from fs.promises have a .path property
+    // containing the real OS path. Never pass these through — always sanitize.
+    // Our own errors (constructed with new Error(...)) don't have .path.
+    if (!err.path) {
+      if (
+        err.message?.includes("EACCES") ||
+        err.message?.includes("escaping sandbox") ||
+        err.message?.includes("EFBIG")
+      ) {
+        // Our own errors with virtual paths — rethrow as-is
+        throw e;
+      }
     }
     const code = err.code || "EIO";
     throw new Error(`${code}: ${operation} '${virtualPath}'`);

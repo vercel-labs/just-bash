@@ -1258,4 +1258,152 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
       }
     });
   });
+
+  describe("writeFile/appendFile error sanitization", () => {
+    it("should not leak real paths when writeFile fails on a directory target", async () => {
+      // Writing to a path that is a directory triggers EISDIR
+      fs.mkdirSync(path.join(tempDir, "is-a-dir"));
+      try {
+        await rwfs.writeFile("/is-a-dir", "data");
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        expect(err.message).not.toContain(tempDir);
+        expect(err.path).toBeUndefined();
+      }
+    });
+
+    it("should not leak real paths when appendFile fails on a directory target", async () => {
+      fs.mkdirSync(path.join(tempDir, "append-dir"));
+      try {
+        await rwfs.appendFile("/append-dir", "data");
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        expect(err.message).not.toContain(tempDir);
+        expect(err.path).toBeUndefined();
+      }
+    });
+
+    it("should not leak real paths when writeFile parent mkdir fails", async () => {
+      // Create a regular file, then try to write to a child of it
+      // The mkdir(recursive) for the parent will fail with ENOTDIR
+      fs.writeFileSync(path.join(tempDir, "regular-file"), "content");
+      try {
+        await rwfs.writeFile("/regular-file/child.txt", "data");
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        expect(err.message).not.toContain(tempDir);
+        expect(err.path).toBeUndefined();
+      }
+    });
+
+    it("should not leak real paths when appendFile parent mkdir fails", async () => {
+      fs.writeFileSync(path.join(tempDir, "regular-file-2"), "content");
+      try {
+        await rwfs.appendFile("/regular-file-2/child.txt", "data");
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        expect(err.message).not.toContain(tempDir);
+        expect(err.path).toBeUndefined();
+      }
+    });
+  });
+
+  describe("mv mkdir error sanitization", () => {
+    it("should not leak real paths when mv destination parent mkdir fails", async () => {
+      fs.writeFileSync(path.join(tempDir, "mv-src.txt"), "content");
+      // Create a file where the parent dir of dest should be — mkdir will fail
+      fs.writeFileSync(path.join(tempDir, "not-a-dir"), "blocker");
+      try {
+        await rwfs.mv("/mv-src.txt", "/not-a-dir/subdir/dest.txt");
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        expect(err.message).not.toContain(tempDir);
+        expect(err.path).toBeUndefined();
+      }
+    });
+  });
+
+  describe("sanitizeError .path guard", () => {
+    it("should not pass through errors with .path property even if message contains EACCES", async () => {
+      // Create a permission-denied scenario: make a dir unreadable then try to read inside it
+      const restrictedDir = path.join(tempDir, "restricted");
+      fs.mkdirSync(restrictedDir);
+      fs.writeFileSync(path.join(restrictedDir, "secret.txt"), "secret");
+      fs.chmodSync(restrictedDir, 0o000);
+
+      try {
+        await rwfs.readFile("/restricted/secret.txt");
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        // The error message must not contain the real temp dir
+        expect(err.message).not.toContain(tempDir);
+        // The error must not carry a .path property with the real path
+        expect(err.path).toBeUndefined();
+      } finally {
+        // Restore permissions for cleanup
+        fs.chmodSync(restrictedDir, 0o755);
+      }
+    });
+
+    it("should not pass through errors with .path property even if message contains EPERM", async () => {
+      // On some OSes, operations on restricted paths produce EPERM
+      // We simulate by trying to readdir a non-readable directory
+      const restrictedDir2 = path.join(tempDir, "restricted2");
+      fs.mkdirSync(restrictedDir2);
+      fs.chmodSync(restrictedDir2, 0o000);
+
+      try {
+        await rwfs.readdir("/restricted2");
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        expect(err.message).not.toContain(tempDir);
+        expect(err.path).toBeUndefined();
+      } finally {
+        fs.chmodSync(restrictedDir2, 0o755);
+      }
+    });
+
+    it("errors from all operations should never have .path property", async () => {
+      // Comprehensive check: every error from ReadWriteFs should be a plain Error,
+      // not a Node.js ErrnoException with .path
+      const ops: Array<{ name: string; fn: () => Promise<unknown> }> = [
+        { name: "readFile", fn: () => rwfs.readFile("/no-such-file-xzy") },
+        { name: "stat", fn: () => rwfs.stat("/no-such-stat-xyz") },
+        { name: "lstat", fn: () => rwfs.lstat("/no-such-lstat-xyz") },
+        { name: "mkdir", fn: () => rwfs.mkdir("/allowed.txt/bad") },
+        { name: "readdir", fn: () => rwfs.readdir("/allowed.txt") },
+        { name: "rm", fn: () => rwfs.rm("/no-such-rm-xyz") },
+        { name: "chmod", fn: () => rwfs.chmod("/no-such-chmod-xyz", 0o755) },
+        {
+          name: "readlink",
+          fn: () => rwfs.readlink("/allowed.txt"),
+        },
+        {
+          name: "utimes",
+          fn: () => rwfs.utimes("/no-such-utimes-xyz", new Date(), new Date()),
+        },
+        { name: "realpath", fn: () => rwfs.realpath("/no-such-realpath-xyz") },
+        {
+          name: "link",
+          fn: () => rwfs.link("/no-such-link-xyz", "/no-such-link-dest"),
+        },
+      ];
+
+      for (const op of ops) {
+        try {
+          await op.fn();
+        } catch (e) {
+          const err = e as NodeJS.ErrnoException;
+          expect(
+            err.path,
+            `${op.name} error should not have .path property`,
+          ).toBeUndefined();
+          expect(
+            err.message,
+            `${op.name} error message should not contain real path`,
+          ).not.toContain(tempDir);
+        }
+      }
+    });
+  });
 });
