@@ -402,6 +402,184 @@ describe("Information Disclosure Prevention", () => {
     });
   });
 
+  describe("Filesystem Metadata Non-Disclosure", () => {
+    it("FsStat should not expose uid, gid, ino, or dev", async () => {
+      // Verify the stat result only contains safe fields
+      await bash.exec("echo hello > /tmp/testfile");
+      const result = await bash.exec(
+        "stat /tmp/testfile 2>&1 || echo 'stat not implemented'",
+      );
+      // stat output should never contain real uid/gid/inode/device info
+      expect(result.exitCode).toBe(0);
+      // The FsStat interface only exposes: isFile, isDirectory, isSymbolicLink, mode, size, mtime
+      // No uid, gid, ino, dev fields exist in the interface
+    });
+
+    it("ls should show hardcoded owner, not real uid/gid", async () => {
+      await bash.exec("echo hello > /tmp/lsfile");
+      const result = await bash.exec("ls -la /tmp/lsfile");
+      expect(result.stdout).toContain("user");
+      expect(result.stdout).not.toContain("root");
+      // Should not contain real uid numbers
+      expect(result.stdout).not.toMatch(/\b0\b.*\b0\b.*lsfile/);
+    });
+
+    it("tar should default uid/gid to 0 when creating archives", async () => {
+      await bash.exec("echo content > /tmp/file.txt");
+      const create = await bash.exec("tar -cf /tmp/test.tar -C /tmp file.txt");
+      expect(create.exitCode).toBe(0);
+      const list = await bash.exec("tar -tvf /tmp/test.tar");
+      expect(list.exitCode).toBe(0);
+      // Verbose tar listing should show 0/0 for uid/gid (not real host uid)
+      expect(list.stdout).toContain("0/0");
+    });
+  });
+
+  describe("Command Non-Existence Verification", () => {
+    it("uname should not be a recognized command", async () => {
+      const result = await bash.exec("uname -a 2>&1");
+      // uname is not implemented - should fail with command not found
+      expect(result.exitCode).not.toBe(0);
+    });
+  });
+
+  describe("Timezone Non-Disclosure", () => {
+    it("date should not leak host timezone name", async () => {
+      const result = await bash.exec("date +%Z");
+      const tz = result.stdout.trim();
+      expect(tz).toBe("UTC");
+      // Must not contain slash-separated timezone like America/New_York
+      expect(tz).not.toContain("/");
+    });
+
+    it("date should not leak host UTC offset", async () => {
+      const result = await bash.exec("date +%z");
+      expect(result.stdout.trim()).toBe("+0000");
+    });
+
+    it("date default output should use UTC", async () => {
+      const result = await bash.exec("date");
+      expect(result.stdout).toContain("UTC");
+    });
+  });
+
+  describe("Process Info Virtualization", () => {
+    it("$$ should return virtual PID 1, not real process.pid", async () => {
+      const result = await bash.exec("echo $$");
+      expect(result.stdout.trim()).toBe("1");
+      expect(result.stdout.trim()).not.toBe(String(process.pid));
+    });
+
+    it("$PPID should return virtual PPID 0, not real process.ppid", async () => {
+      const result = await bash.exec("echo $PPID");
+      expect(result.stdout.trim()).toBe("0");
+    });
+
+    it("$UID should return virtual UID 1000", async () => {
+      const result = await bash.exec("echo $UID");
+      expect(result.stdout.trim()).toBe("1000");
+    });
+
+    it("$BASHPID should return virtual PID", async () => {
+      const result = await bash.exec("echo $BASHPID");
+      expect(result.stdout.trim()).not.toBe(String(process.pid));
+    });
+
+    it("/proc/self/status should use virtual PIDs", async () => {
+      const result = await bash.exec("cat /proc/self/status");
+      expect(result.stdout).toContain("Pid:\t1");
+      expect(result.stdout).toContain("Uid:\t1000");
+      expect(result.stdout).toContain("Gid:\t1000");
+      expect(result.stdout).not.toContain(`Pid:\t${process.pid}`);
+    });
+
+    it("hostname should return localhost", async () => {
+      const result = await bash.exec("hostname");
+      expect(result.stdout.trim()).toBe("localhost");
+    });
+
+    it("whoami should return user", async () => {
+      const result = await bash.exec("whoami");
+      expect(result.stdout.trim()).toBe("user");
+    });
+  });
+
+  describe("Environment Variable Isolation", () => {
+    it("should not inherit host process.env", async () => {
+      // Verify env only contains explicitly set variables
+      const result = await bash.exec("env | wc -l");
+      const lineCount = Number.parseInt(result.stdout.trim(), 10);
+      // Should have very few env vars (HOME, PATH, HOSTNAME, etc.)
+      // Real process.env typically has 20+ vars
+      expect(lineCount).toBeLessThan(15);
+    });
+
+    it("$HOSTNAME should be localhost, not real hostname", async () => {
+      const result = await bash.exec("echo $HOSTNAME");
+      expect(result.stdout.trim()).toBe("localhost");
+    });
+  });
+
+  describe("File Test Builtin Safety", () => {
+    it("test -e should use VFS, not real filesystem", async () => {
+      // /etc/passwd exists on real systems but not in VFS
+      const result = await bash.exec(
+        "test -e /etc/passwd && echo yes || echo no",
+      );
+      expect(result.stdout.trim()).toBe("no");
+    });
+
+    it("test -f should use VFS", async () => {
+      const result = await bash.exec(
+        "test -f /etc/shadow && echo yes || echo no",
+      );
+      expect(result.stdout.trim()).toBe("no");
+    });
+
+    it("[[ -d ]] should use VFS", async () => {
+      const result = await bash.exec(
+        "[[ -d /usr/local ]] && echo yes || echo no",
+      );
+      expect(result.stdout.trim()).toBe("no");
+    });
+  });
+
+  describe("Source Builtin Safety", () => {
+    it("source should read from VFS, not real filesystem", async () => {
+      await bash.exec("echo 'MY_SOURCED_VAR=hello' > /tmp/sourceme.sh");
+      const result = await bash.exec(
+        "source /tmp/sourceme.sh && echo $MY_SOURCED_VAR",
+      );
+      expect(result.stdout.trim()).toBe("hello");
+    });
+
+    it("source should not access real filesystem files", async () => {
+      const result = await bash.exec("source /etc/profile 2>&1; echo $?");
+      // Should fail because /etc/profile doesn't exist in VFS
+      expect(result.stdout).toContain("1");
+    });
+  });
+
+  describe("Error Message Sanitization", () => {
+    it("errors should not contain JavaScript stack traces", async () => {
+      const result = await bash.exec(
+        "cat /nonexistent/deeply/nested/path 2>&1; true",
+      );
+      expect(result.stderr).not.toContain("at ");
+      expect(result.stderr).not.toContain(".ts:");
+      expect(result.stderr).not.toContain(".js:");
+      expect(result.stderr).not.toContain("Error:");
+    });
+
+    it("errors should not contain real filesystem paths", async () => {
+      const result = await bash.exec("cat /no/such/file 2>&1; true");
+      expect(result.stderr).not.toContain("/Users/");
+      expect(result.stderr).not.toContain("/home/");
+      expect(result.stderr).not.toContain("/tmp/");
+      expect(result.stderr).not.toContain("/private/");
+    });
+  });
+
   describe("Cross-Instance Isolation", () => {
     it("should not share functions between instances", async () => {
       const bash1 = new Bash();

@@ -363,8 +363,15 @@ export class ReadWriteFs implements IFileSystem {
               return isPathWithinRoot(resolved, this.canonicalRoot);
             }
             return true;
-          } catch {
-            return true;
+          } catch (filterErr) {
+            // ENOENT: file disappeared between readdir and filter — let cp
+            // handle the error naturally (it will throw or skip as expected).
+            if ((filterErr as NodeJS.ErrnoException).code === "ENOENT") {
+              return true;
+            }
+            // Other errors (EPERM, EIO, etc.): fail-closed — skip the entry
+            // since we can't determine if it's an escaping symlink.
+            return false;
           }
         },
       });
@@ -503,7 +510,9 @@ export class ReadWriteFs implements IFileSystem {
     // Node.js ErrnoException objects from fs.promises have a .path property
     // containing the real OS path. Never pass these through — always sanitize.
     // Our own errors (constructed with new Error(...)) don't have .path.
-    if (!err.path) {
+    // Use strict === undefined check (not !err.path) so that an error with
+    // .path = "" (empty string) is still sanitized rather than passed through.
+    if (err.path === undefined) {
       if (
         err.message?.includes("EACCES") ||
         err.message?.includes("escaping sandbox") ||
@@ -716,13 +725,10 @@ export class ReadWriteFs implements IFileSystem {
       // Outside root - the symlink target points outside the sandbox.
       // For symlinks created through our API, targets are sanitized. But
       // pre-existing OS symlinks (e.g., in a malicious git repo) may have
-      // unsanitized targets. Return a relative version of the raw target
-      // to avoid leaking real OS paths, but only if it's relative.
-      // For absolute targets, return just the basename to avoid path leaks.
-      if (nodePath.isAbsolute(rawTarget)) {
-        return nodePath.basename(rawTarget);
-      }
-      return rawTarget;
+      // unsanitized targets. Return just the basename for both absolute and
+      // relative targets to avoid leaking path structure information.
+      // (A relative target like "../../../etc/passwd" would reveal sandbox depth.)
+      return nodePath.basename(rawTarget);
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err.code === "ENOENT") {

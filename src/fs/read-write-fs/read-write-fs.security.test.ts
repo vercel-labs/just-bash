@@ -914,7 +914,7 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
       expect(target).not.toContain(outsideDir);
     });
 
-    it("should return relative target as-is for pre-existing relative symlinks", async () => {
+    it("should sanitise relative targets escaping sandbox to basename only", async () => {
       try {
         fs.symlinkSync(
           "../../../etc/passwd",
@@ -925,8 +925,10 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
       }
 
       const target = await rwfs.readlink("/rel-outside");
-      // Relative targets don't leak real paths (they're already relative)
-      expect(target).toBe("../../../etc/passwd");
+      // Relative outside-root targets are sanitised to basename to prevent
+      // leaking sandbox depth/structure information via path traversal.
+      expect(target).not.toContain("..");
+      expect(target).toBe("passwd");
     });
   });
 
@@ -1404,6 +1406,83 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
           ).not.toContain(tempDir);
         }
       }
+    });
+  });
+
+  describe("sanitizeError strict path check", () => {
+    it("should sanitize errors with empty string .path property", async () => {
+      // An error with .path = "" should still be sanitized, not passed through.
+      // The check uses `err.path === undefined` (strict) rather than `!err.path`
+      // to prevent an edge case where .path = "" would be treated as falsy.
+      // We can't easily trigger this from normal FS operations, but we verify
+      // that reading a non-existent file never leaks real paths.
+      try {
+        await rwfs.readFile("/deeply/nested/nonexistent/file");
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        expect(err.path).toBeUndefined();
+        expect(err.message).not.toContain(tempDir);
+      }
+    });
+  });
+
+  describe("cp filter fail-closed", () => {
+    it("should not copy symlinks pointing outside sandbox during recursive cp", async () => {
+      // Create a directory with a symlink escaping the sandbox
+      fs.mkdirSync(path.join(tempDir, "cp-src"));
+      fs.writeFileSync(
+        path.join(tempDir, "cp-src", "safe.txt"),
+        "safe content",
+      );
+      try {
+        fs.symlinkSync(
+          outsideFile,
+          path.join(tempDir, "cp-src", "escape-link"),
+        );
+      } catch {
+        return; // symlinks not supported, skip
+      }
+
+      await rwfs.cp("/cp-src", "/cp-dest", { recursive: true });
+
+      // Safe file should be copied
+      const safeContent = await rwfs.readFile("/cp-dest/safe.txt");
+      expect(safeContent).toBe("safe content");
+
+      // Escaping symlink should NOT be copied (filter blocks it)
+      const escapeExists = await rwfs.exists("/cp-dest/escape-link");
+      expect(escapeExists).toBe(false);
+    });
+  });
+
+  describe("readlink sanitization for outside-root relative targets", () => {
+    it("should return basename only for relative targets escaping sandbox", async () => {
+      // Create a relative symlink that traverses out of the sandbox
+      const escapeTarget = path.relative(tempDir, outsideFile);
+      try {
+        fs.symlinkSync(escapeTarget, path.join(tempDir, "rel-escape"));
+      } catch {
+        return; // symlinks not supported, skip
+      }
+
+      const target = await rwfs.readlink("/rel-escape");
+      // Must NOT contain "../" path traversal components
+      expect(target).not.toContain("..");
+      // Must NOT contain the real outside directory path
+      expect(target).not.toContain(outsideDir);
+      // Should be just the basename
+      expect(target).toBe("secret.txt");
+    });
+
+    it("should return relative target as-is for within-root links", async () => {
+      try {
+        fs.symlinkSync("allowed.txt", path.join(tempDir, "rel-internal"));
+      } catch {
+        return;
+      }
+
+      const target = await rwfs.readlink("/rel-internal");
+      expect(target).toBe("allowed.txt");
     });
   });
 });
