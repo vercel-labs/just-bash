@@ -1,6 +1,6 @@
 {
   "name": "just-bash",
-  "version": "2.11.2",
+  "version": "2.11.3",
   "description": "A simulated bash environment with virtual filesystem",
   "repository": {
     "type": "git",
