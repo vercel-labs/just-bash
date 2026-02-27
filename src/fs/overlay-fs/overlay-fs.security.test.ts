@@ -1381,6 +1381,78 @@ describe("OverlayFs Security - Path Traversal Prevention", () => {
     });
   });
 
+  describe("error message sanitization", () => {
+    it("should not leak real OS paths in readFile errors", async () => {
+      try {
+        await overlay.readFile("/nonexistent-file.txt");
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).not.toContain(tempDir);
+        expect(msg).toContain("ENOENT");
+      }
+    });
+
+    it("should not leak real OS paths in stat errors", async () => {
+      try {
+        await overlay.stat("/nonexistent-file.txt");
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).not.toContain(tempDir);
+        expect(msg).toContain("ENOENT");
+      }
+    });
+
+    it("should not leak real OS paths in lstat errors", async () => {
+      try {
+        await overlay.lstat("/nonexistent-file.txt");
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).not.toContain(tempDir);
+        expect(msg).toContain("ENOENT");
+      }
+    });
+
+    it("should not leak real OS paths in readlink errors", async () => {
+      try {
+        await overlay.readlink("/allowed.txt");
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).not.toContain(tempDir);
+        expect(msg).toContain("EINVAL");
+      }
+    });
+
+    it("should not leak real OS paths in readdir errors", async () => {
+      try {
+        await overlay.readdir("/allowed.txt");
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).not.toContain(tempDir);
+      }
+    });
+
+    it("should not leak real OS paths in realpath errors", async () => {
+      try {
+        await overlay.realpath("/nonexistent-deep/path.txt");
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).not.toContain(tempDir);
+        expect(msg).toContain("ENOENT");
+      }
+    });
+
+    it("should not have .path property on thrown errors from real-FS operations", async () => {
+      // Node.js ErrnoException has a .path property with the real OS path
+      try {
+        await overlay.readFile("/nonexistent-file.txt");
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        // Our sanitized errors should not carry the raw .path property
+        expect(err.path).toBeUndefined();
+      }
+    });
+  });
+
   describe("/dev file overwrite behavior", () => {
     it("should allow overwriting /dev/null content in memory", async () => {
       await overlay.writeFile("/dev/null", "injected");

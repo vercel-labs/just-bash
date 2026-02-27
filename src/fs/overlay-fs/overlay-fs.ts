@@ -313,6 +313,29 @@ export class OverlayFs implements IFileSystem {
     return nodePath.join(canonicalParent, nodePath.basename(realPath));
   }
 
+  /**
+   * Sanitize an error to prevent leaking real OS paths in error messages.
+   * Node.js ErrnoException objects contain a `.path` property with the real
+   * filesystem path — this must never reach the sandbox user.
+   */
+  private sanitizeError(
+    e: unknown,
+    virtualPath: string,
+    operation: string,
+  ): never {
+    const err = e as NodeJS.ErrnoException;
+    if (
+      err.message?.includes("ELOOP") ||
+      err.message?.includes("EFBIG") ||
+      err.message?.includes("EPERM")
+    ) {
+      // These are our own errors with virtual paths — rethrow as-is
+      throw e;
+    }
+    const code = err.code || "EIO";
+    throw new Error(`${code}: ${operation} '${virtualPath}'`);
+  }
+
   private ensureParentDirs(path: string): void {
     const dir = this.dirname(path);
     if (dir === "/") return;
@@ -441,7 +464,7 @@ export class OverlayFs implements IFileSystem {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
       }
-      throw e;
+      this.sanitizeError(e, path, "open");
     }
   }
 
@@ -580,7 +603,7 @@ export class OverlayFs implements IFileSystem {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") {
         throw new Error(`ENOENT: no such file or directory, stat '${path}'`);
       }
-      throw e;
+      this.sanitizeError(e, path, "stat");
     }
   }
 
@@ -644,7 +667,7 @@ export class OverlayFs implements IFileSystem {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") {
         throw new Error(`ENOENT: no such file or directory, lstat '${path}'`);
       }
-      throw e;
+      this.sanitizeError(e, path, "lstat");
     }
   }
 
@@ -794,7 +817,7 @@ export class OverlayFs implements IFileSystem {
             );
           }
         } else if ((e as NodeJS.ErrnoException).code !== "ENOTDIR") {
-          throw e;
+          this.sanitizeError(e, path, "scandir");
         }
       }
     }
@@ -1168,7 +1191,7 @@ export class OverlayFs implements IFileSystem {
       if ((e as NodeJS.ErrnoException).code === "EINVAL") {
         throw new Error(`EINVAL: invalid argument, readlink '${path}'`);
       }
-      throw e;
+      this.sanitizeError(e, path, "readlink");
     }
   }
 
@@ -1266,7 +1289,7 @@ export class OverlayFs implements IFileSystem {
                   `ENOENT: no such file or directory, realpath '${path}'`,
                 );
               }
-              throw e;
+              this.sanitizeError(e, path, "realpath");
             }
           } else if (!this.allowSymlinks) {
             // resolveRealPath_ rejected this path (symlink traversal
@@ -1290,7 +1313,7 @@ export class OverlayFs implements IFileSystem {
                     `ENOENT: no such file or directory, realpath '${path}'`,
                   );
                 }
-                throw e;
+                this.sanitizeError(e, path, "realpath");
               }
             }
           }
