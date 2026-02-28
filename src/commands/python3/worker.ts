@@ -14,7 +14,7 @@ import {
   WorkerDefenseInDepth,
   type WorkerDefenseStats,
 } from "../../security/index.js";
-import { SyncFsBackend } from "./sync-fs-backend.js";
+import { SyncBackend } from "../worker-bridge/sync-backend.js";
 
 export interface WorkerInput {
   sharedBuffer: SharedArrayBuffer;
@@ -51,7 +51,7 @@ async function getPyodide(): Promise<PyodideInterface> {
 
 /**
  * Create a HOSTFS backend for Pyodide that bridges to just-bash's filesystem.
- * This follows the Emscripten NODEFS pattern but uses SyncFsBackend.
+ * This follows the Emscripten NODEFS pattern but uses SyncBackend.
  */
 
 // Emscripten FS type definitions (based on Emscripten's internal structures)
@@ -180,7 +180,7 @@ interface EmscriptenPATH {
 }
 
 function createHOSTFS(
-  backend: SyncFsBackend,
+  backend: SyncBackend,
   FS: EmscriptenFS,
   PATH: EmscriptenPATH,
 ) {
@@ -505,7 +505,7 @@ function createHOSTFS(
 }
 
 async function runPython(input: WorkerInput): Promise<WorkerOutput> {
-  const backend = new SyncFsBackend(input.sharedBuffer);
+  const backend = new SyncBackend(input.sharedBuffer);
 
   let pyodide: PyodideInterface;
   try {

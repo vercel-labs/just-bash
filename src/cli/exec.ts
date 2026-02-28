@@ -94,10 +94,10 @@ let env: Bash;
 if (rootPath) {
   const fs = new OverlayFs({ root: rootPath });
   const mountPoint = fs.getMountPoint();
-  env = new Bash({ fs, cwd: mountPoint, executionLimits });
+  env = new Bash({ fs, cwd: mountPoint, executionLimits, javascript: true });
   console.log(`OverlayFS: ${rootPath} mounted at ${mountPoint}`);
 } else {
-  env = new Bash({ executionLimits });
+  env = new Bash({ executionLimits, javascript: true });
 }
 const r = await env.exec(script);
 console.log("exitCode:", r.exitCode);

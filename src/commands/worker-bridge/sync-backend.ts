@@ -1,5 +1,5 @@
 /**
- * Worker-side synchronous filesystem backend
+ * Worker-side synchronous backend
  *
  * Runs in the worker thread and makes synchronous calls to the main thread
  * via SharedArrayBuffer + Atomics.
@@ -14,9 +14,9 @@ import {
 } from "./protocol.js";
 
 /**
- * Synchronous filesystem backend for Pyodide worker.
+ * Synchronous backend for worker threads.
  */
-export class SyncFsBackend {
+export class SyncBackend {
   private protocol: ProtocolBuffer;
 
   constructor(sharedBuffer: SharedArrayBuffer) {
@@ -177,6 +177,22 @@ export class SyncFsBackend {
     return this.protocol.getResultAsString();
   }
 
+  rename(oldPath: string, newPath: string): void {
+    const newPathData = new TextEncoder().encode(newPath);
+    const result = this.execSync(OpCode.RENAME, oldPath, newPathData);
+    if (!result.success) {
+      throw new Error(result.error || "Failed to rename");
+    }
+  }
+
+  copyFile(src: string, dest: string): void {
+    const destData = new TextEncoder().encode(dest);
+    const result = this.execSync(OpCode.COPY_FILE, src, destData);
+    if (!result.success) {
+      throw new Error(result.error || "Failed to copyFile");
+    }
+  }
+
   writeStdout(data: string): void {
     const encoded = new TextEncoder().encode(data);
     this.execSync(OpCode.WRITE_STDOUT, "", encoded);
@@ -215,6 +231,29 @@ export class SyncFsBackend {
     const result = this.execSync(OpCode.HTTP_REQUEST, url, requestData);
     if (!result.success) {
       throw new Error(result.error || "HTTP request failed");
+    }
+    const responseJson = new TextDecoder().decode(result.result);
+    return JSON.parse(responseJson);
+  }
+
+  /**
+   * Execute a shell command through the main thread's exec function.
+   * Returns the result as { stdout, stderr, exitCode }.
+   */
+  execCommand(
+    command: string,
+    stdin?: string,
+  ): {
+    stdout: string;
+    stderr: string;
+    exitCode: number;
+  } {
+    const requestData = stdin
+      ? new TextEncoder().encode(JSON.stringify({ stdin }))
+      : undefined;
+    const result = this.execSync(OpCode.EXEC_COMMAND, command, requestData);
+    if (!result.success) {
+      throw new Error(result.error || "Command execution failed");
     }
     const responseJson = new TextDecoder().decode(result.result);
     return JSON.parse(responseJson);

@@ -7,16 +7,23 @@ export type {
   StatementNode,
   WordNode,
 } from "./ast/types.js";
-export type { BashLogger, BashOptions, ExecOptions } from "./Bash.js";
+export type {
+  BashLogger,
+  BashOptions,
+  ExecOptions,
+  JavaScriptConfig,
+} from "./Bash.js";
 export { Bash } from "./Bash.js";
 export type {
   AllCommandName,
   CommandName,
+  JavaScriptCommandName,
   NetworkCommandName,
   PythonCommandName,
 } from "./commands/registry.js";
 export {
   getCommandNames,
+  getJavaScriptCommandNames,
   getNetworkCommandNames,
   getPythonCommandNames,
 } from "./commands/registry.js";

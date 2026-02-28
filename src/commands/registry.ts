@@ -102,11 +102,15 @@ export type NetworkCommandName = "curl";
 /** Python command names (only available when python is explicitly enabled) */
 export type PythonCommandName = "python3" | "python";
 
-/** All command names including network and python commands */
+/** JavaScript command names (only available when javascript is explicitly enabled) */
+export type JavaScriptCommandName = "js-exec";
+
+/** All command names including network, python, and javascript commands */
 export type AllCommandName =
   | CommandName
   | NetworkCommandName
-  | PythonCommandName;
+  | PythonCommandName
+  | JavaScriptCommandName;
 
 // Statically analyzable loaders - each import() call is a literal string
 const commandLoaders: LazyCommandDef<CommandName>[] = [
@@ -504,6 +508,15 @@ if (typeof __BROWSER__ === "undefined" || !__BROWSER__) {
   });
 }
 
+// JavaScript commands - only registered when javascript is explicitly enabled
+const jsCommandLoaders: LazyCommandDef<JavaScriptCommandName>[] = [];
+if (typeof __BROWSER__ === "undefined" || !__BROWSER__) {
+  jsCommandLoaders.push({
+    name: "js-exec",
+    load: async () => (await import("./js-exec/js-exec.js")).jsExecCommand,
+  });
+}
+
 // Network commands - only registered when network is configured
 const networkCommandLoaders: LazyCommandDef<NetworkCommandName>[] = [
   {
@@ -590,6 +603,21 @@ export function getPythonCommandNames(): string[] {
  */
 export function createPythonCommands(): Command[] {
   return pythonCommandLoaders.map(createLazyCommand);
+}
+
+/**
+ * Gets all javascript command names
+ */
+export function getJavaScriptCommandNames(): string[] {
+  return jsCommandLoaders.map((def) => def.name);
+}
+
+/**
+ * Creates javascript commands for registration (js-exec).
+ * These are only registered when javascript is explicitly enabled.
+ */
+export function createJavaScriptCommands(): Command[] {
+  return jsCommandLoaders.map(createLazyCommand);
 }
 
 /**

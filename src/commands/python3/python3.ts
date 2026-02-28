@@ -12,8 +12,8 @@ import { Worker } from "node:worker_threads";
 import { mapToRecord } from "../../helpers/env.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
-import { FsBridgeHandler } from "./fs-bridge-handler.js";
-import { createSharedBuffer } from "./protocol.js";
+import { BridgeHandler } from "../worker-bridge/bridge-handler.js";
+import { createSharedBuffer } from "../worker-bridge/protocol.js";
 import type { WorkerInput, WorkerOutput } from "./worker.js";
 
 /** Default Python execution timeout in milliseconds (30 seconds for Pyodide load) */
@@ -232,10 +232,11 @@ async function executePython(
   scriptArgs: string[] = [],
 ): Promise<ExecResult> {
   const sharedBuffer = createSharedBuffer();
-  const bridgeHandler = new FsBridgeHandler(
+  const bridgeHandler = new BridgeHandler(
     sharedBuffer,
     ctx.fs,
     ctx.cwd,
+    "python3",
     ctx.fetch,
   );
 
