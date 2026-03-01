@@ -15,6 +15,7 @@ export {
   type HttpMethod,
   NetworkAccessDeniedError,
   type NetworkConfig,
+  type NetworkRequest,
   RedirectNotAllowedError,
   TooManyRedirectsError,
 } from "./types.js";
