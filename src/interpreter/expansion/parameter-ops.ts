@@ -24,7 +24,12 @@ import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import { createUserRegex } from "../../regex/index.js";
 import { evaluateArithmetic } from "../arithmetic.js";
-import { ArithmeticError, BadSubstitutionError, ExitError } from "../errors.js";
+import {
+  ArithmeticError,
+  BadSubstitutionError,
+  ExecutionLimitError,
+  ExitError,
+} from "../errors.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
 import { getNamerefTarget, isNameref } from "../helpers/nameref.js";
 import { escapeRegex } from "../helpers/regex.js";
@@ -312,6 +317,8 @@ export async function handlePatternReplacement(
     if (operation.all) {
       let result = "";
       let lastIndex = 0;
+      let iterCount = 0;
+      const maxStringLen = ctx.limits.maxStringLength;
       let match: RegExpExecArray | null = re.exec(value);
       while (match !== null) {
         if (match[0].length === 0 && match.index === value.length) {
@@ -322,13 +329,24 @@ export async function handlePatternReplacement(
         if (match[0].length === 0) {
           lastIndex++;
         }
+        // Check string length every 100 iterations to catch runaway growth
+        iterCount++;
+        if (iterCount % 100 === 0 && result.length > maxStringLen) {
+          throw new ExecutionLimitError(
+            `pattern replacement: string length limit exceeded (${maxStringLen} bytes)`,
+            "string_length",
+          );
+        }
         match = re.exec(value);
       }
       result += value.slice(lastIndex);
       return result;
     }
     return re.replace(value, replacement);
-  } catch {
+  } catch (e) {
+    if (e instanceof ExecutionLimitError) {
+      throw e;
+    }
     return value;
   }
 }

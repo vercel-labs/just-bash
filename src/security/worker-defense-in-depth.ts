@@ -461,6 +461,11 @@ export class WorkerDefenseInDepth {
     if (!excludeTypes.has("process_main_module")) {
       this.protectProcessMainModule();
     }
+
+    // Protect process.execPath (string primitive, needs defineProperty)
+    if (!excludeTypes.has("process_exec_path")) {
+      this.protectProcessExecPath();
+    }
   }
 
   /**
@@ -769,6 +774,72 @@ export class WorkerDefenseInDepth {
       }
     } catch {
       // Could not protect process.mainModule
+    }
+  }
+
+  /**
+   * Protect process.execPath from being read or set in worker context.
+   *
+   * process.execPath is a string primitive (not an object), so it cannot be
+   * proxied via the normal blocked globals mechanism. We use Object.defineProperty
+   * with getter/setter (same pattern as protectProcessMainModule).
+   */
+  private protectProcessExecPath(): void {
+    if (typeof process === "undefined") return;
+
+    const self = this;
+    const auditMode = this.config.auditMode;
+
+    try {
+      const originalDescriptor = Object.getOwnPropertyDescriptor(
+        process,
+        "execPath",
+      );
+      this.originalDescriptors.push({
+        target: process,
+        prop: "execPath",
+        descriptor: originalDescriptor,
+      });
+
+      const currentValue = originalDescriptor?.value ?? process.execPath;
+
+      Object.defineProperty(process, "execPath", {
+        get() {
+          const message =
+            "process.execPath access is blocked in worker context";
+          const violation = self.recordViolation(
+            "process_exec_path",
+            "process.execPath",
+            message,
+          );
+
+          if (!auditMode) {
+            throw new WorkerSecurityViolationError(message, violation);
+          }
+          return currentValue;
+        },
+        set(value) {
+          const message =
+            "process.execPath modification is blocked in worker context";
+          const violation = self.recordViolation(
+            "process_exec_path",
+            "process.execPath",
+            message,
+          );
+
+          if (!auditMode) {
+            throw new WorkerSecurityViolationError(message, violation);
+          }
+          Object.defineProperty(process, "execPath", {
+            value,
+            writable: true,
+            configurable: true,
+          });
+        },
+        configurable: true,
+      });
+    } catch {
+      // Could not protect process.execPath
     }
   }
 

@@ -35,7 +35,7 @@ import * as CmdParser from "./command-parser.js";
 import * as CompoundParser from "./compound-parser.js";
 import * as CondParser from "./conditional-parser.js";
 import * as ExpParser from "./expansion-parser.js";
-import { Lexer, type Token, TokenType } from "./lexer.js";
+import { Lexer, type LexerOptions, type Token, TokenType } from "./lexer.js";
 import {
   isDollarDparenSubshell as isDollarDparenSubshellHelper,
   parseBacktickSubstitutionFromString,
@@ -112,7 +112,7 @@ export class Parser {
   /**
    * Parse a bash script string
    */
-  parse(input: string): ScriptNode {
+  parse(input: string, options?: LexerOptions): ScriptNode {
     // Check input size limit
     if (input.length > MAX_INPUT_SIZE) {
       throw new ParseException(
@@ -123,7 +123,7 @@ export class Parser {
     }
 
     this._input = input;
-    const lexer = new Lexer(input);
+    const lexer = new Lexer(input, options);
     this.tokens = lexer.tokenize();
 
     // Check token count limit
@@ -1183,7 +1183,7 @@ export class Parser {
 /**
  * Convenience function to parse a bash script
  */
-export function parse(input: string): ScriptNode {
+export function parse(input: string, options?: LexerOptions): ScriptNode {
   const parser = new Parser();
-  return parser.parse(input);
+  return parser.parse(input, options);
 }

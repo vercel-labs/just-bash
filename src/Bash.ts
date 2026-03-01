@@ -558,7 +558,9 @@ export class Bash {
     try {
       // Run execution inside defense-in-depth context if enabled
       const executeScript = async (): Promise<BashExecResult> => {
-        let ast = parse(normalized);
+        let ast = parse(normalized, {
+          maxHeredocSize: this.limits.maxHeredocSize,
+        });
 
         // Apply transform plugins if any are registered
         // @banned-pattern-ignore: metadata is plugin-controlled, not user input
@@ -712,7 +714,9 @@ export class Bash {
 
   transform(commandLine: string): BashTransformResult {
     const normalized = normalizeScript(commandLine);
-    let ast = parse(normalized);
+    let ast = parse(normalized, {
+      maxHeredocSize: this.limits.maxHeredocSize,
+    });
     // @banned-pattern-ignore: metadata is plugin-controlled, not user input
     let metadata: Record<string, unknown> = Object.create(null);
 

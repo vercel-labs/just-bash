@@ -58,7 +58,12 @@ export function parseArithNumber(str: string): number {
     }
     // For bases <= 36, we can use parseInt
     if (base <= 36) {
-      return Number.parseInt(numStr, base);
+      const result = Number.parseInt(numStr, base);
+      // Clamp to MAX_SAFE_INTEGER (we don't support 64-bit integers)
+      if (result > Number.MAX_SAFE_INTEGER) {
+        return Number.MAX_SAFE_INTEGER;
+      }
+      return result;
     }
 
     // For bases 37-64, manually calculate
@@ -82,13 +87,21 @@ export function parseArithNumber(str: string): number {
         return Number.NaN;
       }
       result = result * base + digitValue;
+      // Clamp to MAX_SAFE_INTEGER (we don't support 64-bit integers)
+      if (result > Number.MAX_SAFE_INTEGER) {
+        return Number.MAX_SAFE_INTEGER;
+      }
     }
     return result;
   }
 
   // Handle hex (0x or 0X prefix)
   if (str.startsWith("0x") || str.startsWith("0X")) {
-    return Number.parseInt(str.slice(2), 16);
+    const result = Number.parseInt(str.slice(2), 16);
+    if (result > Number.MAX_SAFE_INTEGER) {
+      return Number.MAX_SAFE_INTEGER;
+    }
+    return result;
   }
 
   // Handle octal (leading 0, but not just "0")
@@ -97,11 +110,19 @@ export function parseArithNumber(str: string): number {
     if (/[89]/.test(str)) {
       return Number.NaN;
     }
-    return Number.parseInt(str, 8);
+    const result = Number.parseInt(str, 8);
+    if (result > Number.MAX_SAFE_INTEGER) {
+      return Number.MAX_SAFE_INTEGER;
+    }
+    return result;
   }
 
   // Decimal
-  return Number.parseInt(str, 10);
+  const result = Number.parseInt(str, 10);
+  if (result > Number.MAX_SAFE_INTEGER) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return result;
 }
 
 /**

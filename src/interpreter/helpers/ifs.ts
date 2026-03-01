@@ -47,16 +47,27 @@ export function isIfsWhitespaceOnly(env: Map<string, string>): boolean {
  * E.g., for IFS=" \t\n", returns " \\t\\n" (escaped for [pattern] use)
  */
 export function buildIfsCharClassPattern(ifs: string): string {
-  return ifs
-    .split("")
-    .map((c) => {
-      // Escape regex special chars for character class
-      if (/[\\^$.*+?()[\]{}|-]/.test(c)) return `\\${c}`;
-      if (c === "\t") return "\\t";
-      if (c === "\n") return "\\n";
-      return c;
-    })
-    .join("");
+  let hasDash = false;
+  const parts: string[] = [];
+  for (const c of ifs.split("")) {
+    if (c === "-") {
+      // Defer '-' to place it last in the character class
+      hasDash = true;
+    } else if (/[\\^$.*+?()[\]{}|]/.test(c)) {
+      parts.push(`\\${c}`);
+    } else if (c === "\t") {
+      parts.push("\\t");
+    } else if (c === "\n") {
+      parts.push("\\n");
+    } else {
+      parts.push(c);
+    }
+  }
+  // Place '-' last to prevent unintended ranges like [a-z]
+  if (hasDash) {
+    parts.push("\\-");
+  }
+  return parts.join("");
 }
 
 /**

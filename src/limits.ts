@@ -48,6 +48,9 @@ export interface ExecutionLimits {
 
   /** Maximum command substitution nesting depth (default: 50) */
   maxSubstitutionDepth?: number;
+
+  /** Maximum brace expansion results (default: 10000) */
+  maxBraceExpansionResults?: number;
 }
 
 /**
@@ -69,6 +72,7 @@ const DEFAULT_LIMITS: Required<ExecutionLimits> = {
   maxArrayElements: 100000,
   maxHeredocSize: 10485760, // 10MB
   maxSubstitutionDepth: 50,
+  maxBraceExpansionResults: 10000,
 };
 
 /**
@@ -105,5 +109,8 @@ export function resolveLimits(
     maxHeredocSize: userLimits.maxHeredocSize ?? DEFAULT_LIMITS.maxHeredocSize,
     maxSubstitutionDepth:
       userLimits.maxSubstitutionDepth ?? DEFAULT_LIMITS.maxSubstitutionDepth,
+    maxBraceExpansionResults:
+      userLimits.maxBraceExpansionResults ??
+      DEFAULT_LIMITS.maxBraceExpansionResults,
   };
 }
