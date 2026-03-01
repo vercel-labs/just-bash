@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeErrorMessage } from "./real-fs-utils.js";
+import { sanitizeErrorMessage } from "./sanitize-error.js";
 
 describe("sanitizeErrorMessage", () => {
   it("should strip /Users/ paths", () => {

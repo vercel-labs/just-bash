@@ -23,7 +23,7 @@ import {
 import { InMemoryFs } from "./fs/in-memory-fs/in-memory-fs.js";
 import { initFilesystem } from "./fs/init.js";
 import type { IFileSystem, InitialFiles } from "./fs/interface.js";
-import { sanitizeErrorMessage } from "./fs/real-fs-utils.js";
+import { sanitizeErrorMessage } from "./fs/sanitize-error.js";
 import { mapToRecord, mapToRecordWithExtras } from "./helpers/env.js";
 import {
   ArithmeticError,

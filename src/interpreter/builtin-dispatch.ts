@@ -6,7 +6,7 @@
  */
 
 import { isBrowserExcludedCommand } from "../commands/browser-excluded.js";
-import { sanitizeErrorMessage } from "../fs/real-fs-utils.js";
+import { sanitizeErrorMessage } from "../fs/sanitize-error.js";
 import type { CommandContext, ExecResult } from "../types.js";
 import {
   handleBreak,
