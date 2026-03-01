@@ -185,16 +185,45 @@ export function resolveCanonicalPathNoSymlinks(
 /**
  * Validate that a root directory exists and is actually a directory.
  * Throws with a descriptive message including `fsName` (e.g. "OverlayFs",
- * "ReadWriteFs") on failure.
+ * "ReadWriteFs") on failure.  Does NOT include the real root path in the
+ * error message to prevent information leakage.
  */
 export function validateRootDirectory(root: string, fsName: string): void {
   if (!fs.existsSync(root)) {
-    throw new Error(`${fsName} root does not exist: ${root}`);
+    throw new Error(`${fsName} root does not exist`);
   }
   const stat = fs.statSync(root);
   if (!stat.isDirectory()) {
-    throw new Error(`${fsName} root is not a directory: ${root}`);
+    throw new Error(`${fsName} root is not a directory`);
   }
+}
+
+/**
+ * Sanitize an error message to strip real OS filesystem paths and stack traces.
+ *
+ * - Replaces common OS path prefixes (/Users/, /home/, /private/, C:\, etc.)
+ *   with `<path>` to prevent information leakage about the host filesystem.
+ * - Strips stack trace lines (`\n    at ...`).
+ * - Preserves error codes (ENOENT, EACCES, etc.) and virtual paths that don't
+ *   match known OS prefixes.
+ */
+export function sanitizeErrorMessage(message: string): string {
+  if (!message) return message;
+
+  // Strip stack trace lines (lines starting with whitespace + "at ")
+  let sanitized = message.replace(/\n\s+at\s.*/g, "");
+
+  // Replace real OS paths with <path>
+  // Match absolute Unix-style paths that start with common OS prefixes
+  sanitized = sanitized.replace(
+    /(?:\/(?:Users|home|private|var|opt|Library|System|usr|etc|tmp|nix|snap))\b[^\s'",)}\]:]*/g,
+    "<path>",
+  );
+
+  // Match Windows-style absolute paths (C:\, D:\, etc.)
+  sanitized = sanitized.replace(/[A-Z]:\\[^\s'",)}\]:]+/g, "<path>");
+
+  return sanitized;
 }
 
 /**

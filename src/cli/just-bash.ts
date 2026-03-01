@@ -40,6 +40,7 @@
 import { resolve } from "node:path";
 import { Bash } from "../Bash.js";
 import { OverlayFs } from "../fs/overlay-fs/index.js";
+import { sanitizeErrorMessage } from "../fs/real-fs-utils.js";
 
 interface CliOptions {
   script?: string;
@@ -272,7 +273,9 @@ async function main(): Promise<void> {
       script = await fs.readFile(virtualPath, "utf-8");
     } catch (e) {
       console.error(`Error: Cannot read script file: ${options.scriptFile}`);
-      console.error(e instanceof Error ? e.message : String(e));
+      console.error(
+        sanitizeErrorMessage(e instanceof Error ? e.message : String(e)),
+      );
       process.exit(1);
     }
   } else if (!process.stdin.isTTY) {
@@ -338,22 +341,28 @@ async function main(): Promise<void> {
 
     process.exit(result.exitCode);
   } catch (e) {
+    const errMsg = sanitizeErrorMessage(
+      e instanceof Error ? e.message : String(e),
+    );
     if (options.json) {
       console.log(
         JSON.stringify({
           stdout: "",
-          stderr: e instanceof Error ? e.message : String(e),
+          stderr: errMsg,
           exitCode: 1,
         }),
       );
     } else {
-      console.error(e instanceof Error ? e.message : String(e));
+      console.error(errMsg);
     }
     process.exit(1);
   }
 }
 
 main().catch((e) => {
-  console.error("Fatal error:", e);
+  console.error(
+    "Fatal error:",
+    sanitizeErrorMessage(e instanceof Error ? e.message : String(e)),
+  );
   process.exit(1);
 });

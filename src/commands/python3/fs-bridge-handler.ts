@@ -6,6 +6,7 @@
  */
 
 import type { IFileSystem } from "../../fs/interface.js";
+import { sanitizeErrorMessage } from "../../fs/real-fs-utils.js";
 import type { SecureFetch } from "../../network/fetch.js";
 import {
   ErrorCode,
@@ -350,7 +351,9 @@ export class FsBridgeHandler {
       this.protocol.setResultFromString(response);
       this.protocol.setStatus(Status.SUCCESS);
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = sanitizeErrorMessage(
+        e instanceof Error ? e.message : String(e),
+      );
       this.protocol.setErrorCode(ErrorCode.NETWORK_ERROR);
       this.protocol.setResultFromString(message);
       this.protocol.setStatus(Status.ERROR);
@@ -358,10 +361,11 @@ export class FsBridgeHandler {
   }
 
   private setErrorFromException(e: unknown): void {
-    const message = e instanceof Error ? e.message : String(e);
+    const rawMessage = e instanceof Error ? e.message : String(e);
+    const message = sanitizeErrorMessage(rawMessage);
 
     let errorCode: ErrorCodeType = ErrorCode.IO_ERROR;
-    const lowerMsg = message.toLowerCase();
+    const lowerMsg = rawMessage.toLowerCase();
     if (
       lowerMsg.includes("no such file") ||
       lowerMsg.includes("not found") ||

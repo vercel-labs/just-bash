@@ -581,6 +581,9 @@ export class DefenseInDepthBox {
 
     // Protect process.execPath (string primitive, needs defineProperty)
     this.protectProcessExecPath();
+
+    // Protect process.connected (boolean primitive, needs defineProperty)
+    this.protectProcessConnected();
   }
 
   /**
@@ -958,6 +961,84 @@ export class DefenseInDepthBox {
     } catch (e) {
       console.debug(
         "[DefenseInDepthBox] Could not protect process.execPath:",
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
+
+  /**
+   * Protect process.connected from being read or set in sandbox context.
+   *
+   * process.connected is a boolean primitive (not an object), so it cannot be
+   * proxied via the normal blocked globals mechanism. We use Object.defineProperty
+   * with getter/setter (same pattern as protectProcessExecPath).
+   *
+   * Only protects if process.connected exists (IPC contexts).
+   * In non-IPC contexts, process.connected is undefined — skip to avoid
+   * breaking normal operation.
+   */
+  private protectProcessConnected(): void {
+    if (typeof process === "undefined") return;
+    // Only protect if connected exists (IPC context)
+    if (process.connected === undefined) return;
+
+    const box = this;
+
+    try {
+      const originalDescriptor = Object.getOwnPropertyDescriptor(
+        process,
+        "connected",
+      );
+      this.originalDescriptors.push({
+        target: process,
+        prop: "connected",
+        descriptor: originalDescriptor,
+      });
+
+      let currentValue = originalDescriptor?.value ?? process.connected;
+
+      Object.defineProperty(process, "connected", {
+        get() {
+          if (box.shouldBlock()) {
+            const message =
+              "process.connected access is blocked during script execution";
+            const violation = box.recordViolation(
+              "process_connected",
+              "process.connected",
+              message,
+            );
+            throw new SecurityViolationError(message, violation);
+          }
+          if (
+            box.config.auditMode &&
+            executionContext?.getStore()?.sandboxActive === true
+          ) {
+            box.recordViolation(
+              "process_connected",
+              "process.connected",
+              "process.connected accessed (audit mode)",
+            );
+          }
+          return currentValue;
+        },
+        set(value) {
+          if (box.shouldBlock()) {
+            const message =
+              "process.connected modification is blocked during script execution";
+            const violation = box.recordViolation(
+              "process_connected",
+              "process.connected",
+              message,
+            );
+            throw new SecurityViolationError(message, violation);
+          }
+          currentValue = value;
+        },
+        configurable: true,
+      });
+    } catch (e) {
+      console.debug(
+        "[DefenseInDepthBox] Could not protect process.connected:",
         e instanceof Error ? e.message : e,
       );
     }

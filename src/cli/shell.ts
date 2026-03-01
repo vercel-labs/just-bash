@@ -203,6 +203,7 @@ Reads from real filesystem, writes stay in memory (OverlayFs).
 // CLI argument parsing
 function parseArgs(): ShellOptions {
   const args = process.argv.slice(2);
+  // @banned-pattern-ignore: static keys only, never accessed with user input
   const options: ShellOptions = {}; // Network disabled by default
 
   for (let i = 0; i < args.length; i++) {

@@ -643,7 +643,7 @@ export class ReadWriteFs implements IFileSystem {
     const canonicalLinkDir = nodePath.dirname(canonicalLinkPath);
     const safeTarget = target.startsWith("/")
       ? resolvedRealTarget
-      : nodePath.relative(canonicalLinkDir, resolvedRealTarget);
+      : nodePath.relative(canonicalLinkDir, resolvedRealTarget) || ".";
 
     try {
       await fs.promises.symlink(safeTarget, canonicalLinkPath);

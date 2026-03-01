@@ -305,6 +305,146 @@ describe("Defense-in-Depth Hardening", () => {
       });
     });
 
+    describe("process.chdir blocking", () => {
+      it("should block process.chdir inside sandbox", async () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        let error: Error | undefined;
+        await handle.run(async () => {
+          try {
+            process.chdir("/");
+          } catch (e) {
+            error = e as Error;
+          }
+        });
+
+        handle.deactivate();
+
+        expect(error).toBeInstanceOf(SecurityViolationError);
+        expect(error?.message).toContain("process.chdir");
+      });
+
+      it("should allow process.chdir outside sandbox", () => {
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        expect(typeof process.chdir).toBe("function");
+
+        handle.deactivate();
+      });
+    });
+
+    describe("process.send blocking", () => {
+      it.skipIf(!process.send)(
+        "should block process.send inside sandbox",
+        async () => {
+          const box = DefenseInDepthBox.getInstance(true);
+          const handle = box.activate();
+
+          let error: Error | undefined;
+          await handle.run(async () => {
+            try {
+              // biome-ignore lint/style/noNonNullAssertion: guarded by skipIf
+              process.send!("test");
+            } catch (e) {
+              error = e as Error;
+            }
+          });
+
+          handle.deactivate();
+
+          expect(error).toBeInstanceOf(SecurityViolationError);
+          expect(error?.message).toContain("process.send");
+        },
+      );
+
+      it.skipIf(!process.send)(
+        "should allow process.send outside sandbox",
+        () => {
+          const box = DefenseInDepthBox.getInstance(true);
+          const handle = box.activate();
+
+          expect(typeof process.send).toBe("function");
+
+          handle.deactivate();
+        },
+      );
+    });
+
+    describe("process.connected blocking", () => {
+      it.skipIf(process.connected === undefined)(
+        "should block process.connected inside sandbox",
+        async () => {
+          const box = DefenseInDepthBox.getInstance(true);
+          const handle = box.activate();
+
+          let error: Error | undefined;
+          await handle.run(async () => {
+            try {
+              const _connected = process.connected;
+            } catch (e) {
+              error = e as Error;
+            }
+          });
+
+          handle.deactivate();
+
+          expect(error).toBeInstanceOf(SecurityViolationError);
+          expect(error?.message).toContain("process.connected");
+        },
+      );
+
+      it.skipIf(process.connected === undefined)(
+        "should allow process.connected outside sandbox",
+        () => {
+          const box = DefenseInDepthBox.getInstance(true);
+          const handle = box.activate();
+
+          // Outside run() context - should work
+          expect(typeof process.connected).toBe("boolean");
+
+          handle.deactivate();
+        },
+      );
+    });
+
+    describe("process.channel blocking", () => {
+      it.skipIf(!process.channel)(
+        "should block process.channel inside sandbox",
+        async () => {
+          const box = DefenseInDepthBox.getInstance(true);
+          const handle = box.activate();
+
+          let error: Error | undefined;
+          await handle.run(async () => {
+            try {
+              const _channel = process.channel;
+            } catch (e) {
+              error = e as Error;
+            }
+          });
+
+          handle.deactivate();
+
+          expect(error).toBeInstanceOf(SecurityViolationError);
+          expect(error?.message).toContain("process.channel");
+        },
+      );
+
+      it.skipIf(!process.channel)(
+        "should allow process.channel outside sandbox",
+        () => {
+          const box = DefenseInDepthBox.getInstance(true);
+          const handle = box.activate();
+
+          expect(process.channel).toBeDefined();
+
+          handle.deactivate();
+        },
+      );
+    });
+
     describe("process.cpuUsage blocking", () => {
       it("should block process.cpuUsage inside sandbox", async () => {
         const box = DefenseInDepthBox.getInstance(true);

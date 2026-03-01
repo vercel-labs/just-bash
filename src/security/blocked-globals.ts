@@ -198,6 +198,35 @@ export function getBlockedGlobals(): BlockedGlobal[] {
     // Note: process.execPath is a string primitive, handled specially
     // in defense-in-depth-box.ts and worker-defense-in-depth.ts
 
+    // Note: process.connected is a boolean primitive, handled specially
+    // in defense-in-depth-box.ts and worker-defense-in-depth.ts
+
+    // Working directory manipulation
+    {
+      prop: "chdir",
+      target: process,
+      violationType: "process_chdir",
+      strategy: "throw",
+      reason: "process.chdir could confuse the interpreter's CWD tracking",
+    },
+
+    // IPC communication vectors (may be undefined in non-IPC contexts)
+    {
+      prop: "send",
+      target: process,
+      violationType: "process_send",
+      strategy: "throw",
+      reason:
+        "process.send could communicate with parent process in IPC contexts",
+    },
+    {
+      prop: "channel",
+      target: process,
+      violationType: "process_channel",
+      strategy: "throw",
+      reason: "process.channel could access IPC channel to parent process",
+    },
+
     // Timing side-channel vectors
     {
       prop: "cpuUsage",
