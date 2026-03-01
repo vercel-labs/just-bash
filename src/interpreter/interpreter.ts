@@ -26,7 +26,7 @@ import type {
 import type { IFileSystem } from "../fs/interface.js";
 import { mapToRecord } from "../helpers/env.js";
 import type { ExecutionLimits } from "../limits.js";
-import type { SecureFetch } from "../network/index.js";
+import type { SecureFetch, SecurePostgresConnect } from "../network/index.js";
 import { ParseException } from "../parser/types.js";
 import type {
   CommandRegistry,
@@ -110,6 +110,8 @@ export interface InterpreterOptions {
   ) => Promise<ExecResult>;
   /** Optional secure fetch function for network-enabled commands */
   fetch?: SecureFetch;
+  /** Optional secure PostgreSQL connection function for psql command */
+  connectPostgres?: SecurePostgresConnect;
   /** Optional sleep function for testing with mock clocks */
   sleep?: (ms: number) => Promise<void>;
   /** Optional trace callback for performance profiling */
@@ -132,6 +134,7 @@ export class Interpreter {
       executeStatement: this.executeStatement.bind(this),
       executeCommand: this.executeCommand.bind(this),
       fetch: options.fetch,
+      connectPostgres: options.connectPostgres,
       sleep: options.sleep,
       trace: options.trace,
       coverage: options.coverage,

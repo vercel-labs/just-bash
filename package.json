@@ -101,6 +101,7 @@
     "minimatch": "^10.1.1",
     "modern-tar": "^0.7.3",
     "papaparse": "^5.5.3",
+    "postgres": "^3.4.5",
     "pyodide": "^0.27.0",
     "re2js": "^1.2.1",
     "smol-toml": "^1.6.0",

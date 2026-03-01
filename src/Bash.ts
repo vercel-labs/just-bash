@@ -43,8 +43,10 @@ import {
 import { type ExecutionLimits, resolveLimits } from "./limits.js";
 import {
   createSecureFetch,
+  createSecurePostgresConnect,
   type NetworkConfig,
   type SecureFetch,
+  type SecurePostgresConnect,
 } from "./network/index.js";
 import { LexerError } from "./parser/lexer.js";
 import { type ParseException, parse } from "./parser/parser.js";
@@ -229,6 +231,7 @@ export class Bash {
   private useDefaultLayout: boolean = false;
   private limits: Required<ExecutionLimits>;
   private secureFetch?: SecureFetch;
+  private securePostgresConnect?: SecurePostgresConnect;
   private sleepFn?: (ms: number) => Promise<void>;
   private traceFn?: TraceCallback;
   private logger?: BashLogger;
@@ -280,6 +283,16 @@ export class Bash {
     // Create secure fetch if network is configured
     if (options.network) {
       this.secureFetch = createSecureFetch(options.network);
+
+      // Create secure PostgreSQL connect if PostgreSQL hosts are configured
+      if (
+        options.network.allowedPostgresHosts ||
+        options.network.dangerouslyAllowFullInternetAccess
+      ) {
+        this.securePostgresConnect = createSecurePostgresConnect(
+          options.network,
+        );
+      }
     }
 
     // Store sleep function if provided (for mock clocks in testing)
@@ -586,6 +599,7 @@ export class Bash {
           limits: this.limits,
           exec: this.exec.bind(this),
           fetch: this.secureFetch,
+          connectPostgres: this.securePostgresConnect,
           sleep: this.sleepFn,
           trace: this.traceFn,
           coverage: this.coverageWriter,
