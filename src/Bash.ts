@@ -102,6 +102,13 @@ export interface BashOptions {
    */
   maxLoopIterations?: number;
   /**
+   * Custom secure fetch function. When provided, used instead of creating one
+   * from NetworkConfig. Enables wrapping the fetch layer with custom logic
+   * (e.g., policy evaluation) while keeping built-in curl unmodified.
+   * Network commands (curl, wget) are registered when either `fetch` or `network` is provided.
+   */
+  fetch?: SecureFetch;
+  /**
    * Network configuration for commands like curl.
    * Network access is disabled by default - you must explicitly configure allowed URLs.
    */
@@ -277,8 +284,10 @@ export class Bash {
       }),
     });
 
-    // Create secure fetch if network is configured
-    if (options.network) {
+    // Create secure fetch: prefer explicit fetch, fall back to network config
+    if (options.fetch) {
+      this.secureFetch = options.fetch;
+    } else if (options.network) {
       this.secureFetch = createSecureFetch(options.network);
     }
 
@@ -389,8 +398,8 @@ export class Bash {
       this.registerCommand(cmd);
     }
 
-    // Register network commands only when network is configured
-    if (options.network) {
+    // Register network commands when fetch or network is configured
+    if (options.fetch || options.network) {
       for (const cmd of createNetworkCommands()) {
         this.registerCommand(cmd);
       }
