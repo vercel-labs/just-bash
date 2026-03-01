@@ -23,6 +23,7 @@ import {
 import { InMemoryFs } from "./fs/in-memory-fs/in-memory-fs.js";
 import { initFilesystem } from "./fs/init.js";
 import type { IFileSystem, InitialFiles } from "./fs/interface.js";
+import { sanitizeErrorMessage } from "./fs/sanitize-error.js";
 import { mapToRecord, mapToRecordWithExtras } from "./helpers/env.js";
 import {
   ArithmeticError,
@@ -558,7 +559,9 @@ export class Bash {
     try {
       // Run execution inside defense-in-depth context if enabled
       const executeScript = async (): Promise<BashExecResult> => {
-        let ast = parse(normalized);
+        let ast = parse(normalized, {
+          maxHeredocSize: this.limits.maxHeredocSize,
+        });
 
         // Apply transform plugins if any are registered
         // @banned-pattern-ignore: metadata is plugin-controlled, not user input
@@ -652,7 +655,7 @@ export class Bash {
       if ((error as ParseException).name === "ParseException") {
         return this.logResult({
           stdout: "",
-          stderr: `bash: syntax error: ${(error as Error).message}\n`,
+          stderr: `bash: syntax error: ${sanitizeErrorMessage((error as Error).message)}\n`,
           exitCode: 2,
           env: mapToRecordWithExtras(this.state.env, options?.env),
         });
@@ -661,7 +664,7 @@ export class Bash {
       if (error instanceof LexerError) {
         return this.logResult({
           stdout: "",
-          stderr: `bash: ${error.message}\n`,
+          stderr: `bash: ${sanitizeErrorMessage(error.message)}\n`,
           exitCode: 2,
           env: mapToRecordWithExtras(this.state.env, options?.env),
         });
@@ -670,7 +673,7 @@ export class Bash {
       if (error instanceof RangeError) {
         return this.logResult({
           stdout: "",
-          stderr: `bash: ${error.message}\n`,
+          stderr: `bash: ${sanitizeErrorMessage(error.message)}\n`,
           exitCode: 1,
           env: mapToRecordWithExtras(this.state.env, options?.env),
         });
@@ -712,7 +715,9 @@ export class Bash {
 
   transform(commandLine: string): BashTransformResult {
     const normalized = normalizeScript(commandLine);
-    let ast = parse(normalized);
+    let ast = parse(normalized, {
+      maxHeredocSize: this.limits.maxHeredocSize,
+    });
     // @banned-pattern-ignore: metadata is plugin-controlled, not user input
     let metadata: Record<string, unknown> = Object.create(null);
 

@@ -185,17 +185,22 @@ export function resolveCanonicalPathNoSymlinks(
 /**
  * Validate that a root directory exists and is actually a directory.
  * Throws with a descriptive message including `fsName` (e.g. "OverlayFs",
- * "ReadWriteFs") on failure.
+ * "ReadWriteFs") on failure.  Does NOT include the real root path in the
+ * error message to prevent information leakage.
  */
 export function validateRootDirectory(root: string, fsName: string): void {
   if (!fs.existsSync(root)) {
-    throw new Error(`${fsName} root does not exist: ${root}`);
+    throw new Error(`${fsName} root does not exist`);
   }
   const stat = fs.statSync(root);
   if (!stat.isDirectory()) {
-    throw new Error(`${fsName} root is not a directory: ${root}`);
+    throw new Error(`${fsName} root is not a directory`);
   }
 }
+
+// Re-export sanitizeErrorMessage from its own module (no node:fs dependency)
+// so existing callers that import from real-fs-utils.ts continue to work.
+export { sanitizeErrorMessage } from "./sanitize-error.js";
 
 /**
  * Validate that a path does not contain null bytes.

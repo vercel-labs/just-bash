@@ -85,8 +85,10 @@ if (!IS_BROWSER) {
     AsyncLocalStorageClass = asyncHooks.AsyncLocalStorage;
   } catch (e) {
     // AsyncLocalStorage not available (e.g., in some edge runtimes)
-    console.debug(
-      "[DefenseInDepthBox] AsyncLocalStorage not available, defense-in-depth disabled:",
+    console.warn(
+      "[DefenseInDepthBox] WARNING: AsyncLocalStorage not available, defense-in-depth security layer is DISABLED. " +
+        "This means script execution will NOT be protected by runtime security patches. " +
+        "Reason:",
       e instanceof Error ? e.message : e,
     );
   }
@@ -220,6 +222,16 @@ export class DefenseInDepthBox {
   static getCurrentExecutionId(): string | undefined {
     if (!executionContext) return undefined;
     return executionContext?.getStore()?.executionId;
+  }
+
+  /**
+   * Check if defense-in-depth is enabled and functional.
+   * Returns false if AsyncLocalStorage is unavailable or config.enabled is false.
+   */
+  isEnabled(): boolean {
+    return (
+      this.config.enabled === true && executionContext !== null && !IS_BROWSER
+    );
   }
 
   /**
@@ -549,7 +561,19 @@ export class DefenseInDepthBox {
   private applyPatches(): void {
     const blockedGlobals = getBlockedGlobals();
 
+    // IPC-related globals (process.send, process.channel, process.connected)
+    // are only blocked in worker contexts (WorkerDefenseInDepth). In the main
+    // thread, blocking them interferes with legitimate IPC usage by test
+    // runners, process managers, and Node.js internals that share the process
+    // object and may access these properties during async operations within
+    // the AsyncLocalStorage context.
+    const skipInMainThread = new Set<SecurityViolationType>([
+      "process_send",
+      "process_channel",
+    ]);
+
     for (const blocked of blockedGlobals) {
+      if (skipInMainThread.has(blocked.violationType)) continue;
       this.applyPatch(blocked);
     }
 
@@ -566,6 +590,14 @@ export class DefenseInDepthBox {
 
     // Protect process.mainModule (may be undefined in ESM but still blockable)
     this.protectProcessMainModule();
+
+    // Protect process.execPath (string primitive, needs defineProperty)
+    this.protectProcessExecPath();
+
+    // Note: process.connected is NOT blocked in the main thread — it is a
+    // boolean primitive used by Node.js IPC internals and blocking it
+    // interferes with test runners and process managers. It IS blocked in
+    // WorkerDefenseInDepth where the entire worker is sandboxed.
   }
 
   /**
@@ -866,6 +898,83 @@ export class DefenseInDepthBox {
     } catch (e) {
       console.debug(
         "[DefenseInDepthBox] Could not protect process.mainModule:",
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
+
+  /**
+   * Protect process.execPath from being read or set in sandbox context.
+   *
+   * process.execPath is a string primitive (not an object), so it cannot be
+   * proxied via the normal blocked globals mechanism. We use Object.defineProperty
+   * with getter/setter (same pattern as protectProcessMainModule).
+   */
+  private protectProcessExecPath(): void {
+    if (typeof process === "undefined") return;
+
+    const box = this;
+
+    try {
+      const originalDescriptor = Object.getOwnPropertyDescriptor(
+        process,
+        "execPath",
+      );
+      this.originalDescriptors.push({
+        target: process,
+        prop: "execPath",
+        descriptor: originalDescriptor,
+      });
+
+      const currentValue = originalDescriptor?.value ?? process.execPath;
+
+      Object.defineProperty(process, "execPath", {
+        get() {
+          if (box.shouldBlock()) {
+            const message =
+              "process.execPath access is blocked during script execution";
+            const violation = box.recordViolation(
+              "process_exec_path",
+              "process.execPath",
+              message,
+            );
+            throw new SecurityViolationError(message, violation);
+          }
+          if (
+            box.config.auditMode &&
+            executionContext?.getStore()?.sandboxActive === true
+          ) {
+            box.recordViolation(
+              "process_exec_path",
+              "process.execPath",
+              "process.execPath accessed (audit mode)",
+            );
+          }
+          return currentValue;
+        },
+        set(value) {
+          if (box.shouldBlock()) {
+            const message =
+              "process.execPath modification is blocked during script execution";
+            const violation = box.recordViolation(
+              "process_exec_path",
+              "process.execPath",
+              message,
+            );
+            throw new SecurityViolationError(message, violation);
+          }
+          // Allow setting outside sandbox context
+          Object.defineProperty(process, "execPath", {
+            value,
+            writable: true,
+            configurable: true,
+          });
+        },
+        configurable: true,
+      });
+    } catch (e) {
+      console.debug(
+        "[DefenseInDepthBox] Could not protect process.execPath:",
         e instanceof Error ? e.message : e,
       );
     }

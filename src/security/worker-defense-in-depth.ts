@@ -461,6 +461,16 @@ export class WorkerDefenseInDepth {
     if (!excludeTypes.has("process_main_module")) {
       this.protectProcessMainModule();
     }
+
+    // Protect process.execPath (string primitive, needs defineProperty)
+    if (!excludeTypes.has("process_exec_path")) {
+      this.protectProcessExecPath();
+    }
+
+    // Protect process.connected (boolean primitive, needs defineProperty)
+    if (!excludeTypes.has("process_connected")) {
+      this.protectProcessConnected();
+    }
   }
 
   /**
@@ -769,6 +779,142 @@ export class WorkerDefenseInDepth {
       }
     } catch {
       // Could not protect process.mainModule
+    }
+  }
+
+  /**
+   * Protect process.execPath from being read or set in worker context.
+   *
+   * process.execPath is a string primitive (not an object), so it cannot be
+   * proxied via the normal blocked globals mechanism. We use Object.defineProperty
+   * with getter/setter (same pattern as protectProcessMainModule).
+   */
+  private protectProcessExecPath(): void {
+    if (typeof process === "undefined") return;
+
+    const self = this;
+    const auditMode = this.config.auditMode;
+
+    try {
+      const originalDescriptor = Object.getOwnPropertyDescriptor(
+        process,
+        "execPath",
+      );
+      this.originalDescriptors.push({
+        target: process,
+        prop: "execPath",
+        descriptor: originalDescriptor,
+      });
+
+      const currentValue = originalDescriptor?.value ?? process.execPath;
+
+      Object.defineProperty(process, "execPath", {
+        get() {
+          const message =
+            "process.execPath access is blocked in worker context";
+          const violation = self.recordViolation(
+            "process_exec_path",
+            "process.execPath",
+            message,
+          );
+
+          if (!auditMode) {
+            throw new WorkerSecurityViolationError(message, violation);
+          }
+          return currentValue;
+        },
+        set(value) {
+          const message =
+            "process.execPath modification is blocked in worker context";
+          const violation = self.recordViolation(
+            "process_exec_path",
+            "process.execPath",
+            message,
+          );
+
+          if (!auditMode) {
+            throw new WorkerSecurityViolationError(message, violation);
+          }
+          Object.defineProperty(process, "execPath", {
+            value,
+            writable: true,
+            configurable: true,
+          });
+        },
+        configurable: true,
+      });
+    } catch {
+      // Could not protect process.execPath
+    }
+  }
+
+  /**
+   * Protect process.connected from being read or set in worker context.
+   *
+   * process.connected is a boolean primitive (not an object), so it cannot be
+   * proxied via the normal blocked globals mechanism. We use Object.defineProperty
+   * with getter/setter (same pattern as protectProcessExecPath).
+   *
+   * Only protects if process.connected exists (IPC contexts).
+   */
+  private protectProcessConnected(): void {
+    if (typeof process === "undefined") return;
+    // Only protect if connected exists (IPC context)
+    if (process.connected === undefined) return;
+
+    const self = this;
+    const auditMode = this.config.auditMode;
+
+    try {
+      const originalDescriptor = Object.getOwnPropertyDescriptor(
+        process,
+        "connected",
+      );
+      this.originalDescriptors.push({
+        target: process,
+        prop: "connected",
+        descriptor: originalDescriptor,
+      });
+
+      const currentValue = originalDescriptor?.value ?? process.connected;
+
+      Object.defineProperty(process, "connected", {
+        get() {
+          const message =
+            "process.connected access is blocked in worker context";
+          const violation = self.recordViolation(
+            "process_connected",
+            "process.connected",
+            message,
+          );
+
+          if (!auditMode) {
+            throw new WorkerSecurityViolationError(message, violation);
+          }
+          return currentValue;
+        },
+        set(value) {
+          const message =
+            "process.connected modification is blocked in worker context";
+          const violation = self.recordViolation(
+            "process_connected",
+            "process.connected",
+            message,
+          );
+
+          if (!auditMode) {
+            throw new WorkerSecurityViolationError(message, violation);
+          }
+          Object.defineProperty(process, "connected", {
+            value,
+            writable: true,
+            configurable: true,
+          });
+        },
+        configurable: true,
+      });
+    } catch {
+      // Could not protect process.connected
     }
   }
 

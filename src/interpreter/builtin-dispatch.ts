@@ -6,6 +6,7 @@
  */
 
 import { isBrowserExcludedCommand } from "../commands/browser-excluded.js";
+import { sanitizeErrorMessage } from "../fs/sanitize-error.js";
 import type { CommandContext, ExecResult } from "../types.js";
 import {
   handleBreak,
@@ -436,6 +437,8 @@ export async function executeExternalCommand(
     if (error instanceof ExecutionLimitError) {
       throw error;
     }
-    return failure(`${commandName}: ${getErrorMessage(error)}\n`);
+    return failure(
+      `${commandName}: ${sanitizeErrorMessage(getErrorMessage(error))}\n`,
+    );
   }
 }

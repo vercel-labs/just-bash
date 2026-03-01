@@ -58,9 +58,9 @@ class VirtualShell {
         TERM: "xterm-256color",
         ...options.env,
       },
-      // Enable network access if requested (default: enabled for interactive shell)
+      // Network disabled by default; use --network to enable
       network:
-        options.network !== false
+        options.network === true
           ? { dangerouslyAllowFullInternetAccess: true }
           : undefined,
     });
@@ -203,7 +203,8 @@ Reads from real filesystem, writes stay in memory (OverlayFs).
 // CLI argument parsing
 function parseArgs(): ShellOptions {
   const args = process.argv.slice(2);
-  const options: ShellOptions = { network: true }; // Network enabled by default
+  // @banned-pattern-ignore: static keys only, never accessed with user input
+  const options: ShellOptions = {}; // Network disabled by default
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--cwd" && args[i + 1]) {
@@ -217,6 +218,8 @@ function parseArgs(): ShellOptions {
         console.error(`Error reading files from ${filePath}:`, error);
         process.exit(1);
       }
+    } else if (args[i] === "--network") {
+      options.network = true;
     } else if (args[i] === "--no-network") {
       options.network = false;
     } else if (args[i] === "--help" || args[i] === "-h") {
@@ -228,12 +231,13 @@ writes stay in memory (copy-on-write).
 
 Options:
   --cwd <dir>         Set initial working directory (default: /)
-  --no-network        Disable network access (curl commands disabled)
+  --network           Enable network access (disabled by default)
+  --no-network        Disable network access (default)
   --help, -h          Show this help message
 
 Example:
   pnpm shell
-  pnpm shell --no-network
+  pnpm shell --network
 `);
       process.exit(0);
     }

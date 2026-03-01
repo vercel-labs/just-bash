@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
-/** Format date in local timezone as YYYY-MM-DD */
-function formatLocalDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+/** Format date in UTC as YYYY-MM-DD (sandbox always uses UTC) */
+function formatUTCDate(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
@@ -195,7 +195,7 @@ describe("date", () => {
       const env = new Bash();
       const result = await env.exec("date -d today +%F");
       // Use local date formatting to match date command behavior
-      const today = formatLocalDate(new Date());
+      const today = formatUTCDate(new Date());
       expect(result.stdout).toBe(`${today}\n`);
       expect(result.exitCode).toBe(0);
     });
@@ -205,7 +205,7 @@ describe("date", () => {
       const result = await env.exec("date -d yesterday +%F");
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      expect(result.stdout).toBe(`${formatLocalDate(yesterday)}\n`);
+      expect(result.stdout).toBe(`${formatUTCDate(yesterday)}\n`);
       expect(result.exitCode).toBe(0);
     });
 
@@ -214,7 +214,7 @@ describe("date", () => {
       const result = await env.exec("date -d tomorrow +%F");
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
-      expect(result.stdout).toBe(`${formatLocalDate(tomorrow)}\n`);
+      expect(result.stdout).toBe(`${formatUTCDate(tomorrow)}\n`);
       expect(result.exitCode).toBe(0);
     });
   });
@@ -261,6 +261,56 @@ describe("date", () => {
         /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/,
       );
       expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe("timezone non-disclosure", () => {
+    it("%Z should return UTC, never the host timezone", async () => {
+      const env = new Bash();
+      const result = await env.exec("date +%Z");
+      expect(result.stdout.trim()).toBe("UTC");
+      // Must not contain a real timezone like America/New_York, etc.
+      expect(result.stdout).not.toContain("/");
+    });
+
+    it("%z should return +0000, never the host UTC offset", async () => {
+      const env = new Bash();
+      const result = await env.exec("date +%z");
+      expect(result.stdout.trim()).toBe("+0000");
+    });
+
+    it("default output should show UTC timezone", async () => {
+      const env = new Bash();
+      const result = await env.exec("date");
+      // Default format includes %Z which should be UTC
+      expect(result.stdout).toContain("UTC");
+    });
+
+    it("-I (iso) format should use +0000 offset", async () => {
+      const env = new Bash();
+      const result = await env.exec("date -I");
+      expect(result.stdout).toContain("+0000");
+    });
+
+    it("-R (rfc) format should use +0000 offset", async () => {
+      const env = new Bash();
+      const result = await env.exec("date -R");
+      expect(result.stdout).toContain("+0000");
+    });
+
+    it("-u flag should still work (already UTC)", async () => {
+      const env = new Bash();
+      const result = await env.exec("date -u +%Z");
+      expect(result.stdout.trim()).toBe("UTC");
+    });
+
+    it("time values should be UTC (consistent with %Z)", async () => {
+      const env = new Bash();
+      // Use a fixed date to verify UTC conversion
+      const result = await env.exec(
+        "date -d '2024-01-15T00:00:00Z' '+%H:%M:%S'",
+      );
+      expect(result.stdout.trim()).toBe("00:00:00");
     });
   });
 });

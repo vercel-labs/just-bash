@@ -173,9 +173,12 @@ export class ReadWriteFs implements IFileSystem {
 
     // Ensure parent directory exists
     const dir = nodePath.dirname(canonical);
-    await fs.promises.mkdir(dir, { recursive: true });
-
-    await fs.promises.writeFile(canonical, buffer);
+    try {
+      await fs.promises.mkdir(dir, { recursive: true });
+      await fs.promises.writeFile(canonical, buffer);
+    } catch (e) {
+      this.sanitizeError(e, path, "write");
+    }
   }
 
   async appendFile(
@@ -191,9 +194,12 @@ export class ReadWriteFs implements IFileSystem {
 
     // Ensure parent directory exists
     const dir = nodePath.dirname(canonical);
-    await fs.promises.mkdir(dir, { recursive: true });
-
-    await fs.promises.appendFile(canonical, buffer);
+    try {
+      await fs.promises.mkdir(dir, { recursive: true });
+      await fs.promises.appendFile(canonical, buffer);
+    } catch (e) {
+      this.sanitizeError(e, path, "append");
+    }
   }
 
   async exists(path: string): Promise<boolean> {
@@ -357,8 +363,15 @@ export class ReadWriteFs implements IFileSystem {
               return isPathWithinRoot(resolved, this.canonicalRoot);
             }
             return true;
-          } catch {
-            return true;
+          } catch (filterErr) {
+            // ENOENT: file disappeared between readdir and filter — let cp
+            // handle the error naturally (it will throw or skip as expected).
+            if ((filterErr as NodeJS.ErrnoException).code === "ENOENT") {
+              return true;
+            }
+            // Other errors (EPERM, EIO, etc.): fail-closed — skip the entry
+            // since we can't determine if it's an escaping symlink.
+            return false;
           }
         },
       });
@@ -421,7 +434,11 @@ export class ReadWriteFs implements IFileSystem {
 
     // Ensure destination parent directory exists
     const destDir = nodePath.dirname(destCanonical);
-    await fs.promises.mkdir(destDir, { recursive: true });
+    try {
+      await fs.promises.mkdir(destDir, { recursive: true });
+    } catch (e) {
+      this.sanitizeError(e, dest, "mv");
+    }
 
     try {
       await fs.promises.rename(srcCanonical, destCanonical);
@@ -490,13 +507,20 @@ export class ReadWriteFs implements IFileSystem {
     operation: string,
   ): never {
     const err = e as NodeJS.ErrnoException;
-    if (
-      err.message?.includes("EACCES") ||
-      err.message?.includes("escaping sandbox") ||
-      err.message?.includes("EFBIG")
-    ) {
-      // These are our own errors with virtual paths — rethrow as-is
-      throw e;
+    // Node.js ErrnoException objects from fs.promises have a .path property
+    // containing the real OS path. Never pass these through — always sanitize.
+    // Our own errors (constructed with new Error(...)) don't have .path.
+    // Use strict === undefined check (not !err.path) so that an error with
+    // .path = "" (empty string) is still sanitized rather than passed through.
+    if (err.path === undefined) {
+      if (
+        err.message?.includes("EACCES") ||
+        err.message?.includes("escaping sandbox") ||
+        err.message?.includes("EFBIG")
+      ) {
+        // Our own errors with virtual paths — rethrow as-is
+        throw e;
+      }
     }
     const code = err.code || "EIO";
     throw new Error(`${code}: ${operation} '${virtualPath}'`);
@@ -619,7 +643,7 @@ export class ReadWriteFs implements IFileSystem {
     const canonicalLinkDir = nodePath.dirname(canonicalLinkPath);
     const safeTarget = target.startsWith("/")
       ? resolvedRealTarget
-      : nodePath.relative(canonicalLinkDir, resolvedRealTarget);
+      : nodePath.relative(canonicalLinkDir, resolvedRealTarget) || ".";
 
     try {
       await fs.promises.symlink(safeTarget, canonicalLinkPath);
@@ -701,13 +725,10 @@ export class ReadWriteFs implements IFileSystem {
       // Outside root - the symlink target points outside the sandbox.
       // For symlinks created through our API, targets are sanitized. But
       // pre-existing OS symlinks (e.g., in a malicious git repo) may have
-      // unsanitized targets. Return a relative version of the raw target
-      // to avoid leaking real OS paths, but only if it's relative.
-      // For absolute targets, return just the basename to avoid path leaks.
-      if (nodePath.isAbsolute(rawTarget)) {
-        return nodePath.basename(rawTarget);
-      }
-      return rawTarget;
+      // unsanitized targets. Return just the basename for both absolute and
+      // relative targets to avoid leaking path structure information.
+      // (A relative target like "../../../etc/passwd" would reveal sandbox depth.)
+      return nodePath.basename(rawTarget);
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err.code === "ENOENT") {

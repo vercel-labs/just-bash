@@ -38,32 +38,18 @@ function pad(n: number, w = 2): string {
   return String(n).padStart(w, "0");
 }
 
-function tzOffset(d: Date): string {
-  const off = -d.getTimezoneOffset();
-  const sign = off >= 0 ? "+" : "-";
-  return `${sign}${pad(Math.floor(Math.abs(off) / 60))}${pad(Math.abs(off) % 60)}`;
-}
-
-function formatDate(d: Date, fmt: string, utc: boolean): string {
-  const g = utc
-    ? {
-        Y: d.getUTCFullYear(),
-        m: d.getUTCMonth(),
-        D: d.getUTCDate(),
-        H: d.getUTCHours(),
-        M: d.getUTCMinutes(),
-        S: d.getUTCSeconds(),
-        w: d.getUTCDay(),
-      }
-    : {
-        Y: d.getFullYear(),
-        m: d.getMonth(),
-        D: d.getDate(),
-        H: d.getHours(),
-        M: d.getMinutes(),
-        S: d.getSeconds(),
-        w: d.getDay(),
-      };
+function formatDate(d: Date, fmt: string, _utc: boolean): string {
+  // Always use UTC in the sandbox to prevent leaking the host timezone
+  // through %Z, %z, or the time values themselves.
+  const g = {
+    Y: d.getUTCFullYear(),
+    m: d.getUTCMonth(),
+    D: d.getUTCDate(),
+    H: d.getUTCHours(),
+    M: d.getUTCMinutes(),
+    S: d.getUTCSeconds(),
+    w: d.getUTCDay(),
+  };
 
   let r = "",
     i = 0;
@@ -139,10 +125,10 @@ function formatDate(d: Date, fmt: string, utc: boolean): string {
           r += g.Y;
           break;
         case "z":
-          r += utc ? "+0000" : tzOffset(d);
+          r += "+0000";
           break;
         case "Z":
-          r += utc ? "UTC" : Intl.DateTimeFormat().resolvedOptions().timeZone;
+          r += "UTC";
           break;
         default:
           r += `%${s}`;

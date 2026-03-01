@@ -282,7 +282,12 @@ async function resolveArithVariable(
   ctx: InterpreterContext,
   name: string,
   visited: Set<string> = new Set(),
+  depth = 0,
 ): Promise<number> {
+  // Prevent excessively long non-repeating chains
+  if (depth > 100) {
+    throw new ArithmeticError("maximum variable indirection depth exceeded");
+  }
   // Prevent infinite recursion
   if (visited.has(name)) {
     return 0;
@@ -307,7 +312,7 @@ async function resolveArithVariable(
   // If it's not a number, check if it's a variable name
   // In bash, arithmetic context recursively evaluates variable names
   if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(trimmed)) {
-    return await resolveArithVariable(ctx, trimmed, visited);
+    return await resolveArithVariable(ctx, trimmed, visited, depth + 1);
   }
 
   // Dynamic arithmetic: If the value contains arithmetic operators, parse and evaluate it

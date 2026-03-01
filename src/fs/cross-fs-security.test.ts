@@ -384,7 +384,7 @@ describe.each([
       expect(target).toBe("secret.txt");
     });
 
-    it("returns relative target as-is (no leak)", async () => {
+    it("returns relative target as-is for within-root links (no leak)", async () => {
       try {
         fs.symlinkSync("hello.txt", path.join(ctx.tempDir, "rl-rel"));
       } catch {
@@ -393,6 +393,24 @@ describe.each([
 
       const target = await ctx.fsImpl.readlink("/rl-rel");
       expect(target).toBe("hello.txt");
+    });
+
+    it("sanitises relative target that escapes root to basename only", async () => {
+      // Create a relative symlink that traverses out of the sandbox
+      const escapeTarget = path.relative(ctx.tempDir, ctx.outsideFile);
+      try {
+        fs.symlinkSync(escapeTarget, path.join(ctx.tempDir, "rl-rel-escape"));
+      } catch {
+        return;
+      }
+
+      const target = await ctx.fsImpl.readlink("/rl-rel-escape");
+      // Must NOT contain "../" path traversal components
+      expect(target).not.toContain("..");
+      // Must NOT contain the real outside directory path
+      expect(target).not.toContain(ctx.outsideDir);
+      // Should be just the basename
+      expect(target).toBe("secret.txt");
     });
   });
 

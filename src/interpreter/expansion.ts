@@ -322,9 +322,7 @@ function hasBraceExpansion(parts: WordPart[]): boolean {
   return false;
 }
 
-// Maximum number of brace expansion results to prevent memory explosion
-const MAX_BRACE_EXPANSION_RESULTS = 10000;
-// Maximum total operations across all recursive calls
+// Maximum total operations across all recursive calls (internal safety cap)
 const MAX_BRACE_OPERATIONS = 100000;
 
 type BraceExpandedPart = string | WordPart;
@@ -406,7 +404,7 @@ async function expandBracesInPartsAsync(
 
       const newSize = results.length * braceValues.length;
       if (
-        newSize > MAX_BRACE_EXPANSION_RESULTS ||
+        newSize > ctx.limits.maxBraceExpansionResults ||
         operationCounter.count > MAX_BRACE_OPERATIONS
       ) {
         return results;
@@ -1004,23 +1002,33 @@ async function expandParameterAsync(
     case "UseAlternative":
       return handleUseAlternative(ctx, operation, opCtx, expandWordPartsAsync);
 
-    case "PatternRemoval":
-      return handlePatternRemoval(
+    case "PatternRemoval": {
+      const result = await handlePatternRemoval(
         ctx,
         value,
         operation,
         expandWordPartsAsync,
         expandPart,
       );
+      checkStringLength(result, ctx.limits.maxStringLength, "pattern removal");
+      return result;
+    }
 
-    case "PatternReplacement":
-      return handlePatternReplacement(
+    case "PatternReplacement": {
+      const result = await handlePatternReplacement(
         ctx,
         value,
         operation,
         expandWordPartsAsync,
         expandPart,
       );
+      checkStringLength(
+        result,
+        ctx.limits.maxStringLength,
+        "pattern replacement",
+      );
+      return result;
+    }
 
     case "Length":
       return handleLength(ctx, parameter, value);
@@ -1034,14 +1042,21 @@ async function expandParameterAsync(
     case "Substring":
       return handleSubstring(ctx, parameter, value, operation);
 
-    case "CaseModification":
-      return handleCaseModification(
+    case "CaseModification": {
+      const result = await handleCaseModification(
         ctx,
         value,
         operation,
         expandWordPartsAsync,
         expandParameterAsync,
       );
+      checkStringLength(
+        result,
+        ctx.limits.maxStringLength,
+        "case modification",
+      );
+      return result;
+    }
 
     case "Transform":
       return handleTransform(ctx, parameter, value, isUnset, operation);

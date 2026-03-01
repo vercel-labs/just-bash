@@ -10,8 +10,13 @@
  * - Escape sequences
  */
 
-// Max heredoc size to prevent memory exhaustion (10MB)
-const MAX_HEREDOC_SIZE = 10_485_760;
+// Default max heredoc size to prevent memory exhaustion (10MB)
+const DEFAULT_MAX_HEREDOC_SIZE = 10_485_760;
+
+export interface LexerOptions {
+  /** Maximum heredoc size in bytes (default: 10MB) */
+  maxHeredocSize?: number;
+}
 
 export enum TokenType {
   // End of input
@@ -290,9 +295,11 @@ export class Lexer {
   // Track depth inside (( )) for C-style for loops and arithmetic commands
   // When > 0, we're inside (( )) and need to track nested parens
   private dparenDepth = 0;
+  private maxHeredocSize: number;
 
-  constructor(input: string) {
+  constructor(input: string, options?: LexerOptions) {
     this.input = input;
+    this.maxHeredocSize = options?.maxHeredocSize ?? DEFAULT_MAX_HEREDOC_SIZE;
   }
 
   /**
@@ -1453,9 +1460,15 @@ export class Lexer {
                   depth--;
                 }
               } else if (c === ";") {
-                // ;; in case body means next pattern
-                if (caseDepth > 0 && pos + 1 < len && input[pos + 1] === ";") {
-                  inCasePattern = true;
+                if (caseDepth > 0) {
+                  // ;; in case body means next pattern
+                  if (pos + 1 < len && input[pos + 1] === ";") {
+                    inCasePattern = true;
+                  }
+                  // ;& or ;;& also end a case clause and start next pattern
+                  else if (pos + 1 < len && input[pos + 1] === "&") {
+                    inCasePattern = true;
+                  }
                 }
               }
             }
@@ -1855,9 +1868,9 @@ export class Lexer {
 
         content += line;
         // Check heredoc size limit to prevent memory exhaustion
-        if (content.length > MAX_HEREDOC_SIZE) {
+        if (content.length > this.maxHeredocSize) {
           throw new LexerError(
-            `Heredoc size limit exceeded (${MAX_HEREDOC_SIZE} bytes)`,
+            `Heredoc size limit exceeded (${this.maxHeredocSize} bytes)`,
             startLine,
             startColumn,
           );

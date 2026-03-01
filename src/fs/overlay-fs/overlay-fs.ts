@@ -324,13 +324,20 @@ export class OverlayFs implements IFileSystem {
     operation: string,
   ): never {
     const err = e as NodeJS.ErrnoException;
-    if (
-      err.message?.includes("ELOOP") ||
-      err.message?.includes("EFBIG") ||
-      err.message?.includes("EPERM")
-    ) {
-      // These are our own errors with virtual paths — rethrow as-is
-      throw e;
+    // Node.js ErrnoException objects from fs.promises have a .path property
+    // containing the real OS path. Never pass these through — always sanitize.
+    // Our own errors (constructed with new Error(...)) don't have .path.
+    // Use strict === undefined check (not !err.path) so that an error with
+    // .path = "" (empty string) is still sanitized rather than passed through.
+    if (err.path === undefined) {
+      if (
+        err.message?.includes("ELOOP") ||
+        err.message?.includes("EFBIG") ||
+        err.message?.includes("EPERM")
+      ) {
+        // Our own errors with virtual paths — rethrow as-is
+        throw e;
+      }
     }
     const code = err.code || "EIO";
     throw new Error(`${code}: ${operation} '${virtualPath}'`);
@@ -1181,6 +1188,27 @@ export class OverlayFs implements IFileSystem {
 
     try {
       const rawTarget = await fs.promises.readlink(canonical);
+
+      // For relative targets, verify the resolved target stays within root.
+      // sanitizeSymlinkTarget treats all relative targets as "within root"
+      // without resolving them, so a target like "../../../etc/passwd" would
+      // be returned as-is, leaking sandbox structure information.
+      if (!nodePath.isAbsolute(rawTarget)) {
+        const resolvedReal = nodePath.resolve(
+          nodePath.dirname(canonical),
+          rawTarget,
+        );
+        let canonicalTarget: string;
+        try {
+          canonicalTarget = fs.realpathSync(resolvedReal);
+        } catch {
+          canonicalTarget = resolvedReal;
+        }
+        if (!isPathWithinRoot(canonicalTarget, this.canonicalRoot)) {
+          return nodePath.basename(rawTarget);
+        }
+      }
+
       return this.realTargetToVirtual(normalized, rawTarget);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") {

@@ -138,6 +138,118 @@ export function getBlockedGlobals(): BlockedGlobal[] {
     // and worker-defense-in-depth.ts because it may be undefined in ESM contexts
     // but we still want to block both reading and setting it.
 
+    // Process control vectors
+    {
+      prop: "exit",
+      target: process,
+      violationType: "process_exit",
+      strategy: "throw",
+      reason: "process.exit could terminate the interpreter",
+    },
+    {
+      prop: "abort",
+      target: process,
+      violationType: "process_exit",
+      strategy: "throw",
+      reason: "process.abort could crash the interpreter",
+    },
+    {
+      prop: "kill",
+      target: process,
+      violationType: "process_kill",
+      strategy: "throw",
+      reason: "process.kill could signal other processes",
+    },
+
+    // Privilege escalation vectors
+    {
+      prop: "setuid",
+      target: process,
+      violationType: "process_setuid",
+      strategy: "throw",
+      reason: "process.setuid could escalate privileges",
+    },
+    {
+      prop: "setgid",
+      target: process,
+      violationType: "process_setuid",
+      strategy: "throw",
+      reason: "process.setgid could escalate privileges",
+    },
+
+    // File permission manipulation
+    {
+      prop: "umask",
+      target: process,
+      violationType: "process_umask",
+      strategy: "throw",
+      reason: "process.umask could modify file creation permissions",
+    },
+
+    // Information disclosure vectors
+    // Note: process.argv is an array (object) so gets an object proxy
+    {
+      prop: "argv",
+      target: process,
+      violationType: "process_argv",
+      strategy: "throw",
+      reason: "process.argv may contain secrets in CLI arguments",
+    },
+    // Note: process.execPath is a string primitive, handled specially
+    // in defense-in-depth-box.ts and worker-defense-in-depth.ts
+
+    // Note: process.connected is a boolean primitive, handled specially
+    // in defense-in-depth-box.ts and worker-defense-in-depth.ts
+
+    // Working directory manipulation
+    {
+      prop: "chdir",
+      target: process,
+      violationType: "process_chdir",
+      strategy: "throw",
+      reason: "process.chdir could confuse the interpreter's CWD tracking",
+    },
+
+    // IPC communication vectors (may be undefined in non-IPC contexts)
+    {
+      prop: "send",
+      target: process,
+      violationType: "process_send",
+      strategy: "throw",
+      reason:
+        "process.send could communicate with parent process in IPC contexts",
+    },
+    {
+      prop: "channel",
+      target: process,
+      violationType: "process_channel",
+      strategy: "throw",
+      reason: "process.channel could access IPC channel to parent process",
+    },
+
+    // Timing side-channel vectors
+    {
+      prop: "cpuUsage",
+      target: process,
+      violationType: "process_timing",
+      strategy: "throw",
+      reason: "process.cpuUsage could enable timing side-channel attacks",
+    },
+    {
+      prop: "memoryUsage",
+      target: process,
+      violationType: "process_timing",
+      strategy: "throw",
+      reason: "process.memoryUsage could enable timing side-channel attacks",
+    },
+    {
+      prop: "hrtime",
+      target: process,
+      violationType: "process_timing",
+      strategy: "throw",
+      reason: "process.hrtime could enable timing side-channel attacks",
+    },
+
     // We also don't block `require` because:
     // 1. It may not exist in all environments (ESM)
     // 2. import() is the modern escape vector and can't be blocked this way
