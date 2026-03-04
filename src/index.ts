@@ -23,6 +23,11 @@ export {
 // Custom commands API
 export type { CustomCommand, LazyCommand } from "./custom-commands.js";
 export { defineCommand } from "./custom-commands.js";
+export {
+  HttpFs,
+  type HttpFsFile,
+  type HttpFsOptions,
+} from "./fs/http-fs/index.js";
 export { InMemoryFs } from "./fs/in-memory-fs/index.js";
 export type {
   BufferEncoding,
@@ -41,6 +46,7 @@ export type {
   RmOptions,
   SymlinkEntry,
 } from "./fs/interface.js";
+export { mount } from "./fs/mount.js";
 export {
   MountableFs,
   type MountableFsOptions,
