@@ -51,8 +51,8 @@ async function checkOutputRedirectTarget(
 
 /**
  * Determine the encoding to use for file I/O.
- * If all character codes are <= 255, use binary encoding (byte data).
- * Otherwise, use UTF-8 encoding (text with Unicode characters).
+ * If all character codes are <= 127 (ASCII), use binary encoding (byte data).
+ * Otherwise, use UTF-8 encoding (text with non-ASCII characters).
  * For performance, only check the first 8KB of large strings.
  */
 function getFileEncoding(content: string): "binary" | "utf8" {
