@@ -156,6 +156,12 @@ function addImpliedImports(code: string): string {
   if (code.includes("Sandbox") && !code.includes('from "just-bash"')) {
     imports.push('import { Sandbox } from "just-bash";');
   }
+  if (code.includes("HttpFs") && !code.includes('from "just-bash"')) {
+    imports.push('import { HttpFs } from "just-bash";');
+  }
+  if (code.includes("mount(") && !code.includes('from "just-bash"')) {
+    imports.push('import { mount } from "just-bash";');
+  }
   // bash-tool imports are handled via ephemeral type definitions
   if (
     code.includes("OverlayFs") &&

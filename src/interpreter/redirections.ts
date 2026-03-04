@@ -29,14 +29,17 @@ import type { InterpreterContext } from "./types.js";
 //   bash: /path: Read-only file system
 // ---------------------------------------------------------------------------
 
-const FS_ERROR_LABELS: Record<string, string> = {
-  EROFS: "Read-only file system",
-  EACCES: "Permission denied",
-  ENOSPC: "No space left on device",
-  EISDIR: "Is a directory",
-  ENOENT: "No such file or directory",
-  EEXIST: "File exists",
-};
+const FS_ERROR_LABELS: Record<string, string> = Object.assign(
+  Object.create(null),
+  {
+    EROFS: "Read-only file system",
+    EACCES: "Permission denied",
+    ENOSPC: "No space left on device",
+    EISDIR: "Is a directory",
+    ENOENT: "No such file or directory",
+    EEXIST: "File exists",
+  },
+);
 
 function formatFsError(target: string, e: unknown): string {
   const msg = (e as Error).message ?? "";
