@@ -63,7 +63,7 @@ function getFileEncoding(content: string): "binary" | "utf8" {
   const checkLength = Math.min(content.length, SAMPLE_SIZE);
 
   for (let i = 0; i < checkLength; i++) {
-    if (content.charCodeAt(i) > 255) {
+    if (content.charCodeAt(i) > 127) {
       return "utf8";
     }
   }
