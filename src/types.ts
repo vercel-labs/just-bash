@@ -1,6 +1,6 @@
 import type { IFileSystem } from "./fs/interface.js";
 import type { ExecutionLimits } from "./limits.js";
-import type { SecureFetch } from "./network/index.js";
+import type { SecureFetch, SecurePostgresConnect } from "./network/index.js";
 
 /**
  * Lightweight interface for feature coverage tracking during fuzzing.
@@ -55,6 +55,7 @@ export interface CommandExecOptions {
  *
  * **Conditionally available based on configuration:**
  * - `fetch` - Only when `network` option is configured in BashEnv
+ * - `connectPostgres` - Only when `network.allowedPostgresHosts` is configured
  * - `sleep` - Only when a custom sleep function is provided (e.g., for testing)
  */
 /**
@@ -114,6 +115,12 @@ export interface CommandContext {
    * Only available when `network` option is configured in BashEnv.
    */
   fetch?: SecureFetch;
+  /**
+   * Secure PostgreSQL connection function (e.g., for `psql`).
+   * Only available when `network.allowedPostgresHosts` is configured in BashEnv.
+   * Provides Deno Sandbox-style secrets management with transparent credential injection.
+   */
+  connectPostgres?: SecurePostgresConnect;
   /**
    * Returns names of all registered commands.
    * Available when running commands via BashEnv interpreter.

@@ -97,7 +97,7 @@ export type CommandName =
   | "whoami";
 
 /** Network command names (only available when network is configured) */
-export type NetworkCommandName = "curl";
+export type NetworkCommandName = "curl" | "psql";
 
 /** Python command names (only available when python is explicitly enabled) */
 export type PythonCommandName = "python3" | "python";
@@ -509,6 +509,10 @@ const networkCommandLoaders: LazyCommandDef<NetworkCommandName>[] = [
   {
     name: "curl",
     load: async () => (await import("./curl/curl.js")).curlCommand,
+  },
+  {
+    name: "psql",
+    load: async () => (await import("./psql/psql.js")).psqlCommand,
   },
 ];
 

@@ -29,6 +29,9 @@ dependencies:
   papaparse:
     specifier: ^5.5.3
     version: 5.5.3
+  postgres:
+    specifier: ^3.4.5
+    version: 3.4.8
   pyodide:
     specifier: ^0.27.0
     version: 0.27.7
@@ -1643,6 +1646,11 @@ packages:
       picocolors: 1.1.1
       source-map-js: 1.2.1
     dev: true
+
+  /postgres@3.4.8:
+    resolution: {integrity: sha512-d+JFcLM17njZaOLkv6SCev7uoLaBtfK86vMUXhW1Z4glPWh4jozno9APvW/XKFJ3CCxVoC7OL38BqRydtu5nGg==}
+    engines: {node: '>=12'}
+    dev: false
 
   /prebuild-install@7.1.3:
     resolution: {integrity: sha512-8Mf2cbV7x1cXPUILADGI3wuhfqWvtiLA1iclTDbFRZkgRQS0NqsPZphna9V+HyTEadheuPmjaJMsbzKQFOzLug==}
