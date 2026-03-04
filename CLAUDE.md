@@ -121,8 +121,15 @@ Input Script → Parser (src/parser/) → AST (src/ast/) → Interpreter (src/in
 - Each command in its own directory with implementation + tests
 - Registry pattern via `registry.ts`
 
-**Filesystem** (`src/fs.ts`, `src/overlay-fs/`): In-memory VFS with optional overlay on real filesystem
+**Filesystem** (`src/fs/`): In-memory VFS with pluggable backends
 
+- `interface.ts` - `IFileSystem` interface all backends implement
+- `in-memory-fs/` - Pure in-memory filesystem (default)
+- `overlay-fs/` - Copy-on-write over a real directory (reads from disk, writes to memory)
+- `read-write-fs/` - Direct read-write to a real directory
+- `http-fs/` - Read-only filesystem backed by HTTP `fetch()`. Manifest-driven (file tree declared up front), lazy-fetches on first read, caches in memory. Zero dependencies.
+- `mountable-fs/` - Compose multiple `IFileSystem` backends at different mount points
+- `mount.ts` - `mount()` helper for concise filesystem composition
 - `real-fs-utils.ts` - Shared security helpers for real-FS-backed implementations
 - `OverlayFs` / `ReadWriteFs` - Both default to `allowSymlinks: false` (symlinks blocked)
 - Symlink policy is enforced at central gate functions (`resolveAndValidate`, `validateRealPath_`) so new methods get protection automatically
@@ -181,6 +188,27 @@ When adding comparison tests:
 3. Commit both the test file and the generated fixture JSON
 4. If manually adjusting for Linux behavior, add `"locked": true` to the fixture
 
+## Composing Filesystems with `mount()` and `HttpFs`
+
+Use `mount()` to compose multiple `IFileSystem` backends into a unified namespace:
+
+```typescript
+import { Bash, mount, HttpFs } from "just-bash";
+
+const fs = mount({
+  "/data": new HttpFs("https://cdn.example.com/dataset", [
+    "train.csv",
+    "test.csv",
+  ]),
+});
+const bash = new Bash({ fs });
+await bash.exec("cat /data/train.csv | wc -l");
+```
+
+`HttpFs` accepts a file list (array of paths or `Record<string, { size?: number }>`), an optional `fetch` function, and optional `headers`. Files are fetched lazily and cached. All write operations throw `EROFS`. Use `prefetch()` to eagerly load all files in parallel.
+
+When `mount()` doesn't receive a `"/"` entry, it creates an `InMemoryFs` base pre-initialised with `/dev`, `/proc`, `/bin` so the shell works out of the box.
+
 ## Filesystem Security: Default-Deny Symlinks
 
 `OverlayFs` and `ReadWriteFs` default to `allowSymlinks: false`. This means:
@@ -195,6 +223,12 @@ When adding comparison tests:
 **When adding new FS methods**: Route all real-FS access through the existing gates. Never call `fs.promises.stat()`, `fs.realpathSync()`, or similar directly on unvalidated paths. The gate-based design means any method that goes through the gate is automatically protected.
 
 **In tests**: Pass `allowSymlinks: true` to the constructor when testing symlink behavior. The `cross-fs-no-symlinks.test.ts` file tests the default-deny behavior.
+
+## Redirect Error Handling
+
+All filesystem writes in the redirection system (`src/interpreter/redirections.ts`) go through `redirectWrite()` and `redirectAppend()` helpers. These catch FS exceptions and convert them to bash-style error messages (e.g. `bash: /path: Read-only file system`). This ensures read-only backends like `HttpFs` don't crash the interpreter when scripts attempt writes via redirections.
+
+**When adding new redirect operators**: Use `redirectWrite()` / `redirectAppend()` for all FS writes. Never call `ctx.fs.writeFile()` or `ctx.fs.appendFile()` directly in redirection code.
 
 ## Development Guidelines
 
