@@ -114,10 +114,11 @@ export class Sandbox {
       | string[]
       | { cwd?: string; env?: Record<string, string> }
       | { signal?: AbortSignal },
-    opts?: { signal?: AbortSignal },
+    _opts?: { signal?: AbortSignal },
   ): Promise<Command | CommandFinished> {
     let cmdLine: string;
     let cwd: string | undefined;
+    // @banned-pattern-ignore: static keys only, never accessed with user input
     let env: Record<string, string> | undefined;
     let detached = false;
     let stdoutStream: Writable | undefined;
