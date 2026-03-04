@@ -1,3 +1,4 @@
+import type { Writable } from "node:stream";
 import { Bash } from "../Bash.js";
 import type { IFileSystem } from "../fs/interface.js";
 import { OverlayFs } from "../fs/overlay-fs/index.js";
@@ -31,8 +32,33 @@ export interface SandboxOptions {
   network?: NetworkConfig;
 }
 
+export interface RunCommandParams {
+  cmd: string;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  /** Run the command with sudo. No-op in just-bash (already runs as root). */
+  sudo?: boolean;
+  /** Return immediately with a live Command object instead of waiting for completion. */
+  detached?: boolean;
+  /** Stream standard output to a writable. Written after command completes. */
+  stdout?: Writable;
+  /** Stream standard error to a writable. Written after command completes. */
+  stderr?: Writable;
+  signal?: AbortSignal;
+}
+
 export interface WriteFilesInput {
   [path: string]: string | { content: string; encoding?: "utf-8" | "base64" };
+}
+
+/** Escape a string for safe inclusion in a shell command. */
+function shellEscape(arg: string): string {
+  if (arg === "") return "''";
+  // If arg contains no special characters, return as-is
+  if (/^[a-zA-Z0-9._\-/=:@]+$/.test(arg)) return arg;
+  // Single-quote the argument, escaping any embedded single quotes
+  return `'${arg.replace(/'/g, "'\\''")}'`;
 }
 
 export class Sandbox {
@@ -65,14 +91,89 @@ export class Sandbox {
     return new Sandbox(bashEnv);
   }
 
+  // Overload: object form with detached
   async runCommand(
-    cmd: string,
+    params: RunCommandParams & { detached: true },
+  ): Promise<Command>;
+  // Overload: object form (default: waits for completion)
+  async runCommand(params: RunCommandParams): Promise<CommandFinished>;
+  // Overload: string + args (Vercel style)
+  async runCommand(
+    command: string,
+    args: string[],
+    opts?: { signal?: AbortSignal },
+  ): Promise<CommandFinished>;
+  // Overload: string only or legacy string + opts
+  async runCommand(
+    command: string,
     opts?: { cwd?: string; env?: Record<string, string> },
-  ): Promise<Command> {
-    // Use per-exec options for cwd and env (they don't persist after the command)
-    const cwd = opts?.cwd ?? this.bashEnv.getCwd();
-    const explicitCwd = opts?.cwd !== undefined;
-    return new Command(this.bashEnv, cmd, cwd, opts?.env, explicitCwd);
+  ): Promise<CommandFinished>;
+  async runCommand(
+    cmdOrParams: string | RunCommandParams,
+    argsOrOpts?:
+      | string[]
+      | { cwd?: string; env?: Record<string, string> }
+      | { signal?: AbortSignal },
+    opts?: { signal?: AbortSignal },
+  ): Promise<Command | CommandFinished> {
+    let cmdLine: string;
+    let cwd: string | undefined;
+    let env: Record<string, string> | undefined;
+    let detached = false;
+    let stdoutStream: Writable | undefined;
+    let stderrStream: Writable | undefined;
+
+    if (typeof cmdOrParams === "object") {
+      // Object form: runCommand({ cmd, args?, cwd?, env?, detached?, ... })
+      const p = cmdOrParams;
+      cmdLine = p.args
+        ? `${p.cmd} ${p.args.map(shellEscape).join(" ")}`
+        : p.cmd;
+      cwd = p.cwd;
+      env = p.env;
+      detached = p.detached ?? false;
+      stdoutStream = p.stdout;
+      stderrStream = p.stderr;
+    } else if (Array.isArray(argsOrOpts)) {
+      // String + args form: runCommand('node', ['--version'])
+      cmdLine = `${cmdOrParams} ${argsOrOpts.map(shellEscape).join(" ")}`;
+    } else {
+      // String form or legacy string + opts
+      cmdLine = cmdOrParams;
+      const legacyOpts = argsOrOpts as
+        | { cwd?: string; env?: Record<string, string> }
+        | undefined;
+      cwd = legacyOpts?.cwd;
+      env = legacyOpts?.env;
+    }
+
+    const resolvedCwd = cwd ?? this.bashEnv.getCwd();
+    const explicitCwd = cwd !== undefined;
+    const command = new Command(
+      this.bashEnv,
+      cmdLine,
+      resolvedCwd,
+      env,
+      explicitCwd,
+    );
+
+    if (detached) {
+      return command;
+    }
+
+    // Wait for completion, pipe to streams if provided
+    const finished = await command.wait();
+
+    if (stdoutStream) {
+      const stdout = await command.stdout();
+      if (stdout) stdoutStream.write(stdout);
+    }
+    if (stderrStream) {
+      const stderr = await command.stderr();
+      if (stderr) stderrStream.write(stderr);
+    }
+
+    return finished;
   }
 
   async writeFiles(files: WriteFilesInput): Promise<void> {

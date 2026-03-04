@@ -1,3 +1,4 @@
+import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
 import { Command, type OutputMessage, Sandbox } from "./Sandbox.js";
 
@@ -106,12 +107,12 @@ describe("Sandbox API", () => {
       });
       await sandbox.mkDir("/temp", { recursive: true });
 
-      // Run with overrides and wait for completion
+      // Run with overrides (runCommand now waits by default)
       const overrideCmd = await sandbox.runCommand("echo $MODE", {
         cwd: "/temp",
         env: { MODE: "override" },
       });
-      await overrideCmd.wait(); // Must wait for command to complete and state to restore
+      expect((await overrideCmd.stdout()).trim()).toBe("override");
 
       // Verify original state is restored
       const cwdCmd = await sandbox.runCommand("pwd");
@@ -119,6 +120,87 @@ describe("Sandbox API", () => {
 
       const envCmd = await sandbox.runCommand("echo $MODE");
       expect((await envCmd.stdout()).trim()).toBe("original");
+    });
+
+    it("should support string + args form (Vercel style)", async () => {
+      const sandbox = await Sandbox.create();
+      const cmd = await sandbox.runCommand("echo", ["-n", "hello world"]);
+      const output = await cmd.stdout();
+      expect(output).toBe("hello world");
+    });
+
+    it("should support object form with cmd and args", async () => {
+      const sandbox = await Sandbox.create();
+      const cmd = await sandbox.runCommand({
+        cmd: "echo",
+        args: ["-n", "from object"],
+      });
+      const output = await cmd.stdout();
+      expect(output).toBe("from object");
+    });
+
+    it("should support object form with cwd and env", async () => {
+      const sandbox = await Sandbox.create();
+      await sandbox.mkDir("/work", { recursive: true });
+      const cmd = await sandbox.runCommand({
+        cmd: 'echo "$PWD $MY_VAR"',
+        cwd: "/work",
+        env: { MY_VAR: "test123" },
+      });
+      const output = await cmd.stdout();
+      expect(output.trim()).toBe("/work test123");
+    });
+
+    it("should return CommandFinished with exitCode by default", async () => {
+      const sandbox = await Sandbox.create();
+      const result = await sandbox.runCommand("echo hello");
+      // exitCode is guaranteed to be a number (not undefined)
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should return Command immediately when detached", async () => {
+      const sandbox = await Sandbox.create();
+      const cmd = await sandbox.runCommand({
+        cmd: "echo",
+        args: ["detached"],
+        detached: true,
+      });
+      expect(cmd).toBeInstanceOf(Command);
+      // Must explicitly wait for completion
+      const finished = await cmd.wait();
+      expect(finished.exitCode).toBe(0);
+      expect(await cmd.stdout()).toBe("detached\n");
+    });
+
+    it("should pipe to stdout/stderr streams in object form", async () => {
+      const sandbox = await Sandbox.create();
+      const stdoutChunks: string[] = [];
+      const stderrChunks: string[] = [];
+      const stdoutStream = new PassThrough();
+      const stderrStream = new PassThrough();
+      stdoutStream.on("data", (chunk: Buffer) =>
+        stdoutChunks.push(chunk.toString()),
+      );
+      stderrStream.on("data", (chunk: Buffer) =>
+        stderrChunks.push(chunk.toString()),
+      );
+
+      await sandbox.runCommand({
+        cmd: "bash",
+        args: ["-c", "echo out; echo err >&2"],
+        stdout: stdoutStream,
+        stderr: stderrStream,
+      });
+
+      expect(stdoutChunks.join("")).toBe("out\n");
+      expect(stderrChunks.join("")).toBe("err\n");
+    });
+
+    it("should escape args with special characters", async () => {
+      const sandbox = await Sandbox.create();
+      const cmd = await sandbox.runCommand("echo", ["hello world", "it's"]);
+      const output = await cmd.stdout();
+      expect(output).toBe("hello world it's\n");
     });
   });
 
