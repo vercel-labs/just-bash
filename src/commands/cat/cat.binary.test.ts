@@ -50,4 +50,28 @@ describe("cat with binary files", () => {
     expect(result.stdout).toBe("     1\tA\n     2\tB\n");
     expect(result.exitCode).toBe(0);
   });
+
+  it("should preserve UTF-8 multibyte characters", async () => {
+    const env = new Bash();
+    await env.exec('printf "中文测试\\n" > /tmp/utf8.txt');
+    const result = await env.exec("cat /tmp/utf8.txt");
+    expect(result.stdout).toBe("中文测试\n");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("should preserve Korean text", async () => {
+    const env = new Bash();
+    await env.exec('printf "설정\\n" > /tmp/korean.txt');
+    const result = await env.exec("cat /tmp/korean.txt");
+    expect(result.stdout).toBe("설정\n");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("should preserve emoji", async () => {
+    const env = new Bash();
+    await env.exec('printf "hello 🌍\\n" > /tmp/emoji.txt');
+    const result = await env.exec("cat /tmp/emoji.txt");
+    expect(result.stdout).toBe("hello 🌍\n");
+    expect(result.exitCode).toBe(0);
+  });
 });

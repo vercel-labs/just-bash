@@ -85,8 +85,9 @@ export async function readFiles(
         }
         try {
           const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-          // Use binary encoding to preserve all bytes (including non-UTF-8)
-          // This is important for piping binary data through commands like cat
+          // Use binary encoding to preserve all bytes (including non-UTF-8).
+          // This is important for piping binary data through commands like cat.
+          // UTF-8 decoding happens at the output boundary (Bash.exec) instead.
           const content = await ctx.fs.readFile(filePath, "binary");
           return { filename: file, content, error: null };
         } catch {

@@ -459,6 +459,13 @@ export class Bash {
       }
       this.logger.info("exit", { exitCode: result.exitCode });
     }
+    // Decode binary strings (latin1) to UTF-8 at the output boundary.
+    // Internally, the pipeline uses binary strings where each char = one byte
+    // for byte transparency. At the output boundary, we convert valid UTF-8
+    // byte sequences back to proper Unicode characters (e.g., CJK, emoji).
+    // Invalid UTF-8 (e.g., raw compressed data) is left as binary.
+    result.stdout = decodeBinaryToUtf8(result.stdout);
+    result.stderr = decodeBinaryToUtf8(result.stderr);
     return result;
   }
 
@@ -804,4 +811,55 @@ function normalizeScript(script: string): string {
   }
 
   return result.join("\n");
+}
+
+/**
+ * Strict UTF-8 decoder that throws on invalid byte sequences.
+ */
+const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+/**
+ * Decode a binary string (latin1, where each char = one byte) to UTF-8.
+ *
+ * The internal pipeline uses binary strings for byte transparency (e.g.,
+ * piping compressed data through cat). At the output boundary, we convert
+ * valid UTF-8 byte sequences back to proper Unicode characters so that
+ * multibyte text (CJK, Cyrillic, emoji) displays correctly.
+ *
+ * If the binary string does not contain valid UTF-8, it is returned as-is.
+ */
+function decodeBinaryToUtf8(s: string): string {
+  if (!s) return s;
+
+  // Scan the string to determine its type:
+  // - All chars ≤ 0x7F: pure ASCII, no conversion needed
+  // - Any char > 0xFF: already proper Unicode (from commands like printf, grep),
+  //   not a binary string — return as-is
+  // - Chars in 0x80-0xFF range only: binary string (latin1) that may contain
+  //   UTF-8 byte sequences — try decoding
+  let hasHighByte = false;
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code > 0xff) {
+      // Already a proper Unicode string, not a binary string
+      return s;
+    }
+    if (code > 0x7f) {
+      hasHighByte = true;
+    }
+  }
+  if (!hasHighByte) return s;
+
+  // Convert binary string to bytes
+  const bytes = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) {
+    bytes[i] = s.charCodeAt(i);
+  }
+
+  // Try UTF-8 decoding; fall back to binary string for non-UTF-8 data
+  try {
+    return strictUtf8Decoder.decode(bytes);
+  } catch {
+    return s;
+  }
 }

@@ -128,12 +128,7 @@ describe("gzip with binary data", () => {
       await env.exec("gzip -c /unicode.txt > /unicode.txt.gz");
       const result = await env.exec("gunzip -c /unicode.txt.gz");
 
-      // Output is binary string (latin1), convert to compare with original UTF-8 bytes
-      const originalBytes = new TextEncoder().encode(original);
-      expect(result.stdout.length).toBe(originalBytes.length);
-      for (let i = 0; i < originalBytes.length; i++) {
-        expect(result.stdout.charCodeAt(i)).toBe(originalBytes[i]);
-      }
+      expect(result.stdout).toBe(original);
     });
 
     it("should handle UTF-8 via stdin pipe", async () => {
@@ -147,12 +142,7 @@ describe("gzip with binary data", () => {
       await env.exec("cat /unicode.txt | gzip -c > /compressed.gz");
       const result = await env.exec("gunzip -c /compressed.gz");
 
-      // Output is binary string (latin1), convert to compare with original UTF-8 bytes
-      const originalBytes = new TextEncoder().encode(original);
-      expect(result.stdout.length).toBe(originalBytes.length);
-      for (let i = 0; i < originalBytes.length; i++) {
-        expect(result.stdout.charCodeAt(i)).toBe(originalBytes[i]);
-      }
+      expect(result.stdout).toBe(original);
     });
 
     it("should preserve UTF-8 multi-byte sequences", async () => {
@@ -166,12 +156,7 @@ describe("gzip with binary data", () => {
       await env.exec("gzip -c /emoji.txt > /emoji.txt.gz");
       const result = await env.exec("gunzip -c /emoji.txt.gz");
 
-      // Output is binary string (latin1), convert to compare with original UTF-8 bytes
-      const originalBytes = new TextEncoder().encode(original);
-      expect(result.stdout.length).toBe(originalBytes.length);
-      for (let i = 0; i < originalBytes.length; i++) {
-        expect(result.stdout.charCodeAt(i)).toBe(originalBytes[i]);
-      }
+      expect(result.stdout).toBe(original);
     });
   });
 });
