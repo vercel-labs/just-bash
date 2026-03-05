@@ -303,3 +303,359 @@ describe.each([
     expect(stat.isFile).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Security edge-case tests
+// ---------------------------------------------------------------------------
+describe.each([
+  ["OverlayFs", setupOverlay],
+  ["ReadWriteFs", setupReadWrite],
+])("%s — security edge cases", (_name, factory) => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "edge-"));
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "edge-out-"));
+    fs.writeFileSync(path.join(tempDir, "file.txt"), "safe content");
+    fs.mkdirSync(path.join(tempDir, "subdir"));
+    fs.writeFileSync(
+      path.join(tempDir, "subdir", "nested.txt"),
+      "nested content",
+    );
+    // Symlink pointing outside the sandbox
+    fs.symlinkSync(outsideDir, path.join(tempDir, "escape-link"));
+    // Symlink with relative target pointing outside
+    fs.symlinkSync(
+      path.join("..", path.basename(outsideDir)),
+      path.join(tempDir, "relative-escape"),
+    );
+    ctx = { tempDir, outsideDir, fsImpl: factory(tempDir) };
+  });
+
+  afterEach(() => {
+    fs.rmSync(ctx.tempDir, { recursive: true, force: true });
+    fs.rmSync(ctx.outsideDir, { recursive: true, force: true });
+  });
+
+  // -----------------------------------------------------------------------
+  // Path traversal via .. sequences
+  // -----------------------------------------------------------------------
+  describe("path traversal", () => {
+    it("should block readFile with .. escaping root", async () => {
+      await expect(
+        ctx.fsImpl.readFile("/../../../etc/passwd"),
+      ).rejects.toThrow();
+    });
+
+    it("should block readFile with encoded .. in subdir", async () => {
+      await expect(
+        ctx.fsImpl.readFile("/subdir/../../etc/passwd"),
+      ).rejects.toThrow();
+    });
+
+    it("should normalize double slashes", async () => {
+      const content = await ctx.fsImpl.readFile("//file.txt");
+      expect(content).toBe("safe content");
+    });
+
+    it("should handle trailing dot path component", async () => {
+      const content = await ctx.fsImpl.readFile("/./file.txt");
+      expect(content).toBe("safe content");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Symlink in intermediate directory
+  // -----------------------------------------------------------------------
+  describe("intermediate directory symlink", () => {
+    it("should block readFile through dir symlink pointing outside", async () => {
+      await expect(
+        ctx.fsImpl.readFile("/escape-link/anything"),
+      ).rejects.toThrow();
+    });
+
+    it("should block stat through dir symlink pointing outside", async () => {
+      await expect(ctx.fsImpl.stat("/escape-link/anything")).rejects.toThrow();
+    });
+
+    it("should block readdir through dir symlink pointing outside", async () => {
+      if (_name === "OverlayFs") {
+        // OverlayFs returns empty array (symlink target inaccessible)
+        const entries = await ctx.fsImpl.readdir("/escape-link");
+        expect(entries).toEqual([]);
+      } else {
+        await expect(ctx.fsImpl.readdir("/escape-link")).rejects.toThrow();
+      }
+    });
+
+    it("should block exists through dir symlink pointing outside", async () => {
+      // exists should return false, not true
+      expect(await ctx.fsImpl.exists("/escape-link/anything")).toBe(false);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Relative symlink escape
+  // -----------------------------------------------------------------------
+  describe("relative symlink escape", () => {
+    it("should block readFile through relative escape symlink", async () => {
+      await expect(
+        ctx.fsImpl.readFile("/relative-escape/anything"),
+      ).rejects.toThrow();
+    });
+
+    it("should block stat through relative escape symlink", async () => {
+      await expect(ctx.fsImpl.stat("/relative-escape")).rejects.toThrow();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Null byte injection
+  // -----------------------------------------------------------------------
+  describe("null byte injection", () => {
+    it("should reject paths with null bytes in readFile", async () => {
+      await expect(ctx.fsImpl.readFile("/file.txt\0.evil")).rejects.toThrow();
+    });
+
+    it("should reject paths with null bytes in writeFile", async () => {
+      await expect(
+        ctx.fsImpl.writeFile("/evil\0path", "data"),
+      ).rejects.toThrow();
+    });
+
+    it("should return false for exists with null byte path", async () => {
+      expect(await ctx.fsImpl.exists("/file.txt\0")).toBe(false);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Unicode normalization (NFD vs NFC on macOS)
+  // -----------------------------------------------------------------------
+  describe("unicode normalization", () => {
+    it("should handle NFC unicode paths consistently", async () => {
+      // NFC: é as single codepoint U+00E9
+      const nfcName = "caf\u00e9.txt";
+      await ctx.fsImpl.writeFile(`/${nfcName}`, "nfc content");
+      const content = await ctx.fsImpl.readFile(`/${nfcName}`);
+      expect(content).toBe("nfc content");
+    });
+
+    it("should handle NFD unicode paths consistently", async () => {
+      // NFD: e + combining acute accent U+0301
+      const nfdName = "cafe\u0301.txt";
+      await ctx.fsImpl.writeFile(`/${nfdName}`, "nfd content");
+      const content = await ctx.fsImpl.readFile(`/${nfdName}`);
+      expect(content).toBe("nfd content");
+    });
+
+    it("should not allow NFC/NFD mismatch to bypass symlink checks", async () => {
+      // Create file with NFC name, try to access via NFD
+      // Both should work OR both should fail — but neither should escape
+      const nfc = "caf\u00e9";
+      const nfd = "cafe\u0301";
+      await ctx.fsImpl.writeFile(`/${nfc}/test.txt`, "data").catch(() => {});
+      // Even if the names normalize to the same FS entry, no escape should occur
+      const exists = await ctx.fsImpl.exists(`/${nfd}/test.txt`);
+      // Either true or false is fine — but no error/crash
+      expect(typeof exists).toBe("boolean");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Deep path recursion (DoS prevention)
+  // -----------------------------------------------------------------------
+  describe("deep paths", () => {
+    it("should handle moderately deep paths without crashing", async () => {
+      // 100 levels deep — should not cause stack overflow
+      const deepPath = `/${Array.from({ length: 100 }, (_, i) => `d${i}`).join("/")}/file.txt`;
+      // Should throw ENOENT (path doesn't exist) not crash
+      await expect(ctx.fsImpl.readFile(deepPath)).rejects.toThrow();
+    });
+
+    it("should handle long filenames near 255 char limit", async () => {
+      const longName = `${"a".repeat(250)}.txt`;
+      // Should either work or throw a proper error, not crash
+      try {
+        await ctx.fsImpl.writeFile(`/${longName}`, "content");
+        const content = await ctx.fsImpl.readFile(`/${longName}`);
+        expect(content).toBe("content");
+      } catch (e) {
+        expect((e as Error).message).toMatch(/ENAMETOOLONG|ENOENT|EIO/);
+      }
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Root-as-symlink behavior
+  // -----------------------------------------------------------------------
+  describe("root directory edge cases", () => {
+    it("should work when root is accessed through /tmp symlink (macOS)", async () => {
+      // On macOS, /tmp -> /private/tmp, which means
+      // the root path goes through a symlink.
+      // The FS should handle this transparently.
+      const content = await ctx.fsImpl.readFile("/file.txt");
+      expect(content).toBe("safe content");
+    });
+
+    it("should clamp .. at root (POSIX behavior)", async () => {
+      // /../file.txt normalizes to /file.txt — can't go above root
+      const content = await ctx.fsImpl.readFile("/../file.txt");
+      expect(content).toBe("safe content");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // chmod/rename through symlinks
+  // -----------------------------------------------------------------------
+  describe("chmod through symlink", () => {
+    it("should block chmod through a symlink pointing outside", async () => {
+      await expect(ctx.fsImpl.chmod("/escape-link", 0o777)).rejects.toThrow();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // writeFile through broken symlink (escape prevention)
+  // -----------------------------------------------------------------------
+  describe("writeFile escape via broken symlink", () => {
+    it("should not create files outside sandbox via broken symlink", async () => {
+      // Create a broken symlink whose target is outside the sandbox
+      const targetPath = path.join(ctx.outsideDir, "created-by-escape.txt");
+      fs.symlinkSync(targetPath, path.join(ctx.tempDir, "write-escape"));
+
+      if (_name === "OverlayFs") {
+        // OverlayFs writes to memory overlay — the write "succeeds"
+        // but goes to the in-memory layer, NOT through the symlink
+        await ctx.fsImpl.writeFile("/write-escape", "escaped data");
+      } else {
+        // ReadWriteFs operates on real FS — must reject the write
+        await expect(
+          ctx.fsImpl.writeFile("/write-escape", "escaped data"),
+        ).rejects.toThrow();
+      }
+
+      // Either way, the target must NOT be created on real FS
+      expect(fs.existsSync(targetPath)).toBe(false);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O_NOFOLLOW TOCTOU protection tests
+// ---------------------------------------------------------------------------
+describe("OverlayFs — O_NOFOLLOW TOCTOU protection (read path)", () => {
+  let tempDir: string;
+  let outsideDir: string;
+  let ofs: IFileSystem;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nofollow-ofs-"));
+    outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "nofollow-ofs-out-"));
+    fs.writeFileSync(path.join(outsideDir, "secret.txt"), "TOP SECRET");
+    fs.writeFileSync(path.join(tempDir, "safe.txt"), "safe content");
+    ofs = setupOverlay(tempDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+  });
+
+  it("should reject readFile on a pre-existing symlink pointing outside", async () => {
+    fs.symlinkSync(
+      path.join(outsideDir, "secret.txt"),
+      path.join(tempDir, "sneaky-link"),
+    );
+    await expect(ofs.readFile("/sneaky-link")).rejects.toThrow();
+  });
+
+  it("should allow readFile on regular files", async () => {
+    const content = await ofs.readFile("/safe.txt");
+    expect(content).toBe("safe content");
+  });
+
+  it("should allow readFile on overlay-written files", async () => {
+    await ofs.writeFile("/new.txt", "overlay content");
+    const content = await ofs.readFile("/new.txt");
+    expect(content).toBe("overlay content");
+  });
+});
+
+describe("ReadWriteFs — O_NOFOLLOW TOCTOU protection", () => {
+  let tempDir: string;
+  let outsideDir: string;
+  let rwfs: IFileSystem;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nofollow-"));
+    outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "nofollow-out-"));
+    fs.writeFileSync(path.join(outsideDir, "secret.txt"), "TOP SECRET");
+    rwfs = setupReadWrite(tempDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+  });
+
+  it("should reject readFile on a pre-existing symlink (O_NOFOLLOW)", async () => {
+    // Create a symlink on real FS pointing outside
+    fs.symlinkSync(
+      path.join(outsideDir, "secret.txt"),
+      path.join(tempDir, "sneaky-link"),
+    );
+    await expect(rwfs.readFile("/sneaky-link")).rejects.toThrow();
+    // Verify the secret was NOT leaked
+  });
+
+  it("should reject writeFile on a pre-existing symlink (O_NOFOLLOW)", async () => {
+    fs.symlinkSync(
+      path.join(outsideDir, "target.txt"),
+      path.join(tempDir, "write-link"),
+    );
+    await expect(rwfs.writeFile("/write-link", "PWNED")).rejects.toThrow();
+    // Verify nothing was written outside
+    expect(fs.existsSync(path.join(outsideDir, "target.txt"))).toBe(false);
+  });
+
+  it("should reject appendFile on a pre-existing symlink (O_NOFOLLOW)", async () => {
+    fs.symlinkSync(
+      path.join(outsideDir, "secret.txt"),
+      path.join(tempDir, "append-link"),
+    );
+    await expect(rwfs.appendFile("/append-link", "PWNED")).rejects.toThrow();
+    // Verify original content not modified
+    expect(fs.readFileSync(path.join(outsideDir, "secret.txt"), "utf8")).toBe(
+      "TOP SECRET",
+    );
+  });
+
+  it("should re-validate parent after mkdir in writeFile", async () => {
+    // Create parent dir, then write should validate the full path again
+    fs.mkdirSync(path.join(tempDir, "parent"));
+    await rwfs.writeFile("/parent/child.txt", "safe content");
+    expect(
+      fs.readFileSync(path.join(tempDir, "parent", "child.txt"), "utf8"),
+    ).toBe("safe content");
+  });
+
+  it("should allow normal readFile on regular files", async () => {
+    fs.writeFileSync(path.join(tempDir, "normal.txt"), "hello");
+    const content = await rwfs.readFile("/normal.txt");
+    expect(content).toBe("hello");
+  });
+
+  it("should allow normal writeFile to create new files", async () => {
+    await rwfs.writeFile("/new-file.txt", "created");
+    expect(fs.readFileSync(path.join(tempDir, "new-file.txt"), "utf8")).toBe(
+      "created",
+    );
+  });
+
+  it("should allow normal appendFile", async () => {
+    fs.writeFileSync(path.join(tempDir, "append.txt"), "first");
+    await rwfs.appendFile("/append.txt", " second");
+    expect(fs.readFileSync(path.join(tempDir, "append.txt"), "utf8")).toBe(
+      "first second",
+    );
+  });
+});

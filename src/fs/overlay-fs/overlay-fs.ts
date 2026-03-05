@@ -465,10 +465,26 @@ export class OverlayFs implements IFileSystem {
           `EFBIG: file too large, read '${path}' (${stat.size} bytes, max ${this.maxFileReadSize})`,
         );
       }
-      const content = await fs.promises.readFile(canonical);
-      return new Uint8Array(content);
+      // Use O_NOFOLLOW (when symlinks disabled) to prevent TOCTOU: if the
+      // file at `canonical` is swapped for a symlink between lstat and read,
+      // O_NOFOLLOW makes the open fail instead of following the symlink.
+      const flags = this.allowSymlinks
+        ? fs.constants.O_RDONLY
+        : fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
+      const fh = await fs.promises.open(canonical, flags);
+      try {
+        const content = await fh.readFile();
+        return new Uint8Array(content);
+      } finally {
+        await fh.close();
+      }
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        throw new Error(`ENOENT: no such file or directory, open '${path}'`);
+      }
+      if (code === "ELOOP") {
+        // O_NOFOLLOW caught a symlink swap (TOCTOU defense)
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
       }
       this.sanitizeError(e, path, "open");

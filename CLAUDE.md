@@ -20,6 +20,7 @@ pnpm test:run              # Run ALL tests (including spec tests)
 pnpm test:unit             # Run unit tests only (fast, no comparison/spec)
 pnpm test:comparison       # Run comparison tests only (uses fixtures)
 pnpm test:comparison:record # Re-record comparison test fixtures
+pnpm test:python           # Run Python/CPython Emscripten tests only
 
 # Excluding spec tests (spec tests have known failures)
 pnpm test:run --exclude src/spec-tests
@@ -143,6 +144,20 @@ Input Script → Parser (src/parser/) → AST (src/ast/) → Interpreter (src/in
 - Supports: s, d, p, q, n, a, i, c, y, =, addresses, ranges, extended regex (-E/-r)
 - Has execution limits to prevent runaway compute
 
+**Python** (`src/commands/python3/`): CPython compiled to WebAssembly via Emscripten
+
+- `python3.ts` - Command entry point, arg parsing, worker lifecycle, timeout with worker termination
+- `worker.ts` - Worker thread: loads CPython WASM, HOSTFS/HTTPFS bridges, defense-in-depth
+- `sync-fs-backend.ts` / `protocol.ts` - SharedArrayBuffer protocol for sync FS calls from WASM
+- `fs-bridge-handler.ts` - Main thread: processes FS requests from worker
+- Security: isolation by construction (no JS bridge, no ctypes, no dlopen, no NODEFS)
+- Defense-in-depth: `Module._load` blocking at file scope (before WASM loads), `WorkerDefenseInDepth` after
+- WASM binary at `vendor/cpython-emscripten/` — `python.cjs` has `__emscripten_system` patched to return -1
+- `-m MODULE` names are validated with `/^[a-zA-Z_][a-zA-Z0-9_.]*$/` to prevent code injection
+- Worker is terminated on timeout via `workerRef` pattern
+- WASM memory capped at 512MB (`-sMAXIMUM_MEMORY=536870912`)
+- Tests: `pnpm test:python` (excluded from `pnpm test:unit` by default due to WASM load time)
+
 ### Adding Commands
 
 Commands go in `src/commands/<name>/` with:
@@ -192,9 +207,11 @@ When adding comparison tests:
 
 **How it works**: Central gate functions (`resolveAndValidate` in ReadWriteFs, `validateRealPath_` in OverlayFs) compare `realPath.slice(root.length)` vs `canonical.slice(canonicalRoot.length)`. A mismatch means a symlink was traversed — zero extra I/O cost.
 
-**When adding new FS methods**: Route all real-FS access through the existing gates. Never call `fs.promises.stat()`, `fs.realpathSync()`, or similar directly on unvalidated paths. The gate-based design means any method that goes through the gate is automatically protected.
+**TOCTOU protection**: `readFile`, `writeFile`, and `appendFile` in ReadWriteFs use `O_NOFOLLOW` (when `allowSymlinks: false`) to prevent symlink-swap attacks between validation and I/O. `writeFile`/`appendFile` also re-validate paths after `mkdir()` to catch parent-directory-swap attacks.
 
-**In tests**: Pass `allowSymlinks: true` to the constructor when testing symlink behavior. The `cross-fs-no-symlinks.test.ts` file tests the default-deny behavior.
+**When adding new FS methods**: Route all real-FS access through the existing gates. Never call `fs.promises.stat()`, `fs.realpathSync()`, or similar directly on unvalidated paths. For data I/O (read/write), prefer `fs.promises.open()` with `O_NOFOLLOW` over `fs.promises.readFile()`/`writeFile()` to close TOCTOU gaps. The gate-based design means any method that goes through the gate is automatically protected.
+
+**In tests**: Pass `allowSymlinks: true` to the constructor when testing symlink behavior. The `cross-fs-no-symlinks.test.ts` file tests the default-deny behavior and O_NOFOLLOW TOCTOU protection.
 
 ## Development Guidelines
 

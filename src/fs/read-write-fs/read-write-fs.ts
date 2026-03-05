@@ -132,20 +132,28 @@ export class ReadWriteFs implements IFileSystem {
     const canonical = this.resolveAndValidate(realPath, path);
 
     try {
-      if (this.maxFileReadSize > 0) {
-        // Use stat (not lstat) so that symlinks resolve to the target's actual
-        // size. lstat would return the symlink's target path length, bypassing
-        // the size limit for symlinks pointing to large files.
-        // resolveAndValidate already confirmed the resolved path is within sandbox.
-        const stat = await fs.promises.stat(canonical);
-        if (stat.size > this.maxFileReadSize) {
-          throw new Error(
-            `EFBIG: file too large, read '${path}' (${stat.size} bytes, max ${this.maxFileReadSize})`,
-          );
+      // When symlinks are disabled, use O_NOFOLLOW to prevent TOCTOU: if the
+      // file at `canonical` is replaced with a symlink between
+      // resolveAndValidate() and this open, O_NOFOLLOW makes it fail with
+      // ELOOP instead of following it.
+      const flags = this.allowSymlinks
+        ? fs.constants.O_RDONLY
+        : fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
+      const fh = await fs.promises.open(canonical, flags);
+      try {
+        if (this.maxFileReadSize > 0) {
+          const stat = await fh.stat();
+          if (stat.size > this.maxFileReadSize) {
+            throw new Error(
+              `EFBIG: file too large, read '${path}' (${stat.size} bytes, max ${this.maxFileReadSize})`,
+            );
+          }
         }
+        const content = await fh.readFile();
+        return new Uint8Array(content);
+      } finally {
+        await fh.close();
       }
-      const content = await fs.promises.readFile(canonical);
-      return new Uint8Array(content);
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err.code === "ENOENT") {
@@ -155,6 +163,10 @@ export class ReadWriteFs implements IFileSystem {
         throw new Error(
           `EISDIR: illegal operation on a directory, read '${path}'`,
         );
+      }
+      if (err.code === "ELOOP") {
+        // O_NOFOLLOW caught a symlink swap (TOCTOU defense)
+        throw new Error(`EACCES: permission denied, '${path}' is a symlink`);
       }
       this.sanitizeError(e, path, "open");
     }
@@ -167,7 +179,7 @@ export class ReadWriteFs implements IFileSystem {
   ): Promise<void> {
     validatePath(path, "write");
     const realPath = this.toRealPath(path);
-    const canonical = this.resolveAndValidate(realPath, path);
+    let canonical = this.resolveAndValidate(realPath, path);
     const encoding = getEncoding(options);
     const buffer = toBuffer(content, encoding);
 
@@ -175,8 +187,28 @@ export class ReadWriteFs implements IFileSystem {
     const dir = nodePath.dirname(canonical);
     try {
       await fs.promises.mkdir(dir, { recursive: true });
-      await fs.promises.writeFile(canonical, buffer);
+      // Re-validate after mkdir to catch TOCTOU: a concurrent process could
+      // replace a parent directory with a symlink between the initial
+      // validation and mkdir.
+      canonical = this.resolveAndValidate(realPath, path);
+      // When symlinks disabled, use O_NOFOLLOW to prevent symlink-swap
+      const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
+      const flags =
+        fs.constants.O_WRONLY |
+        fs.constants.O_CREAT |
+        fs.constants.O_TRUNC |
+        noFollow;
+      const fh = await fs.promises.open(canonical, flags, 0o666);
+      try {
+        await fh.writeFile(buffer);
+      } finally {
+        await fh.close();
+      }
     } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "ELOOP") {
+        throw new Error(`EACCES: permission denied, '${path}' is a symlink`);
+      }
       this.sanitizeError(e, path, "write");
     }
   }
@@ -188,7 +220,7 @@ export class ReadWriteFs implements IFileSystem {
   ): Promise<void> {
     validatePath(path, "append");
     const realPath = this.toRealPath(path);
-    const canonical = this.resolveAndValidate(realPath, path);
+    let canonical = this.resolveAndValidate(realPath, path);
     const encoding = getEncoding(options);
     const buffer = toBuffer(content, encoding);
 
@@ -196,8 +228,26 @@ export class ReadWriteFs implements IFileSystem {
     const dir = nodePath.dirname(canonical);
     try {
       await fs.promises.mkdir(dir, { recursive: true });
-      await fs.promises.appendFile(canonical, buffer);
+      // Re-validate after mkdir to catch TOCTOU parent-swap attacks
+      canonical = this.resolveAndValidate(realPath, path);
+      // When symlinks disabled, use O_NOFOLLOW to prevent symlink-swap
+      const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
+      const flags =
+        fs.constants.O_WRONLY |
+        fs.constants.O_CREAT |
+        fs.constants.O_APPEND |
+        noFollow;
+      const fh = await fs.promises.open(canonical, flags, 0o666);
+      try {
+        await fh.writeFile(buffer);
+      } finally {
+        await fh.close();
+      }
     } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "ELOOP") {
+        throw new Error(`EACCES: permission denied, '${path}' is a symlink`);
+      }
       this.sanitizeError(e, path, "append");
     }
   }
