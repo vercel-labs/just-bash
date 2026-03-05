@@ -256,17 +256,34 @@ No tests for `/dev/fd/` access. The virtual filesystem doesn't implement `/dev/f
 
 **Risk**: MEDIUM (intentional, opt-in, isolation by construction)
 
-When `python: true`, CPython Emscripten provides full Python execution. Unlike the previous Pyodide-based approach, CPython Emscripten has zero JS bridge code — `import js` fails with `ModuleNotFoundError` because the module simply doesn't exist in the binary. No Python-level sandbox is needed.
+When `python: true`, CPython 3.13 Emscripten provides full Python execution via WASM. Unlike the previous Pyodide-based approach, CPython Emscripten has zero JS bridge code — `import js` fails with `ModuleNotFoundError` because the module simply doesn't exist in the binary. No Python-level sandbox is needed; isolation is by construction.
 
-**Mitigations**:
-- Disabled by default; must be explicitly enabled
-- 30-second timeout (`maxPythonTimeoutMs`)
-- Runs in a separate `Worker` thread with `WorkerDefenseInDepth`
-- No JS bridge: `import js`, `import pyodide` → `ModuleNotFoundError` (module not in binary)
-- `os.system()` patched to no-op at Emscripten level (returns -1)
-- `subprocess` blocked by Emscripten ("emscripten does not support processes")
-- Network blocked (Emscripten without NODERAWFS has no TCP/UDP)
-- Fewer defense-in-depth exclusions needed (only `shared_array_buffer`, `atomics` for sync FS)
+**Build-time restrictions** (capabilities removed from binary):
+- No `-sMAIN_MODULE`: dynamic linking disabled, `dlopen` fails with "dynamic linking not enabled"
+- No `-lnodefs.js`, `-lidbfs.js`, `-lproxyfs.js`, `-lworkerfs.js`: no host FS mount types available
+- No `_ctypes` C extension: `import ctypes` fails with `ImportError`
+- No `_emscripten_run_script`: JS eval not callable from WASM
+- `__emscripten_system` patched to return -1 (no `child_process.spawnSync`)
+- Test modules (`_testcapi`, `_testinternalcapi`, etc.) stripped from binary
+
+**Runtime mitigations**:
+- Disabled by default; must be explicitly enabled via `{ python: true }`
+- 30-second timeout (`maxPythonTimeoutMs`; configurable)
+- Fresh Worker thread per execution (EXIT_RUNTIME; no state leakage between runs)
+- `WorkerDefenseInDepth` with only 2 exclusions: `shared_array_buffer`, `atomics`
+- Stdlib shipped as `.pyc`-only zip in MEMFS (no real FS access, no runtime compilation)
+- 18+ file operations (open, stat, glob, pathlib, shutil, etc.) redirected through `/host` mount
+- C-level file operations (`_io.open`) also confined by Emscripten VFS (no NODEFS/NODERAWFS)
+- HTTP bridge via custom HTTPFS mount at `/_jb_http` (requires `secureFetch` allow-list)
+- Environment variables explicitly passed (no host `process.env` leakage)
+- Raw TCP/UDP sockets blocked by Emscripten ("Host is unreachable")
+- `os.system()` returns -1, `subprocess`/`os.popen()` raise `OSError`
+
+**Accepted behaviors** (not vulnerabilities):
+- Python's `eval()` and `exec()` execute arbitrary Python (same as bash `eval`; no JS escalation path)
+- `/lib` (MEMFS stdlib) is writable within a single execution (each execution is fresh)
+- Symlink targets are readable via `os.readlink()` but not followable outside root
+- Python can allocate memory up to WASM limits (mitigated by 30s timeout)
 
 ### 4.8 Error Message Information Leakage
 
