@@ -144,12 +144,6 @@ export class FsBridgeHandler {
   }
 
   private resolvePath(path: string): string {
-    if (path.startsWith("/mnt/host/")) {
-      return path.slice("/mnt/host".length);
-    }
-    if (path.startsWith("/mnt/host")) {
-      return path.slice("/mnt/host".length) || "/";
-    }
     return this.fs.resolvePath(this.cwd, path);
   }
 

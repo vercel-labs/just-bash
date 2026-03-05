@@ -1,8 +1,11 @@
 /**
- * python3 - Execute Python code via Pyodide (Python in WebAssembly)
+ * python3 - Execute Python code via CPython Emscripten (Python in WebAssembly)
  *
  * Runs Python code in an isolated worker thread with access to the
  * virtual filesystem via SharedArrayBuffer bridge.
+ *
+ * Security: CPython Emscripten has zero JS bridge code. `import js` fails
+ * with ModuleNotFoundError. No sandbox needed — isolation by construction.
  *
  * This command is Node.js only (uses worker_threads).
  */
@@ -16,18 +19,18 @@ import { FsBridgeHandler } from "./fs-bridge-handler.js";
 import { createSharedBuffer } from "./protocol.js";
 import type { WorkerInput, WorkerOutput } from "./worker.js";
 
-/** Default Python execution timeout in milliseconds (30 seconds for Pyodide load) */
+/** Default Python execution timeout in milliseconds */
 const DEFAULT_PYTHON_TIMEOUT_MS = 30000;
 
 const python3Help = {
   name: "python3",
-  summary: "Execute Python code via Pyodide",
+  summary: "Execute Python code via CPython Emscripten",
   usage: "python3 [OPTIONS] [-c CODE | -m MODULE | FILE] [ARGS...]",
   description: [
-    "Execute Python code using Pyodide (Python compiled to WebAssembly).",
+    "Execute Python code using CPython compiled to WebAssembly via Emscripten.",
     "",
-    "This command runs Python in a sandboxed environment with access to",
-    "the virtual filesystem. Only Pyodide-bundled packages are available.",
+    "This command runs Python in an isolated environment with access to",
+    "the virtual filesystem. Standard library modules are available.",
   ],
   options: [
     "-c CODE     Execute CODE as Python script",
@@ -43,9 +46,8 @@ const python3Help = {
     "echo 'print(\"hello\")' | python3",
   ],
   notes: [
-    "Pyodide runs in WebAssembly, so execution may be slower than native Python.",
-    "Only packages bundled with Pyodide are available (no pip install).",
-    "First execution loads Pyodide (~30MB), subsequent calls are faster.",
+    "CPython runs in WebAssembly, so execution may be slower than native Python.",
+    "Standard library modules are available (no pip install).",
     "Maximum execution time is 30 seconds by default.",
   ],
 };
@@ -138,22 +140,18 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
   return result;
 }
 
-// Singleton worker for reusing Pyodide instance
-let sharedWorker: Worker | null = null;
-let workerIdleTimeout: ReturnType<typeof setTimeout> | null = null;
-
-// Queue for serializing Python executions (Pyodide is single-threaded)
+// Queue for serializing Python executions (one at a time)
 type QueuedExecution = {
   input: WorkerInput;
   resolve: (result: WorkerOutput) => void;
 };
 const executionQueue: QueuedExecution[] = [];
-let currentExecution: QueuedExecution | null = null;
+let isExecuting = false;
 
 const workerPath = fileURLToPath(new URL("./worker.js", import.meta.url));
 
 function processNextExecution(): void {
-  if (currentExecution || executionQueue.length === 0) {
+  if (isExecuting || executionQueue.length === 0) {
     return;
   }
 
@@ -161,65 +159,38 @@ function processNextExecution(): void {
   if (!next) {
     return;
   }
-  currentExecution = next;
-  const worker = getOrCreateWorker();
-  worker.postMessage(currentExecution.input);
-}
+  isExecuting = true;
 
-function getOrCreateWorker(): Worker {
-  // Clear any pending idle timeout
-  if (workerIdleTimeout) {
-    clearTimeout(workerIdleTimeout);
-    workerIdleTimeout = null;
-  }
+  // Create a fresh worker for each execution.
+  // CPython Emscripten uses EXIT_RUNTIME, so the module can only run once.
+  // The worker caches the stdlib zip at module scope (read from disk once
+  // per worker lifetime, not per execution).
+  const worker = new Worker(workerPath, {
+    workerData: next.input,
+  });
 
-  if (sharedWorker) {
-    return sharedWorker;
-  }
+  worker.on("message", (msg: WorkerOutput & { type?: string }) => {
+    // Filter out defense-in-depth security violation messages
+    if (msg.type === "security-violation") return;
+    next.resolve(msg);
+    worker.terminate();
+    isExecuting = false;
+    processNextExecution();
+  });
 
-  sharedWorker = new Worker(workerPath);
+  worker.on("error", (err: Error) => {
+    next.resolve({ success: false, error: err.message });
+    isExecuting = false;
+    processNextExecution();
+  });
 
-  sharedWorker.on("message", (result: WorkerOutput) => {
-    if (currentExecution) {
-      currentExecution.resolve(result);
-      currentExecution = null;
-    }
-    // Process next queued execution or schedule termination
-    if (executionQueue.length > 0) {
+  worker.on("exit", () => {
+    if (isExecuting) {
+      next.resolve({ success: false, error: "Worker exited unexpectedly" });
+      isExecuting = false;
       processNextExecution();
-    } else {
-      scheduleWorkerTermination();
     }
   });
-
-  sharedWorker.on("error", (err: Error) => {
-    if (currentExecution) {
-      currentExecution.resolve({ success: false, error: err.message });
-      currentExecution = null;
-    }
-    // Reject all queued executions
-    for (const queued of executionQueue) {
-      queued.resolve({ success: false, error: "Worker crashed" });
-    }
-    executionQueue.length = 0;
-    sharedWorker = null;
-  });
-
-  sharedWorker.on("exit", () => {
-    sharedWorker = null;
-  });
-
-  return sharedWorker;
-}
-
-function scheduleWorkerTermination(): void {
-  // Terminate worker after 5 seconds of inactivity
-  workerIdleTimeout = setTimeout(() => {
-    if (sharedWorker && !currentExecution && executionQueue.length === 0) {
-      sharedWorker.terminate();
-      sharedWorker = null;
-    }
-  }, 5000);
 }
 
 /**
@@ -265,7 +236,7 @@ async function executePython(
       resolve(result);
     };
 
-    // Queue the execution (serialized since Pyodide is single-threaded)
+    // Queue the execution (serialized — one at a time per worker)
     executionQueue.push({ input: workerInput, resolve: wrappedResolve });
     processNextExecution();
   });
@@ -302,7 +273,7 @@ export const python3Command: Command = {
 
     if (parsed.showVersion) {
       return {
-        stdout: "Python 3.12.1 (Pyodide)\n",
+        stdout: "Python 3.13.2 (Emscripten)\n",
         stderr: "",
         exitCode: 0,
       };

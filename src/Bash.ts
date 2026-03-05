@@ -116,7 +116,7 @@ export interface BashOptions {
   /**
    * Enable python3/python commands.
    * Python is disabled by default as it introduces additional security surface
-   * (arbitrary code execution via pyodide).
+   * (arbitrary code execution via CPython Emscripten).
    */
   python?: boolean;
   /**

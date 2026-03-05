@@ -1,15 +1,18 @@
 /**
- * Worker thread for Python execution via Pyodide.
- * Keeps Pyodide loaded and handles multiple execution requests.
+ * Worker thread for Python execution via CPython Emscripten.
+ * Creates a fresh CPython WASM instance per execution (EXIT_RUNTIME).
  *
- * Defense-in-depth activates AFTER Pyodide loads (WASM init needs unrestricted JS).
- * User Python code runs with dangerous globals blocked.
+ * Security model: CPython Emscripten has zero JS bridge code.
+ * `import js` fails with `ModuleNotFoundError` — the module doesn't exist.
+ * `os.system()` is patched to no-op at Emscripten level.
+ * No sandbox code needed — isolation is by construction.
+ *
+ * Defense-in-depth activates BEFORE CPython loads to block dangerous Node.js APIs.
  */
 
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
-import { loadPyodide, type PyodideInterface } from "pyodide";
 import {
   WorkerDefenseInDepth,
   type WorkerDefenseStats,
@@ -32,25 +35,34 @@ export interface WorkerOutput {
   defenseStats?: WorkerDefenseStats;
 }
 
-let pyodideInstance: PyodideInterface | null = null;
-let pyodideLoading: Promise<PyodideInterface> | null = null;
 const require = createRequire(import.meta.url);
-const pyodideIndexURL = `${dirname(require.resolve("pyodide/pyodide.mjs"))}/`;
+let cpythonDir: string;
+try {
+  cpythonDir = dirname(
+    require.resolve("../../../vendor/cpython-emscripten/python.cjs"),
+  );
+} catch (_e) {
+  // Fallback: resolve relative to this file
+  cpythonDir =
+    dirname(import.meta.url).replace("file://", "") +
+    "/../../../vendor/cpython-emscripten";
+}
+const stdlibZipPath = `${cpythonDir}/python313.zip`;
 
-async function getPyodide(): Promise<PyodideInterface> {
-  if (pyodideInstance) {
-    return pyodideInstance;
-  }
-  if (pyodideLoading) {
-    return pyodideLoading;
-  }
-  pyodideLoading = loadPyodide({ indexURL: pyodideIndexURL });
-  pyodideInstance = await pyodideLoading;
-  return pyodideInstance;
+// Emscripten module types
+interface EmscriptenModule {
+  FS: EmscriptenFS & {
+    filesystems: Record<string, EmscriptenFSType>;
+    mkdirTree: (path: string) => void;
+    writeFile: (path: string, data: Uint8Array) => void;
+  };
+  PATH: EmscriptenPATH;
+  ENV: Record<string, string>;
+  callMain: (args: string[]) => number;
 }
 
 /**
- * Create a HOSTFS backend for Pyodide that bridges to just-bash's filesystem.
+ * Create a HOSTFS backend that bridges to just-bash's filesystem.
  * This follows the Emscripten NODEFS pattern but uses SyncFsBackend.
  */
 
@@ -504,130 +516,11 @@ function createHOSTFS(
   return HOSTFS;
 }
 
-async function runPython(input: WorkerInput): Promise<WorkerOutput> {
-  const backend = new SyncFsBackend(input.sharedBuffer);
-
-  let pyodide: PyodideInterface;
-  try {
-    pyodide = await getPyodide();
-  } catch (e) {
-    return {
-      success: false,
-      error: `Failed to load Pyodide: ${(e as Error).message}`,
-    };
-  }
-
-  // Reset stdout/stderr to discard any pending output from previous runs
-  // (important when worker is reused and previous execution was interrupted)
-  pyodide.setStdout({ batched: () => {} });
-  pyodide.setStderr({ batched: () => {} });
-
-  // Flush any pending Python output from previous runs
-  try {
-    pyodide.runPython(`
-import sys
-if hasattr(sys.stdout, 'flush'):
-    sys.stdout.flush()
-if hasattr(sys.stderr, 'flush'):
-    sys.stderr.flush()
-`);
-  } catch (_e) {
-    // Ignore - sys might not be set up yet
-  }
-
-  // Set up stdout/stderr capture for this execution
-  pyodide.setStdout({
-    batched: (text: string) => {
-      backend.writeStdout(`${text}\n`);
-    },
-  });
-
-  pyodide.setStderr({
-    batched: (text: string) => {
-      backend.writeStderr(`${text}\n`);
-    },
-  });
-
-  // Get Emscripten FS and PATH modules (internal Pyodide properties, not exposed in types)
-  const FS = (pyodide as unknown as { FS: EmscriptenFS }).FS;
-  const PATH = (pyodide as unknown as { PATH: EmscriptenPATH }).PATH;
-
-  // Create and mount HOSTFS
-  const HOSTFS = createHOSTFS(backend, FS, PATH);
-
-  try {
-    // Change to root directory before unmounting to avoid issues
-    // with cwd being inside the mount point
-    try {
-      pyodide.runPython(`import os; os.chdir('/')`);
-    } catch (_e) {
-      // Ignore
-    }
-
-    try {
-      FS.mkdir("/host");
-    } catch (_e) {
-      // Already exists
-    }
-
-    try {
-      FS.unmount("/host");
-    } catch (_e) {
-      // Not mounted
-    }
-
-    FS.mount(HOSTFS, { root: "/" }, "/host");
-  } catch (e) {
-    return {
-      success: false,
-      error: `Failed to mount HOSTFS: ${(e as Error).message}`,
-    };
-  }
-
-  // Register jb_http JavaScript module for Python HTTP requests
-  // This bridges Python HTTP calls to the main thread's secureFetch
-  // First, clear any cached import from previous runs (important for worker reuse)
-  try {
-    pyodide.runPython(`
-import sys
-if '_jb_http_bridge' in sys.modules:
-    del sys.modules['_jb_http_bridge']
-if 'jb_http' in sys.modules:
-    del sys.modules['jb_http']
-`);
-  } catch (_e) {
-    // sys might not be imported yet, ignore
-  }
-
-  // Create the bridge request function and inject it directly into Python globals.
-  // We use pyodide.globals.set instead of registerJsModule so that the function
-  // is available without importing (import of _jb_http_bridge is blocked).
-  const bridgeRequestFn = (
-    url: string,
-    method: string,
-    headersJson: string | undefined,
-    body: string | undefined,
-  ) => {
-    try {
-      // Parse headers from JSON (serialized in Python to avoid PyProxy issues)
-      const headers = headersJson ? JSON.parse(headersJson) : undefined;
-      const result = backend.httpRequest(url, {
-        method: method || "GET",
-        headers,
-        body: body || undefined,
-      });
-      return JSON.stringify(result);
-    } catch (e) {
-      return JSON.stringify({ error: (e as Error).message });
-    }
-  };
-  pyodide.registerJsModule("_jb_http_bridge", {
-    request: bridgeRequestFn,
-  });
-  // Inject the request function directly into Python __main__ globals.
-  // This avoids needing 'import _jb_http_bridge' which is blocked by sandbox.
-  pyodide.globals.set("_jb_http_req_fn", bridgeRequestFn);
-
+/**
+ * Generate the Python setup code that runs before user code.
+ * Sets up environment, sys.argv, path redirection, HTTP bridge, and jb_http module.
+ */
+function generateSetupCode(input: WorkerInput): string {
   // Set up environment variables
   const envSetup = Object.entries(input.env)
     .map(([key, value]) => {
@@ -641,22 +534,471 @@ if 'jb_http' in sys.modules:
     .map((arg) => JSON.stringify(arg))
     .join(", ");
 
-  try {
-    await pyodide.runPythonAsync(`
+  return `
 import os
 import sys
-import builtins
 import json
 
 ${envSetup}
 
 sys.argv = [${argvList}]
 
-# _jb_http_req_fn is injected by TypeScript via pyodide.globals.set().
-# It's the bridge request function directly — no import of _jb_http_bridge needed.
-# The _jb_http_bridge module is blocked from user import.
+# Path redirection: redirect /absolute paths to /host mount
+def _should_redirect(path):
+    return (isinstance(path, str) and
+            path.startswith('/') and
+            not path.startswith('/lib') and
+            not path.startswith('/proc') and
+            not path.startswith('/host') and
+            not path.startswith('/_jb_http'))
 
-# Create jb_http module for HTTP requests
+# builtins.open
+import builtins
+_orig_open = builtins.open
+def _redir_open(path, mode='r', *args, **kwargs):
+    if _should_redirect(path):
+        path = '/host' + path
+    return _orig_open(path, mode, *args, **kwargs)
+builtins.open = _redir_open
+
+# os file operations
+_orig_listdir = os.listdir
+def _redir_listdir(path='.'):
+    if _should_redirect(path):
+        path = '/host' + path
+    return _orig_listdir(path)
+os.listdir = _redir_listdir
+
+_orig_exists = os.path.exists
+def _redir_exists(path):
+    if _should_redirect(path):
+        path = '/host' + path
+    return _orig_exists(path)
+os.path.exists = _redir_exists
+
+_orig_isfile = os.path.isfile
+def _redir_isfile(path):
+    if _should_redirect(path):
+        path = '/host' + path
+    return _orig_isfile(path)
+os.path.isfile = _redir_isfile
+
+_orig_isdir = os.path.isdir
+def _redir_isdir(path):
+    if _should_redirect(path):
+        path = '/host' + path
+    return _orig_isdir(path)
+os.path.isdir = _redir_isdir
+
+_orig_stat = os.stat
+def _redir_stat(path, *args, **kwargs):
+    if _should_redirect(path):
+        path = '/host' + path
+    return _orig_stat(path, *args, **kwargs)
+os.stat = _redir_stat
+
+_orig_mkdir = os.mkdir
+def _redir_mkdir(path, *args, **kwargs):
+    if _should_redirect(path):
+        path = '/host' + path
+    return _orig_mkdir(path, *args, **kwargs)
+os.mkdir = _redir_mkdir
+
+_orig_makedirs = os.makedirs
+def _redir_makedirs(path, *args, **kwargs):
+    if _should_redirect(path):
+        path = '/host' + path
+    return _orig_makedirs(path, *args, **kwargs)
+os.makedirs = _redir_makedirs
+
+_orig_remove = os.remove
+def _redir_remove(path, *args, **kwargs):
+    if _should_redirect(path):
+        path = '/host' + path
+    return _orig_remove(path, *args, **kwargs)
+os.remove = _redir_remove
+
+_orig_rmdir = os.rmdir
+def _redir_rmdir(path, *args, **kwargs):
+    if _should_redirect(path):
+        path = '/host' + path
+    return _orig_rmdir(path, *args, **kwargs)
+os.rmdir = _redir_rmdir
+
+_orig_getcwd = os.getcwd
+def _redir_getcwd():
+    cwd = _orig_getcwd()
+    if cwd.startswith('/host'):
+        return cwd[5:]
+    return cwd
+os.getcwd = _redir_getcwd
+
+_orig_chdir = os.chdir
+def _redir_chdir(path):
+    if _should_redirect(path):
+        path = '/host' + path
+    return _orig_chdir(path)
+os.chdir = _redir_chdir
+
+# glob
+import glob as _glob_module
+_orig_glob = _glob_module.glob
+def _redir_glob(pathname, *args, **kwargs):
+    if _should_redirect(pathname):
+        pathname = '/host' + pathname
+    return _orig_glob(pathname, *args, **kwargs)
+_glob_module.glob = _redir_glob
+
+_orig_iglob = _glob_module.iglob
+def _redir_iglob(pathname, *args, **kwargs):
+    if _should_redirect(pathname):
+        pathname = '/host' + pathname
+    return _orig_iglob(pathname, *args, **kwargs)
+_glob_module.iglob = _redir_iglob
+
+# os.walk
+_orig_walk = os.walk
+def _redir_walk(top, *args, **kwargs):
+    redirected = False
+    if _should_redirect(top):
+        top = '/host' + top
+        redirected = True
+    for dirpath, dirnames, filenames in _orig_walk(top, *args, **kwargs):
+        if redirected and dirpath.startswith('/host'):
+            dirpath = dirpath[5:] if len(dirpath) > 5 else '/'
+        yield dirpath, dirnames, filenames
+os.walk = _redir_walk
+
+# os.scandir
+_orig_scandir = os.scandir
+def _redir_scandir(path='.'):
+    if _should_redirect(path):
+        path = '/host' + path
+    return _orig_scandir(path)
+os.scandir = _redir_scandir
+
+# io.open
+import io as _io_module
+_io_module.open = builtins.open
+
+# shutil
+import shutil as _shutil_module
+
+_orig_shutil_copy = _shutil_module.copy
+def _redir_shutil_copy(src, dst, *args, **kwargs):
+    if _should_redirect(src): src = '/host' + src
+    if _should_redirect(dst): dst = '/host' + dst
+    return _orig_shutil_copy(src, dst, *args, **kwargs)
+_shutil_module.copy = _redir_shutil_copy
+
+_orig_shutil_copy2 = _shutil_module.copy2
+def _redir_shutil_copy2(src, dst, *args, **kwargs):
+    if _should_redirect(src): src = '/host' + src
+    if _should_redirect(dst): dst = '/host' + dst
+    return _orig_shutil_copy2(src, dst, *args, **kwargs)
+_shutil_module.copy2 = _redir_shutil_copy2
+
+_orig_shutil_copyfile = _shutil_module.copyfile
+def _redir_shutil_copyfile(src, dst, *args, **kwargs):
+    if _should_redirect(src): src = '/host' + src
+    if _should_redirect(dst): dst = '/host' + dst
+    return _orig_shutil_copyfile(src, dst, *args, **kwargs)
+_shutil_module.copyfile = _redir_shutil_copyfile
+
+_orig_shutil_copytree = _shutil_module.copytree
+def _redir_shutil_copytree(src, dst, *args, **kwargs):
+    if _should_redirect(src): src = '/host' + src
+    if _should_redirect(dst): dst = '/host' + dst
+    return _orig_shutil_copytree(src, dst, *args, **kwargs)
+_shutil_module.copytree = _redir_shutil_copytree
+
+_orig_shutil_move = _shutil_module.move
+def _redir_shutil_move(src, dst, *args, **kwargs):
+    if _should_redirect(src): src = '/host' + src
+    if _should_redirect(dst): dst = '/host' + dst
+    return _orig_shutil_move(src, dst, *args, **kwargs)
+_shutil_module.move = _redir_shutil_move
+
+_orig_shutil_rmtree = _shutil_module.rmtree
+def _redir_shutil_rmtree(path, *args, **kwargs):
+    if _should_redirect(path): path = '/host' + path
+    return _orig_shutil_rmtree(path, *args, **kwargs)
+_shutil_module.rmtree = _redir_shutil_rmtree
+
+# pathlib.Path
+from pathlib import Path
+
+def _redirect_path(p):
+    s = str(p)
+    if _should_redirect(s):
+        return Path('/host' + s)
+    return p
+
+Path._orig_stat = Path.stat
+def _path_stat(self, *args, **kwargs):
+    return _redirect_path(self)._orig_stat(*args, **kwargs)
+Path.stat = _path_stat
+
+Path._orig_exists = Path.exists
+def _path_exists(self):
+    return _redirect_path(self)._orig_exists()
+Path.exists = _path_exists
+
+Path._orig_is_file = Path.is_file
+def _path_is_file(self):
+    return _redirect_path(self)._orig_is_file()
+Path.is_file = _path_is_file
+
+Path._orig_is_dir = Path.is_dir
+def _path_is_dir(self):
+    return _redirect_path(self)._orig_is_dir()
+Path.is_dir = _path_is_dir
+
+Path._orig_open = Path.open
+def _path_open(self, *args, **kwargs):
+    return _redirect_path(self)._orig_open(*args, **kwargs)
+Path.open = _path_open
+
+Path._orig_read_text = Path.read_text
+def _path_read_text(self, *args, **kwargs):
+    return _redirect_path(self)._orig_read_text(*args, **kwargs)
+Path.read_text = _path_read_text
+
+Path._orig_read_bytes = Path.read_bytes
+def _path_read_bytes(self):
+    return _redirect_path(self)._orig_read_bytes()
+Path.read_bytes = _path_read_bytes
+
+Path._orig_write_text = Path.write_text
+def _path_write_text(self, *args, **kwargs):
+    return _redirect_path(self)._orig_write_text(*args, **kwargs)
+Path.write_text = _path_write_text
+
+Path._orig_write_bytes = Path.write_bytes
+def _path_write_bytes(self, data):
+    return _redirect_path(self)._orig_write_bytes(data)
+Path.write_bytes = _path_write_bytes
+
+Path._orig_mkdir = Path.mkdir
+def _path_mkdir(self, *args, **kwargs):
+    return _redirect_path(self)._orig_mkdir(*args, **kwargs)
+Path.mkdir = _path_mkdir
+
+Path._orig_rmdir = Path.rmdir
+def _path_rmdir(self):
+    return _redirect_path(self)._orig_rmdir()
+Path.rmdir = _path_rmdir
+
+Path._orig_unlink = Path.unlink
+def _path_unlink(self, *args, **kwargs):
+    return _redirect_path(self)._orig_unlink(*args, **kwargs)
+Path.unlink = _path_unlink
+
+Path._orig_iterdir = Path.iterdir
+def _path_iterdir(self):
+    redirected = _redirect_path(self)
+    for p in redirected._orig_iterdir():
+        s = str(p)
+        if s.startswith('/host'):
+            yield Path(s[5:])
+        else:
+            yield p
+Path.iterdir = _path_iterdir
+
+Path._orig_glob = Path.glob
+def _path_glob(self, pattern):
+    redirected = _redirect_path(self)
+    for p in redirected._orig_glob(pattern):
+        s = str(p)
+        if s.startswith('/host'):
+            yield Path(s[5:])
+        else:
+            yield p
+Path.glob = _path_glob
+
+Path._orig_rglob = Path.rglob
+def _path_rglob(self, pattern):
+    redirected = _redirect_path(self)
+    for p in redirected._orig_rglob(pattern):
+        s = str(p)
+        if s.startswith('/host'):
+            yield Path(s[5:])
+        else:
+            yield p
+Path.rglob = _path_rglob
+
+# Set cwd to host mount
+os.chdir('/host' + ${JSON.stringify(input.cwd)})
+`;
+}
+
+/**
+ * Create a custom Emscripten FS for the HTTP bridge.
+ * Mounted at /_jb_http. Python writes a request JSON to /_jb_http/request,
+ * which triggers backend.httpRequest() synchronously and stores the response.
+ * Python then reads the response from the same file.
+ */
+function createHTTPFS(backend: SyncFsBackend, FS: EmscriptenFS) {
+  // Stores the last HTTP response for read-back
+  let lastResponse: Uint8Array | null = null;
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+
+  const HTTPFS = {
+    mount(_mount: EmscriptenMount) {
+      return HTTPFS.createNode(null, "/", 0o40755, 0);
+    },
+
+    createNode(
+      parent: EmscriptenNode | null,
+      name: string,
+      mode: number,
+      dev?: number,
+    ) {
+      const node = FS.createNode(parent, name, mode, dev);
+      node.node_ops = HTTPFS.node_ops;
+      node.stream_ops = HTTPFS.stream_ops;
+      return node;
+    },
+
+    node_ops: {
+      getattr(node: EmscriptenNode) {
+        const isDir = node.name === "/" || node.parent === node;
+        return {
+          dev: 1,
+          ino: node.id,
+          mode: isDir ? 0o40755 : 0o100666,
+          nlink: 1,
+          uid: 0,
+          gid: 0,
+          rdev: 0,
+          size: lastResponse ? lastResponse.length : 0,
+          atime: new Date(),
+          mtime: new Date(),
+          ctime: new Date(),
+          blksize: 4096,
+          blocks: 0,
+        };
+      },
+      setattr(_node: EmscriptenNode, _attr: { mode?: number; size?: number }) {
+        // no-op
+      },
+      lookup(parent: EmscriptenNode, name: string) {
+        return HTTPFS.createNode(parent, name, 0o100666);
+      },
+      mknod(parent: EmscriptenNode, name: string, mode: number, _dev: number) {
+        return HTTPFS.createNode(parent, name, mode);
+      },
+      rename() {},
+      unlink() {},
+      rmdir() {},
+      readdir(_node: EmscriptenNode) {
+        return ["request"];
+      },
+      symlink() {},
+      readlink(_node: EmscriptenNode) {
+        return "";
+      },
+    },
+
+    stream_ops: {
+      open(stream: EmscriptenStream) {
+        delete stream.hostContent;
+        stream.hostModified = false;
+
+        // If opening for read and we have a cached response, serve it
+        const accessMode = stream.flags & 3;
+        const isRead = accessMode === 0; // O_RDONLY
+        if (isRead && lastResponse) {
+          stream.hostContent = lastResponse;
+        }
+      },
+
+      close(stream: EmscriptenStream) {
+        // When the request file is closed after writing, execute the HTTP request
+        if (stream.hostModified && stream.hostContent) {
+          const reqJson = decoder.decode(stream.hostContent);
+          try {
+            const req = JSON.parse(reqJson);
+            const result = backend.httpRequest(req.url, {
+              method: req.method || "GET",
+              headers: req.headers || undefined,
+              body: req.body || undefined,
+            });
+            lastResponse = encoder.encode(JSON.stringify(result));
+          } catch (e) {
+            lastResponse = encoder.encode(
+              JSON.stringify({ error: (e as Error).message }),
+            );
+          }
+        }
+        delete stream.hostContent;
+        delete stream.hostModified;
+      },
+
+      read(
+        stream: EmscriptenStream,
+        buffer: Uint8Array,
+        offset: number,
+        length: number,
+        position: number,
+      ) {
+        const content = stream.hostContent;
+        if (!content) return 0;
+        const size = content.length;
+        if (position >= size) return 0;
+        const bytesToRead = Math.min(length, size - position);
+        buffer.set(content.subarray(position, position + bytesToRead), offset);
+        return bytesToRead;
+      },
+
+      write(
+        stream: EmscriptenStream,
+        buffer: Uint8Array,
+        offset: number,
+        length: number,
+        position: number,
+      ) {
+        let content = stream.hostContent || new Uint8Array(0);
+        const newSize = Math.max(content.length, position + length);
+        if (newSize > content.length) {
+          const newContent = new Uint8Array(newSize);
+          newContent.set(content);
+          content = newContent;
+          stream.hostContent = content;
+        }
+        content.set(buffer.subarray(offset, offset + length), position);
+        stream.hostModified = true;
+        return length;
+      },
+
+      llseek(stream: EmscriptenStream, offset: number, whence: number) {
+        let position = offset;
+        if (whence === 1)
+          position += stream.position; // SEEK_CUR
+        else if (whence === 2) {
+          const content = stream.hostContent;
+          position += content ? content.length : 0;
+        }
+        if (position < 0) throw new FS.ErrnoError(28); // EINVAL
+        return position;
+      },
+    },
+  };
+
+  return HTTPFS;
+}
+
+/**
+ * Generate the HTTP bridge Python code.
+ * Uses /_jb_http/request: write request JSON → triggers HTTP → read response JSON.
+ */
+function generateHttpBridgeCode(): string {
+  return `
+# HTTP bridge: jb_http module
+# Write request JSON to /_jb_http/request (custom FS triggers HTTP via SharedArrayBuffer)
+# Then read response JSON from same path.
+
 class _JbHttpResponse:
     """HTTP response object similar to requests.Response"""
     def __init__(self, data):
@@ -682,21 +1024,23 @@ class _JbHttpResponse:
             raise Exception(f"HTTP {self.status_code}: {self.reason}")
 
 class _JbHttp:
-    """HTTP client that bridges to just-bash's secureFetch"""
+    """HTTP client that bridges to just-bash's secureFetch via custom FS"""
+    def _do_request(self, method, url, headers=None, body=None):
+        import json as _json
+        req = _json.dumps({'url': url, 'method': method, 'headers': headers, 'body': body})
+        # Write request to HTTPFS — close triggers the HTTP call synchronously
+        with _orig_open('/_jb_http/request', 'w') as f:
+            f.write(req)
+        # Read response (cached by HTTPFS from the HTTP call above)
+        with _orig_open('/_jb_http/request', 'r') as f:
+            return _json.loads(f.read())
+
     def request(self, method, url, headers=None, data=None, json_data=None):
-        # Uses _jb_http_req_fn captured above from sys.modules before scrub.
-        # The bridge module itself is blocked from user import.
-        if _jb_http_req_fn is None:
-            raise Exception('HTTP bridge not available')
         if json_data is not None:
             data = json.dumps(json_data)
             headers = headers or {}
             headers['Content-Type'] = 'application/json'
-        # Serialize headers to JSON to avoid PyProxy issues when passing to JS
-        headers_json = json.dumps(headers) if headers else None
-        result_json = _jb_http_req_fn(url, method, headers_json, data)
-        result = json.loads(result_json)
-        # Check for errors from the bridge (network not configured, URL not allowed, etc.)
+        result = self._do_request(method, url, headers, data)
         if 'error' in result and result.get('status') is None:
             raise Exception(result['error'])
         return _JbHttpResponse(result)
@@ -719,7 +1063,6 @@ class _JbHttp:
     def patch(self, url, headers=None, data=None, json=None, **kwargs):
         return self.request('PATCH', url, headers=headers, data=data, json_data=json, **kwargs)
 
-# Register jb_http as an importable module
 import types
 jb_http = types.ModuleType('jb_http')
 jb_http._client = _JbHttp()
@@ -732,644 +1075,183 @@ jb_http.patch = jb_http._client.patch
 jb_http.request = jb_http._client.request
 jb_http.Response = _JbHttpResponse
 sys.modules['jb_http'] = jb_http
-
-# ============================================================
-# SANDBOX SECURITY SETUP
-# ============================================================
-# Only apply sandbox restrictions once per Pyodide instance
-if not hasattr(builtins, '_jb_sandbox_initialized'):
-  def _jb_init_sandbox():
-    builtins._jb_sandbox_initialized = True
-
-    # ------------------------------------------------------------
-    # 1. Block dangerous module imports (js, pyodide, pyodide_js, pyodide.ffi, _pyodide)
-    # These allow sandbox escape via JavaScript execution
-    # ------------------------------------------------------------
-    _BLOCKED_MODULES = frozenset({'js', 'pyodide', 'pyodide_js', 'pyodide.ffi', '_pyodide', '_pyodide_core', 'ctypes', '_ctypes', '_jb_http_bridge'})
-    _BLOCKED_PREFIXES = ('js.', 'pyodide.', 'pyodide_js.', '_pyodide.', '_pyodide_core.', 'ctypes.', '_ctypes.', '_jb_http_bridge.')
-
-    # Remove pre-loaded dangerous modules from sys.modules
-    for _blocked_mod in list(sys.modules.keys()):
-        if _blocked_mod in _BLOCKED_MODULES or any(_blocked_mod.startswith(p) for p in _BLOCKED_PREFIXES):
-            del sys.modules[_blocked_mod]
-
-    # Create a secure callable wrapper that hides introspection attributes
-    # This prevents access to __closure__, __kwdefaults__, __globals__, etc.
-    def _make_secure_import(orig_import, blocked, prefixes):
-        """Create import function wrapped to block introspection."""
-        def _inner(name, globals=None, locals=None, fromlist=(), level=0):
-            if name in blocked or any(name.startswith(p) for p in prefixes):
-                raise ImportError(f"Module '{name}' is blocked in this sandbox")
-            return orig_import(name, globals, locals, fromlist, level)
-
-        class _SecureImport:
-            """Wrapper that hides function internals from introspection."""
-            __slots__ = ()
-            def __call__(self, name, globals=None, locals=None, fromlist=(), level=0):
-                try:
-                    return _inner(name, globals, locals, fromlist, level)
-                except BaseException as _e:
-                    # Strip traceback to prevent frame inspection leaking
-                    # orig_import from _inner's closure variables
-                    _e.__traceback__ = None
-                    raise
-            def __getattribute__(self, name):
-                if name in ('__call__', '__class__'):
-                    return object.__getattribute__(self, name)
-                raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
-            def __repr__(self):
-                return '<built-in function __import__>'
-        return _SecureImport()
-
-    builtins.__import__ = _make_secure_import(builtins.__import__, _BLOCKED_MODULES, _BLOCKED_PREFIXES)
-
-    # ------------------------------------------------------------
-    # 1b. Block imports via sys.meta_path finder
-    # importlib.import_module routes through _bootstrap._find_and_load,
-    # NOT through builtins.__import__. A meta_path finder blocks ALL
-    # import paths at the most fundamental level.
-    # ------------------------------------------------------------
-    _blocked_set = frozenset(_BLOCKED_MODULES)
-    _blocked_pfx = tuple(_BLOCKED_PREFIXES)
-
-    class _BlockingFinder:
-        """Meta-path finder that blocks imports of sandboxed modules."""
-        __slots__ = ()
-        def find_module(self, name, path=None):
-            if name in _blocked_set or any(name.startswith(p) for p in _blocked_pfx):
-                raise ImportError(f"Module '{name}' is blocked in this sandbox")
-            return None
-        def find_spec(self, name, path, target=None):
-            if name in _blocked_set or any(name.startswith(p) for p in _blocked_pfx):
-                raise ImportError(f"Module '{name}' is blocked in this sandbox")
-            return None
-    sys.meta_path.insert(0, _BlockingFinder())
-
-    # ------------------------------------------------------------
-    # 1c. Patch importlib.import_module and importlib.util.find_spec
-    # Belt-and-suspenders: also block at the importlib API level
-    # in case sys.modules already contains the blocked module.
-    # ------------------------------------------------------------
-    import importlib
-    import importlib.util
-
-    _orig_import_module = importlib.import_module
-    def _secure_import_module_inner(name, package=None):
-        if name in _blocked_set or any(name.startswith(p) for p in _blocked_pfx):
-            raise ImportError(f"Module '{name}' is blocked in this sandbox")
-        return _orig_import_module(name, package)
-
-    class _SecureImportModule:
-        __slots__ = ()
-        def __call__(self, name, package=None):
-            try:
-                return _secure_import_module_inner(name, package)
-            except BaseException as _e:
-                _e.__traceback__ = None
-                raise
-        def __getattribute__(self, name):
-            if name in ('__call__', '__class__'):
-                return object.__getattribute__(self, name)
-            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
-        def __repr__(self):
-            return '<function import_module>'
-    importlib.import_module = _SecureImportModule()
-
-    _orig_find_spec = importlib.util.find_spec
-    def _secure_find_spec_inner(name, package=None):
-        if name in _blocked_set or any(name.startswith(p) for p in _blocked_pfx):
-            raise ImportError(f"Module '{name}' is blocked in this sandbox")
-        return _orig_find_spec(name, package)
-
-    class _SecureFindSpec:
-        __slots__ = ()
-        def __call__(self, name, package=None):
-            try:
-                return _secure_find_spec_inner(name, package)
-            except BaseException as _e:
-                _e.__traceback__ = None
-                raise
-        def __getattribute__(self, name):
-            if name in ('__call__', '__class__'):
-                return object.__getattribute__(self, name)
-            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
-        def __repr__(self):
-            return '<function find_spec>'
-    importlib.util.find_spec = _SecureFindSpec()
-
-    # Note: We intentionally do NOT replace sys.modules with a custom dict
-    # subclass. Replacing it breaks lazy imports (e.g., _strptime used by
-    # datetime.strptime) because Pyodide's C-level import machinery
-    # caches the original dict. Instead, we rely on:
-    # 1. Per-run scrubbing of blocked modules from sys.modules
-    # 2. meta_path finder blocking new imports
-    # 3. builtins.__import__ hook blocking import statements
-
-    # ------------------------------------------------------------
-    # 1cc. Patch importlib._bootstrap at the deepest level
-    # _bootstrap.__import__ holds a reference to the ORIGINAL __import__
-    # (not our wrapper). An attacker can use it directly to bypass all
-    # our hooks. Patch it with our wrapper.
-    # Also patch _bootstrap._find_and_load — this is the function that
-    # the C-level import machinery calls. Even if an attacker steals
-    # orig_import via closure introspection AND replaces sys.meta_path,
-    # this blocks the import at the lowest Python-accessible level.
-    # ------------------------------------------------------------
-    _bootstrap_mod = sys.modules.get('importlib._bootstrap')
-    if _bootstrap_mod:
-        _bootstrap_mod.__import__ = builtins.__import__
-
-        _orig_find_and_load = _bootstrap_mod._find_and_load
-        def _secure_find_and_load(name, import_):
-            if name in _blocked_set or any(name.startswith(p) for p in _blocked_pfx):
-                raise ImportError(f"Module '{name}' is blocked in this sandbox")
-            return _orig_find_and_load(name, import_)
-        _bootstrap_mod._find_and_load = _secure_find_and_load
-
-        # Also patch _find_and_load_unlocked (called internally)
-        if hasattr(_bootstrap_mod, '_find_and_load_unlocked'):
-            _orig_find_and_load_unlocked = _bootstrap_mod._find_and_load_unlocked
-            def _secure_find_and_load_unlocked(name, import_):
-                if name in _blocked_set or any(name.startswith(p) for p in _blocked_pfx):
-                    raise ImportError(f"Module '{name}' is blocked in this sandbox")
-                return _orig_find_and_load_unlocked(name, import_)
-            _bootstrap_mod._find_and_load_unlocked = _secure_find_and_load_unlocked
-
-    del _BLOCKED_MODULES, _BLOCKED_PREFIXES, _make_secure_import
-
-    # ------------------------------------------------------------
-    # 1d. Block gc object-discovery functions
-    # gc.get_objects() can find purged module objects still in memory
-    # (held by Pyodide C internals), enabling sandbox escape.
-    # ------------------------------------------------------------
-    import gc as _gc_module
-    _gc_module.get_objects = lambda: []
-    _gc_module.get_referrers = lambda *args: []
-    _gc_module.get_referents = lambda *args: []
-
-    # ------------------------------------------------------------
-    # 1e. Neuter sys.settrace and sys.setprofile
-    # These debugging APIs expose call frames via trace callbacks.
-    # An attacker can use them to inspect closure variables in our
-    # import hooks (e.g., orig_import in _inner), stealing the
-    # original __import__ and bypassing all blocking.
-    # ------------------------------------------------------------
-    sys.settrace = lambda *args: None
-    sys.setprofile = lambda *args: None
-
-    # ------------------------------------------------------------
-    # 2. Path redirection helper
-    # ------------------------------------------------------------
-    def _should_redirect(path):
-        """Check if a path should be redirected to /host."""
-        return (isinstance(path, str) and
-                path.startswith('/') and
-                not path.startswith('/lib') and
-                not path.startswith('/proc') and
-                not path.startswith('/host'))
-
-    # ------------------------------------------------------------
-    # 3. Secure wrapper factory for file operations
-    # ------------------------------------------------------------
-    # This creates callable wrappers that hide __closure__, __globals__, etc.
-    def _make_secure_wrapper(func, name):
-        """Wrap a function to block introspection attributes."""
-        class _SecureWrapper:
-            __slots__ = ()
-            def __call__(self, *args, **kwargs):
-                return func(*args, **kwargs)
-            def __getattribute__(self, attr):
-                if attr in ('__call__', '__class__'):
-                    return object.__getattribute__(self, attr)
-                raise AttributeError(f"'{type(self).__name__}' object has no attribute '{attr}'")
-            def __repr__(self):
-                return f'<built-in function {name}>'
-        return _SecureWrapper()
-
-    # ------------------------------------------------------------
-    # 4. Redirect file operations to /host (with secure wrappers)
-    # ------------------------------------------------------------
-    # builtins.open
-    _orig_open = builtins.open
-    def _redir_open(path, mode='r', *args, **kwargs):
-        if _should_redirect(path):
-            path = '/host' + path
-        return _orig_open(path, mode, *args, **kwargs)
-    builtins.open = _make_secure_wrapper(_redir_open, 'open')
-
-    # os.listdir
-    _orig_listdir = os.listdir
-    def _redir_listdir(path='.'):
-        if _should_redirect(path):
-            path = '/host' + path
-        return _orig_listdir(path)
-    os.listdir = _make_secure_wrapper(_redir_listdir, 'listdir')
-
-    # os.path.exists
-    _orig_exists = os.path.exists
-    def _redir_exists(path):
-        if _should_redirect(path):
-            path = '/host' + path
-        return _orig_exists(path)
-    os.path.exists = _make_secure_wrapper(_redir_exists, 'exists')
-
-    # os.path.isfile
-    _orig_isfile = os.path.isfile
-    def _redir_isfile(path):
-        if _should_redirect(path):
-            path = '/host' + path
-        return _orig_isfile(path)
-    os.path.isfile = _make_secure_wrapper(_redir_isfile, 'isfile')
-
-    # os.path.isdir
-    _orig_isdir = os.path.isdir
-    def _redir_isdir(path):
-        if _should_redirect(path):
-            path = '/host' + path
-        return _orig_isdir(path)
-    os.path.isdir = _make_secure_wrapper(_redir_isdir, 'isdir')
-
-    # os.stat
-    _orig_stat = os.stat
-    def _redir_stat(path, *args, **kwargs):
-        if _should_redirect(path):
-            path = '/host' + path
-        return _orig_stat(path, *args, **kwargs)
-    os.stat = _make_secure_wrapper(_redir_stat, 'stat')
-
-    # os.mkdir
-    _orig_mkdir = os.mkdir
-    def _redir_mkdir(path, *args, **kwargs):
-        if _should_redirect(path):
-            path = '/host' + path
-        return _orig_mkdir(path, *args, **kwargs)
-    os.mkdir = _make_secure_wrapper(_redir_mkdir, 'mkdir')
-
-    # os.makedirs
-    _orig_makedirs = os.makedirs
-    def _redir_makedirs(path, *args, **kwargs):
-        if _should_redirect(path):
-            path = '/host' + path
-        return _orig_makedirs(path, *args, **kwargs)
-    os.makedirs = _make_secure_wrapper(_redir_makedirs, 'makedirs')
-
-    # os.remove
-    _orig_remove = os.remove
-    def _redir_remove(path, *args, **kwargs):
-        if _should_redirect(path):
-            path = '/host' + path
-        return _orig_remove(path, *args, **kwargs)
-    os.remove = _make_secure_wrapper(_redir_remove, 'remove')
-
-    # os.rmdir
-    _orig_rmdir = os.rmdir
-    def _redir_rmdir(path, *args, **kwargs):
-        if _should_redirect(path):
-            path = '/host' + path
-        return _orig_rmdir(path, *args, **kwargs)
-    os.rmdir = _make_secure_wrapper(_redir_rmdir, 'rmdir')
-
-    # os.getcwd - strip /host prefix
-    _orig_getcwd = os.getcwd
-    def _redir_getcwd():
-        cwd = _orig_getcwd()
-        if cwd.startswith('/host'):
-            return cwd[5:]  # Strip '/host' prefix
-        return cwd
-    os.getcwd = _make_secure_wrapper(_redir_getcwd, 'getcwd')
-
-    # os.chdir
-    _orig_chdir = os.chdir
-    def _redir_chdir(path):
-        if _should_redirect(path):
-            path = '/host' + path
-        return _orig_chdir(path)
-    os.chdir = _make_secure_wrapper(_redir_chdir, 'chdir')
-
-    # ------------------------------------------------------------
-    # 5. Additional file operations (glob, walk, scandir, io.open)
-    # ------------------------------------------------------------
-    import glob as _glob_module
-
-    _orig_glob = _glob_module.glob
-    def _redir_glob(pathname, *args, **kwargs):
-        if _should_redirect(pathname):
-            pathname = '/host' + pathname
-        return _orig_glob(pathname, *args, **kwargs)
-    _glob_module.glob = _make_secure_wrapper(_redir_glob, 'glob')
-
-    _orig_iglob = _glob_module.iglob
-    def _redir_iglob(pathname, *args, **kwargs):
-        if _should_redirect(pathname):
-            pathname = '/host' + pathname
-        return _orig_iglob(pathname, *args, **kwargs)
-    _glob_module.iglob = _make_secure_wrapper(_redir_iglob, 'iglob')
-
-    # os.walk (generator - needs special handling)
-    _orig_walk = os.walk
-    def _redir_walk(top, *args, **kwargs):
-        redirected = False
-        if _should_redirect(top):
-            top = '/host' + top
-            redirected = True
-        for dirpath, dirnames, filenames in _orig_walk(top, *args, **kwargs):
-            if redirected and dirpath.startswith('/host'):
-                dirpath = dirpath[5:] if len(dirpath) > 5 else '/'
-            yield dirpath, dirnames, filenames
-    os.walk = _make_secure_wrapper(_redir_walk, 'walk')
-
-    # os.scandir
-    _orig_scandir = os.scandir
-    def _redir_scandir(path='.'):
-        if _should_redirect(path):
-            path = '/host' + path
-        return _orig_scandir(path)
-    os.scandir = _make_secure_wrapper(_redir_scandir, 'scandir')
-
-    # io.open (same secure wrapper as builtins.open)
-    import io as _io_module
-    _io_module.open = builtins.open
-
-    # ------------------------------------------------------------
-    # 6. shutil file operations
-    # ------------------------------------------------------------
-    import shutil as _shutil_module
-
-    # shutil.copy(src, dst)
-    _orig_shutil_copy = _shutil_module.copy
-    def _redir_shutil_copy(src, dst, *args, **kwargs):
-        if _should_redirect(src):
-            src = '/host' + src
-        if _should_redirect(dst):
-            dst = '/host' + dst
-        return _orig_shutil_copy(src, dst, *args, **kwargs)
-    _shutil_module.copy = _make_secure_wrapper(_redir_shutil_copy, 'copy')
-
-    # shutil.copy2(src, dst)
-    _orig_shutil_copy2 = _shutil_module.copy2
-    def _redir_shutil_copy2(src, dst, *args, **kwargs):
-        if _should_redirect(src):
-            src = '/host' + src
-        if _should_redirect(dst):
-            dst = '/host' + dst
-        return _orig_shutil_copy2(src, dst, *args, **kwargs)
-    _shutil_module.copy2 = _make_secure_wrapper(_redir_shutil_copy2, 'copy2')
-
-    # shutil.copyfile(src, dst)
-    _orig_shutil_copyfile = _shutil_module.copyfile
-    def _redir_shutil_copyfile(src, dst, *args, **kwargs):
-        if _should_redirect(src):
-            src = '/host' + src
-        if _should_redirect(dst):
-            dst = '/host' + dst
-        return _orig_shutil_copyfile(src, dst, *args, **kwargs)
-    _shutil_module.copyfile = _make_secure_wrapper(_redir_shutil_copyfile, 'copyfile')
-
-    # shutil.copytree(src, dst)
-    _orig_shutil_copytree = _shutil_module.copytree
-    def _redir_shutil_copytree(src, dst, *args, **kwargs):
-        if _should_redirect(src):
-            src = '/host' + src
-        if _should_redirect(dst):
-            dst = '/host' + dst
-        return _orig_shutil_copytree(src, dst, *args, **kwargs)
-    _shutil_module.copytree = _make_secure_wrapper(_redir_shutil_copytree, 'copytree')
-
-    # shutil.move(src, dst)
-    _orig_shutil_move = _shutil_module.move
-    def _redir_shutil_move(src, dst, *args, **kwargs):
-        if _should_redirect(src):
-            src = '/host' + src
-        if _should_redirect(dst):
-            dst = '/host' + dst
-        return _orig_shutil_move(src, dst, *args, **kwargs)
-    _shutil_module.move = _make_secure_wrapper(_redir_shutil_move, 'move')
-
-    # shutil.rmtree(path)
-    _orig_shutil_rmtree = _shutil_module.rmtree
-    def _redir_shutil_rmtree(path, *args, **kwargs):
-        if _should_redirect(path):
-            path = '/host' + path
-        return _orig_shutil_rmtree(path, *args, **kwargs)
-    _shutil_module.rmtree = _make_secure_wrapper(_redir_shutil_rmtree, 'rmtree')
-
-    # ------------------------------------------------------------
-    # 7. pathlib.Path - redirect path resolution
-    # ------------------------------------------------------------
-    from pathlib import Path, PurePosixPath
-
-    def _redirect_path(p):
-        """Convert a Path to redirect /absolute paths to /host."""
-        s = str(p)
-        if _should_redirect(s):
-            return Path('/host' + s)
-        return p
-
-    # Helper to create method wrappers for Path
-    def _wrap_path_method(orig_method, name):
-        def wrapper(self, *args, **kwargs):
-            redirected = _redirect_path(self)
-            return getattr(redirected, '_orig_' + name)(*args, **kwargs)
-        return wrapper
-
-    # Store original methods with _orig_ prefix, then replace with redirecting versions
-    # Path.stat()
-    Path._orig_stat = Path.stat
-    def _path_stat(self, *args, **kwargs):
-        return _redirect_path(self)._orig_stat(*args, **kwargs)
-    Path.stat = _path_stat
-
-    # Path.exists()
-    Path._orig_exists = Path.exists
-    def _path_exists(self):
-        return _redirect_path(self)._orig_exists()
-    Path.exists = _path_exists
-
-    # Path.is_file()
-    Path._orig_is_file = Path.is_file
-    def _path_is_file(self):
-        return _redirect_path(self)._orig_is_file()
-    Path.is_file = _path_is_file
-
-    # Path.is_dir()
-    Path._orig_is_dir = Path.is_dir
-    def _path_is_dir(self):
-        return _redirect_path(self)._orig_is_dir()
-    Path.is_dir = _path_is_dir
-
-    # Path.open()
-    Path._orig_open = Path.open
-    def _path_open(self, *args, **kwargs):
-        return _redirect_path(self)._orig_open(*args, **kwargs)
-    Path.open = _path_open
-
-    # Path.read_text()
-    Path._orig_read_text = Path.read_text
-    def _path_read_text(self, *args, **kwargs):
-        return _redirect_path(self)._orig_read_text(*args, **kwargs)
-    Path.read_text = _path_read_text
-
-    # Path.read_bytes()
-    Path._orig_read_bytes = Path.read_bytes
-    def _path_read_bytes(self):
-        return _redirect_path(self)._orig_read_bytes()
-    Path.read_bytes = _path_read_bytes
-
-    # Path.write_text()
-    Path._orig_write_text = Path.write_text
-    def _path_write_text(self, *args, **kwargs):
-        return _redirect_path(self)._orig_write_text(*args, **kwargs)
-    Path.write_text = _path_write_text
-
-    # Path.write_bytes()
-    Path._orig_write_bytes = Path.write_bytes
-    def _path_write_bytes(self, data):
-        return _redirect_path(self)._orig_write_bytes(data)
-    Path.write_bytes = _path_write_bytes
-
-    # Path.mkdir()
-    Path._orig_mkdir = Path.mkdir
-    def _path_mkdir(self, *args, **kwargs):
-        return _redirect_path(self)._orig_mkdir(*args, **kwargs)
-    Path.mkdir = _path_mkdir
-
-    # Path.rmdir()
-    Path._orig_rmdir = Path.rmdir
-    def _path_rmdir(self):
-        return _redirect_path(self)._orig_rmdir()
-    Path.rmdir = _path_rmdir
-
-    # Path.unlink()
-    Path._orig_unlink = Path.unlink
-    def _path_unlink(self, *args, **kwargs):
-        return _redirect_path(self)._orig_unlink(*args, **kwargs)
-    Path.unlink = _path_unlink
-
-    # Path.iterdir()
-    Path._orig_iterdir = Path.iterdir
-    def _path_iterdir(self):
-        redirected = _redirect_path(self)
-        for p in redirected._orig_iterdir():
-            # Strip /host prefix from results
-            s = str(p)
-            if s.startswith('/host'):
-                yield Path(s[5:])
-            else:
-                yield p
-    Path.iterdir = _path_iterdir
-
-    # Path.glob()
-    Path._orig_glob = Path.glob
-    def _path_glob(self, pattern):
-        redirected = _redirect_path(self)
-        for p in redirected._orig_glob(pattern):
-            s = str(p)
-            if s.startswith('/host'):
-                yield Path(s[5:])
-            else:
-                yield p
-    Path.glob = _path_glob
-
-    # Path.rglob()
-    Path._orig_rglob = Path.rglob
-    def _path_rglob(self, pattern):
-        redirected = _redirect_path(self)
-        for p in redirected._orig_rglob(pattern):
-            s = str(p)
-            if s.startswith('/host'):
-                yield Path(s[5:])
-            else:
-                yield p
-    Path.rglob = _path_rglob
-
-  _jb_init_sandbox()
-  del _jb_init_sandbox
-
-# Per-run: scrub blocked modules from sys.modules.
-# Pyodide's C-level JsFinder may re-insert 'js' etc. between runs.
-# This is hardcoded inline (not a callable on builtins) so attackers cannot neuter it.
-for _jb_k in list(sys.modules.keys()):
-    if _jb_k in frozenset({'js', 'pyodide', 'pyodide_js', 'pyodide.ffi', '_pyodide', '_pyodide_core', 'ctypes', '_ctypes', '_jb_http_bridge'}) or \\
-       any(_jb_k.startswith(_p) for _p in ('js.', 'pyodide.', 'pyodide_js.', '_pyodide.', '_pyodide_core.', 'ctypes.', '_ctypes.', '_jb_http_bridge.')):
-        try: del sys.modules[_jb_k]
-        except (KeyError, ImportError): pass
-del _jb_k
-
-# Set cwd to host mount
-os.chdir('/host' + ${JSON.stringify(input.cwd)})
-`);
+`;
+}
+
+// Read stdlib zip at module load time (before defense-in-depth activates).
+import { readFileSync } from "node:fs";
+
+const cachedStdlibZip = new Uint8Array(readFileSync(stdlibZipPath));
+
+async function runPython(input: WorkerInput): Promise<WorkerOutput> {
+  const backend = new SyncFsBackend(input.sharedBuffer);
+
+  // Load the CPython Emscripten factory function
+  const createPythonModule = require(`${cpythonDir}/python.cjs`) as (
+    config: Record<string, unknown>,
+  ) => Promise<EmscriptenModule>;
+
+  // During module initialization, buffer output instead of using the SharedArrayBuffer
+  // backend. The bridge handler on the main thread may not be ready yet, and
+  // Atomics.wait() would block the worker indefinitely.
+  let moduleReady = false;
+  const pendingStdout: string[] = [];
+  const pendingStderr: string[] = [];
+
+  let Module: EmscriptenModule;
+  try {
+    Module = await createPythonModule({
+      noInitialRun: true,
+      preRun: [
+        (mod: EmscriptenModule) => {
+          // Write stdlib zip into MEMFS (no real FS access from WASM).
+          // Python's zipimport can import directly from zip files.
+          mod.FS.mkdirTree("/lib");
+          mod.FS.writeFile("/lib/python313.zip", cachedStdlibZip);
+          mod.ENV.PYTHONHOME = "/";
+          mod.ENV.PYTHONPATH = "/lib/python313.zip";
+        },
+      ],
+      print: (text: string) => {
+        if (moduleReady) {
+          backend.writeStdout(`${text}\n`);
+        } else {
+          pendingStdout.push(`${text}\n`);
+        }
+      },
+      printErr: (text: string) => {
+        // Filter out harmless Emscripten/LLVM warnings
+        if (
+          typeof text === "string" &&
+          (text.includes("Could not find platform") ||
+            text.includes("LLVM Profile Error"))
+        ) {
+          return;
+        }
+        if (moduleReady) {
+          backend.writeStderr(`${text}\n`);
+        } else {
+          pendingStderr.push(`${text}\n`);
+        }
+      },
+    });
   } catch (e) {
     return {
       success: false,
-      error: `Failed to set up environment: ${(e as Error).message}`,
+      error: `Failed to load CPython: ${(e as Error).message}`,
     };
   }
 
-  // Run the Python code wrapped in try/except to catch SystemExit
-  // This prevents Pyodide from hanging on sys.exit()
+  // Activate defense-in-depth after WASM loads (first call only).
+  // Subsequent calls reuse the cached compiled module, so webassembly
+  // exclusion in defense config handles that.
+  activateDefense();
+
+  // Module is ready - enable direct backend output and flush any buffered output
+  moduleReady = true;
+  for (const text of pendingStdout) backend.writeStdout(text);
+  for (const text of pendingStderr) backend.writeStderr(text);
+
+  // Stdlib zip is written to MEMFS in the preRun callback above
+
+  // Mount HOSTFS for just-bash filesystem access
+  const HOSTFS = createHOSTFS(backend, Module.FS, Module.PATH);
   try {
-    // Wrap user code to handle sys.exit() gracefully
-    const wrappedCode = `
+    Module.FS.mkdir("/host");
+    Module.FS.mount(HOSTFS, { root: "/" }, "/host");
+  } catch (e) {
+    return {
+      success: false,
+      error: `Failed to mount HOSTFS: ${(e as Error).message}`,
+    };
+  }
+
+  // Mount HTTPFS for HTTP bridge (Python writes request, FS triggers HTTP, Python reads response)
+  const HTTPFS = createHTTPFS(backend, Module.FS);
+  try {
+    Module.FS.mkdir("/_jb_http");
+    Module.FS.mount(HTTPFS, { root: "/" }, "/_jb_http");
+  } catch (e) {
+    return {
+      success: false,
+      error: `Failed to mount HTTPFS: ${(e as Error).message}`,
+    };
+  }
+
+  // Create the setup + user code as a single Python script
+  const setupCode = generateSetupCode(input);
+  const httpBridgeCode = generateHttpBridgeCode();
+  const wrappedCode = `
 import sys
 _jb_exit_code = 0
 try:
+${setupCode
+  .split("\n")
+  .map((line) => `    ${line}`)
+  .join("\n")}
+${httpBridgeCode
+  .split("\n")
+  .map((line) => `    ${line}`)
+  .join("\n")}
 ${input.pythonCode
   .split("\n")
   .map((line) => `    ${line}`)
   .join("\n")}
 except SystemExit as e:
     _jb_exit_code = e.code if isinstance(e.code, int) else (1 if e.code else 0)
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    _jb_exit_code = 1
+sys.exit(_jb_exit_code)
 `;
-    await pyodide.runPythonAsync(wrappedCode);
-    // Get the exit code from Python
-    const exitCode = pyodide.globals.get("_jb_exit_code") as number;
+
+  // Write the script to a temp file in MEMFS and execute via callMain
+  try {
+    Module.FS.mkdir("/tmp");
+  } catch (_e) {
+    // Already exists
+  }
+
+  const encoder = new TextEncoder();
+  const scriptPath = "/tmp/_jb_script.py";
+  const scriptData = encoder.encode(wrappedCode);
+
+  // Write script to Emscripten FS (MEMFS)
+  Module.FS.writeFile(scriptPath, scriptData);
+
+  // Execute CPython with the script
+  try {
+    const ret = Module.callMain([scriptPath]);
+    // callMain returns the exit code, or throws ExitStatus with EXIT_RUNTIME
+    const exitCode =
+      (typeof ret === "number" ? ret : 0) || (process.exitCode as number) || 0;
     backend.exit(exitCode);
     return { success: true };
   } catch (e) {
-    const error = e as Error;
-    backend.writeStderr(`${error.message}\n`);
-    backend.exit(1);
+    const error = e as Error & { status?: number };
+    // Emscripten throws ExitStatus with a status code when EXIT_RUNTIME is set
+    const exitCode = error.status ?? (process.exitCode as number) ?? 1;
+    backend.exit(exitCode);
     return { success: true };
   }
 }
 
-// Defense-in-depth instance - activated AFTER Pyodide loads
+// Defense-in-depth instance
 let defense: WorkerDefenseInDepth | null = null;
 
 /**
- * Initialize Pyodide and then activate defense-in-depth.
- * This phased approach allows Pyodide to load without restrictions,
- * then blocks dangerous globals before user code runs.
+ * Activate defense-in-depth.
+ * Called AFTER CPython WASM loads (WASM compilation needs unrestricted JS).
+ * CPython Emscripten has no JS bridge, so fewer exclusions needed than Pyodide.
  */
-async function initializeWithDefense(): Promise<void> {
-  // Load Pyodide first (needs unrestricted JS features for WASM init)
-  await getPyodide();
+function activateDefense(): void {
+  if (defense) return;
 
-  // Activate defense after Pyodide is loaded.
-  //
-  // Security exclusions required for Pyodide operation:
-  //
-  // 1. proxy: Pyodide's Python-JS interop (pyodide.ffi) wraps JavaScript objects
-  //    in Proxy to make them accessible from Python. Without this, basic operations
-  //    like accessing JS object properties from Python would fail.
-  //    Security impact: Proxy alone cannot execute arbitrary code strings. An attacker
-  //    would need access to Function/eval (which remain blocked) to achieve code execution.
-  //    See: https://pyodide.org/en/stable/usage/type-conversions.html
-  //
-  // 2. setImmediate: Pyodide's webloop (asyncio implementation) uses setImmediate
-  //    for scheduling microtasks and async task execution. Without this, any Python
-  //    code using async/await would hang indefinitely.
-  //    Security impact: setImmediate only accepts function callbacks, not code strings,
-  //    so it cannot be used for arbitrary code execution like setTimeout("code") could.
-  //    See: https://pyodide.org/en/stable/usage/webloop.html
-  //
   defense = new WorkerDefenseInDepth({
     excludeViolationTypes: [
-      "proxy",
-      "setImmediate",
-      // 3. SharedArrayBuffer/Atomics: Used by sync-fs-backend.ts for synchronous
-      //    filesystem communication between Pyodide's WASM thread and the main thread.
-      //    Without this, Pyodide cannot perform synchronous file I/O operations.
+      // SharedArrayBuffer/Atomics: Used by sync-fs-backend.ts for synchronous
+      // filesystem communication between the WASM thread and the main thread.
       "shared_array_buffer",
       "atomics",
     ],
@@ -1379,11 +1261,20 @@ async function initializeWithDefense(): Promise<void> {
   });
 }
 
-// Handle messages from parent
+// Catch unhandled errors in the worker
+process.on("uncaughtException", (e) => {
+  parentPort?.postMessage({
+    success: false,
+    error: `Worker uncaught exception: ${(e as Error).message}`,
+  });
+});
+
+// Handle execution from parent.
+// Each worker runs once with workerData (EXIT_RUNTIME means CPython
+// can only callMain once). Stdlib zip is cached at module scope.
 if (parentPort) {
   if (workerData) {
-    initializeWithDefense()
-      .then(() => runPython(workerData as WorkerInput))
+    runPython(workerData as WorkerInput)
       .then((result) => {
         result.defenseStats = defense?.getStats();
         parentPort?.postMessage(result);
@@ -1396,22 +1287,4 @@ if (parentPort) {
         });
       });
   }
-
-  parentPort.on("message", async (input: WorkerInput) => {
-    try {
-      // Defense should already be active from initial load
-      if (!defense) {
-        await initializeWithDefense();
-      }
-      const result = await runPython(input);
-      result.defenseStats = defense?.getStats();
-      parentPort?.postMessage(result);
-    } catch (e) {
-      parentPort?.postMessage({
-        success: false,
-        error: (e as Error).message,
-        defenseStats: defense?.getStats(),
-      });
-    }
-  });
 }

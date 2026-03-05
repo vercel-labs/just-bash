@@ -254,17 +254,19 @@ No tests for `/dev/fd/` access. The virtual filesystem doesn't implement `/dev/f
 
 ### 4.7 Python Execution Surface (When Enabled)
 
-**Risk**: HIGH (intentional, opt-in)
+**Risk**: MEDIUM (intentional, opt-in, isolation by construction)
 
-When `python: true`, Pyodide provides full Python execution. This significantly expands the attack surface.
+When `python: true`, CPython Emscripten provides full Python execution. Unlike the previous Pyodide-based approach, CPython Emscripten has zero JS bridge code — `import js` fails with `ModuleNotFoundError` because the module simply doesn't exist in the binary. No Python-level sandbox is needed.
 
 **Mitigations**:
 - Disabled by default; must be explicitly enabled
 - 30-second timeout (`maxPythonTimeoutMs`)
 - Runs in a separate `Worker` thread with `WorkerDefenseInDepth`
-- Python-level sandbox blocks `js`, `pyodide`, `pyodide_js`, `pyodide.ffi` imports
-- Dangerous module attributes (`__closure__`, `__globals__`, `__kwdefaults__`) hidden
-- Some defense-in-depth exclusions required for Pyodide internals (`proxy`, `setImmediate`, `shared_array_buffer`, `atomics`)
+- No JS bridge: `import js`, `import pyodide` → `ModuleNotFoundError` (module not in binary)
+- `os.system()` patched to no-op at Emscripten level (returns -1)
+- `subprocess` blocked by Emscripten ("emscripten does not support processes")
+- Network blocked (Emscripten without NODERAWFS has no TCP/UDP)
+- Fewer defense-in-depth exclusions needed (only `shared_array_buffer`, `atomics` for sync FS)
 
 ### 4.8 Error Message Information Leakage
 

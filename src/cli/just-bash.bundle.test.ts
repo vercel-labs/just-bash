@@ -105,7 +105,7 @@ describe("just-bash bundled binary", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  it("should lazy-load commands (python3 with external pyodide)", async () => {
+  it("should lazy-load commands (python3 with CPython Emscripten)", async () => {
     const result = await runBin([
       "--python",
       "-c",
@@ -114,7 +114,7 @@ describe("just-bash bundled binary", () => {
     expect(result.stdout).toBe("3\n");
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
-  }, 60000); // 60s timeout for first Pyodide load
+  }, 60000); // 60s timeout for first WASM load
 });
 
 describe("just-bash CJS bundle", () => {

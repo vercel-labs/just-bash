@@ -14,7 +14,7 @@ export const BROWSER_EXCLUDED_COMMANDS: readonly string[] = [
   "yq", // Requires fast-xml-parser and other Node.js-specific parsing
   "xan", // Complex CSV/data processing with Node.js dependencies
   "sqlite3", // Uses sql.js (WASM) which requires Node.js worker threads
-  "python3", // Uses Pyodide (WASM) which requires Node.js worker threads
+  "python3", // Uses CPython Emscripten (WASM) which requires Node.js worker threads
   "python", // Alias for python3
 ] as const;
 
