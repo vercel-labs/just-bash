@@ -60,7 +60,8 @@
       "!.claude",
       "!.pnpm-store",
       "!.docs-test-tmp",
-      "!src/commands/python3/worker.js"
+      "!src/commands/python3/worker.js",
+      "!vendor"
     ]
   }
 }

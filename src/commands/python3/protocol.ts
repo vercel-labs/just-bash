@@ -2,7 +2,7 @@
  * SharedArrayBuffer protocol for synchronous filesystem bridge
  *
  * This protocol enables synchronous filesystem access from a worker thread
- * (where Pyodide/Python runs) to the main thread (which has async IFileSystem).
+ * (where CPython/Python runs) to the main thread (which has async IFileSystem).
  */
 
 // Type declaration for Atomics.waitAsync (available in Node.js but not in TS lib)

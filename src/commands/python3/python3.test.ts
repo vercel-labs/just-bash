@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
-// Note: These tests use Pyodide which downloads ~30MB on first run.
-// The first test will be slow, subsequent tests reuse the cached instance.
+// Note: These tests use CPython Emscripten which loads ~9MB WASM on first run.
+// The first test will be slow, subsequent tests reuse the worker.
 
 describe("python3", () => {
   describe("basic execution", () => {
@@ -243,4 +243,6 @@ python3 -c "import os; print(os.environ.get('MY_VAR', 'not found'))"
       }
     });
   });
+
+  // Full security tests are in python3.security.test.ts
 });
