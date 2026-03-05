@@ -72,7 +72,7 @@
     "lint:fix": "biome check --write .",
     "knip": "knip",
     "test": "vitest",
-    "test:run": "vitest run --exclude src/security/fuzzing/",
+    "test:run": "vitest run --exclude src/security/fuzzing/ --exclude src/commands/python3/ --exclude src/agent-examples/python-scripting.test.ts",
     "test:dist": "vitest run src/cli/just-bash.bundle.test.ts",
     "test:unit": "vitest run --config vitest.unit.config.ts",
     "test:python": "vitest run src/commands/python3/ src/agent-examples/python-scripting.test.ts",
