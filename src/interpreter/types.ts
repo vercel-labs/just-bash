@@ -395,6 +395,12 @@ export interface InterpreterState
    * inside $(...) or backticks.
    */
   suppressVerbose?: boolean;
+
+  /**
+   * Abort signal for cooperative cancellation.
+   * Checked at statement boundaries; when aborted, execution stops.
+   */
+  signal?: AbortSignal;
 }
 
 export interface InterpreterContext {

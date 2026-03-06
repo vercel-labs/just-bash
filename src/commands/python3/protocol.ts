@@ -114,8 +114,9 @@ const StatLayout = {
 } as const;
 
 /** Create a new SharedArrayBuffer for the protocol */
+import { _Atomics, _SharedArrayBuffer } from "../../timers.js";
 export function createSharedBuffer(): SharedArrayBuffer {
-  return new SharedArrayBuffer(Size.TOTAL);
+  return new _SharedArrayBuffer(Size.TOTAL);
 }
 
 /**
@@ -133,67 +134,70 @@ export class ProtocolBuffer {
   }
 
   getOpCode(): OpCodeType {
-    return Atomics.load(this.int32View, Offset.OP_CODE / 4) as OpCodeType;
+    return _Atomics.load(this.int32View, Offset.OP_CODE / 4) as OpCodeType;
   }
 
   setOpCode(code: OpCodeType): void {
-    Atomics.store(this.int32View, Offset.OP_CODE / 4, code);
+    _Atomics.store(this.int32View, Offset.OP_CODE / 4, code);
   }
 
   getStatus(): StatusType {
-    return Atomics.load(this.int32View, Offset.STATUS / 4) as StatusType;
+    return _Atomics.load(this.int32View, Offset.STATUS / 4) as StatusType;
   }
 
   setStatus(status: StatusType): void {
-    Atomics.store(this.int32View, Offset.STATUS / 4, status);
+    _Atomics.store(this.int32View, Offset.STATUS / 4, status);
   }
 
   getPathLength(): number {
-    return Atomics.load(this.int32View, Offset.PATH_LENGTH / 4);
+    return _Atomics.load(this.int32View, Offset.PATH_LENGTH / 4);
   }
 
   setPathLength(length: number): void {
-    Atomics.store(this.int32View, Offset.PATH_LENGTH / 4, length);
+    _Atomics.store(this.int32View, Offset.PATH_LENGTH / 4, length);
   }
 
   getDataLength(): number {
-    return Atomics.load(this.int32View, Offset.DATA_LENGTH / 4);
+    return _Atomics.load(this.int32View, Offset.DATA_LENGTH / 4);
   }
 
   setDataLength(length: number): void {
-    Atomics.store(this.int32View, Offset.DATA_LENGTH / 4, length);
+    _Atomics.store(this.int32View, Offset.DATA_LENGTH / 4, length);
   }
 
   getResultLength(): number {
-    return Atomics.load(this.int32View, Offset.RESULT_LENGTH / 4);
+    return _Atomics.load(this.int32View, Offset.RESULT_LENGTH / 4);
   }
 
   setResultLength(length: number): void {
-    Atomics.store(this.int32View, Offset.RESULT_LENGTH / 4, length);
+    _Atomics.store(this.int32View, Offset.RESULT_LENGTH / 4, length);
   }
 
   getErrorCode(): ErrorCodeType {
-    return Atomics.load(this.int32View, Offset.ERROR_CODE / 4) as ErrorCodeType;
+    return _Atomics.load(
+      this.int32View,
+      Offset.ERROR_CODE / 4,
+    ) as ErrorCodeType;
   }
 
   setErrorCode(code: ErrorCodeType): void {
-    Atomics.store(this.int32View, Offset.ERROR_CODE / 4, code);
+    _Atomics.store(this.int32View, Offset.ERROR_CODE / 4, code);
   }
 
   getFlags(): number {
-    return Atomics.load(this.int32View, Offset.FLAGS / 4);
+    return _Atomics.load(this.int32View, Offset.FLAGS / 4);
   }
 
   setFlags(flags: number): void {
-    Atomics.store(this.int32View, Offset.FLAGS / 4, flags);
+    _Atomics.store(this.int32View, Offset.FLAGS / 4, flags);
   }
 
   getMode(): number {
-    return Atomics.load(this.int32View, Offset.MODE / 4);
+    return _Atomics.load(this.int32View, Offset.MODE / 4);
   }
 
   setMode(mode: number): void {
-    Atomics.store(this.int32View, Offset.MODE / 4, mode);
+    _Atomics.store(this.int32View, Offset.MODE / 4, mode);
   }
 
   getPath(): string {
@@ -322,7 +326,7 @@ export class ProtocolBuffer {
   }
 
   waitForReady(timeout?: number): "ok" | "timed-out" | "not-equal" {
-    return Atomics.wait(
+    return _Atomics.wait(
       this.int32View,
       Offset.STATUS / 4,
       Status.PENDING,
@@ -336,7 +340,7 @@ export class ProtocolBuffer {
     | { async: false; value: "not-equal" | "timed-out" }
     | { async: true; value: Promise<"ok" | "timed-out"> } {
     // Wait for status to change from PENDING (any change means worker set READY)
-    return Atomics.waitAsync(
+    return _Atomics.waitAsync(
       this.int32View,
       Offset.STATUS / 4,
       Status.PENDING,
@@ -364,7 +368,7 @@ export class ProtocolBuffer {
 
       // Wait for any status change
       const remainingMs = timeout - elapsed;
-      const result = Atomics.waitAsync(
+      const result = _Atomics.waitAsync(
         this.int32View,
         Offset.STATUS / 4,
         status,
@@ -382,7 +386,7 @@ export class ProtocolBuffer {
   }
 
   waitForResult(timeout?: number): "ok" | "timed-out" | "not-equal" {
-    return Atomics.wait(
+    return _Atomics.wait(
       this.int32View,
       Offset.STATUS / 4,
       Status.READY,
@@ -391,7 +395,7 @@ export class ProtocolBuffer {
   }
 
   notify(): number {
-    return Atomics.notify(this.int32View, Offset.STATUS / 4);
+    return _Atomics.notify(this.int32View, Offset.STATUS / 4);
   }
 
   reset(): void {

@@ -34,6 +34,7 @@ describe("curl HTTP method restrictions", () => {
     it("allows GET requests by default", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl https://api.example.com/data");
@@ -44,6 +45,7 @@ describe("curl HTTP method restrictions", () => {
     it("allows HEAD requests by default", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl -I https://api.example.com/data");
@@ -54,6 +56,7 @@ describe("curl HTTP method restrictions", () => {
     it("blocks POST requests by default", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec(
@@ -67,6 +70,7 @@ describe("curl HTTP method restrictions", () => {
     it("blocks PUT requests by default", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl -X PUT https://api.example.com/data");
@@ -78,6 +82,7 @@ describe("curl HTTP method restrictions", () => {
     it("blocks DELETE requests by default", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec(
@@ -91,6 +96,7 @@ describe("curl HTTP method restrictions", () => {
     it("blocks PATCH requests by default", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec(
@@ -104,6 +110,7 @@ describe("curl HTTP method restrictions", () => {
     it("blocks -d data (implies POST) by default", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec(
@@ -119,6 +126,7 @@ describe("curl HTTP method restrictions", () => {
     it("allows configured methods", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["GET", "POST"],
@@ -134,6 +142,7 @@ describe("curl HTTP method restrictions", () => {
     it("blocks methods not in allowed list", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["GET", "POST"],
@@ -150,6 +159,7 @@ describe("curl HTTP method restrictions", () => {
     it("allows all specified methods", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
@@ -169,6 +179,7 @@ describe("curl HTTP method restrictions", () => {
     it("method check is case-insensitive", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["GET", "POST"],
@@ -185,6 +196,7 @@ describe("curl HTTP method restrictions", () => {
     it("allows all methods with dangerous flag", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: { dangerouslyAllowFullInternetAccess: true },
       });
 
@@ -201,6 +213,7 @@ describe("curl HTTP method restrictions", () => {
     it("allows POST with data when dangerous flag is set", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: { dangerouslyAllowFullInternetAccess: true },
       });
       const result = await env.exec(
@@ -214,6 +227,7 @@ describe("curl HTTP method restrictions", () => {
     it("shows allowed methods in error message", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec(
@@ -226,6 +240,7 @@ describe("curl HTTP method restrictions", () => {
     it("silent mode hides method error", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec(
@@ -238,6 +253,7 @@ describe("curl HTTP method restrictions", () => {
     it("-sS shows method error", async () => {
       mockFetch.mockClear();
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec(

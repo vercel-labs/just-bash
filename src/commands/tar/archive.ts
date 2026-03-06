@@ -61,6 +61,8 @@ export type { TarEntry, TarHeader, ParsedTarEntryWithData };
 
 // Maximum archive size to prevent runaway compute (100MB)
 const MAX_ARCHIVE_SIZE: number = 100 * 1024 * 1024;
+// Tar archives are 512-byte block aligned
+const TAR_BLOCK_SIZE = 512;
 // Maximum number of entries to prevent runaway compute
 const MAX_ENTRIES: number = 10000;
 
@@ -198,6 +200,15 @@ export async function parseArchive(
     return {
       entries: [],
       error: `Archive too large (max ${MAX_ARCHIVE_SIZE} bytes)`,
+    };
+  }
+
+  // Reject obviously malformed/truncated archives early.
+  // A tar stream must contain at least one 512-byte block and be block-aligned.
+  if (data.length < TAR_BLOCK_SIZE || data.length % TAR_BLOCK_SIZE !== 0) {
+    return {
+      entries: [],
+      error: "Invalid tar archive format",
     };
   }
 
@@ -410,11 +421,26 @@ export async function parseBzip2CompressedArchive(
 }
 
 /**
- * Parse an xz-compressed tar archive
+ * Parse an xz-compressed tar archive.
+ *
+ * @param data - Raw archive bytes
+ * @param options - Options controlling decompression behavior
+ * @param options.allowNativeCodecs - When false (default), rejects xz decompression
+ *   to avoid passing untrusted bytes to native addons (node-liblzma).
  */
 export async function parseXzCompressedArchive(
   data: Uint8Array,
+  options?: { allowNativeCodecs?: boolean },
 ): Promise<{ entries: ParsedEntry[]; error?: string }> {
+  if (!options?.allowNativeCodecs) {
+    return {
+      entries: [],
+      error:
+        "xz decompression is disabled by default (native codec risk). " +
+        "Pass { allowNativeCodecs: true } to opt in, or decompress the archive externally before extraction.",
+    };
+  }
+
   if (data.length > MAX_ARCHIVE_SIZE) {
     return {
       entries: [],
@@ -473,11 +499,26 @@ export async function createZstdCompressedArchive(
 }
 
 /**
- * Parse a zstd-compressed tar archive
+ * Parse a zstd-compressed tar archive.
+ *
+ * @param data - Raw archive bytes
+ * @param options - Options controlling decompression behavior
+ * @param options.allowNativeCodecs - When false (default), rejects zstd decompression
+ *   to avoid passing untrusted bytes to native addons (@mongodb-js/zstd).
  */
 export async function parseZstdCompressedArchive(
   data: Uint8Array,
+  options?: { allowNativeCodecs?: boolean },
 ): Promise<{ entries: ParsedEntry[]; error?: string }> {
+  if (!options?.allowNativeCodecs) {
+    return {
+      entries: [],
+      error:
+        "zstd decompression is disabled by default (native codec risk). " +
+        "Pass { allowNativeCodecs: true } to opt in, or decompress the archive externally before extraction.",
+    };
+  }
+
   if (data.length > MAX_ARCHIVE_SIZE) {
     return {
       entries: [],

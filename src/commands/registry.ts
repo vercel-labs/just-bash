@@ -1,6 +1,7 @@
 // Command registry with statically analyzable lazy loading
 // Each command has an explicit loader function for bundler compatibility (Next.js, etc.)
 
+import { DefenseInDepthBox } from "../security/defense-in-depth-box.js";
 import type { Command, CommandContext, ExecResult } from "../types.js";
 
 type CommandLoader = () => Promise<Command>;
@@ -525,7 +526,11 @@ function createLazyCommand(def: LazyCommandDef): Command {
       let cmd = cache.get(def.name);
 
       if (!cmd) {
-        cmd = await def.load();
+        // Lazy imports run inside the defense-in-depth context.
+        // Module loading may access blocked globals (e.g., worker_threads
+        // uses SharedArrayBuffer, sql.js uses WebAssembly), so we suspend
+        // blocking during the import.
+        cmd = await DefenseInDepthBox.runTrustedAsync(() => def.load());
         cache.set(def.name, cmd);
       }
 

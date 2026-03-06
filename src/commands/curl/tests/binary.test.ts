@@ -40,6 +40,7 @@ describe("curl binary data", () => {
       }) as typeof fetch;
 
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl https://api.example.com/binary");
@@ -58,6 +59,7 @@ describe("curl binary data", () => {
       }) as typeof fetch;
 
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       await env.exec("curl -o /output.bin https://api.example.com/binary");
@@ -77,6 +79,7 @@ describe("curl binary data", () => {
       }) as typeof fetch;
 
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl https://api.example.com/binary");
@@ -93,6 +96,7 @@ describe("curl binary data", () => {
       }) as typeof fetch;
 
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["POST"],
@@ -114,6 +118,7 @@ describe("curl binary data", () => {
 
       const binaryContent = "binary\0file\0content";
       const env = new Bash({
+        defenseInDepth: false,
         files: { "/data.bin": binaryContent },
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
@@ -133,6 +138,7 @@ describe("curl binary data", () => {
 
       const binaryContent = "file\0with\0binary";
       const env = new Bash({
+        defenseInDepth: false,
         files: { "/upload.bin": binaryContent },
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
@@ -156,6 +162,7 @@ describe("curl binary data", () => {
       }) as typeof fetch;
 
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/binary.bin": new Uint8Array([
             0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x57, 0x6f, 0x72, 0x6c, 0x64,

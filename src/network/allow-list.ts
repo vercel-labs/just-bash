@@ -104,6 +104,41 @@ export function isUrlAllowed(
 }
 
 /**
+ * Check if a hostname is a private/loopback IP address.
+ * Only checks the string format — does not perform DNS resolution.
+ */
+export function isPrivateIp(hostname: string): boolean {
+  // Strip IPv6 brackets
+  const h = hostname.startsWith("[") ? hostname.slice(1, -1) : hostname;
+
+  // IPv4
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) {
+    const parts = h.split(".").map(Number);
+    const [a, b] = parts;
+    if (a === 127) return true; // 127.0.0.0/8
+    if (a === 10) return true; // 10.0.0.0/8
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16
+    if (a === 169 && b === 254) return true; // 169.254.0.0/16
+    if (a === 0) return true; // 0.0.0.0
+    return false;
+  }
+
+  // IPv6
+  const lower = h.toLowerCase();
+  if (lower === "::1") return true;
+  // fe80::/10 — first 10 bits are 1111 1110 10, covering fe80-febf
+  if (/^fe[89ab][0-9a-f]/.test(lower)) return true;
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // fc00::/7
+  if (lower === "::") return true; // unspecified
+  // IPv4-mapped IPv6 (::ffff:x.x.x.x)
+  const v4mapped = lower.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (v4mapped) return isPrivateIp(v4mapped[1]);
+
+  return false;
+}
+
+/**
  * Validates an allow-list configuration.
  * Each entry must be a full origin (scheme + host), optionally followed by a path prefix.
  * Returns an array of error messages for invalid entries.

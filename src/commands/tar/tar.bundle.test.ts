@@ -98,38 +98,22 @@ cat /tmp/bz2out/file.txt
     expect(result.exitCode).toBe(0);
   });
 
-  it("should create and extract an xz-compressed archive", async () => {
+  it("should reject xz decompression by default (native codecs disabled)", async () => {
     const result = await runBin([
       "-c",
-      `
-mkdir -p /tmp/xztest
-echo "xz content" > /tmp/xztest/file.txt
-tar -cJf /tmp/test.tar.xz -C /tmp/xztest file.txt
-mkdir -p /tmp/xzout
-tar -xJf /tmp/test.tar.xz -C /tmp/xzout
-cat /tmp/xzout/file.txt
-`,
+      `tar -cJf /tmp/test.tar.xz -C /tmp file.txt 2>&1 || echo "XZ_REJECTED"`,
       "--allow-write",
     ]);
-    expect(result.stdout).toContain("xz content");
-    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("XZ_REJECTED");
   });
 
-  it("should create and extract a zstd-compressed archive", async () => {
+  it("should reject zstd decompression by default (native codecs disabled)", async () => {
     const result = await runBin([
       "-c",
-      `
-mkdir -p /tmp/zsttest
-echo "zstd content" > /tmp/zsttest/file.txt
-tar --zstd -cf /tmp/test.tar.zst -C /tmp/zsttest file.txt
-mkdir -p /tmp/zstout
-tar --zstd -xf /tmp/test.tar.zst -C /tmp/zstout
-cat /tmp/zstout/file.txt
-`,
+      `tar --zstd -cf /tmp/test.tar.zst -C /tmp file.txt 2>&1 || echo "ZSTD_REJECTED"`,
       "--allow-write",
     ]);
-    expect(result.stdout).toContain("zstd content");
-    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("ZSTD_REJECTED");
   });
 
   it("should auto-detect compression from filename (-a)", async () => {

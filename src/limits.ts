@@ -51,6 +51,12 @@ export interface ExecutionLimits {
 
   /** Maximum brace expansion results (default: 10000) */
   maxBraceExpansionResults?: number;
+
+  /** Maximum total output size (stdout + stderr) in bytes (default: 10MB = 10485760) */
+  maxOutputSize?: number;
+
+  /** Maximum number of open file descriptors (default: 1024) */
+  maxFileDescriptors?: number;
 }
 
 /**
@@ -73,6 +79,8 @@ const DEFAULT_LIMITS: Required<ExecutionLimits> = {
   maxHeredocSize: 10485760, // 10MB
   maxSubstitutionDepth: 50,
   maxBraceExpansionResults: 10000,
+  maxOutputSize: 10485760, // 10MB
+  maxFileDescriptors: 1024,
 };
 
 /**
@@ -112,5 +120,8 @@ export function resolveLimits(
     maxBraceExpansionResults:
       userLimits.maxBraceExpansionResults ??
       DEFAULT_LIMITS.maxBraceExpansionResults,
+    maxOutputSize: userLimits.maxOutputSize ?? DEFAULT_LIMITS.maxOutputSize,
+    maxFileDescriptors:
+      userLimits.maxFileDescriptors ?? DEFAULT_LIMITS.maxFileDescriptors,
   };
 }

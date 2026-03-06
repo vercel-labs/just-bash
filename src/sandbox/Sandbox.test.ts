@@ -482,4 +482,23 @@ describe("Sandbox API", () => {
       expect(stderr).toContain("No such file");
     });
   });
+
+  describe("defense-in-depth", () => {
+    it("should enable defense-in-depth by default", async () => {
+      const sandbox = await Sandbox.create();
+      // Defense-in-depth is active — verify via bashEnvInstance
+      expect(sandbox.bashEnvInstance).toBeDefined();
+      // Execute a command to verify it works with defense enabled
+      const cmd = await sandbox.runCommand("echo ok");
+      const stdout = await cmd.stdout();
+      expect(stdout.trim()).toBe("ok");
+    });
+
+    it("should allow disabling defense-in-depth", async () => {
+      const sandbox = await Sandbox.create({ defenseInDepth: false });
+      const cmd = await sandbox.runCommand("echo ok");
+      const stdout = await cmd.stdout();
+      expect(stdout.trim()).toBe("ok");
+    });
+  });
 });

@@ -9,6 +9,8 @@
  */
 
 import type { FunctionDefNode } from "./ast/types.js";
+// Eagerly import timers to capture references before defense-in-depth patches them
+import "./timers.js";
 import {
   type CommandName,
   createLazyCommands,
@@ -27,6 +29,7 @@ import { sanitizeErrorMessage } from "./fs/sanitize-error.js";
 import { mapToRecord, mapToRecordWithExtras } from "./helpers/env.js";
 import {
   ArithmeticError,
+  ExecutionAbortedError,
   ExecutionLimitError,
   ExitError,
   PosixFatalError,
@@ -228,6 +231,11 @@ export interface ExecOptions {
    * This will be available to commands via stdin (e.g., for `bash -c 'cat'`).
    */
   stdin?: string;
+  /**
+   * Abort signal for cooperative cancellation.
+   * When aborted, the interpreter stops executing at the next statement boundary.
+   */
+  signal?: AbortSignal;
 }
 
 export class Bash {
@@ -300,8 +308,8 @@ export class Bash {
     // Store logger if provided
     this.logger = options.logger;
 
-    // Store defense-in-depth config if provided
-    this.defenseInDepthConfig = options.defenseInDepth;
+    // Defense-in-depth defaults to enabled
+    this.defenseInDepthConfig = options.defenseInDepth ?? true;
 
     // Store coverage writer if provided (for fuzzing instrumentation)
     this.coverageWriter = options.coverage;
@@ -555,6 +563,8 @@ export class Bash {
       hashTable: this.state.hashTable,
       // Pass stdin through to commands (for bash -c with piped input)
       groupStdin: options?.stdin,
+      // Cooperative cancellation signal (used by timeout command)
+      signal: options?.signal,
     };
 
     // Normalize indented multi-line scripts (unless rawScript is true)
@@ -646,6 +656,15 @@ export class Bash {
           stdout: error.stdout,
           stderr: error.stderr,
           exitCode: 1,
+          env: mapToRecordWithExtras(this.state.env, options?.env),
+        });
+      }
+      // ExecutionAbortedError is thrown when an AbortSignal fires (timeout cancellation)
+      if (error instanceof ExecutionAbortedError) {
+        return this.logResult({
+          stdout: error.stdout,
+          stderr: error.stderr,
+          exitCode: 124, // Same as timeout exit code
           env: mapToRecordWithExtras(this.state.env, options?.env),
         });
       }

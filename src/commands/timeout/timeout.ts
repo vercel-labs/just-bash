@@ -1,3 +1,4 @@
+import { _setTimeout } from "../../timers.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -148,19 +149,26 @@ export const timeoutCommand: Command = {
       })
       .join(" ");
 
-    // Race between command and timeout
+    // Use AbortController for cooperative cancellation.
+    // When the timeout fires, the signal is aborted, causing the interpreter
+    // to stop at the next statement boundary — no post-timeout side effects.
+    const controller = new AbortController();
+
     const timeoutPromise = new Promise<{ timedOut: true }>((resolve) => {
-      setTimeout(() => resolve({ timedOut: true }), durationMs);
+      _setTimeout(() => {
+        controller.abort();
+        resolve({ timedOut: true });
+      }, durationMs);
     });
 
     const execPromise = ctx
-      .exec(commandStr, { cwd: ctx.cwd })
+      .exec(commandStr, { cwd: ctx.cwd, signal: controller.signal })
       .then((result) => ({ timedOut: false as const, result }));
 
     const outcome = await Promise.race([timeoutPromise, execPromise]);
 
     if (outcome.timedOut) {
-      // Command timed out
+      // Command timed out — the abort signal ensures it stops
       return {
         stdout: "",
         stderr: "",

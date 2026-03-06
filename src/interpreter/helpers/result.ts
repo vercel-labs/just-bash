@@ -77,7 +77,15 @@ export function testResult(passed: boolean): ExecResult {
  */
 export function throwExecutionLimit(
   message: string,
-  limitType: "recursion" | "iterations" | "commands",
+  limitType:
+    | "recursion"
+    | "iterations"
+    | "commands"
+    | "string_length"
+    | "glob_operations"
+    | "substitution_depth"
+    | "output_size"
+    | "file_descriptors",
   stdout = "",
   stderr = "",
 ): never {

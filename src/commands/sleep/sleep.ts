@@ -1,3 +1,4 @@
+import { _clearTimeout, _setTimeout } from "../../timers.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
@@ -77,11 +78,29 @@ export const sleepCommand: Command = {
       totalMs = MAX_SLEEP_MS;
     }
 
+    // Check if already aborted before sleeping
+    if (ctx.signal?.aborted) {
+      return { stdout: "", stderr: "", exitCode: 0 };
+    }
+
     // Use mock sleep if available in context, otherwise real setTimeout
     if (ctx.sleep) {
       await ctx.sleep(totalMs);
+    } else if (ctx.signal) {
+      // Abort-aware sleep: resolve early if the signal fires
+      await new Promise<void>((resolve) => {
+        const timer = _setTimeout(resolve, totalMs);
+        ctx.signal?.addEventListener(
+          "abort",
+          () => {
+            _clearTimeout(timer);
+            resolve();
+          },
+          { once: true },
+        );
+      });
     } else {
-      await new Promise((resolve) => setTimeout(resolve, totalMs));
+      await new Promise((resolve) => _setTimeout(resolve, totalMs));
     }
 
     return { stdout: "", stderr: "", exitCode: 0 };

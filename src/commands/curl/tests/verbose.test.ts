@@ -36,6 +36,7 @@ afterAll(() => {
 
 const createEnv = () =>
   new Bash({
+    defenseInDepth: false,
     network: { allowedUrlPrefixes: ["https://api.example.com"] },
   });
 
@@ -131,6 +132,7 @@ describe("curl verbose output", () => {
   describe("verbose with different HTTP methods", () => {
     it("should show POST method in verbose output", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["POST"],
@@ -144,6 +146,7 @@ describe("curl verbose output", () => {
 
     it("should show PUT method in verbose output", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["PUT"],
@@ -157,6 +160,7 @@ describe("curl verbose output", () => {
 
     it("should show DELETE method in verbose output", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["DELETE"],

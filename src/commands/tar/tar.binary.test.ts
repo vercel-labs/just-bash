@@ -112,7 +112,7 @@ describe("tar with binary data", () => {
       expect(result.stdout).toBe("bzip2 content");
     });
 
-    it("should handle xz archive piped through cat", async () => {
+    it("should reject xz archive piped through cat by default", async () => {
       const env = new Bash({
         files: {
           "/src/file.txt": "xz content",
@@ -120,13 +120,11 @@ describe("tar with binary data", () => {
       });
 
       await env.exec("tar -cJf /archive.tar.xz -C /src file.txt");
-      await env.exec("cat /archive.tar.xz | tar -xJ -C /dest");
-
-      const result = await env.exec("cat /dest/file.txt");
-      expect(result.stdout).toBe("xz content");
+      const result = await env.exec("cat /archive.tar.xz | tar -xJ -C /dest");
+      expect(result.stderr).toContain("disabled by default");
     });
 
-    it("should handle zstd archive piped through cat", async () => {
+    it("should reject zstd archive piped through cat by default", async () => {
       const env = new Bash({
         files: {
           "/src/file.txt": "zstd content",
@@ -134,10 +132,10 @@ describe("tar with binary data", () => {
       });
 
       await env.exec("tar --zstd -cf /archive.tar.zst -C /src file.txt");
-      await env.exec("cat /archive.tar.zst | tar --zstd -x -C /dest");
-
-      const result = await env.exec("cat /dest/file.txt");
-      expect(result.stdout).toBe("zstd content");
+      const result = await env.exec(
+        "cat /archive.tar.zst | tar --zstd -x -C /dest",
+      );
+      expect(result.stderr).toContain("disabled by default");
     });
   });
 

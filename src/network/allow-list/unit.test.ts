@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  isPrivateIp,
   isUrlAllowed,
   matchesAllowListEntry,
   normalizeAllowListEntry,
   parseUrl,
   validateAllowList,
 } from "../allow-list.js";
+import { createSecureFetch } from "../fetch.js";
 
 describe("parseUrl", () => {
   it("parses a simple URL", () => {
@@ -842,5 +844,100 @@ describe("security scenarios", () => {
         isUrlAllowed("https://api.example.com/users/admin", allowedUrlPrefixes),
       ).toBe(false);
     });
+  });
+});
+
+describe("createSecureFetch allow-list validation", () => {
+  it("throws on invalid allow-list entries at construction", () => {
+    expect(() =>
+      createSecureFetch({
+        allowedUrlPrefixes: ["not-a-url"],
+      }),
+    ).toThrow(/Invalid network allow-list/);
+  });
+
+  it("throws on non-http protocol in allow-list", () => {
+    expect(() =>
+      createSecureFetch({
+        allowedUrlPrefixes: ["ftp://example.com"],
+      }),
+    ).toThrow(/Invalid network allow-list/);
+  });
+
+  it("accepts valid allow-list entries", () => {
+    expect(() =>
+      createSecureFetch({
+        allowedUrlPrefixes: ["https://example.com"],
+      }),
+    ).not.toThrow();
+  });
+
+  it("skips validation when dangerouslyAllowFullInternetAccess is true", () => {
+    expect(() =>
+      createSecureFetch({
+        dangerouslyAllowFullInternetAccess: true,
+        allowedUrlPrefixes: ["not-a-url"],
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe("isPrivateIp", () => {
+  it("rejects loopback IPv4", () => {
+    expect(isPrivateIp("127.0.0.1")).toBe(true);
+    expect(isPrivateIp("127.255.255.255")).toBe(true);
+  });
+
+  it("rejects RFC1918 ranges", () => {
+    expect(isPrivateIp("10.0.0.1")).toBe(true);
+    expect(isPrivateIp("172.16.0.1")).toBe(true);
+    expect(isPrivateIp("172.31.255.255")).toBe(true);
+    expect(isPrivateIp("192.168.1.1")).toBe(true);
+  });
+
+  it("rejects link-local", () => {
+    expect(isPrivateIp("169.254.1.1")).toBe(true);
+  });
+
+  it("rejects 0.0.0.0", () => {
+    expect(isPrivateIp("0.0.0.0")).toBe(true);
+  });
+
+  it("allows public IPs", () => {
+    expect(isPrivateIp("8.8.8.8")).toBe(false);
+    expect(isPrivateIp("93.184.216.34")).toBe(false);
+    expect(isPrivateIp("172.32.0.1")).toBe(false);
+  });
+
+  it("rejects IPv6 loopback", () => {
+    expect(isPrivateIp("::1")).toBe(true);
+    expect(isPrivateIp("[::1]")).toBe(true);
+  });
+
+  it("rejects IPv6 link-local (full fe80::/10 range) and ULA", () => {
+    expect(isPrivateIp("fe80::1")).toBe(true);
+    expect(isPrivateIp("fe90::1")).toBe(true);
+    expect(isPrivateIp("fea0::1")).toBe(true);
+    expect(isPrivateIp("febf::1")).toBe(true);
+    expect(isPrivateIp("fc00::1")).toBe(true);
+    expect(isPrivateIp("fd12::1")).toBe(true);
+  });
+
+  it("rejects IPv4-mapped IPv6", () => {
+    expect(isPrivateIp("::ffff:127.0.0.1")).toBe(true);
+    expect(isPrivateIp("::ffff:10.0.0.1")).toBe(true);
+    expect(isPrivateIp("::ffff:192.168.1.1")).toBe(true);
+    expect(isPrivateIp("::ffff:8.8.8.8")).toBe(false);
+  });
+
+  it("allows public IPv6", () => {
+    expect(isPrivateIp("2001:db8::1")).toBe(false);
+    // fec0 is outside fe80::/10 range
+    expect(isPrivateIp("fec0::1")).toBe(false);
+  });
+
+  it("passes through hostnames unchanged", () => {
+    expect(isPrivateIp("example.com")).toBe(false);
+    expect(isPrivateIp("localhost")).toBe(false);
   });
 });

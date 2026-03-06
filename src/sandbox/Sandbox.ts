@@ -3,6 +3,7 @@ import { Bash } from "../Bash.js";
 import type { IFileSystem } from "../fs/interface.js";
 import { OverlayFs } from "../fs/overlay-fs/index.js";
 import type { NetworkConfig } from "../network/index.js";
+import type { DefenseInDepthConfig } from "../security/types.js";
 import type { CommandFinished } from "./Command.js";
 import { Command } from "./Command.js";
 
@@ -30,6 +31,11 @@ export interface SandboxOptions {
    * Network access is disabled by default - you must explicitly configure allowed URLs.
    */
   network?: NetworkConfig;
+  /**
+   * Defense-in-depth configuration. Defaults to true (enabled).
+   * Monkey-patches dangerous JavaScript globals during bash execution.
+   */
+  defenseInDepth?: DefenseInDepthConfig | boolean;
 }
 
 export interface RunCommandParams {
@@ -87,6 +93,7 @@ export class Sandbox {
       maxCommandCount: opts?.maxCommandCount,
       maxLoopIterations: opts?.maxLoopIterations,
       network: opts?.network,
+      defenseInDepth: opts?.defenseInDepth,
     });
     return new Sandbox(bashEnv);
   }

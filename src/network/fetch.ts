@@ -7,7 +7,9 @@
  * 3. Provides timeout support
  */
 
-import { isUrlAllowed } from "./allow-list.js";
+import { DefenseInDepthBox } from "../security/defense-in-depth-box.js";
+import { _clearTimeout, _setTimeout } from "../timers.js";
+import { isPrivateIp, isUrlAllowed, validateAllowList } from "./allow-list.js";
 import {
   type FetchResult,
   type HttpMethod,
@@ -55,12 +57,25 @@ export type SecureFetch = (
  * Creates a secure fetch function that enforces the allow-list.
  */
 export function createSecureFetch(config: NetworkConfig): SecureFetch {
+  // Fail fast on invalid allow-list entries
+  if (!config.dangerouslyAllowFullInternetAccess) {
+    const errors = validateAllowList(config.allowedUrlPrefixes ?? []);
+    if (errors.length > 0) {
+      throw new Error(`Invalid network allow-list:\n${errors.join("\n")}`);
+    }
+  }
+
   const maxRedirects = config.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxResponseSize = config.maxResponseSize ?? DEFAULT_MAX_RESPONSE_SIZE;
   const allowedMethods = config.dangerouslyAllowFullInternetAccess
     ? ["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
     : (config.allowedMethods ?? DEFAULT_ALLOWED_METHODS);
+
+  // Default to denying private ranges in production
+  const denyPrivateRanges =
+    config.denyPrivateRanges ??
+    (typeof process !== "undefined" && process.env?.NODE_ENV === "production");
 
   /**
    * Checks if a URL is allowed by the configuration.
@@ -69,6 +84,19 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
   function checkAllowed(url: string): void {
     if (config.dangerouslyAllowFullInternetAccess) {
       return;
+    }
+
+    // Check private IP ranges
+    if (denyPrivateRanges) {
+      try {
+        const parsed = new URL(url);
+        if (isPrivateIp(parsed.hostname)) {
+          throw new NetworkAccessDeniedError(url);
+        }
+      } catch (e) {
+        if (e instanceof NetworkAccessDeniedError) throw e;
+        // Invalid URL will be caught by isUrlAllowed below
+      }
     }
 
     if (!isUrlAllowed(url, config.allowedUrlPrefixes ?? [])) {
@@ -116,7 +144,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
 
     while (true) {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
+      const timeoutId = _setTimeout(() => controller.abort(), effectiveTimeout);
 
       try {
         const fetchOptions: RequestInit = {
@@ -131,7 +159,11 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
           fetchOptions.body = options.body;
         }
 
-        const response = await fetch(currentUrl, fetchOptions);
+        // undici (Node.js fetch) lazily compiles its WASM HTTP parser
+        // on first use, which accesses WebAssembly — a blocked global.
+        const response = await DefenseInDepthBox.runTrustedAsync(() =>
+          fetch(currentUrl, fetchOptions),
+        );
 
         // Check for redirects
         if (REDIRECT_CODES.has(response.status) && followRedirects) {
@@ -148,11 +180,11 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
           // Resolve relative URLs
           const redirectUrl = new URL(location, currentUrl).href;
 
-          // Check if redirect target is allowed
-          if (!config.dangerouslyAllowFullInternetAccess) {
-            if (!isUrlAllowed(redirectUrl, config.allowedUrlPrefixes ?? [])) {
-              throw new RedirectNotAllowedError(redirectUrl);
-            }
+          // Check redirect target against allow-list and private IP ranges
+          try {
+            checkAllowed(redirectUrl);
+          } catch {
+            throw new RedirectNotAllowedError(redirectUrl);
           }
 
           redirectCount++;
@@ -166,7 +198,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
 
         return await responseToResult(response, currentUrl, maxResponseSize);
       } finally {
-        clearTimeout(timeoutId);
+        _clearTimeout(timeoutId);
       }
     }
   }

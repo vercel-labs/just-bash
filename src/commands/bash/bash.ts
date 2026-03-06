@@ -156,6 +156,7 @@ async function executeScript(
     env: positionalEnv,
     cwd: ctx.cwd,
     stdin: ctx.stdin,
+    signal: ctx.signal,
   });
   return result;
 }

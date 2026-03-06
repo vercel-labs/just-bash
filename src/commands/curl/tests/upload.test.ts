@@ -41,6 +41,7 @@ describe("curl upload", () => {
   describe("-T/--upload-file", () => {
     it("uploads file with -T and uses PUT method", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: { "/upload.txt": "upload content" },
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
@@ -57,6 +58,7 @@ describe("curl upload", () => {
 
     it("uploads file with --upload-file", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: { "/data.bin": "binary data" },
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
@@ -73,6 +75,7 @@ describe("curl upload", () => {
 
     it("supports --upload-file=value format", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: { "/file.txt": "file data" },
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
@@ -88,6 +91,7 @@ describe("curl upload", () => {
 
     it("allows explicit method override with -X", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: { "/file.txt": "content" },
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
@@ -104,6 +108,7 @@ describe("curl upload", () => {
 
     it("fails if file does not exist", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["PUT"],

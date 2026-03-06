@@ -28,6 +28,16 @@ just-bash is a TypeScript implementation of a bash interpreter with an in-memory
 
 ---
 
+## 1.1 Trust Assumptions
+
+The following components are **trusted** and outside the scope of just-bash's runtime defenses:
+
+- **Host-provided `fs`, `fetch`, `customCommands`, and transform plugins**: These are supplied by the embedding application. A compromised or malicious host hook can bypass all sandboxing by design — just-bash protects untrusted *scripts*, not untrusted *hosts*.
+- **The Node.js runtime and underlying OS**: just-bash assumes the Node.js binary, V8, and OS kernel are not compromised. Exploits targeting V8 internals or kernel vulnerabilities are out of scope.
+- **Dependencies**: Supply-chain attacks via npm dependencies are a deployment-level concern (addressed by lockfiles, audits, etc.), not a runtime defense.
+
+---
+
 ## 2. Trust Boundaries
 
 ```
@@ -154,9 +164,9 @@ just-bash is a TypeScript implementation of a bash interpreter with an in-memory
 | process.env | Leak API keys, secrets | Blocked by defense-in-depth | `src/security/blocked-globals.ts` |
 | process.argv | CLI args with secrets | Blocked by defense-in-depth | `src/security/blocked-globals.ts` |
 | process.execPath | Reveal Node.js path | Blocked via defineProperty | `src/security/defense-in-depth-box.ts` |
-| process.connected | IPC connection status | Blocked via defineProperty (IPC contexts only) | `src/security/defense-in-depth-box.ts` |
-| process.send | IPC messaging to parent | Blocked by defense-in-depth proxy (IPC contexts only) | `src/security/blocked-globals.ts` |
-| process.channel | IPC channel access | Blocked by defense-in-depth proxy (IPC contexts only) | `src/security/blocked-globals.ts` |
+| process.connected | IPC connection status | Blocked in **worker contexts only** (WorkerDefenseInDepth) | `src/security/defense-in-depth-box.ts` |
+| process.send | IPC messaging to parent | Blocked in **worker contexts only** (WorkerDefenseInDepth); main thread skipped to avoid interfering with test runners/process managers | `src/security/blocked-globals.ts` |
+| process.channel | IPC channel access | Blocked in **worker contexts only** (WorkerDefenseInDepth); main thread skipped for same reason | `src/security/blocked-globals.ts` |
 | Host PID/UID | Expose process identity | Virtualized (processInfo option, defaults: pid=1, uid=1000) | `src/Bash.ts` |
 | hostname/whoami/uname | System enumeration | Return generic/virtual values | `src/commands/hostname/` |
 | Error messages | Reveal file paths | `sanitizeError()` in FS layers + `sanitizeErrorMessage()` at all error choke points (builtin-dispatch, Bash.ts, CLI, Python bridge) | `src/fs/real-fs-utils.ts`, `src/interpreter/builtin-dispatch.ts`, `src/Bash.ts`, `src/cli/just-bash.ts` |
@@ -214,7 +224,9 @@ Dynamic `import()` is a language-level keyword, not a property on any object. It
 3. The bash interpreter never calls `import()` based on user input — no code path exists
 4. All paths from bash to JS code execution (Function, eval, setTimeout, constructor chains) are blocked
 
-**Residual risk**: If a bug in the interpreter allows JavaScript code execution (bypassing Function/eval blocks), `import()` becomes an unblockable escalation path. Node.js `--experimental-loader` hooks could intercept but are not currently used.
+**Residual risk**: If a bug in the interpreter allows JavaScript code execution (bypassing Function/eval blocks), `import()` becomes an unblockable escalation path.
+
+**Deployment-level mitigation**: Node.js `--experimental-loader` hooks can intercept `import()` calls at the module resolution level. This is outside just-bash's scope but recommended for strict deployments where defense-in-depth against `import()` is required.
 
 ### 4.2 Pre-Captured References Bypass Defense-in-Depth
 

@@ -41,6 +41,7 @@ describe("curl authentication", () => {
   describe("-u/--user basic auth", () => {
     it("sends Authorization header with -u user:pass", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       await env.exec("curl -u testuser:testpass https://api.example.com/auth");
@@ -56,6 +57,7 @@ describe("curl authentication", () => {
 
     it("sends Authorization header with --user", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       await env.exec("curl --user admin:secret https://api.example.com/auth");
@@ -70,6 +72,7 @@ describe("curl authentication", () => {
 
     it("supports --user=value format", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       await env.exec("curl --user=foo:bar https://api.example.com/auth");
@@ -84,6 +87,7 @@ describe("curl authentication", () => {
 
     it("supports -uvalue format (no space)", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       await env.exec("curl -umyuser:mypass https://api.example.com/auth");
@@ -98,6 +102,7 @@ describe("curl authentication", () => {
 
     it("handles special characters in password", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       await env.exec('curl -u "user:p@ss:word!" https://api.example.com/auth');

@@ -35,6 +35,7 @@ afterAll(() => {
 // All tests need network configured since curl doesn't exist otherwise
 const createEnv = () =>
   new Bash({
+    defenseInDepth: false,
     network: { allowedUrlPrefixes: ["https://api.example.com"] },
   });
 
@@ -78,6 +79,7 @@ describe("curl options", () => {
 
     it("sets method with -X POST", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["POST"],
@@ -89,6 +91,7 @@ describe("curl options", () => {
 
     it("sets method with --request PUT", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["PUT"],
@@ -100,6 +103,7 @@ describe("curl options", () => {
 
     it("sets method with -XDELETE (no space)", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["DELETE"],
@@ -159,6 +163,7 @@ describe("curl options", () => {
   describe("POST data", () => {
     it("sends data with -d and switches to POST", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["POST"],
@@ -171,6 +176,7 @@ describe("curl options", () => {
 
     it("sends JSON with --data-raw", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["POST"],
@@ -184,6 +190,7 @@ describe("curl options", () => {
 
     it("sends data with --data=value format", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["POST"],

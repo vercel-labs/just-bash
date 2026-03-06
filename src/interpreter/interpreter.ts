@@ -62,6 +62,7 @@ import {
   BreakError,
   ContinueError,
   ErrexitError,
+  ExecutionAbortedError,
   ExecutionLimitError,
   ExitError,
   GlobError,
@@ -191,6 +192,14 @@ export class Interpreter {
         exitCode = result.exitCode;
         this.ctx.state.lastExitCode = exitCode;
         this.ctx.state.env.set("?", String(exitCode));
+
+        // Check aggregate output size limit
+        if (stdout.length + stderr.length > this.ctx.limits.maxOutputSize) {
+          throwExecutionLimit(
+            `total output size exceeded (>${this.ctx.limits.maxOutputSize} bytes), increase executionLimits.maxOutputSize`,
+            "output_size",
+          );
+        }
       } catch (error) {
         // ExitError always propagates up to terminate the script
         // This allows 'eval exit 42' and 'source exit.sh' to exit properly
@@ -321,6 +330,11 @@ export class Interpreter {
   }
 
   private async executeStatement(node: StatementNode): Promise<ExecResult> {
+    // Check for abort signal (cooperative cancellation by timeout command)
+    if (this.ctx.state.signal?.aborted) {
+      throw new ExecutionAbortedError();
+    }
+
     this.ctx.state.commandCount++;
     if (this.ctx.state.commandCount > this.ctx.limits.maxCommandCount) {
       throwExecutionLimit(

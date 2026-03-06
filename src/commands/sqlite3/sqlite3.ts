@@ -16,8 +16,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import initSqlJs from "sql.js";
+import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
+import { _clearTimeout, _setTimeout } from "../../timers.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
+
 import {
   type FormatOptions,
   formatOutput,
@@ -193,7 +196,7 @@ function parseArgs(args: string[]):
 
 // Get SQLite version from sql.js
 async function getSqliteVersion(): Promise<string> {
-  const SQL = await initSqlJs();
+  const SQL = await DefenseInDepthBox.runTrustedAsync(() => initSqlJs());
   const db = new SQL.Database();
   try {
     const result = db.exec("SELECT sqlite_version()");
@@ -252,11 +255,11 @@ async function executeInWorker(
     const workerPath = findWorkerPath();
 
     return await new Promise((resolve, reject) => {
-      const worker = new Worker(workerPath, {
-        workerData: input,
-      });
+      const worker = DefenseInDepthBox.runTrusted(
+        () => new Worker(workerPath, { workerData: input }),
+      );
 
-      const timeout = setTimeout(() => {
+      const timeout = _setTimeout(() => {
         worker.terminate();
         resolve({
           success: false,
@@ -264,18 +267,34 @@ async function executeInWorker(
         });
       }, timeoutMs);
 
-      worker.on("message", (result: WorkerOutput) => {
-        clearTimeout(timeout);
-        resolve(result);
-      });
+      worker.on(
+        "message",
+        (
+          result: WorkerOutput & {
+            type?: string;
+            violation?: { type?: string };
+          },
+        ) => {
+          if (result.type === "security-violation") {
+            _clearTimeout(timeout);
+            resolve({
+              success: false,
+              error: `Security violation: ${result.violation?.type ?? "unknown"}`,
+            });
+            return;
+          }
+          _clearTimeout(timeout);
+          resolve(result);
+        },
+      );
 
       worker.on("error", (err) => {
-        clearTimeout(timeout);
+        _clearTimeout(timeout);
         reject(err);
       });
 
       worker.on("exit", (code) => {
-        clearTimeout(timeout);
+        _clearTimeout(timeout);
         if (code !== 0) {
           resolve({
             success: false,

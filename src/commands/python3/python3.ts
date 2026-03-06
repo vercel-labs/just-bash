@@ -13,6 +13,9 @@
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { mapToRecord } from "../../helpers/env.js";
+
+import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
+import { _clearTimeout, _setTimeout } from "../../timers.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import { FsBridgeHandler } from "./fs-bridge-handler.js";
@@ -145,6 +148,8 @@ type QueuedExecution = {
   input: WorkerInput;
   resolve: (result: WorkerOutput) => void;
   workerRef?: { current: Worker | null };
+  /** Set to true when the request times out before execution starts */
+  canceled?: boolean;
 };
 const executionQueue: QueuedExecution[] = [];
 let isExecuting = false;
@@ -153,6 +158,14 @@ const workerPath = fileURLToPath(new URL("./worker.js", import.meta.url));
 
 function processNextExecution(): void {
   if (isExecuting || executionQueue.length === 0) {
+    return;
+  }
+
+  // Skip canceled entries (timed out before execution started)
+  while (executionQueue.length > 0 && executionQueue[0].canceled) {
+    executionQueue.shift();
+  }
+  if (executionQueue.length === 0) {
     return;
   }
 
@@ -166,20 +179,31 @@ function processNextExecution(): void {
   // CPython Emscripten uses EXIT_RUNTIME, so the module can only run once.
   // The worker caches the stdlib zip at module scope (read from disk once
   // per worker lifetime, not per execution).
-  const worker = new Worker(workerPath, {
-    workerData: next.input,
-  });
+  const worker = DefenseInDepthBox.runTrusted(
+    () => new Worker(workerPath, { workerData: next.input }),
+  );
 
   if (next.workerRef) next.workerRef.current = worker;
 
-  worker.on("message", (msg: WorkerOutput & { type?: string }) => {
-    // Filter out defense-in-depth security violation messages
-    if (msg.type === "security-violation") return;
-    next.resolve(msg);
-    worker.terminate();
-    isExecuting = false;
-    processNextExecution();
-  });
+  worker.on(
+    "message",
+    (msg: WorkerOutput & { type?: string; violation?: { type?: string } }) => {
+      if (msg.type === "security-violation") {
+        next.resolve({
+          success: false,
+          error: `Security violation: ${msg.violation?.type ?? "unknown"}`,
+        });
+        worker.terminate();
+        isExecuting = false;
+        processNextExecution();
+        return;
+      }
+      next.resolve(msg);
+      worker.terminate();
+      isExecuting = false;
+      processNextExecution();
+    },
+  );
 
   worker.on("error", (err: Error) => {
     next.resolve({ success: false, error: err.message });
@@ -229,25 +253,34 @@ async function executePython(
   const workerRef: { current: Worker | null } = { current: null };
 
   const workerPromise = new Promise<WorkerOutput>((resolve) => {
-    const timeout = setTimeout(() => {
-      workerRef.current?.terminate();
+    // The queue entry is created here so the timeout handler can mark it canceled
+    const queueEntry: QueuedExecution = {
+      input: workerInput,
+      resolve: () => {}, // replaced below
+      workerRef,
+    };
+
+    const timeout = _setTimeout(() => {
+      if (workerRef.current) {
+        // Worker is running — terminate it
+        workerRef.current.terminate();
+      } else {
+        // Worker hasn't started — mark canceled so processNextExecution skips it
+        queueEntry.canceled = true;
+      }
       resolve({
         success: false,
         error: `Execution timeout: exceeded ${timeoutMs}ms limit`,
       });
     }, timeoutMs);
 
-    const wrappedResolve = (result: WorkerOutput) => {
-      clearTimeout(timeout);
+    queueEntry.resolve = (result: WorkerOutput) => {
+      _clearTimeout(timeout);
       resolve(result);
     };
 
     // Queue the execution (serialized — one at a time per worker)
-    executionQueue.push({
-      input: workerInput,
-      resolve: wrappedResolve,
-      workerRef,
-    });
+    executionQueue.push(queueEntry);
     processNextExecution();
   });
 

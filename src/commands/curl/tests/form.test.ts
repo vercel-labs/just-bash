@@ -41,6 +41,7 @@ describe("curl form data", () => {
   describe("--data-urlencode", () => {
     it("URL-encodes data with --data-urlencode", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["POST"],
@@ -55,6 +56,7 @@ describe("curl form data", () => {
 
     it("encodes special characters", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["POST"],
@@ -69,6 +71,7 @@ describe("curl form data", () => {
 
     it("appends multiple --data-urlencode values", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["POST"],
@@ -85,6 +88,7 @@ describe("curl form data", () => {
   describe("--data-binary", () => {
     it("sends data as-is with --data-binary", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["POST"],
@@ -99,6 +103,7 @@ describe("curl form data", () => {
 
     it("supports --data-binary=value format", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["POST"],
@@ -113,6 +118,7 @@ describe("curl form data", () => {
   describe("-F/--form multipart", () => {
     it("sends multipart form data with -F", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["POST"],
@@ -130,6 +136,7 @@ describe("curl form data", () => {
 
     it("sends multiple form fields", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["POST"],
@@ -148,6 +155,7 @@ describe("curl form data", () => {
 
     it("uploads file content with @", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: { "/data.txt": "file contents here" },
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
@@ -166,6 +174,7 @@ describe("curl form data", () => {
 
     it("supports custom content type with ;type=", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: { "/doc.json": '{"key":"value"}' },
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],

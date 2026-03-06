@@ -4,7 +4,7 @@ import { Bash } from "../../Bash.js";
 describe("file", () => {
   describe("binary files", () => {
     it("should detect PNG files from magic bytes", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       // PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
       const pngMagic = new Uint8Array([
         0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -20,7 +20,7 @@ describe("file", () => {
     });
 
     it("should detect GIF files from magic bytes", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       // GIF89a magic bytes
       const gifMagic = new Uint8Array([
         0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00,
@@ -35,7 +35,7 @@ describe("file", () => {
     });
 
     it("should detect ZIP files from magic bytes", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       // ZIP magic bytes: PK\x03\x04
       const zipMagic = new Uint8Array([
         0x50, 0x4b, 0x03, 0x04, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -49,7 +49,7 @@ describe("file", () => {
     });
 
     it("should detect PDF files from magic bytes", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       // PDF magic: %PDF-
       const pdfMagic = new Uint8Array([
         0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a,
@@ -61,7 +61,7 @@ describe("file", () => {
     });
 
     it("should return correct MIME type for binary files with -i", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       // PNG magic bytes
       const pngMagic = new Uint8Array([
         0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
@@ -78,6 +78,7 @@ describe("file", () => {
       // Test that bytes like 0x89 (invalid UTF-8) are preserved
       // Previously the file command read files as UTF-8 strings which corrupted binary data
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           // PNG magic: 89 50 4E 47 followed by more bytes
           "/binary.png": new Uint8Array([
@@ -98,7 +99,7 @@ describe("file", () => {
 
   describe("text files", () => {
     it("should detect ASCII text", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       await env.exec("echo 'hello world' > /tmp/test.txt");
       const result = await env.exec("file /tmp/test.txt");
       expect(result.stdout).toBe("/tmp/test.txt: ASCII text\n");
@@ -106,7 +107,7 @@ describe("file", () => {
     });
 
     it("should detect empty files", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       await env.exec("touch /tmp/empty");
       const result = await env.exec("file /tmp/empty");
       expect(result.stdout).toBe("/tmp/empty: empty\n");
@@ -114,7 +115,7 @@ describe("file", () => {
     });
 
     it("should detect CRLF line endings", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       // Use $'...' syntax or echo -e to properly create CRLF
       await env.exec("echo -e 'line1\\r\\nline2' > /tmp/crlf.txt");
       const result = await env.exec("file /tmp/crlf.txt");
@@ -126,7 +127,7 @@ describe("file", () => {
     });
 
     it("should detect shell scripts by shebang", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       await env.exec("echo '#!/bin/bash\\necho hello' > /tmp/script.sh");
       const result = await env.exec("file /tmp/script.sh");
       expect(result.stdout).toBe(
@@ -136,7 +137,7 @@ describe("file", () => {
     });
 
     it("should detect Python scripts by shebang", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       await env.exec(
         "echo '#!/usr/bin/env python3\\nprint(1)' > /tmp/script.py",
       );
@@ -150,7 +151,7 @@ describe("file", () => {
 
   describe("extension-based detection", () => {
     it("should detect TypeScript files", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       await env.exec("echo 'const x: number = 1;' > /tmp/test.ts");
       const result = await env.exec("file /tmp/test.ts");
       expect(result.stdout).toBe("/tmp/test.ts: TypeScript source\n");
@@ -158,7 +159,7 @@ describe("file", () => {
     });
 
     it("should detect JavaScript files", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       await env.exec("echo 'const x = 1;' > /tmp/test.js");
       const result = await env.exec("file /tmp/test.js");
       expect(result.stdout).toBe("/tmp/test.js: JavaScript source\n");
@@ -166,7 +167,7 @@ describe("file", () => {
     });
 
     it("should detect JSON files", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       await env.exec('echo \'{"key": "value"}\' > /tmp/test.json');
       const result = await env.exec("file /tmp/test.json");
       expect(result.stdout).toBe("/tmp/test.json: JSON data\n");
@@ -174,7 +175,7 @@ describe("file", () => {
     });
 
     it("should detect Markdown files", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       await env.exec("echo '# Hello' > /tmp/test.md");
       const result = await env.exec("file /tmp/test.md");
       expect(result.stdout).toBe("/tmp/test.md: Markdown document\n");
@@ -184,7 +185,7 @@ describe("file", () => {
 
   describe("directories", () => {
     it("should detect directories", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       await env.exec("mkdir -p /tmp/testdir");
       const result = await env.exec("file /tmp/testdir");
       expect(result.stdout).toBe("/tmp/testdir: directory\n");
@@ -194,7 +195,7 @@ describe("file", () => {
 
   describe("options", () => {
     it("should support -b (brief) mode", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       await env.exec("echo 'hello' > /tmp/test.txt");
       const result = await env.exec("file -b /tmp/test.txt");
       expect(result.stdout).toBe("ASCII text\n");
@@ -202,7 +203,7 @@ describe("file", () => {
     });
 
     it("should support -i (mime) mode", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       await env.exec("echo 'hello' > /tmp/test.txt");
       const result = await env.exec("file -i /tmp/test.txt");
       expect(result.stdout).toBe("/tmp/test.txt: text/plain\n");
@@ -210,7 +211,7 @@ describe("file", () => {
     });
 
     it("should support combined -bi mode", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       await env.exec("mkdir -p /tmp/mimedir");
       const result = await env.exec("file -bi /tmp/mimedir");
       expect(result.stdout).toBe("inode/directory\n");
@@ -220,7 +221,7 @@ describe("file", () => {
 
   describe("multiple files", () => {
     it("should handle multiple files", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       await env.exec("echo 'text' > /tmp/a.txt");
       await env.exec("echo 'more' > /tmp/b.txt");
       const result = await env.exec("file /tmp/a.txt /tmp/b.txt");
@@ -233,7 +234,7 @@ describe("file", () => {
 
   describe("error handling", () => {
     it("should error on missing file", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       const result = await env.exec("file /tmp/nonexistent");
       expect(result.stdout).toBe(
         "/tmp/nonexistent: cannot open (No such file or directory)\n",
@@ -242,7 +243,7 @@ describe("file", () => {
     });
 
     it("should error with no arguments", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       const result = await env.exec("file");
       expect(result.stderr).toBe("Usage: file [-bLi] FILE...\n");
       expect(result.exitCode).toBe(1);
@@ -251,7 +252,7 @@ describe("file", () => {
 
   describe("--help", () => {
     it("should display help", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       const result = await env.exec("file --help");
       expect(result.stdout).toBe(`file - determine file type
 

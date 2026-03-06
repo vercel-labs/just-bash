@@ -208,12 +208,26 @@ export class ExecutionLimitError extends ControlFlowError {
       | "iterations"
       | "string_length"
       | "glob_operations"
-      | "substitution_depth",
+      | "substitution_depth"
+      | "output_size"
+      | "file_descriptors",
     stdout: string = "",
     stderr: string = "",
   ) {
     super(message, stdout, stderr);
     this.stderr = stderr || `bash: ${message}\n`;
+  }
+}
+
+/**
+ * Error thrown when execution is aborted via an AbortSignal.
+ * Used by the `timeout` command to stop timed-out commands at statement boundaries.
+ */
+export class ExecutionAbortedError extends ControlFlowError {
+  readonly name = "ExecutionAbortedError";
+
+  constructor(stdout: string = "", stderr: string = "") {
+    super("execution aborted", stdout, stderr);
   }
 }
 

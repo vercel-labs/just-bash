@@ -67,6 +67,13 @@ export interface NetworkConfig {
    * Responses larger than this will be rejected with ResponseTooLargeError.
    */
   maxResponseSize?: number;
+
+  /**
+   * Reject URLs with private/loopback IP addresses as hostnames.
+   * This is a URL-string-level check only (no DNS resolution).
+   * Useful for mitigating SSRF attacks. Default: false (opt-in).
+   */
+  denyPrivateRanges?: boolean;
 }
 
 /**

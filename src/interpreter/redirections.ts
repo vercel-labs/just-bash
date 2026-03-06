@@ -156,6 +156,12 @@ function allocateFd(ctx: InterpreterContext): number {
     ctx.state.nextFd = 10;
   }
   const fd = ctx.state.nextFd;
+  const maxFds = ctx.limits.maxFileDescriptors;
+  if (fd >= maxFds) {
+    throw new Error(
+      `bash: cannot allocate file descriptor: too many open files (max ${maxFds})`,
+    );
+  }
   ctx.state.nextFd++;
   return fd;
 }

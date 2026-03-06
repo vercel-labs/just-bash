@@ -39,6 +39,12 @@ export interface CommandExecOptions {
    * Optional - if not provided, stdin will be empty.
    */
   stdin?: string;
+  /**
+   * Abort signal for cooperative cancellation.
+   * When aborted, the interpreter stops executing at the next statement boundary.
+   * Used by `timeout` to ensure timed-out commands don't continue running.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -147,6 +153,12 @@ export interface CommandContext {
    * When provided, commands emit coverage hits for analysis.
    */
   coverage?: FeatureCoverageWriter;
+  /**
+   * Abort signal from the current execution context.
+   * Commands that spawn sub-executions (bash -c, xargs, etc.)
+   * should forward this signal so cooperative cancellation propagates.
+   */
+  signal?: AbortSignal;
 }
 
 export interface Command {

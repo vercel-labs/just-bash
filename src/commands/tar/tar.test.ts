@@ -4,7 +4,7 @@ import { Bash } from "../../Bash.js";
 describe("tar", () => {
   describe("help and errors", () => {
     it("should show help with --help", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       const result = await env.exec("tar --help");
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("tar - manipulate tape archives");
@@ -14,7 +14,7 @@ describe("tar", () => {
     });
 
     it("should error without operation mode", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       const result = await env.exec("tar -f archive.tar");
       expect(result.exitCode).toBe(2);
       expect(result.stderr).toContain(
@@ -23,21 +23,21 @@ describe("tar", () => {
     });
 
     it("should error with multiple operation modes", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       const result = await env.exec("tar -c -x -f archive.tar");
       expect(result.exitCode).toBe(2);
       expect(result.stderr).toContain("You may not specify more than one");
     });
 
     it("should error on unknown option", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       const result = await env.exec("tar -c --unknown-option file.txt");
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("unrecognized option");
     });
 
     it("should error when -f is missing argument", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       const result = await env.exec("tar -c -f");
       expect(result.exitCode).toBe(2);
       expect(result.stderr).toContain("option requires an argument");
@@ -47,6 +47,7 @@ describe("tar", () => {
   describe("create (-c)", () => {
     it("should create archive from single file", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello, World!",
         },
@@ -62,6 +63,7 @@ describe("tar", () => {
 
     it("should create archive with verbose output", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello, World!",
         },
@@ -74,6 +76,7 @@ describe("tar", () => {
 
     it("should create archive from multiple files", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file1.txt": "Content 1",
           "/file2.txt": "Content 2",
@@ -90,6 +93,7 @@ describe("tar", () => {
 
     it("should create archive from directory", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/mydir/file1.txt": "Content 1",
           "/mydir/file2.txt": "Content 2",
@@ -107,6 +111,7 @@ describe("tar", () => {
 
     it("should create archive with -C directory option", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/source/file.txt": "Content",
         },
@@ -120,7 +125,7 @@ describe("tar", () => {
     });
 
     it("should error when creating empty archive", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       const result = await env.exec("tar -cf /archive.tar");
       expect(result.exitCode).toBe(2);
       expect(result.stderr).toContain(
@@ -130,6 +135,7 @@ describe("tar", () => {
 
     it("should handle combined short options -cvf", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello",
         },
@@ -142,6 +148,7 @@ describe("tar", () => {
 
     it("should exclude files with --exclude", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/mydir/keep.txt": "Keep this",
           "/mydir/skip.log": "Skip this",
@@ -160,6 +167,7 @@ describe("tar", () => {
   describe("list (-t)", () => {
     it("should list archive contents", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello, World!",
         },
@@ -172,6 +180,7 @@ describe("tar", () => {
 
     it("should list archive contents with verbose", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello, World!",
         },
@@ -185,6 +194,7 @@ describe("tar", () => {
 
     it("should list directory archive contents", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/mydir/file1.txt": "Content 1",
           "/mydir/file2.txt": "Content 2",
@@ -199,7 +209,7 @@ describe("tar", () => {
     });
 
     it("should error when archive does not exist", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       const result = await env.exec("tar -tf /nonexistent.tar");
       expect(result.exitCode).toBe(2);
       expect(result.stderr).toContain("Cannot open");
@@ -207,6 +217,7 @@ describe("tar", () => {
 
     it("should list specific file from archive", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file1.txt": "Content 1",
           "/file2.txt": "Content 2",
@@ -223,6 +234,7 @@ describe("tar", () => {
   describe("extract (-x)", () => {
     it("should extract archive", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello, World!",
         },
@@ -239,6 +251,7 @@ describe("tar", () => {
 
     it("should extract archive with verbose output", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello, World!",
         },
@@ -253,6 +266,7 @@ describe("tar", () => {
 
     it("should extract to different directory with -C", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/source/test.txt": "Hello",
         },
@@ -268,6 +282,7 @@ describe("tar", () => {
 
     it("should extract directory structure", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/mydir/file1.txt": "Content 1",
           "/mydir/subdir/file2.txt": "Content 2",
@@ -287,6 +302,7 @@ describe("tar", () => {
 
     it("should extract specific file from archive", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file1.txt": "Content 1",
           "/file2.txt": "Content 2",
@@ -306,6 +322,7 @@ describe("tar", () => {
 
     it("should strip leading path components", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/deep/nested/path/file.txt": "Content",
         },
@@ -320,7 +337,7 @@ describe("tar", () => {
     });
 
     it("should error when archive does not exist", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       const result = await env.exec("tar -xf /nonexistent.tar");
       expect(result.exitCode).toBe(2);
       expect(result.stderr).toContain("Cannot open");
@@ -330,6 +347,7 @@ describe("tar", () => {
   describe("bzip2 compression (-j)", () => {
     it("should create bzip2 compressed archive", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt":
             "Hello, World! This is some content to compress with bzip2.",
@@ -346,6 +364,7 @@ describe("tar", () => {
 
     it("should extract bzip2 compressed archive", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello, bzip2 compressed World!",
         },
@@ -361,6 +380,7 @@ describe("tar", () => {
 
     it("should auto-detect bzip2 compression on extract", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Auto-detect bzip2!",
         },
@@ -377,6 +397,7 @@ describe("tar", () => {
 
     it("should list bzip2 compressed archive", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "List bzip2 content",
         },
@@ -391,6 +412,7 @@ describe("tar", () => {
   describe("xz compression (-J)", () => {
     it("should create xz compressed archive", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt":
             "Hello, World! This is some content to compress with xz.",
@@ -405,53 +427,52 @@ describe("tar", () => {
       expect(stat.exitCode).toBe(0);
     });
 
-    it("should extract xz compressed archive", async () => {
+    it("should reject xz decompression by default", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello, xz compressed World!",
         },
       });
       await env.exec("tar -cJvf /archive.tar.xz /test.txt");
-      await env.exec("rm /test.txt");
       const result = await env.exec("tar -xJvf /archive.tar.xz");
-      expect(result.exitCode).toBe(0);
-
-      const cat = await env.exec("cat /test.txt");
-      expect(cat.stdout).toBe("Hello, xz compressed World!");
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain("disabled by default");
+      expect(result.stderr).toContain("native codec");
     });
 
-    it("should auto-detect xz compression on extract", async () => {
+    it("should reject auto-detected xz decompression by default", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Auto-detect xz!",
         },
       });
       await env.exec("tar -cJf /archive.tar.xz /test.txt");
-      await env.exec("rm /test.txt");
-      // Extract without -J flag - should auto-detect
+      // Extract without -J flag - should auto-detect and still reject
       const result = await env.exec("tar -xf /archive.tar.xz");
-      expect(result.exitCode).toBe(0);
-
-      const cat = await env.exec("cat /test.txt");
-      expect(cat.stdout).toBe("Auto-detect xz!");
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain("disabled by default");
     });
 
-    it("should list xz compressed archive", async () => {
+    it("should reject xz listing by default", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "List xz content",
         },
       });
       await env.exec("tar -cJf /archive.tar.xz /test.txt");
       const result = await env.exec("tar -tJf /archive.tar.xz");
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("test.txt");
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain("disabled by default");
     });
   });
 
   describe("gzip compression (-z)", () => {
     it("should create gzip compressed archive", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello, World! This is some content to compress.",
         },
@@ -468,6 +489,7 @@ describe("tar", () => {
 
     it("should extract gzip compressed archive", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello, compressed World!",
         },
@@ -483,6 +505,7 @@ describe("tar", () => {
 
     it("should auto-detect gzip compression on extract", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Auto-detect gzip!",
         },
@@ -499,6 +522,7 @@ describe("tar", () => {
 
     it("should list gzip compressed archive", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "List gzip content",
         },
@@ -513,6 +537,7 @@ describe("tar", () => {
   describe("symlinks", () => {
     it("should archive and extract symlinks", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/target.txt": "Target content",
         },
@@ -528,7 +553,7 @@ describe("tar", () => {
 
   describe("edge cases", () => {
     it("should handle empty directory", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
       await env.exec("mkdir /emptydir");
       const result = await env.exec("tar -cvf /archive.tar /emptydir");
       expect(result.exitCode).toBe(0);
@@ -542,6 +567,7 @@ describe("tar", () => {
 
     it("should handle file with special characters in name", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file with spaces.txt": "Content",
         },
@@ -556,6 +582,7 @@ describe("tar", () => {
 
     it("should handle binary content", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/binary.bin": new Uint8Array([0x00, 0x01, 0x02, 0xff, 0xfe]),
         },
@@ -575,7 +602,7 @@ describe("tar", () => {
         files[`/bigdir/file${i.toString().padStart(3, "0")}.txt`] =
           `Content ${i}`;
       }
-      const env = new Bash({ files });
+      const env = new Bash({ defenseInDepth: false, files });
 
       const result = await env.exec("tar -cf /archive.tar /bigdir");
       expect(result.exitCode).toBe(0);
@@ -588,6 +615,7 @@ describe("tar", () => {
     it("should handle long filenames", async () => {
       const longName = `${"a".repeat(150)}.txt`;
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           [`/dir/${longName}`]: "Long filename content",
         },
@@ -603,6 +631,7 @@ describe("tar", () => {
   describe("combined operations", () => {
     it("should round-trip directory with gzip", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/project/src/main.js": "console.log('hello');",
           "/project/src/utils.js": "export const helper = () => {};",
@@ -634,6 +663,7 @@ describe("tar", () => {
   describe("extract to stdout (-O)", () => {
     it("should extract file contents to stdout", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello, World!",
         },
@@ -647,6 +677,7 @@ describe("tar", () => {
 
     it("should extract specific file to stdout", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file1.txt": "Content 1",
           "/file2.txt": "Content 2",
@@ -661,6 +692,7 @@ describe("tar", () => {
 
     it("should not create files when using -O", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/source/test.txt": "Original",
         },
@@ -677,6 +709,7 @@ describe("tar", () => {
 
     it("should concatenate multiple files to stdout", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/a.txt": "AAA",
           "/b.txt": "BBB",
@@ -694,6 +727,7 @@ describe("tar", () => {
   describe("keep old files (-k)", () => {
     it("should not overwrite existing files with -k", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Original content",
         },
@@ -713,6 +747,7 @@ describe("tar", () => {
 
     it("should extract non-existing files with -k", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/existing.txt": "Existing",
           "/new.txt": "New content",
@@ -738,6 +773,7 @@ describe("tar", () => {
 
     it("should show verbose message for skipped files with -kv", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Original",
         },
@@ -753,6 +789,7 @@ describe("tar", () => {
   describe("append (-r)", () => {
     it("should append files to existing archive", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file1.txt": "Content 1",
           "/file2.txt": "Content 2",
@@ -774,6 +811,7 @@ describe("tar", () => {
 
     it("should append with verbose output", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file1.txt": "Content 1",
           "/file2.txt": "Content 2",
@@ -788,6 +826,7 @@ describe("tar", () => {
 
     it("should error when appending to non-existent archive", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file.txt": "Content",
         },
@@ -800,6 +839,7 @@ describe("tar", () => {
 
     it("should error when appending to stdout", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file.txt": "Content",
         },
@@ -812,6 +852,7 @@ describe("tar", () => {
 
     it("should not work with compressed archives", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file.txt": "Content",
         },
@@ -826,6 +867,7 @@ describe("tar", () => {
   describe("update (-u)", () => {
     it("should update archive with newer files", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file.txt": "Original content",
         },
@@ -850,6 +892,7 @@ describe("tar", () => {
 
     it("should not update archive with older files", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file.txt": "Content",
         },
@@ -866,6 +909,7 @@ describe("tar", () => {
 
     it("should error when updating non-existent archive", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file.txt": "Content",
         },
@@ -878,6 +922,7 @@ describe("tar", () => {
 
     it("should not work with compressed archives", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file.txt": "Content",
         },
@@ -892,6 +937,7 @@ describe("tar", () => {
   describe("wildcards (--wildcards)", () => {
     it("should extract files matching wildcard pattern", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/dir/file1.txt": "Text 1",
           "/dir/file2.txt": "Text 2",
@@ -914,6 +960,7 @@ describe("tar", () => {
 
     it("should list files matching wildcard pattern", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/dir/a.txt": "A",
           "/dir/b.txt": "B",
@@ -932,6 +979,7 @@ describe("tar", () => {
 
     it("should support ? wildcard for single character", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/dir/file1.txt": "1",
           "/dir/file2.txt": "2",
@@ -954,6 +1002,7 @@ describe("tar", () => {
   describe("pattern matching on extract", () => {
     it("should extract only matching files", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/dir/file1.txt": "Content 1",
           "/dir/file2.txt": "Content 2",
@@ -979,6 +1028,7 @@ describe("tar", () => {
 
     it("should extract directory and its contents by pattern", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/project/src/main.js": "main",
           "/project/src/lib.js": "lib",
@@ -1003,6 +1053,7 @@ describe("tar", () => {
   describe("auto-compress (-a)", () => {
     it("should auto-detect gzip from .tar.gz extension", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello World",
         },
@@ -1019,6 +1070,7 @@ describe("tar", () => {
 
     it("should auto-detect bzip2 from .tar.bz2 extension", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello World",
         },
@@ -1033,40 +1085,45 @@ describe("tar", () => {
       expect(list.stdout).toContain("test.txt");
     });
 
-    it("should auto-detect xz from .tar.xz extension", async () => {
+    it("should auto-detect xz from .tar.xz extension (creation succeeds, listing blocked)", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello World",
         },
       });
 
+      // Creation with xz still works (compressing trusted data)
       const result = await env.exec("tar -caf /archive.tar.xz /test.txt");
       expect(result.exitCode).toBe(0);
 
-      // Verify it's xz compressed
+      // Listing xz archive is blocked by default
       const list = await env.exec("tar -tJf /archive.tar.xz");
-      expect(list.exitCode).toBe(0);
-      expect(list.stdout).toContain("test.txt");
+      expect(list.exitCode).toBe(2);
+      expect(list.stderr).toContain("disabled by default");
     });
 
-    it("should auto-detect zstd from .tar.zst extension", async () => {
+    it("should auto-detect zstd from .tar.zst extension (creation succeeds, listing blocked)", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello World",
         },
       });
 
+      // Creation with zstd still works (compressing trusted data)
       const result = await env.exec("tar -caf /archive.tar.zst /test.txt");
       expect(result.exitCode).toBe(0);
 
-      // Verify it's zstd compressed
+      // Listing zstd archive is blocked by default
       const list = await env.exec("tar --zstd -tf /archive.tar.zst");
-      expect(list.exitCode).toBe(0);
-      expect(list.stdout).toContain("test.txt");
+      expect(list.exitCode).toBe(2);
+      expect(list.stderr).toContain("disabled by default");
     });
 
     it("should create plain tar for .tar extension", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello World",
         },
@@ -1085,6 +1142,7 @@ describe("tar", () => {
   describe("files-from (-T)", () => {
     it("should read files to archive from a file", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file1.txt": "Content 1",
           "/file2.txt": "Content 2",
@@ -1104,6 +1162,7 @@ describe("tar", () => {
 
     it("should ignore comments and blank lines in files-from", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file1.txt": "Content 1",
           "/file2.txt": "Content 2",
@@ -1122,6 +1181,7 @@ describe("tar", () => {
 
     it("should combine -T with positional files", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file1.txt": "Content 1",
           "/file2.txt": "Content 2",
@@ -1142,7 +1202,7 @@ describe("tar", () => {
     });
 
     it("should error on non-existent files-from file", async () => {
-      const env = new Bash();
+      const env = new Bash({ defenseInDepth: false });
 
       const result = await env.exec(
         "tar -cf /archive.tar -T /nonexistent.list",
@@ -1155,6 +1215,7 @@ describe("tar", () => {
   describe("exclude-from (-X)", () => {
     it("should read exclude patterns from a file", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/dir/file1.txt": "Content 1",
           "/dir/file2.log": "Log 2",
@@ -1176,6 +1237,7 @@ describe("tar", () => {
 
     it("should combine -X with --exclude", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/dir/file1.txt": "Content 1",
           "/dir/file2.log": "Log 2",
@@ -1197,6 +1259,7 @@ describe("tar", () => {
 
     it("should error on non-existent exclude-from file", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Content",
         },
@@ -1213,6 +1276,7 @@ describe("tar", () => {
   describe("zstd compression (--zstd)", () => {
     it("should create zstd-compressed archive", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello World",
         },
@@ -1228,43 +1292,41 @@ describe("tar", () => {
       expect(ls.exitCode).toBe(0);
     });
 
-    it("should extract zstd-compressed archive", async () => {
+    it("should reject zstd decompression by default", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello World",
         },
       });
 
       await env.exec("tar --zstd -cf /archive.tar.zst /test.txt");
-      await env.exec("rm /test.txt");
 
       const result = await env.exec("tar --zstd -xf /archive.tar.zst");
-      expect(result.exitCode).toBe(0);
-
-      const cat = await env.exec("cat /test.txt");
-      expect(cat.stdout).toBe("Hello World");
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain("disabled by default");
+      expect(result.stderr).toContain("native codec");
     });
 
-    it("should auto-detect zstd compression on extract", async () => {
+    it("should reject auto-detected zstd decompression by default", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/test.txt": "Hello World",
         },
       });
 
       await env.exec("tar --zstd -cf /archive.tar.zst /test.txt");
-      await env.exec("rm /test.txt");
 
-      // Extract without --zstd flag (auto-detect)
+      // Extract without --zstd flag (auto-detect) - still blocked
       const result = await env.exec("tar -xf /archive.tar.zst");
-      expect(result.exitCode).toBe(0);
-
-      const cat = await env.exec("cat /test.txt");
-      expect(cat.stdout).toBe("Hello World");
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain("disabled by default");
     });
 
-    it("should list zstd-compressed archive", async () => {
+    it("should reject zstd listing by default", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file1.txt": "Content 1",
           "/file2.txt": "Content 2",
@@ -1274,15 +1336,15 @@ describe("tar", () => {
       await env.exec("tar --zstd -cf /archive.tar.zst /file1.txt /file2.txt");
 
       const result = await env.exec("tar --zstd -tf /archive.tar.zst");
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("file1.txt");
-      expect(result.stdout).toContain("file2.txt");
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain("disabled by default");
     });
   });
 
   describe("binary stdin handling", () => {
     it("should correctly handle binary archive data from stdin for list", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/file1.txt": "content one",
           "/file2.txt": "content two",
@@ -1302,6 +1364,7 @@ describe("tar", () => {
 
     it("should correctly handle binary archive data from stdin for extract", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/src/file.txt": "test content 12345",
         },
@@ -1324,6 +1387,7 @@ describe("tar", () => {
 
     it("should handle gzip-compressed archive from stdin", async () => {
       const env = new Bash({
+        defenseInDepth: false,
         files: {
           "/src/data.txt": "Hello World",
         },

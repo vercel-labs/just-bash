@@ -50,6 +50,14 @@ export interface BlockedGlobal {
    * Human-readable description of why this is blocked.
    */
   reason: string;
+
+  /**
+   * For object proxies (strategy: "throw" on objects): allow reads of these
+   * specific property names even inside the sandbox context. Node.js internals
+   * read certain properties (e.g., process.env keys) during module loading
+   * within the AsyncLocalStorage context, so they must be allowed through.
+   */
+  allowedKeys?: Set<string>;
 }
 
 /**
@@ -111,6 +119,25 @@ export function getBlockedGlobals(): BlockedGlobal[] {
       violationType: "process_env",
       strategy: "throw",
       reason: "process.env could leak sensitive environment variables",
+      // Node.js internals and bundled dependencies read these env vars
+      // during module loading, file watching, and I/O within the
+      // AsyncLocalStorage context. None are user secrets.
+      allowedKeys: new Set([
+        // Node.js core
+        "NODE_V8_COVERAGE",
+        "NODE_DEBUG",
+        "NODE_DEBUG_NATIVE",
+        "NODE_COMPILE_CACHE",
+        "WATCH_REPORT_DEPENDENCIES",
+        // Dependencies
+        "FORCE_COLOR", // chalk/supports-color
+        "DEBUG", // debug package
+        "UNDICI_NO_FG", // undici (Node.js fetch)
+        "JEST_WORKER_ID", // jest/vitest worker detection
+        "__MINIMATCH_TESTING_PLATFORM__", // minimatch
+        "LOG_TOKENS", // query engine debug logging
+        "LOG_STREAM", // query engine debug logging
+      ]),
     },
     {
       prop: "binding",

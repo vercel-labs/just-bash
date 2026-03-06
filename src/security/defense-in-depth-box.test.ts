@@ -29,6 +29,61 @@ describe("DefenseInDepthBox", () => {
       const instance2 = DefenseInDepthBox.getInstance(true);
       expect(instance1).not.toBe(instance2);
     });
+
+    it("should throw on conflicting enabled config", () => {
+      DefenseInDepthBox.getInstance({ enabled: true });
+      expect(() => DefenseInDepthBox.getInstance({ enabled: false })).toThrow(
+        /config conflict/,
+      );
+    });
+
+    it("should throw on conflicting auditMode config", () => {
+      DefenseInDepthBox.getInstance({ enabled: true, auditMode: true });
+      expect(() =>
+        DefenseInDepthBox.getInstance({ enabled: true, auditMode: false }),
+      ).toThrow(/config conflict/);
+    });
+
+    it("should throw when weaker config is set first then stricter requested", () => {
+      // First caller: audit mode (weaker)
+      DefenseInDepthBox.getInstance({ enabled: true, auditMode: true });
+      // Second caller: strict mode (stricter) - must not silently get audit mode
+      expect(() =>
+        DefenseInDepthBox.getInstance({ enabled: true, auditMode: false }),
+      ).toThrow(/config conflict/);
+    });
+
+    it("should throw when stricter config is set first then weaker requested", () => {
+      // First caller: strict mode
+      DefenseInDepthBox.getInstance({ enabled: true, auditMode: false });
+      // Second caller: audit mode - must not silently downgrade
+      expect(() =>
+        DefenseInDepthBox.getInstance({ enabled: true, auditMode: true }),
+      ).toThrow(/config conflict/);
+    });
+
+    it("should allow same config on subsequent calls", () => {
+      const instance1 = DefenseInDepthBox.getInstance({
+        enabled: true,
+        auditMode: false,
+      });
+      const instance2 = DefenseInDepthBox.getInstance({
+        enabled: true,
+        auditMode: false,
+      });
+      expect(instance1).toBe(instance2);
+    });
+
+    it("should allow compatible configs after resetInstance", () => {
+      DefenseInDepthBox.getInstance({ enabled: true, auditMode: true });
+      DefenseInDepthBox.resetInstance();
+      // After reset, different config is fine
+      const instance = DefenseInDepthBox.getInstance({
+        enabled: true,
+        auditMode: false,
+      });
+      expect(instance).toBeDefined();
+    });
   });
 
   describe("activation", () => {
@@ -1738,6 +1793,15 @@ describe("DefenseInDepthBox", () => {
 
         expect(error).toBeInstanceOf(SecurityViolationError);
       });
+    });
+  });
+
+  describe("patch failure tracking", () => {
+    it("should report no patch failures on normal activation", () => {
+      const box = DefenseInDepthBox.getInstance(true);
+      const handle = box.activate();
+      expect(box.getPatchFailures()).toEqual([]);
+      handle.deactivate();
     });
   });
 });
