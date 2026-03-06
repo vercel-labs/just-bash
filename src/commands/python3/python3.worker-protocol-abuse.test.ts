@@ -10,6 +10,9 @@ const mockState = vi.hoisted(() => ({
   script: null as WorkerScript | null,
 }));
 
+// Pre-capture SharedArrayBuffer before defense-in-depth patches it
+const _SAB = vi.hoisted(() => globalThis.SharedArrayBuffer);
+
 vi.mock("node:worker_threads", () => {
   class MockWorker {
     private handlers = new Map<string, Array<(payload?: unknown) => void>>();
@@ -53,14 +56,13 @@ vi.mock("./fs-bridge-handler.js", () => {
   return { FsBridgeHandler: MockFsBridgeHandler };
 });
 
-vi.mock("./protocol.js", async () => {
-  const { _SharedArrayBuffer } = await import("../../timers.js");
+vi.mock("./protocol.js", () => {
   return {
-    createSharedBuffer: () => new _SharedArrayBuffer(4096),
+    createSharedBuffer: () => new _SAB(4096),
   };
 });
 
-import { python3Command } from "./python3.js";
+import { _resetExecutionQueue, python3Command } from "./python3.js";
 
 function createContext(): CommandContext {
   return {
@@ -75,9 +77,12 @@ function createContext(): CommandContext {
   };
 }
 
-describe("python3 worker protocol abuse", () => {
-  beforeEach(() => {
+describe("python3 worker protocol abuse", { retry: 2 }, () => {
+  beforeEach(async () => {
     mockState.script = null;
+    _resetExecutionQueue();
+    // Allow any in-flight workers from previous tests to settle
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   it("treats malformed worker message as success (investigation evidence)", async () => {

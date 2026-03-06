@@ -154,6 +154,12 @@ type QueuedExecution = {
 const executionQueue: QueuedExecution[] = [];
 let isExecuting = false;
 
+/** @internal Reset queue state — for tests only */
+export function _resetExecutionQueue(): void {
+  executionQueue.length = 0;
+  isExecuting = false;
+}
+
 const workerPath = fileURLToPath(new URL("./worker.js", import.meta.url));
 
 function processNextExecution(): void {
