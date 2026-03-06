@@ -18,6 +18,7 @@ export default defineConfig({
       ["forks", "**/security/attacks/**"],
       ["forks", "**/security/defense-in-depth-box*.test.ts"],
       ["forks", "**/browser.bundle.test.ts"],
+      ["forks", "**/python3.worker-protocol-abuse.test.ts"],
     ],
     coverage: {
       provider: "v8",

@@ -193,14 +193,14 @@ function processNextExecution(): void {
           success: false,
           error: `Security violation: ${msg.violation?.type ?? "unknown"}`,
         });
-        worker.terminate();
         isExecuting = false;
+        worker.terminate();
         processNextExecution();
         return;
       }
       next.resolve(msg);
-      worker.terminate();
       isExecuting = false;
+      worker.terminate();
       processNextExecution();
     },
   );
