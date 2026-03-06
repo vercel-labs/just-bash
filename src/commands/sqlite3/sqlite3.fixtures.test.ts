@@ -12,7 +12,6 @@ describe("sqlite3 with fixtures", () => {
       const env = new Bash({
         fs,
         cwd: fs.getMountPoint(),
-        defenseInDepth: false,
       });
 
       const result = await env.exec('sqlite3 users.db "SELECT * FROM users"');
@@ -30,7 +29,6 @@ describe("sqlite3 with fixtures", () => {
       const env = new Bash({
         fs,
         cwd: fs.getMountPoint(),
-        defenseInDepth: false,
       });
 
       const result = await env.exec(
@@ -45,7 +43,6 @@ describe("sqlite3 with fixtures", () => {
       const env = new Bash({
         fs,
         cwd: fs.getMountPoint(),
-        defenseInDepth: false,
       });
 
       const result = await env.exec(
@@ -60,7 +57,6 @@ describe("sqlite3 with fixtures", () => {
       const env = new Bash({
         fs,
         cwd: fs.getMountPoint(),
-        defenseInDepth: false,
       });
 
       const result = await env.exec(
@@ -77,7 +73,6 @@ describe("sqlite3 with fixtures", () => {
       const env = new Bash({
         fs,
         cwd: fs.getMountPoint(),
-        defenseInDepth: false,
       });
 
       const result = await env.exec(
@@ -95,7 +90,6 @@ describe("sqlite3 with fixtures", () => {
       const env = new Bash({
         fs,
         cwd: fs.getMountPoint(),
-        defenseInDepth: false,
       });
 
       const result = await env.exec(
@@ -112,7 +106,6 @@ describe("sqlite3 with fixtures", () => {
       const env = new Bash({
         fs,
         cwd: fs.getMountPoint(),
-        defenseInDepth: false,
       });
 
       const result = await env.exec(
@@ -128,7 +121,6 @@ describe("sqlite3 with fixtures", () => {
       const env = new Bash({
         fs,
         cwd: fs.getMountPoint(),
-        defenseInDepth: false,
       });
 
       const result = await env.exec(
@@ -148,7 +140,6 @@ describe("sqlite3 with fixtures", () => {
       const env = new Bash({
         fs,
         cwd: fs.getMountPoint(),
-        defenseInDepth: false,
       });
 
       const result = await env.exec(
@@ -163,7 +154,6 @@ describe("sqlite3 with fixtures", () => {
       const env = new Bash({
         fs,
         cwd: fs.getMountPoint(),
-        defenseInDepth: false,
       });
 
       const result = await env.exec(
@@ -182,7 +172,6 @@ describe("sqlite3 with fixtures", () => {
       const env = new Bash({
         fs,
         cwd: fs.getMountPoint(),
-        defenseInDepth: false,
       });
 
       const result = await env.exec(
@@ -199,7 +188,6 @@ describe("sqlite3 with fixtures", () => {
       const env = new Bash({
         fs,
         cwd: fs.getMountPoint(),
-        defenseInDepth: false,
       });
 
       // Try to insert with readonly
@@ -220,7 +208,6 @@ describe("sqlite3 with fixtures", () => {
       const env = new Bash({
         fs,
         cwd: fs.getMountPoint(),
-        defenseInDepth: false,
       });
 
       // Insert new user
@@ -243,7 +230,6 @@ describe("sqlite3 with fixtures", () => {
       const env = new Bash({
         fs,
         cwd: fs.getMountPoint(),
-        defenseInDepth: false,
       });
 
       const result = await env.exec(
@@ -258,7 +244,6 @@ describe("sqlite3 with fixtures", () => {
       const env = new Bash({
         fs,
         cwd: fs.getMountPoint(),
-        defenseInDepth: false,
       });
 
       const result = await env.exec(

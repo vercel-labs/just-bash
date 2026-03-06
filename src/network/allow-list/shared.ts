@@ -123,7 +123,7 @@ export interface EnvAdapter {
  * Creates an adapter for BashEnv
  */
 export function createBashEnvAdapter(options: BashOptions): EnvAdapter {
-  const env = new Bash({ defenseInDepth: false, ...options });
+  const env = new Bash({ ...options });
   return {
     exec: (cmd) => env.exec(cmd),
     readFile: (path) => env.readFile(path),

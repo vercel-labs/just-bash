@@ -24,7 +24,6 @@ describe("allow-list mock verification", () => {
     mockFetch.mockClear();
 
     const env = new Bash({
-      defenseInDepth: false,
       network: { allowedUrlPrefixes: ["https://allowed.com"] },
     });
 
@@ -37,7 +36,6 @@ describe("allow-list mock verification", () => {
     mockFetch.mockClear();
 
     const env = new Bash({
-      defenseInDepth: false,
       network: { allowedUrlPrefixes: ["https://api.example.com"] },
     });
 
@@ -51,7 +49,6 @@ describe("allow-list mock verification", () => {
     mockFetch.mockClear();
 
     const env = new Bash({
-      defenseInDepth: false,
       network: { allowedUrlPrefixes: ["https://api.example.com"] },
     });
 
@@ -66,7 +63,6 @@ describe("allow-list mock verification", () => {
     mockFetch.mockClear();
 
     const env = new Bash({
-      defenseInDepth: false,
       network: { allowedUrlPrefixes: ["https://api.example.com"] },
     });
 
@@ -82,7 +78,6 @@ describe("allow-list mock verification", () => {
     mockFetch.mockClear();
 
     const env = new Bash({
-      defenseInDepth: false,
       network: { allowedUrlPrefixes: ["https://api.example.com"] },
     });
 
@@ -98,7 +93,6 @@ describe("allow-list mock verification", () => {
     mockFetch.mockClear();
 
     const env = new Bash({
-      defenseInDepth: false,
       network: { allowedUrlPrefixes: ["https://api.example.com"] },
     });
 

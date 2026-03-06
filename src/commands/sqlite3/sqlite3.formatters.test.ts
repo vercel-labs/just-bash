@@ -4,21 +4,21 @@ import { Bash } from "../../Bash.js";
 describe("sqlite3 formatters", () => {
   describe("list mode (default)", () => {
     it("should output pipe-separated by default", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec('sqlite3 :memory: "SELECT 1, 2, 3"');
       expect(result.stdout).toBe("1|2|3\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should output list mode explicitly with -list", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec('sqlite3 -list :memory: "SELECT 1, 2, 3"');
       expect(result.stdout).toBe("1|2|3\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should handle list mode with header", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -list -header :memory: "SELECT 1 as a, 2 as b"',
       );
@@ -29,7 +29,7 @@ describe("sqlite3 formatters", () => {
 
   describe("CSV edge cases", () => {
     it("should escape embedded quotes", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       // Use SQLite's quote escaping (double single quotes)
       const result = await env.exec(
         "sqlite3 -csv :memory: \"SELECT 'he said ''hello'''\"",
@@ -40,7 +40,7 @@ describe("sqlite3 formatters", () => {
     });
 
     it("should handle CSV with header", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -csv -header :memory: "SELECT 1 as col1, 2 as col2"',
       );
@@ -49,7 +49,7 @@ describe("sqlite3 formatters", () => {
     });
 
     it("should handle empty values in CSV", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         "sqlite3 -csv :memory: \"SELECT '', 'x', ''\"",
       );
@@ -60,7 +60,7 @@ describe("sqlite3 formatters", () => {
 
   describe("JSON edge cases", () => {
     it("should handle empty result as empty output", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -json :memory: "CREATE TABLE t(x INT); SELECT * FROM t"',
       );
@@ -70,7 +70,7 @@ describe("sqlite3 formatters", () => {
     });
 
     it("should handle special characters in JSON", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         "sqlite3 -json :memory: \"SELECT 'line1\nline2' as x\"",
       );
@@ -80,7 +80,7 @@ describe("sqlite3 formatters", () => {
     });
 
     it("should handle boolean-like values", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -json :memory: "SELECT 1 as t, 0 as f"',
       );
@@ -92,7 +92,7 @@ describe("sqlite3 formatters", () => {
 
   describe("HTML edge cases", () => {
     it("should escape ampersand", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         "sqlite3 -html :memory: \"SELECT 'a & b'\"",
       );
@@ -101,7 +101,7 @@ describe("sqlite3 formatters", () => {
     });
 
     it("should escape all HTML entities", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         "sqlite3 -html :memory: \"SELECT '<div>&</div>'\"",
       );
@@ -112,7 +112,7 @@ describe("sqlite3 formatters", () => {
     });
 
     it("should output header row with TH tags", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -html -header :memory: "SELECT 1 as col1, 2 as col2"',
       );
@@ -124,7 +124,7 @@ describe("sqlite3 formatters", () => {
 
   describe("line mode edge cases", () => {
     it("should align column names", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -line :memory: "SELECT 1 as aa, 2 as bbbb"',
       );
@@ -141,7 +141,7 @@ describe("sqlite3 formatters", () => {
     });
 
     it("should handle multiple rows in line mode", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -line :memory: "SELECT 1 as x UNION SELECT 2"',
       );
@@ -153,7 +153,7 @@ describe("sqlite3 formatters", () => {
 
   describe("column mode edge cases", () => {
     it("should handle wide values", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         "sqlite3 -column -header :memory: \"SELECT 'short' as a, 'this is a very long value' as b\"",
       );
@@ -163,7 +163,7 @@ describe("sqlite3 formatters", () => {
     });
 
     it("should show separator line with header", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -column -header :memory: "SELECT 1 as aa, 2 as bbbb"',
       );
@@ -175,7 +175,7 @@ describe("sqlite3 formatters", () => {
 
   describe("table mode edge cases", () => {
     it("should handle empty result in table mode", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -table -header :memory: "CREATE TABLE t(x); SELECT * FROM t"',
       );
@@ -188,7 +188,7 @@ describe("sqlite3 formatters", () => {
 
   describe("box mode edge cases", () => {
     it("should handle single column in box mode", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -box :memory: "SELECT 42 as value"',
       );
@@ -200,7 +200,7 @@ describe("sqlite3 formatters", () => {
     });
 
     it("should handle wide content in box mode", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         "sqlite3 -box :memory: \"SELECT 'this is a long string' as col\"",
       );
@@ -211,14 +211,14 @@ describe("sqlite3 formatters", () => {
 
   describe("quote mode edge cases", () => {
     it("should show integers without quotes", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec('sqlite3 -quote :memory: "SELECT 42"');
       expect(result.stdout).toBe("42\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should show floats without quotes", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec('sqlite3 -quote :memory: "SELECT 3.14"');
       // Full IEEE 754 precision like real sqlite3
       expect(result.stdout).toBe("3.1400000000000001\n");
@@ -226,7 +226,7 @@ describe("sqlite3 formatters", () => {
     });
 
     it("should quote strings", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         "sqlite3 -quote :memory: \"SELECT 'hello'\"",
       );
@@ -235,7 +235,7 @@ describe("sqlite3 formatters", () => {
     });
 
     it("should show NULL as NULL keyword", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec('sqlite3 -quote :memory: "SELECT NULL"');
       expect(result.stdout).toBe("NULL\n");
       expect(result.exitCode).toBe(0);
@@ -244,7 +244,7 @@ describe("sqlite3 formatters", () => {
 
   describe("nullvalue with different modes", () => {
     it("should apply nullvalue in list mode", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -nullvalue "N/A" :memory: "SELECT NULL, 1"',
       );
@@ -253,7 +253,7 @@ describe("sqlite3 formatters", () => {
     });
 
     it("should apply nullvalue in CSV mode", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -csv -nullvalue "N/A" :memory: "SELECT NULL, 1"',
       );
@@ -262,7 +262,7 @@ describe("sqlite3 formatters", () => {
     });
 
     it("should apply nullvalue in column mode", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -column -nullvalue "NULL" :memory: "SELECT NULL as x"',
       );
@@ -273,7 +273,7 @@ describe("sqlite3 formatters", () => {
 
   describe("BLOB handling", () => {
     it("should output BLOB as decoded text", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         "sqlite3 :memory: \"SELECT X'48454C4C4F'\"",
       );
@@ -285,7 +285,7 @@ describe("sqlite3 formatters", () => {
 
   describe("combined options", () => {
     it("should combine -csv -header -nullvalue", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -csv -header -nullvalue "N/A" :memory: "SELECT 1 as a, NULL as b"',
       );
@@ -294,7 +294,7 @@ describe("sqlite3 formatters", () => {
     });
 
     it("should combine -json with -cmd", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -json -cmd "CREATE TABLE t(x); INSERT INTO t VALUES(42)" :memory: "SELECT * FROM t"',
       );
@@ -303,7 +303,7 @@ describe("sqlite3 formatters", () => {
     });
 
     it("should combine -echo with -header", async () => {
-      const env = new Bash({ defenseInDepth: false });
+      const env = new Bash();
       const result = await env.exec(
         'sqlite3 -echo -header :memory: "SELECT 1 as x"',
       );

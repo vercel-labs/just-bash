@@ -114,6 +114,8 @@ interface DefenseContext {
   sandboxActive: true;
   /** Unique ID for this execution, useful for correlating violations */
   executionId: string;
+  /** When true, blocking is suspended (trusted infrastructure code) */
+  trusted?: boolean;
 }
 
 // AsyncLocalStorage instance to track whether current async context is within bash.exec()
@@ -381,43 +383,29 @@ export class DefenseInDepthBox {
     return `<object>.${prop}`;
   }
 
-  // Counter for nested runTrusted() calls — when > 0, shouldBlock() returns false
-  private trustedDepth = 0;
-
   /**
-   * Run a synchronous function as trusted infrastructure code.
-   * While inside this callback, defense-in-depth blocking is suspended.
+   * Run a function as trusted infrastructure code.
+   * Blocking is suspended for the current async context only — other
+   * concurrent exec() calls remain protected.
    *
-   * Use this for sync calls to Node.js APIs and dependencies that access
-   * blocked globals internally (e.g., new Worker()).
+   * Uses AsyncLocalStorage to scope the trust, so async operations
+   * spawned inside the callback inherit the trusted state.
    */
   static runTrusted<T>(fn: () => T): T {
-    const instance = DefenseInDepthBox.instance;
-    if (!instance) return fn();
-    instance.trustedDepth++;
-    try {
-      return fn();
-    } finally {
-      instance.trustedDepth--;
-    }
+    if (!executionContext) return fn();
+    const current = executionContext.getStore();
+    if (!current) return fn();
+    return executionContext.run({ ...current, trusted: true }, fn);
   }
 
   /**
-   * Run an async function as trusted infrastructure code.
-   * Blocking is suspended for the entire duration of the Promise.
-   *
-   * Use this for async calls like initSqlJs() where WASM compilation
-   * happens asynchronously and accesses blocked globals.
+   * Async version of runTrusted.
    */
   static async runTrustedAsync<T>(fn: () => Promise<T>): Promise<T> {
-    const instance = DefenseInDepthBox.instance;
-    if (!instance) return fn();
-    instance.trustedDepth++;
-    try {
-      return await fn();
-    } finally {
-      instance.trustedDepth--;
-    }
+    if (!executionContext) return fn();
+    const current = executionContext.getStore();
+    if (!current) return fn();
+    return executionContext.run({ ...current, trusted: true }, fn);
   }
 
   /**
@@ -429,11 +417,12 @@ export class DefenseInDepthBox {
     if (IS_BROWSER || this.config.auditMode || !executionContext) {
       return false;
     }
-    if (executionContext?.getStore()?.sandboxActive !== true) {
+    const store = executionContext?.getStore();
+    if (store?.sandboxActive !== true) {
       return false;
     }
     // Trusted infrastructure code (runTrusted) bypasses blocking
-    if (this.trustedDepth > 0) {
+    if (store.trusted) {
       return false;
     }
     return true;

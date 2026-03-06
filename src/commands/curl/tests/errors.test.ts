@@ -33,7 +33,6 @@ describe("curl error handling", () => {
   describe("no URL errors", () => {
     it("should error when no URL provided", async () => {
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://example.com"] },
       });
       const result = await env.exec("curl");
@@ -43,7 +42,6 @@ describe("curl error handling", () => {
 
     it("should error when only options but no URL", async () => {
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://example.com"] },
       });
       const result = await env.exec("curl -s -S");
@@ -55,7 +53,6 @@ describe("curl error handling", () => {
   describe("network access errors", () => {
     it("should error when URL not in allowlist", async () => {
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://allowed.com"] },
       });
       const result = await env.exec("curl https://forbidden.com/test");
@@ -65,7 +62,6 @@ describe("curl error handling", () => {
 
     it("should suppress error with -s when URL not allowed", async () => {
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://allowed.com"] },
       });
       const result = await env.exec("curl -s https://forbidden.com/test");
@@ -75,7 +71,6 @@ describe("curl error handling", () => {
 
     it("should show error with -sS when URL not allowed", async () => {
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://allowed.com"] },
       });
       const result = await env.exec("curl -sS https://forbidden.com/test");
@@ -90,7 +85,6 @@ describe("curl error handling", () => {
         new Response("Not Found", { status: 404, statusText: "Not Found" }),
       );
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl https://api.example.com/missing");
@@ -103,7 +97,6 @@ describe("curl error handling", () => {
         new Response("Not Found", { status: 404, statusText: "Not Found" }),
       );
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl -f https://api.example.com/missing");
@@ -118,7 +111,6 @@ describe("curl error handling", () => {
         }),
       );
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec(
@@ -132,7 +124,6 @@ describe("curl error handling", () => {
         new Response("OK", { status: 200, statusText: "OK" }),
       );
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl -f https://api.example.com/ok");
@@ -144,7 +135,6 @@ describe("curl error handling", () => {
         new Response("", { status: 301, statusText: "Moved Permanently" }),
       );
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl -f https://api.example.com/redirect");
@@ -155,7 +145,6 @@ describe("curl error handling", () => {
   describe("option errors", () => {
     it("should error on unknown short option", async () => {
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl -z https://api.example.com/test");
@@ -165,7 +154,6 @@ describe("curl error handling", () => {
 
     it("should error on unknown long option", async () => {
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec(
@@ -180,7 +168,6 @@ describe("curl error handling", () => {
     it("should handle fetch rejection", async () => {
       mockFetch.mockRejectedValue(new Error("Network error"));
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl https://api.example.com/test");
@@ -191,7 +178,6 @@ describe("curl error handling", () => {
     it("should suppress fetch error with -s", async () => {
       mockFetch.mockRejectedValue(new Error("Connection refused"));
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl -s https://api.example.com/test");
@@ -202,7 +188,6 @@ describe("curl error handling", () => {
     it("should show fetch error with -sS", async () => {
       mockFetch.mockRejectedValue(new Error("Connection refused"));
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl -sS https://api.example.com/test");
@@ -215,7 +200,6 @@ describe("curl error handling", () => {
     it("should error on output to non-writable path", async () => {
       mockFetch.mockResolvedValue(new Response("OK", { status: 200 }));
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       // Attempting to write to a deeply nested non-existent directory
@@ -230,7 +214,6 @@ describe("curl error handling", () => {
     it("should error on upload of non-existent file", async () => {
       mockFetch.mockResolvedValue(new Response("OK", { status: 200 }));
       const env = new Bash({
-        defenseInDepth: false,
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           allowedMethods: ["PUT"],
@@ -267,7 +250,6 @@ describe("curl error handling", () => {
         new Response("Not Found", { status: 404, statusText: "Not Found" }),
       );
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl -f -s https://api.example.com/404");
@@ -281,7 +263,6 @@ describe("curl error handling", () => {
         new Response("Not Found", { status: 404, statusText: "Not Found" }),
       );
       const env = new Bash({
-        defenseInDepth: false,
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec("curl -f -sS https://api.example.com/404");

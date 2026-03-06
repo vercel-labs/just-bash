@@ -16,6 +16,7 @@ import {
   type TarHeader,
   unpackTar,
 } from "modern-tar";
+import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 
 // Lazy load node-liblzma since it requires native compilation
 // that may fail on some systems (e.g., missing liblzma-dev)
@@ -26,7 +27,10 @@ async function getLzma(): Promise<typeof import("node-liblzma")> {
   if (lzma) return lzma;
   if (lzmaLoadError) throw lzmaLoadError;
   try {
-    lzma = await import("node-liblzma");
+    // Native addons use dlopen which is blocked by defense-in-depth
+    lzma = await DefenseInDepthBox.runTrustedAsync(
+      () => import("node-liblzma"),
+    );
     return lzma;
   } catch {
     lzmaLoadError = new Error(
@@ -45,7 +49,9 @@ async function getZstd(): Promise<typeof import("@mongodb-js/zstd")> {
   if (zstd) return zstd;
   if (zstdLoadError) throw zstdLoadError;
   try {
-    zstd = await import("@mongodb-js/zstd");
+    zstd = await DefenseInDepthBox.runTrustedAsync(
+      () => import("@mongodb-js/zstd"),
+    );
     return zstd;
   } catch {
     zstdLoadError = new Error(

@@ -36,7 +36,6 @@ afterAll(() => {
 
 const createEnv = () =>
   new Bash({
-    defenseInDepth: false,
     network: { allowedUrlPrefixes: ["https://api.example.com"] },
   });
 
