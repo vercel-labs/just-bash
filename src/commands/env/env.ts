@@ -1,3 +1,5 @@
+import { mapToRecord } from "../../helpers/env.js";
+import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -102,29 +104,19 @@ export const envCommand: Command = {
     // Use 'command' prefix to bypass shell keywords (like 'time')
     // This ensures we run the actual command, not the shell keyword
     const cmdArgs = args.slice(commandStart);
-    const cmdName = cmdArgs[0];
-    const cmdRest = cmdArgs.slice(1);
+    // Build a shell-safe command line
+    // Use 'command' prefix to bypass shell keywords (like 'time')
+    const command = shellJoinArgs(["command", ...cmdArgs]);
 
-    // Quote arguments that contain spaces or special characters
-    const quotedArgs = cmdRest.map((arg) => {
-      if (/[\s"'\\$`!*?[\]{}|&;<>()]/.test(arg)) {
-        // Use single quotes, escaping existing single quotes
-        return `'${arg.replace(/'/g, "'\\''")}'`;
-      }
-      return arg;
+    // Execute with explicitly provided environment so untrusted values never
+    // get reparsed as shell source via assignment prefixes.
+    return ctx.exec(command, {
+      cwd: ctx.cwd,
+      env: mapToRecord(newEnv),
+      replaceEnv: true,
+      stdin: ctx.stdin,
+      signal: ctx.signal,
     });
-
-    const command = [`command`, cmdName, ...quotedArgs].join(" ");
-
-    // Create a modified context and execute
-    // Note: We can't directly modify the context for exec, so we pass the env vars as prefix
-    // This is a limitation - in a real implementation, exec would accept an env parameter
-    const envPrefix = Object.entries(setVars)
-      .map(([k, v]) => `${k}="${v}"`)
-      .join(" ");
-
-    const fullCommand = envPrefix ? `${envPrefix} ${command}` : command;
-    return ctx.exec(fullCommand, { cwd: ctx.cwd });
   },
 };
 

@@ -411,7 +411,12 @@ export interface InterpreterContext {
   limits: Required<ExecutionLimits>;
   execFn: (
     script: string,
-    options?: { env?: Record<string, string>; cwd?: string },
+    options?: {
+      env?: Record<string, string>;
+      cwd?: string;
+      replaceEnv?: boolean;
+      signal?: AbortSignal;
+    },
   ) => Promise<ExecResult>;
   executeScript: (node: ScriptNode) => Promise<ExecResult>;
   executeStatement: (node: StatementNode) => Promise<ExecResult>;

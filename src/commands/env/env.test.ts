@@ -26,6 +26,36 @@ describe("env command", () => {
     expect(result.stdout).toContain("environment");
     expect(result.exitCode).toBe(0);
   });
+
+  it("should run command with empty environment when using -i", async () => {
+    const env = new Bash({
+      env: { FOO: "bar", PATH: "/usr/bin:/bin" },
+    });
+    const result = await env.exec("env -i printenv PATH");
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("should apply NAME=VALUE with -i for command execution", async () => {
+    const env = new Bash({
+      env: { FOO: "bar" },
+    });
+    const result = await env.exec("env -i ONLY=value printenv ONLY");
+    expect(result.stdout).toBe("value\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("should unset variables for command execution with -u", async () => {
+    const env = new Bash({
+      env: { FOO: "bar", BAZ: "qux" },
+    });
+    const result = await env.exec("env -u FOO printenv FOO BAZ");
+    expect(result.stdout).toBe("qux\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(1);
+  });
 });
 
 describe("printenv command", () => {

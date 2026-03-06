@@ -1,3 +1,4 @@
+import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 
 // Command categories for organized display
@@ -107,7 +108,10 @@ Otherwise, lists all available commands.
     // If a command name is provided, delegate to that command's --help
     if (args.length > 0 && ctx.exec) {
       const cmdName = args[0];
-      return ctx.exec(`${cmdName} --help`, { cwd: ctx.cwd });
+      return ctx.exec(shellJoinArgs([cmdName, "--help"]), {
+        cwd: ctx.cwd,
+        signal: ctx.signal,
+      });
     }
 
     // List all available commands

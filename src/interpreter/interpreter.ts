@@ -107,7 +107,12 @@ export interface InterpreterOptions {
   limits: Required<ExecutionLimits>;
   exec: (
     script: string,
-    options?: { env?: Record<string, string>; cwd?: string },
+    options?: {
+      env?: Record<string, string>;
+      cwd?: string;
+      replaceEnv?: boolean;
+      signal?: AbortSignal;
+    },
   ) => Promise<ExecResult>;
   /** Optional secure fetch function for network-enabled commands */
   fetch?: SecureFetch;

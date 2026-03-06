@@ -1,4 +1,5 @@
 import type { DirentEntry } from "../../fs/interface.js";
+import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import type {
   Command,
   CommandContext,
@@ -876,8 +877,11 @@ export const findCommand: Command = {
                   cmdWithFiles.push(part);
                 }
               }
-              const cmd = cmdWithFiles.map((p) => `"${p}"`).join(" ");
-              const result = await ctx.exec(cmd, { cwd: ctx.cwd });
+              const cmd = shellJoinArgs(cmdWithFiles);
+              const result = await ctx.exec(cmd, {
+                cwd: ctx.cwd,
+                signal: ctx.signal,
+              });
               stdout += result.stdout;
               stderr += result.stderr;
               if (result.exitCode !== 0) {
@@ -889,8 +893,11 @@ export const findCommand: Command = {
                 const cmdWithFile = action.command.map((part) =>
                   part === "{}" ? file : part,
                 );
-                const cmd = cmdWithFile.map((p) => `"${p}"`).join(" ");
-                const result = await ctx.exec(cmd, { cwd: ctx.cwd });
+                const cmd = shellJoinArgs(cmdWithFile);
+                const result = await ctx.exec(cmd, {
+                  cwd: ctx.cwd,
+                  signal: ctx.signal,
+                });
                 stdout += result.stdout;
                 stderr += result.stderr;
                 if (result.exitCode !== 0) {

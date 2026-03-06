@@ -3,6 +3,7 @@
  */
 
 import { gunzipSync } from "node:zlib";
+import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 import {
@@ -717,9 +718,13 @@ async function readFileContent(
       const filename = file.split("/").pop() || file;
       if (matchesPreGlob(filename, options.preprocessorGlobs)) {
         // Run preprocessor on this file
-        const result = await ctx.exec(`${options.preprocessor} "${filePath}"`, {
-          cwd: ctx.cwd,
-        });
+        const result = await ctx.exec(
+          shellJoinArgs([options.preprocessor, filePath]),
+          {
+            cwd: ctx.cwd,
+            signal: ctx.signal,
+          },
+        );
         if (result.exitCode === 0 && result.stdout) {
           const sample = result.stdout.slice(0, 8192);
           return { content: result.stdout, isBinary: sample.includes("\0") };

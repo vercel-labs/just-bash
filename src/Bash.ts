@@ -216,6 +216,11 @@ export interface ExecOptions {
    */
   env?: Record<string, string>;
   /**
+   * If true, start execution with an empty environment and then apply `env`.
+   * If false/omitted, `env` is merged into the current environment.
+   */
+  replaceEnv?: boolean;
+  /**
    * Working directory for this execution only.
    * Restored to original after execution.
    */
@@ -538,8 +543,10 @@ export class Bash {
       }
     }
 
-    // Create a copy of env Map for this execution
-    const execEnv = new Map(this.state.env);
+    // Create environment for this execution
+    const execEnv = options?.replaceEnv
+      ? new Map<string, string>()
+      : new Map(this.state.env);
     // Merge in options.env
     if (options?.env) {
       for (const [key, value] of Object.entries(options.env)) {

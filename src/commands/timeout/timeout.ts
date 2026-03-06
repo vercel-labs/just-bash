@@ -1,3 +1,4 @@
+import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { _setTimeout } from "../../timers.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -138,16 +139,8 @@ export const timeoutCommand: Command = {
       };
     }
 
-    // Build command string
-    const commandStr = commandArgs
-      .map((arg) => {
-        // Quote arguments with spaces
-        if (arg.includes(" ") || arg.includes("\t")) {
-          return `'${arg.replace(/'/g, "'\\''")}'`;
-        }
-        return arg;
-      })
-      .join(" ");
+    // Build command string from argv-style tokens using shell-safe quoting
+    const commandStr = shellJoinArgs(commandArgs);
 
     // Use AbortController for cooperative cancellation.
     // When the timeout fires, the signal is aborted, causing the interpreter
@@ -162,7 +155,11 @@ export const timeoutCommand: Command = {
     });
 
     const execPromise = ctx
-      .exec(commandStr, { cwd: ctx.cwd, signal: controller.signal })
+      .exec(commandStr, {
+        cwd: ctx.cwd,
+        signal: controller.signal,
+        stdin: ctx.stdin,
+      })
       .then((result) => ({ timedOut: false as const, result }));
 
     const outcome = await Promise.race([timeoutPromise, execPromise]);

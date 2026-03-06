@@ -170,7 +170,9 @@ export async function expandSubscriptForAssocArray(
         // Extract and execute the command
         const cmdStr = inner.slice(i + 2, j - 1);
         if (ctx.execFn) {
-          const cmdResult = await ctx.execFn(cmdStr);
+          const cmdResult = await ctx.execFn(cmdStr, {
+            signal: ctx.state.signal,
+          });
           // Strip trailing newlines like command substitution does
           result += cmdResult.stdout.replace(/\n+$/, "");
           // Forward stderr to expansion stderr
@@ -217,7 +219,9 @@ export async function expandSubscriptForAssocArray(
       }
       const cmdStr = inner.slice(i + 1, j);
       if (ctx.execFn) {
-        const cmdResult = await ctx.execFn(cmdStr);
+        const cmdResult = await ctx.execFn(cmdStr, {
+          signal: ctx.state.signal,
+        });
         result += cmdResult.stdout.replace(/\n+$/, "");
         if (cmdResult.stderr) {
           ctx.state.expansionStderr =

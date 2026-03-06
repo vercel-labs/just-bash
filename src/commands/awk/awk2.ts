@@ -113,6 +113,7 @@ export const awkCommand2: Command = {
     };
 
     // Create runtime context
+    const execFn = ctx.exec;
     const runtimeCtx = createRuntimeContext({
       fieldSep,
       maxIterations: ctx.limits?.maxAwkIterations,
@@ -120,9 +121,8 @@ export const awkCommand2: Command = {
       fs: awkFs,
       cwd: ctx.cwd,
       // Wrap ctx.exec to match the expected signature for command pipe getline
-      exec: ctx.exec
-        ? // biome-ignore lint/style/noNonNullAssertion: exec checked in ternary
-          (cmd: string) => ctx.exec!(cmd, { cwd: ctx.cwd })
+      exec: execFn
+        ? (cmd: string) => execFn(cmd, { cwd: ctx.cwd, signal: ctx.signal })
         : undefined,
       coverage: ctx.coverage,
     });

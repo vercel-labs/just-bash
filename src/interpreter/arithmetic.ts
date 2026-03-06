@@ -460,7 +460,9 @@ export async function evaluateArithmetic(
     case "ArithCommandSubst": {
       // Execute the command and parse the result as a number
       if (ctx.execFn) {
-        const result = await ctx.execFn(expr.command);
+        const result = await ctx.execFn(expr.command, {
+          signal: ctx.state.signal,
+        });
         // Command substitution stderr should go to the shell's stderr at expansion time
         if (result.stderr) {
           ctx.state.expansionStderr =
@@ -974,7 +976,9 @@ async function evalConcatPartToStringAsync(
       return await expandBracedContent(ctx, expr.content);
     case "ArithCommandSubst": {
       if (ctx.execFn) {
-        const result = await ctx.execFn(expr.command);
+        const result = await ctx.execFn(expr.command, {
+          signal: ctx.state.signal,
+        });
         return result.stdout.trim();
       }
       return "0";

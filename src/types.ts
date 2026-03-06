@@ -29,6 +29,11 @@ export interface CommandExecOptions {
   /** Environment variables to merge into the exec state */
   env?: Record<string, string>;
   /**
+   * Replace the execution environment instead of merging with parent env.
+   * Useful for implementing `env -i` semantics safely without shell prefixes.
+   */
+  replaceEnv?: boolean;
+  /**
    * Working directory for the exec.
    * Required to prevent bugs where subcommands run in the wrong directory.
    * Always pass `ctx.cwd` from the calling command's context.

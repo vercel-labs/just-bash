@@ -1,4 +1,5 @@
 import { mapToRecord } from "../../helpers/env.js";
+import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 
 /**
@@ -99,7 +100,8 @@ export const timeCommand: Command = {
     const startTime = performance.now();
 
     // Execute the command
-    const commandString = commandArgs.join(" ");
+    const commandString = shellJoinArgs(commandArgs);
+    const displayCommand = commandArgs.join(" ");
     let result: ExecResult;
 
     try {
@@ -113,6 +115,8 @@ export const timeCommand: Command = {
       result = await ctx.exec(commandString, {
         env: mapToRecord(ctx.env),
         cwd: ctx.cwd,
+        stdin: ctx.stdin,
+        signal: ctx.signal,
       });
     } catch (error) {
       result = {
@@ -141,7 +145,7 @@ export const timeCommand: Command = {
         .replace(/%S/g, "0.00") // System CPU time - not available in JS
         .replace(/%U/g, "0.00") // User CPU time - not available in JS
         .replace(/%P/g, "0%") // CPU percentage - not available in JS
-        .replace(/%C/g, commandString); // Command being timed
+        .replace(/%C/g, displayCommand); // Command being timed
 
       // Add newline if not present
       if (!timingOutput.endsWith("\n")) {
