@@ -101,6 +101,44 @@ describe("exec options", () => {
     });
   });
 
+  describe("replaceEnv", () => {
+    it("should start with empty environment when replaceEnv is true", async () => {
+      const bash = new Bash({ env: { FOO: "bar", PATH: "/usr/bin:/bin" } });
+      const result = await bash.exec("printenv FOO", {
+        replaceEnv: true,
+        env: {},
+      });
+      expect(result.stdout).toBe("");
+      expect(result.exitCode).toBe(1);
+    });
+
+    it("should apply provided env vars on top of empty environment", async () => {
+      const bash = new Bash({ env: { FOO: "bar" } });
+      const result = await bash.exec("printenv ONLY", {
+        replaceEnv: true,
+        env: { ONLY: "value" },
+      });
+      expect(result.stdout).toBe("value\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should not affect subsequent executions", async () => {
+      const bash = new Bash({ env: { FOO: "bar" } });
+      await bash.exec("echo x", { replaceEnv: true, env: { X: "1" } });
+      const result = await bash.exec("printenv FOO");
+      expect(result.stdout).toBe("bar\n");
+    });
+
+    it("replaceEnv false should merge like normal", async () => {
+      const bash = new Bash({ env: { FOO: "bar" } });
+      const result = await bash.exec("printenv FOO; printenv EXTRA", {
+        replaceEnv: false,
+        env: { EXTRA: "added" },
+      });
+      expect(result.stdout).toBe("bar\nadded\n");
+    });
+  });
+
   describe("per-exec cwd", () => {
     it("should use cwd for single execution", async () => {
       const env = new Bash({ files: { "/tmp/test/file.txt": "content" } });

@@ -20,8 +20,8 @@ export default defineConfig({
     // because defense-in-depth patches globalThis which is shared across threads.
     // Tests that need process-level isolation because defense-in-depth
     // patches globalThis (shared across threads with isolate: false).
-    // Note: mock-based tests (worker-protocol-abuse, queue-timeout-exploit)
-    // must stay in threads — vi.mock doesn't work in forks.
+    // Note: mock-based tests (queue-timeout-exploit) prefer threads,
+    // but vi.mock works in forks as of vitest v4.
     poolMatchGlobs: [
       ["forks", "**/security/attacks/**"],
       ["forks", "**/security/defense-in-depth-box*.test.ts"],
@@ -36,6 +36,7 @@ export default defineConfig({
       ["forks", "**/python3.security.test.ts"],
       ["forks", "**/python3.stdlib.test.ts"],
       ["forks", "**/python-scripting.test.ts"],
+      ["forks", "**/sqlite3.worker-protocol-abuse.test.ts"],
     ],
     coverage: {
       provider: "v8",
