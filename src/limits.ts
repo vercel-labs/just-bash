@@ -57,6 +57,9 @@ export interface ExecutionLimits {
 
   /** Maximum number of open file descriptors (default: 1024) */
   maxFileDescriptors?: number;
+
+  /** Maximum source/. nesting depth (default: 100) */
+  maxSourceDepth?: number;
 }
 
 /**
@@ -81,6 +84,7 @@ const DEFAULT_LIMITS: Required<ExecutionLimits> = {
   maxBraceExpansionResults: 10000,
   maxOutputSize: 10485760, // 10MB
   maxFileDescriptors: 1024,
+  maxSourceDepth: 100,
 };
 
 /**
@@ -123,5 +127,6 @@ export function resolveLimits(
     maxOutputSize: userLimits.maxOutputSize ?? DEFAULT_LIMITS.maxOutputSize,
     maxFileDescriptors:
       userLimits.maxFileDescriptors ?? DEFAULT_LIMITS.maxFileDescriptors,
+    maxSourceDepth: userLimits.maxSourceDepth ?? DEFAULT_LIMITS.maxSourceDepth,
   };
 }

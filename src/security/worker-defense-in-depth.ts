@@ -33,17 +33,14 @@
  * as the primary security mechanism. The primary security comes from proper
  * sandboxing, input validation, and architectural constraints.
  *
- * KNOWN LIMITATION - Dynamic import() cannot be blocked:
- * Dynamic `import()` is a language-level feature that cannot be intercepted
- * by property proxies or monkey-patching. An attacker with write access to
- * the filesystem could create a malicious JS module and import it:
- *   import('data:text/javascript,console.log("escaped")')
- *   import('/tmp/malicious.js')
+ * Dynamic import() mitigation (three layers):
+ * 1. Module._resolveFilename blocked — catches file-based specifiers
+ * 2. Main-thread ESM loader hooks block data:/blob: URLs (not in workers)
+ * 3. Filesystem restrictions — OverlayFs writes to memory only
  *
- * Mitigations for import() must be applied at other layers:
- * - Filesystem restrictions (prevent writing .js/.mjs files)
- * - Node.js module resolution hooks (--experimental-loader)
- * - Worker isolation (separate V8 contexts)
+ * Note: ESM loader hooks are registered by DefenseInDepthBox in the main
+ * thread. Workers inherit the hooks automatically. Worker-level registration
+ * is not needed (and would require require('node:module') which is blocked).
  */
 
 import { type BlockedGlobal, getBlockedGlobals } from "./blocked-globals.js";
@@ -451,10 +448,13 @@ export class WorkerDefenseInDepth {
       this.protectErrorPrepareStackTrace();
     }
 
-    // Protect Module._load BEFORE process.mainModule, since protectModuleLoad()
-    // needs to read process.mainModule to find the Module class.
+    // Protect Module._load and Module._resolveFilename BEFORE process.mainModule,
+    // since these methods need to read process.mainModule to find the Module class.
     if (!excludeTypes.has("module_load")) {
       this.protectModuleLoad();
+    }
+    if (!excludeTypes.has("module_resolve_filename")) {
+      this.protectModuleResolveFilename();
     }
 
     // Protect process.mainModule (may be undefined in ESM but still blockable)
@@ -989,6 +989,84 @@ export class WorkerDefenseInDepth {
       });
     } catch {
       // Could not protect Module._load (expected in ESM contexts)
+    }
+  }
+
+  /**
+   * Protect Module._resolveFilename from being called in worker context.
+   *
+   * Module._resolveFilename is called for both require() and import() resolution.
+   * Blocking it provides partial mitigation for dynamic import() escape.
+   *
+   * KNOWN LIMITATION: data: URLs bypass _resolveFilename entirely.
+   */
+  private protectModuleResolveFilename(): void {
+    const self = this;
+    const auditMode = this.config.auditMode;
+
+    try {
+      let ModuleClass: Record<string, unknown> | null = null;
+
+      if (typeof process !== "undefined") {
+        const mainModule = (process as unknown as Record<string, unknown>)
+          .mainModule;
+        if (mainModule && typeof mainModule === "object") {
+          ModuleClass = (mainModule as unknown as Record<string, unknown>)
+            .constructor as unknown as Record<string, unknown>;
+        }
+      }
+
+      if (
+        !ModuleClass &&
+        typeof require !== "undefined" &&
+        typeof require.main !== "undefined"
+      ) {
+        ModuleClass = (require.main as unknown as Record<string, unknown>)
+          .constructor as unknown as Record<string, unknown>;
+      }
+
+      if (!ModuleClass || typeof ModuleClass._resolveFilename !== "function") {
+        return;
+      }
+
+      const original = ModuleClass._resolveFilename as (
+        ...args: unknown[]
+      ) => unknown;
+      const descriptor = Object.getOwnPropertyDescriptor(
+        ModuleClass,
+        "_resolveFilename",
+      );
+      this.originalDescriptors.push({
+        target: ModuleClass,
+        prop: "_resolveFilename",
+        descriptor,
+      });
+
+      const path = "Module._resolveFilename";
+      // @banned-pattern-ignore: intentional Proxy usage for security blocking
+      const proxy = new this.originalProxy(original, {
+        apply(_target, _thisArg, _args) {
+          const message = `${path} is blocked in worker context`;
+          const violation = self.recordViolation(
+            "module_resolve_filename",
+            path,
+            message,
+          );
+
+          if (!auditMode) {
+            throw new WorkerSecurityViolationError(message, violation);
+          }
+          return Reflect.apply(_target, _thisArg, _args);
+        },
+      }) as typeof original;
+
+      Object.defineProperty(ModuleClass, "_resolveFilename", {
+        value: proxy,
+        writable: true,
+        configurable: true,
+      });
+    } catch {
+      // Could not protect Module._resolveFilename (expected in ESM contexts)
     }
   }
 

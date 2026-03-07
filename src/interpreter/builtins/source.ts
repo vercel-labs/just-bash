@@ -4,7 +4,7 @@
 
 import { type ParseException, parse } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
-import { ExitError, ReturnError } from "../errors.js";
+import { ExecutionLimitError, ExitError, ReturnError } from "../errors.js";
 import { failure, result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -114,6 +114,13 @@ export async function handleSource(
   };
 
   ctx.state.sourceDepth++;
+  if (ctx.state.sourceDepth > ctx.limits.maxSourceDepth) {
+    ctx.state.sourceDepth--;
+    throw new ExecutionLimitError(
+      `source: maximum nesting depth (${ctx.limits.maxSourceDepth}) exceeded, increase executionLimits.maxSourceDepth`,
+      "recursion",
+    );
+  }
   // Set current source to the file being sourced (for function definitions)
   ctx.state.currentSource = filename;
   try {

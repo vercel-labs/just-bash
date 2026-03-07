@@ -15,3 +15,4 @@ export const _clearTimeout: typeof globalThis.clearTimeout =
 export const _SharedArrayBuffer: typeof globalThis.SharedArrayBuffer =
   globalThis.SharedArrayBuffer;
 export const _Atomics: typeof globalThis.Atomics = globalThis.Atomics;
+export const _performanceNow: () => number = performance.now.bind(performance);

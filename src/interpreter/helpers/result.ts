@@ -7,6 +7,7 @@
 
 import type { ExecResult } from "../../types.js";
 import { ExecutionLimitError } from "../errors.js";
+import type { InterpreterContext } from "../types.js";
 
 /**
  * A successful result with no output.
@@ -90,4 +91,18 @@ export function throwExecutionLimit(
   stderr = "",
 ): never {
   throw new ExecutionLimitError(message, limitType, stdout, stderr);
+}
+
+/**
+ * Check file descriptor count against the limit before adding a new one.
+ * Throws ExecutionLimitError if the limit would be exceeded.
+ */
+export function checkFdLimit(ctx: InterpreterContext): void {
+  const fds = ctx.state.fileDescriptors;
+  if (fds && fds.size >= ctx.limits.maxFileDescriptors) {
+    throw new ExecutionLimitError(
+      `too many open file descriptors (max ${ctx.limits.maxFileDescriptors})`,
+      "file_descriptors",
+    );
+  }
 }

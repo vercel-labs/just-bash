@@ -17,7 +17,7 @@ import {
   expandWord,
   hasQuotedMultiValueAt,
 } from "./expansion.js";
-import { result as makeResult } from "./helpers/result.js";
+import { checkFdLimit, result as makeResult } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
 
 /**
@@ -224,6 +224,7 @@ export async function processFdVariableRedirections(
           // Duplicate the source FD's content to the new FD
           const content = ctx.state.fileDescriptors.get(sourceFd);
           if (content !== undefined) {
+            checkFdLimit(ctx);
             ctx.state.fileDescriptors.set(fd, content);
           }
           continue;
@@ -250,15 +251,18 @@ export async function processFdVariableRedirections(
         ) {
           await ctx.fs.writeFile(filePath, "", "binary");
         }
+        checkFdLimit(ctx);
         ctx.state.fileDescriptors.set(fd, `__file__:${filePath}`);
       } else if (redir.operator === "<<<") {
         // For here-strings, store the target value plus newline as the FD content
+        checkFdLimit(ctx);
         ctx.state.fileDescriptors.set(fd, `${target}\n`);
       } else if (redir.operator === "<" || redir.operator === "<>") {
         // For input redirections, read the file content
         try {
           const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
           const content = await ctx.fs.readFile(filePath);
+          checkFdLimit(ctx);
           ctx.state.fileDescriptors.set(fd, content);
         } catch {
           return makeResult(
@@ -629,6 +633,7 @@ export async function applyRedirections(
               if (!ctx.state.fileDescriptors) {
                 ctx.state.fileDescriptors = new Map();
               }
+              checkFdLimit(ctx);
               ctx.state.fileDescriptors.set(fd, sourceInfo);
               // Then close the source FD (only for user FDs 3+)
               if (sourceFd >= 3) {
@@ -640,12 +645,14 @@ export async function applyRedirections(
               if (!ctx.state.fileDescriptors) {
                 ctx.state.fileDescriptors = new Map();
               }
+              checkFdLimit(ctx);
               ctx.state.fileDescriptors.set(fd, `__dupout__:${sourceFd}`);
             } else if (sourceFd === 0) {
               // Source FD is stdin
               if (!ctx.state.fileDescriptors) {
                 ctx.state.fileDescriptors = new Map();
               }
+              checkFdLimit(ctx);
               ctx.state.fileDescriptors.set(fd, `__dupin__:${sourceFd}`);
             } else if (sourceFd >= 3) {
               // Source FD is a user FD (3+) that's not in fileDescriptors - bad file descriptor

@@ -683,7 +683,7 @@ export class Bash {
       if (error instanceof ExecutionLimitError) {
         return this.logResult({
           stdout: error.stdout,
-          stderr: error.stderr,
+          stderr: sanitizeErrorMessage(error.stderr),
           exitCode: ExecutionLimitError.EXIT_CODE,
           env: mapToRecordWithExtras(this.state.env, options?.env),
         });
@@ -692,7 +692,7 @@ export class Bash {
       if (error instanceof SecurityViolationError) {
         return this.logResult({
           stdout: "",
-          stderr: `bash: security violation: ${error.message}\n`,
+          stderr: `bash: security violation: ${sanitizeErrorMessage(error.message)}\n`,
           exitCode: 1,
           env: mapToRecordWithExtras(this.state.env, options?.env),
         });

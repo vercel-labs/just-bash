@@ -16,17 +16,14 @@
  * - Patches are process-wide but checks are context-aware
  * - Violations are recorded even in audit mode
  *
- * KNOWN LIMITATION - Dynamic import() cannot be blocked:
- * Dynamic `import()` is a language-level feature that cannot be intercepted
- * by property proxies or monkey-patching. An attacker with write access to
- * the filesystem could create a malicious JS module and import it:
- *   import('data:text/javascript,console.log("escaped")')
- *   import('/tmp/malicious.js')
+ * Dynamic import() mitigation (three layers):
+ * 1. Module._resolveFilename blocked — catches file-based specifiers
+ * 2. ESM loader hooks (module.register/registerHooks) — blocks data:/blob: URLs
+ * 3. Filesystem restrictions — OverlayFs writes to memory only
  *
- * Mitigations for import() must be applied at other layers:
- * - Filesystem restrictions (prevent writing .js/.mjs files)
- * - Node.js module resolution hooks (--experimental-loader)
- * - Worker isolation (separate V8 contexts)
+ * Residual gap: On Node.js < 20.6 where module.register() is unavailable,
+ * data: URL imports remain unblockable. For those deployments, use
+ * --experimental-loader CLI hooks as an additional layer.
  */
 
 import { type BlockedGlobal, getBlockedGlobals } from "./blocked-globals.js";
@@ -162,6 +159,7 @@ function resolveConfig(
  */
 export class DefenseInDepthBox {
   private static instance: DefenseInDepthBox | null = null;
+  private static importHooksRegistered = false;
 
   private config: DefenseInDepthConfig;
   private refCount = 0;
@@ -635,6 +633,12 @@ export class DefenseInDepthBox {
     const skipInMainThread = new Set<SecurityViolationType>([
       "process_send",
       "process_channel",
+      // process.stdout/stderr are used by console.log/debug/error internally.
+      // Blocking them in the main thread breaks Node.js console output and
+      // the defense layer's own diagnostic logging. They ARE blocked in
+      // WorkerDefenseInDepth where the entire worker is sandboxed.
+      "process_stdout",
+      "process_stderr",
     ]);
 
     for (const blocked of blockedGlobals) {
@@ -649,9 +653,15 @@ export class DefenseInDepthBox {
     // Protect Error.prepareStackTrace (only block setting, not reading)
     this.protectErrorPrepareStackTrace();
 
-    // Protect Module._load BEFORE process.mainModule, since protectModuleLoad()
-    // needs to read process.mainModule to find the Module class.
+    // Block dynamic import() of data:/blob: URLs via ESM loader hooks.
+    // Must run BEFORE protectModuleLoad() because it uses require('node:module')
+    // which goes through Module._load internally.
+    this.protectDynamicImport();
+
+    // Protect Module._load and Module._resolveFilename BEFORE process.mainModule,
+    // since these methods need to read process.mainModule to find the Module class.
     this.protectModuleLoad();
+    this.protectModuleResolveFilename();
 
     // Protect process.mainModule (may be undefined in ESM but still blockable)
     this.protectProcessMainModule();
@@ -1067,6 +1077,82 @@ export class DefenseInDepthBox {
   }
 
   /**
+   * Block dynamic import() of data: and blob: URLs via ESM loader hooks.
+   *
+   * Uses Node.js module.registerHooks() (23.5+, synchronous) or
+   * module.register() (20.6+, async hooks in separate thread) to install
+   * ESM loader hooks that reject data: and blob: URL specifiers.
+   *
+   * This is process-wide and permanent (hooks cannot be unregistered).
+   * Only applied once per process regardless of how many DefenseInDepthBox
+   * instances are created.
+   *
+   * Combined with Module._resolveFilename blocking (file-based specifiers),
+   * this closes the import() escape vector except for specifiers that bypass
+   * both the ESM loader and CJS resolution (none known).
+   */
+  private protectDynamicImport(): void {
+    if (IS_BROWSER || DefenseInDepthBox.importHooksRegistered) return;
+    DefenseInDepthBox.importHooksRegistered = true;
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require("node:module") as {
+        registerHooks?: (hooks: {
+          resolve: (
+            specifier: string,
+            context: unknown,
+            nextResolve: (
+              specifier: string,
+              context: unknown,
+            ) => { url: string },
+          ) => { url: string };
+        }) => void;
+        register?: (specifier: string) => void;
+      };
+
+      // Prefer registerHooks() (Node.js 23.5+) — synchronous, in-thread
+      if (typeof mod.registerHooks === "function") {
+        mod.registerHooks({
+          resolve(specifier, context, nextResolve) {
+            if (
+              specifier.startsWith("data:") ||
+              specifier.startsWith("blob:")
+            ) {
+              throw new Error(
+                `dynamic import of ${specifier.startsWith("data:") ? "data:" : "blob:"} URLs is blocked by defense-in-depth`,
+              );
+            }
+            return nextResolve(specifier, context);
+          },
+        });
+        return;
+      }
+
+      // Fall back to register() (Node.js 20.6+) — async, separate thread
+      if (typeof mod.register === "function") {
+        // Inline the hooks as a data: URL module. This is loaded BEFORE
+        // the hooks become active, so it doesn't block its own loading.
+        const hookCode = [
+          "export async function resolve(specifier, context, nextResolve) {",
+          '  if (specifier.startsWith("data:") || specifier.startsWith("blob:")) {',
+          '    throw new Error("dynamic import of " + (specifier.startsWith("data:") ? "data:" : "blob:") + " URLs is blocked by defense-in-depth");',
+          "  }",
+          "  return nextResolve(specifier, context);",
+          "}",
+        ].join("\n");
+        mod.register(`data:text/javascript,${encodeURIComponent(hookCode)}`);
+      }
+    } catch (e) {
+      // module.register()/registerHooks() not available (older Node.js, edge runtimes)
+      console.debug(
+        "[DefenseInDepthBox] Could not register import() hooks:",
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
+
+  /**
    * Protect Module._load from being called in sandbox context.
    *
    * The attack vector is:
@@ -1129,6 +1215,80 @@ export class DefenseInDepthBox {
       this.patchFailures.push("Module._load");
       console.debug(
         "[DefenseInDepthBox] Could not protect Module._load:",
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
+
+  /**
+   * Protect Module._resolveFilename from being called in sandbox context.
+   *
+   * Module._resolveFilename is called for both require() and import() resolution.
+   * Blocking it provides partial mitigation for dynamic import() escape:
+   *   import('./malicious.js')  // _resolveFilename is called to resolve the path
+   *
+   * KNOWN LIMITATION: data: URLs bypass _resolveFilename entirely:
+   *   import('data:text/javascript,console.log("escaped")')
+   */
+  private protectModuleResolveFilename(): void {
+    if (IS_BROWSER) return;
+
+    try {
+      let ModuleClass: Record<string, unknown> | null = null;
+
+      // Path 1: via process.mainModule (CJS contexts)
+      if (typeof process !== "undefined") {
+        const mainModule = (process as unknown as Record<string, unknown>)
+          .mainModule;
+        if (mainModule && typeof mainModule === "object") {
+          ModuleClass = (mainModule as unknown as Record<string, unknown>)
+            .constructor as unknown as Record<string, unknown>;
+        }
+      }
+
+      // Path 2: via require.main (CJS contexts)
+      if (
+        !ModuleClass &&
+        typeof require !== "undefined" &&
+        typeof require.main !== "undefined"
+      ) {
+        ModuleClass = (require.main as unknown as Record<string, unknown>)
+          .constructor as unknown as Record<string, unknown>;
+      }
+
+      if (!ModuleClass || typeof ModuleClass._resolveFilename !== "function") {
+        return;
+      }
+
+      const original = ModuleClass._resolveFilename as (
+        ...args: unknown[]
+      ) => unknown;
+      const descriptor = Object.getOwnPropertyDescriptor(
+        ModuleClass,
+        "_resolveFilename",
+      );
+      this.originalDescriptors.push({
+        target: ModuleClass,
+        prop: "_resolveFilename",
+        descriptor,
+      });
+
+      const path = "Module._resolveFilename";
+      const proxy = this.createBlockingProxy(
+        original,
+        path,
+        "module_resolve_filename",
+      );
+
+      Object.defineProperty(ModuleClass, "_resolveFilename", {
+        value: proxy,
+        writable: true,
+        configurable: true,
+      });
+    } catch (e) {
+      this.patchFailures.push("Module._resolveFilename");
+      console.debug(
+        "[DefenseInDepthBox] Could not protect Module._resolveFilename:",
         e instanceof Error ? e.message : e,
       );
     }

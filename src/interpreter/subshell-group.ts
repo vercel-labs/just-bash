@@ -27,7 +27,7 @@ import {
 } from "./errors.js";
 import { expandWord } from "./expansion.js";
 import { getErrorMessage } from "./helpers/errors.js";
-import { failure, result } from "./helpers/result.js";
+import { checkFdLimit, failure, result } from "./helpers/result.js";
 import {
   applyRedirections,
   preOpenOutputRedirects,
@@ -253,6 +253,7 @@ export async function executeGroup(
         if (!ctx.state.fileDescriptors) {
           ctx.state.fileDescriptors = new Map();
         }
+        checkFdLimit(ctx);
         ctx.state.fileDescriptors.set(fd, content);
       } else {
         effectiveStdin = content;

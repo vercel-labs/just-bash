@@ -351,7 +351,95 @@ export function getBlockedGlobals(): BlockedGlobal[] {
 
     // Note: Error.prepareStackTrace is handled specially in defense-in-depth-box.ts
     // because we only want to block SETTING it, not reading (V8 reads it internally)
+
+    // Timing side-channel: performance.now() provides sub-millisecond resolution
+    // Note: Date.now() is intentionally NOT blocked — it's used for $SECONDS,
+    // date command, and has only ~1ms resolution (vs process.hrtime at ns).
+    {
+      prop: "performance",
+      target: globalThis,
+      violationType: "performance_timing",
+      strategy: "throw",
+      reason:
+        "performance.now() provides sub-millisecond timing for side-channel attacks",
+    },
+
+    // Block direct access to process.stdout and process.stderr to prevent
+    // writing to the host's actual stdout/stderr, bypassing the interpreter's
+    // output accumulation. The interpreter uses pre-captured _stdoutWrite/_stderrWrite
+    // references for its own infrastructure output.
+    {
+      prop: "stdout",
+      target: process,
+      violationType: "process_stdout",
+      strategy: "throw",
+      reason:
+        "process.stdout could bypass interpreter output to write to host stdout",
+    },
+    {
+      prop: "stderr",
+      target: process,
+      violationType: "process_stderr",
+      strategy: "throw",
+      reason:
+        "process.stderr could bypass interpreter output to write to host stderr",
+    },
+
+    // Prototype pollution vectors
+    {
+      prop: "__defineGetter__",
+      target: Object.prototype,
+      violationType: "prototype_mutation",
+      strategy: "throw",
+      reason:
+        "__defineGetter__ allows prototype pollution via getter injection",
+    },
+    {
+      prop: "__defineSetter__",
+      target: Object.prototype,
+      violationType: "prototype_mutation",
+      strategy: "throw",
+      reason:
+        "__defineSetter__ allows prototype pollution via setter injection",
+    },
+    {
+      prop: "__lookupGetter__",
+      target: Object.prototype,
+      violationType: "prototype_mutation",
+      strategy: "throw",
+      reason:
+        "__lookupGetter__ enables introspection for prototype pollution attacks",
+    },
+    {
+      prop: "__lookupSetter__",
+      target: Object.prototype,
+      violationType: "prototype_mutation",
+      strategy: "throw",
+      reason:
+        "__lookupSetter__ enables introspection for prototype pollution attacks",
+    },
+
+    // Freeze JSON and Math to prevent mutation of built-in utility objects
+    {
+      prop: "JSON",
+      target: globalThis,
+      violationType: "json_mutation",
+      strategy: "freeze",
+      reason: "Freeze JSON to prevent mutation of parsing/serialization",
+    },
+    {
+      prop: "Math",
+      target: globalThis,
+      violationType: "math_mutation",
+      strategy: "freeze",
+      reason: "Freeze Math to prevent mutation of math utilities",
+    },
   ];
+
+  // Audit conclusion for Intl, TextDecoder, TextEncoder:
+  // TextEncoder/TextDecoder are used by 40+ files in the interpreter for
+  // binary string handling. Intl is used by printf %()T for date formatting.
+  // Neither provides code execution escape vectors. ACCEPTED RISK - no blocking.
 
   // Add async/generator function constructors if they exist
   // These are accessed via: (async function(){}).constructor

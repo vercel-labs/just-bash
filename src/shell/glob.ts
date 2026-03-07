@@ -31,6 +31,12 @@ export interface GlobOptions {
   maxGlobOperations?: number;
 }
 
+/**
+ * Maximum number of ** (globstar) segments allowed in a single pattern.
+ * Prevents combinatorial explosion from deeply nested recursive globs.
+ */
+const MAX_GLOBSTAR_SEGMENTS = 5;
+
 export class GlobExpander {
   private globignorePatterns: string[] = [];
   private hasGlobignore = false;
@@ -202,6 +208,23 @@ export class GlobExpander {
    * Expand a single glob pattern
    */
   async expand(pattern: string): Promise<string[]> {
+    // Reject patterns with excessive ** segments to prevent combinatorial explosion
+    if (this.globstar) {
+      const segments = pattern.split("/");
+      let globstarCount = 0;
+      for (const seg of segments) {
+        if (seg === "**") {
+          globstarCount++;
+          if (globstarCount > MAX_GLOBSTAR_SEGMENTS) {
+            throw new ExecutionLimitError(
+              `Glob pattern has too many ** segments (max ${MAX_GLOBSTAR_SEGMENTS})`,
+              "glob_operations",
+            );
+          }
+        }
+      }
+    }
+
     let results: string[];
 
     // Handle ** (recursive) patterns - only when globstar is enabled

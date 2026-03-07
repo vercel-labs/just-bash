@@ -82,7 +82,14 @@ export type SecurityViolationType =
   | "shared_array_buffer"
   | "atomics"
   | "process_get_builtin_module"
-  | "error_prepare_stack_trace";
+  | "error_prepare_stack_trace"
+  | "performance_timing"
+  | "process_stdout"
+  | "process_stderr"
+  | "module_resolve_filename"
+  | "prototype_mutation"
+  | "json_mutation"
+  | "math_mutation";
 
 /**
  * Information about a detected security violation.

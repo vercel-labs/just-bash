@@ -27,6 +27,9 @@ export function sanitizeErrorMessage(message: string): string {
     "<path>",
   );
 
+  // Strip Node.js internal module paths (e.g., "node:internal/modules/cjs/loader")
+  sanitized = sanitized.replace(/node:internal\/[^\s'",)}\]:]+/g, "<internal>");
+
   // Match Windows-style absolute paths (C:\, D:\, etc.)
   sanitized = sanitized.replace(/[A-Z]:\\[^\s'",)}\]:]+/g, "<path>");
 

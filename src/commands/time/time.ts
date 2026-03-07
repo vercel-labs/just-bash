@@ -1,5 +1,6 @@
 import { mapToRecord } from "../../helpers/env.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
+import { _performanceNow } from "../../timers.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 
 /**
@@ -97,7 +98,7 @@ export const timeCommand: Command = {
     }
 
     // Record start time
-    const startTime = performance.now();
+    const startTime = _performanceNow();
 
     // Execute the command
     const commandString = shellJoinArgs(commandArgs);
@@ -127,7 +128,7 @@ export const timeCommand: Command = {
     }
 
     // Record end time
-    const endTime = performance.now();
+    const endTime = _performanceNow();
     const elapsedSeconds = (endTime - startTime) / 1000;
 
     // Format the timing output

