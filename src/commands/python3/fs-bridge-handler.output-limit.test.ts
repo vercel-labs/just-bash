@@ -13,7 +13,7 @@ async function sendOp(
   protocol: ProtocolBuffer,
   opCode: OpCodeType,
   opts?: { path?: string; data?: string; flags?: number },
-): Promise<void> {
+): Promise<number> {
   protocol.reset();
   protocol.setOpCode(opCode);
   protocol.setPath(opts?.path ?? "");
@@ -25,12 +25,13 @@ async function sendOp(
   protocol.notify();
 
   for (let i = 0; i < 200; i++) {
-    if (protocol.getStatus() === Status.SUCCESS) {
-      return;
+    const status = protocol.getStatus();
+    if (status === Status.SUCCESS || status === Status.ERROR) {
+      return status;
     }
     await new Promise((resolve) => setTimeout(resolve, 1));
   }
-  expect(protocol.getStatus()).toBe(Status.SUCCESS);
+  throw new Error("sendOp timed out waiting for bridge response");
 }
 
 describe("FsBridgeHandler output limits", () => {
@@ -68,9 +69,18 @@ describe("FsBridgeHandler output limits", () => {
     );
     const runPromise = handler.run(1000);
 
-    await sendOp(protocol, OpCode.WRITE_STDOUT, { data: "X".repeat(100) });
-    await sendOp(protocol, OpCode.WRITE_STDOUT, { data: "Y".repeat(50) });
-    await sendOp(protocol, OpCode.WRITE_STDERR, { data: "Z".repeat(20) });
+    const s1 = await sendOp(protocol, OpCode.WRITE_STDOUT, {
+      data: "X".repeat(100),
+    });
+    expect(s1).toBe(Status.SUCCESS);
+    const s2 = await sendOp(protocol, OpCode.WRITE_STDOUT, {
+      data: "Y".repeat(50),
+    });
+    expect(s2).toBe(Status.ERROR);
+    const s3 = await sendOp(protocol, OpCode.WRITE_STDERR, {
+      data: "Z".repeat(20),
+    });
+    expect(s3).toBe(Status.ERROR);
     await sendOp(protocol, OpCode.EXIT, { flags: 0 });
 
     const result = await runPromise;
