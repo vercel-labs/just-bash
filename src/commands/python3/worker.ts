@@ -1299,12 +1299,27 @@ let defense: WorkerDefenseInDepth | null = null;
 function activateDefense(): void {
   if (defense) return;
 
+  // Degrade performance to ms precision BEFORE defense activates.
+  // Emscripten's _emscripten_get_now() needs a working timer, but
+  // sub-ms precision enables timing side-channel attacks. Replacing
+  // with Date.now() gives Emscripten what it needs at safe resolution.
+  const _DateNow = Date.now;
+  const degraded = { now: () => _DateNow(), timeOrigin: _DateNow() };
+  Object.defineProperty(globalThis, "performance", {
+    value: degraded,
+    writable: true,
+    configurable: true,
+  });
+
   defense = new WorkerDefenseInDepth({
     excludeViolationTypes: [
       // SharedArrayBuffer/Atomics: Used by sync-fs-backend.ts for synchronous
       // filesystem communication between the WASM thread and the main thread.
       "shared_array_buffer",
       "atomics",
+      // performance: Excluded because we replaced it above with a ms-precision
+      // stub. Defense doesn't need to block it — it's already degraded.
+      "performance_timing",
     ],
     onViolation: (v) => {
       parentPort?.postMessage({ type: "security-violation", violation: v });

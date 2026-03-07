@@ -1059,13 +1059,13 @@ describe("Defense-in-Depth Hardening", () => {
         // Exit code 0 = blocked as expected
       } catch (error) {
         const err = error as { code?: number; stderr?: string };
-        // Exit code 1 = import went through (test failure)
-        // Other errors (e.g., module not built) = skip gracefully
         if (err.code === 1) {
           expect.fail("data: URL import was NOT blocked — hooks not working");
         }
-        // For other errors (dist not built, older Node.js, etc.), skip
-        // rather than fail — this is a best-effort defense
+        // Other errors (dist not built, older Node.js, etc.) — warn, don't fail
+        console.warn(
+          "[WARN] data: URL import test skipped — dist not built or Node.js too old",
+        );
       }
     });
 
@@ -1102,6 +1102,9 @@ describe("Defense-in-Depth Hardening", () => {
         if (err.code === 1) {
           expect.fail("blob: URL import was NOT blocked — hooks not working");
         }
+        console.warn(
+          "[WARN] blob: URL import test skipped — dist not built or Node.js too old",
+        );
       }
     });
 

@@ -390,8 +390,8 @@ Heredocs with variable expansion are size-limited (10MB) but nested heredocs wit
 9. ~~**source/. depth limit**~~ — **IMPLEMENTED**: maxSourceDepth (100) enforced in `handleSource()`
 10. ~~**process.stdout/stderr blocking**~~ — **IMPLEMENTED**: Blocked via defense-in-depth in worker contexts; skipped in main thread (console.log dependency)
 11. ~~**performance.now() blocking**~~ — **IMPLEMENTED**: Blocked via defense-in-depth; internal uses pre-captured `_performanceNow`
-13. ~~**Stack trace sanitization**~~ — **IMPLEMENTED**: `sanitizeErrorMessage()` applied to SecurityViolationError and ExecutionLimitError in `Bash.exec()`; `node:internal/` paths stripped
-14. ~~**FD exhaustion enforcement**~~ — **IMPLEMENTED**: `checkFdLimit()` before every `fileDescriptors.set()` across interpreter, redirections, subshell-group
-15. ~~**Glob pattern depth limit**~~ — **IMPLEMENTED**: MAX_GLOBSTAR_SEGMENTS (5) rejects patterns with excessive `**` segments
-16. ~~**Intl/TextDecoder/TextEncoder audit**~~ — **ACCEPTED RISK**: Used by 40+ internal files; no escape vectors; documented in blocked-globals.ts
-17. ~~**Frozen builtins**~~ — **IMPLEMENTED**: `__defineGetter__`/`__defineSetter__`/`__lookupGetter__`/`__lookupSetter__` blocked; JSON and Math frozen
+12. ~~**Stack trace sanitization**~~ — **IMPLEMENTED**: `sanitizeErrorMessage()` applied to SecurityViolationError and ExecutionLimitError in `Bash.exec()`; `node:internal/` paths stripped
+13. ~~**FD exhaustion enforcement**~~ — **IMPLEMENTED**: `checkFdLimit()` before every `fileDescriptors.set()` across interpreter, redirections, subshell-group
+14. ~~**Glob pattern depth limit**~~ — **IMPLEMENTED**: MAX_GLOBSTAR_SEGMENTS (5) rejects patterns with excessive `**` segments
+15. ~~**Intl/TextDecoder/TextEncoder audit**~~ — **ACCEPTED RISK**: Used by 40+ internal files; no escape vectors; documented in blocked-globals.ts
+16. ~~**Frozen builtins**~~ — **IMPLEMENTED**: `__defineGetter__`/`__defineSetter__`/`__lookupGetter__`/`__lookupSetter__` blocked; JSON and Math frozen

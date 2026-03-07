@@ -996,9 +996,10 @@ export class WorkerDefenseInDepth {
    * Protect Module._resolveFilename from being called in worker context.
    *
    * Module._resolveFilename is called for both require() and import() resolution.
-   * Blocking it provides partial mitigation for dynamic import() escape.
+   * Blocking it catches file-based import() specifiers.
    *
-   * KNOWN LIMITATION: data: URLs bypass _resolveFilename entirely.
+   * data: and blob: URLs are handled by ESM loader hooks registered
+   * in the main thread (DefenseInDepthBox.protectDynamicImport).
    */
   private protectModuleResolveFilename(): void {
     const self = this;

@@ -888,18 +888,17 @@ export class Interpreter {
               this.ctx.state.fileDescriptors.delete(fd);
             } else if (target.endsWith("-")) {
               // Move operation: N>&M- duplicates M to N then closes M
+              // Net-neutral on FD count (set + delete), skip checkFdLimit
               const sourceFdStr = target.slice(0, -1);
               const sourceFd = Number.parseInt(sourceFdStr, 10);
               if (!Number.isNaN(sourceFd)) {
                 // First, duplicate: copy the FD content/info from source to target
                 const sourceInfo = this.ctx.state.fileDescriptors.get(sourceFd);
                 if (sourceInfo !== undefined) {
-                  checkFdLimit(this.ctx);
                   this.ctx.state.fileDescriptors.set(fd, sourceInfo);
                 } else {
                   // Source FD might be 1 (stdout) or 2 (stderr) which aren't in fileDescriptors
                   // In that case, store as duplication marker
-                  checkFdLimit(this.ctx);
                   this.ctx.state.fileDescriptors.set(
                     fd,
                     `__dupout__:${sourceFd}`,
@@ -929,17 +928,16 @@ export class Interpreter {
               this.ctx.state.fileDescriptors.delete(fd);
             } else if (target.endsWith("-")) {
               // Move operation: N<&M- duplicates M to N then closes M
+              // Net-neutral on FD count (set + delete), skip checkFdLimit
               const sourceFdStr = target.slice(0, -1);
               const sourceFd = Number.parseInt(sourceFdStr, 10);
               if (!Number.isNaN(sourceFd)) {
                 // First, duplicate: copy the FD content/info from source to target
                 const sourceInfo = this.ctx.state.fileDescriptors.get(sourceFd);
                 if (sourceInfo !== undefined) {
-                  checkFdLimit(this.ctx);
                   this.ctx.state.fileDescriptors.set(fd, sourceInfo);
                 } else {
                   // Source FD might be 0 (stdin) which isn't in fileDescriptors
-                  checkFdLimit(this.ctx);
                   this.ctx.state.fileDescriptors.set(
                     fd,
                     `__dupin__:${sourceFd}`,

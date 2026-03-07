@@ -1093,7 +1093,6 @@ export class DefenseInDepthBox {
    */
   private protectDynamicImport(): void {
     if (IS_BROWSER || DefenseInDepthBox.importHooksRegistered) return;
-    DefenseInDepthBox.importHooksRegistered = true;
 
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -1126,6 +1125,7 @@ export class DefenseInDepthBox {
             return nextResolve(specifier, context);
           },
         });
+        DefenseInDepthBox.importHooksRegistered = true;
         return;
       }
 
@@ -1142,6 +1142,7 @@ export class DefenseInDepthBox {
           "}",
         ].join("\n");
         mod.register(`data:text/javascript,${encodeURIComponent(hookCode)}`);
+        DefenseInDepthBox.importHooksRegistered = true;
       }
     } catch (e) {
       // module.register()/registerHooks() not available (older Node.js, edge runtimes)
@@ -1224,11 +1225,11 @@ export class DefenseInDepthBox {
    * Protect Module._resolveFilename from being called in sandbox context.
    *
    * Module._resolveFilename is called for both require() and import() resolution.
-   * Blocking it provides partial mitigation for dynamic import() escape:
+   * Blocking it catches file-based import() specifiers:
    *   import('./malicious.js')  // _resolveFilename is called to resolve the path
    *
-   * KNOWN LIMITATION: data: URLs bypass _resolveFilename entirely:
-   *   import('data:text/javascript,console.log("escaped")')
+   * data: and blob: URLs are handled separately by protectDynamicImport()
+   * via ESM loader hooks.
    */
   private protectModuleResolveFilename(): void {
     if (IS_BROWSER) return;

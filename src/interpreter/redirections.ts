@@ -623,6 +623,7 @@ export async function applyRedirections(
           break;
         }
         // Handle FD move operation: N>&M- (duplicate M to N, then close M)
+        // Net-neutral on FD count (set + delete), skip checkFdLimit
         if (target.endsWith("-")) {
           const sourceFdStr = target.slice(0, -1);
           const sourceFd = Number.parseInt(sourceFdStr, 10);
@@ -633,7 +634,6 @@ export async function applyRedirections(
               if (!ctx.state.fileDescriptors) {
                 ctx.state.fileDescriptors = new Map();
               }
-              checkFdLimit(ctx);
               ctx.state.fileDescriptors.set(fd, sourceInfo);
               // Then close the source FD (only for user FDs 3+)
               if (sourceFd >= 3) {
@@ -645,14 +645,12 @@ export async function applyRedirections(
               if (!ctx.state.fileDescriptors) {
                 ctx.state.fileDescriptors = new Map();
               }
-              checkFdLimit(ctx);
               ctx.state.fileDescriptors.set(fd, `__dupout__:${sourceFd}`);
             } else if (sourceFd === 0) {
               // Source FD is stdin
               if (!ctx.state.fileDescriptors) {
                 ctx.state.fileDescriptors = new Map();
               }
-              checkFdLimit(ctx);
               ctx.state.fileDescriptors.set(fd, `__dupin__:${sourceFd}`);
             } else if (sourceFd >= 3) {
               // Source FD is a user FD (3+) that's not in fileDescriptors - bad file descriptor

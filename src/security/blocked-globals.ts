@@ -366,8 +366,7 @@ export function getBlockedGlobals(): BlockedGlobal[] {
 
     // Block direct access to process.stdout and process.stderr to prevent
     // writing to the host's actual stdout/stderr, bypassing the interpreter's
-    // output accumulation. The interpreter uses pre-captured _stdoutWrite/_stderrWrite
-    // references for its own infrastructure output.
+    // output accumulation.
     {
       prop: "stdout",
       target: process,
