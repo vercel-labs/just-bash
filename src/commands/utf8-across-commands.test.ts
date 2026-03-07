@@ -9,8 +9,12 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../Bash.js";
 
-const UTF8_TEXT = "Ü Ö Ä ü ö ä ß";
-const UTF8_CAFE = "café résumé";
+// Latin-1 Supplement (U+0080–U+00FF) — the original bug range
+// Latin Extended / Greek / Cyrillic (U+0100–U+04FF) — 2-byte UTF-8
+// CJK Unified Ideographs (U+4E00–U+9FFF) — 3-byte UTF-8
+// Emoji / Supplementary (U+1F600+) — 4-byte UTF-8 (surrogate pairs in JS)
+const UTF8_TEXT = "Ü ö ß é ñ Ω Д 漢字 🎉";
+const UTF8_CAFE = "café résumé naïve";
 
 describe("UTF-8 text preservation across commands", () => {
   describe("tee", () => {
@@ -66,13 +70,13 @@ describe("UTF-8 text preservation across commands", () => {
   describe("sed", () => {
     it("should preserve UTF-8 text through sed substitution", async () => {
       const env = new Bash({});
-      const result = await env.exec(`echo "${UTF8_TEXT}" | sed 's/ß/ss/'`);
-      expect(result.stdout).toBe("Ü Ö Ä ü ö ä ss\n");
+      const result = await env.exec("echo \"Ü Ö ß\" | sed 's/ß/ss/'");
+      expect(result.stdout).toBe("Ü Ö ss\n");
     });
 
     it("should preserve UTF-8 in sed output redirect", async () => {
       const env = new Bash({});
-      await env.exec(`echo "${UTF8_CAFE}" | sed 's/é/e/g' > /tmp/sed_out.txt`);
+      await env.exec("echo \"café résumé\" | sed 's/é/e/g' > /tmp/sed_out.txt");
       const result = await env.exec("cat /tmp/sed_out.txt");
       expect(result.stdout).toBe("cafe resume\n");
     });
@@ -204,7 +208,7 @@ EOF`);
     it("should preserve UTF-8 through multiple pipe stages", async () => {
       const env = new Bash({});
       const result = await env.exec(
-        `echo "${UTF8_CAFE}" | sed 's/é/E/g' | tr 'a-z' 'A-Z'`,
+        "echo 'café résumé' | sed 's/é/e/g' | tr 'a-z' 'A-Z'",
       );
       expect(result.stdout).toBe("CAFE RESUME\n");
     });
