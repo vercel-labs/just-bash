@@ -70,7 +70,7 @@ export interface NetworkConfig {
 
   /**
    * Reject URLs with private/loopback IP addresses as hostnames.
-   * This is a URL-string-level check only (no DNS resolution).
+   * This is a URL/hostname-level check only (no DNS resolution).
    * Useful for mitigating SSRF attacks. Default: false (opt-in).
    */
   denyPrivateRanges?: boolean;

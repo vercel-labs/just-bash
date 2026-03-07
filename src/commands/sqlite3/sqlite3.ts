@@ -26,7 +26,12 @@ import {
   formatOutput,
   type OutputMode,
 } from "./formatters.js";
-import type { WorkerInput, WorkerOutput } from "./worker.js";
+import type {
+  StatementResult,
+  WorkerInput,
+  WorkerOutput,
+  WorkerSuccess,
+} from "./worker.js";
 
 /** Default query timeout in milliseconds (5 seconds) */
 const DEFAULT_QUERY_TIMEOUT_MS = 5000;
@@ -253,6 +258,85 @@ export const _internals = {
   },
 };
 
+function normalizeWorkerResult(result: unknown): WorkerOutput {
+  if (!result || typeof result !== "object") {
+    return {
+      success: false,
+      error: "Malformed worker response",
+    };
+  }
+
+  const raw = result as {
+    type?: unknown;
+    violation?: { type?: unknown };
+    success?: unknown;
+    error?: unknown;
+    results?: unknown;
+    hasModifications?: unknown;
+    dbBuffer?: unknown;
+    defenseStats?: unknown;
+  };
+
+  if (raw.type === "security-violation") {
+    return {
+      success: false,
+      error: `Security violation: ${
+        typeof raw.violation?.type === "string" ? raw.violation.type : "unknown"
+      }`,
+    };
+  }
+
+  if (typeof raw.success !== "boolean") {
+    return {
+      success: false,
+      error: "Malformed worker response: missing success flag",
+    };
+  }
+
+  if (!raw.success) {
+    return {
+      success: false,
+      error:
+        typeof raw.error === "string" && raw.error.length > 0
+          ? raw.error
+          : "Worker execution failed",
+    };
+  }
+
+  if (!Array.isArray(raw.results)) {
+    return {
+      success: false,
+      error: "Malformed worker response: missing results array",
+    };
+  }
+  if (typeof raw.hasModifications !== "boolean") {
+    return {
+      success: false,
+      error: "Malformed worker response: missing hasModifications flag",
+    };
+  }
+
+  if (raw.dbBuffer !== null && raw.dbBuffer !== undefined) {
+    if (!(raw.dbBuffer instanceof Uint8Array)) {
+      return {
+        success: false,
+        error: "Malformed worker response: invalid dbBuffer",
+      };
+    }
+  }
+
+  return {
+    success: true,
+    results: raw.results as StatementResult[],
+    hasModifications: raw.hasModifications,
+    dbBuffer:
+      (raw.dbBuffer as Uint8Array | null | undefined) === undefined
+        ? null
+        : (raw.dbBuffer as Uint8Array | null),
+    defenseStats: raw.defenseStats as WorkerSuccess["defenseStats"],
+  };
+}
+
 async function executeInWorker(
   input: WorkerInput,
   timeoutMs: number,
@@ -274,26 +358,10 @@ async function executeInWorker(
         });
       }, timeoutMs);
 
-      worker.on(
-        "message",
-        (
-          result: WorkerOutput & {
-            type?: string;
-            violation?: { type?: string };
-          },
-        ) => {
-          if (result.type === "security-violation") {
-            _clearTimeout(timeout);
-            resolve({
-              success: false,
-              error: `Security violation: ${result.violation?.type ?? "unknown"}`,
-            });
-            return;
-          }
-          _clearTimeout(timeout);
-          resolve(result);
-        },
-      );
+      worker.on("message", (result: unknown) => {
+        _clearTimeout(timeout);
+        resolve(normalizeWorkerResult(result));
+      });
 
       worker.on("error", (err) => {
         _clearTimeout(timeout);

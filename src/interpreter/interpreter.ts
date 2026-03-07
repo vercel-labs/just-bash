@@ -188,23 +188,29 @@ export class Interpreter {
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
+    const maxOutputSize = this.ctx.limits.maxOutputSize;
+
+    const appendOutput = (nextStdout: string, nextStderr: string): void => {
+      if (
+        stdout.length + stderr.length + nextStdout.length + nextStderr.length >
+        maxOutputSize
+      ) {
+        throwExecutionLimit(
+          `total output size exceeded (>${maxOutputSize} bytes), increase executionLimits.maxOutputSize`,
+          "output_size",
+        );
+      }
+      stdout += nextStdout;
+      stderr += nextStderr;
+    };
 
     for (const statement of node.statements) {
       try {
         const result = await this.executeStatement(statement);
-        stdout += result.stdout;
-        stderr += result.stderr;
+        appendOutput(result.stdout, result.stderr);
         exitCode = result.exitCode;
         this.ctx.state.lastExitCode = exitCode;
         this.ctx.state.env.set("?", String(exitCode));
-
-        // Check aggregate output size limit
-        if (stdout.length + stderr.length > this.ctx.limits.maxOutputSize) {
-          throwExecutionLimit(
-            `total output size exceeded (>${this.ctx.limits.maxOutputSize} bytes), increase executionLimits.maxOutputSize`,
-            "output_size",
-          );
-        }
       } catch (error) {
         // ExitError always propagates up to terminate the script
         // This allows 'eval exit 42' and 'source exit.sh' to exit properly
@@ -215,8 +221,7 @@ export class Interpreter {
         // PosixFatalError terminates the script in POSIX mode
         // POSIX 2.8.1: special builtins cause shell to exit on error
         if (error instanceof PosixFatalError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
+          appendOutput(error.stdout, error.stderr);
           exitCode = error.exitCode;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -232,8 +237,7 @@ export class Interpreter {
           throw error;
         }
         if (error instanceof ErrexitError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
+          appendOutput(error.stdout, error.stderr);
           exitCode = error.exitCode;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -245,8 +249,7 @@ export class Interpreter {
           };
         }
         if (error instanceof NounsetError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
+          appendOutput(error.stdout, error.stderr);
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -258,8 +261,7 @@ export class Interpreter {
           };
         }
         if (error instanceof BadSubstitutionError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
+          appendOutput(error.stdout, error.stderr);
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -273,8 +275,7 @@ export class Interpreter {
         // ArithmeticError in expansion (e.g., echo $((42x))) - the command fails
         // but the script continues execution. This matches bash behavior.
         if (error instanceof ArithmeticError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
+          appendOutput(error.stdout, error.stderr);
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -284,8 +285,7 @@ export class Interpreter {
         // BraceExpansionError for invalid ranges (e.g., {z..A} mixed case) - the command fails
         // but the script continues execution. This matches bash behavior.
         if (error instanceof BraceExpansionError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
+          appendOutput(error.stdout, error.stderr);
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -300,8 +300,7 @@ export class Interpreter {
             throw error;
           }
           // Outside loops (level exceeded loop depth), silently continue with next statement
-          stdout += error.stdout;
-          stderr += error.stderr;
+          appendOutput(error.stdout, error.stderr);
           continue;
         }
         // Handle return - prepend accumulated output before propagating

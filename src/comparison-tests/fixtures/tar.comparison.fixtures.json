@@ -53,6 +53,13 @@
     "stderr": "",
     "exitCode": 0
   },
+  "b95fc24482c00a57": {
+    "command": "tmp=/tmp/jb-tar-abs-$PPID.txt && printf 'abs\\n' > \"$tmp\" && tar -cf archive.tar \"$tmp\" 2>/dev/null && mkdir -p out && tar -xf archive.tar -C out && cat out/tmp/jb-tar-abs-$PPID.txt && rm -f \"$tmp\"",
+    "files": {},
+    "stdout": "abs\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "c0f8ce57cb363e70": {
     "command": "tar -cf archive.tar mydir && tar -tf archive.tar | sort",
     "files": {

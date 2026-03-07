@@ -237,6 +237,34 @@ function isGzip(data: Uint8Array): boolean {
   return data.length >= 2 && data[0] === 0x1f && data[1] === 0x8b;
 }
 
+function toBinaryString(data: Uint8Array): string {
+  return Buffer.from(data).toString("latin1");
+}
+
+function getMaxDecompressedSize(ctx: CommandContext): number {
+  return ctx.limits?.maxOutputSize ?? 0;
+}
+
+function gunzipWithLimit(
+  inputData: Uint8Array,
+  maxDecompressedSize: number,
+): Uint8Array {
+  if (maxDecompressedSize > 0) {
+    // Fast pre-check from gzip trailer (ISIZE) to fail before inflate when possible.
+    const advertisedSize = getUncompressedSize(inputData);
+    if (advertisedSize > maxDecompressedSize) {
+      throw new Error(
+        `decompressed data exceeds limit (${maxDecompressedSize} bytes)`,
+      );
+    }
+    return gunzipSync(inputData, {
+      maxOutputLength: maxDecompressedSize,
+    });
+  }
+
+  return gunzipSync(inputData);
+}
+
 interface GzipResult {
   stdout: string;
   stderr: string;
@@ -255,6 +283,7 @@ async function processFile(
   let inputPath: string;
   let outputPath: string;
   let inputData: Uint8Array;
+  const maxDecompressedSize = getMaxDecompressedSize(ctx);
 
   // Handle stdin
   if (file === "-" || file === "") {
@@ -271,10 +300,10 @@ async function processFile(
         return { stdout: "", stderr: "", exitCode: 1 };
       }
       try {
-        const decompressed = gunzipSync(inputData);
+        const decompressed = gunzipWithLimit(inputData, maxDecompressedSize);
         // Use binary string (latin1) to preserve bytes
         return {
-          stdout: String.fromCharCode(...decompressed),
+          stdout: toBinaryString(decompressed),
           stderr: "",
           exitCode: 0,
         };
@@ -293,7 +322,7 @@ async function processFile(
       // Output raw bytes as binary - this is tricky since stdout is string
       // We'll use latin1 encoding to preserve bytes
       return {
-        stdout: String.fromCharCode(...compressed),
+        stdout: toBinaryString(compressed),
         stderr: "",
         exitCode: 0,
       };
@@ -372,7 +401,7 @@ async function processFile(
 
     let decompressed: Uint8Array;
     try {
-      decompressed = gunzipSync(inputData);
+      decompressed = gunzipWithLimit(inputData, maxDecompressedSize);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "unknown error";
       return {
@@ -385,7 +414,7 @@ async function processFile(
     if (toStdout) {
       // Output to stdout using binary string (latin1) to preserve bytes
       return {
-        stdout: String.fromCharCode(...decompressed),
+        stdout: toBinaryString(decompressed),
         stderr: "",
         exitCode: 0,
       };
@@ -468,7 +497,7 @@ async function processFile(
     if (toStdout) {
       // Output to stdout as binary
       return {
-        stdout: String.fromCharCode(...compressed),
+        stdout: toBinaryString(compressed),
         stderr: "",
         exitCode: 0,
       };
@@ -656,7 +685,7 @@ async function testFile(
   }
 
   try {
-    gunzipSync(inputData);
+    gunzipWithLimit(inputData, getMaxDecompressedSize(ctx));
     if (flags.verbose) {
       return { stdout: "", stderr: `${file}:\tOK\n`, exitCode: 0 };
     }

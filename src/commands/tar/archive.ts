@@ -290,15 +290,23 @@ export async function parseCompressedArchive(
     const decompressedStream = stream.pipeThrough(createGzipDecoder());
     const reader = decompressedStream.getReader();
     const chunks: Uint8Array[] = [];
+    let totalLength = 0;
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      totalLength += value.length;
+      if (totalLength > MAX_ARCHIVE_SIZE) {
+        await reader.cancel();
+        return {
+          entries: [],
+          error: `Decompressed archive too large (max ${MAX_ARCHIVE_SIZE} bytes)`,
+        };
+      }
       chunks.push(value);
     }
 
     // Combine chunks
-    const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
     const tarBuffer = new Uint8Array(totalLength);
     let offset = 0;
     for (const chunk of chunks) {
@@ -419,6 +427,12 @@ export async function parseBzip2CompressedArchive(
 
   try {
     const tarBuffer = await decompressBzip2(data);
+    if (tarBuffer.length > MAX_ARCHIVE_SIZE) {
+      return {
+        entries: [],
+        error: `Decompressed archive too large (max ${MAX_ARCHIVE_SIZE} bytes)`,
+      };
+    }
     return parseArchive(tarBuffer);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
@@ -456,6 +470,12 @@ export async function parseXzCompressedArchive(
 
   try {
     const tarBuffer = await decompressXz(data);
+    if (tarBuffer.length > MAX_ARCHIVE_SIZE) {
+      return {
+        entries: [],
+        error: `Decompressed archive too large (max ${MAX_ARCHIVE_SIZE} bytes)`,
+      };
+    }
     return parseArchive(tarBuffer);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
@@ -534,6 +554,12 @@ export async function parseZstdCompressedArchive(
 
   try {
     const tarBuffer = await decompressZstd(data);
+    if (tarBuffer.length > MAX_ARCHIVE_SIZE) {
+      return {
+        entries: [],
+        error: `Decompressed archive too large (max ${MAX_ARCHIVE_SIZE} bytes)`,
+      };
+    }
     return parseArchive(tarBuffer);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";

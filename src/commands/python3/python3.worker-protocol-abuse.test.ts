@@ -85,7 +85,7 @@ describe("python3 worker protocol abuse", { retry: 2 }, () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
-  it("treats malformed worker message as success (investigation evidence)", async () => {
+  it("treats malformed worker message as explicit error", async () => {
     mockState.script = (worker) => {
       worker.emit("message", {});
     };
@@ -96,8 +96,8 @@ describe("python3 worker protocol abuse", { retry: 2 }, () => {
     );
 
     expect(result.stdout).toBe("BRIDGE_STDOUT\n");
-    expect(result.stderr).toBe("");
-    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("Malformed worker response");
+    expect(result.exitCode).toBe(1);
   });
 
   it("surfaces security-violation as error with violation type", async () => {

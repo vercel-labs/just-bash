@@ -74,15 +74,22 @@ describe("sqlite3 worker protocol abuse", () => {
     expect(result.exitCode).toBe(1);
   });
 
-  it("throws when worker sends success without required result payload", async () => {
+  it("surfaces malformed success payloads as explicit command errors", async () => {
     vi.spyOn(_internals, "createWorker").mockImplementation(() => {
       return createMockWorker((worker) => {
         worker.emit("message", { success: true });
       }) as never;
     });
 
-    await expect(
-      sqlite3Command.execute([":memory:", "SELECT 1"], createContext()),
-    ).rejects.toThrow("result.results is not iterable");
+    const result = await sqlite3Command.execute(
+      [":memory:", "SELECT 1"],
+      createContext(),
+    );
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "sqlite3: Malformed worker response: missing results array\n",
+    );
+    expect(result.exitCode).toBe(1);
   });
 });

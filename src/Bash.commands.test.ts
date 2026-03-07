@@ -88,7 +88,7 @@ describe("Bash commands filtering", () => {
       customCommands: [
         {
           name: "myfetch",
-          execute: async (_args, ctx) => {
+          execute: async (_args, _ctx) => {
             // Custom command uses setTimeout and fetch — both are blocked
             // globals, but should work because commands are trusted.
             await new Promise((r) => setTimeout(r, 1));
@@ -101,5 +101,25 @@ describe("Bash commands filtering", () => {
     const result = await env.exec("myfetch");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("custom-ok\n");
+  });
+
+  it("untrusted custom commands are blocked from dangerous globals", async () => {
+    const env = new Bash({
+      customCommands: [
+        {
+          name: "unsafe",
+          trusted: false,
+          execute: async () => {
+            setTimeout(() => {}, 1);
+            return { stdout: "should-not-run\n", stderr: "", exitCode: 0 };
+          },
+        },
+      ],
+    });
+
+    const result = await env.exec("unsafe");
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("setTimeout is blocked");
   });
 });

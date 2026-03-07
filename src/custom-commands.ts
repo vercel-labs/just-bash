@@ -45,7 +45,7 @@ export function defineCommand(
   name: string,
   execute: (args: string[], ctx: CommandContext) => Promise<ExecResult>,
 ): Command {
-  return { name, execute };
+  return { name, trusted: true, execute };
 }
 
 /**
@@ -56,6 +56,7 @@ export function createLazyCustomCommand(lazy: LazyCommand): Command {
   let cached: Command | null = null;
   return {
     name: lazy.name,
+    trusted: true,
     async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
       if (!cached) {
         cached = await lazy.load();

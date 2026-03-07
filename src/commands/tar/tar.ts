@@ -57,6 +57,7 @@ const tarHelp = {
     "-m, --touch            don't extract file modified time",
     "-C, --directory=DIR    change to directory DIR before performing operations",
     "-p, --preserve         preserve permissions",
+    "-P, --absolute-names   do not strip leading '/' or block '..' paths",
     "-T, --files-from=FILE  read files to extract/create from FILE",
     "-X, --exclude-from=FILE read exclude patterns from FILE",
     "--strip=N              strip N leading path components on extraction",
@@ -149,6 +150,28 @@ function stripComponents(path: string, count: number): string {
   const parts = path.split("/").filter((p) => p !== "");
   if (parts.length <= count) return "";
   return parts.slice(count).join("/");
+}
+
+function hasParentTraversal(path: string): boolean {
+  return path.split("/").some((part) => part === "..");
+}
+
+function sanitizeExtractionPath(
+  path: string,
+  absoluteNames: boolean,
+): { safePath?: string; error?: string } {
+  if (absoluteNames) {
+    return { safePath: path };
+  }
+
+  const withoutLeadingSlash = path.replace(/^\/+/, "");
+  if (withoutLeadingSlash.length === 0) {
+    return { safePath: "" };
+  }
+  if (hasParentTraversal(withoutLeadingSlash)) {
+    return { error: "Path contains '..'" };
+  }
+  return { safePath: withoutLeadingSlash };
 }
 
 /**
@@ -362,7 +385,7 @@ async function createTarArchive(
     }
   } else {
     // Output to stdout as binary
-    stdout = String.fromCharCode(...archiveData);
+    stdout = Buffer.from(archiveData).toString("latin1");
   }
 
   // Verbose output goes to stderr (like real tar)
@@ -700,6 +723,11 @@ async function extractTarArchive(
   const workDir = options.directory
     ? ctx.fs.resolvePath(ctx.cwd, options.directory)
     : ctx.cwd;
+  const normalizedSpecificFiles = options.absoluteNames
+    ? specificFiles
+    : specificFiles
+        .map((f) => f.replace(/^\/+/, ""))
+        .filter((f) => f.length > 0);
 
   let verboseOutput = "";
   let stdoutContent = "";
@@ -720,33 +748,44 @@ async function extractTarArchive(
     const name = stripComponents(entry.name, options.strip);
     if (!name) continue;
 
+    const sanitized = sanitizeExtractionPath(name, options.absoluteNames);
+    if (sanitized.error) {
+      errors.push(`tar: ${name}: ${sanitized.error}`);
+      continue;
+    }
+    const safeName = sanitized.safePath ?? "";
+    if (!safeName) continue;
+
     // Remove trailing slash for consistency
-    const displayName = name.endsWith("/") ? name.slice(0, -1) : name;
+    const displayName = safeName.endsWith("/")
+      ? safeName.slice(0, -1)
+      : safeName;
 
     // Check if this file should be extracted (if specific files requested)
-    if (specificFiles.length > 0) {
+    if (normalizedSpecificFiles.length > 0) {
       let matches: boolean;
       if (options.wildcards) {
         // Use wildcard pattern matching
-        matches = specificFiles.some(
+        matches = normalizedSpecificFiles.some(
           (f) =>
-            matchesWildcard(name, f) ||
+            matchesWildcard(safeName, f) ||
             matchesWildcard(displayName, f) ||
-            name.startsWith(`${f}/`),
+            safeName.startsWith(`${f}/`),
         );
       } else {
         // Exact match or prefix match
-        matches = specificFiles.some(
-          (f) => name === f || name.startsWith(`${f}/`) || displayName === f,
+        matches = normalizedSpecificFiles.some(
+          (f) =>
+            safeName === f || safeName.startsWith(`${f}/`) || displayName === f,
         );
       }
       if (!matches) continue;
     }
 
     // Check exclude patterns
-    if (matchesExclude(name, options.exclude)) continue;
+    if (matchesExclude(safeName, options.exclude)) continue;
 
-    const targetPath = ctx.fs.resolvePath(workDir, name);
+    const targetPath = ctx.fs.resolvePath(workDir, safeName);
 
     try {
       if (entry.type === "directory") {
@@ -755,14 +794,14 @@ async function extractTarArchive(
 
         await ctx.fs.mkdir(targetPath, { recursive: true });
         if (options.verbose) {
-          verboseOutput += `${name}\n`;
+          verboseOutput += `${safeName}\n`;
         }
       } else if (entry.type === "file") {
         // Handle -O (extract to stdout)
         if (options.toStdout) {
           stdoutContent += new TextDecoder().decode(entry.content);
           if (options.verbose) {
-            verboseOutput += `${name}\n`;
+            verboseOutput += `${safeName}\n`;
           }
           continue;
         }
@@ -771,9 +810,8 @@ async function extractTarArchive(
         if (options.keepOldFiles) {
           try {
             await ctx.fs.stat(targetPath);
-            // File exists, skip it
             if (options.verbose) {
-              verboseOutput += `${name}: not overwritten, file exists\n`;
+              verboseOutput += `${safeName}: not overwritten, file exists\n`;
             }
             continue;
           } catch {
@@ -803,18 +841,27 @@ async function extractTarArchive(
         }
 
         if (options.verbose) {
-          verboseOutput += `${name}\n`;
+          verboseOutput += `${safeName}\n`;
         }
       } else if (entry.type === "symlink" && entry.linkTarget) {
         // Skip symlinks when extracting to stdout
         if (options.toStdout) continue;
+
+        if (
+          !options.absoluteNames &&
+          (entry.linkTarget.startsWith("/") ||
+            hasParentTraversal(entry.linkTarget))
+        ) {
+          errors.push(`tar: ${safeName}: unsafe symlink target`);
+          continue;
+        }
 
         // Check -k (keep old files)
         if (options.keepOldFiles) {
           try {
             await ctx.fs.stat(targetPath);
             if (options.verbose) {
-              verboseOutput += `${name}: not overwritten, file exists\n`;
+              verboseOutput += `${safeName}: not overwritten, file exists\n`;
             }
             continue;
           } catch {
@@ -839,12 +886,12 @@ async function extractTarArchive(
         }
 
         if (options.verbose) {
-          verboseOutput += `${name}\n`;
+          verboseOutput += `${safeName}\n`;
         }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "unknown error";
-      errors.push(`tar: ${name}: ${msg}`);
+      errors.push(`tar: ${safeName}: ${msg}`);
     }
   }
 

@@ -23,6 +23,7 @@ export interface TarOptions {
   touch: boolean;
   directory: string;
   preserve: boolean;
+  absoluteNames: boolean;
   strip: number;
   exclude: string[];
   filesFrom: string;
@@ -53,6 +54,7 @@ export function parseOptions(
     touch: false,
     directory: "",
     preserve: false,
+    absoluteNames: false,
     strip: 0,
     exclude: [],
     filesFrom: "",
@@ -119,6 +121,9 @@ export function parseOptions(
             break;
           case "p":
             options.preserve = true;
+            break;
+          case "P":
+            options.absoluteNames = true;
             break;
           case "f":
             // -f requires a value - either rest of this arg or next arg
@@ -245,6 +250,8 @@ export function parseOptions(
       arg === "--preserve-permissions"
     ) {
       options.preserve = true;
+    } else if (arg === "-P" || arg === "--absolute-names") {
+      options.absoluteNames = true;
     } else if (arg === "-f" || arg === "--file") {
       i++;
       if (i >= args.length) {

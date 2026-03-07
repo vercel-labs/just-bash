@@ -1,4 +1,5 @@
 import type { Bash } from "../Bash.js";
+import { _clearTimeout, _setTimeout } from "../timers.js";
 import type { ExecResult } from "../types.js";
 
 export interface OutputMessage {
@@ -17,6 +18,11 @@ export class Command {
   private cmdLine: string;
   private env?: Record<string, string>;
   private explicitCwd: boolean;
+  private signal?: AbortSignal;
+  private timeoutMs?: number;
+  private abortController = new AbortController();
+  private timeoutId: ReturnType<typeof _setTimeout> | undefined;
+  private externalAbortListener: (() => void) | undefined;
   private resultPromise: Promise<ExecResult>;
 
   constructor(
@@ -25,6 +31,8 @@ export class Command {
     cwd: string,
     env?: Record<string, string>,
     explicitCwd = false,
+    signal?: AbortSignal,
+    timeoutMs?: number,
   ) {
     this.cmdId = crypto.randomUUID();
     this.cwd = cwd;
@@ -33,20 +41,64 @@ export class Command {
     this.cmdLine = cmdLine;
     this.env = env;
     this.explicitCwd = explicitCwd;
+    this.signal = signal;
+    this.timeoutMs = timeoutMs;
+
+    this.setupCancellation();
 
     // Start execution immediately
     this.resultPromise = this.execute();
   }
 
+  private setupCancellation(): void {
+    if (this.signal) {
+      if (this.signal.aborted) {
+        this.abortController.abort(this.signal.reason);
+      } else {
+        this.externalAbortListener = () => {
+          this.abortController.abort(this.signal?.reason);
+        };
+        this.signal.addEventListener("abort", this.externalAbortListener, {
+          once: true,
+        });
+      }
+    }
+
+    if (this.timeoutMs !== undefined) {
+      const timeout = Math.max(0, this.timeoutMs);
+      this.timeoutId = _setTimeout(() => {
+        this.abortController.abort(
+          new Error(`sandbox command timeout after ${timeout}ms`),
+        );
+      }, timeout);
+    }
+  }
+
+  private cleanupCancellation(): void {
+    if (this.timeoutId !== undefined) {
+      _clearTimeout(this.timeoutId);
+      this.timeoutId = undefined;
+    }
+    if (this.signal && this.externalAbortListener) {
+      this.signal.removeEventListener("abort", this.externalAbortListener);
+      this.externalAbortListener = undefined;
+    }
+  }
+
   private async execute(): Promise<ExecResult> {
-    // Only pass options if they were explicitly provided (to avoid creating isolated state unnecessarily)
-    const options =
-      this.env || this.explicitCwd
-        ? { cwd: this.explicitCwd ? this.cwd : undefined, env: this.env }
-        : undefined;
-    const result = await this.bashEnv.exec(this.cmdLine, options);
-    this.exitCode = result.exitCode;
-    return result;
+    // Always pass command-specific signal to support cancellation.
+    const options = {
+      cwd: this.explicitCwd ? this.cwd : undefined,
+      env: this.env,
+      signal: this.abortController.signal,
+    };
+    try {
+      const result = await this.bashEnv.exec(this.cmdLine, options);
+      this.exitCode = result.exitCode;
+      return result;
+    } finally {
+      this.cleanupCancellation();
+    }
   }
 
   async *logs(): AsyncGenerator<OutputMessage, void, unknown> {
@@ -82,8 +134,8 @@ export class Command {
   }
 
   async kill(): Promise<void> {
-    // For Bash synchronous execution, this is a no-op
-    // Commands complete immediately in the simulation
+    this.abortController.abort(new Error("command killed"));
+    // Preserve API contract: kill() resolves once cancellation has been requested.
   }
 }
 

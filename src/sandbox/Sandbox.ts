@@ -2,6 +2,7 @@ import type { Writable } from "node:stream";
 import { Bash } from "../Bash.js";
 import type { IFileSystem } from "../fs/interface.js";
 import { OverlayFs } from "../fs/overlay-fs/index.js";
+import { shellJoinArgs } from "../helpers/shell-quote.js";
 import type { NetworkConfig } from "../network/index.js";
 import type { DefenseInDepthConfig } from "../security/types.js";
 import type { CommandFinished } from "./Command.js";
@@ -58,20 +59,13 @@ export interface WriteFilesInput {
   [path: string]: string | { content: string; encoding?: "utf-8" | "base64" };
 }
 
-/** Escape a string for safe inclusion in a shell command. */
-function shellEscape(arg: string): string {
-  if (arg === "") return "''";
-  // If arg contains no special characters, return as-is
-  if (/^[a-zA-Z0-9._\-/=:@]+$/.test(arg)) return arg;
-  // Single-quote the argument, escaping any embedded single quotes
-  return `'${arg.replace(/'/g, "'\\''")}'`;
-}
-
 export class Sandbox {
   private bashEnv: Bash;
+  private timeoutMs?: number;
 
-  private constructor(bashEnv: Bash) {
+  private constructor(bashEnv: Bash, timeoutMs?: number) {
     this.bashEnv = bashEnv;
+    this.timeoutMs = timeoutMs;
   }
 
   static async create(opts?: SandboxOptions): Promise<Sandbox> {
@@ -95,7 +89,7 @@ export class Sandbox {
       network: opts?.network,
       defenseInDepth: opts?.defenseInDepth,
     });
-    return new Sandbox(bashEnv);
+    return new Sandbox(bashEnv, opts?.timeoutMs);
   }
 
   // Overload: object form with detached
@@ -127,6 +121,7 @@ export class Sandbox {
     let cwd: string | undefined;
     // @banned-pattern-ignore: static keys only, never accessed with user input
     let env: Record<string, string> | undefined;
+    let signal: AbortSignal | undefined;
     let detached = false;
     let stdoutStream: Writable | undefined;
     let stderrStream: Writable | undefined;
@@ -134,17 +129,19 @@ export class Sandbox {
     if (typeof cmdOrParams === "object") {
       // Object form: runCommand({ cmd, args?, cwd?, env?, detached?, ... })
       const p = cmdOrParams;
-      cmdLine = p.args
-        ? `${p.cmd} ${p.args.map(shellEscape).join(" ")}`
-        : p.cmd;
+      const argv = [p.cmd, ...(p.args ?? [])];
+      cmdLine = shellJoinArgs(argv);
       cwd = p.cwd;
       env = p.env;
+      signal = p.signal;
       detached = p.detached ?? false;
       stdoutStream = p.stdout;
       stderrStream = p.stderr;
     } else if (Array.isArray(argsOrOpts)) {
       // String + args form: runCommand('node', ['--version'])
-      cmdLine = `${cmdOrParams} ${argsOrOpts.map(shellEscape).join(" ")}`;
+      const runOpts = _opts;
+      cmdLine = shellJoinArgs([cmdOrParams, ...argsOrOpts]);
+      signal = runOpts?.signal;
     } else {
       // String form or legacy string + opts
       cmdLine = cmdOrParams;
@@ -163,6 +160,8 @@ export class Sandbox {
       resolvedCwd,
       env,
       explicitCwd,
+      signal,
+      this.timeoutMs,
     );
 
     if (detached) {
@@ -185,6 +184,7 @@ export class Sandbox {
   }
 
   async writeFiles(files: WriteFilesInput): Promise<void> {
+    const cwd = this.bashEnv.getCwd();
     for (const [path, content] of Object.entries(files)) {
       let data: string;
       if (typeof content === "string") {
@@ -198,12 +198,14 @@ export class Sandbox {
       }
 
       // Ensure parent directory exists
-      const parentDir = path.substring(0, path.lastIndexOf("/")) || "/";
+      const resolvedPath = this.bashEnv.fs.resolvePath(cwd, path);
+      const parentDir =
+        resolvedPath.substring(0, resolvedPath.lastIndexOf("/")) || "/";
       if (parentDir !== "/") {
-        await this.bashEnv.exec(`mkdir -p ${parentDir}`);
+        await this.bashEnv.fs.mkdir(parentDir, { recursive: true });
       }
 
-      await this.bashEnv.writeFile(path, data);
+      await this.bashEnv.writeFile(resolvedPath, data);
     }
   }
 
@@ -216,8 +218,13 @@ export class Sandbox {
   }
 
   async mkDir(path: string, opts?: { recursive?: boolean }): Promise<void> {
-    const flags = opts?.recursive ? "-p" : "";
-    await this.bashEnv.exec(`mkdir ${flags} ${path}`);
+    const resolvedPath = this.bashEnv.fs.resolvePath(
+      this.bashEnv.getCwd(),
+      path,
+    );
+    await this.bashEnv.fs.mkdir(resolvedPath, {
+      recursive: opts?.recursive ?? false,
+    });
   }
 
   async stop(): Promise<void> {

@@ -433,12 +433,13 @@ export async function executeExternalCommand(
   };
 
   try {
-    // Commands (including custom/host-provided ones) are trusted code.
-    // Run as trusted so they can use Node.js APIs (fetch, setTimeout, etc.)
-    // without being blocked by defense-in-depth.
-    return await DefenseInDepthBox.runTrustedAsync(() =>
-      cmd.execute(args, cmdCtx),
-    );
+    if (cmd.trusted) {
+      // Trusted host-extension commands may opt in to unrestricted globals.
+      return await DefenseInDepthBox.runTrustedAsync(() =>
+        cmd.execute(args, cmdCtx),
+      );
+    }
+    return await cmd.execute(args, cmdCtx);
   } catch (error) {
     // ExecutionLimitError must propagate - these are safety limits
     if (error instanceof ExecutionLimitError) {

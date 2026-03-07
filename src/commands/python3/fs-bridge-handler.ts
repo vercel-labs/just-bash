@@ -31,12 +31,14 @@ export class FsBridgeHandler {
   private protocol: ProtocolBuffer;
   private running = false;
   private output: FsBridgeOutput = { stdout: "", stderr: "", exitCode: 0 };
+  private outputLimitExceeded = false;
 
   constructor(
     sharedBuffer: SharedArrayBuffer,
     private fs: IFileSystem,
     private cwd: string,
     private secureFetch: SecureFetch | undefined = undefined,
+    private maxOutputSize = 0,
   ) {
     this.protocol = new ProtocolBuffer(sharedBuffer);
   }
@@ -296,21 +298,106 @@ export class FsBridgeHandler {
 
   private handleWriteStdout(): void {
     const data = this.protocol.getDataAsString();
-    this.output.stdout += data;
+    if (!this.tryAppendOutput("stdout", data)) {
+      this.outputLimitExceeded = true;
+      this.output.exitCode = 1;
+      this.appendOutputLimitError();
+      this.protocol.setErrorCode(ErrorCode.IO_ERROR);
+      this.protocol.setResultFromString("Output size limit exceeded");
+      this.protocol.setStatus(Status.ERROR);
+      return;
+    }
     this.protocol.setStatus(Status.SUCCESS);
   }
 
   private handleWriteStderr(): void {
     const data = this.protocol.getDataAsString();
-    this.output.stderr += data;
+    if (!this.tryAppendOutput("stderr", data)) {
+      this.outputLimitExceeded = true;
+      this.output.exitCode = 1;
+      this.appendOutputLimitError();
+      this.protocol.setErrorCode(ErrorCode.IO_ERROR);
+      this.protocol.setResultFromString("Output size limit exceeded");
+      this.protocol.setStatus(Status.ERROR);
+      return;
+    }
     this.protocol.setStatus(Status.SUCCESS);
   }
 
   private handleExit(): void {
     const exitCode = this.protocol.getFlags();
-    this.output.exitCode = exitCode;
+    if (!this.outputLimitExceeded) {
+      this.output.exitCode = exitCode;
+    } else if (this.output.exitCode === 0) {
+      this.output.exitCode = 1;
+    }
     this.protocol.setStatus(Status.SUCCESS);
     this.running = false;
+  }
+
+  private tryAppendOutput(stream: "stdout" | "stderr", data: string): boolean {
+    if (this.outputLimitExceeded) {
+      return false;
+    }
+
+    if (this.maxOutputSize <= 0) {
+      if (stream === "stdout") {
+        this.output.stdout += data;
+      } else {
+        this.output.stderr += data;
+      }
+      return true;
+    }
+
+    const total = this.output.stdout.length + this.output.stderr.length;
+    if (total + data.length > this.maxOutputSize) {
+      return false;
+    }
+
+    if (stream === "stdout") {
+      this.output.stdout += data;
+    } else {
+      this.output.stderr += data;
+    }
+    return true;
+  }
+
+  private appendOutputLimitError(): void {
+    if (this.maxOutputSize <= 0) {
+      return;
+    }
+
+    const fullMsg = `python3: total output size exceeded (>${this.maxOutputSize} bytes), increase executionLimits.maxOutputSize\n`;
+    const msg =
+      fullMsg.length > this.maxOutputSize
+        ? fullMsg.slice(0, this.maxOutputSize)
+        : fullMsg;
+    if (this.output.stderr.includes("total output size exceeded")) {
+      return;
+    }
+
+    const currentTotal = this.output.stdout.length + this.output.stderr.length;
+    const needed = currentTotal + msg.length - this.maxOutputSize;
+    if (needed > 0) {
+      if (this.output.stdout.length >= needed) {
+        this.output.stdout = this.output.stdout.slice(
+          0,
+          this.output.stdout.length - needed,
+        );
+      } else {
+        const remainingNeeded = needed - this.output.stdout.length;
+        this.output.stdout = "";
+        if (remainingNeeded >= this.output.stderr.length) {
+          this.output.stderr = "";
+        } else {
+          this.output.stderr = this.output.stderr.slice(
+            0,
+            this.output.stderr.length - remainingNeeded,
+          );
+        }
+      }
+    }
+    this.output.stderr += msg;
   }
 
   private async handleHttpRequest(): Promise<void> {

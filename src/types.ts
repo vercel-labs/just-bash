@@ -168,6 +168,13 @@ export interface CommandContext {
 
 export interface Command {
   name: string;
+  /**
+   * When true, execute this command inside DefenseInDepthBox.runTrustedAsync().
+   * Use for trusted host-extension commands that need direct Node.js globals.
+   * Built-in commands should generally remain untrusted and use explicit
+   * trusted wrappers only at narrow infrastructure boundaries.
+   */
+  trusted?: boolean;
   execute(args: string[], ctx: CommandContext): Promise<ExecResult>;
 }
 

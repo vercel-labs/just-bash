@@ -12,6 +12,7 @@
 
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
+import type { IFileSystem } from "../../fs/interface.js";
 import { mapToRecord } from "../../helpers/env.js";
 
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
@@ -151,35 +152,96 @@ type QueuedExecution = {
   /** Set to true when the request times out before execution starts */
   canceled?: boolean;
 };
-const executionQueue: QueuedExecution[] = [];
-let isExecuting = false;
+type QueueState = {
+  executionQueue: QueuedExecution[];
+  isExecuting: boolean;
+};
+let executionQueues = new WeakMap<IFileSystem, QueueState>();
+
+function getQueueState(fs: IFileSystem): QueueState {
+  let state = executionQueues.get(fs);
+  if (!state) {
+    state = {
+      executionQueue: [],
+      isExecuting: false,
+    };
+    executionQueues.set(fs, state);
+  }
+  return state;
+}
 
 /** @internal Reset queue state — for tests only */
 export function _resetExecutionQueue(): void {
-  executionQueue.length = 0;
-  isExecuting = false;
+  executionQueues = new WeakMap();
 }
 
 const workerPath = fileURLToPath(new URL("./worker.js", import.meta.url));
 
-function processNextExecution(): void {
-  if (isExecuting || executionQueue.length === 0) {
+function normalizeWorkerMessage(msg: unknown): WorkerOutput {
+  if (!msg || typeof msg !== "object") {
+    return {
+      success: false,
+      error: "Malformed worker response",
+    };
+  }
+
+  const raw = msg as {
+    type?: unknown;
+    violation?: { type?: unknown };
+    success?: unknown;
+    error?: unknown;
+  };
+
+  if (raw.type === "security-violation") {
+    return {
+      success: false,
+      error: `Security violation: ${
+        typeof raw.violation?.type === "string" ? raw.violation.type : "unknown"
+      }`,
+    };
+  }
+
+  if (typeof raw.success !== "boolean") {
+    return {
+      success: false,
+      error: "Malformed worker response: missing success flag",
+    };
+  }
+
+  if (raw.success) {
+    return { success: true };
+  }
+
+  return {
+    success: false,
+    error:
+      typeof raw.error === "string" && raw.error.length > 0
+        ? raw.error
+        : "Worker execution failed",
+  };
+}
+
+function processNextExecution(queueState: QueueState): void {
+  if (queueState.isExecuting || queueState.executionQueue.length === 0) {
     return;
   }
 
   // Skip canceled entries (timed out before execution started)
-  while (executionQueue.length > 0 && executionQueue[0].canceled) {
-    executionQueue.shift();
+  while (
+    queueState.executionQueue.length > 0 &&
+    queueState.executionQueue[0].canceled
+  ) {
+    queueState.executionQueue.shift();
   }
-  if (executionQueue.length === 0) {
+  if (queueState.executionQueue.length === 0) {
     return;
   }
 
-  const next = executionQueue.shift();
+  const next = queueState.executionQueue.shift();
   if (!next) {
     return;
   }
-  isExecuting = true;
+  queueState.isExecuting = true;
 
   // Create a fresh worker for each execution.
   // CPython Emscripten uses EXIT_RUNTIME, so the module can only run once.
@@ -191,37 +253,24 @@ function processNextExecution(): void {
 
   if (next.workerRef) next.workerRef.current = worker;
 
-  worker.on(
-    "message",
-    (msg: WorkerOutput & { type?: string; violation?: { type?: string } }) => {
-      if (msg.type === "security-violation") {
-        next.resolve({
-          success: false,
-          error: `Security violation: ${msg.violation?.type ?? "unknown"}`,
-        });
-        isExecuting = false;
-        worker.terminate();
-        processNextExecution();
-        return;
-      }
-      next.resolve(msg);
-      isExecuting = false;
-      worker.terminate();
-      processNextExecution();
-    },
-  );
+  worker.on("message", (msg: unknown) => {
+    next.resolve(normalizeWorkerMessage(msg));
+    queueState.isExecuting = false;
+    worker.terminate();
+    processNextExecution(queueState);
+  });
 
   worker.on("error", (err: Error) => {
     next.resolve({ success: false, error: err.message });
-    isExecuting = false;
-    processNextExecution();
+    queueState.isExecuting = false;
+    processNextExecution(queueState);
   });
 
   worker.on("exit", () => {
-    if (isExecuting) {
+    if (queueState.isExecuting) {
       next.resolve({ success: false, error: "Worker exited unexpectedly" });
-      isExecuting = false;
-      processNextExecution();
+      queueState.isExecuting = false;
+      processNextExecution(queueState);
     }
   });
 }
@@ -241,9 +290,11 @@ async function executePython(
     ctx.fs,
     ctx.cwd,
     ctx.fetch,
+    ctx.limits?.maxOutputSize ?? 0,
   );
 
   const timeoutMs = ctx.limits?.maxPythonTimeoutMs ?? DEFAULT_PYTHON_TIMEOUT_MS;
+  const queueState = getQueueState(ctx.fs);
 
   const workerInput: WorkerInput = {
     sharedBuffer,
@@ -286,8 +337,8 @@ async function executePython(
     };
 
     // Queue the execution (serialized — one at a time per worker)
-    executionQueue.push(queueEntry);
-    processNextExecution();
+    queueState.executionQueue.push(queueEntry);
+    processNextExecution(queueState);
   });
 
   const [bridgeOutput, workerResult] = await Promise.all([

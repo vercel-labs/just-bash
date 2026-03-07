@@ -928,6 +928,8 @@ describe("isPrivateIp", () => {
     expect(isPrivateIp("::ffff:10.0.0.1")).toBe(true);
     expect(isPrivateIp("::ffff:192.168.1.1")).toBe(true);
     expect(isPrivateIp("::ffff:8.8.8.8")).toBe(false);
+    // Canonicalized form produced by WHATWG URL parser
+    expect(isPrivateIp("::ffff:7f00:1")).toBe(true);
   });
 
   it("allows public IPv6", () => {
@@ -936,8 +938,15 @@ describe("isPrivateIp", () => {
     expect(isPrivateIp("fec0::1")).toBe(false);
   });
 
-  it("passes through hostnames unchanged", () => {
+  it("blocks localhost hostnames", () => {
     expect(isPrivateIp("example.com")).toBe(false);
-    expect(isPrivateIp("localhost")).toBe(false);
+    expect(isPrivateIp("localhost")).toBe(true);
+    expect(isPrivateIp("api.localhost")).toBe(true);
+  });
+
+  it("handles non-decimal IPv4 notations", () => {
+    expect(isPrivateIp("2130706433")).toBe(true); // 127.0.0.1 decimal
+    expect(isPrivateIp("0x7f000001")).toBe(true); // 127.0.0.1 hex
+    expect(isPrivateIp("0177.0.0.1")).toBe(true); // 127.0.0.1 octal
   });
 });

@@ -108,32 +108,195 @@ export function isUrlAllowed(
  * Only checks the string format — does not perform DNS resolution.
  */
 export function isPrivateIp(hostname: string): boolean {
-  // Strip IPv6 brackets
-  const h = hostname.startsWith("[") ? hostname.slice(1, -1) : hostname;
+  const normalized = normalizeHostname(hostname);
 
-  // IPv4
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) {
-    const parts = h.split(".").map(Number);
-    const [a, b] = parts;
-    if (a === 127) return true; // 127.0.0.0/8
-    if (a === 10) return true; // 10.0.0.0/8
-    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-    if (a === 192 && b === 168) return true; // 192.168.0.0/16
-    if (a === 169 && b === 254) return true; // 169.254.0.0/16
-    if (a === 0) return true; // 0.0.0.0
-    return false;
+  // localhost and *.localhost are always local-only hostnames.
+  if (normalized === "localhost" || normalized.endsWith(".localhost")) {
+    return true;
   }
 
-  // IPv6
-  const lower = h.toLowerCase();
-  if (lower === "::1") return true;
-  // fe80::/10 — first 10 bits are 1111 1110 10, covering fe80-febf
-  if (/^fe[89ab][0-9a-f]/.test(lower)) return true;
-  if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // fc00::/7
-  if (lower === "::") return true; // unspecified
-  // IPv4-mapped IPv6 (::ffff:x.x.x.x)
-  const v4mapped = lower.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-  if (v4mapped) return isPrivateIp(v4mapped[1]);
+  const ipv4 = parseIpv4(normalized);
+  if (ipv4) {
+    return isPrivateIpv4(ipv4);
+  }
+
+  const ipv6 = parseIpv6(normalized);
+  if (ipv6) {
+    return isPrivateIpv6(ipv6);
+  }
+
+  return false;
+}
+
+function normalizeHostname(hostname: string): string {
+  const trimmed = hostname.trim().toLowerCase();
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function parseIpComponent(part: string): number | null {
+  if (!part) return null;
+
+  let base = 10;
+  let digits = part;
+
+  if (digits.startsWith("0x") || digits.startsWith("0X")) {
+    base = 16;
+    digits = digits.slice(2);
+  } else if (digits.length > 1 && digits.startsWith("0")) {
+    base = 8;
+  }
+
+  if (!digits) return null;
+  if (base === 16 && !/^[0-9a-fA-F]+$/.test(digits)) return null;
+  if (base === 10 && !/^\d+$/.test(digits)) return null;
+  if (base === 8 && !/^[0-7]+$/.test(digits)) return null;
+
+  const value = Number.parseInt(digits, base);
+  if (!Number.isFinite(value) || value < 0) {
+    return null;
+  }
+  return value;
+}
+
+function parseIpv4(hostname: string): [number, number, number, number] | null {
+  const parts = hostname.split(".");
+  if (parts.length === 0 || parts.length > 4) {
+    return null;
+  }
+
+  const nums = parts.map((p) => parseIpComponent(p));
+  if (nums.some((n) => n === null)) {
+    return null;
+  }
+
+  const values = nums as number[];
+  if (parts.length === 1) {
+    const n = values[0];
+    if (n > 0xffffffff) return null;
+    return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff];
+  }
+
+  if (parts.length === 2) {
+    const [a, b] = values;
+    if (a > 0xff || b > 0xffffff) return null;
+    return [a, (b >>> 16) & 0xff, (b >>> 8) & 0xff, b & 0xff];
+  }
+
+  if (parts.length === 3) {
+    const [a, b, c] = values;
+    if (a > 0xff || b > 0xff || c > 0xffff) return null;
+    return [a, b, (c >>> 8) & 0xff, c & 0xff];
+  }
+
+  const [a, b, c, d] = values;
+  if (a > 0xff || b > 0xff || c > 0xff || d > 0xff) return null;
+  return [a, b, c, d];
+}
+
+function parseIpv6(hostname: string): number[] | null {
+  let host = hostname;
+  let ipv4Tail: [number, number, number, number] | null = null;
+
+  if (host.includes(".")) {
+    const lastColon = host.lastIndexOf(":");
+    if (lastColon < 0) return null;
+    const v4Part = host.slice(lastColon + 1);
+    const parsedV4 = parseIpv4(v4Part);
+    if (!parsedV4) return null;
+    ipv4Tail = parsedV4;
+    host = host.slice(0, lastColon);
+  }
+
+  const doubleColonCount = host.includes("::")
+    ? host.split("::").length - 1
+    : 0;
+  if (doubleColonCount > 1) return null;
+
+  const [leftRaw, rightRaw] = host.split("::");
+  const leftParts = leftRaw ? leftRaw.split(":").filter(Boolean) : [];
+  const rightParts = rightRaw ? rightRaw.split(":").filter(Boolean) : [];
+
+  const parseHextet = (part: string): number | null => {
+    if (!/^[0-9a-f]{1,4}$/i.test(part)) return null;
+    return Number.parseInt(part, 16);
+  };
+
+  const left = leftParts.map(parseHextet);
+  const right = rightParts.map(parseHextet);
+  if (left.some((n) => n === null) || right.some((n) => n === null)) {
+    return null;
+  }
+
+  const tailLength = ipv4Tail ? 2 : 0;
+  const explicitLength = left.length + right.length + tailLength;
+
+  let zerosToInsert = 0;
+  if (doubleColonCount === 1) {
+    zerosToInsert = 8 - explicitLength;
+    if (zerosToInsert < 0) return null;
+  } else if (explicitLength !== 8) {
+    return null;
+  }
+
+  const hextets = [
+    ...(left as number[]),
+    ...new Array(zerosToInsert).fill(0),
+    ...(right as number[]),
+  ];
+
+  if (ipv4Tail) {
+    hextets.push((ipv4Tail[0] << 8) | ipv4Tail[1]);
+    hextets.push((ipv4Tail[2] << 8) | ipv4Tail[3]);
+  }
+
+  return hextets.length === 8 ? hextets : null;
+}
+
+function isPrivateIpv4(ip: [number, number, number, number]): boolean {
+  const [a, b] = ip;
+  if (a === 127) return true; // 127.0.0.0/8
+  if (a === 10) return true; // 10.0.0.0/8
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16
+  if (a === 169 && b === 254) return true; // 169.254.0.0/16
+  if (a === 0) return true; // 0.0.0.0/8
+  return false;
+}
+
+function isPrivateIpv6(hextets: number[]): boolean {
+  const allZero = hextets.every((h) => h === 0);
+  if (allZero) return true; // ::
+
+  const isLoopback =
+    hextets.slice(0, 7).every((h) => h === 0) && hextets[7] === 1;
+  if (isLoopback) return true; // ::1
+
+  // fe80::/10 link-local
+  if ((hextets[0] & 0xffc0) === 0xfe80) return true;
+
+  // fc00::/7 unique local
+  if ((hextets[0] & 0xfe00) === 0xfc00) return true;
+
+  // IPv4-mapped ::ffff:x.x.x.x
+  const isMapped =
+    hextets[0] === 0 &&
+    hextets[1] === 0 &&
+    hextets[2] === 0 &&
+    hextets[3] === 0 &&
+    hextets[4] === 0 &&
+    hextets[5] === 0xffff;
+  if (isMapped) {
+    const mapped: [number, number, number, number] = [
+      (hextets[6] >>> 8) & 0xff,
+      hextets[6] & 0xff,
+      (hextets[7] >>> 8) & 0xff,
+      hextets[7] & 0xff,
+    ];
+    return isPrivateIpv4(mapped);
+  }
 
   return false;
 }

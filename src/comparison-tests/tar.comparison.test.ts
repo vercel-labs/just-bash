@@ -87,6 +87,15 @@ describe("tar command - Real Bash Comparison", () => {
         "tar -cf archive.tar source.txt && mkdir dest && tar -xf archive.tar -C dest && cat dest/source.txt",
       );
     });
+
+    it("should strip leading slash on extract by default", async () => {
+      const env = await setupFiles(testDir, {});
+      await compareOutputs(
+        env,
+        testDir,
+        'tmp=/tmp/jb-tar-abs-$PPID.txt && printf \'abs\\n\' > "$tmp" && tar -cf archive.tar "$tmp" 2>/dev/null && mkdir -p out && tar -xf archive.tar -C out && cat out/tmp/jb-tar-abs-$PPID.txt && rm -f "$tmp"',
+      );
+    });
   });
 
   describe("gzip compression (-z)", () => {

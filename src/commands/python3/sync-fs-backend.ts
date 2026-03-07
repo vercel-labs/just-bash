@@ -179,12 +179,18 @@ export class SyncFsBackend {
 
   writeStdout(data: string): void {
     const encoded = new TextEncoder().encode(data);
-    this.execSync(OpCode.WRITE_STDOUT, "", encoded);
+    const result = this.execSync(OpCode.WRITE_STDOUT, "", encoded);
+    if (!result.success) {
+      throw new Error(result.error || "Failed to write stdout");
+    }
   }
 
   writeStderr(data: string): void {
     const encoded = new TextEncoder().encode(data);
-    this.execSync(OpCode.WRITE_STDERR, "", encoded);
+    const result = this.execSync(OpCode.WRITE_STDERR, "", encoded);
+    if (!result.success) {
+      throw new Error(result.error || "Failed to write stderr");
+    }
   }
 
   exit(code: number): void {

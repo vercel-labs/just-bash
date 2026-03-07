@@ -432,7 +432,10 @@ export class Bash {
         if (isLazyCommand(cmd)) {
           this.registerCommand(createLazyCustomCommand(cmd));
         } else {
-          this.registerCommand(cmd);
+          this.registerCommand({
+            ...cmd,
+            trusted: cmd.trusted ?? true,
+          });
         }
       }
     }

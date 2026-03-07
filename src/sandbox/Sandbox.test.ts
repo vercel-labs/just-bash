@@ -143,12 +143,13 @@ describe("Sandbox API", () => {
       const sandbox = await Sandbox.create();
       await sandbox.mkDir("/work", { recursive: true });
       const cmd = await sandbox.runCommand({
-        cmd: 'echo "$PWD $MY_VAR"',
+        cmd: "printenv",
+        args: ["PWD", "MY_VAR"],
         cwd: "/work",
         env: { MY_VAR: "test123" },
       });
       const output = await cmd.stdout();
-      expect(output.trim()).toBe("/work test123");
+      expect(output).toBe("/work\ntest123\n");
     });
 
     it("should return CommandFinished with exitCode by default", async () => {
@@ -292,10 +293,19 @@ describe("Sandbox API", () => {
   });
 
   describe("Command.kill()", () => {
-    it("should be a no-op but not throw", async () => {
+    it("should abort a running command", async () => {
       const sandbox = await Sandbox.create();
-      const cmd = await sandbox.runCommand("echo test");
-      await expect(cmd.kill()).resolves.toBeUndefined();
+      const cmd = await sandbox.runCommand({
+        cmd: "sleep",
+        args: ["1"],
+        detached: true,
+      });
+      const start = Date.now();
+      await cmd.kill();
+      const finished = await cmd.wait();
+      const elapsedMs = Date.now() - start;
+      expect(elapsedMs).toBeLessThan(500);
+      expect([0, 124]).toContain(finished.exitCode);
     });
   });
 

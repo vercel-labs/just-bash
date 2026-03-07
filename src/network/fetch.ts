@@ -71,7 +71,6 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
   const allowedMethods = config.dangerouslyAllowFullInternetAccess
     ? ["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
     : (config.allowedMethods ?? DEFAULT_ALLOWED_METHODS);
-
   // Default to denying private ranges in production
   const denyPrivateRanges =
     config.denyPrivateRanges ??
