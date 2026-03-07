@@ -150,6 +150,35 @@ const env = new Bash({ fs: rwfs });
 await env.exec('echo "hello" > file.txt'); // writes to real filesystem
 ```
 
+**HttpFs** - Read-only filesystem backed by HTTP. Files are declared up front and fetched lazily on first read, then cached in memory. No dependencies beyond `fetch`:
+
+```typescript
+import { Bash, HttpFs, mount } from "just-bash";
+
+const fs = mount({
+  "/data": new HttpFs("https://cdn.example.com/dataset", [
+    "train.csv",
+    "test.csv",
+    "metadata.json",
+  ]),
+});
+
+const bash = new Bash({ fs });
+
+await bash.exec("wc -l /data/train.csv");       // fetches once, then cached
+await bash.exec("cat /data/metadata.json | jq .name"); // reads from cache
+await bash.exec("ls /data");                     // from manifest, no network
+await bash.exec("echo x > /data/new.txt");       // EROFS: read-only file system
+```
+
+You can pass custom headers (e.g. for auth) and a custom fetch function:
+
+```typescript
+const fs = new HttpFs("https://api.example.com/files", ["secret.json"], {
+  headers: { Authorization: "Bearer tok123" },
+});
+```
+
 **MountableFs** - Mount multiple filesystems at different paths. Combines read-only and read-write filesystems into a unified namespace:
 
 ```typescript
@@ -186,6 +215,21 @@ const fs = new MountableFs({
     { mountPoint: "/workspace", filesystem: new ReadWriteFs({ root: "/tmp/work" }) },
   ],
 });
+```
+
+**`mount()` helper** - Shorthand for composing filesystems. Automatically creates an initialised base `InMemoryFs` (with `/dev`, `/proc`, `/bin`) when you don't provide `"/"`:
+
+```typescript
+import { Bash, mount, HttpFs } from "just-bash";
+import { OverlayFs } from "just-bash/fs/overlay-fs";
+
+const fs = mount({
+  "/project": new OverlayFs({ root: "./my-project", readOnly: true }),
+  "/data": new HttpFs("https://cdn.example.com/dataset", ["train.csv", "test.csv"]),
+});
+
+const bash = new Bash({ fs });
+await bash.exec("cat /data/train.csv | wc -l");
 ```
 
 ### AI SDK Tool

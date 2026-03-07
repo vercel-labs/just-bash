@@ -680,4 +680,46 @@ export class MountableFs implements IFileSystem {
     const { fs, relativePath } = this.routePath(path);
     return fs.utimes(relativePath, atime, mtime);
   }
+
+  // ---------------------------------------------------------------------------
+  // Sync helpers (delegated to base/mounted FS when they support them).
+  // Required so that initFilesystem() and registerCommand() work transparently
+  // when the top-level FS handed to Bash is a MountableFs.
+  // ---------------------------------------------------------------------------
+
+  mkdirSync(path: string, options?: { recursive?: boolean }): void {
+    const { fs, relativePath } = this.routePath(path);
+    const maybeSyncFs = fs as {
+      mkdirSync?: (p: string, o?: { recursive?: boolean }) => void;
+    };
+    if (typeof maybeSyncFs.mkdirSync === "function") {
+      maybeSyncFs.mkdirSync(relativePath, options);
+    }
+  }
+
+  writeFileSync(path: string, content: string | Uint8Array): void {
+    const { fs, relativePath } = this.routePath(path);
+    const maybeSyncFs = fs as {
+      writeFileSync?: (p: string, c: string | Uint8Array) => void;
+    };
+    if (typeof maybeSyncFs.writeFileSync === "function") {
+      maybeSyncFs.writeFileSync(relativePath, content);
+    }
+  }
+
+  writeFileLazy(
+    path: string,
+    lazy: () => string | Uint8Array | Promise<string | Uint8Array>,
+  ): void {
+    const { fs, relativePath } = this.routePath(path);
+    const maybeSyncFs = fs as {
+      writeFileLazy?: (
+        p: string,
+        l: () => string | Uint8Array | Promise<string | Uint8Array>,
+      ) => void;
+    };
+    if (typeof maybeSyncFs.writeFileLazy === "function") {
+      maybeSyncFs.writeFileLazy(relativePath, lazy);
+    }
+  }
 }
