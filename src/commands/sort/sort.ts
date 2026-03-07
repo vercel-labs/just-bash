@@ -193,7 +193,9 @@ export const sortCommand: Command = {
     // Output to file if -o specified
     if (options.outputFile) {
       const outPath = ctx.fs.resolvePath(ctx.cwd, options.outputFile);
-      await ctx.fs.writeFile(outPath, output);
+      // Content was read with binary encoding (readAndConcat), write as binary
+      // to preserve UTF-8 byte sequences
+      await ctx.fs.writeFile(outPath, output, "binary");
       return { stdout: "", stderr: "", exitCode: 0 };
     }
 
