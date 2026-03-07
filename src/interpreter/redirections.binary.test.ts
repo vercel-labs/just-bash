@@ -173,4 +173,45 @@ describe("redirections with binary data", () => {
       expect(result.stdout.charCodeAt(4)).toBe(0xab);
     });
   });
+
+  describe("UTF-8 text through redirections", () => {
+    it("should preserve Latin-1 range characters (Ü Ö Ä) via readFileBuffer", async () => {
+      const env = new Bash({});
+
+      await env.exec('echo "Ü Ö Ä" > /test.txt');
+      const buffer = await env.fs.readFileBuffer("/test.txt");
+      const decoded = new TextDecoder().decode(buffer);
+
+      expect(decoded).toBe("Ü Ö Ä\n");
+    });
+
+    it("should preserve French accented characters via readFileBuffer", async () => {
+      const env = new Bash({});
+
+      await env.exec('echo "café résumé" > /test.txt');
+      const buffer = await env.fs.readFileBuffer("/test.txt");
+      const decoded = new TextDecoder().decode(buffer);
+
+      expect(decoded).toBe("café résumé\n");
+    });
+
+    it("should produce correct UTF-8 bytes for German umlauts", async () => {
+      const env = new Bash({});
+
+      await env.exec('echo "Ü" > /test.txt');
+      const buffer = await env.fs.readFileBuffer("/test.txt");
+
+      // Ü in UTF-8 is [0xC3, 0x9C], plus newline [0x0A]
+      expect(Array.from(buffer)).toEqual([0xc3, 0x9c, 0x0a]);
+    });
+
+    it("should preserve UTF-8 text through cat roundtrip", async () => {
+      const env = new Bash({});
+
+      await env.exec('echo "Ü Ö Ä ü ö ä ß" > /test.txt');
+      const result = await env.exec("cat /test.txt");
+
+      expect(result.stdout).toBe("Ü Ö Ä ü ö ä ß\n");
+    });
+  });
 });

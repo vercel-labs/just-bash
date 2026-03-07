@@ -51,9 +51,13 @@ async function checkOutputRedirectTarget(
 
 /**
  * Determine the encoding to use for file I/O.
- * If all character codes are <= 255, use binary encoding (byte data).
- * Otherwise, use UTF-8 encoding (text with Unicode characters).
+ * If all character codes are <= 127 (ASCII), use binary encoding (byte data).
+ * Otherwise, use UTF-8 encoding (text with non-ASCII characters).
  * For performance, only check the first 8KB of large strings.
+ *
+ * Characters in the 128-255 range (e.g. Latin-1: Ü Ö Ä é è) need UTF-8
+ * encoding because their multi-byte UTF-8 representation would be lost
+ * if stored as single bytes via binary encoding.
  */
 function getFileEncoding(content: string): "binary" | "utf8" {
   const SAMPLE_SIZE = 8192; // 8KB
@@ -63,7 +67,7 @@ function getFileEncoding(content: string): "binary" | "utf8" {
   const checkLength = Math.min(content.length, SAMPLE_SIZE);
 
   for (let i = 0; i < checkLength; i++) {
-    if (content.charCodeAt(i) > 255) {
+    if (content.charCodeAt(i) > 127) {
       return "utf8";
     }
   }
@@ -401,6 +405,17 @@ export async function applyRedirections(
 ): Promise<ExecResult> {
   let { stdout, stderr, exitCode } = result;
 
+  // Determine encoding for stdout writes:
+  // - Commands that set stdoutEncoding: "binary" (e.g. cat, gzip) produce
+  //   binary strings where each char represents a raw byte — use "binary"
+  //   to preserve byte-level fidelity.
+  // - Otherwise, use getFileEncoding which detects non-ASCII text and
+  //   encodes it as UTF-8 so characters like Ü are stored correctly.
+  const getStdoutEncoding =
+    result.stdoutEncoding === "binary"
+      ? () => "binary" as const
+      : (content: string) => getFileEncoding(content);
+
   for (let i = 0; i < redirections.length; i++) {
     const redir = redirections[i];
     if (redir.target.type === "HereDoc") {
@@ -490,7 +505,7 @@ export async function applyRedirections(
             break;
           }
           // Smart encoding: binary for byte data, UTF-8 for Unicode text
-          await ctx.fs.writeFile(filePath, stdout, getFileEncoding(stdout));
+          await ctx.fs.writeFile(filePath, stdout, getStdoutEncoding(stdout));
           stdout = "";
         } else if (fd === 2) {
           // /dev/stderr is a no-op for stderr - output stays on stderr
@@ -569,7 +584,7 @@ export async function applyRedirections(
             break;
           }
           // Smart encoding: binary for byte data, UTF-8 for Unicode text
-          await ctx.fs.appendFile(filePath, stdout, getFileEncoding(stdout));
+          await ctx.fs.appendFile(filePath, stdout, getStdoutEncoding(stdout));
           stdout = "";
         } else if (fd === 2) {
           // /dev/stderr is a no-op for stderr - output stays on stderr
@@ -692,7 +707,7 @@ export async function applyRedirections(
                 await ctx.fs.appendFile(
                   resolvedPath,
                   stdout,
-                  getFileEncoding(stdout),
+                  getStdoutEncoding(stdout),
                 );
                 stdout = "";
               } else if (fd === 2) {
@@ -712,7 +727,7 @@ export async function applyRedirections(
                   await ctx.fs.appendFile(
                     parsed.path,
                     stdout,
-                    getFileEncoding(stdout),
+                    getStdoutEncoding(stdout),
                   );
                   stdout = "";
                 } else if (fd === 2) {
@@ -746,7 +761,7 @@ export async function applyRedirections(
                     await ctx.fs.appendFile(
                       resolvedPath,
                       stdout,
-                      getFileEncoding(stdout),
+                      getStdoutEncoding(stdout),
                     );
                     stdout = "";
                   } else if (fd === 2) {
@@ -797,13 +812,17 @@ export async function applyRedirections(
               await ctx.fs.writeFile(
                 filePath,
                 combined,
-                getFileEncoding(combined),
+                getStdoutEncoding(combined),
               );
               stdout = "";
               stderr = "";
             } else if (fd === 1) {
               // 1>&word - redirect stdout to file
-              await ctx.fs.writeFile(filePath, stdout, getFileEncoding(stdout));
+              await ctx.fs.writeFile(
+                filePath,
+                stdout,
+                getStdoutEncoding(stdout),
+              );
               stdout = "";
             } else if (fd === 2) {
               // 2>&word - redirect stderr to file
@@ -835,7 +854,7 @@ export async function applyRedirections(
         }
         // Smart encoding: binary for byte data, UTF-8 for Unicode text
         const combined = stdout + stderr;
-        await ctx.fs.writeFile(filePath, combined, getFileEncoding(combined));
+        await ctx.fs.writeFile(filePath, combined, getStdoutEncoding(combined));
         stdout = "";
         stderr = "";
         break;
@@ -864,7 +883,11 @@ export async function applyRedirections(
         }
         // Smart encoding: binary for byte data, UTF-8 for Unicode text
         const combined = stdout + stderr;
-        await ctx.fs.appendFile(filePath, combined, getFileEncoding(combined));
+        await ctx.fs.appendFile(
+          filePath,
+          combined,
+          getStdoutEncoding(combined),
+        );
         stdout = "";
         stderr = "";
         break;
@@ -883,11 +906,11 @@ export async function applyRedirections(
     } else if (fd1Info.startsWith("__file__:")) {
       // fd 1 is redirected to a file
       const filePath = fd1Info.slice(9);
-      await ctx.fs.appendFile(filePath, stdout, getFileEncoding(stdout));
+      await ctx.fs.appendFile(filePath, stdout, getStdoutEncoding(stdout));
       stdout = "";
     } else if (fd1Info.startsWith("__file_append__:")) {
       const filePath = fd1Info.slice(16);
-      await ctx.fs.appendFile(filePath, stdout, getFileEncoding(stdout));
+      await ctx.fs.appendFile(filePath, stdout, getStdoutEncoding(stdout));
       stdout = "";
     }
   }

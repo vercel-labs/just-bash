@@ -197,7 +197,12 @@ export const sortCommand: Command = {
       return { stdout: "", stderr: "", exitCode: 0 };
     }
 
-    return { stdout: output, stderr: "", exitCode: 0 };
+    return {
+      stdout: output,
+      stderr: "",
+      exitCode: 0,
+      stdoutEncoding: "binary",
+    };
   },
 };
 

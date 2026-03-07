@@ -102,7 +102,12 @@ export const base64Command: Command = {
           // Convert to binary string (each char code = byte value)
           // Use Buffer's latin1 encoding which treats each byte as a character
           const result = decoded.toString("latin1");
-          return { stdout: result, stderr: "", exitCode: 0 };
+          return {
+            stdout: result,
+            stderr: "",
+            exitCode: 0,
+            stdoutEncoding: "binary",
+          };
         }
 
         // Browser fallback - use binary string (latin1) to preserve bytes for input
@@ -110,7 +115,12 @@ export const base64Command: Command = {
         const cleaned = input.replace(/\s/g, "");
         // Decode base64 to binary string (each char code = byte value)
         const decoded = atob(cleaned);
-        return { stdout: decoded, stderr: "", exitCode: 0 };
+        return {
+          stdout: decoded,
+          stderr: "",
+          exitCode: 0,
+          stdoutEncoding: "binary",
+        };
       }
 
       // Encoding: read as binary

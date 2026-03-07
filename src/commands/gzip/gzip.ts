@@ -802,21 +802,24 @@ async function executeGzip(
 export const gzipCommand: Command = {
   name: "gzip",
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
-    return executeGzip(args, ctx, "gzip");
+    const result = await executeGzip(args, ctx, "gzip");
+    return { ...result, stdoutEncoding: "binary" };
   },
 };
 
 export const gunzipCommand: Command = {
   name: "gunzip",
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
-    return executeGzip(args, ctx, "gunzip");
+    const result = await executeGzip(args, ctx, "gunzip");
+    return { ...result, stdoutEncoding: "binary" };
   },
 };
 
 export const zcatCommand: Command = {
   name: "zcat",
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
-    return executeGzip(args, ctx, "zcat");
+    const result = await executeGzip(args, ctx, "zcat");
+    return { ...result, stdoutEncoding: "binary" };
   },
 };
 

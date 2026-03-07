@@ -158,7 +158,12 @@ export const cutCommand: Command = {
       }
     }
 
-    return { stdout: output, stderr: "", exitCode: 0 };
+    return {
+      stdout: output,
+      stderr: "",
+      exitCode: 0,
+      stdoutEncoding: "binary",
+    };
   },
 };
 

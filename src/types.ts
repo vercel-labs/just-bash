@@ -16,6 +16,13 @@ export interface ExecResult {
   exitCode: number;
   /** The final environment variables after execution (only set by BashEnv.exec) */
   env?: Record<string, string>;
+  /**
+   * Encoding hint for stdout content when writing to files via redirections.
+   * Set to "binary" by commands that produce binary output (e.g., cat, gzip)
+   * to prevent re-encoding of raw byte data as UTF-8.
+   * When not set, the redirect system uses UTF-8 for non-ASCII text.
+   */
+  stdoutEncoding?: "binary";
 }
 
 /** Result from BashEnv.exec() - always includes env */

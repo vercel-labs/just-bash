@@ -52,7 +52,12 @@ export const catCommand: Command = {
       }
     }
 
-    return { stdout, stderr: readResult.stderr, exitCode: readResult.exitCode };
+    return {
+      stdout,
+      stderr: readResult.stderr,
+      exitCode: readResult.exitCode,
+      stdoutEncoding: "binary",
+    };
   },
 };
 
