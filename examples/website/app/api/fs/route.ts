@@ -12,7 +12,7 @@ async function readAllFiles(
   dir: string,
   baseDir: string
 ): Promise<Record<string, string>> {
-  const result: Record<string, string> = {};
+  const result: Record<string, string> = Object.create(null);
   const entries = await readdir(dir, { withFileTypes: true });
 
   for (const entry of entries) {

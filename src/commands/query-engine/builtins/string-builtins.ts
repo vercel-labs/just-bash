@@ -155,7 +155,7 @@ export function evalStringBuiltin(
           args.length > 1 ? String(evaluate(value, args[1], ctx)[0]) : "";
         const re = createUserRegex(pattern, flags);
         const m = re.match(value);
-        if (!m || !m.groups) return [{}];
+        if (!m || !m.groups) return [Object.create(null)];
         return [m.groups];
       } catch {
         return [null];

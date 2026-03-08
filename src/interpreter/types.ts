@@ -431,4 +431,9 @@ export interface InterpreterContext {
   substitutionDepth?: number;
   /** Optional feature coverage writer for fuzzing instrumentation */
   coverage?: FeatureCoverageWriter;
+  /**
+   * When true, interpreter execution must run inside DefenseInDepthBox
+   * sandbox async context. Used to fail closed on context-loss bugs.
+   */
+  requireDefenseContext?: boolean;
 }

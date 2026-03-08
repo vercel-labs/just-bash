@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
+import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import type { CommandContext } from "../../types.js";
 import { _internals, sqlite3Command } from "./sqlite3.js";
 
@@ -36,7 +37,9 @@ function createMockWorker(script: WorkerScript) {
   return worker;
 }
 
-function createContext(): CommandContext {
+function createContext(
+  overrides: Partial<CommandContext> = {},
+): CommandContext {
   return {
     fs: new InMemoryFs(),
     cwd: "/",
@@ -46,6 +49,7 @@ function createContext(): CommandContext {
       ["IFS", " \t\n"],
     ]),
     stdin: "",
+    ...overrides,
   };
 }
 
@@ -89,6 +93,73 @@ describe("sqlite3 worker protocol abuse", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe(
       "sqlite3: Malformed worker response: missing results array\n",
+    );
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("sanitizes worker errors before forwarding to stderr", async () => {
+    vi.spyOn(_internals, "createWorker").mockImplementation(() => {
+      return createMockWorker((worker) => {
+        worker.emit("message", {
+          success: false,
+          error:
+            "sqlite crash near /Users/attacker/private.db at node:internal/modules/run_main:99",
+        });
+      }) as never;
+    });
+
+    const result = await sqlite3Command.execute(
+      [":memory:", "SELECT 1"],
+      createContext(),
+    );
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "sqlite3: sqlite crash near <path> at <internal>:99\n",
+    );
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("sanitizes worker-bootstrap exception strings before forwarding to stderr", async () => {
+    vi.spyOn(_internals, "createWorker").mockImplementation(() => {
+      throw new Error(
+        "bootstrap fault at /Users/attacker/.cache/sqlite/worker.js via node:internal/modules/cjs/loader:1234",
+      );
+    });
+
+    const result = await sqlite3Command.execute(
+      [":memory:", "SELECT 1"],
+      createContext(),
+    );
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "sqlite3: worker error: sqlite3 worker failed to load: bootstrap fault at <path> via <internal>:1234\n",
+    );
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("fails closed if worker callback runs without defense async context", async () => {
+    vi.spyOn(DefenseInDepthBox, "isInSandboxedContext").mockReturnValue(false);
+    vi.spyOn(_internals, "createWorker").mockImplementation(() => {
+      return createMockWorker((worker) => {
+        worker.emit("message", {
+          success: true,
+          results: [],
+          hasModifications: false,
+          dbBuffer: null,
+        });
+      }) as never;
+    });
+
+    const result = await sqlite3Command.execute(
+      [":memory:", "SELECT 1"],
+      createContext({ requireDefenseContext: true }),
+    );
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "sqlite3: sqlite3 worker message callback attempted outside defense context\n\nThis is a defense-in-depth measure and indicates a bug in just-bash. Please report this at security@vercel.com\n",
     );
     expect(result.exitCode).toBe(1);
   });

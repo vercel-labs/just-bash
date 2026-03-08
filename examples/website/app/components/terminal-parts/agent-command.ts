@@ -12,6 +12,17 @@ type TerminalWriter = {
   write: (data: string) => void;
 };
 
+function sanitizeTerminalError(message: string): string {
+  return message
+    .replace(/\n\s+at\s.*/g, "")
+    .replace(/node:internal\/[^\s'",)}\]:]+/g, "<internal>")
+    .replace(
+      /(?:\/(?:Users|home|private|var|opt|Library|System|usr|etc|tmp|nix|snap))\b[^\s'",)}\]:]*/g,
+      "<path>",
+    )
+    .replace(/[A-Z]:\\[^\s'",)}\]:]+/g, "<path>");
+}
+
 // Format text for terminal: normalize newlines and convert tabs to spaces
 function formatForTerminal(text: string): string {
   return text.replace(/\t/g, "  ").replace(/\r?\n/g, "\r\n");
@@ -232,7 +243,7 @@ export function createAgentCommand(term: TerminalWriter) {
 
               const tc = {
                 toolName: existing?.toolName || "tool",
-                args: existing?.args || {},
+                args: existing?.args || Object.create(null),
                 result: resultStr,
               };
               formatToolResult(tc);
@@ -312,10 +323,13 @@ export function createAgentCommand(term: TerminalWriter) {
         exitCode: 0,
       };
     } catch (error) {
+      const message = sanitizeTerminalError(
+        error instanceof Error ? error.message : "Unknown error",
+      );
       agentMessages.pop();
       return {
         stdout: "",
-        stderr: `Error: ${error instanceof Error ? error.message : "Unknown error"}\n`,
+        stderr: `Error: ${message}\n`,
         exitCode: 1,
       };
     }

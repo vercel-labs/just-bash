@@ -1,3 +1,4 @@
+import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -164,9 +165,10 @@ export const trCommand: Command = {
       set1Raw = expandRange(sets[0]);
       set2 = sets.length > 1 ? expandRange(sets[1]) : "";
     } catch (e) {
+      const message = sanitizeErrorMessage((e as Error).message);
       return {
         stdout: "",
-        stderr: `${(e as Error).message}\n`,
+        stderr: `${message}\n`,
         exitCode: 1,
       };
     }

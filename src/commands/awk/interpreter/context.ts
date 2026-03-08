@@ -91,6 +91,9 @@ export interface AwkRuntimeContext {
 
   // Feature coverage writer for fuzzing instrumentation
   coverage?: FeatureCoverageWriter;
+
+  // Defense context invariant flag propagated from CommandContext
+  requireDefenseContext?: boolean;
 }
 
 export interface CreateContextOptions {
@@ -104,6 +107,7 @@ export interface CreateContextOptions {
     cmd: string,
   ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
   coverage?: FeatureCoverageWriter;
+  requireDefenseContext?: boolean;
 }
 
 export function createRuntimeContext(
@@ -118,6 +122,7 @@ export function createRuntimeContext(
     cwd,
     exec,
     coverage,
+    requireDefenseContext,
   } = options;
 
   return {
@@ -170,5 +175,6 @@ export function createRuntimeContext(
     cwd,
     exec,
     coverage,
+    requireDefenseContext,
   };
 }

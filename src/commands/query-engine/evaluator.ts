@@ -7,6 +7,7 @@
 
 import { mapToRecord } from "../../helpers/env.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { assertDefenseContext } from "../../security/defense-context.js";
 import type { FeatureCoverageWriter } from "../../types.js";
 import {
   evalArrayBuiltin,
@@ -113,6 +114,8 @@ export interface EvalContext {
   limits: Required<Pick<QueryExecutionLimits, "maxIterations">> &
     QueryExecutionLimits;
   env?: Map<string, string>;
+  requireDefenseContext?: boolean;
+  defenseContextChecked?: boolean;
   /** Original document root for parent/root navigation */
   root?: QueryValue;
   /** Current path from root for parent navigation */
@@ -136,6 +139,8 @@ function createContext(options?: EvaluateOptions): EvalContext {
     },
     env: options?.env,
     coverage: options?.coverage,
+    requireDefenseContext: options?.requireDefenseContext,
+    defenseContextChecked: false,
   };
 }
 
@@ -150,6 +155,8 @@ function withVar(
     vars: newVars,
     limits: ctx.limits,
     env: ctx.env,
+    requireDefenseContext: ctx.requireDefenseContext,
+    defenseContextChecked: ctx.defenseContextChecked,
     root: ctx.root,
     currentPath: ctx.currentPath,
     funcs: ctx.funcs,
@@ -353,6 +360,7 @@ export interface EvaluateOptions {
   limits?: QueryExecutionLimits;
   env?: Map<string, string>;
   coverage?: FeatureCoverageWriter;
+  requireDefenseContext?: boolean;
 }
 
 /**
@@ -399,6 +407,15 @@ export function evaluate(
     ctxOrOptions && "vars" in ctxOrOptions
       ? ctxOrOptions
       : createContext(ctxOrOptions as EvaluateOptions | undefined);
+
+  if (!ctx.defenseContextChecked) {
+    assertDefenseContext(
+      ctx.requireDefenseContext,
+      "query-engine",
+      "evaluation",
+    );
+    ctx = { ...ctx, defenseContextChecked: true };
+  }
 
   // Initialize root if not set (first evaluation)
   if (ctx.root === undefined) {

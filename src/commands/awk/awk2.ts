@@ -7,6 +7,11 @@
 import { mapToRecord } from "../../helpers/env.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { ConstantRegex, createUserRegex } from "../../regex/index.js";
+import {
+  assertDefenseContext,
+  awaitWithDefenseContext,
+} from "../../security/defense-context.js";
+import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import type { AwkProgram } from "./ast.js";
@@ -32,6 +37,13 @@ export const awkCommand2: Command = {
   name: "awk",
 
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+    assertDefenseContext(ctx.requireDefenseContext, "awk", "execution entry");
+    const withDefenseContext = <T>(
+      phase: string,
+      op: () => Promise<T>,
+    ): Promise<T> =>
+      awaitWithDefenseContext(ctx.requireDefenseContext, "awk", phase, op);
+
     if (hasHelpFlag(args)) {
       return showHelp(awkHelp);
     }
@@ -102,11 +114,20 @@ export const awkCommand2: Command = {
       appendFile: async (path: string, content: string) => {
         // Append by reading existing content and writing back
         try {
-          const existing = await ctx.fs.readFile(path);
-          await ctx.fs.writeFile(path, existing + content);
-        } catch {
+          const existing = await withDefenseContext("appendFile read", () =>
+            ctx.fs.readFile(path),
+          );
+          await withDefenseContext("appendFile write", () =>
+            ctx.fs.writeFile(path, existing + content),
+          );
+        } catch (e) {
+          if (e instanceof SecurityViolationError) {
+            throw e;
+          }
           // File doesn't exist, just write
-          await ctx.fs.writeFile(path, content);
+          await withDefenseContext("appendFile create", () =>
+            ctx.fs.writeFile(path, content),
+          );
         }
       },
       resolvePath: ctx.fs.resolvePath.bind(ctx.fs),
@@ -122,9 +143,13 @@ export const awkCommand2: Command = {
       cwd: ctx.cwd,
       // Wrap ctx.exec to match the expected signature for command pipe getline
       exec: execFn
-        ? (cmd: string) => execFn(cmd, { cwd: ctx.cwd, signal: ctx.signal })
+        ? (cmd: string) =>
+            withDefenseContext("command pipe exec", () =>
+              execFn(cmd, { cwd: ctx.cwd, signal: ctx.signal }),
+            )
         : undefined,
       coverage: ctx.coverage,
+      requireDefenseContext: ctx.requireDefenseContext,
     });
     runtimeCtx.FS = fieldSepStr;
     // Use Object.assign with null-prototype to preserve safety
@@ -156,10 +181,12 @@ export const awkCommand2: Command = {
 
     // Execute BEGIN blocks
     try {
-      await interp.executeBegin();
+      await withDefenseContext("BEGIN execution", () => interp.executeBegin());
       if (runtimeCtx.shouldExit) {
         // exit in BEGIN still runs END blocks (AWK semantics)
-        await interp.executeEnd();
+        await withDefenseContext("END execution after BEGIN exit", () =>
+          interp.executeEnd(),
+        );
         return {
           stdout: interp.getOutput(),
           stderr: "",
@@ -189,13 +216,18 @@ export const awkCommand2: Command = {
         for (const file of files) {
           try {
             const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-            const content = await ctx.fs.readFile(filePath);
+            const content = await withDefenseContext("input file read", () =>
+              ctx.fs.readFile(filePath),
+            );
             const lines = content.split("\n");
             if (lines.length > 0 && lines[lines.length - 1] === "") {
               lines.pop();
             }
             fileDataList.push({ filename: file, lines });
-          } catch {
+          } catch (e) {
+            if (e instanceof SecurityViolationError) {
+              throw e;
+            }
             return {
               stdout: "",
               stderr: `awk: ${file}: No such file or directory\n`,
@@ -222,7 +254,10 @@ export const awkCommand2: Command = {
         // Use while loop with lineIndex to support getline advancing the line
         while (runtimeCtx.lineIndex < fileData.lines.length - 1) {
           runtimeCtx.lineIndex++;
-          await interp.executeLine(fileData.lines[runtimeCtx.lineIndex]);
+          const activeLineIndex = runtimeCtx.lineIndex;
+          await withDefenseContext("line execution", () =>
+            interp.executeLine(fileData.lines[activeLineIndex]),
+          );
           if (runtimeCtx.shouldExit || runtimeCtx.shouldNextFile) break;
         }
 
@@ -230,7 +265,7 @@ export const awkCommand2: Command = {
       }
 
       // Execute END blocks (always run, even after exit - AWK semantics)
-      await interp.executeEnd();
+      await withDefenseContext("END execution", () => interp.executeEnd());
 
       return {
         stdout: interp.getOutput(),
@@ -238,6 +273,9 @@ export const awkCommand2: Command = {
         exitCode: interp.getExitCode(),
       };
     } catch (e) {
+      if (e instanceof SecurityViolationError) {
+        throw e;
+      }
       // Handle errors during execution
       const msg = e instanceof Error ? e.message : String(e);
       const exitCode =

@@ -1,3 +1,4 @@
+import { mergeToNullPrototype } from "../helpers/env.js";
 import { parse } from "../parser/parser.js";
 import { serialize } from "./serialize.js";
 import type { BashTransformResult, TransformPlugin } from "./types.js";
@@ -20,13 +21,12 @@ export class BashTransformPipeline<
 
   transform(script: string): BashTransformResult<TMetadata> {
     let ast = parse(script);
-    // @banned-pattern-ignore: metadata is plugin-controlled, not user input
     let metadata: Record<string, unknown> = Object.create(null);
     for (const plugin of this.plugins) {
       const result = plugin.transform({ ast, metadata });
       ast = result.ast;
       if (result.metadata) {
-        metadata = { ...metadata, ...result.metadata };
+        metadata = mergeToNullPrototype(metadata, result.metadata);
       }
     }
     return {

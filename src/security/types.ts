@@ -87,6 +87,8 @@ export type SecurityViolationType =
   | "process_stdout"
   | "process_stderr"
   | "module_resolve_filename"
+  | "missing_defense_context"
+  | "promise_then_after_deactivate"
   | "prototype_mutation"
   | "json_mutation"
   | "math_mutation";

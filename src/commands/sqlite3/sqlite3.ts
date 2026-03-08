@@ -16,6 +16,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import initSqlJs from "sql.js";
+import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
+import { bindDefenseContextCallback } from "../../security/defense-context.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import { _clearTimeout, _setTimeout } from "../../timers.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
@@ -340,6 +342,7 @@ function normalizeWorkerResult(result: unknown): WorkerOutput {
 async function executeInWorker(
   input: WorkerInput,
   timeoutMs: number,
+  requireDefenseContext: boolean | undefined,
 ): Promise<WorkerOutput> {
   // Try to use worker thread for timeout protection
   try {
@@ -350,38 +353,115 @@ async function executeInWorker(
         _internals.createWorker(workerPath, input),
       );
 
-      const timeout = _setTimeout(() => {
-        worker.terminate();
-        resolve({
-          success: false,
-          error: `Query timeout: execution exceeded ${timeoutMs}ms limit`,
-        });
-      }, timeoutMs);
-
-      worker.on("message", (result: unknown) => {
-        _clearTimeout(timeout);
-        resolve(normalizeWorkerResult(result));
-      });
-
-      worker.on("error", (err) => {
-        _clearTimeout(timeout);
-        reject(err);
-      });
-
-      worker.on("exit", (code) => {
-        _clearTimeout(timeout);
-        if (code !== 0) {
+      const onTimeout = bindDefenseContextCallback(
+        requireDefenseContext,
+        "sqlite3",
+        "worker timeout callback",
+        () => {
+          worker.terminate();
           resolve({
             success: false,
-            error: `Worker exited with code ${code}`,
+            error: `Query timeout: execution exceeded ${timeoutMs}ms limit`,
+          });
+        },
+      );
+
+      const dispatchTimeout = (): void => {
+        try {
+          onTimeout();
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          resolve({
+            success: false,
+            error: sanitizeErrorMessage(message),
           });
         }
-      });
+      };
+
+      const timeout = _setTimeout(dispatchTimeout, timeoutMs);
+
+      const onMessage = bindDefenseContextCallback(
+        requireDefenseContext,
+        "sqlite3",
+        "worker message callback",
+        (result: unknown) => {
+          _clearTimeout(timeout);
+          resolve(normalizeWorkerResult(result));
+        },
+      );
+      const onError = bindDefenseContextCallback(
+        requireDefenseContext,
+        "sqlite3",
+        "worker error callback",
+        (err: unknown) => {
+          _clearTimeout(timeout);
+          reject(err);
+        },
+      );
+      const onExit = bindDefenseContextCallback(
+        requireDefenseContext,
+        "sqlite3",
+        "worker exit callback",
+        (code: number) => {
+          _clearTimeout(timeout);
+          if (code !== 0) {
+            resolve({
+              success: false,
+              error: `Worker exited with code ${code}`,
+            });
+          }
+        },
+      );
+
+      const dispatchMessage = (result: unknown): void => {
+        try {
+          onMessage(result);
+        } catch (error) {
+          _clearTimeout(timeout);
+          const message =
+            error instanceof Error ? error.message : String(error);
+          resolve({
+            success: false,
+            error: sanitizeErrorMessage(message),
+          });
+        }
+      };
+
+      const dispatchError = (err: unknown): void => {
+        try {
+          onError(err);
+        } catch (error) {
+          _clearTimeout(timeout);
+          const message =
+            error instanceof Error ? error.message : String(error);
+          reject(new Error(sanitizeErrorMessage(message)));
+        }
+      };
+
+      const dispatchExit = (code: number): void => {
+        try {
+          onExit(code);
+        } catch (error) {
+          _clearTimeout(timeout);
+          const message =
+            error instanceof Error ? error.message : String(error);
+          resolve({
+            success: false,
+            error: sanitizeErrorMessage(message),
+          });
+        }
+      };
+
+      worker.on("message", dispatchMessage);
+      worker.on("error", dispatchError);
+      worker.on("exit", dispatchExit);
     });
   } catch (e) {
     // Worker failed to load - do not fall back to direct execution
     // as it has no timeout protection (DoS risk)
-    throw new Error(`sqlite3 worker failed to load: ${(e as Error).message}`);
+    const message = sanitizeErrorMessage((e as Error).message);
+    throw new Error(`sqlite3 worker failed to load: ${message}`);
   }
 }
 
@@ -442,9 +522,10 @@ export const sqlite3Command: Command = {
         }
       }
     } catch (e) {
+      const message = sanitizeErrorMessage((e as Error).message);
       return {
         stdout: "",
-        stderr: `sqlite3: unable to open database "${database}": ${(e as Error).message}\n`,
+        stderr: `sqlite3: unable to open database "${database}": ${message}\n`,
         exitCode: 1,
       };
     }
@@ -465,19 +546,25 @@ export const sqlite3Command: Command = {
 
     let result: WorkerOutput;
     try {
-      result = await executeInWorker(workerInput, timeoutMs);
+      result = await executeInWorker(
+        workerInput,
+        timeoutMs,
+        ctx.requireDefenseContext,
+      );
     } catch (e) {
+      const message = sanitizeErrorMessage((e as Error).message);
       return {
         stdout: "",
-        stderr: `sqlite3: worker error: ${(e as Error).message}\n`,
+        stderr: `sqlite3: worker error: ${message}\n`,
         exitCode: 1,
       };
     }
 
     if (!result.success) {
+      const message = sanitizeErrorMessage(result.error);
       return {
         stdout: "",
-        stderr: `sqlite3: ${result.error}\n`,
+        stderr: `sqlite3: ${message}\n`,
         exitCode: 1,
       };
     }
@@ -533,9 +620,10 @@ export const sqlite3Command: Command = {
       try {
         await ctx.fs.writeFile(dbPath, result.dbBuffer);
       } catch (e) {
+        const message = sanitizeErrorMessage((e as Error).message);
         return {
           stdout,
-          stderr: `sqlite3: failed to write database: ${(e as Error).message}\n`,
+          stderr: `sqlite3: failed to write database: ${message}\n`,
           exitCode: 1,
         };
       }

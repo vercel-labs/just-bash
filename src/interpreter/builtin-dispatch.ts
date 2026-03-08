@@ -7,7 +7,11 @@
 
 import { isBrowserExcludedCommand } from "../commands/browser-excluded.js";
 import { sanitizeErrorMessage } from "../fs/sanitize-error.js";
-import { DefenseInDepthBox } from "../security/defense-in-depth-box.js";
+import { awaitWithDefenseContext } from "../security/defense-context.js";
+import {
+  DefenseInDepthBox,
+  SecurityViolationError,
+} from "../security/defense-in-depth-box.js";
 import type { CommandContext, ExecResult } from "../types.js";
 import {
   handleBreak,
@@ -43,6 +47,7 @@ import {
   resolveCommand as resolveCommandHelper,
 } from "./command-resolution.js";
 import { evaluateTestArgs } from "./conditionals.js";
+import { createDefenseAwareCommandContext } from "./defense-aware-command-context.js";
 import { ExecutionLimitError } from "./errors.js";
 import { callFunction } from "./functions.js";
 import { getErrorMessage } from "./helpers/errors.js";
@@ -430,19 +435,31 @@ export async function executeExternalCommand(
     xpgEcho: ctx.state.shoptOptions.xpg_echo,
     coverage: ctx.coverage,
     signal: ctx.state.signal,
+    requireDefenseContext: ctx.requireDefenseContext,
   };
+  const guardedCmdCtx = createDefenseAwareCommandContext(cmdCtx, commandName);
 
   try {
+    const runCommand = (): Promise<ExecResult> =>
+      awaitWithDefenseContext(
+        ctx.requireDefenseContext,
+        "command",
+        `${commandName} execution`,
+        () => cmd.execute(args, guardedCmdCtx),
+      );
+
     if (cmd.trusted) {
       // Trusted host-extension commands may opt in to unrestricted globals.
-      return await DefenseInDepthBox.runTrustedAsync(() =>
-        cmd.execute(args, cmdCtx),
-      );
+      return await DefenseInDepthBox.runTrustedAsync(() => runCommand());
     }
-    return await cmd.execute(args, cmdCtx);
+    return await runCommand();
   } catch (error) {
     // ExecutionLimitError must propagate - these are safety limits
     if (error instanceof ExecutionLimitError) {
+      throw error;
+    }
+    // Security violations must propagate to top-level error handling
+    if (error instanceof SecurityViolationError) {
       throw error;
     }
     return failure(

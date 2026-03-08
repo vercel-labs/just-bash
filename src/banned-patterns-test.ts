@@ -39,5 +39,54 @@ const _protoTest: unknown = ({} as { __proto__: unknown }).__proto__;
 // @banned-pattern-ignore: test file for banned-patterns script
 const _ctorTest: object = {}.constructor.prototype;
 
+// Pattern 8: Object.fromEntries() without null-prototype wrapper
+// @banned-pattern-ignore: test file for banned-patterns script
+const _fromEntriesTest: Record<string, unknown> = Object.fromEntries([
+  ["a", 1],
+]);
+
+// Pattern 9: Array containing empty object literal
+// @banned-pattern-ignore: test file for banned-patterns script
+const _arrayEmptyObjectTest: object[] = [{}];
+
+// Pattern 10: Metadata spread merge into plain object
+// @banned-pattern-ignore: test file for banned-patterns script
+let _metadataSpreadTest: Record<string, unknown> = Object.create(null);
+_metadataSpreadTest = { ..._metadataSpreadTest, ...{ custom: true } };
+
+// Pattern 11: Object.assign({}, ...) plain-object merge
+// @banned-pattern-ignore: test file for banned-patterns script
+const _objectAssignPlainTest: Record<string, unknown> = Object.assign(
+  {},
+  { a: 1 },
+);
+
+// Pattern 12: Direct obj.hasOwnProperty() call
+// @banned-pattern-ignore: test file for banned-patterns script
+// biome-ignore lint/suspicious/noPrototypeBuiltins: intentional banned-pattern test
+const _directHasOwnPropertyTest: boolean = _recordTest.hasOwnProperty("a");
+
+// Pattern 13: Dynamic Reflect property key
+// @banned-pattern-ignore: test file for banned-patterns script
+const _dynamicReflectKey = "polluted";
+Reflect.set(_recordTest, _dynamicReflectKey, 1);
+
+// Pattern 14: Dynamic defineProperty/descriptor key
+// @banned-pattern-ignore: test file for banned-patterns script
+const _dynamicDescriptorKey = "dynamic";
+Object.defineProperty(_recordTest, _dynamicDescriptorKey, { value: 1 });
+
+// Pattern 15: Prototype mutation API
+// @banned-pattern-ignore: test file for banned-patterns script
+Object.setPrototypeOf(_recordTest, null);
+
+// Pattern 16: Dot-path reduce chain
+// @banned-pattern-ignore: test file for banned-patterns script
+const _dotPathReduce = "a.b".split(".").reduce((acc, part) => `${acc}.${part}`);
+
+// Pattern 17: Reduce accumulator initialized with {}
+// @banned-pattern-ignore: test file for banned-patterns script
+const _reduceWithPlainObjectSeed = ["x"].reduce((acc) => acc, {});
+
 // Make this a module
 export {};

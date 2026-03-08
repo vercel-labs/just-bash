@@ -15,16 +15,33 @@
 
 import { parentPort, workerData } from "node:worker_threads";
 import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
+import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import {
   WorkerDefenseInDepth,
   type WorkerDefenseStats,
 } from "../../security/index.js";
+import {
+  sanitizeUnknownError,
+  wrapWasmCallback,
+} from "../../security/wasm-callback.js";
 
 // Cached SQL.js module (initialized once)
 let cachedSQL: SqlJsStatic | null = null;
 
 // Defense instance (activated after sql.js init)
 let defense: WorkerDefenseInDepth | null = null;
+
+function postWorkerMessage(message: unknown): void {
+  try {
+    parentPort?.postMessage(message);
+  } catch (error) {
+    // Best effort: avoid crashing worker when parent port is unavailable.
+    console.debug(
+      "[sqlite3-worker] failed to post worker message:",
+      sanitizeUnknownError(error),
+    );
+  }
+}
 
 /**
  * Initialize sql.js and activate defense-in-depth.
@@ -39,11 +56,15 @@ async function initializeWithDefense(): Promise<SqlJsStatic> {
   cachedSQL = await initSqlJs();
 
   // Activate defense after sql.js is loaded (no exclusions needed)
-  defense = new WorkerDefenseInDepth({
-    onViolation: (v) => {
-      parentPort?.postMessage({ type: "security-violation", violation: v });
+  const onViolation = wrapWasmCallback(
+    "sqlite3-worker",
+    "onViolation",
+    (v: unknown) => {
+      postWorkerMessage({ type: "security-violation", violation: v });
     },
-  });
+  );
+
+  defense = new WorkerDefenseInDepth({ onViolation });
 
   return cachedSQL;
 }
@@ -145,9 +166,10 @@ async function executeQuery(data: WorkerInput): Promise<WorkerOutput> {
       db = new SQL.Database();
     }
   } catch (e) {
+    const message = sanitizeErrorMessage((e as Error).message);
     return {
       success: false,
-      error: (e as Error).message,
+      error: message,
       defenseStats: defense?.getStats(),
     };
   }
@@ -201,9 +223,10 @@ async function executeQuery(data: WorkerInput): Promise<WorkerOutput> {
     };
   } catch (e) {
     db.close();
+    const message = sanitizeErrorMessage((e as Error).message);
     return {
       success: false,
-      error: (e as Error).message,
+      error: message,
       defenseStats: defense?.getStats(),
     };
   }
@@ -211,7 +234,15 @@ async function executeQuery(data: WorkerInput): Promise<WorkerOutput> {
 
 // Execute when run as worker
 if (parentPort && workerData) {
-  executeQuery(workerData as WorkerInput).then((result) => {
-    parentPort?.postMessage(result);
-  });
+  executeQuery(workerData as WorkerInput)
+    .then((result) => {
+      postWorkerMessage(result);
+    })
+    .catch((error) => {
+      postWorkerMessage({
+        success: false,
+        error: sanitizeUnknownError(error),
+        defenseStats: defense?.getStats(),
+      });
+    });
 }

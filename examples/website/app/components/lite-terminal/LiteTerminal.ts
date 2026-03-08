@@ -801,7 +801,7 @@ export class LiteTerminal {
   private applyTheme(): void {
     if (!this.container) return;
 
-    const theme = this._options.theme || {};
+    const theme = this._options.theme || Object.create(null);
 
     this.container.style.setProperty(
       "background-color",

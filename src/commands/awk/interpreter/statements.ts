@@ -5,6 +5,10 @@
  */
 
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
+import {
+  assertDefenseContext,
+  awaitWithDefenseContext,
+} from "../../../security/defense-context.js";
 import type { AwkArrayAccess, AwkExpr, AwkStmt, AwkVariable } from "../ast.js";
 import { formatPrintf } from "../builtins.js";
 import type { AwkRuntimeContext } from "./context.js";
@@ -29,6 +33,18 @@ function checkAwkOutputSize(ctx: AwkRuntimeContext): void {
   }
 }
 
+function assertAwkDefenseContext(ctx: AwkRuntimeContext, phase: string): void {
+  assertDefenseContext(ctx.requireDefenseContext, "awk", phase);
+}
+
+function withDefenseContext<T>(
+  ctx: AwkRuntimeContext,
+  phase: string,
+  op: () => Promise<T>,
+): Promise<T> {
+  return awaitWithDefenseContext(ctx.requireDefenseContext, "awk", phase, op);
+}
+
 /**
  * Execute a block of statements.
  */
@@ -36,8 +52,11 @@ export async function executeBlock(
   ctx: AwkRuntimeContext,
   statements: AwkStmt[],
 ): Promise<void> {
+  assertAwkDefenseContext(ctx, "block execution");
   for (const stmt of statements) {
-    await executeStmt(ctx, stmt);
+    await withDefenseContext(ctx, "statement execution", () =>
+      executeStmt(ctx, stmt),
+    );
     if (shouldBreakExecution(ctx)) {
       break;
     }
@@ -65,42 +84,59 @@ async function executeStmt(
   ctx: AwkRuntimeContext,
   stmt: AwkStmt,
 ): Promise<void> {
+  assertAwkDefenseContext(ctx, "single statement execution");
   ctx.coverage?.hit(`awk:stmt:${stmt.type}`);
   switch (stmt.type) {
     case "block":
-      await executeBlock(ctx, stmt.statements);
+      await withDefenseContext(ctx, "nested block statement", () =>
+        executeBlock(ctx, stmt.statements),
+      );
       break;
 
     case "expr_stmt":
-      await evalExpr(ctx, stmt.expression);
+      await withDefenseContext(ctx, "expression statement", () =>
+        evalExpr(ctx, stmt.expression),
+      );
       break;
 
     case "print":
-      await executePrint(ctx, stmt.args, stmt.output);
+      await withDefenseContext(ctx, "print statement", () =>
+        executePrint(ctx, stmt.args, stmt.output),
+      );
       break;
 
     case "printf":
-      await executePrintf(ctx, stmt.format, stmt.args, stmt.output);
+      await withDefenseContext(ctx, "printf statement", () =>
+        executePrintf(ctx, stmt.format, stmt.args, stmt.output),
+      );
       break;
 
     case "if":
-      await executeIf(ctx, stmt);
+      await withDefenseContext(ctx, "if statement", () => executeIf(ctx, stmt));
       break;
 
     case "while":
-      await executeWhile(ctx, stmt);
+      await withDefenseContext(ctx, "while statement", () =>
+        executeWhile(ctx, stmt),
+      );
       break;
 
     case "do_while":
-      await executeDoWhile(ctx, stmt);
+      await withDefenseContext(ctx, "do-while statement", () =>
+        executeDoWhile(ctx, stmt),
+      );
       break;
 
     case "for":
-      await executeFor(ctx, stmt);
+      await withDefenseContext(ctx, "for statement", () =>
+        executeFor(ctx, stmt),
+      );
       break;
 
     case "for_in":
-      await executeForIn(ctx, stmt);
+      await withDefenseContext(ctx, "for-in statement", () =>
+        executeForIn(ctx, stmt),
+      );
       break;
 
     case "break":
@@ -121,18 +157,36 @@ async function executeStmt(
 
     case "exit":
       ctx.shouldExit = true;
-      ctx.exitCode = stmt.code
-        ? Math.floor(toNumber(await evalExpr(ctx, stmt.code)))
-        : 0;
+      {
+        const codeExpr = stmt.code;
+        ctx.exitCode = codeExpr
+          ? Math.floor(
+              toNumber(
+                await withDefenseContext(ctx, "exit code expression", () =>
+                  evalExpr(ctx, codeExpr),
+                ),
+              ),
+            )
+          : 0;
+      }
       break;
 
     case "return":
       ctx.hasReturn = true;
-      ctx.returnValue = stmt.value ? await evalExpr(ctx, stmt.value) : "";
+      {
+        const returnExpr = stmt.value;
+        ctx.returnValue = returnExpr
+          ? await withDefenseContext(ctx, "return expression", () =>
+              evalExpr(ctx, returnExpr),
+            )
+          : "";
+      }
       break;
 
     case "delete":
-      await executeDelete(ctx, stmt.target);
+      await withDefenseContext(ctx, "delete statement", () =>
+        executeDelete(ctx, stmt.target),
+      );
       break;
   }
 }
@@ -146,9 +200,12 @@ async function executePrint(
   args: AwkExpr[],
   output?: { redirect: ">" | ">>"; file: AwkExpr },
 ): Promise<void> {
+  assertAwkDefenseContext(ctx, "print execution");
   const values: string[] = [];
   for (const arg of args) {
-    const val = await evalExpr(ctx, arg);
+    const val = await withDefenseContext(ctx, "print argument evaluation", () =>
+      evalExpr(ctx, arg),
+    );
     // Use OFMT for numeric values (POSIX AWK behavior)
     // Exception: integers are printed directly without OFMT formatting
     // This matches real AWK behavior where `print 2292437248` outputs
@@ -166,7 +223,9 @@ async function executePrint(
   const text = values.join(ctx.OFS) + ctx.ORS;
 
   if (output) {
-    await writeToFile(ctx, output.redirect, output.file, text);
+    await withDefenseContext(ctx, "print redirection write", () =>
+      writeToFile(ctx, output.redirect, output.file, text),
+    );
   } else {
     ctx.output += text;
     checkAwkOutputSize(ctx);
@@ -182,16 +241,27 @@ async function executePrintf(
   args: AwkExpr[],
   output?: { redirect: ">" | ">>"; file: AwkExpr },
 ): Promise<void> {
-  const formatStr = toAwkString(await evalExpr(ctx, format));
+  assertAwkDefenseContext(ctx, "printf execution");
+  const formatStr = toAwkString(
+    await withDefenseContext(ctx, "printf format evaluation", () =>
+      evalExpr(ctx, format),
+    ),
+  );
   const values: (string | number)[] = [];
   for (const arg of args) {
-    values.push(await evalExpr(ctx, arg));
+    values.push(
+      await withDefenseContext(ctx, "printf argument evaluation", () =>
+        evalExpr(ctx, arg),
+      ),
+    );
   }
   // DEBUG: console.log("printf DEBUG:", JSON.stringify({formatStr, values}));
   const text = formatPrintf(formatStr, values);
 
   if (output) {
-    await writeToFile(ctx, output.redirect, output.file, text);
+    await withDefenseContext(ctx, "printf redirection write", () =>
+      writeToFile(ctx, output.redirect, output.file, text),
+    );
   } else {
     ctx.output += text;
     checkAwkOutputSize(ctx);
@@ -207,25 +277,35 @@ async function writeToFile(
   fileExpr: AwkExpr,
   text: string,
 ): Promise<void> {
-  if (!ctx.fs || !ctx.cwd) {
+  assertAwkDefenseContext(ctx, "file write execution");
+  const fs = ctx.fs;
+  if (!fs || !ctx.cwd) {
     // No filesystem access - just append to output
     ctx.output += text;
     checkAwkOutputSize(ctx);
     return;
   }
 
-  const filename = toAwkString(await evalExpr(ctx, fileExpr));
-  const filePath = ctx.fs.resolvePath(ctx.cwd, filename);
+  const filename = toAwkString(
+    await withDefenseContext(ctx, "redirection filename evaluation", () =>
+      evalExpr(ctx, fileExpr),
+    ),
+  );
+  const filePath = fs.resolvePath(ctx.cwd, filename);
 
   if (redirect === ">") {
     // Overwrite mode: first write clears file, subsequent writes append
     if (!ctx.openedFiles.has(filePath)) {
       // First write - overwrite (write empty first, then append)
-      await ctx.fs.writeFile(filePath, text);
+      await withDefenseContext(ctx, "redirection overwrite write", () =>
+        fs.writeFile(filePath, text),
+      );
       ctx.openedFiles.add(filePath);
     } else {
       // Subsequent write - append
-      await ctx.fs.appendFile(filePath, text);
+      await withDefenseContext(ctx, "redirection append write", () =>
+        fs.appendFile(filePath, text),
+      );
     }
   } else {
     // Append mode: always append
@@ -233,7 +313,9 @@ async function writeToFile(
       // First time seeing this file in append mode
       ctx.openedFiles.add(filePath);
     }
-    await ctx.fs.appendFile(filePath, text);
+    await withDefenseContext(ctx, "redirection append mode write", () =>
+      fs.appendFile(filePath, text),
+    );
   }
 }
 
@@ -244,10 +326,22 @@ async function executeIf(
   ctx: AwkRuntimeContext,
   stmt: { condition: AwkExpr; consequent: AwkStmt; alternate?: AwkStmt },
 ): Promise<void> {
-  if (isTruthy(await evalExpr(ctx, stmt.condition))) {
-    await executeStmt(ctx, stmt.consequent);
+  assertAwkDefenseContext(ctx, "if execution");
+  if (
+    isTruthy(
+      await withDefenseContext(ctx, "if condition evaluation", () =>
+        evalExpr(ctx, stmt.condition),
+      ),
+    )
+  ) {
+    await withDefenseContext(ctx, "if consequent execution", () =>
+      executeStmt(ctx, stmt.consequent),
+    );
   } else if (stmt.alternate) {
-    await executeStmt(ctx, stmt.alternate);
+    const alternate = stmt.alternate;
+    await withDefenseContext(ctx, "if alternate execution", () =>
+      executeStmt(ctx, alternate),
+    );
   }
 }
 
@@ -258,9 +352,16 @@ async function executeWhile(
   ctx: AwkRuntimeContext,
   stmt: { condition: AwkExpr; body: AwkStmt },
 ): Promise<void> {
+  assertAwkDefenseContext(ctx, "while execution");
   let iterations = 0;
 
-  while (isTruthy(await evalExpr(ctx, stmt.condition))) {
+  while (
+    isTruthy(
+      await withDefenseContext(ctx, "while condition evaluation", () =>
+        evalExpr(ctx, stmt.condition),
+      ),
+    )
+  ) {
     iterations++;
     if (iterations > ctx.maxIterations) {
       throw new ExecutionLimitError(
@@ -271,7 +372,9 @@ async function executeWhile(
     }
 
     ctx.loopContinue = false;
-    await executeStmt(ctx, stmt.body);
+    await withDefenseContext(ctx, "while body execution", () =>
+      executeStmt(ctx, stmt.body),
+    );
 
     if (ctx.loopBreak) {
       ctx.loopBreak = false;
@@ -290,6 +393,7 @@ async function executeDoWhile(
   ctx: AwkRuntimeContext,
   stmt: { body: AwkStmt; condition: AwkExpr },
 ): Promise<void> {
+  assertAwkDefenseContext(ctx, "do-while execution");
   let iterations = 0;
 
   do {
@@ -303,7 +407,9 @@ async function executeDoWhile(
     }
 
     ctx.loopContinue = false;
-    await executeStmt(ctx, stmt.body);
+    await withDefenseContext(ctx, "do-while body execution", () =>
+      executeStmt(ctx, stmt.body),
+    );
 
     if (ctx.loopBreak) {
       ctx.loopBreak = false;
@@ -312,7 +418,13 @@ async function executeDoWhile(
     if (ctx.shouldExit || ctx.shouldNext || ctx.hasReturn) {
       break;
     }
-  } while (isTruthy(await evalExpr(ctx, stmt.condition)));
+  } while (
+    isTruthy(
+      await withDefenseContext(ctx, "do-while condition evaluation", () =>
+        evalExpr(ctx, stmt.condition),
+      ),
+    )
+  );
 }
 
 /**
@@ -327,13 +439,27 @@ async function executeFor(
     body: AwkStmt;
   },
 ): Promise<void> {
-  if (stmt.init) {
-    await evalExpr(ctx, stmt.init);
+  assertAwkDefenseContext(ctx, "for execution");
+  const initExpr = stmt.init;
+  const conditionExpr = stmt.condition;
+  const updateExpr = stmt.update;
+
+  if (initExpr) {
+    await withDefenseContext(ctx, "for init evaluation", () =>
+      evalExpr(ctx, initExpr),
+    );
   }
 
   let iterations = 0;
 
-  while (!stmt.condition || isTruthy(await evalExpr(ctx, stmt.condition))) {
+  while (
+    !conditionExpr ||
+    isTruthy(
+      await withDefenseContext(ctx, "for condition evaluation", () =>
+        evalExpr(ctx, conditionExpr),
+      ),
+    )
+  ) {
     iterations++;
     if (iterations > ctx.maxIterations) {
       throw new ExecutionLimitError(
@@ -344,7 +470,9 @@ async function executeFor(
     }
 
     ctx.loopContinue = false;
-    await executeStmt(ctx, stmt.body);
+    await withDefenseContext(ctx, "for body execution", () =>
+      executeStmt(ctx, stmt.body),
+    );
 
     if (ctx.loopBreak) {
       ctx.loopBreak = false;
@@ -354,8 +482,10 @@ async function executeFor(
       break;
     }
 
-    if (stmt.update) {
-      await evalExpr(ctx, stmt.update);
+    if (updateExpr) {
+      await withDefenseContext(ctx, "for update evaluation", () =>
+        evalExpr(ctx, updateExpr),
+      );
     }
   }
 }
@@ -367,6 +497,7 @@ async function executeForIn(
   ctx: AwkRuntimeContext,
   stmt: { variable: string; array: string; body: AwkStmt },
 ): Promise<void> {
+  assertAwkDefenseContext(ctx, "for-in execution");
   const array = ctx.arrays[stmt.array];
   if (!array) return;
 
@@ -374,7 +505,9 @@ async function executeForIn(
     ctx.vars[stmt.variable] = key;
 
     ctx.loopContinue = false;
-    await executeStmt(ctx, stmt.body);
+    await withDefenseContext(ctx, "for-in body execution", () =>
+      executeStmt(ctx, stmt.body),
+    );
 
     if (ctx.loopBreak) {
       ctx.loopBreak = false;
@@ -393,8 +526,13 @@ async function executeDelete(
   ctx: AwkRuntimeContext,
   target: AwkArrayAccess | AwkVariable,
 ): Promise<void> {
+  assertAwkDefenseContext(ctx, "delete execution");
   if (target.type === "array_access") {
-    const key = toAwkString(await evalExpr(ctx, target.key));
+    const key = toAwkString(
+      await withDefenseContext(ctx, "delete key evaluation", () =>
+        evalExpr(ctx, target.key),
+      ),
+    );
     deleteArrayElement(ctx, target.array, key);
   } else if (target.type === "variable") {
     deleteArray(ctx, target.name);
