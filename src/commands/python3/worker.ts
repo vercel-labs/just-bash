@@ -1179,17 +1179,19 @@ function wrapWorkerMessage(
   message: unknown,
 ): Record<string, unknown> {
   const wrapped = Object.create(null) as Record<string, unknown>;
-  wrapped.protocolToken = protocolToken;
 
   if (!message || typeof message !== "object") {
     wrapped.success = false;
     wrapped.error = "Worker attempted to post non-object message";
+    wrapped.protocolToken = protocolToken;
     return wrapped;
   }
 
   for (const [key, value] of Object.entries(message as Record<string, unknown>))
     wrapped[key] = value;
 
+  // Set token AFTER copying message entries to prevent payload from overwriting it
+  wrapped.protocolToken = protocolToken;
   return wrapped;
 }
 
