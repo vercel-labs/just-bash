@@ -29,8 +29,8 @@ jobs:
       - name: Knip
         run: pnpm knip
 
-      - name: Build worker
-        run: pnpm build:worker
+      - name: Build
+        run: pnpm build
 
       - name: Check python worker sync
         run: pnpm check:python-worker-sync
