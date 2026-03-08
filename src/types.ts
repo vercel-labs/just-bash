@@ -171,6 +171,12 @@ export interface CommandContext {
    * should forward this signal so cooperative cancellation propagates.
    */
   signal?: AbortSignal;
+  /**
+   * When true, command execution must remain inside DefenseInDepthBox
+   * async context. Commands with async boundaries should assert this
+   * before and after awaited operations.
+   */
+  requireDefenseContext?: boolean;
 }
 
 export interface Command {

@@ -13,8 +13,10 @@
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import type { IFileSystem } from "../../fs/interface.js";
+import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { mapToRecord } from "../../helpers/env.js";
 
+import { bindDefenseContextCallback } from "../../security/defense-context.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import { _clearTimeout, _setTimeout } from "../../timers.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
@@ -149,6 +151,7 @@ type QueuedExecution = {
   input: WorkerInput;
   resolve: (result: WorkerOutput) => void;
   workerRef?: { current: Worker | null };
+  requireDefenseContext?: boolean;
   /** Set to true when the request times out before execution starts */
   canceled?: boolean;
 };
@@ -253,26 +256,89 @@ function processNextExecution(queueState: QueueState): void {
 
   if (next.workerRef) next.workerRef.current = worker;
 
-  worker.on("message", (msg: unknown) => {
-    next.resolve(normalizeWorkerMessage(msg));
-    queueState.isExecuting = false;
-    worker.terminate();
-    processNextExecution(queueState);
-  });
+  const onMessage = bindDefenseContextCallback(
+    next.requireDefenseContext,
+    "python3",
+    "worker message callback",
+    (msg: unknown) => {
+      next.resolve(normalizeWorkerMessage(msg));
+      queueState.isExecuting = false;
+      worker.terminate();
+      processNextExecution(queueState);
+    },
+  );
+  const onError = bindDefenseContextCallback(
+    next.requireDefenseContext,
+    "python3",
+    "worker error callback",
+    (err: Error) => {
+      next.resolve({
+        success: false,
+        error: sanitizeErrorMessage(err.message),
+      });
+      queueState.isExecuting = false;
+      processNextExecution(queueState);
+    },
+  );
+  const onExit = bindDefenseContextCallback(
+    next.requireDefenseContext,
+    "python3",
+    "worker exit callback",
+    () => {
+      if (queueState.isExecuting) {
+        next.resolve({ success: false, error: "Worker exited unexpectedly" });
+        queueState.isExecuting = false;
+        processNextExecution(queueState);
+      }
+    },
+  );
 
-  worker.on("error", (err: Error) => {
-    next.resolve({ success: false, error: err.message });
-    queueState.isExecuting = false;
-    processNextExecution(queueState);
-  });
+  const dispatchMessage = (msg: unknown): void => {
+    try {
+      onMessage(msg);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      next.resolve({
+        success: false,
+        error: sanitizeErrorMessage(message),
+      });
+      queueState.isExecuting = false;
+      worker.terminate();
+      processNextExecution(queueState);
+    }
+  };
 
-  worker.on("exit", () => {
-    if (queueState.isExecuting) {
-      next.resolve({ success: false, error: "Worker exited unexpectedly" });
+  const dispatchError = (err: Error): void => {
+    try {
+      onError(err);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      next.resolve({
+        success: false,
+        error: sanitizeErrorMessage(message),
+      });
       queueState.isExecuting = false;
       processNextExecution(queueState);
     }
-  });
+  };
+
+  const dispatchExit = (): void => {
+    try {
+      onExit();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      next.resolve({
+        success: false,
+        error: sanitizeErrorMessage(message),
+      });
+      queueState.isExecuting = false;
+      processNextExecution(queueState);
+    }
+  };
+
+  worker.on("message", dispatchMessage);
+  worker.on("error", dispatchError);
+  worker.on("exit", dispatchExit);
 }
 
 /**
@@ -315,21 +381,41 @@ async function executePython(
       input: workerInput,
       resolve: () => {}, // replaced below
       workerRef,
+      requireDefenseContext: ctx.requireDefenseContext,
     };
 
-    const timeout = _setTimeout(() => {
-      if (workerRef.current) {
-        // Worker is running — terminate it
-        workerRef.current.terminate();
-      } else {
-        // Worker hasn't started — mark canceled so processNextExecution skips it
-        queueEntry.canceled = true;
+    const onTimeout = bindDefenseContextCallback(
+      ctx.requireDefenseContext,
+      "python3",
+      "worker timeout callback",
+      () => {
+        if (workerRef.current) {
+          // Worker is running — terminate it
+          workerRef.current.terminate();
+        } else {
+          // Worker hasn't started — mark canceled so processNextExecution skips it
+          queueEntry.canceled = true;
+        }
+        resolve({
+          success: false,
+          error: `Execution timeout: exceeded ${timeoutMs}ms limit`,
+        });
+      },
+    );
+
+    const dispatchTimeout = (): void => {
+      try {
+        onTimeout();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        resolve({
+          success: false,
+          error: sanitizeErrorMessage(message),
+        });
       }
-      resolve({
-        success: false,
-        error: `Execution timeout: exceeded ${timeoutMs}ms limit`,
-      });
-    }, timeoutMs);
+    };
+
+    const timeout = _setTimeout(dispatchTimeout, timeoutMs);
 
     queueEntry.resolve = (result: WorkerOutput) => {
       _clearTimeout(timeout);
@@ -344,19 +430,20 @@ async function executePython(
   const [bridgeOutput, workerResult] = await Promise.all([
     bridgeHandler.run(timeoutMs).catch((e) => ({
       stdout: "",
-      stderr: `python3: bridge error: ${(e as Error).message}\n`,
+      stderr: `python3: bridge error: ${sanitizeErrorMessage((e as Error).message)}\n`,
       exitCode: 1,
     })),
     workerPromise.catch((e) => ({
       success: false,
-      error: (e as Error).message,
+      error: sanitizeErrorMessage((e as Error).message),
     })),
   ]);
 
   if (!workerResult.success && workerResult.error) {
+    const workerError = sanitizeErrorMessage(workerResult.error);
     return {
       stdout: bridgeOutput.stdout,
-      stderr: `${bridgeOutput.stderr}python3: ${workerResult.error}\n`,
+      stderr: `${bridgeOutput.stderr}python3: ${workerError}\n`,
       exitCode: bridgeOutput.exitCode || 1,
     };
   }
@@ -416,9 +503,10 @@ export const python3Command: Command = {
         pythonCode = await ctx.fs.readFile(filePath);
         scriptPath = parsed.scriptFile;
       } catch (e) {
+        const message = sanitizeErrorMessage((e as Error).message);
         return {
           stdout: "",
-          stderr: `python3: can't open file '${parsed.scriptFile}': ${(e as Error).message}\n`,
+          stderr: `python3: can't open file '${parsed.scriptFile}': ${message}\n`,
           exitCode: 2,
         };
       }

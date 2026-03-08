@@ -133,6 +133,48 @@ describe("DefenseInDepthBox", () => {
       expect(box.isActive()).toBe(false);
     });
 
+    it("should keep sibling handles active when one handle is deactivated multiple times", async () => {
+      const box = DefenseInDepthBox.getInstance(true);
+      const handle1 = box.activate();
+      const handle2 = box.activate();
+
+      handle1.deactivate();
+      handle1.deactivate(); // no-op, must not affect handle2
+
+      expect(box.getStats().refCount).toBe(1);
+      expect(box.isActive()).toBe(true);
+
+      let error: Error | undefined;
+      await handle2.run(async () => {
+        try {
+          new Function("return 1");
+        } catch (e) {
+          error = e as Error;
+        }
+      });
+
+      handle2.deactivate();
+
+      expect(error).toBeInstanceOf(SecurityViolationError);
+      expect(box.getStats().refCount).toBe(0);
+      expect(box.isActive()).toBe(false);
+    });
+
+    it("should reject run() on a deactivated handle", async () => {
+      const box = DefenseInDepthBox.getInstance(true);
+      const handle = box.activate();
+      handle.deactivate();
+
+      let runError: Error | undefined;
+      try {
+        await handle.run(async () => "ok");
+      } catch (e) {
+        runError = e as Error;
+      }
+
+      expect(runError?.message).toContain("deactivated");
+    });
+
     it("should return no-op handle when disabled", async () => {
       const box = DefenseInDepthBox.getInstance({ enabled: false });
       const handle = box.activate();

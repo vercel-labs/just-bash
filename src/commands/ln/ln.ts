@@ -1,3 +1,4 @@
+import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
@@ -119,7 +120,8 @@ export const lnCommand: Command = {
           exitCode: 1,
         };
       }
-      return { stdout: "", stderr: `ln: ${err.message}\n`, exitCode: 1 };
+      const message = sanitizeErrorMessage(err.message);
+      return { stdout: "", stderr: `ln: ${message}\n`, exitCode: 1 };
     }
 
     let stdout = "";

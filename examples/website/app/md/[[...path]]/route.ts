@@ -6,6 +6,7 @@ import {
   FILE_WTF_IS_THIS,
 } from "../../components/terminal-content";
 
+// @banned-pattern-ignore: static keys only, never written with user input
 const FILES: Record<string, string> = {
   "README.md": FILE_README,
   "LICENSE": FILE_LICENSE,

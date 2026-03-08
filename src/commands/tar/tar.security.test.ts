@@ -63,4 +63,28 @@ describe("tar security hardening", () => {
     expect(result.exitCode).toBe(2);
     expect(await env.fs.exists("/safe/link.txt")).toBe(false);
   });
+
+  it("keeps xz decode blocked by default while still allowing xz creation", async () => {
+    const env = new Bash({
+      files: {
+        "/payload.bin": new Uint8Array([
+          0x00, 0x01, 0x02, 0x03, 0x7f, 0x80, 0xff, 0xfe,
+        ]),
+      },
+    });
+
+    const createResult = await env.exec(
+      "tar -cJf /payload.tar.xz /payload.bin",
+    );
+    expect(createResult.stdout).toBe("");
+    expect(createResult.stderr).toBe("");
+    expect(createResult.exitCode).toBe(0);
+
+    const listResult = await env.exec("tar -tJf /payload.tar.xz");
+    expect(listResult.stdout).toBe("");
+    expect(listResult.stderr).toBe(
+      "tar: xz decompression is disabled by default (native codec risk). Pass { allowNativeCodecs: true } to opt in, or decompress the archive externally before extraction.\n",
+    );
+    expect(listResult.exitCode).toBe(2);
+  });
 });

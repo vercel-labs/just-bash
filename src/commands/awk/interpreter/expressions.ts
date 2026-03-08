@@ -6,6 +6,11 @@
 
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import { createUserRegex } from "../../../regex/index.js";
+import {
+  assertDefenseContext,
+  awaitWithDefenseContext,
+} from "../../../security/defense-context.js";
+import { SecurityViolationError } from "../../../security/defense-in-depth-box.js";
 import { applyNumericBinaryOp } from "../../../shared/operators.js";
 import type {
   AwkArrayAccess,
@@ -48,6 +53,18 @@ export function setBlockExecutor(fn: BlockExecutor): void {
   executeBlockFn = fn;
 }
 
+function assertAwkDefenseContext(ctx: AwkRuntimeContext, phase: string): void {
+  assertDefenseContext(ctx.requireDefenseContext, "awk", phase);
+}
+
+function withDefenseContext<T>(
+  ctx: AwkRuntimeContext,
+  phase: string,
+  op: () => Promise<T>,
+): Promise<T> {
+  return awaitWithDefenseContext(ctx.requireDefenseContext, "awk", phase, op);
+}
+
 /**
  * Evaluate an AWK expression asynchronously.
  */
@@ -55,6 +72,7 @@ export async function evalExpr(
   ctx: AwkRuntimeContext,
   expr: AwkExpr,
 ): Promise<AwkValue> {
+  assertAwkDefenseContext(ctx, "expression evaluation");
   ctx.coverage?.hit(`awk:expr:${expr.type}`);
   switch (expr.type) {
     case "number":
@@ -83,9 +101,17 @@ export async function evalExpr(
       return evalUnaryOp(ctx, expr);
 
     case "ternary":
-      return isTruthy(await evalExpr(ctx, expr.condition))
-        ? await evalExpr(ctx, expr.consequent)
-        : await evalExpr(ctx, expr.alternate);
+      return isTruthy(
+        await withDefenseContext(ctx, "ternary condition evaluation", () =>
+          evalExpr(ctx, expr.condition),
+        ),
+      )
+        ? await withDefenseContext(ctx, "ternary consequent evaluation", () =>
+            evalExpr(ctx, expr.consequent),
+          )
+        : await withDefenseContext(ctx, "ternary alternate evaluation", () =>
+            evalExpr(ctx, expr.alternate),
+          );
 
     case "call":
       return evalFunctionCall(ctx, expr.name, expr.args);
@@ -123,7 +149,14 @@ async function evalFieldRef(
   ctx: AwkRuntimeContext,
   expr: AwkFieldRef,
 ): Promise<AwkValue> {
-  const index = Math.floor(toNumber(await evalExpr(ctx, expr.index)));
+  assertAwkDefenseContext(ctx, "field reference evaluation");
+  const index = Math.floor(
+    toNumber(
+      await withDefenseContext(ctx, "field index evaluation", () =>
+        evalExpr(ctx, expr.index),
+      ),
+    ),
+  );
   return getField(ctx, index);
 }
 
@@ -131,7 +164,12 @@ async function evalArrayAccess(
   ctx: AwkRuntimeContext,
   expr: AwkArrayAccess,
 ): Promise<AwkValue> {
-  const key = toAwkString(await evalExpr(ctx, expr.key));
+  assertAwkDefenseContext(ctx, "array access evaluation");
+  const key = toAwkString(
+    await withDefenseContext(ctx, "array key evaluation", () =>
+      evalExpr(ctx, expr.key),
+    ),
+  );
   return getArrayElement(ctx, expr.array, key);
 }
 
@@ -139,30 +177,53 @@ async function evalBinaryOp(
   ctx: AwkRuntimeContext,
   expr: { operator: string; left: AwkExpr; right: AwkExpr },
 ): Promise<AwkValue> {
+  assertAwkDefenseContext(ctx, "binary expression evaluation");
   const op = expr.operator;
 
   // Short-circuit evaluation for logical operators
   if (op === "||") {
-    return isTruthy(await evalExpr(ctx, expr.left)) ||
-      isTruthy(await evalExpr(ctx, expr.right))
+    return isTruthy(
+      await withDefenseContext(ctx, "logical-or left evaluation", () =>
+        evalExpr(ctx, expr.left),
+      ),
+    ) ||
+      isTruthy(
+        await withDefenseContext(ctx, "logical-or right evaluation", () =>
+          evalExpr(ctx, expr.right),
+        ),
+      )
       ? 1
       : 0;
   }
   if (op === "&&") {
-    return isTruthy(await evalExpr(ctx, expr.left)) &&
-      isTruthy(await evalExpr(ctx, expr.right))
+    return isTruthy(
+      await withDefenseContext(ctx, "logical-and left evaluation", () =>
+        evalExpr(ctx, expr.left),
+      ),
+    ) &&
+      isTruthy(
+        await withDefenseContext(ctx, "logical-and right evaluation", () =>
+          evalExpr(ctx, expr.right),
+        ),
+      )
       ? 1
       : 0;
   }
 
   // Regex match operators - handle regex literal specially
   if (op === "~") {
-    const left = await evalExpr(ctx, expr.left);
+    const left = await withDefenseContext(ctx, "regex left evaluation", () =>
+      evalExpr(ctx, expr.left),
+    );
     if (expr.right.type === "regex") ctx.coverage?.hit("awk:expr:regex");
     const pattern =
       expr.right.type === "regex"
         ? expr.right.pattern
-        : toAwkString(await evalExpr(ctx, expr.right));
+        : toAwkString(
+            await withDefenseContext(ctx, "regex right evaluation", () =>
+              evalExpr(ctx, expr.right),
+            ),
+          );
     try {
       return createUserRegex(pattern).test(toAwkString(left)) ? 1 : 0;
     } catch {
@@ -170,12 +231,22 @@ async function evalBinaryOp(
     }
   }
   if (op === "!~") {
-    const left = await evalExpr(ctx, expr.left);
+    const left = await withDefenseContext(
+      ctx,
+      "negated-regex left evaluation",
+      () => evalExpr(ctx, expr.left),
+    );
     if (expr.right.type === "regex") ctx.coverage?.hit("awk:expr:regex");
     const pattern =
       expr.right.type === "regex"
         ? expr.right.pattern
-        : toAwkString(await evalExpr(ctx, expr.right));
+        : toAwkString(
+            await withDefenseContext(
+              ctx,
+              "negated-regex right evaluation",
+              () => evalExpr(ctx, expr.right),
+            ),
+          );
     try {
       return createUserRegex(pattern).test(toAwkString(left)) ? 0 : 1;
     } catch {
@@ -183,8 +254,12 @@ async function evalBinaryOp(
     }
   }
 
-  const left = await evalExpr(ctx, expr.left);
-  const right = await evalExpr(ctx, expr.right);
+  const left = await withDefenseContext(ctx, "binary left evaluation", () =>
+    evalExpr(ctx, expr.left),
+  );
+  const right = await withDefenseContext(ctx, "binary right evaluation", () =>
+    evalExpr(ctx, expr.right),
+  );
 
   // String concatenation
   if (op === " ") {
@@ -260,7 +335,10 @@ async function evalUnaryOp(
   ctx: AwkRuntimeContext,
   expr: { operator: string; operand: AwkExpr },
 ): Promise<AwkValue> {
-  const val = await evalExpr(ctx, expr.operand);
+  assertAwkDefenseContext(ctx, "unary expression evaluation");
+  const val = await withDefenseContext(ctx, "unary operand evaluation", () =>
+    evalExpr(ctx, expr.operand),
+  );
   switch (expr.operator) {
     case "!":
       return isTruthy(val) ? 0 : 1;
@@ -278,6 +356,7 @@ async function evalFunctionCall(
   name: string,
   args: AwkExpr[],
 ): Promise<AwkValue> {
+  assertAwkDefenseContext(ctx, "function call evaluation");
   // Check for built-in functions first
   const builtin = awkBuiltins.get(name);
   if (builtin) {
@@ -299,6 +378,7 @@ async function callUserFunction(
   func: AwkFunctionDef,
   args: AwkExpr[],
 ): Promise<AwkValue> {
+  assertAwkDefenseContext(ctx, "user function call");
   // Check recursion depth limit
   ctx.currentRecursionDepth++;
   if (ctx.currentRecursionDepth > ctx.maxRecursionDepth) {
@@ -331,7 +411,11 @@ async function callUserFunction(
         ctx.arrayAliases.set(param, arg.name);
         createdAliases.push(param);
       }
-      const value = await evalExpr(ctx, arg);
+      const value = await withDefenseContext(
+        ctx,
+        "user function argument evaluation",
+        () => evalExpr(ctx, arg),
+      );
       ctx.vars[param] = value;
     } else {
       ctx.vars[param] = "";
@@ -342,8 +426,11 @@ async function callUserFunction(
   ctx.hasReturn = false;
   ctx.returnValue = undefined;
 
-  if (executeBlockFn) {
-    await executeBlockFn(ctx, func.body.statements);
+  const blockExecutor = executeBlockFn;
+  if (blockExecutor) {
+    await withDefenseContext(ctx, "user function body execution", () =>
+      blockExecutor(ctx, func.body.statements),
+    );
   }
 
   const result = ctx.returnValue ?? "";
@@ -377,7 +464,12 @@ async function evalAssignment(
     value: AwkExpr;
   },
 ): Promise<AwkValue> {
-  const value = await evalExpr(ctx, expr.value);
+  assertAwkDefenseContext(ctx, "assignment evaluation");
+  const value = await withDefenseContext(
+    ctx,
+    "assignment value evaluation",
+    () => evalExpr(ctx, expr.value),
+  );
   const target = expr.target;
   const op = expr.operator;
 
@@ -389,12 +481,22 @@ async function evalAssignment(
     // Compound assignment - get current value
     let current: AwkValue;
     if (target.type === "field") {
-      const index = Math.floor(toNumber(await evalExpr(ctx, target.index)));
+      const index = Math.floor(
+        toNumber(
+          await withDefenseContext(ctx, "assignment field index", () =>
+            evalExpr(ctx, target.index),
+          ),
+        ),
+      );
       current = getField(ctx, index);
     } else if (target.type === "variable") {
       current = getVariable(ctx, target.name);
     } else {
-      const key = toAwkString(await evalExpr(ctx, target.key));
+      const key = toAwkString(
+        await withDefenseContext(ctx, "assignment array key", () =>
+          evalExpr(ctx, target.key),
+        ),
+      );
       current = getArrayElement(ctx, target.array, key);
     }
 
@@ -427,12 +529,22 @@ async function evalAssignment(
 
   // Assign to target
   if (target.type === "field") {
-    const index = Math.floor(toNumber(await evalExpr(ctx, target.index)));
+    const index = Math.floor(
+      toNumber(
+        await withDefenseContext(ctx, "assignment target field index", () =>
+          evalExpr(ctx, target.index),
+        ),
+      ),
+    );
     setField(ctx, index, finalValue);
   } else if (target.type === "variable") {
     setVariable(ctx, target.name, finalValue);
   } else {
-    const key = toAwkString(await evalExpr(ctx, target.key));
+    const key = toAwkString(
+      await withDefenseContext(ctx, "assignment target array key", () =>
+        evalExpr(ctx, target.key),
+      ),
+    );
     setArrayElement(ctx, target.array, key, finalValue);
   }
 
@@ -449,17 +561,28 @@ async function applyIncDec(
   delta: 1 | -1,
   returnNew: boolean,
 ): Promise<number> {
+  assertAwkDefenseContext(ctx, "inc/dec evaluation");
   let oldVal: number;
 
   if (operand.type === "field") {
-    const index = Math.floor(toNumber(await evalExpr(ctx, operand.index)));
+    const index = Math.floor(
+      toNumber(
+        await withDefenseContext(ctx, "inc/dec field index", () =>
+          evalExpr(ctx, operand.index),
+        ),
+      ),
+    );
     oldVal = toNumber(getField(ctx, index));
     setField(ctx, index, oldVal + delta);
   } else if (operand.type === "variable") {
     oldVal = toNumber(getVariable(ctx, operand.name));
     setVariable(ctx, operand.name, oldVal + delta);
   } else {
-    const key = toAwkString(await evalExpr(ctx, operand.key));
+    const key = toAwkString(
+      await withDefenseContext(ctx, "inc/dec array key", () =>
+        evalExpr(ctx, operand.key),
+      ),
+    );
     oldVal = toNumber(getArrayElement(ctx, operand.array, key));
     setArrayElement(ctx, operand.array, key, oldVal + delta);
   }
@@ -500,17 +623,28 @@ async function evalInExpr(
   key: AwkExpr,
   array: string,
 ): Promise<AwkValue> {
+  assertAwkDefenseContext(ctx, "in-expression evaluation");
   let keyStr: string;
   if (key.type === "tuple") {
     ctx.coverage?.hit("awk:expr:tuple");
     // Multi-dimensional key: join with SUBSEP
     const parts: string[] = [];
     for (const e of key.elements) {
-      parts.push(toAwkString(await evalExpr(ctx, e)));
+      parts.push(
+        toAwkString(
+          await withDefenseContext(ctx, "tuple key element evaluation", () =>
+            evalExpr(ctx, e),
+          ),
+        ),
+      );
     }
     keyStr = parts.join(ctx.SUBSEP);
   } else {
-    keyStr = toAwkString(await evalExpr(ctx, key));
+    keyStr = toAwkString(
+      await withDefenseContext(ctx, "in-expression key evaluation", () =>
+        evalExpr(ctx, key),
+      ),
+    );
   }
   return hasArrayElement(ctx, array, keyStr) ? 1 : 0;
 }
@@ -524,6 +658,7 @@ async function evalGetline(
   file?: AwkExpr,
   command?: AwkExpr,
 ): Promise<AwkValue> {
+  assertAwkDefenseContext(ctx, "getline evaluation");
   // "cmd" | getline - read from command pipe
   if (command) {
     return evalGetlineFromCommand(ctx, variable, command);
@@ -567,11 +702,18 @@ async function evalGetlineFromCommand(
   variable: string | undefined,
   cmdExpr: AwkExpr,
 ): Promise<AwkValue> {
-  if (!ctx.exec) {
+  const execFn = ctx.exec;
+  if (!execFn) {
     return -1; // No exec function available
   }
 
-  const cmd = toAwkString(await evalExpr(ctx, cmdExpr));
+  assertAwkDefenseContext(ctx, "getline command source");
+
+  const cmd = toAwkString(
+    await withDefenseContext(ctx, "getline command expression", () =>
+      evalExpr(ctx, cmdExpr),
+    ),
+  );
 
   // Use a cache for command output, similar to file caching
   const cacheKey = `__cmd_${cmd}`;
@@ -583,7 +725,9 @@ async function evalGetlineFromCommand(
   if (ctx.vars[cacheKey] === undefined) {
     // First time running this command
     try {
-      const result = await ctx.exec(cmd);
+      const result = await withDefenseContext(ctx, "getline command exec", () =>
+        execFn(cmd),
+      );
       const output = result.stdout;
       lines = output.split("\n");
       // Remove trailing empty line if output ends with newline
@@ -594,7 +738,10 @@ async function evalGetlineFromCommand(
       ctx.vars[cacheKey] = JSON.stringify(lines);
       ctx.vars[indexKey] = -1;
       lineIndex = -1;
-    } catch {
+    } catch (e) {
+      if (e instanceof SecurityViolationError) {
+        throw e;
+      }
       return -1; // Error running command
     }
   } else {
@@ -631,18 +778,24 @@ async function evalGetlineFromFile(
   variable: string | undefined,
   fileExpr: AwkExpr,
 ): Promise<AwkValue> {
-  if (!ctx.fs || !ctx.cwd) {
+  const fs = ctx.fs;
+  if (!fs || !ctx.cwd) {
     return -1; // No filesystem access
   }
 
-  const filename = toAwkString(await evalExpr(ctx, fileExpr));
+  assertAwkDefenseContext(ctx, "getline file source");
+  const filename = toAwkString(
+    await withDefenseContext(ctx, "getline filename evaluation", () =>
+      evalExpr(ctx, fileExpr),
+    ),
+  );
 
   // Special handling for /dev/null - always returns EOF immediately
   if (filename === "/dev/null") {
     return 0;
   }
 
-  const filePath = ctx.fs.resolvePath(ctx.cwd, filename);
+  const filePath = fs.resolvePath(ctx.cwd, filename);
 
   // Use a special internal structure to track file state
   // Store as: __file_lines__[filename] = "line1\nline2\n..." (content)
@@ -656,7 +809,9 @@ async function evalGetlineFromFile(
   if (ctx.vars[cacheKey] === undefined) {
     // First time reading this file
     try {
-      const content = await ctx.fs.readFile(filePath);
+      const content = await withDefenseContext(ctx, "getline file read", () =>
+        fs.readFile(filePath),
+      );
       lines = content.split("\n");
       // Remove trailing empty line if file ends with newline
       if (lines.length > 0 && lines[lines.length - 1] === "") {
@@ -666,7 +821,10 @@ async function evalGetlineFromFile(
       ctx.vars[cacheKey] = JSON.stringify(lines);
       ctx.vars[indexKey] = -1;
       lineIndex = -1;
-    } catch {
+    } catch (e) {
+      if (e instanceof SecurityViolationError) {
+        throw e;
+      }
       return -1; // Error reading file
     }
   } else {
@@ -699,10 +857,15 @@ async function evalTuple(
   ctx: AwkRuntimeContext,
   elements: AwkExpr[],
 ): Promise<AwkValue> {
+  assertAwkDefenseContext(ctx, "tuple evaluation");
   // Tuple used as expression (comma operator): evaluate all, return last
   if (elements.length === 0) return "";
   for (let i = 0; i < elements.length - 1; i++) {
-    await evalExpr(ctx, elements[i]);
+    await withDefenseContext(ctx, "tuple intermediate element", () =>
+      evalExpr(ctx, elements[i]),
+    );
   }
-  return evalExpr(ctx, elements[elements.length - 1]);
+  return withDefenseContext(ctx, "tuple final element", () =>
+    evalExpr(ctx, elements[elements.length - 1]),
+  );
 }

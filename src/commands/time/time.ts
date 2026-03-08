@@ -1,3 +1,4 @@
+import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { mapToRecord } from "../../helpers/env.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { _performanceNow } from "../../timers.js";
@@ -120,9 +121,10 @@ export const timeCommand: Command = {
         signal: ctx.signal,
       });
     } catch (error) {
+      const message = sanitizeErrorMessage((error as Error).message);
       result = {
         stdout: "",
-        stderr: `time: ${(error as Error).message}\n`,
+        stderr: `time: ${message}\n`,
         exitCode: 127,
       };
     }
@@ -166,11 +168,12 @@ export const timeCommand: Command = {
           await ctx.fs.writeFile(filePath, timingOutput);
         }
       } catch (error) {
+        const message = sanitizeErrorMessage((error as Error).message);
         return {
           stdout: result.stdout,
           stderr:
             result.stderr +
-            `time: cannot write to '${outputFile}': ${(error as Error).message}\n`,
+            `time: cannot write to '${outputFile}': ${message}\n`,
           exitCode: result.exitCode,
         };
       }

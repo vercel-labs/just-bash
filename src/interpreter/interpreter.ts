@@ -28,6 +28,10 @@ import { mapToRecord } from "../helpers/env.js";
 import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
 import { ParseException } from "../parser/types.js";
+import {
+  DefenseInDepthBox,
+  SecurityViolationError,
+} from "../security/defense-in-depth-box.js";
 import type {
   CommandRegistry,
   ExecResult,
@@ -123,6 +127,10 @@ export interface InterpreterOptions {
   trace?: TraceCallback;
   /** Optional feature coverage writer for fuzzing instrumentation */
   coverage?: FeatureCoverageWriter;
+  /**
+   * When true, fail closed if execution occurs outside defense async context.
+   */
+  requireDefenseContext?: boolean;
 }
 
 export class Interpreter {
@@ -142,7 +150,26 @@ export class Interpreter {
       sleep: options.sleep,
       trace: options.trace,
       coverage: options.coverage,
+      requireDefenseContext: options.requireDefenseContext ?? false,
     };
+  }
+
+  /**
+   * Fail closed if defense is expected but async context is missing.
+   */
+  private assertDefenseContext(phase: string): void {
+    if (!this.ctx.requireDefenseContext) return;
+    if (DefenseInDepthBox.isInSandboxedContext()) return;
+
+    const message = `interpreter ${phase} attempted outside defense context`;
+    throw new SecurityViolationError(message, {
+      timestamp: Date.now(),
+      type: "missing_defense_context",
+      message,
+      path: "DefenseInDepthBox.context",
+      stack: new Error().stack,
+      executionId: DefenseInDepthBox.getCurrentExecutionId(),
+    });
   }
 
   /**
@@ -186,6 +213,8 @@ export class Interpreter {
   }
 
   async executeScript(node: ScriptNode): Promise<ExecResult> {
+    this.assertDefenseContext("execution");
+
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
@@ -335,6 +364,8 @@ export class Interpreter {
   }
 
   private async executeStatement(node: StatementNode): Promise<ExecResult> {
+    this.assertDefenseContext("statement");
+
     // Check for abort signal (cooperative cancellation by timeout command)
     if (this.ctx.state.signal?.aborted) {
       throw new ExecutionAbortedError();
@@ -439,6 +470,8 @@ export class Interpreter {
     node: CommandNode,
     stdin: string,
   ): Promise<ExecResult> {
+    this.assertDefenseContext("command");
+
     this.ctx.coverage?.hit(`bash:cmd:${node.type}`);
     switch (node.type) {
       case "SimpleCommand":

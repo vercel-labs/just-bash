@@ -13,10 +13,15 @@
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
+import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import {
   WorkerDefenseInDepth,
   type WorkerDefenseStats,
 } from "../../security/index.js";
+import {
+  sanitizeUnknownError,
+  wrapWasmCallback,
+} from "../../security/wasm-callback.js";
 import { SyncFsBackend } from "./sync-fs-backend.js";
 
 export interface WorkerInput {
@@ -978,9 +983,8 @@ function createHTTPFS(backend: SyncFsBackend, FS: EmscriptenFS) {
             });
             lastResponse = encoder.encode(JSON.stringify(result));
           } catch (e) {
-            lastResponse = encoder.encode(
-              JSON.stringify({ error: (e as Error).message }),
-            );
+            const message = sanitizeErrorMessage((e as Error).message);
+            lastResponse = encoder.encode(JSON.stringify({ error: message }));
           }
         }
         delete stream.hostContent;
@@ -1134,6 +1138,18 @@ import { readFileSync } from "node:fs";
 
 const cachedStdlibZip = new Uint8Array(readFileSync(stdlibZipPath));
 
+function postWorkerMessage(message: unknown): void {
+  try {
+    parentPort?.postMessage(message);
+  } catch (error) {
+    // Best effort: avoid crashing worker on a closed/invalid parent port.
+    console.debug(
+      "[python3-worker] failed to post worker message:",
+      sanitizeUnknownError(error),
+    );
+  }
+}
+
 async function runPython(input: WorkerInput): Promise<WorkerOutput> {
   const backend = new SyncFsBackend(input.sharedBuffer);
 
@@ -1151,26 +1167,33 @@ async function runPython(input: WorkerInput): Promise<WorkerOutput> {
 
   let Module: EmscriptenModule;
   try {
-    Module = await createPythonModule({
-      noInitialRun: true,
-      preRun: [
-        (mod: EmscriptenModule) => {
-          // Write stdlib zip into MEMFS (no real FS access from WASM).
-          // Python's zipimport can import directly from zip files.
-          mod.FS.mkdirTree("/lib");
-          mod.FS.writeFile("/lib/python313.zip", cachedStdlibZip);
-          mod.ENV.PYTHONHOME = "/";
-          mod.ENV.PYTHONPATH = "/lib/python313.zip";
-        },
-      ],
-      print: (text: string) => {
+    const onPreRun = wrapWasmCallback(
+      "python3-worker",
+      "preRun",
+      (mod: EmscriptenModule) => {
+        // Write stdlib zip into MEMFS (no real FS access from WASM).
+        // Python's zipimport can import directly from zip files.
+        mod.FS.mkdirTree("/lib");
+        mod.FS.writeFile("/lib/python313.zip", cachedStdlibZip);
+        mod.ENV.PYTHONHOME = "/";
+        mod.ENV.PYTHONPATH = "/lib/python313.zip";
+      },
+    );
+    const onPrint = wrapWasmCallback(
+      "python3-worker",
+      "print",
+      (text: string) => {
         if (moduleReady) {
           backend.writeStdout(`${text}\n`);
         } else {
           pendingStdout.push(`${text}\n`);
         }
       },
-      printErr: (text: string) => {
+    );
+    const onPrintErr = wrapWasmCallback(
+      "python3-worker",
+      "printErr",
+      (text: string) => {
         // Filter out harmless Emscripten/LLVM warnings
         if (
           typeof text === "string" &&
@@ -1185,11 +1208,19 @@ async function runPython(input: WorkerInput): Promise<WorkerOutput> {
           pendingStderr.push(`${text}\n`);
         }
       },
+    );
+
+    Module = await createPythonModule({
+      noInitialRun: true,
+      preRun: [onPreRun],
+      print: onPrint,
+      printErr: onPrintErr,
     });
   } catch (e) {
+    const message = sanitizeErrorMessage((e as Error).message);
     return {
       success: false,
-      error: `Failed to load CPython: ${(e as Error).message}`,
+      error: `Failed to load CPython: ${message}`,
     };
   }
 
@@ -1211,9 +1242,10 @@ async function runPython(input: WorkerInput): Promise<WorkerOutput> {
     Module.FS.mkdir("/host");
     Module.FS.mount(HOSTFS, { root: "/" }, "/host");
   } catch (e) {
+    const message = sanitizeErrorMessage((e as Error).message);
     return {
       success: false,
-      error: `Failed to mount HOSTFS: ${(e as Error).message}`,
+      error: `Failed to mount HOSTFS: ${message}`,
     };
   }
 
@@ -1223,9 +1255,10 @@ async function runPython(input: WorkerInput): Promise<WorkerOutput> {
     Module.FS.mkdir("/_jb_http");
     Module.FS.mount(HTTPFS, { root: "/" }, "/_jb_http");
   } catch (e) {
+    const message = sanitizeErrorMessage((e as Error).message);
     return {
       success: false,
-      error: `Failed to mount HTTPFS: ${(e as Error).message}`,
+      error: `Failed to mount HTTPFS: ${message}`,
     };
   }
 
@@ -1311,6 +1344,14 @@ function activateDefense(): void {
     configurable: true,
   });
 
+  const onViolation = wrapWasmCallback(
+    "python3-worker",
+    "onViolation",
+    (v: unknown) => {
+      postWorkerMessage({ type: "security-violation", violation: v });
+    },
+  );
+
   defense = new WorkerDefenseInDepth({
     excludeViolationTypes: [
       // SharedArrayBuffer/Atomics: Used by sync-fs-backend.ts for synchronous
@@ -1321,9 +1362,7 @@ function activateDefense(): void {
       // stub. Defense doesn't need to block it — it's already degraded.
       "performance_timing",
     ],
-    onViolation: (v) => {
-      parentPort?.postMessage({ type: "security-violation", violation: v });
-    },
+    onViolation,
   });
   // Module._load protection is installed at file scope (top of file),
   // before python.cjs loads, so it's already active here.
@@ -1331,9 +1370,10 @@ function activateDefense(): void {
 
 // Catch unhandled errors in the worker
 process.on("uncaughtException", (e) => {
-  parentPort?.postMessage({
+  const message = sanitizeErrorMessage((e as Error).message);
+  postWorkerMessage({
     success: false,
-    error: `Worker uncaught exception: ${(e as Error).message}`,
+    error: `Worker uncaught exception: ${message}`,
   });
 });
 
@@ -1345,12 +1385,13 @@ if (parentPort) {
     runPython(workerData as WorkerInput)
       .then((result) => {
         result.defenseStats = defense?.getStats();
-        parentPort?.postMessage(result);
+        postWorkerMessage(result);
       })
       .catch((e) => {
-        parentPort?.postMessage({
+        const message = sanitizeUnknownError(e);
+        postWorkerMessage({
           success: false,
-          error: (e as Error).message,
+          error: message,
           defenseStats: defense?.getStats(),
         });
       });

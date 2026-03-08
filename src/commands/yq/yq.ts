@@ -8,7 +8,13 @@
  * This is a reimplementation for the just-bash sandboxed environment.
  */
 
+import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import {
+  assertDefenseContext,
+  awaitWithDefenseContext,
+} from "../../security/defense-context.js";
+import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import {
@@ -244,6 +250,13 @@ export const yqCommand: Command = {
   name: "yq",
 
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+    assertDefenseContext(ctx.requireDefenseContext, "yq", "execution entry");
+    const withDefenseContext = <T>(
+      phase: string,
+      op: () => Promise<T>,
+    ): Promise<T> =>
+      awaitWithDefenseContext(ctx.requireDefenseContext, "yq", phase, op);
+
     if (hasHelpFlag(args)) return showHelp(yqHelp);
 
     const parsed = parseArgs(args);
@@ -277,9 +290,15 @@ export const yqCommand: Command = {
       input = ctx.stdin;
     } else {
       try {
-        filePath = ctx.fs.resolvePath(ctx.cwd, files[0]);
-        input = await ctx.fs.readFile(filePath);
-      } catch {
+        const resolvedFilePath = ctx.fs.resolvePath(ctx.cwd, files[0]);
+        filePath = resolvedFilePath;
+        input = await withDefenseContext("file read", () =>
+          ctx.fs.readFile(resolvedFilePath),
+        );
+      } catch (e) {
+        if (e instanceof SecurityViolationError) {
+          throw e;
+        }
         return {
           stdout: "",
           stderr: `yq: ${files[0]}: No such file or directory\n`,
@@ -298,6 +317,7 @@ export const yqCommand: Command = {
           : undefined,
         env: ctx.env,
         coverage: ctx.coverage,
+        requireDefenseContext: ctx.requireDefenseContext,
       };
 
       if (options.nullInput) {
@@ -340,7 +360,9 @@ export const yqCommand: Command = {
 
       // Handle inplace mode
       if (options.inplace && filePath) {
-        await ctx.fs.writeFile(filePath, finalOutput);
+        await withDefenseContext("in-place write", () =>
+          ctx.fs.writeFile(filePath, finalOutput),
+        );
         return { stdout: "", stderr: "", exitCode: 0 };
       }
 
@@ -357,14 +379,18 @@ export const yqCommand: Command = {
         exitCode,
       };
     } catch (e) {
+      if (e instanceof SecurityViolationError) {
+        throw e;
+      }
       if (e instanceof ExecutionLimitError) {
+        const message = sanitizeErrorMessage(e.message);
         return {
           stdout: "",
-          stderr: `yq: ${e.message}\n`,
+          stderr: `yq: ${message}\n`,
           exitCode: ExecutionLimitError.EXIT_CODE,
         };
       }
-      const msg = (e as Error).message;
+      const msg = sanitizeErrorMessage((e as Error).message);
       if (msg.includes("Unknown function")) {
         return {
           stdout: "",

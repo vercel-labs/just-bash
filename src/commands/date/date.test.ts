@@ -203,8 +203,7 @@ describe("date", () => {
     it("should parse 'yesterday'", async () => {
       const env = new Bash();
       const result = await env.exec("date -d yesterday +%F");
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterday = new Date(Date.now() - 86400000);
       expect(result.stdout).toBe(`${formatUTCDate(yesterday)}\n`);
       expect(result.exitCode).toBe(0);
     });
@@ -212,8 +211,7 @@ describe("date", () => {
     it("should parse 'tomorrow'", async () => {
       const env = new Bash();
       const result = await env.exec("date -d tomorrow +%F");
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrow = new Date(Date.now() + 86400000);
       expect(result.stdout).toBe(`${formatUTCDate(tomorrow)}\n`);
       expect(result.exitCode).toBe(0);
     });

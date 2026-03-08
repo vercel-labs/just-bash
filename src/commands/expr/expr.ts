@@ -1,3 +1,4 @@
+import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { createUserRegex } from "../../regex/index.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 
@@ -28,9 +29,10 @@ export const exprCommand: Command = {
         exitCode,
       };
     } catch (error) {
+      const message = sanitizeErrorMessage((error as Error).message);
       return {
         stdout: "",
-        stderr: `expr: ${(error as Error).message}\n`,
+        stderr: `expr: ${message}\n`,
         exitCode: 2,
       };
     }

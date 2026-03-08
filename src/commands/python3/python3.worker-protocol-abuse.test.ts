@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
+import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import type { CommandContext } from "../../types.js";
 
 type WorkerScript = (worker: {
@@ -8,6 +9,7 @@ type WorkerScript = (worker: {
 
 const mockState = vi.hoisted(() => ({
   script: null as WorkerScript | null,
+  bridgeRunError: null as Error | null,
 }));
 
 // Pre-capture SharedArrayBuffer before defense-in-depth patches it
@@ -49,6 +51,9 @@ vi.mock("node:worker_threads", () => {
 vi.mock("./fs-bridge-handler.js", () => {
   class MockFsBridgeHandler {
     async run(): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+      if (mockState.bridgeRunError) {
+        throw mockState.bridgeRunError;
+      }
       return { stdout: "BRIDGE_STDOUT\n", stderr: "", exitCode: 0 };
     }
   }
@@ -64,7 +69,9 @@ vi.mock("./protocol.js", () => {
 
 import { _resetExecutionQueue, python3Command } from "./python3.js";
 
-function createContext(): CommandContext {
+function createContext(
+  overrides: Partial<CommandContext> = {},
+): CommandContext {
   return {
     fs: new InMemoryFs(),
     cwd: "/home/user",
@@ -74,12 +81,14 @@ function createContext(): CommandContext {
       ["IFS", " \t\n"],
     ]),
     stdin: "",
+    ...overrides,
   };
 }
 
 describe("python3 worker protocol abuse", { retry: 2 }, () => {
   beforeEach(async () => {
     mockState.script = null;
+    mockState.bridgeRunError = null;
     _resetExecutionQueue();
     // Allow any in-flight workers from previous tests to settle
     await new Promise((r) => setTimeout(r, 10));
@@ -115,6 +124,65 @@ describe("python3 worker protocol abuse", { retry: 2 }, () => {
 
     expect(result.stdout).toBe("BRIDGE_STDOUT\n");
     expect(result.stderr).toContain("Security violation: shared_array_buffer");
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("sanitizes worker error strings before forwarding to stderr", async () => {
+    mockState.script = (worker) => {
+      worker.emit("message", {
+        success: false,
+        error:
+          "Traceback: /Users/attacker/work/secret.py via node:internal/modules/cjs/loader:1234",
+      });
+    };
+
+    const result = await python3Command.execute(
+      ["-c", "print('ignored')"],
+      createContext(),
+    );
+
+    expect(result.stdout).toBe("BRIDGE_STDOUT\n");
+    expect(result.stderr).toBe(
+      "python3: Traceback: <path> via <internal>:1234\n",
+    );
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("sanitizes bridge exception strings before forwarding to stderr", async () => {
+    mockState.script = (worker) => {
+      worker.emit("message", { success: true });
+    };
+    mockState.bridgeRunError = new Error(
+      "bridge fault near /Users/attacker/workdir at node:internal/process/task_queues:95",
+    );
+
+    const result = await python3Command.execute(
+      ["-c", "print('ignored')"],
+      createContext(),
+    );
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "python3: bridge error: bridge fault near <path> at <internal>:95\n",
+    );
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("fails closed if worker callback runs without defense async context", async () => {
+    vi.spyOn(DefenseInDepthBox, "isInSandboxedContext").mockReturnValue(false);
+    mockState.script = (worker) => {
+      worker.emit("message", { success: true });
+    };
+
+    const result = await python3Command.execute(
+      ["-c", "print('ignored')"],
+      createContext({ requireDefenseContext: true }),
+    );
+
+    expect(result.stdout).toBe("BRIDGE_STDOUT\n");
+    expect(result.stderr).toBe(
+      "python3: python3 worker message callback attempted outside defense context\n\nThis is a defense-in-depth measure and indicates a bug in just-bash. Please report this at security@vercel.com\n",
+    );
     expect(result.exitCode).toBe(1);
   });
 });

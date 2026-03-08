@@ -4,6 +4,10 @@
  * Main interpreter class that orchestrates AWK program execution.
  */
 
+import {
+  assertDefenseContext as assertDefenseContextInvariant,
+  awaitWithDefenseContext,
+} from "../../../security/defense-context.js";
 import type { AwkPattern, AwkProgram, AwkRule } from "../ast.js";
 import type { AwkRuntimeContext } from "./context.js";
 import { evalExpr } from "./expressions.js";
@@ -20,11 +24,28 @@ export class AwkInterpreter {
     this.ctx = ctx;
   }
 
+  private assertDefenseContext(phase: string): void {
+    assertDefenseContextInvariant(this.ctx.requireDefenseContext, "awk", phase);
+  }
+
+  private withDefenseContext<T>(
+    phase: string,
+    op: () => Promise<T>,
+  ): Promise<T> {
+    return awaitWithDefenseContext(
+      this.ctx.requireDefenseContext,
+      "awk",
+      phase,
+      op,
+    );
+  }
+
   /**
    * Initialize the interpreter with a program.
    * Must be called before executeBegin/executeLine/executeEnd.
    */
   execute(program: AwkProgram): void {
+    this.assertDefenseContext("program initialization");
     this.program = program;
     this.ctx.output = "";
 
@@ -41,11 +62,14 @@ export class AwkInterpreter {
    * Execute all BEGIN blocks.
    */
   async executeBegin(): Promise<void> {
+    this.assertDefenseContext("BEGIN execution entry");
     if (!this.program) return;
 
     for (const rule of this.program.rules) {
       if (rule.pattern?.type === "begin") {
-        await executeBlock(this.ctx, rule.action.statements);
+        await this.withDefenseContext("BEGIN block execution", () =>
+          executeBlock(this.ctx, rule.action.statements),
+        );
         if (this.ctx.shouldExit) break;
       }
     }
@@ -55,6 +79,7 @@ export class AwkInterpreter {
    * Execute rules for a single input line.
    */
   async executeLine(line: string): Promise<void> {
+    this.assertDefenseContext("line execution entry");
     if (!this.program || this.ctx.shouldExit) return;
 
     // Update context with new line
@@ -74,8 +99,14 @@ export class AwkInterpreter {
         continue;
       }
 
-      if (await this.matchesRule(rule, i)) {
-        await executeBlock(this.ctx, rule.action.statements);
+      if (
+        await this.withDefenseContext("rule match", () =>
+          this.matchesRule(rule, i),
+        )
+      ) {
+        await this.withDefenseContext("rule block execution", () =>
+          executeBlock(this.ctx, rule.action.statements),
+        );
       }
     }
   }
@@ -86,6 +117,7 @@ export class AwkInterpreter {
    * an END block stops further END block execution.
    */
   async executeEnd(): Promise<void> {
+    this.assertDefenseContext("END execution entry");
     if (!this.program) return;
     // If we're already in END blocks (exit called from END), don't recurse
     if (this.ctx.inEndBlock) return;
@@ -96,7 +128,9 @@ export class AwkInterpreter {
 
     for (const rule of this.program.rules) {
       if (rule.pattern?.type === "end") {
-        await executeBlock(this.ctx, rule.action.statements);
+        await this.withDefenseContext("END block execution", () =>
+          executeBlock(this.ctx, rule.action.statements),
+        );
         if (this.ctx.shouldExit) break; // exit from END block stops further END blocks
       }
     }
@@ -132,6 +166,7 @@ export class AwkInterpreter {
     rule: AwkRule,
     ruleIndex: number,
   ): Promise<boolean> {
+    this.assertDefenseContext("rule matching");
     const pattern = rule.pattern;
 
     // No pattern - always matches
@@ -146,11 +181,21 @@ export class AwkInterpreter {
         return matchRegex(pattern.pattern, this.ctx.line);
 
       case "expr_pattern":
-        return isTruthy(await evalExpr(this.ctx, pattern.expression));
+        return isTruthy(
+          await this.withDefenseContext("expression pattern evaluation", () =>
+            evalExpr(this.ctx, pattern.expression),
+          ),
+        );
 
       case "range": {
-        const startMatches = await this.matchPattern(pattern.start);
-        const endMatches = await this.matchPattern(pattern.end);
+        const startMatches = await this.withDefenseContext(
+          "range start pattern",
+          () => this.matchPattern(pattern.start),
+        );
+        const endMatches = await this.withDefenseContext(
+          "range end pattern",
+          () => this.matchPattern(pattern.end),
+        );
 
         if (!this.rangeStates[ruleIndex]) {
           if (startMatches) {
@@ -180,11 +225,16 @@ export class AwkInterpreter {
    * Check if a pattern matches.
    */
   private async matchPattern(pattern: AwkPattern): Promise<boolean> {
+    this.assertDefenseContext("pattern matching");
     switch (pattern.type) {
       case "regex_pattern":
         return matchRegex(pattern.pattern, this.ctx.line);
       case "expr_pattern":
-        return isTruthy(await evalExpr(this.ctx, pattern.expression));
+        return isTruthy(
+          await this.withDefenseContext("nested expression pattern", () =>
+            evalExpr(this.ctx, pattern.expression),
+          ),
+        );
       default:
         return false;
     }

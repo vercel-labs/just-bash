@@ -23,6 +23,7 @@ import { join, relative } from "node:path";
  * @property {string} message - Explanation of why it's banned
  * @property {string[]} solutions - Suggested fixes
  * @property {RegExp[]} [autoSafe] - Patterns that make a line automatically safe
+ * @property {RegExp} [filePattern] - Optional file path regex to scope the rule
  */
 
 /** @type {BannedPattern[]} */
@@ -80,6 +81,132 @@ const BANNED_PATTERNS = [
       /Object\.keys\s*\(/,
       /new Headers\s*\(/,
     ],
+  },
+  {
+    name: "Object.fromEntries() without null-prototype wrapper",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*Object\.fromEntries\s*\(/,
+    message:
+      "Object.fromEntries() creates plain objects with Object.prototype.\n" +
+      "When keys are user-controlled, this can introduce prototype pollution risks.",
+    solutions: [
+      "Wrap with Object.assign(Object.create(null), Object.fromEntries(...))",
+      "Use mergeToNullPrototype() if combining with other objects",
+      "Use Map when possible for dynamic keys",
+    ],
+    autoSafe: [
+      /Object\.assign\s*\(\s*Object\.create\s*\(\s*null\s*\)\s*,/,
+      /mergeToNullPrototype\s*\(/,
+      /nullPrototypeMerge\s*\(/,
+    ],
+  },
+  {
+    name: "Array containing empty object literal",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*\[\s*\{\s*\}\s*\]/,
+    message:
+      "[{}] creates plain objects with Object.prototype. For dynamic data paths,\n" +
+      "use Object.create(null) to avoid prototype-chain surprises.",
+    solutions: [
+      "Use [Object.create(null)] instead of [{}]",
+      "Use nullPrototypeCopy() for object values copied from input",
+    ],
+    autoSafe: [/Object\.create\s*\(\s*null\s*\)/],
+  },
+  {
+    name: "Metadata spread merge into plain object",
+    // Skip comment lines
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*\b(?:meta|metadata)\s*=\s*\{\s*\.\.\.\s*(?:meta|metadata)\s*,\s*\.\.\./,
+    message:
+      "Merging metadata via object spread creates a plain object with Object.prototype.\n" +
+      "Prefer null-prototype merges for defensive consistency.",
+    solutions: [
+      "Use mergeToNullPrototype(meta, nextMetadata)",
+      "Use Object.assign(Object.create(null), meta, nextMetadata)",
+    ],
+    autoSafe: [
+      /mergeToNullPrototype\s*\(/,
+      /Object\.assign\s*\(\s*Object\.create\s*\(\s*null\s*\)\s*,/,
+    ],
+  },
+  {
+    name: "Object.assign({}, ...) plain-object merge",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*Object\.assign\s*\(\s*\{\s*\}\s*,/,
+    message:
+      "Object.assign({}, ...) creates an object with Object.prototype.\n" +
+      "When merging user-influenced data, this can preserve prototype pollution risk.",
+    solutions: [
+      "Use Object.assign(Object.create(null), ...sources)",
+      "Use mergeToNullPrototype() or nullPrototypeMerge() helpers",
+      "Use Map for dynamic key collections",
+    ],
+    autoSafe: [
+      /Object\.assign\s*\(\s*Object\.create\s*\(\s*null\s*\)\s*,/,
+      /mergeToNullPrototype\s*\(/,
+      /nullPrototypeMerge\s*\(/,
+    ],
+  },
+  {
+    name: "Direct obj.hasOwnProperty() call",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*\.hasOwnProperty\s*\(/,
+    message:
+      "Direct obj.hasOwnProperty() can fail on null-prototype objects and can be\n" +
+      "shadowed by user-controlled properties.",
+    solutions: [
+      "Use Object.hasOwn(obj, key) (recommended)",
+      "Or use Object.prototype.hasOwnProperty.call(obj, key)",
+    ],
+    autoSafe: [
+      /Object\.prototype\.hasOwnProperty\.call\s*\(/,
+      /Object\.hasOwn\s*\(/,
+    ],
+  },
+  {
+    name: "Raw error.message forwarded to stderr",
+    // Skip comment lines
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*\bstderr\b[^\n]*\$\{[^}]*\.message[^}]*\}/,
+    message:
+      "Forwarding raw error.message to stderr can leak host paths, internal module\n" +
+      "names, and stack details. Sanitize before exposing to untrusted scripts.",
+    solutions: [
+      "Wrap message with sanitizeErrorMessage(...) before writing to stderr",
+      "Map to stable user-facing errors (ENOENT/EACCES/etc.) instead of raw engine errors",
+      "Use @banned-pattern-ignore only with a concrete safety reason",
+    ],
+    autoSafe: [/sanitizeErrorMessage\s*\(/],
+  },
+  {
+    name: "Raw error.message in structured error payload",
+    // Skip comment lines
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*\berror\s*:\s*(?:`[^`]*\$\{[^}]*\.message[^}]*\}[^`]*`|[^,;]*\.message\b)/,
+    message:
+      "Forwarding raw error.message in structured payloads can leak host/internal\n" +
+      "details if surfaced later. Sanitize or map to controlled error strings.",
+    solutions: [
+      "Use sanitizeErrorMessage(...) on error text before storing in error payloads",
+      "Convert to typed error codes and stable user-facing messages",
+      "Use @banned-pattern-ignore only with a concrete safety reason",
+    ],
+    autoSafe: [/sanitizeErrorMessage\s*\(/],
+  },
+  {
+    name: "throw new Error(...error.message...) forwarding",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*throw\s+new\s+Error\s*\([^)]*\.message\b/,
+    message:
+      "Throwing new Error with raw nested error.message can preserve sensitive\n" +
+      "host/internal details across abstraction boundaries.",
+    solutions: [
+      "Sanitize nested error text with sanitizeErrorMessage(...) before wrapping",
+      "Wrap with stable message and attach original error as cause when needed",
+      "Use @banned-pattern-ignore only with a concrete safety reason",
+    ],
+    autoSafe: [/sanitizeErrorMessage\s*\(/],
   },
   {
     name: "eval() usage",
@@ -147,6 +274,78 @@ const BANNED_PATTERNS = [
     ],
   },
   {
+    name: "Dynamic Reflect property key",
+    // Skip comment lines
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*Reflect\.(?:get|set|deleteProperty)\s*\(\s*[^,]+,\s*(?!["'`0-9])[a-zA-Z_$][\w$]*/,
+    message:
+      "Reflect.get/set/deleteProperty with dynamic keys can traverse prototype\n" +
+      "gadgets (constructor/prototype/__proto__) unless keys are explicitly validated.",
+    solutions: [
+      "Guard keys with isSafeKey(...) before Reflect operations",
+      "Use safeSet()/safeFromEntries() helpers for user-influenced key paths",
+      "Use @banned-pattern-ignore only with concrete proof that keys are static",
+    ],
+    autoSafe: [/isSafeKey\s*\(/, /safeSet\s*\(/, /safeFromEntries\s*\(/],
+  },
+  {
+    name: "Dynamic defineProperty/descriptor key",
+    // Skip comment lines
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*Object\.(?:defineProperty|getOwnPropertyDescriptor)\s*\(\s*[^,]+,\s*(?!["'`0-9])[a-zA-Z_$][\w$]*/,
+    message:
+      "Dynamic property names in Object.defineProperty/getOwnPropertyDescriptor\n" +
+      "can expose prototype mutation/inspection primitives when keys are tainted.",
+    solutions: [
+      "Use static string literals for property names whenever possible",
+      "Validate dynamic keys with isSafeKey(...) before property API calls",
+      "Use @banned-pattern-ignore only with concrete proof that keys are trusted",
+    ],
+    autoSafe: [/isSafeKey\s*\(/],
+  },
+  {
+    name: "Prototype mutation API",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*(?:Object|Reflect)\.setPrototypeOf\s*\(/,
+    message:
+      "setPrototypeOf mutates prototype chains and is a high-risk primitive for\n" +
+      "prototype pollution exploit chains.",
+    solutions: [
+      "Avoid setPrototypeOf entirely in runtime paths handling untrusted data",
+      "Prefer Object.create(null) and plain data copies over prototype mutation",
+      "Use @banned-pattern-ignore only for tightly-audited hardening code",
+    ],
+  },
+  {
+    name: "Dot-path reduce chain",
+    // Skip comment lines
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*split\s*\(\s*["']\.\s*["']\s*\)\s*\.reduce\s*\(/,
+    message:
+      "Dot-path reducers are a common source of prototype pollution when path\n" +
+      "segments include constructor/prototype/__proto__.",
+    solutions: [
+      "Validate each segment with isSafeKey(...) before object traversal",
+      "Use null-prototype containers when materializing dynamic path objects",
+      "Use @banned-pattern-ignore only with concrete proof of static segments",
+    ],
+    autoSafe: [/isSafeKey\s*\(/, /Object\.create\s*\(\s*null\s*\)/],
+  },
+  {
+    name: "Reduce accumulator initialized with {}",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*\.reduce\s*\([^,]*,\s*\{\s*\}\s*\)/,
+    message:
+      "Using {} as a reducer accumulator can reintroduce Object.prototype in\n" +
+      "dynamic-key flows and enable prototype-chain surprises.",
+    solutions: [
+      "Use Object.create(null) as reducer seed for dynamic key accumulation",
+      "Use Map as the accumulator when keys are data-driven",
+      "Use @banned-pattern-ignore only with concrete proof of static keys",
+    ],
+    autoSafe: [/Object\.create\s*\(\s*null\s*\)/, /new Map\s*\(/],
+  },
+  {
     name: "Unsafe bracket notation on Record<string, T>",
     // Match: (x as Record<string, T>)[variable] where variable is not a string/number literal
     // This catches patterns like: (obj as Record<string, unknown>)[key]
@@ -166,12 +365,92 @@ const BANNED_PATTERNS = [
     // Safe if Object.hasOwn is checked on same line or nearby, or if using Object.keys
     autoSafe: [/Object\.hasOwn/, /Object\.keys/, /Object\.entries/],
   },
+  {
+    name: "Raw await in defense-sensitive interpreters",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*\bawait\b/,
+    filePattern:
+      /src\/commands\/(?:awk\/(?:awk2|interpreter\/[^/]+)|sed\/sed|jq\/jq|yq\/yq|query-engine\/[^/]+)\.ts$/,
+    message:
+      "Raw await in high-risk interpreter paths can hide defense-context drift.\n" +
+      "Use defense-aware await wrappers to fail closed on context loss.",
+    solutions: [
+      "Wrap async boundaries with awaitWithDefenseContext(...)",
+      "Use a local withDefenseContext(...) helper that delegates to awaitWithDefenseContext(...)",
+      "Use @banned-pattern-ignore only with a concrete safety reason",
+    ],
+    autoSafe: [/awaitWithDefenseContext\s*\(/, /withDefenseContext\s*\(/],
+  },
+  {
+    name: "Inline worker.on callback in WASM command paths",
+    // Skip comment lines
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*\bworker\.on\s*\(\s*["'][^"']+["']\s*,\s*(?:\([^)]*\)\s*=>|function\s*\()/,
+    filePattern: /src\/commands\/(?:python3\/python3|sqlite3\/sqlite3)\.ts$/,
+    message:
+      "Inline worker event callbacks in WASM command paths can lose defense context.\n" +
+      "Bind callbacks via bindDefenseContextCallback(...) and pass a named handler.",
+    solutions: [
+      "Create a named callback with bindDefenseContextCallback(...)",
+      "Register as worker.on(event, (arg) => wrapped(arg)) to catch and sanitize failures",
+      "Use @banned-pattern-ignore only with a concrete safety reason",
+    ],
+    autoSafe: [/bindDefenseContextCallback\s*\(/],
+  },
+  {
+    name: "Inline _setTimeout callback in WASM command paths",
+    // Skip comment lines
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*\b_setTimeout\s*\(\s*(?:\([^)]*\)\s*=>|function\s*\()/,
+    filePattern: /src\/commands\/(?:python3\/python3|sqlite3\/sqlite3)\.ts$/,
+    message:
+      "Inline timeout callbacks in WASM command paths can run without defense context.\n" +
+      "Use bindDefenseContextCallback(...) and invoke it from a guarded wrapper.",
+    solutions: [
+      "Create onTimeout with bindDefenseContextCallback(...)",
+      "Call onTimeout() inside try/catch and sanitize failures",
+      "Use @banned-pattern-ignore only with a concrete safety reason",
+    ],
+    autoSafe: [/bindDefenseContextCallback\s*\(/],
+  },
+  {
+    name: "Inline WASM hook callback in worker modules",
+    // Skip comment lines
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*\b(?:print|printErr|onViolation)\s*:\s*(?:\([^)]*\)\s*=>|function\s*\()/,
+    filePattern: /src\/commands\/(?:python3|sqlite3)\/worker\.ts$/,
+    message:
+      "Inline WASM hook callbacks in worker modules can hide unsafe callback handling.\n" +
+      "Wrap these callbacks with wrapWasmCallback(...) for consistent sanitization.",
+    solutions: [
+      "Create a named callback via wrapWasmCallback(...)",
+      "Pass the named callback into the module config instead of inline lambdas",
+      "Use @banned-pattern-ignore only with a concrete safety reason",
+    ],
+    autoSafe: [/wrapWasmCallback\s*\(/],
+  },
 ];
 
 const IGNORE_COMMENT = /@banned-pattern-ignore:/;
 
 // Directories to scan
-const SCAN_DIRS = ["src"];
+const SCAN_DIRS = ["."];
+
+// Directories to skip entirely
+const SKIP_DIRS = new Set([
+  "node_modules",
+  "dist",
+  "vendor",
+  ".git",
+  ".pnpm-store",
+  ".next",
+  "coverage",
+]);
+
+const SKIP_PATH_PATTERNS = [
+  /(^|\/)\.pnpm-store(\/|$)/,
+  /(^|\/)examples\/website\/app\/api\/agent\/_agent-data(\/|$)/,
+];
 
 // Files/patterns to skip entirely
 const SKIP_PATTERNS = [
@@ -180,6 +459,8 @@ const SKIP_PATTERNS = [
   /spec-tests/,
   /prototype-pollution\.test/, // These test the protection
   /src\/security\//, // Security module intentionally references blocked patterns
+  /src\/commands\/python3\/worker\.js$/, // Generated artifact, source is worker.ts
+  /scripts\/check-banned-patterns\.js$/, // Self-lint script contains pattern definitions by design
 ];
 
 /**
@@ -211,7 +492,10 @@ const ignoreComments = [];
  * @returns {boolean}
  */
 function shouldSkipFile(filePath) {
-  return SKIP_PATTERNS.some((pattern) => pattern.test(filePath));
+  return (
+    SKIP_PATH_PATTERNS.some((pattern) => pattern.test(filePath)) ||
+    SKIP_PATTERNS.some((pattern) => pattern.test(filePath))
+  );
 }
 
 /**
@@ -301,6 +585,9 @@ function scanFile(filePath) {
     const line = lines[i];
 
     for (const pattern of BANNED_PATTERNS) {
+      if (pattern.filePattern && !pattern.filePattern.test(filePath)) {
+        continue;
+      }
       // Use a fresh regex for each test to avoid lastIndex issues
       // biome-ignore lint/style/noRestrictedGlobals: standalone lint script doesn't use internal utilities
       const testPattern = new RegExp(
@@ -354,14 +641,22 @@ function scanDirectory(dir) {
 
   for (const entry of entries) {
     const fullPath = join(dir, entry);
+    if (SKIP_PATH_PATTERNS.some((pattern) => pattern.test(fullPath))) {
+      continue;
+    }
     const stat = statSync(fullPath);
 
     if (stat.isDirectory()) {
-      // Skip node_modules and dist
-      if (entry !== "node_modules" && entry !== "dist") {
+      // Skip generated/third-party directories
+      if (!SKIP_DIRS.has(entry)) {
         scanDirectory(fullPath);
       }
-    } else if (entry.endsWith(".ts") && !entry.endsWith(".d.ts")) {
+    } else if (
+      (entry.endsWith(".ts") && !entry.endsWith(".d.ts")) ||
+      entry.endsWith(".js") ||
+      entry.endsWith(".mjs") ||
+      entry.endsWith(".cjs")
+    ) {
       scanFile(fullPath);
     }
   }

@@ -26,7 +26,11 @@ import { InMemoryFs } from "./fs/in-memory-fs/in-memory-fs.js";
 import { initFilesystem } from "./fs/init.js";
 import type { IFileSystem, InitialFiles } from "./fs/interface.js";
 import { sanitizeErrorMessage } from "./fs/sanitize-error.js";
-import { mapToRecord, mapToRecordWithExtras } from "./helpers/env.js";
+import {
+  mapToRecord,
+  mapToRecordWithExtras,
+  mergeToNullPrototype,
+} from "./helpers/env.js";
 import {
   ArithmeticError,
   ExecutionAbortedError,
@@ -599,17 +603,16 @@ export class Bash {
           maxHeredocSize: this.limits.maxHeredocSize,
         });
 
-        // Apply transform plugins if any are registered
-        // @banned-pattern-ignore: metadata is plugin-controlled, not user input
-        let metadata: Record<string, unknown> | undefined;
+        // Apply transform plugins if any are registered.
+        // Keep metadata null-prototype even when plugins contribute dynamic keys.
+        let metadata: ReturnType<typeof mergeToNullPrototype> | undefined;
         if (this.transformPlugins.length > 0) {
-          // @banned-pattern-ignore: metadata is plugin-controlled, not user input
           let meta: Record<string, unknown> = Object.create(null);
           for (const plugin of this.transformPlugins) {
             const pluginResult = plugin.transform({ ast, metadata: meta });
             ast = pluginResult.ast;
             if (pluginResult.metadata) {
-              meta = { ...meta, ...pluginResult.metadata };
+              meta = mergeToNullPrototype(meta, pluginResult.metadata);
             }
           }
           metadata = meta;
@@ -625,6 +628,7 @@ export class Bash {
           sleep: this.sleepFn,
           trace: this.traceFn,
           coverage: this.coverageWriter,
+          requireDefenseContext: defenseBox?.isEnabled() === true,
         };
 
         const interpreter = new Interpreter(interpreterOptions, execState);
@@ -763,14 +767,13 @@ export class Bash {
     let ast = parse(normalized, {
       maxHeredocSize: this.limits.maxHeredocSize,
     });
-    // @banned-pattern-ignore: metadata is plugin-controlled, not user input
     let metadata: Record<string, unknown> = Object.create(null);
 
     for (const plugin of this.transformPlugins) {
       const result = plugin.transform({ ast, metadata });
       ast = result.ast;
       if (result.metadata) {
-        metadata = { ...metadata, ...result.metadata };
+        metadata = mergeToNullPrototype(metadata, result.metadata);
       }
     }
 

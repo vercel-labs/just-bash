@@ -4,7 +4,13 @@
  * Full jq implementation with proper parser and evaluator.
  */
 
+import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import {
+  assertDefenseContext,
+  awaitWithDefenseContext,
+} from "../../security/defense-context.js";
+import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { readFiles } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -187,6 +193,13 @@ export const jqCommand: Command = {
   name: "jq",
 
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+    assertDefenseContext(ctx.requireDefenseContext, "jq", "execution entry");
+    const withDefenseContext = <T>(
+      phase: string,
+      op: () => Promise<T>,
+    ): Promise<T> =>
+      awaitWithDefenseContext(ctx.requireDefenseContext, "jq", phase, op);
+
     if (hasHelpFlag(args)) return showHelp(jqHelp);
 
     let raw = false;
@@ -252,10 +265,12 @@ export const jqCommand: Command = {
       inputs.push({ source: "stdin", content: ctx.stdin });
     } else {
       // Read all files in parallel using shared utility
-      const result = await readFiles(ctx, files, {
-        cmdName: "jq",
-        stopOnError: true,
-      });
+      const result = await withDefenseContext("file read", () =>
+        readFiles(ctx, files, {
+          cmdName: "jq",
+          stopOnError: true,
+        }),
+      );
       if (result.exitCode !== 0) {
         return {
           stdout: "",
@@ -279,6 +294,7 @@ export const jqCommand: Command = {
           : undefined,
         env: ctx.env,
         coverage: ctx.coverage,
+        requireDefenseContext: ctx.requireDefenseContext,
       };
 
       if (nullInput) {
@@ -340,14 +356,18 @@ export const jqCommand: Command = {
         exitCode,
       };
     } catch (e) {
+      if (e instanceof SecurityViolationError) {
+        throw e;
+      }
       if (e instanceof ExecutionLimitError) {
+        const message = sanitizeErrorMessage(e.message);
         return {
           stdout: "",
-          stderr: `jq: ${e.message}\n`,
+          stderr: `jq: ${message}\n`,
           exitCode: ExecutionLimitError.EXIT_CODE,
         };
       }
-      const msg = (e as Error).message;
+      const msg = sanitizeErrorMessage((e as Error).message);
       if (msg.includes("Unknown function")) {
         return {
           stdout: "",

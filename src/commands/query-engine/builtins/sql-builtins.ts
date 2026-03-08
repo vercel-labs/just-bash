@@ -56,7 +56,7 @@ export function evalSqlBuiltin(
       // INDEX(stream) - create object mapping values to themselves
       // INDEX(stream; idx_expr) - create object using idx_expr as key
       // INDEX(stream; idx_expr; val_expr) - create object with idx_expr keys and val_expr values
-      if (args.length === 0) return [{}];
+      if (args.length === 0) return [Object.create(null)];
       if (args.length === 1) {
         // INDEX(stream) - index by the values themselves (like group_by)
         const streamVals = evaluate(value, args[0], ctx);
