@@ -11,6 +11,11 @@ import {
   safeSet,
 } from "./safe-object.js";
 
+/** Helper: create a null-prototype object with the given properties. */
+function np<T extends Record<string, unknown>>(props: T): T {
+  return Object.assign(Object.create(null), props);
+}
+
 describe("safe-object utilities", () => {
   describe("isSafeKey", () => {
     it("should return false for __proto__", () => {
@@ -71,33 +76,42 @@ describe("safe-object utilities", () => {
 
   describe("safeGet", () => {
     it("should get normal properties", () => {
-      const obj = { a: 1, b: "test" };
+      const obj = np({ a: 1, b: "test" });
       expect(safeGet(obj, "a")).toBe(1);
       expect(safeGet(obj, "b")).toBe("test");
     });
 
     it("should return undefined for dangerous keys", () => {
-      const obj = { __proto__: "value" };
+      const obj: Record<string, unknown> = Object.create(null);
+      Object.defineProperty(obj, "__proto__", {
+        value: "value",
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
       expect(safeGet(obj, "__proto__")).toBe(undefined);
     });
 
     it("should return undefined for non-existent keys", () => {
-      const obj = { a: 1 };
+      const obj = np({ a: 1 });
       expect(safeGet(obj, "b")).toBe(undefined);
     });
 
-    it("should not return inherited properties", () => {
-      const parent = { inherited: true };
-      const obj = Object.create(parent);
-      obj.own = true;
-      expect(safeGet(obj, "own")).toBe(true);
-      expect(safeGet(obj, "inherited")).toBe(undefined);
+    it("should reject prototypal objects", () => {
+      const obj = { a: 1 };
+      expect(() => safeGet(obj, "a")).toThrow("expected null-prototype object");
+    });
+
+    it("should reject arrays", () => {
+      expect(() => safeGet([] as never, "0")).toThrow(
+        "expected object, got array",
+      );
     });
   });
 
   describe("safeSet", () => {
     it("should set normal properties", () => {
-      const obj: Record<string, unknown> = {};
+      const obj: Record<string, unknown> = Object.create(null);
       safeSet(obj, "a", 1);
       safeSet(obj, "b", "test");
       expect(obj.a).toBe(1);
@@ -105,7 +119,7 @@ describe("safe-object utilities", () => {
     });
 
     it("should ignore dangerous keys", () => {
-      const obj: Record<string, unknown> = {};
+      const obj: Record<string, unknown> = Object.create(null);
       safeSet(obj, "__proto__", "polluted");
       safeSet(obj, "constructor", "polluted");
       safeSet(obj, "prototype", "polluted");
@@ -117,23 +131,35 @@ describe("safe-object utilities", () => {
     });
 
     it("should silently ignore dangerous keys without throwing", () => {
-      const obj: Record<string, unknown> = {};
+      const obj: Record<string, unknown> = Object.create(null);
       expect(() => safeSet(obj, "__proto__", "value")).not.toThrow();
+    });
+
+    it("should reject prototypal objects", () => {
+      expect(() => safeSet({}, "a", 1)).toThrow(
+        "expected null-prototype object",
+      );
     });
   });
 
   describe("safeDelete", () => {
     it("should delete normal properties", () => {
-      const obj: Record<string, unknown> = { a: 1, b: 2 };
+      const obj = np({ a: 1, b: 2 });
       safeDelete(obj, "a");
       expect(obj).toEqual({ b: 2 });
     });
 
     it("should ignore dangerous keys", () => {
-      const obj: Record<string, unknown> = { a: 1 };
+      const obj = np({ a: 1 });
       safeDelete(obj, "__proto__");
       safeDelete(obj, "constructor");
       expect(obj).toEqual({ a: 1 });
+    });
+
+    it("should reject prototypal objects", () => {
+      expect(() => safeDelete({ a: 1 }, "a")).toThrow(
+        "expected null-prototype object",
+      );
     });
   });
 
@@ -145,6 +171,7 @@ describe("safe-object utilities", () => {
       ];
       const result = safeFromEntries(entries);
       expect(result).toEqual({ a: 1, b: 2 });
+      expect(Object.getPrototypeOf(result)).toBe(null);
     });
 
     it("should filter dangerous keys from entries", () => {
@@ -161,33 +188,47 @@ describe("safe-object utilities", () => {
     it("should handle empty entries", () => {
       const result = safeFromEntries([]);
       expect(result).toEqual({});
+      expect(Object.getPrototypeOf(result)).toBe(null);
     });
   });
 
   describe("safeAssign", () => {
     it("should copy properties from source to target", () => {
-      const target: Record<string, number> = { a: 1 };
-      const source: Record<string, number> = { b: 2, c: 3 };
+      const target = np({ a: 1 }) as Record<string, number>;
+      const source = np({ b: 2, c: 3 }) as Record<string, number>;
       safeAssign(target, source);
       expect(target).toEqual({ a: 1, b: 2, c: 3 });
     });
 
     it("should filter dangerous keys from source", () => {
-      const target: Record<string, unknown> = { a: 1 };
-      const source: Record<string, unknown> = {
-        b: 2,
-        __proto__: "polluted",
-        constructor: "polluted",
-      };
+      const target = np({ a: 1 }) as Record<string, unknown>;
+      const source: Record<string, unknown> = Object.create(null);
+      source.b = 2;
+      Object.defineProperty(source, "__proto__", {
+        value: "polluted",
+        enumerable: true,
+      });
       safeAssign(target, source);
       expect(target).toEqual({ a: 1, b: 2 });
     });
 
     it("should return the target object", () => {
-      const target: Record<string, number> = { a: 1 };
-      const source: Record<string, number> = { b: 2 };
+      const target = np({ a: 1 }) as Record<string, number>;
+      const source = np({ b: 2 }) as Record<string, number>;
       const result = safeAssign(target, source);
       expect(result).toBe(target);
+    });
+
+    it("should reject prototypal target", () => {
+      expect(() => safeAssign({}, np({ a: 1 }))).toThrow(
+        "expected null-prototype object",
+      );
+    });
+
+    it("should reject prototypal source", () => {
+      expect(() => safeAssign(Object.create(null), { a: 1 })).toThrow(
+        "expected null-prototype object",
+      );
     });
   });
 
@@ -198,6 +239,7 @@ describe("safe-object utilities", () => {
       expect(copy).toEqual(obj);
       expect(copy).not.toBe(obj);
       expect(copy.b).toBe(obj.b); // Shallow copy
+      expect(Object.getPrototypeOf(copy)).toBe(null);
     });
 
     it("should filter dangerous keys in copy", () => {
@@ -215,28 +257,51 @@ describe("safe-object utilities", () => {
 
   describe("safeHasOwn", () => {
     it("should return true for own properties", () => {
-      const obj = { a: 1 };
+      const obj = np({ a: 1 });
       expect(safeHasOwn(obj, "a")).toBe(true);
     });
 
     it("should return false for non-existent properties", () => {
-      const obj = { a: 1 };
+      const obj = np({ a: 1 });
       expect(safeHasOwn(obj, "b")).toBe(false);
     });
 
-    it("should return false for inherited properties", () => {
-      const parent = { inherited: true };
-      const obj = Object.create(parent);
+    it("should return false for missing properties on null-prototype objects", () => {
+      const obj: Record<string, unknown> = Object.create(null);
       obj.own = true;
       expect(safeHasOwn(obj, "own")).toBe(true);
-      expect(safeHasOwn(obj, "inherited")).toBe(false);
-    });
-
-    it("should handle prototype chain correctly", () => {
-      const obj = {};
-      // These are on Object.prototype, not own properties
       expect(safeHasOwn(obj, "toString")).toBe(false);
       expect(safeHasOwn(obj, "hasOwnProperty")).toBe(false);
+    });
+
+    it("should reject prototypal objects", () => {
+      expect(() => safeHasOwn({}, "a")).toThrow(
+        "expected null-prototype object",
+      );
+    });
+
+    it("should reject arrays", () => {
+      expect(() => safeHasOwn([], "length")).toThrow(
+        "expected object, got array",
+      );
+    });
+  });
+
+  describe("assertion guards", () => {
+    it("safeGet rejects arrays", () => {
+      expect(() => safeGet([] as never, "0")).toThrow("got array");
+    });
+
+    it("safeSet rejects arrays", () => {
+      expect(() => safeSet([] as never, "0", 1)).toThrow("got array");
+    });
+
+    it("safeDelete rejects arrays", () => {
+      expect(() => safeDelete([] as never, "0")).toThrow("got array");
+    });
+
+    it("safeHasOwn rejects arrays", () => {
+      expect(() => safeHasOwn([], "0")).toThrow("got array");
     });
   });
 
@@ -246,13 +311,18 @@ describe("safe-object utilities", () => {
       const originalKeys = Object.keys(Object.prototype);
 
       // Try various pollution attempts
-      const obj1: Record<string, unknown> = {};
+      const obj1: Record<string, unknown> = Object.create(null);
       safeSet(obj1, "__proto__", { polluted: true });
 
       const _obj2 = safeFromEntries([["__proto__", { polluted: true }]]);
 
-      const obj3: Record<string, unknown> = {};
-      safeAssign(obj3, { __proto__: { polluted: true } });
+      const obj3: Record<string, unknown> = Object.create(null);
+      const src3: Record<string, unknown> = Object.create(null);
+      Object.defineProperty(src3, "__proto__", {
+        value: { polluted: true },
+        enumerable: true,
+      });
+      safeAssign(obj3, src3);
 
       // Verify Object.prototype is unchanged
       const newKeys = Object.keys(Object.prototype);
@@ -272,7 +342,7 @@ describe("safe-object utilities", () => {
       safeSet(obj, "c", 3);
       safeSet(obj, "constructor", 999);
       safeDelete(obj, "a");
-      safeAssign(obj, { d: 4, prototype: 999 });
+      safeAssign(obj, np({ d: 4, prototype: 999 }));
 
       expect(obj).toEqual({ b: 2, c: 3, d: 4 });
     });

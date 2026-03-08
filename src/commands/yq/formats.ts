@@ -10,6 +10,7 @@ import Papa from "papaparse";
 import * as TOML from "smol-toml";
 import YAML from "yaml";
 import type { QueryValue } from "../query-engine/index.js";
+import { sanitizeParsedData } from "../query-engine/safe-object.js";
 
 export type InputFormat = "yaml" | "xml" | "json" | "ini" | "csv" | "toml";
 export type OutputFormat = "yaml" | "json" | "xml" | "ini" | "csv" | "toml";
@@ -164,10 +165,15 @@ export function parseInput(input: string, options: FormatOptions): QueryValue {
 
   switch (options.inputFormat) {
     case "yaml":
-      return YAML.parse(trimmed);
+      // SECURITY: maxAliasCount limits YAML alias expansion (billion-laughs defense).
+      // Default schema is 'core' which does NOT resolve !!js/function or other
+      // code-execution tags (those are only in 'yaml-1.1' schema).
+      return sanitizeParsedData(YAML.parse(trimmed, { maxAliasCount: 100 }));
 
     case "json":
-      return JSON.parse(trimmed);
+      // SECURITY: JSON.parse returns plain objects — sanitizeParsedData converts
+      // them to null-prototype objects at the boundary.
+      return sanitizeParsedData(JSON.parse(trimmed));
 
     case "xml": {
       const parser = new XMLParser({
@@ -178,20 +184,28 @@ export function parseInput(input: string, options: FormatOptions): QueryValue {
         parseAttributeValue: false,
         parseTagValue: false,
         trimValues: true,
+        // SECURITY: Disable DOCTYPE entity processing to prevent entity expansion
+        // attacks. External entities already throw, but disabling entirely is safer.
+        processEntities: false,
         // Transform empty tags to null to match real yq
         tagValueProcessor: (_name, val) => (val === "" ? null : val),
       });
-      return parser.parse(trimmed);
+      return sanitizeParsedData(parser.parse(trimmed));
     }
 
     case "ini":
-      return ini.parse(trimmed);
+      // SECURITY: sanitizeParsedData converts to null-prototype objects at boundary.
+      return sanitizeParsedData(ini.parse(trimmed));
 
     case "csv":
-      return parseCsv(trimmed, options.csvDelimiter, options.csvHeader);
+      // SECURITY: sanitizeParsedData converts to null-prototype objects at boundary.
+      return sanitizeParsedData(
+        parseCsv(trimmed, options.csvDelimiter, options.csvHeader),
+      );
 
     case "toml":
-      return TOML.parse(trimmed) as QueryValue;
+      // SECURITY: sanitizeParsedData converts to null-prototype objects at boundary.
+      return sanitizeParsedData(TOML.parse(trimmed)) as QueryValue;
 
     default: {
       const _exhaustive: never = options.inputFormat;
@@ -205,7 +219,9 @@ export function parseInput(input: string, options: FormatOptions): QueryValue {
  */
 export function parseAllYamlDocuments(input: string): QueryValue[] {
   const docs = YAML.parseAllDocuments(input);
-  return docs.map((doc) => doc.toJSON());
+  return docs.map((doc) =>
+    sanitizeParsedData(doc.toJS({ maxAliasCount: 100 })),
+  );
 }
 
 /**
@@ -225,7 +241,9 @@ export function extractFrontMatter(
       const yamlContent = trimmed.slice(3, endMatch.index + 3);
       const remaining = trimmed.slice(endMatch.index + 3 + endMatch[0].length);
       return {
-        frontMatter: YAML.parse(yamlContent),
+        frontMatter: sanitizeParsedData(
+          YAML.parse(yamlContent, { maxAliasCount: 100 }),
+        ),
         content: remaining,
       };
     }
@@ -238,7 +256,7 @@ export function extractFrontMatter(
       const tomlContent = trimmed.slice(3, endMatch.index + 3);
       const remaining = trimmed.slice(endMatch.index + 3 + endMatch[0].length);
       return {
-        frontMatter: TOML.parse(tomlContent) as QueryValue,
+        frontMatter: sanitizeParsedData(TOML.parse(tomlContent)) as QueryValue,
         content: remaining,
       };
     }
@@ -251,7 +269,7 @@ export function extractFrontMatter(
       const jsonContent = trimmed.slice(3, endMatch.index + 3);
       const remaining = trimmed.slice(endMatch.index + 3 + endMatch[0].length);
       return {
-        frontMatter: JSON.parse(jsonContent),
+        frontMatter: sanitizeParsedData(JSON.parse(jsonContent)),
         content: remaining,
       };
     }

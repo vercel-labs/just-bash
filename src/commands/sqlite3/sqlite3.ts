@@ -11,6 +11,7 @@
  * making ATTACH DATABASE and VACUUM INTO safe (they only operate on virtual buffers).
  */
 
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -260,7 +261,14 @@ export const _internals = {
   },
 };
 
-function normalizeWorkerResult(result: unknown): WorkerOutput {
+function generateWorkerProtocolToken(): string {
+  return randomBytes(16).toString("hex");
+}
+
+function normalizeWorkerResult(
+  result: unknown,
+  expectedProtocolToken: string,
+): WorkerOutput {
   if (!result || typeof result !== "object") {
     return {
       success: false,
@@ -269,6 +277,7 @@ function normalizeWorkerResult(result: unknown): WorkerOutput {
   }
 
   const raw = result as {
+    protocolToken?: unknown;
     type?: unknown;
     violation?: { type?: unknown };
     success?: unknown;
@@ -278,6 +287,16 @@ function normalizeWorkerResult(result: unknown): WorkerOutput {
     dbBuffer?: unknown;
     defenseStats?: unknown;
   };
+
+  if (
+    typeof raw.protocolToken !== "string" ||
+    raw.protocolToken !== expectedProtocolToken
+  ) {
+    return {
+      success: false,
+      error: "Malformed worker response: invalid protocol token",
+    };
+  }
 
   if (raw.type === "security-violation") {
     return {
@@ -387,7 +406,7 @@ async function executeInWorker(
         "worker message callback",
         (result: unknown) => {
           _clearTimeout(timeout);
-          resolve(normalizeWorkerResult(result));
+          resolve(normalizeWorkerResult(result, input.protocolToken));
         },
       );
       const onError = bindDefenseContextCallback(
@@ -536,6 +555,7 @@ export const sqlite3Command: Command = {
 
     // Execute in worker with timeout
     const workerInput: WorkerInput = {
+      protocolToken: generateWorkerProtocolToken(),
       dbBuffer,
       sql,
       options: {

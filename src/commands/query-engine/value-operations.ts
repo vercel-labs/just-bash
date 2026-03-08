@@ -5,6 +5,7 @@
  */
 
 import {
+  asQueryRecord,
   isSafeKey,
   nullPrototypeCopy,
   safeHasOwn,
@@ -53,23 +54,12 @@ export function deepMerge(
     // Skip dangerous keys to prevent prototype pollution
     if (!isSafeKey(key)) continue;
 
-    if (
-      safeHasOwn(result, key) &&
-      result[key] &&
-      typeof result[key] === "object" &&
-      !Array.isArray(result[key]) &&
-      b[key] &&
-      typeof b[key] === "object" &&
-      !Array.isArray(b[key])
-    ) {
-      safeSet(
-        result,
-        key,
-        deepMerge(
-          result[key] as Record<string, unknown>,
-          b[key] as Record<string, unknown>,
-        ),
-      );
+    const resultRec = safeHasOwn(result, key)
+      ? asQueryRecord(result[key])
+      : null;
+    const bRec = asQueryRecord(b[key]);
+    if (resultRec && bRec) {
+      safeSet(result, key, deepMerge(resultRec, bRec));
     } else {
       safeSet(result, key, b[key]);
     }
@@ -133,9 +123,9 @@ export function compareJq(a: QueryValue, b: QueryValue): number {
     return a.length - b.length;
   }
   // Objects: compare by sorted keys, then values
-  if (a && b && typeof a === "object" && typeof b === "object") {
-    const aObj = a as Record<string, unknown>;
-    const bObj = b as Record<string, unknown>;
+  const aObj = asQueryRecord(a);
+  const bObj = asQueryRecord(b);
+  if (aObj && bObj) {
     const aKeys = Object.keys(aObj).sort();
     const bKeys = Object.keys(bObj).sort();
     // First compare keys
@@ -166,19 +156,17 @@ export function containsDeep(a: QueryValue, b: QueryValue): boolean {
   if (Array.isArray(a) && Array.isArray(b)) {
     return b.every((bItem) => a.some((aItem) => containsDeep(aItem, bItem)));
   }
-  if (
-    a &&
-    b &&
-    typeof a === "object" &&
-    typeof b === "object" &&
-    !Array.isArray(a) &&
-    !Array.isArray(b)
-  ) {
-    const aObj = a as Record<string, unknown>;
-    const bObj = b as Record<string, unknown>;
+  const aObj = asQueryRecord(a);
+  const bObj = asQueryRecord(b);
+  if (aObj && bObj) {
     return Object.keys(bObj).every(
       (k) => safeHasOwn(aObj, k) && containsDeep(aObj[k], bObj[k]),
     );
   }
   return false;
 }
+
+// Lint probe: exercises "Raw Record<string, unknown> cast in query engine" banned pattern.
+// @banned-pattern-ignore: lint rule probe — use asQueryRecord() instead
+const _rawRecordCastProbe = undefined as unknown as Record<string, unknown>;
+void _rawRecordCastProbe;

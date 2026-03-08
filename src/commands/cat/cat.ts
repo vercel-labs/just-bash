@@ -61,6 +61,7 @@ export const catCommand: Command = {
       stdout,
       stderr: readResult.stderr,
       exitCode: readResult.exitCode,
+      // @banned-pattern-ignore: spread into static result keys, no user-controlled properties
       ...(isReadingFiles ? { stdoutEncoding: "binary" as const } : {}),
     };
   },

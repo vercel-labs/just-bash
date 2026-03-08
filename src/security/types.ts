@@ -87,11 +87,15 @@ export type SecurityViolationType =
   | "process_stdout"
   | "process_stderr"
   | "module_resolve_filename"
+  | "dynamic_import_builtin"
   | "missing_defense_context"
   | "promise_then_after_deactivate"
+  | "bound_callback_after_deactivate"
   | "prototype_mutation"
   | "json_mutation"
-  | "math_mutation";
+  | "math_mutation"
+  | "process_report"
+  | "process_exception_handler";
 
 /**
  * Information about a detected security violation.

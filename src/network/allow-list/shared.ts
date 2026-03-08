@@ -53,11 +53,13 @@ const mockResponses: Record<
   "https://evil.com/data": {
     status: 200,
     body: MOCK_EVIL_BODY,
+    // @banned-pattern-ignore: static test mock data
     headers: {},
   },
   "https://attacker.com/steal": {
     status: 200,
     body: `attacker data - ${MOCK_MARKER}`,
+    // @banned-pattern-ignore: static test mock data
     headers: {},
   },
 };

@@ -22,6 +22,7 @@ describe("YQ JS Tag Function Probe", () => {
       ) {
         return;
       }
+      // biome-ignore lint/complexity/noBannedTypes: forwarding to overloaded process.emitWarning
       return (originalEmitWarning as Function).call(process, warning, ...rest);
     }) as typeof process.emitWarning;
 

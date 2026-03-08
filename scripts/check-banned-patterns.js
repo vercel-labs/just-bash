@@ -61,10 +61,10 @@ const BANNED_PATTERNS = [
   },
   {
     name: "Empty object literal in expression",
-    // Match: ?? {}, || {}, return {}, ( {} ), , {}
+    // Match: ?? {}, || {}, return {}, ( {} ), , {}, : {} (ternary)
     // Skip comment lines
     pattern:
-      /^(?!\s*(?:\/\/|\/?\*)).*(?:\?\?|\|\||return\s|[,(])\s*\{\s*\}(?:\s*[;,)\]]|$)/,
+      /^(?!\s*(?:\/\/|\/?\*)).*(?:\?\?|\|\||return\s|[,(:])\s*\{\s*\}(?:\s*[;,)\]]|$)/,
     message:
       "Empty object literals {} have Object.prototype and are vulnerable to\n" +
       "prototype pollution. Use Object.create(null) instead.",
@@ -228,6 +228,87 @@ const BANNED_PATTERNS = [
     solutions: [
       "Use a proper parser or interpreter",
       "Refactor to avoid dynamic code generation",
+    ],
+  },
+  {
+    name: "Proxy.revocable() usage",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*\bProxy\.revocable\s*\(/,
+    message:
+      "Proxy.revocable can recreate raw proxy capabilities and has known bypass\n" +
+      "interactions with defense wrappers when used in untrusted execution paths.",
+    solutions: [
+      "Avoid Proxy.revocable in runtime paths handling untrusted input",
+      "Prefer plain objects and explicit validation over revocable proxy control flow",
+      "Use @banned-pattern-ignore only with a concrete audited safety reason",
+    ],
+  },
+  {
+    name: "Dangerous global constructor shadowing",
+    // Skip comment lines
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*(?:delete\s+globalThis\.(?:Function|eval|Proxy)\b|globalThis\.(?:Function|eval|Proxy)\s*=|Object\.defineProperty\s*\(\s*globalThis\s*,\s*["'`](?:Function|eval|Proxy)["'`])/,
+    message:
+      "Shadowing/deleting global Function/eval/Proxy can disable security wrappers\n" +
+      "and re-enable dynamic code-execution primitives.",
+    solutions: [
+      "Do not mutate global constructors in runtime command/interpreter paths",
+      "Use local dependency injection instead of global monkey-patching",
+      "Use @banned-pattern-ignore only for tightly-audited defense internals/tests",
+    ],
+  },
+  {
+    name: "Dynamic import() with non-literal specifier",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*\bimport\s*\(\s*(?!["'`])/,
+    message:
+      "Dynamic import() with non-literal specifiers can become a module-loading\n" +
+      "code-execution primitive if the specifier is tainted.",
+    solutions: [
+      "Use static literal import specifiers",
+      "Use an explicit allowlist map from known keys to literal imports",
+      "Reject unknown module keys before dispatch",
+    ],
+  },
+  {
+    name: "Dynamic require() with non-literal specifier",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*\brequire\s*\(\s*(?!["'`])/,
+    message:
+      "Dynamic require() with non-literal specifiers can become a module-loading\n" +
+      "code-execution primitive if the specifier is tainted.",
+    solutions: [
+      "Use static literal require specifiers: require('module-name')",
+      "Use an explicit allowlist map from known keys to literal imports",
+      "Reject unknown module keys before dispatch",
+    ],
+  },
+  {
+    name: "createRequire() usage outside approved worker module",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*\bcreateRequire\s*\(/,
+    filePattern: /src\/(?!commands\/python3\/worker\.ts$).*\.ts$/,
+    message:
+      "createRequire can expose unrestricted module-loading behavior and should be\n" +
+      "confined to audited worker bootstrap code.",
+    solutions: [
+      "Use static imports for known dependencies",
+      "If truly needed, confine to an audited module and document the threat model",
+      "Use @banned-pattern-ignore only with concrete approval rationale",
+    ],
+  },
+  {
+    name: "Module._load/_resolveFilename access outside approved worker module",
+    // Skip comment lines
+    pattern: /^(?!\s*(?:\/\/|\/?\*)).*\._(?:load|resolveFilename)\s*\(/,
+    filePattern: /src\/(?!commands\/python3\/worker\.ts$).*\.ts$/,
+    message:
+      "Direct Module._load/_resolveFilename access bypasses normal module boundaries\n" +
+      "and can reintroduce dangerous host-module execution paths.",
+    solutions: [
+      "Use normal static imports",
+      "If unavoidable, isolate in one audited module with clear invariants",
+      "Use @banned-pattern-ignore only with concrete approval rationale",
     ],
   },
   {
@@ -412,6 +493,16 @@ const BANNED_PATTERNS = [
       "Use @banned-pattern-ignore only with a concrete safety reason",
     ],
     autoSafe: [/bindDefenseContextCallback\s*\(/],
+  },
+  {
+    name: "Raw Record<string, unknown> cast in query engine",
+    pattern: /as\s+Record\s*<\s*string\s*,\s*unknown\s*>/,
+    filePattern: /src\/commands\/query-engine\/(?!safe-object).*\.ts$/,
+    message:
+      "Raw Record<string, unknown> casts bypass the centralized asQueryRecord() helper.\n" +
+      "Use asQueryRecord(value) for auditable, type-safe property access.",
+    solutions: ["Use asQueryRecord(value) from safe-object.ts"],
+    autoSafe: [/asQueryRecord/],
   },
   {
     name: "Inline WASM hook callback in worker modules",

@@ -25,6 +25,7 @@ import {
 import { SyncFsBackend } from "./sync-fs-backend.js";
 
 export interface WorkerInput {
+  protocolToken: string;
   sharedBuffer: SharedArrayBuffer;
   pythonCode: string;
   cwd: string;
@@ -41,6 +42,36 @@ export interface WorkerOutput {
 }
 
 const require = createRequire(import.meta.url);
+const CPYTHON_ENTRY_BASENAME = "/vendor/cpython-emscripten/python.cjs";
+const CPYTHON_STDLIB_BASENAME = "/vendor/cpython-emscripten/python313.zip";
+let moduleLoadGuardInstalled = false;
+
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+function isApprovedCpythonEntryPath(path: string): boolean {
+  return normalizePath(path).endsWith(CPYTHON_ENTRY_BASENAME);
+}
+
+function isApprovedStdlibZipPath(path: string): boolean {
+  return normalizePath(path).endsWith(CPYTHON_STDLIB_BASENAME);
+}
+
+function assertApprovedPath(
+  path: string,
+  kind: "cpython-entry" | "cpython-stdlib",
+): void {
+  const ok =
+    kind === "cpython-entry"
+      ? isApprovedCpythonEntryPath(path)
+      : isApprovedStdlibZipPath(path);
+  if (!ok) {
+    throw new Error(
+      `[Defense-in-depth] rejected ${kind} path outside approved vendor bundle: ${path}`,
+    );
+  }
+}
 
 // Module._load protection: block dangerous require() calls at file load time,
 // BEFORE python.cjs is loaded. This closes the initialization window where
@@ -87,23 +118,28 @@ try {
       }
       return originalLoad.apply(this, [request, ...rest]);
     };
+    moduleLoadGuardInstalled = true;
   }
 } catch {
   /* best-effort */
 }
 
-let cpythonDir: string;
+let cpythonEntryPath: string;
 try {
-  cpythonDir = dirname(
-    require.resolve("../../../vendor/cpython-emscripten/python.cjs"),
+  cpythonEntryPath = require.resolve(
+    "../../../vendor/cpython-emscripten/python.cjs",
   );
 } catch (_e) {
   // Fallback: resolve relative to this file
-  cpythonDir =
+  cpythonEntryPath =
     dirname(import.meta.url).replace("file://", "") +
-    "/../../../vendor/cpython-emscripten";
+    "/../../../vendor/cpython-emscripten/python.cjs";
 }
+assertApprovedPath(cpythonEntryPath, "cpython-entry");
+
+const cpythonDir = dirname(cpythonEntryPath);
 const stdlibZipPath = `${cpythonDir}/python313.zip`;
+assertApprovedPath(stdlibZipPath, "cpython-stdlib");
 
 // Emscripten module types
 interface EmscriptenModule {
@@ -1138,9 +1174,28 @@ import { readFileSync } from "node:fs";
 
 const cachedStdlibZip = new Uint8Array(readFileSync(stdlibZipPath));
 
-function postWorkerMessage(message: unknown): void {
+function wrapWorkerMessage(
+  protocolToken: string,
+  message: unknown,
+): Record<string, unknown> {
+  const wrapped = Object.create(null) as Record<string, unknown>;
+  wrapped.protocolToken = protocolToken;
+
+  if (!message || typeof message !== "object") {
+    wrapped.success = false;
+    wrapped.error = "Worker attempted to post non-object message";
+    return wrapped;
+  }
+
+  for (const [key, value] of Object.entries(message as Record<string, unknown>))
+    wrapped[key] = value;
+
+  return wrapped;
+}
+
+function postWorkerMessage(protocolToken: string, message: unknown): void {
   try {
-    parentPort?.postMessage(message);
+    parentPort?.postMessage(wrapWorkerMessage(protocolToken, message));
   } catch (error) {
     // Best effort: avoid crashing worker on a closed/invalid parent port.
     console.debug(
@@ -1151,10 +1206,20 @@ function postWorkerMessage(message: unknown): void {
 }
 
 async function runPython(input: WorkerInput): Promise<WorkerOutput> {
+  if (!moduleLoadGuardInstalled) {
+    return {
+      success: false,
+      error:
+        "Defense-in-depth module-loader guard failed to initialize; refusing to execute Python worker",
+    };
+  }
+
   const backend = new SyncFsBackend(input.sharedBuffer);
 
   // Load the CPython Emscripten factory function
-  const createPythonModule = require(`${cpythonDir}/python.cjs`) as (
+  assertApprovedPath(cpythonEntryPath, "cpython-entry");
+  // @banned-pattern-ignore: path validated by assertApprovedPath allowlist above
+  const createPythonModule = require(cpythonEntryPath) as (
     config: Record<string, unknown>,
   ) => Promise<EmscriptenModule>;
 
@@ -1227,7 +1292,7 @@ async function runPython(input: WorkerInput): Promise<WorkerOutput> {
   // Activate defense-in-depth after WASM loads (first call only).
   // Subsequent calls reuse the cached compiled module, so webassembly
   // exclusion in defense config handles that.
-  activateDefense();
+  activateDefense(input.protocolToken);
 
   // Module is ready - enable direct backend output and flush any buffered output
   moduleReady = true;
@@ -1329,7 +1394,7 @@ let defense: WorkerDefenseInDepth | null = null;
  * Called AFTER CPython WASM loads (WASM compilation needs unrestricted JS).
  * CPython Emscripten has no JS bridge, so fewer exclusions needed than Pyodide.
  */
-function activateDefense(): void {
+function activateDefense(protocolToken: string): void {
   if (defense) return;
 
   // Degrade performance to ms precision BEFORE defense activates.
@@ -1348,7 +1413,10 @@ function activateDefense(): void {
     "python3-worker",
     "onViolation",
     (v: unknown) => {
-      postWorkerMessage({ type: "security-violation", violation: v });
+      postWorkerMessage(protocolToken, {
+        type: "security-violation",
+        violation: v,
+      });
     },
   );
 
@@ -1370,26 +1438,33 @@ function activateDefense(): void {
 
 // Catch unhandled errors in the worker
 process.on("uncaughtException", (e) => {
+  if (!activeProtocolToken) {
+    return;
+  }
   const message = sanitizeErrorMessage((e as Error).message);
-  postWorkerMessage({
+  postWorkerMessage(activeProtocolToken, {
     success: false,
     error: `Worker uncaught exception: ${message}`,
   });
 });
+
+let activeProtocolToken: string | null = null;
 
 // Handle execution from parent.
 // Each worker runs once with workerData (EXIT_RUNTIME means CPython
 // can only callMain once). Stdlib zip is cached at module scope.
 if (parentPort) {
   if (workerData) {
-    runPython(workerData as WorkerInput)
+    const input = workerData as WorkerInput;
+    activeProtocolToken = input.protocolToken;
+    runPython(input)
       .then((result) => {
         result.defenseStats = defense?.getStats();
-        postWorkerMessage(result);
+        postWorkerMessage(input.protocolToken, result);
       })
       .catch((e) => {
         const message = sanitizeUnknownError(e);
-        postWorkerMessage({
+        postWorkerMessage(input.protocolToken, {
           success: false,
           error: message,
           defenseStats: defense?.getStats(),

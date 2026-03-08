@@ -17,13 +17,16 @@
  * - Violations are recorded even in audit mode
  *
  * Dynamic import() mitigation (three layers):
- * 1. Module._resolveFilename blocked — catches file-based specifiers
- * 2. ESM loader hooks (module.register/registerHooks) — blocks data:/blob: URLs
+ * 1. ESM loader hooks (module.register/registerHooks):
+ *    - block data:/blob: URLs process-wide
+ *    - block Node.js builtin specifiers in untrusted sandbox context
+ * 2. Module._resolveFilename blocked — catches file-based specifiers
  * 3. Filesystem restrictions — OverlayFs writes to memory only
  *
- * Residual gap: On Node.js < 20.6 where module.register() is unavailable,
- * data: URL imports remain unblockable. For those deployments, use
- * --experimental-loader CLI hooks as an additional layer.
+ * Residual gap: On runtimes with only module.register() (no registerHooks),
+ * loader hooks run in a separate thread and cannot read AsyncLocalStorage
+ * context. In that mode, context-aware Node builtin import blocking is not
+ * available.
  */
 
 import { type BlockedGlobal, getBlockedGlobals } from "./blocked-globals.js";
@@ -179,6 +182,12 @@ function resolveConfig(
 export class DefenseInDepthBox {
   private static instance: DefenseInDepthBox | null = null;
   private static importHooksRegistered = false;
+  /**
+   * Tracks active trusted scopes per executionId.
+   * Needed for async machinery that may not preserve `store.trusted` all the
+   * way into Node.js internals (e.g. dynamic import resolution hooks).
+   */
+  private static trustedExecutionDepth = new Map<string, number>();
 
   private config: DefenseInDepthConfig;
   private refCount = 0;
@@ -240,6 +249,7 @@ export class DefenseInDepthBox {
       DefenseInDepthBox.instance.forceDeactivate();
       DefenseInDepthBox.instance = null;
     }
+    DefenseInDepthBox.trustedExecutionDepth.clear();
   }
 
   /**
@@ -256,6 +266,30 @@ export class DefenseInDepthBox {
   static getCurrentExecutionId(): string | undefined {
     if (!executionContext) return undefined;
     return executionContext?.getStore()?.executionId;
+  }
+
+  private static enterTrustedScope(executionId: string): void {
+    const current =
+      DefenseInDepthBox.trustedExecutionDepth.get(executionId) ?? 0;
+    DefenseInDepthBox.trustedExecutionDepth.set(executionId, current + 1);
+  }
+
+  private static leaveTrustedScope(executionId: string): void {
+    const current = DefenseInDepthBox.trustedExecutionDepth.get(executionId);
+    if (!current) return;
+    if (current === 1) {
+      DefenseInDepthBox.trustedExecutionDepth.delete(executionId);
+      return;
+    }
+    DefenseInDepthBox.trustedExecutionDepth.set(executionId, current - 1);
+  }
+
+  private static isTrustedScopeActive(
+    executionId: string | undefined,
+  ): boolean {
+    if (!executionId) return false;
+    const depth = DefenseInDepthBox.trustedExecutionDepth.get(executionId);
+    return (depth ?? 0) > 0;
   }
 
   /**
@@ -305,24 +339,36 @@ export class DefenseInDepthBox {
     fn: (...args: TArgs) => TResult,
   ): (...args: TArgs) => TResult {
     if (!executionContext) return fn;
+    const box = DefenseInDepthBox.instance;
     const current = executionContext.getStore();
     const executionId =
       current?.sandboxActive === true
         ? current.executionId
-        : DefenseInDepthBox.instance?.getPreferredActiveExecutionId();
+        : box?.getPreferredActiveExecutionId();
     if (!executionId) return fn;
 
-    const captured = DefenseInDepthBox.instance?.getCachedContext(
-      executionId,
-    ) ?? {
+    const captured = box?.getCachedContext(executionId) ?? {
       sandboxActive: true as const,
       executionId,
     };
-    return runInContext.bind(
-      null,
-      captured,
-      fn as (...args: unknown[]) => unknown,
-    ) as (...args: TArgs) => TResult;
+    return ((...args: TArgs): TResult => {
+      const activeBox = DefenseInDepthBox.instance;
+      if (activeBox && !activeBox.isExecutionIdActive(executionId)) {
+        activeBox.recordViolation(
+          "bound_callback_after_deactivate",
+          "bound callback",
+          "Bound callback blocked after originating execution was deactivated",
+        );
+        if (!activeBox.config.auditMode) {
+          return undefined as TResult;
+        }
+      }
+      return runInContext(
+        captured,
+        fn as (...args: unknown[]) => unknown,
+        ...args,
+      ) as TResult;
+    }) as (...args: TArgs) => TResult;
   }
 
   /**
@@ -510,7 +556,28 @@ export class DefenseInDepthBox {
     if (!executionContext) return fn();
     const current = executionContext.getStore();
     if (!current) return fn();
-    return executionContext.run({ ...current, trusted: true }, fn);
+    const { executionId } = current;
+    return executionContext.run({ ...current, trusted: true }, () => {
+      DefenseInDepthBox.enterTrustedScope(executionId);
+      try {
+        const result = fn();
+        if (
+          typeof result === "object" &&
+          result !== null &&
+          "finally" in result &&
+          typeof result.finally === "function"
+        ) {
+          return result.finally(() => {
+            DefenseInDepthBox.leaveTrustedScope(executionId);
+          });
+        }
+        DefenseInDepthBox.leaveTrustedScope(executionId);
+        return result;
+      } catch (error) {
+        DefenseInDepthBox.leaveTrustedScope(executionId);
+        throw error;
+      }
+    });
   }
 
   /**
@@ -520,7 +587,15 @@ export class DefenseInDepthBox {
     if (!executionContext) return fn();
     const current = executionContext.getStore();
     if (!current) return fn();
-    return executionContext.run({ ...current, trusted: true }, fn);
+    const { executionId } = current;
+    return executionContext.run({ ...current, trusted: true }, async () => {
+      DefenseInDepthBox.enterTrustedScope(executionId);
+      try {
+        return await fn();
+      } finally {
+        DefenseInDepthBox.leaveTrustedScope(executionId);
+      }
+    });
   }
 
   /**
@@ -537,7 +612,10 @@ export class DefenseInDepthBox {
       return false;
     }
     // Trusted infrastructure code (runTrusted) bypasses blocking
-    if (store.trusted) {
+    if (
+      store.trusted ||
+      DefenseInDepthBox.isTrustedScopeActive(store.executionId)
+    ) {
       return false;
     }
     return true;
@@ -826,6 +904,10 @@ export class DefenseInDepthBox {
 
     // Protect process.execPath (string primitive, needs defineProperty)
     this.protectProcessExecPath();
+
+    // Lock well-known Symbol properties to prevent hijacking of
+    // Array.map/filter, for...of, type coercion, and instanceof.
+    this.lockWellKnownSymbols();
 
     // Note: process.connected is NOT blocked in the main thread — it is a
     // boolean primitive used by Node.js IPC internals and blocking it
@@ -1356,11 +1438,74 @@ export class DefenseInDepthBox {
   }
 
   /**
-   * Block dynamic import() of data: and blob: URLs via ESM loader hooks.
+   * Lock well-known Symbol properties on built-in constructors/prototypes.
+   *
+   * Instead of freezing entire prototypes (which breaks Node.js internals),
+   * we make specific Symbol properties non-configurable so they can't be
+   * replaced. This prevents:
+   * - Symbol.species hijacking (controls .map/.filter/.slice return types)
+   * - Symbol.iterator hijacking (controls for...of and spread)
+   * - Symbol.toPrimitive hijacking (controls type coercion)
+   */
+  private lockWellKnownSymbols(): void {
+    const lock = (obj: object, sym: symbol): void => {
+      try {
+        const desc = Object.getOwnPropertyDescriptor(obj, sym);
+        if (desc?.configurable) {
+          if ("value" in desc) {
+            // Data descriptors must also be non-writable, otherwise assignment
+            // can still replace the Symbol property value.
+            Object.defineProperty(obj, sym, {
+              ...desc,
+              configurable: false,
+              writable: false,
+            });
+            return;
+          }
+
+          Object.defineProperty(obj, sym, { ...desc, configurable: false });
+        }
+      } catch {
+        // Property may not exist on this object; best-effort
+      }
+    };
+
+    // Lock Symbol.species on constructors (controls derived object creation)
+    // biome-ignore lint/style/noRestrictedGlobals: intentional access to built-in RegExp constructor for security locking
+    for (const ctor of [Array, Map, Set, RegExp, Promise]) {
+      lock(ctor, Symbol.species);
+    }
+
+    // Lock Symbol.iterator on prototypes (controls for...of and spread)
+    for (const proto of [
+      Array.prototype,
+      String.prototype,
+      Map.prototype,
+      Set.prototype,
+    ]) {
+      lock(proto, Symbol.iterator);
+    }
+
+    // Lock Symbol.toPrimitive where defined (controls type coercion)
+    lock(Symbol.prototype, Symbol.toPrimitive);
+    lock(Date.prototype, Symbol.toPrimitive);
+  }
+
+  /**
+   * Block dynamic import() escape vectors via ESM loader hooks.
    *
    * Uses Node.js module.registerHooks() (23.5+, synchronous) or
    * module.register() (20.6+, async hooks in separate thread) to install
-   * ESM loader hooks that reject data: and blob: URL specifiers.
+   * ESM loader hooks that reject dangerous specifiers.
+   *
+   * registerHooks() runs in-thread and can read AsyncLocalStorage. We use it
+   * to block Node.js builtin specifiers (node:* and bare builtins) only in
+   * untrusted sandbox context while still allowing trusted infrastructure
+   * imports (runTrusted/runTrustedAsync).
+   *
+   * register() hooks run in a separate loader thread and cannot read
+   * AsyncLocalStorage. In that fallback mode, only data:/blob: blocking is
+   * enforced here.
    *
    * This is process-wide and permanent (hooks cannot be unregistered).
    * Only applied once per process regardless of how many DefenseInDepthBox
@@ -1374,8 +1519,12 @@ export class DefenseInDepthBox {
     if (IS_BROWSER || DefenseInDepthBox.importHooksRegistered) return;
 
     try {
+      const box = this;
+
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const mod = require("node:module") as {
+        builtinModules?: string[];
+        isBuiltin?: (specifier: string) => boolean;
         registerHooks?: (hooks: {
           resolve: (
             specifier: string,
@@ -1387,6 +1536,62 @@ export class DefenseInDepthBox {
           ) => { url: string };
         }) => void;
         register?: (specifier: string) => void;
+      };
+
+      // Normalize Node builtin module names once. Includes both root modules
+      // (fs) and first path segments (fs from fs/promises).
+      const builtinModules = new Set<string>();
+      for (const rawBuiltin of mod.builtinModules ?? []) {
+        const normalized = rawBuiltin.startsWith("node:")
+          ? rawBuiltin.slice("node:".length)
+          : rawBuiltin;
+        builtinModules.add(normalized);
+        const slashIndex = normalized.indexOf("/");
+        if (slashIndex > 0) {
+          builtinModules.add(normalized.slice(0, slashIndex));
+        }
+      }
+
+      const isNodeBuiltinSpecifier = (specifier: string): boolean => {
+        // Non-bare/URL specifiers are resolved through other defenses.
+        if (
+          specifier.startsWith("./") ||
+          specifier.startsWith("../") ||
+          specifier.startsWith("/") ||
+          specifier.startsWith("file:") ||
+          specifier.startsWith("data:") ||
+          specifier.startsWith("blob:") ||
+          specifier.startsWith("http:") ||
+          specifier.startsWith("https:")
+        ) {
+          return false;
+        }
+
+        const normalized = specifier.startsWith("node:")
+          ? specifier.slice("node:".length)
+          : specifier;
+
+        if (!normalized) return false;
+        if (typeof mod.isBuiltin === "function" && mod.isBuiltin(normalized)) {
+          return true;
+        }
+        if (builtinModules.has(normalized)) {
+          return true;
+        }
+        const slashIndex = normalized.indexOf("/");
+        return (
+          slashIndex > 0 && builtinModules.has(normalized.slice(0, slashIndex))
+        );
+      };
+
+      const shouldRecordAuditViolation = (): boolean => {
+        const store = executionContext?.getStore();
+        return (
+          box.config.auditMode === true &&
+          store?.sandboxActive === true &&
+          store.trusted !== true &&
+          !DefenseInDepthBox.isTrustedScopeActive(store.executionId)
+        );
       };
 
       // Prefer registerHooks() (Node.js 23.5+) — synchronous, in-thread
@@ -1401,6 +1606,25 @@ export class DefenseInDepthBox {
                 `dynamic import of ${specifier.startsWith("data:") ? "data:" : "blob:"} URLs is blocked by defense-in-depth`,
               );
             }
+            if (isNodeBuiltinSpecifier(specifier)) {
+              const path = `import(${specifier})`;
+              const message = `dynamic import of Node.js builtin '${specifier}' is blocked during script execution`;
+              if (box.shouldBlock()) {
+                const violation = box.recordViolation(
+                  "dynamic_import_builtin",
+                  path,
+                  message,
+                );
+                throw new SecurityViolationError(message, violation);
+              }
+              if (shouldRecordAuditViolation()) {
+                box.recordViolation(
+                  "dynamic_import_builtin",
+                  path,
+                  `dynamic import of Node.js builtin '${specifier}' called (audit mode)`,
+                );
+              }
+            }
             return nextResolve(specifier, context);
           },
         });
@@ -1410,6 +1634,9 @@ export class DefenseInDepthBox {
 
       // Fall back to register() (Node.js 20.6+) — async, separate thread
       if (typeof mod.register === "function") {
+        // NOTE: register() hooks run in a separate thread and cannot access
+        // AsyncLocalStorage context, so context-aware builtin import blocking
+        // is only possible via registerHooks().
         // Inline the hooks as a data: URL module. This is loaded BEFORE
         // the hooks become active, so it doesn't block its own loading.
         const hookCode = [

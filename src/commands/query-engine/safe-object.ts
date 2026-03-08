@@ -33,6 +33,21 @@ const EXTENDED_DANGEROUS_KEYS = new Set([
 ]);
 
 /**
+ * Assert that a value is a plain object (not an array) with a null prototype.
+ * Catches bugs where unsanitized or wrong-type values leak into safe helpers.
+ */
+function assertSafeObject(obj: unknown, caller: string): void {
+  if (Array.isArray(obj)) {
+    throw new TypeError(`${caller}: expected object, got array`);
+  }
+  if (Object.getPrototypeOf(obj) !== null) {
+    throw new TypeError(
+      `${caller}: expected null-prototype object, got prototypal object`,
+    );
+  }
+}
+
+/**
  * Check if a key is safe to use for object property access/assignment.
  * Returns true if the key is safe, false if it could cause prototype pollution.
  */
@@ -53,6 +68,7 @@ export function isSafeKeyStrict(key: string): boolean {
  * Returns undefined if the key is dangerous or doesn't exist as own property.
  */
 export function safeGet<T>(obj: Record<string, T>, key: string): T | undefined {
+  assertSafeObject(obj, "safeGet");
   if (!isSafeKey(key)) {
     return undefined;
   }
@@ -71,6 +87,7 @@ export function safeSet<T>(
   key: string,
   value: T,
 ): void {
+  assertSafeObject(obj, "safeSet");
   if (isSafeKey(key)) {
     obj[key] = value;
   }
@@ -83,6 +100,7 @@ export function safeSet<T>(
  * Ignores dangerous keys.
  */
 export function safeDelete<T>(obj: Record<string, T>, key: string): void {
+  assertSafeObject(obj, "safeDelete");
   if (isSafeKey(key)) {
     delete obj[key];
   }
@@ -110,6 +128,8 @@ export function safeAssign<T>(
   target: Record<string, T>,
   source: Record<string, T>,
 ): Record<string, T> {
+  assertSafeObject(target, "safeAssign target");
+  assertSafeObject(source, "safeAssign source");
   for (const key of Object.keys(source)) {
     safeSet(target, key, source[key]);
   }
@@ -134,7 +154,62 @@ export function safeCopy<T extends Record<string, unknown>>(obj: T): T {
  * Check if object has own property safely (not inherited from prototype).
  */
 export function safeHasOwn(obj: object, key: string): boolean {
+  assertSafeObject(obj, "safeHasOwn");
   return Object.hasOwn(obj, key);
+}
+
+/**
+ * SECURITY: Recursively convert parsed data to null-prototype objects.
+ * Call this on ALL data from untrusted parsers (JSON.parse, YAML.parse, etc.)
+ * to eliminate prototype chain access at the boundary.
+ * All keys (including __proto__, constructor) are preserved as own properties —
+ * the defense is null-prototype, not key filtering.
+ */
+export function sanitizeParsedData(value: unknown): unknown {
+  const seen = new WeakMap<object, unknown>();
+
+  const sanitize = (current: unknown): unknown => {
+    if (current === null || typeof current !== "object") return current;
+
+    // Preserve Date objects (e.g. TOML datetimes) — they have no own keys
+    // and destroying them would break datetime roundtripping.
+    if (current instanceof Date) return current;
+
+    const cached = seen.get(current);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    if (Array.isArray(current)) {
+      const sanitizedArray: unknown[] = [];
+      seen.set(current, sanitizedArray);
+      for (const item of current) {
+        sanitizedArray.push(sanitize(item));
+      }
+      return sanitizedArray;
+    }
+
+    const result: Record<string, unknown> = Object.create(null);
+    seen.set(current, result);
+    // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
+    for (const key of Object.keys(current as Record<string, unknown>)) {
+      result[key] = sanitize((current as Record<string, unknown>)[key]);
+    }
+    return result;
+  };
+
+  return sanitize(value);
+}
+
+/**
+ * Type-safe cast from unknown to Record for property access.
+ * Returns null if the value is not a non-array object.
+ */
+export function asQueryRecord(value: unknown): Record<string, unknown> | null {
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
 }
 
 /**

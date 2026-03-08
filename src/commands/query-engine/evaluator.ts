@@ -26,6 +26,7 @@ import {
 import type { AstNode, DestructurePattern } from "./parser.js";
 import { deletePath, setPath } from "./path-operations.js";
 import {
+  asQueryRecord,
   isSafeKey,
   nullPrototypeCopy,
   nullPrototypeMerge,
@@ -192,10 +193,8 @@ function bindPattern(
     }
 
     case "object": {
-      if (value === null || typeof value !== "object" || Array.isArray(value)) {
-        return null;
-      }
-      const obj = value as Record<string, unknown>;
+      const obj = asQueryRecord(value);
+      if (!obj) return null;
       let newCtx = ctx;
       for (const field of pattern.fields) {
         // Get the key - could be a string or a computed expression
@@ -237,8 +236,8 @@ function getValueAtPath(
         }
       } else {
         // Defense against prototype pollution: only access own properties
-        const obj = v as Record<string, unknown>;
-        if (typeof key === "string" && Object.hasOwn(obj, key)) {
+        const obj = asQueryRecord(v);
+        if (obj && typeof key === "string" && Object.hasOwn(obj, key)) {
           v = obj[key];
         } else {
           return undefined;
@@ -430,10 +429,10 @@ export function evaluate(
     case "Field": {
       const bases = ast.base ? evaluate(value, ast.base, ctx) : [value];
       return bases.flatMap((v) => {
-        if (v && typeof v === "object" && !Array.isArray(v)) {
+        const obj = asQueryRecord(v);
+        if (obj) {
           // Defense against prototype pollution: only return own properties
           // This prevents access to inherited methods like __defineGetter__, constructor, etc.
-          const obj = v as Record<string, unknown>;
           if (!Object.hasOwn(obj, ast.name)) {
             return [null];
           }
@@ -466,15 +465,10 @@ export function evaluate(
             const i = truncated < 0 ? v.length + truncated : truncated;
             return i >= 0 && i < v.length ? [v[i]] : [null];
           }
-          if (
-            typeof idx === "string" &&
-            v &&
-            typeof v === "object" &&
-            !Array.isArray(v)
-          ) {
+          if (typeof idx === "string") {
             // Defense against prototype pollution: only return own properties
-            const obj = v as Record<string, unknown>;
-            if (!Object.hasOwn(obj, idx)) {
+            const obj = asQueryRecord(v);
+            if (!obj || !Object.hasOwn(obj, idx)) {
               return [null];
             }
             return [obj[idx]];
@@ -1436,18 +1430,12 @@ function evalBinaryOp(
           if (typeof l === "number" && typeof r === "number") return l * r;
           if (typeof l === "string" && typeof r === "number")
             return l.repeat(r);
-          if (
-            l &&
-            r &&
-            typeof l === "object" &&
-            typeof r === "object" &&
-            !Array.isArray(l) &&
-            !Array.isArray(r)
-          ) {
-            return deepMerge(
-              l as Record<string, unknown>,
-              r as Record<string, unknown>,
-            );
+          {
+            const lObj = asQueryRecord(l);
+            const rObj = asQueryRecord(r);
+            if (lObj && rObj) {
+              return deepMerge(lObj, rObj);
+            }
           }
           return null;
         case "/":

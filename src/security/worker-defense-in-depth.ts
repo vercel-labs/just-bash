@@ -532,6 +532,51 @@ export class WorkerDefenseInDepth {
     if (!excludeTypes.has("process_connected")) {
       this.protectProcessConnected();
     }
+
+    // Lock well-known Symbol properties to prevent hijacking
+    this.lockWellKnownSymbols();
+  }
+
+  /**
+   * Lock well-known Symbol properties on built-in constructors/prototypes.
+   */
+  private lockWellKnownSymbols(): void {
+    const lock = (obj: object, sym: symbol): void => {
+      try {
+        const desc = Object.getOwnPropertyDescriptor(obj, sym);
+        if (desc?.configurable) {
+          if ("value" in desc) {
+            // Data descriptors must also be non-writable, otherwise assignment
+            // can still replace the Symbol property value.
+            Object.defineProperty(obj, sym, {
+              ...desc,
+              configurable: false,
+              writable: false,
+            });
+            return;
+          }
+
+          Object.defineProperty(obj, sym, { ...desc, configurable: false });
+        }
+      } catch {
+        // Best-effort
+      }
+    };
+
+    // biome-ignore lint/style/noRestrictedGlobals: intentional access to built-in RegExp constructor for security locking
+    for (const ctor of [Array, Map, Set, RegExp, Promise]) {
+      lock(ctor, Symbol.species);
+    }
+    for (const proto of [
+      Array.prototype,
+      String.prototype,
+      Map.prototype,
+      Set.prototype,
+    ]) {
+      lock(proto, Symbol.iterator);
+    }
+    lock(Symbol.prototype, Symbol.toPrimitive);
+    lock(Date.prototype, Symbol.toPrimitive);
   }
 
   /**

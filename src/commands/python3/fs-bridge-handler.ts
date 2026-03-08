@@ -414,6 +414,7 @@ export class FsBridgeHandler {
     const requestJson = this.protocol.getDataAsString();
 
     try {
+      // @banned-pattern-ignore: fallback default for HTTP options, accessed only by known keys below
       const request = requestJson ? JSON.parse(requestJson) : {};
       const result = await this.secureFetch(url, {
         method: request.method,

@@ -6,6 +6,7 @@
 
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
+import { asQueryRecord } from "../safe-object.js";
 import type { QueryValue } from "../value-operations.js";
 
 type EvalFn = (
@@ -66,10 +67,10 @@ export function evalPathBuiltin(
           }
           if (Array.isArray(current) && typeof key === "number") {
             current = current[key];
-          } else if (typeof current === "object" && typeof key === "string") {
+          } else if (typeof key === "string") {
             // Defense against prototype pollution: only access own properties
-            const obj = current as Record<string, unknown>;
-            if (!Object.hasOwn(obj, key)) {
+            const obj = asQueryRecord(current);
+            if (!obj || !Object.hasOwn(obj, key)) {
               current = null;
               break;
             }
@@ -139,10 +140,10 @@ export function evalPathBuiltin(
           if (current === null || current === undefined) break;
           if (Array.isArray(current) && typeof key === "number") {
             current = current[key];
-          } else if (typeof current === "object" && typeof key === "string") {
+          } else if (typeof key === "string") {
             // Defense against prototype pollution: only access own properties
-            const obj = current as Record<string, unknown>;
-            if (!Object.hasOwn(obj, key)) {
+            const obj = asQueryRecord(current);
+            if (!obj || !Object.hasOwn(obj, key)) {
               current = null;
               break;
             }
@@ -183,10 +184,10 @@ export function evalPathBuiltin(
           for (const k of p) {
             if (Array.isArray(v) && typeof k === "number") {
               v = v[k];
-            } else if (v && typeof v === "object" && typeof k === "string") {
+            } else if (typeof k === "string") {
               // Defense against prototype pollution: only access own properties
-              const obj = v as Record<string, unknown>;
-              if (!Object.hasOwn(obj, k)) {
+              const obj = asQueryRecord(v);
+              if (!obj || !Object.hasOwn(obj, k)) {
                 return false;
               }
               v = obj[k];

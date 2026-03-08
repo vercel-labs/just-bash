@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+
 /**
  * This file exists solely to test that the banned-patterns lint script
  * correctly detects all patterns and that ignore comments work properly.
@@ -88,5 +90,41 @@ const _dotPathReduce = "a.b".split(".").reduce((acc, part) => `${acc}.${part}`);
 // @banned-pattern-ignore: test file for banned-patterns script
 const _reduceWithPlainObjectSeed = ["x"].reduce((acc) => acc, {});
 
-// Make this a module
-export {};
+// Pattern 18: Proxy.revocable() usage
+const _proxyRevocableTest: {
+  proxy: Record<string, unknown>;
+  revoke: () => void;
+} =
+  // @banned-pattern-ignore: test file for banned-patterns script
+  Proxy.revocable(Object.create(null), Object.create(null));
+
+// Pattern 19: Dangerous global constructor shadowing
+// @banned-pattern-ignore: test file for banned-patterns script
+globalThis.Function = (() => 1) as never;
+
+// Pattern 20: Dynamic import() with non-literal specifier
+// @banned-pattern-ignore: test file for banned-patterns script
+const _dynamicImportSpecifier = "./not-real-module.js";
+void import(_dynamicImportSpecifier);
+
+// Pattern 20b: Dynamic require() with non-literal specifier
+const _dynamicRequireSpecifier = "child_process";
+// @banned-pattern-ignore: test file for banned-patterns script
+require(_dynamicRequireSpecifier);
+
+// Pattern 21: createRequire() usage outside approved worker module
+// @banned-pattern-ignore: test file for banned-patterns script
+const _requireForPatternTest = createRequire(import.meta.url);
+
+// Pattern 22: Module._load/_resolveFilename access
+const _moduleLikeForPatternTest = {
+  _load: () => "ok",
+  _resolveFilename: () => "ok",
+};
+// @banned-pattern-ignore: test file for banned-patterns script
+void _moduleLikeForPatternTest._load();
+// @banned-pattern-ignore: test file for banned-patterns script
+void _moduleLikeForPatternTest._resolveFilename();
+
+// Pattern 23: Raw Record<string, unknown> cast in query engine
+// Scoped to src/commands/query-engine/ via filePattern — tested by lint probe in value-operations.ts

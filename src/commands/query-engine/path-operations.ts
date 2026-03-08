@@ -4,7 +4,12 @@
  * Utility functions for path-based operations on query values.
  */
 
-import { isSafeKey, nullPrototypeCopy, safeSet } from "./safe-object.js";
+import {
+  asQueryRecord,
+  isSafeKey,
+  nullPrototypeCopy,
+  safeSet,
+} from "./safe-object.js";
 import type { QueryValue } from "./value-operations.js";
 
 /**
@@ -51,19 +56,12 @@ export function setPath(
     return value ?? Object.create(null);
   }
 
-  const obj =
-    value && typeof value === "object" && !Array.isArray(value)
-      ? nullPrototypeCopy(value)
-      : Object.create(null);
-  // @banned-pattern-ignore: protected by Object.hasOwn() check before access
-  const currentVal = Object.hasOwn(obj, head)
-    ? (obj as Record<string, unknown>)[head]
-    : undefined;
-  safeSet(
-    obj as Record<string, unknown>,
-    head,
-    setPath(currentVal, rest, newVal),
-  );
+  const rec = asQueryRecord(value);
+  const obj: Record<string, unknown> = rec
+    ? nullPrototypeCopy(rec)
+    : Object.create(null);
+  const currentVal = Object.hasOwn(obj, head) ? obj[head] : undefined;
+  safeSet(obj, head, setPath(currentVal, rest, newVal));
   return obj;
 }
 

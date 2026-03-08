@@ -20,6 +20,7 @@ import {
   parse,
   type QueryValue,
 } from "../query-engine/index.js";
+import { sanitizeParsedData } from "../query-engine/safe-object.js";
 
 /**
  * Parse a JSON stream (concatenated JSON values).
@@ -68,7 +69,7 @@ function parseJsonStream(input: string): unknown[] {
         );
       }
 
-      results.push(JSON.parse(input.slice(startPos, pos)));
+      results.push(sanitizeParsedData(JSON.parse(input.slice(startPos, pos))));
     } else if (char === '"') {
       // Parse string
       let isEscaped = false;
@@ -85,11 +86,11 @@ function parseJsonStream(input: string): unknown[] {
         }
         pos++;
       }
-      results.push(JSON.parse(input.slice(startPos, pos)));
+      results.push(sanitizeParsedData(JSON.parse(input.slice(startPos, pos))));
     } else if (char === "-" || (char >= "0" && char <= "9")) {
       // Parse number
       while (pos < len && /[\d.eE+-]/.test(input[pos])) pos++;
-      results.push(JSON.parse(input.slice(startPos, pos)));
+      results.push(sanitizeParsedData(JSON.parse(input.slice(startPos, pos))));
     } else if (input.slice(pos, pos + 4) === "true") {
       results.push(true);
       pos += 4;

@@ -7,9 +7,8 @@
  * IMPORTANT: This is a SECONDARY defense layer. The primary security comes
  * from proper sandboxing and architectural constraints.
  *
- * NOTE: Dynamic import() CANNOT be blocked by this approach. See the
- * "KNOWN LIMITATION" section in defense-in-depth-box.ts for details
- * and recommended mitigations.
+ * NOTE: Dynamic import() is handled separately in defense-in-depth-box.ts via
+ * ESM loader hooks. This module only defines global/property patching.
  */
 
 import type { SecurityViolationType } from "./types.js";
@@ -211,6 +210,34 @@ export function getBlockedGlobals(): BlockedGlobal[] {
       strategy: "throw",
       reason: "process.setgid could escalate privileges",
     },
+    {
+      prop: "seteuid",
+      target: process,
+      violationType: "process_setuid",
+      strategy: "throw",
+      reason: "process.seteuid could escalate effective user privileges",
+    },
+    {
+      prop: "setegid",
+      target: process,
+      violationType: "process_setuid",
+      strategy: "throw",
+      reason: "process.setegid could escalate effective group privileges",
+    },
+    {
+      prop: "initgroups",
+      target: process,
+      violationType: "process_setuid",
+      strategy: "throw",
+      reason: "process.initgroups could modify supplementary group IDs",
+    },
+    {
+      prop: "setgroups",
+      target: process,
+      violationType: "process_setuid",
+      strategy: "throw",
+      reason: "process.setgroups could modify supplementary group IDs",
+    },
 
     // File permission manipulation
     {
@@ -250,6 +277,35 @@ export function getBlockedGlobals(): BlockedGlobal[] {
       violationType: "process_chdir",
       strategy: "throw",
       reason: "process.chdir could confuse the interpreter's CWD tracking",
+    },
+
+    // Diagnostic report (leaks full environment, host paths, system info)
+    {
+      prop: "report",
+      target: process,
+      violationType: "process_report",
+      strategy: "throw",
+      reason:
+        "process.report could disclose full environment, host paths, and system info",
+    },
+
+    // Environment file loading (Node 21.7+)
+    {
+      prop: "loadEnvFile",
+      target: process,
+      violationType: "process_env",
+      strategy: "throw",
+      reason: "process.loadEnvFile could load env files bypassing env proxy",
+    },
+
+    // Exception handler manipulation
+    {
+      prop: "setUncaughtExceptionCaptureCallback",
+      target: process,
+      violationType: "process_exception_handler",
+      strategy: "throw",
+      reason:
+        "setUncaughtExceptionCaptureCallback could intercept security errors",
     },
 
     // IPC communication vectors (may be undefined in non-IPC contexts)

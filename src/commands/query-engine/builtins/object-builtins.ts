@@ -6,7 +6,12 @@
 
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
-import { isSafeKey, safeSet } from "../safe-object.js";
+import {
+  asQueryRecord,
+  isSafeKey,
+  safeSet,
+  sanitizeParsedData,
+} from "../safe-object.js";
 import { getValueDepth, type QueryValue } from "../value-operations.js";
 
 // Default max depth for nested structures
@@ -66,22 +71,25 @@ export function evalObjectBuiltin(
       );
     }
 
-    case "to_entries":
-      if (value && typeof value === "object" && !Array.isArray(value)) {
+    case "to_entries": {
+      const toEntriesObj = asQueryRecord(value);
+      if (toEntriesObj) {
         return [
-          Object.entries(value as Record<string, unknown>).map(
-            ([key, val]) => ({ key, value: val }),
-          ),
+          Object.entries(toEntriesObj).map(([key, val]) => ({
+            key,
+            value: val,
+          })),
         ];
       }
       return [null];
+    }
 
     case "from_entries":
       if (Array.isArray(value)) {
         const result: Record<string, unknown> = Object.create(null);
         for (const item of value) {
-          if (item && typeof item === "object") {
-            const obj = item as Record<string, unknown>;
+          const obj = asQueryRecord(item);
+          if (obj) {
             // jq supports: key, Key, name, Name, k for the key
             const key = obj.key ?? obj.Key ?? obj.name ?? obj.Name ?? obj.k;
             // jq supports: value, Value, v for the value
@@ -101,18 +109,17 @@ export function evalObjectBuiltin(
 
     case "with_entries": {
       if (args.length === 0) return [value];
-      if (value && typeof value === "object" && !Array.isArray(value)) {
-        const entries = Object.entries(value as Record<string, unknown>).map(
-          ([key, val]) => ({
-            key,
-            value: val,
-          }),
-        );
+      const withEntriesObj = asQueryRecord(value);
+      if (withEntriesObj) {
+        const entries = Object.entries(withEntriesObj).map(([key, val]) => ({
+          key,
+          value: val,
+        }));
         const mapped = entries.flatMap((e) => evaluate(e, args[0], ctx));
         const result: Record<string, unknown> = Object.create(null);
         for (const item of mapped) {
-          if (item && typeof item === "object") {
-            const obj = item as Record<string, unknown>;
+          const obj = asQueryRecord(item);
+          if (obj) {
             const key = obj.key ?? obj.name ?? obj.k;
             const val = obj.value ?? obj.v;
             if (key !== undefined) {
@@ -190,7 +197,7 @@ export function evalObjectBuiltin(
           return [Number.NEGATIVE_INFINITY];
         }
         try {
-          return [JSON.parse(value)];
+          return [sanitizeParsedData(JSON.parse(value))];
         } catch {
           throw new Error(`Invalid JSON: ${value}`);
         }
@@ -299,7 +306,7 @@ export function evalObjectBuiltin(
 
         // Auto-create root structure based on first path element
         if (result === null) {
-          result = typeof path[0] === "number" ? [] : {};
+          result = typeof path[0] === "number" ? [] : Object.create(null);
         }
 
         // Navigate to parent and set value
@@ -313,22 +320,25 @@ export function evalObjectBuiltin(
               current.push(null);
             }
             if (current[key] === null) {
-              current[key] = typeof nextKey === "number" ? [] : {};
+              current[key] =
+                typeof nextKey === "number" ? [] : Object.create(null);
             }
             current = current[key];
-          } else if (
-            current &&
-            typeof current === "object" &&
-            !Array.isArray(current)
-          ) {
-            const strKey = String(key);
-            // Defense against prototype pollution: skip dangerous keys
-            if (!isSafeKey(strKey)) continue;
-            const obj = current as Record<string, unknown>;
-            if (obj[strKey] === null || obj[strKey] === undefined) {
-              safeSet(obj, strKey, typeof nextKey === "number" ? [] : {});
+          } else {
+            const obj = asQueryRecord(current);
+            if (obj) {
+              const strKey = String(key);
+              // Defense against prototype pollution: skip dangerous keys
+              if (!isSafeKey(strKey)) continue;
+              if (obj[strKey] === null || obj[strKey] === undefined) {
+                safeSet(
+                  obj,
+                  strKey,
+                  typeof nextKey === "number" ? [] : Object.create(null),
+                );
+              }
+              current = obj[strKey] as QueryValue;
             }
-            current = obj[strKey] as QueryValue;
           }
         }
 
@@ -339,15 +349,14 @@ export function evalObjectBuiltin(
             current.push(null);
           }
           current[lastKey] = val;
-        } else if (
-          current &&
-          typeof current === "object" &&
-          !Array.isArray(current)
-        ) {
-          const strLastKey = String(lastKey);
-          // Defense against prototype pollution: skip dangerous keys
-          if (isSafeKey(strLastKey)) {
-            safeSet(current as Record<string, unknown>, strLastKey, val);
+        } else {
+          const lastObj = asQueryRecord(current);
+          if (lastObj) {
+            const strLastKey = String(lastKey);
+            // Defense against prototype pollution: skip dangerous keys
+            if (isSafeKey(strLastKey)) {
+              safeSet(lastObj, strLastKey, val);
+            }
           }
         }
       }

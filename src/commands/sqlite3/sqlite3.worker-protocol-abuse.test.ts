@@ -6,9 +6,10 @@ import { _internals, sqlite3Command } from "./sqlite3.js";
 
 type WorkerScript = (worker: {
   emit: (event: string, payload?: unknown) => void;
+  emitAuthenticated: (event: string, payload: Record<string, unknown>) => void;
 }) => void;
 
-function createMockWorker(script: WorkerScript) {
+function createMockWorker(script: WorkerScript, protocolToken: string) {
   const handlers = new Map<string, Array<(payload?: unknown) => void>>();
 
   const worker = {
@@ -30,6 +31,15 @@ function createMockWorker(script: WorkerScript) {
       emit: (event: string, payload?: unknown) => {
         const list = handlers.get(event) ?? [];
         for (const cb of list) cb(payload);
+      },
+      emitAuthenticated: (event: string, payload: Record<string, unknown>) => {
+        const message = Object.create(null) as Record<string, unknown>;
+        for (const [key, value] of Object.entries(payload)) {
+          message[key] = value;
+        }
+        message.protocolToken = protocolToken;
+        const list = handlers.get(event) ?? [];
+        for (const cb of list) cb(message);
       },
     });
   });
@@ -59,13 +69,13 @@ describe("sqlite3 worker protocol abuse", () => {
   });
 
   it("surfaces security-violation as explicit error with violation type", async () => {
-    vi.spyOn(_internals, "createWorker").mockImplementation(() => {
+    vi.spyOn(_internals, "createWorker").mockImplementation((_path, input) => {
       return createMockWorker((worker) => {
-        worker.emit("message", {
+        worker.emitAuthenticated("message", {
           type: "security-violation",
           violation: { type: "module_load" },
         });
-      }) as never;
+      }, input.protocolToken) as never;
     });
 
     const result = await sqlite3Command.execute(
@@ -79,10 +89,10 @@ describe("sqlite3 worker protocol abuse", () => {
   });
 
   it("surfaces malformed success payloads as explicit command errors", async () => {
-    vi.spyOn(_internals, "createWorker").mockImplementation(() => {
+    vi.spyOn(_internals, "createWorker").mockImplementation((_path, input) => {
       return createMockWorker((worker) => {
-        worker.emit("message", { success: true });
-      }) as never;
+        worker.emitAuthenticated("message", { success: true });
+      }, input.protocolToken) as never;
     });
 
     const result = await sqlite3Command.execute(
@@ -98,14 +108,14 @@ describe("sqlite3 worker protocol abuse", () => {
   });
 
   it("sanitizes worker errors before forwarding to stderr", async () => {
-    vi.spyOn(_internals, "createWorker").mockImplementation(() => {
+    vi.spyOn(_internals, "createWorker").mockImplementation((_path, input) => {
       return createMockWorker((worker) => {
-        worker.emit("message", {
+        worker.emitAuthenticated("message", {
           success: false,
           error:
             "sqlite crash near /Users/attacker/private.db at node:internal/modules/run_main:99",
         });
-      }) as never;
+      }, input.protocolToken) as never;
     });
 
     const result = await sqlite3Command.execute(
@@ -141,15 +151,15 @@ describe("sqlite3 worker protocol abuse", () => {
 
   it("fails closed if worker callback runs without defense async context", async () => {
     vi.spyOn(DefenseInDepthBox, "isInSandboxedContext").mockReturnValue(false);
-    vi.spyOn(_internals, "createWorker").mockImplementation(() => {
+    vi.spyOn(_internals, "createWorker").mockImplementation((_path, input) => {
       return createMockWorker((worker) => {
-        worker.emit("message", {
+        worker.emitAuthenticated("message", {
           success: true,
           results: [],
           hasModifications: false,
           dbBuffer: null,
         });
-      }) as never;
+      }, input.protocolToken) as never;
     });
 
     const result = await sqlite3Command.execute(
@@ -160,6 +170,31 @@ describe("sqlite3 worker protocol abuse", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe(
       "sqlite3: sqlite3 worker message callback attempted outside defense context\n\nThis is a defense-in-depth measure and indicates a bug in just-bash. Please report this at security@vercel.com\n",
+    );
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("rejects forged worker messages with invalid protocol token", async () => {
+    vi.spyOn(_internals, "createWorker").mockImplementation((_path, input) => {
+      return createMockWorker((worker) => {
+        worker.emit("message", {
+          protocolToken: `${input.protocolToken}-forged`,
+          success: true,
+          results: [],
+          hasModifications: false,
+          dbBuffer: null,
+        });
+      }, input.protocolToken) as never;
+    });
+
+    const result = await sqlite3Command.execute(
+      [":memory:", "SELECT 1"],
+      createContext(),
+    );
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "sqlite3: Malformed worker response: invalid protocol token\n",
     );
     expect(result.exitCode).toBe(1);
   });

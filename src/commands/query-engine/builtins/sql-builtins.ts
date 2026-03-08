@@ -6,7 +6,12 @@
 
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
-import { isSafeKey, safeHasOwn, safeSet } from "../safe-object.js";
+import {
+  asQueryRecord,
+  isSafeKey,
+  safeHasOwn,
+  safeSet,
+} from "../safe-object.js";
 import type { QueryValue } from "../value-operations.js";
 
 type EvalFn = (
@@ -108,9 +113,8 @@ export function evalSqlBuiltin(
       // For each item in input array, lookup in idx using key_expr, return [item, lookup_value]
       // If not found, returns [item, null]
       if (args.length < 2) return [null];
-      const idx = evaluate(value, args[0], ctx)[0];
-      if (!idx || typeof idx !== "object" || Array.isArray(idx)) return [null];
-      const idxObj = idx as Record<string, unknown>;
+      const idxObj = asQueryRecord(evaluate(value, args[0], ctx)[0]);
+      if (!idxObj) return [null];
       if (!Array.isArray(value)) return [null];
       const results: QueryValue[] = [];
       for (const item of value) {

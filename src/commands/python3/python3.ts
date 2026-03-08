@@ -10,6 +10,7 @@
  * This command is Node.js only (uses worker_threads).
  */
 
+import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import type { IFileSystem } from "../../fs/interface.js";
@@ -180,7 +181,14 @@ export function _resetExecutionQueue(): void {
 
 const workerPath = fileURLToPath(new URL("./worker.js", import.meta.url));
 
-function normalizeWorkerMessage(msg: unknown): WorkerOutput {
+function generateWorkerProtocolToken(): string {
+  return randomBytes(16).toString("hex");
+}
+
+function normalizeWorkerMessage(
+  msg: unknown,
+  expectedProtocolToken: string,
+): WorkerOutput {
   if (!msg || typeof msg !== "object") {
     return {
       success: false,
@@ -189,11 +197,22 @@ function normalizeWorkerMessage(msg: unknown): WorkerOutput {
   }
 
   const raw = msg as {
+    protocolToken?: unknown;
     type?: unknown;
     violation?: { type?: unknown };
     success?: unknown;
     error?: unknown;
   };
+
+  if (
+    typeof raw.protocolToken !== "string" ||
+    raw.protocolToken !== expectedProtocolToken
+  ) {
+    return {
+      success: false,
+      error: "Malformed worker response: invalid protocol token",
+    };
+  }
 
   if (raw.type === "security-violation") {
     return {
@@ -273,7 +292,7 @@ function processNextExecution(queueState: QueueState): void {
     "python3",
     "worker message callback",
     (msg: unknown) => {
-      next.resolve(normalizeWorkerMessage(msg));
+      next.resolve(normalizeWorkerMessage(msg, next.input.protocolToken));
       queueState.isExecuting = false;
       worker.terminate();
       processNextExecution(queueState);
@@ -375,6 +394,7 @@ async function executePython(
   const queueState = getQueueState(ctx.fs);
 
   const workerInput: WorkerInput = {
+    protocolToken: generateWorkerProtocolToken(),
     sharedBuffer,
     pythonCode,
     cwd: ctx.cwd,
