@@ -105,22 +105,17 @@ export const envCommand: Command = {
     const cmdName = cmdArgs[0];
     const cmdRest = cmdArgs.slice(1);
 
-    // Quote arguments that contain spaces or special characters
-    const quotedArgs = cmdRest.map((arg) => {
-      if (/[\s"'\\$`!*?[\]{}|&;<>()]/.test(arg)) {
-        // Use single quotes, escaping existing single quotes
-        return `'${arg.replace(/'/g, "'\\''")}'`;
-      }
-      return arg;
-    });
+    // Single-quote every argument to suppress ALL shell metacharacters
+    // ($(), backticks, &&, |, ;, etc.). Embedded single quotes are escaped.
+    const sq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 
-    const command = [`command`, cmdName, ...quotedArgs].join(" ");
+    const command = [`command`, sq(cmdName), ...cmdRest.map(sq)].join(" ");
 
     // Create a modified context and execute
     // Note: We can't directly modify the context for exec, so we pass the env vars as prefix
     // This is a limitation - in a real implementation, exec would accept an env parameter
     const envPrefix = Object.entries(setVars)
-      .map(([k, v]) => `${k}="${v}"`)
+      .map(([k, v]) => `${k}=${sq(v)}`)
       .join(" ");
 
     const fullCommand = envPrefix ? `${envPrefix} ${command}` : command;

@@ -69,6 +69,32 @@ describe("printenv command", () => {
   });
 });
 
+describe("env command execution – shell injection (bug)", () => {
+  it("semicolon in command name must not run a second command", async () => {
+    const bash = new Bash();
+    // env.ts inserts cmdName raw into the shell string it passes to ctx.exec().
+    // Outer bash strips single-quotes, so env receives the literal string
+    // "echo hello; echo INJECTED" as cmdName.  env.ts assembles:
+    //   `command echo hello; echo INJECTED`
+    // ctx.exec splits on `;` and both commands execute today.
+    // Correct behaviour: the whole token is the command name – only "hello"
+    // (or nothing) should appear; "INJECTED" must not.
+    const result = await bash.exec("env 'echo hello; echo INJECTED'");
+    expect(result.stdout).not.toContain("INJECTED");
+  });
+
+  it("&& in command name must not chain a second command", async () => {
+    const bash = new Bash();
+    // env receives ":&&echo" as cmdName.  env.ts assembles:
+    //   `command :&&echo INJECTED_ANDAND`
+    // ctx.exec interprets `&&`, `:` succeeds, and `echo INJECTED_ANDAND` runs.
+    // Correct behaviour: ":&&echo" is an unknown command name; INJECTED_ANDAND
+    // must not appear in stdout.
+    const result = await bash.exec("env ':&&echo' INJECTED_ANDAND");
+    expect(result.stdout).not.toContain("INJECTED_ANDAND");
+  });
+});
+
 describe("env/printenv host isolation", () => {
   it("should not leak real host env vars via env", async () => {
     const bash = new Bash();
