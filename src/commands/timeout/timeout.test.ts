@@ -150,4 +150,33 @@ describe("timeout command", () => {
       expect(result.stdout).toContain("DURATION");
     });
   });
+
+  describe("shell injection via unquoted arguments (bug)", () => {
+    it("&& in an argument must not chain a second command", async () => {
+      const bash = new Bash();
+      // timeout.ts only quotes args that contain spaces or tabs, so any other
+      // shell metacharacter passes through raw.  ":&&echo" has no whitespace →
+      // commandStr = ":&&echo INJECTED_VIA_ANDAND"
+      // ctx.exec splits on `&&`, `:` succeeds, `echo INJECTED_VIA_ANDAND` runs.
+      // Correct behaviour: ":&&echo" is treated as a single command name;
+      // INJECTED_VIA_ANDAND must not appear in stdout.
+      const result = await bash.exec(
+        "timeout 10 ':&&echo' INJECTED_VIA_ANDAND",
+      );
+      expect(result.stdout).not.toContain("INJECTED_VIA_ANDAND");
+    });
+
+    it("pipe in an argument must not connect two commands", async () => {
+      const bash = new Bash();
+      // "|" contains no whitespace → passed raw.
+      // commandStr = "echo secret | tr a-z A-Z"
+      // ctx.exec pipes echo into tr and outputs "SECRET".
+      // Correct behaviour: "|" is a literal argument to echo; stdout should
+      // contain the pipe character, not the uppercased result.
+      const result = await bash.exec(
+        "timeout 10 'echo' 'secret' '|' 'tr' 'a-z' 'A-Z'",
+      );
+      expect(result.stdout).not.toBe("SECRET\n");
+    });
+  });
 });

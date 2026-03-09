@@ -137,16 +137,10 @@ export const timeoutCommand: Command = {
       };
     }
 
-    // Build command string
-    const commandStr = commandArgs
-      .map((arg) => {
-        // Quote arguments with spaces
-        if (arg.includes(" ") || arg.includes("\t")) {
-          return `'${arg.replace(/'/g, "'\\''")}'`;
-        }
-        return arg;
-      })
-      .join(" ");
+    // Build command string: single-quote every argument to suppress ALL shell
+    // metacharacters ($(), backticks, &&, |, ;, etc.).
+    const sq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+    const commandStr = commandArgs.map(sq).join(" ");
 
     // Race between command and timeout
     const timeoutPromise = new Promise<{ timedOut: true }>((resolve) => {
