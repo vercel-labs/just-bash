@@ -1037,8 +1037,9 @@ export function parseWordParts(
       continue;
     }
 
-    // Handle brace expansion (but NOT on the RHS of assignments or in [[ ]] conditionals)
-    if (char === "{" && !isAssignment && !noBraceExpansion) {
+    // Handle brace expansion
+    // (but NOT on the RHS of assignments, in [[ ]] conditionals, or in heredocs)
+    if (char === "{" && !isAssignment && !noBraceExpansion && !hereDoc) {
       const braceResult = WordParser.tryParseBraceExpansion(
         p,
         value,

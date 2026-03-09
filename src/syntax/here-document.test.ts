@@ -126,6 +126,15 @@ echo done`);
     expect(result.exitCode).toBe(0);
   });
 
+  it("should not perform brace expansion in heredoc content", async () => {
+    const env = new Bash();
+    const result = await env.exec(`cat <<EOF
+{a,b}
+EOF`);
+    expect(result.stdout).toBe("{a,b}\n");
+    expect(result.exitCode).toBe(0);
+  });
+
   describe("whitespace preservation", () => {
     it("should preserve leading spaces in here document content", async () => {
       const env = new Bash();
