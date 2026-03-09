@@ -156,4 +156,46 @@ describe("find -exec", () => {
       expect(result.stdout).toBe("top");
     });
   });
+
+  describe("filename shell injection (bug)", () => {
+    it("$() in a filename must not be evaluated as a command substitution", async () => {
+      // find.ts wrapped paths in double-quotes without escaping content:
+      //   const cmd = cmdWithFiles.map((p) => `"${p}"`).join(" ");
+      // Double-quotes do not suppress $() expansion, so a filename containing
+      // "$(cmd)" causes cmd to run. Use the FS API to plant the literal name;
+      // then check whether the injected mkdir side-effect directory was created.
+      // Correct behaviour: /tmp/DOLLAR_HACKED must not exist after the find.
+      const bash = new Bash({
+        files: {
+          "/tmp/evil/$(mkdir -p /tmp/DOLLAR_HACKED)": "",
+        },
+      });
+      const result = await bash.exec(`
+        find /tmp/evil -exec echo {} \\;
+        if [ -d /tmp/DOLLAR_HACKED ]; then echo INJECTION_SUCCEEDED; else echo INJECTION_BLOCKED; fi
+      `);
+      expect(result.stdout).toContain("INJECTION_BLOCKED");
+      expect(result.stdout).not.toContain("INJECTION_SUCCEEDED");
+    });
+
+    it("backtick in a filename must not be evaluated as a command substitution", async () => {
+      // Same root cause as $() above, using backtick syntax instead.
+      // Write the file via the FS API so the name contains literal unescaped
+      // backticks – exactly what an attacker could plant on a real filesystem.
+      // find.ts assembled: "echo" "/tmp/bt/`mkdir -p /tmp/BACKTICK_HACKED`"
+      // Inside double-quotes unescaped backticks are evaluated → mkdir runs.
+      // Correct behaviour: /tmp/BACKTICK_HACKED must not exist after the find.
+      const bash = new Bash({
+        files: {
+          "/tmp/bt/`mkdir -p /tmp/BACKTICK_HACKED`": "",
+        },
+      });
+      const result = await bash.exec(`
+        find /tmp/bt -exec echo {} \\;
+        if [ -d /tmp/BACKTICK_HACKED ]; then echo INJECTION_SUCCEEDED; else echo INJECTION_BLOCKED; fi
+      `);
+      expect(result.stdout).toContain("INJECTION_BLOCKED");
+      expect(result.stdout).not.toContain("INJECTION_SUCCEEDED");
+    });
+  });
 });

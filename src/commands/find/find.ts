@@ -876,7 +876,10 @@ export const findCommand: Command = {
                   cmdWithFiles.push(part);
                 }
               }
-              const cmd = cmdWithFiles.map((p) => `"${p}"`).join(" ");
+              // Single-quote every token so filenames with $(), backticks, &&,
+              // |, ; etc. cannot inject shell metacharacters.
+              const sq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+              const cmd = cmdWithFiles.map(sq).join(" ");
               const result = await ctx.exec(cmd, { cwd: ctx.cwd });
               stdout += result.stdout;
               stderr += result.stderr;
@@ -885,11 +888,12 @@ export const findCommand: Command = {
               }
             } else {
               // -exec ... ; : execute command for each file
+              const sq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
               for (const file of results) {
                 const cmdWithFile = action.command.map((part) =>
                   part === "{}" ? file : part,
                 );
-                const cmd = cmdWithFile.map((p) => `"${p}"`).join(" ");
+                const cmd = cmdWithFile.map(sq).join(" ");
                 const result = await ctx.exec(cmd, { cwd: ctx.cwd });
                 stdout += result.stdout;
                 stderr += result.stderr;
