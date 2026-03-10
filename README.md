@@ -36,7 +36,8 @@ Supports optional network access via `curl` with secure-by-default URL filtering
 - Execution is protected against infinite loops or recursion. However, Bash is not fully robust against DOS from input. If you need to be robust against this, use process isolation at the OS level.
 - Binaries or even WASM are inherently unsupported (Use [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) or a similar product if a full VM is needed).
 - There is no network access by default.
-- Network access can be enabled, but requests are checked against URL prefix allow-lists and HTTP-method allow-lists. See [network access](#network-access) for details
+- Network access can be enabled, but requests are checked against URL prefix allow-lists and HTTP-method allow-lists. See [network access](#network-access) for details.
+- Python and JS execution are off by default as they may represent additional security surface.
 
 ## Installation
 
@@ -430,7 +431,7 @@ await env.exec('python3 script.py');
 
 ## JavaScript Support
 
-JavaScript and TypeScript execution via QuickJS is opt-in. Enable it with the `javascript` option:
+JavaScript and TypeScript execution via QuickJS is opt-in  due to additional security surface. Enable it with the `javascript` option:
 
 ```typescript
 const env = new Bash({
