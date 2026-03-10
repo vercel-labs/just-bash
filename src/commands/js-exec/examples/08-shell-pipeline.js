@@ -10,7 +10,7 @@ var envOutput = execSync("env").trim();
 
 // Parse env output into a map
 var envLines = envOutput.split("\n");
-var envVars = {};
+var envVars = Object.create(null);
 for (let i = 0; i < envLines.length; i++) {
   const line = envLines[i];
   const eqIdx = line.indexOf("=");

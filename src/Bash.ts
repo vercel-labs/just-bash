@@ -448,7 +448,9 @@ export class Bash {
       }
       // Store bootstrap code in env for the worker to pick up
       const jsConfig =
-        typeof options.javascript === "object" ? options.javascript : {};
+        typeof options.javascript === "object"
+          ? options.javascript
+          : Object.create(null);
       if (jsConfig.bootstrap) {
         this.state.env.set("__JSEXEC_BOOTSTRAP__", jsConfig.bootstrap);
       }

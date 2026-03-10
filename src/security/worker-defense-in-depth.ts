@@ -262,7 +262,6 @@ export class WorkerDefenseInDepth {
    * Create a blocking proxy for a function.
    * In worker context, always blocks (no context check needed).
    */
-  // @banned-pattern-ignore: intentional use of Function type for security proxy
   private createBlockingProxy<T extends (...args: unknown[]) => unknown>(
     original: T,
     path: string,

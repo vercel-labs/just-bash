@@ -30,7 +30,7 @@ var geo = users.map((u) => ({
 fs.writeFileSync("/tmp/output/geo.json", JSON.stringify(geo, null, 2));
 
 // 3. Write a companies file grouped by company
-var companies = {};
+var companies = Object.create(null);
 for (let i = 0; i < users.length; i++) {
   const u = users[i];
   const companyName = u.company.name;

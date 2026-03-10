@@ -480,7 +480,7 @@ export const FETCH_POLYFILL_SOURCE = `
         if (init.body !== undefined) body = init.body !== null ? String(init.body) : undefined;
       }
 
-      var opts = {};
+      var opts = Object.create(null);
       if (method) opts.method = method;
       if (headers) opts.headers = headers;
       if (body) opts.body = body;

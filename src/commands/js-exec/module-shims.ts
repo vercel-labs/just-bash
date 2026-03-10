@@ -171,6 +171,7 @@ _assert.throws = function(fn, expected, msg) {
   if (!threw) throw new Error(msg || 'AssertionError: function did not throw');
 };
 _assert.doesNotThrow = function(fn, msg) {
+  // @banned-pattern-ignore: sandbox-internal assertion helper; e.message is from user code inside QuickJS, not host details
   try { fn(); } catch(e) {
     throw new Error(msg || 'AssertionError: function threw: ' + e.message);
   }
@@ -468,7 +469,7 @@ export const QUERYSTRING_MODULE_SOURCE = `
 var _qs = {
   parse: function(str, sep, eq) {
     sep = sep || '&'; eq = eq || '=';
-    var result = {};
+    var result = Object.create(null);
     if (!str || typeof str !== 'string') return result;
     var pairs = str.split(sep);
     for (var i = 0; i < pairs.length; i++) {
@@ -519,6 +520,7 @@ globalThis[Symbol.for('jb:querystring')] = _qs;
  * Unsupported Node.js modules — throw clear error at require/import time.
  * Map of module name to hint message.
  */
+// @banned-pattern-ignore: static keys only, never accessed with user input
 export const UNSUPPORTED_MODULES: Record<string, string> = {
   http: "Use fetch() for HTTP requests.",
   https: "Use fetch() for HTTP requests.",

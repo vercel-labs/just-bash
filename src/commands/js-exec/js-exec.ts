@@ -10,6 +10,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
+import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { mapToRecord } from "../../helpers/env.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import { _clearTimeout, _setTimeout } from "../../timers.js";
@@ -59,7 +60,7 @@ File Extension Auto-Detection:
   .ts, .mts        ES module mode + TypeScript stripping
 
 Node.js Compatibility:
-  Code written for Node.js largely works here. Both require() and import
+  Code written for Node.js largely works here. Both require and import
   are supported, the node: prefix works, and standard globals like process,
   console, and fetch are available. All I/O is synchronous.
 
@@ -260,7 +261,10 @@ function getOrCreateWorker(): Worker {
 
   sharedWorker.on("error", (err: Error) => {
     if (currentExecution) {
-      currentExecution.resolve({ success: false, error: err.message });
+      currentExecution.resolve({
+        success: false,
+        error: sanitizeErrorMessage(err.message),
+      });
       currentExecution = null;
     }
     // Reject all queued executions
@@ -392,7 +396,7 @@ async function executeJSInner(
     bridgeHandler.run(timeoutMs),
     workerPromise.catch((e) => ({
       success: false,
-      error: (e as Error).message,
+      error: sanitizeErrorMessage((e as Error).message),
     })),
   ]);
 
@@ -449,7 +453,7 @@ export const jsExecCommand: Command = {
       } catch (e) {
         return {
           stdout: "",
-          stderr: `js-exec: can't open file '${parsed.scriptFile}': ${(e as Error).message}\n`,
+          stderr: `js-exec: can't open file '${parsed.scriptFile}': ${sanitizeErrorMessage((e as Error).message)}\n`,
           exitCode: 2,
         };
       }

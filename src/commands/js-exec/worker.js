@@ -636,7 +636,6 @@ var WorkerDefenseInDepth = class {
    * Create a blocking proxy for a function.
    * In worker context, always blocks (no context check needed).
    */
-  // @banned-pattern-ignore: intentional use of Function type for security proxy
   createBlockingProxy(original, path, violationType) {
     const self = this;
     const auditMode = this.config.auditMode;
@@ -2468,7 +2467,7 @@ var FETCH_POLYFILL_SOURCE = `
         if (init.body !== undefined) body = init.body !== null ? String(init.body) : undefined;
       }
 
-      var opts = {};
+      var opts = Object.create(null);
       if (method) opts.method = method;
       if (headers) opts.headers = headers;
       if (body) opts.body = body;
@@ -2651,6 +2650,7 @@ _assert.throws = function(fn, expected, msg) {
   if (!threw) throw new Error(msg || 'AssertionError: function did not throw');
 };
 _assert.doesNotThrow = function(fn, msg) {
+  // @banned-pattern-ignore: sandbox-internal assertion helper; e.message is from user code inside QuickJS, not host details
   try { fn(); } catch(e) {
     throw new Error(msg || 'AssertionError: function threw: ' + e.message);
   }
@@ -2938,7 +2938,7 @@ var QUERYSTRING_MODULE_SOURCE = `
 var _qs = {
   parse: function(str, sep, eq) {
     sep = sep || '&'; eq = eq || '=';
-    var result = {};
+    var result = Object.create(null);
     if (!str || typeof str !== 'string') return result;
     var pairs = str.split(sep);
     for (var i = 0; i < pairs.length; i++) {
@@ -3802,7 +3802,7 @@ function setupContext(context, backend, input) {
 
   var _fs = globalThis.fs;
   // Save original native functions
-  var orig = {};
+  var orig = Object.create(null);
   var allNames = [
     'readFile', 'readFileBuffer', 'writeFile', 'stat', 'lstat', 'readdir',
     'mkdir', 'rm', 'exists', 'appendFile', 'symlink', 'readlink',
@@ -4051,9 +4051,7 @@ async function executeCode(input) {
     if (input.stripTypes) {
       jsCode = stripTypeScriptTypes(jsCode);
     }
-    const evalOptions = {};
-    if (input.isModule) evalOptions.type = "module";
-    const result = context.evalCode(jsCode, filename, evalOptions);
+    const result = input.isModule ? context.evalCode(jsCode, filename, { type: "module" }) : context.evalCode(jsCode, filename);
     if (result.error) {
       const errorVal = context.dump(result.error);
       result.error.dispose();
@@ -4116,6 +4114,7 @@ async function executeCode(input) {
 var initPromise = initializeWithDefense().catch((e) => {
   parentPort?.postMessage({
     success: false,
+    // @banned-pattern-ignore: worker-internal init error; message stays within worker protocol, sanitized by js-exec.ts before user output
     error: e.message,
     defenseStats: defense?.getStats()
   });
@@ -4129,6 +4128,7 @@ parentPort?.on("message", async (input) => {
   } catch (e) {
     parentPort?.postMessage({
       success: false,
+      // @banned-pattern-ignore: worker-internal error; message stays within worker protocol, sanitized by js-exec.ts before user output
       error: e.message,
       defenseStats: defense?.getStats()
     });

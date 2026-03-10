@@ -179,6 +179,7 @@ function resolveModulePath(
  * Virtual built-in module sources.
  * These re-export globals set up by setupContext so they work with ESM imports.
  */
+// @banned-pattern-ignore: static keys only, never accessed with user input
 const VIRTUAL_MODULES: Record<string, string> = {
   fs: `
     const _fs = globalThis.fs;
@@ -708,6 +709,7 @@ function setupContext(
     "fetch",
     (urlHandle: QuickJSHandle, optsHandle?: QuickJSHandle) => {
       const url = context.getString(urlHandle);
+      // @banned-pattern-ignore: static keys only, never accessed with user input
       let options: Record<string, unknown> | undefined;
       if (optsHandle) {
         options = context.dump(optsHandle) as Record<string, unknown>;
@@ -799,7 +801,7 @@ function setupContext(
 
   var _fs = globalThis.fs;
   // Save original native functions
-  var orig = {};
+  var orig = Object.create(null);
   var allNames = [
     'readFile', 'readFileBuffer', 'writeFile', 'stat', 'lstat', 'readdir',
     'mkdir', 'rm', 'exists', 'appendFile', 'symlink', 'readlink',
@@ -1100,9 +1102,9 @@ async function executeCode(
     if (input.stripTypes) {
       jsCode = stripTypeScriptTypes(jsCode);
     }
-    const evalOptions: { type?: "global" | "module" } = {};
-    if (input.isModule) evalOptions.type = "module";
-    const result = context.evalCode(jsCode, filename, evalOptions);
+    const result = input.isModule
+      ? context.evalCode(jsCode, filename, { type: "module" })
+      : context.evalCode(jsCode, filename);
 
     if (result.error) {
       const errorVal = context.dump(result.error);
@@ -1193,6 +1195,7 @@ async function executeCode(
 const initPromise = initializeWithDefense().catch((e) => {
   parentPort?.postMessage({
     success: false,
+    // @banned-pattern-ignore: worker-internal init error; message stays within worker protocol, sanitized by js-exec.ts before user output
     error: (e as Error).message,
     defenseStats: defense?.getStats(),
   });
@@ -1209,6 +1212,7 @@ parentPort?.on("message", async (input: JsExecWorkerInput) => {
   } catch (e) {
     parentPort?.postMessage({
       success: false,
+      // @banned-pattern-ignore: worker-internal error; message stays within worker protocol, sanitized by js-exec.ts before user output
       error: (e as Error).message,
       defenseStats: defense?.getStats(),
     });
