@@ -415,6 +415,34 @@ describe("js-exec Node.js compatibility", () => {
       expect(result.stdout).toBe("hi 0\n");
       expect(result.exitCode).toBe(0);
     });
+
+    it("should prevent command injection via spawnSync args", async () => {
+      const env = new Bash({ javascript: true });
+      // The semicolon and extra command should NOT be interpreted as shell syntax
+      const result = await env.exec(
+        `js-exec -c "var r = require('child_process').spawnSync('echo', ['hello; echo INJECTED']); console.log(r.stdout.trim())"`,
+      );
+      expect(result.stdout).toBe("hello; echo INJECTED\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle embedded single quotes in spawnSync args", async () => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec(
+        `js-exec -c "var r = require('child_process').spawnSync('echo', [\\"it's\\"]); console.log(r.stdout.trim())"`,
+      );
+      expect(result.stdout).toBe("it's\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should handle empty args array in spawnSync", async () => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec(
+        `js-exec -c "var r = require('child_process').spawnSync('echo', []); console.log(r.stdout.trim())"`,
+      );
+      expect(result.stdout).toBe("\n");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("error messages with file names and line numbers", () => {

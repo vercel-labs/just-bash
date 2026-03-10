@@ -1987,6 +1987,19 @@ var SyncBackend = class {
     const responseJson = new TextDecoder().decode(result.result);
     return JSON.parse(responseJson);
   }
+  /**
+   * Execute a shell command with structured args (shell-escaped on the main thread).
+   * Prevents command injection from unsanitized args.
+   */
+  execCommandArgs(command, args) {
+    const requestData = new TextEncoder().encode(JSON.stringify({ args }));
+    const result = this.execSync(OpCode.EXEC_COMMAND, command, requestData);
+    if (!result.success) {
+      throw new Error(result.error || "Command execution failed");
+    }
+    const responseJson = new TextDecoder().decode(result.result);
+    return JSON.parse(responseJson);
+  }
 };
 
 // src/commands/js-exec/fetch-polyfill.ts
@@ -3306,6 +3319,7 @@ var VIRTUAL_MODULES = {
   `,
   child_process: `
     const _exec = globalThis[Symbol.for('jb:exec')];
+    const _execArgs = globalThis[Symbol.for('jb:execArgs')];
     export function execSync(cmd, opts) {
       var r = _exec(cmd, opts);
       if (r.exitCode !== 0) {
@@ -3319,9 +3333,7 @@ var VIRTUAL_MODULES = {
     }
     export function exec(cmd, opts) { return _exec(cmd, opts); }
     export function spawnSync(cmd, args, opts) {
-      var command = cmd;
-      if (args && args.length) command += ' ' + args.join(' ');
-      var r = _exec(command, opts);
+      var r = _execArgs(cmd, args || []);
       return { stdout: r.stdout, stderr: r.stderr, status: r.exitCode };
     }
     export default { exec: exec, execSync: execSync, spawnSync: spawnSync };
@@ -3766,6 +3778,21 @@ function setupContext(context, backend, input) {
   );
   context.setProp(context.global, "__exec", execFn);
   execFn.dispose();
+  const execArgsFn = context.newFunction(
+    "execArgs",
+    (cmdHandle, argsHandle) => {
+      const command = context.getString(cmdHandle);
+      const args = context.dump(argsHandle);
+      try {
+        const result = backend.execCommandArgs(command, args);
+        return jsToHandle(context, result);
+      } catch (e) {
+        return throwError(context, e.message || "exec failed");
+      }
+    }
+  );
+  context.setProp(context.global, "__execArgs", execArgsFn);
+  execArgsFn.dispose();
   const envObj = jsToHandle(context, input.env);
   context.setProp(context.global, "env", envObj);
   envObj.dispose();
@@ -3797,8 +3824,10 @@ function setupContext(context, backend, input) {
   // Bridge native handles from string keys (set by QuickJS setProp) to symbol keys
   globalThis[Symbol.for('jb:fetch')] = globalThis.__fetch;
   globalThis[Symbol.for('jb:exec')] = globalThis.__exec;
+  globalThis[Symbol.for('jb:execArgs')] = globalThis.__execArgs;
   delete globalThis.__fetch;
   delete globalThis.__exec;
+  delete globalThis.__execArgs;
 
   var _fs = globalThis.fs;
   // Save original native functions
@@ -3899,6 +3928,7 @@ function setupContext(context, backend, input) {
 
   // require() shim for CommonJS compatibility
   var _execFn = globalThis[Symbol.for('jb:exec')];
+  var _execArgsFn = globalThis[Symbol.for('jb:execArgs')];
   var _childProcess = {
     exec: function(cmd, opts) { return _execFn(cmd, opts); },
     execSync: function(cmd, opts) {
@@ -3913,9 +3943,7 @@ function setupContext(context, backend, input) {
       return r.stdout;
     },
     spawnSync: function(cmd, args, opts) {
-      var command = cmd;
-      if (args && args.length) command += ' ' + args.join(' ');
-      var r = _execFn(command, opts);
+      var r = _execArgsFn(cmd, args || []);
       return { stdout: r.stdout, stderr: r.stderr, status: r.exitCode };
     }
   };
@@ -4124,9 +4152,11 @@ parentPort?.on("message", async (input) => {
     await initPromise;
     const result = await executeCode(input);
     result.defenseStats = defense?.getStats();
+    result.protocolToken = input.protocolToken;
     parentPort?.postMessage(result);
   } catch (e) {
     parentPort?.postMessage({
+      protocolToken: input.protocolToken,
       success: false,
       // @banned-pattern-ignore: worker-internal error; message stays within worker protocol, sanitized by js-exec.ts before user output
       error: e.message,

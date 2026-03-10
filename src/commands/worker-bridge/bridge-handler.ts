@@ -7,6 +7,7 @@
 
 import type { IFileSystem } from "../../fs/interface.js";
 import { sanitizeErrorMessage } from "../../fs/real-fs-utils.js";
+import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import type { SecureFetch } from "../../network/fetch.js";
 import { _clearTimeout, _setTimeout } from "../../timers.js";
 import type { CommandExecOptions, ExecResult } from "../../types.js";
@@ -541,7 +542,7 @@ export class BridgeHandler {
       return;
     }
 
-    const command = this.protocol.getPath();
+    let command = this.protocol.getPath();
     const dataStr = this.protocol.getDataAsString();
 
     // Cap exec to the remaining execution deadline via AbortSignal + raceDeadline.
@@ -557,6 +558,13 @@ export class BridgeHandler {
         const parsed = JSON.parse(dataStr);
         if (parsed.stdin) {
           options.stdin = parsed.stdin;
+        }
+        // Structured args: shell-escape each arg on the main thread to prevent injection
+        if (parsed.args && Array.isArray(parsed.args)) {
+          const escapedArgs = parsed.args.map((a: unknown) => String(a));
+          if (escapedArgs.length > 0) {
+            command += ` ${shellJoinArgs(escapedArgs)}`;
+          }
         }
       }
 

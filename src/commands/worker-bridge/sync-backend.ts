@@ -266,4 +266,25 @@ export class SyncBackend {
     const responseJson = new TextDecoder().decode(result.result);
     return JSON.parse(responseJson);
   }
+
+  /**
+   * Execute a shell command with structured args (shell-escaped on the main thread).
+   * Prevents command injection from unsanitized args.
+   */
+  execCommandArgs(
+    command: string,
+    args: string[],
+  ): {
+    stdout: string;
+    stderr: string;
+    exitCode: number;
+  } {
+    const requestData = new TextEncoder().encode(JSON.stringify({ args }));
+    const result = this.execSync(OpCode.EXEC_COMMAND, command, requestData);
+    if (!result.success) {
+      throw new Error(result.error || "Command execution failed");
+    }
+    const responseJson = new TextDecoder().decode(result.result);
+    return JSON.parse(responseJson);
+  }
 }

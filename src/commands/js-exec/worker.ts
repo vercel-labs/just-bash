@@ -36,6 +36,7 @@ import {
 import { PATH_MODULE_SOURCE } from "./path-polyfill.js";
 
 export interface JsExecWorkerInput {
+  protocolToken: string;
   sharedBuffer: SharedArrayBuffer;
   jsCode: string;
   cwd: string;
@@ -49,6 +50,7 @@ export interface JsExecWorkerInput {
 }
 
 export interface JsExecWorkerOutput {
+  protocolToken?: string;
   success: boolean;
   error?: string;
   defenseStats?: WorkerDefenseStats;
@@ -252,6 +254,7 @@ const VIRTUAL_MODULES: Record<string, string> = {
   `,
   child_process: `
     const _exec = globalThis[Symbol.for('jb:exec')];
+    const _execArgs = globalThis[Symbol.for('jb:execArgs')];
     export function execSync(cmd, opts) {
       var r = _exec(cmd, opts);
       if (r.exitCode !== 0) {
@@ -265,9 +268,7 @@ const VIRTUAL_MODULES: Record<string, string> = {
     }
     export function exec(cmd, opts) { return _exec(cmd, opts); }
     export function spawnSync(cmd, args, opts) {
-      var command = cmd;
-      if (args && args.length) command += ' ' + args.join(' ');
-      var r = _exec(command, opts);
+      var r = _execArgs(cmd, args || []);
       return { stdout: r.stdout, stderr: r.stderr, status: r.exitCode };
     }
     export default { exec: exec, execSync: execSync, spawnSync: spawnSync };
@@ -752,6 +753,23 @@ function setupContext(
   context.setProp(context.global, "__exec", execFn);
   execFn.dispose();
 
+  // --- execArgs (structured args for spawnSync injection safety) ---
+  const execArgsFn = context.newFunction(
+    "execArgs",
+    (cmdHandle: QuickJSHandle, argsHandle: QuickJSHandle) => {
+      const command = context.getString(cmdHandle);
+      const args: string[] = context.dump(argsHandle) as string[];
+      try {
+        const result = backend.execCommandArgs(command, args);
+        return jsToHandle(context, result);
+      } catch (e) {
+        return throwError(context, (e as Error).message || "exec failed");
+      }
+    },
+  );
+  context.setProp(context.global, "__execArgs", execArgsFn);
+  execArgsFn.dispose();
+
   // --- env ---
   const envObj = jsToHandle(context, input.env);
   context.setProp(context.global, "env", envObj);
@@ -796,8 +814,10 @@ function setupContext(
   // Bridge native handles from string keys (set by QuickJS setProp) to symbol keys
   globalThis[Symbol.for('jb:fetch')] = globalThis.__fetch;
   globalThis[Symbol.for('jb:exec')] = globalThis.__exec;
+  globalThis[Symbol.for('jb:execArgs')] = globalThis.__execArgs;
   delete globalThis.__fetch;
   delete globalThis.__exec;
+  delete globalThis.__execArgs;
 
   var _fs = globalThis.fs;
   // Save original native functions
@@ -898,6 +918,7 @@ function setupContext(
 
   // require() shim for CommonJS compatibility
   var _execFn = globalThis[Symbol.for('jb:exec')];
+  var _execArgsFn = globalThis[Symbol.for('jb:execArgs')];
   var _childProcess = {
     exec: function(cmd, opts) { return _execFn(cmd, opts); },
     execSync: function(cmd, opts) {
@@ -912,9 +933,7 @@ function setupContext(
       return r.stdout;
     },
     spawnSync: function(cmd, args, opts) {
-      var command = cmd;
-      if (args && args.length) command += ' ' + args.join(' ');
-      var r = _execFn(command, opts);
+      var r = _execArgsFn(cmd, args || []);
       return { stdout: r.stdout, stderr: r.stderr, status: r.exitCode };
     }
   };
@@ -1208,9 +1227,11 @@ parentPort?.on("message", async (input: JsExecWorkerInput) => {
     await initPromise;
     const result = await executeCode(input);
     result.defenseStats = defense?.getStats();
+    result.protocolToken = input.protocolToken;
     parentPort?.postMessage(result);
   } catch (e) {
     parentPort?.postMessage({
+      protocolToken: input.protocolToken,
       success: false,
       // @banned-pattern-ignore: worker-internal error; message stays within worker protocol, sanitized by js-exec.ts before user output
       error: (e as Error).message,

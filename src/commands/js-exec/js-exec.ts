@@ -8,6 +8,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
@@ -213,6 +214,7 @@ let workerIdleTimeout: ReturnType<typeof setTimeout> | null = null;
 type QueuedExecution = {
   input: JsExecWorkerInput;
   resolve: (result: JsExecWorkerOutput) => void;
+  canceled?: boolean;
 };
 const executionQueue: QueuedExecution[] = [];
 let currentExecution: QueuedExecution | null = null;
@@ -220,6 +222,10 @@ let currentExecution: QueuedExecution | null = null;
 const workerPath = fileURLToPath(new URL("./worker.js", import.meta.url));
 
 function processNextExecution(): void {
+  // Skip canceled entries (timed out before execution started)
+  while (executionQueue.length > 0 && executionQueue[0].canceled) {
+    executionQueue.shift();
+  }
   if (currentExecution || executionQueue.length === 0) {
     return;
   }
@@ -231,6 +237,55 @@ function processNextExecution(): void {
   currentExecution = next;
   const worker = getOrCreateWorker();
   worker.postMessage(currentExecution.input);
+}
+
+/**
+ * Validate and normalize a worker message, verifying the protocol token.
+ * Rejects malformed or forged messages with a controlled error.
+ */
+function normalizeJsWorkerMessage(
+  msg: unknown,
+  expectedProtocolToken: string,
+): JsExecWorkerOutput {
+  if (!msg || typeof msg !== "object") {
+    return { success: false, error: "Malformed worker response" };
+  }
+
+  const raw = msg as {
+    protocolToken?: unknown;
+    success?: unknown;
+    error?: unknown;
+    defenseStats?: unknown;
+  };
+
+  if (
+    typeof raw.protocolToken !== "string" ||
+    raw.protocolToken !== expectedProtocolToken
+  ) {
+    return {
+      success: false,
+      error: "Malformed worker response: invalid protocol token",
+    };
+  }
+
+  if (typeof raw.success !== "boolean") {
+    return {
+      success: false,
+      error: "Malformed worker response: missing success flag",
+    };
+  }
+
+  if (raw.success) {
+    return { success: true };
+  }
+
+  return {
+    success: false,
+    error:
+      typeof raw.error === "string" && raw.error.length > 0
+        ? raw.error
+        : "Worker execution failed",
+  };
 }
 
 function getOrCreateWorker(): Worker {
@@ -246,8 +301,12 @@ function getOrCreateWorker(): Worker {
 
   sharedWorker = DefenseInDepthBox.runTrusted(() => new Worker(workerPath));
 
-  sharedWorker.on("message", (result: JsExecWorkerOutput) => {
+  sharedWorker.on("message", (msg: unknown) => {
     if (currentExecution) {
+      const result = normalizeJsWorkerMessage(
+        msg,
+        currentExecution.input.protocolToken,
+      );
       currentExecution.resolve(result);
       currentExecution = null;
     }
@@ -357,7 +416,10 @@ async function executeJSInner(
     : DEFAULT_JS_TIMEOUT_MS;
   const timeoutMs = ctx.limits?.maxJsTimeoutMs ?? defaultTimeout;
 
+  const protocolToken = randomBytes(16).toString("hex");
+
   const workerInput: JsExecWorkerInput = {
+    protocolToken,
     sharedBuffer,
     jsCode,
     cwd: ctx.cwd,
@@ -376,20 +438,36 @@ async function executeJSInner(
     resolveWorker = resolve;
   });
 
+  const queueEntry: QueuedExecution = {
+    input: workerInput,
+    resolve: () => {}, // replaced below
+  };
+
   const timeoutHandle = _setTimeout(() => {
+    if (currentExecution === queueEntry) {
+      // Worker is running — terminate it
+      if (sharedWorker) {
+        sharedWorker.terminate();
+        sharedWorker = null;
+      }
+      currentExecution = null;
+    } else {
+      // Worker hasn't started — mark canceled so processNextExecution skips it
+      queueEntry.canceled = true;
+    }
     resolveWorker({
       success: false,
       error: `Execution timeout: exceeded ${timeoutMs}ms limit`,
     });
   }, timeoutMs);
 
-  const wrappedResolve = (result: JsExecWorkerOutput) => {
+  queueEntry.resolve = (result: JsExecWorkerOutput) => {
     _clearTimeout(timeoutHandle);
     resolveWorker(result);
   };
 
   // Queue the execution (serialized since QuickJS is single-threaded)
-  executionQueue.push({ input: workerInput, resolve: wrappedResolve });
+  executionQueue.push(queueEntry);
   processNextExecution();
 
   const [bridgeOutput, workerResult] = await Promise.all([
@@ -403,7 +481,7 @@ async function executeJSInner(
   if (!workerResult.success && workerResult.error) {
     return {
       stdout: bridgeOutput.stdout,
-      stderr: `${bridgeOutput.stderr}js-exec: ${workerResult.error}\n`,
+      stderr: `${bridgeOutput.stderr}js-exec: ${sanitizeErrorMessage(workerResult.error)}\n`,
       exitCode: bridgeOutput.exitCode || 1,
     };
   }

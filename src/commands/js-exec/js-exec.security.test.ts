@@ -48,4 +48,50 @@ describe("js-exec security", () => {
     expect(result.stdout).toBe("undefined\n");
     expect(result.exitCode).toBe(0);
   });
+
+  describe("timeout DoS prevention", () => {
+    it(
+      "should recover after timeout — subsequent execution succeeds",
+      { timeout: 30000 },
+      async () => {
+        const env = new Bash({
+          javascript: true,
+          executionLimits: { maxJsTimeoutMs: 500 },
+        });
+        // Infinite loop should time out
+        const r1 = await env.exec(`js-exec -c "while(true){}"`);
+        expect(r1.exitCode).not.toBe(0);
+        expect(r1.stderr).toContain("timeout");
+
+        // Subsequent execution on the same Bash instance should succeed
+        const r2 = await env.exec(`js-exec -c "console.log('alive')"`);
+        expect(r2.stdout).toBe("alive\n");
+        expect(r2.exitCode).toBe(0);
+      },
+    );
+
+    it(
+      "should not starve a second Bash instance after first times out",
+      { timeout: 30000 },
+      async () => {
+        const env1 = new Bash({
+          javascript: true,
+          executionLimits: { maxJsTimeoutMs: 500 },
+        });
+        const env2 = new Bash({
+          javascript: true,
+          executionLimits: { maxJsTimeoutMs: 5000 },
+        });
+
+        // First instance times out
+        const r1 = await env1.exec(`js-exec -c "while(true){}"`);
+        expect(r1.exitCode).not.toBe(0);
+
+        // Second instance should still work
+        const r2 = await env2.exec(`js-exec -c "console.log('ok')"`);
+        expect(r2.stdout).toBe("ok\n");
+        expect(r2.exitCode).toBe(0);
+      },
+    );
+  });
 });
