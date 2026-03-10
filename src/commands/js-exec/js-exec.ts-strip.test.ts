@@ -97,7 +97,7 @@ console.log(result);
 
     // --module --strip-types combined
     const r2 = await env.exec(
-      `js-exec --module --strip-types -c "import { readFileSync } from 'fs'; const content: string = readFileSync('/etc/hostname'); console.log(content.trim())"`,
+      `js-exec --module --strip-types -c "import { readFileSync } from 'fs'; const content: string = readFileSync('/etc/hostname', 'utf8'); console.log(content.trim())"`,
     );
     expect(r2.stdout).toBe("myhost\n");
     expect(r2.exitCode).toBe(0);

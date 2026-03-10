@@ -436,6 +436,7 @@ export async function executeExternalCommand(
     coverage: ctx.coverage,
     signal: ctx.state.signal,
     requireDefenseContext: ctx.requireDefenseContext,
+    jsBootstrapCode: ctx.jsBootstrapCode,
   };
   const guardedCmdCtx = createDefenseAwareCommandContext(cmdCtx, commandName);
 

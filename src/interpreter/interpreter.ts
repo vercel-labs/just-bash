@@ -131,6 +131,8 @@ export interface InterpreterOptions {
    * When true, fail closed if execution occurs outside defense async context.
    */
   requireDefenseContext?: boolean;
+  /** Bootstrap JavaScript code for js-exec */
+  jsBootstrapCode?: string;
 }
 
 export class Interpreter {
@@ -151,6 +153,7 @@ export class Interpreter {
       trace: options.trace,
       coverage: options.coverage,
       requireDefenseContext: options.requireDefenseContext ?? false,
+      jsBootstrapCode: options.jsBootstrapCode,
     };
   }
 

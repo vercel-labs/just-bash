@@ -4,6 +4,9 @@
  *
  * Defense-in-depth activates AFTER QuickJS loads (WASM init needs unrestricted JS).
  * User JavaScript code runs inside the QuickJS sandbox with no access to Node.js globals.
+ *
+ * Build: Bundled to worker.js via esbuild (see package.json "build:worker").
+ * Run: npx esbuild src/commands/js-exec/worker.ts --bundle --platform=node --format=esm --outfile=src/commands/js-exec/worker.js --external:quickjs-emscripten
  */
 
 import { stripTypeScriptTypes } from "node:module";
@@ -186,7 +189,7 @@ const VIRTUAL_MODULES: Record<string, string> = {
   fs: `
     const _fs = globalThis.fs;
     export const readFile = _fs.readFile;
-    export const readFileSync = _fs.readFileSync;
+    export const readFileSync = function(path, opts) { return _fs.readFileSync(path, opts); };
     export const readFileBuffer = _fs.readFileBuffer;
     export const writeFile = _fs.writeFile;
     export const writeFileSync = _fs.writeFileSync;
@@ -448,14 +451,10 @@ function setupContext(
       const path = context.getString(pathHandle);
       try {
         const data = backend.readFile(path);
-        // Return as array of numbers (ArrayBuffer not directly supported)
-        const arr = context.newArray();
-        for (let i = 0; i < data.length; i++) {
-          const numHandle = context.newNumber(data[i]);
-          context.setProp(arr, i, numHandle);
-          numHandle.dispose();
-        }
-        return arr;
+        // Return as ArrayBuffer (single handle instead of per-byte handles)
+        return context.newArrayBuffer(
+          data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+        );
       } catch (e) {
         return throwError(
           context,
@@ -853,8 +852,14 @@ function setupContext(
   // exists: callback is especially common in legacy Node.js
   _fs.exists = wrapCb(orig.exists, 'exists');
 
-  // Sync aliases point to original unwrapped native functions
-  _fs.readFileSync = orig.readFile;
+  // readFileSync: match Node.js behavior
+  // - No encoding: return Buffer
+  // - With encoding (e.g. 'utf8'): return string
+  _fs.readFileSync = function(path, opts) {
+    var encoding = typeof opts === 'string' ? opts : (opts && opts.encoding);
+    if (encoding) return orig.readFile(path);
+    return Buffer.from(orig.readFileBuffer(path));
+  };
   _fs.writeFileSync = orig.writeFile;
   _fs.statSync = orig.stat;
   _fs.lstatSync = orig.lstat;
@@ -885,6 +890,14 @@ function setupContext(
       };
     })(orig[m]);
   }
+  // Override promises.readFile to match Node.js behavior (Buffer vs string)
+  _fs.promises.readFile = function(path, opts) {
+    var encoding = typeof opts === 'string' ? opts : (opts && opts.encoding);
+    try {
+      if (encoding) return Promise.resolve(orig.readFile(path));
+      return Promise.resolve(Buffer.from(orig.readFileBuffer(path)));
+    } catch(e) { return Promise.reject(e); }
+  };
   _fs.promises.unlink = _fs.promises.rm;
   _fs.promises.rmdir = _fs.promises.rm;
   _fs.promises.access = function(p) {
@@ -915,6 +928,25 @@ function setupContext(
   ${STREAM_MODULE_SOURCE}
   ${STRING_DECODER_MODULE_SOURCE}
   ${QUERYSTRING_MODULE_SOURCE}
+
+  // Wrap console methods to auto-stringify Buffer arguments.
+  // In Node.js, console.log(buffer) calls util.inspect → toString().
+  (function() {
+    var _cl = console.log;
+    var _ce = console.error;
+    var _cw = console.warn;
+    function fix(a) { return a instanceof Buffer ? a.toString() : a; }
+    function wrap(fn) {
+      return function() {
+        var a = [];
+        for (var i = 0; i < arguments.length; i++) a.push(fix(arguments[i]));
+        return fn.apply(console, a);
+      };
+    }
+    console.log = wrap(_cl);
+    console.error = wrap(_ce);
+    console.warn = wrap(_cw);
+  })();
 
   // require() shim for CommonJS compatibility
   var _execFn = globalThis[Symbol.for('jb:exec')];

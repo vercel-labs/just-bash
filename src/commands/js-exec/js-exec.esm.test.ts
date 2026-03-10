@@ -127,7 +127,7 @@ describe("js-exec ESM modules", () => {
 
     // -m flag with inline code
     const r1 = await env.exec(
-      `js-exec -m -c "import { readFileSync } from 'fs'; console.log(readFileSync('/etc/hostname').trim())"`,
+      `js-exec -m -c "import { readFileSync } from 'fs'; console.log(readFileSync('/etc/hostname', 'utf8').trim())"`,
     );
     expect(r1.stdout).toBe("myhost\n");
     expect(r1.exitCode).toBe(0);

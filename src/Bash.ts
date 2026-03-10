@@ -269,6 +269,7 @@ export class Bash {
   private logger?: BashLogger;
   private defenseInDepthConfig?: DefenseInDepthConfig | boolean;
   private coverageWriter?: FeatureCoverageWriter;
+  private jsBootstrapCode?: string;
   // biome-ignore lint/suspicious/noExplicitAny: type-erased plugin storage for untyped API
   private transformPlugins: TransformPlugin<any>[] = [];
 
@@ -446,13 +447,13 @@ export class Bash {
       for (const cmd of createJavaScriptCommands()) {
         this.registerCommand(cmd);
       }
-      // Store bootstrap code in env for the worker to pick up
+      // Store bootstrap code in private field (threaded via context chain, not env)
       const jsConfig =
         typeof options.javascript === "object"
           ? options.javascript
           : Object.create(null);
       if (jsConfig.bootstrap) {
-        this.state.env.set("__JSEXEC_BOOTSTRAP__", jsConfig.bootstrap);
+        this.jsBootstrapCode = jsConfig.bootstrap;
       }
     }
 
@@ -655,6 +656,7 @@ export class Bash {
           trace: this.traceFn,
           coverage: this.coverageWriter,
           requireDefenseContext: defenseBox?.isEnabled() === true,
+          jsBootstrapCode: this.jsBootstrapCode,
         };
 
         const interpreter = new Interpreter(interpreterOptions, execState);

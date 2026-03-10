@@ -177,6 +177,12 @@ export interface CommandContext {
    * before and after awaited operations.
    */
   requireDefenseContext?: boolean;
+  /**
+   * Bootstrap JavaScript code for js-exec.
+   * Threaded through the context chain instead of shell env to prevent
+   * user access/injection via environment variables.
+   */
+  jsBootstrapCode?: string;
 }
 
 export interface Command {

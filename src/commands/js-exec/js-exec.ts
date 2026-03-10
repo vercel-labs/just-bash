@@ -564,12 +564,14 @@ export const jsExecCommand: Command = {
     }
 
     // Auto-detect top-level await → enable module mode
-    if (!isModule && /\bawait\s/.test(jsCode)) {
+    // Require await followed by identifier/call/bracket to reduce false positives
+    // from comments ("// await the result") and strings ("please await")
+    if (!isModule && /\bawait\s+[\w([`]/.test(jsCode)) {
       isModule = true;
     }
 
-    // Get bootstrap code from context env if set
-    const bootstrapCode = ctx.env.get("__JSEXEC_BOOTSTRAP__") || undefined;
+    // Get bootstrap code from context (threaded via CommandContext, not env)
+    const bootstrapCode = ctx.jsBootstrapCode;
 
     return executeJS(
       jsCode,

@@ -436,4 +436,9 @@ export interface InterpreterContext {
    * sandbox async context. Used to fail closed on context-loss bugs.
    */
   requireDefenseContext?: boolean;
+  /**
+   * Bootstrap JavaScript code for js-exec.
+   * Threaded through the context chain instead of shell env.
+   */
+  jsBootstrapCode?: string;
 }

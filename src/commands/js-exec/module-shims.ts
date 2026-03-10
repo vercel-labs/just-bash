@@ -215,7 +215,16 @@ var _util = {
     if (obj === undefined) return 'undefined';
     if (typeof obj === 'string') return "'" + obj + "'";
     if (typeof obj === 'function') return '[Function: ' + (obj.name || 'anonymous') + ']';
-    try { return JSON.stringify(obj); } catch(e) { return String(obj); }
+    var seen = [];
+    try {
+      return JSON.stringify(obj, function(key, val) {
+        if (typeof val === 'object' && val !== null) {
+          if (seen.indexOf(val) !== -1) return '[Circular]';
+          seen.push(val);
+        }
+        return val;
+      });
+    } catch(e) { return String(obj); }
   },
   promisify: function(fn) {
     return function() {
@@ -279,6 +288,8 @@ function _utf8Decode(bytes) {
 function Buffer(arg) {
   if (typeof arg === 'number') {
     this._data = new Uint8Array(arg);
+  } else if (arg instanceof ArrayBuffer) {
+    this._data = new Uint8Array(arg);
   } else if (arg instanceof Uint8Array) {
     this._data = new Uint8Array(arg);
   } else if (Array.isArray(arg)) {
@@ -292,6 +303,7 @@ Buffer.from = function(data, encoding) {
   if (typeof data === 'string') {
     return new Buffer(_utf8Encode(data));
   }
+  if (data instanceof ArrayBuffer) return new Buffer(data);
   if (data instanceof Uint8Array) return new Buffer(data);
   if (Array.isArray(data)) return new Buffer(data);
   if (data && data._data) return new Buffer(data._data.slice());
