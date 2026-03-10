@@ -3178,10 +3178,7 @@ function formatError(errorVal) {
       for (const line of lines) {
         const trimmed = line.trim();
         if (trimmed.startsWith("at ")) {
-          const cleaned = trimmed.replace(
-            /^at <eval> \((\/.+)\)$/,
-            "at $1"
-          );
+          const cleaned = trimmed.replace(/^at <eval> \((\/.+)\)$/, "at $1");
           return `${cleaned}: ${msg}`;
         }
       }
@@ -3414,7 +3411,7 @@ var VIRTUAL_MODULES = {
   `
 };
 for (const [name, hint] of Object.entries(UNSUPPORTED_MODULES)) {
-  VIRTUAL_MODULES[name] = `throw new Error("Module '${name}' is not available in the js-exec sandbox. ${hint}");`;
+  VIRTUAL_MODULES[name] = `throw new Error("Module '${name}' is not available in the js-exec sandbox. ${hint} Run 'js-exec --help' for available modules.");`;
 }
 function setupContext(context, backend, input) {
   const consoleObj = context.newObject();
@@ -3947,8 +3944,8 @@ function setupContext(context, backend, input) {
     var mod = _modules[name];
     if (mod) return mod;
     var hint = _unsupported[name];
-    if (hint) throw new Error("Module '" + name + "' is not available in the js-exec sandbox. " + hint);
-    throw new Error("Cannot find module '" + name + "'");
+    if (hint) throw new Error("Module '" + name + "' is not available in the js-exec sandbox. " + hint + " Run 'js-exec --help' for available modules.");
+    throw new Error("Cannot find module '" + name + "'. Run 'js-exec --help' for available modules.");
   };
   globalThis.require.resolve = function(name) { return name; };
 })();`,

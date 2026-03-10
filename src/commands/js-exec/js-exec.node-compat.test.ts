@@ -854,13 +854,14 @@ describe("js-exec Node.js compatibility", () => {
   });
 
   describe("unsupported module errors", () => {
-    it("should give clear error for require('http') with fetch hint", async () => {
+    it("should give clear error for require('http') with fetch hint and help pointer", async () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec(
         `js-exec -c "try { require('http'); } catch(e) { console.log(e.message); }"`,
       );
-      expect(result.stdout).toContain("not available in the js-exec sandbox");
-      expect(result.stdout).toContain("fetch()");
+      expect(result.stdout).toBe(
+        "Module 'http' is not available in the js-exec sandbox. Use fetch() for HTTP requests. Run 'js-exec --help' for available modules.\n",
+      );
       expect(result.exitCode).toBe(0);
     });
 
@@ -871,6 +872,7 @@ describe("js-exec Node.js compatibility", () => {
       );
       expect(result.stdout).toContain("not available in the js-exec sandbox");
       expect(result.stdout).toContain("fetch()");
+      expect(result.stdout).toContain("js-exec --help");
       expect(result.exitCode).toBe(0);
     });
 
@@ -879,8 +881,9 @@ describe("js-exec Node.js compatibility", () => {
       const result = await env.exec(
         `js-exec -c "try { require('crypto'); } catch(e) { console.log(e.message); }"`,
       );
-      expect(result.stdout).toContain("not available in the js-exec sandbox");
-      expect(result.stdout).toContain("Crypto");
+      expect(result.stdout).toBe(
+        "Module 'crypto' is not available in the js-exec sandbox. Crypto APIs are not available in this sandbox. Run 'js-exec --help' for available modules.\n",
+      );
       expect(result.exitCode).toBe(0);
     });
 
@@ -891,6 +894,7 @@ describe("js-exec Node.js compatibility", () => {
       );
       expect(result.stdout).toContain("not available in the js-exec sandbox");
       expect(result.stdout).toContain("Network socket");
+      expect(result.stdout).toContain("js-exec --help");
       expect(result.exitCode).toBe(0);
     });
 
@@ -899,14 +903,17 @@ describe("js-exec Node.js compatibility", () => {
       const result = await env.exec(`js-exec -m -c "import 'http'"`);
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain("not available in the js-exec sandbox");
+      expect(result.stderr).toContain("js-exec --help");
     });
 
-    it("should still give generic error for truly unknown modules", async () => {
+    it("should point to --help for truly unknown modules", async () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec(
         `js-exec -c "try { require('nonexistent'); } catch(e) { console.log(e.message); }"`,
       );
-      expect(result.stdout).toContain("Cannot find module");
+      expect(result.stdout).toBe(
+        "Cannot find module 'nonexistent'. Run 'js-exec --help' for available modules.\n",
+      );
       expect(result.exitCode).toBe(0);
     });
   });

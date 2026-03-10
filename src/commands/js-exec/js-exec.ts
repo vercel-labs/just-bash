@@ -63,9 +63,10 @@ Node.js Compatibility:
   are supported, the node: prefix works, and standard globals like process,
   console, and fetch are available. All I/O is synchronous.
 
-  Modules: fs, path, child_process, process, console
-    const fs = require('node:fs');
-    import { execSync } from 'node:child_process';
+  Available modules:
+    fs, path, child_process, process, console,
+    os, url, assert, util, events, buffer, stream,
+    string_decoder, querystring
 
   fs (global, require('fs'), or import from 'node:fs'):
     readFileSync, writeFileSync, appendFileSync, copyFileSync, renameSync
@@ -74,25 +75,51 @@ Node.js Compatibility:
     symlinkSync, readlinkSync, readFileBuffer
     fs.promises.readFile, fs.promises.writeFile, fs.promises.access, ...
 
-  path (global, require('path'), or import from 'node:path'):
-    join, resolve, dirname, basename, extname, normalize, relative,
-    isAbsolute, parse, format, sep, delimiter
+  path: join, resolve, dirname, basename, extname, normalize,
+    relative, isAbsolute, parse, format, sep, delimiter
 
-  child_process (require('child_process') or import from 'node:child_process'):
+  child_process:
     execSync(cmd)       throws on non-zero exit, returns stdout
     spawnSync(cmd, args) returns { stdout, stderr, status }
 
-  process (global or require('process')):
-    argv, cwd(), exit(), env, platform, arch, version, versions
+  process (also global): argv, cwd(), exit(), env, platform, arch,
+    version, versions
+
+  os: platform(), arch(), homedir(), tmpdir(), type(), hostname(),
+    EOL, cpus(), endianness()
+
+  url: URL, URLSearchParams, parse(), format()
+
+  assert: ok(), equal(), strictEqual(), deepEqual(), throws(),
+    doesNotThrow(), fail()
+
+  util: format(), inspect(), promisify(), types, inherits()
+
+  events: EventEmitter (on, once, emit, off, removeListener, ...)
+
+  buffer: Buffer.from(), Buffer.alloc(), Buffer.concat(),
+    Buffer.isBuffer(), toString(), slice(), equals()
+
+  stream: Readable, Writable, Duplex, Transform, PassThrough, pipeline
+
+  string_decoder: StringDecoder (write, end)
+
+  querystring: parse(), stringify(), escape(), unescape()
 
 Other Globals:
   console            log (stdout), error/warn (stderr)
   fetch(url, opts)   HTTP; returns Promise<Response> (Web Fetch API)
   URL, URLSearchParams, Headers, Request, Response
+  Buffer             Buffer.from(), Buffer.alloc(), etc.
+
+Not Available:
+  http, https, net, tls, crypto, zlib, dns, cluster, worker_threads,
+  vm, v8, readline, and other Node.js built-in modules that require
+  native bindings. Use fetch() for HTTP requests.
 
 Limits:
   Memory: 64 MB per execution
-  Timeout: 30 seconds (configurable via maxJsTimeoutMs)
+  Timeout: 10 s (60 s with network; configurable via maxJsTimeoutMs)
   Engine: QuickJS (compiled to WebAssembly)
 `;
 

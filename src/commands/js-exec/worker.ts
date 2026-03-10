@@ -96,10 +96,7 @@ function formatError(errorVal: unknown): string {
           // Stack line like "at /home/user/file.mjs:3" or "at func (/file.mjs:3)"
           // Strip "<eval>" wrapper for file-based scripts so the output matches
           // the cleaner syntax-error format: "at /path/file.js:2:1: message"
-          const cleaned = trimmed.replace(
-            /^at <eval> \((\/.+)\)$/,
-            "at $1",
-          );
+          const cleaned = trimmed.replace(/^at <eval> \((\/.+)\)$/, "at $1");
           return `${cleaned}: ${msg}`;
         }
       }
@@ -362,7 +359,7 @@ const VIRTUAL_MODULES: Record<string, string> = {
 // Add throw-at-import stubs for unsupported Node.js modules
 for (const [name, hint] of Object.entries(UNSUPPORTED_MODULES)) {
   VIRTUAL_MODULES[name] =
-    `throw new Error("Module '${name}' is not available in the js-exec sandbox. ${hint}");`;
+    `throw new Error("Module '${name}' is not available in the js-exec sandbox. ${hint} Run 'js-exec --help' for available modules.");`;
 }
 
 /**
@@ -944,8 +941,8 @@ function setupContext(
     var mod = _modules[name];
     if (mod) return mod;
     var hint = _unsupported[name];
-    if (hint) throw new Error("Module '" + name + "' is not available in the js-exec sandbox. " + hint);
-    throw new Error("Cannot find module '" + name + "'");
+    if (hint) throw new Error("Module '" + name + "' is not available in the js-exec sandbox. " + hint + " Run 'js-exec --help' for available modules.");
+    throw new Error("Cannot find module '" + name + "'. Run 'js-exec --help' for available modules.");
   };
   globalThis.require.resolve = function(name) { return name; };
 })();`,
