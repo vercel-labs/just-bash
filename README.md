@@ -479,7 +479,7 @@ await env.exec('js-exec -c "console.log(API_BASE)"');
 
 `fs.readFileSync()` returns a `Buffer` by default (matching Node.js). Pass an encoding like `'utf8'` to get a string.
 
-**Note:** The `js-exec` command only exists when `javascript` is configured. It is not available in browser environments. Execution runs in a QuickJS WASM sandbox with a 64 MB memory limit and configurable timeout (default: 10s, 60s with network).
+**Note:** The `js-exec` command only exists when `javascript` is configured. It is not available in browser environments. Execution runs in a QuickJS WASM sandbox with a 64 MB memory limit and configurable timeout (default: 10s, 60s with network). Requires Node.js >= 22.6 (uses `stripTypeScriptTypes` from `node:module`).
 
 ## SQLite Support
 
