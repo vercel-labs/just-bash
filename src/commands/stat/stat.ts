@@ -39,6 +39,9 @@ export const statCommand: Command = {
       };
     }
 
+    const uidToName = ctx.uidToName ?? (() => "user");
+    const gidToName = ctx.gidToName ?? (() => "group");
+
     let stdout = "";
     let stderr = "";
     let hasError = false;
@@ -63,10 +66,10 @@ export const statCommand: Command = {
           ); // file type
           output = output.replace(/%a/g, modeOctal); // access rights (octal)
           output = output.replace(/%A/g, modeStr); // access rights (human readable)
-          output = output.replace(/%u/g, "1000"); // user ID
-          output = output.replace(/%U/g, "user"); // user name
-          output = output.replace(/%g/g, "1000"); // group ID
-          output = output.replace(/%G/g, "group"); // group name
+          output = output.replace(/%u/g, String(stat.uid ?? 1000));
+          output = output.replace(/%U/g, uidToName(stat.uid ?? 1000));
+          output = output.replace(/%g/g, String(stat.gid ?? 1000));
+          output = output.replace(/%G/g, gidToName(stat.gid ?? 1000));
           stdout += `${output}\n`;
         } else {
           // Default format

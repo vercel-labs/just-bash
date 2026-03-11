@@ -222,6 +222,16 @@ export interface BashOptions {
     uid?: number;
     gid?: number;
   };
+  /**
+   * Resolve a numeric UID to a username for display in ls -l, stat, etc.
+   * Falls back to "user" if not provided.
+   */
+  uidToName?: (uid: number) => string;
+  /**
+   * Resolve a numeric GID to a group name for display in ls -l, stat, etc.
+   * Falls back to "group" if not provided.
+   */
+  gidToName?: (gid: number) => string;
 }
 
 export interface ExecOptions {
@@ -277,6 +287,8 @@ export class Bash {
   private defenseInDepthConfig?: DefenseInDepthConfig | boolean;
   private coverageWriter?: FeatureCoverageWriter;
   private jsBootstrapCode?: string;
+  private uidToNameFn: (uid: number) => string;
+  private gidToNameFn: (gid: number) => string;
   // biome-ignore lint/suspicious/noExplicitAny: type-erased plugin storage for untyped API
   private transformPlugins: TransformPlugin<any>[] = [];
 
@@ -341,6 +353,10 @@ export class Bash {
 
     // Store coverage writer if provided (for fuzzing instrumentation)
     this.coverageWriter = options.coverage;
+
+    // Store UID/GID name resolution callbacks
+    this.uidToNameFn = options.uidToName ?? (() => "user");
+    this.gidToNameFn = options.gidToName ?? (() => "group");
 
     // Initialize interpreter state
     this.state = {
@@ -666,6 +682,8 @@ export class Bash {
           coverage: this.coverageWriter,
           requireDefenseContext: defenseBox?.isEnabled() === true,
           jsBootstrapCode: this.jsBootstrapCode,
+          uidToName: this.uidToNameFn,
+          gidToName: this.gidToNameFn,
         };
 
         const interpreter = new Interpreter(interpreterOptions, execState);
