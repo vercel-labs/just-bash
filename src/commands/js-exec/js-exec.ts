@@ -299,9 +299,14 @@ function getOrCreateWorker(): Worker {
     return sharedWorker;
   }
 
-  sharedWorker = DefenseInDepthBox.runTrusted(() => new Worker(workerPath));
+  const worker = DefenseInDepthBox.runTrusted(() => new Worker(workerPath));
+  sharedWorker = worker;
 
-  sharedWorker.on("message", (msg: unknown) => {
+  worker.on("message", (msg: unknown) => {
+    // Ignore stale workers that were superseded after timeout/restart.
+    if (sharedWorker !== worker) {
+      return;
+    }
     if (currentExecution) {
       const result = normalizeJsWorkerMessage(
         msg,
@@ -318,7 +323,10 @@ function getOrCreateWorker(): Worker {
     }
   });
 
-  sharedWorker.on("error", (err: Error) => {
+  worker.on("error", (err: Error) => {
+    if (sharedWorker !== worker) {
+      return;
+    }
     if (currentExecution) {
       currentExecution.resolve({
         success: false,
@@ -334,11 +342,24 @@ function getOrCreateWorker(): Worker {
     sharedWorker = null;
   });
 
-  sharedWorker.on("exit", () => {
+  worker.on("exit", () => {
+    if (sharedWorker !== worker) {
+      return;
+    }
     sharedWorker = null;
+    if (currentExecution) {
+      currentExecution.resolve({
+        success: false,
+        error: "Worker exited unexpectedly",
+      });
+      currentExecution = null;
+    }
+    if (executionQueue.length > 0) {
+      processNextExecution();
+    }
   });
 
-  return sharedWorker;
+  return worker;
 }
 
 function scheduleWorkerTermination(): void {
@@ -448,16 +469,22 @@ async function executeJSInner(
   const timeoutHandle = _setTimeout(() => {
     if (currentExecution === queueEntry) {
       // Worker is running — terminate it
-      if (sharedWorker) {
-        sharedWorker.terminate();
+      const workerToTerminate = sharedWorker;
+      if (workerToTerminate) {
+        // Clear global worker reference before starting the next queued task.
         sharedWorker = null;
+        void workerToTerminate.terminate();
       }
       currentExecution = null;
+      processNextExecution();
     } else {
       // Worker hasn't started — mark canceled so processNextExecution skips it
       queueEntry.canceled = true;
+      if (!currentExecution) {
+        processNextExecution();
+      }
     }
-    resolveWorker({
+    queueEntry.resolve({
       success: false,
       error: `Execution timeout: exceeded ${timeoutMs}ms limit`,
     });
