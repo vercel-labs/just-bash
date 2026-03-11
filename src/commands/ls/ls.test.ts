@@ -65,7 +65,7 @@ describe("ls", () => {
     });
     const result = await env.exec("ls -l /dir");
     expect(result.stdout).toMatch(
-      /^total 1\n-rw-r--r-- 1 user user\s+0 \w{3}\s+\d+\s+[\d:]+\s+test\.txt\n$/,
+      /^total 1\n-rw-r--r-- 1 user group\s+0 \w{3}\s+\d+\s+[\d:]+\s+test\.txt\n$/,
     );
     expect(result.stderr).toBe("");
   });
@@ -76,7 +76,7 @@ describe("ls", () => {
     });
     const result = await env.exec("ls -l /dir");
     expect(result.stdout).toMatch(
-      /^total 1\ndrwxr-xr-x 1 user user\s+0 \w{3}\s+\d+\s+[\d:]+\s+subdir\/\n$/,
+      /^total 1\ndrwxr-xr-x 1 user group\s+0 \w{3}\s+\d+\s+[\d:]+\s+subdir\/\n$/,
     );
     expect(result.stderr).toBe("");
   });
@@ -92,10 +92,10 @@ describe("ls", () => {
     // Check structure: 4 entries (., .., .hidden, visible)
     const lines = result.stdout.split("\n").filter((l) => l);
     expect(lines[0]).toBe("total 4");
-    expect(lines[1]).toMatch(/^drwxr-xr-x 1 user user\s+0 .+ \.$/);
-    expect(lines[2]).toMatch(/^drwxr-xr-x 1 user user\s+0 .+ \.\.$/);
-    expect(lines[3]).toMatch(/^-rw-r--r-- 1 user user\s+0 .+ \.hidden$/);
-    expect(lines[4]).toMatch(/^-rw-r--r-- 1 user user\s+0 .+ visible$/);
+    expect(lines[1]).toMatch(/^drwxr-xr-x 1 user group\s+0 .+ \.$/);
+    expect(lines[2]).toMatch(/^drwxr-xr-x 1 user group\s+0 .+ \.\.$/);
+    expect(lines[3]).toMatch(/^-rw-r--r-- 1 user group\s+0 .+ \.hidden$/);
+    expect(lines[4]).toMatch(/^-rw-r--r-- 1 user group\s+0 .+ visible$/);
     expect(result.stderr).toBe("");
   });
 

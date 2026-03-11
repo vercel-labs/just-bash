@@ -309,7 +309,9 @@ async function listGlob(
           `${modeStr} 1 ${owner} ${group} ${sizeStr} ${dateStr} ${match}${suffix}`,
         );
       } catch {
-        lines.push(`-rw-r--r-- 1 ${uidToName(1000)} ${gidToName(1000)}     0 Jan  1 00:00 ${match}`);
+        lines.push(
+          `-rw-r--r-- 1 ${uidToName(1000)} ${gidToName(1000)}     0 Jan  1 00:00 ${match}`,
+        );
       }
     }
     return { stdout: `${lines.join("\n")}\n`, stderr: "", exitCode: 0 };
