@@ -10,7 +10,12 @@
 import { lookup as dnsLookup } from "node:dns";
 import { DefenseInDepthBox } from "../security/defense-in-depth-box.js";
 import { _clearTimeout, _setTimeout } from "../timers.js";
-import { isPrivateIp, isUrlAllowed, validateAllowList } from "./allow-list.js";
+import {
+  isPrivateIp,
+  isUrlAllowed,
+  matchesAllowListEntry,
+  validateAllowList,
+} from "./allow-list.js";
 import type { AllowedUrl, AllowedUrlEntry, DnsLookupResult } from "./types.js";
 import {
   type FetchResult,
@@ -79,44 +84,29 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     }
   }
 
-  // Build hostname-to-transforms map for firewall header injection.
-  // Only object entries with transforms contribute.
-  const transformsByHost: Record<string, AllowedUrl[]> = Object.create(null);
+  // Collect entries that carry transforms for firewall header injection.
+  const transformEntries: AllowedUrl[] = [];
   for (const entry of entries) {
     if (
       typeof entry === "object" &&
       entry.transform &&
       entry.transform.length > 0
     ) {
-      try {
-        const hostname = new URL(entry.url).hostname;
-        if (!Object.hasOwn(transformsByHost, hostname)) {
-          transformsByHost[hostname] = [];
-        }
-        transformsByHost[hostname].push(entry);
-      } catch {
-        // Invalid URL — already caught by validateAllowList above
-      }
+      transformEntries.push(entry);
     }
   }
 
   /**
-   * Returns firewall headers for a given URL by looking up transforms
-   * for the URL's hostname. Firewall headers override user headers.
+   * Returns firewall headers for a given URL by matching against transform
+   * entries using URL prefix matching (same logic as the allow-list).
+   * Firewall headers override user headers.
    */
   function getFirewallHeaders(url: string): Record<string, string> | null {
-    let hostname: string;
-    try {
-      hostname = new URL(url).hostname;
-    } catch {
-      return null;
-    }
-    if (!Object.hasOwn(transformsByHost, hostname)) {
-      return null;
-    }
+    let found = false;
     const merged: Record<string, string> = Object.create(null);
-    for (const entry of transformsByHost[hostname]) {
-      if (entry.transform) {
+    for (const entry of transformEntries) {
+      if (matchesAllowListEntry(url, entry.url) && entry.transform) {
+        found = true;
         for (const t of entry.transform) {
           for (const [key, value] of Object.entries(t.headers)) {
             merged[key] = value;
@@ -124,7 +114,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
         }
       }
     }
-    return merged;
+    return found ? merged : null;
   }
 
   const maxRedirects = config.maxRedirects ?? DEFAULT_MAX_REDIRECTS;

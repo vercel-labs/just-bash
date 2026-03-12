@@ -279,4 +279,75 @@ describe("firewall header transforms", () => {
     // No firewall headers — object entry without transforms
     expect(Object.keys(calls[0].headers)).toHaveLength(0);
   });
+
+  it("transforms match by URL prefix, not just hostname", async () => {
+    const { mockFn, calls } = createCapturingMock();
+    global.fetch = mockFn;
+
+    const entries: AllowedUrlEntry[] = [
+      {
+        url: "https://api.example.com/v1/",
+        transform: [{ headers: { Authorization: "Bearer v1-secret" } }],
+      },
+      // Same host, different path — no transform
+      "https://api.example.com/v2/",
+    ];
+
+    const secureFetch = createSecureFetch({ allowedUrlPrefixes: entries });
+
+    // /v1/ path — should get firewall headers
+    await secureFetch("https://api.example.com/v1/chat");
+    // /v2/ path — same host but should NOT get firewall headers
+    await secureFetch("https://api.example.com/v2/chat");
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0].headers.Authorization).toBe("Bearer v1-secret");
+    expect(calls[1].headers.Authorization).toBeUndefined();
+  });
+
+  it("different path prefixes on same host get different transforms", async () => {
+    const { mockFn, calls } = createCapturingMock();
+    global.fetch = mockFn;
+
+    const entries: AllowedUrlEntry[] = [
+      {
+        url: "https://api.example.com/v1/",
+        transform: [{ headers: { "X-Api-Key": "key-v1" } }],
+      },
+      {
+        url: "https://api.example.com/v2/",
+        transform: [{ headers: { "X-Api-Key": "key-v2" } }],
+      },
+    ];
+
+    const secureFetch = createSecureFetch({ allowedUrlPrefixes: entries });
+
+    await secureFetch("https://api.example.com/v1/users");
+    await secureFetch("https://api.example.com/v2/users");
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0].headers["X-Api-Key"]).toBe("key-v1");
+    expect(calls[1].headers["X-Api-Key"]).toBe("key-v2");
+  });
+
+  it("origin-only transform applies to all paths on that origin", async () => {
+    const { mockFn, calls } = createCapturingMock();
+    global.fetch = mockFn;
+
+    const entries: AllowedUrlEntry[] = [
+      {
+        url: "https://api.example.com",
+        transform: [{ headers: { Authorization: "Bearer global" } }],
+      },
+    ];
+
+    const secureFetch = createSecureFetch({ allowedUrlPrefixes: entries });
+
+    await secureFetch("https://api.example.com/any/path");
+    await secureFetch("https://api.example.com/other");
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0].headers.Authorization).toBe("Bearer global");
+    expect(calls[1].headers.Authorization).toBe("Bearer global");
+  });
 });
