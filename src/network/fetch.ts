@@ -11,7 +11,7 @@ import { lookup as dnsLookup } from "node:dns";
 import { DefenseInDepthBox } from "../security/defense-in-depth-box.js";
 import { _clearTimeout, _setTimeout } from "../timers.js";
 import { isPrivateIp, isUrlAllowed, validateAllowList } from "./allow-list.js";
-import type { DnsLookupResult } from "./types.js";
+import type { AllowedUrl, AllowedUrlEntry, DnsLookupResult } from "./types.js";
 import {
   type FetchResult,
   type HttpMethod,
@@ -69,12 +69,62 @@ export type SecureFetch = (
  * Creates a secure fetch function that enforces the allow-list.
  */
 export function createSecureFetch(config: NetworkConfig): SecureFetch {
+  const entries: AllowedUrlEntry[] = config.allowedUrlPrefixes ?? [];
+
   // Fail fast on invalid allow-list entries
   if (!config.dangerouslyAllowFullInternetAccess) {
-    const errors = validateAllowList(config.allowedUrlPrefixes ?? []);
+    const errors = validateAllowList(entries);
     if (errors.length > 0) {
       throw new Error(`Invalid network allow-list:\n${errors.join("\n")}`);
     }
+  }
+
+  // Build hostname-to-transforms map for firewall header injection.
+  // Only object entries with transforms contribute.
+  const transformsByHost: Record<string, AllowedUrl[]> = Object.create(null);
+  for (const entry of entries) {
+    if (
+      typeof entry === "object" &&
+      entry.transform &&
+      entry.transform.length > 0
+    ) {
+      try {
+        const hostname = new URL(entry.url).hostname;
+        if (!Object.hasOwn(transformsByHost, hostname)) {
+          transformsByHost[hostname] = [];
+        }
+        transformsByHost[hostname].push(entry);
+      } catch {
+        // Invalid URL — already caught by validateAllowList above
+      }
+    }
+  }
+
+  /**
+   * Returns firewall headers for a given URL by looking up transforms
+   * for the URL's hostname. Firewall headers override user headers.
+   */
+  function getFirewallHeaders(url: string): Record<string, string> | null {
+    let hostname: string;
+    try {
+      hostname = new URL(url).hostname;
+    } catch {
+      return null;
+    }
+    if (!Object.hasOwn(transformsByHost, hostname)) {
+      return null;
+    }
+    const merged: Record<string, string> = Object.create(null);
+    for (const entry of transformsByHost[hostname]) {
+      if (entry.transform) {
+        for (const t of entry.transform) {
+          for (const [key, value] of Object.entries(t.headers)) {
+            merged[key] = value;
+          }
+        }
+      }
+    }
+    return merged;
   }
 
   const maxRedirects = config.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
@@ -149,7 +199,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
       return;
     }
 
-    if (!isUrlAllowed(url, config.allowedUrlPrefixes ?? [])) {
+    if (!isUrlAllowed(url, entries)) {
       throw new NetworkAccessDeniedError(url);
     }
   }
@@ -197,9 +247,16 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
       const timeoutId = _setTimeout(() => controller.abort(), effectiveTimeout);
 
       try {
+        // Merge user headers with firewall headers (firewall overrides user)
+        const firewallHeaders = getFirewallHeaders(currentUrl);
+        const mergedHeaders = buildMergedHeaders(
+          options.headers,
+          firewallHeaders,
+        );
+
         const fetchOptions: RequestInit = {
           method,
-          headers: options.headers,
+          headers: mergedHeaders,
           signal: controller.signal,
           redirect: "manual", // Handle redirects manually to check allow-list
         };
@@ -254,6 +311,29 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
   }
 
   return secureFetch;
+}
+
+/**
+ * Merges user headers with firewall headers. Firewall headers override user
+ * headers to prevent credential substitution from the sandbox.
+ */
+function buildMergedHeaders(
+  userHeaders: Record<string, string> | undefined,
+  firewallHeaders: Record<string, string> | null,
+): Record<string, string> | undefined {
+  if (!userHeaders && !firewallHeaders) return undefined;
+  const merged: Record<string, string> = Object.create(null);
+  if (userHeaders) {
+    for (const [k, v] of Object.entries(userHeaders)) {
+      merged[k] = v;
+    }
+  }
+  if (firewallHeaders) {
+    for (const [k, v] of Object.entries(firewallHeaders)) {
+      merged[k] = v;
+    }
+  }
+  return merged;
 }
 
 /**

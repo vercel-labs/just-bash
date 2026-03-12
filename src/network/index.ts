@@ -11,10 +11,13 @@ export {
 } from "./fetch.js";
 
 export {
+  type AllowedUrl,
+  type AllowedUrlEntry,
   type FetchResult,
   type HttpMethod,
   NetworkAccessDeniedError,
   type NetworkConfig,
   RedirectNotAllowedError,
+  type RequestTransform,
   TooManyRedirectsError,
 } from "./types.js";

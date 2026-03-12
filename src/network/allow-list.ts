@@ -5,6 +5,8 @@
  * independent of any parsing or user input manipulation.
  */
 
+import type { AllowedUrlEntry } from "./types.js";
+
 /**
  * Parses a URL string into its components.
  * Returns null if the URL is invalid.
@@ -86,21 +88,30 @@ export function matchesAllowListEntry(
 }
 
 /**
+ * Extracts the URL string from an AllowedUrlEntry.
+ */
+function entryToUrl(entry: AllowedUrlEntry): string {
+  return typeof entry === "string" ? entry : entry.url;
+}
+
+/**
  * Checks if a URL is allowed by any entry in the allow-list.
  *
  * @param url The URL to check
- * @param allowedUrlPrefixes The list of allowed URL prefixes
+ * @param allowedUrlPrefixes The list of allowed URL prefixes (strings or objects)
  * @returns true if the URL is allowed
  */
 export function isUrlAllowed(
   url: string,
-  allowedUrlPrefixes: string[],
+  allowedUrlPrefixes: AllowedUrlEntry[],
 ): boolean {
   if (!allowedUrlPrefixes || allowedUrlPrefixes.length === 0) {
     return false;
   }
 
-  return allowedUrlPrefixes.some((entry) => matchesAllowListEntry(url, entry));
+  return allowedUrlPrefixes.some((entry) =>
+    matchesAllowListEntry(url, entryToUrl(entry)),
+  );
 }
 
 /**
@@ -356,12 +367,26 @@ function isPrivateIpv6(hextets: number[]): boolean {
 /**
  * Validates an allow-list configuration.
  * Each entry must be a full origin (scheme + host), optionally followed by a path prefix.
+ * Accepts both plain strings and AllowedUrl objects.
  * Returns an array of error messages for invalid entries.
  */
-export function validateAllowList(allowedUrlPrefixes: string[]): string[] {
+export function validateAllowList(
+  allowedUrlPrefixes: AllowedUrlEntry[],
+): string[] {
   const errors: string[] = [];
 
-  for (const entry of allowedUrlPrefixes) {
+  for (const rawEntry of allowedUrlPrefixes) {
+    // Validate object entries have a url field
+    if (typeof rawEntry === "object") {
+      if (!rawEntry.url || typeof rawEntry.url !== "string") {
+        errors.push(
+          `Invalid allow-list entry: object must have a "url" string property`,
+        );
+        continue;
+      }
+    }
+
+    const entry = entryToUrl(rawEntry);
     const parsed = parseUrl(entry);
     if (!parsed) {
       errors.push(

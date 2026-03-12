@@ -26,6 +26,29 @@ export type HttpMethod =
   | "OPTIONS";
 
 /**
+ * Header transform applied at the fetch boundary.
+ * Headers specified here override any user-supplied headers with the same name.
+ */
+export interface RequestTransform {
+  headers: Record<string, string>;
+}
+
+/**
+ * An allowed URL entry with optional header transforms.
+ * Transforms are applied at the fetch boundary so secrets never enter the sandbox.
+ */
+export interface AllowedUrl {
+  url: string;
+  transform?: RequestTransform[];
+}
+
+/**
+ * An entry in the allowedUrlPrefixes list: either a plain URL string or
+ * an object with a URL and optional transforms.
+ */
+export type AllowedUrlEntry = string | AllowedUrl;
+
+/**
  * Configuration for network access
  */
 export interface NetworkConfig {
@@ -34,6 +57,17 @@ export interface NetworkConfig {
    * optionally followed by a path prefix:
    * - An origin: "https://api.example.com" - allows all paths on this origin
    * - An origin + path prefix: "https://api.example.com/v1/" - allows only paths starting with /v1/
+   *
+   * Entries can be plain strings or objects with transforms for credentials brokering:
+   * ```
+   * allowedUrlPrefixes: [
+   *   "https://other-api.com",
+   *   {
+   *     url: "https://ai-gateway.vercel.sh",
+   *     transform: [{ headers: { "Authorization": "Bearer secret" } }],
+   *   },
+   * ]
+   * ```
    *
    * The check is performed on the full URL, so "https://api.example.com/v1" will allow:
    * - https://api.example.com/v1
@@ -46,7 +80,7 @@ export interface NetworkConfig {
    *
    * Invalid entries (missing scheme, missing host, relative paths) will throw an error.
    */
-  allowedUrlPrefixes?: string[];
+  allowedUrlPrefixes?: AllowedUrlEntry[];
 
   /**
    * List of allowed HTTP methods. Defaults to ["GET", "HEAD"] for safety.
