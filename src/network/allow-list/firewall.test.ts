@@ -10,21 +10,31 @@ import { createSecureFetch } from "../fetch.js";
 import type { AllowedUrlEntry } from "../types.js";
 import { originalFetch } from "./shared.js";
 
+/** Extract headers from RequestInit into a plain record */
+function extractHeaders(init?: RequestInit): Record<string, string> {
+  const result: Record<string, string> = Object.create(null);
+  if (!init?.headers) return result;
+  // Handle both Headers instances and plain objects
+  const h = init.headers;
+  if (h instanceof Headers) {
+    h.forEach((v, k) => {
+      result[k] = v;
+    });
+  } else {
+    for (const [k, v] of Object.entries(h as Record<string, string>)) {
+      result[k] = v;
+    }
+  }
+  return result;
+}
+
 /** Minimal mock fetch that captures headers and returns 200 */
 function createCapturingMock() {
   const calls: { url: string; headers: Record<string, string> }[] = [];
   const mockFn = vi.fn<typeof fetch>(
     async (url: string | URL | Request, init?: RequestInit) => {
       const urlString = typeof url === "string" ? url : url.toString();
-      const headers: Record<string, string> = Object.create(null);
-      if (init?.headers) {
-        for (const [k, v] of Object.entries(
-          init.headers as Record<string, string>,
-        )) {
-          headers[k] = v;
-        }
-      }
-      calls.push({ url: urlString, headers });
+      calls.push({ url: urlString, headers: extractHeaders(init) });
       return new Response("ok", { status: 200 });
     },
   );
@@ -37,15 +47,7 @@ function createRedirectMock(redirectFrom: string, redirectTo: string) {
   const mockFn = vi.fn<typeof fetch>(
     async (url: string | URL | Request, init?: RequestInit) => {
       const urlString = typeof url === "string" ? url : url.toString();
-      const headers: Record<string, string> = Object.create(null);
-      if (init?.headers) {
-        for (const [k, v] of Object.entries(
-          init.headers as Record<string, string>,
-        )) {
-          headers[k] = v;
-        }
-      }
-      calls.push({ url: urlString, headers });
+      calls.push({ url: urlString, headers: extractHeaders(init) });
       if (urlString === redirectFrom) {
         return new Response("", {
           status: 302,
@@ -71,7 +73,7 @@ describe("firewall header transforms", () => {
     vi.restoreAllMocks();
   });
 
-  it("injects firewall headers for matching hostname", async () => {
+  it("injects firewall headers for matching URL prefix", async () => {
     const { mockFn, calls } = createCapturingMock();
     global.fetch = mockFn;
 
@@ -86,7 +88,7 @@ describe("firewall header transforms", () => {
     await secureFetch("https://ai-gateway.vercel.sh/v1/chat");
 
     expect(calls).toHaveLength(1);
-    expect(calls[0].headers.Authorization).toBe("Bearer secret-token");
+    expect(calls[0].headers.authorization).toBe("Bearer secret-token");
   });
 
   it("preserves non-conflicting user headers", async () => {
@@ -106,9 +108,9 @@ describe("firewall header transforms", () => {
     });
 
     expect(calls).toHaveLength(1);
-    expect(calls[0].headers["Content-Type"]).toBe("application/json");
-    expect(calls[0].headers["X-Custom"]).toBe("value");
-    expect(calls[0].headers.Authorization).toBe("Bearer secret");
+    expect(calls[0].headers["content-type"]).toBe("application/json");
+    expect(calls[0].headers["x-custom"]).toBe("value");
+    expect(calls[0].headers.authorization).toBe("Bearer secret");
   });
 
   it("firewall headers override user headers with same name (security)", async () => {
@@ -129,7 +131,29 @@ describe("firewall header transforms", () => {
 
     expect(calls).toHaveLength(1);
     // Firewall header wins — sandbox cannot substitute credentials
-    expect(calls[0].headers.Authorization).toBe("Bearer real-secret");
+    expect(calls[0].headers.authorization).toBe("Bearer real-secret");
+  });
+
+  it("prevents case-insensitive header bypass (security)", async () => {
+    const { mockFn, calls } = createCapturingMock();
+    global.fetch = mockFn;
+
+    const entries: AllowedUrlEntry[] = [
+      {
+        url: "https://api.example.com",
+        transform: [{ headers: { Authorization: "Bearer real-secret" } }],
+      },
+    ];
+
+    const secureFetch = createSecureFetch({ allowedUrlPrefixes: entries });
+    // User attempts bypass using different casing
+    await secureFetch("https://api.example.com/data", {
+      headers: { authorization: "Bearer user-injected" },
+    });
+
+    expect(calls).toHaveLength(1);
+    // Firewall header must still win regardless of header name casing
+    expect(calls[0].headers.authorization).toBe("Bearer real-secret");
   });
 
   it("merges multiple transforms in order", async () => {
@@ -150,10 +174,10 @@ describe("firewall header transforms", () => {
     await secureFetch("https://api.example.com/data");
 
     expect(calls).toHaveLength(1);
-    expect(calls[0].headers.Authorization).toBe("Bearer first");
-    // Second transform overrides X-Key from first
-    expect(calls[0].headers["X-Key"]).toBe("key2");
-    expect(calls[0].headers["X-Extra"]).toBe("extra");
+    expect(calls[0].headers.authorization).toBe("Bearer first");
+    // Multiple transforms' values for the same header are appended
+    expect(calls[0].headers["x-key"]).toBe("key1, key2");
+    expect(calls[0].headers["x-extra"]).toBe("extra");
   });
 
   it("no injection for non-matching hosts", async () => {
@@ -174,7 +198,9 @@ describe("firewall header transforms", () => {
     });
 
     expect(calls).toHaveLength(1);
+    // No firewall headers for this host, so user headers pass through with original casing
     expect(calls[0].headers["X-Custom"]).toBe("value");
+    expect(calls[0].headers.authorization).toBeUndefined();
     expect(calls[0].headers.Authorization).toBeUndefined();
   });
 
@@ -199,10 +225,10 @@ describe("firewall header transforms", () => {
     expect(calls).toHaveLength(2);
     // First request (plain.com) — no firewall headers
     expect(calls[0].url).toBe("https://plain.com/start");
-    expect(calls[0].headers.Authorization).toBeUndefined();
+    expect(calls[0].headers.authorization).toBeUndefined();
     // Second request (secret-api.com) — firewall headers injected
     expect(calls[1].url).toBe("https://secret-api.com/target");
-    expect(calls[1].headers.Authorization).toBe("Bearer secret");
+    expect(calls[1].headers.authorization).toBe("Bearer secret");
   });
 
   it("redirect away from transform host drops firewall headers", async () => {
@@ -226,10 +252,10 @@ describe("firewall header transforms", () => {
     expect(calls).toHaveLength(2);
     // First request — firewall headers present
     expect(calls[0].url).toBe("https://secret-api.com/start");
-    expect(calls[0].headers.Authorization).toBe("Bearer secret");
+    expect(calls[0].headers.authorization).toBe("Bearer secret");
     // Second request (plain.com) — no firewall headers
     expect(calls[1].url).toBe("https://plain.com/target");
-    expect(calls[1].headers.Authorization).toBeUndefined();
+    expect(calls[1].headers.authorization).toBeUndefined();
   });
 
   it("mixed string and object entries work together", async () => {
@@ -251,9 +277,9 @@ describe("firewall header transforms", () => {
 
     expect(calls).toHaveLength(2);
     // Public API — no firewall headers
-    expect(calls[0].headers["X-Api-Key"]).toBeUndefined();
+    expect(calls[0].headers["x-api-key"]).toBeUndefined();
     // Private API — firewall headers injected
-    expect(calls[1].headers["X-Api-Key"]).toBe("key123");
+    expect(calls[1].headers["x-api-key"]).toBe("key123");
   });
 
   it("invalid object entries throw at construction", () => {
@@ -301,8 +327,8 @@ describe("firewall header transforms", () => {
     await secureFetch("https://api.example.com/v2/chat");
 
     expect(calls).toHaveLength(2);
-    expect(calls[0].headers.Authorization).toBe("Bearer v1-secret");
-    expect(calls[1].headers.Authorization).toBeUndefined();
+    expect(calls[0].headers.authorization).toBe("Bearer v1-secret");
+    expect(calls[1].headers.authorization).toBeUndefined();
   });
 
   it("different path prefixes on same host get different transforms", async () => {
@@ -326,8 +352,8 @@ describe("firewall header transforms", () => {
     await secureFetch("https://api.example.com/v2/users");
 
     expect(calls).toHaveLength(2);
-    expect(calls[0].headers["X-Api-Key"]).toBe("key-v1");
-    expect(calls[1].headers["X-Api-Key"]).toBe("key-v2");
+    expect(calls[0].headers["x-api-key"]).toBe("key-v1");
+    expect(calls[1].headers["x-api-key"]).toBe("key-v2");
   });
 
   it("origin-only transform applies to all paths on that origin", async () => {
@@ -347,7 +373,52 @@ describe("firewall header transforms", () => {
     await secureFetch("https://api.example.com/other");
 
     expect(calls).toHaveLength(2);
-    expect(calls[0].headers.Authorization).toBe("Bearer global");
-    expect(calls[1].headers.Authorization).toBe("Bearer global");
+    expect(calls[0].headers.authorization).toBe("Bearer global");
+    expect(calls[1].headers.authorization).toBe("Bearer global");
+  });
+
+  it("multiple transforms contributing cookies are preserved", async () => {
+    const { mockFn, calls } = createCapturingMock();
+    global.fetch = mockFn;
+
+    const entries: AllowedUrlEntry[] = [
+      {
+        url: "https://api.example.com",
+        transform: [
+          { headers: { Cookie: "session=abc123" } },
+          { headers: { Cookie: "tracking=xyz" } },
+        ],
+      },
+    ];
+
+    const secureFetch = createSecureFetch({ allowedUrlPrefixes: entries });
+    await secureFetch("https://api.example.com/data");
+
+    expect(calls).toHaveLength(1);
+    const cookie = calls[0].headers.cookie;
+    // Headers.append() joins with ", " per the Fetch spec
+    expect(cookie).toContain("session=abc123");
+    expect(cookie).toContain("tracking=xyz");
+  });
+
+  it("firewall cookies override user cookies", async () => {
+    const { mockFn, calls } = createCapturingMock();
+    global.fetch = mockFn;
+
+    const entries: AllowedUrlEntry[] = [
+      {
+        url: "https://api.example.com",
+        transform: [{ headers: { Cookie: "api_key=secret" } }],
+      },
+    ];
+
+    const secureFetch = createSecureFetch({ allowedUrlPrefixes: entries });
+    await secureFetch("https://api.example.com/data", {
+      headers: { Cookie: "user_session=should_be_replaced" },
+    });
+
+    expect(calls).toHaveLength(1);
+    // Firewall set() replaces user cookie
+    expect(calls[0].headers.cookie).toBe("api_key=secret");
   });
 });

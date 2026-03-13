@@ -376,11 +376,16 @@ export function validateAllowList(
   const errors: string[] = [];
 
   for (const rawEntry of allowedUrlPrefixes) {
-    // Validate object entries have a url field
-    if (typeof rawEntry === "object") {
-      if (!rawEntry.url || typeof rawEntry.url !== "string") {
+    // Validate entry shape
+    if (typeof rawEntry !== "string") {
+      if (
+        rawEntry === null ||
+        typeof rawEntry !== "object" ||
+        !("url" in rawEntry) ||
+        typeof rawEntry.url !== "string"
+      ) {
         errors.push(
-          `Invalid allow-list entry: object must have a "url" string property`,
+          `Invalid allow-list entry: must be a string URL or an object with a "url" string property`,
         );
         continue;
       }
