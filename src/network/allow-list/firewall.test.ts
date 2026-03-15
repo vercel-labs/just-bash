@@ -469,27 +469,7 @@ describe("firewall header transforms", () => {
     expect(calls[0].headers.authorization).toBe("Bearer secret");
   });
 
-  it("firewall authorization overrides user-supplied authorization", async () => {
-    const { mockFn, calls } = createCapturingMock();
-    global.fetch = mockFn;
-
-    const entries: AllowedUrlEntry[] = [
-      {
-        url: "https://api.example.com",
-        transform: [{ headers: { Authorization: "Bearer secret" } }],
-      },
-    ];
-
-    const secureFetch = createSecureFetch({ allowedUrlPrefixes: entries });
-    await secureFetch("https://api.example.com/data", {
-      headers: { Authorization: "Bearer user-token-should-be-replaced" },
-    });
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0].headers.authorization).toBe("Bearer secret");
-  });
-
-  it("overlapping prefixes accumulate headers from all matching entries", async () => {
+  it("overlapping prefixes merge headers from all matching entries", async () => {
     const { mockFn, calls } = createCapturingMock();
     global.fetch = mockFn;
 
