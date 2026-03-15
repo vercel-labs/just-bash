@@ -40,9 +40,10 @@ export const headCommand: Command = {
       return streamingHead(ctx, lines);
     }
 
-    // Drain stdinStream into buffered stdin for non-streaming cases
-    // (byte mode or file args)
-    {
+    // Drain stdinStream into buffered stdin only for byte mode from stdin.
+    // When file args are present, processHeadTailFiles reads files directly
+    // and never uses stdin, so draining is unnecessary.
+    if (files.length === 0) {
       let buffered = "";
       for await (const chunk of ctx.stdinStream) {
         buffered += chunk;

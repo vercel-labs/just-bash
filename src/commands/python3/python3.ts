@@ -501,17 +501,6 @@ export const python3Command: Command = {
       return showHelp(python3Help);
     }
 
-    // Drain stdinStream into buffered stdin
-    {
-      let buffered = "";
-      for await (const chunk of ctx.stdinStream) {
-        buffered += chunk;
-      }
-      if (buffered) {
-        ctx = { ...ctx, stdin: buffered };
-      }
-    }
-
     const parsed = parseArgs(args);
     if ("exitCode" in parsed) return parsed;
 
@@ -563,16 +552,29 @@ export const python3Command: Command = {
           exitCode: 2,
         };
       }
-    } else if (ctx.stdin.trim()) {
-      pythonCode = ctx.stdin;
-      scriptPath = "<stdin>";
     } else {
-      return {
-        stdout: "",
-        stderr:
-          "python3: no input provided (use -c CODE, -m MODULE, or provide a script file)\n",
-        exitCode: 2,
-      };
+      // No code/module/script — drain stdinStream for stdin input
+      {
+        let buffered = "";
+        for await (const chunk of ctx.stdinStream) {
+          buffered += chunk;
+        }
+        if (buffered) {
+          ctx = { ...ctx, stdin: buffered };
+        }
+      }
+
+      if (ctx.stdin.trim()) {
+        pythonCode = ctx.stdin;
+        scriptPath = "<stdin>";
+      } else {
+        return {
+          stdout: "",
+          stderr:
+            "python3: no input provided (use -c CODE, -m MODULE, or provide a script file)\n",
+          exitCode: 2,
+        };
+      }
     }
 
     const result = await executePython(

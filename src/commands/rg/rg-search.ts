@@ -6,11 +6,13 @@ import { gunzipSync } from "node:zlib";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { CommandContext, ExecResult } from "../../types.js";
+import { lineStream } from "../../utils/line-stream.js";
 import {
   buildRegex,
   convertReplacement,
   type RegexResult,
   searchContent,
+  searchStream,
 } from "../search-engine/index.js";
 import { FileTypeRegistry } from "./file-types.js";
 import { GitignoreManager, loadGitignores } from "./gitignore.js";
@@ -60,17 +62,6 @@ export async function executeSearch(
   let { ctx } = searchCtx;
   const { options, paths: inputPaths, explicitLineNumbers } = searchCtx;
 
-  // Drain stdinStream into buffered stdin
-  {
-    let buffered = "";
-    for await (const chunk of ctx.stdinStream) {
-      buffered += chunk;
-    }
-    if (buffered) {
-      ctx = { ...ctx, stdin: buffered };
-    }
-  }
-
   // Validate glob patterns for errors
   for (const glob of options.globs) {
     const globToValidate = glob.startsWith("!") ? glob.slice(1) : glob;
@@ -89,6 +80,18 @@ export async function executeSearch(
 
   // Combine -e patterns with patterns from files
   const patterns = [...options.patterns];
+
+  // Drain stdinStream only if pattern files need stdin (-f -)
+  const stdinConsumedByPatterns = options.patternFiles.includes("-");
+  if (stdinConsumedByPatterns) {
+    let buffered = "";
+    for await (const chunk of ctx.stdinStream) {
+      buffered += chunk;
+    }
+    if (buffered) {
+      ctx = { ...ctx, stdin: buffered };
+    }
+  }
 
   // Read patterns from files (-f/--file)
   for (const patternFile of options.patternFiles) {
@@ -127,18 +130,9 @@ export async function executeSearch(
     };
   }
 
-  // When no paths given and stdin is available, search stdin
-  if (inputPaths.length === 0 && ctx.stdin) {
-    return searchStdin(ctx, patterns, options, explicitLineNumbers);
-  }
-
-  // Default to current directory
-  const paths = inputPaths.length === 0 ? ["."] : inputPaths;
-
-  // Determine case sensitivity
+  // Determine case sensitivity and build regex (shared by stdin and file paths)
   const effectiveIgnoreCase = determineIgnoreCase(options, patterns);
 
-  // Build regex
   let regex: UserRegex;
   let kResetGroup: number | undefined;
   try {
@@ -156,6 +150,25 @@ export async function executeSearch(
       exitCode: 2,
     };
   }
+
+  // When no paths given and stdin wasn't consumed by -f -, try stdin
+  if (inputPaths.length === 0 && !stdinConsumedByPatterns) {
+    const iter = ctx.stdinStream[Symbol.asyncIterator]();
+    const first = await iter.next();
+    if (!first.done) {
+      return searchStdinStreaming(
+        ctx,
+        prependStream(first.value, iter),
+        regex,
+        options,
+        explicitLineNumbers,
+        kResetGroup,
+      );
+    }
+  }
+
+  // Default to current directory
+  const paths = inputPaths.length === 0 ? ["."] : inputPaths;
 
   // Load gitignore files
   let gitignore: GitignoreManager | null = null;
@@ -219,39 +232,45 @@ export async function executeSearch(
 }
 
 /**
- * Search stdin content with streaming support.
+ * Reconstruct an async iterable from a peeked first chunk and the remaining iterator.
  */
-async function searchStdin(
+async function* prependStream(
+  firstChunk: string,
+  rest: AsyncIterator<string>,
+): AsyncGenerator<string> {
+  yield firstChunk;
+  for (;;) {
+    const next = await rest.next();
+    if (next.done) break;
+    yield next.value;
+  }
+}
+
+/**
+ * Search stdin with streaming — processes lines incrementally via searchStream.
+ */
+async function searchStdinStreaming(
   ctx: CommandContext,
-  patterns: string[],
+  source: AsyncIterable<string>,
+  regex: UserRegex,
   options: RgOptions,
   explicitLineNumbers: boolean,
+  kResetGroup?: number,
 ): Promise<ExecResult> {
-  // stdinStream already drained by executeSearch
-  const stdinContent = ctx.stdin;
   // rg doesn't show line numbers for stdin unless explicitly requested
   const showLineNumbers = explicitLineNumbers && options.lineNumber;
 
-  const effectiveIgnoreCase = determineIgnoreCase(options, patterns);
-  let regex: UserRegex;
-  let kResetGroup: number | undefined;
-  try {
-    const regexResult = buildSearchRegex(
-      patterns,
-      options,
-      effectiveIgnoreCase,
-    );
-    regex = regexResult.regex;
-    kResetGroup = regexResult.kResetGroup;
-  } catch {
-    return {
-      stdout: "",
-      stderr: `rg: invalid regex: ${patterns.join(", ")}\n`,
-      exitCode: 2,
-    };
+  if (options.quiet) {
+    const result = await searchStream(lineStream(source), regex, {
+      invertMatch: options.invertMatch,
+      maxCount: 1,
+      filename: "",
+      write: async () => {},
+    });
+    return { stdout: "", stderr: "", exitCode: result.matched ? 0 : 1 };
   }
 
-  const result = searchContent(stdinContent, regex, {
+  const result = await searchStream(lineStream(source), regex, {
     invertMatch: options.invertMatch,
     showLineNumbers,
     countOnly: options.count,
@@ -270,16 +289,8 @@ async function searchStdin(
     passthru: options.passthru,
     multiline: options.multiline,
     kResetGroup,
+    write: ctx.writeStdout,
   });
-
-  if (options.quiet) {
-    return { stdout: "", stderr: "", exitCode: result.matched ? 0 : 1 };
-  }
-
-  if (result.output) {
-    await ctx.writeStdout(result.output);
-    return { stdout: "", stderr: "", exitCode: result.matched ? 0 : 1 };
-  }
 
   return { stdout: "", stderr: "", exitCode: result.matched ? 0 : 1 };
 }
@@ -860,6 +871,141 @@ interface JsonMatch {
 }
 
 /**
+ * Search a single file using streaming (createReadStream → lineStream → searchStream).
+ * Handles all output modes except JSON. Returns match info for the caller.
+ */
+async function searchFileStreaming(
+  ctx: CommandContext,
+  file: string,
+  source: AsyncIterable<string>,
+  regex: UserRegex,
+  options: RgOptions,
+  showFilename: boolean,
+  effectiveLineNumbers: boolean,
+  kResetGroup?: number,
+): Promise<{ matched: boolean; matchCount: number }> {
+  const fileLines = lineStream(source);
+
+  // Modes that only need match status (no per-line output)
+  if (options.quiet || options.filesWithMatches || options.filesWithoutMatch) {
+    return searchStream(fileLines, regex, {
+      invertMatch: options.invertMatch,
+      maxCount: 1,
+      filename: "",
+      write: async () => {},
+    });
+  }
+
+  const filenameForSearch = showFilename && !options.heading ? file : "";
+
+  // Count mode: buffer to handle includeZero
+  if (options.count || options.countMatches) {
+    let buf = "";
+    const result = await searchStream(fileLines, regex, {
+      invertMatch: options.invertMatch,
+      countOnly: true,
+      countMatches: options.countMatches,
+      filename: filenameForSearch,
+      write: async (chunk) => {
+        buf += chunk;
+      },
+    });
+    if (result.matched || options.includeZero) {
+      if (options.heading && !options.noFilename) {
+        await ctx.writeStdout(`${file}\n`);
+      }
+      await ctx.writeStdout(buf);
+    }
+    return result;
+  }
+
+  // Normal/heading mode: streaming output
+  let write = ctx.writeStdout;
+  if (options.heading && !options.noFilename) {
+    let headerWritten = false;
+    write = async (chunk: string) => {
+      if (!headerWritten) {
+        headerWritten = true;
+        await ctx.writeStdout(`${file}\n`);
+      }
+      await ctx.writeStdout(chunk);
+    };
+  }
+
+  return searchStream(fileLines, regex, {
+    invertMatch: options.invertMatch,
+    showLineNumbers: effectiveLineNumbers,
+    beforeContext: options.beforeContext,
+    afterContext: options.afterContext,
+    maxCount: options.maxCount,
+    contextSeparator: options.contextSeparator,
+    showColumn: options.column,
+    vimgrep: options.vimgrep,
+    showByteOffset: options.byteOffset,
+    passthru: options.passthru,
+    multiline: options.multiline,
+    kResetGroup,
+    filename: filenameForSearch,
+    write,
+  });
+}
+
+/**
+ * Search a single file using buffered content (for gzip/preprocessor cases).
+ */
+async function searchFileBuffered(
+  ctx: CommandContext,
+  file: string,
+  content: string,
+  regex: UserRegex,
+  options: RgOptions,
+  showFilename: boolean,
+  effectiveLineNumbers: boolean,
+  kResetGroup?: number,
+): Promise<{ matched: boolean; matchCount: number; output: string }> {
+  const filenameForSearch = showFilename && !options.heading ? file : "";
+
+  const result = searchContent(content, regex, {
+    invertMatch: options.invertMatch,
+    showLineNumbers: effectiveLineNumbers,
+    countOnly: options.count,
+    countMatches: options.countMatches,
+    filename: filenameForSearch,
+    onlyMatching: options.onlyMatching,
+    beforeContext: options.beforeContext,
+    afterContext: options.afterContext,
+    maxCount: options.maxCount,
+    contextSeparator: options.contextSeparator,
+    showColumn: options.column,
+    vimgrep: options.vimgrep,
+    showByteOffset: options.byteOffset,
+    replace:
+      options.replace !== null ? convertReplacement(options.replace) : null,
+    passthru: options.passthru,
+    multiline: options.multiline,
+    kResetGroup,
+  });
+
+  // Handle output for matched and special modes
+  if (result.matched) {
+    if (
+      !options.quiet &&
+      !options.filesWithMatches &&
+      !options.filesWithoutMatch
+    ) {
+      if (options.heading && !options.noFilename) {
+        await ctx.writeStdout(`${file}\n`);
+      }
+      if (result.output) await ctx.writeStdout(result.output);
+    }
+  } else if (options.includeZero && (options.count || options.countMatches)) {
+    if (result.output) await ctx.writeStdout(result.output);
+  }
+
+  return result;
+}
+
+/**
  * Search files and produce output
  */
 async function searchFiles(
@@ -871,17 +1017,157 @@ async function searchFiles(
   effectiveLineNumbers: boolean,
   kResetGroup?: number,
 ): Promise<ExecResult> {
-  let stdout = "";
-  let anyMatch = false;
+  // JSON mode: keep fully buffered (needs content for structured output)
+  if (options.json) {
+    return searchFilesJson(
+      ctx,
+      files,
+      regex,
+      options,
+      showFilename,
+      effectiveLineNumbers,
+      kResetGroup,
+    );
+  }
 
-  // JSON mode tracking
+  let anyMatch = false;
+  let totalMatches = 0;
+  let filesWithMatch = 0;
+  let bytesSearched = 0;
+  let anyFilesWithoutMatch = false;
+
+  for (const file of files) {
+    const filePath = ctx.fs.resolvePath(ctx.cwd, file);
+    const basename = file.split("/").pop() || file;
+
+    // Use buffered path for: gzip, preprocessor, replace (group expansion),
+    // onlyMatching (zero-length match edge cases), inverted context,
+    // countMatches with invertMatch (different counting semantics)
+    const needsBuffered =
+      (options.searchZip && file.endsWith(".gz")) ||
+      (options.preprocessor &&
+        ctx.exec &&
+        matchesPreGlob(basename, options.preprocessorGlobs)) ||
+      options.replace !== null ||
+      options.onlyMatching ||
+      (options.invertMatch &&
+        (options.beforeContext > 0 || options.afterContext > 0)) ||
+      (options.countMatches && options.invertMatch);
+
+    let result: { matched: boolean; matchCount: number };
+
+    if (needsBuffered) {
+      const fileData = await readFileContent(ctx, filePath, file, options);
+      if (!fileData) continue;
+      if (fileData.isBinary && !options.searchBinary) continue;
+      bytesSearched += fileData.content.length;
+
+      result = await searchFileBuffered(
+        ctx,
+        file,
+        fileData.content,
+        regex,
+        options,
+        showFilename,
+        effectiveLineNumbers,
+        kResetGroup,
+      );
+    } else {
+      // Streaming path: createReadStream → lineStream → searchStream
+      let source: AsyncIterable<string>;
+      try {
+        const rawStream = ctx.fs.createReadStream(filePath);
+
+        if (!options.searchBinary) {
+          // Binary detection: peek first chunk, check only first 8KB for null bytes
+          const iter = rawStream[Symbol.asyncIterator]();
+          const first = await iter.next();
+          if (first.done) continue; // empty file
+          bytesSearched += first.value.length;
+
+          const sample = first.value.slice(0, 8192);
+          if (sample.includes("\0")) continue; // binary file
+          source = prependStream(first.value, iter);
+        } else {
+          source = rawStream;
+        }
+      } catch {
+        continue;
+      }
+
+      result = await searchFileStreaming(
+        ctx,
+        file,
+        source,
+        regex,
+        options,
+        showFilename,
+        effectiveLineNumbers,
+        kResetGroup,
+      );
+    }
+
+    if (result.matched) {
+      anyMatch = true;
+      filesWithMatch++;
+      totalMatches += result.matchCount;
+      if (options.quiet) break;
+      if (options.filesWithMatches) {
+        const sep = options.nullSeparator ? "\0" : "\n";
+        await ctx.writeStdout(`${file}${sep}`);
+      }
+    } else if (options.filesWithoutMatch) {
+      anyFilesWithoutMatch = true;
+      if (!options.quiet) {
+        const sep = options.nullSeparator ? "\0" : "\n";
+        await ctx.writeStdout(`${file}${sep}`);
+      }
+    }
+  }
+
+  // Add stats output if requested
+  if (options.stats) {
+    const statsOutput = [
+      "",
+      `${totalMatches} matches`,
+      `${totalMatches} matched lines`,
+      `${filesWithMatch} files contained matches`,
+      `${files.length} files searched`,
+      `${bytesSearched} bytes searched`,
+    ].join("\n");
+    await ctx.writeStdout(`${statsOutput}\n`);
+  }
+
+  let exitCode: number;
+  if (options.filesWithoutMatch) {
+    exitCode = anyFilesWithoutMatch ? 0 : 1;
+  } else {
+    exitCode = anyMatch ? 0 : 1;
+  }
+
+  return { stdout: "", stderr: "", exitCode };
+}
+
+/**
+ * Search files in JSON mode (fully buffered — needs content for structured output)
+ */
+async function searchFilesJson(
+  ctx: CommandContext,
+  files: string[],
+  regex: UserRegex,
+  options: RgOptions,
+  showFilename: boolean,
+  effectiveLineNumbers: boolean,
+  kResetGroup?: number,
+): Promise<ExecResult> {
+  let anyMatch = false;
   const jsonMessages: string[] = [];
   let totalMatches = 0;
   let filesWithMatch = 0;
   let bytesSearched = 0;
 
   const BATCH_SIZE = 50;
-  outer: for (let i = 0; i < files.length; i += BATCH_SIZE) {
+  for (let i = 0; i < files.length; i += BATCH_SIZE) {
     const batch = files.slice(i, i + BATCH_SIZE);
 
     const results = await Promise.all(
@@ -894,10 +1180,7 @@ async function searchFiles(
         const { content, isBinary } = fileData;
         bytesSearched += content.length;
 
-        // Skip binary files unless -a/--text is specified
-        if (isBinary && !options.searchBinary) {
-          return null;
-        }
+        if (isBinary && !options.searchBinary) return null;
 
         const filenameForSearch = showFilename && !options.heading ? file : "";
 
@@ -924,18 +1207,15 @@ async function searchFiles(
           kResetGroup,
         });
 
-        // For JSON mode, we need to track matches differently
-        if (options.json && result.matched) {
-          return { file, result, content, isBinary: false };
+        if (result.matched) {
+          return { file, result, content };
         }
-
         return { file, result };
       }),
     );
 
     for (const res of results) {
       if (!res) continue;
-
       const { file, result } = res;
 
       if (result.matched) {
@@ -943,19 +1223,12 @@ async function searchFiles(
         filesWithMatch++;
         totalMatches += result.matchCount;
 
-        if (options.quiet && !options.json) {
-          // Quiet mode without JSON: exit early on first match
-          break outer;
-        }
-
-        if (options.json && !options.quiet) {
-          // JSON mode without quiet: output begin/match/end messages
+        if (!options.quiet) {
           const content = (res as { content?: string }).content || "";
           jsonMessages.push(
             JSON.stringify({ type: "begin", data: { path: { text: file } } }),
           );
 
-          // Find matches and output them
           const lines = content.split("\n");
           regex.lastIndex = 0;
           let lineOffset = 0;
@@ -1015,56 +1288,35 @@ async function searchFiles(
               },
             }),
           );
-        } else if (options.filesWithMatches) {
-          const sep = options.nullSeparator ? "\0" : "\n";
-          stdout += `${file}${sep}`;
-        } else if (!options.filesWithoutMatch) {
-          // In heading mode, always show filename header (even for single files)
-          if (options.heading && !options.noFilename) {
-            stdout += `${file}\n`;
-          }
-          stdout += result.output;
         }
-      } else if (options.filesWithoutMatch) {
-        const sep = options.nullSeparator ? "\0" : "\n";
-        stdout += `${file}${sep}`;
-      } else if (
-        options.includeZero &&
-        (options.count || options.countMatches)
-      ) {
-        stdout += result.output;
       }
     }
   }
 
   // Finalize JSON output
-  if (options.json) {
-    jsonMessages.push(
-      JSON.stringify({
-        type: "summary",
-        data: {
-          elapsed_total: { secs: 0, nanos: 0, human: "0s" },
-          stats: {
-            elapsed: { secs: 0, nanos: 0, human: "0s" },
-            searches: files.length,
-            searches_with_match: filesWithMatch,
-            bytes_searched: bytesSearched,
-            bytes_printed: 0,
-            matched_lines: totalMatches,
-            matches: totalMatches,
-          },
+  jsonMessages.push(
+    JSON.stringify({
+      type: "summary",
+      data: {
+        elapsed_total: { secs: 0, nanos: 0, human: "0s" },
+        stats: {
+          elapsed: { secs: 0, nanos: 0, human: "0s" },
+          searches: files.length,
+          searches_with_match: filesWithMatch,
+          bytes_searched: bytesSearched,
+          bytes_printed: 0,
+          matched_lines: totalMatches,
+          matches: totalMatches,
         },
-      }),
-    );
-    stdout = `${jsonMessages.join("\n")}\n`;
-  }
+      },
+    }),
+  );
 
-  // In JSON + quiet mode, output only the summary (already built above)
-  // In non-JSON quiet mode, output nothing
-  let finalStdout = options.quiet && !options.json ? "" : stdout;
+  // JSON mode always outputs (even with --quiet, which only suppresses
+  // match details — the summary is still emitted)
+  const stdout = `${jsonMessages.join("\n")}\n`;
 
-  // Add stats output if requested
-  if (options.stats && !options.json) {
+  if (options.stats) {
     const statsOutput = [
       "",
       `${totalMatches} matches`,
@@ -1073,24 +1325,11 @@ async function searchFiles(
       `${files.length} files searched`,
       `${bytesSearched} bytes searched`,
     ].join("\n");
-    finalStdout += `${statsOutput}\n`;
+    await ctx.writeStdout(`${stdout}${statsOutput}\n`);
+    return { stdout: "", stderr: "", exitCode: anyMatch ? 0 : 1 };
   }
 
-  // Exit codes:
-  // - For --files-without-match: 0 if files without matches found, 1 otherwise
-  // - For normal mode: 0 if any matches found, 1 otherwise
-  let exitCode: number;
-  if (options.filesWithoutMatch) {
-    // Success means we found files without matches (stdout has content)
-    exitCode = stdout.length > 0 ? 0 : 1;
-  } else {
-    exitCode = anyMatch ? 0 : 1;
-  }
+  await ctx.writeStdout(stdout);
 
-  if (finalStdout) {
-    await ctx.writeStdout(finalStdout);
-    return { stdout: "", stderr: "", exitCode };
-  }
-
-  return { stdout: "", stderr: "", exitCode };
+  return { stdout: "", stderr: "", exitCode: anyMatch ? 0 : 1 };
 }
