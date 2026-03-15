@@ -74,10 +74,7 @@ async function prepareRequestBody(
  * Prepare request headers from options.
  * Clones the Headers object so the original is not mutated.
  */
-function prepareHeaders(
-  options: CurlOptions,
-  contentType?: string,
-): Headers {
+function prepareHeaders(options: CurlOptions, contentType?: string): Headers {
   const headers = new _Headers(options.headers);
 
   // Add authentication header
