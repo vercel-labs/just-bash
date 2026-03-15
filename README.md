@@ -4,7 +4,7 @@ A simulated bash environment with an in-memory virtual filesystem, written in Ty
 
 Designed for AI agents that need a secure, sandboxed bash environment.
 
-Supports optional network access via `curl` with secure-by-default URL filtering.
+Optional network access via `curl` with URL allow-list filtering.
 
 **Note**: This is beta software. Use at your own risk and please provide feedback.
 
@@ -122,7 +122,7 @@ const env = new Bash({
 });
 ```
 
-This is useful for large or expensive-to-compute content that may not be needed.
+Handy for large or expensive content that may not be needed.
 
 ### Custom Commands
 
@@ -146,11 +146,11 @@ await bash.exec("hello Alice"); // "Hello, Alice!\n"
 await bash.exec("echo 'test' | upper"); // "TEST\n"
 ```
 
-Custom commands receive the full `CommandContext` with access to `fs`, `cwd`, `env`, `stdin`, and `exec` for running subcommands.
+Commands receive `CommandContext` with `fs`, `cwd`, `env`, `stdin`, and `exec` (for running subcommands).
 
 ### Filesystem Options
 
-Four filesystem implementations are available:
+Four filesystem implementations:
 
 **InMemoryFs** (default) - Pure in-memory filesystem, no disk access:
 
@@ -224,7 +224,7 @@ const fs = new MountableFs({
 
 ### AI SDK Tool
 
-For AI agents, use [`bash-tool`](https://github.com/vercel-labs/bash-tool) which is optimized for just-bash and provides a ready-to-use [AI SDK](https://ai-sdk.dev/) tool:
+[`bash-tool`](https://github.com/vercel-labs/bash-tool) wraps just-bash as an [AI SDK](https://ai-sdk.dev/) tool:
 
 ```bash
 npm install bash-tool
@@ -245,11 +245,11 @@ const result = await generateText({
 });
 ```
 
-See the [bash-tool documentation](https://github.com/vercel-labs/bash-tool) for more details and examples.
+See [bash-tool](https://github.com/vercel-labs/bash-tool) for more.
 
 ### Vercel Sandbox Compatible API
 
-Bash provides a `Sandbox` class that's API-compatible with [`@vercel/sandbox`](https://vercel.com/docs/vercel-sandbox), making it easy to swap implementations. You can start with Bash and switch to a real sandbox when you need the power of a full VM (e.g. to run node, python, or custom binaries).
+Bash provides a `Sandbox` class that's API-compatible with [`@vercel/sandbox`](https://vercel.com/docs/vercel-sandbox). Start with just-bash, swap in a real sandbox later if you need a full VM.
 
 ```typescript
 import { Sandbox } from "just-bash";
@@ -280,7 +280,7 @@ await sandbox.stop();
 
 ### CLI Binary
 
-After installing globally (`npm install -g just-bash`), use the `just-bash` command as a secure alternative to `bash` for AI agents:
+Install globally (`npm install -g just-bash`) for a sandboxed CLI:
 
 ```bash
 # Execute inline script
@@ -316,7 +316,7 @@ Options:
 pnpm shell
 ```
 
-The interactive shell has full internet access enabled by default, allowing you to use `curl` to fetch data from any URL. Use `--no-network` to disable this:
+The interactive shell has full internet access by default. Disable with `--no-network`:
 
 ```bash
 pnpm shell --no-network
@@ -382,7 +382,7 @@ Commands can be invoked by path (e.g., `/bin/ls`) or by name.
 
 ## Network Access
 
-Network access (and the `curl` command) is disabled by default for security. To enable it, configure the `network` option:
+Network access is disabled by default. Enable it with the `network` option:
 
 ```typescript
 // Allow specific URLs with GET/HEAD only (safest)
@@ -413,7 +413,7 @@ const env = new Bash({
 
 ## Python Support
 
-Python support via WASM/CPython is opt-in due to additional security surface. Enable it explicitly, but be aware of the risk:
+Python (CPython compiled to WASM) is opt-in due to additional security surface. Enable with `python: true`:
 
 ```typescript
 const env = new Bash({
@@ -431,7 +431,7 @@ await env.exec('python3 script.py');
 
 ## JavaScript Support
 
-JavaScript and TypeScript execution via QuickJS is opt-in  due to additional security surface. Enable it with the `javascript` option:
+JavaScript and TypeScript execution via QuickJS is opt-in due to additional security surface. Enable with `javascript: true`:
 
 ```typescript
 const env = new Bash({
@@ -450,7 +450,7 @@ await env.exec('js-exec -m -c "import fs from \'fs\'; console.log(fs.readFileSyn
 
 ### Bootstrap Code
 
-You can run setup code before every `js-exec` invocation using the `bootstrap` option. This is useful for injecting polyfills, global utilities, or environment setup:
+Run setup code before every `js-exec` invocation with the `bootstrap` option:
 
 ```typescript
 const env = new Bash({
@@ -468,7 +468,7 @@ await env.exec('js-exec -c "console.log(API_BASE)"');
 
 ### Node.js Compatibility
 
-`js-exec` provides broad Node.js compatibility. Both `require()` and `import` are supported:
+`js-exec` supports `require()` and `import` with these Node.js modules:
 
 - **fs**: `readFileSync`, `writeFileSync`, `readdirSync`, `statSync`, `existsSync`, `mkdirSync`, `rmSync`, `fs.promises.*`
 - **path**: `join`, `resolve`, `dirname`, `basename`, `extname`, `relative`, `normalize`
@@ -483,7 +483,7 @@ await env.exec('js-exec -c "console.log(API_BASE)"');
 
 ## SQLite Support
 
-The `sqlite3` command uses sql.js (WASM-based SQLite) which is fully sandboxed and cannot access the real filesystem:
+`sqlite3` uses sql.js (SQLite compiled to WASM), sandboxed from the real filesystem:
 
 ```typescript
 const env = new Bash();
@@ -536,11 +536,11 @@ const env = new Bash({
 });
 ```
 
-All limits have sensible defaults. Error messages include hints on which limit to increase. Feel free to increase if your scripts intentionally go beyond them.
+All limits have defaults. Error messages tell you which limit was hit. Increase as needed for your workload.
 
 ## AST Transform Plugins
 
-Parse bash scripts into an AST, run transform plugins, and serialize back to executable bash. Useful for instrumenting scripts (e.g., capturing per-command stdout/stderr) or analyzing them (e.g., extracting command names) before execution.
+Parse bash scripts into an AST, transform them, and serialize back to bash. Good for instrumenting scripts (e.g., capturing per-command stdout/stderr) or extracting metadata before execution.
 
 ```typescript
 import { Bash, BashTransformPipeline, TeePlugin, CommandCollectorPlugin } from "just-bash";
@@ -574,7 +574,7 @@ pnpm shell       # Run interactive shell
 
 ## AI Agent Instructions
 
-For AI agents, we recommend using [`bash-tool`](https://github.com/vercel-labs/bash-tool) which is optimized for just-bash and provides additional guidance in its `AGENTS.md`:
+For AI agents, [`bash-tool`](https://github.com/vercel-labs/bash-tool) provides additional guidance in its `AGENTS.md`:
 
 ```bash
 cat node_modules/bash-tool/dist/AGENTS.md
