@@ -1,68 +1,108 @@
 # just-bash
 
-A simulated bash environment with an in-memory virtual filesystem, written in TypeScript.
+A virtual bash environment with an in-memory filesystem, written in TypeScript and designed for AI agents.
 
-Designed for AI agents that need a secure, sandboxed bash environment.
+Broad support for standard unix commands and bash syntax with optional curl, Python, JS/TS, and sqlite support.
 
-Optional network access via `curl` with URL allow-list filtering.
+**Note**: This is beta software. Use at your own risk and please provide feedback. See [#security-model](security model).
 
-**Note**: This is beta software. Use at your own risk and please provide feedback.
-
-## Table of Contents
-
-- [Security model](#security-model)
-- [Installation](#installation)
-- [Usage](#usage)
-  - [Basic API](#basic-api)
-  - [Configuration](#configuration)
-  - [Custom Commands](#custom-commands)
-  - [Filesystem Options](#filesystem-options)
-  - [AI SDK Tool](#ai-sdk-tool)
-  - [Vercel Sandbox Compatible API](#vercel-sandbox-compatible-api)
-  - [CLI Binary](#cli-binary)
-  - [Interactive Shell](#interactive-shell)
-- [Supported Commands](#supported-commands)
-- [Shell Features](#shell-features)
-- [Default Layout](#default-layout)
-- [Network Access](#network-access)
-- [JavaScript Support](#javascript-support)
-- [Execution Protection](#execution-protection)
-- [AST Transform Plugins](#ast-transform-plugins)
-- [Development](#development)
-
-## Security model
-
-- The shell only has access to the provided file system.
-- Execution is protected against infinite loops or recursion. However, Bash is not fully robust against DOS from input. If you need to be robust against this, use process isolation at the OS level.
-- Binaries or even WASM are inherently unsupported (Use [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) or a similar product if a full VM is needed).
-- There is no network access by default.
-- Network access can be enabled, but requests are checked against URL prefix allow-lists and HTTP-method allow-lists. See [network access](#network-access) for details.
-- Python and JS execution are off by default as they may represent additional security surface.
-
-## Installation
+## Quick Start
 
 ```bash
 npm install just-bash
 ```
 
-## Usage
-
-### Basic API
-
 ```typescript
 import { Bash } from "just-bash";
 
-const env = new Bash();
-await env.exec('echo "Hello" > greeting.txt');
-const result = await env.exec("cat greeting.txt");
+const bash = new Bash();
+await bash.exec('echo "Hello" > greeting.txt');
+const result = await bash.exec("cat greeting.txt");
 console.log(result.stdout); // "Hello\n"
 console.log(result.exitCode); // 0
-console.log(result.env); // Final environment after execution
 ```
 
-Each `exec()` is isolated—env vars, functions, and cwd don't persist across calls (filesystem does).
+Each `exec()` call gets its own isolated shell state — environment variables, functions, and working directory reset between calls. The **filesystem is shared** across calls, so files written in one `exec()` are visible in the next.
 
-### Configuration
+## Custom Commands
+
+Extend just-bash with your own TypeScript commands using `defineCommand`:
+
+```typescript
+import { Bash, defineCommand } from "just-bash";
+
+const hello = defineCommand("hello", async (args, ctx) => {
+  const name = args[0] || "world";
+  return { stdout: `Hello, ${name}!\n`, stderr: "", exitCode: 0 };
+});
+
+const upper = defineCommand("upper", async (args, ctx) => {
+  return { stdout: ctx.stdin.toUpperCase(), stderr: "", exitCode: 0 };
+});
+
+const bash = new Bash({ customCommands: [hello, upper] });
+
+await bash.exec("hello Alice"); // "Hello, Alice!\n"
+await bash.exec("echo 'test' | upper"); // "TEST\n"
+```
+
+Custom commands receive a `CommandContext` with `fs`, `cwd`, `env`, `stdin`, and `exec` (for subcommands), and work with pipes, redirections, and all shell features.
+
+<details>
+<summary><h2>Supported Commands</h2></summary>
+
+### File Operations
+
+`cat`, `cp`, `file`, `ln`, `ls`, `mkdir`, `mv`, `readlink`, `rm`, `rmdir`, `split`, `stat`, `touch`, `tree`
+
+### Text Processing
+
+`awk`, `base64`, `column`, `comm`, `cut`, `diff`, `expand`, `fold`, `grep` (+ `egrep`, `fgrep`), `head`, `join`, `md5sum`, `nl`, `od`, `paste`, `printf`, `rev`, `rg`, `sed`, `sha1sum`, `sha256sum`, `sort`, `strings`, `tac`, `tail`, `tr`, `unexpand`, `uniq`, `wc`, `xargs`
+
+### Data Processing
+
+`jq` (JSON), `sqlite3` (SQLite), `xan` (CSV), `yq` (YAML/XML/TOML/CSV)
+
+### Optional Runtimes
+
+`js-exec` (JavaScript/TypeScript via QuickJS; requires `javascript: true`), `python3`/`python` (Python via CPython; requires `python: true`)
+
+### Compression & Archives
+
+`gzip` (+ `gunzip`, `zcat`), `tar`
+
+### Navigation & Environment
+
+`basename`, `cd`, `dirname`, `du`, `echo`, `env`, `export`, `find`, `hostname`, `printenv`, `pwd`, `tee`
+
+### Shell Utilities
+
+`alias`, `bash`, `chmod`, `clear`, `date`, `expr`, `false`, `help`, `history`, `seq`, `sh`, `sleep`, `time`, `timeout`, `true`, `unalias`, `which`, `whoami`
+
+### Network
+
+`curl`, `html-to-markdown` (require [network configuration](#network-access))
+
+All commands support `--help` for usage information.
+
+### Shell Features
+
+- **Pipes**: `cmd1 | cmd2`
+- **Redirections**: `>`, `>>`, `2>`, `2>&1`, `<`
+- **Command chaining**: `&&`, `||`, `;`
+- **Variables**: `$VAR`, `${VAR}`, `${VAR:-default}`
+- **Positional parameters**: `$1`, `$2`, `$@`, `$#`
+- **Glob patterns**: `*`, `?`, `[...]`
+- **If statements**: `if COND; then CMD; elif COND; then CMD; else CMD; fi`
+- **Functions**: `function name { ... }` or `name() { ... }`
+- **Local variables**: `local VAR=value`
+- **Loops**: `for`, `while`, `until`
+- **Symbolic links**: `ln -s target link`
+- **Hard links**: `ln target link`
+
+</details>
+
+## Configuration
 
 ```typescript
 const env = new Bash({
@@ -108,47 +148,7 @@ await env.exec("cat <<EOF\n  indented\nEOF", { rawScript: true });
 | `signal` | `AbortSignal` | Cooperative cancellation; stops at next statement boundary |
 | `rawScript` | `boolean` | Skip leading-whitespace normalization (default: `false`) |
 
-#### Lazy Files
-
-File values can be functions (sync or async). The function is called on first read and the result is cached — if the file is written to before being read, the function is never called:
-
-```typescript
-const env = new Bash({
-  files: {
-    "/data/config.json": () => JSON.stringify({ key: "value" }),
-    "/data/remote.txt": async () => (await fetch("https://example.com")).text(),
-    "/data/static.txt": "always loaded",
-  },
-});
-```
-
-Handy for large or expensive content that may not be needed.
-
-### Custom Commands
-
-Extend just-bash with your own TypeScript commands using `defineCommand`:
-
-```typescript
-import { Bash, defineCommand } from "just-bash";
-
-const hello = defineCommand("hello", async (args, ctx) => {
-  const name = args[0] || "world";
-  return { stdout: `Hello, ${name}!\n`, stderr: "", exitCode: 0 };
-});
-
-const upper = defineCommand("upper", async (args, ctx) => {
-  return { stdout: ctx.stdin.toUpperCase(), stderr: "", exitCode: 0 };
-});
-
-const bash = new Bash({ customCommands: [hello, upper] });
-
-await bash.exec("hello Alice"); // "Hello, Alice!\n"
-await bash.exec("echo 'test' | upper"); // "TEST\n"
-```
-
-Commands receive `CommandContext` with `fs`, `cwd`, `env`, `stdin`, and `exec` (for running subcommands).
-
-### Filesystem Options
+## Filesystem Options
 
 Four filesystem implementations:
 
@@ -156,7 +156,15 @@ Four filesystem implementations:
 
 ```typescript
 import { Bash } from "just-bash";
-const env = new Bash(); // Uses InMemoryFs by default
+
+const env = new Bash({
+  files: {
+    "/data/config.json": '{"key": "value"}',
+    // Lazy: called on first read, cached. Never called if written before read.
+    "/data/large.csv": () => "col1,col2\na,b\n",
+    "/data/remote.txt": async () => (await fetch("https://example.com")).text(),
+  },
+});
 ```
 
 **OverlayFs** - Copy-on-write over a real directory. Reads come from disk, writes stay in memory:
@@ -172,7 +180,7 @@ await env.exec("cat package.json"); // reads from disk
 await env.exec('echo "modified" > package.json'); // stays in memory
 ```
 
-**ReadWriteFs** - Direct read-write access to a real directory. Use this if you want the agent to be agle to write to your disk:
+**ReadWriteFs** - Direct read-write access to a real directory. Use this if you want the agent to be able to write to your disk:
 
 ```typescript
 import { Bash } from "just-bash";
@@ -222,165 +230,9 @@ const fs = new MountableFs({
 });
 ```
 
-### AI SDK Tool
+## Optional Capabilities
 
-[`bash-tool`](https://github.com/vercel-labs/bash-tool) wraps just-bash as an [AI SDK](https://ai-sdk.dev/) tool:
-
-```bash
-npm install bash-tool
-```
-
-```typescript
-import { createBashTool } from "bash-tool";
-import { generateText } from "ai";
-
-const bashTool = createBashTool({
-  files: { "/data/users.json": '[{"name": "Alice"}, {"name": "Bob"}]' },
-});
-
-const result = await generateText({
-  model: "anthropic/claude-sonnet-4",
-  tools: { bash: bashTool },
-  prompt: "Count the users in /data/users.json",
-});
-```
-
-See [bash-tool](https://github.com/vercel-labs/bash-tool) for more.
-
-### Vercel Sandbox Compatible API
-
-Bash provides a `Sandbox` class that's API-compatible with [`@vercel/sandbox`](https://vercel.com/docs/vercel-sandbox). Start with just-bash, swap in a real sandbox later if you need a full VM.
-
-```typescript
-import { Sandbox } from "just-bash";
-
-// Create a sandbox instance
-const sandbox = await Sandbox.create({ cwd: "/app" });
-
-// Write files to the virtual filesystem
-await sandbox.writeFiles({
-  "/app/script.sh": 'echo "Hello World"',
-  "/app/data.json": '{"key": "value"}',
-});
-
-// Run commands and get results
-const cmd = await sandbox.runCommand("bash /app/script.sh");
-const output = await cmd.stdout(); // "Hello World\n"
-const exitCode = (await cmd.wait()).exitCode; // 0
-
-// Read files back
-const content = await sandbox.readFile("/app/data.json");
-
-// Create directories
-await sandbox.mkDir("/app/logs", { recursive: true });
-
-// Clean up (no-op for Bash, but API-compatible)
-await sandbox.stop();
-```
-
-### CLI Binary
-
-Install globally (`npm install -g just-bash`) for a sandboxed CLI:
-
-```bash
-# Execute inline script
-just-bash -c 'ls -la && cat package.json | head -5'
-
-# Execute with specific project root
-just-bash -c 'grep -r "TODO" src/' --root /path/to/project
-
-# Pipe script from stdin
-echo 'find . -name "*.ts" | wc -l' | just-bash
-
-# Execute a script file
-just-bash ./scripts/deploy.sh
-
-# Get JSON output for programmatic use
-just-bash -c 'echo hello' --json
-# Output: {"stdout":"hello\n","stderr":"","exitCode":0}
-```
-
-The CLI uses OverlayFS - reads come from the real filesystem, but all writes stay in memory and are discarded after execution. The project root is mounted at `/home/user/project`.
-
-Options:
-
-- `-c <script>` - Execute script from argument
-- `--root <path>` - Root directory (default: current directory)
-- `--cwd <path>` - Working directory in sandbox
-- `-e, --errexit` - Exit on first error
-- `--json` - Output as JSON
-
-### Interactive Shell
-
-```bash
-pnpm shell
-```
-
-The interactive shell has full internet access by default. Disable with `--no-network`:
-
-```bash
-pnpm shell --no-network
-```
-
-## Supported Commands
-
-### File Operations
-
-`cat`, `cp`, `file`, `ln`, `ls`, `mkdir`, `mv`, `readlink`, `rm`, `rmdir`, `split`, `stat`, `touch`, `tree`
-
-### Text Processing
-
-`awk`, `base64`, `column`, `comm`, `cut`, `diff`, `expand`, `fold`, `grep` (+ `egrep`, `fgrep`), `head`, `join`, `md5sum`, `nl`, `od`, `paste`, `printf`, `rev`, `rg`, `sed`, `sha1sum`, `sha256sum`, `sort`, `strings`, `tac`, `tail`, `tr`, `unexpand`, `uniq`, `wc`, `xargs`
-
-### Data Processing
-
-`jq` (JSON), `js-exec` (JavaScript/TypeScript via QuickJS; requires opt-in), `python3`/`python` (Python via WASM/CPython; requires opt-in), `sqlite3` (SQLite), `xan` (CSV), `yq` (YAML/XML/TOML/CSV)
-
-### Compression & Archives
-
-`gzip` (+ `gunzip`, `zcat`), `tar`
-
-### Navigation & Environment
-
-`basename`, `cd`, `dirname`, `du`, `echo`, `env`, `export`, `find`, `hostname`, `printenv`, `pwd`, `tee`
-
-### Shell Utilities
-
-`alias`, `bash`, `chmod`, `clear`, `date`, `expr`, `false`, `help`, `history`, `seq`, `sh`, `sleep`, `time`, `timeout`, `true`, `unalias`, `which`, `whoami`
-
-### Network Commands
-
-`curl`, `html-to-markdown`
-
-All commands support `--help` for usage information.
-
-## Shell Features
-
-- **Pipes**: `cmd1 | cmd2`
-- **Redirections**: `>`, `>>`, `2>`, `2>&1`, `<`
-- **Command chaining**: `&&`, `||`, `;`
-- **Variables**: `$VAR`, `${VAR}`, `${VAR:-default}`
-- **Positional parameters**: `$1`, `$2`, `$@`, `$#`
-- **Glob patterns**: `*`, `?`, `[...]`
-- **If statements**: `if COND; then CMD; elif COND; then CMD; else CMD; fi`
-- **Functions**: `function name { ... }` or `name() { ... }`
-- **Local variables**: `local VAR=value`
-- **Loops**: `for`, `while`, `until`
-- **Symbolic links**: `ln -s target link`
-- **Hard links**: `ln target link`
-
-## Default Layout
-
-When created without options, Bash provides a Unix-like directory structure:
-
-- `/home/user` - Default working directory (and `$HOME`)
-- `/bin` - Contains stubs for all built-in commands
-- `/usr/bin` - Additional binary directory
-- `/tmp` - Temporary files directory
-
-Commands can be invoked by path (e.g., `/bin/ls`) or by name.
-
-## Network Access
+### Network Access
 
 Network access is disabled by default. Enable it with the `network` option:
 
@@ -411,25 +263,30 @@ const env = new Bash({
 
 **Note:** The `curl` command only exists when network is configured. Without network configuration, `curl` returns "command not found".
 
-## Python Support
+#### Allow-List Security
 
-Python (CPython compiled to WASM) is opt-in due to additional security surface. Enable with `python: true`:
+The allow-list enforces:
 
-```typescript
-const env = new Bash({
-  python: true,
-});
+- **Origin matching**: URLs must match the exact origin (scheme + host + port)
+- **Path prefix**: Only paths starting with the specified prefix are allowed
+- **HTTP method restrictions**: Only GET and HEAD by default (configure `allowedMethods` for more)
+- **Redirect protection**: Redirects to non-allowed URLs are blocked
 
-// Execute Python code
-await env.exec('python3 -c "print(1 + 2)"');
+#### Using curl
 
-// Run Python scripts
-await env.exec('python3 script.py');
+```bash
+# Fetch and process data
+curl -s https://api.example.com/data | grep pattern
+
+# Download and convert HTML to Markdown
+curl -s https://example.com | html-to-markdown
+
+# POST JSON data
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"key":"value"}' https://api.example.com/endpoint
 ```
 
-**Note:** The `python3` and `python` commands only exist when `python: true` is configured. Python is not available in browser environments.
-
-## JavaScript Support
+### JavaScript Support
 
 JavaScript and TypeScript execution via QuickJS is opt-in due to additional security surface. Enable with `javascript: true`:
 
@@ -448,7 +305,7 @@ await env.exec('js-exec script.js');
 await env.exec('js-exec -m -c "import fs from \'fs\'; console.log(fs.readFileSync(\'/data/file.txt\', \'utf8\'))"');
 ```
 
-### Bootstrap Code
+#### Bootstrap Code
 
 Run setup code before every `js-exec` invocation with the `bootstrap` option:
 
@@ -466,7 +323,7 @@ await env.exec('js-exec -c "console.log(API_BASE)"');
 // Output: https://api.example.com
 ```
 
-### Node.js Compatibility
+#### Node.js Compatibility
 
 `js-exec` supports `require()` and `import` with these Node.js modules:
 
@@ -479,9 +336,27 @@ await env.exec('js-exec -c "console.log(API_BASE)"');
 
 `fs.readFileSync()` returns a `Buffer` by default (matching Node.js). Pass an encoding like `'utf8'` to get a string.
 
-**Note:** The `js-exec` command only exists when `javascript` is configured. It is not available in browser environments. Execution runs in a QuickJS WASM sandbox with a 64 MB memory limit and configurable timeout (default: 10s, 60s with network). Requires Node.js >= 22.6 (uses `stripTypeScriptTypes` from `node:module`).
+**Note:** The `js-exec` command only exists when `javascript` is configured. It is not available in browser environments. Execution runs in a QuickJS WASM sandbox with a 64 MB memory limit and configurable timeout (default: 10s, 60s with network).
 
-## SQLite Support
+### Python Support
+
+Python (CPython compiled to WASM) is opt-in due to additional security surface. Enable with `python: true`:
+
+```typescript
+const env = new Bash({
+  python: true,
+});
+
+// Execute Python code
+await env.exec('python3 -c "print(1 + 2)"');
+
+// Run Python scripts
+await env.exec('python3 script.py');
+```
+
+**Note:** The `python3` and `python` commands only exist when `python: true` is configured. Python is not available in browser environments.
+
+### SQLite Support
 
 `sqlite3` uses sql.js (SQLite compiled to WASM), sandboxed from the real filesystem:
 
@@ -496,47 +371,6 @@ await env.exec('sqlite3 data.db "SELECT * FROM users"');
 ```
 
 **Note:** SQLite is not available in browser environments. Queries run in a worker thread with a configurable timeout (default: 5 seconds) to prevent runaway queries from blocking execution.
-
-### Allow-List Security
-
-The allow-list enforces:
-
-- **Origin matching**: URLs must match the exact origin (scheme + host + port)
-- **Path prefix**: Only paths starting with the specified prefix are allowed
-- **HTTP method restrictions**: Only GET and HEAD by default (configure `allowedMethods` for more)
-- **Redirect protection**: Redirects to non-allowed URLs are blocked
-
-### Using curl
-
-```bash
-# Fetch and process data
-curl -s https://api.example.com/data | grep pattern
-
-# Download and convert HTML to Markdown
-curl -s https://example.com | html-to-markdown
-
-# POST JSON data
-curl -X POST -H "Content-Type: application/json" \
-  -d '{"key":"value"}' https://api.example.com/endpoint
-```
-
-## Execution Protection
-
-Bash protects against infinite loops and deep recursion with configurable limits:
-
-```typescript
-const env = new Bash({
-  executionLimits: {
-    maxCallDepth: 100, // Max function recursion depth
-    maxCommandCount: 10000, // Max total commands executed
-    maxLoopIterations: 10000, // Max iterations per loop
-    maxAwkIterations: 10000, // Max iterations in awk programs
-    maxSedIterations: 10000, // Max iterations in sed scripts
-  },
-});
-```
-
-All limits have defaults. Error messages tell you which limit was hit. Increase as needed for your workload.
 
 ## AST Transform Plugins
 
@@ -562,15 +396,153 @@ execResult.metadata?.commands; // ["echo", "grep"]
 
 See [src/transform/README.md](src/transform/README.md) for the full API, built-in plugins, and how to write custom plugins.
 
-## Development
+## Integrations
+
+### AI SDK Tool
+
+[`bash-tool`](https://github.com/vercel-labs/bash-tool) wraps just-bash as an [AI SDK](https://ai-sdk.dev/) tool:
 
 ```bash
-pnpm test        # Run tests in watch mode
-pnpm test:run    # Run tests once
-pnpm typecheck   # Type check without emitting
-pnpm build       # Build TypeScript
-pnpm shell       # Run interactive shell
+npm install bash-tool
 ```
+
+```typescript
+import { createBashTool } from "bash-tool";
+import { generateText } from "ai";
+
+const bashTool = createBashTool({
+  files: { "/data/users.json": '[{"name": "Alice"}, {"name": "Bob"}]' },
+});
+
+const result = await generateText({
+  model: "anthropic/claude-sonnet-4",
+  tools: { bash: bashTool },
+  prompt: "Count the users in /data/users.json",
+});
+```
+
+See [bash-tool](https://github.com/vercel-labs/bash-tool) for more.
+
+### Vercel Sandbox Compatible API
+
+`Sandbox` is a drop-in replacement for [`@vercel/sandbox`](https://vercel.com/docs/vercel-sandbox) — same API, but runs entirely in-process with the virtual filesystem. Start with just-bash for development and testing, swap in a real sandbox when you need a full VM.
+
+```typescript
+import { Sandbox } from "just-bash";
+
+// Create a sandbox instance
+const sandbox = await Sandbox.create({ cwd: "/app" });
+
+// Write files to the virtual filesystem
+await sandbox.writeFiles({
+  "/app/script.sh": 'echo "Hello World"',
+  "/app/data.json": '{"key": "value"}',
+});
+
+// Run commands and get results
+const cmd = await sandbox.runCommand("bash /app/script.sh");
+const output = await cmd.stdout(); // "Hello World\n"
+const exitCode = (await cmd.wait()).exitCode; // 0
+
+// Read files back
+const content = await sandbox.readFile("/app/data.json");
+
+// Create directories
+await sandbox.mkDir("/app/logs", { recursive: true });
+
+// Clean up (no-op for Bash, but API-compatible)
+await sandbox.stop();
+```
+
+## CLI
+
+### CLI Binary
+
+Install globally (`npm install -g just-bash`) for a sandboxed CLI:
+
+```bash
+# Execute inline script
+just-bash -c 'ls -la && cat package.json | head -5'
+
+# Execute with specific project root
+just-bash -c 'grep -r "TODO" src/' --root /path/to/project
+
+# Pipe script from stdin
+echo 'find . -name "*.ts" | wc -l' | just-bash
+
+# Execute a script file
+just-bash ./scripts/deploy.sh
+
+# Get JSON output for programmatic use
+just-bash -c 'echo hello' --json
+# Output: {"stdout":"hello\n","stderr":"","exitCode":0}
+```
+
+The CLI uses OverlayFS — reads come from the real filesystem, but all writes stay in memory and are discarded after execution.
+
+**Important**: The project root is mounted at `/home/user/project`. Use this path (or relative paths from the default cwd) to access your files inside the sandbox.
+
+Options:
+
+- `-c <script>` - Execute script from argument
+- `--root <path>` - Root directory (default: current directory)
+- `--cwd <path>` - Working directory in sandbox
+- `-e, --errexit` - Exit on first error
+- `--json` - Output as JSON
+
+### Interactive Shell
+
+```bash
+pnpm shell
+```
+
+The interactive shell has full internet access by default. Disable with `--no-network`:
+
+```bash
+pnpm shell --no-network
+```
+
+## Execution Protection
+
+Bash protects against infinite loops and deep recursion with configurable limits:
+
+```typescript
+const env = new Bash({
+  executionLimits: {
+    maxCallDepth: 100, // Max function recursion depth
+    maxCommandCount: 10000, // Max total commands executed
+    maxLoopIterations: 10000, // Max iterations per loop
+    maxAwkIterations: 10000, // Max iterations in awk programs
+    maxSedIterations: 10000, // Max iterations in sed scripts
+  },
+});
+```
+
+All limits have defaults. Error messages tell you which limit was hit. Increase as needed for your workload.
+
+## Security Model
+
+- The shell only has access to the provided filesystem.
+- All execution happens without VM isolation. This does introduce additional risk. The code base was designed to be robust against prototype-pollution attacks and other break outs to the host JS engine and filesystem.
+- There is no network access by default. When enabled, requests are checked against URL prefix allow-lists and HTTP-method allow-lists.
+- Python and JavaScript execution are off by default as they represent additional security surface.
+- Execution is protected against infinite loops and deep recursion with configurable limits.
+- Use [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) if you need a full VM with arbitrary binary execution.
+
+## Browser Support
+
+The core shell (parsing, execution, filesystem, and all built-in commands) works in browser environments. The following features require Node.js and are unavailable in browsers: `python3`/`python`, `sqlite3`, `js-exec`, and `OverlayFs`/`ReadWriteFs` (which access the real filesystem).
+
+## Default Layout
+
+When created without options, Bash provides a Unix-like directory structure:
+
+- `/home/user` - Default working directory (and `$HOME`)
+- `/bin` - Contains stubs for all built-in commands
+- `/usr/bin` - Additional binary directory
+- `/tmp` - Temporary files directory
+
+Commands can be invoked by path (e.g., `/bin/ls`) or by name.
 
 ## AI Agent Instructions
 
