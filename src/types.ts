@@ -204,7 +204,7 @@ export interface CommandContext {
    * Write stderr chunk. Always available, same as writeStdout.
    * Streaming commands write errors here instead of returning stderr.
    */
-  writeStderr: (chunk: string) => void;
+  writeStderr: (chunk: string) => Promise<void>;
   /** Async iterable of stdin chunks. Always available — empty when no input. */
   stdinStream: AsyncIterable<string>;
   /** Signal upstream to stop producing (early termination). */

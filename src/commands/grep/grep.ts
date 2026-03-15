@@ -338,12 +338,12 @@ export const grepCommand: Command = {
 
         if (isDirectory) {
           if (!recursive) {
-            ctx.writeStderr(`grep: ${file}: Is a directory\n`);
+            await ctx.writeStderr(`grep: ${file}: Is a directory\n`);
           }
           continue;
         }
       } catch {
-        ctx.writeStderr(`grep: ${file}: No such file or directory\n`);
+        await ctx.writeStderr(`grep: ${file}: No such file or directory\n`);
         anyError = true;
         continue;
       }

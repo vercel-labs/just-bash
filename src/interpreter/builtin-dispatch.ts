@@ -126,7 +126,7 @@ export interface BuiltinDispatchContext {
   /** Streaming context for the current pipeline stage (if any). */
   streamCtx?: {
     writeStdout: (chunk: string) => Promise<void>;
-    writeStderr: (chunk: string) => void;
+    writeStderr: (chunk: string) => Promise<void>;
     stdinStream?: AsyncIterable<string>;
     abortUpstream: () => void;
     collectedStdout?: string;
@@ -518,7 +518,7 @@ export async function executeExternalCommand(
       }),
     writeStderr:
       dispatchCtx.streamCtx?.writeStderr ??
-      ((chunk: string): void => {
+      (async (chunk: string): Promise<void> => {
         standaloneCollector.stderr += chunk;
       }),
     stdinStream:

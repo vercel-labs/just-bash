@@ -67,7 +67,7 @@ export const catCommand: Command = {
               await writeContent(chunk);
             }
           } catch {
-            ctx.writeStderr(`cat: ${file}: No such file or directory\n`);
+            await ctx.writeStderr(`cat: ${file}: No such file or directory\n`);
             exitCode = 1;
           }
         }

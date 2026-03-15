@@ -31,7 +31,7 @@ import type { InterpreterContext } from "./types.js";
 export interface StreamContext {
   /** Write stdout chunk. Always available — commands may use this or return stdout, not both. */
   writeStdout: (chunk: string) => Promise<void>;
-  writeStderr: (chunk: string) => void;
+  writeStderr: (chunk: string) => Promise<void>;
   stdinStream?: AsyncIterable<string>;
   abortUpstream: () => void;
   /**
@@ -360,7 +360,7 @@ async function runStage(
             streamCtx.collectedStdout =
               (streamCtx.collectedStdout ?? "") + chunk;
           },
-      writeStderr: (chunk: string) => {
+      writeStderr: async (chunk: string) => {
         stageStderr += chunk;
       },
       stdinStream: isStreaming ? (inputChannel ?? undefined) : undefined,
