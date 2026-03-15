@@ -49,7 +49,7 @@ describe("curl authentication", () => {
       const headers = new Headers(lastRequest?.options.headers as HeadersInit);
       expect(headers.get("Authorization")).toMatch(/^Basic /);
 
-      const encoded = headers.get("Authorization")?.replace("Basic ", "");
+      const encoded = headers.get("Authorization")?.replace("Basic ", "") ?? "";
       const decoded = Buffer.from(encoded, "base64").toString();
       expect(decoded).toBe("testuser:testpass");
     });
@@ -62,7 +62,7 @@ describe("curl authentication", () => {
 
       const headers = new Headers(lastRequest?.options.headers as HeadersInit);
       const decoded = Buffer.from(
-        headers.get("Authorization")?.replace("Basic ", ""),
+        headers.get("Authorization")?.replace("Basic ", "") ?? "",
         "base64",
       ).toString();
       expect(decoded).toBe("admin:secret");
@@ -76,7 +76,7 @@ describe("curl authentication", () => {
 
       const headers = new Headers(lastRequest?.options.headers as HeadersInit);
       const decoded = Buffer.from(
-        headers.get("Authorization")?.replace("Basic ", ""),
+        headers.get("Authorization")?.replace("Basic ", "") ?? "",
         "base64",
       ).toString();
       expect(decoded).toBe("foo:bar");
@@ -90,7 +90,7 @@ describe("curl authentication", () => {
 
       const headers = new Headers(lastRequest?.options.headers as HeadersInit);
       const decoded = Buffer.from(
-        headers.get("Authorization")?.replace("Basic ", ""),
+        headers.get("Authorization")?.replace("Basic ", "") ?? "",
         "base64",
       ).toString();
       expect(decoded).toBe("myuser:mypass");
@@ -104,7 +104,7 @@ describe("curl authentication", () => {
 
       const headers = new Headers(lastRequest?.options.headers as HeadersInit);
       const decoded = Buffer.from(
-        headers.get("Authorization")?.replace("Basic ", ""),
+        headers.get("Authorization")?.replace("Basic ", "") ?? "",
         "base64",
       ).toString();
       expect(decoded).toBe("user:p@ss:word!");
