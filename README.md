@@ -255,11 +255,6 @@ const env = new Bash({
   },
 });
 
-// Allow all URLs and methods (use with caution)
-const env = new Bash({
-  network: { dangerouslyAllowFullInternetAccess: true },
-});
-
 // Inject credentials via header transforms (secrets never enter the sandbox)
 const env = new Bash({
   network: {
@@ -271,6 +266,11 @@ const env = new Bash({
       },
     ],
   },
+});
+
+// Allow all URLs and methods (use with caution)
+const env = new Bash({
+  network: { dangerouslyAllowFullInternetAccess: true },
 });
 ```
 

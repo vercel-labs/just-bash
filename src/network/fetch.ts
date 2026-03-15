@@ -99,8 +99,16 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
   /**
    * Returns firewall headers for a given URL by matching against transform
    * entries using URL prefix matching (same logic as the allow-list).
-   * Uses `Headers` with `append()` so multiple transforms contributing the
-   * same header name (e.g. Cookie) accumulate rather than overwrite.
+   *
+   * When multiple entries match (overlapping prefixes), their headers
+   * accumulate via `Headers.append()`. This enables layered configs like
+   * an origin-wide `X-Org-Id` plus a path-specific `Authorization`.
+   *
+   * Note: overlapping entries that set the *same* single-value header
+   * (e.g. both set `Authorization`) will produce a combined value
+   * (`"Bearer a, Bearer b"`), which is almost certainly a
+   * misconfiguration. Keep single-value headers in non-overlapping
+   * entries to avoid this.
    */
   function getFirewallHeaders(url: string): Headers | null {
     if (transformEntries.length === 0) return null;

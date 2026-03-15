@@ -421,4 +421,37 @@ describe("firewall header transforms", () => {
     // Firewall set() replaces user cookie
     expect(calls[0].headers.cookie).toBe("api_key=secret");
   });
+
+  it("overlapping prefixes accumulate headers from all matching entries", async () => {
+    const { mockFn, calls } = createCapturingMock();
+    global.fetch = mockFn;
+
+    // Origin-wide entry applies to all paths; path-specific adds more headers.
+    // A request to /v1/chat matches both — headers from both entries accumulate.
+    const entries: AllowedUrlEntry[] = [
+      {
+        url: "https://api.example.com",
+        transform: [{ headers: { "X-Org-Id": "org123" } }],
+      },
+      {
+        url: "https://api.example.com/v1/",
+        transform: [{ headers: { Authorization: "Bearer v1-token" } }],
+      },
+    ];
+
+    const secureFetch = createSecureFetch({ allowedUrlPrefixes: entries });
+
+    // /v1/ matches both entries
+    await secureFetch("https://api.example.com/v1/chat");
+    // /v2/ matches only the origin-wide entry
+    await secureFetch("https://api.example.com/v2/chat");
+
+    expect(calls).toHaveLength(2);
+    // /v1/ gets headers from both entries
+    expect(calls[0].headers["x-org-id"]).toBe("org123");
+    expect(calls[0].headers.authorization).toBe("Bearer v1-token");
+    // /v2/ gets only the origin-wide header
+    expect(calls[1].headers["x-org-id"]).toBe("org123");
+    expect(calls[1].headers.authorization).toBeUndefined();
+  });
 });
