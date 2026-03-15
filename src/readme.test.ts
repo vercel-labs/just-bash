@@ -61,7 +61,7 @@ function extractReadmeCommands(readme: string): Set<string> {
 
   // Find the "Supported Commands" section (stop at "All commands support")
   const supportedMatch = readme.match(
-    /## Supported Commands\n([\s\S]*?)(?=\nAll commands support|\n## [A-Z]|\n---|\$)/,
+    /Supported Commands[\s\S]*?\n([\s\S]*?)(?=\nAll commands support|\n## [A-Z]|\n---|\$)/,
   );
   if (!supportedMatch) {
     throw new Error("Could not find 'Supported Commands' section in README");
