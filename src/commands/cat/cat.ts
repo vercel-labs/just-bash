@@ -20,7 +20,7 @@ export const catCommand: Command = {
   name: "cat",
   streaming: true,
 
-  async execute(args, ctx) {
+  async execute(args, ctx): Promise<CommandResult> {
     if (hasHelpFlag(args)) {
       return showHelp(catHelp);
     }
@@ -31,71 +31,54 @@ export const catCommand: Command = {
     const showLineNumbers = parsed.result.flags.number;
     const files = parsed.result.positional;
 
-    return streamingCat(ctx, files, showLineNumbers);
-  },
-};
+    let exitCode = 0;
+    let lineNumber = 1;
+    let isReadingFiles = false;
 
-/**
- * Streaming cat: reads and writes incrementally.
- * Each file's content (or stdin chunk) is pushed via writeStdout.
- */
-async function streamingCat(
-  ctx: CommandContext,
-  files: string[],
-  showLineNumbers: boolean,
-): Promise<CommandResult> {
-  let stderr = "";
-  let exitCode = 0;
-  let lineNumber = 1;
-  let isReadingFiles = false;
-
-  async function writeContent(content: string): Promise<void> {
-    if (showLineNumbers) {
-      const numbered = addLineNumbers(content, lineNumber);
-      lineNumber = numbered.nextLineNumber;
-      await ctx.writeStdout(numbered.content);
-    } else {
-      await ctx.writeStdout(content);
-    }
-  }
-
-  async function drainStdin(): Promise<void> {
-    for await (const chunk of ctx.stdinStream) {
-      await writeContent(chunk);
-    }
-  }
-
-  if (files.length === 0) {
-    await drainStdin();
-  } else {
-    for (const file of files) {
-      if (file === "-") {
-        await drainStdin();
+    async function writeContent(content: string): Promise<void> {
+      if (showLineNumbers) {
+        const numbered = addLineNumbers(content, lineNumber);
+        lineNumber = numbered.nextLineNumber;
+        await ctx.writeStdout(numbered.content);
       } else {
-        isReadingFiles = true;
-        try {
-          const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-          // Pull-based streaming read. Only pulls the next chunk
-          // when the consumer asks, so `cat hugefile | head -n 1`
-          // reads minimal data from disk.
-          for await (const chunk of ctx.fs.createReadStream(filePath)) {
-            await writeContent(chunk);
+        await ctx.writeStdout(content);
+      }
+    }
+
+    async function drainStdin(): Promise<void> {
+      for await (const chunk of ctx.stdinStream) {
+        await writeContent(chunk);
+      }
+    }
+
+    if (files.length === 0) {
+      await drainStdin();
+    } else {
+      for (const file of files) {
+        if (file === "-") {
+          await drainStdin();
+        } else {
+          isReadingFiles = true;
+          try {
+            const filePath = ctx.fs.resolvePath(ctx.cwd, file);
+            for await (const chunk of ctx.fs.createReadStream(filePath)) {
+              await writeContent(chunk);
+            }
+          } catch {
+            ctx.writeStderr(`cat: ${file}: No such file or directory\n`);
+            exitCode = 1;
           }
-        } catch {
-          stderr += `cat: ${file}: No such file or directory\n`;
-          exitCode = 1;
         }
       }
     }
-  }
 
-  return {
-    stderr,
-    exitCode,
-    // @banned-pattern-ignore: spread into static result keys, no user-controlled properties
-    ...(isReadingFiles ? { stdoutEncoding: "binary" as const } : {}),
-  };
-}
+    return {
+      exitCode,
+      // @banned-pattern-ignore: spread into static result keys, no user-controlled properties
+      ...(isReadingFiles ? { stdoutEncoding: "binary" as const } : {}),
+    };
+  },
+};
 
 function addLineNumbers(
   content: string,
