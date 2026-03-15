@@ -134,6 +134,10 @@ export interface InterpreterOptions {
   requireDefenseContext?: boolean;
   /** Bootstrap JavaScript code for js-exec */
   jsBootstrapCode?: string;
+  /** Resolve a numeric UID to a username for display in ls -l, stat, etc. */
+  uidToName?: (uid: number) => string;
+  /** Resolve a numeric GID to a group name for display in ls -l, stat, etc. */
+  gidToName?: (gid: number) => string;
 }
 
 export class Interpreter {
@@ -155,6 +159,8 @@ export class Interpreter {
       coverage: options.coverage,
       requireDefenseContext: options.requireDefenseContext ?? false,
       jsBootstrapCode: options.jsBootstrapCode,
+      uidToName: options.uidToName,
+      gidToName: options.gidToName,
     };
   }
 
