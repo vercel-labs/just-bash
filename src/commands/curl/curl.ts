@@ -6,9 +6,9 @@
  */
 
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
+import { _Headers } from "../../security/trusted-globals.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
-import { nullPrototypeCopy } from "../query-engine/safe-object.js";
 import { generateMultipartBody } from "./form.js";
 import { curlHelp } from "./help.js";
 import { parseOptions } from "./parse.js";
@@ -72,23 +72,23 @@ async function prepareRequestBody(
 
 /**
  * Prepare request headers from options.
- * Uses null-prototype object to prevent prototype pollution from user-controlled header names.
+ * Clones the Headers object so the original is not mutated.
  */
 function prepareHeaders(
   options: CurlOptions,
   contentType?: string,
-): Record<string, string> {
-  const headers = nullPrototypeCopy(options.headers ?? {});
+): Headers {
+  const headers = new _Headers(options.headers);
 
   // Add authentication header
   if (options.user) {
     const encoded = Buffer.from(options.user).toString("base64");
-    headers.Authorization = `Basic ${encoded}`;
+    headers.set("Authorization", `Basic ${encoded}`);
   }
 
   // Set content type if needed and not already set
-  if (contentType && !headers["Content-Type"]) {
-    headers["Content-Type"] = contentType;
+  if (contentType && !headers.has("Content-Type")) {
+    headers.set("Content-Type", contentType);
   }
 
   return headers;
@@ -131,7 +131,7 @@ function buildOutput(
   // Verbose output
   if (options.verbose) {
     output += `> ${options.method} ${requestUrl}\n`;
-    for (const [name, value] of Object.entries(options.headers)) {
+    for (const [name, value] of options.headers) {
       output += `> ${name}: ${value}\n`;
     }
     output += ">\n";
@@ -221,7 +221,7 @@ export const curlCommand: Command = {
 
       const result = await ctx.fetch(url, {
         method: options.method,
-        headers: Object.keys(headers).length > 0 ? headers : undefined,
+        headers,
         body,
         followRedirects: options.followRedirects,
         timeoutMs: options.timeoutMs,

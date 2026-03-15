@@ -2,6 +2,7 @@
  * Option parsing for curl command
  */
 
+import { _Headers } from "../../security/trusted-globals.js";
 import type { ExecResult } from "../../types.js";
 import { unknownOption } from "../help.js";
 import { encodeFormData, parseFormField } from "./form.js";
@@ -13,8 +14,7 @@ import type { CurlOptions } from "./types.js";
 export function parseOptions(args: string[]): CurlOptions | ExecResult {
   const options: CurlOptions = {
     method: "GET",
-    // Use null-prototype to prevent prototype pollution via user-controlled header names
-    headers: Object.create(null) as Record<string, string>,
+    headers: new _Headers(),
     dataBinary: false,
     formFields: [],
     useRemoteName: false,
@@ -45,7 +45,7 @@ export function parseOptions(args: string[]): CurlOptions | ExecResult {
         if (colonIndex > 0) {
           const name = header.slice(0, colonIndex).trim();
           const value = header.slice(colonIndex + 1).trim();
-          options.headers[name] = value;
+          options.headers.append(name, value);
         }
       }
     } else if (arg.startsWith("--header=")) {
@@ -54,7 +54,7 @@ export function parseOptions(args: string[]): CurlOptions | ExecResult {
       if (colonIndex > 0) {
         const name = header.slice(0, colonIndex).trim();
         const value = header.slice(colonIndex + 1).trim();
-        options.headers[name] = value;
+        options.headers.append(name, value);
       }
     } else if (arg === "-d" || arg === "--data" || arg === "--data-raw") {
       options.data = args[++i] ?? "";
@@ -107,23 +107,23 @@ export function parseOptions(args: string[]): CurlOptions | ExecResult {
     } else if (arg.startsWith("--user=")) {
       options.user = arg.slice(7);
     } else if (arg === "-A" || arg === "--user-agent") {
-      options.headers["User-Agent"] = args[++i] ?? "";
+      options.headers.set("User-Agent", args[++i] ?? "");
     } else if (arg.startsWith("-A")) {
-      options.headers["User-Agent"] = arg.slice(2);
+      options.headers.set("User-Agent", arg.slice(2));
     } else if (arg.startsWith("--user-agent=")) {
-      options.headers["User-Agent"] = arg.slice(13);
+      options.headers.set("User-Agent", arg.slice(13));
     } else if (arg === "-e" || arg === "--referer") {
-      options.headers.Referer = args[++i] ?? "";
+      options.headers.set("Referer", args[++i] ?? "");
     } else if (arg.startsWith("-e")) {
-      options.headers.Referer = arg.slice(2);
+      options.headers.set("Referer", arg.slice(2));
     } else if (arg.startsWith("--referer=")) {
-      options.headers.Referer = arg.slice(10);
+      options.headers.set("Referer", arg.slice(10));
     } else if (arg === "-b" || arg === "--cookie") {
-      options.headers.Cookie = args[++i] ?? "";
+      options.headers.set("Cookie", args[++i] ?? "");
     } else if (arg.startsWith("-b")) {
-      options.headers.Cookie = arg.slice(2);
+      options.headers.set("Cookie", arg.slice(2));
     } else if (arg.startsWith("--cookie=")) {
-      options.headers.Cookie = arg.slice(9);
+      options.headers.set("Cookie", arg.slice(9));
     } else if (arg === "-c" || arg === "--cookie-jar") {
       options.cookieJar = args[++i];
     } else if (arg.startsWith("--cookie-jar=")) {

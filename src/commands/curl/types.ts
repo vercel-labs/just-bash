@@ -11,7 +11,7 @@ export interface FormField {
 
 export interface CurlOptions {
   method: string;
-  headers: Record<string, string>;
+  headers: Headers;
   data?: string;
   dataBinary: boolean;
   formFields: FormField[];

@@ -116,8 +116,8 @@ describe("curl options", () => {
       await env.exec(
         'curl -H "Authorization: Bearer token" https://api.example.com/test',
       );
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.Authorization).toBe("Bearer token");
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("Authorization")).toBe("Bearer token");
     });
 
     it("sends multiple headers", async () => {
@@ -125,9 +125,9 @@ describe("curl options", () => {
       await env.exec(
         'curl -H "Accept: application/json" -H "X-Custom: value" https://api.example.com/test',
       );
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.Accept).toBe("application/json");
-      expect(headers?.["X-Custom"]).toBe("value");
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("Accept")).toBe("application/json");
+      expect(headers.get("X-Custom")).toBe("value");
     });
 
     it("sends header with --header=value format", async () => {
@@ -135,15 +135,15 @@ describe("curl options", () => {
       await env.exec(
         'curl --header="X-Api-Key: secret123" https://api.example.com/test',
       );
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.["X-Api-Key"]).toBe("secret123");
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("X-Api-Key")).toBe("secret123");
     });
 
     it("sets User-Agent with -A", async () => {
       const env = createEnv();
       await env.exec('curl -A "MyApp/1.0" https://api.example.com/test');
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.["User-Agent"]).toBe("MyApp/1.0");
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("User-Agent")).toBe("MyApp/1.0");
     });
 
     it("sets Referer with -e", async () => {
@@ -151,8 +151,8 @@ describe("curl options", () => {
       await env.exec(
         'curl -e "https://referrer.com" https://api.example.com/test',
       );
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.Referer).toBe("https://referrer.com");
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("Referer")).toBe("https://referrer.com");
     });
   });
 

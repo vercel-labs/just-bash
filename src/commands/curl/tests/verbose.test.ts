@@ -69,7 +69,8 @@ describe("curl verbose output", () => {
       const result = await env.exec(
         'curl -v -H "Accept: application/json" https://api.example.com/test',
       );
-      expect(result.stdout).toContain("> Accept: application/json");
+      // Headers API normalizes names to lowercase
+      expect(result.stdout).toContain("> accept: application/json");
     });
 
     it("--verbose should work same as -v", async () => {

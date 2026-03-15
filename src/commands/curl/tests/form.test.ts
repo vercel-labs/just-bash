@@ -120,8 +120,8 @@ describe("curl form data", () => {
       });
       await env.exec("curl -F 'name=John' https://api.example.com/upload");
 
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.["Content-Type"]).toMatch(
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("Content-Type")).toMatch(
         /^multipart\/form-data; boundary=/,
       );
       expect(lastRequest?.options.body).toContain('name="name"');

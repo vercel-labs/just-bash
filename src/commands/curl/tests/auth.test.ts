@@ -46,10 +46,10 @@ describe("curl authentication", () => {
       await env.exec("curl -u testuser:testpass https://api.example.com/auth");
 
       expect(lastRequest).not.toBeNull();
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.Authorization).toMatch(/^Basic /);
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("Authorization")).toMatch(/^Basic /);
 
-      const encoded = headers.Authorization.replace("Basic ", "");
+      const encoded = headers.get("Authorization")!.replace("Basic ", "");
       const decoded = Buffer.from(encoded, "base64").toString();
       expect(decoded).toBe("testuser:testpass");
     });
@@ -60,9 +60,9 @@ describe("curl authentication", () => {
       });
       await env.exec("curl --user admin:secret https://api.example.com/auth");
 
-      const headers = lastRequest?.options.headers as Record<string, string>;
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
       const decoded = Buffer.from(
-        headers.Authorization.replace("Basic ", ""),
+        headers.get("Authorization")!.replace("Basic ", ""),
         "base64",
       ).toString();
       expect(decoded).toBe("admin:secret");
@@ -74,9 +74,9 @@ describe("curl authentication", () => {
       });
       await env.exec("curl --user=foo:bar https://api.example.com/auth");
 
-      const headers = lastRequest?.options.headers as Record<string, string>;
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
       const decoded = Buffer.from(
-        headers.Authorization.replace("Basic ", ""),
+        headers.get("Authorization")!.replace("Basic ", ""),
         "base64",
       ).toString();
       expect(decoded).toBe("foo:bar");
@@ -88,9 +88,9 @@ describe("curl authentication", () => {
       });
       await env.exec("curl -umyuser:mypass https://api.example.com/auth");
 
-      const headers = lastRequest?.options.headers as Record<string, string>;
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
       const decoded = Buffer.from(
-        headers.Authorization.replace("Basic ", ""),
+        headers.get("Authorization")!.replace("Basic ", ""),
         "base64",
       ).toString();
       expect(decoded).toBe("myuser:mypass");
@@ -102,9 +102,9 @@ describe("curl authentication", () => {
       });
       await env.exec('curl -u "user:p@ss:word!" https://api.example.com/auth');
 
-      const headers = lastRequest?.options.headers as Record<string, string>;
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
       const decoded = Buffer.from(
-        headers.Authorization.replace("Basic ", ""),
+        headers.get("Authorization")!.replace("Basic ", ""),
         "base64",
       ).toString();
       expect(decoded).toBe("user:p@ss:word!");

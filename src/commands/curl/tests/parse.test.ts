@@ -62,8 +62,8 @@ describe("curl option parsing", () => {
         'curl -H "X-Empty:" https://api.example.com/test',
       );
       expect(result.exitCode).toBe(0);
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.["X-Empty"]).toBe("");
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("X-Empty")).toBe("");
     });
 
     it("should parse header with spaces around colon", async () => {
@@ -72,8 +72,8 @@ describe("curl option parsing", () => {
         'curl -H "X-Test : value with spaces" https://api.example.com/test',
       );
       expect(result.exitCode).toBe(0);
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.["X-Test"]).toBe("value with spaces");
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("X-Test")).toBe("value with spaces");
     });
 
     it("should parse header with multiple colons", async () => {
@@ -82,8 +82,8 @@ describe("curl option parsing", () => {
         'curl -H "X-Time: 12:30:45" https://api.example.com/test',
       );
       expect(result.exitCode).toBe(0);
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.["X-Time"]).toBe("12:30:45");
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("X-Time")).toBe("12:30:45");
     });
   });
 
@@ -246,8 +246,8 @@ describe("curl option parsing", () => {
         "curl -u user:pass https://api.example.com/test",
       );
       expect(result.exitCode).toBe(0);
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.Authorization).toContain("Basic");
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("Authorization")).toContain("Basic");
     });
 
     it("should parse -uuser:pass without space", async () => {
@@ -256,8 +256,8 @@ describe("curl option parsing", () => {
         "curl -uuser:pass https://api.example.com/test",
       );
       expect(result.exitCode).toBe(0);
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.Authorization).toContain("Basic");
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("Authorization")).toContain("Basic");
     });
 
     it("should parse --user=user:pass", async () => {
@@ -266,8 +266,8 @@ describe("curl option parsing", () => {
         "curl --user=user:pass https://api.example.com/test",
       );
       expect(result.exitCode).toBe(0);
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.Authorization).toContain("Basic");
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("Authorization")).toContain("Basic");
     });
   });
 

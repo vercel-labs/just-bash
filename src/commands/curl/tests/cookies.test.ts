@@ -48,8 +48,8 @@ describe("curl cookies", () => {
       });
       await env.exec("curl -b 'session=xyz789' https://api.example.com/data");
 
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.Cookie).toBe("session=xyz789");
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("Cookie")).toBe("session=xyz789");
     });
 
     it("sends Cookie header with --cookie", async () => {
@@ -60,8 +60,8 @@ describe("curl cookies", () => {
         "curl --cookie 'auth=token123' https://api.example.com/data",
       );
 
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.Cookie).toBe("auth=token123");
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("Cookie")).toBe("auth=token123");
     });
 
     it("supports --cookie=value format", async () => {
@@ -70,8 +70,8 @@ describe("curl cookies", () => {
       });
       await env.exec("curl --cookie=foo=bar https://api.example.com/data");
 
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.Cookie).toBe("foo=bar");
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("Cookie")).toBe("foo=bar");
     });
 
     it("sends multiple cookies", async () => {
@@ -80,8 +80,8 @@ describe("curl cookies", () => {
       });
       await env.exec("curl -b 'a=1; b=2; c=3' https://api.example.com/data");
 
-      const headers = lastRequest?.options.headers as Record<string, string>;
-      expect(headers?.Cookie).toBe("a=1; b=2; c=3");
+      const headers = new Headers(lastRequest?.options.headers as HeadersInit);
+      expect(headers.get("Cookie")).toBe("a=1; b=2; c=3");
     });
   });
 

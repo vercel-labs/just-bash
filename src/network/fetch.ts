@@ -55,7 +55,7 @@ const REDIRECT_CODES = new Set([301, 302, 303, 307, 308]);
 
 export interface SecureFetchOptions {
   method?: string;
-  headers?: Record<string, string>;
+  headers?: Headers | Record<string, string>;
   body?: string;
   followRedirects?: boolean;
   /** Override timeout for this request (capped at global timeout) */
@@ -100,15 +100,9 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
    * Returns firewall headers for a given URL by matching against transform
    * entries using URL prefix matching (same logic as the allow-list).
    *
-   * When multiple entries match (overlapping prefixes), their headers
-   * accumulate via `Headers.append()`. This enables layered configs like
-   * an origin-wide `X-Org-Id` plus a path-specific `Authorization`.
-   *
-   * Note: overlapping entries that set the *same* single-value header
-   * (e.g. both set `Authorization`) will produce a combined value
-   * (`"Bearer a, Bearer b"`), which is almost certainly a
-   * misconfiguration. Keep single-value headers in non-overlapping
-   * entries to avoid this.
+   * When multiple entries match (overlapping prefixes), later entries
+   * override earlier ones for the same header name via `set()`. This
+   * means a path-specific `Authorization` overrides an origin-wide one.
    */
   function getFirewallHeaders(url: string): Headers | null {
     if (transformEntries.length === 0) return null;
@@ -118,7 +112,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
         if (!merged) merged = new Headers();
         for (const t of entry.transform) {
           for (const [key, value] of Object.entries(t.headers)) {
-            merged.append(key, value);
+            merged.set(key, value);
           }
         }
       }
@@ -314,28 +308,25 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
 }
 
 /**
- * Merges user headers with firewall headers using the `Headers` API.
+ * Merges user headers with firewall headers.
  *
- * `Headers` gives us spec-compliant case-insensitive matching for free,
- * so a user header `authorization` and a firewall header `Authorization`
- * correctly collapse into one entry.
- *
- * User headers are added first, then firewall headers are `set()` on top
- * so they always override — the sandbox cannot substitute credentials.
+ * Accepts both `Headers` and plain `Record<string, string>` for backward
+ * compatibility. User headers are copied first, then firewall headers are
+ * `set()` on top so they always override — the sandbox cannot substitute
+ * credentials. Multi-value user headers (added via `Headers.append()`)
+ * are preserved for names that the firewall does not override.
  */
 function buildMergedHeaders(
-  userHeaders: Record<string, string> | undefined,
+  userHeaders: Headers | Record<string, string> | undefined,
   firewallHeaders: Headers | null,
 ): Headers | Record<string, string> | undefined {
   if (!userHeaders && !firewallHeaders) return undefined;
   // Fast path: no firewall headers, pass user headers through unchanged
   if (!firewallHeaders) return userHeaders;
-  const merged = new Headers();
-  if (userHeaders) {
-    for (const [k, v] of Object.entries(userHeaders)) {
-      merged.set(k, v);
-    }
-  }
+  const merged =
+    userHeaders instanceof Headers
+      ? new Headers(userHeaders)
+      : new Headers(userHeaders);
   // Firewall headers override user headers (security).
   // Use set() so firewall values replace any user-supplied value for the
   // same header name (case-insensitive).

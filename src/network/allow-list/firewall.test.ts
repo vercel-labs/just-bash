@@ -175,8 +175,8 @@ describe("firewall header transforms", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0].headers.authorization).toBe("Bearer first");
-    // Multiple transforms' values for the same header are appended
-    expect(calls[0].headers["x-key"]).toBe("key1, key2");
+    // Later transform overrides earlier for same header name
+    expect(calls[0].headers["x-key"]).toBe("key2");
     expect(calls[0].headers["x-extra"]).toBe("extra");
   });
 
@@ -377,7 +377,7 @@ describe("firewall header transforms", () => {
     expect(calls[1].headers.authorization).toBe("Bearer global");
   });
 
-  it("multiple transforms contributing cookies are preserved", async () => {
+  it("later transform overrides earlier for same header name", async () => {
     const { mockFn, calls } = createCapturingMock();
     global.fetch = mockFn;
 
@@ -385,8 +385,8 @@ describe("firewall header transforms", () => {
       {
         url: "https://api.example.com",
         transform: [
-          { headers: { Cookie: "session=abc123" } },
-          { headers: { Cookie: "tracking=xyz" } },
+          { headers: { Authorization: "Bearer first" } },
+          { headers: { Authorization: "Bearer second" } },
         ],
       },
     ];
@@ -395,10 +395,8 @@ describe("firewall header transforms", () => {
     await secureFetch("https://api.example.com/data");
 
     expect(calls).toHaveLength(1);
-    const cookie = calls[0].headers.cookie;
-    // Headers.append() joins with ", " per the Fetch spec
-    expect(cookie).toContain("session=abc123");
-    expect(cookie).toContain("tracking=xyz");
+    // set() means last value wins
+    expect(calls[0].headers.authorization).toBe("Bearer second");
   });
 
   it("firewall cookies override user cookies", async () => {
@@ -420,6 +418,75 @@ describe("firewall header transforms", () => {
     expect(calls).toHaveLength(1);
     // Firewall set() replaces user cookie
     expect(calls[0].headers.cookie).toBe("api_key=secret");
+  });
+
+  it("user cookies survive when transform sets unrelated header", async () => {
+    const { mockFn, calls } = createCapturingMock();
+    global.fetch = mockFn;
+
+    const entries: AllowedUrlEntry[] = [
+      {
+        url: "https://api.example.com",
+        transform: [{ headers: { Authorization: "Bearer secret" } }],
+      },
+    ];
+
+    const secureFetch = createSecureFetch({ allowedUrlPrefixes: entries });
+    await secureFetch("https://api.example.com/data", {
+      headers: { Cookie: "session=abc; tracking=xyz" },
+    });
+
+    expect(calls).toHaveLength(1);
+    // User cookies preserved — transform only touched Authorization
+    expect(calls[0].headers.cookie).toBe("session=abc; tracking=xyz");
+    expect(calls[0].headers.authorization).toBe("Bearer secret");
+  });
+
+  it("multi-value user headers survive unrelated transform", async () => {
+    const { mockFn, calls } = createCapturingMock();
+    global.fetch = mockFn;
+
+    const entries: AllowedUrlEntry[] = [
+      {
+        url: "https://api.example.com",
+        transform: [{ headers: { Authorization: "Bearer secret" } }],
+      },
+    ];
+
+    const secureFetch = createSecureFetch({ allowedUrlPrefixes: entries });
+    // Pass Headers with two Cookie entries via append()
+    const userHeaders = new Headers();
+    userHeaders.append("Cookie", "session=abc");
+    userHeaders.append("Cookie", "tracking=xyz");
+    await secureFetch("https://api.example.com/data", {
+      headers: userHeaders,
+    });
+
+    expect(calls).toHaveLength(1);
+    // Both cookie values preserved (Headers.append joins with ", ")
+    expect(calls[0].headers.cookie).toContain("session=abc");
+    expect(calls[0].headers.cookie).toContain("tracking=xyz");
+    expect(calls[0].headers.authorization).toBe("Bearer secret");
+  });
+
+  it("firewall authorization overrides user-supplied authorization", async () => {
+    const { mockFn, calls } = createCapturingMock();
+    global.fetch = mockFn;
+
+    const entries: AllowedUrlEntry[] = [
+      {
+        url: "https://api.example.com",
+        transform: [{ headers: { Authorization: "Bearer secret" } }],
+      },
+    ];
+
+    const secureFetch = createSecureFetch({ allowedUrlPrefixes: entries });
+    await secureFetch("https://api.example.com/data", {
+      headers: { Authorization: "Bearer user-token-should-be-replaced" },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].headers.authorization).toBe("Bearer secret");
   });
 
   it("overlapping prefixes accumulate headers from all matching entries", async () => {
