@@ -219,7 +219,7 @@ type QueuedExecution = {
 const executionQueue: QueuedExecution[] = [];
 let currentExecution: QueuedExecution | null = null;
 
-const workerPath = fileURLToPath(new URL("./worker.js", import.meta.url));
+const workerPath = fileURLToPath(new URL("./js-exec-worker.js", import.meta.url));
 
 function processNextExecution(): void {
   // Skip canceled entries (timed out before execution started)
