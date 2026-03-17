@@ -1030,9 +1030,14 @@ class Parser {
             value = { type: "Field", name: ident };
           }
         } else if (this.check("STRING")) {
-          key = this.advance().value as string;
-          this.expect("COLON", "Expected ':'");
-          value = this.parseObjectValue();
+          const ident = this.advance().value as string;
+          if (this.match("COLON")) {
+            key = ident;
+            value = this.parseObjectValue();
+          } else {
+            key = ident;
+            value = { type: "Field", name: ident };
+          }
         } else {
           throw new Error(`Expected object key at position ${this.peek().pos}`);
         }
