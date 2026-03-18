@@ -37,15 +37,6 @@ describe("ReadWriteFs", () => {
         new ReadWriteFs({ root: filePath, allowSymlinks: true });
       }).toThrow("not a directory");
     });
-
-    it("should reject roots that overlap the just-bash installation", () => {
-      expect(() => {
-        new ReadWriteFs({
-          root: process.cwd(),
-          allowSymlinks: true,
-        });
-      }).toThrow("overlaps the just-bash installation");
-    });
   });
 
   describe("reading files", () => {

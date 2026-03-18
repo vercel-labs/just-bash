@@ -13,7 +13,6 @@
 
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   type FileContent,
   fromBuffer,
@@ -43,36 +42,6 @@ import {
 
 /** Error patterns that are safe to pass through (contain virtual paths, not real ones). */
 const RW_PASSTHROUGH_ERRORS = ["EACCES", "escaping sandbox", "EFBIG"] as const;
-
-function getCurrentModulePath(): string {
-  if (
-    typeof import.meta !== "undefined" &&
-    typeof import.meta.url === "string"
-  ) {
-    return fileURLToPath(import.meta.url);
-  }
-  if (typeof __filename === "string") {
-    return __filename;
-  }
-  return process.cwd();
-}
-
-function collectProtectedRuntimeRoots(): string[] {
-  const currentDir = nodePath.dirname(getCurrentModulePath());
-  const packageRoot = nodePath.resolve(currentDir, "../../../");
-  const candidates = ["src", "dist", "node_modules", "vendor"].map((segment) =>
-    nodePath.join(packageRoot, segment),
-  );
-
-  return candidates.flatMap((candidate) => {
-    if (!fs.existsSync(candidate)) {
-      return [];
-    }
-    return [fs.realpathSync(candidate)];
-  });
-}
-
-const PROTECTED_RUNTIME_ROOTS = collectProtectedRuntimeRoots();
 
 export interface ReadWriteFsOptions {
   /**
@@ -112,18 +81,6 @@ export class ReadWriteFs implements IFileSystem {
 
     // Compute canonical root (resolves symlinks like /var -> /private/var on macOS)
     this.canonicalRoot = fs.realpathSync(this.root);
-
-    // Guard against unsafe host configurations where a guest-writable root
-    // overlaps trusted just-bash package/runtime files.
-    if (
-      PROTECTED_RUNTIME_ROOTS.some((protectedRoot) =>
-        isPathWithinRoot(protectedRoot, this.canonicalRoot),
-      )
-    ) {
-      throw new Error(
-        "ReadWriteFs root overlaps the just-bash installation; choose a writable root outside the package/runtime tree",
-      );
-    }
   }
 
   /**
