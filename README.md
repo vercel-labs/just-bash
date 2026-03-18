@@ -192,6 +192,8 @@ const env = new Bash({ fs: rwfs });
 await env.exec('echo "hello" > file.txt'); // writes to real filesystem
 ```
 
+Keep `ReadWriteFs` pointed at a workspace directory, not at the installed `just-bash` package or any other trusted runtime code. Guest-writable roots should stay separate from trusted code.
+
 **MountableFs** - Mount multiple filesystems at different paths. Combines read-only and read-write filesystems into a unified namespace:
 
 ```typescript

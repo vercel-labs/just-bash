@@ -68,6 +68,8 @@ const result = await bash.exec("cat input.txt | grep pattern");
 
 4. **No binaries/WASM**: Only built-in commands work. You cannot run node, python, or other binaries.
 
+5. **ReadWriteFs root separation**: If you use `ReadWriteFs`, point it at a workspace directory, not at the installed `just-bash` package or other trusted runtime code.
+
 ## Available Commands
 
 **Text processing**: `awk`, `cat`, `column`, `comm`, `cut`, `egrep`, `expand`, `fgrep`, `fold`, `grep`, `head`, `join`, `nl`, `paste`, `rev`, `rg`, `sed`, `sort`, `strings`, `tac`, `tail`, `tr`, `unexpand`, `uniq`, `wc`, `xargs`

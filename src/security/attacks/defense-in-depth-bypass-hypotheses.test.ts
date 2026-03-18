@@ -14,7 +14,7 @@ describe("Defense-in-depth bypass hypotheses", () => {
     DefenseInDepthBox.resetInstance();
   });
 
-  it("H1: pre-captured process.binding reference bypasses sandbox-time blocking", async () => {
+  it("H1: pre-captured process.binding reference still bypasses sandbox-time process proxying", async () => {
     const capturedBinding = (
       process as unknown as { binding: (name: string) => unknown }
     ).binding;

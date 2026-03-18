@@ -47,13 +47,35 @@ export function normalizeAllowListEntry(entry: string): {
   };
 }
 
+function hasAmbiguousPathSeparators(pathname: string): boolean {
+  if (pathname.includes("\\")) {
+    return true;
+  }
+
+  const normalized = pathname.toLowerCase();
+  return normalized.includes("%2f") || normalized.includes("%5c");
+}
+
+function matchesPathPrefix(pathname: string, pathPrefix: string): boolean {
+  if (pathPrefix === "/" || pathPrefix === "") {
+    return true;
+  }
+
+  if (pathPrefix.endsWith("/")) {
+    return pathname.startsWith(pathPrefix);
+  }
+
+  return pathname === pathPrefix || pathname.startsWith(`${pathPrefix}/`);
+}
+
 /**
  * Checks if a URL matches an allow-list entry.
  *
  * The matching rules are:
  * 1. Origins must match exactly (case-sensitive for scheme and host)
- * 2. The URL's path must start with the allow-list entry's path
- * 3. If the allow-list entry has no path (or just "/"), all paths are allowed
+ * 2. Path-scoped entries match on path segment boundaries, not raw string prefix
+ * 3. Ambiguous encoded separators (%2f, %5c) are rejected for path-scoped entries
+ * 4. If the allow-list entry has no path (or just "/"), all paths are allowed
  *
  * @param url The URL to check (as a string)
  * @param allowedEntry The allow-list entry to match against
@@ -78,13 +100,15 @@ export function matchesAllowListEntry(
     return false;
   }
 
-  // If the allow-list entry is just the origin (path is "/" or empty), allow all paths
-  if (normalizedEntry.pathPrefix === "/" || normalizedEntry.pathPrefix === "") {
-    return true;
+  if (
+    normalizedEntry.pathPrefix !== "/" &&
+    normalizedEntry.pathPrefix !== "" &&
+    hasAmbiguousPathSeparators(parsedUrl.pathname)
+  ) {
+    return false;
   }
 
-  // The URL's path must start with the allow-list entry's path prefix
-  return parsedUrl.pathname.startsWith(normalizedEntry.pathPrefix);
+  return matchesPathPrefix(parsedUrl.pathname, normalizedEntry.pathPrefix);
 }
 
 /**
@@ -413,6 +437,17 @@ export function validateAllowList(
     // Must have a valid host (not empty)
     if (!url.hostname) {
       errors.push(`Allow-list entry must include a hostname: "${entry}"`);
+      continue;
+    }
+
+    if (
+      url.pathname !== "/" &&
+      url.pathname !== "" &&
+      hasAmbiguousPathSeparators(url.pathname)
+    ) {
+      errors.push(
+        `Allow-list entry contains ambiguous path separators: "${entry}"`,
+      );
       continue;
     }
 

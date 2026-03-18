@@ -110,6 +110,14 @@ describe("allow-list bypass attempts", () => {
       await expectBlocked(env, "https://api.example.com/v1%2f..%2fv2/users");
     });
 
+    it("blocks encoded separator traversal within an allowed subtree", async () => {
+      const env = createBashEnvAdapter({
+        network: { allowedUrlPrefixes: ["https://api.example.com/v1/"] },
+      });
+      await expectBlocked(env, "https://api.example.com/v1/%2f..%2fv2/users");
+      await expectBlocked(env, "https://api.example.com/v1/%5c..%5cv2/users");
+    });
+
     it("handles URL-encoded allowed path correctly", async () => {
       const env = createBashEnvAdapter({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },

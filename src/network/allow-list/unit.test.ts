@@ -801,6 +801,22 @@ describe("security scenarios", () => {
   });
 
   describe("path prefix bypass attempts", () => {
+    it("treats /api as exact-or-subtree, not a raw string prefix", () => {
+      const allowedUrlPrefixes = ["https://api.example.com/api"];
+      expect(
+        isUrlAllowed("https://api.example.com/api", allowedUrlPrefixes),
+      ).toBe(true);
+      expect(
+        isUrlAllowed("https://api.example.com/api/users", allowedUrlPrefixes),
+      ).toBe(true);
+      expect(
+        isUrlAllowed("https://api.example.com/apiv2", allowedUrlPrefixes),
+      ).toBe(false);
+      expect(
+        isUrlAllowed("https://api.example.com/api-admin", allowedUrlPrefixes),
+      ).toBe(false);
+    });
+
     it("blocks attempts to bypass /api/ restriction with /api", () => {
       const allowedUrlPrefixes = ["https://api.example.com/api/"];
       // Without trailing slash, /api doesn't match /api/
@@ -870,6 +886,15 @@ describe("createSecureFetch allow-list validation", () => {
         allowedUrlPrefixes: ["https://example.com"],
       }),
     ).not.toThrow();
+  });
+
+  it("rejects allow-list entries with ambiguous encoded separators", () => {
+    expect(validateAllowList(["https://example.com/v1/%2fadmin"])).toEqual([
+      'Allow-list entry contains ambiguous path separators: "https://example.com/v1/%2fadmin"',
+    ]);
+    expect(validateAllowList(["https://example.com/v1/%5cadmin"])).toEqual([
+      'Allow-list entry contains ambiguous path separators: "https://example.com/v1/%5cadmin"',
+    ]);
   });
 
   it("skips validation when dangerouslyAllowFullInternetAccess is true", () => {

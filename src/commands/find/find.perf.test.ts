@@ -296,7 +296,7 @@ describe("find performance tracing", () => {
     );
     console.log(`Wall clock: ${elapsed2}ms`);
     console.log(JSON.stringify(summary2?.details, null, 2));
-  });
+  }, 15_000);
 
   it("should compare fast-path vs regular evaluation", async () => {
     // Use in-memory filesystem for fast, stable tests

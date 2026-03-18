@@ -5,25 +5,25 @@
  * safely be imported in browser bundles.
  */
 
-/**
- * Sanitize an error message to strip real OS filesystem paths and stack traces.
- *
- * - Replaces common OS path prefixes (/Users/, /home/, /private/, C:\, etc.)
- *   with `<path>` to prevent information leakage about the host filesystem.
- * - Strips stack trace lines (`\n    at ...`).
- * - Preserves error codes (ENOENT, EACCES, etc.) and virtual paths that don't
- *   match known OS prefixes.
- */
-export function sanitizeErrorMessage(message: string): string {
+function sanitizeWithUnixPrefixes(
+  message: string,
+  includeHostRuntimePrefixes: boolean,
+  includeFileUrls: boolean,
+): string {
   if (!message) return message;
 
   // Strip stack trace lines (lines starting with whitespace + "at ")
   let sanitized = message.replace(/\n\s+at\s.*/g, "");
 
+  if (includeFileUrls) {
+    sanitized = sanitized.replace(/\bfile:\/\/\/?[^\s'",)}\]:]+/g, "<path>");
+  }
+
   // Replace real OS paths with <path>
-  // Match absolute Unix-style paths that start with common OS prefixes
   sanitized = sanitized.replace(
-    /(?:\/(?:Users|home|private|var|opt|Library|System|usr|etc|tmp|nix|snap))\b[^\s'",)}\]:]*/g,
+    includeHostRuntimePrefixes
+      ? /(?:\/(?:Users|home|private|var|opt|Library|System|usr|etc|tmp|nix|snap|workspace|root|srv|mnt|app))\b[^\s'",)}\]:]*/g
+      : /(?:\/(?:Users|home|private|var|opt|Library|System|usr|etc|tmp|nix|snap))\b[^\s'",)}\]:]*/g,
     "<path>",
   );
 
@@ -33,5 +33,29 @@ export function sanitizeErrorMessage(message: string): string {
   // Match Windows-style absolute paths (C:\, D:\, etc.)
   sanitized = sanitized.replace(/[A-Z]:\\[^\s'",)}\]:]+/g, "<path>");
 
+  if (includeFileUrls) {
+    // Match UNC-style Windows network paths.
+    sanitized = sanitized.replace(/\\\\[^\s\\]+\\[^\s'",)}\]:]+/g, "<path>");
+  }
+
   return sanitized;
+}
+
+/**
+ * Sanitize an error message to strip common real OS paths and stack traces.
+ *
+ * Preserves virtual paths that don't match the common host prefixes used by
+ * the default runtime.
+ */
+export function sanitizeErrorMessage(message: string): string {
+  return sanitizeWithUnixPrefixes(message, false, false);
+}
+
+/**
+ * Aggressive sanitizer for host-originated errors such as worker/bootstrap
+ * failures. This also scrubs file:// URLs and additional runtime roots that
+ * are common in hosted environments.
+ */
+export function sanitizeHostErrorMessage(message: string): string {
+  return sanitizeWithUnixPrefixes(message, true, true);
 }

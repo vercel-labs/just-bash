@@ -17,7 +17,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import initSqlJs from "sql.js";
-import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
+import {
+  sanitizeErrorMessage,
+  sanitizeHostErrorMessage,
+} from "../../fs/sanitize-error.js";
 import { bindDefenseContextCallback } from "../../security/defense-context.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import { _clearTimeout, _setTimeout } from "../../timers.js";
@@ -393,7 +396,7 @@ async function executeInWorker(
             error instanceof Error ? error.message : String(error);
           resolve({
             success: false,
-            error: sanitizeErrorMessage(message),
+            error: sanitizeHostErrorMessage(message),
           });
         }
       };
@@ -442,7 +445,7 @@ async function executeInWorker(
             error instanceof Error ? error.message : String(error);
           resolve({
             success: false,
-            error: sanitizeErrorMessage(message),
+            error: sanitizeHostErrorMessage(message),
           });
         }
       };
@@ -454,7 +457,7 @@ async function executeInWorker(
           _clearTimeout(timeout);
           const message =
             error instanceof Error ? error.message : String(error);
-          reject(new Error(sanitizeErrorMessage(message)));
+          reject(new Error(sanitizeHostErrorMessage(message)));
         }
       };
 
@@ -467,7 +470,7 @@ async function executeInWorker(
             error instanceof Error ? error.message : String(error);
           resolve({
             success: false,
-            error: sanitizeErrorMessage(message),
+            error: sanitizeHostErrorMessage(message),
           });
         }
       };
@@ -479,7 +482,7 @@ async function executeInWorker(
   } catch (e) {
     // Worker failed to load - do not fall back to direct execution
     // as it has no timeout protection (DoS risk)
-    const message = sanitizeErrorMessage((e as Error).message);
+    const message = sanitizeHostErrorMessage((e as Error).message);
     throw new Error(`sqlite3 worker failed to load: ${message}`);
   }
 }
@@ -572,7 +575,7 @@ export const sqlite3Command: Command = {
         ctx.requireDefenseContext,
       );
     } catch (e) {
-      const message = sanitizeErrorMessage((e as Error).message);
+      const message = sanitizeHostErrorMessage((e as Error).message);
       return {
         stdout: "",
         stderr: `sqlite3: worker error: ${message}\n`,
@@ -581,7 +584,7 @@ export const sqlite3Command: Command = {
     }
 
     if (!result.success) {
-      const message = sanitizeErrorMessage(result.error);
+      const message = sanitizeHostErrorMessage(result.error);
       return {
         stdout: "",
         stderr: `sqlite3: ${message}\n`,

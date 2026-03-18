@@ -13,7 +13,7 @@
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
-import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
+import { sanitizeHostErrorMessage } from "../../fs/sanitize-error.js";
 import {
   WorkerDefenseInDepth,
   type WorkerDefenseStats,
@@ -1022,7 +1022,7 @@ function createHTTPFS(backend: SyncBackend, FS: EmscriptenFS) {
             });
             lastResponse = encoder.encode(JSON.stringify(result));
           } catch (e) {
-            const message = sanitizeErrorMessage((e as Error).message);
+            const message = sanitizeHostErrorMessage((e as Error).message);
             lastResponse = encoder.encode(JSON.stringify({ error: message }));
           }
         }
@@ -1287,7 +1287,7 @@ async function runPython(input: WorkerInput): Promise<WorkerOutput> {
       printErr: onPrintErr,
     });
   } catch (e) {
-    const message = sanitizeErrorMessage((e as Error).message);
+    const message = sanitizeHostErrorMessage((e as Error).message);
     return {
       success: false,
       error: `Failed to load CPython: ${message}`,
@@ -1312,7 +1312,7 @@ async function runPython(input: WorkerInput): Promise<WorkerOutput> {
     Module.FS.mkdir("/host");
     Module.FS.mount(HOSTFS, { root: "/" }, "/host");
   } catch (e) {
-    const message = sanitizeErrorMessage((e as Error).message);
+    const message = sanitizeHostErrorMessage((e as Error).message);
     return {
       success: false,
       error: `Failed to mount HOSTFS: ${message}`,
@@ -1325,7 +1325,7 @@ async function runPython(input: WorkerInput): Promise<WorkerOutput> {
     Module.FS.mkdir("/_jb_http");
     Module.FS.mount(HTTPFS, { root: "/" }, "/_jb_http");
   } catch (e) {
-    const message = sanitizeErrorMessage((e as Error).message);
+    const message = sanitizeHostErrorMessage((e as Error).message);
     return {
       success: false,
       error: `Failed to mount HTTPFS: ${message}`,
@@ -1446,7 +1446,7 @@ process.on("uncaughtException", (e) => {
   if (!activeProtocolToken) {
     return;
   }
-  const message = sanitizeErrorMessage((e as Error).message);
+  const message = sanitizeHostErrorMessage((e as Error).message);
   postWorkerMessage(activeProtocolToken, {
     success: false,
     error: `Worker uncaught exception: ${message}`,

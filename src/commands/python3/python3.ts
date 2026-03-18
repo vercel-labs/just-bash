@@ -14,7 +14,10 @@ import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import type { IFileSystem } from "../../fs/interface.js";
-import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
+import {
+  sanitizeErrorMessage,
+  sanitizeHostErrorMessage,
+} from "../../fs/sanitize-error.js";
 import { mapToRecord } from "../../helpers/env.js";
 
 import { bindDefenseContextCallback } from "../../security/defense-context.js";
@@ -280,7 +283,7 @@ function processNextExecution(queueState: QueueState): void {
     const message = err instanceof Error ? err.message : String(err);
     next.resolve({
       success: false,
-      error: sanitizeErrorMessage(message),
+      error: sanitizeHostErrorMessage(message),
     });
     queueState.isExecuting = false;
     processNextExecution(queueState);
@@ -307,7 +310,7 @@ function processNextExecution(queueState: QueueState): void {
     (err: Error) => {
       next.resolve({
         success: false,
-        error: sanitizeErrorMessage(err.message),
+        error: sanitizeHostErrorMessage(err.message),
       });
       queueState.isExecuting = false;
       processNextExecution(queueState);
@@ -333,7 +336,7 @@ function processNextExecution(queueState: QueueState): void {
       const message = error instanceof Error ? error.message : String(error);
       next.resolve({
         success: false,
-        error: sanitizeErrorMessage(message),
+        error: sanitizeHostErrorMessage(message),
       });
       queueState.isExecuting = false;
       worker.terminate();
@@ -348,7 +351,7 @@ function processNextExecution(queueState: QueueState): void {
       const message = error instanceof Error ? error.message : String(error);
       next.resolve({
         success: false,
-        error: sanitizeErrorMessage(message),
+        error: sanitizeHostErrorMessage(message),
       });
       queueState.isExecuting = false;
       processNextExecution(queueState);
@@ -362,7 +365,7 @@ function processNextExecution(queueState: QueueState): void {
       const message = error instanceof Error ? error.message : String(error);
       next.resolve({
         success: false,
-        error: sanitizeErrorMessage(message),
+        error: sanitizeHostErrorMessage(message),
       });
       queueState.isExecuting = false;
       processNextExecution(queueState);
@@ -452,7 +455,7 @@ async function executePython(
         const message = error instanceof Error ? error.message : String(error);
         resolve({
           success: false,
-          error: sanitizeErrorMessage(message),
+          error: sanitizeHostErrorMessage(message),
         });
       }
     };
@@ -472,17 +475,17 @@ async function executePython(
   const [bridgeOutput, workerResult] = await Promise.all([
     bridgeHandler.run(timeoutMs).catch((e) => ({
       stdout: "",
-      stderr: `python3: bridge error: ${sanitizeErrorMessage((e as Error).message)}\n`,
+      stderr: `python3: bridge error: ${sanitizeHostErrorMessage((e as Error).message)}\n`,
       exitCode: 1,
     })),
     workerPromise.catch((e) => ({
       success: false,
-      error: sanitizeErrorMessage((e as Error).message),
+      error: sanitizeHostErrorMessage((e as Error).message),
     })),
   ]);
 
   if (!workerResult.success && workerResult.error) {
-    const workerError = sanitizeErrorMessage(workerResult.error);
+    const workerError = sanitizeHostErrorMessage(workerResult.error);
     return {
       stdout: bridgeOutput.stdout,
       stderr: `${bridgeOutput.stderr}python3: ${workerError}\n`,

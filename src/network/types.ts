@@ -75,8 +75,11 @@ export interface NetworkConfig {
    * - https://api.example.com/v1/users/123
    *
    * But NOT:
+   * - https://api.example.com/v10
+   * - https://api.example.com/v1-admin
    * - https://api.example.com/v2/users
    * - https://api.example.org/v1/users (different origin)
+   * - URLs that rely on ambiguous encoded separators like %2f or %5c
    *
    * Invalid entries (missing scheme, missing host, relative paths) will throw an error.
    */

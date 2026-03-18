@@ -15,7 +15,7 @@
 
 import { parentPort, workerData } from "node:worker_threads";
 import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
-import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
+import { sanitizeHostErrorMessage } from "../../fs/sanitize-error.js";
 import {
   WorkerDefenseInDepth,
   type WorkerDefenseStats,
@@ -193,7 +193,7 @@ async function executeQuery(data: WorkerInput): Promise<WorkerOutput> {
       db = new SQL.Database();
     }
   } catch (e) {
-    const message = sanitizeErrorMessage((e as Error).message);
+    const message = sanitizeHostErrorMessage((e as Error).message);
     return {
       success: false,
       error: message,
@@ -250,7 +250,7 @@ async function executeQuery(data: WorkerInput): Promise<WorkerOutput> {
     };
   } catch (e) {
     db.close();
-    const message = sanitizeErrorMessage((e as Error).message);
+    const message = sanitizeHostErrorMessage((e as Error).message);
     return {
       success: false,
       error: message,

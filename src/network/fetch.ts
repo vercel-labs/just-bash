@@ -137,9 +137,15 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
    * @throws NetworkAccessDeniedError if the URL is not allowed
    */
   async function checkAllowed(url: string): Promise<void> {
-    // Private IP check runs BEFORE the full-access bypass so that
-    // dangerouslyAllowFullInternetAccess never allows reaching
-    // internal/loopback addresses.
+    if (
+      !config.dangerouslyAllowFullInternetAccess &&
+      !isUrlAllowed(url, entries)
+    ) {
+      throw new NetworkAccessDeniedError(url);
+    }
+
+    // Private IP check still runs even when full internet access is enabled
+    // so internal/loopback addresses remain unreachable.
     if (denyPrivateRanges) {
       try {
         const parsed = new URL(url);
@@ -186,14 +192,6 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
         if (e instanceof NetworkAccessDeniedError) throw e;
         // Invalid URL will be caught by isUrlAllowed below
       }
-    }
-
-    if (config.dangerouslyAllowFullInternetAccess) {
-      return;
-    }
-
-    if (!isUrlAllowed(url, entries)) {
-      throw new NetworkAccessDeniedError(url);
     }
   }
 
