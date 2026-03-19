@@ -16,6 +16,7 @@ import {
   sanitizeHostErrorMessage,
 } from "../../fs/sanitize-error.js";
 import { mapToRecord } from "../../helpers/env.js";
+import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import { _clearTimeout, _setTimeout } from "../../timers.js";
 import type {
@@ -331,9 +332,10 @@ function getOrCreateWorker(): Worker {
       return;
     }
     if (currentExecution) {
+      const workerError = sanitizeHostErrorMessage(getErrorMessage(err));
       currentExecution.resolve({
         success: false,
-        error: sanitizeHostErrorMessage(err.message),
+        error: workerError,
       });
       currentExecution = null;
     }
@@ -504,10 +506,13 @@ async function executeJSInner(
 
   const [bridgeOutput, workerResult] = await Promise.all([
     bridgeHandler.run(timeoutMs),
-    workerPromise.catch((e) => ({
-      success: false,
-      error: sanitizeHostErrorMessage((e as Error).message),
-    })),
+    workerPromise.catch((e) => {
+      const workerError = sanitizeHostErrorMessage(getErrorMessage(e));
+      return {
+        success: false,
+        error: workerError,
+      };
+    }),
   ]);
 
   if (!workerResult.success && workerResult.error) {

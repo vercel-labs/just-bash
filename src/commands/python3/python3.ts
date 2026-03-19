@@ -19,6 +19,7 @@ import {
   sanitizeHostErrorMessage,
 } from "../../fs/sanitize-error.js";
 import { mapToRecord } from "../../helpers/env.js";
+import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 
 import { bindDefenseContextCallback } from "../../security/defense-context.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
@@ -308,9 +309,10 @@ function processNextExecution(queueState: QueueState): void {
     "python3",
     "worker error callback",
     (err: Error) => {
+      const workerError = sanitizeHostErrorMessage(getErrorMessage(err));
       next.resolve({
         success: false,
-        error: sanitizeHostErrorMessage(err.message),
+        error: workerError,
       });
       queueState.isExecuting = false;
       processNextExecution(queueState);
@@ -473,15 +475,21 @@ async function executePython(
   });
 
   const [bridgeOutput, workerResult] = await Promise.all([
-    bridgeHandler.run(timeoutMs).catch((e) => ({
-      stdout: "",
-      stderr: `python3: bridge error: ${sanitizeHostErrorMessage((e as Error).message)}\n`,
-      exitCode: 1,
-    })),
-    workerPromise.catch((e) => ({
-      success: false,
-      error: sanitizeHostErrorMessage((e as Error).message),
-    })),
+    bridgeHandler.run(timeoutMs).catch((e) => {
+      const bridgeError = sanitizeHostErrorMessage(getErrorMessage(e));
+      return {
+        stdout: "",
+        stderr: `python3: bridge error: ${bridgeError}\n`,
+        exitCode: 1,
+      };
+    }),
+    workerPromise.catch((e) => {
+      const workerError = sanitizeHostErrorMessage(getErrorMessage(e));
+      return {
+        success: false,
+        error: workerError,
+      };
+    }),
   ]);
 
   if (!workerResult.success && workerResult.error) {
