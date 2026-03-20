@@ -257,7 +257,10 @@ export const jqCommand: Command = {
           };
         }
         try {
-          initialVars.set(`$${name}`, sanitizeParsedData(JSON.parse(jsonStr)) as QueryValue);
+          initialVars.set(
+            `$${name}`,
+            sanitizeParsedData(JSON.parse(jsonStr)) as QueryValue,
+          );
         } catch {
           return {
             stdout: "",
