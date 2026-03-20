@@ -132,7 +132,7 @@ export interface EvalContext {
 
 function createContext(options?: EvaluateOptions): EvalContext {
   return {
-    vars: new Map(),
+    vars: options?.initialVars ? new Map(options.initialVars) : new Map(),
     limits: {
       maxIterations:
         options?.limits?.maxIterations ?? DEFAULT_MAX_JQ_ITERATIONS,
@@ -358,6 +358,8 @@ function applyPathTransform(
 export interface EvaluateOptions {
   limits?: QueryExecutionLimits;
   env?: Map<string, string>;
+  /** Pre-defined variables (e.g. from jq --arg/--argjson). Keys should include $ prefix. */
+  initialVars?: Map<string, QueryValue>;
   coverage?: FeatureCoverageWriter;
   requireDefenseContext?: boolean;
 }
