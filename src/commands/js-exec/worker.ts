@@ -9,8 +9,21 @@
  * Run: npx esbuild src/commands/js-exec/worker.ts --bundle --platform=node --format=esm --outfile=src/commands/js-exec/worker.js --external:quickjs-emscripten
  */
 
-import { stripTypeScriptTypes } from "node:module";
 import { parentPort } from "node:worker_threads";
+
+// Dynamic require with fallback: stripTypeScriptTypes is a Node.js 23.2+ API
+// that is not available in all runtimes (e.g., Bun). When unavailable, TypeScript
+// type stripping is disabled but plain JavaScript execution works normally.
+// Uses require() instead of await import() because Bun Worker threads load .js
+// files in a context where top-level await is not supported.
+let stripTypeScriptTypes: (code: string) => string;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const nodeModule = require("node:module");
+  stripTypeScriptTypes = nodeModule.stripTypeScriptTypes ?? ((code: string) => code);
+} catch {
+  stripTypeScriptTypes = (code: string) => code;
+}
 import {
   getQuickJS,
   type QuickJSContext,
