@@ -25,7 +25,7 @@ export function isPathWithinRoot(
   resolved: string,
   canonicalRoot: string,
 ): boolean {
-  return resolved === canonicalRoot || resolved.startsWith(`${canonicalRoot}/`);
+  return resolved === canonicalRoot || resolved.startsWith(`${canonicalRoot}${nodePath.sep}`);
 }
 
 /**
