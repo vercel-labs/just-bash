@@ -648,84 +648,25 @@ export class Bash {
   private async ensureExecutorReady(): Promise<void> {
     if (!this.executorSetup || this.executorSDK) return;
 
-    // Deduplicate concurrent init calls
     if (this.executorInitPromise) {
       await this.executorInitPromise;
       return;
     }
 
     this.executorInitPromise = (async () => {
-      // Dynamic import — vendored SDK bundle + effect only loaded when setup is used
-      const { createExecutor } = await import(
-        "../vendor/executor/executor-sdk-bundle.mjs"
+      const { initExecutorSDK } = await import("./executor-init.js");
+      const setup = this.executorSetup;
+      if (!setup) return;
+      const { sdk, invokeTool } = await initExecutorSDK(
+        setup,
+        this.executorApproval,
+        this.fs,
+        () => this.state.cwd,
+        () => this.state.env,
+        () => this.limits,
       );
-      const { executeForExecutor } = await import(
-        "./commands/js-exec/js-exec.js"
-      );
-      const EffectMod = await import("effect/Effect");
-
-      const self = this;
-      // biome-ignore lint/suspicious/noExplicitAny: CodeExecutor + ToolInvoker types cross package boundaries; validated at runtime by the SDK
-      const runtime: any = {
-        // biome-ignore lint/suspicious/noExplicitAny: ToolInvoker type from @executor/sdk
-        execute(code: string, toolInvoker: any) {
-          return EffectMod.tryPromise(() => {
-            const ctx = {
-              fs: self.fs,
-              cwd: self.state.cwd,
-              env: self.state.env,
-              stdin: "",
-              limits: self.limits,
-            };
-            const invokeTool = async (
-              path: string,
-              argsJson: string,
-            ): Promise<string> => {
-              let args: unknown;
-              try {
-                args = argsJson ? JSON.parse(argsJson) : undefined;
-              } catch {
-                args = undefined;
-              }
-              const result = await EffectMod.runPromise(
-                toolInvoker.invoke({ path, args }),
-              );
-              return result !== undefined ? JSON.stringify(result) : "";
-            };
-            return executeForExecutor(code, ctx, invokeTool);
-          });
-        },
-      };
-
-      const sdk = await createExecutor({
-        runtime,
-        storage: "memory",
-        onToolApproval: this.executorApproval ?? "allow-all",
-      });
-
-      // Run user setup (add sources, configure policies, etc.)
-      if (this.executorSetup) {
-        await this.executorSetup(sdk as unknown as ExecutorSDKHandle);
-      }
-      this.executorSDK = sdk as unknown as ExecutorSDKHandle;
-
-      // Wire SDK execution as the tool invoker for js-exec
-      this.executorInvokeTool = async (
-        path: string,
-        argsJson: string,
-      ): Promise<string> => {
-        // Route through the SDK's execute to get the tool invoker pipeline.
-        // The SDK creates the tool invoker per-execution, so we run a small
-        // code snippet that invokes the tool and returns the result.
-        const escapedPath = path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-        const sdkHandle = this.executorSDK;
-        if (!sdkHandle) throw new Error("Executor SDK not initialized");
-        const result = await sdkHandle.execute(
-          `return await tools.${escapedPath}(${argsJson || "{}"})`,
-        );
-        if (result.error) throw new Error(result.error);
-        return result.result !== undefined ? JSON.stringify(result.result) : "";
-      };
+      this.executorSDK = sdk;
+      this.executorInvokeTool = invokeTool;
     })();
 
     await this.executorInitPromise;
