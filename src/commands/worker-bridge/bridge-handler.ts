@@ -48,6 +48,9 @@ export class BridgeHandler {
     private exec:
       | ((command: string, options: CommandExecOptions) => Promise<ExecResult>)
       | undefined = undefined,
+    private invokeTool:
+      | ((path: string, argsJson: string) => Promise<string>)
+      | undefined = undefined,
   ) {
     this.protocol = new ProtocolBuffer(sharedBuffer);
   }
@@ -194,6 +197,9 @@ export class BridgeHandler {
           break;
         case OpCode.EXEC_COMMAND:
           await this.handleExecCommand();
+          break;
+        case OpCode.INVOKE_TOOL:
+          await this.handleInvokeTool();
           break;
         default:
           this.protocol.setErrorCode(ErrorCode.IO_ERROR);
@@ -577,6 +583,34 @@ export class BridgeHandler {
       this.protocol.setStatus(Status.SUCCESS);
     } catch (e) {
       controller.abort();
+      const message = e instanceof Error ? e.message : String(e);
+      this.protocol.setErrorCode(ErrorCode.IO_ERROR);
+      this.protocol.setResultFromString(message);
+      this.protocol.setStatus(Status.ERROR);
+    }
+  }
+
+  private async handleInvokeTool(): Promise<void> {
+    const invokeToolFn = this.invokeTool;
+    if (!invokeToolFn) {
+      this.protocol.setErrorCode(ErrorCode.IO_ERROR);
+      this.protocol.setResultFromString(
+        "Tool invocation not available in this context.",
+      );
+      this.protocol.setStatus(Status.ERROR);
+      return;
+    }
+
+    const path = this.protocol.getPath();
+    const argsJson = this.protocol.getDataAsString();
+
+    try {
+      const resultJson = await this.raceDeadline(() =>
+        invokeToolFn(path, argsJson),
+      );
+      this.protocol.setResultFromString(resultJson);
+      this.protocol.setStatus(Status.SUCCESS);
+    } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       this.protocol.setErrorCode(ErrorCode.IO_ERROR);
       this.protocol.setResultFromString(message);

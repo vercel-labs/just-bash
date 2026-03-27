@@ -189,6 +189,12 @@ export interface CommandContext {
    * user access/injection via environment variables.
    */
   jsBootstrapCode?: string;
+  /**
+   * Tool invoker for executor mode (js-exec).
+   * When present, js-exec sets up a `tools` proxy that routes calls through this.
+   * The function receives (path, argsJson) and returns a JSON result string.
+   */
+  executorInvokeTool?: (path: string, argsJson: string) => Promise<string>;
 }
 
 export interface Command {

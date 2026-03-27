@@ -435,6 +435,7 @@ async function executeJSInner(
     ctx.fetch,
     ctx.limits?.maxOutputSize ?? 0,
     wrappedExec,
+    ctx.executorInvokeTool,
   );
 
   // Network operations need a longer timeout. resolveLimits() always populates
@@ -458,6 +459,7 @@ async function executeJSInner(
     isModule,
     stripTypes,
     timeoutMs,
+    hasExecutorTools: ctx.executorInvokeTool !== undefined,
   };
 
   // Use deferred pattern to keep queue management outside the Promise constructor
@@ -524,6 +526,139 @@ async function executeJSInner(
   }
 
   return bridgeOutput;
+}
+
+/**
+ * Result from executing code in executor mode.
+ * Compatible with @executor/sdk's ExecuteResult shape.
+ */
+export interface ExecutorResult {
+  result: unknown;
+  error?: string;
+  logs?: string[];
+}
+
+/**
+ * Execute JavaScript code in executor mode with tool invocation support.
+ * Used as the runtime for @executor/sdk's CodeExecutor interface.
+ *
+ * - Console output is captured to `logs` instead of stdout/stderr
+ * - Tool calls via `tools.x.y(args)` are routed through `invokeTool`
+ * - The return value of the code is captured in `result`
+ */
+export async function executeForExecutor(
+  code: string,
+  ctx: CommandContext,
+  invokeTool: (path: string, argsJson: string) => Promise<string>,
+): Promise<ExecutorResult> {
+  if (jsExecAsyncContext.getStore()) {
+    return {
+      result: null,
+      error: "js-exec: recursive invocation is not supported",
+    };
+  }
+
+  const sharedBuffer = createSharedBuffer();
+
+  const bridgeHandler = new BridgeHandler(
+    sharedBuffer,
+    ctx.fs,
+    ctx.cwd,
+    "js-exec",
+    ctx.fetch,
+    ctx.limits?.maxOutputSize ?? 0,
+    undefined, // no exec in executor mode
+    invokeTool,
+  );
+
+  const userTimeout = ctx.limits?.maxJsTimeoutMs ?? DEFAULT_JS_TIMEOUT_MS;
+  const timeoutMs = ctx.fetch
+    ? Math.max(userTimeout, DEFAULT_JS_NETWORK_TIMEOUT_MS)
+    : userTimeout;
+
+  const protocolToken = randomBytes(16).toString("hex");
+
+  const workerInput: JsExecWorkerInput = {
+    protocolToken,
+    sharedBuffer,
+    jsCode: code,
+    cwd: ctx.cwd,
+    env: mapToRecord(ctx.env),
+    args: [],
+    executorMode: true,
+    timeoutMs,
+  };
+
+  let resolveWorker!: (result: JsExecWorkerOutput) => void;
+  const workerPromise = new Promise<JsExecWorkerOutput>((resolve) => {
+    resolveWorker = resolve;
+  });
+
+  const queueEntry: QueuedExecution = {
+    input: workerInput,
+    resolve: () => {},
+  };
+
+  const timeoutHandle = _setTimeout(() => {
+    if (currentExecution === queueEntry) {
+      const workerToTerminate = sharedWorker;
+      if (workerToTerminate) {
+        sharedWorker = null;
+        void workerToTerminate.terminate();
+      }
+      currentExecution = null;
+      processNextExecution();
+    } else {
+      queueEntry.canceled = true;
+      if (!currentExecution) {
+        processNextExecution();
+      }
+    }
+    queueEntry.resolve({
+      success: false,
+      error: `Execution timeout: exceeded ${timeoutMs}ms limit`,
+    });
+  }, timeoutMs);
+
+  queueEntry.resolve = (result: JsExecWorkerOutput) => {
+    _clearTimeout(timeoutHandle);
+    resolveWorker(result);
+  };
+
+  executionQueue.push(queueEntry);
+  processNextExecution();
+
+  const [, workerResult] = await Promise.all([
+    bridgeHandler.run(timeoutMs),
+    workerPromise.catch((e) => ({
+      success: false as const,
+      error: sanitizeHostErrorMessage(getErrorMessage(e)),
+    })),
+  ]);
+
+  // Narrow: the catch path has no executor fields
+  if (
+    "executorResult" in workerResult &&
+    workerResult.executorResult !== undefined
+  ) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(workerResult.executorResult);
+    } catch {
+      parsed = workerResult.executorResult;
+    }
+    return {
+      result: parsed,
+      logs: workerResult.executorLogs,
+    };
+  }
+
+  return {
+    result: null,
+    error: workerResult.error || "Unknown execution error",
+    logs:
+      "executorLogs" in workerResult ? workerResult.executorLogs : undefined,
+  };
 }
 
 export const jsExecCommand: Command = {

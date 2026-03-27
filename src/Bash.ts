@@ -92,6 +92,77 @@ export interface JavaScriptConfig {
   bootstrap?: string;
 }
 
+/** Tool definition for the executor integration */
+export interface ExecutorToolDef {
+  description?: string;
+  // biome-ignore lint/suspicious/noExplicitAny: matches @executor/sdk SimpleTool signature
+  execute: (...args: any[]) => unknown;
+}
+
+/**
+ * Executor SDK instance type (from @executor/sdk).
+ * Kept as an opaque type to avoid requiring the SDK at import time.
+ */
+export interface ExecutorSDKHandle {
+  execute: (
+    code: string,
+  ) => Promise<{ result: unknown; error?: string; logs?: string[] }>;
+  sources: {
+    add: (
+      input: Record<string, unknown>,
+      options?: Record<string, unknown>,
+    ) => Promise<unknown>;
+    list: () => Promise<unknown[]>;
+    [key: string]: unknown;
+  };
+  close: () => Promise<void>;
+  [key: string]: unknown;
+}
+
+/** Executor configuration for js-exec tool invocation */
+export interface ExecutorConfig {
+  /** Tool map: keys are dot-separated paths (e.g. "math.add"), values are tool definitions */
+  tools?: Record<string, ExecutorToolDef>;
+  /**
+   * Async setup function that receives the @executor/sdk instance.
+   * Use this to add OpenAPI, GraphQL, or MCP sources that auto-discover tools.
+   * When provided, js-exec delegates execution to the SDK pipeline
+   * (which handles tool approval, auth flows, and interaction loops).
+   *
+   * Requires @executor/sdk as a dependency.
+   *
+   * @example
+   * ```ts
+   * const bash = new Bash({
+   *   executor: {
+   *     setup: async (sdk) => {
+   *       await sdk.sources.add({ kind: "openapi", endpoint: "https://api.example.com", specUrl: "https://api.example.com/openapi.json", name: "myapi" });
+   *       await sdk.sources.add({ kind: "mcp", endpoint: "https://mcp.example.com/sse", name: "tools" });
+   *     },
+   *   },
+   * });
+   * ```
+   */
+  setup?: (sdk: ExecutorSDKHandle) => Promise<void>;
+  /**
+   * Tool approval callback for the @executor/sdk pipeline.
+   * Called when a tool invocation requires approval.
+   * Defaults to "allow-all" when not provided.
+   */
+  onToolApproval?:
+    | "allow-all"
+    | "deny-all"
+    | ((request: {
+        toolPath: string;
+        sourceId: string;
+        sourceName: string;
+        operationKind: "read" | "write" | "delete" | "execute" | "unknown";
+        args: unknown;
+        reason: string;
+        approvalLabel: string | null;
+      }) => Promise<{ approved: true } | { approved: false; reason?: string }>);
+}
+
 export interface BashOptions {
   files?: InitialFiles;
   env?: Record<string, string>;
@@ -137,6 +208,13 @@ export interface BashOptions {
    * Disabled by default. Can be a boolean or a config object with bootstrap code.
    */
   javascript?: boolean | JavaScriptConfig;
+  /**
+   * Executor configuration for tool invocation in js-exec.
+   * When provided, code running in js-exec has access to a `tools` proxy
+   * (e.g. `tools.math.add({ a: 1, b: 2 })`).
+   * Implicitly enables JavaScript if not already enabled.
+   */
+  executor?: ExecutorConfig;
   /**
    * Optional list of command names to register.
    * If not provided, all built-in commands are available.
@@ -277,6 +355,14 @@ export class Bash {
   private defenseInDepthConfig?: DefenseInDepthConfig | boolean;
   private coverageWriter?: FeatureCoverageWriter;
   private jsBootstrapCode?: string;
+  private executorInvokeTool?: (
+    path: string,
+    argsJson: string,
+  ) => Promise<string>;
+  private executorSetup?: (sdk: ExecutorSDKHandle) => Promise<void>;
+  private executorApproval?: ExecutorConfig["onToolApproval"];
+  private executorSDK?: ExecutorSDKHandle;
+  private executorInitPromise?: Promise<void>;
   // biome-ignore lint/suspicious/noExplicitAny: type-erased plugin storage for untyped API
   private transformPlugins: TransformPlugin<any>[] = [];
 
@@ -450,7 +536,8 @@ export class Bash {
     }
 
     // Register javascript commands only when explicitly enabled
-    if (options.javascript) {
+    // (executor config implicitly enables javascript)
+    if (options.javascript || options.executor) {
       for (const cmd of createJavaScriptCommands()) {
         this.registerCommand(cmd);
       }
@@ -462,6 +549,36 @@ export class Bash {
       if (jsConfig.bootstrap) {
         this.jsBootstrapCode = jsConfig.bootstrap;
       }
+    }
+
+    // Set up executor tool invoker when executor config is provided
+    if (options.executor?.tools) {
+      const tools = options.executor.tools;
+      this.executorInvokeTool = async (
+        path: string,
+        argsJson: string,
+      ): Promise<string> => {
+        if (!Object.hasOwn(tools, path)) {
+          throw new Error(`Unknown tool: ${path}`);
+        }
+        const tool = tools[path];
+        let args: unknown;
+        try {
+          args = argsJson ? JSON.parse(argsJson) : undefined;
+        } catch {
+          args = undefined;
+        }
+        const result = await tool.execute(args);
+        return result !== undefined ? JSON.stringify(result) : "";
+      };
+    }
+
+    // Store SDK setup function and approval callback for lazy initialization
+    if (options.executor?.setup) {
+      this.executorSetup = options.executor.setup;
+    }
+    if (options.executor?.onToolApproval) {
+      this.executorApproval = options.executor.onToolApproval;
     }
 
     // Register custom commands (after built-ins so they can override)
@@ -523,10 +640,104 @@ export class Bash {
     return result;
   }
 
+  /**
+   * Lazily initialize the @executor/sdk when setup is configured.
+   * Creates the SDK instance, runs the user's setup function, and wires
+   * the SDK's tool invocation into the executorInvokeTool callback.
+   */
+  private async ensureExecutorReady(): Promise<void> {
+    if (!this.executorSetup || this.executorSDK) return;
+
+    // Deduplicate concurrent init calls
+    if (this.executorInitPromise) {
+      await this.executorInitPromise;
+      return;
+    }
+
+    this.executorInitPromise = (async () => {
+      // Dynamic import — vendored SDK bundle + effect only loaded when setup is used
+      const { createExecutor } = await import(
+        "../vendor/executor/executor-sdk-bundle.mjs"
+      );
+      const { executeForExecutor } = await import(
+        "./commands/js-exec/js-exec.js"
+      );
+      const EffectMod = await import("effect/Effect");
+
+      const self = this;
+      // biome-ignore lint/suspicious/noExplicitAny: CodeExecutor + ToolInvoker types cross package boundaries; validated at runtime by the SDK
+      const runtime: any = {
+        // biome-ignore lint/suspicious/noExplicitAny: ToolInvoker type from @executor/sdk
+        execute(code: string, toolInvoker: any) {
+          return EffectMod.tryPromise(() => {
+            const ctx = {
+              fs: self.fs,
+              cwd: self.state.cwd,
+              env: self.state.env,
+              stdin: "",
+              limits: self.limits,
+            };
+            const invokeTool = async (
+              path: string,
+              argsJson: string,
+            ): Promise<string> => {
+              let args: unknown;
+              try {
+                args = argsJson ? JSON.parse(argsJson) : undefined;
+              } catch {
+                args = undefined;
+              }
+              const result = await EffectMod.runPromise(
+                toolInvoker.invoke({ path, args }),
+              );
+              return result !== undefined ? JSON.stringify(result) : "";
+            };
+            return executeForExecutor(code, ctx, invokeTool);
+          });
+        },
+      };
+
+      const sdk = await createExecutor({
+        runtime,
+        storage: "memory",
+        onToolApproval: this.executorApproval ?? "allow-all",
+      });
+
+      // Run user setup (add sources, configure policies, etc.)
+      if (this.executorSetup) {
+        await this.executorSetup(sdk as unknown as ExecutorSDKHandle);
+      }
+      this.executorSDK = sdk as unknown as ExecutorSDKHandle;
+
+      // Wire SDK execution as the tool invoker for js-exec
+      this.executorInvokeTool = async (
+        path: string,
+        argsJson: string,
+      ): Promise<string> => {
+        // Route through the SDK's execute to get the tool invoker pipeline.
+        // The SDK creates the tool invoker per-execution, so we run a small
+        // code snippet that invokes the tool and returns the result.
+        const escapedPath = path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        const sdkHandle = this.executorSDK;
+        if (!sdkHandle) throw new Error("Executor SDK not initialized");
+        const result = await sdkHandle.execute(
+          `return await tools.${escapedPath}(${argsJson || "{}"})`,
+        );
+        if (result.error) throw new Error(result.error);
+        return result.result !== undefined ? JSON.stringify(result.result) : "";
+      };
+    })();
+
+    await this.executorInitPromise;
+  }
+
   async exec(
     commandLine: string,
     options?: ExecOptions,
   ): Promise<BashExecResult> {
+    // Lazily initialize executor SDK if setup was provided
+    await this.ensureExecutorReady();
+
     if (this.state.callDepth === 0) {
       this.state.commandCount = 0;
     }
@@ -666,6 +877,7 @@ export class Bash {
           coverage: this.coverageWriter,
           requireDefenseContext: defenseBox?.isEnabled() === true,
           jsBootstrapCode: this.jsBootstrapCode,
+          executorInvokeTool: this.executorInvokeTool,
         };
 
         const interpreter = new Interpreter(interpreterOptions, execState);

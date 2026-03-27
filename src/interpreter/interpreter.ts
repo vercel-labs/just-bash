@@ -134,6 +134,8 @@ export interface InterpreterOptions {
   requireDefenseContext?: boolean;
   /** Bootstrap JavaScript code for js-exec */
   jsBootstrapCode?: string;
+  /** Tool invoker for executor mode (js-exec) */
+  executorInvokeTool?: (path: string, argsJson: string) => Promise<string>;
 }
 
 export class Interpreter {
@@ -155,6 +157,7 @@ export class Interpreter {
       coverage: options.coverage,
       requireDefenseContext: options.requireDefenseContext ?? false,
       jsBootstrapCode: options.jsBootstrapCode,
+      executorInvokeTool: options.executorInvokeTool,
     };
   }
 

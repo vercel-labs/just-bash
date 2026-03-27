@@ -50,6 +50,10 @@ export interface JsExecWorkerInput {
   isModule?: boolean;
   stripTypes?: boolean;
   timeoutMs?: number;
+  /** When true, tools proxy is available (console still goes to stdout/stderr) */
+  hasExecutorTools?: boolean;
+  /** When true, runs in full executor mode: tools proxy, log capture, result capture */
+  executorMode?: boolean;
 }
 
 export interface JsExecWorkerOutput {
@@ -57,6 +61,10 @@ export interface JsExecWorkerOutput {
   success: boolean;
   error?: string;
   defenseStats?: WorkerDefenseStats;
+  /** JSON-serialized return value (executor mode only) */
+  executorResult?: string;
+  /** Captured console logs (executor mode only) */
+  executorLogs?: string[];
 }
 
 let quickjsModule: QuickJSWASMModule | null = null;
@@ -771,6 +779,28 @@ function setupContext(
   context.setProp(context.global, "__execArgs", execArgsFn);
   execArgsFn.dispose();
 
+  // --- tool invocation (executor tools or executor mode) ---
+  if (input.hasExecutorTools || input.executorMode) {
+    const invokeToolFn = context.newFunction(
+      "__invokeTool",
+      (pathHandle: QuickJSHandle, argsHandle: QuickJSHandle) => {
+        const path = context.getString(pathHandle);
+        const argsJson = context.getString(argsHandle);
+        try {
+          const resultJson = backend.invokeTool(path, argsJson);
+          return context.newString(resultJson);
+        } catch (e) {
+          return throwError(
+            context,
+            (e as Error).message || "tool invocation failed",
+          );
+        }
+      },
+    );
+    context.setProp(context.global, "__invokeTool", invokeToolFn);
+    invokeToolFn.dispose();
+  }
+
   // --- env ---
   const envObj = jsToHandle(context, input.env);
   context.setProp(context.global, "env", envObj);
@@ -1065,6 +1095,103 @@ async function initializeWithDefense(): Promise<void> {
   });
 }
 
+/**
+ * JavaScript source that sets up just the tools proxy (no console override).
+ * Used when hasExecutorTools is true but executorMode is false.
+ * Console output still goes to stdout/stderr normally.
+ */
+const TOOLS_ONLY_SETUP_SOURCE = `(function() {
+  globalThis.tools = (function makeProxy(path) {
+    return new Proxy(function(){}, {
+      get: function(_t, prop) {
+        if (prop === 'then' || typeof prop === 'symbol') return undefined;
+        return makeProxy(path.concat([String(prop)]));
+      },
+      apply: function(_t, _this, args) {
+        var toolPath = path.join('.');
+        if (!toolPath) throw new Error('Tool path missing in invocation');
+        var argsJson = args[0] !== undefined ? JSON.stringify(args[0]) : '{}';
+        var resultJson = globalThis.__invokeTool(toolPath, argsJson);
+        return resultJson !== undefined && resultJson !== '' ? JSON.parse(resultJson) : undefined;
+      }
+    });
+  })([]);
+})();`;
+
+/**
+ * JavaScript source that sets up the full executor environment inside QuickJS.
+ * - Overrides console to capture logs to an array
+ * - Creates a tools proxy that calls __invokeTool via the SAB bridge
+ * Runs after sandbox hardening so Proxy/object literals still work.
+ */
+const EXECUTOR_SETUP_SOURCE = `(function() {
+  var __logs = [];
+  globalThis[Symbol.for('jb:executorLogs')] = __logs;
+
+  var _fmt = function(v) {
+    if (typeof v === 'string') return v;
+    try { return JSON.stringify(v); }
+    catch(e) { return String(v); }
+  };
+
+  globalThis.console = {
+    log: function() { var a = []; for(var i=0;i<arguments.length;i++) a.push(_fmt(arguments[i])); __logs.push('[log] ' + a.join(' ')); },
+    error: function() { var a = []; for(var i=0;i<arguments.length;i++) a.push(_fmt(arguments[i])); __logs.push('[error] ' + a.join(' ')); },
+    warn: function() { var a = []; for(var i=0;i<arguments.length;i++) a.push(_fmt(arguments[i])); __logs.push('[warn] ' + a.join(' ')); },
+    info: function() { var a = []; for(var i=0;i<arguments.length;i++) a.push(_fmt(arguments[i])); __logs.push('[info] ' + a.join(' ')); },
+    debug: function() { var a = []; for(var i=0;i<arguments.length;i++) a.push(_fmt(arguments[i])); __logs.push('[debug] ' + a.join(' ')); },
+  };
+
+  globalThis.tools = (function makeProxy(path) {
+    return new Proxy(function(){}, {
+      get: function(_t, prop) {
+        if (prop === 'then' || typeof prop === 'symbol') return undefined;
+        return makeProxy(path.concat([String(prop)]));
+      },
+      apply: function(_t, _this, args) {
+        var toolPath = path.join('.');
+        if (!toolPath) throw new Error('Tool path missing in invocation');
+        var argsJson = args[0] !== undefined ? JSON.stringify(args[0]) : '{}';
+        var resultJson = globalThis.__invokeTool(toolPath, argsJson);
+        return resultJson !== undefined && resultJson !== '' ? JSON.parse(resultJson) : undefined;
+      }
+    });
+  })([]);
+})();`;
+
+/**
+ * Read executor logs from the QuickJS context.
+ */
+function readExecutorLogs(context: QuickJSContext): string[] {
+  const logsResult = context.evalCode(
+    `globalThis[Symbol.for('jb:executorLogs')]`,
+    "<read-logs>",
+  );
+  if (logsResult.error) {
+    logsResult.error.dispose();
+    return [];
+  }
+  const logs = context.dump(logsResult.value) as string[];
+  logsResult.value.dispose();
+  return Array.isArray(logs) ? logs : [];
+}
+
+/**
+ * Read a property from a QuickJS handle and dump its value.
+ */
+function readPropDump(
+  context: QuickJSContext,
+  handle: QuickJSHandle,
+  key: string,
+): unknown {
+  const prop = context.getProp(handle, key);
+  try {
+    return context.dump(prop);
+  } finally {
+    prop.dispose();
+  }
+}
+
 async function executeCode(
   input: JsExecWorkerInput,
 ): Promise<JsExecWorkerOutput> {
@@ -1302,6 +1429,157 @@ async function executeCode(
         return { success: true };
       }
       bootstrapResult.value.dispose();
+    }
+
+    // --- Tools-only setup: tools proxy without console/result capture ---
+    if (input.hasExecutorTools && !input.executorMode) {
+      const toolsSetupResult = context.evalCode(
+        TOOLS_ONLY_SETUP_SOURCE,
+        "<tools-setup>",
+      );
+      if (toolsSetupResult.error) {
+        toolsSetupResult.error.dispose();
+      } else {
+        toolsSetupResult.value.dispose();
+      }
+    }
+
+    // --- Executor mode: tools proxy, log capture, result capture ---
+    if (input.executorMode) {
+      const executorSetupResult = context.evalCode(
+        EXECUTOR_SETUP_SOURCE,
+        "<executor-setup>",
+      );
+      if (executorSetupResult.error) {
+        const errVal = context.dump(executorSetupResult.error);
+        executorSetupResult.error.dispose();
+        backend.exit(1);
+        return {
+          success: true,
+          error: formatError(errVal),
+          executorLogs: [],
+        };
+      }
+      executorSetupResult.value.dispose();
+
+      // Wrap user code in async IIFE to support await and return values
+      const wrappedCode = `(async () => {\n${input.jsCode}\n})()`;
+      const evalResult = context.evalCode(wrappedCode, "<executor>");
+
+      if (evalResult.error) {
+        const errorVal = context.dump(evalResult.error);
+        evalResult.error.dispose();
+        const errorMsg = formatError(errorVal);
+        backend.exit(1);
+        return {
+          success: true,
+          executorLogs: readExecutorLogs(context),
+          error: errorMsg,
+        };
+      }
+
+      // Track promise resolution via state object
+      context.setProp(context.global, "__executorPromise", evalResult.value);
+      evalResult.value.dispose();
+
+      const stateResult = context.evalCode(
+        [
+          "(function(p){",
+          "  var s = { v: void 0, e: void 0, settled: false };",
+          "  var fmtErr = function(e) {",
+          "    if (e && typeof e === 'object') {",
+          "      var m = typeof e.message === 'string' ? e.message : '';",
+          "      var st = typeof e.stack === 'string' ? e.stack : '';",
+          "      if (m && st) return st.indexOf(m) === -1 ? m + '\\n' + st : st;",
+          "      if (m) return m; if (st) return st;",
+          "    }",
+          "    return String(e);",
+          "  };",
+          "  p.then(",
+          "    function(v){ s.v = v; s.settled = true; },",
+          "    function(e){ s.e = fmtErr(e); s.settled = true; }",
+          "  );",
+          "  return s;",
+          "})(__executorPromise)",
+        ].join("\n"),
+        "<state-tracker>",
+      );
+
+      if (stateResult.error) {
+        const errorVal = context.dump(stateResult.error);
+        stateResult.error.dispose();
+        backend.exit(1);
+        return {
+          success: true,
+          executorLogs: readExecutorLogs(context),
+          error: formatError(errorVal),
+        };
+      }
+
+      const stateHandle = stateResult.value;
+
+      // Drain pending jobs (may block on tool calls via SAB bridge)
+      const pendingResult = runtime.executePendingJobs();
+      if ("error" in pendingResult && pendingResult.error) {
+        const errorVal = context.dump(pendingResult.error);
+        pendingResult.error.dispose();
+        const rawMsg =
+          typeof errorVal === "object" &&
+          errorVal !== null &&
+          "message" in errorVal
+            ? (errorVal as { message: string }).message
+            : String(errorVal);
+        if (rawMsg !== "__EXIT__") {
+          stateHandle.dispose();
+          backend.exit(1);
+          return {
+            success: true,
+            executorLogs: readExecutorLogs(context),
+            error: formatError(errorVal),
+          };
+        }
+      }
+
+      // Read resolved state
+      const settled = readPropDump(context, stateHandle, "settled");
+      const value = readPropDump(context, stateHandle, "v");
+      const stateError = readPropDump(context, stateHandle, "e");
+      stateHandle.dispose();
+
+      const logs = readExecutorLogs(context);
+
+      if (!settled) {
+        backend.exit(0);
+        return {
+          success: true,
+          executorLogs: logs,
+          error: "Execution did not settle",
+        };
+      }
+
+      if (typeof stateError !== "undefined") {
+        backend.exit(0);
+        return {
+          success: true,
+          executorLogs: logs,
+          error: String(stateError),
+        };
+      }
+
+      // Serialize result
+      let resultJson: string | undefined;
+      try {
+        resultJson = value !== undefined ? JSON.stringify(value) : undefined;
+      } catch {
+        resultJson = undefined;
+      }
+
+      backend.exit(0);
+      return {
+        success: true,
+        executorResult: resultJson,
+        executorLogs: logs,
+      };
     }
 
     // Run user code

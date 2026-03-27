@@ -44,6 +44,7 @@
     "dist/sandbox/*.d.ts",
     "dist/utils/*.d.ts",
     "vendor/cpython-emscripten/",
+    "vendor/executor/",
     "README.md",
     "dist/AGENTS.md"
   ],
@@ -107,6 +108,7 @@
   "dependencies": {
     "seek-bzip": "^2.0.0",
     "diff": "^8.0.2",
+    "effect": "^3.21.0",
     "fast-xml-parser": "^5.3.3",
     "file-type": "^21.2.0",
     "ini": "^6.0.0",
