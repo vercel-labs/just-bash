@@ -1,7 +1,7 @@
 /**
  * Executor SDK lazy initialization.
  * Separated from Bash.ts so the browser bundle never sees these imports.
- * Only loaded at runtime behind a __BROWSER__ guard.
+ * Only loaded at runtime behind a dynamic import.
  */
 
 import type { ExecutorConfig, ExecutorSDKHandle } from "./Bash.js";
@@ -16,7 +16,16 @@ export async function initExecutorSDK(
   getLimits: () => import("./limits.js").ExecutionLimits | undefined,
 ): Promise<{
   sdk: ExecutorSDKHandle;
-  invokeTool: (path: string, argsJson: string) => Promise<string>;
+  /**
+   * Execute code through the SDK pipeline.
+   * The SDK creates the toolInvoker per-execution and passes it to our
+   * CodeExecutor, which runs the code in QuickJS with the tools proxy.
+   */
+  executeViaSdk: (code: string) => Promise<{
+    result: unknown;
+    error?: string;
+    logs?: string[];
+  }>;
 }> {
   // @banned-pattern-ignore: static literal path to vendored SDK bundle
   const { createExecutor } = await import(
@@ -29,7 +38,7 @@ export async function initExecutorSDK(
   const runtime: any = {
     // biome-ignore lint/suspicious/noExplicitAny: ToolInvoker type from @executor/sdk
     execute(code: string, toolInvoker: any) {
-      return EffectMod.tryPromise(() => {
+      return EffectMod.tryPromise(async () => {
         const ctx = {
           fs,
           cwd: getCwd(),
@@ -37,6 +46,8 @@ export async function initExecutorSDK(
           stdin: "",
           limits: resolveLimits(getLimits()),
         };
+        // Bridge: convert the SDK's Effect-based toolInvoker to the
+        // JSON string protocol used by the SharedArrayBuffer bridge.
         const invokeTool = async (
           path: string,
           argsJson: string,
@@ -69,19 +80,14 @@ export async function initExecutorSDK(
 
   const sdkRef = sdk as unknown as ExecutorSDKHandle;
 
-  const invokeTool = async (
-    path: string,
-    argsJson: string,
-  ): Promise<string> => {
-    const escapedPath = path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    const sdkHandle = sdkRef;
-    if (!sdkHandle) throw new Error("Executor SDK not initialized");
-    const result = await sdkHandle.execute(
-      `return await tools.${escapedPath}(${argsJson || "{}"})`,
-    );
-    if (result.error) throw new Error(result.error);
-    return result.result !== undefined ? JSON.stringify(result.result) : "";
+  // executeViaSdk routes code through the SDK's execute() which creates
+  // the toolInvoker (with all discovered sources) and calls our CodeExecutor.
+  // Our CodeExecutor runs the code in QuickJS with tools bridged via SAB.
+  const executeViaSdk = async (
+    code: string,
+  ): Promise<{ result: unknown; error?: string; logs?: string[] }> => {
+    return sdkRef.execute(code);
   };
 
-  return { sdk: sdkRef, invokeTool };
+  return { sdk: sdkRef, executeViaSdk };
 }

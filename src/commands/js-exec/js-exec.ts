@@ -280,7 +280,15 @@ function normalizeJsWorkerMessage(
   }
 
   if (raw.success) {
-    return { success: true };
+    const result: JsExecWorkerOutput = { success: true };
+    const full = msg as Record<string, unknown>;
+    if (typeof full.executorResult === "string") {
+      result.executorResult = full.executorResult;
+    }
+    if (Array.isArray(full.executorLogs)) {
+      result.executorLogs = full.executorLogs as string[];
+    }
+    return result;
   }
 
   return {
@@ -636,19 +644,25 @@ export async function executeForExecutor(
     })),
   ]);
 
-  // Narrow: the catch path has no executor fields
-  if (
-    "executorResult" in workerResult &&
-    workerResult.executorResult !== undefined
-  ) {
+  // Executor mode: check for executor fields (executorResult or executorLogs)
+  if ("executorLogs" in workerResult || "executorResult" in workerResult) {
+    if (workerResult.error) {
+      return {
+        result: null,
+        error: workerResult.error,
+        logs: workerResult.executorLogs,
+      };
+    }
     let parsed: unknown;
-    try {
-      parsed = JSON.parse(workerResult.executorResult);
-    } catch {
-      parsed = workerResult.executorResult;
+    if (workerResult.executorResult !== undefined) {
+      try {
+        parsed = JSON.parse(workerResult.executorResult);
+      } catch {
+        parsed = workerResult.executorResult;
+      }
     }
     return {
-      result: parsed,
+      result: parsed ?? null,
       logs: workerResult.executorLogs,
     };
   }
@@ -656,8 +670,6 @@ export async function executeForExecutor(
   return {
     result: null,
     error: workerResult.error || "Unknown execution error",
-    logs:
-      "executorLogs" in workerResult ? workerResult.executorLogs : undefined,
   };
 }
 
@@ -740,6 +752,27 @@ export const jsExecCommand: Command = {
     // from comments ("// await the result") and strings ("please await")
     if (!isModule && /\bawait\s+[\w([`]/.test(jsCode)) {
       isModule = true;
+    }
+
+    // When the SDK execution function is present, route through it.
+    // The SDK creates the toolInvoker (with all discovered sources) and
+    // calls our CodeExecutor which runs the code in QuickJS.
+    if (ctx.executorExecFn) {
+      const execResult = await ctx.executorExecFn(jsCode);
+      const logs = execResult.logs ?? [];
+      return {
+        stdout: logs
+          .filter((l) => !l.startsWith("[error]") && !l.startsWith("[warn]"))
+          .map((l) => `${l.replace(/^\[(log|info|debug)\] /, "")}\n`)
+          .join(""),
+        stderr: execResult.error
+          ? `${execResult.error}\n`
+          : logs
+              .filter((l) => l.startsWith("[error]") || l.startsWith("[warn]"))
+              .map((l) => `${l.replace(/^\[(error|warn)\] /, "")}\n`)
+              .join(""),
+        exitCode: execResult.error ? 1 : 0,
+      };
     }
 
     // Get bootstrap code from context (threaded via CommandContext, not env)

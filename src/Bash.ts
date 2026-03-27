@@ -363,6 +363,10 @@ export class Bash {
   private executorApproval?: ExecutorConfig["onToolApproval"];
   private executorSDK?: ExecutorSDKHandle;
   private executorInitPromise?: Promise<void>;
+  /** When SDK setup is configured, js-exec routes execution through this */
+  private executorExecFn?: (
+    code: string,
+  ) => Promise<{ result: unknown; error?: string; logs?: string[] }>;
   // biome-ignore lint/suspicious/noExplicitAny: type-erased plugin storage for untyped API
   private transformPlugins: TransformPlugin<any>[] = [];
 
@@ -654,10 +658,15 @@ export class Bash {
     }
 
     this.executorInitPromise = (async () => {
-      const { initExecutorSDK } = await import("./executor-init.js");
+      // String concat prevents esbuild from statically resolving and
+      // inlining executor-init (and its effect/SDK deps) into the
+      // non-splitting browser bundle.
+      // @banned-pattern-ignore: path is a static concat to prevent esbuild inlining in browser bundle
+      const mod = "./executor-" + "init.js";
+      const { initExecutorSDK } = await import(mod);
       const setup = this.executorSetup;
       if (!setup) return;
-      const { sdk, invokeTool } = await initExecutorSDK(
+      const { sdk, executeViaSdk } = await initExecutorSDK(
         setup,
         this.executorApproval,
         this.fs,
@@ -666,7 +675,7 @@ export class Bash {
         () => this.limits,
       );
       this.executorSDK = sdk;
-      this.executorInvokeTool = invokeTool;
+      this.executorExecFn = executeViaSdk;
     })();
 
     await this.executorInitPromise;
@@ -819,6 +828,7 @@ export class Bash {
           requireDefenseContext: defenseBox?.isEnabled() === true,
           jsBootstrapCode: this.jsBootstrapCode,
           executorInvokeTool: this.executorInvokeTool,
+          executorExecFn: this.executorExecFn,
         };
 
         const interpreter = new Interpreter(interpreterOptions, execState);
