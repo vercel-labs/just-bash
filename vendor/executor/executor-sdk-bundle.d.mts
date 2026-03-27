@@ -1,4 +1,20 @@
-/** Vendored @executor/sdk bundle — re-exports createExecutor and types */
+/** Vendored @executor/sdk bundle — re-exports createExecutor, createFsBackend, and types */
+
+export interface SyncableFS {
+  writeFileSync(path: string, content: string | Uint8Array): void;
+  mkdirSync?(path: string, options?: { recursive?: boolean }): void;
+  readFile(path: string): Promise<string>;
+  exists(path: string): Promise<boolean>;
+}
+
+export interface FsStorageOptions {
+  fs: SyncableFS;
+  root?: string;
+  resolveSecret?: (input: { secretId: string; context?: Record<string, unknown> }) => Promise<string | null> | string | null;
+}
+
+export declare function createFsBackend(options: FsStorageOptions): unknown;
+
 export declare function createExecutor(options: {
   runtime?: unknown;
   storage?: unknown;

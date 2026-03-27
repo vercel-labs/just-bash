@@ -28,7 +28,7 @@ export async function initExecutorSDK(
   }>;
 }> {
   // @banned-pattern-ignore: static literal path to vendored SDK bundle
-  const { createExecutor } = await import(
+  const { createExecutor, createFsBackend } = await import(
     "../vendor/executor/executor-sdk-bundle.mjs"
   );
   const { executeForExecutor } = await import("./commands/js-exec/js-exec.js");
@@ -68,9 +68,28 @@ export async function initExecutorSDK(
     },
   };
 
+  // Use the Bash instance's virtual filesystem for executor state.
+  // This makes all executor state serializable (serialize the fs = serialize everything)
+  // and inspectable via bash commands (cat /.executor/config.json).
+  const fsBackend = createFsBackend({
+    fs: {
+      writeFileSync: (path: string, content: string | Uint8Array) => {
+        const str = typeof content === "string" ? content : new TextDecoder().decode(content);
+        // InMemoryFs has writeFileSync
+        (fs as any).writeFileSync(path, str);
+      },
+      mkdirSync: (path: string, opts?: { recursive?: boolean }) => {
+        try { (fs as any).mkdirSync(path, opts); } catch { /* ignore */ }
+      },
+      readFile: (path: string) => fs.readFile(path),
+      exists: (path: string) => fs.exists(path),
+    },
+    root: "/.executor",
+  });
+
   const sdk = await createExecutor({
     runtime,
-    storage: "memory",
+    storage: fsBackend,
     onToolApproval: approval ?? "allow-all",
   });
 
