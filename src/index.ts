@@ -94,6 +94,13 @@ export {
   SecurityViolationError,
   SecurityViolationLogger,
 } from "./security/index.js";
+// Serialization types
+export type {
+  SerializedBash,
+  SerializedBashConfig,
+  SerializedFsEntry,
+  SerializedInMemoryFs,
+} from "./serde.js";
 // Transform API
 export { BashTransformPipeline } from "./transform/pipeline.js";
 export type { CommandCollectorMetadata } from "./transform/plugins/command-collector.js";

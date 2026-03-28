@@ -5,6 +5,9 @@ settings:
   excludeLinksFromLockfile: false
 
 dependencies:
+  '@workflow/serde':
+    specifier: 4.1.0-beta.2
+    version: 4.1.0-beta.2
   compressjs:
     specifier: ^1.0.3
     version: 1.0.3
@@ -1092,6 +1095,10 @@ packages:
       '@vitest/pretty-format': 4.0.18
       tinyrainbow: 3.0.3
     dev: true
+
+  /@workflow/serde@4.1.0-beta.2:
+    resolution: {integrity: sha512-8kkeoQKLDaKXefjV5dbhBj2aErfKp1Mc4pb6tj8144cF+Em5SPbyMbyLCHp+BVrFfFVCBluCtMx+jjvaFVZGww==}
+    dev: false
 
   /amdefine@1.0.1:
     resolution: {integrity: sha512-S2Hw0TtNkMJhIabBwIojKL9YHO5T0n5eNqWJ7Lrlel/zDbftQpxpapi8tZs3X1HWa+u+QeydGmzzNU0m09+Rcg==}
