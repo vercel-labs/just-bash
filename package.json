@@ -77,6 +77,7 @@
     "test:dist": "vitest run src/cli/just-bash.bundle.test.ts",
     "test:unit": "vitest run --config vitest.unit.config.ts",
     "test:wasm": "vitest run --config vitest.wasm.config.ts",
+    "test:integration": "cd src/serde-integration && vitest run --config vitest.config.ts",
     "test:comparison": "vitest run --config vitest.comparison.config.ts",
     "test:comparison:record": "RECORD_FIXTURES=1 vitest run --config vitest.comparison.config.ts",
     "test:coverage": "vitest run --coverage",
@@ -98,11 +99,14 @@
     "@types/sql.js": "^1.4.9",
     "@types/turndown": "^5.0.6",
     "@vitest/coverage-v8": "^4.0.18",
+    "@workflow/rollup": "4.0.0-beta.30",
+    "@workflow/vitest": "4.0.1-beta.10",
     "esbuild": "^0.27.2",
     "fast-check": "^3.23.2",
     "knip": "^5.41.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.16"
+    "vitest": "^4.0.16",
+    "workflow": "4.2.0-beta.73"
   },
   "dependencies": {
     "@workflow/serde": "4.1.0-beta.2",

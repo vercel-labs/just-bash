@@ -22,3 +22,4 @@ fuzz-*.log
 .claude/settings.local.json
 .swc
 .workflow-vitest
+.workflow-data
