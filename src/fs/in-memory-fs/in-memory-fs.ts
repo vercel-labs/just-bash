@@ -69,6 +69,9 @@ function isFileInit(
 }
 
 export class InMemoryFs implements IFileSystem {
+  /** Stable class identifier for @workflow/serde serialization registry. */
+  static classId = "just-bash/InMemoryFs";
+
   private data: Map<string, FsEntry> = new Map();
 
   constructor(initialFiles?: InitialFiles) {
@@ -860,8 +863,9 @@ export class InMemoryFs implements IFileSystem {
   }
 }
 
-// @workflow/serde registration — defined outside class body to avoid
-// isolatedDeclarations errors with computed symbol property names.
+// @workflow/serde registration — defined outside class body because
+// isolatedDeclarations cannot emit computed symbol property names (TS9038).
+// The workflow builder detects these via regex pattern matching on the source text.
 // biome-ignore lint/suspicious/noExplicitAny: symbol-keyed static property assignment
 (InMemoryFs as any)[WORKFLOW_SERIALIZE] = (
   instance: InMemoryFs,

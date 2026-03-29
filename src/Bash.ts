@@ -268,6 +268,9 @@ export interface ExecOptions {
 }
 
 export class Bash {
+  /** Stable class identifier for @workflow/serde serialization registry. */
+  static classId = "just-bash/Bash";
+
   readonly fs: IFileSystem;
   private commands: CommandRegistry = new Map();
   private useDefaultLayout: boolean = false;
@@ -891,10 +894,16 @@ export class Bash {
   private _restoreState(state: InterpreterState): void {
     this.state = state;
   }
+
+  /** Current working directory of the shell. */
+  get cwd(): string {
+    return this.state.cwd;
+  }
 }
 
-// @workflow/serde registration — defined outside class body to avoid
-// isolatedDeclarations errors with computed symbol property names.
+// @workflow/serde registration — defined outside class body because
+// isolatedDeclarations cannot emit computed symbol property names (TS9038).
+// The workflow builder detects these via regex pattern matching on the source text.
 // biome-ignore lint/suspicious/noExplicitAny: symbol-keyed static property assignment
 (Bash as any)[WORKFLOW_SERIALIZE] = (instance: Bash): SerializedBash =>
   instance.toJSON();

@@ -8,33 +8,46 @@
  * with network access configured for the approved hosts, and re-runs the command.
  *
  * Permission model (Option B): The workflow holds the permission set as plain data.
- * The Bash instance itself has no network config (it's not serializable). When
- * reconstructing Bash after approval, the step function applies the granted hosts
- * as a NetworkConfig.
- *
- * Note: The integration test verifies the complete hook-based approval flow and
- * that the allow-list correctly controls access. It does NOT make real HTTP
- * requests — the step environment doesn't have outbound network. Instead, we
- * verify that curl with an approved host gets past the allow-list check (the
- * actual fetch will fail with a connection error, which is expected).
+ * Bash instances flow directly between steps — the workflow runtime handles
+ * WORKFLOW_SERIALIZE/WORKFLOW_DESERIALIZE at step boundaries automatically.
+ * Network config (functions) can't be serialized, so the step that retries
+ * reconstructs a new Bash from the original's filesystem and cwd, adding network.
  */
 import { createHook } from "workflow";
 
 // ---------------------------------------------------------------------------
-// Step functions — full Node.js access, dynamic import to avoid sandbox issues
+// Step functions
 // ---------------------------------------------------------------------------
 
 const PKG = "just-bash";
+
+function ensureSerdeRegistered(cls: { classId?: string }): void {
+  if (!cls.classId) return;
+  const registry: Map<string, unknown> =
+    ((globalThis as Record<symbol, unknown>)[
+      Symbol.for("workflow-class-registry")
+    ] as Map<string, unknown>) ??
+    (() => {
+      const m = new Map<string, unknown>();
+      (globalThis as Record<symbol, unknown>)[
+        Symbol.for("workflow-class-registry")
+      ] = m;
+      return m;
+    })();
+  if (!registry.has(cls.classId)) {
+    registry.set(cls.classId, cls);
+  }
+}
 
 async function createBashAndExec(script: string) {
   "use step";
   // @banned-pattern-ignore: PKG is a constant string "just-bash", not user input
   const { Bash } = await import(/* @vite-ignore */ PKG);
-  // No network config → curl is not registered → "command not found"
+  ensureSerdeRegistered(Bash);
   const bash = new Bash();
   const result = await bash.exec(script);
   return {
-    serialized: bash.toJSON(),
+    bash,
     result: {
       stdout: result.stdout,
       stderr: result.stderr,
@@ -43,30 +56,29 @@ async function createBashAndExec(script: string) {
   };
 }
 
-async function execWithNetworkAllowList(
-  serialized: Record<string, unknown>,
+async function execWithNetwork(
+  bash: unknown,
   script: string,
   allowedHosts: string[],
 ) {
   "use step";
   // @banned-pattern-ignore: PKG is a constant string "just-bash", not user input
   const { Bash, InMemoryFs } = await import(/* @vite-ignore */ PKG);
-  // Reconstruct Bash from serialized data, adding network permissions.
-  // We mirror Bash.fromJSON() but inject NetworkConfig — the serialized form
-  // can't carry network config (functions aren't serializable). The orchestrator
-  // controls which hosts are allowed; the sandbox never decides.
-  const fs = InMemoryFs.fromJSON(serialized.fs);
-  const bash = new Bash({
-    fs,
-    cwd: serialized.state.cwd,
-    executionLimits: serialized.config.limits,
-    processInfo: serialized.config.processInfo,
+  ensureSerdeRegistered(Bash);
+  ensureSerdeRegistered(InMemoryFs);
+  // Bash arrives deserialized but without network config (functions aren't
+  // serializable). Reconstruct a new Bash from the original's filesystem
+  // and cwd, adding the approved network permissions.
+  const b = bash as { fs: InstanceType<typeof InMemoryFs>; cwd: string };
+  const networkBash = new Bash({
+    fs: b.fs,
+    cwd: b.cwd,
     network: {
       allowedUrlPrefixes: allowedHosts,
       allowedMethods: ["GET", "HEAD"],
     },
   });
-  const result = await bash.exec(script);
+  const result = await networkBash.exec(script);
   return {
     stdout: result.stdout,
     stderr: result.stderr,
@@ -97,8 +109,9 @@ export async function networkApprovalWorkflow(
 
     if (decision.granted) {
       // 3. Re-run with the approved network permissions
-      const second = await execWithNetworkAllowList(
-        first.serialized,
+      // first.bash is passed directly — serde handles serialization
+      const second = await execWithNetwork(
+        first.bash,
         script,
         decision.allowedHosts,
       );
@@ -118,7 +131,6 @@ export async function networkApprovalWorkflow(
     };
   }
 
-  // Command succeeded without network — no approval needed
   return {
     status: "no-approval-needed" as const,
     firstAttempt: first.result,
