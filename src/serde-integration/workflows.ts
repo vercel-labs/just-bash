@@ -27,7 +27,10 @@ export async function basicSerdeWorkflow() {
     cwd: "/home/user",
   });
   // serialized passes through workflow runtime (devalue round-trip)
-  const result = await deserializeAndExec(serialized, "cat /home/user/test.txt");
+  const result = await deserializeAndExec(
+    serialized,
+    "cat /home/user/test.txt",
+  );
   return { stdout: result.stdout, exitCode: result.exitCode };
 }
 
@@ -40,7 +43,10 @@ export async function filesystemSurvivesStepBoundaryWorkflow() {
     "cat > /home/user/output.txt << 'HEREDOC'\nstep-written-content\nHEREDOC",
   );
   // Step B: deserialize and read back (data crossed 2 step boundaries)
-  const result = await deserializeAndExec(afterWrite, "cat /home/user/output.txt");
+  const result = await deserializeAndExec(
+    afterWrite,
+    "cat /home/user/output.txt",
+  );
   return { stdout: result.stdout, exitCode: result.exitCode };
 }
 
@@ -54,7 +60,10 @@ export async function envVarsSurviveStepBoundaryWorkflow() {
   });
   // Two separate step boundaries — serialized data flows through workflow each time
   const foo = await deserializeAndExec(serialized, 'printf "%s" "$FOO"');
-  const special = await deserializeAndExec(serialized, 'printf "%s" "$SPECIAL"');
+  const special = await deserializeAndExec(
+    serialized,
+    'printf "%s" "$SPECIAL"',
+  );
   return { foo: foo.stdout, special: special.stdout };
 }
 
@@ -87,6 +96,7 @@ export async function processInfoPreservedWorkflow() {
 
 export async function systemFilesRecreatedWorkflow() {
   "use workflow";
+  // @banned-pattern-ignore: plain options object, not a lookup table
   const serialized = await createAndSerializeBash({});
   // Lazy entries (/dev/null) excluded from serde → recreated on fromJSON
   const result = await deserializeAndExec(

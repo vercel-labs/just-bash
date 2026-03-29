@@ -24,9 +24,11 @@
 const PKG = "just-bash";
 
 async function loadBash() {
+  // @banned-pattern-ignore: PKG is a constant string "just-bash", not user input
   return (await import(/* @vite-ignore */ PKG)).Bash;
 }
 async function loadInMemoryFs() {
+  // @banned-pattern-ignore: PKG is a constant string "just-bash", not user input
   return (await import(/* @vite-ignore */ PKG)).InMemoryFs;
 }
 
@@ -95,7 +97,7 @@ export async function deserializeAndExec(
 }
 
 export async function deserializeExecAndReserialize(
-  serialized: any,
+  serialized: Record<string, unknown>,
   script: string,
 ) {
   "use step";
@@ -103,7 +105,11 @@ export async function deserializeExecAndReserialize(
   const bash = Bash.fromJSON(serialized);
   const result = await bash.exec(script);
   return {
-    result: { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode },
+    result: {
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode,
+    },
     serialized: bash.toJSON(),
   };
 }

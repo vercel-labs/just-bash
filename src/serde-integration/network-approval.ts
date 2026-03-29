@@ -28,6 +28,7 @@ const PKG = "just-bash";
 
 async function createBashAndExec(script: string) {
   "use step";
+  // @banned-pattern-ignore: PKG is a constant string "just-bash", not user input
   const { Bash } = await import(/* @vite-ignore */ PKG);
   // No network config → curl is not registered → "command not found"
   const bash = new Bash();
@@ -43,11 +44,12 @@ async function createBashAndExec(script: string) {
 }
 
 async function execWithNetworkAllowList(
-  serialized: any,
+  serialized: Record<string, unknown>,
   script: string,
   allowedHosts: string[],
 ) {
   "use step";
+  // @banned-pattern-ignore: PKG is a constant string "just-bash", not user input
   const { Bash, InMemoryFs } = await import(/* @vite-ignore */ PKG);
   // Reconstruct Bash from serialized data, adding network permissions.
   // We mirror Bash.fromJSON() but inject NetworkConfig — the serialized form
