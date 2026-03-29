@@ -535,6 +535,8 @@ const SKIP_DIRS = new Set([
   ".git",
   ".pnpm-store",
   ".next",
+  ".workflow-vitest",
+  ".workflow-data",
   "coverage",
 ]);
 

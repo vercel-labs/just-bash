@@ -1,3 +1,5 @@
+import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
+import type { SerializedFsEntry, SerializedInMemoryFs } from "../../serde.js";
 import { fromBuffer, getEncoding, toBuffer } from "../encoding.js";
 import type {
   BufferEncoding,
@@ -67,6 +69,9 @@ function isFileInit(
 }
 
 export class InMemoryFs implements IFileSystem {
+  /** Stable class identifier for @workflow/serde serialization registry. */
+  static classId = "just-bash/InMemoryFs";
+
   private data: Map<string, FsEntry> = new Map();
 
   constructor(initialFiles?: InitialFiles) {
@@ -765,4 +770,107 @@ export class InMemoryFs implements IFileSystem {
     // Update mtime on the entry
     entry.mtime = mtime;
   }
+
+  // ===========================================================================
+  // Serialization
+  // ===========================================================================
+
+  /**
+   * Serialize the filesystem to a plain data object.
+   * Lazy file entries are excluded (they contain non-serializable functions
+   * and are recreated by initFilesystem() during deserialization).
+   */
+  toJSON(): SerializedInMemoryFs {
+    const entries = new Map<string, SerializedFsEntry>();
+    for (const [path, entry] of this.data) {
+      // Skip lazy file entries — they contain function references
+      if ("lazy" in entry) continue;
+
+      if (entry.type === "file") {
+        entries.set(path, {
+          type: "file",
+          content:
+            entry.content instanceof Uint8Array
+              ? entry.content
+              : textEncoder.encode(entry.content),
+          mode: entry.mode,
+          mtime: entry.mtime,
+        });
+      } else if (entry.type === "directory") {
+        entries.set(path, {
+          type: "directory",
+          mode: entry.mode,
+          mtime: entry.mtime,
+        });
+      } else if (entry.type === "symlink") {
+        entries.set(path, {
+          type: "symlink",
+          target: entry.target,
+          mode: entry.mode,
+          mtime: entry.mtime,
+        });
+      }
+    }
+    return { entries };
+  }
+
+  /**
+   * Reconstruct an InMemoryFs from serialized data.
+   */
+  static fromJSON(data: SerializedInMemoryFs): InMemoryFs {
+    const fs = new InMemoryFs();
+    fs._restoreData(data.entries);
+    return fs;
+  }
+
+  /**
+   * Restore internal data map from serialized entries.
+   * Replaces current data (except root /) with the provided entries.
+   */
+  private _restoreData(entries: Map<string, SerializedFsEntry>): void {
+    this.data.clear();
+    for (const [path, entry] of entries) {
+      if (entry.type === "file" && entry.content) {
+        this.data.set(path, {
+          type: "file",
+          content: entry.content,
+          mode: entry.mode,
+          mtime: entry.mtime,
+        });
+      } else if (entry.type === "directory") {
+        this.data.set(path, {
+          type: "directory",
+          mode: entry.mode,
+          mtime: entry.mtime,
+        });
+      } else if (entry.type === "symlink" && entry.target) {
+        this.data.set(path, {
+          type: "symlink",
+          target: entry.target,
+          mode: entry.mode,
+          mtime: entry.mtime,
+        });
+      }
+    }
+    // Ensure root always exists
+    if (!this.data.has("/")) {
+      this.data.set("/", {
+        type: "directory",
+        mode: DEFAULT_DIR_MODE,
+        mtime: new Date(),
+      });
+    }
+  }
 }
+
+// @workflow/serde registration — defined outside class body because
+// isolatedDeclarations cannot emit computed symbol property names (TS9038).
+// The workflow builder detects these via regex pattern matching on the source text.
+// biome-ignore lint/suspicious/noExplicitAny: symbol-keyed static property assignment
+(InMemoryFs as any)[WORKFLOW_SERIALIZE] = (
+  instance: InMemoryFs,
+): SerializedInMemoryFs => instance.toJSON();
+// biome-ignore lint/suspicious/noExplicitAny: symbol-keyed static property assignment
+(InMemoryFs as any)[WORKFLOW_DESERIALIZE] = (
+  data: SerializedInMemoryFs,
+): InMemoryFs => InMemoryFs.fromJSON(data);

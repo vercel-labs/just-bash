@@ -8,6 +8,7 @@
  * and delegates execution to the Interpreter.
  */
 
+import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import type { FunctionDefNode } from "./ast/types.js";
 // Eagerly import timers to capture references before defense-in-depth patches them
 import "./timers.js";
@@ -61,6 +62,7 @@ import {
   SecurityViolationError,
 } from "./security/defense-in-depth-box.js";
 import type { DefenseInDepthConfig } from "./security/types.js";
+import type { SerializedBash } from "./serde.js";
 import { serialize } from "./transform/serialize.js";
 import type {
   BashTransformResult,
@@ -266,6 +268,9 @@ export interface ExecOptions {
 }
 
 export class Bash {
+  /** Stable class identifier for @workflow/serde serialization registry. */
+  static classId = "just-bash/Bash";
+
   readonly fs: IFileSystem;
   private commands: CommandRegistry = new Map();
   private useDefaultLayout: boolean = false;
@@ -820,7 +825,91 @@ export class Bash {
       metadata,
     };
   }
+
+  // ===========================================================================
+  // Serialization
+  // ===========================================================================
+
+  /**
+   * Serialize the Bash instance to a plain data object.
+   * Only works when the filesystem is an InMemoryFs.
+   * Non-serializable fields (fetch, sleep, logger, etc.) are excluded
+   * and must be re-provided via BashOptions on deserialization if needed.
+   */
+  toJSON(): SerializedBash {
+    if (!(this.fs instanceof InMemoryFs)) {
+      throw new Error(
+        "Bash.toJSON(): only InMemoryFs instances can be serialized. " +
+          "OverlayFs and ReadWriteFs depend on a real filesystem root.",
+      );
+    }
+
+    // Snapshot the interpreter state, excluding non-serializable signal
+    const { signal: _signal, ...serializableState } = this.state;
+
+    return {
+      config: {
+        limits: this.limits,
+        useDefaultLayout: this.useDefaultLayout,
+        jsBootstrapCode: this.jsBootstrapCode,
+        defenseInDepthConfig: this.defenseInDepthConfig,
+        processInfo: {
+          pid: this.state.virtualPid,
+          ppid: this.state.virtualPpid,
+          uid: this.state.virtualUid,
+          gid: this.state.virtualGid,
+        },
+      },
+      state: serializableState,
+      fs: this.fs.toJSON(),
+    };
+  }
+
+  /**
+   * Reconstruct a Bash instance from serialized data.
+   * The constructor re-runs initFilesystem() (recreating system files like
+   * /dev/null that were skipped during serialization) and re-registers commands.
+   * Then the interpreter state is restored from the serialized snapshot.
+   */
+  static fromJSON(data: SerializedBash): Bash {
+    const fs = InMemoryFs.fromJSON(data.fs);
+    const bash = new Bash({
+      fs,
+      cwd: (data.state as InterpreterState).cwd,
+      executionLimits: data.config.limits,
+      defenseInDepth: data.config.defenseInDepthConfig,
+      javascript: data.config.jsBootstrapCode
+        ? { bootstrap: data.config.jsBootstrapCode }
+        : undefined,
+      processInfo: data.config.processInfo,
+    });
+    bash.useDefaultLayout = data.config.useDefaultLayout;
+    bash._restoreState(data.state as InterpreterState);
+    return bash;
+  }
+
+  /**
+   * Replace the current interpreter state with a deserialized snapshot.
+   */
+  private _restoreState(state: InterpreterState): void {
+    this.state = state;
+  }
+
+  /** Current working directory of the shell. */
+  get cwd(): string {
+    return this.state.cwd;
+  }
 }
+
+// @workflow/serde registration — defined outside class body because
+// isolatedDeclarations cannot emit computed symbol property names (TS9038).
+// The workflow builder detects these via regex pattern matching on the source text.
+// biome-ignore lint/suspicious/noExplicitAny: symbol-keyed static property assignment
+(Bash as any)[WORKFLOW_SERIALIZE] = (instance: Bash): SerializedBash =>
+  instance.toJSON();
+// biome-ignore lint/suspicious/noExplicitAny: symbol-keyed static property assignment
+(Bash as any)[WORKFLOW_DESERIALIZE] = (data: SerializedBash): Bash =>
+  Bash.fromJSON(data);
 
 /**
  * Normalize a script by stripping leading whitespace from lines,
