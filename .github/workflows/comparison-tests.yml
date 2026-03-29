@@ -23,6 +23,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build (required for integration tests)
+        run: pnpm build
+
+      - name: Run integration tests
+        run: pnpm test:integration
+
       - name: Run comparison tests
         run: pnpm test:comparison
 

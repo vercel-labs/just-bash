@@ -12,6 +12,7 @@ export default defineConfig({
       "**/dist/**",
       "**/examples/**",
       "**/.pnpm-store/**",
+      "**/serde-integration/**",
     ],
     pool: "threads",
     isolate: false,

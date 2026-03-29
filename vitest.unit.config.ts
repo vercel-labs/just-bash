@@ -16,6 +16,7 @@ export default defineConfig({
       "**/sqlite3/**",
       "**/js-exec/**",
       "**/python-scripting*",
+      "**/serde-integration/**",
     ],
     setupFiles: [resolve(__dirname, "src/vitest-setup.ts")],
     // Tests that patch globalThis (defense-in-depth) or spawn workers need
