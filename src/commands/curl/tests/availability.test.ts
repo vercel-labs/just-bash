@@ -73,7 +73,7 @@ describe("curl availability", () => {
       const customFetch: SecureFetch = vi.fn().mockResolvedValue({
         status: 200,
         headers: {},
-        body: "custom response",
+        body: new TextEncoder().encode("custom response"),
         url: "https://example.com",
       });
       const env = new Bash({ fetch: customFetch });
@@ -86,7 +86,7 @@ describe("curl availability", () => {
       const customFetch: SecureFetch = vi.fn().mockResolvedValue({
         status: 200,
         headers: { "content-type": "application/json" },
-        body: '{"ok":true}',
+        body: new TextEncoder().encode('{"ok":true}'),
         url: "https://example.com/api",
       });
       const env = new Bash({ fetch: customFetch });
@@ -103,7 +103,7 @@ describe("curl availability", () => {
       const customFetch: SecureFetch = vi.fn().mockResolvedValue({
         status: 200,
         headers: {},
-        body: "from custom fetch",
+        body: new TextEncoder().encode("from custom fetch"),
         url: "https://example.com",
       });
       const env = new Bash({

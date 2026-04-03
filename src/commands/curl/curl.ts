@@ -5,6 +5,7 @@
  * Network access must be explicitly configured via BashEnvOptions.network.
  */
 
+import { fromBuffer } from "../../fs/encoding.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { _Headers } from "../../security/trusted-globals.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
@@ -109,16 +110,18 @@ async function saveCookies(
   await ctx.fs.writeFile(filePath, setCookie);
 }
 
-/**
- * Build output string from response
- */
+/** One JS character per byte for stdout (matches raw byte stream for ASCII / binary). */
+function fetchBodyToStdoutString(body: Uint8Array): string {
+  return fromBuffer(body, "binary");
+}
+
 function buildOutput(
   options: CurlOptions,
   result: {
     status: number;
     statusText: string;
     headers: Record<string, string>;
-    body: string;
+    body: Uint8Array;
     url: string;
   },
   requestUrl: string,
@@ -148,7 +151,7 @@ function buildOutput(
 
   // Add body (unless head-only mode)
   if (!options.headOnly) {
-    output += result.body;
+    output += fetchBodyToStdoutString(result.body);
   } else if (options.includeHeaders || options.verbose) {
     // For HEAD, we already showed headers
   } else {
@@ -164,7 +167,7 @@ function buildOutput(
       status: result.status,
       headers: result.headers,
       url: result.url,
-      bodyLength: result.body.length,
+      bodyLength: result.body.byteLength,
     });
   }
 
@@ -255,7 +258,7 @@ export const curlCommand: Command = {
             status: result.status,
             headers: result.headers,
             url: result.url,
-            bodyLength: result.body.length,
+            bodyLength: result.body.byteLength,
           });
         }
       }
