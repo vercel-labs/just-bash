@@ -186,35 +186,45 @@ export class VirtualFs implements IFileSystem {
 
   // ── write ops — delegate to source hook or reject with EROFS ──
 
-  writeFile(...args: Parameters<IFileSystem["writeFile"]>): Promise<void> {
-    return this.source.writeFile ? this.source.writeFile(...args) : Promise.reject(this.readOnlyError("writeFile"));
+  writeFile(path: string, ...rest: Parameters<IFileSystem["writeFile"]> extends [string, ...infer R] ? R : never): Promise<void> {
+    if (!this.source.writeFile) return Promise.reject(this.readOnlyError("writeFile"));
+    return this.source.writeFile(this.normalize(path), ...rest);
   }
-  appendFile(...args: Parameters<IFileSystem["appendFile"]>): Promise<void> {
-    return this.source.appendFile ? this.source.appendFile(...args) : Promise.reject(this.readOnlyError("appendFile"));
+  appendFile(path: string, ...rest: Parameters<IFileSystem["appendFile"]> extends [string, ...infer R] ? R : never): Promise<void> {
+    if (!this.source.appendFile) return Promise.reject(this.readOnlyError("appendFile"));
+    return this.source.appendFile(this.normalize(path), ...rest);
   }
-  mkdir(...args: Parameters<IFileSystem["mkdir"]>): Promise<void> {
-    return this.source.mkdir ? this.source.mkdir(...args) : Promise.reject(this.readOnlyError("mkdir"));
+  mkdir(path: string, ...rest: Parameters<IFileSystem["mkdir"]> extends [string, ...infer R] ? R : never): Promise<void> {
+    if (!this.source.mkdir) return Promise.reject(this.readOnlyError("mkdir"));
+    return this.source.mkdir(this.normalize(path), ...rest);
   }
-  rm(...args: Parameters<IFileSystem["rm"]>): Promise<void> {
-    return this.source.rm ? this.source.rm(...args) : Promise.reject(this.readOnlyError("rm"));
+  rm(path: string, ...rest: Parameters<IFileSystem["rm"]> extends [string, ...infer R] ? R : never): Promise<void> {
+    if (!this.source.rm) return Promise.reject(this.readOnlyError("rm"));
+    return this.source.rm(this.normalize(path), ...rest);
   }
-  cp(...args: Parameters<IFileSystem["cp"]>): Promise<void> {
-    return this.source.cp ? this.source.cp(...args) : Promise.reject(this.readOnlyError("cp"));
+  cp(src: string, dest: string, ...rest: Parameters<IFileSystem["cp"]> extends [string, string, ...infer R] ? R : never): Promise<void> {
+    if (!this.source.cp) return Promise.reject(this.readOnlyError("cp"));
+    return this.source.cp(this.normalize(src), this.normalize(dest), ...rest);
   }
-  mv(...args: Parameters<IFileSystem["mv"]>): Promise<void> {
-    return this.source.mv ? this.source.mv(...args) : Promise.reject(this.readOnlyError("mv"));
+  mv(src: string, dest: string, ...rest: Parameters<IFileSystem["mv"]> extends [string, string, ...infer R] ? R : never): Promise<void> {
+    if (!this.source.mv) return Promise.reject(this.readOnlyError("mv"));
+    return this.source.mv(this.normalize(src), this.normalize(dest), ...rest);
   }
-  chmod(...args: Parameters<IFileSystem["chmod"]>): Promise<void> {
-    return this.source.chmod ? this.source.chmod(...args) : Promise.reject(this.readOnlyError("chmod"));
+  chmod(path: string, ...rest: Parameters<IFileSystem["chmod"]> extends [string, ...infer R] ? R : never): Promise<void> {
+    if (!this.source.chmod) return Promise.reject(this.readOnlyError("chmod"));
+    return this.source.chmod(this.normalize(path), ...rest);
   }
-  symlink(...args: Parameters<IFileSystem["symlink"]>): Promise<void> {
-    return this.source.symlink ? this.source.symlink(...args) : Promise.reject(this.readOnlyError("symlink"));
+  symlink(target: string, path: string, ...rest: Parameters<IFileSystem["symlink"]> extends [string, string, ...infer R] ? R : never): Promise<void> {
+    if (!this.source.symlink) return Promise.reject(this.readOnlyError("symlink"));
+    return this.source.symlink(this.normalize(target), this.normalize(path), ...rest);
   }
-  link(...args: Parameters<IFileSystem["link"]>): Promise<void> {
-    return this.source.link ? this.source.link(...args) : Promise.reject(this.readOnlyError("link"));
+  link(target: string, path: string, ...rest: Parameters<IFileSystem["link"]> extends [string, string, ...infer R] ? R : never): Promise<void> {
+    if (!this.source.link) return Promise.reject(this.readOnlyError("link"));
+    return this.source.link(this.normalize(target), this.normalize(path), ...rest);
   }
-  utimes(...args: Parameters<IFileSystem["utimes"]>): Promise<void> {
-    return this.source.utimes ? this.source.utimes(...args) : Promise.reject(this.readOnlyError("utimes"));
+  utimes(path: string, ...rest: Parameters<IFileSystem["utimes"]> extends [string, ...infer R] ? R : never): Promise<void> {
+    if (!this.source.utimes) return Promise.reject(this.readOnlyError("utimes"));
+    return this.source.utimes(this.normalize(path), ...rest);
   }
 
   readlink(path: string): Promise<string> {
