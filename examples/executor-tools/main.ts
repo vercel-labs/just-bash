@@ -1,183 +1,29 @@
 /**
- * Executor Tools Example
+ * Executor Tools Examples
  *
- * Demonstrates executor tool invocation in just-bash:
- *   1. Inline tools — defined in the Bash constructor
- *   2. Native SDK source discovery — OpenAPI and GraphQL auto-discovered tools
- *
- * No API keys required. Uses:
- *   - httpbin.org (OpenAPI) — echo/utility API
- *   - countries.trevorblades.com (GraphQL) — country data
- *
- * Run with: npx tsx main.ts
+ * Runs both examples sequentially. You can also run each individually:
+ *   npx tsx inline-tools.ts
+ *   npx tsx multi-turn-discovery.ts
  */
 
-import { Bash } from "just-bash";
+const example = process.argv[2];
 
-// ── Part 1: Inline tools (no SDK) ─────────────────────────────────
+if (!example || example === "all") {
+  console.log("╔══════════════════════════════════════════╗");
+  console.log("║     Executor Tools — All Examples        ║");
+  console.log("╚══════════════════════════════════════════╝\n");
 
-console.log("=== Part 1: Inline Tools ===\n");
+  console.log("─── Example 1: Inline Tools ───────────────────────\n");
+  await import("./inline-tools.js");
 
-const bash = new Bash({
-  executionLimits: { maxJsTimeoutMs: 60000 },
-  executor: {
-    tools: {
-      // GraphQL tool — queries countries.trevorblades.com
-      "countries.list": {
-        description: "List countries, optionally filtered by continent code",
-        execute: async (args?: { continent?: string }) => {
-          const filter = args?.continent
-            ? `(filter: { continent: { eq: "${args.continent}" } })`
-            : "";
-          const query = `{ countries${filter} { code name capital emoji } }`;
-          const res = await fetch(
-            "https://countries.trevorblades.com/graphql",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ query }),
-            },
-          );
-          const json = (await res.json()) as { data: { countries: unknown[] } };
-          return json.data.countries;
-        },
-      },
-
-      "countries.get": {
-        description: "Get a single country by ISO code",
-        execute: async (args: { code: string }) => {
-          const query = `{ country(code: "${args.code}") { name capital currency emoji languages { name } continent { name } } }`;
-          const res = await fetch(
-            "https://countries.trevorblades.com/graphql",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ query }),
-            },
-          );
-          const json = (await res.json()) as { data: { country: unknown } };
-          return json.data.country;
-        },
-      },
-
-      // Simple sync tools
-      "util.timestamp": {
-        description: "Current Unix timestamp",
-        execute: () => ({ ts: Math.floor(Date.now() / 1000) }),
-      },
-      "util.random": {
-        description: "Random number between min and max",
-        execute: (args: { min?: number; max?: number }) => ({
-          value: Math.floor(
-            Math.random() * ((args.max ?? 100) - (args.min ?? 0)) +
-              (args.min ?? 0),
-          ),
-        }),
-      },
-    },
-  },
-});
-
-// 1. List European countries
-console.log("1. European countries:");
-let r = await bash.exec(`js-exec -c '
-  const countries = await tools.countries.list({ continent: "EU" });
-  console.log(countries.length + " countries in Europe");
-  for (const c of countries.slice(0, 5)) {
-    console.log("  " + c.emoji + " " + c.name + " — " + c.capital);
-  }
-  console.log("  ...");
-'`);
-console.log(r.stdout);
-
-// 2. Country detail
-console.log("2. Country detail:");
-r = await bash.exec(`js-exec -c '
-  const c = await tools.countries.get({ code: "JP" });
-  console.log(c.emoji + " " + c.name);
-  console.log("  Capital:    " + c.capital);
-  console.log("  Currency:   " + c.currency);
-  console.log("  Continent:  " + c.continent.name);
-  console.log("  Languages:  " + c.languages.map(l => l.name).join(", "));
-'`);
-console.log(r.stdout);
-
-// 3. Mix tools from different sources
-console.log("3. Cross-tool script:");
-r = await bash.exec(`js-exec -c '
-  const ts = await tools.util.timestamp();
-  const rand = await tools.util.random({ min: 0, max: 249 });
-  const all = await tools.countries.list();
-  const pick = all[rand.value];
-
-  console.log("Report at " + ts.ts);
-  console.log("Random country #" + rand.value + ": " + pick.emoji + " " + pick.name);
-'`);
-console.log(r.stdout);
-
-// 4. Tools + virtual filesystem
-console.log("4. Fetch → write to fs → read with bash:");
-r = await bash.exec(`js-exec -c '
-  const fs = require("fs");
-  const countries = await tools.countries.list({ continent: "SA" });
-  const csv = "code,name,capital\\n" +
-    countries.map(c => c.code + "," + c.name + "," + c.capital).join("\\n");
-  fs.writeFileSync("/tmp/south-america.csv", csv);
-  console.log("Wrote " + countries.length + " rows to /tmp/south-america.csv");
-'`);
-console.log(r.stdout);
-
-r = await bash.exec("cat /tmp/south-america.csv | head -5");
-console.log("  " + r.stdout.split("\n").join("\n  "));
-
-// 5. Error handling
-console.log("5. Error handling:");
-r = await bash.exec(`js-exec -c '
-  try {
-    await tools.countries.get({ code: "NOPE" });
-  } catch (e) {
-    console.error("Caught: " + e.message);
-  }
-  console.log("Script continued after error");
-'`);
-console.log(r.stdout);
-if (r.stderr) console.log("  stderr: " + r.stderr);
-
-// ── Part 2: Native SDK source discovery ───────────────────────────
-
-console.log("=== Part 2: Native SDK Source Discovery ===\n");
-console.log(
-  "When @executor/sdk is configured via executor.setup, tools are\n" +
-    "auto-discovered from OpenAPI specs, GraphQL schemas, and MCP servers.\n",
-);
-console.log("Example Bash constructor:\n");
-console.log(`  const bash = new Bash({
-    executor: {
-      setup: async (sdk) => {
-        await sdk.sources.add({
-          kind: "openapi",
-          endpoint: "https://petstore3.swagger.io/api/v3",
-          specUrl: "https://petstore3.swagger.io/api/v3/openapi.json",
-          name: "petstore",
-        });
-        await sdk.sources.add({
-          kind: "graphql",
-          endpoint: "https://countries.trevorblades.com/graphql",
-          name: "countries",
-        });
-      },
-      onToolApproval: async (req) => {
-        if (req.operationKind === "read") return { approved: true };
-        return { approved: false, reason: "writes not allowed" };
-      },
-    },
-  });
-
-  // Tools are auto-discovered from the specs:
-  await bash.exec(\`js-exec -c '
-    const pets = await tools.petstore.findPetsByStatus({ status: "available" });
-    const country = await tools.countries.country({ code: "US" });
-  '\`);
-`);
-
-console.log("Done!");
+  console.log("\n─── Example 2: SDK Discovery ──────────────────────\n");
+  await import("./multi-turn-discovery.js");
+} else if (example === "1" || example === "inline") {
+  await import("./inline-tools.js");
+} else if (example === "2" || example === "discovery") {
+  await import("./multi-turn-discovery.js");
+} else {
+  console.error(`Unknown example: ${example}`);
+  console.error("Usage: npx tsx main.ts [all|1|2|inline|discovery]");
+  process.exit(1);
+}
