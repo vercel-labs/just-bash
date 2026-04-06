@@ -5,8 +5,6 @@
  * with optional gzip, bzip2, and xz compression.
  */
 
-// @ts-expect-error - compressjs doesn't have types
-import compressjs from "compressjs";
 import {
   createGzipDecoder,
   createGzipEncoder,
@@ -16,7 +14,10 @@ import {
   type TarHeader,
   unpackTar,
 } from "modern-tar";
+// @ts-expect-error - seek-bzip doesn't have types
+import seekBzip from "seek-bzip";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
+import { bzip2Compress } from "./bzip2-compress.js";
 
 // Lazy load node-liblzma since it requires native compilation
 // that may fail on some systems (e.g., missing liblzma-dev)
@@ -353,25 +354,18 @@ export function isXzCompressed(data: Uint8Array): boolean {
 }
 
 /**
- * bzip2 decompression using compressjs
+ * bzip2 decompression using seek-bzip (MIT licensed)
  */
 async function decompressBzip2(data: Uint8Array): Promise<Uint8Array> {
-  const Bzip2 = compressjs.Bzip2;
-  // decompressFile accepts an array/buffer directly
-  const decompressed = Bzip2.decompressFile(Array.from(data));
+  const decompressed: Buffer = seekBzip.decode(Buffer.from(data));
   return new Uint8Array(decompressed);
 }
 
 /**
- * bzip2 compression using compressjs
+ * bzip2 compression using our pure-JS implementation
  */
 async function compressBzip2(data: Uint8Array): Promise<Uint8Array> {
-  const Bzip2 = compressjs.Bzip2;
-  // compressFile accepts input array and output array directly
-  // coerceInputStream/coerceOutputStream handle the conversion
-  const output: number[] = [];
-  Bzip2.compressFile(Array.from(data), output, 9); // block size level 9
-  return new Uint8Array(output);
+  return bzip2Compress(data, 9);
 }
 
 /**
