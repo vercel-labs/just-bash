@@ -19,6 +19,10 @@ import {
   createPythonCommands,
 } from "./commands/registry.js";
 import {
+  buildNamespaceCommands,
+  type ToolEntry,
+} from "./commands/tool-command.js";
+import {
   type CustomCommand,
   createLazyCustomCommand,
   isLazyCommand,
@@ -245,6 +249,14 @@ export interface ExecutorConfig {
    * Pass "accept-all" to auto-approve (not recommended for untrusted tools).
    */
   onElicitation?: ExecutorElicitationHandler | "accept-all";
+  /**
+   * When true (default), executor tools are registered as bash commands.
+   * Each tool namespace becomes a command with subcommands:
+   *   `math add a=1 b=2` invokes the `math.add` tool.
+   *   `petstore list-pets --status available` invokes `petstore.listPets`.
+   * Set to false to keep tools accessible only via js-exec.
+   */
+  exposeToolsAsCommands?: boolean;
 }
 
 export interface BashOptions {
@@ -446,6 +458,7 @@ export class Bash {
   private executorSetup?: (sdk: ExecutorSDKHandle) => Promise<void>;
   private executorApproval?: ExecutorConfig["onToolApproval"];
   private executorElicitation?: ExecutorConfig["onElicitation"];
+  private executorExposeToolsAsCommands = true;
   // biome-ignore lint/suspicious/noExplicitAny: AnyPlugin type from @executor-js/sdk; avoid import at class level
   private executorPlugins?: any[];
   private executorSDK?: ExecutorSDKHandle;
@@ -642,6 +655,11 @@ export class Bash {
       }
     }
 
+    // Set executor config flags before tool registration
+    if (options.executor?.exposeToolsAsCommands === false) {
+      this.executorExposeToolsAsCommands = false;
+    }
+
     // Set up executor tool invoker when executor config is provided
     if (options.executor?.tools) {
       // Copy to null-prototype object to prevent prototype pollution via __proto__ keys
@@ -661,6 +679,20 @@ export class Bash {
         const result = await tool.execute(args);
         return result !== undefined ? JSON.stringify(result) : "";
       };
+
+      // Register inline tools as bash namespace commands
+      if (this.executorExposeToolsAsCommands) {
+        const toolEntries: ToolEntry[] = Object.keys(tools).map((path) => ({
+          path,
+          description: tools[path].description,
+        }));
+        for (const cmd of buildNamespaceCommands(
+          toolEntries,
+          this.executorInvokeTool,
+        )) {
+          this.registerCommand(cmd);
+        }
+      }
     }
 
     // Store SDK setup function, plugins, and approval callback for lazy initialization
@@ -770,6 +802,38 @@ export class Bash {
       );
       this.executorSDK = sdk;
       this.executorExecFn = executeViaSdk;
+
+      // Register SDK-discovered tools as bash namespace commands
+      if (this.executorExposeToolsAsCommands) {
+        const discoveredTools = (await sdk.tools.list()) as {
+          id: string;
+          description?: string;
+        }[];
+        const toolEntries: ToolEntry[] = discoveredTools.map((t) => ({
+          path: t.id,
+          description: t.description,
+        }));
+        // Build invokeTool bridge that routes through the SDK pipeline
+        const sdkInvokeTool = async (
+          path: string,
+          argsJson: string,
+        ): Promise<string> => {
+          const args = argsJson ? JSON.parse(argsJson) : undefined;
+          const elicitationHandler =
+            this.executorElicitation ??
+            (async () => ({ action: "decline" as const }));
+          const result = await sdk.tools.invoke(path, args, {
+            onElicitation: elicitationHandler,
+          });
+          return result.data !== undefined ? JSON.stringify(result.data) : "";
+        };
+        for (const cmd of buildNamespaceCommands(toolEntries, sdkInvokeTool)) {
+          // Don't override inline tool commands that share a namespace
+          if (!this.commands.has(cmd.name)) {
+            this.registerCommand(cmd);
+          }
+        }
+      }
     })();
 
     try {
