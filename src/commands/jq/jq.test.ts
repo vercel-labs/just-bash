@@ -389,4 +389,115 @@ describe("jq", () => {
       expect(result.stdout).toBe("test\n");
     });
   });
+
+  describe("--arg", () => {
+    it("should bind a string variable", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo '{\"a\":1}' | jq --arg name hello '{x: $name}'",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('"x": "hello"');
+    });
+
+    it("should use $var in filter expression", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        'echo \'[{"name":"alice"},{"name":"bob"}]\' | jq --arg who bob \'[.[] | select(.name == $who)]\'',
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('"bob"');
+      expect(result.stdout).not.toContain('"alice"');
+    });
+
+    it("should support multiple --arg flags", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo 'null' | jq -n --arg a hello --arg b world '{x: $a, y: $b}'",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('"x": "hello"');
+      expect(result.stdout).toContain('"y": "world"');
+    });
+
+    it("should error if name is missing", async () => {
+      const env = new Bash();
+      const result = await env.exec("echo '{}' | jq --arg");
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain("--arg requires two arguments");
+    });
+
+    it("should always bind as string (not number)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo 'null' | jq -n --arg x 42 '($x | type)'",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('"string"');
+    });
+  });
+
+  describe("--argjson", () => {
+    it("should bind a JSON number", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo 'null' | jq -n --argjson x 42 '{val: $x}'",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('"val": 42');
+    });
+
+    it("should bind a JSON object", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo 'null' | jq -n --argjson obj '{\"a\":1}' '$obj.a'",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe("1");
+    });
+
+    it("should bind a JSON array", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo 'null' | jq -n --argjson arr '[1,2,3]' '$arr | length'",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe("3");
+    });
+
+    it("should bind a JSON boolean", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo 'null' | jq -n --argjson flag true '$flag'",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe("true");
+    });
+
+    it("should error on invalid JSON", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo '{}' | jq --argjson x 'not-json' '.'",
+      );
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain("Invalid JSON value for --argjson");
+    });
+
+    it("should error if arguments are missing", async () => {
+      const env = new Bash();
+      const result = await env.exec("echo '{}' | jq --argjson x");
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain("--argjson requires two arguments");
+    });
+
+    it("should work with --arg and --argjson together", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo 'null' | jq -n --arg name test --argjson count 5 '{name: $name, count: $count}'",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('"name": "test"');
+      expect(result.stdout).toContain('"count": 5');
+    });
+  });
 });
