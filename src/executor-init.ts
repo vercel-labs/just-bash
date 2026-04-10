@@ -40,10 +40,17 @@ export async function initExecutorSDK(
   const { createExecutor } = await import("@executor-js/sdk");
   const { executeForExecutor } = await import("./commands/js-exec/js-exec.js");
   const { discoveryPlugin } = await import("./executor-discovery-plugin.js");
+  const { graphqlPlugin } = await import("@executor-js/plugin-graphql");
+  const { openApiPlugin } = await import("@executor-js/plugin-openapi");
 
-  // Always include the discovery plugin for sources.add() support.
+  // Always include discovery (custom sources), graphql, and openapi plugins.
   // User-provided plugins are appended after.
-  const allPlugins = [discoveryPlugin(), ...(plugins ?? [])];
+  const allPlugins = [
+    discoveryPlugin(),
+    graphqlPlugin(),
+    openApiPlugin(),
+    ...(plugins ?? []),
+  ];
 
   const executor = await createExecutor({
     plugins: allPlugins,
@@ -51,9 +58,55 @@ export async function initExecutorSDK(
 
   // Build an ExecutorSDKHandle that merges the official SDK's tools/sources
   // with the discovery plugin's sources.add() extension.
-  // biome-ignore lint/suspicious/noExplicitAny: executor extensions are typed per-plugin; we access justBashDiscovery dynamically
-  const discoveryExt = (executor as any).justBashDiscovery as {
+  // biome-ignore lint/suspicious/noExplicitAny: executor extensions are typed per-plugin; we access them dynamically
+  const ext = executor as any;
+
+  const discoveryExt = ext.justBashDiscovery as {
     sources: { add: (def: Record<string, unknown>) => Promise<void> };
+  };
+  const graphqlExt = ext.graphql as {
+    addSource: (config: {
+      endpoint: string;
+      namespace?: string;
+      headers?: Record<string, unknown>;
+      introspectionJson?: string;
+    }) => Promise<{ toolCount: number }>;
+  };
+  const openapiExt = ext.openapi as {
+    addSpec: (config: {
+      spec: string;
+      baseUrl?: string;
+      namespace?: string;
+      headers?: Record<string, unknown>;
+    }) => Promise<{ toolCount: number }>;
+  };
+
+  /**
+   * Route sources.add() calls to the appropriate plugin based on `kind`.
+   * - "custom": discovery plugin (inline tool definitions)
+   * - "graphql": @executor-js/plugin-graphql (introspects schema)
+   * - "openapi": @executor-js/plugin-openapi (parses spec)
+   */
+  const addSource = async (def: Record<string, unknown>): Promise<void> => {
+    const kind = def.kind as string;
+    if (kind === "graphql") {
+      await graphqlExt.addSource({
+        endpoint: def.endpoint as string,
+        namespace: (def.name as string) ?? undefined,
+        headers: def.headers as Record<string, unknown> | undefined,
+        introspectionJson: def.introspectionJson as string | undefined,
+      });
+    } else if (kind === "openapi") {
+      await openapiExt.addSpec({
+        spec: def.spec as string,
+        baseUrl: (def.endpoint ?? def.baseUrl) as string | undefined,
+        namespace: (def.name as string) ?? undefined,
+        headers: def.headers as Record<string, unknown> | undefined,
+      });
+    } else {
+      // "custom" and any unknown kinds fall through to the discovery plugin
+      await discoveryExt.sources.add(def);
+    }
   };
 
   const sdkHandle: ExecutorSDKHandle = {
@@ -62,7 +115,7 @@ export async function initExecutorSDK(
       invoke: executor.tools.invoke,
     },
     sources: {
-      add: discoveryExt.sources.add,
+      add: addSource,
       list: executor.sources.list,
     },
     close: executor.close,

@@ -1,10 +1,6 @@
 /**
  * Example 3: Multi-Turn Tool Discovery via executor.setup
  *
- * NOTE: This example requires @executor-js/plugin-graphql which is not yet
- * published on npm. It is preserved for restoration when the plugin ships.
- * See examples/executor-tools/inline-tools.ts for a working example.
- *
  * Demonstrates an AI-agent pattern where tools are auto-discovered from
  * a GraphQL schema by the @executor-js/sdk — no inline tool definitions.
  *

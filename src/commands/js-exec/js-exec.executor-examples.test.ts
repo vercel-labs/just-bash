@@ -325,36 +325,229 @@ describe("executor.setup: tool approval", () => {
   });
 });
 
-// ── GraphQL/OpenAPI discovery tests (skipped — require unpublished plugins) ──
+// ── GraphQL plugin: offline introspection → tool discovery ──────
 
-// TODO: Restore these tests when @executor-js/plugin-graphql is published on npm.
-// The tests below exercised full GraphQL schema introspection → tool discovery → invocation
-// using a local mock server. They are preserved for easy restoration.
-//
-// Original test setup:
-// - Mock GraphQL server with introspection endpoint
-// - sdk.sources.add({ kind: "graphql", endpoint: "http://127.0.0.1:PORT/graphql", name: "countries" })
-// - Auto-discovered tools: countries.country, countries.countries, countries.continent, etc.
-// - SDK result shape: { data, error, headers, status }
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-describe.skip("executor.setup: GraphQL tool discovery", () => {
-  it("should discover source config in /.executor/config.json", () => {
-    // TODO: Requires @executor-js/plugin-graphql
+const INTROSPECTION_JSON = readFileSync(
+  fileURLToPath(
+    new URL("./fixtures/countries-introspection.json", import.meta.url),
+  ),
+  "utf8",
+);
+
+describe("executor.setup: GraphQL tool discovery", () => {
+  it("should discover tools from introspection JSON", async () => {
+    const bash = new Bash({
+      executionLimits: { maxJsTimeoutMs: 60000 },
+      defenseInDepth: false,
+      executor: {
+        setup: async (sdk) => {
+          await sdk.sources.add({
+            kind: "graphql",
+            // endpoint is required by the schema but not called when introspectionJson is provided
+            endpoint: "https://countries.trevorblades.com/graphql",
+            name: "countries",
+            introspectionJson: INTROSPECTION_JSON,
+          });
+        },
+        onToolApproval: "allow-all",
+        onElicitation: "accept-all",
+      },
+    });
+
+    // List tools via SDK handle — the tools proxy doesn't expose list(),
+    // so we check by attempting to call a discovered tool.
+    // The countries schema has query types: country, countries, continent,
+    // continents, language, languages.
+    // Tool invocation will fail (no real server) but tool *discovery* should succeed.
+    // We verify discovery by listing tools via js-exec reading /.executor/ config.
+    const r = await bash.exec(`js-exec -c '
+      var fs = require("fs");
+      // The GraphQL plugin registered tools — verify via the executor config
+      // by attempting to call a known tool and catching the network error
+      try {
+        await tools.countries.continents({});
+        console.log("unexpected success");
+      } catch (e) {
+        // Expected: invocation fails (no real server), but the tool WAS discovered
+        // The error should be about the HTTP call, not "Unknown tool"
+        var msg = e.message || "";
+        if (msg.indexOf("Unknown tool") !== -1) {
+          console.log("FAIL: tool not discovered");
+        } else {
+          console.log("OK: tool discovered, invocation failed as expected");
+        }
+      }
+    '`);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("OK: tool discovered");
   });
 
-  it("should call a discovered country tool", () => {
-    // TODO: Requires @executor-js/plugin-graphql
+  it("should discover multiple query tools from schema", async () => {
+    const bash = new Bash({
+      executionLimits: { maxJsTimeoutMs: 60000 },
+      defenseInDepth: false,
+      executor: {
+        setup: async (sdk) => {
+          await sdk.sources.add({
+            kind: "graphql",
+            endpoint: "https://countries.trevorblades.com/graphql",
+            name: "geo",
+            introspectionJson: INTROSPECTION_JSON,
+          });
+        },
+        onToolApproval: "allow-all",
+        onElicitation: "accept-all",
+      },
+    });
+
+    // Test multiple tools are discovered under the namespace
+    const toolNames = [
+      "country",
+      "countries",
+      "continent",
+      "continents",
+      "language",
+      "languages",
+    ];
+    for (const name of toolNames) {
+      const r = await bash.exec(`js-exec -c '
+        try {
+          await tools.geo.${name}({});
+        } catch (e) {
+          var msg = e.message || "";
+          if (msg.indexOf("Unknown tool") !== -1) {
+            console.log("NOT_FOUND");
+          } else {
+            console.log("FOUND");
+          }
+        }
+      '`);
+      expect(r.stdout.trim()).toBe("FOUND");
+    }
+  });
+});
+
+// ── OpenAPI plugin: static spec → tool discovery ────────────────
+
+const PETSTORE_SPEC = JSON.stringify({
+  openapi: "3.0.0",
+  info: { title: "Petstore", version: "1.0.0" },
+  paths: {
+    "/pets": {
+      get: {
+        operationId: "listPets",
+        summary: "List all pets",
+        responses: { "200": { description: "A list of pets" } },
+      },
+      post: {
+        operationId: "createPet",
+        summary: "Create a pet",
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: { name: { type: "string" } },
+              },
+            },
+          },
+        },
+        responses: { "201": { description: "Created" } },
+      },
+    },
+    "/pets/{petId}": {
+      get: {
+        operationId: "getPet",
+        summary: "Get a pet by ID",
+        parameters: [
+          {
+            name: "petId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: { "200": { description: "A pet" } },
+      },
+    },
+  },
+});
+
+describe("executor.setup: OpenAPI tool discovery", () => {
+  it("should discover tools from OpenAPI spec", async () => {
+    const bash = new Bash({
+      executionLimits: { maxJsTimeoutMs: 60000 },
+      defenseInDepth: false,
+      executor: {
+        setup: async (sdk) => {
+          await sdk.sources.add({
+            kind: "openapi",
+            spec: PETSTORE_SPEC,
+            endpoint: "https://petstore.example.com",
+            name: "pets",
+          });
+        },
+        onToolApproval: "allow-all",
+        onElicitation: "accept-all",
+      },
+    });
+
+    // Verify that listPets, createPet, and getPet are discovered
+    const r = await bash.exec(`js-exec -c '
+      var found = [];
+      var ops = ["listPets", "createPet", "getPet"];
+      for (var i = 0; i < ops.length; i++) {
+        try {
+          await tools.pets[ops[i]]({});
+        } catch (e) {
+          var msg = e.message || "";
+          if (msg.indexOf("Unknown tool") === -1) {
+            found.push(ops[i]);
+          }
+        }
+      }
+      console.log("discovered: " + found.join(", "));
+    '`);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("listPets");
+    expect(r.stdout).toContain("createPet");
+    expect(r.stdout).toContain("getPet");
   });
 
-  it("should query countries list with filter", () => {
-    // TODO: Requires @executor-js/plugin-graphql
-  });
+  it("should discover tools with correct namespace", async () => {
+    const bash = new Bash({
+      executionLimits: { maxJsTimeoutMs: 60000 },
+      defenseInDepth: false,
+      executor: {
+        setup: async (sdk) => {
+          await sdk.sources.add({
+            kind: "openapi",
+            spec: PETSTORE_SPEC,
+            endpoint: "https://petstore.example.com",
+            name: "myapi",
+          });
+        },
+        onToolApproval: "allow-all",
+        onElicitation: "accept-all",
+      },
+    });
 
-  it("should chain multiple discovered tools", () => {
-    // TODO: Requires @executor-js/plugin-graphql
-  });
-
-  it("should write discovered data to virtual filesystem", () => {
-    // TODO: Requires @executor-js/plugin-graphql
+    // Tools should be under myapi namespace, not pets
+    const r = await bash.exec(`js-exec -c '
+      try {
+        await tools.myapi.listPets({});
+      } catch (e) {
+        var msg = e.message || "";
+        if (msg.indexOf("Unknown tool") !== -1) {
+          console.log("NOT_FOUND");
+        } else {
+          console.log("FOUND");
+        }
+      }
+    '`);
+    expect(r.stdout.trim()).toBe("FOUND");
   });
 });

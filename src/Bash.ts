@@ -177,18 +177,33 @@ export interface ExecutorConfig {
    * Use this to add sources that auto-discover tools.
    * When provided, js-exec delegates execution to the SDK pipeline.
    *
-   * Currently supports `kind: "custom"` for direct tool registration.
-   * GraphQL/OpenAPI/MCP support requires official @executor-js plugins
-   * (not yet published on npm).
+   * Supported source kinds:
+   * - `"custom"` — direct tool registration (inline `{ execute }` functions)
+   * - `"graphql"` — auto-discovers tools via schema introspection (`@executor-js/plugin-graphql`)
+   * - `"openapi"` — auto-discovers tools from an OpenAPI spec (`@executor-js/plugin-openapi`)
    *
    * @example
    * ```ts
    * const bash = new Bash({
    *   executor: {
    *     setup: async (sdk) => {
+   *       // GraphQL: introspects schema, registers one tool per query/mutation
+   *       await sdk.sources.add({
+   *         kind: "graphql",
+   *         endpoint: "https://countries.trevorblades.com/graphql",
+   *         name: "countries",
+   *       });
+   *       // OpenAPI: parses spec, registers one tool per operation
+   *       await sdk.sources.add({
+   *         kind: "openapi",
+   *         spec: openApiSpecText,
+   *         endpoint: "https://api.example.com",
+   *         name: "myapi",
+   *       });
+   *       // Custom: inline tool definitions
    *       await sdk.sources.add({
    *         kind: "custom",
-   *         name: "myapi",
+   *         name: "utils",
    *         tools: {
    *           "getUser": { description: "Get user", execute: (args) => fetchUser(args.id) },
    *         },

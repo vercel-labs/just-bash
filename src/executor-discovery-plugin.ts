@@ -79,13 +79,10 @@ export function discoveryPlugin(): Plugin<
             registeredSourceIds,
           );
         } else {
-          // TODO: Support "graphql" kind when @executor-js/plugin-graphql is published
-          // TODO: Support "openapi" kind when @executor-js/plugin-openapi is published
-          // TODO: Support "mcp" kind when @executor-js/plugin-mcp is published
           throw new Error(
-            `Unsupported source kind: "${def.kind}". ` +
-              `Only "custom" is supported. GraphQL/OpenAPI/MCP support requires ` +
-              `official @executor-js plugins (not yet published).`,
+            `Unsupported source kind: "${def.kind}" for discovery plugin. ` +
+              `Only "custom" is supported here. Use "graphql" or "openapi" ` +
+              `kinds via sources.add() which routes to the official plugins.`,
           );
         }
       };
