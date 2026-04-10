@@ -241,7 +241,21 @@ export class SyncBackend {
       throw new Error(result.error || "HTTP request failed");
     }
     const responseJson = new TextDecoder().decode(result.result);
-    return JSON.parse(responseJson);
+    const parsed = JSON.parse(responseJson) as {
+      status: number;
+      statusText: string;
+      headers: Record<string, string>;
+      url: string;
+      bodyBase64: string;
+    };
+    const body = atob(parsed.bodyBase64 ?? "");
+    return {
+      status: parsed.status,
+      statusText: parsed.statusText,
+      headers: parsed.headers,
+      url: parsed.url,
+      body,
+    };
   }
 
   /**

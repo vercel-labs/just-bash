@@ -1093,6 +1093,8 @@ function generateHttpBridgeCode(): string {
 # Write request JSON to /_jb_http/request (custom FS triggers HTTP via SharedArrayBuffer)
 # Then read response JSON from same path.
 
+import base64 as _base64
+
 class _JbHttpResponse:
     """HTTP response object similar to requests.Response"""
     def __init__(self, data):
@@ -1100,9 +1102,15 @@ class _JbHttpResponse:
         self.reason = data.get('statusText', '')
         # @banned-pattern-ignore: Python code, not JavaScript
         self.headers = data.get('headers', {})
-        self.text = data.get('body', '')
         self.url = data.get('url', '')
         self._error = data.get('error')
+        b64 = data.get('bodyBase64')
+        if b64 is not None:
+            self.content = _base64.b64decode(b64)
+            self.text = self.content.decode('utf-8', errors='replace')
+        else:
+            self.content = b''
+            self.text = data.get('body', '')
 
     @property
     def ok(self):

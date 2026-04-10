@@ -359,28 +359,36 @@ async function responseToResult(
     }
   }
 
-  // Read body with size tracking
-  let body: string;
+  // Read body as raw bytes (never UTF-8 decode — preserves JPEG, etc.)
+  let body: Uint8Array;
   if (maxResponseSize > 0 && response.body) {
     const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    const chunks: string[] = [];
+    const chunks: Uint8Array[] = [];
     let totalSize = 0;
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (!value) continue;
       totalSize += value.byteLength;
       if (totalSize > maxResponseSize) {
         reader.cancel();
         throw new ResponseTooLargeError(maxResponseSize);
       }
-      chunks.push(decoder.decode(value, { stream: true }));
+      chunks.push(value);
     }
-    chunks.push(decoder.decode());
-    body = chunks.join("");
+    body = new Uint8Array(totalSize);
+    let offset = 0;
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
   } else {
-    body = await response.text();
+    const ab = await response.arrayBuffer();
+    if (maxResponseSize > 0 && ab.byteLength > maxResponseSize) {
+      throw new ResponseTooLargeError(maxResponseSize);
+    }
+    body = new Uint8Array(ab);
   }
 
   return {

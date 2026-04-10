@@ -5,6 +5,7 @@
  * requests from a worker thread via SharedArrayBuffer + Atomics.
  */
 
+import { fromBuffer } from "../../fs/encoding.js";
 import type { IFileSystem } from "../../fs/interface.js";
 import { sanitizeErrorMessage } from "../../fs/real-fs-utils.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
@@ -516,7 +517,7 @@ export class BridgeHandler {
         status: result.status,
         statusText: result.statusText,
         headers: result.headers,
-        body: result.body,
+        bodyBase64: fromBuffer(result.body, "base64"),
         url: result.url,
       });
       this.protocol.setResultFromString(response);

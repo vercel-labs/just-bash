@@ -67,10 +67,9 @@ describe("curl binary data", () => {
     });
 
     it("handles binary response with high bytes", async () => {
-      // Simulate high byte values (as they would appear in text)
-      const binaryData = String.fromCharCode(0xff, 0xfe, 0x00, 0x01);
+      const bytes = new Uint8Array([0xff, 0xfe, 0x00, 0x01]);
       global.fetch = vi.fn(async () => {
-        return new Response(binaryData, {
+        return new Response(bytes, {
           status: 200,
           headers: { "content-type": "application/octet-stream" },
         });
@@ -81,7 +80,24 @@ describe("curl binary data", () => {
       });
       const result = await env.exec("curl https://api.example.com/binary");
 
-      expect(result.stdout).toBe(binaryData);
+      expect(result.stdout).toBe(String.fromCharCode(0xff, 0xfe, 0x00, 0x01));
+    });
+
+    it("writes raw JPEG magic to file with -o", async () => {
+      const jpegSoi = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+      global.fetch = vi.fn(async () => {
+        return new Response(jpegSoi, {
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+        });
+      }) as typeof fetch;
+
+      const env = new Bash({
+        network: { allowedUrlPrefixes: ["https://api.example.com"] },
+      });
+      await env.exec("curl -o /out.jpg https://api.example.com/img");
+      const written = await env.fs.readFileBuffer("/out.jpg");
+      expect(written).toEqual(jpegSoi);
     });
   });
 

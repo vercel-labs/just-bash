@@ -140,7 +140,8 @@ export interface FetchResult {
   status: number;
   statusText: string;
   headers: Record<string, string>;
-  body: string;
+  /** Raw response bytes (never decoded as UTF-8 text). */
+  body: Uint8Array;
   url: string;
 }
 
