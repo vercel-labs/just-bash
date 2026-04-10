@@ -10,6 +10,7 @@ import { resolveLimits } from "./limits.js";
 export async function initExecutorSDK(
   setup: (sdk: ExecutorSDKHandle) => Promise<void>,
   approval: ExecutorConfig["onToolApproval"] | undefined,
+  plugins: ExecutorConfig["plugins"] | undefined,
   fs: import("./fs/interface.js").IFileSystem,
   getCwd: () => string,
   getEnv: () => Map<string, string>,
@@ -18,8 +19,9 @@ export async function initExecutorSDK(
   sdk: ExecutorSDKHandle;
   /**
    * Execute code through the SDK pipeline.
-   * The SDK creates the toolInvoker per-execution and passes it to our
-   * CodeExecutor, which runs the code in QuickJS with the tools proxy.
+   * Lists tools from the SDK and creates a tool invoker that routes
+   * tool calls through the SDK's invoke() method, then runs the code
+   * in QuickJS with the tools proxy.
    */
   executeViaSdk: (code: string) => Promise<{
     result: unknown;
@@ -27,86 +29,101 @@ export async function initExecutorSDK(
     logs?: string[];
   }>;
 }> {
-  // @banned-pattern-ignore: static literal path to vendored SDK bundle
-  const { createExecutor, createFsBackend } = await import(
-    "../vendor/executor/executor-sdk-bundle.mjs"
-  );
+  const { createExecutor } = await import("@executor-js/sdk");
   const { executeForExecutor } = await import("./commands/js-exec/js-exec.js");
-  const EffectMod = await import("effect/Effect");
+  const { discoveryPlugin } = await import("./executor-discovery-plugin.js");
 
-  // biome-ignore lint/suspicious/noExplicitAny: CodeExecutor + ToolInvoker types cross package boundaries; validated at runtime by the SDK
-  const runtime: any = {
-    // biome-ignore lint/suspicious/noExplicitAny: ToolInvoker type from @executor/sdk
-    execute(code: string, toolInvoker: any) {
-      return EffectMod.tryPromise(async () => {
-        const ctx = {
-          fs,
-          cwd: getCwd(),
-          env: getEnv(),
-          stdin: "",
-          limits: resolveLimits(getLimits()),
-        };
-        // Bridge: convert the SDK's Effect-based toolInvoker to the
-        // JSON string protocol used by the SharedArrayBuffer bridge.
-        const invokeTool = async (
-          path: string,
-          argsJson: string,
-        ): Promise<string> => {
-          let args: unknown;
-          try {
-            args = argsJson ? JSON.parse(argsJson) : undefined;
-          } catch {
-            args = undefined;
-          }
-          const result = await EffectMod.runPromise(
-            toolInvoker.invoke({ path, args }),
-          );
-          return result !== undefined ? JSON.stringify(result) : "";
-        };
-        return executeForExecutor(code, ctx, invokeTool);
-      });
-    },
+  // Always include the discovery plugin for sources.add() support.
+  // User-provided plugins are appended after.
+  const allPlugins = [discoveryPlugin(), ...(plugins ?? [])];
+
+  const executor = await createExecutor({
+    plugins: allPlugins,
+  });
+
+  // Build an ExecutorSDKHandle that merges the official SDK's tools/sources
+  // with the discovery plugin's sources.add() extension.
+  // biome-ignore lint/suspicious/noExplicitAny: executor extensions are typed per-plugin; we access justBashDiscovery dynamically
+  const discoveryExt = (executor as any).justBashDiscovery as {
+    sources: { add: (def: Record<string, unknown>) => Promise<void> };
   };
 
-  // Use the Bash instance's virtual filesystem for executor state.
-  // This makes all executor state serializable (serialize the fs = serialize everything)
-  // and inspectable via bash commands (cat /.executor/config.json).
-  const fsBackend = createFsBackend({
-    fs: {
-      writeFileSync: (path: string, content: string | Uint8Array) => {
-        const str = typeof content === "string" ? content : new TextDecoder().decode(content);
-        // InMemoryFs has writeFileSync
-        (fs as any).writeFileSync(path, str);
-      },
-      mkdirSync: (path: string, opts?: { recursive?: boolean }) => {
-        try { (fs as any).mkdirSync(path, opts); } catch { /* ignore */ }
-      },
-      readFile: (path: string) => fs.readFile(path),
-      exists: (path: string) => fs.exists(path),
+  const sdkHandle: ExecutorSDKHandle = {
+    tools: {
+      list: executor.tools.list,
+      invoke: executor.tools.invoke,
     },
-    root: "/.executor",
-  });
-
-  const sdk = await createExecutor({
-    runtime,
-    storage: fsBackend,
-    onToolApproval: approval ?? "allow-all",
-  });
+    sources: {
+      add: discoveryExt.sources.add,
+      list: executor.sources.list,
+    },
+    close: executor.close,
+  };
 
   if (setup) {
-    await setup(sdk as unknown as ExecutorSDKHandle);
+    await setup(sdkHandle);
   }
 
-  const sdkRef = sdk as unknown as ExecutorSDKHandle;
-
-  // executeViaSdk routes code through the SDK's execute() which creates
-  // the toolInvoker (with all discovered sources) and calls our CodeExecutor.
-  // Our CodeExecutor runs the code in QuickJS with tools bridged via SAB.
+  // Build the execution bridge: route tool calls through the SDK's invoke().
   const executeViaSdk = async (
     code: string,
   ): Promise<{ result: unknown; error?: string; logs?: string[] }> => {
-    return sdkRef.execute(code);
+    const ctx = {
+      fs,
+      cwd: getCwd(),
+      env: getEnv(),
+      stdin: "",
+      limits: resolveLimits(getLimits()),
+    };
+
+    // Bridge: convert tool paths from the QuickJS tools proxy to SDK invoke() calls.
+    const invokeTool = async (
+      path: string,
+      argsJson: string,
+    ): Promise<string> => {
+      let args: unknown;
+      try {
+        args = argsJson ? JSON.parse(argsJson) : undefined;
+      } catch {
+        args = undefined;
+      }
+
+      // Check tool approval before invoking
+      if (approval && approval !== "allow-all") {
+        if (approval === "deny-all") {
+          throw new Error(`Tool invocation denied: ${path}`);
+        }
+        // Look up tool metadata for the approval callback
+        const allTools = await executor.tools.list();
+        const toolMeta = allTools.find((t: { id: string }) => t.id === path) as
+          | { id: string; sourceId: string; name: string }
+          | undefined;
+        const decision = await approval({
+          toolPath: path,
+          sourceId: toolMeta?.sourceId ?? "unknown",
+          sourceName: toolMeta?.sourceId ?? "unknown",
+          operationKind: "unknown",
+          args,
+          reason: `Tool ${path} invoked from js-exec`,
+          approvalLabel: null,
+        });
+        if (!decision.approved) {
+          throw new Error(
+            `Tool invocation denied: ${path}${decision.reason ? ` (${decision.reason})` : ""}`,
+          );
+        }
+      }
+
+      // Route through SDK's tool invocation pipeline
+      const result = await executor.tools.invoke(path, args, {
+        onElicitation: "accept-all",
+      });
+
+      return result.data !== undefined ? JSON.stringify(result.data) : "";
+    };
+
+    return executeForExecutor(code, ctx, invokeTool);
   };
 
-  return { sdk: sdkRef, executeViaSdk };
+  return { sdk: sdkHandle, executeViaSdk };
 }

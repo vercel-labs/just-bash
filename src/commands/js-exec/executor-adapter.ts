@@ -1,15 +1,15 @@
 /**
- * Adapter for using js-exec as a CodeExecutor runtime for @executor/sdk.
+ * Adapter for using js-exec as a CodeExecutor runtime for @executor-js/sdk.
  *
  * This module exports a Promise-based executor that can be wrapped with
  * Effect.tryPromise() to satisfy the CodeExecutor interface.
  *
- * Usage with @executor/sdk:
+ * Usage with @executor-js/sdk:
  *
  * ```ts
  * import { createJustBashCodeExecutor } from 'just-bash/executor';
- * import { createExecutor } from '@executor/sdk';
- * import type { CodeExecutor } from '@executor/sdk';
+ * import { createExecutor } from '@executor-js/sdk';
+ * import type { CodeExecutor } from '@executor-js/sdk';
  * import * as Effect from 'effect/Effect';
  *
  * const jb = createJustBashCodeExecutor();
@@ -65,7 +65,7 @@ export interface JustBashCodeExecutor {
 }
 
 /**
- * Create a js-exec based code executor for use with @executor/sdk.
+ * Create a js-exec based code executor for use with @executor-js/sdk.
  *
  * The executor runs JavaScript code in a QuickJS sandbox with:
  * - A `tools` proxy for invoking registered tools

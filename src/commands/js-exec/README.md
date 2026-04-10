@@ -281,7 +281,7 @@ for (const row of data.rows) {
 }
 ```
 
-`await` is recommended for consistency with `@executor/sdk` patterns. Tool calls are synchronous under the hood (the worker blocks via `Atomics.wait`), so `await` on the return value is a no-op — but it keeps code portable between just-bash and the SDK's own runtimes.
+`await` is recommended for consistency with `@executor-js/sdk` patterns. Tool calls are synchronous under the hood (the worker blocks via `Atomics.wait`), so `await` on the return value is a no-op — but it keeps code portable between just-bash and the SDK's own runtimes.
 
 Deeply nested paths work — `await tools.a.b.c.d()` invokes the tool registered as `"a.b.c.d"`.
 
@@ -302,9 +302,9 @@ Each tool has an `execute` function and an optional `description`:
 - Throwing an error propagates to the script as a catchable exception
 - `async` functions are awaited on the host before returning to the script
 
-### Compatibility with @executor/sdk
+### Compatibility with @executor-js/sdk
 
-The tool definition shape matches `@executor/sdk`'s `SimpleTool` type. You can pass the same tools map to both:
+The tool definition shape matches `@executor-js/sdk`'s `SimpleTool` type. You can pass the same tools map to both:
 
 ```ts
 const tools = {
@@ -317,7 +317,7 @@ const tools = {
 // Use with just-bash
 const bash = new Bash({ executor: { tools } });
 
-// Use with @executor/sdk
+// Use with @executor-js/sdk
 const executor = await createExecutor({ tools });
 ```
 

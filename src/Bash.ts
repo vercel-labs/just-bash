@@ -100,23 +100,26 @@ export interface ExecutorToolDef {
 }
 
 /**
- * Executor SDK instance type (from @executor/sdk).
+ * Executor SDK instance type (from @executor-js/sdk).
  * Kept as an opaque type to avoid requiring the SDK at import time.
  */
 export interface ExecutorSDKHandle {
-  execute: (
-    code: string,
-  ) => Promise<{ result: unknown; error?: string; logs?: string[] }>;
+  tools: {
+    list: (filter?: {
+      sourceId?: string;
+      query?: string;
+    }) => Promise<readonly unknown[]>;
+    invoke: (
+      toolId: string,
+      args: unknown,
+      options: { onElicitation: "accept-all" },
+    ) => Promise<{ data: unknown; error: unknown; status?: number }>;
+  };
   sources: {
-    add: (
-      input: Record<string, unknown>,
-      options?: Record<string, unknown>,
-    ) => Promise<unknown>;
-    list: () => Promise<unknown[]>;
-    [key: string]: unknown;
+    add: (input: Record<string, unknown>) => Promise<void>;
+    list: () => Promise<readonly unknown[]>;
   };
   close: () => Promise<void>;
-  [key: string]: unknown;
 }
 
 /** Executor configuration for js-exec tool invocation */
@@ -124,20 +127,26 @@ export interface ExecutorConfig {
   /** Tool map: keys are dot-separated paths (e.g. "math.add"), values are tool definitions */
   tools?: Record<string, ExecutorToolDef>;
   /**
-   * Async setup function that receives the @executor/sdk instance.
-   * Use this to add OpenAPI, GraphQL, or MCP sources that auto-discover tools.
-   * When provided, js-exec delegates execution to the SDK pipeline
-   * (which handles tool approval, auth flows, and interaction loops).
+   * Async setup function that receives the @executor-js/sdk instance.
+   * Use this to add sources that auto-discover tools.
+   * When provided, js-exec delegates execution to the SDK pipeline.
    *
-   * Requires @executor/sdk as a dependency.
+   * Currently supports `kind: "custom"` for direct tool registration.
+   * GraphQL/OpenAPI/MCP support requires official @executor-js plugins
+   * (not yet published on npm).
    *
    * @example
    * ```ts
    * const bash = new Bash({
    *   executor: {
    *     setup: async (sdk) => {
-   *       await sdk.sources.add({ kind: "openapi", endpoint: "https://api.example.com", specUrl: "https://api.example.com/openapi.json", name: "myapi" });
-   *       await sdk.sources.add({ kind: "mcp", endpoint: "https://mcp.example.com/sse", name: "tools" });
+   *       await sdk.sources.add({
+   *         kind: "custom",
+   *         name: "myapi",
+   *         tools: {
+   *           "getUser": { description: "Get user", execute: (args) => fetchUser(args.id) },
+   *         },
+   *       });
    *     },
    *   },
    * });
@@ -145,7 +154,13 @@ export interface ExecutorConfig {
    */
   setup?: (sdk: ExecutorSDKHandle) => Promise<void>;
   /**
-   * Tool approval callback for the @executor/sdk pipeline.
+   * Additional @executor-js/sdk plugins to load.
+   * Passed directly to createExecutor({ plugins: [...] }).
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: AnyPlugin type from @executor-js/sdk; avoid requiring SDK at import time
+  plugins?: any[];
+  /**
+   * Tool approval callback for the @executor-js/sdk pipeline.
    * Called when a tool invocation requires approval.
    * Defaults to "allow-all" when not provided.
    */
@@ -361,6 +376,8 @@ export class Bash {
   ) => Promise<string>;
   private executorSetup?: (sdk: ExecutorSDKHandle) => Promise<void>;
   private executorApproval?: ExecutorConfig["onToolApproval"];
+  // biome-ignore lint/suspicious/noExplicitAny: AnyPlugin type from @executor-js/sdk; avoid import at class level
+  private executorPlugins?: any[];
   private executorSDK?: ExecutorSDKHandle;
   private executorInitPromise?: Promise<void>;
   /** When SDK setup is configured, js-exec routes execution through this */
@@ -577,9 +594,12 @@ export class Bash {
       };
     }
 
-    // Store SDK setup function and approval callback for lazy initialization
+    // Store SDK setup function, plugins, and approval callback for lazy initialization
     if (options.executor?.setup) {
       this.executorSetup = options.executor.setup;
+    }
+    if (options.executor?.plugins) {
+      this.executorPlugins = options.executor.plugins;
     }
     if (options.executor?.onToolApproval) {
       this.executorApproval = options.executor.onToolApproval;
@@ -669,6 +689,7 @@ export class Bash {
       const { sdk, executeViaSdk } = await initExecutorSDK(
         setup,
         this.executorApproval,
+        this.executorPlugins,
         this.fs,
         () => this.state.cwd,
         () => this.state.env,

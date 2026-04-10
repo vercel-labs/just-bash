@@ -538,7 +538,7 @@ async function executeJSInner(
 
 /**
  * Result from executing code in executor mode.
- * Compatible with @executor/sdk's ExecuteResult shape.
+ * Compatible with @executor-js/sdk's ExecuteResult shape.
  */
 export interface ExecutorResult {
   result: unknown;
@@ -548,7 +548,7 @@ export interface ExecutorResult {
 
 /**
  * Execute JavaScript code in executor mode with tool invocation support.
- * Used as the runtime for @executor/sdk's CodeExecutor interface.
+ * Used as the runtime for @executor-js/sdk's CodeExecutor interface.
  *
  * - Console output is captured to `logs` instead of stdout/stderr
  * - Tool calls via `tools.x.y(args)` are routed through `invokeTool`

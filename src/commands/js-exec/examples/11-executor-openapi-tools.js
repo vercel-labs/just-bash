@@ -1,11 +1,14 @@
 /**
- * Example: Native @executor/sdk integration via the Bash constructor
+ * Example: Native @executor-js/sdk integration via the Bash constructor
+ *
+ * NOTE: This example requires @executor-js/plugin-openapi which is not yet
+ * published on npm. It is preserved for restoration when the plugin ships.
  *
  * The SDK discovers tools from OpenAPI, GraphQL, and MCP sources.
  * js-exec runs user code in a QuickJS sandbox — tool calls are bridged
  * back to the SDK, which handles HTTP, auth, and schema validation.
  *
- * Requires: @executor/sdk and effect as dependencies.
+ * Requires: @executor-js/sdk and effect as dependencies.
  */
 
 // @ts-check — this is a JS file with JSDoc types for illustration
@@ -22,7 +25,7 @@ const bash = new Bash({
       },
     },
 
-    // Async setup receives the @executor/sdk instance.
+    // Async setup receives the @executor-js/sdk instance.
     // Add OpenAPI, GraphQL, or MCP sources here.
     setup: async (sdk) => {
       // OpenAPI: discovers all operations from the spec
