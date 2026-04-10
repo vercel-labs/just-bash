@@ -132,6 +132,15 @@ describe("isPathWithinRoot", () => {
     expect(isPathWithinRoot("/tmp/datastore", "/tmp/data")).toBe(false);
     expect(isPathWithinRoot("/tmp/data/file", "/tmp/data")).toBe(true);
   });
+
+  it("handles Windows backslash separators", () => {
+    expect(isPathWithinRoot("D:\\project\\file.txt", "D:\\project")).toBe(true);
+    expect(isPathWithinRoot("D:\\project\\a\\b", "D:\\project")).toBe(true);
+    expect(isPathWithinRoot("D:\\project", "D:\\project")).toBe(true);
+    // boundary attack with backslash
+    expect(isPathWithinRoot("D:\\projects", "D:\\project")).toBe(false);
+    expect(isPathWithinRoot("D:\\project-evil", "D:\\project")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
