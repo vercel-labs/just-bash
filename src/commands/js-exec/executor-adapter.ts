@@ -30,6 +30,7 @@
  * ```
  */
 
+import { parseToolArgs } from "../../Bash.js";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
 import type { IFileSystem } from "../../fs/interface.js";
 import { resolveLimits } from "../../limits.js";
@@ -105,12 +106,7 @@ export function createJustBashCodeExecutor(
         path: string,
         argsJson: string,
       ): Promise<string> => {
-        let args: unknown;
-        try {
-          args = argsJson ? JSON.parse(argsJson) : undefined;
-        } catch {
-          args = undefined;
-        }
+        const args = parseToolArgs(argsJson);
         const result = await invokeTool(path, args);
         return result !== undefined ? JSON.stringify(result) : "";
       };

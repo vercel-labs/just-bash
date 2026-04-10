@@ -20,16 +20,18 @@ const bash = new Bash({
       "countries.list": {
         description: "List countries, optionally filtered by continent code",
         execute: async (args?: { continent?: string }) => {
-          const filter = args?.continent
-            ? `(filter: { continent: { eq: "${args.continent}" } })`
-            : "";
-          const query = `{ countries${filter} { code name capital emoji } }`;
+          const query = args?.continent
+            ? `query($code: String!) { countries(filter: { continent: { eq: $code } }) { code name capital emoji } }`
+            : `{ countries { code name capital emoji } }`;
+          const variables = args?.continent
+            ? { code: args.continent }
+            : undefined;
           const res = await fetch(
             "https://countries.trevorblades.com/graphql",
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ query }),
+              body: JSON.stringify({ query, variables }),
             },
           );
           const json = (await res.json()) as { data: { countries: unknown[] } };
@@ -40,13 +42,13 @@ const bash = new Bash({
       "countries.get": {
         description: "Get a single country by ISO code",
         execute: async (args: { code: string }) => {
-          const query = `{ country(code: "${args.code}") { name capital currency emoji languages { name } continent { name } } }`;
+          const query = `query($code: ID!) { country(code: $code) { name capital currency emoji languages { name } continent { name } } }`;
           const res = await fetch(
             "https://countries.trevorblades.com/graphql",
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ query }),
+              body: JSON.stringify({ query, variables: { code: args.code } }),
             },
           );
           const json = (await res.json()) as { data: { country: unknown } };

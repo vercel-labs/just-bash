@@ -100,6 +100,52 @@ export interface ExecutorToolDef {
 }
 
 /**
+ * Parse JSON tool arguments. Empty/missing string yields undefined;
+ * malformed JSON throws so callers get a clear error.
+ */
+export function parseToolArgs(argsJson: string): unknown {
+  if (!argsJson) return undefined;
+  return JSON.parse(argsJson);
+}
+
+/**
+ * Elicitation context passed to the handler when a tool requests user input.
+ * Mirrors @executor-js/sdk's ElicitationContext without importing the SDK.
+ */
+export interface ExecutorElicitationContext {
+  readonly toolId: string;
+  readonly args: unknown;
+  readonly request:
+    | {
+        readonly _tag: "FormElicitation";
+        readonly message: string;
+        readonly requestedSchema: Record<string, unknown>;
+      }
+    | {
+        readonly _tag: "UrlElicitation";
+        readonly message: string;
+        readonly url: string;
+        readonly elicitationId: string;
+      };
+}
+
+/**
+ * Response from an elicitation handler.
+ */
+export interface ExecutorElicitationResponse {
+  readonly action: "accept" | "decline" | "cancel";
+  readonly content?: Record<string, unknown>;
+}
+
+/**
+ * Handler for tool elicitation requests (form input, OAuth URLs, etc.).
+ * Compatible with @executor-js/sdk's ElicitationHandler.
+ */
+export type ExecutorElicitationHandler = (
+  ctx: ExecutorElicitationContext,
+) => Promise<ExecutorElicitationResponse>;
+
+/**
  * Executor SDK instance type (from @executor-js/sdk).
  * Kept as an opaque type to avoid requiring the SDK at import time.
  */
@@ -112,7 +158,7 @@ export interface ExecutorSDKHandle {
     invoke: (
       toolId: string,
       args: unknown,
-      options: { onElicitation: "accept-all" },
+      options: { onElicitation: ExecutorElicitationHandler | "accept-all" },
     ) => Promise<{ data: unknown; error: unknown; status?: number }>;
   };
   sources: {
@@ -176,6 +222,14 @@ export interface ExecutorConfig {
         reason: string;
         approvalLabel: string | null;
       }) => Promise<{ approved: true } | { approved: false; reason?: string }>);
+  /**
+   * Elicitation handler for the @executor-js/sdk pipeline.
+   * Called when a tool requests user input (form data, OAuth approval, etc.).
+   * Defaults to declining all elicitation requests.
+   *
+   * Pass "accept-all" to auto-approve (not recommended for untrusted tools).
+   */
+  onElicitation?: ExecutorElicitationHandler | "accept-all";
 }
 
 export interface BashOptions {
@@ -376,6 +430,7 @@ export class Bash {
   ) => Promise<string>;
   private executorSetup?: (sdk: ExecutorSDKHandle) => Promise<void>;
   private executorApproval?: ExecutorConfig["onToolApproval"];
+  private executorElicitation?: ExecutorConfig["onElicitation"];
   // biome-ignore lint/suspicious/noExplicitAny: AnyPlugin type from @executor-js/sdk; avoid import at class level
   private executorPlugins?: any[];
   private executorSDK?: ExecutorSDKHandle;
@@ -574,7 +629,11 @@ export class Bash {
 
     // Set up executor tool invoker when executor config is provided
     if (options.executor?.tools) {
-      const tools = options.executor.tools;
+      // Copy to null-prototype object to prevent prototype pollution via __proto__ keys
+      const tools: Record<string, ExecutorToolDef> = Object.assign(
+        Object.create(null) as Record<string, ExecutorToolDef>,
+        options.executor.tools,
+      );
       this.executorInvokeTool = async (
         path: string,
         argsJson: string,
@@ -583,12 +642,7 @@ export class Bash {
           throw new Error(`Unknown tool: ${path}`);
         }
         const tool = tools[path];
-        let args: unknown;
-        try {
-          args = argsJson ? JSON.parse(argsJson) : undefined;
-        } catch {
-          args = undefined;
-        }
+        const args = parseToolArgs(argsJson);
         const result = await tool.execute(args);
         return result !== undefined ? JSON.stringify(result) : "";
       };
@@ -603,6 +657,9 @@ export class Bash {
     }
     if (options.executor?.onToolApproval) {
       this.executorApproval = options.executor.onToolApproval;
+    }
+    if (options.executor?.onElicitation) {
+      this.executorElicitation = options.executor.onElicitation;
     }
 
     // Register custom commands (after built-ins so they can override)
@@ -689,6 +746,7 @@ export class Bash {
       const { sdk, executeViaSdk } = await initExecutorSDK(
         setup,
         this.executorApproval,
+        this.executorElicitation,
         this.executorPlugins,
         this.fs,
         () => this.state.cwd,
@@ -699,15 +757,24 @@ export class Bash {
       this.executorExecFn = executeViaSdk;
     })();
 
-    await this.executorInitPromise;
+    try {
+      await this.executorInitPromise;
+    } catch (e) {
+      // Clear so next exec() retries instead of awaiting a rejected promise
+      this.executorInitPromise = undefined;
+      throw e;
+    }
   }
 
   async exec(
     commandLine: string,
     options?: ExecOptions,
   ): Promise<BashExecResult> {
-    // Lazily initialize executor SDK if setup was provided
-    await this.ensureExecutorReady();
+    // Lazily initialize executor SDK if setup was provided.
+    // Guard avoids a promise tick on every exec when no SDK setup exists.
+    if (this.executorSetup && !this.executorSDK) {
+      await this.ensureExecutorReady();
+    }
 
     if (this.state.callDepth === 0) {
       this.state.commandCount = 0;

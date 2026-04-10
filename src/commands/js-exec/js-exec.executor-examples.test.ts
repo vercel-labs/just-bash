@@ -187,7 +187,9 @@ describe("executor.setup: tool approval", () => {
             kind: "custom",
             name: "math",
             tools: {
-              add: { execute: (a: { x: number; y: number }) => ({ sum: a.x + a.y }) },
+              add: {
+                execute: (a: { x: number; y: number }) => ({ sum: a.x + a.y }),
+              },
             },
           });
         },
@@ -212,7 +214,9 @@ describe("executor.setup: tool approval", () => {
             kind: "custom",
             name: "math",
             tools: {
-              add: { execute: (a: { x: number; y: number }) => ({ sum: a.x + a.y }) },
+              add: {
+                execute: (a: { x: number; y: number }) => ({ sum: a.x + a.y }),
+              },
             },
           });
         },
@@ -243,8 +247,14 @@ describe("executor.setup: tool approval", () => {
             kind: "custom",
             name: "api",
             tools: {
-              read: { description: "Read data", execute: () => ({ data: "ok" }) },
-              write: { description: "Write data", execute: () => ({ written: true }) },
+              read: {
+                description: "Read data",
+                execute: () => ({ data: "ok" }),
+              },
+              write: {
+                description: "Write data",
+                execute: () => ({ written: true }),
+              },
             },
           });
         },

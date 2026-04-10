@@ -4,12 +4,20 @@
  * Only loaded at runtime behind a dynamic import.
  */
 
-import type { ExecutorConfig, ExecutorSDKHandle } from "./Bash.js";
+import {
+  type ExecutorConfig,
+  type ExecutorSDKHandle,
+  parseToolArgs,
+} from "./Bash.js";
 import { resolveLimits } from "./limits.js";
+
+/** Default elicitation handler: decline all requests (safe default). */
+const DECLINE_ALL_ELICITATIONS = async () => ({ action: "decline" as const });
 
 export async function initExecutorSDK(
   setup: (sdk: ExecutorSDKHandle) => Promise<void>,
   approval: ExecutorConfig["onToolApproval"] | undefined,
+  elicitation: ExecutorConfig["onElicitation"] | undefined,
   plugins: ExecutorConfig["plugins"] | undefined,
   fs: import("./fs/interface.js").IFileSystem,
   getCwd: () => string,
@@ -81,12 +89,7 @@ export async function initExecutorSDK(
       path: string,
       argsJson: string,
     ): Promise<string> => {
-      let args: unknown;
-      try {
-        args = argsJson ? JSON.parse(argsJson) : undefined;
-      } catch {
-        args = undefined;
-      }
+      const args = parseToolArgs(argsJson);
 
       // Check tool approval before invoking
       if (approval && approval !== "allow-all") {
@@ -114,9 +117,11 @@ export async function initExecutorSDK(
         }
       }
 
-      // Route through SDK's tool invocation pipeline
+      // Route through SDK's tool invocation pipeline.
+      // Default to declining elicitation requests (safe default).
+      const elicitationHandler = elicitation ?? DECLINE_ALL_ELICITATIONS;
       const result = await executor.tools.invoke(path, args, {
-        onElicitation: "accept-all",
+        onElicitation: elicitationHandler,
       });
 
       return result.data !== undefined ? JSON.stringify(result.data) : "";
