@@ -42,13 +42,15 @@ export async function initExecutorSDK(
   const { discoveryPlugin } = await import("./executor-discovery-plugin.js");
   const { graphqlPlugin } = await import("@executor-js/plugin-graphql");
   const { openApiPlugin } = await import("@executor-js/plugin-openapi");
+  const { mcpPlugin } = await import("@executor-js/plugin-mcp");
 
-  // Always include discovery (custom sources), graphql, and openapi plugins.
+  // Always include discovery (custom sources), graphql, openapi, and mcp plugins.
   // User-provided plugins are appended after.
   const allPlugins = [
     discoveryPlugin(),
     graphqlPlugin(),
     openApiPlugin(),
+    mcpPlugin(),
     ...(plugins ?? []),
   ];
 
@@ -80,12 +82,28 @@ export async function initExecutorSDK(
       headers?: Record<string, unknown>;
     }) => Promise<{ toolCount: number }>;
   };
+  const mcpExt = ext.mcp as {
+    addSource: (config: {
+      transport: string;
+      name: string;
+      endpoint?: string;
+      command?: string;
+      args?: string[];
+      env?: Record<string, string>;
+      cwd?: string;
+      namespace?: string;
+      headers?: Record<string, string>;
+      remoteTransport?: string;
+      queryParams?: Record<string, string>;
+    }) => Promise<{ toolCount: number; namespace: string }>;
+  };
 
   /**
    * Route sources.add() calls to the appropriate plugin based on `kind`.
    * - "custom": discovery plugin (inline tool definitions)
    * - "graphql": @executor-js/plugin-graphql (introspects schema)
    * - "openapi": @executor-js/plugin-openapi (parses spec)
+   * - "mcp": @executor-js/plugin-mcp (connects to MCP server)
    */
   const addSource = async (def: Record<string, unknown>): Promise<void> => {
     const kind = def.kind as string;
@@ -103,6 +121,29 @@ export async function initExecutorSDK(
         namespace: (def.name as string) ?? undefined,
         headers: def.headers as Record<string, unknown> | undefined,
       });
+    } else if (kind === "mcp") {
+      const transport = (def.transport as string) ?? "remote";
+      if (transport === "stdio") {
+        await mcpExt.addSource({
+          transport: "stdio",
+          name: def.name as string,
+          command: def.command as string,
+          args: def.args as string[] | undefined,
+          env: def.env as Record<string, string> | undefined,
+          cwd: def.cwd as string | undefined,
+          namespace: (def.name as string) ?? undefined,
+        });
+      } else {
+        await mcpExt.addSource({
+          transport: "remote",
+          name: def.name as string,
+          endpoint: def.endpoint as string,
+          namespace: (def.name as string) ?? undefined,
+          headers: def.headers as Record<string, string> | undefined,
+          remoteTransport: def.remoteTransport as string | undefined,
+          queryParams: def.queryParams as Record<string, string> | undefined,
+        });
+      }
     } else {
       // "custom" and any unknown kinds fall through to the discovery plugin
       await discoveryExt.sources.add(def);

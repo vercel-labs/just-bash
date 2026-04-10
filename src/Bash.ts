@@ -185,6 +185,7 @@ export interface ExecutorConfig {
    * - `"custom"` — direct tool registration (inline `{ execute }` functions)
    * - `"graphql"` — auto-discovers tools via schema introspection (`@executor-js/plugin-graphql`)
    * - `"openapi"` — auto-discovers tools from an OpenAPI spec (`@executor-js/plugin-openapi`)
+   * - `"mcp"` — connects to an MCP server and discovers tools (`@executor-js/plugin-mcp`)
    *
    * @example
    * ```ts
@@ -203,6 +204,21 @@ export interface ExecutorConfig {
    *         spec: openApiSpecText,
    *         endpoint: "https://api.example.com",
    *         name: "myapi",
+   *       });
+   *       // MCP: connects to server, discovers tools from capabilities
+   *       await sdk.sources.add({
+   *         kind: "mcp",
+   *         transport: "remote",
+   *         endpoint: "https://mcp.example.com/sse",
+   *         name: "internal",
+   *       });
+   *       // MCP via stdio (local process)
+   *       await sdk.sources.add({
+   *         kind: "mcp",
+   *         transport: "stdio",
+   *         command: "npx",
+   *         args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+   *         name: "fs",
    *       });
    *       // Custom: inline tool definitions
    *       await sdk.sources.add({
