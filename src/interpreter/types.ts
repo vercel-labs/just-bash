@@ -444,4 +444,12 @@ export interface InterpreterContext {
    * Threaded through the context chain instead of shell env.
    */
   jsBootstrapCode?: string;
+  /**
+   * Tool invoker for executor mode (js-exec).
+   * When present, js-exec sets up a `tools` proxy.
+   */
+  executorInvokeTool?: (path: string, argsJson: string) => Promise<string>;
+  executorExecFn?: (
+    code: string,
+  ) => Promise<{ result: unknown; error?: string; logs?: string[] }>;
 }

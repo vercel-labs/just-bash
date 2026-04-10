@@ -1,6 +1,10 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": ["src/cli/just-bash.ts"],
+  "entry": [
+    "src/cli/just-bash.ts",
+    "src/commands/js-exec/executor-adapter.ts",
+    "src/executor-init.ts"
+  ],
   "project": ["src/**/*.ts"],
   "ignore": [
     "src/**/*.test.ts",
