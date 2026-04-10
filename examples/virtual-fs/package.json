@@ -1,0 +1,13 @@
+{
+  "name": "virtual-fs-example",
+  "version": "1.0.0",
+  "description": "Example of virtual filesystems backed by async hooks in just-bash",
+  "type": "module",
+  "scripts": {
+    "start": "npx tsx main.ts",
+    "typecheck": "npx tsc --noEmit"
+  },
+  "dependencies": {
+    "just-bash": "link:../.."
+  }
+}
