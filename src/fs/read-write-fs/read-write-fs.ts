@@ -290,6 +290,8 @@ export class ReadWriteFs implements IFileSystem {
         mode: stat.mode,
         size: stat.size,
         mtime: stat.mtime,
+        uid: stat.uid,
+        gid: stat.gid,
       };
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
@@ -314,6 +316,8 @@ export class ReadWriteFs implements IFileSystem {
         mode: stat.mode,
         size: stat.size,
         mtime: stat.mtime,
+        uid: stat.uid,
+        gid: stat.gid,
       };
     } catch (e) {
       const err = e as NodeJS.ErrnoException;

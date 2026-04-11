@@ -82,6 +82,8 @@ export interface FsStat {
   mode: number;
   size: number;
   mtime: Date;
+  uid?: number;
+  gid?: number;
 }
 
 /**

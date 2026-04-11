@@ -3,6 +3,7 @@ import type { FsStat } from "../../fs/interface.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
+import { formatMode } from "../format-mode.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 // Format size in human-readable format (e.g., 1.5K, 234M, 2G)
@@ -121,6 +122,9 @@ export const lsCommand: Command = {
     // Note: onePerLine is accepted but implicit in our output
     void parsed.result.flags.onePerLine;
 
+    const uidToName = ctx.uidToName ?? (() => "user");
+    const gidToName = ctx.gidToName ?? (() => "group");
+
     const paths = parsed.result.positional;
 
     if (paths.length === 0) {
@@ -145,7 +149,9 @@ export const lsCommand: Command = {
         try {
           const stat = await ctx.fs.stat(fullPath);
           if (longFormat) {
-            const mode = stat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
+            const modeStr = formatMode(stat.mode, stat.isDirectory);
+            const owner = uidToName(stat.uid ?? 1000);
+            const group = gidToName(stat.gid ?? 1000);
             const suffix = classifyFiles
               ? classifySuffix(await ctx.fs.lstat(fullPath))
               : stat.isDirectory
@@ -157,7 +163,7 @@ export const lsCommand: Command = {
               : String(size).padStart(5);
             const mtime = stat.mtime ?? new Date(0);
             const dateStr = formatDate(mtime);
-            stdout += `${mode} 1 user user ${sizeStr} ${dateStr} ${path}${suffix}\n`;
+            stdout += `${modeStr} 1 ${owner} ${group} ${sizeStr} ${dateStr} ${path}${suffix}\n`;
           } else {
             const suffix = classifyFiles
               ? classifySuffix(await ctx.fs.lstat(fullPath))
@@ -183,6 +189,8 @@ export const lsCommand: Command = {
           humanReadable,
           sortBySize,
           classifyFiles,
+          uidToName,
+          gidToName,
         );
         stdout += result.stdout;
         stderr += result.stderr;
@@ -200,6 +208,9 @@ export const lsCommand: Command = {
           humanReadable,
           sortBySize,
           classifyFiles,
+          false,
+          uidToName,
+          gidToName,
         );
         stdout += result.stdout;
         stderr += result.stderr;
@@ -221,6 +232,8 @@ async function listGlob(
   humanReadable: boolean = false,
   sortBySize: boolean = false,
   classifyFiles: boolean = false,
+  uidToName: (uid: number) => string = () => "user",
+  gidToName: (gid: number) => string = () => "group",
 ): Promise<ExecResult> {
   const showHidden = showAll || showAlmostAll;
   const allPaths = ctx.fs.getAllPaths();
@@ -278,7 +291,9 @@ async function listGlob(
       const fullPath = ctx.fs.resolvePath(ctx.cwd, match);
       try {
         const stat = await ctx.fs.stat(fullPath);
-        const mode = stat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
+        const modeStr = formatMode(stat.mode, stat.isDirectory);
+        const owner = uidToName(stat.uid ?? 1000);
+        const group = gidToName(stat.gid ?? 1000);
         const suffix = classifyFiles
           ? classifySuffix(await ctx.fs.lstat(fullPath))
           : stat.isDirectory
@@ -291,10 +306,12 @@ async function listGlob(
         const mtime = stat.mtime ?? new Date(0);
         const dateStr = formatDate(mtime);
         lines.push(
-          `${mode} 1 user user ${sizeStr} ${dateStr} ${match}${suffix}`,
+          `${modeStr} 1 ${owner} ${group} ${sizeStr} ${dateStr} ${match}${suffix}`,
         );
       } catch {
-        lines.push(`-rw-r--r-- 1 user user     0 Jan  1 00:00 ${match}`);
+        lines.push(
+          `-rw-r--r-- 1 ${uidToName(1000)} ${gidToName(1000)}     0 Jan  1 00:00 ${match}`,
+        );
       }
     }
     return { stdout: `${lines.join("\n")}\n`, stderr: "", exitCode: 0 };
@@ -330,6 +347,8 @@ async function listPath(
   sortBySize: boolean = false,
   classifyFiles: boolean = false,
   _isSubdir: boolean = false,
+  uidToName: (uid: number) => string = () => "user",
+  gidToName: (gid: number) => string = () => "group",
 ): Promise<ExecResult> {
   const showHidden = showAll || showAlmostAll;
   const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
@@ -343,6 +362,9 @@ async function listPath(
         ? classifySuffix(await ctx.fs.lstat(fullPath))
         : "";
       if (longFormat) {
+        const modeStr = formatMode(stat.mode, stat.isDirectory);
+        const owner = uidToName(stat.uid ?? 1000);
+        const group = gidToName(stat.gid ?? 1000);
         const size = stat.size ?? 0;
         const sizeStr = humanReadable
           ? formatHumanSize(size).padStart(5)
@@ -350,7 +372,7 @@ async function listPath(
         const mtime = stat.mtime ?? new Date(0);
         const dateStr = formatDate(mtime);
         return {
-          stdout: `-rw-r--r-- 1 user user ${sizeStr} ${dateStr} ${path}${fileSuffix}\n`,
+          stdout: `${modeStr} 1 ${owner} ${group} ${sizeStr} ${dateStr} ${path}${fileSuffix}\n`,
           stderr: "",
           exitCode: 0,
         };
@@ -415,7 +437,7 @@ async function listPath(
 
       // Add special entries first
       for (const entry of specialEntries) {
-        stdout += `drwxr-xr-x 1 user user     0 Jan  1 00:00 ${entry}\n`;
+        stdout += `drwxr-xr-x 1 ${uidToName(1000)} ${gidToName(1000)}     0 Jan  1 00:00 ${entry}\n`;
       }
 
       // Parallelize stat calls for regular entries
@@ -432,7 +454,9 @@ async function listPath(
               fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
             try {
               const entryStat = await ctx.fs.stat(entryPath);
-              const mode = entryStat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
+              const modeStr = formatMode(entryStat.mode, entryStat.isDirectory);
+              const owner = uidToName(entryStat.uid ?? 1000);
+              const group = gidToName(entryStat.gid ?? 1000);
               const suffix = classifyFiles
                 ? classifySuffix(await ctx.fs.lstat(entryPath))
                 : entryStat.isDirectory
@@ -446,12 +470,14 @@ async function listPath(
               const dateStr = formatDate(mtime);
               return {
                 name: entry,
-                line: `${mode} 1 user user ${sizeStr} ${dateStr} ${entry}${suffix}\n`,
+                line: `${modeStr} 1 ${owner} ${group} ${sizeStr} ${dateStr} ${entry}${suffix}\n`,
               };
             } catch {
+              const owner = uidToName(1000);
+              const group = gidToName(1000);
               return {
                 name: entry,
-                line: `-rw-r--r-- 1 user user     0 Jan  1 00:00 ${entry}\n`,
+                line: `-rw-r--r-- 1 ${owner} ${group}     0 Jan  1 00:00 ${entry}\n`,
               };
             }
           }),
@@ -561,6 +587,8 @@ async function listPath(
               sortBySize,
               classifyFiles,
               true,
+              uidToName,
+              gidToName,
             );
             return { name: dir.name, result };
           }),
