@@ -34,12 +34,17 @@ export interface RequestTransform {
 }
 
 /**
- * An allowed URL entry with optional header transforms.
+ * An allowed URL entry with optional header transforms and per-URL method restrictions.
  * Transforms are applied at the fetch boundary so secrets never enter the sandbox.
  */
 export interface AllowedUrl {
   url: string;
   transform?: RequestTransform[];
+  /**
+   * Allowed HTTP methods for this specific URL prefix.
+   * When set, overrides the global `allowedMethods` for requests matching this entry.
+   */
+  methods?: HttpMethod[];
 }
 
 /**

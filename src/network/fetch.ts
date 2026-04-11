@@ -11,6 +11,7 @@ import { lookup as dnsLookup } from "node:dns";
 import { DefenseInDepthBox } from "../security/defense-in-depth-box.js";
 import { _clearTimeout, _setTimeout } from "../timers.js";
 import {
+  findMatchingEntry,
   isPrivateIp,
   isUrlAllowed,
   matchesAllowListEntry,
@@ -196,17 +197,32 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
   }
 
   /**
-   * Checks if an HTTP method is allowed by the configuration.
+   * Returns the effective allowed methods for a URL. If the matching
+   * allow-list entry specifies per-URL methods, those are used;
+   * otherwise falls back to the global allowedMethods.
+   */
+  function getEffectiveMethods(url: string): HttpMethod[] {
+    if (config.dangerouslyAllowFullInternetAccess)
+      return allowedMethods as HttpMethod[];
+    const entry = findMatchingEntry(url, entries);
+    if (entry && typeof entry === "object" && entry.methods) {
+      return entry.methods;
+    }
+    return allowedMethods as HttpMethod[];
+  }
+
+  /**
+   * Checks if an HTTP method is allowed for the given URL.
    * @throws MethodNotAllowedError if the method is not allowed
    */
-  function checkMethodAllowed(method: string): void {
+  function checkMethodAllowed(method: string, effective: HttpMethod[]): void {
     if (config.dangerouslyAllowFullInternetAccess) {
       return;
     }
 
     const upperMethod = method.toUpperCase();
-    if (!allowedMethods.includes(upperMethod as HttpMethod)) {
-      throw new MethodNotAllowedError(upperMethod, allowedMethods);
+    if (!effective.includes(upperMethod as HttpMethod)) {
+      throw new MethodNotAllowedError(upperMethod, effective);
     }
   }
 
@@ -221,7 +237,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
 
     // Check if URL and method are allowed
     await checkAllowed(url);
-    checkMethodAllowed(method);
+    checkMethodAllowed(method, getEffectiveMethods(url));
 
     let currentUrl = url;
     let redirectCount = 0;
@@ -279,9 +295,11 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
           // Resolve relative URLs
           const redirectUrl = new URL(location, currentUrl).href;
 
-          // Check redirect target against allow-list and private IP ranges
+          // Check redirect target against allow-list, private IP ranges,
+          // and per-URL method restrictions
           try {
             await checkAllowed(redirectUrl);
+            checkMethodAllowed(method, getEffectiveMethods(redirectUrl));
           } catch {
             throw new RedirectNotAllowedError(redirectUrl);
           }

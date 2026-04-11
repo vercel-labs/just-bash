@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  findMatchingEntry,
   isPrivateIp,
   isUrlAllowed,
   matchesAllowListEntry,
@@ -470,6 +471,53 @@ describe("validateAllowList", () => {
       ]);
       expect(errors).toHaveLength(3);
     });
+  });
+
+  describe("per-URL methods validation", () => {
+    it("accepts valid methods on AllowedUrl entries", () => {
+      const errors = validateAllowList([
+        { url: "https://api.example.com", methods: ["GET", "POST"] },
+      ]);
+      expect(errors).toEqual([]);
+    });
+
+    it("rejects invalid method strings", () => {
+      const methods = [
+        "GET",
+        "INVALID",
+      ] as unknown as import("../types.js").HttpMethod[];
+      const errors = validateAllowList([
+        { url: "https://api.example.com", methods },
+      ]);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain('Invalid HTTP method "INVALID"');
+    });
+
+    it("accepts entries without methods field", () => {
+      const errors = validateAllowList([{ url: "https://api.example.com" }]);
+      expect(errors).toEqual([]);
+    });
+  });
+});
+
+describe("findMatchingEntry", () => {
+  it("returns the matching string entry", () => {
+    const entries = ["https://api.example.com", "https://cdn.example.com"];
+    const result = findMatchingEntry("https://api.example.com/data", entries);
+    expect(result).toBe("https://api.example.com");
+  });
+
+  it("returns the matching AllowedUrl entry", () => {
+    const entry = { url: "https://api.example.com", methods: ["GET" as const] };
+    const result = findMatchingEntry("https://api.example.com/data", [entry]);
+    expect(result).toBe(entry);
+  });
+
+  it("returns undefined when no entry matches", () => {
+    const result = findMatchingEntry("https://evil.com/data", [
+      "https://api.example.com",
+    ]);
+    expect(result).toBeUndefined();
   });
 });
 
