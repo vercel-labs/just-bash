@@ -117,6 +117,7 @@ const jqHelp = {
   summary: "command-line JSON processor",
   usage: "jq [OPTIONS] FILTER [FILE]",
   options: [
+    "-R, --raw-input   read input as raw strings, not JSON",
     "-r, --raw-output  output strings without quotes",
     "-c, --compact     compact output (no pretty printing)",
     "-e, --exit-status set exit status based on output",
@@ -204,6 +205,7 @@ export const jqCommand: Command = {
     if (hasHelpFlag(args)) return showHelp(jqHelp);
 
     let raw = false;
+    let rawInput = false;
     let compact = false;
     let exitStatus = false;
     let slurp = false;
@@ -217,7 +219,8 @@ export const jqCommand: Command = {
 
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
-      if (a === "-r" || a === "--raw-output") raw = true;
+      if (a === "-R" || a === "--raw-input") rawInput = true;
+      else if (a === "-r" || a === "--raw-output") raw = true;
       else if (a === "-c" || a === "--compact-output") compact = true;
       else if (a === "-e" || a === "--exit-status") exitStatus = true;
       else if (a === "-s" || a === "--slurp") slurp = true;
@@ -235,7 +238,8 @@ export const jqCommand: Command = {
       else if (a.startsWith("--")) return unknownOption("jq", a);
       else if (a.startsWith("-")) {
         for (const c of a.slice(1)) {
-          if (c === "r") raw = true;
+          if (c === "R") rawInput = true;
+          else if (c === "r") raw = true;
           else if (c === "c") compact = true;
           else if (c === "e") exitStatus = true;
           else if (c === "s") slurp = true;
@@ -300,6 +304,20 @@ export const jqCommand: Command = {
 
       if (nullInput) {
         values = evaluate(null, ast, evalOptions);
+      } else if (rawInput && slurp) {
+        const rawText = inputs.map(({ content }) => content).join("");
+        values = evaluate(rawText, ast, evalOptions);
+      } else if (rawInput) {
+        for (const { content } of inputs) {
+          const lines = content.split("\n");
+          if (lines.length > 0 && lines.at(-1) === "") {
+            lines.pop();
+          }
+
+          for (const line of lines) {
+            values.push(...evaluate(line, ast, evalOptions));
+          }
+        }
       } else if (slurp) {
         // Slurp mode: combine all inputs into single array
         // Use JSON stream parser to handle concatenated JSON (not just NDJSON)
@@ -390,6 +408,7 @@ import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
 export const flagsForFuzzing: CommandFuzzInfo = {
   name: "jq",
   flags: [
+    { flag: "-R", type: "boolean" },
     { flag: "-r", type: "boolean" },
     { flag: "-c", type: "boolean" },
     { flag: "-e", type: "boolean" },
