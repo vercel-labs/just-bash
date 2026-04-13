@@ -41,6 +41,11 @@ export type {
   RmOptions,
   SymlinkEntry,
 } from "./fs/interface.js";
+export {
+  MountableFs,
+  type MountableFsOptions,
+  type MountConfig,
+} from "./fs/mountable-fs/index.js";
 export type { NetworkConfig } from "./network/index.js";
 export {
   NetworkAccessDeniedError,
