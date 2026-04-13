@@ -231,6 +231,7 @@ export class SyncBackend {
     statusText: string;
     headers: Record<string, string>;
     body: string;
+    bodyBase64: string;
     url: string;
   } {
     const requestData = options
@@ -248,13 +249,15 @@ export class SyncBackend {
       url: string;
       bodyBase64: string;
     };
-    const body = atob(parsed.bodyBase64 ?? "");
+    const bodyBase64 = parsed.bodyBase64 ?? "";
+    const body = atob(bodyBase64);
     return {
       status: parsed.status,
       statusText: parsed.statusText,
       headers: parsed.headers,
       url: parsed.url,
       body,
+      bodyBase64,
     };
   }
 

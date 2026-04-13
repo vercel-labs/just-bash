@@ -366,6 +366,34 @@ EOF`);
     });
   });
 
+  describe("binary response body", () => {
+    it("should expose binary content via response.content", async () => {
+      // A minimal 4-byte PNG header (non-UTF-8 bytes)
+      const binaryBody = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+      mockFetch.mockResolvedValueOnce(
+        new Response(binaryBody, {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+      );
+      const env = new Bash({
+        python: true,
+        network: { allowedUrlPrefixes: ["https://api.example.com/"] },
+      });
+      const result = await env.exec(
+        `python3 -c "
+import jb_http
+r = jb_http.get('https://api.example.com/image.png')
+print(type(r.content).__name__)
+print(list(r.content[:4]))
+"`,
+      );
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toBe("bytes\n[137, 80, 78, 71]\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
   describe("integration with file system", () => {
     it("should download and save to file", async () => {
       mockFetch.mockResolvedValueOnce(
