@@ -1010,7 +1010,6 @@ not equal
 ## N-I mksh/zsh/ash/dash stdout-json: ""
 
 #### %(strftime format)T TZ in environ but not in shell's memory
-## SKIP (unimplementable): TZ unset-vs-environ semantics differ - our interpreter runs in same process so TZ affects libc regardless
 
 # note: this test leaks!  It assumes that /etc/localtime is NOT Portugal.
 
