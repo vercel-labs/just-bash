@@ -189,6 +189,10 @@ export interface CommandContext {
    * user access/injection via environment variables.
    */
   jsBootstrapCode?: string;
+  /** Resolve a numeric UID to a username for display in ls -l, stat, etc. */
+  uidToName?: (uid: number) => string;
+  /** Resolve a numeric GID to a group name for display in ls -l, stat, etc. */
+  gidToName?: (gid: number) => string;
 }
 
 export interface Command {

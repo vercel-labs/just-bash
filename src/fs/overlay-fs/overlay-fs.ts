@@ -605,6 +605,8 @@ export class OverlayFs implements IFileSystem {
         mode: lstatResult.mode,
         size: lstatResult.size,
         mtime: lstatResult.mtime,
+        uid: lstatResult.uid,
+        gid: lstatResult.gid,
       };
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") {
@@ -669,6 +671,8 @@ export class OverlayFs implements IFileSystem {
         mode: stat.mode,
         size: stat.size,
         mtime: stat.mtime,
+        uid: stat.uid,
+        gid: stat.gid,
       };
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") {
