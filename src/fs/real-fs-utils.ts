@@ -25,7 +25,10 @@ export function isPathWithinRoot(
   resolved: string,
   canonicalRoot: string,
 ): boolean {
-  return resolved === canonicalRoot || resolved.startsWith(`${canonicalRoot}/`);
+  return (
+    resolved === canonicalRoot ||
+    resolved.startsWith(`${canonicalRoot}${nodePath.sep}`)
+  );
 }
 
 /**
@@ -213,7 +216,8 @@ export function sanitizeSymlinkTarget(
   }
 
   if (isPathWithinRoot(resolved, canonicalRoot)) {
-    const relativePath = resolved.slice(canonicalRoot.length) || "/";
+    const relativePath =
+      resolved.slice(canonicalRoot.length).replaceAll(nodePath.sep, "/") || "/";
     return { withinRoot: true, relativePath };
   }
 

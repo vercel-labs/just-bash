@@ -7,8 +7,9 @@
 
 import * as fs from "node:fs";
 import * as os from "node:os";
+import type * as nodePath from "node:path";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   isPathWithinRoot,
   normalizePath,
@@ -391,5 +392,78 @@ describe("sanitizeSymlinkTarget", () => {
     const evil = `${tempDir}evil/file.txt`;
     const result = sanitizeSymlinkTarget(evil, canonicalRoot);
     expect(result.withinRoot).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Windows path separator — vi.doMock injects sep="\\" per-test
+// ---------------------------------------------------------------------------
+describe("Windows sep=\\\\", () => {
+  beforeEach(() => vi.resetModules());
+  afterEach(() => vi.restoreAllMocks());
+
+  async function load(sep: string, overrides?: Partial<typeof nodePath>) {
+    vi.doMock("node:path", async () => ({
+      ...(await vi.importActual<typeof nodePath>("node:path")),
+      sep,
+      ...overrides,
+    }));
+    const mod = await import("./real-fs-utils.js");
+    return {
+      isPathWithinRoot: mod.isPathWithinRoot,
+      sanitizeSymlinkTarget: mod.sanitizeSymlinkTarget,
+    };
+  }
+
+  describe("isPathWithinRoot", () => {
+    it("returns true for direct child", async () => {
+      const { isPathWithinRoot: fn } = await load("\\");
+      expect(fn("C:\\sandbox\\file.txt", "C:\\sandbox")).toBe(true);
+    });
+
+    it("returns true for deeply nested child", async () => {
+      const { isPathWithinRoot: fn } = await load("\\");
+      expect(fn("C:\\sandbox\\a\\b\\c\\d.txt", "C:\\sandbox")).toBe(true);
+    });
+
+    it("returns false for sibling with same prefix (boundary attack)", async () => {
+      const { isPathWithinRoot: fn } = await load("\\");
+      expect(fn("C:\\sandboxevil", "C:\\sandbox")).toBe(false);
+      expect(fn("C:\\sandboxevil\\file.txt", "C:\\sandbox")).toBe(false);
+    });
+
+    it("hardcoded '/' sep makes child return false (documents old bug)", async () => {
+      const { isPathWithinRoot: fn } = await load("/");
+      expect(fn("C:\\sandbox\\file.txt", "C:\\sandbox")).toBe(false);
+    });
+  });
+
+  describe("sanitizeSymlinkTarget", () => {
+    // realpathSync throws on fake Windows paths from POSIX; mock resolve to
+    // return a backslash path so the replaceAll normalization is exercised.
+
+    it("returns relativePath with forward slashes", async () => {
+      const { sanitizeSymlinkTarget: fn } = await load("\\", {
+        resolve: () => "C:\\sandbox\\sub\\file.txt",
+        isAbsolute: () => true,
+      });
+      const result = fn("C:\\sandbox\\sub\\file.txt", "C:\\sandbox");
+      expect(result.withinRoot).toBe(true);
+      if (result.withinRoot) {
+        expect(result.relativePath).toBe("/sub/file.txt");
+      }
+    });
+
+    it("returns / when resolved equals canonicalRoot", async () => {
+      const { sanitizeSymlinkTarget: fn } = await load("\\", {
+        resolve: () => "C:\\sandbox",
+        isAbsolute: () => true,
+      });
+      const result = fn("C:\\sandbox", "C:\\sandbox");
+      expect(result.withinRoot).toBe(true);
+      if (result.withinRoot) {
+        expect(result.relativePath).toBe("/");
+      }
+    });
   });
 });
