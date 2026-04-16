@@ -106,7 +106,7 @@ export class LiteTerminal {
     this.outputElement.setAttribute("aria-label", "Terminal output");
     container.appendChild(this.outputElement);
 
-    // Cursor element (inline within text flow)
+    // Cursor element (inline, but visually overlaid onto the current cell)
     this.cursorElement = document.createElement("span");
     this.cursorElement.className = "lite-terminal-cursor";
     if (this._options.cursorBlink) {
@@ -501,7 +501,6 @@ export class LiteTerminal {
     this.dirtyLines.clear();
     this.lastCursorLine = this.currentLine;
 
-    // Update cursor size if needed
     this.updateCursorSize();
   }
 
@@ -574,11 +573,13 @@ export class LiteTerminal {
         // Cursor is within this segment
         const offsetInSegment = this.currentCol - segStart;
         const beforeCursor = segment.text.slice(0, offsetInSegment);
-        const afterCursor = segment.text.slice(offsetInSegment);
+        const cursorChar = segment.text[offsetInSegment];
+        const afterCursor = segment.text.slice(offsetInSegment + 1);
 
         if (beforeCursor) {
           lineEl.appendChild(this.createStyledSpan(beforeCursor, segment.style));
         }
+        this.configureCursorElement(cursorChar, segment.style);
         lineEl.appendChild(this.cursorElement);
         cursorInserted = true;
         if (afterCursor) {
@@ -593,6 +594,7 @@ export class LiteTerminal {
 
     // Cursor at end of line
     if (!cursorInserted) {
+      this.configureCursorElement("\u00A0", {});
       lineEl.appendChild(this.cursorElement);
     }
   }
@@ -711,6 +713,32 @@ export class LiteTerminal {
 
     this.cursorElement.style.width = `${charWidth}px`;
     this.cursorElement.style.height = `${lineHeight}px`;
+    this.cursorElement.style.marginRight = "0";
+  }
+
+  private configureCursorElement(text: string, style: TextStyle): void {
+    if (!this.cursorElement) return;
+
+    this.cursorElement.className = "lite-terminal-cursor";
+    if (this._options.cursorBlink) {
+      this.cursorElement.classList.add("blink");
+    }
+
+    const classes = this.getStyleClasses(style);
+    if (classes) {
+      this.cursorElement.className += ` ${classes}`;
+    }
+
+    this.cursorElement.style.cssText = "";
+    const inlineStyle = this.getInlineStyle(style);
+    if (inlineStyle) {
+      this.cursorElement.style.cssText = inlineStyle;
+    }
+
+    this.cursorElement.textContent = text;
+    const resolvedColor = getComputedStyle(this.cursorElement).color;
+    this.cursorElement.style.setProperty("--cursor-text-color", resolvedColor);
+    this.applyCursorTheme();
   }
 
   // Allowlist of valid color class names (prevents XSS via class injection)
@@ -820,9 +848,14 @@ export class LiteTerminal {
       theme.brightBlack || "#666"
     );
 
-    // Cursor color
-    if (this.cursorElement) {
-      this.cursorElement.style.backgroundColor = theme.cursor || "#fff";
-    }
+    this.applyCursorTheme();
+  }
+
+  private applyCursorTheme(): void {
+    if (!this.cursorElement || !this.container) return;
+
+    const theme = this._options.theme || Object.create(null);
+    this.cursorElement.style.setProperty("--cursor-bg", theme.cursor || "#fff");
+    this.cursorElement.style.setProperty("--cursor-block-fg", theme.background || "#000");
   }
 }
