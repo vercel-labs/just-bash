@@ -53,6 +53,35 @@ export {
   TooManyRedirectsError,
 } from "./network/index.js";
 export type {
+  ArithmeticCommandNode,
+  AssignmentNode,
+  CaseNode,
+  CommandNode,
+  CompoundCommandNode,
+  ConditionalCommandNode,
+  ForNode,
+  FunctionDefNode,
+  GroupNode,
+  IfNode,
+  PipelineNode,
+  RedirectionNode,
+  ScriptNode,
+  SimpleCommandNode,
+  StatementNode,
+  SubshellNode,
+  UntilNode,
+  WhileNode,
+  WordNode,
+  WordPart,
+} from "./ast/types.js";
+export { LexerError } from "./parser/lexer.js";
+export { parse, Parser } from "./parser/parser.js";
+export { ParseException } from "./parser/types.js";
+export { BashTransformPipeline } from "./transform/pipeline.js";
+export { CommandCollectorPlugin } from "./transform/plugins/command-collector.js";
+export { TeePlugin } from "./transform/plugins/tee-plugin.js";
+export { serialize } from "./transform/serialize.js";
+export type {
   BashExecResult,
   Command,
   CommandContext,

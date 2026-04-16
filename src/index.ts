@@ -1,11 +1,25 @@
 // AST types (for plugin authors)
 export type {
+  ArithmeticCommandNode,
+  AssignmentNode,
+  CaseNode,
   CommandNode,
+  CompoundCommandNode,
+  ConditionalCommandNode,
+  ForNode,
+  FunctionDefNode,
+  GroupNode,
+  IfNode,
   PipelineNode,
+  RedirectionNode,
   ScriptNode,
   SimpleCommandNode,
   StatementNode,
+  SubshellNode,
+  UntilNode,
+  WhileNode,
   WordNode,
+  WordPart,
 } from "./ast/types.js";
 export type {
   BashLogger,
@@ -71,7 +85,9 @@ export {
   TooManyRedirectsError,
 } from "./network/index.js";
 // Parser
-export { parse } from "./parser/parser.js";
+export { LexerError } from "./parser/lexer.js";
+export { parse, Parser } from "./parser/parser.js";
+export { ParseException } from "./parser/types.js";
 export type {
   CommandFinished as SandboxCommandFinished,
   OutputMessage,
