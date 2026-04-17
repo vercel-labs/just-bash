@@ -58,6 +58,13 @@ export {
   ReadWriteFs,
   type ReadWriteFsOptions,
 } from "./fs/read-write-fs/index.js";
+export {
+  defineVirtualFs,
+  VirtualFs,
+  type VirtualDirent,
+  type VirtualFsSource,
+  type VirtualFsWriteHooks,
+} from "./fs/virtual-fs/index.js";
 export type {
   AllowedUrl,
   AllowedUrlEntry,
