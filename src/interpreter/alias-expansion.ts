@@ -271,6 +271,10 @@ function wordNodeToString(word: WordNode): string {
       case "Glob":
         result += part.pattern;
         break;
+      case "TildeExpansion":
+        result += "~";
+        if (part.user) result += part.user;
+        break;
       default:
         // For other types, try to preserve as-is
         break;

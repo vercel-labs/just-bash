@@ -54,6 +54,19 @@ describe("alias command", () => {
   });
 });
 
+describe("alias expansion with tilde", () => {
+  it("preserves ~/ in alias arguments", async () => {
+    const bash = new Bash({
+      env: { HOME: "/home/user", BASH_ALIAS_ll: "ls -alF" },
+    });
+    await bash.exec("shopt -s expand_aliases");
+    const direct = await bash.exec("ls -alF ~/");
+    const aliased = await bash.exec("ll ~/");
+    expect(aliased.stdout).toBe(direct.stdout);
+    expect(aliased.stderr).toBe(direct.stderr);
+  });
+});
+
 // Note: Alias expansion is NOT implemented to match real bash behavior.
 // In non-interactive mode (scripts), bash does not expand aliases.
 // The alias command only stores/lists alias definitions.
