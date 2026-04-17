@@ -127,6 +127,8 @@ const jqHelp = {
     "-S, --sort-keys   sort object keys",
     "-C, --color       colorize output (ignored)",
     "-M, --monochrome  monochrome output (ignored)",
+    "    --arg name v  set $name to string value v",
+    "    --argjson n v set $n to parsed JSON value v",
     "    --tab         use tabs for indentation",
     "    --help        display this help and exit",
   ],
@@ -214,6 +216,7 @@ export const jqCommand: Command = {
     let filter = ".";
     let filterSet = false;
     const files: string[] = [];
+    const initialVars = new Map<string, QueryValue>();
 
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
@@ -231,7 +234,41 @@ export const jqCommand: Command = {
       } else if (a === "-M" || a === "--monochrome") {
         /* ignored */
       } else if (a === "--tab") useTab = true;
-      else if (a === "-") files.push("-");
+      else if (a === "--arg") {
+        const name = args[++i];
+        const value = args[++i];
+        if (name === undefined || value === undefined) {
+          return {
+            stdout: "",
+            stderr: "jq: --arg requires two arguments (name and value)\n",
+            exitCode: 2,
+          };
+        }
+        initialVars.set(`$${name}`, value);
+      } else if (a === "--argjson") {
+        const name = args[++i];
+        const jsonStr = args[++i];
+        if (name === undefined || jsonStr === undefined) {
+          return {
+            stdout: "",
+            stderr:
+              "jq: --argjson requires two arguments (name and JSON value)\n",
+            exitCode: 2,
+          };
+        }
+        try {
+          initialVars.set(
+            `$${name}`,
+            sanitizeParsedData(JSON.parse(jsonStr)) as QueryValue,
+          );
+        } catch {
+          return {
+            stdout: "",
+            stderr: `jq: Invalid JSON value for --argjson ${name}: ${jsonStr}\n`,
+            exitCode: 2,
+          };
+        }
+      } else if (a === "-") files.push("-");
       else if (a.startsWith("--")) return unknownOption("jq", a);
       else if (a.startsWith("-")) {
         for (const c of a.slice(1)) {
@@ -294,6 +331,7 @@ export const jqCommand: Command = {
           ? { maxIterations: ctx.limits.maxJqIterations }
           : undefined,
         env: ctx.env,
+        initialVars: initialVars.size > 0 ? initialVars : undefined,
         coverage: ctx.coverage,
         requireDefenseContext: ctx.requireDefenseContext,
       };
