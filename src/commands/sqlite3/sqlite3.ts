@@ -13,7 +13,7 @@
 
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import initSqlJs from "sql.js";
@@ -222,34 +222,51 @@ async function getSqliteVersion(): Promise<string> {
 
 /**
  * Find the sqlite3 worker.js file path.
- * Checks multiple locations for different environments:
- * - dist/commands/sqlite3/worker.js (production, bundled)
- * - ./worker.js (development from dist/)
- * - ../../../dist/commands/sqlite3/worker.js (tests from src/)
+ *
+ * The worker is shipped via two routes by `build:worker`:
+ *   - `dist/bin/chunks/sqlite3-worker.js` and `dist/bundle/chunks/sqlite3-worker.js`
+ *     (uniquely named so it never collides with `chunks/worker.js`, which is python3's worker)
+ *   - `dist/commands/sqlite3/worker.js` (also listed in package.json `files`)
+ *
+ * Resolution order is deliberate: the uniquely-named chunk is checked first so
+ * that a bundled build never falls back to a sibling `worker.js` belonging to
+ * a different command. The `<currentDir>/worker.js` lookup is gated on the
+ * directory actually being `commands/sqlite3` to prevent any future
+ * silent-misfire if a chunks dir grows a `worker.js` named after another
+ * command.
+ *
+ * Locations checked, in order:
+ *   1. `<currentDir>/sqlite3-worker.js`                       — bundled (chunks dirs)
+ *   2. `<currentDir>/../../commands/sqlite3/worker.js`        — bundled (chunks dir → tarball commands tree)
+ *   3. `<currentDir>/worker.js`                               — non-bundled dist; only when currentDir is `commands/sqlite3`
+ *   4. `<currentDir>/../../../dist/commands/sqlite3/worker.js` — tests from TS source
+ *
+ * Exposed via `_internals.findWorkerPath` so tests can pass a synthetic dir.
  */
-function findWorkerPath(): string {
-  const currentDir = dirname(fileURLToPath(import.meta.url));
+function findWorkerPath(
+  currentDir: string = dirname(fileURLToPath(import.meta.url)),
+): string {
+  const candidates = [
+    join(currentDir, "sqlite3-worker.js"),
+    join(currentDir, "../../commands/sqlite3/worker.js"),
+  ];
 
-  // For bundled builds, go up to find dist/commands/sqlite3/worker.js
-  // This handles both dist/bin/chunks/ and dist/bundle/chunks/ cases
-  const bundledPath = join(currentDir, "../../commands/sqlite3/worker.js");
-  if (existsSync(bundledPath)) {
-    return bundledPath;
+  // Only trust a bare `worker.js` sibling when we are actually located inside
+  // the sqlite3 command directory. This prevents the historical bug where
+  // `dist/bundle/chunks/worker.js` (python3's worker) was silently picked up.
+  if (
+    currentDir.endsWith(`${sep}commands${sep}sqlite3`) ||
+    currentDir.endsWith("/commands/sqlite3")
+  ) {
+    candidates.push(join(currentDir, "worker.js"));
   }
 
-  // For non-bundled dist (e.g., dist/commands/sqlite3/sqlite3.js)
-  const distPath = join(currentDir, "worker.js");
-  if (existsSync(distPath)) {
-    return distPath;
-  }
+  candidates.push(join(currentDir, "../../../dist/commands/sqlite3/worker.js"));
 
-  // For tests running from TypeScript source
-  const srcToDistPath = join(
-    currentDir,
-    "../../../dist/commands/sqlite3/worker.js",
-  );
-  if (existsSync(srcToDistPath)) {
-    return srcToDistPath;
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
   }
 
   throw new Error(
@@ -258,10 +275,14 @@ function findWorkerPath(): string {
 }
 
 /** @internal Exposed for testing only */
-export const _internals = {
+export const _internals: {
+  createWorker(workerPath: string, input: WorkerInput): Worker;
+  findWorkerPath(currentDir?: string): string;
+} = {
   createWorker(workerPath: string, input: WorkerInput): Worker {
     return new Worker(workerPath, { workerData: input });
   },
+  findWorkerPath,
 };
 
 function generateWorkerProtocolToken(): string {

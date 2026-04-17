@@ -18,5 +18,6 @@ todo/
 .docs-test-tmp/
 src/commands/python3/worker.js
 src/commands/js-exec/worker.js
+src/commands/sqlite3/worker.js
 fuzz-*.log
 .claude/settings.local.json

@@ -17,6 +17,12 @@ const WORKERS = [
     js: "src/commands/js-exec/worker.js",
     external: ["quickjs-emscripten"],
   },
+  {
+    name: "sqlite3",
+    ts: "src/commands/sqlite3/worker.ts",
+    js: "src/commands/sqlite3/worker.js",
+    external: ["sql.js"],
+  },
 ];
 
 function normalize(content) {
