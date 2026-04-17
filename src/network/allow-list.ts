@@ -119,6 +119,19 @@ function entryToUrl(entry: AllowedUrlEntry): string {
 }
 
 /**
+ * Finds the first allow-list entry that matches the given URL.
+ * Returns the matching entry (string or AllowedUrl object), or undefined.
+ */
+export function findMatchingEntry(
+  url: string,
+  allowedUrlPrefixes: AllowedUrlEntry[],
+): AllowedUrlEntry | undefined {
+  return allowedUrlPrefixes.find((entry) =>
+    matchesAllowListEntry(url, entryToUrl(entry)),
+  );
+}
+
+/**
  * Checks if a URL is allowed by any entry in the allow-list.
  *
  * @param url The URL to check
@@ -456,6 +469,26 @@ export function validateAllowList(
       errors.push(
         `Query strings and fragments are ignored in allow-list entries: "${entry}"`,
       );
+    }
+
+    // Validate per-URL methods field
+    if (typeof rawEntry === "object" && rawEntry.methods) {
+      const validMethods = new Set([
+        "GET",
+        "HEAD",
+        "POST",
+        "PUT",
+        "DELETE",
+        "PATCH",
+        "OPTIONS",
+      ]);
+      for (const m of rawEntry.methods) {
+        if (typeof m !== "string" || !validMethods.has(m)) {
+          errors.push(
+            `Invalid HTTP method "${m}" in allow-list entry for "${rawEntry.url}"`,
+          );
+        }
+      }
     }
   }
 
