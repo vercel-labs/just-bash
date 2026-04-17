@@ -12,6 +12,7 @@ import * as readline from "node:readline";
 import { Bash } from "../Bash.js";
 import { OverlayFs } from "../fs/overlay-fs/overlay-fs.js";
 import { getErrorMessage } from "../interpreter/helpers/errors.js";
+import { seedOverlayFiles } from "./shell-files.js";
 
 // ANSI colors
 const colors = {
@@ -47,6 +48,7 @@ class VirtualShell {
       root,
       mountPoint: "/",
     });
+    seedOverlayFiles(overlayFs, options.files);
 
     this.env = new Bash({
       fs: overlayFs,
