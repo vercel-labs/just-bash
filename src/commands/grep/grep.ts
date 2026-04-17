@@ -35,6 +35,7 @@ const grepHelp = {
     "-B NUM                   print NUM lines of leading context",
     "-C NUM                   print NUM lines of context",
     "-e PATTERN               use PATTERN for matching",
+    "-f FILE, --file=FILE     obtain patterns from FILE",
     "    --include=GLOB       search only files matching GLOB",
     "    --exclude=GLOB       skip files matching GLOB",
     "    --exclude-dir=DIR    skip directories matching DIR",
@@ -72,6 +73,7 @@ export const grepCommand: Command = {
     const excludePatterns: string[] = [];
     const excludeDirPatterns: string[] = [];
     let pattern: string | null = null;
+    let patternFile: string | null = null;
     const files: string[] = [];
 
     // Parse arguments
@@ -81,6 +83,19 @@ export const grepCommand: Command = {
       if (arg.startsWith("-") && arg !== "-") {
         if (arg === "-e" && i + 1 < args.length) {
           pattern = args[++i];
+          continue;
+        }
+
+        if (arg === "-f" && i + 1 < args.length) {
+          patternFile = args[++i];
+          continue;
+        }
+        if (arg.startsWith("--file=")) {
+          patternFile = arg.slice("--file=".length);
+          continue;
+        }
+        if (arg === "--file" && i + 1 < args.length) {
+          patternFile = args[++i];
           continue;
         }
 
@@ -174,16 +189,48 @@ export const grepCommand: Command = {
           else if (flag === "h" || flag === "--no-filename") noFilename = true;
           else if (flag === "q" || flag === "--quiet" || flag === "--silent")
             quietMode = true;
-          else if (flag.startsWith("--")) {
+          else if (flag === "f" || flag === "--file") {
+            if (i + 1 < args.length) {
+              patternFile = args[++i];
+            } else {
+              return unknownOption("grep", `-${flag}`);
+            }
+            break;
+          } else if (flag.startsWith("--")) {
             return unknownOption("grep", flag);
           } else if (flag.length === 1) {
             return unknownOption("grep", `-${flag}`);
           }
         }
-      } else if (pattern === null) {
+      } else if (pattern === null && patternFile === null) {
         pattern = arg;
       } else {
         files.push(arg);
+      }
+    }
+
+    if (patternFile !== null) {
+      try {
+        const filePath = ctx.fs.resolvePath(ctx.cwd, patternFile);
+        const content = await ctx.fs.readFile(filePath);
+        // Split into patterns. A trailing newline is a pattern terminator,
+        // not a separator, so drop the empty element it produces. Remaining
+        // empty lines are kept — they are empty patterns that match every
+        // line (matching real grep).
+        const lines = content.split("\n");
+        if (lines.length > 0 && lines[lines.length - 1] === "") {
+          lines.pop();
+        }
+        if (lines.length === 0) {
+          return { stdout: "", stderr: "", exitCode: 1 };
+        }
+        pattern = lines.join("\n");
+      } catch {
+        return {
+          stdout: "",
+          stderr: `grep: ${patternFile}: No such file or directory\n`,
+          exitCode: 2,
+        };
       }
     }
 
@@ -193,6 +240,25 @@ export const grepCommand: Command = {
         stderr: "grep: missing pattern\n",
         exitCode: 2,
       };
+    }
+
+    // Handle newline-separated patterns (from -f or embedded newlines).
+    // Each line is a separate pattern; a line matches if any pattern matches.
+    // Empty lines are preserved — they are empty patterns that match every
+    // line (matching real grep).
+    if (pattern.includes("\n")) {
+      const patterns = pattern.split("\n");
+      if (fixedStrings) {
+        pattern = patterns
+          .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+          .join("|");
+      } else {
+        pattern = patterns.map((p) => `(?:${p})`).join("|");
+      }
+      fixedStrings = false;
+      if (!perlRegex) {
+        extendedRegex = true;
+      }
     }
 
     // Build regex using shared search-engine
@@ -710,6 +776,7 @@ export const flagsForFuzzing: CommandFuzzInfo = {
     { flag: "-B", type: "value", valueHint: "number" },
     { flag: "-C", type: "value", valueHint: "number" },
     { flag: "-e", type: "value", valueHint: "pattern" },
+    { flag: "-f", type: "value", valueHint: "path" },
   ],
   stdinType: "text",
   needsArgs: true,
