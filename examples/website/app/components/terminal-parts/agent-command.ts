@@ -218,7 +218,7 @@ export function createAgentCommand(term: TerminalWriter) {
                 const cmd = String(args.command).replace(/\t/g, "  ");
                 const lines = cmd.split("\n");
                 // Write each line separately for proper terminal rendering
-                term.write(`\x1b[36m$ ${lines[0]}\x1b[0m\r\n`);
+                term.write(`\x1b[36m▲ ${lines[0]}\x1b[0m\r\n`);
                 for (let i = 1; i < lines.length; i++) {
                   term.write(`\x1b[36m${lines[i]}\x1b[0m\r\n`);
                 }

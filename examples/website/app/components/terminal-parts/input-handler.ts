@@ -1,6 +1,6 @@
 import type { Bash } from "just-bash/browser";
 import { track } from "@vercel/analytics";
-import { HISTORY_KEY, MAX_HISTORY } from "./constants";
+import { HISTORY_KEY, MAX_HISTORY, PROMPT } from "./constants";
 import { formatMarkdown } from "./markdown";
 
 type Terminal = {
@@ -167,7 +167,7 @@ export function createInputHandler(term: Terminal, bash: Bash) {
   ];
 
   const redrawLine = () => {
-    term.write("\r$ " + cmd + "\x1b[K");
+    term.write("\r" + PROMPT + cmd + "\x1b[K");
     const moveBack = cmd.length - cursorPos;
     if (moveBack > 0) {
       term.write(`\x1b[${moveBack}D`);
@@ -245,7 +245,7 @@ export function createInputHandler(term: Terminal, bash: Bash) {
         // Show all matches
         term.writeln("");
         term.writeln(matches.join("  "));
-        term.write("$ " + cmd);
+        term.write(PROMPT + cmd);
         // Reposition cursor
         const moveBack = cmd.length - cursorPos;
         if (moveBack > 0) {
@@ -282,7 +282,7 @@ export function createInputHandler(term: Terminal, bash: Bash) {
 
     cmd = "";
     cursorPos = 0;
-    term.write("$ ");
+    term.write(PROMPT);
   };
 
   term.onData(async (e: string) => {
@@ -340,7 +340,7 @@ export function createInputHandler(term: Terminal, bash: Bash) {
     // Ctrl+L - clear screen (keep current line)
     if (e === "\x0c") {
       // Clear screen and scrollback, move cursor to home, then redraw prompt
-      term.write("\x1b[2J\x1b[3J\x1b[H$ " + cmd + "\x1b[K");
+      term.write("\x1b[2J\x1b[3J\x1b[H" + PROMPT + cmd + "\x1b[K");
       const moveBack = cmd.length - cursorPos;
       if (moveBack > 0) {
         term.write(`\x1b[${moveBack}D`);
@@ -456,7 +456,7 @@ export function createInputHandler(term: Terminal, bash: Bash) {
       term.writeln("^C");
       cmd = "";
       cursorPos = 0;
-      term.write("$ ");
+      term.write(PROMPT);
       return;
     }
 
