@@ -123,6 +123,34 @@ describe("cd command - Real Bash Comparison", () => {
     });
   });
 
+  describe("cd from a deleted cwd", () => {
+    it("should allow cd .. to escape a deleted cwd", async () => {
+      const env = await setupFiles(testDir, {
+        "lol/.keep": "",
+      });
+
+      const script = "cd lol && rm -rf ../lol && cd .. && basename $(pwd)";
+      const envResult = await env.exec(script);
+      const realResult = await runRealBash(script, testDir);
+
+      expect(envResult.stdout).toBe(realResult.stdout);
+      expect(envResult.exitCode).toBe(realResult.exitCode);
+    });
+
+    it("should allow cd / from a deleted cwd", async () => {
+      const env = await setupFiles(testDir, {
+        "gone/.keep": "",
+      });
+
+      const script = "cd gone && rm -rf ../gone && cd / && pwd";
+      const envResult = await env.exec(script);
+      const realResult = await runRealBash(script, testDir);
+
+      expect(envResult.stdout).toBe(realResult.stdout);
+      expect(envResult.exitCode).toBe(realResult.exitCode);
+    });
+  });
+
   describe("relative paths", () => {
     it("should handle relative path with .", async () => {
       const env = await setupFiles(testDir, {
