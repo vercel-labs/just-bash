@@ -102,5 +102,67 @@ describe("cd builtin", () => {
       expect(result.stderr).toContain("Not a directory");
       expect(result.exitCode).toBe(1);
     });
+
+    it("should error when relative path's intermediate component is missing", async () => {
+      const env = new Bash();
+      await env.exec("cd /tmp");
+      const result = await env.exec("cd nonexistent-xyzzy/..");
+      expect(result.stderr).toBe(
+        "bash: cd: nonexistent-xyzzy/..: No such file or directory\n",
+      );
+      expect(result.exitCode).toBe(1);
+    });
+
+    it("should error when absolute path's intermediate component is missing", async () => {
+      const env = new Bash();
+      const result = await env.exec("cd /nonexistent-xyzzy/..");
+      expect(result.stderr).toBe(
+        "bash: cd: /nonexistent-xyzzy/..: No such file or directory\n",
+      );
+      expect(result.exitCode).toBe(1);
+    });
+  });
+
+  describe("cd from a deleted cwd", () => {
+    it("should allow `cd ..` to escape a deleted cwd", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        mkdir -p /tmp/lol
+        cd /tmp/lol
+        rm -rf /tmp/lol
+        cd ..
+        pwd
+      `);
+      expect(result.stdout).toBe("/tmp\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should allow `cd /` from a deleted cwd", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        mkdir -p /tmp/gone
+        cd /tmp/gone
+        rm -rf /tmp/gone
+        cd /
+        pwd
+      `);
+      expect(result.stdout).toBe("/\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should climb out of a nested deleted tree via repeated `cd ..`", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        mkdir -p /tmp/outer/inner
+        cd /tmp/outer/inner
+        rm -rf /tmp/outer
+        cd ..
+        cd ..
+        pwd
+      `);
+      expect(result.stdout).toBe("/tmp\n");
+      expect(result.exitCode).toBe(0);
+    });
   });
 });

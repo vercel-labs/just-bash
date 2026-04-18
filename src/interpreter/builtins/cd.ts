@@ -79,31 +79,36 @@ export async function handleCd(
     }
   }
 
-  // Check path components before normalization to catch cases like "nonexistent/.."
-  // where the intermediate directory doesn't exist
-  const pathToCheck = target.startsWith("/")
-    ? target
-    : `${ctx.state.cwd}/${target}`;
-  const parts = pathToCheck.split("/").filter((p) => p && p !== ".");
-  let currentPath = "";
-  for (const part of parts) {
+  // Walk the target path using bash's logical (-L) semantics:
+  // - The current working directory is trusted and never stat'd, so `cd ..`
+  //   still works when the cwd has been removed (e.g. `rm -rf` of $PWD).
+  // - `..` pops the stack textually without touching the filesystem, matching
+  //   real bash's behavior where $PWD anchors resolution.
+  // - Only newly added components from the user-supplied target are stat'd,
+  //   so `cd nonexistent/..` still errors the same way real bash does.
+  const isAbsolute = target.startsWith("/");
+  const stack: string[] = isAbsolute
+    ? []
+    : ctx.state.cwd.split("/").filter((p) => p);
+  const inputParts = target.split("/").filter((p) => p && p !== ".");
+  for (const part of inputParts) {
     if (part === "..") {
-      // Go up one level
-      currentPath = currentPath.split("/").slice(0, -1).join("/") || "/";
-    } else {
-      currentPath = currentPath ? `${currentPath}/${part}` : `/${part}`;
-      try {
-        const stat = await ctx.fs.stat(currentPath);
-        if (!stat.isDirectory) {
-          return failure(`bash: cd: ${target}: Not a directory\n`);
-        }
-      } catch {
-        return failure(`bash: cd: ${target}: No such file or directory\n`);
+      stack.pop();
+      continue;
+    }
+    stack.push(part);
+    const currentPath = `/${stack.join("/")}`;
+    try {
+      const stat = await ctx.fs.stat(currentPath);
+      if (!stat.isDirectory) {
+        return failure(`bash: cd: ${target}: Not a directory\n`);
       }
+    } catch {
+      return failure(`bash: cd: ${target}: No such file or directory\n`);
     }
   }
 
-  let newDir = currentPath || "/";
+  let newDir = stack.length > 0 ? `/${stack.join("/")}` : "/";
 
   // If -P is specified, resolve symlinks to get the physical path
   if (physical) {
