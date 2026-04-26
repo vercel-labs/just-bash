@@ -45,6 +45,7 @@
     "dist/utils/*.d.ts",
     "vendor/cpython-emscripten/",
     "README.md",
+    "CHANGELOG.md",
     "dist/AGENTS.md"
   ],
   "bin": {
@@ -63,7 +64,7 @@
     "build:browser": "esbuild dist/browser.js --bundle --platform=browser --format=esm --minify --outfile=dist/bundle/browser.js --external:diff --external:minimatch --external:sprintf-js --external:turndown --external:node:zlib --external:@mongodb-js/zstd --external:node-liblzma --external:seek-bzip --define:__BROWSER__=true --alias:node:dns=./src/shims/browser-unsupported.js",
     "build:cli": "esbuild dist/cli/just-bash.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bin --entry-names=[name] --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node' --external:sql.js --external:quickjs-emscripten --external:@mongodb-js/zstd --external:node-liblzma --external:seek-bzip",
     "build:shell": "esbuild dist/cli/shell.js --bundle --splitting --platform=node --format=esm --minify --outdir=dist/bin/shell --entry-names=[name] --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node' --external:sql.js --external:quickjs-emscripten --external:@mongodb-js/zstd --external:node-liblzma --external:seek-bzip",
-    "prepublishOnly": "pnpm validate",
+    "prepublishOnly": "pnpm test:dist",
     "validate": "pnpm lint && pnpm knip && pnpm typecheck && pnpm build && pnpm check:worker-sync && pnpm test:run && pnpm test:wasm && pnpm test:dist",
     "typecheck": "tsc --noEmit",
     "lint": "pnpm lint:banned",
