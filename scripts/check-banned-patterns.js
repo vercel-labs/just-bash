@@ -551,7 +551,7 @@ const SKIP_PATTERNS = [
   /prototype-pollution\.test/, // These test the protection
   /src\/security\//, // Security module intentionally references blocked patterns
   /src\/commands\/python3\/worker\.js$/, // Generated artifact, source is worker.ts
-  /src\/commands\/js-exec\/worker\.js$/, // Generated artifact, source is worker.ts
+  /src\/commands\/js-exec\/js-exec-worker\.js$/, // Generated artifact, source is js-exec-worker.ts
   /scripts\/check-banned-patterns\.js$/, // Self-lint script contains pattern definitions by design
 ];
 

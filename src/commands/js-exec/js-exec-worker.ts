@@ -5,8 +5,8 @@
  * Defense-in-depth activates AFTER QuickJS loads (WASM init needs unrestricted JS).
  * User JavaScript code runs inside the QuickJS sandbox with no access to Node.js globals.
  *
- * Build: Bundled to worker.js via esbuild (see package.json "build:worker").
- * Run: npx esbuild src/commands/js-exec/worker.ts --bundle --platform=node --format=esm --outfile=src/commands/js-exec/worker.js --external:quickjs-emscripten
+ * Build: Bundled to js-exec-worker.js via esbuild (see package.json "build:worker").
+ * Run: npx esbuild src/commands/js-exec/js-exec-worker.ts --bundle --platform=node --format=esm --outfile=src/commands/js-exec/js-exec-worker.js --external:quickjs-emscripten
  */
 
 import { stripTypeScriptTypes } from "node:module";

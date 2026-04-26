@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
@@ -115,6 +116,62 @@ describe("just-bash bundled binary", () => {
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
   }, 60000); // 60s timeout for first WASM load
+
+  // Regression test for https://github.com/vercel-labs/just-bash/issues/194:
+  // both python3 and js-exec workers shipped as `worker.js` in the bundle, so
+  // js-exec loaded the python worker and every invocation timed out. If this
+  // ever regresses, js-exec hangs at runtime instead of failing fast.
+  // js-exec worker requires stripTypeScriptTypes (Node >= 22.6).
+  const nodeMajor = Number(process.versions.node.split(".")[0]);
+  it.skipIf(nodeMajor < 22)(
+    "should lazy-load commands (js-exec with QuickJS via worker_threads)",
+    async () => {
+      const result = await runBin([
+        "--javascript",
+        "-c",
+        `js-exec -c "console.log(1 + 2)"`,
+      ]);
+      expect(result.stdout).toBe("3\n");
+      expect(result.exitCode).toBe(0);
+    },
+    30000,
+  );
+});
+
+// Static guard against the exact filename collision in issue #194: the
+// bundled chunk for js-exec must reference its own worker file, not the
+// python3 worker. This catches the bug at build time without spinning up
+// a worker thread.
+describe("just-bash bundled worker layout", () => {
+  const chunksDir = resolve(__dirname, "../../dist/bundle/chunks");
+
+  it("ships distinct worker files for python3 and js-exec", () => {
+    expect(existsSync(resolve(chunksDir, "worker.js"))).toBe(true);
+    expect(existsSync(resolve(chunksDir, "js-exec-worker.js"))).toBe(true);
+  });
+
+  it("js-exec chunk references ./js-exec-worker.js (not the shared ./worker.js)", () => {
+    const jsExecChunks = readdirSync(chunksDir).filter((name) =>
+      /^js-exec-[A-Z0-9]+\.js$/.test(name),
+    );
+    expect(jsExecChunks.length).toBeGreaterThan(0);
+
+    const offending: string[] = [];
+    let foundCorrectRef = false;
+    for (const name of jsExecChunks) {
+      const src = readFileSync(resolve(chunksDir, name), "utf8");
+      if (src.includes(`new URL("./js-exec-worker.js"`)) {
+        foundCorrectRef = true;
+      }
+      // Any js-exec chunk that references the bare ./worker.js URL would
+      // load the python worker at runtime — that's the issue #194 bug.
+      if (src.includes(`new URL("./worker.js"`)) {
+        offending.push(name);
+      }
+    }
+    expect(offending).toEqual([]);
+    expect(foundCorrectRef).toBe(true);
+  });
 });
 
 describe("just-bash CJS bundle", () => {

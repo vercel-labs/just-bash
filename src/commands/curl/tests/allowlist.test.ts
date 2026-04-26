@@ -81,7 +81,9 @@ describe("curl URL allow-list", () => {
       const env = new Bash({
         network: { dangerouslyAllowFullInternetAccess: true },
       });
-      const result = await env.exec("curl https://any-domain.com/test");
+      // .invalid is RFC 6761 reserved — DNS fails fast, no real network
+      // round-trip. We only care that the allowlist *didn't* reject.
+      const result = await env.exec("curl https://nonexistent.invalid/test");
       expect(result.stderr).not.toContain("Network access denied");
     });
   });

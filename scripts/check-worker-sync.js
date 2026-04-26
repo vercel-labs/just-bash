@@ -13,8 +13,8 @@ const WORKERS = [
   },
   {
     name: "js-exec",
-    ts: "src/commands/js-exec/worker.ts",
-    js: "src/commands/js-exec/worker.js",
+    ts: "src/commands/js-exec/js-exec-worker.ts",
+    js: "src/commands/js-exec/js-exec-worker.js",
     external: ["quickjs-emscripten"],
   },
 ];
