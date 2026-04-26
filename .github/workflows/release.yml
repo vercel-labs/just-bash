@@ -6,12 +6,12 @@ name: Release
 # satisfies the "Commits must have verified signatures" repository rule
 # without any GPG key management or bypass exceptions.
 #
-# Publishing to npm is currently DISABLED. To enable:
-#   1. Configure an npm Trusted Publisher for the `just-bash` package:
-#      https://www.npmjs.com/package/just-bash → Settings → Trusted Publishers
-#      Repository: vercel-labs/just-bash
-#      Workflow:   release.yml   ← this file's name. Renaming breaks publish.
-#   2. Uncomment the `publish:` line in the changesets/action step below.
+# Publishing to npm is enabled via the npm Trusted Publisher mechanism.
+# The workflow filename (`release.yml`) is bound to the publisher config on
+# npm.com — renaming or replacing this file will break publishing until the
+# npm-side setting is updated to match.
+#
+# See https://docs.npmjs.com/trusted-publishers for the publisher binding.
 
 on:
   push:
@@ -46,11 +46,11 @@ jobs:
       - name: Build
         run: pnpm --filter './packages/*' build
 
-      - name: Create release PR (publishing disabled)
+      - name: Create release PR or publish
         uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf # v1.7.0
         with:
           version: pnpm version-packages
-          # publish: pnpm release   # ← uncomment to enable publishing
+          publish: pnpm release
           commit: "chore: release"
           title: "chore: release"
           commitMode: github-api

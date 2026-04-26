@@ -26,6 +26,6 @@ Internal-only changes (CI, docs, repo housekeeping) don't need a changeset. If y
 
 Once any unreleased changesets land on `main`, the release workflow opens (or updates) a "chore: release" PR with bumped versions and the generated CHANGELOG. The action runs with `commitMode: github-api`, so the release commit is created via the GitHub REST API and auto-signed by GitHub — no GPG keys or bypass exceptions needed.
 
-Merging that PR triggers the publish step — but **publishing is currently disabled** in `.github/workflows/release.yml`. To enable it, uncomment the `publish: pnpm release` line in the `changesets/action` step.
+Merging that PR triggers a publish to npm via the workflow's `publish: pnpm release` step. Authentication uses npm Trusted Publishers (OIDC) — no NPM_TOKEN secret is involved. Each published tarball includes a Sigstore-backed provenance attestation linking it back to the GitHub Actions run.
 
 The npm Trusted Publisher must also be configured before the first publish; see the comment block in `release.yml`.
