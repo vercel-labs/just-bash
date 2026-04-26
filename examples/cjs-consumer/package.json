@@ -3,10 +3,13 @@
   "version": "1.0.0",
   "description": "Example of using just-bash from a CommonJS project",
   "scripts": {
-    "typecheck": "npx tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "start": "node index.js"
   },
   "dependencies": {
-    "just-bash": "file:../.."
+    "just-bash": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
   }
 }
