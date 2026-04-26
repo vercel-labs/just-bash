@@ -18,10 +18,15 @@
     "test:examples": "pnpm --filter cjs-consumer-example typecheck",
     "check:worker-sync": "pnpm --filter just-bash check:worker-sync",
     "shell": "pnpm --filter just-bash shell",
-    "dev:exec": "pnpm --filter just-bash dev:exec"
+    "dev:exec": "pnpm --filter just-bash dev:exec",
+    "changeset": "changeset",
+    "version-packages": "changeset version && pnpm install --lockfile-only",
+    "release": "pnpm --filter './packages/*' build && changeset publish"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.3.10"
+    "@biomejs/biome": "2.3.10",
+    "@changesets/changelog-github": "^0.6.0",
+    "@changesets/cli": "^2.31.0"
   },
   "packageManager": "pnpm@8.15.9+sha512.499434c9d8fdd1a2794ebf4552b3b25c0a633abcee5bb15e7b5de90f32f47b513aca98cd5cfd001c31f0db454bc3804edccd578501e4ca293a6816166bbd9f81"
 }
