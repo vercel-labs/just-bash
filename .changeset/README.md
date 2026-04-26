@@ -24,6 +24,8 @@ Internal-only changes (CI, docs, repo housekeeping) don't need a changeset. If y
 
 ## Releasing
 
-Once any unreleased changesets land on `main`, the release workflow opens (or updates) a "chore: release" PR with bumped versions and the generated CHANGELOG. Merging that PR triggers the publish step — but **publishing is currently disabled** in `.github/workflows/release.yml`. To enable it, add `publish: pnpm release` to the `changesets/action` step.
+Once any unreleased changesets land on `main`, the release workflow opens (or updates) a "chore: release" PR with bumped versions and the generated CHANGELOG. The action runs with `commitMode: github-api`, so the release commit is created via the GitHub REST API and auto-signed by GitHub — no GPG keys or bypass exceptions needed.
+
+Merging that PR triggers the publish step — but **publishing is currently disabled** in `.github/workflows/release.yml`. To enable it, uncomment the `publish: pnpm release` line in the `changesets/action` step.
 
 The npm Trusted Publisher must also be configured before the first publish; see the comment block in `release.yml`.
