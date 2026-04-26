@@ -1,17 +1,17 @@
 name: Release
 
-# Currently this workflow only opens "Version Packages" PRs from queued
-# changesets. Publishing to npm is intentionally disabled.
+# Opens / updates a "chore: release" PR when changesets are queued on main.
+# Uses changesets/action with `commitMode: github-api`, so commits go through
+# the GitHub REST API and are auto-signed by GitHub's signing key. This
+# satisfies the "Commits must have verified signatures" repository rule
+# without any GPG key management or bypass exceptions.
 #
-# To enable publishing:
+# Publishing to npm is currently DISABLED. To enable:
 #   1. Configure an npm Trusted Publisher for the `just-bash` package:
 #      https://www.npmjs.com/package/just-bash → Settings → Trusted Publishers
 #      Repository: vercel-labs/just-bash
 #      Workflow:   release.yml   ← this file's name. Renaming breaks publish.
 #   2. Uncomment the `publish:` line in the changesets/action step below.
-#
-# OIDC + provenance work without an NPM_TOKEN once Trusted Publisher is set up.
-# `id-token: write` is granted below so no permissions change is needed.
 
 on:
   push:
@@ -47,12 +47,13 @@ jobs:
         run: pnpm --filter './packages/*' build
 
       - name: Create release PR (publishing disabled)
-        uses: changesets/action@v1
+        uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf # v1.7.0
         with:
           version: pnpm version-packages
           # publish: pnpm release   # ← uncomment to enable publishing
           commit: "chore: release"
           title: "chore: release"
+          commitMode: github-api
         env:
           NPM_CONFIG_PROVENANCE: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
