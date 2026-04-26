@@ -1,0 +1,58 @@
+name: Release
+
+# Currently this workflow only opens "Version Packages" PRs from queued
+# changesets. Publishing to npm is intentionally disabled.
+#
+# To enable publishing:
+#   1. Configure an npm Trusted Publisher for the `just-bash` package:
+#      https://www.npmjs.com/package/just-bash → Settings → Trusted Publishers
+#      Repository: vercel-labs/just-bash
+#      Workflow:   release.yml   ← this file's name. Renaming breaks publish.
+#   2. Uncomment the `publish:` line in the changesets/action step below.
+#
+# OIDC + provenance work without an NPM_TOKEN once Trusted Publisher is set up.
+# `id-token: write` is granted below so no permissions change is needed.
+
+on:
+  push:
+    branches: [main]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm --filter './packages/*' build
+
+      - name: Create release PR (publishing disabled)
+        uses: changesets/action@v1
+        with:
+          version: pnpm version-packages
+          # publish: pnpm release   # ← uncomment to enable publishing
+          commit: "chore: release"
+          title: "chore: release"
+        env:
+          NPM_CONFIG_PROVENANCE: "true"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
