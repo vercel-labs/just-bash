@@ -60,9 +60,9 @@
       "!.claude",
       "!.pnpm-store",
       "!.docs-test-tmp",
-      "!src/commands/python3/worker.js",
-      "!src/commands/js-exec/js-exec-worker.js",
-      "!vendor"
+      "!packages/just-bash/src/commands/python3/worker.js",
+      "!packages/just-bash/src/commands/js-exec/js-exec-worker.js",
+      "!**/vendor"
     ]
   }
 }

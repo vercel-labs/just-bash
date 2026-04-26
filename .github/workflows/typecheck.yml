@@ -23,24 +23,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck
+      - name: Typecheck packages
         run: pnpm typecheck
 
       - name: Build
         run: pnpm build
 
-      - name: Install example dependencies
-        run: pnpm install --frozen-lockfile
-        working-directory: examples/bash-agent
+      - name: Typecheck bash-agent example
+        run: pnpm --filter bash-agent-example typecheck
 
-      - name: Typecheck example
-        run: pnpm typecheck
-        working-directory: examples/bash-agent
-
-      - name: Install CJS example dependencies
-        run: pnpm install --no-frozen-lockfile
-        working-directory: examples/cjs-consumer
-
-      - name: Typecheck CJS example
-        run: npx tsc --noEmit
-        working-directory: examples/cjs-consumer
+      - name: Typecheck cjs-consumer example
+        run: pnpm --filter cjs-consumer-example typecheck

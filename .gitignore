@@ -5,7 +5,6 @@ package-lock.json
 .idea
 .env
 .env.*
-dist
 /coverage
 debug-*.ts
 test-*.ts
@@ -16,7 +15,5 @@ todo/
 *.parsed.json
 .pnpm-store
 .docs-test-tmp/
-src/commands/python3/worker.js
-src/commands/js-exec/js-exec-worker.js
 fuzz-*.log
 .claude/settings.local.json
