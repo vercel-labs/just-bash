@@ -4,13 +4,18 @@
   "description": "Interactive AI agent for exploring the just-bash codebase",
   "type": "module",
   "scripts": {
-    "start": "npx tsx main.ts",
-    "typecheck": "npx tsc --noEmit"
+    "start": "tsx main.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "ai": "^6.0.11",
     "bash-tool": "^1.3.1",
     "glob": "^11.0.0",
-    "just-bash": "file:../.."
+    "just-bash": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.3"
   }
 }
