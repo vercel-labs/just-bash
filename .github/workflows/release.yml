@@ -34,9 +34,13 @@ jobs:
 
       - uses: pnpm/action-setup@v4
 
+      # Node 24 (LTS Krypton) ships npm >= 11.12, which has Trusted Publisher
+      # OIDC authentication. Node 22's bundled npm 10.x can sign provenance
+      # attestations but cannot use OIDC tokens to authenticate the publish
+      # itself, leading to a confusing 404 after provenance signing succeeds.
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: "pnpm"
           registry-url: "https://registry.npmjs.org"
 
