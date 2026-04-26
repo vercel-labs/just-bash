@@ -106,7 +106,7 @@ export class LiteTerminal {
     this.outputElement.setAttribute("aria-label", "Terminal output");
     container.appendChild(this.outputElement);
 
-    // Cursor element (inline within text flow)
+    // Cursor element (inline, but visually overlaid onto the current cell)
     this.cursorElement = document.createElement("span");
     this.cursorElement.className = "lite-terminal-cursor";
     if (this._options.cursorBlink) {
@@ -282,7 +282,7 @@ export class LiteTerminal {
 
     // Find where in the segments the cursor is
     while (segmentIndex < line.length && pos < this.currentCol) {
-      const segLen = line[segmentIndex].text.length;
+      const segLen = this.countColumns(line[segmentIndex].text);
       if (pos + segLen > this.currentCol) {
         charInSegment = this.currentCol - pos;
         break;
@@ -310,8 +310,10 @@ export class LiteTerminal {
     } else if (charInSegment > 0) {
       // We're in the middle of a segment, need to split it
       const seg = line[segmentIndex];
-      const before = seg.text.slice(0, charInSegment);
-      const after = seg.text.slice(charInSegment + 1);
+      const { beforeCursor: before, afterCursor: after } = this.extractCursorCell(
+        seg.text,
+        charInSegment
+      );
 
       // Check if styles match
       if (this.stylesEqual(seg.style, this.currentStyle)) {
@@ -332,12 +334,12 @@ export class LiteTerminal {
     } else {
       // We're at the start of a segment
       const seg = line[segmentIndex];
+      const { afterCursor: after } = this.extractCursorCell(seg.text, 0);
       if (this.stylesEqual(seg.style, this.currentStyle)) {
         // Same style, replace first char
-        seg.text = char + seg.text.slice(1);
+        seg.text = char + after;
       } else {
         // Different style
-        const after = seg.text.slice(1);
         const newSegments: StyledSegment[] = [
           { text: char, style: { ...this.currentStyle } },
         ];
@@ -423,11 +425,11 @@ export class LiteTerminal {
         let segmentIndex = 0;
 
         while (segmentIndex < line.length && pos < this.currentCol) {
-          const segLen = line[segmentIndex].text.length;
+          const segLen = this.countColumns(line[segmentIndex].text);
           if (pos + segLen > this.currentCol) {
             // Truncate this segment
-            line[segmentIndex].text = line[segmentIndex].text.slice(
-              0,
+            line[segmentIndex].text = this.takeColumns(
+              line[segmentIndex].text,
               this.currentCol - pos
             );
             segmentIndex++;
@@ -501,7 +503,6 @@ export class LiteTerminal {
     this.dirtyLines.clear();
     this.lastCursorLine = this.currentLine;
 
-    // Update cursor size if needed
     this.updateCursorSize();
   }
 
@@ -568,17 +569,20 @@ export class LiteTerminal {
       if (!segment.text) continue;
 
       const segStart = charPos;
-      const segEnd = charPos + segment.text.length;
+      const segEnd = charPos + this.countColumns(segment.text);
 
       if (!cursorInserted && this.currentCol >= segStart && this.currentCol < segEnd) {
         // Cursor is within this segment
         const offsetInSegment = this.currentCol - segStart;
-        const beforeCursor = segment.text.slice(0, offsetInSegment);
-        const afterCursor = segment.text.slice(offsetInSegment);
+        const { beforeCursor, cursorChar, afterCursor } = this.extractCursorCell(
+          segment.text,
+          offsetInSegment
+        );
 
         if (beforeCursor) {
           lineEl.appendChild(this.createStyledSpan(beforeCursor, segment.style));
         }
+        this.configureCursorElement(cursorChar, segment.style);
         lineEl.appendChild(this.cursorElement);
         cursorInserted = true;
         if (afterCursor) {
@@ -588,11 +592,12 @@ export class LiteTerminal {
         lineEl.appendChild(this.createStyledSpan(segment.text, segment.style));
       }
 
-      charPos += segment.text.length;
+      charPos += this.countColumns(segment.text);
     }
 
     // Cursor at end of line
     if (!cursorInserted) {
+      this.configureCursorElement("\u00A0", {});
       lineEl.appendChild(this.cursorElement);
     }
   }
@@ -711,6 +716,83 @@ export class LiteTerminal {
 
     this.cursorElement.style.width = `${charWidth}px`;
     this.cursorElement.style.height = `${lineHeight}px`;
+    this.cursorElement.style.marginRight = "0";
+  }
+
+  private configureCursorElement(text: string, style: TextStyle): void {
+    if (!this.cursorElement) return;
+
+    this.cursorElement.className = "lite-terminal-cursor";
+    if (this._options.cursorBlink) {
+      this.cursorElement.classList.add("blink");
+    }
+
+    const classes = this.getStyleClasses(style);
+    if (classes) {
+      this.cursorElement.className += ` ${classes}`;
+    }
+
+    this.cursorElement.style.cssText = "";
+    const inlineStyle = this.getInlineStyle(style);
+    if (inlineStyle) {
+      this.cursorElement.style.cssText = inlineStyle;
+    }
+
+    this.cursorElement.textContent = text;
+    this.cursorElement.style.setProperty(
+      "--cursor-text-color",
+      this.getRenderedTextColor(style)
+    );
+    this.applyCursorTheme();
+  }
+
+  private extractCursorCell(
+    text: string,
+    offsetInText: number
+  ): { beforeCursor: string; cursorChar: string; afterCursor: string } {
+    const codePoints = Array.from(text);
+    const cursorChar = codePoints[offsetInText];
+    if (cursorChar === undefined) {
+      return {
+        beforeCursor: text,
+        cursorChar: "\u00A0",
+        afterCursor: "",
+      };
+    }
+
+    return {
+      beforeCursor: codePoints.slice(0, offsetInText).join(""),
+      cursorChar,
+      afterCursor: codePoints.slice(offsetInText + 1).join(""),
+    };
+  }
+
+  private countColumns(text: string): number {
+    return Array.from(text).length;
+  }
+
+  private takeColumns(text: string, count: number): string {
+    return Array.from(text).slice(0, count).join("");
+  }
+
+  private getRenderedTextColor(style: TextStyle): string {
+    if (!this.outputElement) return "";
+
+    const classes = this.getStyleClasses(style);
+    const inlineStyle = this.getInlineStyle(style);
+
+    if (!classes && !inlineStyle) {
+      return getComputedStyle(this.outputElement).color;
+    }
+
+    const probe = document.createElement("span");
+    probe.textContent = "X";
+    if (classes) probe.className = classes;
+    if (inlineStyle) probe.style.cssText = inlineStyle;
+    this.outputElement.appendChild(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
   }
 
   // Allowlist of valid color class names (prevents XSS via class injection)
@@ -820,9 +902,14 @@ export class LiteTerminal {
       theme.brightBlack || "#666"
     );
 
-    // Cursor color
-    if (this.cursorElement) {
-      this.cursorElement.style.backgroundColor = theme.cursor || "#fff";
-    }
+    this.applyCursorTheme();
+  }
+
+  private applyCursorTheme(): void {
+    if (!this.cursorElement || !this.container) return;
+
+    const theme = this._options.theme || Object.create(null);
+    this.cursorElement.style.setProperty("--cursor-bg", theme.cursor || "#fff");
+    this.cursorElement.style.setProperty("--cursor-block-fg", theme.background || "#000");
   }
 }
