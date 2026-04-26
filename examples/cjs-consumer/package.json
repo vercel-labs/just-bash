@@ -1,6 +1,7 @@
 {
   "name": "cjs-consumer-example",
   "version": "1.0.0",
+  "private": true,
   "description": "Example of using just-bash from a CommonJS project",
   "scripts": {
     "typecheck": "tsc --noEmit",

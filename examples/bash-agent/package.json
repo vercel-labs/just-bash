@@ -1,6 +1,7 @@
 {
   "name": "bash-agent-example",
   "version": "1.0.0",
+  "private": true,
   "description": "Interactive AI agent for exploring the just-bash codebase",
   "type": "module",
   "scripts": {

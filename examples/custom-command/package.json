@@ -1,16 +1,22 @@
 {
   "name": "custom-command-example",
   "version": "1.0.0",
+  "private": true,
   "description": "Example of custom commands in just-bash",
   "type": "module",
   "scripts": {
-    "start": "npx tsx main.ts",
-    "typecheck": "npx tsc --noEmit"
+    "start": "tsx main.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@ai-sdk/gateway": "^3.0.2",
     "@steipete/summarize-core": "^0.7.1",
     "ai": "^6.0.3",
-    "just-bash": "link:../.."
+    "just-bash": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.3"
   }
 }
