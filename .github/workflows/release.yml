@@ -43,8 +43,36 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Re-run the full validation gate on the merge commit before doing
+      # anything release-related. Branch protection covers the PR's HEAD,
+      # but flaky tests, dep drift, or admin merges can let a broken commit
+      # land on main. Anything publish-worthy must pass these checks first.
+      - name: Lint
+        run: pnpm lint
+
+      - name: Knip
+        run: pnpm knip
+
+      - name: Typecheck
+        run: pnpm typecheck
+
       - name: Build
         run: pnpm --filter './packages/*' build
+
+      - name: Check worker sync
+        run: pnpm check:worker-sync
+
+      - name: Unit tests
+        run: pnpm test:unit
+
+      - name: Comparison tests
+        run: pnpm test:comparison
+
+      - name: WASM tests
+        run: pnpm test:wasm
+
+      - name: Bundle smoke test
+        run: pnpm test:dist
 
       - name: Create release PR or publish
         uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf # v1.7.0
