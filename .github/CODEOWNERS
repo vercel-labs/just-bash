@@ -1,0 +1,9 @@
+# Default: changes anywhere need a review from a maintainer.
+* @cramforce
+
+# Release plumbing — the workflow is bound to npm Trusted Publisher by
+# filename, so a rename or behavioural change is a security-relevant edit.
+# Keep these locked to maintainers explicitly.
+/.github/workflows/release.yml @cramforce
+/.changeset/config.json        @cramforce
+/.github/CODEOWNERS            @cramforce
