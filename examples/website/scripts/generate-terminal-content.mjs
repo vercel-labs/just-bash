@@ -10,19 +10,19 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, "../../..");
+const packageDir = path.resolve(__dirname, "../../../packages/just-bash");
 const outputFile = path.resolve(
   __dirname,
   "../app/components/terminal-content.ts"
 );
 
-// Read repo files
-const readme = fs.readFileSync(path.join(repoRoot, "README.md"), "utf-8");
-const license = fs.readFileSync(path.join(repoRoot, "LICENSE"), "utf-8");
+// Read just-bash package files
+const readme = fs.readFileSync(path.join(packageDir, "README.md"), "utf-8");
+const license = fs.readFileSync(path.join(packageDir, "LICENSE"), "utf-8");
 const packageJson = JSON.parse(
-  fs.readFileSync(path.join(repoRoot, "package.json"), "utf-8")
+  fs.readFileSync(path.join(packageDir, "package.json"), "utf-8")
 );
-const agentsMd = fs.readFileSync(path.join(repoRoot, "AGENTS.npm.md"), "utf-8");
+const agentsMd = fs.readFileSync(path.join(packageDir, "AGENTS.npm.md"), "utf-8");
 const wtfIsThis = fs.readFileSync(path.resolve(__dirname, "../README.md"), "utf-8");
 
 // Escape backticks and ${} for template literals
