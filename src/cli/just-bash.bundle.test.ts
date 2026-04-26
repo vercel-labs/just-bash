@@ -121,15 +121,21 @@ describe("just-bash bundled binary", () => {
   // both python3 and js-exec workers shipped as `worker.js` in the bundle, so
   // js-exec loaded the python worker and every invocation timed out. If this
   // ever regresses, js-exec hangs at runtime instead of failing fast.
-  it("should lazy-load commands (js-exec with QuickJS via worker_threads)", async () => {
-    const result = await runBin([
-      "--javascript",
-      "-c",
-      `js-exec -c "console.log(1 + 2)"`,
-    ]);
-    expect(result.stdout).toBe("3\n");
-    expect(result.exitCode).toBe(0);
-  }, 30000);
+  // js-exec worker requires stripTypeScriptTypes (Node >= 22.6).
+  const nodeMajor = Number(process.versions.node.split(".")[0]);
+  it.skipIf(nodeMajor < 22)(
+    "should lazy-load commands (js-exec with QuickJS via worker_threads)",
+    async () => {
+      const result = await runBin([
+        "--javascript",
+        "-c",
+        `js-exec -c "console.log(1 + 2)"`,
+      ]);
+      expect(result.stdout).toBe("3\n");
+      expect(result.exitCode).toBe(0);
+    },
+    30000,
+  );
 });
 
 // Static guard against the exact filename collision in issue #194: the
