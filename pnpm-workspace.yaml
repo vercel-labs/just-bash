@@ -1,4 +1,3 @@
 packages:
   - packages/*
-  - examples/cjs-consumer
-  - examples/bash-agent
+  - examples/*

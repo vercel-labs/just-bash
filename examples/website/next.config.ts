@@ -21,7 +21,17 @@ const cspHeader = `
   .trim();
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["just-bash"],
+  serverExternalPackages: [
+    "just-bash",
+    // just-bash externalizes these in its own bundle; mark them external
+    // here so turbopack doesn't try to bundle the native binaries when it
+    // resolves the workspace-linked just-bash.
+    "@mongodb-js/zstd",
+    "node-liblzma",
+    "seek-bzip",
+    "sql.js",
+    "quickjs-emscripten",
+  ],
   outputFileTracingIncludes: {
     "/api/agent": ["./app/api/agent/_agent-data/**/*"],
     "/api/fs": ["./app/api/agent/_agent-data/**/*"],
