@@ -1,3 +1,13 @@
 packages:
   - packages/*
   - examples/*
+
+# Packages whose install scripts we allow to run. pnpm 10 blocks install
+# scripts by default; this is the explicit allowlist for build-time native
+# bindings (zstd/liblzma) and the bundlers that need a per-platform binary.
+onlyBuiltDependencies:
+  - "@mongodb-js/zstd"
+  - esbuild
+  - node-liblzma
+  - sharp
+  - unrs-resolver
