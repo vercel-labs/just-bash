@@ -1,0 +1,63 @@
+{
+  "name": "@just-bash/executor",
+  "version": "0.1.0",
+  "description": "Tool-invocation companion for just-bash. Wires @executor-js/sdk into js-exec via the invokeTool hook.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vercel-labs/just-bash.git",
+    "directory": "packages/just-bash-executor"
+  },
+  "homepage": "https://github.com/vercel-labs/just-bash/tree/main/packages/just-bash-executor#readme",
+  "bugs": {
+    "url": "https://github.com/vercel-labs/just-bash/issues"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc && pnpm build:clean",
+    "build:clean": "find dist -name '*.test.js' -delete && find dist -name '*.test.d.ts' -delete",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "lint:fix": "pnpm --workspace-root lint:fix"
+  },
+  "license": "Apache-2.0",
+  "author": "Malte and Claude",
+  "peerDependencies": {
+    "just-bash": "workspace:*",
+    "@executor-js/sdk": "0.0.1-beta.5",
+    "@executor-js/plugin-graphql": "0.0.1-beta.5",
+    "@executor-js/plugin-mcp": "0.0.1-beta.5",
+    "@executor-js/plugin-openapi": "0.0.1-beta.5"
+  },
+  "peerDependenciesMeta": {
+    "@executor-js/plugin-graphql": {
+      "optional": true
+    },
+    "@executor-js/plugin-mcp": {
+      "optional": true
+    },
+    "@executor-js/plugin-openapi": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  }
+}
