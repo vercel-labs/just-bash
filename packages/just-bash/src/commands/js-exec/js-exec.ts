@@ -285,7 +285,15 @@ function normalizeJsWorkerMessage(
   }
 
   if (raw.success) {
-    return { success: true };
+    const result: JsExecWorkerOutput = { success: true };
+    const full = msg as Record<string, unknown>;
+    if (typeof full.executorResult === "string") {
+      result.executorResult = full.executorResult;
+    }
+    if (Array.isArray(full.executorLogs)) {
+      result.executorLogs = full.executorLogs as string[];
+    }
+    return result;
   }
 
   return {
@@ -412,6 +420,76 @@ async function executeJS(
   );
 }
 
+/**
+ * Shared queue-and-run logic: sets up the bridge, queues the worker input,
+ * handles timeout, and returns the raw bridge output + worker result.
+ */
+async function queueAndRun(
+  workerInput: JsExecWorkerInput,
+  bridgeHandler: BridgeHandler,
+  timeoutMs: number,
+): Promise<{
+  bridgeOutput: import("../worker-bridge/bridge-handler.js").BridgeOutput;
+  workerResult: JsExecWorkerOutput;
+}> {
+  let resolveWorker!: (result: JsExecWorkerOutput) => void;
+  const workerPromise = new Promise<JsExecWorkerOutput>((resolve) => {
+    resolveWorker = resolve;
+  });
+
+  const queueEntry: QueuedExecution = {
+    input: workerInput,
+    resolve: () => {},
+  };
+
+  const timeoutHandle = _setTimeout(() => {
+    if (currentExecution === queueEntry) {
+      const workerToTerminate = sharedWorker;
+      if (workerToTerminate) {
+        sharedWorker = null;
+        void workerToTerminate.terminate();
+      }
+      currentExecution = null;
+      processNextExecution();
+    } else {
+      queueEntry.canceled = true;
+      if (!currentExecution) {
+        processNextExecution();
+      }
+    }
+    queueEntry.resolve({
+      success: false,
+      error: `Execution timeout: exceeded ${timeoutMs}ms limit`,
+    });
+  }, timeoutMs);
+
+  queueEntry.resolve = (result: JsExecWorkerOutput) => {
+    _clearTimeout(timeoutHandle);
+    resolveWorker(result);
+  };
+
+  executionQueue.push(queueEntry);
+  processNextExecution();
+
+  const [bridgeOutput, workerResult] = await Promise.all([
+    bridgeHandler.run(timeoutMs),
+    workerPromise.catch((e) => ({
+      success: false as const,
+      error: sanitizeHostErrorMessage(getErrorMessage(e)),
+    })),
+  ]);
+
+  return { bridgeOutput, workerResult };
+}
+
+/** Resolve the effective timeout for a js-exec execution. */
+function resolveTimeout(ctx: CommandContext): number {
+  const userTimeout = ctx.limits?.maxJsTimeoutMs ?? DEFAULT_JS_TIMEOUT_MS;
+  return ctx.fetch
+    ? Math.max(userTimeout, DEFAULT_JS_NETWORK_TIMEOUT_MS)
+    : userTimeout;
+}
+
 async function executeJSInner(
   jsCode: string,
   ctx: CommandContext,
@@ -440,15 +518,10 @@ async function executeJSInner(
     ctx.fetch,
     ctx.limits?.maxOutputSize ?? 0,
     wrappedExec,
+    ctx.executorInvokeTool,
   );
 
-  // Network operations need a longer timeout. resolveLimits() always populates
-  // maxJsTimeoutMs (default 10s), so use the network default as a floor.
-  const userTimeout = ctx.limits?.maxJsTimeoutMs ?? DEFAULT_JS_TIMEOUT_MS;
-  const timeoutMs = ctx.fetch
-    ? Math.max(userTimeout, DEFAULT_JS_NETWORK_TIMEOUT_MS)
-    : userTimeout;
-
+  const timeoutMs = resolveTimeout(ctx);
   const protocolToken = randomBytes(16).toString("hex");
 
   const workerInput: JsExecWorkerInput = {
@@ -463,62 +536,14 @@ async function executeJSInner(
     isModule,
     stripTypes,
     timeoutMs,
+    hasExecutorTools: ctx.executorInvokeTool !== undefined,
   };
 
-  // Use deferred pattern to keep queue management outside the Promise constructor
-  let resolveWorker!: (result: JsExecWorkerOutput) => void;
-  const workerPromise = new Promise<JsExecWorkerOutput>((resolve) => {
-    resolveWorker = resolve;
-  });
-
-  const queueEntry: QueuedExecution = {
-    input: workerInput,
-    resolve: () => {}, // replaced below
-  };
-
-  const timeoutHandle = _setTimeout(() => {
-    if (currentExecution === queueEntry) {
-      // Worker is running — terminate it
-      const workerToTerminate = sharedWorker;
-      if (workerToTerminate) {
-        // Clear global worker reference before starting the next queued task.
-        sharedWorker = null;
-        void workerToTerminate.terminate();
-      }
-      currentExecution = null;
-      processNextExecution();
-    } else {
-      // Worker hasn't started — mark canceled so processNextExecution skips it
-      queueEntry.canceled = true;
-      if (!currentExecution) {
-        processNextExecution();
-      }
-    }
-    queueEntry.resolve({
-      success: false,
-      error: `Execution timeout: exceeded ${timeoutMs}ms limit`,
-    });
-  }, timeoutMs);
-
-  queueEntry.resolve = (result: JsExecWorkerOutput) => {
-    _clearTimeout(timeoutHandle);
-    resolveWorker(result);
-  };
-
-  // Queue the execution (serialized since QuickJS is single-threaded)
-  executionQueue.push(queueEntry);
-  processNextExecution();
-
-  const [bridgeOutput, workerResult] = await Promise.all([
-    bridgeHandler.run(timeoutMs),
-    workerPromise.catch((e) => {
-      const workerError = sanitizeHostErrorMessage(getErrorMessage(e));
-      return {
-        success: false,
-        error: workerError,
-      };
-    }),
-  ]);
+  const { bridgeOutput, workerResult } = await queueAndRun(
+    workerInput,
+    bridgeHandler,
+    timeoutMs,
+  );
 
   if (!workerResult.success && workerResult.error) {
     return {
@@ -529,6 +554,98 @@ async function executeJSInner(
   }
 
   return bridgeOutput;
+}
+
+/**
+ * Result from executing code in executor mode.
+ * Compatible with @executor-js/sdk's ExecuteResult shape.
+ */
+export interface ExecutorResult {
+  result: unknown;
+  error?: string;
+  logs?: string[];
+}
+
+/**
+ * Execute JavaScript code in executor mode with tool invocation support.
+ * Used as the runtime for @executor-js/sdk's CodeExecutor interface.
+ *
+ * - Console output is captured to `logs` instead of stdout/stderr
+ * - Tool calls via `tools.x.y(args)` are routed through `invokeTool`
+ * - The return value of the code is captured in `result`
+ */
+export async function executeForExecutor(
+  code: string,
+  ctx: CommandContext,
+  invokeTool: (path: string, argsJson: string) => Promise<string>,
+): Promise<ExecutorResult> {
+  if (jsExecAsyncContext.getStore()) {
+    return {
+      result: null,
+      error: "js-exec: recursive invocation is not supported",
+    };
+  }
+
+  const sharedBuffer = createSharedBuffer();
+
+  const bridgeHandler = new BridgeHandler(
+    sharedBuffer,
+    ctx.fs,
+    ctx.cwd,
+    "js-exec",
+    ctx.fetch,
+    ctx.limits?.maxOutputSize ?? 0,
+    undefined, // no exec in executor mode
+    invokeTool,
+  );
+
+  const timeoutMs = resolveTimeout(ctx);
+  const protocolToken = randomBytes(16).toString("hex");
+
+  const workerInput: JsExecWorkerInput = {
+    protocolToken,
+    sharedBuffer,
+    jsCode: code,
+    cwd: ctx.cwd,
+    env: mapToRecord(ctx.env),
+    args: [],
+    executorMode: true,
+    timeoutMs,
+  };
+
+  const { workerResult } = await queueAndRun(
+    workerInput,
+    bridgeHandler,
+    timeoutMs,
+  );
+
+  // Executor mode: check for executor fields (executorResult or executorLogs)
+  if ("executorLogs" in workerResult || "executorResult" in workerResult) {
+    if (workerResult.error) {
+      return {
+        result: null,
+        error: workerResult.error,
+        logs: workerResult.executorLogs,
+      };
+    }
+    let parsed: unknown;
+    if (workerResult.executorResult !== undefined) {
+      try {
+        parsed = JSON.parse(workerResult.executorResult);
+      } catch {
+        parsed = workerResult.executorResult;
+      }
+    }
+    return {
+      result: parsed ?? null,
+      logs: workerResult.executorLogs,
+    };
+  }
+
+  return {
+    result: null,
+    error: workerResult.error || "Unknown execution error",
+  };
 }
 
 export const jsExecCommand: Command = {
@@ -610,6 +727,33 @@ export const jsExecCommand: Command = {
     // from comments ("// await the result") and strings ("please await")
     if (!isModule && /\bawait\s+[\w([`]/.test(jsCode)) {
       isModule = true;
+    }
+
+    // When the SDK execution function is present, route through it.
+    // The SDK creates the toolInvoker (with all discovered sources) and
+    // calls our CodeExecutor which runs the code in QuickJS.
+    if (ctx.executorExecFn) {
+      let stderr = "";
+      if (parsed.isModule || parsed.stripTypes || parsed.scriptFile) {
+        stderr =
+          "js-exec: flags -m/--module, --strip-types, and script files are ignored in executor SDK mode\n";
+      }
+      const execResult = await ctx.executorExecFn(jsCode);
+      const logs = execResult.logs ?? [];
+      const logStderr = execResult.error
+        ? `${execResult.error}\n`
+        : logs
+            .filter((l) => l.startsWith("[error]") || l.startsWith("[warn]"))
+            .map((l) => `${l.replace(/^\[(error|warn)\] /, "")}\n`)
+            .join("");
+      return {
+        stdout: logs
+          .filter((l) => !l.startsWith("[error]") && !l.startsWith("[warn]"))
+          .map((l) => `${l.replace(/^\[(log|info|debug)\] /, "")}\n`)
+          .join(""),
+        stderr: stderr + logStderr,
+        exitCode: execResult.error ? 1 : 0,
+      };
     }
 
     // Get bootstrap code from context (threaded via CommandContext, not env)

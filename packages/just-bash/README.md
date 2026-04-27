@@ -354,6 +354,15 @@ await env.exec('js-exec -c "console.log(API_BASE)"');
 
 **Note:** The `js-exec` command only exists when `javascript` is configured. It is not available in browser environments. Execution runs in a QuickJS WASM sandbox with a 64 MB memory limit and configurable timeout (default: 10s, 60s with network).
 
+#### Executor Tools (experimental)
+
+`js-exec` scripts can call host-defined tools through a global `tools` proxy
+when the `experimental_executor` option is provided. Inline tool maps work
+out of the box; SDK-driven discovery (GraphQL, OpenAPI, MCP) requires the
+optional `@executor-js/*` peer dependencies to be installed.
+
+See [`docs/EXECUTOR.md`](docs/EXECUTOR.md) for the full guide.
+
 ### Python Support
 
 Python (CPython compiled to WASM) is opt-in due to additional security surface. Enable with `python: true`:

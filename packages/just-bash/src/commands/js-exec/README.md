@@ -236,6 +236,14 @@ js-exec app.ts
 js-exec --strip-types -c "const x: number = 5; console.log(x)"
 ```
 
+## Executor Tools (experimental)
+
+When the `Bash` constructor is given an `experimental_executor` config, code
+running in js-exec gets access to a `tools` proxy that calls host-defined
+tools. See [`docs/EXECUTOR.md`](../../../docs/EXECUTOR.md) for the full
+guide — inline tools, SDK-driven discovery, peer dependency setup, and
+approval hooks.
+
 ## Limits
 
 - **Memory**: 64 MB per execution

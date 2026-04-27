@@ -1,0 +1,18 @@
+{
+  "name": "executor-tools-example",
+  "version": "1.0.0",
+  "description": "Example of executor tools in just-bash — inline tools + OpenAPI via fetch",
+  "type": "module",
+  "scripts": {
+    "start": "npx tsx main.ts",
+    "start:inline": "npx tsx inline-tools.ts",
+    "start:discovery": "npx tsx multi-turn-discovery.ts"
+  },
+  "dependencies": {
+    "just-bash": "link:../..",
+    "@executor-js/sdk": "0.0.1-beta.5",
+    "@executor-js/plugin-graphql": "0.0.1-beta.5",
+    "@executor-js/plugin-mcp": "0.0.1-beta.5",
+    "@executor-js/plugin-openapi": "0.0.1-beta.5"
+  }
+}
