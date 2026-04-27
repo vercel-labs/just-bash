@@ -236,6 +236,16 @@ js-exec app.ts
 js-exec --strip-types -c "const x: number = 5; console.log(x)"
 ```
 
+## Tool Invocation Hook
+
+When `javascript.invokeTool` is set on the Bash constructor, js-exec scripts
+get a global `tools` proxy that routes calls through that callback. The hook
+is `(path, argsJson) => Promise<string>` — bring your own tool framework, or
+use the companion package
+[`@just-bash/executor`](../../../../just-bash-executor/README.md) which
+produces an `invokeTool` plus matching bash commands from inline tool maps
+and/or `@executor-js/sdk` discovery (GraphQL, OpenAPI, MCP).
+
 ## Limits
 
 - **Memory**: 64 MB per execution

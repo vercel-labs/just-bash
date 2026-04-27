@@ -90,6 +90,24 @@ export interface BashLogger {
 export interface JavaScriptConfig {
   /** Bootstrap JavaScript code to run before user scripts */
   bootstrap?: string;
+  /**
+   * Tool invocation hook. When provided, code running in `js-exec` gets a
+   * global `tools` proxy that routes calls through this callback synchronously
+   * (the worker blocks via `Atomics.wait` while the host resolves the call).
+   *
+   * - `path`: dot-separated tool path (e.g. `"math.add"`). The proxy builds
+   *   it from JS property access — `tools.math.add(...)` becomes `"math.add"`.
+   * - `argsJson`: JSON-stringified args object, or empty string for no args.
+   * - return: JSON-stringified result, or empty string for `undefined`.
+   * - throw: propagates as a catchable exception inside the sandbox.
+   *
+   * Setting `invokeTool` implicitly enables `js-exec` (no separate
+   * `javascript: true` needed). Pair with `customCommands` if you want the
+   * same tools available as bash commands. The companion package
+   * `@just-bash/executor` produces a matching `invokeTool` + `commands` pair
+   * from inline tools and/or `@executor-js/sdk` discovery.
+   */
+  invokeTool?: (path: string, argsJson: string) => Promise<string>;
 }
 
 export interface BashOptions {
@@ -277,6 +295,7 @@ export class Bash {
   private defenseInDepthConfig?: DefenseInDepthConfig | boolean;
   private coverageWriter?: FeatureCoverageWriter;
   private jsBootstrapCode?: string;
+  private invokeToolFn?: (path: string, argsJson: string) => Promise<string>;
   // biome-ignore lint/suspicious/noExplicitAny: type-erased plugin storage for untyped API
   private transformPlugins: TransformPlugin<any>[] = [];
 
@@ -449,18 +468,22 @@ export class Bash {
       }
     }
 
-    // Register javascript commands only when explicitly enabled
-    if (options.javascript) {
+    const jsConfig: JavaScriptConfig =
+      typeof options.javascript === "object"
+        ? options.javascript
+        : Object.create(null);
+
+    // Register javascript commands when JS is enabled or an invokeTool hook
+    // is provided (the hook is meaningless without js-exec).
+    if (options.javascript || jsConfig.invokeTool) {
       for (const cmd of createJavaScriptCommands()) {
         this.registerCommand(cmd);
       }
-      // Store bootstrap code in private field (threaded via context chain, not env)
-      const jsConfig =
-        typeof options.javascript === "object"
-          ? options.javascript
-          : Object.create(null);
       if (jsConfig.bootstrap) {
         this.jsBootstrapCode = jsConfig.bootstrap;
+      }
+      if (jsConfig.invokeTool) {
+        this.invokeToolFn = jsConfig.invokeTool;
       }
     }
 
@@ -666,6 +689,7 @@ export class Bash {
           coverage: this.coverageWriter,
           requireDefenseContext: defenseBox?.isEnabled() === true,
           jsBootstrapCode: this.jsBootstrapCode,
+          invokeTool: this.invokeToolFn,
         };
 
         const interpreter = new Interpreter(interpreterOptions, execState);

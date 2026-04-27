@@ -386,6 +386,37 @@ await env.exec('js-exec -c "console.log(API_BASE)"');
 
 **Note:** The \`js-exec\` command only exists when \`javascript\` is configured. It is not available in browser environments. Execution runs in a QuickJS WASM sandbox with a 64 MB memory limit and configurable timeout (default: 10s, 60s with network).
 
+#### Tool Invocation Hook
+
+\`js-exec\` scripts can call host-defined tools through a global \`tools\` proxy
+when \`javascript.invokeTool\` is provided:
+
+\`\`\`typescript
+const bash = new Bash({
+  javascript: {
+    // path:     "math.add"  (dot-separated)
+    // argsJson: '{"a":1,"b":2}'  (or "" for no args)
+    // return:   JSON-stringified result, or "" for undefined
+    // throw:    propagates as a sandbox exception
+    invokeTool: async (path, argsJson) => {
+      const args = argsJson ? JSON.parse(argsJson) : {};
+      if (path === "math.add") {
+        return JSON.stringify({ sum: args.a + args.b });
+      }
+      throw new Error(\`Unknown tool: \${path}\`);
+    },
+  },
+});
+
+await bash.exec(\`js-exec -c 'console.log((await tools.math.add({a:3,b:4})).sum)'\`);
+\`\`\`
+
+The hook is generic — wire any tool framework through it (raw maps, MCP,
+Anthropic tool-use, etc.). For full GraphQL / OpenAPI / MCP discovery via
+\`@executor-js/sdk\`, plus auto-generated bash namespace commands, use the
+companion package
+[**\`@just-bash/executor\`**](../just-bash-executor/README.md).
+
 ### Python Support
 
 Python (CPython compiled to WASM) is opt-in due to additional security surface. Enable with \`python: true\`:
@@ -810,7 +841,7 @@ limitations under the License.
 
 export const FILE_PACKAGE_JSON = `{
   "name": "just-bash",
-  "version": "2.14.2",
+  "version": "2.14.3",
   "description": "A simulated bash environment with virtual filesystem",
   "repository": {
     "type": "git",

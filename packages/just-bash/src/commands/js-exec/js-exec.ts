@@ -412,6 +412,76 @@ async function executeJS(
   );
 }
 
+/**
+ * Shared queue-and-run logic: sets up the bridge, queues the worker input,
+ * handles timeout, and returns the raw bridge output + worker result.
+ */
+async function queueAndRun(
+  workerInput: JsExecWorkerInput,
+  bridgeHandler: BridgeHandler,
+  timeoutMs: number,
+): Promise<{
+  bridgeOutput: import("../worker-bridge/bridge-handler.js").BridgeOutput;
+  workerResult: JsExecWorkerOutput;
+}> {
+  let resolveWorker!: (result: JsExecWorkerOutput) => void;
+  const workerPromise = new Promise<JsExecWorkerOutput>((resolve) => {
+    resolveWorker = resolve;
+  });
+
+  const queueEntry: QueuedExecution = {
+    input: workerInput,
+    resolve: () => {},
+  };
+
+  const timeoutHandle = _setTimeout(() => {
+    if (currentExecution === queueEntry) {
+      const workerToTerminate = sharedWorker;
+      if (workerToTerminate) {
+        sharedWorker = null;
+        void workerToTerminate.terminate();
+      }
+      currentExecution = null;
+      processNextExecution();
+    } else {
+      queueEntry.canceled = true;
+      if (!currentExecution) {
+        processNextExecution();
+      }
+    }
+    queueEntry.resolve({
+      success: false,
+      error: `Execution timeout: exceeded ${timeoutMs}ms limit`,
+    });
+  }, timeoutMs);
+
+  queueEntry.resolve = (result: JsExecWorkerOutput) => {
+    _clearTimeout(timeoutHandle);
+    resolveWorker(result);
+  };
+
+  executionQueue.push(queueEntry);
+  processNextExecution();
+
+  const [bridgeOutput, workerResult] = await Promise.all([
+    bridgeHandler.run(timeoutMs),
+    workerPromise.catch((e) => ({
+      success: false as const,
+      error: sanitizeHostErrorMessage(getErrorMessage(e)),
+    })),
+  ]);
+
+  return { bridgeOutput, workerResult };
+}
+
+/** Resolve the effective timeout for a js-exec execution. */
+function resolveTimeout(ctx: CommandContext): number {
+  const userTimeout = ctx.limits?.maxJsTimeoutMs ?? DEFAULT_JS_TIMEOUT_MS;
+  return ctx.fetch
+    ? Math.max(userTimeout, DEFAULT_JS_NETWORK_TIMEOUT_MS)
+    : userTimeout;
+}
+
 async function executeJSInner(
   jsCode: string,
   ctx: CommandContext,
@@ -440,15 +510,10 @@ async function executeJSInner(
     ctx.fetch,
     ctx.limits?.maxOutputSize ?? 0,
     wrappedExec,
+    ctx.invokeTool,
   );
 
-  // Network operations need a longer timeout. resolveLimits() always populates
-  // maxJsTimeoutMs (default 10s), so use the network default as a floor.
-  const userTimeout = ctx.limits?.maxJsTimeoutMs ?? DEFAULT_JS_TIMEOUT_MS;
-  const timeoutMs = ctx.fetch
-    ? Math.max(userTimeout, DEFAULT_JS_NETWORK_TIMEOUT_MS)
-    : userTimeout;
-
+  const timeoutMs = resolveTimeout(ctx);
   const protocolToken = randomBytes(16).toString("hex");
 
   const workerInput: JsExecWorkerInput = {
@@ -463,62 +528,14 @@ async function executeJSInner(
     isModule,
     stripTypes,
     timeoutMs,
+    hasInvokeTool: ctx.invokeTool !== undefined,
   };
 
-  // Use deferred pattern to keep queue management outside the Promise constructor
-  let resolveWorker!: (result: JsExecWorkerOutput) => void;
-  const workerPromise = new Promise<JsExecWorkerOutput>((resolve) => {
-    resolveWorker = resolve;
-  });
-
-  const queueEntry: QueuedExecution = {
-    input: workerInput,
-    resolve: () => {}, // replaced below
-  };
-
-  const timeoutHandle = _setTimeout(() => {
-    if (currentExecution === queueEntry) {
-      // Worker is running — terminate it
-      const workerToTerminate = sharedWorker;
-      if (workerToTerminate) {
-        // Clear global worker reference before starting the next queued task.
-        sharedWorker = null;
-        void workerToTerminate.terminate();
-      }
-      currentExecution = null;
-      processNextExecution();
-    } else {
-      // Worker hasn't started — mark canceled so processNextExecution skips it
-      queueEntry.canceled = true;
-      if (!currentExecution) {
-        processNextExecution();
-      }
-    }
-    queueEntry.resolve({
-      success: false,
-      error: `Execution timeout: exceeded ${timeoutMs}ms limit`,
-    });
-  }, timeoutMs);
-
-  queueEntry.resolve = (result: JsExecWorkerOutput) => {
-    _clearTimeout(timeoutHandle);
-    resolveWorker(result);
-  };
-
-  // Queue the execution (serialized since QuickJS is single-threaded)
-  executionQueue.push(queueEntry);
-  processNextExecution();
-
-  const [bridgeOutput, workerResult] = await Promise.all([
-    bridgeHandler.run(timeoutMs),
-    workerPromise.catch((e) => {
-      const workerError = sanitizeHostErrorMessage(getErrorMessage(e));
-      return {
-        success: false,
-        error: workerError,
-      };
-    }),
-  ]);
+  const { bridgeOutput, workerResult } = await queueAndRun(
+    workerInput,
+    bridgeHandler,
+    timeoutMs,
+  );
 
   if (!workerResult.success && workerResult.error) {
     return {

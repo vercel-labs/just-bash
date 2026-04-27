@@ -92,4 +92,70 @@ describe("BridgeHandler raceDeadline", () => {
     const result = await runPromise;
     expect(result.exitCode).toBe(124);
   });
+
+  it("INVOKE_TOOL resolves with error when invokeTool never settles", async () => {
+    const shared = createSharedBuffer();
+    const protocol = new ProtocolBuffer(shared);
+    const neverSettle: (path: string, argsJson: string) => Promise<string> =
+      () => new Promise<never>(() => {});
+    const handler = new BridgeHandler(
+      shared,
+      new InMemoryFs(),
+      "/",
+      "test-cmd",
+      undefined,
+      0,
+      undefined,
+      neverSettle,
+    );
+    const runPromise = handler.run(200);
+
+    const status = await sendOp(protocol, OpCode.INVOKE_TOOL, {
+      path: "tool.slow",
+      data: "{}",
+    });
+
+    expect(status).toBe(Status.ERROR);
+    const errMsg = protocol.getResultAsString();
+    expect(errMsg).toContain("timed out");
+
+    const result = await runPromise;
+    expect(result.exitCode).toBe(124);
+  });
+
+  it("INVOKE_TOOL sanitizes host-originated error messages", async () => {
+    const shared = createSharedBuffer();
+    const protocol = new ProtocolBuffer(shared);
+    const handler = new BridgeHandler(
+      shared,
+      new InMemoryFs(),
+      "/",
+      "test-cmd",
+      undefined,
+      0,
+      undefined,
+      async () => {
+        throw new Error(
+          "failed at /Users/alice/project/secret.txt from file:///Users/alice/project/tool.js\n    at internal",
+        );
+      },
+    );
+    const runPromise = handler.run(1000);
+
+    const status = await sendOp(protocol, OpCode.INVOKE_TOOL, {
+      path: "tool.fail",
+      data: "{}",
+    });
+
+    expect(status).toBe(Status.ERROR);
+    const errMsg = protocol.getResultAsString();
+    expect(errMsg).toContain("<path>");
+    expect(errMsg).not.toContain("/Users/alice");
+    expect(errMsg).not.toContain("file://");
+    expect(errMsg).not.toContain("at internal");
+
+    await sendOp(protocol, OpCode.EXIT, { flags: 0 });
+    const result = await runPromise;
+    expect(result.exitCode).toBe(0);
+  });
 });
