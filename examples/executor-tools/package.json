@@ -1,0 +1,14 @@
+{
+  "name": "executor-tools-example",
+  "version": "1.0.0",
+  "description": "Example of executor tools in just-bash — inline tools + OpenAPI via fetch",
+  "type": "module",
+  "scripts": {
+    "start": "npx tsx main.ts",
+    "start:inline": "npx tsx inline-tools.ts",
+    "start:discovery": "npx tsx multi-turn-discovery.ts"
+  },
+  "dependencies": {
+    "just-bash": "link:../.."
+  }
+}
