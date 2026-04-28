@@ -62,6 +62,7 @@
       "!.docs-test-tmp",
       "!packages/just-bash/src/commands/python3/worker.js",
       "!packages/just-bash/src/commands/js-exec/js-exec-worker.js",
+      "!packages/just-bash/src/commands/sqlite3/worker.js",
       "!**/vendor"
     ]
   }
