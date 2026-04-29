@@ -40,6 +40,105 @@ describe("awk parsing", () => {
     });
   });
 
+  // POSIX awk specifies that a newline immediately following a comma (or
+  // `{`, `&&`, `||`, `?`, `:`, or the keywords `do`/`else`/`if`/`while`)
+  // does not terminate a statement. Without this, common multi-line
+  // idioms like `printf "...", \n  $1, $2` fail with
+  // `Unexpected token: NEWLINE`. The lexer suppresses the NEWLINE
+  // token after these continuation-allowing tokens.
+  describe("statement continuation across newlines", () => {
+    it("continues across a newline after a comma in printf args", async () => {
+      const env = new Bash();
+      const result = await env.exec(`echo "" | awk 'BEGIN {
+        printf "%s=%d\\n",
+          "answer", 42
+      }'`);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("answer=42\n");
+    });
+
+    it("continues across a newline after a comma in function-call args", async () => {
+      const env = new Bash();
+      const result = await env.exec(`echo "abc" | awk '{
+        print substr($0,
+                     1,
+                     2)
+      }'`);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("ab\n");
+    });
+
+    it("continues across a newline after &&", async () => {
+      const env = new Bash();
+      const result = await env.exec(`echo "" | awk 'BEGIN {
+        if (1 == 1 &&
+            2 == 2) print "ok"
+      }'`);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("ok\n");
+    });
+
+    it("continues across a newline after ||", async () => {
+      const env = new Bash();
+      const result = await env.exec(`echo "" | awk 'BEGIN {
+        if (0 ||
+            1) print "ok"
+      }'`);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("ok\n");
+    });
+
+    it("continues across a newline after { (block opening)", async () => {
+      const env = new Bash();
+      const result = await env.exec(`echo "" | awk 'BEGIN {
+        x = 1
+        print x
+      }'`);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("1\n");
+    });
+
+    it("continues across a newline after else", async () => {
+      const env = new Bash();
+      const result = await env.exec(`echo "" | awk 'BEGIN {
+        if (0) print "no"
+        else
+          print "yes"
+      }'`);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("yes\n");
+    });
+
+    it("continues across a newline after a ternary ? operator", async () => {
+      const env = new Bash();
+      const result = await env.exec(`echo "" | awk 'BEGIN {
+        print 1 ?
+              "yes" :
+              "no"
+      }'`);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("yes\n");
+    });
+
+    // Regression: TSV → SQL INSERT generation idiom — the most common
+    // shape that motivated this fix.
+    it("handles TSV-to-SQL printf idiom with comma-newline continuation", async () => {
+      const env = new Bash({
+        files: { "/in.tsv": "vendor\tamount\nAcme\t100\nGlobex\t200\n" },
+        cwd: "/",
+      });
+      const result = await env.exec(`awk -F'\\t' 'NR > 1 {
+        printf "INSERT INTO t VALUES ('"'"'%s'"'"', %d);\\n",
+          $1, $2
+      }' /in.tsv`);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe(
+        "INSERT INTO t VALUES ('Acme', 100);\n" +
+          "INSERT INTO t VALUES ('Globex', 200);\n",
+      );
+    });
+  });
+
   describe("string parsing", () => {
     it("should handle escaped quotes in string", async () => {
       const env = new Bash();

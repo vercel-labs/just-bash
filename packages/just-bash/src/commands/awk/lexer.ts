@@ -136,6 +136,28 @@ function expandPosixClasses(pattern: string): string {
     .replace(/\[\[:cntrl:\]\]/g, "[\\x00-\\x1f\\x7f]");
 }
 
+/**
+ * Tokens after which a newline does not terminate a statement. Mirrors POSIX
+ * awk's grammar — the newline is whitespace when it immediately follows any
+ * of these. Without this, multi-line idioms like
+ *   printf "%s=%d\n",
+ *     $1, $2
+ * (comma at EOL, args on the next indented line) trip with
+ * "Unexpected token: NEWLINE".
+ */
+const CONTINUES_ACROSS_NEWLINE: ReadonlySet<TokenType> = new Set<TokenType>([
+  TokenType.COMMA,
+  TokenType.LBRACE,
+  TokenType.AND,
+  TokenType.OR,
+  TokenType.QUESTION,
+  TokenType.COLON,
+  TokenType.DO,
+  TokenType.ELSE,
+  TokenType.IF,
+  TokenType.WHILE,
+]);
+
 export class AwkLexer {
   private input: string;
   private pos = 0;
@@ -214,9 +236,23 @@ export class AwkLexer {
     const startColumn = this.column;
     const ch = this.peek();
 
-    // Newline
+    // Newline. POSIX awk specifies that a statement continues across a
+    // newline that immediately follows certain tokens — most notably `,`,
+    // but also `{`, `&&`, `||`, `?`, `:`, and the keywords `do`, `else`,
+    // `if`, `while`. Without this, a perfectly POSIX-compliant program
+    // like `printf "%s=%d\n", $1, $2` written across multiple lines
+    // (a comma at end-of-line followed by indented args) parses as two
+    // statements with a NEWLINE in the middle, surfacing as
+    // `Unexpected token: NEWLINE`. We swallow the newline and recurse to
+    // the next real token when it follows a continuation-allowing token.
     if (ch === "\n") {
       this.advance();
+      if (
+        this.lastTokenType !== null &&
+        CONTINUES_ACROSS_NEWLINE.has(this.lastTokenType)
+      ) {
+        return this.nextToken();
+      }
       return {
         type: TokenType.NEWLINE,
         value: "\n",
