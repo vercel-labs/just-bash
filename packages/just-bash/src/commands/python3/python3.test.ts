@@ -74,6 +74,41 @@ describe("python3", () => {
       expect(result.stdout).toBe("123\n");
       expect(result.exitCode).toBe(0);
     });
+
+    it("should read Python code from stdin when invoked as `python3 -`", async () => {
+      const env = new Bash({ python: true });
+      const result = await env.exec('echo "print(456)" | python3 -');
+      expect(result.stdout).toBe("456\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should read Python code from a heredoc when invoked as `python3 - <<EOF`", async () => {
+      const env = new Bash({ python: true });
+      const result = await env.exec(
+        "python3 - <<'PY'\nimport sys\nprint('argv0=' + sys.argv[0])\nPY\n",
+      );
+      expect(result.stdout).toBe("argv0=-\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should pass trailing args after `-` as sys.argv[1:]", async () => {
+      const env = new Bash({ python: true });
+      const result = await env.exec(
+        "echo 'import sys; print(sys.argv)' | python3 - foo bar",
+      );
+      expect(result.stdout).toBe("['-', 'foo', 'bar']\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should run an empty program when `python3 -` receives no stdin", async () => {
+      const env = new Bash({ python: true });
+      const result = await env.exec("python3 - < /dev/null");
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("error handling", () => {
