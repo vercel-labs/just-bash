@@ -23,7 +23,34 @@ function sanitizeTerminalError(message: string): string {
     .replace(/[A-Z]:\\[^\s'",)}\]:]+/g, "<path>");
 }
 
-// Format text for terminal: normalize newlines and convert tabs to spaces
+// Strip ANSI escape sequences from model-controlled text before it
+// reaches `term.write`. Without this, OSC 8 hyperlink sequences emitted
+// by the LLM (or echoed from tool output / prompt-injection sources)
+// render as <a href="javascript:..."> in the terminal — XSS in this
+// origin. Order: drop OSC sequences (terminated by BEL or ESC \\)
+// first because they carry payloads with characters that the generic
+// CSI matcher would partially eat.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately matching control chars
+const OSC_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately matching control chars
+const CSI_RE = /\x1b\[[\d;?]*[A-Za-z@~]/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately matching control chars
+const ESC_OTHER_RE = /\x1b[@-_]/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately matching control chars
+const C0_C1_RE = /[\x00-\x08\x0B-\x1F\x7F]/g;
+
+function stripAnsi(text: string): string {
+  return text
+    .replace(OSC_RE, "")
+    .replace(CSI_RE, "")
+    .replace(ESC_OTHER_RE, "")
+    .replace(C0_C1_RE, "");
+}
+
+// Format text for terminal: normalize newlines and convert tabs to spaces.
+// Callers MUST run `stripAnsi` on any model-controlled content first;
+// this function intentionally preserves escape sequences so that
+// surrounding styling we add ourselves (\x1b[2m ... \x1b[0m) survives.
 function formatForTerminal(text: string): string {
   return text.replace(/\t/g, "  ").replace(/\r?\n/g, "\r\n");
 }
@@ -149,7 +176,15 @@ export function createAgentCommand(term: TerminalWriter) {
         }
 
         if (displayResult && displayResult.trim()) {
-          const resultLines = displayResult.split("\n").filter((l: string) => l.trim());
+          // Strip ANSI from each tool-output line BEFORE wrapping it in
+          // our `\x1b[2m ... \x1b[0m` styling. Without this, an OSC 8
+          // hyperlink embedded in tool output would survive the wrap
+          // and render as a clickable link in the terminal — XSS in
+          // this origin if the URL scheme is `javascript:`.
+          const resultLines = displayResult
+            .split("\n")
+            .map((l: string) => stripAnsi(l))
+            .filter((l: string) => l.trim());
           const linesToShow = resultLines.slice(0, MAX_TOOL_OUTPUT_LINES);
           let output = linesToShow.map((line) => `\x1b[2m${line}\x1b[0m`).join("\n");
           if (resultLines.length > MAX_TOOL_OUTPUT_LINES) {
@@ -180,10 +215,16 @@ export function createAgentCommand(term: TerminalWriter) {
           try {
             const data = JSON.parse(jsonStr);
 
-            // Stream text line-by-line (complete lines only to preserve ASCII art)
+            // Stream text line-by-line (complete lines only to preserve ASCII art).
+            // stripAnsi the model-emitted delta BEFORE buffering: this
+            // removes OSC 8 hyperlinks and other escape sequences that
+            // the LLM might emit (or echo from prompt-injection sources)
+            // without losing the legitimate styling that `formatMarkdown`
+            // adds afterward.
             if (data.type === "text-delta" && data.delta) {
-              fullText += data.delta; // Track for message history
-              lineBuffer += data.delta;
+              const safeDelta = stripAnsi(String(data.delta));
+              fullText += safeDelta; // Track for message history
+              lineBuffer += safeDelta;
 
               // Check for complete lines to stream
               const lastNewline = lineBuffer.lastIndexOf("\n");
@@ -214,8 +255,12 @@ export function createAgentCommand(term: TerminalWriter) {
                 fullText += "\n";
               }
               const args = data.input as Record<string, unknown>;
+              // stripAnsi on every model-controlled segment — these come
+              // from the LLM's tool-call args and could carry OSC 8
+              // sequences via prompt injection.
+              const safeToolName = stripAnsi(String(data.toolName));
               if (data.toolName === "bash" && args.command) {
-                const cmd = String(args.command).replace(/\t/g, "  ");
+                const cmd = stripAnsi(String(args.command)).replace(/\t/g, "  ");
                 const lines = cmd.split("\n");
                 // Write each line separately for proper terminal rendering
                 term.write(`\x1b[36m$ ${lines[0]}\x1b[0m\r\n`);
@@ -223,11 +268,15 @@ export function createAgentCommand(term: TerminalWriter) {
                   term.write(`\x1b[36m${lines[i]}\x1b[0m\r\n`);
                 }
               } else if (data.toolName === "readFile" && args.path) {
-                term.write(`\x1b[36m[readFile] ${args.path}\x1b[0m\r\n`);
+                term.write(
+                  `\x1b[36m[readFile] ${stripAnsi(String(args.path))}\x1b[0m\r\n`,
+                );
               } else if (data.toolName === "writeFile" && args.path) {
-                term.write(`\x1b[36m[writeFile] ${args.path}\x1b[0m\r\n`);
+                term.write(
+                  `\x1b[36m[writeFile] ${stripAnsi(String(args.path))}\x1b[0m\r\n`,
+                );
               } else {
-                term.write(`\x1b[36m[${data.toolName}]\x1b[0m\r\n`);
+                term.write(`\x1b[36m[${safeToolName}]\x1b[0m\r\n`);
               }
 
               toolCallsMap.set(data.toolCallId, {
@@ -262,8 +311,11 @@ export function createAgentCommand(term: TerminalWriter) {
               term.write("\x1b[2m\x1b[3m"); // dim + italic
             }
             else if (data.type === "reasoning-delta" && data.delta) {
-              // Stream thinking tokens as they arrive
-              term.write(formatForTerminal(data.delta));
+              // Stream thinking tokens as they arrive — strip ANSI from
+              // the model-emitted delta so embedded OSC 8 hyperlinks
+              // can't render as clickable links inside our dim/italic
+              // wrapper.
+              term.write(formatForTerminal(stripAnsi(String(data.delta))));
               resetThinkingTimer(); // Keep resetting while actively streaming
             }
             else if (data.type === "reasoning-end") {
@@ -273,18 +325,20 @@ export function createAgentCommand(term: TerminalWriter) {
                 isStreaming = false;
               }
             }
-            // Handle errors
+            // Handle errors. Error strings can be model-controlled
+            // (e.g. tool execution echoing back attacker content), so
+            // stripAnsi before wrapping in our \x1b[31m red styling.
             else if (data.type === "error") {
               const errorMsg = data.error || data.message || "Unknown error";
-              term.write(`\x1b[31mError: ${formatForTerminal(String(errorMsg))}\x1b[0m\r\n`);
+              term.write(`\x1b[31mError: ${formatForTerminal(stripAnsi(String(errorMsg)))}\x1b[0m\r\n`);
             }
             else if (data.type === "tool-input-error") {
               const errorMsg = data.error || "Tool input error";
-              term.write(`\x1b[31m[Tool Error] ${formatForTerminal(String(errorMsg))}\x1b[0m\r\n`);
+              term.write(`\x1b[31m[Tool Error] ${formatForTerminal(stripAnsi(String(errorMsg)))}\x1b[0m\r\n`);
             }
             else if (data.type === "tool-output-error") {
               const errorMsg = data.error || "Tool execution error";
-              term.write(`\x1b[31m[Tool Error] ${formatForTerminal(String(errorMsg))}\x1b[0m\r\n`);
+              term.write(`\x1b[31m[Tool Error] ${formatForTerminal(stripAnsi(String(errorMsg)))}\x1b[0m\r\n`);
             }
             else if (data.type === "tool-output-denied") {
               term.write(`\x1b[33m[Tool Denied]\x1b[0m\r\n`);

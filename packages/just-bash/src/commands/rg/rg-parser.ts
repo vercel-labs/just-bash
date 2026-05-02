@@ -71,10 +71,19 @@ function validateType(_typeName: string): ExecResult | null {
 interface ValueOptDef {
   short?: string;
   long: string;
-  target: keyof RgOptions;
+  /** Where to store the parsed value. Required unless `ignored` is true. */
+  target?: keyof RgOptions;
   multi?: boolean;
   parse?: (val: string) => number;
   validate?: (val: string) => ExecResult | null;
+  /**
+   * When true, consume the option's value but do NOT write it anywhere.
+   * Used for compatibility-only flags like `-j`/`--threads` that have
+   * no effect in this single-threaded environment. Previously these
+   * reused `target: "maxDepth"` as dummy storage, which silently
+   * clobbered the user's max-depth setting (HIGH_BUG finding).
+   */
+  ignored?: boolean;
 }
 
 const VALUE_OPTS: ValueOptDef[] = [
@@ -108,8 +117,11 @@ const VALUE_OPTS: ValueOptDef[] = [
     validate: validateFilesize,
   },
   { long: "context-separator", target: "contextSeparator" },
-  // Thread count (no-op in single-threaded environment, but accept the option)
-  { short: "j", long: "threads", target: "maxDepth", parse: () => Infinity }, // Use maxDepth as dummy target (value ignored)
+  // Thread count (no-op in single-threaded environment). Must NOT be
+  // wired to a real RgOptions field — earlier versions used
+  // `target: "maxDepth"` as a dummy and silently overrode the user's
+  // max-depth setting to Infinity, disabling the safe default of 256.
+  { short: "j", long: "threads", ignored: true },
   // Custom ignore file
   { long: "ignore-file", target: "ignoreFiles", multi: true },
   // Preprocessing
@@ -568,6 +580,11 @@ function applyValueOpt(
   if (def.validate) {
     const error = def.validate(value);
     if (error) return error;
+  }
+
+  // Compatibility-only flags consume their value but don't store it.
+  if (def.ignored || !def.target) {
+    return undefined;
   }
 
   const parsed = def.parse ? def.parse(value) : value;

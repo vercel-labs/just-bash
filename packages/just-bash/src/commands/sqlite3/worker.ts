@@ -130,8 +130,50 @@ export interface WorkerError {
 
 export type WorkerOutput = WorkerSuccess | WorkerError;
 
+/**
+ * Strip leading SQL comments and whitespace so that classification is
+ * not fooled by `-- comment\nINSERT ...` or `/* x *\/ UPDATE ...`.
+ */
+function stripLeadingNoise(sql: string): string {
+  let s = sql;
+  for (;;) {
+    const before = s;
+    s = s.replace(/^\s+/, "");
+    if (s.startsWith("--")) {
+      const nl = s.indexOf("\n");
+      s = nl === -1 ? "" : s.slice(nl + 1);
+    } else if (s.startsWith("/*")) {
+      const end = s.indexOf("*/");
+      s = end === -1 ? "" : s.slice(end + 2);
+    }
+    if (s === before) return s;
+  }
+}
+
+/**
+ * Conservative classifier: returns true ONLY if the statement is
+ * provably read-only. Anything else — CTE-prefixed writes (`WITH ...
+ * INSERT/UPDATE/DELETE`), mutating PRAGMAs (`PRAGMA user_version=N`),
+ * comment-led writes — is treated as potentially mutating so the DB
+ * is written back. Bias: false positives cost an extra writeback;
+ * false negatives cause silent data loss (the original bug).
+ */
+function isReadOnlyStatement(sql: string): boolean {
+  const s = stripLeadingNoise(sql).toUpperCase();
+  if (s.startsWith("SELECT")) return true;
+  if (s.startsWith("EXPLAIN")) return true;
+  if (s.startsWith("VALUES")) return true;
+  if (s.startsWith("PRAGMA")) {
+    // `PRAGMA name` is a read; `PRAGMA name = value` and
+    // `PRAGMA name(value)` mutate state.
+    const rest = s.slice("PRAGMA".length);
+    return !/[=(]/.test(rest);
+  }
+  return false;
+}
+
 function isWriteStatement(sql: string): boolean {
-  const trimmed = sql.trim().toUpperCase();
+  const trimmed = stripLeadingNoise(sql).toUpperCase();
   return (
     trimmed.startsWith("INSERT") ||
     trimmed.startsWith("UPDATE") ||
@@ -225,6 +267,14 @@ async function executeQuery(data: WorkerInput): Promise<WorkerOutput> {
 
           prepared.free();
           results.push({ type: "data", columns, rows });
+
+          // Anything that is not provably read-only must trigger writeback.
+          // Catches CTE-prefixed writes (WITH ... INSERT), mutating PRAGMAs
+          // (PRAGMA user_version=N), and comment-led writes that the
+          // startsWith allowlist in isWriteStatement misses.
+          if (!isReadOnlyStatement(stmt)) {
+            hasModifications = true;
+          }
         }
       } catch (e) {
         const error = (e as Error).message;

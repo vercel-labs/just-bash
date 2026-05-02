@@ -30,6 +30,32 @@ function getTheme(isDark: boolean) {
   };
 }
 
+// Strip ANSI escape sequences from a URL-supplied string before it
+// reaches `term.write` (which would otherwise interpret OSC 8 hyperlinks
+// as clickable <a href="javascript:..."> links — see the XSS finding).
+// Order matters: OSC ends with BEL (0x07) or ESC \\, so we drop those
+// first before the generic ESC catch-all stripper.
+function sanitizeAgentQuery(s: string): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately matching control chars
+  let cleaned = s.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "");
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately matching control chars
+  cleaned = cleaned.replace(/\x1b\[[\d;?]*[A-Za-z@~]/g, "");
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately matching control chars
+  cleaned = cleaned.replace(/\x1b[@-_]/g, "");
+  // Strip remaining C0/C1 control characters (keep \t, \n, \r are
+  // already harmless after the OSC strip; but bash and terminal both
+  // mishandle them so we drop everything in 0x00–0x1F).
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately matching control chars
+  cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, "");
+  return cleaned;
+}
+
+// Quote a string so that bash treats it as a single argument regardless
+// of contents. Single-quote everything; embedded "'" becomes "'\\''".
+function bashSingleQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
 export default function TerminalComponent() {
   const terminalRef = useRef<HTMLDivElement>(null);
 
@@ -87,8 +113,14 @@ export default function TerminalComponent() {
       if (agentQuery) {
         // Clean the URL
         window.history.replaceState({}, "", window.location.pathname);
-        // Execute the agent command
-        void inputHandler.executeCommand(`agent "${agentQuery}"`);
+        // Sanitize the URL-supplied query before it reaches term.write
+        // and the bash parser. Without this, embedded ANSI/OSC sequences
+        // render as clickable links (OSC 8 hyperlink XSS) and stray
+        // double quotes break out of the shell-quoted argument.
+        const sanitized = sanitizeAgentQuery(agentQuery);
+        // Execute the agent command, single-quoting the argument so the
+        // bash parser treats it as a literal string regardless of contents.
+        void inputHandler.executeCommand(`agent ${bashSingleQuote(sanitized)}`);
       } else if (inputHandler.history.length === 0) {
         // Pre-populate command if history is empty and no query param
         inputHandler.setInitialCommand('agent "What is just-bash?"');

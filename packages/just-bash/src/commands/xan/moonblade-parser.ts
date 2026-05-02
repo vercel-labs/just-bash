@@ -156,74 +156,62 @@ class Parser {
       case "(": {
         this.advance();
 
-        // Could be grouping or lambda params
-        // Check if this looks like lambda params
-        const params: string[] = [];
+        // Could be grouping or lambda params. Save pos so we can
+        // cleanly backtrack if the lambda guess is wrong — the prior
+        // implementation used `pos -= params.length * 2` which
+        // mis-counted comma tokens and infinite-recursed on `(ident)`.
+        const startPos = this.pos;
 
         if (this.peek().type === ")") {
-          // Empty parens - likely lambda with no args
+          // Empty parens - either an empty-arg lambda or invalid.
           this.advance();
           if (this.peek().type === "=>") {
             this.advance();
             const body = this.parseExpr(0);
             return { type: "lambda", params: [], body };
           }
-          // Empty parens as expression? Treat as empty list?
           throw new Error("Empty parentheses not allowed");
         }
 
-        // Parse first expression/identifier
+        // Speculatively try `(ident, ident, ...) =>`. If it doesn't
+        // hold, restore pos and parse as a grouped expression instead.
         if (this.peek().type === "ident") {
-          const firstIdent = this.peek().value;
+          const params: string[] = [this.peek().value];
           this.advance();
 
-          if (this.peek().type === "," || this.peek().type === ")") {
-            // Could be lambda params
-            params.push(firstIdent);
-
-            while (this.peek().type === ",") {
+          let looksLikeParamList = true;
+          while (this.peek().type === ",") {
+            this.advance();
+            if (this.peek().type === "ident") {
+              params.push(this.peek().value);
               this.advance();
-              if (this.peek().type === "ident") {
-                params.push(this.peek().value);
-                this.advance();
-              } else {
-                break;
-              }
-            }
-
-            if (this.peek().type === ")") {
-              this.advance();
-              if (this.peek().type === "=>") {
-                this.advance();
-                const body = this.parseExpr(0);
-                return this.bindLambdaArgs(
-                  { type: "lambda", params, body },
-                  params,
-                );
-              }
-            }
-
-            // Not a lambda, treat as expression
-            // Put token back and re-parse
-            this.pos -= params.length * 2; // rough approximation
-            if (params.length > 1) {
-              this.pos = this.pos; // Can't easily backtrack
+            } else {
+              looksLikeParamList = false;
+              break;
             }
           }
 
-          // Rewind - we need to parse as expression
-          this.pos--;
+          if (
+            looksLikeParamList &&
+            this.peek().type === ")" &&
+            this.peekAt(1).type === "=>"
+          ) {
+            this.advance(); // ')'
+            this.advance(); // '=>'
+            const body = this.parseExpr(0);
+            return this.bindLambdaArgs(
+              { type: "lambda", params, body },
+              params,
+            );
+          }
+
+          // Not a lambda. Restore and fall through to grouped-expression parse.
+          this.pos = startPos;
         }
 
-        // Parse as grouped expression
+        // Parse as grouped expression.
         const expr = this.parseExpr(0);
         this.expect(")");
-
-        // Check for lambda
-        if (this.peek().type === "=>") {
-          // This shouldn't happen if we parsed a full expression
-        }
-
         return expr;
       }
 
@@ -727,6 +715,10 @@ class Parser {
 
   private peek(): Token {
     return this.tokens[this.pos] || { type: "eof", value: "", pos: 0 };
+  }
+
+  private peekAt(offset: number): Token {
+    return this.tokens[this.pos + offset] || { type: "eof", value: "", pos: 0 };
   }
 
   private advance(): Token {

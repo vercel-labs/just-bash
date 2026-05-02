@@ -258,6 +258,21 @@ export async function cmdSplit(
   }
 }
 
+function sanitizeForFilename(val: string): string {
+  return val.replace(/[^a-zA-Z0-9_-]/g, "_") || "empty";
+}
+
+// FNV-1a 32-bit hash, base36, 6 chars. Deterministic and short — used
+// only to disambiguate filenames when distinct partition values
+// sanitize to the same name (e.g. `a/b` and `a:b` → `a_b`).
+function shortHash(s: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h ^ s.charCodeAt(i)) * 16777619) >>> 0;
+  }
+  return h.toString(36).padStart(6, "0").slice(0, 6);
+}
+
 /**
  * Partition: split CSV by column value into separate outputs
  * Usage: xan partition COLUMN [OPTIONS] [FILE]
@@ -313,12 +328,42 @@ export async function cmdPartition(
     groups.get(val)?.push(row);
   }
 
-  // Write files
+  // Write files. Sanitization replaces every non-[A-Za-z0-9_-] character
+  // with `_`, so distinct values like `a/b`, `a:b`, `a b` all sanitize to
+  // `a_b`. Without disambiguation the second group silently overwrites
+  // the first — a data-loss bug. We resolve filenames via a single
+  // allocator that tracks every name actually emitted, so a collision
+  // between a hash-suffixed colliding name and an unsuffixed non-
+  // colliding name (e.g. value `a/b` hashes to `a_b_g8wk3l` while the
+  // literal value `a_b_g8wk3l` would also produce `a_b_g8wk3l.csv`)
+  // is broken with an additional `_1`, `_2`, … counter rather than
+  // letting one partition silently overwrite another.
+  const sanitizedCounts = new Map<string, number>();
+  for (const val of groups.keys()) {
+    const safe = sanitizeForFilename(val);
+    sanitizedCounts.set(safe, (sanitizedCounts.get(safe) ?? 0) + 1);
+  }
+  const allocatedNames = new Set<string>();
+  const finalName = new Map<string, string>();
+  for (const val of groups.keys()) {
+    const safe = sanitizeForFilename(val);
+    const colliding = (sanitizedCounts.get(safe) ?? 0) > 1;
+    const base = colliding ? `${safe}_${shortHash(val)}` : safe;
+    let candidate = `${base}.csv`;
+    let n = 1;
+    while (allocatedNames.has(candidate)) {
+      candidate = `${base}_${n}.csv`;
+      n++;
+    }
+    allocatedNames.add(candidate);
+    finalName.set(val, candidate);
+  }
+
   try {
     const outPath = ctx.fs.resolvePath(ctx.cwd, outputDir);
     for (const [val, rows] of groups) {
-      const safeVal = val.replace(/[^a-zA-Z0-9_-]/g, "_") || "empty";
-      const fileName = `${safeVal}.csv`;
+      const fileName = finalName.get(val);
+      if (!fileName) continue;
       const filePath = ctx.fs.resolvePath(outPath, fileName);
       await ctx.fs.writeFile(filePath, formatCsv(headers, rows));
     }

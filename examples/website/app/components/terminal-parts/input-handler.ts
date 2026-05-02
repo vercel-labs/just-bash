@@ -11,6 +11,27 @@ type Terminal = {
 };
 
 
+// Strip ANSI escape sequences from text destined for term.write so OSC
+// 8 hyperlink XSS can't sneak in via user-supplied or URL-supplied
+// command echoes. Defense in depth — callers that forget to sanitize
+// still get protected here.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately matching control chars
+const STRIP_OSC = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately matching control chars
+const STRIP_CSI = /\x1b\[[\d;?]*[A-Za-z@~]/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately matching control chars
+const STRIP_ESC_OTHER = /\x1b[@-_]/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately matching control chars
+const STRIP_C0 = /[\x00-\x08\x0B-\x1F\x7F]/g;
+
+function stripDisplayAnsi(text: string): string {
+  return text
+    .replace(STRIP_OSC, "")
+    .replace(STRIP_CSI, "")
+    .replace(STRIP_ESC_OTHER, "")
+    .replace(STRIP_C0, "");
+}
+
 // Find the start of the previous word
 function findPrevWordBoundary(str: string, pos: number): number {
   if (pos <= 0) return 0;
@@ -475,10 +496,14 @@ export function createInputHandler(term: Terminal, bash: Bash) {
     setInitialCommand: (initialCmd: string) => {
       cmd = initialCmd;
       cursorPos = initialCmd.length;
-      term.write(initialCmd);
+      // Strip ANSI before echoing — defense in depth in case any caller
+      // forgets to sanitize. The bash parser still sees the original
+      // string from the cmd variable above (set on the same line),
+      // so we just protect the visual echo.
+      term.write(stripDisplayAnsi(initialCmd));
     },
     executeCommand: async (command: string) => {
-      term.write(command);
+      term.write(stripDisplayAnsi(command));
       term.writeln("");
       await executeCommand(command);
     },

@@ -27,18 +27,21 @@ jobs:
       pull-requests: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      # Third-party actions in this privileged job are pinned to full
+      # commit SHAs so a moved tag or compromised upstream cannot inject
+      # code into a workflow holding contents:write + id-token:write.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
           lfs: true
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
       # Node 24 (LTS Krypton) ships npm >= 11.12, which has Trusted Publisher
       # OIDC authentication. Node 22's bundled npm 10.x can sign provenance
       # attestations but cannot use OIDC tokens to authenticate the publish
       # itself, leading to a confusing 404 after provenance signing succeeds.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "24"
           cache: "pnpm"
