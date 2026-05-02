@@ -221,4 +221,141 @@ describe("xan partition", () => {
       "xan partition: column 'nonexistent' not found\n",
     );
   });
+
+  it("does not silently overwrite when distinct values share a sanitized filename", async () => {
+    // The HIGH_BUG finding: `a/b`, `a:b`, and `a b` all sanitize to
+    // `a_b`, so the prior implementation wrote three groups to the
+    // same file `a_b.csv` — silent data loss.
+    const bash = new Bash({
+      files: {
+        "/data.csv":
+          "key,value\na/b,1\na:b,2\na b,3\nplain,4\na/b,11\na:b,22\na b,33\n",
+      },
+    });
+    const result = await bash.exec("xan partition key /data.csv");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("Partitioned into 4 files by 'key'\n");
+
+    // Each colliding sanitized name must produce a distinct file.
+    const ls = await bash.exec("ls /");
+    expect(ls.exitCode).toBe(0);
+    const files = ls.stdout
+      .split("\n")
+      .filter((f) => f.endsWith(".csv") && f !== "data.csv");
+    // 4 partitions: 3 colliding + 1 plain
+    expect(files.length).toBe(4);
+
+    // Plain (non-colliding) value keeps the simple filename.
+    expect(files).toContain("plain.csv");
+
+    // Colliding files must each contain only their own group's rows.
+    // Read all colliding partition files and verify partition isolation.
+    const collidingFiles = files.filter(
+      (f) => f.startsWith("a_b") && f !== "plain.csv",
+    );
+    expect(collidingFiles.length).toBe(3);
+    const groupContents = await Promise.all(
+      collidingFiles.map(async (f) => {
+        const r = await bash.exec(`cat /${f}`);
+        return r.stdout;
+      }),
+    );
+    // Each file has its own header + 2 rows of one specific key.
+    const allValues = groupContents.flatMap((c) =>
+      c
+        .split("\n")
+        .slice(1)
+        .filter((l) => l.length > 0),
+    );
+    expect(allValues.sort()).toEqual([
+      "a b,3",
+      "a b,33",
+      "a/b,1",
+      "a/b,11",
+      "a:b,2",
+      "a:b,22",
+    ]);
+  });
+
+  it("disambiguates a hash-suffixed colliding name vs a literal value with the same sanitized form", async () => {
+    // Concrete failure mode left by a naive hash-only fix: distinct
+    // values `a/b` and `a:b` both sanitize to `a_b` and get hash
+    // suffixes (e.g. `a_b_<hash(a/b)>.csv`). If a third literal value
+    // happens to equal one of those hashed names — `a_b_<hash(a/b)>` —
+    // its plain sanitized name overwrites the hashed colliding file.
+    // The allocator must catch this and append a counter.
+    //
+    // We compute the actual hash for `a/b` via the same FNV-1a logic
+    // the implementation uses, then add a literal value equal to that
+    // hashed-out name and verify all three partitions coexist on disk.
+    const fnv1a = (s: string): string => {
+      let h = 2166136261;
+      for (let i = 0; i < s.length; i++) {
+        h = ((h ^ s.charCodeAt(i)) * 16777619) >>> 0;
+      }
+      return h.toString(36).padStart(6, "0").slice(0, 6);
+    };
+    const collidingHash = fnv1a("a/b");
+    const literalLikeSuffixed = `a_b_${collidingHash}`;
+
+    const bash = new Bash({
+      files: {
+        "/data.csv": `key,value\na/b,1\na:b,2\n${literalLikeSuffixed},3\n`,
+      },
+    });
+    const result = await bash.exec("xan partition key /data.csv");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("Partitioned into 3 files by 'key'\n");
+
+    const ls = await bash.exec("ls /");
+    expect(ls.exitCode).toBe(0);
+    const files = ls.stdout
+      .split("\n")
+      .filter((f) => f.endsWith(".csv") && f !== "data.csv")
+      .sort();
+    // Three distinct partitions ⇒ three distinct files.
+    expect(files.length).toBe(3);
+    expect(new Set(files).size).toBe(3);
+
+    // Read each file and confirm its row matches the partition key.
+    const rowsPerFile = await Promise.all(
+      files.map(async (f) => {
+        const r = await bash.exec(`cat /${f}`);
+        const lines = r.stdout.split("\n").filter((l) => l.length > 0);
+        return lines.slice(1); // drop header
+      }),
+    );
+    const allRows = rowsPerFile.flat().sort();
+    expect(allRows).toEqual(["a/b,1", "a:b,2", `${literalLikeSuffixed},3`]);
+  });
+
+  it("uses a deterministic suffix for repeated runs (same input = same filenames)", async () => {
+    const setup = () =>
+      new Bash({
+        files: { "/data.csv": "k,v\na/b,1\na:b,2\n" },
+      });
+
+    const r1 = await setup().exec("xan partition k /data.csv");
+    expect(r1.exitCode).toBe(0);
+    const ls1 = await (async () => {
+      const b = setup();
+      await b.exec("xan partition k /data.csv");
+      const r = await b.exec("ls /");
+      return r.stdout
+        .split("\n")
+        .filter((f) => f.endsWith(".csv") && f !== "data.csv")
+        .sort();
+    })();
+    const ls2 = await (async () => {
+      const b = setup();
+      await b.exec("xan partition k /data.csv");
+      const r = await b.exec("ls /");
+      return r.stdout
+        .split("\n")
+        .filter((f) => f.endsWith(".csv") && f !== "data.csv")
+        .sort();
+    })();
+    expect(ls1).toEqual(ls2);
+    expect(ls1.length).toBe(2);
+  });
 });

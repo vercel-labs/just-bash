@@ -12,6 +12,31 @@ import { InputHandler } from "./input-handler";
 const MAX_SCROLLBACK_LINES = 100_000;
 
 /**
+ * URL schemes considered safe for clickable terminal links.
+ * Specifically blocks `javascript:`, `data:`, `vbscript:`, `file:`, etc.
+ * which would execute attacker-controlled code or read local resources
+ * if assigned to an <a href>.
+ */
+const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
+
+function isSafeLinkUrl(url: string): boolean {
+  try {
+    // Use a base so relative URLs (which we should NOT render as links
+    // anyway) don't accidentally become unsafe when resolved.
+    const parsed = new URL(url, "https://example.invalid/");
+    if (!SAFE_LINK_PROTOCOLS.has(parsed.protocol)) return false;
+    // If the URL was relative, the parsed origin is example.invalid —
+    // refuse to render that as a clickable absolute link.
+    if (parsed.hostname === "example.invalid" && !/^https?:|^mailto:/i.test(url)) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Lightweight terminal implementation optimized for iOS
  * Drop-in compatible with xterm.js API surface used in this project
  */
@@ -607,8 +632,11 @@ export class LiteTerminal {
     const classes = this.getStyleClasses(style);
     const inlineStyle = this.getInlineStyle(style);
 
-    // If style has a link (from OSC 8), create an anchor element
-    if (style.link) {
+    // If style has a link (from OSC 8), create an anchor element.
+    // Validate the URL scheme — without this, an OSC 8 sequence with
+    // `javascript:` (or `data:`, `vbscript:`, etc.) becomes a clickable
+    // anchor that fires arbitrary JS in this origin (XSS).
+    if (style.link && isSafeLinkUrl(style.link)) {
       const link = document.createElement("a");
       link.href = style.link;
       link.target = "_blank";

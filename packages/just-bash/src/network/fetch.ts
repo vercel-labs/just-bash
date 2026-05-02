@@ -16,6 +16,7 @@ import {
   matchesAllowListEntry,
   validateAllowList,
 } from "./allow-list.js";
+import { type PinnedAddress, pinDns } from "./dns-pin.js";
 import type { AllowedUrl, AllowedUrlEntry, DnsLookupResult } from "./types.js";
 import {
   type FetchResult,
@@ -133,10 +134,14 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
   const resolveDns = config._dnsResolve ?? dnsLookupAll;
 
   /**
-   * Checks if a URL is allowed by the configuration.
+   * Checks if a URL is allowed by the configuration and, when
+   * denyPrivateRanges is on, returns the validated DNS result so the
+   * actual fetch can be pinned to that exact address (defeats DNS
+   * rebinding between the preflight check and connection).
+   *
    * @throws NetworkAccessDeniedError if the URL is not allowed
    */
-  async function checkAllowed(url: string): Promise<void> {
+  async function checkAllowed(url: string): Promise<PinnedAddress | null> {
     if (
       !config.dangerouslyAllowFullInternetAccess &&
       !isUrlAllowed(url, entries)
@@ -164,6 +169,8 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
         if (isDomainName) {
           try {
             const addresses = await resolveDns(hostname);
+            // First pass: any private address rejects the whole resolution.
+            // Second pass: pick the first public address to pin the fetch to.
             for (const { address } of addresses) {
               if (isPrivateIp(address)) {
                 throw new NetworkAccessDeniedError(
@@ -171,6 +178,14 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
                   "hostname resolves to private/loopback IP address",
                 );
               }
+            }
+            const first = addresses[0];
+            if (first) {
+              return {
+                hostname,
+                address: first.address,
+                family: first.family === 6 ? 6 : 4,
+              };
             }
           } catch (dnsErr) {
             if (dnsErr instanceof NetworkAccessDeniedError) throw dnsErr;
@@ -193,6 +208,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
         // Invalid URL will be caught by isUrlAllowed below
       }
     }
+    return null;
   }
 
   /**
@@ -220,7 +236,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     const method = options.method?.toUpperCase() ?? "GET";
 
     // Check if URL and method are allowed
-    await checkAllowed(url);
+    let pinned = await checkAllowed(url);
     checkMethodAllowed(method);
 
     let currentUrl = url;
@@ -261,6 +277,14 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
             fetchOptions.body = options.body;
           }
 
+          // Pin DNS resolution to the address we already validated so
+          // an attacker controlling DNS for an allow-listed hostname
+          // cannot rebind the second resolution to a private/internal IP.
+          // No-op when `pinned` is null (denyPrivateRanges off, IP literal,
+          // or hostname did not resolve).
+          if (pinned) {
+            return pinDns(pinned, () => fetch(currentUrl, fetchOptions));
+          }
           return fetch(currentUrl, fetchOptions);
         });
 
@@ -279,9 +303,11 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
           // Resolve relative URLs
           const redirectUrl = new URL(location, currentUrl).href;
 
-          // Check redirect target against allow-list and private IP ranges
+          // Check redirect target against allow-list and private IP ranges.
+          // Re-pin DNS for the redirect target — the validated address
+          // is per-host, so each new hop needs its own resolution.
           try {
-            await checkAllowed(redirectUrl);
+            pinned = await checkAllowed(redirectUrl);
           } catch {
             throw new RedirectNotAllowedError(redirectUrl);
           }
