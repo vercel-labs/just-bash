@@ -50,6 +50,8 @@ export interface JsExecWorkerInput {
   isModule?: boolean;
   stripTypes?: boolean;
   timeoutMs?: number;
+  /** When true, the QuickJS guest gets a `tools` proxy that calls the host's invokeTool hook. */
+  hasInvokeTool?: boolean;
 }
 
 export interface JsExecWorkerOutput {
@@ -771,6 +773,28 @@ function setupContext(
   context.setProp(context.global, "__execArgs", execArgsFn);
   execArgsFn.dispose();
 
+  // --- tool invocation hook ---
+  if (input.hasInvokeTool) {
+    const invokeToolFn = context.newFunction(
+      "__invokeTool",
+      (pathHandle: QuickJSHandle, argsHandle: QuickJSHandle) => {
+        const path = context.getString(pathHandle);
+        const argsJson = context.getString(argsHandle);
+        try {
+          const resultJson = backend.invokeTool(path, argsJson);
+          return context.newString(resultJson);
+        } catch (e) {
+          return throwError(
+            context,
+            (e as Error).message || "tool invocation failed",
+          );
+        }
+      },
+    );
+    context.setProp(context.global, "__invokeTool", invokeToolFn);
+    invokeToolFn.dispose();
+  }
+
   // --- env ---
   const envObj = jsToHandle(context, input.env);
   context.setProp(context.global, "env", envObj);
@@ -1065,6 +1089,30 @@ async function initializeWithDefense(): Promise<void> {
   });
 }
 
+/**
+ * JavaScript source that installs the `tools` proxy in the QuickJS guest.
+ * The proxy builds a dot-separated path from property access and calls the
+ * host's `__invokeTool` host function (which bridges via SAB to invokeTool).
+ * Console output is unaffected; it still flows to stdout/stderr normally.
+ */
+const TOOLS_PROXY_SETUP_SOURCE = `(function() {
+  globalThis.tools = (function makeProxy(path) {
+    return new Proxy(function(){}, {
+      get: function(_t, prop) {
+        if (prop === 'then' || typeof prop === 'symbol') return undefined;
+        return makeProxy(path.concat([String(prop)]));
+      },
+      apply: function(_t, _this, args) {
+        var toolPath = path.join('.');
+        if (!toolPath) throw new Error('Tool path missing in invocation');
+        var argsJson = args[0] !== undefined ? JSON.stringify(args[0]) : '{}';
+        var resultJson = globalThis.__invokeTool(toolPath, argsJson);
+        return resultJson !== undefined && resultJson !== '' ? JSON.parse(resultJson) : undefined;
+      }
+    });
+  })([]);
+})();`;
+
 async function executeCode(
   input: JsExecWorkerInput,
 ): Promise<JsExecWorkerOutput> {
@@ -1302,6 +1350,19 @@ async function executeCode(
         return { success: true };
       }
       bootstrapResult.value.dispose();
+    }
+
+    // --- Install tools proxy when invokeTool hook is configured ---
+    if (input.hasInvokeTool) {
+      const toolsSetupResult = context.evalCode(
+        TOOLS_PROXY_SETUP_SOURCE,
+        "<tools-setup>",
+      );
+      if (toolsSetupResult.error) {
+        toolsSetupResult.error.dispose();
+      } else {
+        toolsSetupResult.value.dispose();
+      }
     }
 
     // Run user code

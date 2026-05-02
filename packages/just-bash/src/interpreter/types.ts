@@ -444,4 +444,9 @@ export interface InterpreterContext {
    * Threaded through the context chain instead of shell env.
    */
   jsBootstrapCode?: string;
+  /**
+   * Tool invoker hook. When present, js-exec sets up a `tools` proxy that
+   * routes calls through this callback.
+   */
+  invokeTool?: (path: string, argsJson: string) => Promise<string>;
 }
