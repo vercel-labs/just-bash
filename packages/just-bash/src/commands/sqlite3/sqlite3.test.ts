@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
+import { coerceDbBuffer } from "./worker.js";
 
 describe("sqlite3", () => {
   describe("basic operations", () => {
@@ -132,6 +133,50 @@ describe("sqlite3", () => {
       // Full IEEE 754 precision like real sqlite3
       expect(result.stdout).toBe('[{"i":42,"f":3.1400000000000001}]\n');
       expect(result.exitCode).toBe(0);
+    });
+  });
+
+  // Regression: Bun's worker_threads structured-clone (notably the build
+  // shipped in Trigger.dev's container) surfaces a host-side `null` dbBuffer
+  // as a zero-length ArrayBuffer at the worker. The pre-fix code used
+  // `if (data.dbBuffer) new SQL.Database(data.dbBuffer)`, which let the empty
+  // ArrayBuffer through and threw "Expected ArrayBuffer for the first
+  // argument" from sql.js (sql.js wants Uint8Array, not bare ArrayBuffer).
+  // coerceDbBuffer must collapse those cases to null so the executeQuery call
+  // site falls back to `new SQL.Database()` (fresh in-memory db).
+  describe("coerceDbBuffer (Bun structured-clone regression)", () => {
+    it("returns null for null", () => {
+      expect(coerceDbBuffer(null)).toBeNull();
+    });
+
+    it("returns null for undefined", () => {
+      expect(coerceDbBuffer(undefined)).toBeNull();
+    });
+
+    it("returns null for a zero-length ArrayBuffer (Bun structured-clone case)", () => {
+      expect(coerceDbBuffer(new ArrayBuffer(0))).toBeNull();
+    });
+
+    it("wraps a non-empty ArrayBuffer into a Uint8Array view", () => {
+      const ab = new ArrayBuffer(4);
+      new Uint8Array(ab).set([1, 2, 3, 4]);
+
+      const result = coerceDbBuffer(ab);
+
+      expect(result).toBeInstanceOf(Uint8Array);
+      expect(Array.from(result as Uint8Array)).toEqual([1, 2, 3, 4]);
+    });
+
+    it("returns the same Uint8Array when given a Uint8Array", () => {
+      const u8 = new Uint8Array([10, 20, 30]);
+      expect(coerceDbBuffer(u8)).toBe(u8);
+    });
+
+    it("returns the same buffer when given a Node Buffer", () => {
+      const buf = Buffer.from([5, 6, 7]);
+      const result = coerceDbBuffer(buf);
+      expect(result).toBe(buf);
+      expect(result).toBeInstanceOf(Uint8Array);
     });
   });
 });

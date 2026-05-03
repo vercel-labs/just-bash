@@ -27,6 +27,7 @@ import { _clearTimeout, _setTimeout } from "../../timers.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
+import { preprocessDotCommands } from "./dot-commands.js";
 import {
   type FormatOptions,
   formatOutput,
@@ -68,6 +69,8 @@ const sqlite3Help = {
     "-bail           stop on first error",
     "-echo           print SQL before execution",
     "-cmd COMMAND    run SQL command before main SQL",
+    "-init FILENAME  read/process named file before main SQL",
+    "-batch          accept-and-ignore (just-bash is always non-interactive)",
     "-version        show SQLite version",
     "--              end of options",
     "--help          show this help",
@@ -90,6 +93,7 @@ interface SqliteOptions {
   bail: boolean;
   echo: boolean;
   cmd: string | null;
+  init: string | null;
 }
 
 function parseArgs(args: string[]):
@@ -110,6 +114,7 @@ function parseArgs(args: string[]):
     bail: false,
     echo: false,
     cmd: null,
+    init: null,
   };
 
   let database: string | null = null;
@@ -187,6 +192,17 @@ function parseArgs(args: string[]):
         };
       }
       options.cmd = args[++i];
+    } else if (arg === "-init") {
+      if (i + 1 >= args.length) {
+        return {
+          stdout: "",
+          stderr: "sqlite3: Error: missing argument to -init\n",
+          exitCode: 1,
+        };
+      }
+      options.init = args[++i];
+    } else if (arg === "-batch") {
+      // No-op: just-bash is never interactive, so -batch is implied.
     } else if (arg.startsWith("-")) {
       // Real sqlite3 treats --xyz as -xyz and says "unknown option: -xyz"
       const optName = arg.startsWith("--") ? arg.slice(1) : arg;
@@ -539,17 +555,76 @@ export const sqlite3Command: Command = {
       };
     }
 
-    // Get SQL from argument or stdin, prepend -cmd if provided
+    // Get SQL from argument or stdin. Prepend -cmd first, then -init on top,
+    // so the final execution order is: init content -> cmd -> main SQL.
     let sql = sqlArg || ctx.stdin.trim();
     if (options.cmd) {
       sql = options.cmd + (sql ? `; ${sql}` : "");
     }
-    if (!sql) {
+    // `options.init` is `string | null`. Use `!== null` (not falsiness) so
+    // `-init ""` attempts the read and surfaces a clear error, instead of
+    // silently skipping. This matches the no-SQL guard below, which also
+    // treats an explicit empty string as "provided".
+    if (options.init !== null) {
+      try {
+        const initPath = ctx.fs.resolvePath(ctx.cwd, options.init);
+        const initContent = await ctx.fs.readFile(initPath);
+        sql = initContent + (sql ? `\n${sql}` : "");
+      } catch (e) {
+        const message = sanitizeErrorMessage((e as Error).message);
+        return {
+          stdout: "",
+          stderr: `sqlite3: cannot open -init file "${options.init}": ${message}\n`,
+          exitCode: 1,
+        };
+      }
+    }
+    // Only error when no SQL source was provided at all. An empty -init
+    // file (or explicitly empty stdin/sqlArg) with nothing else is a clean
+    // exit 0, matching real sqlite3. sqlArg/options.init are typed as
+    // `string | null`, so test for absence with `=== null` rather than
+    // falsiness (an explicit empty string is "provided but empty").
+    if (!sql && options.init === null && sqlArg === null && !ctx.stdin.trim()) {
       return {
         stdout: "",
         stderr: "sqlite3: no SQL provided\n",
         exitCode: 1,
       };
+    }
+
+    // Preprocess dot-commands (.tables, .schema, .mode, .read, ...)
+    let dotError: string | undefined;
+    {
+      const pre = await preprocessDotCommands(sql, {
+        fs: ctx.fs,
+        cwd: ctx.cwd,
+      });
+      sql = pre.sql.trim();
+      if (pre.formatterMutation.mode !== undefined)
+        options.mode = pre.formatterMutation.mode;
+      if (pre.formatterMutation.header !== undefined)
+        options.header = pre.formatterMutation.header;
+      if (pre.formatterMutation.separator !== undefined)
+        options.separator = pre.formatterMutation.separator;
+      if (pre.formatterMutation.newline !== undefined)
+        options.newline = pre.formatterMutation.newline;
+      if (pre.formatterMutation.nullValue !== undefined)
+        options.nullValue = pre.formatterMutation.nullValue;
+      dotError = pre.error;
+      if (dotError && options.bail) {
+        return { stdout: "", stderr: `${dotError}\n`, exitCode: 1 };
+      }
+      // Pure formatter mutations / dot-commands with no SQL: short-circuit
+      // instead of sending whitespace to the worker. Real sqlite3 emits
+      // nothing in this case.
+      if (!sql) {
+        const stderr = dotError ? `${dotError}\n` : "";
+        return {
+          stdout: "",
+          stderr,
+          exitCode: dotError !== undefined ? 1 : 0,
+        };
+      }
     }
 
     // Load database buffer
@@ -630,7 +705,6 @@ export const sqlite3Command: Command = {
     }
 
     // Process results
-    let hadError = false;
     for (const stmtResult of result.results) {
       if (stmtResult.type === "error") {
         if (options.bail) {
@@ -641,7 +715,6 @@ export const sqlite3Command: Command = {
           };
         }
         stdout += `Error: ${stmtResult.error}\n`;
-        hadError = true;
       } else if (stmtResult.columns && stmtResult.rows) {
         if (stmtResult.rows.length > 0 || options.header) {
           stdout += formatOutput(
@@ -673,7 +746,12 @@ export const sqlite3Command: Command = {
       }
     }
 
-    return { stdout, stderr: "", exitCode: hadError && options.bail ? 1 : 0 };
+    const stderr = dotError ? `${dotError}\n` : "";
+    // dotError always causes exit 1 (matches real sqlite3).
+    // hadError without -bail doesn't (pre-existing behaviour preserved);
+    // hadError with -bail already returned early in the loop above.
+    const exitCode = dotError !== undefined ? 1 : 0;
+    return { stdout, stderr, exitCode };
   },
 };
 
