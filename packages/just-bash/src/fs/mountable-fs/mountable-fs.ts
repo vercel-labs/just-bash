@@ -2,6 +2,7 @@ import { InMemoryFs } from "../in-memory-fs/in-memory-fs.js";
 import type {
   BufferEncoding,
   CpOptions,
+  DirentEntry,
   FileContent,
   FsStat,
   IFileSystem,
@@ -442,6 +443,70 @@ export class MountableFs implements IFileSystem {
     }
 
     return Array.from(entries).sort();
+  }
+
+  async readdirWithFileTypes(path: string): Promise<DirentEntry[]> {
+    const normalized = normalizePath(path);
+    const entries = new Map<string, DirentEntry>();
+    let readdirError: Error | null = null;
+
+    // Get entries from the owning filesystem
+    const { fs, relativePath } = this.routePath(path);
+    try {
+      if (fs.readdirWithFileTypes) {
+        const fsEntries = await fs.readdirWithFileTypes(relativePath);
+        for (const entry of fsEntries) {
+          entries.set(entry.name, entry);
+        }
+      } else {
+        // Fallback if underlying fs doesn't support readdirWithFileTypes
+        const names = await fs.readdir(relativePath);
+        for (const name of names) {
+          const entryPath = joinPath(relativePath, name);
+          try {
+            const stats = await fs.lstat(entryPath);
+            entries.set(name, {
+              name,
+              isFile: stats.isFile,
+              isDirectory: stats.isDirectory,
+              isSymbolicLink: stats.isSymbolicLink,
+            });
+          } catch {
+            // Ignore stat errors for individual entries
+          }
+        }
+      }
+    } catch (err) {
+      // Path might not exist in base FS if only mount points are there
+      const code = (err as { code?: string }).code;
+      const message = (err as { message?: string }).message || "";
+
+      if (code !== "ENOENT" && !message.includes("ENOENT")) {
+        throw err;
+      }
+      // Save error to throw later if no mount points provide entries
+      readdirError = err as Error;
+    }
+
+    // Add mount points that are immediate children
+    const childMounts = this.getChildMountPoints(normalized);
+    for (const child of childMounts) {
+      entries.set(child, {
+        name: child,
+        isFile: false,
+        isDirectory: true,
+        isSymbolicLink: false,
+      });
+    }
+
+    // If no entries found and we had an error, throw the original error
+    if (entries.size === 0 && readdirError && !this.mounts.has(normalized)) {
+      throw readdirError;
+    }
+
+    return Array.from(entries.values()).sort((a, b) =>
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+    );
   }
 
   async rm(path: string, options?: RmOptions): Promise<void> {

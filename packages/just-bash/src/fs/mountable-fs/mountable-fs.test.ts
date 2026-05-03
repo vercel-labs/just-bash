@@ -232,6 +232,78 @@ describe("MountableFs", () => {
     });
   });
 
+  describe("readdirWithFileTypes", () => {
+    it("should list mount points as directories with types", async () => {
+      const fs = new MountableFs();
+      fs.mount("/mnt/data", new InMemoryFs());
+      fs.mount("/mnt/logs", new InMemoryFs());
+
+      const entries = await fs.readdirWithFileTypes("/mnt");
+
+      expect(entries).toHaveLength(2);
+      expect(entries[0].name).toBe("data");
+      expect(entries[0].isDirectory).toBe(true);
+      expect(entries[0].isFile).toBe(false);
+
+      expect(entries[1].name).toBe("logs");
+      expect(entries[1].isDirectory).toBe(true);
+      expect(entries[1].isFile).toBe(false);
+    });
+
+    it("should merge mount points with base fs entries and preserve types", async () => {
+      const base = new InMemoryFs({
+        "/mnt/readme.txt": "docs",
+        "/mnt/other_dir/file": "content",
+      });
+
+      const fs = new MountableFs({ base });
+      fs.mount("/mnt/data", new InMemoryFs());
+
+      const entries = await fs.readdirWithFileTypes("/mnt");
+
+      expect(entries).toHaveLength(3);
+      // entries are sorted
+      expect(entries[0].name).toBe("data");
+      expect(entries[0].isDirectory).toBe(true);
+
+      expect(entries[1].name).toBe("other_dir");
+      expect(entries[1].isDirectory).toBe(true);
+
+      expect(entries[2].name).toBe("readme.txt");
+      expect(entries[2].isFile).toBe(true);
+    });
+
+    it("should throw ENOENT for non-existent paths", async () => {
+      const fs = new MountableFs();
+      await expect(fs.readdirWithFileTypes("/non-existent")).rejects.toThrow("ENOENT");
+    });
+
+    it("should fallback to readdir + lstat if underlying fs doesn't support readdirWithFileTypes", async () => {
+      // Create a mock fs that doesn't have readdirWithFileTypes
+      // and explicitly provide a simple readdir implementation so it doesn't call the deleted readdirWithFileTypes
+      const mockFs: any = new InMemoryFs({
+        "/file.txt": "content",
+        "/dir/subdir": "content",
+      });
+      mockFs.readdirWithFileTypes = undefined;
+      // Override readdir so it doesn't use the original InMemoryFs logic which calls readdirWithFileTypes
+      mockFs.readdir = async (path: string) => {
+        if (path === "/" || path === "") return ["file.txt", "dir"];
+        if (path === "/dir") return ["subdir"];
+        return [];
+      };
+
+      const fs = new MountableFs({ base: mockFs });
+      const entries = await fs.readdirWithFileTypes("/");
+
+      expect(entries).toHaveLength(2);
+      expect(entries[0].name).toBe("dir");
+      expect(entries[0].isDirectory).toBe(true);
+      expect(entries[1].name).toBe("file.txt");
+      expect(entries[1].isFile).toBe(true);
+    });
+  });
+
   describe("rm operations", () => {
     it("should remove files from mounted filesystem", async () => {
       const mounted = new InMemoryFs({ "/test.txt": "content" });
