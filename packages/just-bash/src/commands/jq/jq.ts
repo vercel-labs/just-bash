@@ -22,6 +22,68 @@ import {
 } from "../query-engine/index.js";
 import { sanitizeParsedData } from "../query-engine/safe-object.js";
 
+function escapeControlChar(char: string): string {
+  switch (char) {
+    case "\b":
+      return "\\b";
+    case "\f":
+      return "\\f";
+    case "\n":
+      return "\\n";
+    case "\r":
+      return "\\r";
+    case "\t":
+      return "\\t";
+    default:
+      return `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`;
+  }
+}
+
+function sanitizeJsonControlChars(input: string): string {
+  let output = "";
+  let inString = false;
+  let isEscaped = false;
+
+  for (let i = 0; i < input.length; i++) {
+    const char = input[i];
+
+    if (isEscaped) {
+      output += char;
+      isEscaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      output += char;
+      isEscaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      output += char;
+      inString = !inString;
+      continue;
+    }
+
+    if (inString && char.charCodeAt(0) <= 0x1f) {
+      output += escapeControlChar(char);
+      continue;
+    }
+
+    output += char;
+  }
+
+  return output;
+}
+
+function parseJsonSlice(
+  input: string,
+  startPos: number,
+  endPos: number,
+): unknown {
+  return JSON.parse(sanitizeJsonControlChars(input.slice(startPos, endPos)));
+}
+
 /**
  * Parse a JSON stream (concatenated JSON values).
  * Real jq can handle `{...}{...}` or `{...}\n{...}` or pretty-printed concatenated JSONs.
@@ -69,7 +131,7 @@ function parseJsonStream(input: string): unknown[] {
         );
       }
 
-      results.push(sanitizeParsedData(JSON.parse(input.slice(startPos, pos))));
+      results.push(sanitizeParsedData(parseJsonSlice(input, startPos, pos)));
     } else if (char === '"') {
       // Parse string
       let isEscaped = false;
@@ -86,11 +148,11 @@ function parseJsonStream(input: string): unknown[] {
         }
         pos++;
       }
-      results.push(sanitizeParsedData(JSON.parse(input.slice(startPos, pos))));
+      results.push(sanitizeParsedData(parseJsonSlice(input, startPos, pos)));
     } else if (char === "-" || (char >= "0" && char <= "9")) {
       // Parse number
       while (pos < len && /[\d.eE+-]/.test(input[pos])) pos++;
-      results.push(sanitizeParsedData(JSON.parse(input.slice(startPos, pos))));
+      results.push(sanitizeParsedData(parseJsonSlice(input, startPos, pos)));
     } else if (input.slice(pos, pos + 4) === "true") {
       results.push(true);
       pos += 4;
