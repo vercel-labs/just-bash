@@ -1,105 +1,104 @@
-import { ImageResponse } from "next/og";
+import { ImageResponse } from 'next/og'
 
-export const alt = "just-bash - A sandboxed bash interpreter for AI agents";
-export const size = { width: 1200, height: 630 };
-export const contentType = "image/png";
+export const alt = 'just-bash - A sandboxed bash interpreter for AI agents'
+export const size = { width: 1200, height: 630 }
+export const contentType = 'image/png'
 
 const ASCII_ART = `   _           _   _               _
   (_)_   _ ___| |_| |__   __ _ ___| |__
   | | | | / __| __| '_ \\ / _\` / __| '_ \\
   | | |_| \\__ \\ |_| |_) | (_| \\__ \\ | | |
  _/ |\\__,_|___/\\__|_.__/ \\__,_|___/_| |_|
-|__/`;
+|__/`
 
 export default async function Image() {
-  const font = await fetch(
-    new URL("https://fonts.gstatic.com/s/ibmplexmono/v19/-F63fjptAgt5VM-kVkqdyU8n5ig.ttf")
-  ).then((res) => res.arrayBuffer());
+  const font = await fetch(new URL('https://fonts.gstatic.com/s/ibmplexmono/v19/-F63fjptAgt5VM-kVkqdyU8n5ig.ttf')).then((res) => res.arrayBuffer())
 
   return new ImageResponse(
-    (
-      <div
+    <div
+      style={{
+        background: '#000',
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        justifyContent: 'flex-start',
+        fontFamily: 'IBM Plex Mono',
+        padding: '60px 200px',
+      }}
+    >
+      <pre
         style={{
-          background: "#000",
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-start",
-          justifyContent: "flex-start",
-          fontFamily: "IBM Plex Mono",
-          padding: "60px 80px",
+          color: '#fff',
+          fontSize: '32px',
+          lineHeight: '1.2',
+          margin: 0,
+          whiteSpace: 'pre',
         }}
       >
-<pre
-          style={{
-            color: "#fff",
-            fontSize: "28px",
-            lineHeight: "1.2",
-            margin: 0,
-            whiteSpace: "pre",
-          }}
-        >
-          {ASCII_ART}
-        </pre>
+        {ASCII_ART}
+      </pre>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          marginTop: '40px',
+          gap: '12px',
+        }}
+      >
         <div
           style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-start",
-            marginTop: "40px",
-            gap: "12px",
+            color: '#7d7d7d',
+            fontSize: '31px',
+            lineHeight: '1.2',
+            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
         >
-          <div
-            style={{
-              color: "#888",
-              fontSize: "24px",
-            }}
-          >
-            A sandboxed bash interpreter for AI agents
-          </div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "12px",
-              marginTop: "8px",
-            }}
-          >
-            <span style={{ color: "#666" }}>$</span>
-            <span
-              style={{
-                color: "#0AC5B3",
-                fontSize: "32px",
-              }}
-            >
-              npm install just-bash
-            </span>
-          </div>
+          A sandboxed bash interpreter for AI agents.
+          <br />
+          Pure TypeScript with in-memory filesystem.
         </div>
         <div
           style={{
-            position: "absolute",
-            bottom: "50px",
-            left: "80px",
-            color: "#555",
-            fontSize: "18px",
+            display: 'flex',
+            gap: '12px',
+            marginTop: '20px',
+            fontSize: '31px',
+            lineHeight: '1.2',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexGrow: 1,
+            width: '800px',
           }}
         >
-          Pure TypeScript | In-memory filesystem
+          <span style={{ color: '#FFF' }}>$</span>
+          <span
+            style={{
+              color: '#0AC5B3',
+              fontSize: '31px',
+            }}
+          >
+            npm install just-bash
+          </span>
         </div>
       </div>
-    ),
+    </div>,
     {
       ...size,
       fonts: [
         {
-          name: "IBM Plex Mono",
+          name: 'IBM Plex Mono',
           data: font,
-          style: "normal",
+          style: 'normal',
         },
       ],
-    }
-  );
+    },
+  )
 }
