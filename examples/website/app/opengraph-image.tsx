@@ -28,12 +28,18 @@ export default async function Image() {
         padding: '60px 200px',
       }}
     >
+      <div style={{ display: 'flex', marginLeft: '-135px', marginTop: '10px' }}>
+        <svg width="56" height="49" viewBox="0 0 112 98" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M56 0L112 98H0L56 0Z" fill="white" />
+        </svg>
+      </div>
+
       <pre
         style={{
           color: '#fff',
           fontSize: '32px',
           lineHeight: '1.2',
-          margin: 0,
+          margin: '-5 0px 0 0 0',
           whiteSpace: 'pre',
         }}
       >
