@@ -1,8 +1,8 @@
-import { ImageResponse } from "next/og"
+import { ImageResponse } from "next/og";
 
-export const alt = "just-bash - A sandboxed bash interpreter for AI agents"
-export const size = { width: 1200, height: 630 }
-export const contentType = "image/png"
+export const alt = "just-bash - A sandboxed bash interpreter for AI agents";
+export const size = { width: 1200, height: 630 };
+export const contentType = "image/png";
 
 const ASCII_ART = `   _           _   _               _
   (_)_   _ ___| |_| |__   __ _ ___| |__
@@ -12,7 +12,9 @@ const ASCII_ART = `   _           _   _               _
 |__/`
 
 export default async function Image() {
-  const font = await fetch(new URL("https://fonts.gstatic.com/s/ibmplexmono/v19/-F63fjptAgt5VM-kVkqdyU8n5ig.ttf")).then((res) => res.arrayBuffer())
+  const font = await fetch(
+    new URL("https://fonts.gstatic.com/s/ibmplexmono/v19/-F63fjptAgt5VM-kVkqdyU8n5ig.ttf")
+  ).then((res) => res.arrayBuffer())
 
   return new ImageResponse(
     <div
@@ -106,5 +108,5 @@ export default async function Image() {
         },
       ],
     },
-  )
+  );
 }
