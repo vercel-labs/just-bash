@@ -39,7 +39,7 @@ export default async function Image() {
           color: '#fff',
           fontSize: '32px',
           lineHeight: '1.2',
-          margin: '-5 0px 0 0 0',
+          margin: '-50px 0 0 0',
           whiteSpace: 'pre',
         }}
       >
