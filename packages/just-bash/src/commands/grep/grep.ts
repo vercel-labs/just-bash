@@ -206,6 +206,7 @@ export const grepCommand: Command = {
 
     let regex: UserRegex;
     let kResetGroup: number | undefined;
+    let preFilter: import("../search-engine/regex.js").PreFilter | undefined;
     try {
       const regexResult = buildRegex(pattern, {
         mode: regexMode,
@@ -215,6 +216,7 @@ export const grepCommand: Command = {
       });
       regex = regexResult.regex;
       kResetGroup = regexResult.kResetGroup;
+      preFilter = regexResult.preFilter;
     } catch {
       return {
         stdout: "",
@@ -361,6 +363,7 @@ export const grepCommand: Command = {
               afterContext,
               maxCount,
               kResetGroup,
+              preFilter,
             });
 
             return { file, result };

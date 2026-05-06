@@ -38,6 +38,20 @@ export interface RegexResult {
   regex: UserRegex;
   /** If \K was used, this is the 1-based index of the capture group containing the "real" match */
   kResetGroup?: number;
+  /**
+   * Optional fast-path filter: if every needle is absent from a line via
+   * String.indexOf, the regex is guaranteed not to match and RE2 can be skipped.
+   * Extracted only for patterns where it is provably safe (literal alternatives,
+   * optionally wrapped in \b...\b for -w mode). Null for anything more complex.
+   */
+  preFilter?: PreFilter;
+}
+
+export interface PreFilter {
+  /** Any one of these substrings must appear in a matching line (OR semantics). */
+  needles: string[];
+  /** When true, both needles and the line must be lowercased before indexOf. */
+  ignoreCase: boolean;
 }
 
 /**
@@ -218,7 +232,132 @@ export function buildRegex(
     (options.multiline ? "m" : "") +
     (options.multilineDotall ? "s" : "") +
     (needsUnicode ? "u" : "");
-  return { regex: createUserRegex(regexPattern, flags), kResetGroup };
+  const preFilter = extractPreFilter(
+    regexPattern,
+    options.ignoreCase ?? false,
+  );
+  return {
+    regex: createUserRegex(regexPattern, flags),
+    kResetGroup,
+    preFilter: preFilter ?? undefined,
+  };
+}
+
+/**
+ * Try to extract a set of literal substrings, at least one of which must
+ * appear in any line that matches the pattern. Returns null when no safe
+ * extraction is possible (e.g., the pattern uses quantifiers or character
+ * classes that can match zero or arbitrary text).
+ *
+ * Recognised shapes (covers the bulk of grep usage):
+ *   - bare literal:        "interface"   -> ["interface"]
+ *   - escaped literal:     "Promise\\(" -> ["Promise("]
+ *   - whole-word wrapper:  "\\b(?:type)\\b" or "\\btype\\b" -> ["type"]
+ *   - alternation:         "interface|type" -> ["interface", "type"]
+ *   - whole-word + alt:    "\\b(?:foo|bar)\\b" -> ["foo", "bar"]
+ *
+ * Anchors (^, $) and any quantifier or character class disable extraction.
+ * False positives are fine (we just run the regex anyway); false negatives
+ * would be bugs (skipping a line that the regex would match).
+ */
+function extractPreFilter(
+  jsPattern: string,
+  ignoreCase: boolean,
+): PreFilter | null {
+  let core = jsPattern;
+
+  // Strip -w wrappers produced by buildRegex above.
+  if (core.startsWith("\\b(?:") && core.endsWith(")\\b")) {
+    core = core.slice("\\b(?:".length, core.length - ")\\b".length);
+  } else if (core.startsWith("\\b") && core.endsWith("\\b") && core.length >= 4) {
+    core = core.slice(2, core.length - 2);
+  }
+
+  if (core.length === 0) return null;
+
+  const alternatives = splitTopLevelAlternation(core);
+  if (alternatives === null) return null;
+
+  const needles: string[] = [];
+  for (const alt of alternatives) {
+    const literal = literalFromAlternative(alt);
+    if (literal === null || literal.length === 0) return null;
+    needles.push(literal);
+  }
+
+  if (needles.length === 0) return null;
+
+  return {
+    needles: ignoreCase ? needles.map((n) => n.toLowerCase()) : needles,
+    ignoreCase,
+  };
+}
+
+/**
+ * Split a regex pattern on top-level | (alternation), respecting escapes,
+ * grouping parens, and character classes. Returns null if structure is malformed.
+ */
+function splitTopLevelAlternation(pattern: string): string[] | null {
+  const parts: string[] = [];
+  let depth = 0;
+  let inClass = false;
+  let last = 0;
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === "\\") {
+      i++; // skip the escaped char
+      continue;
+    }
+    if (inClass) {
+      if (c === "]") inClass = false;
+      continue;
+    }
+    if (c === "[") inClass = true;
+    else if (c === "(") depth++;
+    else if (c === ")") {
+      depth--;
+      if (depth < 0) return null;
+    } else if (c === "|" && depth === 0) {
+      parts.push(pattern.slice(last, i));
+      last = i + 1;
+    }
+  }
+  if (depth !== 0 || inClass) return null;
+  parts.push(pattern.slice(last));
+  return parts;
+}
+
+/**
+ * Return the literal string represented by a regex alternative, or null if
+ * the alternative contains any regex metacharacter that could match
+ * something other than itself (quantifier, anchor, character class, group, dot).
+ */
+function literalFromAlternative(alt: string): string | null {
+  let out = "";
+  for (let i = 0; i < alt.length; i++) {
+    const c = alt[i];
+    if (c === "\\") {
+      const next = alt[i + 1];
+      if (next === undefined) return null;
+      // Reject escapes that aren't simple literal substitutions.
+      // \n, \t, \r are literal whitespace — fine. \d, \w, \s, \b, \B etc.
+      // match character classes or zero-width assertions — reject.
+      if (/[dDwWsSbBAZzGQE0-9ckpPNXR]/.test(next)) return null;
+      // Translate common escape sequences to their literal char.
+      if (next === "n") out += "\n";
+      else if (next === "t") out += "\t";
+      else if (next === "r") out += "\r";
+      else if (next === "f") out += "\f";
+      else if (next === "v") out += "\v";
+      else out += next; // \. \* \+ \? \^ \$ \( \) \[ \] \{ \} \| \\ \/ etc.
+      i++;
+      continue;
+    }
+    // Any unescaped regex metacharacter disqualifies the alternative.
+    if (/[.*+?^${}()|[\]]/.test(c)) return null;
+    out += c;
+  }
+  return out;
 }
 
 /**
