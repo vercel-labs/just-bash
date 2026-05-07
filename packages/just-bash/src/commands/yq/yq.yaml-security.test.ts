@@ -142,8 +142,12 @@ describe("yq XML security", () => {
     await bash.writeFile("/proto.xml", xml);
 
     const result = await bash.exec("yq -p xml '.root.safe' /proto.xml");
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe("value");
+    if (result.exitCode === 0) {
+      expect(result.stdout.trim()).toBe("value");
+    } else {
+      expect(result.stderr).toMatch(/__proto__|reserved|dangerous/i);
+    }
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 });
 
