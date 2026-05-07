@@ -232,10 +232,7 @@ export function buildRegex(
     (options.multiline ? "m" : "") +
     (options.multilineDotall ? "s" : "") +
     (needsUnicode ? "u" : "");
-  const preFilter = extractPreFilter(
-    regexPattern,
-    options.ignoreCase ?? false,
-  );
+  const preFilter = extractPreFilter(regexPattern, options.ignoreCase ?? false);
   return {
     regex: createUserRegex(regexPattern, flags),
     kResetGroup,
@@ -269,7 +266,11 @@ function extractPreFilter(
   // Strip -w wrappers produced by buildRegex above.
   if (core.startsWith("\\b(?:") && core.endsWith(")\\b")) {
     core = core.slice("\\b(?:".length, core.length - ")\\b".length);
-  } else if (core.startsWith("\\b") && core.endsWith("\\b") && core.length >= 4) {
+  } else if (
+    core.startsWith("\\b") &&
+    core.endsWith("\\b") &&
+    core.length >= 4
+  ) {
     core = core.slice(2, core.length - 2);
   }
 
@@ -342,7 +343,7 @@ function literalFromAlternative(alt: string): string | null {
       // Reject escapes that aren't simple literal substitutions.
       // \n, \t, \r are literal whitespace — fine. \d, \w, \s, \b, \B etc.
       // match character classes or zero-width assertions — reject.
-      if (/[dDwWsSbBAZzGQE0-9ckpPNXR]/.test(next)) return null;
+      if (/[dDwWsSbBAZzGQE0-9ckpPNXRxuU]/.test(next)) return null;
       // Translate common escape sequences to their literal char.
       if (next === "n") out += "\n";
       else if (next === "t") out += "\t";

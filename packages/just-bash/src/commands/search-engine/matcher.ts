@@ -225,7 +225,11 @@ export function searchContent(
         if (onlyMatching) {
           // firstMatch is the first iteration of the all-matches loop.
           // exec()'s side effect already advanced lastIndex past it.
-          for (let match = firstMatch; match !== null; match = regex.exec(line)) {
+          for (
+            let match = firstMatch;
+            match !== null;
+            match = regex.exec(line)
+          ) {
             // If \K was used, extract from the capture group instead of full match
             const rawMatch =
               kResetGroup !== undefined ? (match[kResetGroup] ?? "") : match[0];
@@ -240,7 +244,11 @@ export function searchContent(
           }
         } else if (vimgrep) {
           // Vimgrep mode: output each match separately with full line
-          for (let match = firstMatch; match !== null; match = regex.exec(line)) {
+          for (
+            let match = firstMatch;
+            match !== null;
+            match = regex.exec(line)
+          ) {
             let prefix = filename ? `${filename}:` : "";
             if (showByteOffset) prefix += `${byteOffset + match.index}:`;
             if (showLineNumbers) prefix += `${i + 1}:`;

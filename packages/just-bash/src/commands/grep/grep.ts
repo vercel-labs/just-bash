@@ -237,6 +237,7 @@ export const grepCommand: Command = {
         afterContext,
         maxCount,
         kResetGroup,
+        preFilter,
       });
       if (quietMode) {
         return { stdout: "", stderr: "", exitCode: result.matched ? 0 : 1 };

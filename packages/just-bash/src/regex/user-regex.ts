@@ -82,7 +82,8 @@ export class UserRegex implements RegexLike {
   private _nativeRegex: RegExp | null = null;
   // Reusable RE2 Matcher to avoid per-call allocation in tight grep loops.
   // Matcher allocation dominates regex.test/exec cost when called once per line
-  // across thousands of lines. resetMatcherInput rebinds without re-allocating.
+  // across thousands of lines. We mutate charSequence in-place (not resetMatcherInput,
+  // which is broken in re2js 1.2.1 — see acquireMatcher).
   private _matcher: ReturnType<RE2JS["matcher"]> | null = null;
   private _matcherInput: string | null = null;
 

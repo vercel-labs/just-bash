@@ -33,9 +33,9 @@ describe("buildRegex preFilter — happy path", () => {
   });
 
   it("splits top-level alternation in extended mode", () => {
-    expect(buildRegex("interface|type", { mode: "extended" }).preFilter).toEqual(
-      { needles: ["interface", "type"], ignoreCase: false },
-    );
+    expect(
+      buildRegex("interface|type", { mode: "extended" }).preFilter,
+    ).toEqual({ needles: ["interface", "type"], ignoreCase: false });
   });
 
   it("lowercases needles when -i is set", () => {
@@ -82,7 +82,9 @@ describe("buildRegex preFilter — safety (must NOT extract)", () => {
   });
 
   it("rejects quantifier {n,m}", () => {
-    expect(buildRegex("a{2,4}", { mode: "extended" }).preFilter).toBeUndefined();
+    expect(
+      buildRegex("a{2,4}", { mode: "extended" }).preFilter,
+    ).toBeUndefined();
   });
 
   it("rejects character class", () => {
@@ -116,7 +118,9 @@ describe("buildRegex preFilter — safety (must NOT extract)", () => {
 
   it("rejects bare \\b word boundary", () => {
     // Distinct from the -w wrapper case: \b is the *content*, not a frame
-    expect(buildRegex("\\bfoo", { mode: "extended" }).preFilter).toBeUndefined();
+    expect(
+      buildRegex("\\bfoo", { mode: "extended" }).preFilter,
+    ).toBeUndefined();
   });
 
   it("rejects capturing group (foo)", () => {
@@ -140,6 +144,16 @@ describe("buildRegex preFilter — safety (must NOT extract)", () => {
   it("rejects nested alternation inside a capturing group", () => {
     expect(
       buildRegex("foo(bar|baz)", { mode: "extended" }).preFilter,
+    ).toBeUndefined();
+  });
+
+  it("rejects \\x hex escape (would produce wrong needle, e.g. 'x41' for \\x41)", () => {
+    expect(buildRegex("\\x41", { mode: "extended" }).preFilter).toBeUndefined();
+  });
+
+  it("rejects \\u unicode escape (would produce wrong needle, e.g. 'u2764' for \\u2764)", () => {
+    expect(
+      buildRegex("\\u2764", { mode: "extended" }).preFilter,
     ).toBeUndefined();
   });
 });
@@ -166,7 +180,9 @@ describe("buildRegex preFilter — structural correctness", () => {
 
   it("does not over-strip when pattern just starts with \\b", () => {
     // "\bfoo" (no closing \b) should NOT be treated as a -w wrap
-    expect(buildRegex("\\bfoo", { mode: "extended" }).preFilter).toBeUndefined();
+    expect(
+      buildRegex("\\bfoo", { mode: "extended" }).preFilter,
+    ).toBeUndefined();
   });
 
   it("returns undefined for empty pattern", () => {
