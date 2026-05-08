@@ -29,4 +29,15 @@ describe("xan utf8 csv input handling", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain(UTF8_TEXT);
   });
+
+  it("preserves UTF-8 CSV cells through xan cat (file input)", async () => {
+    const csv = `id,message\n1,${UTF8_TEXT}\n`;
+    const binaryCsv = toLatin1BinaryString(csv);
+
+    const bash = new Bash({ files: { "/a.csv": binaryCsv } });
+    const result = await bash.exec("xan cat /a.csv");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(UTF8_TEXT);
+  });
 });

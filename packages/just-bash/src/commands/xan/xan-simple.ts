@@ -10,6 +10,7 @@ import {
   type CsvData,
   type CsvRow,
   createSafeRow,
+  decodeBinaryToUtf8IfNeeded,
   formatCsv,
   parseCsv,
   readCsvInput,
@@ -162,7 +163,7 @@ export async function cmdCat(
   let allHeaders: string[] = [];
 
   for (const { content } of result.files) {
-    const { headers, data } = parseCsv(content);
+    const { headers, data } = parseCsv(decodeBinaryToUtf8IfNeeded(content));
     allFiles.push({ headers, data });
 
     // Collect all unique headers
