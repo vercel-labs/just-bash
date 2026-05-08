@@ -35,6 +35,58 @@ const DEFAULT_PYTHON_TIMEOUT_MS = 10000;
 /** Default Python execution timeout when network is enabled */
 const DEFAULT_PYTHON_NETWORK_TIMEOUT_MS = 60000;
 
+const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+function decodeBinaryToUtf8IfNeeded(input: string): string {
+  if (!input) {
+    return input;
+  }
+
+  let hasHighByte = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const codePoint = input.charCodeAt(index);
+    if (codePoint > 0xff) {
+      return input;
+    }
+
+    if (codePoint > 0x7f) {
+      hasHighByte = true;
+    }
+  }
+
+  if (!hasHighByte) {
+    return input;
+  }
+
+  const bytes = new Uint8Array(input.length);
+  for (let index = 0; index < input.length; index += 1) {
+    bytes[index] = input.charCodeAt(index);
+  }
+
+  try {
+    return strictUtf8Decoder.decode(bytes);
+  } catch {
+    return input;
+  }
+}
+
+function encodePythonStringLiteral(input: string): string {
+  return JSON.stringify(input).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+}
+
+function withRuntimeStdin(pythonCode: string, stdin: string): string {
+  if (!stdin) {
+    return pythonCode;
+  }
+
+  const stdinLiteral = encodePythonStringLiteral(stdin);
+  return [
+    "import io as __jb_io, sys as __jb_sys",
+    `__jb_sys.stdin = __jb_io.StringIO(${stdinLiteral})`,
+    pythonCode,
+  ].join("\n");
+}
+
 const python3Help = {
   name: "python3",
   summary: "Execute Python code via CPython Emscripten",
@@ -518,6 +570,7 @@ export const python3Command: Command = {
 
     const parsed = parseArgs(args);
     if ("exitCode" in parsed) return parsed;
+    const stdinUtf8 = decodeBinaryToUtf8IfNeeded(ctx.stdin);
 
     if (parsed.showVersion) {
       return {
@@ -531,7 +584,10 @@ export const python3Command: Command = {
     let scriptPath: string | undefined;
 
     if (parsed.code !== null) {
-      pythonCode = parsed.code;
+      pythonCode = withRuntimeStdin(
+        decodeBinaryToUtf8IfNeeded(parsed.code),
+        stdinUtf8,
+      );
       scriptPath = "-c";
     } else if (parsed.module !== null) {
       // Strict validation: only allow valid Python module names
@@ -543,13 +599,16 @@ export const python3Command: Command = {
           exitCode: 1,
         };
       }
-      pythonCode = `import runpy; runpy.run_module('${parsed.module}', run_name='__main__')`;
+      pythonCode = withRuntimeStdin(
+        `import runpy; runpy.run_module('${parsed.module}', run_name='__main__')`,
+        stdinUtf8,
+      );
       scriptPath = parsed.module;
     } else if (parsed.scriptFile === "-") {
       // CPython's `python3 -` reads the program from standard input.
       // Empty stdin runs an empty program (exit 0) — matching CPython's
       // behavior in non-interactive contexts where no program is provided.
-      pythonCode = ctx.stdin;
+      pythonCode = stdinUtf8;
       scriptPath = "-";
     } else if (parsed.scriptFile !== null) {
       const filePath = ctx.fs.resolvePath(ctx.cwd, parsed.scriptFile);
@@ -563,7 +622,10 @@ export const python3Command: Command = {
       }
 
       try {
-        pythonCode = await ctx.fs.readFile(filePath);
+        pythonCode = withRuntimeStdin(
+          decodeBinaryToUtf8IfNeeded(await ctx.fs.readFile(filePath)),
+          stdinUtf8,
+        );
         scriptPath = parsed.scriptFile;
       } catch (e) {
         const message = sanitizeErrorMessage((e as Error).message);
@@ -573,8 +635,8 @@ export const python3Command: Command = {
           exitCode: 2,
         };
       }
-    } else if (ctx.stdin.trim()) {
-      pythonCode = ctx.stdin;
+    } else if (stdinUtf8.trim()) {
+      pythonCode = stdinUtf8;
       scriptPath = "<stdin>";
     } else {
       return {
