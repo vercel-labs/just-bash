@@ -8,6 +8,32 @@ import TurndownService from "turndown";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
+const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+function decodeBinaryToUtf8IfNeeded(input: string): string {
+  if (!input) return input;
+
+  let hasHighByte = false;
+  for (let i = 0; i < input.length; i++) {
+    const code = input.charCodeAt(i);
+    if (code > 0xff) return input;
+    if (code > 0x7f) hasHighByte = true;
+  }
+
+  if (!hasHighByte) return input;
+
+  const bytes = new Uint8Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    bytes[i] = input.charCodeAt(i);
+  }
+
+  try {
+    return strictUtf8Decoder.decode(bytes);
+  } catch {
+    return input;
+  }
+}
+
 const htmlToMarkdownHelp = {
   name: "html-to-markdown",
   summary: "convert HTML to Markdown (BashEnv extension)",
@@ -95,11 +121,11 @@ export const htmlToMarkdownCommand: Command = {
     // Get input
     let input: string;
     if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-      input = ctx.stdin;
+      input = decodeBinaryToUtf8IfNeeded(ctx.stdin);
     } else {
       try {
         const filePath = ctx.fs.resolvePath(ctx.cwd, files[0]);
-        input = await ctx.fs.readFile(filePath);
+        input = decodeBinaryToUtf8IfNeeded(await ctx.fs.readFile(filePath));
       } catch {
         return {
           stdout: "",
