@@ -46,6 +46,32 @@ export type BlockExecutor = (
 
 let executeBlockFn: BlockExecutor | null = null;
 
+const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+function decodeBinaryToUtf8IfNeeded(input: string): string {
+  if (!input) return input;
+
+  let hasHighByte = false;
+  for (let i = 0; i < input.length; i++) {
+    const code = input.charCodeAt(i);
+    if (code > 0xff) return input;
+    if (code > 0x7f) hasHighByte = true;
+  }
+
+  if (!hasHighByte) return input;
+
+  const bytes = new Uint8Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    bytes[i] = input.charCodeAt(i);
+  }
+
+  try {
+    return strictUtf8Decoder.decode(bytes);
+  } catch {
+    return input;
+  }
+}
+
 /**
  * Set the block executor function (called from statements.ts to avoid circular deps)
  */
@@ -729,7 +755,7 @@ async function evalGetlineFromCommand(
         execFn(cmd),
       );
       const output = result.stdout;
-      lines = output.split("\n");
+      lines = decodeBinaryToUtf8IfNeeded(output).split("\n");
       // Remove trailing empty line if output ends with newline
       if (lines.length > 0 && lines[lines.length - 1] === "") {
         lines.pop();
@@ -812,7 +838,7 @@ async function evalGetlineFromFile(
       const content = await withDefenseContext(ctx, "getline file read", () =>
         fs.readFile(filePath),
       );
-      lines = content.split("\n");
+      lines = decodeBinaryToUtf8IfNeeded(content).split("\n");
       // Remove trailing empty line if file ends with newline
       if (lines.length > 0 && lines[lines.length - 1] === "") {
         lines.pop();

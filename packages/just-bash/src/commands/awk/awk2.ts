@@ -22,6 +22,32 @@ import {
 } from "./interpreter/index.js";
 import { AwkParser } from "./parser2.js";
 
+const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+function decodeBinaryToUtf8IfNeeded(input: string): string {
+  if (!input) return input;
+
+  let hasHighByte = false;
+  for (let i = 0; i < input.length; i++) {
+    const code = input.charCodeAt(i);
+    if (code > 0xff) return input;
+    if (code > 0x7f) hasHighByte = true;
+  }
+
+  if (!hasHighByte) return input;
+
+  const bytes = new Uint8Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    bytes[i] = input.charCodeAt(i);
+  }
+
+  try {
+    return strictUtf8Decoder.decode(bytes);
+  } catch {
+    return input;
+  }
+}
+
 const awkHelp = {
   name: "awk",
   summary: "pattern scanning and text processing language",
@@ -219,7 +245,7 @@ export const awkCommand2: Command = {
             const content = await withDefenseContext("input file read", () =>
               ctx.fs.readFile(filePath),
             );
-            const lines = content.split("\n");
+            const lines = decodeBinaryToUtf8IfNeeded(content).split("\n");
             if (lines.length > 0 && lines[lines.length - 1] === "") {
               lines.pop();
             }
@@ -236,7 +262,7 @@ export const awkCommand2: Command = {
           }
         }
       } else {
-        const lines = ctx.stdin.split("\n");
+        const lines = decodeBinaryToUtf8IfNeeded(ctx.stdin).split("\n");
         if (lines.length > 0 && lines[lines.length - 1] === "") {
           lines.pop();
         }
