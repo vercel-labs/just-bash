@@ -35,6 +35,32 @@ import {
   parseInput,
 } from "./formats.js";
 
+const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+function decodeBinaryToUtf8IfNeeded(input: string): string {
+  if (!input) return input;
+
+  let hasHighByte = false;
+  for (let i = 0; i < input.length; i++) {
+    const code = input.charCodeAt(i);
+    if (code > 0xff) return input;
+    if (code > 0x7f) hasHighByte = true;
+  }
+
+  if (!hasHighByte) return input;
+
+  const bytes = new Uint8Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    bytes[i] = input.charCodeAt(i);
+  }
+
+  try {
+    return strictUtf8Decoder.decode(bytes);
+  } catch {
+    return input;
+  }
+}
+
 const yqHelp = {
   name: "yq",
   summary: "command-line YAML/XML/INI/CSV/TOML processor",
@@ -287,14 +313,14 @@ export const yqCommand: Command = {
     if (options.nullInput) {
       input = "";
     } else if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-      input = ctx.stdin;
+      input = decodeBinaryToUtf8IfNeeded(ctx.stdin);
     } else {
       try {
         const resolvedFilePath = ctx.fs.resolvePath(ctx.cwd, files[0]);
         filePath = resolvedFilePath;
-        input = await withDefenseContext("file read", () =>
+        input = decodeBinaryToUtf8IfNeeded(await withDefenseContext("file read", () =>
           ctx.fs.readFile(resolvedFilePath),
-        );
+        ));
       } catch (e) {
         if (e instanceof SecurityViolationError) {
           throw e;
