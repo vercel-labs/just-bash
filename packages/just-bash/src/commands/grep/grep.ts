@@ -4,6 +4,32 @@ import { matchGlob } from "../../utils/glob.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { buildRegex, searchContent } from "../search-engine/index.js";
 
+const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+function decodeBinaryToUtf8IfNeeded(input: string): string {
+  if (!input) return input;
+
+  let hasHighByte = false;
+  for (let i = 0; i < input.length; i++) {
+    const code = input.charCodeAt(i);
+    if (code > 0xff) return input;
+    if (code > 0x7f) hasHighByte = true;
+  }
+
+  if (!hasHighByte) return input;
+
+  const bytes = new Uint8Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    bytes[i] = input.charCodeAt(i);
+  }
+
+  try {
+    return strictUtf8Decoder.decode(bytes);
+  } catch {
+    return input;
+  }
+}
+
 /** File entry with optional type info from glob expansion */
 interface FileEntry {
   path: string;
@@ -227,7 +253,7 @@ export const grepCommand: Command = {
 
     // If no files and stdin is provided (including empty string), read from stdin
     if (files.length === 0 && ctx.stdin !== undefined) {
-      const result = searchContent(ctx.stdin, regex, {
+      const result = searchContent(decodeBinaryToUtf8IfNeeded(ctx.stdin), regex, {
         invertMatch,
         showLineNumbers,
         countOnly,
@@ -354,7 +380,7 @@ export const grepCommand: Command = {
             }
 
             const content = await ctx.fs.readFile(filePath);
-            const result = searchContent(content, regex, {
+            const result = searchContent(decodeBinaryToUtf8IfNeeded(content), regex, {
               invertMatch,
               showLineNumbers,
               countOnly,
