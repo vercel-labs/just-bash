@@ -42,6 +42,32 @@ import type {
 /** Default query timeout in milliseconds (5 seconds) */
 const DEFAULT_QUERY_TIMEOUT_MS = 5000;
 
+const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+function decodeBinaryToUtf8IfNeeded(input: string): string {
+  if (!input) return input;
+
+  let hasHighByte = false;
+  for (let i = 0; i < input.length; i++) {
+    const code = input.charCodeAt(i);
+    if (code > 0xff) return input;
+    if (code > 0x7f) hasHighByte = true;
+  }
+
+  if (!hasHighByte) return input;
+
+  const bytes = new Uint8Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    bytes[i] = input.charCodeAt(i);
+  }
+
+  try {
+    return strictUtf8Decoder.decode(bytes);
+  } catch {
+    return input;
+  }
+}
+
 const sqlite3Help = {
   name: "sqlite3",
   summary: "SQLite database CLI",
@@ -540,7 +566,7 @@ export const sqlite3Command: Command = {
     }
 
     // Get SQL from argument or stdin, prepend -cmd if provided
-    let sql = sqlArg || ctx.stdin.trim();
+    let sql = sqlArg || decodeBinaryToUtf8IfNeeded(ctx.stdin).trim();
     if (options.cmd) {
       sql = options.cmd + (sql ? `; ${sql}` : "");
     }
