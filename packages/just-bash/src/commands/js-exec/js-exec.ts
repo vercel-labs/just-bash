@@ -33,6 +33,32 @@ import type {
   JsExecWorkerOutput,
 } from "./js-exec-worker.js";
 
+const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+function decodeBinaryToUtf8IfNeeded(input: string): string {
+  if (!input) return input;
+
+  let hasHighByte = false;
+  for (let i = 0; i < input.length; i++) {
+    const code = input.charCodeAt(i);
+    if (code > 0xff) return input;
+    if (code > 0x7f) hasHighByte = true;
+  }
+
+  if (!hasHighByte) return input;
+
+  const bytes = new Uint8Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    bytes[i] = input.charCodeAt(i);
+  }
+
+  try {
+    return strictUtf8Decoder.decode(bytes);
+  } catch {
+    return input;
+  }
+}
+
 /** Default JavaScript execution timeout in milliseconds */
 const DEFAULT_JS_TIMEOUT_MS = 10000;
 /** Default JavaScript execution timeout when network is enabled */
@@ -577,8 +603,8 @@ export const jsExecCommand: Command = {
           exitCode: 2,
         };
       }
-    } else if (ctx.stdin.trim()) {
-      jsCode = ctx.stdin;
+    } else if (decodeBinaryToUtf8IfNeeded(ctx.stdin).trim()) {
+      jsCode = decodeBinaryToUtf8IfNeeded(ctx.stdin);
       scriptPath = "<stdin>";
     } else {
       return {
