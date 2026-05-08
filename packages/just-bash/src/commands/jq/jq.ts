@@ -22,6 +22,32 @@ import {
 } from "../query-engine/index.js";
 import { sanitizeParsedData } from "../query-engine/safe-object.js";
 
+const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+function decodeBinaryToUtf8IfNeeded(input: string): string {
+  if (!input) return input;
+
+  let hasHighByte = false;
+  for (let i = 0; i < input.length; i++) {
+    const code = input.charCodeAt(i);
+    if (code > 0xff) return input;
+    if (code > 0x7f) hasHighByte = true;
+  }
+
+  if (!hasHighByte) return input;
+
+  const bytes = new Uint8Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    bytes[i] = input.charCodeAt(i);
+  }
+
+  try {
+    return strictUtf8Decoder.decode(bytes);
+  } catch {
+    return input;
+  }
+}
+
 function escapeControlChar(char: string): string {
   switch (char) {
     case "\b":
@@ -325,7 +351,10 @@ export const jqCommand: Command = {
     if (nullInput) {
       // No input
     } else if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-      inputs.push({ source: "stdin", content: ctx.stdin });
+      inputs.push({
+        source: "stdin",
+        content: decodeBinaryToUtf8IfNeeded(ctx.stdin),
+      });
     } else {
       // Read all files in parallel using shared utility
       const result = await withDefenseContext("file read", () =>
@@ -343,7 +372,7 @@ export const jqCommand: Command = {
       }
       inputs = result.files.map((f) => ({
         source: f.filename || "stdin",
-        content: f.content,
+        content: decodeBinaryToUtf8IfNeeded(f.content),
       }));
     }
 
