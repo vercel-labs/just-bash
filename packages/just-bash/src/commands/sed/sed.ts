@@ -26,6 +26,32 @@ import type {
   SedState,
 } from "./types.js";
 
+const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+function decodeBinaryToUtf8IfNeeded(input: string): string {
+  if (!input) return input;
+
+  let hasHighByte = false;
+  for (let i = 0; i < input.length; i++) {
+    const code = input.charCodeAt(i);
+    if (code > 0xff) return input;
+    if (code > 0x7f) hasHighByte = true;
+  }
+
+  if (!hasHighByte) return input;
+
+  const bytes = new Uint8Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    bytes[i] = input.charCodeAt(i);
+  }
+
+  try {
+    return strictUtf8Decoder.decode(bytes);
+  } catch {
+    return input;
+  }
+}
+
 const sedHelp = {
   name: "sed",
   summary: "stream editor for filtering and transforming text",
@@ -187,7 +213,9 @@ async function processContent(
                 "read command file",
                 () => fs.readFile(filePath),
               );
-              state.appendBuffer.push(fileContent.replace(/\n$/, ""));
+              state.appendBuffer.push(
+                decodeBinaryToUtf8IfNeeded(fileContent).replace(/\n$/, ""),
+              );
             } else {
               // R command - read one line from file
               if (!fileLineCache.has(filePath)) {
@@ -195,7 +223,10 @@ async function processContent(
                   "read command file line cache",
                   () => fs.readFile(filePath),
                 );
-                fileLineCache.set(filePath, fileContent.split("\n"));
+                fileLineCache.set(
+                  filePath,
+                  decodeBinaryToUtf8IfNeeded(fileContent).split("\n"),
+                );
                 fileLinePositions.set(filePath, 0);
               }
               const fileLines = fileLineCache.get(filePath);
@@ -428,8 +459,9 @@ export const sedCommand: Command = {
         const scriptContent = await withDefenseContext("script file read", () =>
           ctx.fs.readFile(scriptPath),
         );
+        const decodedScriptContent = decodeBinaryToUtf8IfNeeded(scriptContent);
         // Split by newlines and add each line as a separate script
-        for (const line of scriptContent.split("\n")) {
+        for (const line of decodedScriptContent.split("\n")) {
           const trimmed = line.trim();
           if (trimmed && !trimmed.startsWith("#")) {
             scripts.push(trimmed);
@@ -494,8 +526,9 @@ export const sedCommand: Command = {
             "in-place input read",
             () => ctx.fs.readFile(filePath),
           );
+          const decodedFileContent = decodeBinaryToUtf8IfNeeded(fileContent);
           const result = await withDefenseContext("in-place processing", () =>
-            processContent(fileContent, commands, effectiveSilent, {
+            processContent(decodedFileContent, commands, effectiveSilent, {
               limits: ctx.limits,
               filename: file,
               fs: ctx.fs,
@@ -540,7 +573,7 @@ export const sedCommand: Command = {
 
     // Read from files or stdin
     if (files.length === 0) {
-      content = ctx.stdin;
+      content = decodeBinaryToUtf8IfNeeded(ctx.stdin);
       try {
         const result = await withDefenseContext("stdin processing", () =>
           processContent(content, commands, effectiveSilent, {
@@ -582,14 +615,16 @@ export const sedCommand: Command = {
         if (stdinConsumed) {
           fileContent = "";
         } else {
-          fileContent = ctx.stdin;
+          fileContent = decodeBinaryToUtf8IfNeeded(ctx.stdin);
           stdinConsumed = true;
         }
       } else {
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
         try {
-          fileContent = await withDefenseContext("input file read", () =>
-            ctx.fs.readFile(filePath),
+          fileContent = decodeBinaryToUtf8IfNeeded(
+            await withDefenseContext("input file read", () =>
+              ctx.fs.readFile(filePath),
+            ),
           );
         } catch (e) {
           if (e instanceof SecurityViolationError) {
