@@ -44,6 +44,34 @@ function validateGlob(glob: string): string | null {
   return null;
 }
 
+/**
+ * Decode strings that actually contain UTF-8 bytes stored in latin1/binary form.
+ * If the string already contains real Unicode text, returns it unchanged.
+ */
+function decodeBinaryToUtf8IfNeeded(content: string): string {
+  for (let index = 0; index < content.length; index++) {
+    if (content.charCodeAt(index) > 0xff) {
+      return content;
+    }
+  }
+
+  const bytes = Uint8Array.from(content, (char) => char.charCodeAt(0));
+  const decoded = new TextDecoder().decode(bytes);
+  const reencoded = new TextEncoder().encode(decoded);
+
+  if (reencoded.length !== bytes.length) {
+    return content;
+  }
+
+  for (let index = 0; index < bytes.length; index++) {
+    if (bytes[index] !== reencoded[index]) {
+      return content;
+    }
+  }
+
+  return decoded;
+}
+
 export interface SearchContext {
   ctx: CommandContext;
   options: RgOptions;
@@ -84,10 +112,10 @@ export async function executeSearch(
       let content: string;
       if (patternFile === "-") {
         // Read from stdin
-        content = ctx.stdin;
+        content = decodeBinaryToUtf8IfNeeded(ctx.stdin);
       } else {
         const filePath = ctx.fs.resolvePath(ctx.cwd, patternFile);
-        content = await ctx.fs.readFile(filePath);
+        content = decodeBinaryToUtf8IfNeeded(await ctx.fs.readFile(filePath));
       }
       const filePatterns = content
         .split("\n")
@@ -724,8 +752,9 @@ async function readFileContent(
           args: [filePath],
         });
         if (result.exitCode === 0 && result.stdout) {
-          const sample = result.stdout.slice(0, 8192);
-          return { content: result.stdout, isBinary: sample.includes("\0") };
+          const content = decodeBinaryToUtf8IfNeeded(result.stdout);
+          const sample = content.slice(0, 8192);
+          return { content, isBinary: sample.includes("\0") };
         }
         // Preprocessing failed, fall through to normal file read
       }
@@ -747,7 +776,7 @@ async function readFileContent(
     }
 
     // Regular file read
-    const content = await ctx.fs.readFile(filePath);
+    const content = decodeBinaryToUtf8IfNeeded(await ctx.fs.readFile(filePath));
     const sample = content.slice(0, 8192);
     return { content, isBinary: sample.includes("\0") };
   } catch {
