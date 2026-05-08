@@ -5,6 +5,32 @@
 import Papa from "papaparse";
 import type { CommandContext, ExecResult } from "../../types.js";
 
+const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+export function decodeBinaryToUtf8IfNeeded(input: string): string {
+  if (!input) return input;
+
+  let hasHighByte = false;
+  for (let i = 0; i < input.length; i++) {
+    const code = input.charCodeAt(i);
+    if (code > 0xff) return input;
+    if (code > 0x7f) hasHighByte = true;
+  }
+
+  if (!hasHighByte) return input;
+
+  const bytes = new Uint8Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    bytes[i] = input.charCodeAt(i);
+  }
+
+  try {
+    return strictUtf8Decoder.decode(bytes);
+  } catch {
+    return input;
+  }
+}
+
 export interface CsvRow {
   [key: string]: string | number | boolean | null;
 }
@@ -88,11 +114,11 @@ export async function readCsvInput(
   let input: string;
 
   if (!file || file === "-") {
-    input = ctx.stdin;
+    input = decodeBinaryToUtf8IfNeeded(ctx.stdin);
   } else {
     try {
       const path = ctx.fs.resolvePath(ctx.cwd, file);
-      input = await ctx.fs.readFile(path);
+      input = decodeBinaryToUtf8IfNeeded(await ctx.fs.readFile(path));
     } catch {
       return {
         headers: [],

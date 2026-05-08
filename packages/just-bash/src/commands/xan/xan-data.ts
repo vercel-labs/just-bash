@@ -9,6 +9,7 @@ import {
   type CsvData,
   type CsvRow,
   createSafeRow,
+  decodeBinaryToUtf8IfNeeded,
   formatCsv,
   readCsvInput,
   safeSetRow,
@@ -128,11 +129,11 @@ export async function cmdFixlengths(
   let input: string;
 
   if (!file || file === "-") {
-    input = ctx.stdin;
+    input = decodeBinaryToUtf8IfNeeded(ctx.stdin);
   } else {
     try {
       const path = ctx.fs.resolvePath(ctx.cwd, file);
-      input = await ctx.fs.readFile(path);
+      input = decodeBinaryToUtf8IfNeeded(await ctx.fs.readFile(path));
     } catch {
       return {
         stdout: "",
@@ -482,11 +483,11 @@ async function cmdFromJson(
   let input: string;
 
   if (!file || file === "-") {
-    input = ctx.stdin;
+    input = decodeBinaryToUtf8IfNeeded(ctx.stdin);
   } else {
     try {
       const path = ctx.fs.resolvePath(ctx.cwd, file);
-      input = await ctx.fs.readFile(path);
+      input = decodeBinaryToUtf8IfNeeded(await ctx.fs.readFile(path));
     } catch {
       return {
         stdout: "",
