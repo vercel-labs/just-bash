@@ -11,7 +11,12 @@
  *   3. stdin:   echo '{"key":"value"}' | namespace command
  */
 
-import type { Command, CommandContext, ExecResult } from "just-bash";
+import {
+  type Command,
+  type CommandContext,
+  decodeBytesToUtf8,
+  type ExecResult,
+} from "just-bash";
 
 // ── Naming ──────────────────────────────────────────────────────
 
@@ -299,7 +304,9 @@ function createNamespaceCommand(
       const subArgs = args.slice(1);
 
       try {
-        const parsed = parseToolCliArgs(subArgs, ctx.stdin);
+        // ctx.stdin is a ByteString; decode for the JSON parser inside
+        // `parseToolCliArgs`, which expects real Unicode text.
+        const parsed = parseToolCliArgs(subArgs, decodeBytesToUtf8(ctx.stdin));
         if (parsed === HELP_SENTINEL) {
           return {
             stdout: formatSubcommandHelp(namespace, sub),

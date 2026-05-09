@@ -61,6 +61,9 @@ function wrapFileSystem(
     // readFileBytes is optional on IFileSystem (custom external fs may
     // predate it). Only wrap when it exists; internal callers go through
     // `readBytesFrom` which falls back to readFileBuffer otherwise.
+    // Spread a null-prototype object on the missing branch instead of
+    // `{}` so the conditional adds either one wrapped method or zero,
+    // without leaking `Object.prototype`.
     ...(typeof fs.readFileBytes === "function"
       ? {
           readFileBytes: wrapFunction(
@@ -70,7 +73,7 @@ function wrapFileSystem(
             "fs.readFileBytes",
           ),
         }
-      : {}),
+      : (Object.create(null) as Record<string, never>)),
     readFileBuffer: wrapFunction(
       fs.readFileBuffer.bind(fs),
       requireDefenseContext,
