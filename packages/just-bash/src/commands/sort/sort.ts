@@ -151,13 +151,22 @@ export const sortCommand: Command = {
     }
 
     // Read from files or stdin. Default sort is byte-lexicographic and
-    // byte-clean. With -f / --ignore-case the comparator runs `.toLowerCase`
-    // on each line; that's Unicode-aware in JS and would corrupt latin1
-    // byte buffers (a UTF-8 leading byte 0xC3 lowercases to 0xE3, mutating
-    // the data), so decode to UTF-8 first whenever we'll case-fold.
+    // byte-clean. Two comparator paths run Unicode-aware string methods on
+    // each line and would silently corrupt latin1 byte buffers (e.g. a
+    // UTF-8 leading byte 0xC3 lowercases to 0xE3, mutating the data):
+    //   - case-fold (-f / --ignore-case, OR per-key `f` like `-k1f`) calls
+    //     `.toLowerCase()`,
+    //   - dictionary order (-d / --dictionary-order, OR per-key `d`) runs a
+    //     `[^a-zA-Z0-9\s]` regex that strips multibyte continuation bytes.
+    // Decode to UTF-8 first whenever any of those modes is active anywhere,
+    // globally or in any per-key modifier.
     const readResult = await readAndConcat(ctx, files, { cmdName: "sort" });
     if (!readResult.ok) return readResult.error;
-    const content = options.ignoreCase
+    const needsDecode =
+      options.ignoreCase ||
+      options.dictionaryOrder ||
+      options.keys.some((k) => k.ignoreCase || k.dictionaryOrder);
+    const content = needsDecode
       ? decodeBytesToUtf8(readResult.content)
       : latin1FromBytes(readResult.content);
 
