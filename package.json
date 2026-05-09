@@ -5,7 +5,7 @@
   "scripts": {
     "build": "pnpm --filter './packages/*' build",
     "build:worker": "pnpm --filter just-bash build:worker",
-    "typecheck": "pnpm --filter './packages/*' typecheck",
+    "typecheck": "pnpm --filter just-bash build && pnpm --filter './packages/*' typecheck",
     "lint": "biome check . && pnpm --filter './packages/*' lint:banned",
     "lint:fix": "biome check --write .",
     "knip": "pnpm --filter './packages/*' knip",
