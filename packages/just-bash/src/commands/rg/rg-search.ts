@@ -3,7 +3,12 @@
  */
 
 import { gunzipSync } from "node:zlib";
-import { decodeBytesToUtf8, unsafeBytesFromLatin1 } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+  unsafeBytesFromLatin1,
+} from "../../encoding.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { CommandContext, ExecResult } from "../../types.js";
@@ -1010,9 +1015,11 @@ async function searchFiles(
     exitCode = anyMatch ? 0 : 1;
   }
 
+  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
   return {
-    stdout: finalStdout,
+    stdout: latin1FromBytes(encodeUtf8ToBytes(finalStdout)),
     stderr: "",
     exitCode,
+    stdoutEncoding: "binary",
   };
 }

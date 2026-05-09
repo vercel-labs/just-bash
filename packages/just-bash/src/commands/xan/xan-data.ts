@@ -4,7 +4,11 @@
  */
 
 import Papa from "papaparse";
-import { decodeBytesToUtf8 } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+} from "../../encoding.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 import {
   type CsvData,
@@ -33,7 +37,15 @@ export async function cmdTranspose(
     // Just transpose headers to single column
     const newHeaders = ["column"];
     const newData: CsvData = headers.map((h) => ({ column: h }));
-    return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+    // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+    return {
+      stdout: latin1FromBytes(
+        encodeUtf8ToBytes(formatCsv(newHeaders, newData)),
+      ),
+      stderr: "",
+      exitCode: 0,
+      stdoutEncoding: "binary",
+    };
   }
 
   // New headers: first column name + row indices or first column values
@@ -55,7 +67,13 @@ export async function cmdTranspose(
     newData.push(newRow);
   }
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+  return {
+    stdout: latin1FromBytes(encodeUtf8ToBytes(formatCsv(newHeaders, newData))),
+    stderr: "",
+    exitCode: 0,
+    stdoutEncoding: "binary",
+  };
 }
 
 /**
@@ -96,7 +114,13 @@ export async function cmdShuffle(
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
 
-  return { stdout: formatCsv(headers, shuffled), stderr: "", exitCode: 0 };
+  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+  return {
+    stdout: latin1FromBytes(encodeUtf8ToBytes(formatCsv(headers, shuffled))),
+    stderr: "",
+    exitCode: 0,
+    stdoutEncoding: "binary",
+  };
 }
 
 /**
@@ -169,10 +193,14 @@ export async function cmdFixlengths(
 
   // Output as CSV
   const output = Papa.unparse(fixed);
+  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
   return {
-    stdout: `${output.replace(/\r\n/g, "\n")}\n`,
+    stdout: latin1FromBytes(
+      encodeUtf8ToBytes(`${output.replace(/\r\n/g, "\n")}\n`),
+    ),
     stderr: "",
     exitCode: 0,
+    stdoutEncoding: "binary",
   };
 }
 
@@ -245,17 +273,27 @@ export async function cmdSplit(
       const filePath = ctx.fs.resolvePath(outPath, fileName);
       await ctx.fs.writeFile(filePath, formatCsv(headers, nonEmptyParts[i]));
     }
+    // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
     return {
-      stdout: `Split into ${nonEmptyParts.length} parts\n`,
+      stdout: latin1FromBytes(
+        encodeUtf8ToBytes(`Split into ${nonEmptyParts.length} parts\n`),
+      ),
       stderr: "",
       exitCode: 0,
+      stdoutEncoding: "binary",
     };
   } catch {
     // If we can't write files, output info about what would be created
     const output = nonEmptyParts
       .map((p, i) => `Part ${i + 1}: ${p.length} rows`)
       .join("\n");
-    return { stdout: `${output}\n`, stderr: "", exitCode: 0 };
+    // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+    return {
+      stdout: latin1FromBytes(encodeUtf8ToBytes(`${output}\n`)),
+      stderr: "",
+      exitCode: 0,
+      stdoutEncoding: "binary",
+    };
   }
 }
 
@@ -368,17 +406,29 @@ export async function cmdPartition(
       const filePath = ctx.fs.resolvePath(outPath, fileName);
       await ctx.fs.writeFile(filePath, formatCsv(headers, rows));
     }
+    // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
     return {
-      stdout: `Partitioned into ${groups.size} files by '${column}'\n`,
+      stdout: latin1FromBytes(
+        encodeUtf8ToBytes(
+          `Partitioned into ${groups.size} files by '${column}'\n`,
+        ),
+      ),
       stderr: "",
       exitCode: 0,
+      stdoutEncoding: "binary",
     };
   } catch {
     // Output summary if can't write
     const output = Array.from(groups.entries())
       .map(([val, rows]) => `${val}: ${rows.length} rows`)
       .join("\n");
-    return { stdout: `${output}\n`, stderr: "", exitCode: 0 };
+    // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+    return {
+      stdout: latin1FromBytes(encodeUtf8ToBytes(`${output}\n`)),
+      stderr: "",
+      exitCode: 0,
+      stdoutEncoding: "binary",
+    };
   }
 }
 
@@ -428,7 +478,13 @@ async function cmdToJson(
 
   // Real xan always pretty prints
   const json = JSON.stringify(data, null, 2);
-  return { stdout: `${json}\n`, stderr: "", exitCode: 0 };
+  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+  return {
+    stdout: latin1FromBytes(encodeUtf8ToBytes(`${json}\n`)),
+    stderr: "",
+    exitCode: 0,
+    stdoutEncoding: "binary",
+  };
 }
 
 /**
@@ -508,7 +564,13 @@ async function cmdFromJson(
     }
 
     if (data.length === 0) {
-      return { stdout: "\n", stderr: "", exitCode: 0 };
+      // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+      return {
+        stdout: latin1FromBytes(encodeUtf8ToBytes("\n")),
+        stderr: "",
+        exitCode: 0,
+        stdoutEncoding: "binary",
+      };
     }
 
     // Check if array of arrays or array of objects
@@ -526,19 +588,27 @@ async function cmdFromJson(
         }
         return obj;
       });
+      // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
       return {
-        stdout: formatCsv(headers as string[], csvData),
+        stdout: latin1FromBytes(
+          encodeUtf8ToBytes(formatCsv(headers as string[], csvData)),
+        ),
         stderr: "",
         exitCode: 0,
+        stdoutEncoding: "binary",
       };
     }
 
     // Array of objects - real xan outputs columns in alphabetical order
     const headers = Object.keys(data[0] as object).sort();
+    // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
     return {
-      stdout: formatCsv(headers, data as CsvData),
+      stdout: latin1FromBytes(
+        encodeUtf8ToBytes(formatCsv(headers, data as CsvData)),
+      ),
       stderr: "",
       exitCode: 0,
+      stdoutEncoding: "binary",
     };
   } catch {
     return {

@@ -17,7 +17,11 @@ import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import initSqlJs from "sql.js";
-import { decodeBytesToUtf8 } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+} from "../../encoding.js";
 import {
   sanitizeErrorMessage,
   sanitizeHostErrorMessage,
@@ -675,7 +679,13 @@ export const sqlite3Command: Command = {
       }
     }
 
-    return { stdout, stderr: "", exitCode: hadError && options.bail ? 1 : 0 };
+    // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+    return {
+      stdout: latin1FromBytes(encodeUtf8ToBytes(stdout)),
+      stderr: "",
+      exitCode: hadError && options.bail ? 1 : 0,
+      stdoutEncoding: "binary",
+    };
   },
 };
 

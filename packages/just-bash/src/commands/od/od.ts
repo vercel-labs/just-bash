@@ -7,7 +7,7 @@
  * of FILE to standard output.
  */
 
-import { latin1FromBytes } from "../../encoding.js";
+import { latin1FromBytes, readBytesFrom } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 
 type OutputFormat = "octal" | "hex" | "char";
@@ -57,7 +57,7 @@ async function odExecute(
       ? fileArgs[0]
       : `${ctx.cwd}/${fileArgs[0]}`;
     try {
-      input = latin1FromBytes(await ctx.fs.readFileBytes(filePath));
+      input = latin1FromBytes(await readBytesFrom(ctx.fs, filePath));
     } catch {
       return {
         stdout: "",

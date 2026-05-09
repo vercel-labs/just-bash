@@ -3,7 +3,11 @@
  */
 
 import * as Diff from "diff";
-import { decodeBytesToUtf8 } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+} from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -93,26 +97,40 @@ export const diffCommand: Command = {
 
     if (t1 === t2) {
       if (reportSame)
+        // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
         return {
-          stdout: `Files ${f1} and ${f2} are identical\n`,
+          stdout: latin1FromBytes(
+            encodeUtf8ToBytes(`Files ${f1} and ${f2} are identical\n`),
+          ),
           stderr: "",
           exitCode: 0,
+          stdoutEncoding: "binary",
         };
       return { stdout: "", stderr: "", exitCode: 0 };
     }
 
     if (brief) {
+      // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
       return {
-        stdout: `Files ${f1} and ${f2} differ\n`,
+        stdout: latin1FromBytes(
+          encodeUtf8ToBytes(`Files ${f1} and ${f2} differ\n`),
+        ),
         stderr: "",
         exitCode: 1,
+        stdoutEncoding: "binary",
       };
     }
 
     const output = Diff.createTwoFilesPatch(f1, f2, c1, c2, "", "", {
       context: 3,
     });
-    return { stdout: output, stderr: "", exitCode: 1 };
+    // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+    return {
+      stdout: latin1FromBytes(encodeUtf8ToBytes(output)),
+      stderr: "",
+      exitCode: 1,
+      stdoutEncoding: "binary",
+    };
   },
 };
 

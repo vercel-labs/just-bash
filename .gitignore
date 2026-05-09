@@ -18,3 +18,4 @@ todo/
 fuzz-*.log
 .claude/settings.local.json
 .deepsec/
+plans/

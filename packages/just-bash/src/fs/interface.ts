@@ -138,9 +138,15 @@ export interface IFileSystem {
    * explicitly decoded with `decodeBytesToUtf8` — never call string methods
    * on the result, that's the bug class this type prevents.
    *
+   * Optional for backwards compatibility with external `IFileSystem`
+   * implementations written before this method existed; built-in
+   * filesystems all implement it. Internal callers must route through the
+   * `readBytesFrom(fs, path)` helper, which falls back to `readFileBuffer`
+   * when this method is missing.
+   *
    * @throws Error if file doesn't exist or is a directory
    */
-  readFileBytes(path: string): Promise<ByteString>;
+  readFileBytes?(path: string): Promise<ByteString>;
 
   /**
    * Read the contents of a file as a Uint8Array (binary)

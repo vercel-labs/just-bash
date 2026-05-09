@@ -7,7 +7,11 @@
  * standard output. The default join field is the first, delimited by blanks.
  */
 
-import { decodeBytesToUtf8 } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+} from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -366,10 +370,14 @@ export const join: Command = {
       }
     }
 
+    // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
     return {
       exitCode: 0,
-      stdout: output.length > 0 ? `${output.join("\n")}\n` : "",
+      stdout: latin1FromBytes(
+        encodeUtf8ToBytes(output.length > 0 ? `${output.join("\n")}\n` : ""),
+      ),
       stderr: "",
+      stdoutEncoding: "binary",
     };
   },
 };

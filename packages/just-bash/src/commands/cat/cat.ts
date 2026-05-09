@@ -56,17 +56,16 @@ export const catCommand: Command = {
       }
     }
 
-    // Only use binary encoding when reading actual files (not just stdin).
-    // When reading from stdin (heredoc, here-string, pipeline text), the
-    // content may be Unicode text that needs UTF-8 encoding for file writes.
-    // File content is read with binary encoding and needs binary to preserve bytes.
-    const isReadingFiles = files.length > 0 && files.some((f) => f !== "-");
+    // cat is byte-clean: it forwards every byte of stdin / file content
+    // unchanged. Mark stdout binary unconditionally so the pipeline glue
+    // doesn't UTF-8-encode the bytes a second time when the next stage
+    // happens to be a byte consumer, and so `> /file` redirects skip the
+    // smart-utf8 encoding path that would otherwise double-encode.
     return {
       stdout,
       stderr: readResult.stderr,
       exitCode: readResult.exitCode,
-      // @banned-pattern-ignore: spread into static result keys, no user-controlled properties
-      ...(isReadingFiles ? { stdoutEncoding: "binary" as const } : {}),
+      stdoutEncoding: "binary",
     };
   },
 };

@@ -79,24 +79,82 @@ export function decodeBytesToUtf8(b: ByteString): string {
 }
 
 /**
- * Re-encode UTF-8 text into a `ByteString`. Inverse of `decodeBytesToUtf8`.
- * Use when a text-processing command emits its result back into the pipeline.
+ * UTF-8 encode `s` (treating every char as a Unicode codepoint) into a
+ * `ByteString`. Use at sites that *know* their input is decoded Unicode
+ * text and need to emit it back as bytes — typically the inverse of an
+ * earlier `decodeBytesToUtf8` call inside the same command.
  */
 export function encodeUtf8ToBytes(s: string): ByteString {
-  let needsEncode = false;
-  for (let i = 0; i < s.length; i++) {
-    if (s.charCodeAt(i) > 0x7f) {
-      needsEncode = true;
-      break;
-    }
-  }
-  if (!needsEncode) return s as unknown as ByteString;
-
+  if (!s) return s as unknown as ByteString;
   const bytes = utf8Encoder.encode(s);
   let out = "";
   for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
   return out as unknown as ByteString;
 }
 
+/**
+ * Coerce a string of unknown shape into a `ByteString` for the pipe
+ * boundary. The pipe contract is "every command's stdin is a byte
+ * buffer", but two upstream shapes both look like JS strings:
+ *
+ *   - real Unicode text with codepoints (echo, printf, heredocs,
+ *     here-strings, command substitution — anything from bash's
+ *     string-as-codepoints world). UTF-8 encode it so byte consumers
+ *     downstream (`wc -c`, `base64`, `md5sum`) and binary writes see
+ *     real UTF-8 bytes instead of code units.
+ *   - a latin1-shaped byte buffer that's already passed through this
+ *     pipeline (cat, gzip, sed/grep/jq after they re-encoded). Pipeline
+ *     glue distinguishes this case via `stdoutEncoding: "binary"` and
+ *     skips the call here entirely; if a producer forgets that flag,
+ *     the encode here interprets each char as a codepoint and may
+ *     double-encode high bytes — that's the producer's bug.
+ *
+ * Caveat: `echo -en '\0377'` produces a JS string with codepoint 0xFF
+ * intending it to be a single raw byte. We can't tell that intent apart
+ * from a real Latin-1-supplement codepoint, so `\0377` gets UTF-8
+ * encoded to `0xC3 0xBF` here — a known divergence from real bash for
+ * raw octal/hex byte escapes piped to byte consumers, separate from the
+ * UTF-8 byte-length contract upheld for everything else.
+ */
+export function bytesFromPipe(s: string): ByteString {
+  if (!s) return s as unknown as ByteString;
+  for (let i = 0; i < s.length; i++) {
+    if (s.charCodeAt(i) > 0x7f) return encodeUtf8ToBytes(s);
+  }
+  return s as unknown as ByteString;
+}
+
 /** The empty `ByteString`. */
 export const EMPTY_BYTES: ByteString = "" as unknown as ByteString;
+
+/**
+ * Convert a `Uint8Array` to a `ByteString`. Each byte becomes one char.
+ * The reverse is `Uint8Array.from(latin1FromBytes(b), (c) => c.charCodeAt(0))`.
+ */
+export function bytesFromUint8Array(buf: Uint8Array): ByteString {
+  let out = "";
+  for (let i = 0; i < buf.length; i++) out += String.fromCharCode(buf[i]);
+  return out as unknown as ByteString;
+}
+
+/**
+ * Read a file's raw bytes from any `IFileSystem`. Prefers the optional
+ * {@link IFileSystem.readFileBytes} method (built-in filesystems implement
+ * it natively), falling back to {@link IFileSystem.readFileBuffer} +
+ * conversion for external/custom filesystems written before
+ * `readFileBytes` existed. Use this from internal commands instead of
+ * calling `fs.readFileBytes` directly so user-supplied filesystems keep
+ * working.
+ */
+export async function readBytesFrom(
+  fs: {
+    readFileBytes?(path: string): Promise<ByteString>;
+    readFileBuffer(path: string): Promise<Uint8Array>;
+  },
+  path: string,
+): Promise<ByteString> {
+  if (typeof fs.readFileBytes === "function") {
+    return fs.readFileBytes(path);
+  }
+  return bytesFromUint8Array(await fs.readFileBuffer(path));
+}

@@ -8,7 +8,11 @@
  * input is read.
  */
 
-import { decodeBytesToUtf8 } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+} from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -95,10 +99,14 @@ export const rev: Command = {
       }
     }
 
+    // rev reversed by codepoint over decoded text; re-encode to bytes and
+    // mark stdout binary so byte consumers (wc -c, base64, md5sum) and
+    // file redirects see UTF-8 bytes verbatim.
     return {
       exitCode: 0,
-      stdout: output,
+      stdout: latin1FromBytes(encodeUtf8ToBytes(output)),
       stderr: "",
+      stdoutEncoding: "binary",
     };
   },
 };

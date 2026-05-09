@@ -58,12 +58,19 @@ function wrapFileSystem(
       component,
       "fs.readFile",
     ),
-    readFileBytes: wrapFunction(
-      fs.readFileBytes.bind(fs),
-      requireDefenseContext,
-      component,
-      "fs.readFileBytes",
-    ),
+    // readFileBytes is optional on IFileSystem (custom external fs may
+    // predate it). Only wrap when it exists; internal callers go through
+    // `readBytesFrom` which falls back to readFileBuffer otherwise.
+    ...(typeof fs.readFileBytes === "function"
+      ? {
+          readFileBytes: wrapFunction(
+            fs.readFileBytes.bind(fs),
+            requireDefenseContext,
+            component,
+            "fs.readFileBytes",
+          ),
+        }
+      : {}),
     readFileBuffer: wrapFunction(
       fs.readFileBuffer.bind(fs),
       requireDefenseContext,

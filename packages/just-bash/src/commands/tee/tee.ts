@@ -36,19 +36,18 @@ export const teeCommand: Command = {
     let stderr = "";
     let exitCode = 0;
 
-    // Write to each file using the default encoding — matches the existing
-    // redirection-layer heuristic (high codepoint → utf8). Note: this means
-    // a latin1 byte buffer of UTF-8 bytes piped through tee will be
-    // re-encoded into a *double*-utf8 file, which is a pre-existing bug
-    // tied to the string-as-byte-buffer pipeline shape. Fixing it cleanly
-    // requires migrating the pipe to `Uint8Array`; tracked separately.
+    // Write to each file in binary mode. The pipe-execution boundary
+    // ensures `ctx.stdin` always reaches us as a latin1-shaped byte
+    // buffer (UTF-8-encoded for non-ASCII), so binary write preserves the
+    // bytes verbatim. Default-utf8 write would re-interpret each char as
+    // a codepoint and double-encode every high byte.
     for (const file of files) {
       try {
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
         if (append) {
-          await ctx.fs.appendFile(filePath, content);
+          await ctx.fs.appendFile(filePath, content, "binary");
         } else {
-          await ctx.fs.writeFile(filePath, content);
+          await ctx.fs.writeFile(filePath, content, "binary");
         }
       } catch (_error) {
         stderr += `tee: ${file}: No such file or directory\n`;

@@ -933,5 +933,12 @@ export async function applyRedirections(
     }
   }
 
-  return makeResult(stdout, stderr, exitCode);
+  const finalResult = makeResult(stdout, stderr, exitCode);
+  // Preserve the upstream's binary-stdout flag through the redirection
+  // pipeline so the next stage (pipeline glue, output boundary) can tell
+  // bytes-shaped output from text-shaped output.
+  if (result.stdoutEncoding === "binary") {
+    finalResult.stdoutEncoding = "binary";
+  }
+  return finalResult;
 }

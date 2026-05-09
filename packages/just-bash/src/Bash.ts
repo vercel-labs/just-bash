@@ -632,7 +632,13 @@ export class Bash {
       options: { ...this.state.options },
       // Share hashTable reference - it should persist across exec calls
       hashTable: this.state.hashTable,
-      // Pass stdin through to commands (for bash -c with piped input)
+      // Pass stdin through to commands (for bash -c with piped input).
+      // User-supplied `options.stdin` is forwarded as-is. Hosts that
+      // already have bytes (e.g. `Buffer.from(...).toString("latin1")`)
+      // get them through verbatim; hosts that pass JS Unicode text get
+      // pre-existing legacy semantics (the byte-consumer-counts-code-units
+      // limitation is the same as for any custom command that emits
+      // codepoints — separate from the pipe-boundary fix).
       groupStdin: options?.stdin,
       // Cooperative cancellation signal (used by timeout command)
       signal: options?.signal,

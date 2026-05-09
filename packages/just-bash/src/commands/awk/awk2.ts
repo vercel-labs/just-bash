@@ -4,7 +4,11 @@
  * This is the new implementation using proper lexer/parser/interpreter architecture.
  */
 
-import { decodeBytesToUtf8 } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+} from "../../encoding.js";
 import { mapToRecord } from "../../helpers/env.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { ConstantRegex, createUserRegex } from "../../regex/index.js";
@@ -270,10 +274,14 @@ export const awkCommand2: Command = {
       // Execute END blocks (always run, even after exit - AWK semantics)
       await withDefenseContext("END execution", () => interp.executeEnd());
 
+      // awk processed UTF-8 text; re-encode to bytes for the byte-shaped
+      // pipeline so downstream byte consumers (wc -c, base64, md5sum) and
+      // redirects see UTF-8 bytes verbatim.
       return {
-        stdout: interp.getOutput(),
+        stdout: latin1FromBytes(encodeUtf8ToBytes(interp.getOutput())),
         stderr: "",
         exitCode: interp.getExitCode(),
+        stdoutEncoding: "binary",
       };
     } catch (e) {
       if (e instanceof SecurityViolationError) {
@@ -284,9 +292,10 @@ export const awkCommand2: Command = {
       const exitCode =
         e instanceof ExecutionLimitError ? ExecutionLimitError.EXIT_CODE : 2;
       return {
-        stdout: interp.getOutput(),
+        stdout: latin1FromBytes(encodeUtf8ToBytes(interp.getOutput())),
         stderr: `awk: ${msg}\n`,
         exitCode,
+        stdoutEncoding: "binary",
       };
     }
   },

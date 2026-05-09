@@ -2,7 +2,11 @@
  * Simple commands: behead, sample, cat, search, flatmap, fmt
  */
 
-import { decodeBytesToUtf8 } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+} from "../../encoding.js";
 import { createUserRegex, type RegexLike } from "../../regex/index.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 import { readFiles } from "../../utils/file-reader.js";
@@ -43,7 +47,13 @@ export async function cmdBehead(
     rows.map((row) => row.map((v) => formatValue(v)).join(",")).join("\n") +
     "\n";
 
-  return { stdout: output, stderr: "", exitCode: 0 };
+  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+  return {
+    stdout: latin1FromBytes(encodeUtf8ToBytes(output)),
+    stderr: "",
+    exitCode: 0,
+    stdoutEncoding: "binary",
+  };
 }
 
 function formatValue(v: unknown): string {
@@ -95,7 +105,13 @@ export async function cmdSample(
   if (error) return error;
 
   if (data.length <= num) {
-    return { stdout: formatCsv(headers, data), stderr: "", exitCode: 0 };
+    // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+    return {
+      stdout: latin1FromBytes(encodeUtf8ToBytes(formatCsv(headers, data))),
+      stderr: "",
+      exitCode: 0,
+      stdoutEncoding: "binary",
+    };
   }
 
   // Simple seeded random (LCG)
@@ -117,7 +133,13 @@ export async function cmdSample(
     .sort((a, b) => a - b)
     .map((i) => data[i]);
 
-  return { stdout: formatCsv(headers, sampled), stderr: "", exitCode: 0 };
+  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+  return {
+    stdout: latin1FromBytes(encodeUtf8ToBytes(formatCsv(headers, sampled))),
+    stderr: "",
+    exitCode: 0,
+    stdoutEncoding: "binary",
+  };
 }
 
 /**
@@ -201,7 +223,13 @@ export async function cmdCat(
     }
   }
 
-  return { stdout: formatCsv(allHeaders, allData), stderr: "", exitCode: 0 };
+  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+  return {
+    stdout: latin1FromBytes(encodeUtf8ToBytes(formatCsv(allHeaders, allData))),
+    stderr: "",
+    exitCode: 0,
+    stdoutEncoding: "binary",
+  };
 }
 
 /**
@@ -272,7 +300,13 @@ export async function cmdSearch(
     return invert ? !matches : matches;
   });
 
-  return { stdout: formatCsv(headers, filtered), stderr: "", exitCode: 0 };
+  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+  return {
+    stdout: latin1FromBytes(encodeUtf8ToBytes(formatCsv(headers, filtered))),
+    stderr: "",
+    exitCode: 0,
+    stdoutEncoding: "binary",
+  };
 }
 
 /**
@@ -356,7 +390,13 @@ export async function cmdFlatmap(
     }
   }
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+  return {
+    stdout: latin1FromBytes(encodeUtf8ToBytes(formatCsv(newHeaders, newData))),
+    stderr: "",
+    exitCode: 0,
+    stdoutEncoding: "binary",
+  };
 }
 
 /**

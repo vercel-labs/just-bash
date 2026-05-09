@@ -34,6 +34,7 @@ export { defineCommand } from "./custom-commands.js";
 // `ctx.stdin` (an opaque `ByteString`).
 export type { ByteString } from "./encoding.js";
 export {
+  bytesFromPipe,
   decodeBytesToUtf8,
   EMPTY_BYTES,
   encodeUtf8ToBytes,

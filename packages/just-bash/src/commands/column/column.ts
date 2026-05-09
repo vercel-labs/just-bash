@@ -6,7 +6,11 @@
  * Columnate input. Fill rows first by default, or create a table with -t.
  */
 
-import { decodeBytesToUtf8 } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+} from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -237,10 +241,12 @@ export const column: Command = {
       output += "\n";
     }
 
+    // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
     return {
       exitCode: 0,
-      stdout: output,
+      stdout: latin1FromBytes(encodeUtf8ToBytes(output)),
       stderr: "",
+      stdoutEncoding: "binary",
     };
   },
 };

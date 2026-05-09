@@ -4,7 +4,11 @@
  * Full jq implementation with proper parser and evaluator.
  */
 
-import { decodeBytesToUtf8 } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+} from "../../encoding.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import {
@@ -416,10 +420,15 @@ export const jqCommand: Command = {
           ? 1
           : 0;
 
+      // jq emits decoded JSON text; re-encode to bytes and mark stdout
+      // binary so the bytes flow through byte consumers (wc -c, base64)
+      // and redirects without being double-encoded.
+      const stdoutText = output ? (joinOutput ? output : `${output}\n`) : "";
       return {
-        stdout: output ? (joinOutput ? output : `${output}\n`) : "",
+        stdout: latin1FromBytes(encodeUtf8ToBytes(stdoutText)),
         stderr: "",
         exitCode,
+        stdoutEncoding: "binary",
       };
     } catch (e) {
       if (e instanceof SecurityViolationError) {

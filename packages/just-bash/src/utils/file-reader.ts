@@ -5,7 +5,7 @@
  * including parallel batch reading for performance.
  */
 
-import { type ByteString, EMPTY_BYTES } from "../encoding.js";
+import { type ByteString, EMPTY_BYTES, readBytesFrom } from "../encoding.js";
 import type { CommandContext, ExecResult } from "../types.js";
 import { DEFAULT_BATCH_SIZE } from "./constants.js";
 
@@ -98,7 +98,7 @@ export async function readFiles(
           // This is important for piping binary data through commands like cat.
           // Text-processing commands must explicitly call `decodeBytesToUtf8`
           // on the content before regex / parsing.
-          const content = await ctx.fs.readFileBytes(filePath);
+          const content = await readBytesFrom(ctx.fs, filePath);
           return { filename: file, content, error: null as string | null };
         } catch {
           return {

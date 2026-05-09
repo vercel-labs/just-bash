@@ -412,11 +412,20 @@ export async function executeExternalCommand(
     ctx.state.hashTable.set(commandName, cmdPath);
   }
 
-  // Use groupStdin as fallback if no stdin from redirections/pipeline
-  // This is needed for commands inside groups/functions that receive stdin via heredoc
-  // The internal pipeline plumbs stdin around as a plain `string` (a latin1
-  // byte buffer); brand it as `ByteString` here, at the boundary handed to
-  // command authors, so accidental string-method use trips the type system.
+  // Use groupStdin as fallback if no stdin from redirections/pipeline.
+  // This is needed for commands inside groups/functions that receive stdin
+  // via heredoc. The internal pipeline plumbs stdin around as a plain
+  // `string` (a latin1 byte buffer); brand it as `ByteString` here, at the
+  // boundary handed to command authors, so accidental string-method use
+  // trips the type system.
+  //
+  // The contract for this boundary is "the upstream already gave us bytes".
+  // Commands that internally decode their stdin to UTF-8 text (sed, grep,
+  // rev, awk, jq, yq, ...) must `latin1FromBytes(encodeUtf8ToBytes(out))`
+  // *and* set `stdoutEncoding: "binary"` before returning, so the bytes
+  // they emit chain correctly into byte consumers downstream (wc -c,
+  // base64, md5sum) and into redirects (which then write binary instead
+  // of re-encoding utf8 a second time).
   const effectiveStdin = unsafeBytesFromLatin1(
     stdin || ctx.state.groupStdin || "",
   );

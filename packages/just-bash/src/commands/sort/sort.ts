@@ -1,4 +1,8 @@
-import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+} from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { readAndConcat } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -150,25 +154,17 @@ export const sortCommand: Command = {
       }
     }
 
-    // Read from files or stdin. Default sort is byte-lexicographic and
-    // byte-clean. Two comparator paths run Unicode-aware string methods on
-    // each line and would silently corrupt latin1 byte buffers (e.g. a
-    // UTF-8 leading byte 0xC3 lowercases to 0xE3, mutating the data):
-    //   - case-fold (-f / --ignore-case, OR per-key `f` like `-k1f`) calls
-    //     `.toLowerCase()`,
-    //   - dictionary order (-d / --dictionary-order, OR per-key `d`) runs a
-    //     `[^a-zA-Z0-9\s]` regex that strips multibyte continuation bytes.
-    // Decode to UTF-8 first whenever any of those modes is active anywhere,
-    // globally or in any per-key modifier.
+    // Read from files or stdin. sort's comparator uses `localeCompare`,
+    // which on byte-encoded UTF-8 returns 0 for many byte pairs (treating
+    // continuation bytes as equal control chars). We need real Unicode
+    // codepoints for stable ordering. Case-fold / dictionary-order paths
+    // additionally run `.toLowerCase()` and `[^a-zA-Z0-9\s]` regex that
+    // would corrupt the latin1 byte view. Always decode for processing,
+    // then re-encode the joined output back to bytes for the byte-shaped
+    // pipeline.
     const readResult = await readAndConcat(ctx, files, { cmdName: "sort" });
     if (!readResult.ok) return readResult.error;
-    const needsDecode =
-      options.ignoreCase ||
-      options.dictionaryOrder ||
-      options.keys.some((k) => k.ignoreCase || k.dictionaryOrder);
-    const content = needsDecode
-      ? decodeBytesToUtf8(readResult.content)
-      : latin1FromBytes(readResult.content);
+    const content = decodeBytesToUtf8(readResult.content);
 
     // Split into lines (preserve empty lines at the end for sorting)
     let lines = content.split("\n");
@@ -204,13 +200,17 @@ export const sortCommand: Command = {
       lines = filterUnique(lines, options);
     }
 
-    const output = lines.length > 0 ? `${lines.join("\n")}\n` : "";
+    const joined = lines.length > 0 ? `${lines.join("\n")}\n` : "";
+
+    // sort always processes Unicode-decoded text; re-encode to a latin1
+    // byte view so the byte-shaped downstream (writeFile + "binary",
+    // stdoutEncoding "binary") doesn't truncate each codepoint to its
+    // low byte.
+    const output = latin1FromBytes(encodeUtf8ToBytes(joined));
 
     // Output to file if -o specified
     if (options.outputFile) {
       const outPath = ctx.fs.resolvePath(ctx.cwd, options.outputFile);
-      // Content was read with binary encoding (readAndConcat), write as binary
-      // to preserve UTF-8 byte sequences
       await ctx.fs.writeFile(outPath, output, "binary");
       return { stdout: "", stderr: "", exitCode: 0 };
     }

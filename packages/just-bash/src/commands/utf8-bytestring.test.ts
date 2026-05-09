@@ -125,6 +125,78 @@ describe("UTF-8 byte preservation across the pipeline boundary", () => {
     });
   });
 
+  describe("decoded-text → byte-consumer pipe boundary", () => {
+    // When sed/grep/rev/awk decode their stdin and emit Unicode codepoints,
+    // the pipe boundary must re-encode that text back to UTF-8 bytes
+    // before the next command sees it. Otherwise byte consumers (`wc -c`,
+    // `base64`, `md5sum`, etc.) operate on JS code units instead of bytes.
+
+    it("text-emitting cmd → wc -c reports byte count, not code units", async () => {
+      const env = new Bash({ files: { "/in.txt": "한글" } });
+      // sed decodes, runs the regex, emits Unicode text.
+      // wc -c must see 6 (UTF-8 bytes), not 2 (code units of "한글").
+      const r = await env.exec(`cat /in.txt | sed 's/$//' | wc -c`);
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout.trim()).toBe("6");
+    });
+
+    it("rev → base64 round-trips through UTF-8 bytes correctly", async () => {
+      const env = new Bash({ files: { "/in.txt": "한" } });
+      // rev decodes, reverses by codepoint, emits text. Then base64 must
+      // see UTF-8 bytes — without re-encoding it would treat the single
+      // codepoint U+D55C as one byte and emit garbage.
+      const r = await env.exec(`cat /in.txt | rev | base64`);
+      expect(r.exitCode).toBe(0);
+      // base64 of UTF-8 bytes 0xED 0x95 0x9C is "7ZWc".
+      expect(r.stdout.trim()).toBe("7ZWc");
+    });
+
+    it("grep → md5sum hashes the original UTF-8 bytes", async () => {
+      const env = new Bash({ files: { "/in.txt": "한글\n" } });
+      // grep -o decodes for regex, emits matched text. md5 of "한글\n"
+      // (7 UTF-8 bytes) must match `printf '한글\n' | md5sum` semantics.
+      const r = await env.exec(`cat /in.txt | grep -o '한글' | md5sum`);
+      expect(r.exitCode).toBe(0);
+      // md5 of the 7 UTF-8 bytes "한글\n" — verified against host
+      // `printf '한글\n' | md5sum`. (just-bash's md5sum emits two
+      // spaces before the filename to match GNU coreutils format.)
+      expect(r.stdout.trim()).toBe("ebef630fbec2e89fbcd589797bb6441c  -");
+    });
+  });
+
+  describe("split named-file UTF-8 chunking", () => {
+    it("splits a UTF-8 file by line without truncating multibyte chars", async () => {
+      const env = new Bash({ files: { "/in.txt": "한\n글\n漢\n" } });
+      const r = await env.exec("split -l 1 /in.txt /tmp/c_");
+      expect(r.exitCode).toBe(0);
+      const aa = await env.fs.readFile("/tmp/c_aa", "utf8");
+      const ab = await env.fs.readFile("/tmp/c_ab", "utf8");
+      const ac = await env.fs.readFile("/tmp/c_ac", "utf8");
+      expect(aa).toBe("한\n");
+      expect(ab).toBe("글\n");
+      expect(ac).toBe("漢\n");
+    });
+  });
+
+  describe("sort -f / uniq -i write decoded output as UTF-8 bytes", () => {
+    it("sort -f -o preserves UTF-8 bytes in the written file", async () => {
+      const env = new Bash({ files: { "/in.txt": "Café\nApple\n" } });
+      const r = await env.exec("sort -f -o /out.txt /in.txt");
+      expect(r.exitCode).toBe(0);
+      const written = await env.fs.readFileBuffer("/out.txt");
+      expect(new TextDecoder().decode(written)).toBe("Apple\nCafé\n");
+    });
+
+    it("uniq -i piped to wc -c reports the right byte count", async () => {
+      const env = new Bash({ files: { "/in.txt": "Café\nCAFÉ\n" } });
+      // After case-fold collapse, output is "Café\n" — 6 UTF-8 bytes
+      // (C=1, a=1, f=1, é=2, \n=1).
+      const r = await env.exec("uniq -i /in.txt | wc -c");
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout.trim()).toBe("6");
+    });
+  });
+
   describe("cat / head / tail / tee — passthrough must stay byte-clean", () => {
     it("cat round-trips multibyte bytes through stdin and stdout", async () => {
       const env = new Bash();
