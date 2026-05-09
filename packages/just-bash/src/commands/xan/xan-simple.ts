@@ -2,6 +2,7 @@
  * Simple commands: behead, sample, cat, search, flatmap, fmt
  */
 
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import { createUserRegex, type RegexLike } from "../../regex/index.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 import { readFiles } from "../../utils/file-reader.js";
@@ -162,7 +163,7 @@ export async function cmdCat(
   let allHeaders: string[] = [];
 
   for (const { content } of result.files) {
-    const { headers, data } = parseCsv(content);
+    const { headers, data } = parseCsv(decodeBytesToUtf8(content));
     allFiles.push({ headers, data });
 
     // Collect all unique headers

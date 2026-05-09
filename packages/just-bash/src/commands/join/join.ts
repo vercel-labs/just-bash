@@ -7,6 +7,7 @@
  * standard output. The default join field is the first, delimited by blanks.
  */
 
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -283,11 +284,13 @@ export const join: Command = {
       };
     }
 
-    // Read both files
+    // Read both files. join compares the key field as a string; normalize
+    // stdin (byte buffer) to UTF-8 so it compares against file content (utf8
+    // by default) correctly when the data carries multibyte chars.
     const contents: string[] = [];
     for (const file of files) {
       if (file === "-") {
-        contents.push(ctx.stdin ?? "");
+        contents.push(decodeBytesToUtf8(ctx.stdin) ?? "");
       } else {
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
         const content = await ctx.fs.readFile(filePath);

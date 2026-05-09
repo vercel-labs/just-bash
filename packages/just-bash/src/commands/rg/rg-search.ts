@@ -3,6 +3,7 @@
  */
 
 import { gunzipSync } from "node:zlib";
+import { decodeBytesToUtf8, unsafeBytesFromLatin1 } from "../../encoding.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { CommandContext, ExecResult } from "../../types.js";
@@ -78,13 +79,13 @@ export async function executeSearch(
   // Combine -e patterns with patterns from files
   const patterns = [...options.patterns];
 
-  // Read patterns from files (-f/--file)
+  // Read patterns from files (-f/--file). Patterns are regex source — decode
+  // bytes to UTF-8 so unicode-class patterns work.
   for (const patternFile of options.patternFiles) {
     try {
       let content: string;
       if (patternFile === "-") {
-        // Read from stdin
-        content = ctx.stdin;
+        content = decodeBytesToUtf8(ctx.stdin);
       } else {
         const filePath = ctx.fs.resolvePath(ctx.cwd, patternFile);
         content = await ctx.fs.readFile(filePath);
@@ -724,8 +725,13 @@ async function readFileContent(
           args: [filePath],
         });
         if (result.exitCode === 0 && result.stdout) {
-          const sample = result.stdout.slice(0, 8192);
-          return { content: result.stdout, isBinary: sample.includes("\0") };
+          // Preprocessor output arrives as a latin1 byte buffer in the
+          // pipeline; decode for regex matching. Empty output falls through.
+          const content = decodeBytesToUtf8(
+            unsafeBytesFromLatin1(result.stdout),
+          );
+          const sample = content.slice(0, 8192);
+          return { content, isBinary: sample.includes("\0") };
         }
         // Preprocessing failed, fall through to normal file read
       }

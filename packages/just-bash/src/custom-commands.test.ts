@@ -7,6 +7,7 @@ import {
   isLazyCommand,
   type LazyCommand,
 } from "./custom-commands.js";
+import { decodeBytesToUtf8, EMPTY_BYTES } from "./encoding.js";
 import type { Command } from "./types.js";
 
 describe("custom-commands", () => {
@@ -82,7 +83,7 @@ describe("custom-commands", () => {
         fs: {} as never,
         cwd: "/",
         env: new Map(),
-        stdin: "",
+        stdin: EMPTY_BYTES,
       });
       expect(loadCount).toBe(1);
       expect(result1.stdout).toBe("lazy loaded\n");
@@ -92,7 +93,7 @@ describe("custom-commands", () => {
         fs: {} as never,
         cwd: "/",
         env: new Map(),
-        stdin: "",
+        stdin: EMPTY_BYTES,
       });
       expect(loadCount).toBe(1);
       expect(result2.stdout).toBe("lazy loaded\n");
@@ -116,7 +117,8 @@ describe("custom-commands", () => {
 
     it("custom command receives stdin from pipe", async () => {
       const wordcount = defineCommand("wordcount", async (_args, ctx) => {
-        const words = ctx.stdin.trim().split(/\s+/).filter(Boolean).length;
+        const text = decodeBytesToUtf8(ctx.stdin);
+        const words = text.trim().split(/\s+/).filter(Boolean).length;
         return { stdout: `${words}\n`, stderr: "", exitCode: 0 };
       });
 
@@ -235,7 +237,7 @@ describe("custom-commands", () => {
 
     it("custom command works in pipeline with built-in commands", async () => {
       const upper = defineCommand("upper", async (_args, ctx) => ({
-        stdout: ctx.stdin.toUpperCase(),
+        stdout: decodeBytesToUtf8(ctx.stdin).toUpperCase(),
         stderr: "",
         exitCode: 0,
       }));

@@ -13,6 +13,7 @@
 
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
+import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
 import {
   type FileContent,
   fromBuffer,
@@ -384,6 +385,11 @@ export class OverlayFs implements IFileSystem {
     const buffer = await this.readFileBuffer(path);
     const encoding = getEncoding(options);
     return fromBuffer(buffer, encoding);
+  }
+
+  async readFileBytes(path: string): Promise<ByteString> {
+    const buffer = await this.readFileBuffer(path);
+    return unsafeBytesFromLatin1(fromBuffer(buffer, "binary"));
   }
 
   async readFileBuffer(

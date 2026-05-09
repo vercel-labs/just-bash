@@ -1,3 +1,4 @@
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -58,8 +59,12 @@ export const pasteCommand: Command = {
       };
     }
 
-    // Parse stdin into lines (will be distributed across multiple `-` args)
-    const stdinLines = ctx.stdin ? ctx.stdin.split("\n") : [""];
+    // Parse stdin into lines (will be distributed across multiple `-` args).
+    // paste reads files as UTF-8 text; normalize stdin to the same shape so
+    // the joined output is consistent and the boundary doesn't see a mix of
+    // latin1 byte buffer and Unicode codepoints.
+    const stdinText = decodeBytesToUtf8(ctx.stdin);
+    const stdinLines = stdinText ? stdinText.split("\n") : [""];
     if (stdinLines.length > 0 && stdinLines[stdinLines.length - 1] === "") {
       stdinLines.pop();
     }

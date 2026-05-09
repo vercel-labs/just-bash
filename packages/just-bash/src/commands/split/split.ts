@@ -7,6 +7,7 @@
  * default size is 1000 lines, and default PREFIX is 'x'.
  */
 
+import { latin1FromBytes } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -335,10 +336,11 @@ export const split: Command = {
       prefix = positionalArgs[1];
     }
 
-    // Read input content
+    // Read input content. split is byte-clean — chunks files by line or byte
+    // count, never interprets content.
     let content: string;
     if (inputFile === "-") {
-      content = ctx.stdin ?? "";
+      content = latin1FromBytes(ctx.stdin) ?? "";
     } else {
       const filePath = ctx.fs.resolvePath(ctx.cwd, inputFile);
       const fileContent = await ctx.fs.readFile(filePath);
@@ -401,7 +403,9 @@ export const split: Command = {
       const filename = `${prefix}${suffix}${options.additionalSuffix}`;
       const filePath = ctx.fs.resolvePath(ctx.cwd, filename);
 
-      await ctx.fs.writeFile(filePath, chunk.content);
+      // chunk.content is the latin1 byte view of stdin — write as binary
+      // so writeFile doesn't re-encode every >0x7F char as a UTF-8 sequence.
+      await ctx.fs.writeFile(filePath, chunk.content, "binary");
     }
 
     return {

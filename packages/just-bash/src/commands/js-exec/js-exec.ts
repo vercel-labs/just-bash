@@ -11,6 +11,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import {
   sanitizeErrorMessage,
   sanitizeHostErrorMessage,
@@ -594,8 +595,10 @@ export const jsExecCommand: Command = {
           exitCode: 2,
         };
       }
-    } else if (ctx.stdin.trim()) {
-      jsCode = ctx.stdin;
+    } else if (decodeBytesToUtf8(ctx.stdin).trim()) {
+      // Decode bytes — JS source can contain unicode identifiers and string
+      // literals; running latin1 bytes as code corrupts them.
+      jsCode = decodeBytesToUtf8(ctx.stdin);
       scriptPath = "<stdin>";
     } else {
       return {

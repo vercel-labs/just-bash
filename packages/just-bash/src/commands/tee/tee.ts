@@ -1,3 +1,4 @@
+import { latin1FromBytes } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -29,11 +30,18 @@ export const teeCommand: Command = {
 
     const { append } = parsed.result.flags;
     const files = parsed.result.positional;
-    const content = ctx.stdin;
+    // tee is byte-clean: stdin bytes are written to each file and the same
+    // bytes pass through to stdout.
+    const content = latin1FromBytes(ctx.stdin);
     let stderr = "";
     let exitCode = 0;
 
-    // Write to each file
+    // Write to each file using the default encoding — matches the existing
+    // redirection-layer heuristic (high codepoint → utf8). Note: this means
+    // a latin1 byte buffer of UTF-8 bytes piped through tee will be
+    // re-encoded into a *double*-utf8 file, which is a pre-existing bug
+    // tied to the string-as-byte-buffer pipeline shape. Fixing it cleanly
+    // requires migrating the pipe to `Uint8Array`; tracked separately.
     for (const file of files) {
       try {
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
@@ -48,11 +56,13 @@ export const teeCommand: Command = {
       }
     }
 
-    // Pass through to stdout
+    // Pass through to stdout as raw bytes — the boundary in Bash.exec
+    // decodes UTF-8 sequences back to Unicode for terminals.
     return {
       stdout: content,
       stderr,
       exitCode,
+      stdoutEncoding: "binary",
     };
   },
 };

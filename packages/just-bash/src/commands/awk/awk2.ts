@@ -4,6 +4,7 @@
  * This is the new implementation using proper lexer/parser/interpreter architecture.
  */
 
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import { mapToRecord } from "../../helpers/env.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { ConstantRegex, createUserRegex } from "../../regex/index.js";
@@ -236,7 +237,9 @@ export const awkCommand2: Command = {
           }
         }
       } else {
-        const lines = ctx.stdin.split("\n");
+        // awk parses fields with regex / FS — decode bytes to UTF-8 so
+        // non-ASCII data isn't split mid-codepoint.
+        const lines = decodeBytesToUtf8(ctx.stdin).split("\n");
         if (lines.length > 0 && lines[lines.length - 1] === "") {
           lines.pop();
         }

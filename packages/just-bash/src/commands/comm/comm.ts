@@ -7,6 +7,7 @@
  * - Column 3: lines in both files
  */
 
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -73,10 +74,13 @@ export const commCommand: Command = {
       };
     }
 
-    // Read file contents
+    // Read file contents. comm compares lines as strings, and stdin and the
+    // file path go through different decoding paths (latin1 byte buffer vs
+    // utf8 string). Normalize both sides to UTF-8 text so identical input
+    // compares equal regardless of which leg it came from.
     const readFile = async (file: string): Promise<string | null> => {
       if (file === "-") {
-        return ctx.stdin;
+        return decodeBytesToUtf8(ctx.stdin);
       }
       try {
         const path = ctx.fs.resolvePath(ctx.cwd, file);

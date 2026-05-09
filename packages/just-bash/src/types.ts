@@ -1,3 +1,4 @@
+import type { ByteString } from "./encoding.js";
 import type { IFileSystem } from "./fs/interface.js";
 import type { ExecutionLimits } from "./limits.js";
 import type { SecureFetch } from "./network/index.js";
@@ -113,8 +114,19 @@ export interface CommandContext {
    * In bash, only exported variables are passed to child processes.
    */
   exportedEnv?: Record<string, string>;
-  /** Standard input content */
-  stdin: string;
+  /**
+   * Standard input as a byte buffer. Opaque on purpose — see `encoding.ts`.
+   *
+   * Pipelines carry bytes (a previous command's stdout becomes this stdin).
+   * Choose a conversion at the use site:
+   *   - `latin1FromBytes(ctx.stdin)` to forward bytes unchanged (cat, head,
+   *     tee, base64 -d, gzip, ...).
+   *   - `decodeBytesToUtf8(ctx.stdin)` to interpret as UTF-8 text (jq, sed,
+   *     grep, awk, parsers, code execution, char-position math, ...).
+   * Mixing the two — calling string methods on a latin1 byte buffer that
+   * actually holds UTF-8 — is the bug class this type prevents.
+   */
+  stdin: ByteString;
   /**
    * Execution limits configuration.
    * Available when running commands via BashEnv interpreter.

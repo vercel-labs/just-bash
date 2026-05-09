@@ -1,3 +1,4 @@
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -92,19 +93,22 @@ export const xargsCommand: Command = {
       command.push("echo");
     }
 
-    // Parse input
-    // Priority: -0 (null) > -d (custom delimiter) > default (whitespace)
+    // Parse input. Priority: -0 (null) > -d (custom delimiter) > default
+    // (whitespace). xargs' delimiters (`\0`, ASCII whitespace, user-provided
+    // single-byte delim) all live in the ASCII range, but the args produced
+    // are passed onward as text — decode so multibyte filenames survive.
+    const stdinText = decodeBytesToUtf8(ctx.stdin);
     let items: string[];
     if (nullSeparator) {
-      items = ctx.stdin.split("\0").filter((s) => s.length > 0);
+      items = stdinText.split("\0").filter((s) => s.length > 0);
     } else if (delimiter !== null) {
       // Custom delimiter - split on exact string
       // Strip trailing newline from input before splitting (echo adds trailing newlines)
-      const input = ctx.stdin.replace(/\n$/, "");
+      const input = stdinText.replace(/\n$/, "");
       items = input.split(delimiter).filter((s) => s.length > 0);
     } else {
       // Default: split on whitespace and trim
-      items = ctx.stdin
+      items = stdinText
         .split(/\s+/)
         .map((s) => s.trim())
         .filter((s) => s.length > 0);

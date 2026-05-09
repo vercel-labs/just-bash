@@ -1,3 +1,8 @@
+import {
+  decodeBytesToUtf8,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+} from "../../encoding.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
@@ -172,7 +177,10 @@ export const trCommand: Command = {
         exitCode: 1,
       };
     }
-    const content = ctx.stdin;
+    // Translation operates on codepoints — set1 / set2 args are real Unicode
+    // strings, so we must decode bytes to UTF-8 first, otherwise multibyte
+    // chars don't match the SET they were spelled with.
+    const content = decodeBytesToUtf8(ctx.stdin);
 
     // Helper to check if character is in set1 (considering complement mode)
     const isInSet1 = (char: string): boolean => {
@@ -241,7 +249,13 @@ export const trCommand: Command = {
       }
     }
 
-    return { stdout: output, stderr: "", exitCode: 0 };
+    // Re-encode to bytes so the byte-shaped pipeline stays consistent.
+    return {
+      stdout: latin1FromBytes(encodeUtf8ToBytes(output)),
+      stderr: "",
+      exitCode: 0,
+      stdoutEncoding: "binary",
+    };
   },
 };
 

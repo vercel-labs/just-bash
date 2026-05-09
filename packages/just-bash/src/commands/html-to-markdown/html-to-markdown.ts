@@ -5,6 +5,7 @@
  */
 
 import TurndownService from "turndown";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -92,10 +93,12 @@ export const htmlToMarkdownCommand: Command = {
       }
     }
 
-    // Get input
+    // Get input. HTML is text — decode bytes to UTF-8 so character entities
+    // and tag boundaries are recognized correctly. File reads use utf8 by
+    // default already.
     let input: string;
     if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-      input = ctx.stdin;
+      input = decodeBytesToUtf8(ctx.stdin);
     } else {
       try {
         const filePath = ctx.fs.resolvePath(ctx.cwd, files[0]);

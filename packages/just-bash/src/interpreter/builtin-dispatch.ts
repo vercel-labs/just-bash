@@ -6,6 +6,7 @@
  */
 
 import { isBrowserExcludedCommand } from "../commands/browser-excluded.js";
+import { unsafeBytesFromLatin1 } from "../encoding.js";
 import { sanitizeErrorMessage } from "../fs/sanitize-error.js";
 import { awaitWithDefenseContext } from "../security/defense-context.js";
 import {
@@ -413,7 +414,12 @@ export async function executeExternalCommand(
 
   // Use groupStdin as fallback if no stdin from redirections/pipeline
   // This is needed for commands inside groups/functions that receive stdin via heredoc
-  const effectiveStdin = stdin || ctx.state.groupStdin || "";
+  // The internal pipeline plumbs stdin around as a plain `string` (a latin1
+  // byte buffer); brand it as `ByteString` here, at the boundary handed to
+  // command authors, so accidental string-method use trips the type system.
+  const effectiveStdin = unsafeBytesFromLatin1(
+    stdin || ctx.state.groupStdin || "",
+  );
 
   // Build exported environment for commands that need it (printenv, env, etc.)
   // Most builtins need access to the full env to modify state

@@ -3,6 +3,7 @@
  */
 
 import Papa from "papaparse";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 
 export interface CsvRow {
@@ -87,8 +88,9 @@ export async function readCsvInput(
   const file = args.find((a) => !a.startsWith("-"));
   let input: string;
 
+  // CSV is text; decode bytes so multibyte fields aren't split mid-codepoint.
   if (!file || file === "-") {
-    input = ctx.stdin;
+    input = decodeBytesToUtf8(ctx.stdin);
   } else {
     try {
       const path = ctx.fs.resolvePath(ctx.cwd, file);

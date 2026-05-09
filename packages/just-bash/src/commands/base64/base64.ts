@@ -2,6 +2,7 @@
  * base64 - Encode or decode base64
  */
 
+import { latin1FromBytes } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -33,7 +34,7 @@ async function readBinary(
     // Convert binary string directly to bytes without UTF-8 re-encoding
     return {
       ok: true,
-      data: Uint8Array.from(ctx.stdin, (c) => c.charCodeAt(0)),
+      data: Uint8Array.from(latin1FromBytes(ctx.stdin), (c) => c.charCodeAt(0)),
     };
   }
 
@@ -42,7 +43,9 @@ async function readBinary(
   for (const file of files) {
     if (file === "-") {
       // Convert binary string directly to bytes without UTF-8 re-encoding
-      chunks.push(Uint8Array.from(ctx.stdin, (c) => c.charCodeAt(0)));
+      chunks.push(
+        Uint8Array.from(latin1FromBytes(ctx.stdin), (c) => c.charCodeAt(0)),
+      );
       continue;
     }
     try {

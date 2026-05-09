@@ -1,3 +1,4 @@
+import type { ByteString } from "../../encoding.js";
 import { InMemoryFs } from "../in-memory-fs/in-memory-fs.js";
 import type {
   BufferEncoding,
@@ -249,6 +250,11 @@ export class MountableFs implements IFileSystem {
   ): Promise<string> {
     const { fs, relativePath } = this.routePath(path);
     return fs.readFile(relativePath, options);
+  }
+
+  async readFileBytes(path: string): Promise<ByteString> {
+    const { fs, relativePath } = this.routePath(path);
+    return fs.readFileBytes(relativePath);
   }
 
   async readFileBuffer(path: string): Promise<Uint8Array> {

@@ -1,3 +1,4 @@
+import { latin1FromBytes } from "../../encoding.js";
 import { mapToRecord } from "../../helpers/env.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -110,7 +111,7 @@ export const envCommand: Command = {
       cwd: ctx.cwd,
       env: mapToRecord(newEnv),
       replaceEnv: true,
-      stdin: ctx.stdin,
+      stdin: latin1FromBytes(ctx.stdin),
       signal: ctx.signal,
       args: cmdArgs,
     });

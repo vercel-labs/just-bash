@@ -1,3 +1,4 @@
+import { latin1FromBytes } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { readFiles } from "../../utils/file-reader.js";
@@ -42,13 +43,16 @@ export const catCommand: Command = {
     let lineNumber = 1;
 
     for (const { content } of readResult.files) {
+      // cat is byte-clean: emit raw bytes unchanged. The output boundary
+      // (Bash.exec) decodes UTF-8 sequences back to Unicode for terminals.
+      const bytes = latin1FromBytes(content);
       if (showLineNumbers) {
         // Real bash continues line numbers across files
-        const result = addLineNumbers(content, lineNumber);
+        const result = addLineNumbers(bytes, lineNumber);
         stdout += result.content;
         lineNumber = result.nextLineNumber;
       } else {
-        stdout += content;
+        stdout += bytes;
       }
     }
 

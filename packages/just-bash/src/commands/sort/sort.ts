@@ -1,3 +1,4 @@
+import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { readAndConcat } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -149,10 +150,16 @@ export const sortCommand: Command = {
       }
     }
 
-    // Read from files or stdin
+    // Read from files or stdin. Default sort is byte-lexicographic and
+    // byte-clean. With -f / --ignore-case the comparator runs `.toLowerCase`
+    // on each line; that's Unicode-aware in JS and would corrupt latin1
+    // byte buffers (a UTF-8 leading byte 0xC3 lowercases to 0xE3, mutating
+    // the data), so decode to UTF-8 first whenever we'll case-fold.
     const readResult = await readAndConcat(ctx, files, { cmdName: "sort" });
     if (!readResult.ok) return readResult.error;
-    const content = readResult.content;
+    const content = options.ignoreCase
+      ? decodeBytesToUtf8(readResult.content)
+      : latin1FromBytes(readResult.content);
 
     // Split into lines (preserve empty lines at the end for sorting)
     let lines = content.split("\n");

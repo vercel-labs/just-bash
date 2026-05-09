@@ -4,6 +4,7 @@
  */
 
 import Papa from "papaparse";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 import {
   type CsvData,
@@ -128,7 +129,7 @@ export async function cmdFixlengths(
   let input: string;
 
   if (!file || file === "-") {
-    input = ctx.stdin;
+    input = decodeBytesToUtf8(ctx.stdin);
   } else {
     try {
       const path = ctx.fs.resolvePath(ctx.cwd, file);
@@ -482,7 +483,7 @@ async function cmdFromJson(
   let input: string;
 
   if (!file || file === "-") {
-    input = ctx.stdin;
+    input = decodeBytesToUtf8(ctx.stdin);
   } else {
     try {
       const path = ctx.fs.resolvePath(ctx.cwd, file);

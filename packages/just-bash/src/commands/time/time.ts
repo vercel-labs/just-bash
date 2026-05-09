@@ -1,3 +1,4 @@
+import { latin1FromBytes } from "../../encoding.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { mapToRecord } from "../../helpers/env.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
@@ -116,7 +117,7 @@ export const timeCommand: Command = {
       result = await ctx.exec(shellJoinArgs([commandArgs[0]]), {
         env: mapToRecord(ctx.env),
         cwd: ctx.cwd,
-        stdin: ctx.stdin,
+        stdin: latin1FromBytes(ctx.stdin),
         signal: ctx.signal,
         args: commandArgs.slice(1),
       });

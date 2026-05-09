@@ -58,6 +58,12 @@ function wrapFileSystem(
       component,
       "fs.readFile",
     ),
+    readFileBytes: wrapFunction(
+      fs.readFileBytes.bind(fs),
+      requireDefenseContext,
+      component,
+      "fs.readFileBytes",
+    ),
     readFileBuffer: wrapFunction(
       fs.readFileBuffer.bind(fs),
       requireDefenseContext,
