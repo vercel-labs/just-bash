@@ -8,11 +8,7 @@
  * This is a reimplementation for the just-bash sandboxed environment.
  */
 
-import {
-  decodeBytesToUtf8,
-  encodeUtf8ToBytes,
-  latin1FromBytes,
-} from "../../encoding.js";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import {
@@ -380,12 +376,11 @@ export const yqCommand: Command = {
           ? 1
           : 0;
 
-      // yq emits decoded YAML/JSON text; re-encode for the byte pipeline.
+      // yq emits text; the pipeline handles encoding.
       return {
-        stdout: latin1FromBytes(encodeUtf8ToBytes(finalOutput)),
+        stdout: finalOutput,
         stderr: "",
         exitCode,
-        stdoutEncoding: "binary",
       };
     } catch (e) {
       if (e instanceof SecurityViolationError) {

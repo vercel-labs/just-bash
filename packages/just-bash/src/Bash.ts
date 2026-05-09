@@ -23,6 +23,7 @@ import {
   createLazyCustomCommand,
   isLazyCommand,
 } from "./custom-commands.js";
+import { encodeUtf8ToBytes, latin1FromBytes } from "./encoding.js";
 import { InMemoryFs } from "./fs/in-memory-fs/in-memory-fs.js";
 import { initFilesystem } from "./fs/init.js";
 import type { IFileSystem, InitialFiles } from "./fs/interface.js";
@@ -269,6 +270,14 @@ export interface ExecOptions {
    * This will be available to commands via stdin (e.g., for `bash -c 'cat'`).
    */
   stdin?: string;
+  /**
+   * Shape of {@link stdin} — see `CommandExecOptions.stdinKind`.
+   * Defaults to `"text"` (UTF-8 encoded into bytes for byte consumers
+   * inside the script). Pass `"bytes"` when you've prepared a latin1
+   * byte buffer (e.g. `Buffer.from(buf).toString("latin1")`) and want
+   * it forwarded verbatim.
+   */
+  stdinKind?: "text" | "bytes";
   /**
    * Abort signal for cooperative cancellation.
    * When aborted, the interpreter stops executing at the next statement boundary.
@@ -633,13 +642,13 @@ export class Bash {
       // Share hashTable reference - it should persist across exec calls
       hashTable: this.state.hashTable,
       // Pass stdin through to commands (for bash -c with piped input).
-      // User-supplied `options.stdin` is forwarded as-is. Hosts that
-      // already have bytes (e.g. `Buffer.from(...).toString("latin1")`)
-      // get them through verbatim; hosts that pass JS Unicode text get
-      // pre-existing legacy semantics (the byte-consumer-counts-code-units
-      // limitation is the same as for any custom command that emits
-      // codepoints — separate from the pipe-boundary fix).
-      groupStdin: options?.stdin,
+      // The pipeline contract is "stdin is a latin1-shaped byte buffer";
+      // text-shaped user input (the default) needs UTF-8 encoding here
+      // so byte consumers (`wc -c`, `base64`) inside the script see real
+      // UTF-8 bytes. Callers that already prepared a byte buffer (e.g.
+      // `Buffer.from(buf).toString("latin1")`) opt into raw passthrough
+      // via `stdinKind: "bytes"`.
+      groupStdin: encodeStdinForPipeline(options?.stdin, options?.stdinKind),
       // Cooperative cancellation signal (used by timeout command)
       signal: options?.signal,
       // Extra arguments injected directly into first command's arg list
@@ -961,4 +970,18 @@ function decodeBinaryToUtf8(s: string): string {
   } catch {
     return s;
   }
+}
+
+/**
+ * Convert user-supplied stdin into the latin1 byte buffer the pipeline
+ * expects. `"text"` (the default) is JS Unicode and gets UTF-8 encoded;
+ * `"bytes"` is already byte-shaped and passes through verbatim.
+ */
+function encodeStdinForPipeline(
+  stdin: string | undefined,
+  kind: "text" | "bytes" | undefined,
+): string | undefined {
+  if (stdin === undefined) return undefined;
+  if (kind === "bytes") return stdin;
+  return latin1FromBytes(encodeUtf8ToBytes(stdin));
 }

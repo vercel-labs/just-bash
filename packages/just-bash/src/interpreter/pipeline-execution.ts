@@ -5,7 +5,11 @@
  */
 
 import type { CommandNode, PipelineNode } from "../ast/types.js";
-import { bytesFromPipe, latin1FromBytes } from "../encoding.js";
+import {
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+  stdoutAsBytes,
+} from "../encoding.js";
 import { _performanceNow } from "../security/trusted-globals.js";
 import type { ExecResult } from "../types.js";
 import { BadSubstitutionError, ErrexitError, ExitError } from "./errors.js";
@@ -125,32 +129,23 @@ export async function executePipeline(
     }
 
     if (!isLast) {
-      // Pipeline contract: the next command's stdin is a byte buffer
-      // (latin1-shaped, one char per byte). When the upstream already
-      // marked its stdout as bytes (`stdoutEncoding: "binary"` — cat,
-      // gzip, decoded-text-emitting commands like sed/grep/jq after they
-      // re-encode), pass through verbatim. Otherwise the upstream
-      // produced JS-Unicode text (echo, printf, custom commands that
-      // didn't opt in) — UTF-8 encode any chars > 0xFF so byte consumers
-      // downstream (`wc -c`, `base64`, `md5sum`) see UTF-8 bytes instead
-      // of code units. `bytesFromPipe` only encodes when chars > 0xFF
-      // are present, leaving Latin-1 byte buffers and ASCII alone (echo's
-      // `\0377` byte stays a single byte; cat's UTF-8 bytes don't get
-      // double-encoded). The Latin-1-supplement range (0x80–0xFF) is
-      // shape-ambiguous and passes through — known limitation.
-      const toBytes = (s: string): string =>
-        result.stdoutEncoding === "binary"
-          ? s
-          : latin1FromBytes(bytesFromPipe(s));
+      // Pipeline contract: the next command's stdin is a byte buffer.
+      // `stdoutAsBytes` consults the upstream's explicit `stdoutKind`
+      // (or legacy `stdoutEncoding === "binary"`) and converts text →
+      // UTF-8 bytes / passes byte buffers through. No content-based
+      // heuristics — the producer's metadata is the source of truth.
       // Check if this pipe is |& (pipe stderr to next command's stdin too)
       const pipeStderrToNext = node.pipeStderr?.[i] ?? false;
       if (pipeStderrToNext) {
-        // |& pipes both stdout and stderr to next command's stdin.
+        // |& pipes stderr + stdout. stderr is text (no producer marks it
+        // binary today); UTF-8 encode it before concatenating with the
+        // stdout bytes so the merged stream is byte-shaped end-to-end.
         stdin =
-          latin1FromBytes(bytesFromPipe(result.stderr)) + toBytes(result.stdout);
+          latin1FromBytes(encodeUtf8ToBytes(result.stderr)) +
+          latin1FromBytes(stdoutAsBytes(result));
       } else {
         // Regular | only pipes stdout; stderr goes to the parent
-        stdin = toBytes(result.stdout);
+        stdin = latin1FromBytes(stdoutAsBytes(result));
         accumulatedStderr += result.stderr;
       }
       lastResult = {

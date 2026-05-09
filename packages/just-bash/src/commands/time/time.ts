@@ -118,6 +118,8 @@ export const timeCommand: Command = {
         env: mapToRecord(ctx.env),
         cwd: ctx.cwd,
         stdin: latin1FromBytes(ctx.stdin),
+        // ctx.stdin is already byte-shaped — forward verbatim.
+        stdinKind: "bytes",
         signal: ctx.signal,
         args: commandArgs.slice(1),
       });

@@ -2,11 +2,7 @@
  * Simple commands: behead, sample, cat, search, flatmap, fmt
  */
 
-import {
-  decodeBytesToUtf8,
-  encodeUtf8ToBytes,
-  latin1FromBytes,
-} from "../../encoding.js";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import { createUserRegex, type RegexLike } from "../../regex/index.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 import { readFiles } from "../../utils/file-reader.js";
@@ -47,12 +43,11 @@ export async function cmdBehead(
     rows.map((row) => row.map((v) => formatValue(v)).join(",")).join("\n") +
     "\n";
 
-  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+  // xan emits text; the pipeline handles encoding.
   return {
-    stdout: latin1FromBytes(encodeUtf8ToBytes(output)),
+    stdout: output,
     stderr: "",
     exitCode: 0,
-    stdoutEncoding: "binary",
   };
 }
 
@@ -105,12 +100,11 @@ export async function cmdSample(
   if (error) return error;
 
   if (data.length <= num) {
-    // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+    // xan emits text; the pipeline handles encoding.
     return {
-      stdout: latin1FromBytes(encodeUtf8ToBytes(formatCsv(headers, data))),
+      stdout: formatCsv(headers, data),
       stderr: "",
       exitCode: 0,
-      stdoutEncoding: "binary",
     };
   }
 
@@ -133,12 +127,11 @@ export async function cmdSample(
     .sort((a, b) => a - b)
     .map((i) => data[i]);
 
-  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+  // xan emits text; the pipeline handles encoding.
   return {
-    stdout: latin1FromBytes(encodeUtf8ToBytes(formatCsv(headers, sampled))),
+    stdout: formatCsv(headers, sampled),
     stderr: "",
     exitCode: 0,
-    stdoutEncoding: "binary",
   };
 }
 
@@ -223,12 +216,11 @@ export async function cmdCat(
     }
   }
 
-  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+  // xan emits text; the pipeline handles encoding.
   return {
-    stdout: latin1FromBytes(encodeUtf8ToBytes(formatCsv(allHeaders, allData))),
+    stdout: formatCsv(allHeaders, allData),
     stderr: "",
     exitCode: 0,
-    stdoutEncoding: "binary",
   };
 }
 
@@ -300,12 +292,11 @@ export async function cmdSearch(
     return invert ? !matches : matches;
   });
 
-  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+  // xan emits text; the pipeline handles encoding.
   return {
-    stdout: latin1FromBytes(encodeUtf8ToBytes(formatCsv(headers, filtered))),
+    stdout: formatCsv(headers, filtered),
     stderr: "",
     exitCode: 0,
-    stdoutEncoding: "binary",
   };
 }
 
@@ -390,12 +381,11 @@ export async function cmdFlatmap(
     }
   }
 
-  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+  // xan emits text; the pipeline handles encoding.
   return {
-    stdout: latin1FromBytes(encodeUtf8ToBytes(formatCsv(newHeaders, newData))),
+    stdout: formatCsv(newHeaders, newData),
     stderr: "",
     exitCode: 0,
-    stdoutEncoding: "binary",
   };
 }
 

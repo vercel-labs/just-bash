@@ -7,11 +7,7 @@
  * If no FILE is specified, standard input is read.
  */
 
-import {
-  decodeBytesToUtf8,
-  encodeUtf8ToBytes,
-  latin1FromBytes,
-} from "../../encoding.js";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -266,12 +262,11 @@ export const fold: Command = {
       }
     }
 
-    // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+    // fold emits text; the pipeline handles encoding.
     return {
       exitCode: 0,
-      stdout: latin1FromBytes(encodeUtf8ToBytes(output)),
+      stdout: output,
       stderr: "",
-      stdoutEncoding: "binary",
     };
   },
 };

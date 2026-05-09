@@ -18,10 +18,25 @@ export interface ExecResult {
   /** The final environment variables after execution (only set by BashEnv.exec) */
   env?: Record<string, string>;
   /**
-   * Encoding hint for stdout content when writing to files via redirections.
-   * Set to "binary" by commands that produce binary output (e.g., cat, gzip)
-   * to prevent re-encoding of raw byte data as UTF-8.
-   * When not set, the redirect system uses UTF-8 for non-ASCII text.
+   * Explicit metadata for what shape `stdout` is in. The pipeline + redirect
+   * layers consult this instead of guessing from string contents:
+   *
+   *   - `"text"`: `stdout` is JS Unicode text. The pipeline UTF-8 encodes it
+   *     before handing it to the next command's stdin; redirects write it
+   *     as UTF-8.
+   *   - `"bytes"`: `stdout` is a latin1-shaped byte buffer (each char = one
+   *     byte). The pipeline forwards the bytes verbatim; redirects write
+   *     them as binary.
+   *
+   * Producers should set this via `textOutput()` / `bytesOutput()` from
+   * `encoding.ts` rather than poking the raw flag. Absent values fall back
+   * to the legacy `stdoutEncoding` heuristic for back-compat with older
+   * commands that haven't been migrated yet.
+   */
+  stdoutKind?: "text" | "bytes";
+  /**
+   * Legacy alias for `stdoutKind: "bytes"`. Older commands set this to
+   * `"binary"` to mark binary output. New code should prefer `stdoutKind`.
    */
   stdoutEncoding?: "binary";
 }
@@ -52,6 +67,17 @@ export interface CommandExecOptions {
    * Optional - if not provided, stdin will be empty.
    */
   stdin?: string;
+  /**
+   * Shape of {@link stdin}:
+   *   - `"text"` (default): JS Unicode text. UTF-8 encoded into bytes
+   *     before reaching the subcommand, so byte consumers (`wc -c`,
+   *     `base64`, `md5sum`) inside the script see real UTF-8 bytes.
+   *   - `"bytes"`: a latin1-shaped byte buffer (each char = one byte,
+   *     e.g. from `Buffer.from(...).toString("latin1")`). Forwarded
+   *     verbatim — useful for piping raw binary into commands like
+   *     `gzip -d`.
+   */
+  stdinKind?: "text" | "bytes";
   /**
    * Abort signal for cooperative cancellation.
    * When aborted, the interpreter stops executing at the next statement boundary.

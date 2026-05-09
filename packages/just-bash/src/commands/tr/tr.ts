@@ -1,8 +1,4 @@
-import {
-  decodeBytesToUtf8,
-  encodeUtf8ToBytes,
-  latin1FromBytes,
-} from "../../encoding.js";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
@@ -249,12 +245,11 @@ export const trCommand: Command = {
       }
     }
 
-    // Re-encode to bytes so the byte-shaped pipeline stays consistent.
+    // tr emits text; the pipeline handles encoding.
     return {
-      stdout: latin1FromBytes(encodeUtf8ToBytes(output)),
+      stdout: output,
       stderr: "",
       exitCode: 0,
-      stdoutEncoding: "binary",
     };
   },
 };

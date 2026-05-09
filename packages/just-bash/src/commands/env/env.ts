@@ -112,6 +112,8 @@ export const envCommand: Command = {
       env: mapToRecord(newEnv),
       replaceEnv: true,
       stdin: latin1FromBytes(ctx.stdin),
+      // ctx.stdin is already byte-shaped — forward verbatim.
+      stdinKind: "bytes",
       signal: ctx.signal,
       args: cmdArgs,
     });

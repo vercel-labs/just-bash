@@ -1,8 +1,4 @@
-import {
-  decodeBytesToUtf8,
-  encodeUtf8ToBytes,
-  latin1FromBytes,
-} from "../../encoding.js";
+import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { readAndConcat } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -169,16 +165,19 @@ export const cutCommand: Command = {
       }
     }
 
-    // Re-encode char-mode output as bytes so the pipeline stays byte-shaped
-    // (downstream byte consumers like base64 read each char as one byte).
-    const stdout = charSpec
-      ? latin1FromBytes(encodeUtf8ToBytes(output))
-      : output;
-
+    // Char mode produces decoded text; field mode forwards bytes verbatim.
+    if (charSpec) {
+      return {
+        stdout: output,
+        stderr: "",
+        exitCode: 0,
+      };
+    }
     return {
-      stdout,
+      stdout: output,
       stderr: "",
       exitCode: 0,
+      stdoutKind: "bytes",
       stdoutEncoding: "binary",
     };
   },

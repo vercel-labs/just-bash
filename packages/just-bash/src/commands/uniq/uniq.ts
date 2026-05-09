@@ -1,8 +1,4 @@
-import {
-  decodeBytesToUtf8,
-  encodeUtf8ToBytes,
-  latin1FromBytes,
-} from "../../encoding.js";
+import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { readAndConcat } from "../../utils/file-reader.js";
@@ -106,19 +102,19 @@ export const uniqCommand: Command = {
       }
     }
 
-    // We mark stdout as "binary" so the bytes round-trip through redirects
-    // and pipes without re-encoding. When the -i path took us through the
-    // decoded representation, `output` is Unicode codepoints — re-encode
-    // back to a latin1 byte view first, otherwise binary writes truncate
-    // each multibyte codepoint to its low byte.
-    const stdout = ignoreCase
-      ? latin1FromBytes(encodeUtf8ToBytes(output))
-      : output;
-
+    // ignore-case mode produces decoded text; default mode forwards bytes.
+    if (ignoreCase) {
+      return {
+        stdout: output,
+        stderr: "",
+        exitCode: 0,
+      };
+    }
     return {
-      stdout,
+      stdout: output,
       stderr: "",
       exitCode: 0,
+      stdoutKind: "bytes",
       stdoutEncoding: "binary",
     };
   },

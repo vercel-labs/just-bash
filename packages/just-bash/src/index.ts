@@ -32,13 +32,16 @@ export type { CustomCommand, LazyCommand } from "./custom-commands.js";
 export { defineCommand } from "./custom-commands.js";
 // Byte/text boundary helpers — required by custom commands that read
 // `ctx.stdin` (an opaque `ByteString`).
-export type { ByteString } from "./encoding.js";
+export type { ByteString, OutputKind } from "./encoding.js";
 export {
-  bytesFromPipe,
+  bytesOutput,
   decodeBytesToUtf8,
   EMPTY_BYTES,
   encodeUtf8ToBytes,
   latin1FromBytes,
+  stdoutAsBytes,
+  stdoutKind,
+  textOutput,
   unsafeBytesFromLatin1,
 } from "./encoding.js";
 export { InMemoryFs } from "./fs/in-memory-fs/index.js";

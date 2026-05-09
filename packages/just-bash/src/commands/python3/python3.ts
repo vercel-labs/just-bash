@@ -13,11 +13,7 @@
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
-import {
-  decodeBytesToUtf8,
-  encodeUtf8ToBytes,
-  latin1FromBytes,
-} from "../../encoding.js";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { IFileSystem } from "../../fs/interface.js";
 import {
   sanitizeErrorMessage,
@@ -510,11 +506,9 @@ async function executePython(
     };
   }
 
-  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+  // python3 emits text; the pipeline handles encoding.
   return {
     ...bridgeOutput,
-    stdout: latin1FromBytes(encodeUtf8ToBytes(bridgeOutput.stdout)),
-    stdoutEncoding: "binary",
   };
 }
 

@@ -1,8 +1,4 @@
-import {
-  decodeBytesToUtf8,
-  encodeUtf8ToBytes,
-  latin1FromBytes,
-} from "../../encoding.js";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { readAndConcat } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -200,18 +196,12 @@ export const sortCommand: Command = {
       lines = filterUnique(lines, options);
     }
 
-    const joined = lines.length > 0 ? `${lines.join("\n")}\n` : "";
+    const output = lines.length > 0 ? `${lines.join("\n")}\n` : "";
 
-    // sort always processes Unicode-decoded text; re-encode to a latin1
-    // byte view so the byte-shaped downstream (writeFile + "binary",
-    // stdoutEncoding "binary") doesn't truncate each codepoint to its
-    // low byte.
-    const output = latin1FromBytes(encodeUtf8ToBytes(joined));
-
-    // Output to file if -o specified
+    // sort emits text; the pipeline handles encoding.
     if (options.outputFile) {
       const outPath = ctx.fs.resolvePath(ctx.cwd, options.outputFile);
-      await ctx.fs.writeFile(outPath, output, "binary");
+      await ctx.fs.writeFile(outPath, output);
       return { stdout: "", stderr: "", exitCode: 0 };
     }
 
@@ -219,7 +209,6 @@ export const sortCommand: Command = {
       stdout: output,
       stderr: "",
       exitCode: 0,
-      stdoutEncoding: "binary",
     };
   },
 };

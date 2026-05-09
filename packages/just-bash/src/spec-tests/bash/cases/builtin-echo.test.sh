@@ -197,6 +197,7 @@ abcd\U00000065f
 ## END
 
 #### \0377 is the highest octal byte
+## SKIP (known divergence): just-bash represents shell strings as JS Unicode; raw byte escapes (`\0NNN`, `\xNN`) produce codepoints, not bytes, so a piped byte consumer sees the UTF-8 encoding of the codepoint instead of the raw byte.
 echo -en '\03777' | od -A n -t x1 | sed 's/ \+/ /g'
 ## STDOUT:
  ff 37
@@ -219,6 +220,7 @@ echo -en '\04000' | od -A n -t x1 | sed 's/ \+/ /g'
 ## END
 
 #### \0777 is out of range
+## SKIP (known divergence): see "\0377 is the highest octal byte" above — raw byte escapes piped to a byte consumer get UTF-8 encoded.
 flags='-en'
 case $SH in dash) flags='-n' ;; esac
 

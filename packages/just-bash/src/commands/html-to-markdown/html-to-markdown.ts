@@ -5,11 +5,7 @@
  */
 
 import TurndownService from "turndown";
-import {
-  decodeBytesToUtf8,
-  encodeUtf8ToBytes,
-  latin1FromBytes,
-} from "../../encoding.js";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -133,12 +129,11 @@ export const htmlToMarkdownCommand: Command = {
       turndownService.remove(["script", "style", "footer"]);
 
       const markdown = turndownService.turndown(input).trim();
-      // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+      // html-to-markdown emits text; the pipeline handles encoding.
       return {
-        stdout: latin1FromBytes(encodeUtf8ToBytes(`${markdown}\n`)),
+        stdout: `${markdown}\n`,
         stderr: "",
         exitCode: 0,
-        stdoutEncoding: "binary",
       };
     } catch (error) {
       return {

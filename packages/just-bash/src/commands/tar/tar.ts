@@ -378,7 +378,16 @@ async function createTarArchive(
   if (allErrors.length > 0) {
     stderr += `${allErrors.join("\n")}\n`;
   }
-  return { stdout, stderr, exitCode: allErrors.length > 0 ? 2 : 0 };
+  // Mark stdout as bytes when emitting an archive (`tar -c -f -`); the
+  // pipeline + redirect layer will preserve the bytes verbatim instead of
+  // UTF-8 encoding them. `-f /path` paths emit empty stdout — the kind
+  // doesn't matter there.
+  return {
+    stdout,
+    stderr,
+    exitCode: allErrors.length > 0 ? 2 : 0,
+    stdoutKind: stdout.length > 0 ? "bytes" : "text",
+  };
 }
 
 /**

@@ -405,16 +405,27 @@ export async function applyRedirections(
 ): Promise<ExecResult> {
   let { stdout, stderr, exitCode } = result;
 
-  // Determine encoding for stdout writes:
-  // - Commands that set stdoutEncoding: "binary" (e.g. cat, gzip) produce
-  //   binary strings where each char represents a raw byte — use "binary"
-  //   to preserve byte-level fidelity.
-  // - Otherwise, use getFileEncoding which detects non-ASCII text and
-  //   encodes it as UTF-8 so characters like Ü are stored correctly.
-  const getStdoutEncoding =
-    result.stdoutEncoding === "binary"
-      ? () => "binary" as const
-      : (content: string) => getFileEncoding(content);
+  // Determine encoding for stdout writes from the producer's explicit
+  // shape rather than guessing at the bytes:
+  //   - `stdoutKind: "bytes"` (or legacy `stdoutEncoding: "binary"` —
+  //     cat, gzip, base64 -d, ...): stdout is already a latin1 byte
+  //     buffer; write binary so the bytes round-trip verbatim.
+  //   - everything else (echo, printf, sed, jq, custom commands that
+  //     leave the field unset): stdout is JS Unicode text; write UTF-8.
+  //
+  // The default is text — never the content-sampling heuristic. The
+  // sampler reads only the first 8 KiB and would mis-classify long
+  // mostly-ASCII output that happens to have its first non-ASCII char
+  // past the window, picking binary and truncating downstream codepoints
+  // to their low byte.
+  const stdoutIsBytes =
+    result.stdoutKind === "bytes" ||
+    (result.stdoutKind === undefined && result.stdoutEncoding === "binary");
+  const stdoutFileEncoding: "binary" | "utf8" = stdoutIsBytes
+    ? "binary"
+    : "utf8";
+  const getStdoutEncoding = (_content: string): "binary" | "utf8" =>
+    stdoutFileEncoding;
 
   for (let i = 0; i < redirections.length; i++) {
     const redir = redirections[i];
@@ -934,9 +945,13 @@ export async function applyRedirections(
   }
 
   const finalResult = makeResult(stdout, stderr, exitCode);
-  // Preserve the upstream's binary-stdout flag through the redirection
-  // pipeline so the next stage (pipeline glue, output boundary) can tell
-  // bytes-shaped output from text-shaped output.
+  // Preserve the upstream's stdout shape through the redirection layer so
+  // the next stage (pipeline glue, output boundary) can tell bytes-shaped
+  // output from text-shaped output. Both the new `stdoutKind` field and
+  // the legacy `stdoutEncoding` alias are forwarded.
+  if (result.stdoutKind) {
+    finalResult.stdoutKind = result.stdoutKind;
+  }
   if (result.stdoutEncoding === "binary") {
     finalResult.stdoutEncoding = "binary";
   }

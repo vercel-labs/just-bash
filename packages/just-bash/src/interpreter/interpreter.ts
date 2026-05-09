@@ -24,7 +24,7 @@ import type {
   WordNode,
 } from "../ast/types.js";
 import {
-  bytesFromPipe,
+  encodeUtf8ToBytes,
   latin1FromBytes,
   readBytesFrom,
 } from "../encoding.js";
@@ -664,11 +664,11 @@ export class Interpreter {
             .join("\n");
         }
         // Heredocs land here as JS Unicode text; the pipeline contract
-        // expects stdin to be a latin1 byte buffer. UTF-8 encode any
-        // non-ASCII codepoints so byte consumers downstream see real
-        // bytes (and binary writes don't truncate codepoints to their
-        // low byte).
-        content = latin1FromBytes(bytesFromPipe(content));
+        // expects stdin to be a latin1 byte buffer. UTF-8 encode the
+        // text once at the source so byte consumers downstream see real
+        // bytes and binary writes don't truncate codepoints to their
+        // low byte.
+        content = latin1FromBytes(encodeUtf8ToBytes(content));
         // If this is a non-standard fd (not 0), store in fileDescriptors for -u option
         const fd = redir.fd ?? 0;
         if (fd !== 0) {
@@ -687,7 +687,7 @@ export class Interpreter {
         // Same byte-encoding step as heredoc — here-strings deliver
         // JS Unicode text and need to land as bytes.
         stdin = latin1FromBytes(
-          bytesFromPipe(
+          encodeUtf8ToBytes(
             `${await expandWord(this.ctx, redir.target as WordNode)}\n`,
           ),
         );

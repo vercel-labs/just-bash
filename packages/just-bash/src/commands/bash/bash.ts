@@ -156,12 +156,14 @@ async function executeScript(
   // Execute the script as-is, preserving newlines for proper parsing
   // The parser needs to see the original structure to correctly handle
   // multi-line constructs like (( ... )) vs ( ( ... ) )
-  // Pass stdin through to the nested script as raw bytes — the inner
-  // pipeline will brand it again at the next dispatch.
+  // Forward our already-byte-shaped stdin verbatim — `stdinKind: "bytes"`
+  // tells the nested exec entry to skip the default text-mode UTF-8
+  // encoding and avoid double-encoding.
   const result = await ctx.exec(scriptToRun, {
     env: positionalEnv,
     cwd: ctx.cwd,
     stdin: latin1FromBytes(ctx.stdin),
+    stdinKind: "bytes",
     signal: ctx.signal,
   });
   return result;

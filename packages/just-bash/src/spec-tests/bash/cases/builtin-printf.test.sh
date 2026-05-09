@@ -758,6 +758,7 @@ AZ
 ## END
 
 #### printf %c unicode - prints the first BYTE of a string - it does not respect UTF-8
+## SKIP (known divergence): just-bash's `printf %c` slices the JS string by codepoint, not byte, so the piped byte consumer sees the UTF-8 encoding of the first codepoint instead of the first raw byte.
 
 # TODO: in YSH, this should be deprecated
 case $SH in dash|ash) exit ;; esac

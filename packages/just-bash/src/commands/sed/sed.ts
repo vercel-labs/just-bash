@@ -1,8 +1,4 @@
-import {
-  decodeBytesToUtf8,
-  encodeUtf8ToBytes,
-  latin1FromBytes,
-} from "../../encoding.js";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { ExecutionLimits } from "../../limits.js";
@@ -558,14 +554,11 @@ export const sedCommand: Command = {
             requireDefenseContext: ctx.requireDefenseContext,
           }),
         );
-        // sed processed UTF-8 text; re-encode to a latin1 byte view and
-        // mark stdout binary so byte consumers downstream (wc -c, base64,
-        // md5sum) see UTF-8 bytes and redirects don't double-encode.
+        // sed emits text; the pipeline handles encoding.
         return {
-          stdout: latin1FromBytes(encodeUtf8ToBytes(result.output)),
+          stdout: result.output,
           stderr: result.errorMessage ? `${result.errorMessage}\n` : "",
           exitCode: result.exitCode ?? 0,
-          stdoutEncoding: "binary",
         };
       } catch (e) {
         if (e instanceof SecurityViolationError) {

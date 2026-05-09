@@ -11,11 +11,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
-import {
-  decodeBytesToUtf8,
-  encodeUtf8ToBytes,
-  latin1FromBytes,
-} from "../../encoding.js";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import {
   sanitizeErrorMessage,
   sanitizeHostErrorMessage,
@@ -550,11 +546,9 @@ async function executeJSInner(
     };
   }
 
-  // Re-encode decoded UTF-8 to a latin1 byte view so byte consumers downstream and redirects don't double-encode.
+  // js-exec emits text; the pipeline handles encoding.
   return {
     ...bridgeOutput,
-    stdout: latin1FromBytes(encodeUtf8ToBytes(bridgeOutput.stdout)),
-    stdoutEncoding: "binary",
   };
 }
 

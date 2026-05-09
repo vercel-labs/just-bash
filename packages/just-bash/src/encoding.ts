@@ -92,38 +92,6 @@ export function encodeUtf8ToBytes(s: string): ByteString {
   return out as unknown as ByteString;
 }
 
-/**
- * Coerce a string of unknown shape into a `ByteString` for the pipe
- * boundary. The pipe contract is "every command's stdin is a byte
- * buffer", but two upstream shapes both look like JS strings:
- *
- *   - real Unicode text with codepoints (echo, printf, heredocs,
- *     here-strings, command substitution — anything from bash's
- *     string-as-codepoints world). UTF-8 encode it so byte consumers
- *     downstream (`wc -c`, `base64`, `md5sum`) and binary writes see
- *     real UTF-8 bytes instead of code units.
- *   - a latin1-shaped byte buffer that's already passed through this
- *     pipeline (cat, gzip, sed/grep/jq after they re-encoded). Pipeline
- *     glue distinguishes this case via `stdoutEncoding: "binary"` and
- *     skips the call here entirely; if a producer forgets that flag,
- *     the encode here interprets each char as a codepoint and may
- *     double-encode high bytes — that's the producer's bug.
- *
- * Caveat: `echo -en '\0377'` produces a JS string with codepoint 0xFF
- * intending it to be a single raw byte. We can't tell that intent apart
- * from a real Latin-1-supplement codepoint, so `\0377` gets UTF-8
- * encoded to `0xC3 0xBF` here — a known divergence from real bash for
- * raw octal/hex byte escapes piped to byte consumers, separate from the
- * UTF-8 byte-length contract upheld for everything else.
- */
-export function bytesFromPipe(s: string): ByteString {
-  if (!s) return s as unknown as ByteString;
-  for (let i = 0; i < s.length; i++) {
-    if (s.charCodeAt(i) > 0x7f) return encodeUtf8ToBytes(s);
-  }
-  return s as unknown as ByteString;
-}
-
 /** The empty `ByteString`. */
 export const EMPTY_BYTES: ByteString = "" as unknown as ByteString;
 
@@ -157,4 +125,77 @@ export async function readBytesFrom(
     return fs.readFileBytes(path);
   }
   return bytesFromUint8Array(await fs.readFileBuffer(path));
+}
+
+// ---------------------------------------------------------------------------
+// Stdout shape helpers.
+//
+// The pipeline carries `ExecResult.stdout` as a `string` for back-compat,
+// but the same string can be either JS-Unicode text or a latin1-shaped byte
+// buffer. The pipe glue and redirection layer must treat those shapes
+// differently — they decide based on `stdoutKind` (preferred) or the legacy
+// `stdoutEncoding` flag, never by inspecting characters.
+// ---------------------------------------------------------------------------
+
+/** Either-or shape of a command's `stdout`. */
+export type OutputKind = "text" | "bytes";
+
+/**
+ * Read the explicit shape of a command's stdout. Falls back to the legacy
+ * `stdoutEncoding === "binary"` flag for results produced before the
+ * `stdoutKind` field existed; defaults to `"text"` otherwise.
+ */
+export function stdoutKind(result: {
+  stdoutKind?: OutputKind;
+  stdoutEncoding?: "binary";
+}): OutputKind {
+  if (result.stdoutKind) return result.stdoutKind;
+  return result.stdoutEncoding === "binary" ? "bytes" : "text";
+}
+
+/**
+ * Coerce a command's stdout to a `ByteString` for the byte-shaped pipe.
+ * Text gets UTF-8 encoded once (codepoints → bytes); bytes pass through.
+ */
+export function stdoutAsBytes(result: {
+  stdout: string;
+  stdoutKind?: OutputKind;
+  stdoutEncoding?: "binary";
+}): ByteString {
+  return stdoutKind(result) === "bytes"
+    ? unsafeBytesFromLatin1(result.stdout)
+    : encodeUtf8ToBytes(result.stdout);
+}
+
+/**
+ * Build an `ExecResult`-shaped object whose stdout is decoded text. Sets
+ * `stdoutKind: "text"` so the pipe knows to UTF-8 encode it on handoff
+ * and redirects know to write it as UTF-8. Use for command authors that
+ * decode their input and emit Unicode text — they no longer have to
+ * manually re-encode for downstream byte consumers.
+ */
+export function textOutput(data: string): {
+  stdout: string;
+  stdoutKind: "text";
+} {
+  return { stdout: data, stdoutKind: "text" };
+}
+
+/**
+ * Build an `ExecResult`-shaped object whose stdout is a latin1 byte view.
+ * Sets both `stdoutKind: "bytes"` (new contract) and `stdoutEncoding:
+ * "binary"` (legacy alias) so older code paths keep working through the
+ * migration. Use for command authors that emit raw bytes (cat, gzip,
+ * tar, base64 -d, ...).
+ */
+export function bytesOutput(data: ByteString): {
+  stdout: string;
+  stdoutKind: "bytes";
+  stdoutEncoding: "binary";
+} {
+  return {
+    stdout: latin1FromBytes(data),
+    stdoutKind: "bytes",
+    stdoutEncoding: "binary",
+  };
 }

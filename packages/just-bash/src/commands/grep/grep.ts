@@ -1,8 +1,4 @@
-import {
-  decodeBytesToUtf8,
-  encodeUtf8ToBytes,
-  latin1FromBytes,
-} from "../../encoding.js";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { UserRegex } from "../../regex/index.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { matchGlob } from "../../utils/glob.js";
@@ -249,14 +245,11 @@ export const grepCommand: Command = {
       if (quietMode) {
         return { stdout: "", stderr: "", exitCode: result.matched ? 0 : 1 };
       }
-      // grep processed UTF-8 text; re-encode to bytes and mark stdout
-      // binary so byte consumers downstream see UTF-8 bytes and redirects
-      // don't double-encode.
+      // grep emits text; the pipeline handles encoding.
       return {
-        stdout: latin1FromBytes(encodeUtf8ToBytes(result.output)),
+        stdout: result.output,
         stderr: "",
         exitCode: result.matched ? 0 : 1,
-        stdoutEncoding: "binary",
       };
     }
 
@@ -438,10 +431,9 @@ export const grepCommand: Command = {
     }
 
     return {
-      stdout: latin1FromBytes(encodeUtf8ToBytes(stdout)),
+      stdout,
       stderr,
       exitCode,
-      stdoutEncoding: "binary",
     };
   },
 };

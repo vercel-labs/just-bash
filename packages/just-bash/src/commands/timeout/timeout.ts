@@ -135,6 +135,8 @@ export const timeoutCommand: Command = {
           cwd: ctx.cwd,
           signal: controller.signal,
           stdin: latin1FromBytes(ctx.stdin),
+          // ctx.stdin is already byte-shaped — forward verbatim.
+          stdinKind: "bytes",
           args: commandArgs.slice(1),
         })
         .then((result) => ({ timedOut: false as const, result }));
