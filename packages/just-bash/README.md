@@ -29,7 +29,7 @@ Each `exec()` call gets its own isolated shell state — environment variables, 
 Extend just-bash with your own TypeScript commands using `defineCommand`:
 
 ```typescript
-import { Bash, defineCommand } from "just-bash";
+import { Bash, decodeBytesToUtf8, defineCommand } from "just-bash";
 
 const hello = defineCommand("hello", async (args, ctx) => {
   const name = args[0] || "world";
@@ -37,7 +37,12 @@ const hello = defineCommand("hello", async (args, ctx) => {
 });
 
 const upper = defineCommand("upper", async (args, ctx) => {
-  return { stdout: ctx.stdin.toUpperCase(), stderr: "", exitCode: 0 };
+  // ctx.stdin is a ByteString — decode to text before string ops.
+  return {
+    stdout: decodeBytesToUtf8(ctx.stdin).toUpperCase(),
+    stderr: "",
+    exitCode: 0,
+  };
 });
 
 const bash = new Bash({ customCommands: [hello, upper] });

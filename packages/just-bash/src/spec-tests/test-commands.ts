@@ -6,6 +6,7 @@
  */
 
 import { defineCommand } from "../custom-commands.js";
+import { latin1FromBytes } from "../encoding.js";
 import type { Command } from "../types.js";
 
 // argv.py - prints arguments in Python 2 repr() format: ['arg1', "arg with '"]
@@ -110,8 +111,8 @@ export const readFromFdCommand: Command = defineCommand(
 
       let content = "";
       if (fd === 0) {
-        // FD 0 is stdin
-        content = ctx.stdin || "";
+        // FD 0 is stdin — diagnostic only, byte-clean passthrough
+        content = latin1FromBytes(ctx.stdin) || "";
       } else if (ctx.fileDescriptors) {
         // Other FDs from the fileDescriptors map
         content = ctx.fileDescriptors.get(fd) || "";

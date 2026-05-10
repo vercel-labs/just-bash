@@ -5,6 +5,11 @@
  */
 
 import type { CommandNode, PipelineNode } from "../ast/types.js";
+import {
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+  stdoutAsBytes,
+} from "../encoding.js";
 import { _performanceNow } from "../security/trusted-globals.js";
 import type { ExecResult } from "../types.js";
 import { BadSubstitutionError, ErrexitError, ExitError } from "./errors.js";
@@ -124,14 +129,23 @@ export async function executePipeline(
     }
 
     if (!isLast) {
+      // Pipeline contract: the next command's stdin is a byte buffer.
+      // `stdoutAsBytes` consults the upstream's explicit `stdoutKind`
+      // (or legacy `stdoutEncoding === "binary"`) and converts text →
+      // UTF-8 bytes / passes byte buffers through. No content-based
+      // heuristics — the producer's metadata is the source of truth.
       // Check if this pipe is |& (pipe stderr to next command's stdin too)
       const pipeStderrToNext = node.pipeStderr?.[i] ?? false;
       if (pipeStderrToNext) {
-        // |& pipes both stdout and stderr to next command's stdin
-        stdin = result.stderr + result.stdout;
+        // |& pipes stderr + stdout. stderr is text (no producer marks it
+        // binary today); UTF-8 encode it before concatenating with the
+        // stdout bytes so the merged stream is byte-shaped end-to-end.
+        stdin =
+          latin1FromBytes(encodeUtf8ToBytes(result.stderr)) +
+          latin1FromBytes(stdoutAsBytes(result));
       } else {
         // Regular | only pipes stdout; stderr goes to the parent
-        stdin = result.stdout;
+        stdin = latin1FromBytes(stdoutAsBytes(result));
         accumulatedStderr += result.stderr;
       }
       lastResult = {

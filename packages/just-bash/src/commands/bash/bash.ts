@@ -1,3 +1,4 @@
+import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
 import { mergeToNullPrototype } from "../../helpers/env.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -35,10 +36,12 @@ export const bashCommand: Command = {
       return executeScript(command, scriptName, scriptArgs, ctx);
     }
 
-    // No arguments - read script from stdin if available
+    // No arguments - read script from stdin if available. Decode bytes — a
+    // bash script's UTF-8 string literals must reach the parser as text.
     if (args.length === 0) {
-      if (ctx.stdin?.trim()) {
-        return executeScript(ctx.stdin, "bash", [], ctx);
+      const stdinText = decodeBytesToUtf8(ctx.stdin);
+      if (stdinText.trim()) {
+        return executeScript(stdinText, "bash", [], ctx);
       }
       // No stdin - return success (interactive mode not supported)
       return { stdout: "", stderr: "", exitCode: 0 };
@@ -85,10 +88,12 @@ export const shCommand: Command = {
       return executeScript(command, scriptName, scriptArgs, ctx);
     }
 
-    // No arguments - read script from stdin if available
+    // No arguments - read script from stdin if available. Decode bytes — a
+    // shell script's UTF-8 string literals must reach the parser as text.
     if (args.length === 0) {
-      if (ctx.stdin?.trim()) {
-        return executeScript(ctx.stdin, "sh", [], ctx);
+      const stdinText = decodeBytesToUtf8(ctx.stdin);
+      if (stdinText.trim()) {
+        return executeScript(stdinText, "sh", [], ctx);
       }
       // No stdin - return success (interactive mode not supported)
       return { stdout: "", stderr: "", exitCode: 0 };
@@ -151,11 +156,14 @@ async function executeScript(
   // Execute the script as-is, preserving newlines for proper parsing
   // The parser needs to see the original structure to correctly handle
   // multi-line constructs like (( ... )) vs ( ( ... ) )
-  // Pass stdin through to the nested script
+  // Forward our already-byte-shaped stdin verbatim — `stdinKind: "bytes"`
+  // tells the nested exec entry to skip the default text-mode UTF-8
+  // encoding and avoid double-encoding.
   const result = await ctx.exec(scriptToRun, {
     env: positionalEnv,
     cwd: ctx.cwd,
-    stdin: ctx.stdin,
+    stdin: latin1FromBytes(ctx.stdin),
+    stdinKind: "bytes",
     signal: ctx.signal,
   });
   return result;

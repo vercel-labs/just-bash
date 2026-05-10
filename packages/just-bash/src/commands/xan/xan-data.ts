@@ -4,6 +4,7 @@
  */
 
 import Papa from "papaparse";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 import {
   type CsvData,
@@ -32,7 +33,12 @@ export async function cmdTranspose(
     // Just transpose headers to single column
     const newHeaders = ["column"];
     const newData: CsvData = headers.map((h) => ({ column: h }));
-    return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+    // xan emits text; the pipeline handles encoding.
+    return {
+      stdout: formatCsv(newHeaders, newData),
+      stderr: "",
+      exitCode: 0,
+    };
   }
 
   // New headers: first column name + row indices or first column values
@@ -54,7 +60,12 @@ export async function cmdTranspose(
     newData.push(newRow);
   }
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  // xan emits text; the pipeline handles encoding.
+  return {
+    stdout: formatCsv(newHeaders, newData),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 /**
@@ -95,7 +106,12 @@ export async function cmdShuffle(
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
 
-  return { stdout: formatCsv(headers, shuffled), stderr: "", exitCode: 0 };
+  // xan emits text; the pipeline handles encoding.
+  return {
+    stdout: formatCsv(headers, shuffled),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 /**
@@ -128,7 +144,7 @@ export async function cmdFixlengths(
   let input: string;
 
   if (!file || file === "-") {
-    input = ctx.stdin;
+    input = decodeBytesToUtf8(ctx.stdin);
   } else {
     try {
       const path = ctx.fs.resolvePath(ctx.cwd, file);
@@ -168,6 +184,7 @@ export async function cmdFixlengths(
 
   // Output as CSV
   const output = Papa.unparse(fixed);
+  // xan emits text; the pipeline handles encoding.
   return {
     stdout: `${output.replace(/\r\n/g, "\n")}\n`,
     stderr: "",
@@ -244,6 +261,7 @@ export async function cmdSplit(
       const filePath = ctx.fs.resolvePath(outPath, fileName);
       await ctx.fs.writeFile(filePath, formatCsv(headers, nonEmptyParts[i]));
     }
+    // xan emits text; the pipeline handles encoding.
     return {
       stdout: `Split into ${nonEmptyParts.length} parts\n`,
       stderr: "",
@@ -254,7 +272,12 @@ export async function cmdSplit(
     const output = nonEmptyParts
       .map((p, i) => `Part ${i + 1}: ${p.length} rows`)
       .join("\n");
-    return { stdout: `${output}\n`, stderr: "", exitCode: 0 };
+    // xan emits text; the pipeline handles encoding.
+    return {
+      stdout: `${output}\n`,
+      stderr: "",
+      exitCode: 0,
+    };
   }
 }
 
@@ -367,6 +390,7 @@ export async function cmdPartition(
       const filePath = ctx.fs.resolvePath(outPath, fileName);
       await ctx.fs.writeFile(filePath, formatCsv(headers, rows));
     }
+    // xan emits text; the pipeline handles encoding.
     return {
       stdout: `Partitioned into ${groups.size} files by '${column}'\n`,
       stderr: "",
@@ -377,7 +401,12 @@ export async function cmdPartition(
     const output = Array.from(groups.entries())
       .map(([val, rows]) => `${val}: ${rows.length} rows`)
       .join("\n");
-    return { stdout: `${output}\n`, stderr: "", exitCode: 0 };
+    // xan emits text; the pipeline handles encoding.
+    return {
+      stdout: `${output}\n`,
+      stderr: "",
+      exitCode: 0,
+    };
   }
 }
 
@@ -427,7 +456,12 @@ async function cmdToJson(
 
   // Real xan always pretty prints
   const json = JSON.stringify(data, null, 2);
-  return { stdout: `${json}\n`, stderr: "", exitCode: 0 };
+  // xan emits text; the pipeline handles encoding.
+  return {
+    stdout: `${json}\n`,
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 /**
@@ -482,7 +516,7 @@ async function cmdFromJson(
   let input: string;
 
   if (!file || file === "-") {
-    input = ctx.stdin;
+    input = decodeBytesToUtf8(ctx.stdin);
   } else {
     try {
       const path = ctx.fs.resolvePath(ctx.cwd, file);
@@ -507,7 +541,12 @@ async function cmdFromJson(
     }
 
     if (data.length === 0) {
-      return { stdout: "\n", stderr: "", exitCode: 0 };
+      // xan emits text; the pipeline handles encoding.
+      return {
+        stdout: "\n",
+        stderr: "",
+        exitCode: 0,
+      };
     }
 
     // Check if array of arrays or array of objects
@@ -525,6 +564,7 @@ async function cmdFromJson(
         }
         return obj;
       });
+      // xan emits text; the pipeline handles encoding.
       return {
         stdout: formatCsv(headers as string[], csvData),
         stderr: "",
@@ -534,6 +574,7 @@ async function cmdFromJson(
 
     // Array of objects - real xan outputs columns in alphabetical order
     const headers = Object.keys(data[0] as object).sort();
+    // xan emits text; the pipeline handles encoding.
     return {
       stdout: formatCsv(headers, data as CsvData),
       stderr: "",

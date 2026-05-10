@@ -1,3 +1,5 @@
+import type { ByteString } from "../encoding.js";
+
 /**
  * Supported buffer encodings
  */
@@ -116,13 +118,35 @@ export interface CpOptions {
 export interface IFileSystem {
   // Note: Sync method are not supported and must not be added.
   /**
-   * Read the contents of a file as a string (default: utf8)
+   * Read the contents of a file as decoded text. Default encoding is utf8;
+   * pass an explicit text encoding (`"ascii"`, etc.) to override.
+   *
+   * For raw bytes (encoding `"binary"` / `"latin1"`), use {@link readFileBytes}
+   * — the opaque return type forces callers to decide whether to forward
+   * bytes unchanged or decode as text.
+   *
    * @throws Error if file doesn't exist or is a directory
    */
   readFile(
     path: string,
     options?: ReadFileOptions | BufferEncoding,
   ): Promise<string>;
+
+  /**
+   * Read the raw bytes of a file as a {@link ByteString} (latin1-shaped: each
+   * char = one byte). Use when the bytes will be piped onward unchanged or
+   * explicitly decoded with `decodeBytesToUtf8` — never call string methods
+   * on the result, that's the bug class this type prevents.
+   *
+   * Optional for backwards compatibility with external `IFileSystem`
+   * implementations written before this method existed; built-in
+   * filesystems all implement it. Internal callers must route through the
+   * `readBytesFrom(fs, path)` helper, which falls back to `readFileBuffer`
+   * when this method is missing.
+   *
+   * @throws Error if file doesn't exist or is a directory
+   */
+  readFileBytes?(path: string): Promise<ByteString>;
 
   /**
    * Read the contents of a file as a Uint8Array (binary)

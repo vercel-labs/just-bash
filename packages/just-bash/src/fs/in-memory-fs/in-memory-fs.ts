@@ -1,3 +1,4 @@
+import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
 import { fromBuffer, getEncoding, toBuffer } from "../encoding.js";
 import type {
   BufferEncoding,
@@ -183,6 +184,11 @@ export class InMemoryFs implements IFileSystem {
     const buffer = await this.readFileBuffer(path);
     const encoding = getEncoding(options);
     return fromBuffer(buffer, encoding);
+  }
+
+  async readFileBytes(path: string): Promise<ByteString> {
+    const buffer = await this.readFileBuffer(path);
+    return unsafeBytesFromLatin1(fromBuffer(buffer, "binary"));
   }
 
   async readFileBuffer(path: string): Promise<Uint8Array> {

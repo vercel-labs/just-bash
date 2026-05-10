@@ -2,6 +2,7 @@
  * Simple commands: behead, sample, cat, search, flatmap, fmt
  */
 
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import { createUserRegex, type RegexLike } from "../../regex/index.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 import { readFiles } from "../../utils/file-reader.js";
@@ -42,7 +43,12 @@ export async function cmdBehead(
     rows.map((row) => row.map((v) => formatValue(v)).join(",")).join("\n") +
     "\n";
 
-  return { stdout: output, stderr: "", exitCode: 0 };
+  // xan emits text; the pipeline handles encoding.
+  return {
+    stdout: output,
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 function formatValue(v: unknown): string {
@@ -94,7 +100,12 @@ export async function cmdSample(
   if (error) return error;
 
   if (data.length <= num) {
-    return { stdout: formatCsv(headers, data), stderr: "", exitCode: 0 };
+    // xan emits text; the pipeline handles encoding.
+    return {
+      stdout: formatCsv(headers, data),
+      stderr: "",
+      exitCode: 0,
+    };
   }
 
   // Simple seeded random (LCG)
@@ -116,7 +127,12 @@ export async function cmdSample(
     .sort((a, b) => a - b)
     .map((i) => data[i]);
 
-  return { stdout: formatCsv(headers, sampled), stderr: "", exitCode: 0 };
+  // xan emits text; the pipeline handles encoding.
+  return {
+    stdout: formatCsv(headers, sampled),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 /**
@@ -162,7 +178,7 @@ export async function cmdCat(
   let allHeaders: string[] = [];
 
   for (const { content } of result.files) {
-    const { headers, data } = parseCsv(content);
+    const { headers, data } = parseCsv(decodeBytesToUtf8(content));
     allFiles.push({ headers, data });
 
     // Collect all unique headers
@@ -200,7 +216,12 @@ export async function cmdCat(
     }
   }
 
-  return { stdout: formatCsv(allHeaders, allData), stderr: "", exitCode: 0 };
+  // xan emits text; the pipeline handles encoding.
+  return {
+    stdout: formatCsv(allHeaders, allData),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 /**
@@ -271,7 +292,12 @@ export async function cmdSearch(
     return invert ? !matches : matches;
   });
 
-  return { stdout: formatCsv(headers, filtered), stderr: "", exitCode: 0 };
+  // xan emits text; the pipeline handles encoding.
+  return {
+    stdout: formatCsv(headers, filtered),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 /**
@@ -355,7 +381,12 @@ export async function cmdFlatmap(
     }
   }
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  // xan emits text; the pipeline handles encoding.
+  return {
+    stdout: formatCsv(newHeaders, newData),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 /**

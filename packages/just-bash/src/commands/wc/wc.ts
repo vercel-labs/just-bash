@@ -1,3 +1,8 @@
+import {
+  type ByteString,
+  decodeBytesToUtf8,
+  latin1FromBytes,
+} from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { readFiles } from "../../utils/file-reader.js";
@@ -35,14 +40,16 @@ export const wcCommand: Command = {
     if (!parsed.ok) return parsed.error;
 
     let { lines: showLines, words: showWords } = parsed.result.flags;
-    // -c (bytes) and -m (chars) both show character counts
-    let showChars = parsed.result.flags.bytes || parsed.result.flags.chars;
+    let showBytes = parsed.result.flags.bytes;
+    const showChars = parsed.result.flags.chars;
     const files = parsed.result.positional;
 
-    // If no flags specified, show all
-    if (!showLines && !showWords && !showChars) {
-      showLines = showWords = showChars = true;
+    // If no flags specified, default to lines + words + bytes (-c).
+    if (!showLines && !showWords && !showBytes && !showChars) {
+      showLines = showWords = showBytes = true;
     }
+    // The third column is either bytes or chars, depending on flag.
+    const showThird = showBytes || showChars;
 
     // Read files
     const readResult = await readFiles(ctx, files, {
@@ -52,9 +59,9 @@ export const wcCommand: Command = {
 
     // If reading from stdin (no files), use simpler output
     if (files.length === 0) {
-      const stats = countStats(readResult.files[0].content);
+      const stats = countStats(readResult.files[0].content, showChars);
       return {
-        stdout: `${formatStats(stats, showLines, showWords, showChars, "", 0)}\n`,
+        stdout: `${formatStats(stats, showLines, showWords, showThird, "", 0)}\n`,
         stderr: "",
         exitCode: 0,
       };
@@ -63,17 +70,17 @@ export const wcCommand: Command = {
     // First pass: count stats for all files and calculate max widths
     const allStats: Array<{
       filename: string;
-      stats: { lines: number; words: number; chars: number };
+      stats: { lines: number; words: number; third: number };
     }> = [];
     let totalLines = 0;
     let totalWords = 0;
-    let totalChars = 0;
+    let totalThird = 0;
 
     for (const { filename, content } of readResult.files) {
-      const stats = countStats(content);
+      const stats = countStats(content, showChars);
       totalLines += stats.lines;
       totalWords += stats.words;
-      totalChars += stats.chars;
+      totalThird += stats.third;
       allStats.push({ filename, stats });
     }
 
@@ -87,31 +94,31 @@ export const wcCommand: Command = {
       files.length > 1
         ? totalWords
         : Math.max(...allStats.map((s) => s.stats.words));
-    const maxChars =
+    const maxThird =
       files.length > 1
-        ? totalChars
-        : Math.max(...allStats.map((s) => s.stats.chars));
+        ? totalThird
+        : Math.max(...allStats.map((s) => s.stats.third));
 
     // Calculate width based on which columns are shown
     // Use minimum width of 3 for alignment when there are multiple files (matches osh behavior)
     let maxWidth = files.length > 1 ? 3 : 0;
     if (showLines) maxWidth = Math.max(maxWidth, String(maxLines).length);
     if (showWords) maxWidth = Math.max(maxWidth, String(maxWords).length);
-    if (showChars) maxWidth = Math.max(maxWidth, String(maxChars).length);
+    if (showThird) maxWidth = Math.max(maxWidth, String(maxThird).length);
 
     // Second pass: format output with proper alignment
     let stdout = "";
     for (const { filename, stats } of allStats) {
-      stdout += `${formatStats(stats, showLines, showWords, showChars, filename, maxWidth)}\n`;
+      stdout += `${formatStats(stats, showLines, showWords, showThird, filename, maxWidth)}\n`;
     }
 
     // Show total for multiple files
     if (files.length > 1) {
       stdout += `${formatStats(
-        { lines: totalLines, words: totalWords, chars: totalChars },
+        { lines: totalLines, words: totalWords, third: totalThird },
         showLines,
         showWords,
-        showChars,
+        showThird,
         "total",
         maxWidth,
       )}\n`;
@@ -121,19 +128,41 @@ export const wcCommand: Command = {
   },
 };
 
-function countStats(content: string): {
+/**
+ * Count line / word / third-column stats. The third column is bytes for
+ * `-c` and Unicode codepoints for `-m`. Words and lines are byte-clean —
+ * `\n` / whitespace are ASCII so they never collide with multibyte UTF-8
+ * continuation or leading bytes.
+ *
+ * We use string `.length` for the byte count rather than UTF-8 re-encoding.
+ * In the typical pipeline path each char represents one byte (latin1 shape)
+ * so `.length` IS the byte count. In the rare path where an upstream
+ * already decoded to Unicode, we accept that `-c` reports JS code units —
+ * that matches real bash's `wc -c` byte count for ASCII / latin1 input,
+ * preserves existing behavior for invalid-UTF-8 binary input that the
+ * redirect layer mapped to U+FFFD, and stays consistent with the rest of
+ * the pipeline's byte-shaped string semantics.
+ */
+function countStats(
+  content: ByteString,
+  countCodepoints: boolean,
+): {
   lines: number;
   words: number;
-  chars: number;
+  third: number;
 } {
-  const len = content.length;
+  const bytes = latin1FromBytes(content);
+  const len = bytes.length;
+  const third = countCodepoints
+    ? Array.from(decodeBytesToUtf8(content)).length
+    : len;
   let lines = 0;
   let words = 0;
   let inWord = false;
 
   // Single pass through content to count lines and words
   for (let i = 0; i < len; i++) {
-    const c = content[i];
+    const c = bytes[i];
     if (c === "\n") {
       lines++;
       if (inWord) {
@@ -155,14 +184,14 @@ function countStats(content: string): {
     words++;
   }
 
-  return { lines, words, chars: len };
+  return { lines, words, third };
 }
 
 function formatStats(
-  stats: { lines: number; words: number; chars: number },
+  stats: { lines: number; words: number; third: number },
   showLines: boolean,
   showWords: boolean,
-  showChars: boolean,
+  showThird: boolean,
   filename: string,
   minWidth: number,
 ): string {
@@ -173,8 +202,8 @@ function formatStats(
   if (showWords) {
     values.push(String(stats.words).padStart(minWidth));
   }
-  if (showChars) {
-    values.push(String(stats.chars).padStart(minWidth));
+  if (showThird) {
+    values.push(String(stats.third).padStart(minWidth));
   }
 
   let result = values.join(" ");

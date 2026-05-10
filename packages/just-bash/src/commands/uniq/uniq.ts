@@ -1,3 +1,4 @@
+import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { readAndConcat } from "../../utils/file-reader.js";
@@ -37,10 +38,15 @@ export const uniqCommand: Command = {
       parsed.result.flags;
     const files = parsed.result.positional;
 
-    // Read from files or stdin
+    // Read from files or stdin. With -i / --ignore-case the comparator
+    // calls `.toLowerCase` (Unicode-aware in JS); on a latin1 byte buffer
+    // that would mutate UTF-8 leading bytes (0xC0-0xDE → 0xE0-0xFE),
+    // silently corrupting accented characters. Decode in that mode.
     const readResult = await readAndConcat(ctx, files, { cmdName: "uniq" });
     if (!readResult.ok) return readResult.error;
-    const content = readResult.content;
+    const content = ignoreCase
+      ? decodeBytesToUtf8(readResult.content)
+      : latin1FromBytes(readResult.content);
 
     // Split into lines
     const lines = content.split("\n");
@@ -96,10 +102,19 @@ export const uniqCommand: Command = {
       }
     }
 
+    // ignore-case mode produces decoded text; default mode forwards bytes.
+    if (ignoreCase) {
+      return {
+        stdout: output,
+        stderr: "",
+        exitCode: 0,
+      };
+    }
     return {
       stdout: output,
       stderr: "",
       exitCode: 0,
+      stdoutKind: "bytes",
       stdoutEncoding: "binary",
     };
   },

@@ -1,3 +1,4 @@
+import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { readAndConcat } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -117,10 +118,14 @@ export const cutCommand: Command = {
       };
     }
 
-    // Read from files or stdin
+    // Read from files or stdin. Field mode (-f) is byte-clean: ASCII
+    // delimiters never collide with multibyte UTF-8 leading bytes (≥0x80).
+    // Char mode (-c) needs codepoint awareness, so decode then re-encode.
     const readResult = await readAndConcat(ctx, files, { cmdName: "cut" });
     if (!readResult.ok) return readResult.error;
-    const content = readResult.content;
+    const content = charSpec
+      ? decodeBytesToUtf8(readResult.content)
+      : latin1FromBytes(readResult.content);
 
     // Split into lines
     const lines = content.split("\n");
@@ -133,8 +138,10 @@ export const cutCommand: Command = {
 
     for (const line of lines) {
       if (charSpec) {
-        // Character mode (-s has no effect in character mode)
-        const chars = line.split("");
+        // Character mode (-s has no effect in character mode). Slice by
+        // codepoints — `Array.from` splits on Unicode code points so emoji
+        // and CJK chars count as one position each.
+        const chars = Array.from(line);
         const selected: string[] = [];
         for (const range of ranges) {
           const start = range.start - 1;
@@ -158,10 +165,19 @@ export const cutCommand: Command = {
       }
     }
 
+    // Char mode produces decoded text; field mode forwards bytes verbatim.
+    if (charSpec) {
+      return {
+        stdout: output,
+        stderr: "",
+        exitCode: 0,
+      };
+    }
     return {
       stdout: output,
       stderr: "",
       exitCode: 0,
+      stdoutKind: "bytes",
       stdoutEncoding: "binary",
     };
   },

@@ -13,7 +13,7 @@ import {
   buildLinkSummaryPrompt,
   pickSummaryLengthForCharacters,
 } from "@steipete/summarize-core/prompts";
-import { defineCommand } from "just-bash";
+import { decodeBytesToUtf8, defineCommand } from "just-bash";
 
 /**
  * Generate a random UUID
@@ -50,10 +50,11 @@ export const uuidCommand = defineCommand("uuid", async (args) => {
  * Usage: json-format [file] or pipe JSON to it
  */
 export const jsonFormatCommand = defineCommand("json-format", async (args, ctx) => {
-  let input = ctx.stdin;
+  // Decode bytes to text — JSON.parse requires real Unicode.
+  let input = decodeBytesToUtf8(ctx.stdin);
 
   // Read from file if provided
-  if (args[0] && !ctx.stdin) {
+  if (args[0] && !input) {
     try {
       input = await ctx.fs.readFile(ctx.fs.resolvePath(ctx.cwd, args[0]));
     } catch {
@@ -134,10 +135,12 @@ export const loremCommand = defineCommand("lorem", async (args) => {
  * Similar to wc but with labeled output
  */
 export const wordcountCommand = defineCommand("wordcount", async (args, ctx) => {
-  let input = ctx.stdin;
+  // ctx.stdin is a `ByteString` (the pipeline carries raw bytes); decode
+  // for the line/word/char math, which only makes sense on Unicode text.
+  let input = decodeBytesToUtf8(ctx.stdin);
 
   // Read from file if provided
-  if (args[0] && !ctx.stdin) {
+  if (args[0] && !input) {
     try {
       input = await ctx.fs.readFile(ctx.fs.resolvePath(ctx.cwd, args[0]));
     } catch {
@@ -151,7 +154,7 @@ export const wordcountCommand = defineCommand("wordcount", async (args, ctx) => 
 
   const lines = input.split("\n").length - (input.endsWith("\n") ? 1 : 0);
   const words = input.trim().split(/\s+/).filter(Boolean).length;
-  const chars = input.length;
+  const chars = Array.from(input).length;
 
   return {
     stdout: `Lines: ${lines}\nWords: ${words}\nChars: ${chars}\n`,
@@ -166,8 +169,12 @@ export const wordcountCommand = defineCommand("wordcount", async (args, ctx) => 
  * Usage: reverse or pipe text to it
  */
 export const reverseCommand = defineCommand("reverse", async (_args, ctx) => {
-  const lines = ctx.stdin.split("\n");
-  const reversed = lines.map((line) => line.split("").reverse().join(""));
+  // Decode bytes to text so reversing happens by codepoint (multibyte
+  // characters stay intact). `Array.from` splits on Unicode codepoints
+  // rather than UTF-16 code units, so emoji / surrogate pairs survive.
+  const text = decodeBytesToUtf8(ctx.stdin);
+  const lines = text.split("\n");
+  const reversed = lines.map((line) => Array.from(line).reverse().join(""));
   return {
     stdout: reversed.join("\n"),
     stderr: "",

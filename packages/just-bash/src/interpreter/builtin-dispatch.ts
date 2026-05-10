@@ -6,6 +6,7 @@
  */
 
 import { isBrowserExcludedCommand } from "../commands/browser-excluded.js";
+import { unsafeBytesFromLatin1 } from "../encoding.js";
 import { sanitizeErrorMessage } from "../fs/sanitize-error.js";
 import { awaitWithDefenseContext } from "../security/defense-context.js";
 import {
@@ -411,9 +412,17 @@ export async function executeExternalCommand(
     ctx.state.hashTable.set(commandName, cmdPath);
   }
 
-  // Use groupStdin as fallback if no stdin from redirections/pipeline
-  // This is needed for commands inside groups/functions that receive stdin via heredoc
-  const effectiveStdin = stdin || ctx.state.groupStdin || "";
+  // Use groupStdin as fallback if no stdin from redirections/pipeline —
+  // needed for commands inside groups/functions that receive stdin via
+  // heredoc. The pipeline glue (pipeline-execution.ts) and the
+  // stdin-source sites (heredoc, here-string, `< file`, options.stdin)
+  // are responsible for handing us a latin1-shaped byte buffer; we just
+  // brand it. Commands that decode their input internally (sed, jq,
+  // ...) return text via `textOutput()`, and the pipe / redirect layer
+  // converts to bytes on their behalf.
+  const effectiveStdin = unsafeBytesFromLatin1(
+    stdin || ctx.state.groupStdin || "",
+  );
 
   // Build exported environment for commands that need it (printenv, env, etc.)
   // Most builtins need access to the full env to modify state

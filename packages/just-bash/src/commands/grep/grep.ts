@@ -1,3 +1,4 @@
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { UserRegex } from "../../regex/index.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { matchGlob } from "../../utils/glob.js";
@@ -225,9 +226,11 @@ export const grepCommand: Command = {
       };
     }
 
-    // If no files and stdin is provided (including empty string), read from stdin
+    // If no files and stdin is provided (including empty string), read from
+    // stdin. grep runs regex over text — decode bytes to UTF-8 so multibyte
+    // codepoints match `.` / character classes correctly.
     if (files.length === 0 && ctx.stdin !== undefined) {
-      const result = searchContent(ctx.stdin, regex, {
+      const result = searchContent(decodeBytesToUtf8(ctx.stdin), regex, {
         invertMatch,
         showLineNumbers,
         countOnly,
@@ -242,6 +245,7 @@ export const grepCommand: Command = {
       if (quietMode) {
         return { stdout: "", stderr: "", exitCode: result.matched ? 0 : 1 };
       }
+      // grep emits text; the pipeline handles encoding.
       return {
         stdout: result.output,
         stderr: "",

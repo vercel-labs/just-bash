@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { EMPTY_BYTES } from "../../encoding.js";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import type { CommandContext } from "../../types.js";
@@ -98,7 +99,7 @@ function createContext(
       ["PATH", "/usr/bin:/bin"],
       ["IFS", " \t\n"],
     ]),
-    stdin: "",
+    stdin: EMPTY_BYTES,
     ...overrides,
   };
 }

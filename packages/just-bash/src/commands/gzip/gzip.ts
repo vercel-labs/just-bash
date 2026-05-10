@@ -5,6 +5,7 @@
  */
 
 import { constants, gunzipSync, gzipSync } from "node:zlib";
+import { latin1FromBytes } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -287,7 +288,9 @@ async function processFile(
 
   // Handle stdin
   if (file === "-" || file === "") {
-    inputData = Uint8Array.from(ctx.stdin, (c) => c.charCodeAt(0));
+    inputData = Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
+      c.charCodeAt(0),
+    );
     if (decompress) {
       if (!isGzip(inputData)) {
         if (!flags.quiet) {
@@ -608,7 +611,9 @@ async function listFile(
   let inputData: Uint8Array;
 
   if (file === "-" || file === "") {
-    inputData = Uint8Array.from(ctx.stdin, (c) => c.charCodeAt(0));
+    inputData = Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
+      c.charCodeAt(0),
+    );
   } else {
     const inputPath = ctx.fs.resolvePath(ctx.cwd, file);
     try {
@@ -659,7 +664,9 @@ async function testFile(
   let inputData: Uint8Array;
 
   if (file === "-" || file === "") {
-    inputData = Uint8Array.from(ctx.stdin, (c) => c.charCodeAt(0));
+    inputData = Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
+      c.charCodeAt(0),
+    );
   } else {
     const inputPath = ctx.fs.resolvePath(ctx.cwd, file);
     try {

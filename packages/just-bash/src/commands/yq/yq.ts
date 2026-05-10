@@ -8,6 +8,7 @@
  * This is a reimplementation for the just-bash sandboxed environment.
  */
 
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import {
@@ -281,13 +282,15 @@ export const yqCommand: Command = {
       };
     }
 
-    // Read input
+    // Read input. yq parses YAML/JSON/etc — stdin bytes from a piped command
+    // arrive latin1-shaped, so decode to UTF-8 before handing to the parser.
+    // File reads use default utf8 decoding already.
     let input: string;
     let filePath: string | undefined;
     if (options.nullInput) {
       input = "";
     } else if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-      input = ctx.stdin;
+      input = decodeBytesToUtf8(ctx.stdin);
     } else {
       try {
         const resolvedFilePath = ctx.fs.resolvePath(ctx.cwd, files[0]);
@@ -373,6 +376,7 @@ export const yqCommand: Command = {
           ? 1
           : 0;
 
+      // yq emits text; the pipeline handles encoding.
       return {
         stdout: finalOutput,
         stderr: "",

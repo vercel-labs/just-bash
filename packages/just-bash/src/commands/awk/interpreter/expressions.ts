@@ -4,6 +4,7 @@
  * Async expression evaluator supporting file I/O operations.
  */
 
+import { decodeBytesToUtf8, unsafeBytesFromLatin1 } from "../../../encoding.js";
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import { createUserRegex } from "../../../regex/index.js";
 import {
@@ -728,7 +729,9 @@ async function evalGetlineFromCommand(
       const result = await withDefenseContext(ctx, "getline command exec", () =>
         execFn(cmd),
       );
-      const output = result.stdout;
+      // awk processes lines with regex / FS — decode bytes to UTF-8 so
+      // `getline cmd |` from a piped command keeps multibyte fields whole.
+      const output = decodeBytesToUtf8(unsafeBytesFromLatin1(result.stdout));
       lines = output.split("\n");
       // Remove trailing empty line if output ends with newline
       if (lines.length > 0 && lines[lines.length - 1] === "") {

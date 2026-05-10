@@ -5,6 +5,7 @@
  * including parallel batch reading for performance.
  */
 
+import { type ByteString, EMPTY_BYTES, readBytesFrom } from "../encoding.js";
 import type { CommandContext, ExecResult } from "../types.js";
 import { DEFAULT_BATCH_SIZE } from "./constants.js";
 
@@ -22,8 +23,12 @@ export interface ReadFilesOptions {
 export interface FileContent {
   /** File name (or "-" for stdin, or "" if stdin with no files) */
   filename: string;
-  /** File content */
-  content: string;
+  /**
+   * File content as a byte buffer (latin1-shaped). Decode with
+   * `decodeBytesToUtf8` before regex/parsing/char-position math; pass through
+   * `latin1FromBytes` if forwarding bytes unchanged.
+   */
+  content: ByteString;
 }
 
 export interface ReadFilesResult {
@@ -81,19 +86,24 @@ export async function readFiles(
     const batchResults = await Promise.all(
       batch.map(async (file) => {
         if (allowStdinMarker && file === "-") {
-          return { filename: "-", content: ctx.stdin, error: null };
+          return {
+            filename: "-",
+            content: ctx.stdin,
+            error: null as string | null,
+          };
         }
         try {
           const filePath = ctx.fs.resolvePath(ctx.cwd, file);
           // Use binary encoding to preserve all bytes (including non-UTF-8).
           // This is important for piping binary data through commands like cat.
-          // UTF-8 decoding happens at the output boundary (Bash.exec) instead.
-          const content = await ctx.fs.readFile(filePath, "binary");
-          return { filename: file, content, error: null };
+          // Text-processing commands must explicitly call `decodeBytesToUtf8`
+          // on the content before regex / parsing.
+          const content = await readBytesFrom(ctx.fs, filePath);
+          return { filename: file, content, error: null as string | null };
         } catch {
           return {
             filename: file,
-            content: "",
+            content: EMPTY_BYTES,
             error: `${cmdName}: ${file}: No such file or directory\n`,
           };
         }
@@ -118,20 +128,24 @@ export async function readFiles(
 }
 
 /**
- * Read and concatenate all files into a single string.
+ * Read and concatenate all files into a single byte buffer.
  *
  * Useful for commands like sort and uniq that process all input together.
+ * Callers must `decodeBytesToUtf8` (text processing) or `latin1FromBytes`
+ * (byte passthrough) before using the content.
  *
  * @example
  * const result = await readAndConcat(ctx, files, { cmdName: "sort" });
  * if (!result.ok) return result.error;
- * const lines = result.content.split("\n");
+ * const lines = decodeBytesToUtf8(result.content).split("\n");
  */
 export async function readAndConcat(
   ctx: CommandContext,
   files: string[],
   options: { cmdName: string; allowStdinMarker?: boolean },
-): Promise<{ ok: true; content: string } | { ok: false; error: ExecResult }> {
+): Promise<
+  { ok: true; content: ByteString } | { ok: false; error: ExecResult }
+> {
   const result = await readFiles(ctx, files, {
     ...options,
     stopOnError: true,
@@ -144,6 +158,10 @@ export async function readAndConcat(
     };
   }
 
-  const content = result.files.map((f) => f.content).join("");
-  return { ok: true, content };
+  // Concatenate the latin1 byte buffers — joining strings byte-wise is fine
+  // since each char is one byte. Keep it branded.
+  const joined = result.files
+    .map((f) => f.content as unknown as string)
+    .join("");
+  return { ok: true, content: joined as unknown as ByteString };
 }

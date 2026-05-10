@@ -6,6 +6,7 @@
  * Writes each FILE to standard output, last line first.
  */
 
+import { latin1FromBytes } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 
 async function tacExecute(
@@ -36,8 +37,8 @@ async function tacExecute(
     }
   }
 
-  // Read from stdin
-  const lines = ctx.stdin.split("\n");
+  // Read from stdin. tac is byte-clean — splits on \n then reverses.
+  const lines = latin1FromBytes(ctx.stdin).split("\n");
   if (lines[lines.length - 1] === "") {
     lines.pop();
   }

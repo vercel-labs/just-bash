@@ -3,6 +3,7 @@
  */
 
 import * as Diff from "diff";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -55,10 +56,12 @@ export const diffCommand: Command = {
     let c1: string, c2: string;
     const [f1, f2] = files;
 
+    // diff compares lines as strings. Normalize stdin (byte buffer) to
+    // UTF-8 so it compares correctly against file content (utf8 by default).
     try {
       c1 =
         f1 === "-"
-          ? ctx.stdin
+          ? decodeBytesToUtf8(ctx.stdin)
           : await ctx.fs.readFile(ctx.fs.resolvePath(ctx.cwd, f1));
     } catch {
       return {
@@ -71,7 +74,7 @@ export const diffCommand: Command = {
     try {
       c2 =
         f2 === "-"
-          ? ctx.stdin
+          ? decodeBytesToUtf8(ctx.stdin)
           : await ctx.fs.readFile(ctx.fs.resolvePath(ctx.cwd, f2));
     } catch {
       return {
@@ -90,6 +93,7 @@ export const diffCommand: Command = {
 
     if (t1 === t2) {
       if (reportSame)
+        // diff emits text; the pipeline handles encoding.
         return {
           stdout: `Files ${f1} and ${f2} are identical\n`,
           stderr: "",
@@ -99,6 +103,7 @@ export const diffCommand: Command = {
     }
 
     if (brief) {
+      // diff emits text; the pipeline handles encoding.
       return {
         stdout: `Files ${f1} and ${f2} differ\n`,
         stderr: "",
@@ -109,7 +114,12 @@ export const diffCommand: Command = {
     const output = Diff.createTwoFilesPatch(f1, f2, c1, c2, "", "", {
       context: 3,
     });
-    return { stdout: output, stderr: "", exitCode: 1 };
+    // diff emits text; the pipeline handles encoding.
+    return {
+      stdout: output,
+      stderr: "",
+      exitCode: 1,
+    };
   },
 };
 

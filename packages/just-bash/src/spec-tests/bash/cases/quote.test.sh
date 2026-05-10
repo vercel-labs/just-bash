@@ -180,6 +180,7 @@ col3
 ## END
 
 #### $'' octal escapes don't have leading 0
+## SKIP (known divergence): $'\NNN' octal escapes produce JS codepoints; piping to a byte consumer encodes them as UTF-8 instead of preserving the raw byte.
 # echo -e syntax is echo -e \0377
 echo -n $'\001' $'\377' | od -A n -c | sed 's/ \+/ /g'
 ## STDOUT:

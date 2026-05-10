@@ -4,6 +4,7 @@ import { awkCommand2 } from "../../commands/awk/awk2.js";
 import { jqCommand } from "../../commands/jq/jq.js";
 import { sedCommand } from "../../commands/sed/sed.js";
 import { yqCommand } from "../../commands/yq/yq.js";
+import { EMPTY_BYTES, unsafeBytesFromLatin1 } from "../../encoding.js";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
 import { createDefenseAwareCommandContext } from "../../interpreter/defense-aware-command-context.js";
 import type { CommandContext } from "../../types.js";
@@ -20,7 +21,7 @@ function createCommandContext(
     fs: new InMemoryFs(),
     cwd: "/",
     env: new Map([["PATH", "/usr/bin:/bin"]]),
-    stdin: "",
+    stdin: EMPTY_BYTES,
     requireDefenseContext: true,
     ...overrides,
   };
@@ -97,7 +98,7 @@ describe("Defense context invariant", () => {
     await expect(
       awkCommand2.execute(
         ["{ print $0 }"],
-        createCommandContext({ stdin: "x\n" }),
+        createCommandContext({ stdin: unsafeBytesFromLatin1("x\n") }),
       ),
     ).rejects.toBeInstanceOf(SecurityViolationError);
   });
@@ -106,7 +107,10 @@ describe("Defense context invariant", () => {
     vi.spyOn(DefenseInDepthBox, "isInSandboxedContext").mockReturnValue(false);
 
     await expect(
-      sedCommand.execute(["s/a/b/"], createCommandContext({ stdin: "a\n" })),
+      sedCommand.execute(
+        ["s/a/b/"],
+        createCommandContext({ stdin: unsafeBytesFromLatin1("a\n") }),
+      ),
     ).rejects.toBeInstanceOf(SecurityViolationError);
   });
 
@@ -114,7 +118,10 @@ describe("Defense context invariant", () => {
     vi.spyOn(DefenseInDepthBox, "isInSandboxedContext").mockReturnValue(false);
 
     await expect(
-      jqCommand.execute(["."], createCommandContext({ stdin: "{}\n" })),
+      jqCommand.execute(
+        ["."],
+        createCommandContext({ stdin: unsafeBytesFromLatin1("{}\n") }),
+      ),
     ).rejects.toBeInstanceOf(SecurityViolationError);
   });
 
@@ -122,7 +129,10 @@ describe("Defense context invariant", () => {
     vi.spyOn(DefenseInDepthBox, "isInSandboxedContext").mockReturnValue(false);
 
     await expect(
-      yqCommand.execute(["."], createCommandContext({ stdin: "x: 1\n" })),
+      yqCommand.execute(
+        ["."],
+        createCommandContext({ stdin: unsafeBytesFromLatin1("x: 1\n") }),
+      ),
     ).rejects.toBeInstanceOf(SecurityViolationError);
   });
 

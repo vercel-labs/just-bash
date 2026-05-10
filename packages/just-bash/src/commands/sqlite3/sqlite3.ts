@@ -17,6 +17,7 @@ import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import initSqlJs from "sql.js";
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import {
   sanitizeErrorMessage,
   sanitizeHostErrorMessage,
@@ -539,8 +540,9 @@ export const sqlite3Command: Command = {
       };
     }
 
-    // Get SQL from argument or stdin, prepend -cmd if provided
-    let sql = sqlArg || ctx.stdin.trim();
+    // Get SQL from argument or stdin. SQL is text — decode bytes to UTF-8 so
+    // string literals containing multibyte characters survive intact.
+    let sql = sqlArg || decodeBytesToUtf8(ctx.stdin).trim();
     if (options.cmd) {
       sql = options.cmd + (sql ? `; ${sql}` : "");
     }
@@ -673,7 +675,12 @@ export const sqlite3Command: Command = {
       }
     }
 
-    return { stdout, stderr: "", exitCode: hadError && options.bail ? 1 : 0 };
+    // sqlite3 emits text; the pipeline handles encoding.
+    return {
+      stdout,
+      stderr: "",
+      exitCode: hadError && options.bail ? 1 : 0,
+    };
   },
 };
 

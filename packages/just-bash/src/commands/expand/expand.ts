@@ -7,6 +7,7 @@
  * If no FILE is specified, standard input is read.
  */
 
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -215,7 +216,9 @@ export const expand: Command = {
     let output = "";
 
     if (files.length === 0) {
-      const input = ctx.stdin ?? "";
+      // expand counts column positions for tab-stop math; decode bytes so a
+      // multibyte char counts as one column rather than 2–4.
+      const input = decodeBytesToUtf8(ctx.stdin) ?? "";
       output = processContent(input, options);
     } else {
       for (const file of files) {
@@ -232,6 +235,7 @@ export const expand: Command = {
       }
     }
 
+    // expand emits text; the pipeline handles encoding.
     return {
       exitCode: 0,
       stdout: output,

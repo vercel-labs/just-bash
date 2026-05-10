@@ -7,6 +7,7 @@
  * If no FILE is specified, standard input is read.
  */
 
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -278,8 +279,9 @@ export const nl: Command = {
     let lineNumber = options.startNumber;
 
     if (files.length === 0) {
-      // Read from stdin
-      const input = ctx.stdin ?? "";
+      // Read from stdin. nl reads files as utf8 by default; normalize stdin
+      // to text so the line-numbered output is consistent with file inputs.
+      const input = decodeBytesToUtf8(ctx.stdin) ?? "";
       const result = processContent(input, options, lineNumber);
       output = result.output;
     } else {
@@ -300,6 +302,7 @@ export const nl: Command = {
       }
     }
 
+    // nl emits text; the pipeline handles encoding.
     return {
       exitCode: 0,
       stdout: output,

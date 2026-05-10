@@ -1,3 +1,4 @@
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { readAndConcat } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -149,10 +150,17 @@ export const sortCommand: Command = {
       }
     }
 
-    // Read from files or stdin
+    // Read from files or stdin. sort's comparator uses `localeCompare`,
+    // which on byte-encoded UTF-8 returns 0 for many byte pairs (treating
+    // continuation bytes as equal control chars). We need real Unicode
+    // codepoints for stable ordering. Case-fold / dictionary-order paths
+    // additionally run `.toLowerCase()` and `[^a-zA-Z0-9\s]` regex that
+    // would corrupt the latin1 byte view. Always decode for processing,
+    // then re-encode the joined output back to bytes for the byte-shaped
+    // pipeline.
     const readResult = await readAndConcat(ctx, files, { cmdName: "sort" });
     if (!readResult.ok) return readResult.error;
-    const content = readResult.content;
+    const content = decodeBytesToUtf8(readResult.content);
 
     // Split into lines (preserve empty lines at the end for sorting)
     let lines = content.split("\n");
@@ -190,12 +198,10 @@ export const sortCommand: Command = {
 
     const output = lines.length > 0 ? `${lines.join("\n")}\n` : "";
 
-    // Output to file if -o specified
+    // sort emits text; the pipeline handles encoding.
     if (options.outputFile) {
       const outPath = ctx.fs.resolvePath(ctx.cwd, options.outputFile);
-      // Content was read with binary encoding (readAndConcat), write as binary
-      // to preserve UTF-8 byte sequences
-      await ctx.fs.writeFile(outPath, output, "binary");
+      await ctx.fs.writeFile(outPath, output);
       return { stdout: "", stderr: "", exitCode: 0 };
     }
 
@@ -203,7 +209,6 @@ export const sortCommand: Command = {
       stdout: output,
       stderr: "",
       exitCode: 0,
-      stdoutEncoding: "binary",
     };
   },
 };

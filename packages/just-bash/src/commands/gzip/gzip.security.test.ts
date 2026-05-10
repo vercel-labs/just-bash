@@ -46,6 +46,9 @@ describe("gzip security hardening", () => {
 
     const result = await env.exec("gunzip -c", {
       stdin: Buffer.from(compressed).toString("latin1"),
+      // Already a latin1 byte buffer — opt out of the default text-mode
+      // UTF-8 encoding so the gzip bytes reach the command verbatim.
+      stdinKind: "bytes",
     });
 
     expect(result.stdout).toBe("");

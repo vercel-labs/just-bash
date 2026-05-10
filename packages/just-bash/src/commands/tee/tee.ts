@@ -1,3 +1,4 @@
+import { latin1FromBytes } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -29,18 +30,24 @@ export const teeCommand: Command = {
 
     const { append } = parsed.result.flags;
     const files = parsed.result.positional;
-    const content = ctx.stdin;
+    // tee is byte-clean: stdin bytes are written to each file and the same
+    // bytes pass through to stdout.
+    const content = latin1FromBytes(ctx.stdin);
     let stderr = "";
     let exitCode = 0;
 
-    // Write to each file
+    // Write to each file in binary mode. The pipe-execution boundary
+    // ensures `ctx.stdin` always reaches us as a latin1-shaped byte
+    // buffer (UTF-8-encoded for non-ASCII), so binary write preserves the
+    // bytes verbatim. Default-utf8 write would re-interpret each char as
+    // a codepoint and double-encode every high byte.
     for (const file of files) {
       try {
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
         if (append) {
-          await ctx.fs.appendFile(filePath, content);
+          await ctx.fs.appendFile(filePath, content, "binary");
         } else {
-          await ctx.fs.writeFile(filePath, content);
+          await ctx.fs.writeFile(filePath, content, "binary");
         }
       } catch (_error) {
         stderr += `tee: ${file}: No such file or directory\n`;
@@ -48,11 +55,13 @@ export const teeCommand: Command = {
       }
     }
 
-    // Pass through to stdout
+    // Pass through to stdout as raw bytes — the boundary in Bash.exec
+    // decodes UTF-8 sequences back to Unicode for terminals.
     return {
       stdout: content,
       stderr,
       exitCode,
+      stdoutEncoding: "binary",
     };
   },
 };

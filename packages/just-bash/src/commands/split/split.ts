@@ -7,6 +7,7 @@
  * default size is 1000 lines, and default PREFIX is 'x'.
  */
 
+import { latin1FromBytes, readBytesFrom } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -335,21 +336,28 @@ export const split: Command = {
       prefix = positionalArgs[1];
     }
 
-    // Read input content
+    // Read input content. split is byte-clean — it chunks the file by line
+    // or byte count and never interprets content. Both stdin and named
+    // files are read as the latin1 byte view so the binary writes below
+    // round-trip the bytes byte-for-byte. Reading the named file as utf8
+    // would decode multibyte codepoints, then the binary write would
+    // truncate each one back to a single low byte — silent data loss for
+    // non-ASCII files.
     let content: string;
     if (inputFile === "-") {
-      content = ctx.stdin ?? "";
+      content = latin1FromBytes(ctx.stdin) ?? "";
     } else {
       const filePath = ctx.fs.resolvePath(ctx.cwd, inputFile);
-      const fileContent = await ctx.fs.readFile(filePath);
-      if (fileContent === null) {
+      try {
+        const fileBytes = await readBytesFrom(ctx.fs, filePath);
+        content = latin1FromBytes(fileBytes);
+      } catch {
         return {
           exitCode: 1,
           stdout: "",
           stderr: `split: ${inputFile}: No such file or directory\n`,
         };
       }
-      content = fileContent;
     }
 
     // Handle empty input
@@ -401,7 +409,9 @@ export const split: Command = {
       const filename = `${prefix}${suffix}${options.additionalSuffix}`;
       const filePath = ctx.fs.resolvePath(ctx.cwd, filename);
 
-      await ctx.fs.writeFile(filePath, chunk.content);
+      // chunk.content is the latin1 byte view of stdin — write as binary
+      // so writeFile doesn't re-encode every >0x7F char as a UTF-8 sequence.
+      await ctx.fs.writeFile(filePath, chunk.content, "binary");
     }
 
     return {

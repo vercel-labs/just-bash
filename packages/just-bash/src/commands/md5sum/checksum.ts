@@ -3,6 +3,7 @@
  * Uses WebCrypto API for SHA algorithms, pure JS for MD5
  */
 
+import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -165,11 +166,13 @@ export function createChecksumCommand(
 
       if (files.length === 0) files.push("-");
 
-      // Helper to read file as binary
+      // Helper to read file as binary. md5sum hashes raw bytes — pass them
+      // through without decoding.
       const readBinary = async (file: string): Promise<Uint8Array | null> => {
         if (file === "-") {
-          // Convert binary string directly to bytes without UTF-8 re-encoding
-          return Uint8Array.from(ctx.stdin, (c) => c.charCodeAt(0));
+          return Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
+            c.charCodeAt(0),
+          );
         }
         try {
           return await ctx.fs.readFileBuffer(ctx.fs.resolvePath(ctx.cwd, file));
@@ -183,10 +186,11 @@ export function createChecksumCommand(
         let output = "";
 
         for (const file of files) {
-          // For check mode, we read the checksum file as text
+          // For check mode, the checksum file is text (hash + filename).
+          // Decode UTF-8 so non-ASCII filenames in the list survive.
           const content =
             file === "-"
-              ? ctx.stdin
+              ? decodeBytesToUtf8(ctx.stdin)
               : await ctx.fs
                   .readFile(ctx.fs.resolvePath(ctx.cwd, file))
                   .catch(() => null);

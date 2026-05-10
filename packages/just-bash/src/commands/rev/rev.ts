@@ -8,6 +8,7 @@
  * input is read.
  */
 
+import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -67,15 +68,17 @@ export const rev: Command = {
     };
 
     if (files.length === 0) {
-      // Read from stdin
-      const input = ctx.stdin ?? "";
+      // Read from stdin. rev reverses by codepoint, so decode bytes to UTF-8
+      // first — reversing the latin1 bytes of a multibyte sequence would
+      // shred valid UTF-8 into garbage.
+      const input = decodeBytesToUtf8(ctx.stdin) ?? "";
       output = processContent(input);
     } else {
       // Process each file
       for (const file of files) {
         if (file === "-") {
           // Dash means read from stdin
-          const input = ctx.stdin ?? "";
+          const input = decodeBytesToUtf8(ctx.stdin) ?? "";
           output += processContent(input);
         } else {
           const filePath = ctx.fs.resolvePath(ctx.cwd, file);
@@ -92,6 +95,7 @@ export const rev: Command = {
       }
     }
 
+    // rev emits text; the pipeline handles encoding.
     return {
       exitCode: 0,
       stdout: output,
