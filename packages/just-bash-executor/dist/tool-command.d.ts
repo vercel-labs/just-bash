@@ -10,7 +10,7 @@
  *   2. --json:  --json '{"key":"value"}'
  *   3. stdin:   echo '{"key":"value"}' | namespace command
  */
-import type { Command } from "just-bash";
+import { type Command } from "just-bash";
 /**
  * Convert camelCase to kebab-case.
  * `listPets` → `list-pets`, `getPetById` → `get-pet-by-id`
