@@ -15,5 +15,6 @@
     "@executor-js/plugin-graphql": "0.1.0",
     "@executor-js/plugin-mcp": "0.1.0",
     "@executor-js/plugin-openapi": "0.1.0"
-  }
+  },
+  "private": true
 }
