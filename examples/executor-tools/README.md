@@ -14,10 +14,13 @@ pnpm start
 # Run a specific example
 npx tsx inline-tools.ts
 npx tsx multi-turn-discovery.ts
+npx tsx multi-api-agent.ts            # default country: JP
+npx tsx multi-api-agent.ts BR         # override
 
 # Or via main.ts
 npx tsx main.ts 1          # inline tools
 npx tsx main.ts 2          # SDK discovery
+npx tsx main.ts 3          # multi-API agent loop
 ```
 
 ## Examples
@@ -41,3 +44,13 @@ Uses `experimental_executor.setup` with the real `@executor/sdk` to auto-discove
 3. **Filter** — Agent queries a list endpoint with filters (`tools.countries.countries()`)
 4. **Chain** — Agent chains multiple tools: continents → countries per continent
 5. **Persist** — Agent writes all 250 countries as CSV to the virtual filesystem
+
+### Example 3: Multi-API Agent Loop (`multi-api-agent.ts`)
+
+Three real public APIs (REST Countries, Open-Meteo, Wikipedia) are wrapped as inline executor tools and orchestrated across multiple turns to produce a "country snapshot" markdown report. Demonstrates the multi-source pattern from the upstream `@executor-js` examples — using inline tools instead of SDK-discovered ones, so it runs anywhere with no plugin dependencies.
+
+1. **Parallel lookup** — One js-exec script fetches country, weather, and Wikipedia data in sequence and stashes JSON results in the virtual filesystem
+2. **Bash composition** — A pure-bash heredoc reads the saved JSON via `jq` and writes a markdown report
+3. **CLI surface** — The same tools are also auto-exposed as bash commands (`country lookup code=BR | jq -r .name`)
+
+Pass a country code to override the default: `npx tsx multi-api-agent.ts US`.

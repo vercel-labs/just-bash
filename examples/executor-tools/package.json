@@ -6,15 +6,16 @@
   "scripts": {
     "start": "npx tsx main.ts",
     "start:inline": "npx tsx inline-tools.ts",
-    "start:discovery": "npx tsx multi-turn-discovery.ts"
+    "start:discovery": "npx tsx multi-turn-discovery.ts",
+    "start:multi-api": "npx tsx multi-api-agent.ts"
   },
   "dependencies": {
     "just-bash": "workspace:*",
     "@just-bash/executor": "workspace:*",
-    "@executor-js/sdk": "0.1.0",
-    "@executor-js/plugin-graphql": "0.1.0",
-    "@executor-js/plugin-mcp": "0.1.0",
-    "@executor-js/plugin-openapi": "0.1.0"
+    "@executor-js/sdk": "^0.2.0",
+    "@executor-js/plugin-graphql": "^0.2.0",
+    "@executor-js/plugin-mcp": "^0.2.0",
+    "@executor-js/plugin-openapi": "^0.2.0"
   },
   "private": true
 }

@@ -22,7 +22,8 @@
   },
   "files": [
     "dist/",
-    "README.md"
+    "README.md",
+    "SKILL.md"
   ],
   "publishConfig": {
     "access": "public",
@@ -45,10 +46,10 @@
   "author": "Malte and Claude",
   "peerDependencies": {
     "just-bash": "workspace:*",
-    "@executor-js/sdk": "0.1.0",
-    "@executor-js/plugin-graphql": "0.1.0",
-    "@executor-js/plugin-mcp": "0.1.0",
-    "@executor-js/plugin-openapi": "0.1.0"
+    "@executor-js/sdk": "^0.2.0",
+    "@executor-js/plugin-graphql": "^0.2.0",
+    "@executor-js/plugin-mcp": "^0.2.0",
+    "@executor-js/plugin-openapi": "^0.2.0"
   },
   "peerDependenciesMeta": {
     "@executor-js/sdk": {
