@@ -40,6 +40,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:unit": "vitest run",
     "lint:fix": "pnpm --workspace-root lint:fix"
   },
   "license": "Apache-2.0",
