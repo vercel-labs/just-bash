@@ -1,5 +1,11 @@
 # @just-bash/executor
 
+## 1.0.1
+
+### Patch Changes
+
+- [#235](https://github.com/vercel-labs/just-bash/pull/235) [`fd98df8`](https://github.com/vercel-labs/just-bash/commit/fd98df8048d658454ed0769c020594754bf6e43d) Thanks [@cramforce](https://github.com/cramforce)! - Upgrade to version that actually works beyond custom tools
+
 ## 1.0.0
 
 ### Minor Changes
