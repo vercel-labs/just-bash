@@ -8,9 +8,44 @@
  * which conflicts with the frozen Error constructor in defense-in-depth mode.
  */
 import { Bash } from "just-bash";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createExecutor } from "./create-executor.js";
 import type { ExecutorConfig, ExecutorSDKHandle } from "./types.js";
+
+// ── Network isolation ──────────────────────────────────────────
+//
+// The GraphQL and OpenAPI plugins make real HTTP calls when a discovered tool
+// is invoked. The tests below use real-looking endpoints (countries.trevorblades.com,
+// petstore.example.com) and rely on invocation failing to assert discovery
+// worked. Letting those requests actually hit the network is flaky — the
+// public endpoint can be slow/down, and `petstore.example.com` DNS behavior
+// varies — so we intercept fetch and return a captured "fetch failed" response
+// for those hosts. Effect's FetchHttpClient layer reads `globalThis.fetch`
+// lazily via a Ref default, so installing the override before the first SDK
+// init is sufficient.
+
+const HOSTS_TO_BLOCK = ["countries.trevorblades.com", "petstore.example.com"];
+const originalFetch = globalThis.fetch;
+
+function getRequestUrl(input: Parameters<typeof fetch>[0]): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
+beforeAll(() => {
+  globalThis.fetch = (async (input, init) => {
+    const url = getRequestUrl(input);
+    if (HOSTS_TO_BLOCK.some((host) => url.includes(host))) {
+      throw new TypeError(`fetch blocked in tests: ${url}`);
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+});
+
+afterAll(() => {
+  globalThis.fetch = originalFetch;
+});
 
 function javascriptWithInvokeTool(
   invokeTool: (path: string, argsJson: string) => Promise<string>,
