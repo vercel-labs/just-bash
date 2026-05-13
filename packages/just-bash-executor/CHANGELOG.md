@@ -1,5 +1,12 @@
 # @just-bash/executor
 
+## 1.0.2
+
+### Patch Changes
+
+- Updated dependencies [[`01a4721`](https://github.com/vercel-labs/just-bash/commit/01a4721324350adea4b035b311f0b60ccdbb65ff)]:
+  - just-bash@3.0.1
+
 ## 1.0.1
 
 ### Patch Changes
