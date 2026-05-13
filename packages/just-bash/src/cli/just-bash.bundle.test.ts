@@ -96,6 +96,21 @@ describe("just-bash bundled binary", () => {
     expect(result.exitCode).toBe(1);
   });
 
+  // Regression test for https://github.com/vercel-labs/just-bash/issues/211:
+  // file-type → debug → supports-color does runtime require("tty")/require("os"),
+  // which the esbuild dynamic-require shim throws for under ESM Node unless the
+  // build banner provides createRequire.
+  it("should run file (regression: dynamic require under ESM Node)", async () => {
+    const result = await runBin([
+      "-c",
+      "echo content > /tmp/x.txt && file /tmp/x.txt",
+      "--allow-write",
+    ]);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe("/tmp/x.txt: ASCII text\n");
+    expect(result.exitCode).toBe(0);
+  });
+
   it("should lazy-load commands (sqlite3 with external sql.js)", async () => {
     const result = await runBin([
       "-c",
@@ -183,6 +198,26 @@ describe("just-bash CJS bundle", () => {
     const bash = new mod.Bash();
     const result = await bash.exec("echo hello from cjs");
     expect(result.stdout).toBe("hello from cjs\n");
+    expect(result.exitCode).toBe(0);
+  });
+});
+
+// Regression test for https://github.com/vercel-labs/just-bash/issues/211.
+// The ESM Node bundle (what consumers import via `import { Bash } from "just-bash"`)
+// has its own dynamic-require shim — file-type → debug → supports-color does
+// runtime require("tty")/require("os") that the shim throws for unless the
+// build banner provides createRequire.
+describe("just-bash ESM bundle", () => {
+  it("should be importable and run file command", async () => {
+    const esmBundlePath = resolve(__dirname, "../../dist/bundle/index.js");
+    const mod = await import(esmBundlePath);
+    expect(mod.Bash).toBeDefined();
+    const fs = new mod.InMemoryFs();
+    await fs.writeFile("/x.txt", "hello\n");
+    const bash = new mod.Bash({ fs, cwd: "/" });
+    const result = await bash.exec("file /x.txt");
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe("/x.txt: ASCII text\n");
     expect(result.exitCode).toBe(0);
   });
 });
