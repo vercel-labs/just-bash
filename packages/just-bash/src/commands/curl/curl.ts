@@ -10,7 +10,7 @@ import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { _Headers } from "../../security/trusted-globals.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
-import { encodeFormData, generateMultipartBody } from "./form.js";
+import { generateMultipartBody } from "./form.js";
 import { curlHelp } from "./help.js";
 import { parseOptions } from "./parse.js";
 import {
@@ -48,6 +48,13 @@ async function resolveDataBody(
  * Append `--data-urlencode @file` and `--data-urlencode name@file` payloads
  * to the existing inline urlencode payload. File contents are URL-encoded
  * after read and joined with `&`, matching real curl's behavior.
+ *
+ * Note: file contents are passed through `encodeURIComponent` directly
+ * rather than the inline-form helper. The inline helper (`encodeFormData`)
+ * splits on the first `=` to separate `name=value` arguments, which would
+ * mis-encode any `=` byte inside the file. For `@file` (and `name@file`)
+ * forms the entire file body is the value — `=` bytes must be percent-
+ * encoded like every other reserved character.
  */
 async function resolveUrlencodeFiles(
   options: CurlOptions,
@@ -59,7 +66,7 @@ async function resolveUrlencodeFiles(
   for (const entry of options.urlencodeFiles) {
     const filePath = ctx.fs.resolvePath(ctx.cwd, entry.path);
     const content = await ctx.fs.readFile(filePath);
-    const encoded = encodeFormData(content);
+    const encoded = encodeURIComponent(content);
     parts.push(
       entry.name ? `${encodeURIComponent(entry.name)}=${encoded}` : encoded,
     );

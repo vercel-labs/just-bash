@@ -33,8 +33,10 @@ export interface CurlOptions {
   /**
    * File backing the `data` payload when `-d`/`--data`/`--data-binary` was
    * given as `@filename`. Mutually exclusive with `data` — whichever form
-   * appears last on the command line wins, matching real curl's
-   * last-write-wins for these single-shot options.
+   * appears last on the command line wins. This last-write-wins shape is
+   * the established just-bash behavior for `-d`/`--data*` inline values
+   * and intentionally differs from real curl, which combines repeated
+   * `-d` payloads with `&`. The `@file` work here preserves that scope.
    */
   dataFile?: DataFile;
   /**

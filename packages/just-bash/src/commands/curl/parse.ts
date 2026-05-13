@@ -15,8 +15,14 @@ import type { CurlOptions } from "./types.js";
  * and `--data-binary`, but NOT for `--data-raw`. When `allowFile` is true
  * and the value begins with `@`, the path is recorded for execute-time
  * resolution and inline `data` is cleared; otherwise the value is taken
- * verbatim. The two paths are mutually exclusive — last write wins, which
- * matches real curl's single-payload behavior for these flags.
+ * verbatim.
+ *
+ * `dataFile` and `data` are mutually exclusive: each `-d`/`--data*`
+ * occurrence overwrites the previous one. This is the just-bash status quo
+ * for these flags and intentionally differs from real curl, which combines
+ * repeated `-d` flags with `&`. The narrower scope avoids changing
+ * established behavior for inline values while still fixing the `@file`
+ * gap. `--data-urlencode` retains its own per-flag accumulation path.
  */
 function applyDataArg(
   options: CurlOptions,

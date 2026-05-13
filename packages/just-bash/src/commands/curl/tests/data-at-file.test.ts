@@ -185,6 +185,28 @@ describe("curl @file interpretation", () => {
       expect(lastRequest?.options.body).toBe("a=1&note=from%20file");
     });
 
+    it("percent-encodes `=` inside file contents (no name=value split)", async () => {
+      // Real file contents may contain `=` bytes that must NOT be treated as
+      // a name/value separator. encodeFormData would split on `=` and emit
+      // `a=b%26c`; the @file form must treat the whole body as one value:
+      // every `=` percent-encodes to %3D.
+      const env = createEnv({ "/note.txt": "a=b&c" });
+      const result = await env.exec(
+        "curl --data-urlencode @/note.txt https://api.example.com/test",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(lastRequest?.options.body).toBe("a%3Db%26c");
+    });
+
+    it("percent-encodes `=` inside file contents for the name@file form", async () => {
+      const env = createEnv({ "/note.txt": "k=v" });
+      const result = await env.exec(
+        "curl --data-urlencode payload@/note.txt https://api.example.com/test",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(lastRequest?.options.body).toBe("payload=k%3Dv");
+    });
+
     it("supports --data-urlencode=@file form", async () => {
       const env = createEnv({ "/note.txt": "hi there" });
       const result = await env.exec(
