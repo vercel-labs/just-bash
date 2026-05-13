@@ -9,6 +9,66 @@ import { encodeFormData, parseFormField } from "./form.js";
 import type { CurlOptions } from "./types.js";
 
 /**
+ * Apply `-d`/`--data`/`--data-binary`/`--data-raw` value.
+ *
+ * Real curl interprets a leading `@` as "read from file" for `-d`/`--data`
+ * and `--data-binary`, but NOT for `--data-raw`. When `allowFile` is true
+ * and the value begins with `@`, the path is recorded for execute-time
+ * resolution and inline `data` is cleared; otherwise the value is taken
+ * verbatim. The two paths are mutually exclusive — last write wins, which
+ * matches real curl's single-payload behavior for these flags.
+ */
+function applyDataArg(
+  options: CurlOptions,
+  value: string,
+  spec: { binary: boolean; allowFile: boolean },
+): void {
+  if (spec.allowFile && value.startsWith("@")) {
+    options.dataFile = {
+      mode: spec.binary ? "binary" : "ascii",
+      path: value.slice(1),
+    };
+    options.data = undefined;
+  } else {
+    options.data = value;
+    options.dataFile = undefined;
+  }
+  if (spec.binary) {
+    options.dataBinary = true;
+  }
+}
+
+/**
+ * Apply a `--data-urlencode` value. Real curl supports five forms:
+ *   content       → encode content
+ *   =content      → encode content (no `name=`)
+ *   name=content  → `name=` + encode(content)
+ *   @filename     → encode contents of file
+ *   name@filename → `name=` + encode(contents of file)
+ *
+ * File forms are deferred to execute time so the VFS read is async-safe;
+ * the inline forms keep the existing eager encoding behavior so multiple
+ * `--data-urlencode` flags continue to concatenate with `&`.
+ */
+function applyUrlencodeArg(options: CurlOptions, value: string): void {
+  if (value.startsWith("@")) {
+    options.urlencodeFiles.push({ path: value.slice(1) });
+    return;
+  }
+  const atIndex = value.indexOf("@");
+  const eqIndex = value.indexOf("=");
+  if (atIndex > 0 && (eqIndex < 0 || atIndex < eqIndex)) {
+    options.urlencodeFiles.push({
+      name: value.slice(0, atIndex),
+      path: value.slice(atIndex + 1),
+    });
+    return;
+  }
+  options.data =
+    (options.data ? `${options.data}&` : "") + encodeFormData(value);
+}
+
+/**
  * Parse curl command line arguments
  */
 export function parseOptions(args: string[]): CurlOptions | ExecResult {
@@ -16,6 +76,7 @@ export function parseOptions(args: string[]): CurlOptions | ExecResult {
     method: "GET",
     headers: new _Headers(),
     dataBinary: false,
+    urlencodeFiles: [],
     formFields: [],
     useRemoteName: false,
     headOnly: false,
@@ -56,35 +117,41 @@ export function parseOptions(args: string[]): CurlOptions | ExecResult {
         const value = header.slice(colonIndex + 1).trim();
         options.headers.append(name, value);
       }
-    } else if (arg === "-d" || arg === "--data" || arg === "--data-raw") {
-      options.data = args[++i] ?? "";
+    } else if (arg === "-d" || arg === "--data") {
+      applyDataArg(options, args[++i] ?? "", {
+        binary: false,
+        allowFile: true,
+      });
+      impliesPost = true;
+    } else if (arg === "--data-raw") {
+      applyDataArg(options, args[++i] ?? "", {
+        binary: false,
+        allowFile: false,
+      });
       impliesPost = true;
     } else if (arg.startsWith("-d")) {
-      options.data = arg.slice(2);
+      applyDataArg(options, arg.slice(2), { binary: false, allowFile: true });
       impliesPost = true;
     } else if (arg.startsWith("--data=")) {
-      options.data = arg.slice(7);
+      applyDataArg(options, arg.slice(7), { binary: false, allowFile: true });
       impliesPost = true;
     } else if (arg.startsWith("--data-raw=")) {
-      options.data = arg.slice(11);
+      applyDataArg(options, arg.slice(11), {
+        binary: false,
+        allowFile: false,
+      });
       impliesPost = true;
     } else if (arg === "--data-binary") {
-      options.data = args[++i] ?? "";
-      options.dataBinary = true;
+      applyDataArg(options, args[++i] ?? "", { binary: true, allowFile: true });
       impliesPost = true;
     } else if (arg.startsWith("--data-binary=")) {
-      options.data = arg.slice(14);
-      options.dataBinary = true;
+      applyDataArg(options, arg.slice(14), { binary: true, allowFile: true });
       impliesPost = true;
     } else if (arg === "--data-urlencode") {
-      const value = args[++i] ?? "";
-      options.data =
-        (options.data ? `${options.data}&` : "") + encodeFormData(value);
+      applyUrlencodeArg(options, args[++i] ?? "");
       impliesPost = true;
     } else if (arg.startsWith("--data-urlencode=")) {
-      const value = arg.slice(17);
-      options.data =
-        (options.data ? `${options.data}&` : "") + encodeFormData(value);
+      applyUrlencodeArg(options, arg.slice(17));
       impliesPost = true;
     } else if (arg === "-F" || arg === "--form") {
       const formData = args[++i] ?? "";

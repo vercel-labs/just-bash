@@ -9,11 +9,40 @@ export interface FormField {
   contentType?: string;
 }
 
+export interface UrlencodeFile {
+  /** Optional field name; emits `name=` prefix before the encoded file contents. */
+  name?: string;
+  /** Path to read; resolved against ctx.cwd at execute time. */
+  path: string;
+}
+
+export interface DataFile {
+  /**
+   * `ascii` matches `-d`/`--data` semantics: CR and LF are stripped after
+   * reading. `binary` matches `--data-binary`: file bytes are sent verbatim.
+   */
+  mode: "ascii" | "binary";
+  path: string;
+}
+
 export interface CurlOptions {
   method: string;
   headers: Headers;
   data?: string;
   dataBinary: boolean;
+  /**
+   * File backing the `data` payload when `-d`/`--data`/`--data-binary` was
+   * given as `@filename`. Mutually exclusive with `data` — whichever form
+   * appears last on the command line wins, matching real curl's
+   * last-write-wins for these single-shot options.
+   */
+  dataFile?: DataFile;
+  /**
+   * `--data-urlencode @file` and `--data-urlencode name@file` accumulate
+   * here. Each entry is encoded at execute time and joined with `&`
+   * alongside any inline urlencode payload accumulated in `data`.
+   */
+  urlencodeFiles: UrlencodeFile[];
   formFields: FormField[];
   user?: string;
   uploadFile?: string;

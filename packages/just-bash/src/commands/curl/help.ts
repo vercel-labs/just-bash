@@ -14,10 +14,10 @@ export const curlHelp: {
   options: [
     "-X, --request METHOD  HTTP method (GET, POST, PUT, DELETE, etc.)",
     "-H, --header HEADER   Add header (can be used multiple times)",
-    "-d, --data DATA       HTTP POST data",
+    "-d, --data DATA       HTTP POST data (DATA=@file reads from file, strips newlines)",
     "    --data-raw DATA   HTTP POST data (no @ interpretation)",
-    "    --data-binary DATA  HTTP POST binary data",
-    "    --data-urlencode DATA  URL-encode and POST data",
+    "    --data-binary DATA  HTTP POST binary data (DATA=@file reads file verbatim)",
+    "    --data-urlencode DATA  URL-encode and POST data (supports @file and name@file)",
     "-F, --form NAME=VALUE  Multipart form data",
     "-u, --user USER:PASS  HTTP authentication",
     "-A, --user-agent STR  Set User-Agent header",
