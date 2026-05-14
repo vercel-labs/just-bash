@@ -13,6 +13,7 @@ import type {
   IFileSystem,
   InitialFiles,
   LazyFileEntry,
+  LazyFileInit,
   LazyFileProvider,
   MkdirOptions,
   ReadFileOptions,
@@ -57,13 +58,39 @@ const textEncoder = new TextEncoder();
  * Type guard to check if a value is a FileInit object
  */
 function isFileInit(
-  value: FileContent | FileInit | LazyFileProvider,
+  value: FileContent | FileInit | LazyFileProvider | LazyFileInit,
 ): value is FileInit {
   return (
     typeof value === "object" &&
     value !== null &&
     !(value instanceof Uint8Array) &&
     "content" in value
+  );
+}
+
+/**
+ * Type guard to check if a value is a lazy file init object.
+ */
+function isLazyFileInit(
+  value: FileContent | FileInit | LazyFileProvider | LazyFileInit,
+): value is LazyFileInit {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !(value instanceof Uint8Array) &&
+    "lazy" in value &&
+    !("content" in value) &&
+    typeof value.lazy === "function"
+  );
+}
+
+function hasDeclaredSize(entry: LazyFileEntry): entry is LazyFileEntry & {
+  size: number;
+} {
+  return (
+    typeof entry.size === "number" &&
+    Number.isInteger(entry.size) &&
+    entry.size >= 0
   );
 }
 
@@ -83,6 +110,13 @@ export class InMemoryFs implements IFileSystem {
         if (typeof value === "function") {
           // Lazy file - store provider function, called on first read
           this.writeFileLazy(path, value);
+        } else if (isLazyFileInit(value)) {
+          // Lazy file with optional metadata
+          this.writeFileLazy(path, value.lazy, {
+            mode: value.mode,
+            mtime: value.mtime,
+            size: value.size,
+          });
         } else if (isFileInit(value)) {
           // Extended init with metadata
           this.writeFileSync(path, value.content, undefined, {
@@ -141,7 +175,7 @@ export class InMemoryFs implements IFileSystem {
   writeFileLazy(
     path: string,
     lazy: () => string | Uint8Array | Promise<string | Uint8Array>,
-    metadata?: { mode?: number; mtime?: Date },
+    metadata?: { mode?: number; mtime?: Date; size?: number },
   ): void {
     validatePath(path, "write");
     const normalized = normalizePath(path);
@@ -152,6 +186,7 @@ export class InMemoryFs implements IFileSystem {
       lazy,
       mode: metadata?.mode ?? DEFAULT_FILE_MODE,
       mtime: metadata?.mtime ?? new Date(),
+      size: metadata?.size,
     });
   }
 
@@ -302,8 +337,18 @@ export class InMemoryFs implements IFileSystem {
       throw new Error(`ENOENT: no such file or directory, stat '${path}'`);
     }
 
-    // Materialize lazy files to get accurate size
+    // Use declared lazy size when available; otherwise materialize to get size.
     if (entry.type === "file" && "lazy" in entry) {
+      if (hasDeclaredSize(entry)) {
+        return {
+          isFile: true,
+          isDirectory: false,
+          isSymbolicLink: false,
+          mode: entry.mode,
+          size: entry.size,
+          mtime: entry.mtime || new Date(),
+        };
+      }
       entry = await this.materializeLazy(resolvedPath, entry);
     }
 
@@ -350,8 +395,18 @@ export class InMemoryFs implements IFileSystem {
       };
     }
 
-    // Materialize lazy files to get accurate size
+    // Use declared lazy size when available; otherwise materialize to get size.
     if (entry.type === "file" && "lazy" in entry) {
+      if (hasDeclaredSize(entry)) {
+        return {
+          isFile: true,
+          isDirectory: false,
+          isSymbolicLink: false,
+          mode: entry.mode,
+          size: entry.size,
+          mtime: entry.mtime || new Date(),
+        };
+      }
       entry = await this.materializeLazy(resolvedPath, entry);
     }
 
