@@ -129,6 +129,23 @@ describe("custom-commands", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it("custom command decodes multibyte stdin from a file pipe", async () => {
+      const capture = defineCommand("capture", async (_args, ctx) => ({
+        stdout: decodeBytesToUtf8(ctx.stdin),
+        stderr: "",
+        exitCode: 0,
+      }));
+
+      const bash = new Bash({
+        customCommands: [capture],
+        files: { "/place.json": '{"name":"Florida — Miami"}' },
+      });
+      const result = await bash.exec("cat /place.json | capture");
+
+      expect(result.stdout).toBe('{"name":"Florida — Miami"}');
+      expect(result.exitCode).toBe(0);
+    });
+
     it("custom command can read files via ctx.fs", async () => {
       const reader = defineCommand("reader", async (args, ctx) => {
         const content = await ctx.fs.readFile(args[0]);
