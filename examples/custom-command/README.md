@@ -46,14 +46,15 @@ This demonstrates how custom commands can:
 Use `defineCommand` from just-bash:
 
 ```typescript
-import { defineCommand } from "just-bash";
+import { decodeBytesToUtf8, defineCommand } from "just-bash";
 
 const myCommand = defineCommand("mycommand", async (args, ctx) => {
   // args: command arguments (string[])
-  // ctx: CommandContext with fs, cwd, env, stdin, exec
-  
+  // ctx.stdin is a ByteString. Decode it before text operations.
+  const input = decodeBytesToUtf8(ctx.stdin);
+
   return {
-    stdout: "output here\n",
+    stdout: input.toUpperCase(),
     stderr: "",
     exitCode: 0,
   };
@@ -75,6 +76,6 @@ Your command receives a context object with:
 - `fs` - Virtual filesystem interface
 - `cwd` - Current working directory
 - `env` - Environment variables
-- `stdin` - Standard input (from pipes)
+- `stdin` - Standard input from pipes as a `ByteString`; use
+  `decodeBytesToUtf8(ctx.stdin)` before text parsing or string operations
 - `exec` - Function to run subcommands
-
