@@ -134,8 +134,7 @@ describe("searchContentMultiline — file-level preFilter", () => {
       showLineNumbers: true,
     });
     expect(result.matched).toBe(true);
-    expect(result.output).toContain("def bar");
-    expect(result.output).toContain("class Foo");
+    expect(result.output).toBe("1:class Foo:\n--\n3:def bar():\n");
   });
 
   it("does NOT skip when invertMatch=true even if needle absent", () => {
@@ -149,5 +148,6 @@ describe("searchContentMultiline — file-level preFilter", () => {
     });
     // All lines match because none contain "def " at line start
     expect(result.matched).toBe(true);
+    expect(result.output).toBe("1:hello\n2:world\n");
   });
 });

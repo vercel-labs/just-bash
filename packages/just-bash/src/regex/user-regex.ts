@@ -312,13 +312,18 @@ export class UserRegex implements RegexLike {
         args.push(groups);
       }
 
-      // Call replacement function
+      // Capture positions before invoking callback — the callback may re-enter this
+      // UserRegex instance, which would cause acquireMatcher to mutate the shared
+      // matcher's charSequence in-place, corrupting start/end reads after the call.
+      const matchStart = matcher.start(0);
+      const matchEnd = matcher.end(0);
+
       result.push(replacement(fullMatch, ...args));
 
-      lastEnd = matcher.end(0);
+      lastEnd = matchEnd;
       pos = lastEnd;
       // Handle zero-length matches
-      if (matcher.start(0) === matcher.end(0)) {
+      if (matchStart === matchEnd) {
         pos++;
       }
 
@@ -370,7 +375,11 @@ export class UserRegex implements RegexLike {
     }
 
     this._lastIndex = 0;
-    const matcher = this.acquireMatcher(input);
+    // matchAll is a generator that suspends at `yield`. The shared `_matcher`
+    // would be corrupted if a caller interleaves any other method on the same
+    // UserRegex instance between two `next()` calls (acquireMatcher would
+    // reset/repoint it). Use a fresh Matcher to keep iterator state private.
+    const matcher = this._re2.matcher(input);
     const groupCount = this._re2.groupCount();
     const namedGroups = this._re2.namedGroups();
     let pos = 0;
