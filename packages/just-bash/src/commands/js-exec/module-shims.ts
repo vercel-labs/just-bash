@@ -287,6 +287,140 @@ function _utf8Decode(bytes) {
   return str;
 }
 // _utf8Encode/_utf8Decode are IIFE-local vars, available to all module shims
+// IMPORTANT: round-trip tests (encode then decode) mask broken encodings
+// because both sides become no-ops. Encoding tests MUST assert the encoded
+// constant directly.
+function _normEnc(enc) {
+  if (enc === undefined || enc === null) return 'utf8';
+  var e = String(enc).toLowerCase();
+  if (e === 'utf8' || e === 'utf-8') return 'utf8';
+  if (e === 'utf16le' || e === 'utf-16le' || e === 'ucs2' || e === 'ucs-2') return 'utf16le';
+  if (e === 'latin1' || e === 'binary') return 'latin1';
+  if (e === 'ascii') return 'ascii';
+  if (e === 'base64') return 'base64';
+  if (e === 'base64url') return 'base64url';
+  if (e === 'hex') return 'hex';
+  return undefined;
+}
+function _badEnc(enc) {
+  throw new TypeError("Unknown encoding: " + enc);
+}
+var _HEX = '0123456789abcdef';
+function _hexEncode(bytes) {
+  var s = '';
+  for (var i = 0; i < bytes.length; i++) {
+    var b = bytes[i] & 0xff;
+    s += _HEX.charAt(b >> 4) + _HEX.charAt(b & 0x0f);
+  }
+  return s;
+}
+function _hexDecode(str) {
+  var out = [];
+  for (var i = 0; i + 1 < str.length; i += 2) {
+    var hi = _hexVal(str.charCodeAt(i));
+    var lo = _hexVal(str.charCodeAt(i + 1));
+    if (hi < 0 || lo < 0) break;
+    out.push((hi << 4) | lo);
+  }
+  return out;
+}
+function _hexVal(c) {
+  if (c >= 48 && c <= 57) return c - 48;
+  if (c >= 97 && c <= 102) return c - 87;
+  if (c >= 65 && c <= 70) return c - 55;
+  return -1;
+}
+function _latin1Encode(str) {
+  var out = new Array(str.length);
+  for (var i = 0; i < str.length; i++) out[i] = str.charCodeAt(i) & 0xff;
+  return out;
+}
+function _latin1Decode(bytes) {
+  var s = '';
+  for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i] & 0xff);
+  return s;
+}
+function _asciiEncode(str) {
+  var out = new Array(str.length);
+  for (var i = 0; i < str.length; i++) out[i] = str.charCodeAt(i) & 0x7f;
+  return out;
+}
+function _asciiDecode(bytes) {
+  var s = '';
+  for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i] & 0x7f);
+  return s;
+}
+function _utf16leEncode(str) {
+  var out = new Array(str.length * 2);
+  for (var i = 0; i < str.length; i++) {
+    var c = str.charCodeAt(i);
+    out[i * 2] = c & 0xff;
+    out[i * 2 + 1] = (c >> 8) & 0xff;
+  }
+  return out;
+}
+function _utf16leDecode(bytes) {
+  var s = '';
+  var end = bytes.length & ~1;
+  for (var i = 0; i < end; i += 2) {
+    s += String.fromCharCode(bytes[i] | (bytes[i + 1] << 8));
+  }
+  return s;
+}
+var _B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+var _B64DEC = null;
+function _b64DecTable() {
+  if (_B64DEC) return _B64DEC;
+  var t = new Array(256);
+  for (var i = 0; i < 256; i++) t[i] = -1;
+  for (var j = 0; j < 64; j++) t[_B64.charCodeAt(j)] = j;
+  t[45] = 62;
+  t[95] = 63;
+  _B64DEC = t;
+  return t;
+}
+function _b64Encode(bytes) {
+  var s = '';
+  var i = 0, len = bytes.length;
+  while (i + 2 < len) {
+    var n = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+    s += _B64.charAt((n >> 18) & 63) + _B64.charAt((n >> 12) & 63)
+       + _B64.charAt((n >> 6) & 63)  + _B64.charAt(n & 63);
+    i += 3;
+  }
+  var rem = len - i;
+  if (rem === 1) {
+    var n1 = bytes[i] << 16;
+    s += _B64.charAt((n1 >> 18) & 63) + _B64.charAt((n1 >> 12) & 63) + '==';
+  } else if (rem === 2) {
+    var n2 = (bytes[i] << 16) | (bytes[i + 1] << 8);
+    s += _B64.charAt((n2 >> 18) & 63) + _B64.charAt((n2 >> 12) & 63)
+       + _B64.charAt((n2 >> 6) & 63) + '=';
+  }
+  return s;
+}
+function _b64UrlEncode(bytes) {
+  var s = _b64Encode(bytes);
+  return s.replace(/=+$/, '').replace(/\\+/g, '-').replace(/\\//g, '_');
+}
+function _b64Decode(str) {
+  var t = _b64DecTable();
+  var out = [];
+  var buf = 0, bits = 0;
+  for (var i = 0; i < str.length; i++) {
+    var c = str.charCodeAt(i);
+    if (c === 61) break;
+    var v = c < 256 ? t[c] : -1;
+    if (v < 0) continue;
+    buf = (buf << 6) | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push((buf >> bits) & 0xff);
+    }
+  }
+  return out;
+}
 
 function Buffer(arg) {
   if (typeof arg === 'number') {
@@ -304,12 +438,19 @@ function Buffer(arg) {
 }
 Buffer.from = function(data, encoding) {
   if (typeof data === 'string') {
-    return new Buffer(_utf8Encode(data));
+    var enc = _normEnc(encoding);
+    if (enc === undefined) _badEnc(encoding);
+    if (enc === 'utf8')      return new Buffer(_utf8Encode(data));
+    if (enc === 'utf16le')   return new Buffer(_utf16leEncode(data));
+    if (enc === 'latin1')    return new Buffer(_latin1Encode(data));
+    if (enc === 'ascii')     return new Buffer(_asciiEncode(data));
+    if (enc === 'hex')       return new Buffer(_hexDecode(data));
+    if (enc === 'base64' || enc === 'base64url') return new Buffer(_b64Decode(data));
   }
   if (data instanceof ArrayBuffer) return new Buffer(data);
-  if (data instanceof Uint8Array) return new Buffer(data);
-  if (Array.isArray(data)) return new Buffer(data);
-  if (data && data._data) return new Buffer(data._data.slice());
+  if (data instanceof Uint8Array)  return new Buffer(data);
+  if (Array.isArray(data))         return new Buffer(data);
+  if (data && data._data)          return new Buffer(data._data.slice());
   return new Buffer(0);
 };
 Buffer.alloc = function(size, fill) {
@@ -335,11 +476,36 @@ Buffer.concat = function(list, totalLength) {
   }
   return new Buffer(result);
 };
-Buffer.byteLength = function(str) {
-  return _utf8Encode(str).length;
+Buffer.byteLength = function(value, encoding) {
+  if (typeof value !== 'string') {
+    if (value && value._data) return value._data.length;
+    if (value instanceof Uint8Array || value instanceof ArrayBuffer) {
+      return value.byteLength;
+    }
+    return 0;
+  }
+  var enc = _normEnc(encoding);
+  if (enc === undefined) _badEnc(encoding);
+  if (enc === 'utf8')      return _utf8Encode(value).length;
+  if (enc === 'utf16le')   return value.length * 2;
+  if (enc === 'latin1' || enc === 'ascii') return value.length;
+  if (enc === 'hex')       return (value.length / 2) | 0;
+  if (enc === 'base64' || enc === 'base64url') return _b64Decode(value).length;
 };
-Buffer.prototype.toString = function(encoding) {
-  return _utf8Decode(this._data);
+Buffer.prototype.toString = function(encoding, start, end) {
+  var bytes = this._data;
+  if (start !== undefined || end !== undefined) {
+    bytes = bytes.subarray(start || 0, end === undefined ? bytes.length : end);
+  }
+  var enc = _normEnc(encoding);
+  if (enc === undefined) _badEnc(encoding);
+  if (enc === 'utf8')      return _utf8Decode(bytes);
+  if (enc === 'utf16le')   return _utf16leDecode(bytes);
+  if (enc === 'latin1')    return _latin1Decode(bytes);
+  if (enc === 'ascii')     return _asciiDecode(bytes);
+  if (enc === 'hex')       return _hexEncode(bytes);
+  if (enc === 'base64')    return _b64Encode(bytes);
+  if (enc === 'base64url') return _b64UrlEncode(bytes);
 };
 Buffer.prototype.toJSON = function() {
   return { type: 'Buffer', data: Array.from(this._data) };
@@ -355,11 +521,25 @@ Buffer.prototype.copy = function(target, targetStart, sourceStart, sourceEnd) {
   target._data.set(sub, targetStart);
   return sub.length;
 };
-Buffer.prototype.write = function(str, offset) {
-  var bytes = _utf8Encode(str);
-  offset = offset || 0;
-  this._data.set(bytes, offset);
-  return bytes.length;
+Buffer.prototype.write = function(str, offset, length, encoding) {
+  if (typeof offset === 'string') { encoding = offset; offset = 0; length = undefined; }
+  else if (typeof length === 'string') { encoding = length; length = undefined; }
+  offset = offset | 0;
+  var enc = _normEnc(encoding);
+  if (enc === undefined) _badEnc(encoding);
+  var bytes;
+  if (enc === 'utf8')         bytes = _utf8Encode(str);
+  else if (enc === 'utf16le') bytes = _utf16leEncode(str);
+  else if (enc === 'latin1')  bytes = _latin1Encode(str);
+  else if (enc === 'ascii')   bytes = _asciiEncode(str);
+  else if (enc === 'hex')     bytes = _hexDecode(str);
+  else                        bytes = _b64Decode(str);
+  var max = this._data.length - offset;
+  if (max < 0) max = 0;
+  var write = length === undefined ? bytes.length : Math.min(length | 0, bytes.length);
+  if (write > max) write = max;
+  for (var i = 0; i < write; i++) this._data[offset + i] = bytes[i];
+  return write;
 };
 Buffer.prototype.fill = function(val, offset, end) {
   this._data.fill(typeof val === 'number' ? val : 0, offset, end);
