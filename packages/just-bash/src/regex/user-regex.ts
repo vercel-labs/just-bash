@@ -241,7 +241,7 @@ export class UserRegex implements RegexLike {
 
     // Global: return all matches without groups
     const matches: string[] = [];
-    const matcher = this._re2.matcher(input);
+    const matcher = this.acquireMatcher(input);
     let pos = 0;
 
     while (matcher.find(pos)) {
@@ -270,8 +270,7 @@ export class UserRegex implements RegexLike {
     }
 
     if (typeof replacement === "string") {
-      const matcher = this._re2.matcher(input);
-      // Use perlMode=true for JavaScript-style replacement ($1, $2, etc.)
+      const matcher = this.acquireMatcher(input);
       if (this._global) {
         return matcher.replaceAll(replacement, true);
       }
@@ -280,7 +279,7 @@ export class UserRegex implements RegexLike {
 
     // Callback replacement - we need to do this manually
     const result: string[] = [];
-    const matcher = this._re2.matcher(input);
+    const matcher = this.acquireMatcher(input);
     let lastEnd = 0;
     let pos = 0;
     const groupCount = this._re2.groupCount();
@@ -355,7 +354,7 @@ export class UserRegex implements RegexLike {
    * Returns the index of the first match, or -1 if not found.
    */
   search(input: string): number {
-    const matcher = this._re2.matcher(input);
+    const matcher = this.acquireMatcher(input);
     if (matcher.find()) {
       return matcher.start(0);
     }
@@ -371,7 +370,7 @@ export class UserRegex implements RegexLike {
     }
 
     this._lastIndex = 0;
-    const matcher = this._re2.matcher(input);
+    const matcher = this.acquireMatcher(input);
     const groupCount = this._re2.groupCount();
     const namedGroups = this._re2.namedGroups();
     let pos = 0;

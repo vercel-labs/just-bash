@@ -400,6 +400,52 @@ describe("RegexLike interface compatibility", () => {
   }
 });
 
+describe("acquireMatcher reuse — all methods", () => {
+  it("match() global reuses cached matcher", () => {
+    const re = new UserRegex("o+", "g");
+    const r1 = re.match("foooo bar ooo");
+    expect(r1).toEqual(["oooo", "ooo"]);
+    const r2 = re.match("bar baz");
+    expect(r2).toBeNull();
+  });
+
+  it("replace() string path returns correct result", () => {
+    const re = new UserRegex("foo", "g");
+    expect(re.replace("foo bar foo", "baz")).toBe("baz bar baz");
+    expect(re.replace("foo only once", "X")).toBe("X only once");
+  });
+
+  it("replace() callback path returns correct result", () => {
+    const re = new UserRegex("(\\w+)", "g");
+    const result = re.replace("hello world", (m) => m.toUpperCase());
+    expect(result).toBe("HELLO WORLD");
+  });
+
+  it("search() returns correct index", () => {
+    const re = new UserRegex("bar");
+    expect(re.search("foo bar baz")).toBe(4);
+    expect(re.search("no match")).toBe(-1);
+  });
+
+  it("matchAll() yields all matches with groups", () => {
+    const re = new UserRegex("(\\d+)", "g");
+    const matches = [...re.matchAll("a1 b22 c333")];
+    expect(matches).toHaveLength(3);
+    expect(matches[0]?.[1]).toBe("1");
+    expect(matches[1]?.[1]).toBe("22");
+    expect(matches[2]?.[1]).toBe("333");
+  });
+
+  it("sequential calls on same instance don't leak state", () => {
+    const re = new UserRegex("x", "g");
+    for (let i = 0; i < 1000; i++) {
+      const r = re.match(i % 2 === 0 ? "x" : "y");
+      if (i % 2 === 0) expect(r).toEqual(["x"]);
+      else expect(r).toBeNull();
+    }
+  });
+});
+
 describe("edge cases", () => {
   describe("special regex characters in pattern", () => {
     it("handles escaped special chars", () => {
