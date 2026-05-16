@@ -490,7 +490,10 @@ Buffer.byteLength = function(value, encoding) {
   if (enc === 'utf16le')   return value.length * 2;
   if (enc === 'latin1' || enc === 'ascii') return value.length;
   if (enc === 'hex')       return (value.length / 2) | 0;
-  if (enc === 'base64' || enc === 'base64url') return _b64Decode(value).length;
+  if (enc === 'base64' || enc === 'base64url') {
+    var clean = value.replace(/[^A-Za-z0-9+\\/\\-_]/g, '').replace(/=+$/, '');
+    return Math.floor(clean.length * 3 / 4);
+  }
 };
 Buffer.prototype.toString = function(encoding, start, end) {
   var bytes = this._data;
