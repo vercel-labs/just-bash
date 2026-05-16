@@ -66,6 +66,47 @@ describe("buildRegex preFilter — happy path", () => {
       ignoreCase: false,
     });
   });
+
+  it("extracts needle from leading-anchored literal ^foo", () => {
+    expect(buildRegex("^foo", { mode: "extended" }).preFilter).toEqual({
+      needles: ["foo"],
+      ignoreCase: false,
+    });
+  });
+
+  it("extracts needle from trailing-anchored literal foo$", () => {
+    expect(buildRegex("foo$", { mode: "extended" }).preFilter).toEqual({
+      needles: ["foo"],
+      ignoreCase: false,
+    });
+  });
+
+  it("extracts needle from fully-anchored literal ^foo$", () => {
+    expect(buildRegex("^foo$", { mode: "extended" }).preFilter).toEqual({
+      needles: ["foo"],
+      ignoreCase: false,
+    });
+  });
+
+  it("extracts needles from anchored alternation ^def |^async def (the issue case)", () => {
+    // BRE: \| is alternation. This is the canonical pattern from issue #89.
+    expect(
+      buildRegex("^def \\|^async def ", { mode: "basic" }).preFilter,
+    ).toEqual({ needles: ["def ", "async def "], ignoreCase: false });
+  });
+
+  it("extracts needles from mixed anchored/unanchored alternation", () => {
+    expect(buildRegex("^foo|bar|baz$", { mode: "extended" }).preFilter).toEqual(
+      { needles: ["foo", "bar", "baz"], ignoreCase: false },
+    );
+  });
+
+  it("preserves literal $ when escaped (foo\\$ → 'foo$')", () => {
+    expect(buildRegex("foo\\$", { mode: "extended" }).preFilter).toEqual({
+      needles: ["foo$"],
+      ignoreCase: false,
+    });
+  });
 });
 
 describe("buildRegex preFilter — safety (must NOT extract)", () => {
@@ -89,14 +130,6 @@ describe("buildRegex preFilter — safety (must NOT extract)", () => {
 
   it("rejects character class", () => {
     expect(buildRegex("[abc]", { mode: "extended" }).preFilter).toBeUndefined();
-  });
-
-  it("rejects start anchor ^", () => {
-    expect(buildRegex("^foo", { mode: "extended" }).preFilter).toBeUndefined();
-  });
-
-  it("rejects end anchor $", () => {
-    expect(buildRegex("foo$", { mode: "extended" }).preFilter).toBeUndefined();
   });
 
   it("rejects . (matches any char)", () => {
@@ -154,6 +187,28 @@ describe("buildRegex preFilter — safety (must NOT extract)", () => {
   it("rejects \\u unicode escape (would produce wrong needle, e.g. 'u2764' for \\u2764)", () => {
     expect(
       buildRegex("\\u2764", { mode: "extended" }).preFilter,
+    ).toBeUndefined();
+  });
+
+  it("rejects bare ^ (anchor-only, no useful needle)", () => {
+    expect(buildRegex("^", { mode: "extended" }).preFilter).toBeUndefined();
+  });
+
+  it("rejects bare $ (anchor-only, no useful needle)", () => {
+    expect(buildRegex("$", { mode: "extended" }).preFilter).toBeUndefined();
+  });
+
+  it("rejects ^$ (line-boundary anchor pair, no needle)", () => {
+    expect(buildRegex("^$", { mode: "extended" }).preFilter).toBeUndefined();
+  });
+
+  it("rejects ^a|$ (one branch has no needle)", () => {
+    expect(buildRegex("^a|$", { mode: "extended" }).preFilter).toBeUndefined();
+  });
+
+  it("rejects mid-alternative ^ (literal ^ in middle is meta)", () => {
+    expect(
+      buildRegex("foo^bar", { mode: "extended" }).preFilter,
     ).toBeUndefined();
   });
 });
