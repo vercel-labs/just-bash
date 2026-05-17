@@ -739,4 +739,145 @@ describe("grep", () => {
       expect(result.stdout).toBe("!@#\n");
     });
   });
+
+  describe("-f flag (patterns from file)", () => {
+    it("should read a single pattern from file", async () => {
+      const env = new Bash({
+        files: {
+          "/patterns.txt": "hello\n",
+          "/data.txt": "hello world\nfoo bar\nhello again\n",
+        },
+      });
+      const result = await env.exec("grep -f /patterns.txt /data.txt");
+      expect(result.stdout).toBe("hello world\nhello again\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should read multiple patterns from file", async () => {
+      const env = new Bash({
+        files: {
+          "/patterns.txt": "hello\nbar\n",
+          "/data.txt": "hello world\nfoo bar\nbaz qux\n",
+        },
+      });
+      const result = await env.exec("grep -f /patterns.txt /data.txt");
+      expect(result.stdout).toBe("hello world\nfoo bar\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with -F for fixed string matching", async () => {
+      const env = new Bash({
+        files: {
+          "/patterns.txt": "hello\n",
+          "/data.txt": "hello2\nhello\nworld\n",
+        },
+      });
+      const result = await env.exec("grep -F -f /patterns.txt /data.txt");
+      expect(result.stdout).toBe("hello2\nhello\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with -F and multiple patterns from file", async () => {
+      const env = new Bash({
+        files: {
+          "/patterns.txt": "foo.bar\nbaz*qux\n",
+          "/data.txt": "foo.bar\nfooXbar\nbaz*qux\nbazqux\n",
+        },
+      });
+      const result = await env.exec("grep -F -f /patterns.txt /data.txt");
+      expect(result.stdout).toBe("foo.bar\nbaz*qux\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should work with -i for case-insensitive matching", async () => {
+      const env = new Bash({
+        files: {
+          "/patterns.txt": "hello\n",
+          "/data.txt": "Hello\nHELLO\nworld\n",
+        },
+      });
+      const result = await env.exec("grep -i -f /patterns.txt /data.txt");
+      expect(result.stdout).toBe("Hello\nHELLO\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should error when pattern file does not exist", async () => {
+      const env = new Bash({
+        files: { "/data.txt": "hello\n" },
+      });
+      const result = await env.exec("grep -f /missing.txt /data.txt");
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "grep: /missing.txt: No such file or directory\n",
+      );
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should work with --file= long form", async () => {
+      const env = new Bash({
+        files: {
+          "/patterns.txt": "hello\n",
+          "/data.txt": "hello world\nfoo bar\n",
+        },
+      });
+      const result = await env.exec("grep --file=/patterns.txt /data.txt");
+      expect(result.stdout).toBe("hello world\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should produce no output for empty pattern file", async () => {
+      const env = new Bash({
+        files: {
+          "/patterns.txt": "",
+          "/data.txt": "hello world\nfoo bar\n",
+        },
+      });
+      const result = await env.exec("grep -f /patterns.txt /data.txt");
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(1);
+    });
+
+    it("should match every line when pattern file contains a blank line", async () => {
+      const env = new Bash({
+        files: {
+          "/patterns.txt": "\n",
+          "/data.txt": "hello world\nfoo bar\n",
+        },
+      });
+      const result = await env.exec("grep -f /patterns.txt /data.txt");
+      expect(result.stdout).toBe("hello world\nfoo bar\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should match every line when pattern file mixes blank and real patterns", async () => {
+      const env = new Bash({
+        files: {
+          "/patterns.txt": "foo\n\nbar\n",
+          "/data.txt": "hello world\nfoo bar\nbaz qux\n",
+        },
+      });
+      const result = await env.exec("grep -f /patterns.txt /data.txt");
+      expect(result.stdout).toBe("hello world\nfoo bar\nbaz qux\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should match the exact issue #166 scenario", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        'echo "hello" > a.txt; echo "hello2" > b.txt; grep -F -f a.txt b.txt',
+      );
+      expect(result.stdout).toBe("hello2\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+  });
 });
