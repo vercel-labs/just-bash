@@ -148,6 +148,7 @@ export function searchContent(
       showByteOffset,
       replace,
       kResetGroup,
+      preFilter,
     });
   }
 
@@ -465,6 +466,7 @@ function searchContentMultiline(
     showByteOffset: boolean;
     replace: string | null;
     kResetGroup?: number;
+    preFilter?: PreFilter | null;
   },
 ): SearchResult {
   const {
@@ -482,7 +484,18 @@ function searchContentMultiline(
     showByteOffset,
     replace,
     kResetGroup,
+    preFilter,
   } = options;
+
+  // File-level preFilter: if no needle appears anywhere in the content, no line can match.
+  // Only safe when not inverting — an invert-match scan must check every line.
+  if (preFilter && !invertMatch && !preFilterMatches(preFilter, content)) {
+    if (countOnly || countMatches) {
+      const countStr = filename ? `${filename}:0` : "0";
+      return { output: `${countStr}\n`, matched: false, matchCount: 0 };
+    }
+    return { output: "", matched: false, matchCount: 0 };
+  }
 
   const lines = content.split("\n");
   const lineCount = lines.length;

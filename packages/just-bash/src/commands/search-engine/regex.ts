@@ -334,11 +334,28 @@ function splitTopLevelAlternation(pattern: string): string[] | null {
  * something other than itself (quantifier, anchor, character class, group, dot).
  */
 function literalFromAlternative(alt: string): string | null {
+  // Strip a leading unescaped ^ anchor.
+  let inner = alt;
+  if (inner.startsWith("^")) {
+    inner = inner.slice(1);
+  }
+  // Strip a trailing unescaped $ anchor. Walk back the run of trailing
+  // backslashes: $ is an anchor iff that run has even length.
+  if (inner.endsWith("$")) {
+    let bs = 0;
+    for (let i = inner.length - 2; i >= 0 && inner[i] === "\\"; i--) bs++;
+    if (bs % 2 === 0) {
+      inner = inner.slice(0, -1);
+    }
+  }
+  // Anchor-only alternative — no useful needle.
+  if (inner.length === 0) return null;
+
   let out = "";
-  for (let i = 0; i < alt.length; i++) {
-    const c = alt[i];
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
     if (c === "\\") {
-      const next = alt[i + 1];
+      const next = inner[i + 1];
       if (next === undefined) return null;
       // Reject escapes that aren't simple literal substitutions.
       // \n, \t, \r are literal whitespace — fine. \d, \w, \s, \b, \B etc.
