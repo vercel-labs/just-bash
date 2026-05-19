@@ -28,6 +28,32 @@ import {
 // Cached SQL.js module (initialized once)
 let cachedSQL: SqlJsStatic | null = null;
 
+/**
+ * Coerce a host-supplied dbBuffer into the form sql.js expects.
+ *
+ * Why: Bun's worker_threads structured-clone has regressed across versions
+ * (notably the build shipped in Trigger.dev's container) and surfaces a
+ * host-side `null` dbBuffer as a zero-length ArrayBuffer here. A truthy
+ * empty ArrayBuffer would slip past `if (data.dbBuffer)` and reach
+ * `new SQL.Database(arrayBuffer)`, which throws "Expected ArrayBuffer for
+ * the first argument" (sql.js wants Uint8Array, not bare ArrayBuffer).
+ * Treat empty/non-Uint8Array values as "no buffer" → fresh in-memory db,
+ * matching the host's intent for :memory: databases.
+ */
+export function coerceDbBuffer(raw: unknown): Uint8Array | null {
+  if (raw instanceof Uint8Array) {
+    return raw;
+  }
+  if (
+    raw &&
+    typeof (raw as { byteLength?: unknown }).byteLength === "number" &&
+    (raw as ArrayBuffer).byteLength > 0
+  ) {
+    return new Uint8Array(raw as ArrayBufferLike);
+  }
+  return null;
+}
+
 // Defense instance (activated after sql.js init)
 let defense: WorkerDefenseInDepth | null = null;
 
@@ -229,11 +255,8 @@ async function executeQuery(data: WorkerInput): Promise<WorkerOutput> {
   try {
     const SQL = await initializeWithDefense(data.protocolToken);
 
-    if (data.dbBuffer) {
-      db = new SQL.Database(data.dbBuffer);
-    } else {
-      db = new SQL.Database();
-    }
+    const buf = coerceDbBuffer(data.dbBuffer);
+    db = buf ? new SQL.Database(buf) : new SQL.Database();
   } catch (e) {
     const message = sanitizeHostErrorMessage((e as Error).message);
     return {
