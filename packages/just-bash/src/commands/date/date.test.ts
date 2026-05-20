@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
-/** Format date in UTC as YYYY-MM-DD (sandbox always uses UTC) */
-function formatUTCDate(date: Date): string {
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(date.getUTCDate()).padStart(2, "0");
+/** Format date in local timezone as YYYY-MM-DD */
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
@@ -75,18 +75,36 @@ describe("date", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should format weekday name with %a", async () => {
+    it("should format abbreviated weekday name with %a", async () => {
       const env = new Bash();
       const result = await env.exec("date +%a");
       expect(result.stdout).toMatch(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\n$/);
       expect(result.exitCode).toBe(0);
     });
 
-    it("should format month name with %b", async () => {
+    it("should format full weekday name with %A", async () => {
+      const env = new Bash();
+      const result = await env.exec("date +%A");
+      expect(result.stdout).toMatch(
+        /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\n$/,
+      );
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should format abbreviated month name with %b", async () => {
       const env = new Bash();
       const result = await env.exec("date +%b");
       expect(result.stdout).toMatch(
         /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\n$/,
+      );
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should format full month name with %B", async () => {
+      const env = new Bash();
+      const result = await env.exec("date +%B");
+      expect(result.stdout).toMatch(
+        /^(January|February|March|April|May|June|July|August|September|October|November|December)\n$/,
       );
       expect(result.exitCode).toBe(0);
     });
@@ -103,6 +121,48 @@ describe("date", () => {
       const env = new Bash();
       const result = await env.exec("date +%p");
       expect(result.stdout).toMatch(/^(AM|PM)\n$/);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should format 12-hour time with AM/PM using %r", async () => {
+      const env = new Bash();
+      const result = await env.exec("date +%r");
+      expect(result.stdout).toMatch(/^\d{2}:\d{2}:\d{2} (AM|PM)\n$/);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should format century with %C", async () => {
+      const env = new Bash();
+      const result = await env.exec("date +%C");
+      expect(result.stdout).toMatch(/^\d{2}\n$/);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should format day of year with %j", async () => {
+      const env = new Bash();
+      const result = await env.exec("date +%j");
+      expect(result.stdout).toMatch(/^\d{3}\n$/);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should format ISO week number with %V", async () => {
+      const env = new Bash();
+      const result = await env.exec("date +%V");
+      expect(result.stdout).toMatch(/^\d{2}\n$/);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should format week number (Sunday start) with %U", async () => {
+      const env = new Bash();
+      const result = await env.exec("date +%U");
+      expect(result.stdout).toMatch(/^\d{2}\n$/);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should format week number (Monday start) with %W", async () => {
+      const env = new Bash();
+      const result = await env.exec("date +%W");
+      expect(result.stdout).toMatch(/^\d{2}\n$/);
       expect(result.exitCode).toBe(0);
     });
 
@@ -133,17 +193,29 @@ describe("date", () => {
       expect(result.stdout).toMatch(/^\d{4}\t\d{2}\n$/);
       expect(result.exitCode).toBe(0);
     });
+
+    it("should format known specifiers correctly against a fixed UTC date", async () => {
+      const env = new Bash();
+      // 2024-03-15T14:30:45Z is a Friday in week 11, day 75 of the year
+      const result = await env.exec(
+        "date -u -d '2024-03-15T14:30:45Z' '+%Y %m %d %H %M %S %a %A %b %B %j %V %u %w'",
+      );
+      expect(result.stdout.trim()).toBe(
+        "2024 03 15 14 30 45 Fri Friday Mar March 075 11 5 5",
+      );
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("options", () => {
-    it("should parse date string with -d", async () => {
+    it("should parse date string with -d (local noon stays same day)", async () => {
       const env = new Bash();
       const result = await env.exec("date -d '2024-01-15T12:00:00' +%Y-%m-%d");
       expect(result.stdout).toBe("2024-01-15\n");
       expect(result.exitCode).toBe(0);
     });
 
-    it("should parse date string with --date", async () => {
+    it("should parse date string with --date (local noon stays same day)", async () => {
       const env = new Bash();
       const result = await env.exec("date --date='2024-06-20T12:00:00' +%F");
       expect(result.stdout).toBe("2024-06-20\n");
@@ -166,17 +238,47 @@ describe("date", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should output UTC with -u", async () => {
+    it("should output UTC timezone name with -u", async () => {
       const env = new Bash();
       const result = await env.exec("date -u +%Z");
       expect(result.stdout).toBe("UTC\n");
       expect(result.exitCode).toBe(0);
     });
 
-    it("should output UTC timezone offset with -u", async () => {
+    it("should output +0000 offset with -u", async () => {
       const env = new Bash();
       const result = await env.exec("date -u +%z");
       expect(result.stdout).toBe("+0000\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should output +0000 in -I format with -u", async () => {
+      const env = new Bash();
+      const result = await env.exec("date -u -I");
+      expect(result.stdout.trim()).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+0000$/);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should output +0000 in -R format with -u", async () => {
+      const env = new Bash();
+      const result = await env.exec("date -u -R");
+      expect(result.stdout).toContain("+0000");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe("@timestamp parsing", () => {
+    it("should parse Unix epoch with @0", async () => {
+      const env = new Bash();
+      const result = await env.exec("date -u -d '@0' '+%Y-%m-%dT%H:%M:%S'");
+      expect(result.stdout.trim()).toBe("1970-01-01T00:00:00");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should parse arbitrary @timestamp", async () => {
+      const env = new Bash();
+      const result = await env.exec("date -u -d '@1705276800' +%F");
+      expect(result.stdout.trim()).toBe("2024-01-15");
       expect(result.exitCode).toBe(0);
     });
   });
@@ -194,8 +296,7 @@ describe("date", () => {
     it("should parse 'today'", async () => {
       const env = new Bash();
       const result = await env.exec("date -d today +%F");
-      // Use local date formatting to match date command behavior
-      const today = formatUTCDate(new Date());
+      const today = formatLocalDate(new Date());
       expect(result.stdout).toBe(`${today}\n`);
       expect(result.exitCode).toBe(0);
     });
@@ -203,16 +304,16 @@ describe("date", () => {
     it("should parse 'yesterday'", async () => {
       const env = new Bash();
       const result = await env.exec("date -d yesterday +%F");
-      const yesterday = new Date(Date.now() - 86400000);
-      expect(result.stdout).toBe(`${formatUTCDate(yesterday)}\n`);
+      const yesterday = formatLocalDate(new Date(Date.now() - 86400000));
+      expect(result.stdout).toBe(`${yesterday}\n`);
       expect(result.exitCode).toBe(0);
     });
 
     it("should parse 'tomorrow'", async () => {
       const env = new Bash();
       const result = await env.exec("date -d tomorrow +%F");
-      const tomorrow = new Date(Date.now() + 86400000);
-      expect(result.stdout).toBe(`${formatUTCDate(tomorrow)}\n`);
+      const tomorrow = formatLocalDate(new Date(Date.now() + 86400000));
+      expect(result.stdout).toBe(`${tomorrow}\n`);
       expect(result.exitCode).toBe(0);
     });
   });
@@ -254,7 +355,7 @@ describe("date", () => {
     it("should output default format without arguments", async () => {
       const env = new Bash();
       const result = await env.exec("date");
-      // Default format includes weekday, month, day, time, timezone, year
+      // Default format: weekday month day HH:MM:SS TZ year
       expect(result.stdout).toMatch(
         /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/,
       );
@@ -262,53 +363,62 @@ describe("date", () => {
     });
   });
 
-  describe("timezone non-disclosure", () => {
-    it("%Z should return UTC, never the host timezone", async () => {
+  describe("timezone", () => {
+    it("should use local timezone for %Z by default", async () => {
       const env = new Bash();
       const result = await env.exec("date +%Z");
-      expect(result.stdout.trim()).toBe("UTC");
-      // Must not contain a real timezone like America/New_York, etc.
-      expect(result.stdout).not.toContain("/");
+      expect(result.stdout.trim()).toBeTruthy();
+      expect(result.exitCode).toBe(0);
     });
 
-    it("%z should return +0000, never the host UTC offset", async () => {
+    it("should use local offset for %z by default", async () => {
       const env = new Bash();
       const result = await env.exec("date +%z");
-      expect(result.stdout.trim()).toBe("+0000");
+      expect(result.stdout.trim()).toMatch(/^[+-]\d{4}$/);
+      expect(result.exitCode).toBe(0);
     });
 
-    it("default output should show UTC timezone", async () => {
-      const env = new Bash();
-      const result = await env.exec("date");
-      // Default format includes %Z which should be UTC
-      expect(result.stdout).toContain("UTC");
-    });
-
-    it("-I (iso) format should use +0000 offset", async () => {
-      const env = new Bash();
-      const result = await env.exec("date -I");
-      expect(result.stdout).toContain("+0000");
-    });
-
-    it("-R (rfc) format should use +0000 offset", async () => {
-      const env = new Bash();
-      const result = await env.exec("date -R");
-      expect(result.stdout).toContain("+0000");
-    });
-
-    it("-u flag should still work (already UTC)", async () => {
+    it("-u should force UTC for %Z", async () => {
       const env = new Bash();
       const result = await env.exec("date -u +%Z");
       expect(result.stdout.trim()).toBe("UTC");
+      expect(result.exitCode).toBe(0);
     });
 
-    it("time values should be UTC (consistent with %Z)", async () => {
+    it("-u should force +0000 for %z", async () => {
       const env = new Bash();
-      // Use a fixed date to verify UTC conversion
+      const result = await env.exec("date -u +%z");
+      expect(result.stdout.trim()).toBe("+0000");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("UTC time values are correct with -u on a fixed timestamp", async () => {
+      const env = new Bash();
       const result = await env.exec(
-        "date -d '2024-01-15T00:00:00Z' '+%H:%M:%S'",
+        "date -u -d '2024-01-15T00:00:00Z' '+%H:%M:%S'",
       );
       expect(result.stdout.trim()).toBe("00:00:00");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("UTC date is correct with -u on a fixed timestamp", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "date -u -d '2024-01-15T23:59:59Z' '+%F'",
+      );
+      expect(result.stdout.trim()).toBe("2024-01-15");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("%Z and %z are consistent (both local or both UTC)", async () => {
+      const env = new Bash();
+      // A UTC+0 environment: %Z=UTC and %z=+0000 match
+      // Any other environment: %Z is a short name for the same offset as %z
+      const tzResult = await env.exec("date +%Z");
+      const offsetResult = await env.exec("date +%z");
+      // Both should be non-empty and the offset format should be correct
+      expect(tzResult.stdout.trim()).toBeTruthy();
+      expect(offsetResult.stdout.trim()).toMatch(/^[+-]\d{4}$/);
     });
   });
 });

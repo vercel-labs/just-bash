@@ -87,13 +87,20 @@ function getDatePartsInTimezone(
     ]);
     const weekdayStr = getValue("weekday");
 
+    // Use NaN-safe parsing so zero-valued fields (hour/minute/second = 0)
+    // don't incorrectly fall back to local time via the || operator.
+    const parseField = (val: string, fallback: number): number => {
+      const n = Number.parseInt(val, 10);
+      return Number.isNaN(n) ? fallback : n;
+    };
     return {
-      year: Number.parseInt(getValue("year"), 10) || date.getFullYear(),
-      month: Number.parseInt(getValue("month"), 10) || date.getMonth() + 1,
-      day: Number.parseInt(getValue("day"), 10) || date.getDate(),
-      hour: Number.parseInt(getValue("hour"), 10) || date.getHours(),
-      minute: Number.parseInt(getValue("minute"), 10) || date.getMinutes(),
-      second: Number.parseInt(getValue("second"), 10) || date.getSeconds(),
+      year: parseField(getValue("year"), date.getFullYear()),
+      month: parseField(getValue("month"), date.getMonth() + 1),
+      day: parseField(getValue("day"), date.getDate()),
+      // % 24 normalises the rare browser quirk of returning 24 for midnight
+      hour: parseField(getValue("hour"), date.getHours()) % 24,
+      minute: parseField(getValue("minute"), date.getMinutes()),
+      second: parseField(getValue("second"), date.getSeconds()),
       weekday: weekdayMap.get(weekdayStr) ?? date.getDay(),
     };
   } catch {
