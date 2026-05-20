@@ -19,19 +19,65 @@ const dateHelp = {
   ],
 };
 
-function parseDate(s: string): Date | null {
-  // @unix-timestamp (GNU extension: date -d @1234567890)
-  if (s.startsWith("@")) {
-    const ts = Number.parseInt(s.slice(1), 10);
-    if (!Number.isNaN(ts)) return new Date(ts * 1000);
+/**
+ * Interpret a bare ISO datetime string (no explicit offset) as if it were
+ * in the given named timezone, returning the corresponding UTC Date.
+ *
+ * Strategy: treat the components as UTC to get a reference point, ask Intl
+ * what that timezone shows at that moment, then shift by the difference so
+ * the timezone clock reads the original components.
+ */
+function parseBareISOInTimezone(s: string, tz: string): Date | null {
+  const m = s.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/,
+  );
+  if (!m) return null;
+  const [, yr, mo, dy, hr = "00", mn = "00", sc = "00"] = m;
+  const utcRef = new Date(`${yr}-${mo}-${dy}T${hr}:${mn}:${sc}Z`);
+  if (Number.isNaN(utcRef.getTime())) return null;
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(utcRef);
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+    const h = Number.parseInt(get("hour"), 10) % 24;
+    const tzShown = new Date(
+      `${get("year")}-${get("month")}-${get("day")}T${String(h).padStart(2, "0")}:${get("minute")}:${get("second")}Z`,
+    );
+    // Shift utcRef by (utcRef − tzShown) so the TZ clock reads the target value
+    return new Date(utcRef.getTime() + (utcRef.getTime() - tzShown.getTime()));
+  } catch {
+    return null;
   }
-  const d = new Date(s);
-  if (!Number.isNaN(d.getTime())) return d;
-  if (/^\d+$/.test(s)) return new Date(Number.parseInt(s, 10) * 1000);
+}
+
+function parseDate(s: string, tz?: string): Date | null {
+  // @unix-timestamp (GNU extension: date -d @1234567890)
+  // Require the entire suffix to be numeric to reject partial matches like @0abc.
+  if (s.startsWith("@")) {
+    const suffix = s.slice(1);
+    if (!/^-?\d+$/.test(suffix)) return null;
+    return new Date(Number.parseInt(suffix, 10) * 1000);
+  }
   const l = s.toLowerCase().trim();
   if (l === "now" || l === "today") return new Date();
   if (l === "yesterday") return new Date(Date.now() - 86400000);
   if (l === "tomorrow") return new Date(Date.now() + 86400000);
+  if (/^\d+$/.test(s)) return new Date(Number.parseInt(s, 10) * 1000);
+  // For bare ISO strings (no explicit offset/Z), interpret in the requested timezone
+  if (tz && !/Z$/i.test(s) && !/[+-]\d{2}:?\d{2}$/.test(s)) {
+    const d = parseBareISOInTimezone(s, tz);
+    if (d) return d;
+  }
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return d;
   return null;
 }
 
@@ -65,7 +111,12 @@ export const dateCommand: Command = {
       }
     }
 
-    const date = dateStr !== null ? parseDate(dateStr) : new Date();
+    // TZ env var governs how timezone-naive -d strings are interpreted;
+    // -u only overrides the display timezone, not parsing.
+    const parseTz = ctx.env.get("TZ");
+    const displayTz = utc ? "UTC" : parseTz;
+
+    const date = dateStr !== null ? parseDate(dateStr, parseTz) : new Date();
     if (!date)
       return {
         stdout: "",
@@ -73,15 +124,13 @@ export const dateCommand: Command = {
         exitCode: 1,
       };
 
-    // -u forces UTC; otherwise use TZ env var if set, else local timezone
-    const tz = utc ? "UTC" : ctx.env.get("TZ");
     const ts = Math.floor(date.getTime() / 1000);
 
     let out: string;
-    if (fmt) out = formatStrftime(fmt, ts, tz);
-    else if (iso) out = formatStrftime("%Y-%m-%dT%H:%M:%S%z", ts, tz);
-    else if (rfc) out = formatStrftime("%a, %d %b %Y %H:%M:%S %z", ts, tz);
-    else out = formatStrftime("%a %b %e %H:%M:%S %Z %Y", ts, tz);
+    if (fmt) out = formatStrftime(fmt, ts, displayTz);
+    else if (iso) out = formatStrftime("%Y-%m-%dT%H:%M:%S%z", ts, displayTz);
+    else if (rfc) out = formatStrftime("%a, %d %b %Y %H:%M:%S %z", ts, displayTz);
+    else out = formatStrftime("%a %b %e %H:%M:%S %Z %Y", ts, displayTz);
 
     return { stdout: `${out}\n`, stderr: "", exitCode: 0 };
   },

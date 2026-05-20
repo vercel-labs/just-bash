@@ -159,10 +159,34 @@ describe("date", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it("should return 00 for %U when date is before the first Sunday", async () => {
+      const env = new Bash();
+      // 2024-01-01 is Monday — before the first Sunday (Jan 7) so week 00
+      const result = await env.exec("date -u -d '2024-01-01T12:00:00Z' +%U");
+      expect(result.stdout.trim()).toBe("00");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should return 01 for %U on the first Sunday of the year", async () => {
+      const env = new Bash();
+      // 2024-01-07 is Sunday — first Sunday so week 01
+      const result = await env.exec("date -u -d '2024-01-07T12:00:00Z' +%U");
+      expect(result.stdout.trim()).toBe("01");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should format week number (Monday start) with %W", async () => {
       const env = new Bash();
       const result = await env.exec("date +%W");
       expect(result.stdout).toMatch(/^\d{2}\n$/);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should return 00 for %W when date is before the first Monday", async () => {
+      const env = new Bash();
+      // 2023-01-01 is Sunday — before the first Monday (Jan 2) so week 00
+      const result = await env.exec("date -u -d '2023-01-01T12:00:00Z' +%W");
+      expect(result.stdout.trim()).toBe("00");
       expect(result.exitCode).toBe(0);
     });
 
@@ -279,6 +303,36 @@ describe("date", () => {
       const env = new Bash();
       const result = await env.exec("date -u -d '@1705276800' +%F");
       expect(result.stdout.trim()).toBe("2024-01-15");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should reject @timestamp with non-numeric suffix", async () => {
+      const env = new Bash();
+      const result = await env.exec("date -d '@0abc' +%s");
+      expect(result.stderr).toContain("invalid date");
+      expect(result.exitCode).toBe(1);
+    });
+  });
+
+  describe("TZ-aware -d parsing", () => {
+    it("should interpret bare ISO string in TZ context when TZ is set", async () => {
+      const env = new Bash();
+      // America/New_York in January is EST = UTC-5.
+      // 2024-01-15T00:00:00 in New York = 2024-01-15T05:00:00Z = timestamp 1705294800.
+      const result = await env.exec(
+        "export TZ=America/New_York && date -d '2024-01-15T00:00:00' +%s",
+      );
+      expect(result.stdout.trim()).toBe("1705294800");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should not shift a string that already has an explicit UTC offset", async () => {
+      const env = new Bash();
+      // Z suffix means UTC regardless of TZ env var
+      const result = await env.exec(
+        "export TZ=America/New_York && date -d '2024-01-15T00:00:00Z' +%s",
+      );
+      expect(result.stdout.trim()).toBe("1705276800");
       expect(result.exitCode).toBe(0);
     });
   });

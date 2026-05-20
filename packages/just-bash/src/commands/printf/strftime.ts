@@ -368,28 +368,22 @@ function getDayOfYearForParts(
 
 /**
  * Calculate week number from date parts.
+ * startDay: 0 = Sunday (%U), 1 = Monday (%W)
+ * Days before the first occurrence of startDay are week 00.
  */
 function getWeekNumberForParts(
   year: number,
   month: number,
   day: number,
-  weekday: number,
+  _weekday: number,
   startDay: number,
 ): number {
-  const dayOfYear = getDayOfYearForParts(year, month, day);
-  // Find day of week of Jan 1
-  const jan1 = new Date(year, 0, 1);
-  const jan1Weekday = jan1.getDay();
-
-  // Adjust for start day
-  const adjustedJan1 = (jan1Weekday - startDay + 7) % 7;
-  const adjustedWeekday = (weekday - startDay + 7) % 7;
-
-  // Days from start of first week
-  const daysIntoYear = dayOfYear - 1 + adjustedJan1;
-  const weekNum = Math.floor((daysIntoYear - adjustedWeekday + 7) / 7);
-
-  return weekNum;
+  const doy = getDayOfYearForParts(year, month, day);
+  const jan1dow = new Date(year, 0, 1).getDay(); // 0=Sun
+  // Day-of-year (1-based) of the first startDay on or after Jan 1
+  const firstWeekStart = 1 + (7 + startDay - jan1dow) % 7;
+  const days = doy - firstWeekStart;
+  return days < 0 ? 0 : Math.floor(days / 7) + 1;
 }
 
 /**
