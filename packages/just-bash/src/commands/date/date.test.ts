@@ -279,7 +279,9 @@ describe("date", () => {
     it("should output +0000 in -I format with -u", async () => {
       const env = new Bash();
       const result = await env.exec("date -u -I");
-      expect(result.stdout.trim()).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+0000$/);
+      expect(result.stdout.trim()).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+0000$/,
+      );
       expect(result.exitCode).toBe(0);
     });
 
@@ -457,9 +459,7 @@ describe("date", () => {
 
     it("UTC date is correct with -u on a fixed timestamp", async () => {
       const env = new Bash();
-      const result = await env.exec(
-        "date -u -d '2024-01-15T23:59:59Z' '+%F'",
-      );
+      const result = await env.exec("date -u -d '2024-01-15T23:59:59Z' '+%F'");
       expect(result.stdout.trim()).toBe("2024-01-15");
       expect(result.exitCode).toBe(0);
     });

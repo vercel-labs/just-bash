@@ -129,7 +129,8 @@ export const dateCommand: Command = {
     let out: string;
     if (fmt) out = formatStrftime(fmt, ts, displayTz);
     else if (iso) out = formatStrftime("%Y-%m-%dT%H:%M:%S%z", ts, displayTz);
-    else if (rfc) out = formatStrftime("%a, %d %b %Y %H:%M:%S %z", ts, displayTz);
+    else if (rfc)
+      out = formatStrftime("%a, %d %b %Y %H:%M:%S %z", ts, displayTz);
     else out = formatStrftime("%a %b %e %H:%M:%S %Z %Y", ts, displayTz);
 
     return { stdout: `${out}\n`, stderr: "", exitCode: 0 };

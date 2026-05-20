@@ -381,7 +381,7 @@ function getWeekNumberForParts(
   const doy = getDayOfYearForParts(year, month, day);
   const jan1dow = new Date(year, 0, 1).getDay(); // 0=Sun
   // Day-of-year (1-based) of the first startDay on or after Jan 1
-  const firstWeekStart = 1 + (7 + startDay - jan1dow) % 7;
+  const firstWeekStart = 1 + ((7 + startDay - jan1dow) % 7);
   const days = doy - firstWeekStart;
   return days < 0 ? 0 : Math.floor(days / 7) + 1;
 }
