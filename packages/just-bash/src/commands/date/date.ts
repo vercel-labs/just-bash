@@ -20,6 +20,20 @@ const dateHelp = {
 };
 
 /**
+ * True iff `tz` is a timezone Intl understands. Used to fall back to host-local
+ * when `TZ` is set to a value Node's ICU build can't resolve, matching GNU
+ * `date` (which silently uses local time on invalid `TZ`).
+ */
+function isValidTimezone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat(undefined, { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Return what `tz` shows at instant `d`, encoded as a UTC Date whose
  * UTC components equal the wall-clock components shown in `tz`.
  * Returns null if Intl rejects the timezone or produces an unparseable date.
@@ -140,7 +154,12 @@ export const dateCommand: Command = {
 
     // TZ env var governs how timezone-naive -d strings are interpreted;
     // -u only overrides the display timezone, not parsing.
-    const parseTz = ctx.env.get("TZ");
+    // Invalid TZ (e.g. "Mars/Olympus") falls back to host-local for both
+    // parsing and display, matching GNU `date`. Without this, parsing/display
+    // would silently use local parts while %Z / %z would print "UTC" / "+0000",
+    // giving inconsistent output.
+    let parseTz = ctx.env.get("TZ");
+    if (parseTz && !isValidTimezone(parseTz)) parseTz = undefined;
     const displayTz = utc ? "UTC" : parseTz;
 
     const date = dateStr !== null ? parseDate(dateStr, parseTz) : new Date();

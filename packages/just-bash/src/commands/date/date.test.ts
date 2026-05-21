@@ -487,5 +487,38 @@ describe("date", () => {
       expect(tzResult.stdout.trim()).toBeTruthy();
       expect(offsetResult.stdout.trim()).toMatch(/^[+-]\d{4}$/);
     });
+
+    it("invalid TZ falls back to host-local for both parsing and display", async () => {
+      // When TZ is set to something Intl doesn't understand (e.g. Mars/Olympus),
+      // we treat it as unset so parsing and display agree. Without this, the
+      // displayed time would use local parts while %Z / %z would print "UTC" /
+      // "+0000" — internally inconsistent. We document the choice: fall back
+      // to host-local (matching GNU `date`), not to UTC.
+      const env = new Bash();
+      const baseline = await env.exec("date +'%Z %z'");
+      const badTz = await env.exec(
+        "export TZ=Not/A/Real/Zone && date +'%Z %z'",
+      );
+      // Both runs should produce the same local-tz output and the offset
+      // shape must be a real numeric offset, not "+0000" hard-coded.
+      expect(badTz.stdout).toBe(baseline.stdout);
+      expect(badTz.stderr).toBe("");
+      expect(badTz.exitCode).toBe(0);
+      expect(badTz.stdout.trim()).toMatch(/^.+ [+-]\d{4}$/);
+    });
+
+    it("invalid TZ does not break -d parsing of bare ISO strings", async () => {
+      // Without TZ validation, parseBareISOInTimezone would be called with
+      // "Not/A/Real/Zone" and silently fail or fall back. We now treat the
+      // bad TZ as undefined so the local-time fallback path is taken.
+      const env = new Bash();
+      const result = await env.exec(
+        "export TZ=Not/A/Real/Zone && date -d '2024-06-15T12:00:00Z' +%s",
+      );
+      // 2024-06-15T12:00:00Z = 1718452800
+      expect(result.stdout).toBe("1718452800\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
   });
 });
