@@ -443,23 +443,43 @@ describe("Information Disclosure Prevention", () => {
     });
   });
 
-  describe("Timezone Non-Disclosure", () => {
-    it("date should not leak host timezone name", async () => {
-      const result = await bash.exec("date +%Z");
-      const tz = result.stdout.trim();
-      expect(tz).toBe("UTC");
-      // Must not contain slash-separated timezone like America/New_York
-      expect(tz).not.toContain("/");
+  // Per PR #251 (vercel-labs/just-bash#251), `date` follows GNU `date` and
+  // reflects the host (or `$TZ`) timezone by default; timezone is no longer
+  // treated as host-secret. Only `-u` is a contractual UTC guarantee.
+  describe("Timezone behavior", () => {
+    it("date -u +%Z outputs UTC", async () => {
+      const result = await bash.exec("date -u +%Z");
+      expect(result.stdout).toBe("UTC\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
     });
 
-    it("date should not leak host UTC offset", async () => {
-      const result = await bash.exec("date +%z");
-      expect(result.stdout.trim()).toBe("+0000");
+    it("date -u +%z outputs +0000", async () => {
+      const result = await bash.exec("date -u +%z");
+      expect(result.stdout).toBe("+0000\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
     });
 
-    it("date default output should use UTC", async () => {
-      const result = await bash.exec("date");
+    it("date -u default output contains UTC", async () => {
+      const result = await bash.exec("date -u");
+      // Partial match is unavoidable here: default `date -u` output includes
+      // the current weekday/time, so we can only assert the UTC zone marker.
       expect(result.stdout).toContain("UTC");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("without -u, %z is a numeric offset and %Z is non-empty", async () => {
+      const zResult = await bash.exec("date +%z");
+      expect(zResult.stderr).toBe("");
+      expect(zResult.exitCode).toBe(0);
+      expect(zResult.stdout.trim()).toMatch(/^[+-][0-9]{4}$/);
+
+      const upperZResult = await bash.exec("date +%Z");
+      expect(upperZResult.stderr).toBe("");
+      expect(upperZResult.exitCode).toBe(0);
+      expect(upperZResult.stdout.trim().length).toBeGreaterThan(0);
     });
   });
 
