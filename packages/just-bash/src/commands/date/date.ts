@@ -98,7 +98,6 @@ function parseDate(s: string, tz?: string): Date | null {
   if (l === "now" || l === "today") return new Date();
   if (l === "yesterday") return new Date(Date.now() - 86400000);
   if (l === "tomorrow") return new Date(Date.now() + 86400000);
-  if (/^\d+$/.test(s)) return new Date(Number.parseInt(s, 10) * 1000);
   // For bare ISO strings (no explicit offset/Z), interpret in the requested timezone
   if (tz && !/Z$/i.test(s) && !/[+-]\d{2}:?\d{2}$/.test(s)) {
     const d = parseBareISOInTimezone(s, tz);

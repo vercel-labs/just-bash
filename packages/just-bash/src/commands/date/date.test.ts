@@ -314,6 +314,19 @@ describe("date", () => {
       expect(result.stderr).toContain("invalid date");
       expect(result.exitCode).toBe(1);
     });
+
+    it("should treat bare numeric -d as a year, not epoch seconds (GNU compat)", async () => {
+      // Pre-PR behaviour: -d '2024' falls through to new Date(s), which JS
+      // parses as the year 2024 (YYYY -> 2024-01-01T00:00:00Z). The PR
+      // briefly broke this by short-circuiting on /^\d+$/ and treating it as
+      // epoch seconds (= 1970-01-01T00:33:44Z). Only the `@` prefix should
+      // mean epoch seconds.
+      const env = new Bash();
+      const result = await env.exec("date -u -d '2024' +%Y");
+      expect(result.stdout).toBe("2024\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("TZ-aware -d parsing", () => {
