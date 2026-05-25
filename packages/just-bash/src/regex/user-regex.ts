@@ -277,9 +277,15 @@ export class UserRegex implements RegexLike {
       return matcher.replaceFirst(replacement, true);
     }
 
-    // Callback replacement - we need to do this manually
+    // Callback replacement - we need to do this manually.
+    // Use a fresh Matcher rather than the shared cached one: the user-provided
+    // callback may re-enter this same UserRegex instance (e.g. call test/exec/
+    // replace), which would route through acquireMatcher and repoint the shared
+    // matcher's charSequence to a different input. The next matcher.find(pos)
+    // would then advance through the wrong string. A fresh matcher keeps the
+    // iteration state private to this replace() call.
     const result: string[] = [];
-    const matcher = this.acquireMatcher(input);
+    const matcher = this._re2.matcher(input);
     let lastEnd = 0;
     let pos = 0;
     const groupCount = this._re2.groupCount();
@@ -312,9 +318,9 @@ export class UserRegex implements RegexLike {
         args.push(groups);
       }
 
-      // Capture positions before invoking callback — the callback may re-enter this
-      // UserRegex instance, which would cause acquireMatcher to mutate the shared
-      // matcher's charSequence in-place, corrupting start/end reads after the call.
+      // Capture positions before invoking callback. The matcher is private to
+      // this call, but capturing now avoids relying on matcher state being
+      // unchanged across the callback boundary.
       const matchStart = matcher.start(0);
       const matchEnd = matcher.end(0);
 
