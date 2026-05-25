@@ -330,7 +330,7 @@ function _hexVal(c) {
   if (c >= 65 && c <= 70) return c - 55;
   return -1;
 }
-function _latin1Encode(str) {
+function _rawEncode(str) {
   var out = new Array(str.length);
   for (var i = 0; i < str.length; i++) out[i] = str.charCodeAt(i) & 0xff;
   return out;
@@ -339,11 +339,6 @@ function _latin1Decode(bytes) {
   var s = '';
   for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i] & 0xff);
   return s;
-}
-function _asciiEncode(str) {
-  var out = new Array(str.length);
-  for (var i = 0; i < str.length; i++) out[i] = str.charCodeAt(i) & 0x7f;
-  return out;
 }
 function _asciiDecode(bytes) {
   var s = '';
@@ -442,12 +437,16 @@ Buffer.from = function(data, encoding) {
     if (enc === undefined) _badEnc(encoding);
     if (enc === 'utf8')      return new Buffer(_utf8Encode(data));
     if (enc === 'utf16le')   return new Buffer(_utf16leEncode(data));
-    if (enc === 'latin1')    return new Buffer(_latin1Encode(data));
-    if (enc === 'ascii')     return new Buffer(_asciiEncode(data));
+    if (enc === 'latin1')    return new Buffer(_rawEncode(data));
+    if (enc === 'ascii')     return new Buffer(_rawEncode(data));
     if (enc === 'hex')       return new Buffer(_hexDecode(data));
     if (enc === 'base64' || enc === 'base64url') return new Buffer(_b64Decode(data));
   }
-  if (data instanceof ArrayBuffer) return new Buffer(data);
+  if (data instanceof ArrayBuffer) {
+    var off = typeof encoding === 'number' ? encoding : 0;
+    var len = arguments.length > 2 ? arguments[2] : undefined;
+    return new Buffer(new Uint8Array(data, off, len));
+  }
   if (data instanceof Uint8Array)  return new Buffer(data);
   if (Array.isArray(data))         return new Buffer(data);
   if (data && data._data)          return new Buffer(data._data.slice());
@@ -482,7 +481,7 @@ Buffer.byteLength = function(value, encoding) {
     if (value instanceof Uint8Array || value instanceof ArrayBuffer) {
       return value.byteLength;
     }
-    return 0;
+    throw new TypeError('The "string" argument must be of type string or an instance of Buffer or ArrayBuffer. Received type ' + typeof value + ' (' + value + ')');
   }
   var enc = _normEnc(encoding);
   if (enc === undefined) _badEnc(encoding);
@@ -491,14 +490,16 @@ Buffer.byteLength = function(value, encoding) {
   if (enc === 'latin1' || enc === 'ascii') return value.length;
   if (enc === 'hex')       return (value.length / 2) | 0;
   if (enc === 'base64' || enc === 'base64url') {
-    var clean = value.replace(/[^A-Za-z0-9+\\/\\-_]/g, '').replace(/=+$/, '');
+    var clean = value.replace(/[^A-Za-z0-9+/=_-]/g, '').replace(/=+$/, '');
     return Math.floor(clean.length * 3 / 4);
   }
 };
 Buffer.prototype.toString = function(encoding, start, end) {
   var bytes = this._data;
   if (start !== undefined || end !== undefined) {
-    bytes = bytes.subarray(start || 0, end === undefined ? bytes.length : end);
+    var s = start === undefined ? 0 : Math.max(0, start);
+    var e = end === undefined ? bytes.length : end;
+    bytes = bytes.subarray(s, e);
   }
   var enc = _normEnc(encoding);
   if (enc === undefined) _badEnc(encoding);
@@ -528,17 +529,19 @@ Buffer.prototype.write = function(str, offset, length, encoding) {
   if (typeof offset === 'string') { encoding = offset; offset = 0; length = undefined; }
   else if (typeof length === 'string') { encoding = length; length = undefined; }
   offset = offset | 0;
+  if (offset < 0 || offset > this._data.length) {
+    throw new RangeError('The value of "offset" is out of range. It must be >= 0 && <= ' + this._data.length + '. Received ' + offset);
+  }
   var enc = _normEnc(encoding);
   if (enc === undefined) _badEnc(encoding);
   var bytes;
   if (enc === 'utf8')         bytes = _utf8Encode(str);
   else if (enc === 'utf16le') bytes = _utf16leEncode(str);
-  else if (enc === 'latin1')  bytes = _latin1Encode(str);
-  else if (enc === 'ascii')   bytes = _asciiEncode(str);
+  else if (enc === 'latin1')  bytes = _rawEncode(str);
+  else if (enc === 'ascii')   bytes = _rawEncode(str);
   else if (enc === 'hex')     bytes = _hexDecode(str);
   else                        bytes = _b64Decode(str);
   var max = this._data.length - offset;
-  if (max < 0) max = 0;
   var write = length === undefined ? bytes.length : Math.min(length | 0, bytes.length);
   if (write > max) write = max;
   for (var i = 0; i < write; i++) this._data[offset + i] = bytes[i];
