@@ -549,11 +549,11 @@ Buffer.prototype.write = function(str, offset, length, encoding) {
   var max = this._data.length - offset;
   if (length !== undefined) {
     length = length | 0;
-    if (length < 0 || length > max) {
-      throw new RangeError('The value of "length" is out of range. It must be >= 0 && <= ' + max + '. Received ' + length);
+    if (length < 0 || length > this._data.length) {
+      throw new RangeError('The value of "length" is out of range. It must be >= 0 && <= ' + this._data.length + '. Received ' + length);
     }
   }
-  var write = Math.min(length === undefined ? max : length, bytes.length);
+  var write = Math.min(length === undefined ? max : length, bytes.length, max);
   for (var i = 0; i < write; i++) this._data[offset + i] = bytes[i];
   return write;
 };

@@ -311,6 +311,15 @@ describe("buffer encoding", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it("Buffer.prototype.write clamps to remaining when length fits buf but not remaining", async () => {
+    const env = new Bash({ javascript: true });
+    const result = await env.exec(
+      `js-exec -c "var b = Buffer.alloc(5); var n = b.write('abcde', 3, 5); console.log(n, b.toString('hex'))"`,
+    );
+    expect(result.stdout).toBe("2 0000006162\n");
+    expect(result.exitCode).toBe(0);
+  });
+
   it("Buffer.prototype.write throws RangeError for negative length", async () => {
     const env = new Bash({ javascript: true });
     const result = await env.exec(
