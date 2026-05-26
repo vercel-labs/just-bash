@@ -279,4 +279,44 @@ describe("buffer encoding", () => {
     expect(result.stdout).toBe("hello\n");
     expect(result.exitCode).toBe(0);
   });
+
+  // ─── Node-compat edge cases ──────────────────────────────────────
+
+  it("Buffer.from(ArrayBuffer) shares the backing store", async () => {
+    const env = new Bash({ javascript: true });
+    const result = await env.exec(
+      `js-exec -c "var ab = new ArrayBuffer(4); var u8 = new Uint8Array(ab); u8[0]=1; var b = Buffer.from(ab); u8[0]=99; console.log(b._data[0], b._data.buffer === ab)"`,
+    );
+    expect(result.stdout).toBe("99 true\n");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("Buffer.prototype.toString clamps negative end to 0", async () => {
+    const env = new Bash({ javascript: true });
+    const result = await env.exec(
+      `js-exec -c "console.log(JSON.stringify(Buffer.from('abc').toString('utf8', 0, -1)))"`,
+    );
+    expect(result.stdout).toBe('""\n');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("Buffer.prototype.write throws RangeError when length exceeds remaining", async () => {
+    const env = new Bash({ javascript: true });
+    const result = await env.exec(
+      `js-exec -c "try { Buffer.alloc(2).write('abc', 0, 3); console.log('no-throw'); } catch (e) { console.log(e.name, e.message); }"`,
+    );
+    expect(result.stdout).toBe(
+      'RangeError The value of "length" is out of range. It must be >= 0 && <= 2. Received 3\n',
+    );
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("Buffer.prototype.write throws RangeError for negative length", async () => {
+    const env = new Bash({ javascript: true });
+    const result = await env.exec(
+      `js-exec -c "try { Buffer.alloc(2).write('abc', 0, -1); console.log('no-throw'); } catch (e) { console.log(e.name); }"`,
+    );
+    expect(result.stdout).toBe("RangeError\n");
+    expect(result.exitCode).toBe(0);
+  });
 });

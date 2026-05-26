@@ -445,7 +445,11 @@ Buffer.from = function(data, encoding) {
   if (data instanceof ArrayBuffer) {
     var off = typeof encoding === 'number' ? encoding : 0;
     var len = arguments.length > 2 ? arguments[2] : undefined;
-    return new Buffer(new Uint8Array(data, off, len));
+    var view = len === undefined ? new Uint8Array(data, off) : new Uint8Array(data, off, len);
+    var buf = Object.create(Buffer.prototype);
+    buf._data = view;
+    buf.length = view.length;
+    return buf;
   }
   if (data instanceof Uint8Array)  return new Buffer(data);
   if (Array.isArray(data))         return new Buffer(data);
@@ -497,9 +501,10 @@ Buffer.byteLength = function(value, encoding) {
 Buffer.prototype.toString = function(encoding, start, end) {
   var bytes = this._data;
   if (start !== undefined || end !== undefined) {
-    var s = start === undefined ? 0 : Math.max(0, start);
-    var e = end === undefined ? bytes.length : end;
-    bytes = bytes.subarray(s, e);
+    var len = bytes.length;
+    var s = start === undefined ? 0 : (start < 0 ? 0 : (start > len ? len : start | 0));
+    var e = end === undefined ? len : (end < 0 ? 0 : (end > len ? len : end | 0));
+    bytes = e <= s ? bytes.subarray(0, 0) : bytes.subarray(s, e);
   }
   var enc = _normEnc(encoding);
   if (enc === undefined) _badEnc(encoding);
@@ -542,8 +547,13 @@ Buffer.prototype.write = function(str, offset, length, encoding) {
   else if (enc === 'hex')     bytes = _hexDecode(str);
   else                        bytes = _b64Decode(str);
   var max = this._data.length - offset;
-  var write = length === undefined ? bytes.length : Math.min(length | 0, bytes.length);
-  if (write > max) write = max;
+  if (length !== undefined) {
+    length = length | 0;
+    if (length < 0 || length > max) {
+      throw new RangeError('The value of "length" is out of range. It must be >= 0 && <= ' + max + '. Received ' + length);
+    }
+  }
+  var write = Math.min(length === undefined ? max : length, bytes.length);
   for (var i = 0; i < write; i++) this._data[offset + i] = bytes[i];
   return write;
 };
