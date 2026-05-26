@@ -558,9 +558,15 @@ export const sqlite3Command: Command = {
 
     // Get SQL from argument or stdin. SQL is text — decode bytes to UTF-8 so
     // string literals containing multibyte characters survive intact.
+    // Decode stdin once and reuse for both the initial assignment and the
+    // no-SQL guard below so they agree on the same value.
+    // sqlArg is `string | null`, so use `??` (not `||`) — an explicit empty
+    // positional SQL arg is "provided but empty" and must NOT silently fall
+    // through to piped stdin.
     // Prepend -cmd first, then -init on top, so the final execution order is:
     // init content -> cmd -> main SQL.
-    let sql = sqlArg || decodeBytesToUtf8(ctx.stdin).trim();
+    const stdinSql = decodeBytesToUtf8(ctx.stdin).trim();
+    let sql = sqlArg ?? stdinSql;
     if (options.cmd) {
       sql = options.cmd + (sql ? `; ${sql}` : "");
     }
@@ -587,12 +593,7 @@ export const sqlite3Command: Command = {
     // exit 0, matching real sqlite3. sqlArg/options.init are typed as
     // `string | null`, so test for absence with `=== null` rather than
     // falsiness (an explicit empty string is "provided but empty").
-    if (
-      !sql &&
-      options.init === null &&
-      sqlArg === null &&
-      !decodeBytesToUtf8(ctx.stdin).trim()
-    ) {
+    if (!sql && options.init === null && sqlArg === null && !stdinSql) {
       return {
         stdout: "",
         stderr: "sqlite3: no SQL provided\n",
