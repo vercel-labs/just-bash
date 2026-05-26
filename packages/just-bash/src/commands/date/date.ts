@@ -152,15 +152,20 @@ export const dateCommand: Command = {
       }
     }
 
-    // TZ env var governs how timezone-naive -d strings are interpreted;
-    // -u only overrides the display timezone, not parsing.
-    // Invalid TZ (e.g. "Mars/Olympus") falls back to host-local for both
-    // parsing and display, matching GNU `date`. Without this, parsing/display
-    // would silently use local parts while %Z / %z would print "UTC" / "+0000",
-    // giving inconsistent output.
+    // Display-timezone contract:
+    //   -u                  -> always UTC.
+    //   no $TZ set          -> UTC by default (sandbox non-disclosure default;
+    //                          host timezone never leaks unless caller opts in).
+    //   $TZ=<valid zone>    -> that zone (validated by isValidTimezone).
+    //   $TZ=<invalid zone>  -> UTC fallback (consistent with no-TZ default;
+    //                          avoids %Z / %z disagreeing with the displayed
+    //                          time parts).
+    // parseTz keeps its raw value (undefined when unset) so timezone-naive -d
+    // strings without $TZ fall through to JS `new Date(s)` — do NOT propagate
+    // the UTC display default into parsing.
     let parseTz = ctx.env.get("TZ");
     if (parseTz && !isValidTimezone(parseTz)) parseTz = undefined;
-    const displayTz = utc ? "UTC" : parseTz;
+    const displayTz = utc ? "UTC" : (parseTz ?? "UTC");
 
     const date = dateStr !== null ? parseDate(dateStr, parseTz) : new Date();
     if (!date)

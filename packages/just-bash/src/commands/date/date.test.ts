@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
-/** Format date in local timezone as YYYY-MM-DD */
-function formatLocalDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+/** Format date in UTC as YYYY-MM-DD (date defaults to UTC display) */
+function formatUTCDate(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
@@ -365,7 +365,7 @@ describe("date", () => {
     it("should parse 'today'", async () => {
       const env = new Bash();
       const result = await env.exec("date -d today +%F");
-      const today = formatLocalDate(new Date());
+      const today = formatUTCDate(new Date());
       expect(result.stdout).toBe(`${today}\n`);
       expect(result.exitCode).toBe(0);
     });
@@ -373,7 +373,7 @@ describe("date", () => {
     it("should parse 'yesterday'", async () => {
       const env = new Bash();
       const result = await env.exec("date -d yesterday +%F");
-      const yesterday = formatLocalDate(new Date(Date.now() - 86400000));
+      const yesterday = formatUTCDate(new Date(Date.now() - 86400000));
       expect(result.stdout).toBe(`${yesterday}\n`);
       expect(result.exitCode).toBe(0);
     });
@@ -381,7 +381,7 @@ describe("date", () => {
     it("should parse 'tomorrow'", async () => {
       const env = new Bash();
       const result = await env.exec("date -d tomorrow +%F");
-      const tomorrow = formatLocalDate(new Date(Date.now() + 86400000));
+      const tomorrow = formatUTCDate(new Date(Date.now() + 86400000));
       expect(result.stdout).toBe(`${tomorrow}\n`);
       expect(result.exitCode).toBe(0);
     });
@@ -424,40 +424,43 @@ describe("date", () => {
     it("should output default format without arguments", async () => {
       const env = new Bash();
       const result = await env.exec("date");
-      // Default format: weekday month day HH:MM:SS TZ year
+      // Default format: weekday month day HH:MM:SS TZ year. With no $TZ set
+      // the display defaults to UTC, so the timezone field is "UTC".
       expect(result.stdout).toMatch(
-        /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/,
+        /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [ 0-9][0-9] \d{2}:\d{2}:\d{2} UTC \d{4}\n$/,
       );
       expect(result.exitCode).toBe(0);
     });
   });
 
   describe("timezone", () => {
-    it("should use local timezone for %Z by default", async () => {
+    it("should use UTC for %Z by default", async () => {
       const env = new Bash();
       const result = await env.exec("date +%Z");
-      expect(result.stdout.trim()).toBeTruthy();
+      expect(result.stdout).toBe("UTC\n");
+      expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
 
-    it("should use local offset for %z by default", async () => {
+    it("should use +0000 for %z by default", async () => {
       const env = new Bash();
       const result = await env.exec("date +%z");
-      expect(result.stdout.trim()).toMatch(/^[+-]\d{4}$/);
+      expect(result.stdout).toBe("+0000\n");
+      expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
 
     it("-u should force UTC for %Z", async () => {
       const env = new Bash();
       const result = await env.exec("date -u +%Z");
-      expect(result.stdout.trim()).toBe("UTC");
+      expect(result.stdout).toBe("UTC\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("-u should force +0000 for %z", async () => {
       const env = new Bash();
       const result = await env.exec("date -u +%z");
-      expect(result.stdout.trim()).toBe("+0000");
+      expect(result.stdout).toBe("+0000\n");
       expect(result.exitCode).toBe(0);
     });
 
@@ -466,57 +469,79 @@ describe("date", () => {
       const result = await env.exec(
         "date -u -d '2024-01-15T00:00:00Z' '+%H:%M:%S'",
       );
-      expect(result.stdout.trim()).toBe("00:00:00");
+      expect(result.stdout).toBe("00:00:00\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("UTC date is correct with -u on a fixed timestamp", async () => {
       const env = new Bash();
       const result = await env.exec("date -u -d '2024-01-15T23:59:59Z' '+%F'");
-      expect(result.stdout.trim()).toBe("2024-01-15");
+      expect(result.stdout).toBe("2024-01-15\n");
       expect(result.exitCode).toBe(0);
     });
 
-    it("%Z and %z are consistent (both local or both UTC)", async () => {
+    it("%Z and %z agree on the UTC default", async () => {
+      // Without $TZ and without -u, display defaults to UTC, so %Z=UTC
+      // and %z=+0000 always agree.
       const env = new Bash();
-      // A UTC+0 environment: %Z=UTC and %z=+0000 match
-      // Any other environment: %Z is a short name for the same offset as %z
       const tzResult = await env.exec("date +%Z");
       const offsetResult = await env.exec("date +%z");
-      // Both should be non-empty and the offset format should be correct
-      expect(tzResult.stdout.trim()).toBeTruthy();
-      expect(offsetResult.stdout.trim()).toMatch(/^[+-]\d{4}$/);
+      expect(tzResult.stdout).toBe("UTC\n");
+      expect(offsetResult.stdout).toBe("+0000\n");
     });
 
-    it("invalid TZ falls back to host-local for both parsing and display", async () => {
-      // When TZ is set to something Intl doesn't understand (e.g. Mars/Olympus),
-      // we treat it as unset so parsing and display agree. Without this, the
-      // displayed time would use local parts while %Z / %z would print "UTC" /
-      // "+0000" — internally inconsistent. We document the choice: fall back
-      // to host-local (matching GNU `date`), not to UTC.
+    it("invalid TZ falls back to UTC for both parsing and display", async () => {
+      // When $TZ is set to a value Intl doesn't understand (e.g. Mars/Olympus),
+      // isValidTimezone() treats it as unset. With the UTC-by-default contract,
+      // an unset $TZ yields UTC display — so %Z is "UTC" and %z is "+0000",
+      // consistent with the displayed time parts (and matching the no-$TZ
+      // baseline).
       const env = new Bash();
       const baseline = await env.exec("date +'%Z %z'");
       const badTz = await env.exec(
         "export TZ=Not/A/Real/Zone && date +'%Z %z'",
       );
-      // Both runs should produce the same local-tz output and the offset
-      // shape must be a real numeric offset, not "+0000" hard-coded.
-      expect(badTz.stdout).toBe(baseline.stdout);
+      expect(baseline.stdout).toBe("UTC +0000\n");
+      expect(badTz.stdout).toBe("UTC +0000\n");
       expect(badTz.stderr).toBe("");
       expect(badTz.exitCode).toBe(0);
-      expect(badTz.stdout.trim()).toMatch(/^.+ [+-]\d{4}$/);
     });
 
     it("invalid TZ does not break -d parsing of bare ISO strings", async () => {
       // Without TZ validation, parseBareISOInTimezone would be called with
-      // "Not/A/Real/Zone" and silently fail or fall back. We now treat the
-      // bad TZ as undefined so the local-time fallback path is taken.
+      // "Not/A/Real/Zone" and silently fail or fall back. We treat the bad
+      // TZ as undefined so parsing falls through to JS `new Date(s)`; an
+      // explicit-Z input is unambiguous regardless of parseTz.
       const env = new Bash();
       const result = await env.exec(
         "export TZ=Not/A/Real/Zone && date -d '2024-06-15T12:00:00Z' +%s",
       );
       // 2024-06-15T12:00:00Z = 1718452800
       expect(result.stdout).toBe("1718452800\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe("TZ environment variable opts in to local time", () => {
+    // Per PR #251: UTC is the default (non-disclosure of host timezone);
+    // callers opt in to a specific zone by exporting $TZ.
+    it("TZ=America/Los_Angeles makes %Z print PST or PDT", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "export TZ=America/Los_Angeles && date +%Z",
+      );
+      expect(result.stdout.trim()).toMatch(/^(PST|PDT)$/);
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("TZ=America/Los_Angeles makes %z print -0800 or -0700", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "export TZ=America/Los_Angeles && date +%z",
+      );
+      expect(result.stdout.trim()).toMatch(/^-0[78]00$/);
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
