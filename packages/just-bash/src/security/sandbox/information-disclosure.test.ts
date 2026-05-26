@@ -443,43 +443,42 @@ describe("Information Disclosure Prevention", () => {
     });
   });
 
-  // Per PR #251 (vercel-labs/just-bash#251), `date` follows GNU `date` and
-  // reflects the host (or `$TZ`) timezone by default; timezone is no longer
-  // treated as host-secret. Only `-u` is a contractual UTC guarantee.
-  describe("Timezone behavior", () => {
-    it("date -u +%Z outputs UTC", async () => {
-      const result = await bash.exec("date -u +%Z");
+  // Default behaviour is UTC (non-disclosure of host TZ). Callers can opt in
+  // to a specific timezone by setting `$TZ` in the sandbox environment — see
+  // PR #251.
+  describe("Timezone Non-Disclosure", () => {
+    it("date +%Z outputs UTC by default", async () => {
+      const result = await bash.exec("date +%Z");
       expect(result.stdout).toBe("UTC\n");
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
 
-    it("date -u +%z outputs +0000", async () => {
-      const result = await bash.exec("date -u +%z");
+    it("date +%z outputs +0000 by default", async () => {
+      const result = await bash.exec("date +%z");
       expect(result.stdout).toBe("+0000\n");
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
 
-    it("date -u default output contains UTC", async () => {
-      const result = await bash.exec("date -u");
-      // Partial match is unavoidable here: default `date -u` output includes
+    it("default date output contains UTC", async () => {
+      const result = await bash.exec("date");
+      // Partial match is unavoidable here: default `date` output includes
       // the current weekday/time, so we can only assert the UTC zone marker.
       expect(result.stdout).toContain("UTC");
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
+  });
 
-    it("without -u, %z is a numeric offset and %Z is non-empty", async () => {
-      const zResult = await bash.exec("date +%z");
-      expect(zResult.stderr).toBe("");
-      expect(zResult.exitCode).toBe(0);
-      expect(zResult.stdout.trim()).toMatch(/^[+-][0-9]{4}$/);
-
-      const upperZResult = await bash.exec("date +%Z");
-      expect(upperZResult.stderr).toBe("");
-      expect(upperZResult.exitCode).toBe(0);
-      expect(upperZResult.stdout.trim().length).toBeGreaterThan(0);
+  describe("Timezone opt-in via $TZ", () => {
+    it("TZ=America/Los_Angeles date +%Z prints PST or PDT", async () => {
+      const result = await bash.exec(
+        "export TZ=America/Los_Angeles && date +%Z",
+      );
+      expect(result.stdout.trim()).toMatch(/^(PST|PDT)$/);
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
     });
   });
 
