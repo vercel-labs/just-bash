@@ -178,11 +178,11 @@ function parseJsonStream(input: string): unknown[] {
 const jqHelp = {
   name: "jq",
   summary: "command-line JSON processor",
-  usage: "jq [OPTIONS] FILTER [FILE]",
+  usage: "jq [OPTIONS] FILTER [FILE...]",
   options: [
-    "-R, --raw-input   read input as raw strings, not JSON",
+    "-R, --raw-input   read each line as string instead of JSON",
     "-r, --raw-output  output strings without quotes",
-    "-c, --compact     compact output (no pretty printing)",
+    "-c, --compact-output  compact instead of pretty-printed output",
     "-e, --exit-status set exit status based on output",
     "-s, --slurp       read entire input into array",
     "-n, --null-input  don't read any input",
@@ -376,15 +376,25 @@ export const jqCommand: Command = {
       } else if (rawInput) {
         // Raw input: real jq concatenates all inputs into a single stream and
         // splits on newlines, so a line can span a file boundary when a file
-        // lacks a trailing newline. A trailing newline does not yield a final
-        // empty string, but interior blank lines are preserved.
-        const combined = inputs.map(({ content }) => content).join("");
-        const lines = combined.split("\n");
-        if (lines.length > 0 && lines.at(-1) === "") {
-          lines.pop();
+        // lacks a trailing newline. Scan incrementally, carrying only the
+        // unterminated trailing fragment across inputs, instead of building the
+        // full concatenated string and a complete array of lines. A trailing
+        // newline does not yield a final empty string, but interior blank
+        // lines are preserved.
+        let remainder = "";
+        for (const { content } of inputs) {
+          const text = remainder + content;
+          let start = 0;
+          let nl = text.indexOf("\n", start);
+          while (nl !== -1) {
+            values.push(...evaluate(text.slice(start, nl), ast, evalOptions));
+            start = nl + 1;
+            nl = text.indexOf("\n", start);
+          }
+          remainder = text.slice(start);
         }
-        for (const line of lines) {
-          values.push(...evaluate(line, ast, evalOptions));
+        if (remainder !== "") {
+          values.push(...evaluate(remainder, ast, evalOptions));
         }
       } else if (slurp) {
         // Slurp mode: combine all inputs into single array
