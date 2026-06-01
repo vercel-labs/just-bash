@@ -335,6 +335,7 @@ describe("jq", () => {
       const env = new Bash();
       const result = await env.exec("jq --help");
       expect(result.stdout).toMatch(/jq.*JSON/);
+      expect(result.stdout).toContain("-R, --raw-input");
       expect(result.exitCode).toBe(0);
     });
   });

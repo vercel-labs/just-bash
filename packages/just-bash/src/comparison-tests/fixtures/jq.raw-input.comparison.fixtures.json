@@ -1,0 +1,69 @@
+{
+  "03c428e42ab1f036": {
+    "command": "printf 'console.log(1)\\n' | jq -Rs '{action:\"load-code\", code: .}'",
+    "files": {},
+    "stdout": "{\n  \"action\": \"load-code\",\n  \"code\": \"console.log(1)\\n\"\n}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2774b60ac30dbf90": {
+    "command": "jq -R '.' a.txt b.txt",
+    "files": {
+      "a.txt": "first",
+      "b.txt": "second\n"
+    },
+    "stdout": "\"firstsecond\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "352162774da404df": {
+    "command": "printf 'a\\n\\nb' | jq -R '.'",
+    "files": {},
+    "stdout": "\"a\"\n\"\"\n\"b\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3eccd43ed92a3c69": {
+    "command": "jq -Rs '.' a.txt b.txt",
+    "files": {
+      "a.txt": "first\n",
+      "b.txt": "second"
+    },
+    "stdout": "\"first\\nsecond\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4527747d8e92f72c": {
+    "command": "printf 'stdin\\n' | jq -R '.' - file.txt",
+    "files": {
+      "file.txt": "file\n"
+    },
+    "stdout": "\"stdin\"\n\"file\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4ef4020b99945f34": {
+    "command": "printf 'a\\nb\\n' | jq -Rs '.'",
+    "files": {},
+    "stdout": "\"a\\nb\\n\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ed6d0745a5d92cef": {
+    "command": "printf 'a\\nb\\n' | jq -R '.'",
+    "files": {},
+    "stdout": "\"a\"\n\"b\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ff334c372880449c": {
+    "command": "jq -R '.' a.txt b.txt",
+    "files": {
+      "a.txt": "first\n",
+      "b.txt": "second"
+    },
+    "stdout": "\"first\"\n\"second\"\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
