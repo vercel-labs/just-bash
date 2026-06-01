@@ -141,6 +141,17 @@ await env.exec("while true; do sleep 1; done", { signal: controller.signal });
 await env.exec("cat <<EOF\n  indented\nEOF", { rawScript: true });
 ```
 
+### Timezone
+
+`date` defaults to UTC (`%Z=UTC`, `%z=+0000`) regardless of the host clock, so the sandbox does not leak the host timezone. To opt into a specific zone, pass `TZ` as an initial env var:
+
+```typescript
+const bash = new Bash({ env: { TZ: "America/New_York" } });
+await bash.exec("date"); // Mon Jun  1 09:30:00 EDT 2026
+```
+
+`-u` always forces UTC; an unset or invalid `$TZ` falls back to UTC. Setting `TZ` exposes that timezone to scripts running in the sandbox, so only pass a value you are comfortable revealing — forwarding the host's real `$TZ` (e.g. `process.env.TZ`) reintroduces the disclosure that the UTC default exists to prevent.
+
 `exec()` options:
 
 | Option | Type | Description |

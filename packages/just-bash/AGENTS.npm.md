@@ -70,6 +70,8 @@ const result = await bash.exec("cat input.txt | grep pattern");
 
 5. **ReadWriteFs root separation**: If you use `ReadWriteFs`, point it at a workspace directory, not at the installed `just-bash` package or other trusted runtime code.
 
+6. **UTC by default**: `date` always shows UTC (`%Z=UTC`, `%z=+0000`) unless the host opts in by passing `TZ` as an env var (e.g. `new Bash({ env: { TZ: "America/New_York" } })`). `-u` always forces UTC; an invalid `$TZ` falls back to UTC.
+
 ## Available Commands
 
 **Text processing**: `awk`, `cat`, `column`, `comm`, `cut`, `egrep`, `expand`, `fgrep`, `fold`, `grep`, `head`, `join`, `nl`, `paste`, `rev`, `rg`, `sed`, `sort`, `strings`, `tac`, `tail`, `tr`, `unexpand`, `uniq`, `wc`, `xargs`

@@ -174,6 +174,7 @@ The following components are **trusted** and outside the scope of just-bash's ru
 | process.channel | IPC channel access | Blocked in **worker contexts only** (WorkerDefenseInDepth); main thread skipped for same reason | `src/security/blocked-globals.ts` |
 | Host PID/UID | Expose process identity | Virtualized (processInfo option, defaults: pid=1, uid=1000) | `src/Bash.ts` |
 | hostname/whoami/uname | System enumeration | Return generic/virtual values | `src/commands/hostname/` |
+| Host timezone | `date` leaks host TZ via `%Z`/`%z` or time values | Defaults to UTC; only honored when the host explicitly sets `$TZ` to an IANA zone | `src/commands/date/date.ts` |
 | Error messages | Reveal file paths | `sanitizeError()` in FS layers + `sanitizeErrorMessage()` at all error choke points (builtin-dispatch, Bash.ts, CLI, Python bridge) | `src/fs/real-fs-utils.ts`, `src/interpreter/builtin-dispatch.ts`, `src/Bash.ts`, `src/cli/just-bash.ts` |
 | Timing side-channels | hrtime, cpuUsage, memoryUsage | Blocked by defense-in-depth | `src/security/blocked-globals.ts` |
 | performance.now() | Sub-ms timing for side-channels | Blocked by defense-in-depth; internal uses pre-capture `_performanceNow` | `src/security/blocked-globals.ts`, `src/timers.ts` |
