@@ -174,7 +174,9 @@ export function readHeredocDelimiter(
         delim += value[i];
         i++;
       }
-      i++; // Skip the closing quote
+      // Skip the closing quote, but only if it is actually present so an
+      // unterminated delimiter cannot push `endPos` past the end of the string.
+      if (i < value.length) i++;
       continue;
     }
     if (c === '"') {
@@ -186,7 +188,8 @@ export function readHeredocDelimiter(
         delim += value[i];
         i++;
       }
-      i++; // Skip the closing quote
+      // Skip the closing quote only if present (see single-quote note above).
+      if (i < value.length) i++;
       continue;
     }
     if (c === "\\" && i + 1 < value.length) {
@@ -243,7 +246,10 @@ function skipHeredocBodies(
       lineStart = lineEnd + 1;
     }
   }
-  return lineStart;
+  // When the terminator line is the last line with no trailing newline,
+  // `lineStart` becomes `value.length + 1`; clamp so callers never resume past
+  // the end of the input.
+  return Math.min(lineStart, value.length);
 }
 
 /**
@@ -277,6 +283,11 @@ export function parseCommandSubstitutionFromString(
   // next newline. Their bodies are literal and must be skipped without quote
   // tracking so e.g. an apostrophe in the body isn't read as a shell quote.
   const pendingHeredocs: { delim: string; stripTabs: boolean }[] = [];
+  // Depth of arithmetic `((...))` regions. Inside one, `<<` is the left-shift
+  // operator, not a heredoc opener, so heredoc detection is suppressed. The
+  // outer substitution is never arithmetic here (`$((` is routed to arithmetic
+  // parsing), but a nested `$((`/`((` can still appear in the command body.
+  let arithDepth = 0;
 
   while (i < value.length && depth > 0) {
     const c = value[i];
@@ -290,12 +301,24 @@ export function parseCommandSubstitutionFromString(
         inDoubleQuote = false;
       }
     } else {
+      // Track arithmetic `((...))` nesting so a left-shift `<<` inside it is not
+      // mistaken for a heredoc (which would otherwise swallow the rest of a
+      // multi-line arithmetic expression while scanning for the closing `)`).
+      if (c === "(" && value[i + 1] === "(") {
+        arithDepth++;
+      } else if (c === ")" && value[i + 1] === ")" && arithDepth > 0) {
+        arithDepth--;
+      }
+
       // Heredoc operator: `<<DELIM` / `<<-DELIM` (but not the `<<<` here-string,
-      // whose operand stays on the same line and is quote-tracked normally).
-      // NOTE: this is a heuristic and does not model `<<` as a left-shift inside
-      // `$((...))`; in practice such a token has no newline-delimited body to
-      // consume, so the spurious pending entry is simply ignored.
-      if (c === "<" && value[i + 1] === "<" && value[i + 2] !== "<") {
+      // whose operand stays on the same line and is quote-tracked normally, nor
+      // a `<<` left-shift inside arithmetic).
+      if (
+        arithDepth === 0 &&
+        c === "<" &&
+        value[i + 1] === "<" &&
+        value[i + 2] !== "<"
+      ) {
         let p = i + 2;
         let stripTabs = false;
         if (value[p] === "-") {

@@ -1349,6 +1349,12 @@ export class Lexer {
         // it's $( ( subshell ) ) not $(( arithmetic ))
         const isArithmetic =
           input[pos] === "(" && !this.dollarDparenIsSubshell(pos);
+        // Depth of arithmetic `((...))` regions. Inside one, `<<` is the
+        // left-shift operator, not a heredoc opener, so heredoc detection is
+        // suppressed. The outer `$((...))` (its first `(` was already consumed)
+        // seeds the count via `isArithmetic`; nested `$((`/`((` are picked up
+        // by the `((` detection below.
+        let arithDepth = isArithmetic ? 1 : 0;
         while (depth > 0 && pos < len) {
           const c = input[pos];
           value += c;
@@ -1367,34 +1373,48 @@ export class Lexer {
           } else {
             // Not in quotes
 
+            // Track arithmetic `((...))` nesting so a left-shift `<<` inside it
+            // is not mistaken for a heredoc (which would otherwise swallow the
+            // rest of a multi-line arithmetic expansion). Only the `((`/`))`
+            // pairs are counted here; the outer `$((...))` is already seeded via
+            // `isArithmetic`.
+            if (c === "(" && input[pos + 1] === "(") {
+              arithDepth++;
+            } else if (c === ")" && input[pos + 1] === ")" && arithDepth > 0) {
+              arithDepth--;
+            }
+
             // Heredoc operator `<<DELIM` / `<<-DELIM` (not the `<<<` here-string,
-            // whose operand stays on the same line and is quote-tracked normally).
-            // The opening `<` was already appended to `value` at the top of the
-            // loop; append the rest of the operator and the delimiter, then
-            // remember the delimiter so its literal body is skipped on the next
-            // newline. NOTE: a left-shift `<<` inside `$((...))` has no
-            // newline-delimited body, so a spurious entry is harmlessly ignored.
-            if (c === "<" && input[pos + 1] === "<" && input[pos + 2] !== "<") {
-              let p = pos + 1;
-              value += input[p]; // second '<'
-              p++;
-              col++;
+            // whose operand stays on the same line and is quote-tracked normally,
+            // nor a `<<` left-shift inside arithmetic). The opening `<` was
+            // already appended to `value` at the top of the loop; append the
+            // rest of the operator and the delimiter, then remember the
+            // delimiter so its literal body is skipped on the next newline.
+            if (
+              arithDepth === 0 &&
+              c === "<" &&
+              input[pos + 1] === "<" &&
+              input[pos + 2] !== "<"
+            ) {
+              // Scan the operator and delimiter without mutating any state yet,
+              // so that a non-heredoc `<<` (no delimiter) falls through cleanly
+              // to the normal per-char handling rather than double-appending.
+              let p = pos + 2; // past both `<`
               let stripTabs = false;
               if (input[p] === "-") {
                 stripTabs = true;
-                value += input[p];
                 p++;
-                col++;
               }
               while (input[p] === " " || input[p] === "\t") {
-                value += input[p];
                 p++;
-                col++;
               }
               const { delim, endPos } = readHeredocDelimiter(input, p);
               if (delim.length > 0) {
-                value += input.slice(p, endPos);
-                col += endPos - p;
+                // The first `<` was already appended at the top of the loop;
+                // append the rest through the delimiter and advance past all of
+                // it (including that first `<`, hence `endPos - pos`).
+                value += input.slice(pos + 1, endPos);
+                col += endPos - pos;
                 pendingHeredocs.push({ delim, stripTabs });
                 pos = endPos;
                 continue;
@@ -1425,7 +1445,9 @@ export class Lexer {
               }
               pendingHeredocs.length = 0;
               col = 0;
-              pos = bodyPos;
+              // `bodyPos` is `lineEnd + 1`, which overshoots to `len + 1` when
+              // the final body line has no trailing newline; clamp to `len`.
+              pos = Math.min(bodyPos, len);
               continue;
             }
 

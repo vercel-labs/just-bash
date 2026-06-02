@@ -291,3 +291,47 @@ describe("Command Substitution containing a heredoc", () => {
     expect(result.stdout).toBe("don't break");
   });
 });
+
+describe("Left-shift `<<` is not mistaken for a heredoc inside arithmetic", () => {
+  it("should evaluate a single-line arithmetic left-shift", async () => {
+    const env = new Bash();
+    const result = await env.exec("echo $((1 << 3))");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("8\n");
+  });
+
+  it("should evaluate a multi-line arithmetic expansion with a left-shift", async () => {
+    // Regression: the `<<` was treated as a heredoc opener, so the newline
+    // after `1 << 2` triggered body-skipping that swallowed the closing `))`.
+    const env = new Bash();
+    const result = await env.exec(
+      ["X=$((", "1 << 2", "))", 'echo "$X"'].join("\n"),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("4\n");
+  });
+
+  it("should handle a nested multi-line arithmetic left-shift inside $(...)", async () => {
+    const env = new Bash();
+    const result = await env.exec(
+      ["OUT=$(echo $((", "1 << 4", ")))", 'printf %s "$OUT"'].join("\n"),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("16");
+  });
+
+  it("should let an arithmetic shift and a real heredoc coexist in one $(...)", async () => {
+    const env = new Bash();
+    const result = await env.exec(
+      [
+        "OUT=$(echo $((2 << 3)); cat <<'EOF'",
+        "don't",
+        "EOF",
+        ")",
+        'printf %s "$OUT"',
+      ].join("\n"),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("16\ndon't");
+  });
+});
