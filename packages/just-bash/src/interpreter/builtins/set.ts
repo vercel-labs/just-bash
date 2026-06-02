@@ -397,14 +397,21 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
       continue;
     }
 
-    // Handle -o alone (print current settings)
+    // Handle -o with no option name (print current settings). Like the
+    // bundled form, bash prints the listing but keeps processing any following
+    // tokens — e.g. `set -o -x` lists options and then enables xtrace — so the
+    // listing is deferred and flushed at the end rather than returned here.
     if (arg === "-o") {
-      return success(formatOptionsList(ctx));
+      pendingListings.push(formatOptionsList(ctx));
+      i++;
+      continue;
     }
 
-    // Handle +o alone (print commands to recreate settings)
+    // Handle +o with no option name (print commands to recreate settings).
     if (arg === "+o") {
-      return success(formatOptionsResetCommands(ctx));
+      pendingListings.push(formatOptionsResetCommands(ctx));
+      i++;
+      continue;
     }
 
     // Handle combined short flags like -eu or +eu, including a bundled
@@ -413,10 +420,13 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
     // `set -euo pipefail` is equivalent to `set -e -u -o pipefail`, and the
     // remaining characters of the token keep being parsed as short flags
     // (`set -oe pipefail` sets both pipefail and errexit). Multiple `o`s
-    // consume successive words. An `o` with no available argument prints the
-    // current option settings (like a standalone `-o`/`+o`) but does NOT stop
-    // flag processing — the remaining flags are still applied, so `set -oe`
-    // (no option name) enables errexit and lists the options.
+    // consume successive words. The option name must be a non-option word: a
+    // following `-`/`+`-prefixed token (e.g. `set -o -x`) is NOT consumed as
+    // the name — bash then treats it as the "no name available" case. In that
+    // case the `o` prints the current option settings (like a standalone
+    // `-o`/`+o`) but does NOT stop flag processing — the remaining flags are
+    // still applied, so `set -oe` (no name) enables errexit and lists options,
+    // and `set -o -x` lists options and then enables xtrace.
     if (
       arg.length > 1 &&
       (arg[0] === "-" || arg[0] === "+") &&

@@ -348,6 +348,19 @@ describe("set builtin", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it("should not consume a following option token as the -o name (`set -o -x`)", async () => {
+      // bash does not treat `-x` as the `-o` option name; it lists options and
+      // then processes `-x` as xtrace. `$-` ends up with `x`.
+      const env = new Bash();
+      const result = await env.exec(`
+        set -o -x
+        echo "dash=$-"
+      `);
+      expect(result.stdout).toContain("errexit");
+      expect(result.stdout).toMatch(/dash=\S*x\S*/);
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should let multiple bundled `o`s consume successive words", async () => {
       // `set -oo pipefail errexit` == `set -o pipefail -o errexit`: each `o`
       // consumes the next word as its long-option name.
