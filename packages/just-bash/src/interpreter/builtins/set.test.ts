@@ -224,6 +224,90 @@ describe("set builtin", () => {
     });
   });
 
+  describe("bundled -o in a short-flag cluster (strict mode)", () => {
+    it("should accept `set -euo pipefail`", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        set -euo pipefail
+        echo ok
+      `);
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("ok\n");
+    });
+
+    it("should enable errexit, nounset and pipefail with -euo pipefail", async () => {
+      const env = new Bash();
+      // nounset must be active: referencing an unset var aborts the script.
+      const result = await env.exec(`
+        set -euo pipefail
+        echo $UNDEFINED
+        echo never
+      `);
+      expect(result.stderr).toContain("UNDEFINED: unbound variable");
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).not.toContain("never");
+    });
+
+    it("should enable pipefail via the bundled -o (-eo pipefail)", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        set -eo pipefail
+        false | true
+        echo never
+      `);
+      // pipefail makes the pipeline fail; errexit then aborts the script.
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).not.toContain("never");
+    });
+
+    it("should consume the next word as the -o name regardless of order (-oe pipefail)", async () => {
+      const env = new Bash();
+      // `-oe pipefail` == `-o pipefail` + `-e`: pipefail enabled, no leftover
+      // positional params, and errexit active.
+      const result = await env.exec(`
+        set -oe pipefail
+        echo "args=[$*]"
+        false | true
+        echo never
+      `);
+      expect(result.stdout).toContain("args=[]");
+      expect(result.stdout).not.toContain("never");
+      expect(result.exitCode).toBe(1);
+    });
+
+    it("should leave trailing words as positional parameters", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        set -euo pipefail one two
+        echo "$# $1 $2"
+      `);
+      expect(result.stdout).toBe("2 one two\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should disable options with a bundled +o (+euo pipefail)", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        set -euo pipefail
+        set +euo pipefail
+        echo "$UNDEFINED_OK"
+        echo done
+      `);
+      // nounset was turned back off, so the unset var is just empty.
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("done");
+    });
+
+    it("should reject an invalid bundled -o option name", async () => {
+      const env = new Bash();
+      const result = await env.exec("set -euo bogusoption");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("bogusoption");
+      expect(result.stderr).toContain("invalid option name");
+    });
+  });
+
   describe("set -e (errexit)", () => {
     it("should exit immediately when command fails", async () => {
       const env = new Bash();

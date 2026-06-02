@@ -242,6 +242,29 @@ function getAssocArrayNames(ctx: InterpreterContext): Set<string> {
   return ctx.state.associativeArrays ?? new Set<string>();
 }
 
+/**
+ * Format the `set -o` listing (one option per line, "<name>  on|off").
+ */
+function formatOptionsList(ctx: InterpreterContext): string {
+  const implementedOutput = DISPLAY_OPTIONS.map(
+    (opt) => `${opt.padEnd(16)}${ctx.state.options[opt] ? "on" : "off"}`,
+  );
+  const noopOutput = NOOP_DISPLAY_OPTIONS.map((opt) => `${opt.padEnd(16)}off`);
+  return `${[...implementedOutput, ...noopOutput].sort().join("\n")}\n`;
+}
+
+/**
+ * Format the `set +o` listing (the `set -o <name>` / `set +o <name>`
+ * commands needed to recreate the current option settings).
+ */
+function formatOptionsResetCommands(ctx: InterpreterContext): string {
+  const implementedOutput = DISPLAY_OPTIONS.map(
+    (opt) => `set ${ctx.state.options[opt] ? "-o" : "+o"} ${opt}`,
+  );
+  const noopOutput = NOOP_DISPLAY_OPTIONS.map((opt) => `set +o ${opt}`);
+  return `${[...implementedOutput, ...noopOutput].sort().join("\n")}\n`;
+}
+
 export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
   if (args.includes("--help")) {
     return success(SET_USAGE);
@@ -368,35 +391,61 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
 
     // Handle -o alone (print current settings)
     if (arg === "-o") {
-      const implementedOutput = DISPLAY_OPTIONS.map(
-        (opt) => `${opt.padEnd(16)}${ctx.state.options[opt] ? "on" : "off"}`,
-      );
-      const noopOutput = NOOP_DISPLAY_OPTIONS.map(
-        (opt) => `${opt.padEnd(16)}off`,
-      );
-      const allOptions = [...implementedOutput, ...noopOutput].sort();
-      return success(`${allOptions.join("\n")}\n`);
+      return success(formatOptionsList(ctx));
     }
 
     // Handle +o alone (print commands to recreate settings)
     if (arg === "+o") {
-      const implementedOutput = DISPLAY_OPTIONS.map(
-        (opt) => `set ${ctx.state.options[opt] ? "-o" : "+o"} ${opt}`,
-      );
-      const noopOutput = NOOP_DISPLAY_OPTIONS.map((opt) => `set +o ${opt}`);
-      const allOptions = [...implementedOutput, ...noopOutput].sort();
-      return success(`${allOptions.join("\n")}\n`);
+      return success(formatOptionsResetCommands(ctx));
     }
 
-    // Handle combined short flags like -eu or +eu
+    // Handle combined short flags like -eu or +eu, including a bundled
+    // -o/+o long option (e.g. `set -euo pipefail`). In bash, an `o` inside
+    // a cluster consumes the *next word* as its long-option name — so
+    // `set -euo pipefail` is equivalent to `set -e -u -o pipefail`, and the
+    // remaining characters of the token keep being parsed as short flags
+    // (`set -oe pipefail` sets both pipefail and errexit). Multiple `o`s
+    // consume successive words. An `o` with no available argument behaves
+    // like a standalone `-o`/`+o` and prints the current option settings.
     if (
       arg.length > 1 &&
       (arg[0] === "-" || arg[0] === "+") &&
       arg[1] !== "-"
     ) {
       const enable = arg[0] === "-";
+      // Number of following words already consumed as -o/+o option names.
+      let consumedArgs = 0;
       for (let j = 1; j < arg.length; j++) {
         const flag = arg[j];
+
+        // `o` takes its option name from the next word, not from the
+        // remaining characters of the current token.
+        if (flag === "o") {
+          const valueIndex = i + 1 + consumedArgs;
+          const hasOptionName =
+            valueIndex < args.length &&
+            !args[valueIndex].startsWith("-") &&
+            !args[valueIndex].startsWith("+");
+          if (hasOptionName) {
+            const optName = args[valueIndex];
+            if (!LONG_OPTION_MAP.has(optName)) {
+              const errorMsg = `bash: set: ${optName}: invalid option name\n${SET_USAGE}`;
+              // In POSIX mode, invalid option is fatal
+              if (ctx.state.options.posix) {
+                throw new PosixFatalError(1, "", errorMsg);
+              }
+              return failure(errorMsg);
+            }
+            setShellOption(ctx, LONG_OPTION_MAP.get(optName) ?? null, enable);
+            consumedArgs++;
+            continue;
+          }
+          // No option name available: behave like a standalone `-o`/`+o`.
+          return success(
+            enable ? formatOptionsList(ctx) : formatOptionsResetCommands(ctx),
+          );
+        }
+
         if (!SHORT_OPTION_MAP.has(flag)) {
           const errorMsg = `bash: set: ${arg[0]}${flag}: invalid option\n${SET_USAGE}`;
           // In POSIX mode, invalid option is fatal
@@ -407,7 +456,7 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
         }
         setShellOption(ctx, SHORT_OPTION_MAP.get(flag) ?? null, enable);
       }
-      i++;
+      i += 1 + consumedArgs;
       continue;
     }
 
