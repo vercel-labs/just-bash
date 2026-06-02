@@ -369,6 +369,14 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
     return success(lines.length > 0 ? `${lines.join("\n")}\n` : "");
   }
 
+  // Listings emitted by a no-option-name `o` bundled in a short-flag cluster
+  // (e.g. `set -oe`). bash prints the option listing but keeps applying the
+  // rest of the flags, so the output is deferred and flushed once all flags
+  // and tokens have been processed.
+  const pendingListings: string[] = [];
+  const finish = (): ExecResult =>
+    pendingListings.length > 0 ? success(pendingListings.join("")) : OK;
+
   let i = 0;
   while (i < args.length) {
     const arg = args[i];
@@ -405,8 +413,10 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
     // `set -euo pipefail` is equivalent to `set -e -u -o pipefail`, and the
     // remaining characters of the token keep being parsed as short flags
     // (`set -oe pipefail` sets both pipefail and errexit). Multiple `o`s
-    // consume successive words. An `o` with no available argument behaves
-    // like a standalone `-o`/`+o` and prints the current option settings.
+    // consume successive words. An `o` with no available argument prints the
+    // current option settings (like a standalone `-o`/`+o`) but does NOT stop
+    // flag processing — the remaining flags are still applied, so `set -oe`
+    // (no option name) enables errexit and lists the options.
     if (
       arg.length > 1 &&
       (arg[0] === "-" || arg[0] === "+") &&
@@ -440,10 +450,15 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
             consumedArgs++;
             continue;
           }
-          // No option name available: behave like a standalone `-o`/`+o`.
-          return success(
+          // No option name available: like a standalone `-o`/`+o`, bash prints
+          // the option listing — a snapshot of the state *so far*, hence
+          // computed here before later flags in the cluster are applied — but
+          // it keeps processing the remaining flags, so e.g. `set -oe` still
+          // enables errexit. The listing is deferred and flushed at the end.
+          pendingListings.push(
             enable ? formatOptionsList(ctx) : formatOptionsResetCommands(ctx),
           );
+          continue;
         }
 
         if (!SHORT_OPTION_MAP.has(flag)) {
@@ -463,7 +478,7 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
     // Handle -- (end of options)
     if (arg === "--") {
       setPositionalParameters(ctx, args.slice(i + 1));
-      return OK;
+      return finish();
     }
 
     // Handle - (disable xtrace and verbose, end of options)
@@ -473,7 +488,7 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
       updateShellopts(ctx);
       if (i + 1 < args.length) {
         setPositionalParameters(ctx, args.slice(i + 1));
-        return OK;
+        return finish();
       }
       i++;
       continue;
@@ -497,10 +512,10 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
 
     // Non-option arguments are positional parameters
     setPositionalParameters(ctx, args.slice(i));
-    return OK;
+    return finish();
   }
 
-  return OK;
+  return finish();
 }
 
 /**

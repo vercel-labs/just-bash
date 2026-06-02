@@ -306,6 +306,47 @@ describe("set builtin", () => {
       expect(result.stderr).toContain("bogusoption");
       expect(result.stderr).toContain("invalid option name");
     });
+
+    it("should still enable errexit for `set -oe` when no -o name follows", async () => {
+      // bash applies every flag in the cluster even when the bundled `o` has
+      // no option-name argument: `set -oe` (no following word) enables errexit
+      // *and* prints the option listing. The remaining flags are not abandoned.
+      const env = new Bash();
+      const result = await env.exec(`
+        set -oe
+        false
+        echo never
+      `);
+      // errexit is active, so `false` aborts before `echo never`.
+      expect(result.stdout).not.toContain("never");
+      expect(result.exitCode).toBe(1);
+      // The no-name `o` prints the option listing (snapshot taken before `e`
+      // is applied, so errexit shows off there).
+      expect(result.stdout).toContain("errexit");
+    });
+
+    it("should print the listing but apply leading flags for `set -eo`", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        set -eo
+        echo "dash=$-"
+      `);
+      // The listing is emitted, and errexit (the flag before `o`) is applied.
+      expect(result.stdout).toContain("errexit");
+      expect(result.stdout).toMatch(/dash=\S*e\S*/);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should enable errexit and nounset for `set -oue` (no -o name)", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        set -oue
+        echo "dash=$-"
+      `);
+      expect(result.stdout).toMatch(/dash=\S*e\S*/);
+      expect(result.stdout).toMatch(/dash=\S*u\S*/);
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("set -e (errexit)", () => {
