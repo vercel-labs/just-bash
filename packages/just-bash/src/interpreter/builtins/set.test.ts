@@ -347,6 +347,24 @@ describe("set builtin", () => {
       expect(result.stdout).toMatch(/dash=\S*u\S*/);
       expect(result.exitCode).toBe(0);
     });
+
+    it("should let multiple bundled `o`s consume successive words", async () => {
+      // `set -oo pipefail errexit` == `set -o pipefail -o errexit`: each `o`
+      // consumes the next word as its long-option name.
+      const env = new Bash();
+      const result = await env.exec(`
+        set -oo pipefail errexit
+        echo "args=[$*] dash=$-"
+        false | true
+        echo after
+      `);
+      // errexit is on (so `false | true` with pipefail aborts), and no words
+      // leaked into positional parameters.
+      expect(result.stdout).toContain("args=[]");
+      expect(result.stdout).toMatch(/dash=\S*e\S*/);
+      expect(result.stdout).not.toContain("after");
+      expect(result.exitCode).toBe(1);
+    });
   });
 
   describe("set -e (errexit)", () => {
