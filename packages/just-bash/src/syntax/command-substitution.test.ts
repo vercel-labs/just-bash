@@ -181,3 +181,113 @@ describe("Arithmetic Expansion $((expr))", () => {
     expect(result.stdout).toBe("6\n");
   });
 });
+
+describe("Command Substitution containing a heredoc", () => {
+  it("should not treat an apostrophe in the heredoc body as a quote", async () => {
+    // Regression: the `'` in `June's` previously flipped the boundary scanner
+    // into quote mode and swallowed the closing `)`, yielding
+    // "unexpected EOF while looking for matching `)'".
+    const env = new Bash();
+    const result = await env.exec(
+      [
+        "OUT=$(cat <<'SCRIPT'",
+        "June's moon",
+        "SCRIPT",
+        ")",
+        'printf %s "$OUT"',
+      ].join("\n"),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("June's moon");
+  });
+
+  it("should handle a redirection after the heredoc operator (<<'EOF' 2>&1)", async () => {
+    const env = new Bash();
+    const result = await env.exec(
+      [
+        "OUT=$(cat <<'SCRIPT' 2>&1",
+        "it's a test",
+        "SCRIPT",
+        ")",
+        'printf %s "$OUT"',
+      ].join("\n"),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("it's a test");
+  });
+
+  it("should handle a body with parens, backticks and an apostrophe", async () => {
+    const env = new Bash();
+    const body = [
+      "OUT=$(cat <<'SCRIPT' 2>&1",
+      "const x = foo({",
+      "  k: `June's moon`,",
+      "});",
+      "return {x};",
+      "SCRIPT",
+      ")",
+      'printf %s "$OUT"',
+    ].join("\n");
+    const result = await env.exec(body);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("June's moon");
+    expect(result.stdout).toContain("return {x};");
+  });
+
+  it("should support an unquoted delimiter (expansions still inert to the scan)", async () => {
+    const env = new Bash();
+    const result = await env.exec(
+      ["OUT=$(cat <<EOF", "can't stop", "EOF", ")", 'printf %s "$OUT"'].join(
+        "\n",
+      ),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("can't stop");
+  });
+
+  it("should support a tab-stripping heredoc (<<-)", async () => {
+    const env = new Bash();
+    const result = await env.exec(
+      [
+        "OUT=$(cat <<-'EOF'",
+        "\t\tit's fine",
+        "\tEOF",
+        ")",
+        'printf %s "$OUT"',
+      ].join("\n"),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("it's fine");
+  });
+
+  it("should handle two heredocs on one substitution line", async () => {
+    // Both heredocs redirect stdin; bash uses the last one, so only B's body
+    // reaches `cat`. The point of the test is that the scan consumes *both*
+    // bodies (apostrophes and all) and stops at the right `)`.
+    const env = new Bash();
+    const result = await env.exec(
+      [
+        "OUT=$(cat <<'A' <<'B'",
+        "a's",
+        "A",
+        "b's",
+        "B",
+        ")",
+        'printf %s "$OUT"',
+      ].join("\n"),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("b's");
+  });
+
+  it("should still parse a backtick command substitution with a heredoc body", async () => {
+    const env = new Bash();
+    const result = await env.exec(
+      ["OUT=`cat <<'EOF'", "don't break", "EOF`", 'printf %s "$OUT"'].join(
+        "\n",
+      ),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("don't break");
+  });
+});
