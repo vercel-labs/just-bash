@@ -10,6 +10,8 @@
  * - Escape sequences
  */
 
+import { readHeredocDelimiter } from "./parser-substitution.js";
+
 // Default max heredoc size to prevent memory exhaustion (10MB)
 const DEFAULT_MAX_HEREDOC_SIZE = 10_485_760;
 
@@ -1338,11 +1340,21 @@ export class Lexer {
         let caseDepth = 0; // Track nested case statements
         let inCasePattern = false; // Are we in case pattern (after 'in', before ')')
         let wordBuffer = ""; // Track recent word for keyword detection
+        // Heredocs opened on the current line whose (literal) bodies must be
+        // skipped without quote tracking so an apostrophe in the body is not
+        // mistaken for a shell quote when finding the closing `)`.
+        const pendingHeredocs: { delim: string; stripTabs: boolean }[] = [];
         // Check if this is $((...)) arithmetic expansion
         // When $(( is followed by content that spans multiple lines and closes with ) ),
         // it's $( ( subshell ) ) not $(( arithmetic ))
         const isArithmetic =
           input[pos] === "(" && !this.dollarDparenIsSubshell(pos);
+        // Depth of arithmetic `((...))` regions. Inside one, `<<` is the
+        // left-shift operator, not a heredoc opener, so heredoc detection is
+        // suppressed. The outer `$((...))` (its first `(` was already consumed)
+        // seeds the count via `isArithmetic`; nested `$((`/`((` are picked up
+        // by the `((` detection below.
+        let arithDepth = isArithmetic ? 1 : 0;
         while (depth > 0 && pos < len) {
           const c = input[pos];
           value += c;
@@ -1360,6 +1372,85 @@ export class Lexer {
             }
           } else {
             // Not in quotes
+
+            // Track arithmetic `((...))` nesting so a left-shift `<<` inside it
+            // is not mistaken for a heredoc (which would otherwise swallow the
+            // rest of a multi-line arithmetic expansion). Only the `((`/`))`
+            // pairs are counted here; the outer `$((...))` is already seeded via
+            // `isArithmetic`.
+            if (c === "(" && input[pos + 1] === "(") {
+              arithDepth++;
+            } else if (c === ")" && input[pos + 1] === ")" && arithDepth > 0) {
+              arithDepth--;
+            }
+
+            // Heredoc operator `<<DELIM` / `<<-DELIM` (not the `<<<` here-string,
+            // whose operand stays on the same line and is quote-tracked normally,
+            // nor a `<<` left-shift inside arithmetic). The opening `<` was
+            // already appended to `value` at the top of the loop; append the
+            // rest of the operator and the delimiter, then remember the
+            // delimiter so its literal body is skipped on the next newline.
+            if (
+              arithDepth === 0 &&
+              c === "<" &&
+              input[pos + 1] === "<" &&
+              input[pos + 2] !== "<"
+            ) {
+              // Scan the operator and delimiter without mutating any state yet,
+              // so that a non-heredoc `<<` (no delimiter) falls through cleanly
+              // to the normal per-char handling rather than double-appending.
+              let p = pos + 2; // past both `<`
+              let stripTabs = false;
+              if (input[p] === "-") {
+                stripTabs = true;
+                p++;
+              }
+              while (input[p] === " " || input[p] === "\t") {
+                p++;
+              }
+              const { delim, endPos } = readHeredocDelimiter(input, p);
+              if (delim.length > 0) {
+                // The first `<` was already appended at the top of the loop;
+                // append the rest through the delimiter and advance past all of
+                // it (including that first `<`, hence `endPos - pos`).
+                value += input.slice(pos + 1, endPos);
+                col += endPos - pos;
+                pendingHeredocs.push({ delim, stripTabs });
+                pos = endPos;
+                continue;
+              }
+            }
+
+            // Newline after one or more heredoc operators: consume their
+            // literal bodies line by line (no quote/paren tracking). The
+            // operator-line newline was already appended at the top of the loop.
+            if (c === "\n" && pendingHeredocs.length > 0) {
+              ln++;
+              col = 0;
+              let bodyPos = pos + 1;
+              for (const { delim, stripTabs } of pendingHeredocs) {
+                for (;;) {
+                  if (bodyPos >= len) break;
+                  let lineEnd = input.indexOf("\n", bodyPos);
+                  if (lineEnd === -1) lineEnd = len;
+                  const rawLine = input.slice(bodyPos, lineEnd);
+                  const cmp = stripTabs ? rawLine.replace(/^\t+/, "") : rawLine;
+                  // Append the line and its trailing newline (if present).
+                  value += input.slice(bodyPos, Math.min(lineEnd + 1, len));
+                  if (lineEnd < len) ln++;
+                  const reachedEnd = lineEnd >= len;
+                  bodyPos = lineEnd + 1;
+                  if (cmp === delim || reachedEnd) break;
+                }
+              }
+              pendingHeredocs.length = 0;
+              col = 0;
+              // `bodyPos` is `lineEnd + 1`, which overshoots to `len + 1` when
+              // the final body line has no trailing newline; clamp to `len`.
+              pos = Math.min(bodyPos, len);
+              continue;
+            }
+
             if (c === "'") {
               inSingleQuote = true;
               wordBuffer = "";
