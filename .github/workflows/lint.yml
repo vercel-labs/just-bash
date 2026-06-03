@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -16,11 +20,11 @@ jobs:
       - name: Verify commits are signed
         if: github.event_name == 'pull_request'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           unsigned=$(gh api --paginate \
             "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits" \
-            --jq '.[] | select(.commit.verification.verified == false) | "\(.sha[0:9])  \(.commit.message | split("\n")[0])"')
+            --jq '.[] | select(.commit.verification.verified != true) | "\(.sha[0:9])  \(.commit.message | split("\n")[0])"')
           if [ -n "$unsigned" ]; then
             echo "::error::The following commits are not signed/verified. Sign every commit and force-push (e.g. git rebase --exec 'git commit --amend --no-edit -S' <base>):"
             echo "$unsigned"
