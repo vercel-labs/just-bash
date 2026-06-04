@@ -2,7 +2,11 @@
  * Shared utilities for head and tail commands.
  */
 
-import { latin1FromBytes, readBytesFrom } from "../../encoding.js";
+import {
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+  readBytesFrom,
+} from "../../encoding.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 import { unknownOption } from "../help.js";
 
@@ -148,10 +152,16 @@ export async function processHeadTailFiles(
       // Matches the stdin path above and `cat`'s byte-clean behaviour.
       const content = latin1FromBytes(await readBytesFrom(ctx.fs, filePath));
 
-      // Show header if needed - only after we know the file exists
+      // Show header if needed - only after we know the file exists.
+      // The whole result is marked binary, so the redirect/pipe glue writes
+      // each char of `stdout` as one latin1 byte. The header text (which
+      // includes the filename) is JS Unicode, so UTF-8 encode it to its
+      // byte-shaped form first; otherwise a non-ASCII filename like
+      // `café.txt` would be written as latin1 (`é` -> 0xE9) instead of
+      // UTF-8 (`é` -> 0xC3 0xA9), corrupting the header on redirect.
       if (showHeaders) {
         if (filesProcessed > 0) stdout += "\n";
-        stdout += `==> ${file} <==\n`;
+        stdout += latin1FromBytes(encodeUtf8ToBytes(`==> ${file} <==\n`));
       }
       stdout += contentProcessor(content);
       filesProcessed++;

@@ -56,4 +56,19 @@ describe("head with binary files", () => {
     const out = await env.fs.readFileBuffer("/out.bin");
     expect(Array.from(out)).toEqual([0xff, 0x00, 0x80, 0xfe]);
   });
+
+  it("writes a non-ASCII filename header as UTF-8, not latin1, on redirect", async () => {
+    // The whole stream is marked binary, so the header (which carries the
+    // filename) must be UTF-8 encoded to byte-shaped form before mixing it
+    // with the raw file bytes. Otherwise `é` (U+00E9) is written as the
+    // single latin1 byte 0xE9 instead of UTF-8 0xC3 0xA9.
+    const env = new Bash();
+    await env.exec("printf 'hi\\n' > 'café.txt'");
+
+    await env.exec("head -v 'café.txt' > /out.bin");
+    const out = await env.fs.readFileBuffer("/out.bin");
+
+    const expected = new TextEncoder().encode("==> café.txt <==\nhi\n");
+    expect(Array.from(out)).toEqual(Array.from(expected));
+  });
 });
