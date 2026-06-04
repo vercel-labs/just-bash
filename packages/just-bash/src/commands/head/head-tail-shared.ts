@@ -2,7 +2,7 @@
  * Shared utilities for head and tail commands.
  */
 
-import { latin1FromBytes } from "../../encoding.js";
+import { latin1FromBytes, readBytesFrom } from "../../encoding.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 import { unknownOption } from "../help.js";
 
@@ -117,13 +117,15 @@ export async function processHeadTailFiles(
 ): Promise<ExecResult> {
   const { quiet, verbose, files } = options;
 
-  // If no files, read from stdin. head/tail are line-oriented and byte-clean
-  // — \n splits are byte-safe regardless of UTF-8 multibyte content.
+  // If no files, read from stdin. head/tail are byte-clean: `\n` splits and
+  // `-c` byte slices are byte-safe over the latin1 view, and the output is
+  // marked binary so the pipeline glue / redirects don't UTF-8 re-encode it.
   if (files.length === 0) {
     return {
       stdout: contentProcessor(latin1FromBytes(ctx.stdin)),
       stderr: "",
       exitCode: 0,
+      stdoutEncoding: "binary",
     };
   }
 
@@ -141,7 +143,10 @@ export async function processHeadTailFiles(
 
     try {
       const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-      const content = await ctx.fs.readFile(filePath);
+      // Read the raw bytes (latin1 view) rather than `fs.readFile`'s UTF-8
+      // decode: `-c` byte counts and binary content must round-trip exactly.
+      // Matches the stdin path above and `cat`'s byte-clean behaviour.
+      const content = latin1FromBytes(await readBytesFrom(ctx.fs, filePath));
 
       // Show header if needed - only after we know the file exists
       if (showHeaders) {
@@ -156,7 +161,7 @@ export async function processHeadTailFiles(
     }
   }
 
-  return { stdout, stderr, exitCode };
+  return { stdout, stderr, exitCode, stdoutEncoding: "binary" };
 }
 
 /**
