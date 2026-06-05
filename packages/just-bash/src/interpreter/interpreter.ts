@@ -24,9 +24,11 @@ import type {
   WordNode,
 } from "../ast/types.js";
 import {
+  decodeBytesToUtf8,
   encodeUtf8ToBytes,
   latin1FromBytes,
   readBytesFrom,
+  unsafeBytesFromLatin1,
 } from "../encoding.js";
 import type { IFileSystem } from "../fs/interface.js";
 import { mapToRecord } from "../helpers/env.js";
@@ -249,7 +251,17 @@ export class Interpreter {
     for (const statement of node.statements) {
       try {
         const result = await this.executeStatement(statement);
-        appendOutput(result.stdout, result.stderr);
+        // Decode each statement's stdout independently before concatenating.
+        // A script can mix text-shaped statements (sed, awk — ö as U+00F6) with
+        // byte-shaped ones (grep | head — ö as bytes 0xC3 0xB6). Concatenated
+        // raw, the lone 0xF6 makes the combined stream invalid UTF-8, so the
+        // boundary decoder in Bash.ts bails and leaves the byte half as mojibake.
+        // Decoding per statement isolates each shape; the decoder is a no-op on
+        // already-decoded text, so the boundary pass stays idempotent.
+        appendOutput(
+          decodeBytesToUtf8(unsafeBytesFromLatin1(result.stdout)),
+          result.stderr,
+        );
         exitCode = result.exitCode;
         this.ctx.state.lastExitCode = exitCode;
         this.ctx.state.env.set("?", String(exitCode));

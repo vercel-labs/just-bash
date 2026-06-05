@@ -206,6 +206,68 @@ echo 한 | f`,
     });
   });
 
+  describe("interleaved text + byte statements in one exec() call", () => {
+    // sed is text-shaped (ö as U+00F6); grep|head is byte-shaped (ö as 0xC3 0xB6).
+    // When concatenated raw, the lone 0xF6 makes the combined stream invalid UTF-8
+    // and the boundary decoder in Bash.ts bails, leaving the byte half as mojibake.
+    it("newline-separated text + byte statements round-trip non-ASCII", async () => {
+      const env = new Bash({ files: { "/doc.txt": "Köpenicker\n" } });
+      const r = await env.exec("sed -n 1p /doc.txt\ngrep Köpenicker /doc.txt | head -1");
+      expect(r.stdout).toBe("Köpenicker\nKöpenicker\n");
+    });
+
+    it("semicolon-separated text + byte statements round-trip non-ASCII", async () => {
+      const env = new Bash({ files: { "/doc.txt": "Köpenicker\n" } });
+      const r = await env.exec("sed -n 1p /doc.txt; grep Köpenicker /doc.txt | head -1");
+      expect(r.stdout).toBe("Köpenicker\nKöpenicker\n");
+    });
+
+    it("standalone byte producer still works (regression guard)", async () => {
+      const env = new Bash({ files: { "/doc.txt": "Köpenicker\n" } });
+      const r = await env.exec("grep Köpenicker /doc.txt | head -1");
+      expect(r.stdout).toBe("Köpenicker\n");
+    });
+
+    it("standalone text producer still works (regression guard)", async () => {
+      const env = new Bash({ files: { "/doc.txt": "Köpenicker\n" } });
+      const r = await env.exec("sed -n 1p /doc.txt");
+      expect(r.stdout).toBe("Köpenicker\n");
+    });
+
+    it("CJK (3-byte codepoints) round-trip across interleave", async () => {
+      const env = new Bash({ files: { "/doc.txt": "日本語\n" } });
+      const r = await env.exec("sed -n 1p /doc.txt\ngrep 日本語 /doc.txt | head -1");
+      expect(r.stdout).toBe("日本語\n日本語\n");
+    });
+
+    it("emoji (4-byte codepoints) round-trip across interleave", async () => {
+      const env = new Bash({ files: { "/doc.txt": "🌍\n" } });
+      const r = await env.exec("sed -n 1p /doc.txt\ngrep 🌍 /doc.txt | head -1");
+      expect(r.stdout).toBe("🌍\n🌍\n");
+    });
+
+    it("command substitution with a byte producer decodes before splicing", async () => {
+      const env = new Bash({ files: { "/world.txt": "世界\n" } });
+      const r = await env.exec('echo "你好: $(cat /world.txt)"');
+      expect(r.stdout).toBe("你好: 世界\n");
+    });
+
+    it("command substitution with grep output decodes before splicing", async () => {
+      const env = new Bash({ files: { "/doc.txt": "Köpenicker\n" } });
+      const r = await env.exec('echo "Company: $(grep Köpenicker /doc.txt)"');
+      expect(r.stdout).toBe("Company: Köpenicker\n");
+    });
+
+    it("binary file round-trips through cat unaffected by the fix", async () => {
+      const env = new Bash({
+        files: { "/b.bin": new Uint8Array([0x80, 0xff, 0x00, 0x90]) },
+      });
+      await env.exec("cat /b.bin | cat > /out.bin");
+      const out = await env.fs.readFileBuffer("/out.bin");
+      expect(Array.from(out)).toEqual([0x80, 0xff, 0x00, 0x90]);
+    });
+  });
+
   describe("public encoding exports", () => {
     // The byte/text helpers are part of the package's public API.
     // Custom-command authors and downstream tools import them by name;
