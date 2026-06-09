@@ -32,10 +32,21 @@ export interface TarOptions {
 }
 
 export function parseOptions(
-  args: string[],
+  rawArgs: string[],
 ):
   | { ok: true; options: TarOptions; files: string[] }
   | { ok: false; error: ExecResult } {
+  // GNU old-style: bare first arg is a flag bundle. Value-taking letters
+  // (f, C, T, X) must be terminal or they swallow the rest as their value;
+  // move them to the end.
+  const valueTaking = /[fCTX]/g;
+  const args =
+    rawArgs.length > 0 && rawArgs[0] !== "" && !rawArgs[0].startsWith("-")
+      ? [
+          `-${rawArgs[0].replace(valueTaking, "") + (rawArgs[0].match(valueTaking) ?? []).join("")}`,
+          ...rawArgs.slice(1),
+        ]
+      : rawArgs;
   const options: TarOptions = {
     create: false,
     append: false,
