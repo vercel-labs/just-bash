@@ -24,6 +24,7 @@ import type {
   WordNode,
 } from "../ast/types.js";
 import {
+  decodedTextFromResult,
   encodeUtf8ToBytes,
   latin1FromBytes,
   readBytesFrom,
@@ -249,7 +250,13 @@ export class Interpreter {
     for (const statement of node.statements) {
       try {
         const result = await this.executeStatement(statement);
-        appendOutput(result.stdout, result.stderr);
+        // Decode each statement's stdout to text via its explicit `stdoutKind`
+        // before concatenating. A script can interleave text-shaped statements
+        // (sed, awk — ö as U+00F6) with byte-shaped ones (grep | head — ö as
+        // bytes 0xC3 0xB6); concatenated raw, the lone high byte makes the
+        // combined stream invalid UTF-8 and the boundary decoder bails, leaving
+        // the byte half as mojibake. Decoding per statement isolates each shape.
+        appendOutput(decodedTextFromResult(result), result.stderr);
         exitCode = result.exitCode;
         this.ctx.state.lastExitCode = exitCode;
         this.ctx.state.env.set("?", String(exitCode));
@@ -432,7 +439,11 @@ export class Interpreter {
       if (operator === "||" && exitCode === 0) continue;
 
       const result = await this.executePipeline(pipeline);
-      stdout += result.stdout;
+      // Decode each pipeline's stdout to text via its explicit `stdoutKind`
+      // before concatenating, so a statement that joins text-shaped and
+      // byte-shaped pipelines with && / || does not interleave raw byte and
+      // Unicode chunks (which would defeat the output-boundary UTF-8 decode).
+      stdout += decodedTextFromResult(result);
       stderr += result.stderr;
       exitCode = result.exitCode;
       lastExecutedIndex = i;

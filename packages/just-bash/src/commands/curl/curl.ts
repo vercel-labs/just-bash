@@ -322,7 +322,10 @@ export const curlCommand: Command = {
         }
       }
 
-      return { stdout: output, stderr: "", exitCode: 0 };
+      // The response body is a latin1-shaped byte buffer (see
+      // `fetchBodyToStdoutString`); any prepended headers / verbose markers are
+      // ASCII, so the whole stream is byte-shaped and must be marked "bytes".
+      return { stdout: output, stderr: "", exitCode: 0, stdoutKind: "bytes" };
     } catch (error) {
       const message = getErrorMessage(error);
 
