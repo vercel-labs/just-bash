@@ -1,6 +1,6 @@
 {
   "name": "@just-bash/executor",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Experimental tool-invocation companion for just-bash. Wires @executor-js/sdk into js-exec via the invokeTool hook.",
   "repository": {
     "type": "git",
