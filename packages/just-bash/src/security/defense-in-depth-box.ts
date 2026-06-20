@@ -770,6 +770,12 @@ export class DefenseInDepthBox {
           );
           throw new SecurityViolationError(message, violation);
         }
+        // debug/supports-color writes this while loading lazily. Forwarding
+        // the proxy as receiver makes Node reject the resulting value-only
+        // process.env descriptor.
+        if (path === "process.env" && prop === "DEBUG") {
+          return Reflect.set(target, prop, value);
+        }
         return Reflect.set(target, prop, value, receiver);
       },
       // Block enumeration (Object.keys, Object.entries, for...in, etc.)

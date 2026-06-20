@@ -899,6 +899,36 @@ describe("DefenseInDepthBox", () => {
 
         handle.deactivate();
       });
+
+      it("should only allow writing process.env.DEBUG outside sandbox context", () => {
+        // Regression: the proxy's set trap forwarded `receiver` (the proxy)
+        // to Reflect.set, so assignment to an existing key degraded into a
+        // value-only defineProperty on the real process.env, which Node
+        // rejects with "'process.env' only accepts a configurable, writable,
+        // and enumerable data descriptor". Seen via debug/supports-color
+        // (`process.env.DEBUG = ...`) loaded lazily by the `file` command.
+        const originalDebug = process.env.DEBUG;
+        process.env.DEBUG = "before";
+        process.env.JUST_BASH_ENV_WRITE_TEST = "before";
+
+        const box = DefenseInDepthBox.getInstance(true);
+        const handle = box.activate();
+
+        process.env.DEBUG = "after";
+        expect(process.env.DEBUG).toBe("after");
+        expect(() => {
+          process.env.JUST_BASH_ENV_WRITE_TEST = "after";
+        }).toThrow();
+        expect(process.env.JUST_BASH_ENV_WRITE_TEST).toBe("before");
+
+        handle.deactivate();
+        if (originalDebug === undefined) {
+          delete process.env.DEBUG;
+        } else {
+          process.env.DEBUG = originalDebug;
+        }
+        delete process.env.JUST_BASH_ENV_WRITE_TEST;
+      });
     });
 
     describe("WebAssembly blocking", () => {
