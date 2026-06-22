@@ -46,6 +46,21 @@ noscript pre {
   margin: 0 auto;
 }
 
+/* Vercel badge */
+.vercel-badge {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  z-index: 10;
+  color: var(--foreground);
+  opacity: 0.2;
+  transition: opacity 0.2s ease;
+  text-decoration: none;
+  display: block;
+  padding: 8px;
+}
+.vercel-badge:hover { opacity: 0.5; }
+
 /* Lite Terminal styles */
 .lite-terminal-input {
   position: absolute;
