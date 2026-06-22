@@ -179,6 +179,14 @@ const env = new Bash({
     // Lazy: called on first read, cached. Never called if written before read.
     "/data/large.csv": () => "col1,col2\na,b\n",
     "/data/remote.txt": async () => (await fetch("https://example.com")).text(),
+    // Lazy with declared byte size: `stat`/`ls -l` can avoid loading content.
+    "/data/indexed.bin": {
+      lazy: async () =>
+        new Uint8Array(
+          await (await fetch("https://example.com/indexed.bin")).arrayBuffer(),
+        ),
+      size: 1024,
+    },
   },
 });
 ```
