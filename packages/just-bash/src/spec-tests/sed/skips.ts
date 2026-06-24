@@ -127,14 +127,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   // PythonSed chang.suite - complex N/D/P scripts
   // ============================================================
   [
-    "pythonsed-chang.suite:Delete two consecutive lines if the first one contains PAT1 and the second one contains PAT2.",
-    "N/P/D commands",
-  ],
-  [
-    "pythonsed-chang.suite:Get the line following a line containing PAT - Case 1 - 1.",
-    "N/D commands",
-  ],
-  [
     "pythonsed-chang.suite:Remove comments (/* ... */, maybe multi-line) of a C program. - 1",
     "N command behavior",
   ],
@@ -172,20 +164,12 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "complex N/D branching",
   ],
   [
-    'pythonsed-chang.suite:Extract "Received:" header(s) from a mailbox.',
-    "complex N/D branching",
-  ],
-  [
     "pythonsed-chang.suite:Extract every IMG elements from an HTML file.",
     "complex branching",
   ],
   [
     "pythonsed-chang.suite:Find failed instances without latter successful ones.",
     "complex N/D branching",
-  ],
-  [
-    "pythonsed-chang.suite:Change the first quote of every single-quoted string to backquote(`). - 1",
-    "complex pattern manipulation",
   ],
   ["pythonsed-chang.suite:1 cat chicken", "test name parsing issue"],
   [
