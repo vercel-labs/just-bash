@@ -22,6 +22,7 @@ import {
   expandWord,
   expandWordWithGlob,
   getArrayElements,
+  isArray,
 } from "./expansion.js";
 import {
   parseKeyedElementFromWord,
@@ -785,7 +786,6 @@ async function processScalarAssignment(
       finalValue = "0";
     }
   } else {
-    const { isArray } = await import("./expansion.js");
     const appendKey = isArray(ctx, targetName) ? `${targetName}_0` : targetName;
     finalValue = append ? (ctx.state.env.get(appendKey) || "") + value : value;
   }
@@ -799,7 +799,6 @@ async function processScalarAssignment(
   if (namerefArrayRef) {
     actualEnvKey = await computeNamerefArrayEnvKey(ctx, namerefArrayRef);
   } else {
-    const { isArray } = await import("./expansion.js");
     if (isArray(ctx, targetName)) {
       actualEnvKey = `${targetName}_0`;
     }
