@@ -246,8 +246,8 @@ importers:
         specifier: ^7.0.0
         version: 7.0.0
       node-liblzma:
-        specifier: ^2.0.3
-        version: 2.2.0
+        specifier: ^5.0.0
+        version: 5.0.3
 
   packages/just-bash-executor:
     dependencies:
@@ -3427,10 +3427,9 @@ packages:
     resolution: {integrity: sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ==}
     hasBin: true
 
-  node-liblzma@2.2.0:
-    resolution: {integrity: sha512-s0KzNOWwOJJgPG6wxg6cKohnAl9Wk/oW1KrQaVzJBjQwVcUGPQCzpR46Ximygjqj/3KhOrtJXnYMp/xYAXp75g==}
-    engines: {node: '>=16.0.0'}
-    hasBin: true
+  node-liblzma@5.0.3:
+    resolution: {integrity: sha512-5LN4sLdqDfk1dtaKmjqqiRHYzTxoQZvUAJKWbk9WblWnHKPl4H/7UZ6MmVBTHOOmic0OpPUhqkYOpt0fneL+hQ==}
+    engines: {node: '>=22.0.0'}
 
   node-releases@2.0.38:
     resolution: {integrity: sha512-3qT/88Y3FbH/Kx4szpQQ4HzUbVrHPKTLVpVocKiLfoYvw9XSGOX2FmD2d6DrXbVYyAQTF2HeF6My8jmzx7/CRw==}
@@ -7645,7 +7644,7 @@ snapshots:
   node-gyp-build@4.8.4:
     optional: true
 
-  node-liblzma@2.2.0:
+  node-liblzma@5.0.3:
     dependencies:
       node-addon-api: 8.7.0
       node-gyp-build: 4.8.4
