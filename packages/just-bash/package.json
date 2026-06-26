@@ -130,6 +130,6 @@
   },
   "optionalDependencies": {
     "@mongodb-js/zstd": "^7.0.0",
-    "node-liblzma": "^2.2.0"
+    "node-liblzma": "^5.0.0"
   }
 }
