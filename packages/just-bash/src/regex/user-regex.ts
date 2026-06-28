@@ -148,11 +148,13 @@ export class UserRegex implements RegexLike {
    * Test if the pattern matches the input string.
    */
   test(input: string): boolean {
-    // Reset lastIndex for global regexes to ensure consistent behavior
-    if (this._global) {
-      this._lastIndex = 0;
+    if (!this._global) {
+      // The DFA engine is blisteringly fast for simple existence checks
+      return this._re2.test(input);
     }
-    return this._re2.test(input);
+
+    // global .test() must advance lastIndex exactly like .exec()
+    return this.exec(input) !== null;
   }
 
   /**
