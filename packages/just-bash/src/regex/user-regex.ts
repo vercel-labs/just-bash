@@ -148,6 +148,7 @@ export class UserRegex implements RegexLike {
    */
   test(input: string): boolean {
     if (this._global) {
+      // Reset lastIndex for global regexes to ensure consistent behavior
       this._lastIndex = 0;
       // global .test() must advance lastIndex exactly like .exec()
       return this.exec(input) !== null;
@@ -206,6 +207,7 @@ export class UserRegex implements RegexLike {
    * With global flag, returns all matches. Without, returns first match with groups.
    */
   match(input: string): RegExpMatchArray | null {
+    // Reset lastIndex for consistent behavior
     if (this._global) {
       this._lastIndex = 0;
 
@@ -260,7 +262,7 @@ export class UserRegex implements RegexLike {
    */
   search(input: string): number {
     const matcher = this.acquireMatcher(input);
-    if (matcher.find(0)) {
+    if (matcher.find()) {
       return matcher.start(0);
     }
     return -1;
