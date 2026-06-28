@@ -147,13 +147,14 @@ export class UserRegex implements RegexLike {
    * Test if the pattern matches the input string.
    */
   test(input: string): boolean {
-    if (!this._global) {
-      // The DFA engine is blisteringly fast for simple existence checks
-      return this._re2.test(input);
+    if (this._global) {
+      this._lastIndex = 0;
+      // global .test() must advance lastIndex exactly like .exec()
+      return this.exec(input) !== null;
     }
 
-    // global .test() must advance lastIndex exactly like .exec()
-    return this.exec(input) !== null;
+    // The DFA engine is blisteringly fast for simple existence checks
+    return this._re2.test(input);
   }
 
   /**
@@ -165,7 +166,7 @@ export class UserRegex implements RegexLike {
 
     const startPos = this._global ? this._lastIndex : 0;
 
-    if (!matcher.find(startPos)) {
+    if (startPos > input.length || !matcher.find(startPos)) {
       if (this._global) this._lastIndex = 0;
       return null;
     }
@@ -376,6 +377,10 @@ export class ConstantRegex implements RegexLike {
   }
 
   test(input: string): boolean {
+    if (this._regex.global) {
+      this._regex.lastIndex = 0;
+    }
+
     return this._regex.test(input);
   }
 
