@@ -92,7 +92,6 @@ export class UserRegex implements RegexLike {
     }
 
     if (this._matcherInput !== input) {
-      // @ts-expect-error: re2js underlying JS supports strings, but types are outdated
       this._matcher.resetMatcherInput(input);
       this._matcherInput = input;
     } else {
@@ -260,7 +259,7 @@ export class UserRegex implements RegexLike {
    */
   search(input: string): number {
     const matcher = this.acquireMatcher(input);
-    if (matcher.find()) {
+    if (matcher.find(0)) {
       return matcher.start(0);
     }
     return -1;
@@ -377,9 +376,6 @@ export class ConstantRegex implements RegexLike {
   }
 
   test(input: string): boolean {
-    if (this._regex.global) {
-      this._regex.lastIndex = 0;
-    }
     return this._regex.test(input);
   }
 
