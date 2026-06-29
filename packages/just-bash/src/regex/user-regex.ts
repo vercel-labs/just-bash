@@ -148,8 +148,6 @@ export class UserRegex implements RegexLike {
    */
   test(input: string): boolean {
     if (this._global) {
-      // Reset lastIndex for global regexes to ensure consistent behavior
-      this._lastIndex = 0;
       // global .test() must advance lastIndex exactly like .exec()
       return this.exec(input) !== null;
     }
