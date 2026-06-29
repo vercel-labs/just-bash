@@ -148,6 +148,8 @@ export class UserRegex implements RegexLike {
    */
   test(input: string): boolean {
     if (this._global) {
+      // Reset lastIndex for global regexes to ensure consistent behavior
+      this._lastIndex = 0;
       // global .test() must advance lastIndex exactly like .exec()
       return this.exec(input) !== null;
     }
@@ -163,35 +165,43 @@ export class UserRegex implements RegexLike {
   exec(input: string): RegExpExecArray | null {
     const matcher = this.acquireMatcher(input);
 
+    // For global regex, start from lastIndex
     const startPos = this._global ? this._lastIndex : 0;
-
-    if (startPos > input.length || !matcher.find(startPos)) {
-      if (this._global) this._lastIndex = 0;
+    if (!matcher.find(startPos)) {
+      if (this._global) {
+        this._lastIndex = 0;
+      }
       return null;
     }
 
+    // Build result array
     const groupCount = this._re2.groupCount();
     const result: string[] = [];
 
-    // Group 0 is the full match, followed by captures
-    for (let i = 0; i <= groupCount; i++) {
-      result.push((matcher.group(i) as string | null) ?? "");
+    // Group 0 is the full match
+    result.push(matcher.group(0) ?? "");
+
+    // Add capture groups
+    for (let i = 1; i <= groupCount; i++) {
+      const group = matcher.group(i);
+      result.push(group as string);
     }
 
+    // Add RegExpExecArray properties
     const execResult = result as unknown as RegExpExecArray;
     execResult.index = matcher.start(0);
     execResult.input = input;
 
+    // Add named groups if any
     const namedGroups = this._re2.namedGroups();
     if (namedGroups && Object.keys(namedGroups).length > 0) {
-      // re2js natively returns a dict of strings/nulls
       execResult.groups = matcher.getNamedGroups() as { [key: string]: string };
     }
 
+    // Update lastIndex for global regex
     if (this._global) {
       this._lastIndex = matcher.end(0);
-
-      // Advance lastIndex to prevent infinite loops on zero-width matches
+      // Handle zero-length matches
       if (matcher.start(0) === matcher.end(0)) {
         this._lastIndex++;
       }
