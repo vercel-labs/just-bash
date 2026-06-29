@@ -62,6 +62,19 @@ describe("rg searches stdin when no paths are given", () => {
     expect(result.stdout).toContain("target line");
   });
 
+  it("does not double-consume stdin when -f - is used", async () => {
+    const env = new Bash({
+      files: { "/data.txt": "hello world\ngoodbye\n" },
+    });
+    // -f - reads patterns from stdin; rg should then search the explicit
+    // path, not try to also search stdin as content
+    const result = await env.exec(
+      'echo "hello" | rg -f - /data.txt',
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("hello world");
+  });
+
   it("supports multibyte UTF-8 patterns from piped stdin", async () => {
     const env = new Bash({ files: {} });
     const result = await env.exec("printf '한글 found\\nmiss\\n' | rg '한글'");

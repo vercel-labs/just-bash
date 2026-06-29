@@ -141,8 +141,11 @@ export async function executeSearch(
   // If no paths given and stdin has content, search stdin (like real rg).
   // In a pipeline, the previous command's stdout becomes this command's
   // stdin — search that text instead of defaulting to the current directory.
+  // Skip when `-f -` already consumed stdin for patterns to avoid
+  // double-consuming it as both pattern source and search input.
+  const stdinConsumedByPatternFile = options.patternFiles.includes("-");
   const stdinText = decodeBytesToUtf8(ctx.stdin);
-  if (inputPaths.length === 0 && stdinText.length > 0) {
+  if (inputPaths.length === 0 && stdinText.length > 0 && !stdinConsumedByPatternFile) {
     const content = stdinText;
     const result = searchContent(content, regex, {
       invertMatch: options.invertMatch,
