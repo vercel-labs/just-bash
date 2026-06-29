@@ -211,7 +211,7 @@ export class UserRegex implements RegexLike {
     if (this._global) {
       this._lastIndex = 0;
 
-      const matches = Array.from(this._re2.matchAll(input), m => m[0]);
+      const matches = Array.from(this._re2.matchAll(input), (m) => m[0]);
       return matches.length > 0 ? (matches as RegExpMatchArray) : null;
     }
 
@@ -229,9 +229,10 @@ export class UserRegex implements RegexLike {
       this._lastIndex = 0;
     }
 
-    const matcher = typeof replacement === "function"
-      ? this._re2.matcher(input)
-      : this.acquireMatcher(input);
+    const matcher =
+      typeof replacement === "function"
+        ? this._re2.matcher(input)
+        : this.acquireMatcher(input);
 
     if (this._global) {
       return matcher.replaceAll(replacement);
