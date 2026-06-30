@@ -47,6 +47,14 @@ export async function executePipeline(
   const isMultiCommandPipeline = node.commands.length > 1;
   const savedLastArg = ctx.state.lastArg;
 
+  // Save the cursor so we can restore it after the pipeline. The first
+  // command shares the cursor and may advance its position. Non-first
+  // commands must not see it (they read from the pipe, not from the loop's
+  // stdin). After the pipeline the cursor — with its potentially-advanced
+  // position — is put back so the next loop iteration reads from the right
+  // place.
+  const savedCursor = ctx.state.stdinCursor;
+
   for (let i = 0; i < node.commands.length; i++) {
     const command = node.commands[i];
     const isLast = i === node.commands.length - 1;
@@ -58,12 +66,10 @@ export async function executePipeline(
       // Clear $_ for each pipeline command - they each get fresh subshell context
       ctx.state.lastArg = "";
 
-      // After the first command, clear groupStdin so subsequent commands
-      // only see stdin from the pipeline (even if empty), not the original groupStdin
-      // This prevents commands like head from incorrectly falling back to groupStdin
-      // when they receive empty output from a previous command (e.g., grep with no matches)
+      // Non-first commands get their stdin from the pipe, not from the loop's
+      // cursor. Clear it so they cannot accidentally fall back to it.
       if (!isFirst) {
-        ctx.state.groupStdin = undefined;
+        ctx.state.stdinCursor = undefined;
       }
     }
 
@@ -237,6 +243,15 @@ export async function executePipeline(
     ctx.state.lastArg = savedLastArg;
   }
   // With lastpipe, the last command already updated $_ in the main shell context
+
+  // Restore the cursor ref for non-first pipeline commands. Those commands had
+  // it cleared (they must only read from the pipe), but the savedCursor still
+  // holds the shared object whose position may have been advanced by the first
+  // command. Putting it back lets the next loop iteration read from the right
+  // place.
+  if (isMultiCommandPipeline) {
+    ctx.state.stdinCursor = savedCursor;
+  }
 
   return lastResult;
 }

@@ -14,6 +14,7 @@ import type {
 } from "../ast/types.js";
 import { Parser } from "../parser/parser.js";
 import type { ParseException } from "../parser/types.js";
+import { StdinCursor } from "../stdin-cursor.js";
 import type { ExecResult } from "../types.js";
 import {
   BreakError,
@@ -109,10 +110,11 @@ export async function executeSubshell(
   const savedBashPid = ctx.state.bashPid;
   ctx.state.bashPid = ctx.state.nextVirtualPid++;
 
-  // Save any existing groupStdin and set new one from pipeline
-  const savedGroupStdin = ctx.state.groupStdin;
+  // Install a fresh cursor when subshell has its own stdin; otherwise share
+  // the outer cursor so reads inside the subshell advance the outer position.
+  const savedCursor = ctx.state.stdinCursor;
   if (stdin) {
-    ctx.state.groupStdin = stdin;
+    ctx.state.stdinCursor = new StdinCursor(stdin);
   }
 
   let stdout = "";
@@ -130,7 +132,7 @@ export async function executeSubshell(
     ctx.state.fullyUnsetLocals = savedFullyUnsetLocals;
     ctx.state.loopDepth = savedLoopDepth;
     ctx.state.parentHasLoopContext = savedParentHasLoopContext;
-    ctx.state.groupStdin = savedGroupStdin;
+    if (stdin) ctx.state.stdinCursor = savedCursor;
     ctx.state.bashPid = savedBashPid;
     ctx.state.lastArg = savedLastArg;
   };
@@ -272,10 +274,11 @@ export async function executeGroup(
     }
   }
 
-  // Save any existing groupStdin and set new one from pipeline
-  const savedGroupStdin = ctx.state.groupStdin;
+  // Install a fresh cursor when the group has its own stdin source; otherwise
+  // share the outer cursor so reads inside the group advance the outer position.
+  const savedCursor = ctx.state.stdinCursor;
   if (effectiveStdin) {
-    ctx.state.groupStdin = effectiveStdin;
+    ctx.state.stdinCursor = new StdinCursor(effectiveStdin);
   }
 
   try {
@@ -286,8 +289,7 @@ export async function executeGroup(
       exitCode = res.exitCode;
     }
   } catch (error) {
-    // Restore groupStdin before handling error
-    ctx.state.groupStdin = savedGroupStdin;
+    if (effectiveStdin) ctx.state.stdinCursor = savedCursor;
     // ExecutionLimitError must always propagate - these are safety limits
     if (error instanceof ExecutionLimitError) {
       throw error;
@@ -303,8 +305,7 @@ export async function executeGroup(
     return result(stdout, `${stderr}${getErrorMessage(error)}\n`, 1);
   }
 
-  // Restore groupStdin
-  ctx.state.groupStdin = savedGroupStdin;
+  if (effectiveStdin) ctx.state.stdinCursor = savedCursor;
 
   // Apply output redirections
   const bodyResult = result(stdout, stderr, exitCode);
@@ -353,7 +354,7 @@ export async function executeUserScript(
   const savedParentHasLoopContext = ctx.state.parentHasLoopContext;
   const savedLastArg = ctx.state.lastArg;
   const savedBashPid = ctx.state.bashPid;
-  const savedGroupStdin = ctx.state.groupStdin;
+  const savedCursor = ctx.state.stdinCursor;
   const savedSource = ctx.state.currentSource;
 
   // Set up subshell-like environment
@@ -361,7 +362,7 @@ export async function executeUserScript(
   ctx.state.loopDepth = 0;
   ctx.state.bashPid = ctx.state.nextVirtualPid++;
   if (stdin) {
-    ctx.state.groupStdin = stdin;
+    ctx.state.stdinCursor = new StdinCursor(stdin);
   }
   ctx.state.currentSource = scriptPath;
 
@@ -387,7 +388,7 @@ export async function executeUserScript(
     ctx.state.parentHasLoopContext = savedParentHasLoopContext;
     ctx.state.lastArg = savedLastArg;
     ctx.state.bashPid = savedBashPid;
-    ctx.state.groupStdin = savedGroupStdin;
+    if (stdin) ctx.state.stdinCursor = savedCursor;
     ctx.state.currentSource = savedSource;
   };
 

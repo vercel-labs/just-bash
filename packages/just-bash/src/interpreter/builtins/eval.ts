@@ -6,6 +6,7 @@
  */
 
 import { type ParseException, parse } from "../../parser/parser.js";
+import { StdinCursor } from "../../stdin-cursor.js";
 import type { ExecResult } from "../../types.js";
 import {
   BreakError,
@@ -50,12 +51,12 @@ export async function handleEval(
     return OK;
   }
 
-  // Save and set groupStdin for piped eval commands
-  // This allows stdin from the pipeline to flow to commands within eval
-  const savedGroupStdin = ctx.state.groupStdin;
-  const effectiveStdin = stdin ?? ctx.state.groupStdin;
-  if (effectiveStdin !== undefined) {
-    ctx.state.groupStdin = effectiveStdin;
+  // If eval received stdin from a pipeline, install a fresh cursor for it so
+  // read commands inside eval consume from that input. If no pipeline stdin,
+  // eval shares the outer cursor — reads inside eval advance it normally.
+  const savedCursor = ctx.state.stdinCursor;
+  if (stdin) {
+    ctx.state.stdinCursor = new StdinCursor(stdin);
   }
 
   try {
@@ -77,7 +78,8 @@ export async function handleEval(
     }
     throw error;
   } finally {
-    // Restore groupStdin
-    ctx.state.groupStdin = savedGroupStdin;
+    if (stdin) {
+      ctx.state.stdinCursor = savedCursor;
+    }
   }
 }

@@ -263,7 +263,7 @@ export function handleRead(
     return result("", "", 1);
   }
 
-  // Use stdin from parameter, or fall back to groupStdin (for piped groups/while loops)
+  // Use stdin from parameter, or fall back to stdinCursor (for piped groups/while loops)
   // If -u is specified, use the file descriptor content instead
   let effectiveStdin = stdin;
 
@@ -274,8 +274,8 @@ export function handleRead(
     } else {
       effectiveStdin = "";
     }
-  } else if (!effectiveStdin && ctx.state.groupStdin !== undefined) {
-    effectiveStdin = ctx.state.groupStdin;
+  } else if (!effectiveStdin && ctx.state.stdinCursor !== undefined) {
+    effectiveStdin = ctx.state.stdinCursor.remaining;
   }
 
   // Handle -d '' (empty delimiter) - reads until NUL byte
@@ -308,8 +308,8 @@ export function handleRead(
           );
         }
       }
-    } else if (ctx.state.groupStdin !== undefined && !stdin) {
-      ctx.state.groupStdin = effectiveStdin.substring(bytesConsumed);
+    } else if (ctx.state.stdinCursor !== undefined && !stdin) {
+      ctx.state.stdinCursor.advance(bytesConsumed);
     }
   };
 

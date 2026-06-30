@@ -2,6 +2,7 @@ import type { ByteString } from "./encoding.js";
 import type { IFileSystem } from "./fs/interface.js";
 import type { ExecutionLimits } from "./limits.js";
 import type { SecureFetch } from "./network/index.js";
+import type { StdinCursor } from "./stdin-cursor.js";
 
 /**
  * Lightweight interface for feature coverage tracking during fuzzing.
@@ -153,6 +154,17 @@ export interface CommandContext {
    * actually holds UTF-8 — is the bug class this type prevents.
    */
   stdin: ByteString;
+  /**
+   * Shared stdin cursor, present only when this command is reading from a
+   * while-loop's redirected stdin (i.e. `stdin` was empty and fell back to
+   * the loop's StdinCursor). Commands that consume all of stdin should call
+   * `ctx.stdinCursor?.readAll()` so that the while-loop's position advances
+   * and subsequent iterations start from the right place.
+   *
+   * `undefined` when stdin came from a pipeline (previous command's stdout)
+   * or when there is no active while-loop stdin.
+   */
+  stdinCursor?: StdinCursor;
   /**
    * Execution limits configuration.
    * Available when running commands via BashEnv interpreter.
