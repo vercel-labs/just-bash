@@ -28,6 +28,7 @@ import { _clearTimeout, _setTimeout } from "../../timers.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
+import { preprocessDotCommands } from "./dot-commands.js";
 import {
   type FormatOptions,
   formatOutput,
@@ -69,6 +70,8 @@ const sqlite3Help = {
     "-bail           stop on first error",
     "-echo           print SQL before execution",
     "-cmd COMMAND    run SQL command before main SQL",
+    "-init FILENAME  read/process named file before main SQL",
+    "-batch          accept-and-ignore (just-bash is always non-interactive)",
     "-version        show SQLite version",
     "--              end of options",
     "--help          show this help",
@@ -91,6 +94,7 @@ interface SqliteOptions {
   bail: boolean;
   echo: boolean;
   cmd: string | null;
+  init: string | null;
 }
 
 function parseArgs(args: string[]):
@@ -111,6 +115,7 @@ function parseArgs(args: string[]):
     bail: false,
     echo: false,
     cmd: null,
+    init: null,
   };
 
   let database: string | null = null;
@@ -188,6 +193,17 @@ function parseArgs(args: string[]):
         };
       }
       options.cmd = args[++i];
+    } else if (arg === "-init") {
+      if (i + 1 >= args.length) {
+        return {
+          stdout: "",
+          stderr: "sqlite3: Error: missing argument to -init\n",
+          exitCode: 1,
+        };
+      }
+      options.init = args[++i];
+    } else if (arg === "-batch") {
+      // No-op: just-bash is never interactive, so -batch is implied.
     } else if (arg.startsWith("-")) {
       // Real sqlite3 treats --xyz as -xyz and says "unknown option: -xyz"
       const optName = arg.startsWith("--") ? arg.slice(1) : arg;
@@ -542,16 +558,90 @@ export const sqlite3Command: Command = {
 
     // Get SQL from argument or stdin. SQL is text — decode bytes to UTF-8 so
     // string literals containing multibyte characters survive intact.
-    let sql = sqlArg || decodeBytesToUtf8(ctx.stdin).trim();
+    // Decode stdin once and reuse for both the initial assignment and the
+    // no-SQL guard below so they agree on the same value.
+    // sqlArg is `string | null`, so use `??` (not `||`) — an explicit empty
+    // positional SQL arg is "provided but empty" and must NOT silently fall
+    // through to piped stdin.
+    // Prepend -cmd first, then -init on top, so the final execution order is:
+    // init content -> cmd -> main SQL.
+    const stdinSql = decodeBytesToUtf8(ctx.stdin).trim();
+    let sql = sqlArg ?? stdinSql;
     if (options.cmd) {
       sql = options.cmd + (sql ? `; ${sql}` : "");
     }
-    if (!sql) {
+    // `options.init` is `string | null`. Use `!== null` (not falsiness) so
+    // `-init ""` attempts the read and surfaces a clear error, instead of
+    // silently skipping. This matches the no-SQL guard below, which also
+    // treats an explicit empty string as "provided".
+    if (options.init !== null) {
+      try {
+        const initPath = ctx.fs.resolvePath(ctx.cwd, options.init);
+        const initContent = await ctx.fs.readFile(initPath);
+        sql = initContent + (sql ? `\n${sql}` : "");
+      } catch (e) {
+        const message = sanitizeErrorMessage((e as Error).message);
+        return {
+          stdout: "",
+          stderr: `sqlite3: cannot open -init file "${options.init}": ${message}\n`,
+          exitCode: 1,
+        };
+      }
+    }
+    // Only error when no SQL source was provided at all. An empty -init
+    // file (or explicitly empty stdin/sqlArg) with nothing else is a clean
+    // exit 0, matching real sqlite3. sqlArg/options.init are typed as
+    // `string | null`, so test for absence with `=== null` rather than
+    // falsiness (an explicit empty string is "provided but empty").
+    if (!sql && options.init === null && sqlArg === null && !stdinSql) {
       return {
         stdout: "",
         stderr: "sqlite3: no SQL provided\n",
         exitCode: 1,
       };
+    }
+
+    // Preprocess dot-commands (.tables, .schema, .mode, .read, ...). Each
+    // dot-command resolves to one of: SQL replacement, formatter mutation,
+    // silent drop, .read file inlining, .quit/.exit termination, an
+    // in-band "not implemented" SELECT, or a dotError surfaced to the
+    // caller. Unknown dot-commands fall through to sql.js for a native
+    // syntax error.
+    let dotError: string | undefined;
+    {
+      const pre = await preprocessDotCommands(sql, {
+        fs: ctx.fs,
+        cwd: ctx.cwd,
+      });
+      sql = pre.sql.trim();
+      if (pre.formatterMutation.mode !== undefined)
+        options.mode = pre.formatterMutation.mode;
+      if (pre.formatterMutation.header !== undefined)
+        options.header = pre.formatterMutation.header;
+      if (pre.formatterMutation.separator !== undefined)
+        options.separator = pre.formatterMutation.separator;
+      if (pre.formatterMutation.newline !== undefined)
+        options.newline = pre.formatterMutation.newline;
+      if (pre.formatterMutation.nullValue !== undefined)
+        options.nullValue = pre.formatterMutation.nullValue;
+      dotError = pre.error;
+      if (dotError && options.bail) {
+        return { stdout: "", stderr: `${dotError}\n`, exitCode: 1 };
+      }
+      // Pure formatter mutations / dot-commands with no SQL: short-circuit
+      // instead of sending whitespace to the worker. Real sqlite3 emits
+      // nothing in this case. Without -bail, dot-command errors are routed
+      // to stdout to match the in-band reporting used for SQL errors below
+      // (so callers reading a single channel see results and errors in
+      // script order).
+      if (!sql) {
+        const stdout = dotError ? `${dotError}\n` : "";
+        return {
+          stdout,
+          stderr: "",
+          exitCode: dotError !== undefined ? 1 : 0,
+        };
+      }
     }
 
     // Load database buffer
@@ -632,7 +722,6 @@ export const sqlite3Command: Command = {
     }
 
     // Process results
-    let hadError = false;
     for (const stmtResult of result.results) {
       if (stmtResult.type === "error") {
         if (options.bail) {
@@ -643,7 +732,6 @@ export const sqlite3Command: Command = {
           };
         }
         stdout += `Error: ${stmtResult.error}\n`;
-        hadError = true;
       } else if (stmtResult.columns && stmtResult.rows) {
         if (stmtResult.rows.length > 0 || options.header) {
           stdout += formatOutput(
@@ -675,12 +763,19 @@ export const sqlite3Command: Command = {
       }
     }
 
-    // sqlite3 emits text; the pipeline handles encoding.
-    return {
-      stdout,
-      stderr: "",
-      exitCode: hadError && options.bail ? 1 : 0,
-    };
+    // Without -bail, dot-command errors are emitted in stdout alongside SQL
+    // results (matches inline SQL error routing — preprocessing stops at the
+    // first bad dot-command, so SQL accumulated up to that point precedes
+    // the error in script order). sqlite3 emits text; the pipeline handles
+    // encoding.
+    if (dotError) {
+      stdout += `${dotError}\n`;
+    }
+    // dotError always causes exit 1 (matches real sqlite3). SQL errors with
+    // -bail already returned early in the loop above; without -bail, SQL
+    // errors are routed in-band and exit 0 (pre-existing behaviour preserved).
+    const exitCode = dotError !== undefined ? 1 : 0;
+    return { stdout, stderr: "", exitCode };
   },
 };
 
