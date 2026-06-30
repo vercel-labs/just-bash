@@ -1,5 +1,6 @@
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
+import { defineCommand } from "../custom-commands.js";
 import { Command, type OutputMessage, Sandbox } from "./Sandbox.js";
 
 describe("Sandbox API", () => {
@@ -31,6 +32,26 @@ describe("Sandbox API", () => {
       const cmd = await sandbox.runCommand("recurse() { recurse; }; recurse");
       const stderr = await cmd.stderr();
       expect(stderr).toContain("maximum recursion depth");
+    });
+
+    it("forwards customCommands through to the underlying Bash", async () => {
+      const greet = defineCommand("greet", async (args) => ({
+        stdout: `hello ${args[0] ?? "world"}\n`,
+        stderr: "",
+        exitCode: 0,
+      }));
+      const sandbox = await Sandbox.create({ customCommands: [greet] });
+      const cmd = await sandbox.runCommand("greet sandbox");
+      expect((await cmd.stdout()).trim()).toBe("hello sandbox");
+    });
+
+    it("forwards a restricted commands allow-list through to the underlying Bash", async () => {
+      const sandbox = await Sandbox.create({ commands: ["echo"] });
+      const allowed = await sandbox.runCommand("echo ok");
+      expect((await allowed.stdout()).trim()).toBe("ok");
+      // A built-in outside the allow-list is not registered.
+      const denied = await sandbox.runCommand("grep foo");
+      expect(await denied.stderr()).toContain("command not found");
     });
   });
 
