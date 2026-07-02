@@ -21,6 +21,7 @@ import type {
   WhileNode,
   WordNode,
 } from "../ast/types.js";
+import { StdinCursor } from "../stdin-cursor.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import { matchPattern } from "./conditionals.js";
@@ -295,10 +296,10 @@ export async function executeWhile(
     }
   }
 
-  // Save and set groupStdin for piped while loops
-  const savedGroupStdin = ctx.state.groupStdin;
+  // Install a fresh cursor for this loop's stdin, saving any outer cursor.
+  const savedCursor = ctx.state.stdinCursor;
   if (effectiveStdin) {
-    ctx.state.groupStdin = effectiveStdin;
+    ctx.state.stdinCursor = new StdinCursor(effectiveStdin);
   }
 
   ctx.state.loopDepth++;
@@ -390,7 +391,7 @@ export async function executeWhile(
     }
   } finally {
     ctx.state.loopDepth--;
-    ctx.state.groupStdin = savedGroupStdin;
+    ctx.state.stdinCursor = savedCursor;
   }
 
   return result(stdout, stderr, exitCode);

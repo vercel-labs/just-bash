@@ -67,8 +67,11 @@ export async function readFiles(
     batchSize = DEFAULT_BATCH_SIZE,
   } = options;
 
-  // No files - read from stdin
+  // No files - read from stdin.
+  // Advance the cursor (if present) so the while-loop that provided this
+  // stdin knows all content was consumed — fixes `cat | tr` inside a loop.
   if (files.length === 0) {
+    ctx.stdinCursor?.readAll();
     return {
       files: [{ filename: "", content: ctx.stdin }],
       stderr: "",
@@ -86,6 +89,7 @@ export async function readFiles(
     const batchResults = await Promise.all(
       batch.map(async (file) => {
         if (allowStdinMarker && file === "-") {
+          ctx.stdinCursor?.readAll();
           return {
             filename: "-",
             content: ctx.stdin,

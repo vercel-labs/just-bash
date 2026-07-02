@@ -62,6 +62,7 @@ import {
   SecurityViolationError,
 } from "./security/defense-in-depth-box.js";
 import type { DefenseInDepthConfig } from "./security/types.js";
+import { StdinCursor } from "./stdin-cursor.js";
 import { serialize } from "./transform/serialize.js";
 import type {
   BashTransformResult,
@@ -648,7 +649,11 @@ export class Bash {
       // UTF-8 bytes. Callers that already prepared a byte buffer (e.g.
       // `Buffer.from(buf).toString("latin1")`) opt into raw passthrough
       // via `stdinKind: "bytes"`.
-      groupStdin: encodeStdinForPipeline(options?.stdin, options?.stdinKind),
+      stdinCursor: options?.stdin
+        ? new StdinCursor(
+            encodeStdinForPipeline(options.stdin, options.stdinKind) as string,
+          )
+        : undefined,
       // Cooperative cancellation signal (used by timeout command)
       signal: options?.signal,
       // Extra arguments injected directly into first command's arg list

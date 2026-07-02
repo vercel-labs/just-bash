@@ -62,10 +62,10 @@ export function handleMapfile(
     }
   }
 
-  // Use stdin from parameter, or fall back to groupStdin
+  // Use stdin from parameter, or fall back to cursor's remaining content.
   let effectiveStdin = stdin;
-  if (!effectiveStdin && ctx.state.groupStdin !== undefined) {
-    effectiveStdin = ctx.state.groupStdin;
+  if (!effectiveStdin && ctx.state.stdinCursor !== undefined) {
+    effectiveStdin = ctx.state.stdinCursor.remaining;
   }
 
   // Split input by delimiter
@@ -162,9 +162,9 @@ export function handleMapfile(
     String(Math.max(existingLength, newEndIndex)),
   );
 
-  // Consume from groupStdin if we used it
-  if (ctx.state.groupStdin !== undefined && !stdin) {
-    ctx.state.groupStdin = "";
+  // mapfile reads all stdin — exhaust the cursor so the loop advances.
+  if (ctx.state.stdinCursor !== undefined && !stdin) {
+    ctx.state.stdinCursor.readAll();
   }
 
   return result("", "", 0);

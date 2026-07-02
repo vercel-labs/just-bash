@@ -412,17 +412,15 @@ export async function executeExternalCommand(
     ctx.state.hashTable.set(commandName, cmdPath);
   }
 
-  // Use groupStdin as fallback if no stdin from redirections/pipeline —
-  // needed for commands inside groups/functions that receive stdin via
-  // heredoc. The pipeline glue (pipeline-execution.ts) and the
-  // stdin-source sites (heredoc, here-string, `< file`, options.stdin)
-  // are responsible for handing us a latin1-shaped byte buffer; we just
-  // brand it. Commands that decode their input internally (sed, jq,
-  // ...) return text via `textOutput()`, and the pipe / redirect layer
-  // converts to bytes on their behalf.
-  const effectiveStdin = unsafeBytesFromLatin1(
-    stdin || ctx.state.groupStdin || "",
-  );
+  // Use the cursor's remaining content as fallback when no pipeline stdin.
+  // The cursor is shared by reference: commands that consume stdin via
+  // file-reader (cat, grep, head, …) call cursor.readAll() which advances
+  // the position, so subsequent loop iterations start from the right place.
+  // Only pass the cursor when stdin is empty (pipeline commands with explicit
+  // stdin must not fall back to the loop's cursor).
+  const cursorContent = !stdin ? ctx.state.stdinCursor?.remaining : undefined;
+  const effectiveStdin = unsafeBytesFromLatin1(stdin || cursorContent || "");
+  const stdinCursor = !stdin ? ctx.state.stdinCursor : undefined;
 
   // Build exported environment for commands that need it (printenv, env, etc.)
   // Most builtins need access to the full env to modify state
@@ -434,6 +432,7 @@ export async function executeExternalCommand(
     env: ctx.state.env,
     exportedEnv,
     stdin: effectiveStdin,
+    stdinCursor,
     limits: ctx.limits,
     exec: ctx.execFn,
     fetch: ctx.fetch,

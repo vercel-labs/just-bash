@@ -11,6 +11,7 @@ import type {
 import type { IFileSystem } from "../fs/interface.js";
 import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
+import type { StdinCursor } from "../stdin-cursor.js";
 import type {
   CommandRegistry,
   ExecResult,
@@ -305,8 +306,8 @@ export interface ProcessState {
  * Used for process substitution, here-documents, and compound command stdin.
  */
 export interface IOState {
-  /** Stdin available for commands in compound commands (groups, subshells, while loops with piped input) */
-  groupStdin?: string;
+  /** Shared stdin cursor for while-loop / group / subshell stdin redirection. */
+  stdinCursor?: StdinCursor;
   /** File descriptors for process substitution and here-docs */
   fileDescriptors?: Map<number, string>;
   /** Next available file descriptor for {varname}>file allocation (starts at 10) */
