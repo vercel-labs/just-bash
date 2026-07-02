@@ -427,6 +427,22 @@ export async function applyRedirections(
   const getStdoutEncoding = (_content: string): "binary" | "utf8" =>
     stdoutFileEncoding;
 
+  // Where fds 1 and 2 currently point as the redirection list is processed
+  // left to right. File redirections write their stream eagerly and update
+  // the fd's sink; duplication operators (`2>&1`, `1>&2`) only re-point the
+  // fd to a snapshot of the source fd's current sink. Content still held in
+  // a stream when the list ends is delivered to that fd's final sink below —
+  // so `cmd > file 2>&1` sends stderr to `file`, `cmd 2>&1 > file` sends
+  // stderr to the caller's stdout, and `cmd > all 2>&1 2> err` lets the
+  // later `2> err` reclaim stderr.
+  type RedirectSink =
+    | { kind: "live-stdout" }
+    | { kind: "live-stderr" }
+    | { kind: "file"; path: string; append: boolean }
+    | { kind: "discard" };
+  let fd1Sink: RedirectSink = { kind: "live-stdout" };
+  let fd2Sink: RedirectSink = { kind: "live-stderr" };
+
   for (let i = 0; i < redirections.length; i++) {
     const redir = redirections[i];
     if (redir.target.type === "HereDoc") {
@@ -483,152 +499,75 @@ export async function applyRedirections(
 
     switch (redir.operator) {
       case ">":
-      case ">|": {
-        const fd = redir.fd ?? 1;
-        const isClobber = redir.operator === ">|";
-        if (fd === 1) {
-          // /dev/stdout is a no-op for stdout - output stays on stdout
-          if (target === "/dev/stdout") {
-            break;
-          }
-          // /dev/stderr redirects stdout to stderr
-          if (target === "/dev/stderr") {
-            stderr += stdout;
-            stdout = "";
-            break;
-          }
-          // /dev/full always returns ENOSPC when written to
-          if (target === "/dev/full") {
-            stderr += `bash: echo: write error: No space left on device\n`;
-            exitCode = 1;
-            stdout = "";
-            break;
-          }
-          const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-          const error = await checkOutputRedirectTarget(ctx, filePath, target, {
-            checkNoclobber: true,
-            isClobber,
-          });
-          if (error) {
-            stderr += error;
-            exitCode = 1;
-            stdout = "";
-            break;
-          }
-          // Smart encoding: binary for byte data, UTF-8 for Unicode text
-          await ctx.fs.writeFile(filePath, stdout, getStdoutEncoding(stdout));
-          stdout = "";
-        } else if (fd === 2) {
-          // /dev/stderr is a no-op for stderr - output stays on stderr
-          if (target === "/dev/stderr") {
-            break;
-          }
-          // /dev/stdout redirects stderr to stdout
-          if (target === "/dev/stdout") {
-            stdout += stderr;
-            stderr = "";
-            break;
-          }
-          // /dev/full always returns ENOSPC when written to
-          if (target === "/dev/full") {
-            stderr += `bash: echo: write error: No space left on device\n`;
-            exitCode = 1;
-            break;
-          }
-          if (target === "/dev/null") {
-            stderr = "";
-          } else {
-            const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-            const error = await checkOutputRedirectTarget(
-              ctx,
-              filePath,
-              target,
-              {
-                checkNoclobber: true,
-                isClobber,
-              },
-            );
-            if (error) {
-              stderr += error;
-              exitCode = 1;
-              break;
-            }
-            // Smart encoding: binary for byte data, UTF-8 for Unicode text
-            await ctx.fs.writeFile(filePath, stderr, getFileEncoding(stderr));
-            stderr = "";
-          }
-        }
-        break;
-      }
-
+      case ">|":
       case ">>": {
         const fd = redir.fd ?? 1;
+        if (fd !== 1 && fd !== 2) {
+          break;
+        }
+        const isAppend = redir.operator === ">>";
+        const isClobber = redir.operator === ">|";
+        // Opening /dev/stdout or /dev/stderr duplicates the CURRENT target
+        // of fd 1 / fd 2, like `N>&1` / `N>&2`: `> /dev/stderr` re-points
+        // fd 1 to wherever fd 2 points right now, and the self-referential
+        // forms (`> /dev/stdout`, `2> /dev/stderr`) are no-ops — after
+        // `> a > /dev/stdout` content still goes to `a`.
+        if (target === "/dev/stdout") {
+          if (fd === 2) {
+            fd2Sink = fd1Sink;
+          }
+          break;
+        }
+        if (target === "/dev/stderr") {
+          if (fd === 1) {
+            fd1Sink = fd2Sink;
+          }
+          break;
+        }
+        // /dev/full always returns ENOSPC when written to. The diagnostic
+        // stays on live stderr and the fd's sink is left unchanged.
+        if (target === "/dev/full") {
+          stderr += `bash: echo: write error: No space left on device\n`;
+          exitCode = 1;
+          if (fd === 1) {
+            stdout = "";
+          }
+          break;
+        }
+        // /dev/null on fd 2 drops stderr without touching the VFS node.
+        // /dev/null on fd 1 intentionally falls through to the generic file
+        // path: in this VFS it is a regular file, not a true discard device
+        // (see overlay-fs.security.test.ts "/dev file overwrite behavior").
+        if (target === "/dev/null" && fd === 2) {
+          fd2Sink = { kind: "discard" };
+          break;
+        }
+        const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+        const error = await checkOutputRedirectTarget(ctx, filePath, target, {
+          ...(isAppend ? {} : { checkNoclobber: true, isClobber }),
+        });
+        if (error) {
+          stderr += error;
+          exitCode = 1;
+          if (fd === 1) {
+            stdout = "";
+          }
+          break;
+        }
+        // Opening the target is a side effect of processing the redirection
+        // list even when the fd is re-pointed again later: `>` truncates and
+        // `>>` creates the file if missing. Content is delivered to each
+        // fd's FINAL sink after the list is processed, so `cmd > a > b`
+        // truncates `a` but writes to `b`.
+        if (isAppend) {
+          await ctx.fs.appendFile(filePath, "", "binary");
+        } else {
+          await ctx.fs.writeFile(filePath, "", "binary");
+        }
         if (fd === 1) {
-          // /dev/stdout is a no-op for stdout - output stays on stdout
-          if (target === "/dev/stdout") {
-            break;
-          }
-          // /dev/stderr redirects stdout to stderr
-          if (target === "/dev/stderr") {
-            stderr += stdout;
-            stdout = "";
-            break;
-          }
-          // /dev/full always returns ENOSPC when written to
-          if (target === "/dev/full") {
-            stderr += `bash: echo: write error: No space left on device\n`;
-            exitCode = 1;
-            stdout = "";
-            break;
-          }
-          const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-          const error = await checkOutputRedirectTarget(
-            ctx,
-            filePath,
-            target,
-            {},
-          );
-          if (error) {
-            stderr += error;
-            exitCode = 1;
-            stdout = "";
-            break;
-          }
-          // Smart encoding: binary for byte data, UTF-8 for Unicode text
-          await ctx.fs.appendFile(filePath, stdout, getStdoutEncoding(stdout));
-          stdout = "";
-        } else if (fd === 2) {
-          // /dev/stderr is a no-op for stderr - output stays on stderr
-          if (target === "/dev/stderr") {
-            break;
-          }
-          // /dev/stdout redirects stderr to stdout
-          if (target === "/dev/stdout") {
-            stdout += stderr;
-            stderr = "";
-            break;
-          }
-          // /dev/full always returns ENOSPC when written to
-          if (target === "/dev/full") {
-            stderr += `bash: echo: write error: No space left on device\n`;
-            exitCode = 1;
-            break;
-          }
-          const filePath2 = ctx.fs.resolvePath(ctx.state.cwd, target);
-          const error2 = await checkOutputRedirectTarget(
-            ctx,
-            filePath2,
-            target,
-            {},
-          );
-          if (error2) {
-            stderr += error2;
-            exitCode = 1;
-            break;
-          }
-          // Smart encoding: binary for byte data, UTF-8 for Unicode text
-          await ctx.fs.appendFile(filePath2, stderr, getFileEncoding(stderr));
-          stderr = "";
+          fd1Sink = { kind: "file", path: filePath, append: isAppend };
+        } else {
+          fd2Sink = { kind: "file", path: filePath, append: isAppend };
         }
         break;
       }
@@ -686,18 +625,19 @@ export async function applyRedirections(
           }
           break;
         }
-        // >&2, 1>&2, 1<&2: redirect stdout to stderr
+        // >&2, 1>&2, 1<&2: duplicate fd 1 from fd 2 — fd 1 now points to a
+        // snapshot of wherever fd 2 points at this spot in the list. Content
+        // is not moved here: a later redirection may still repoint fd 1, so
+        // remaining stdout is delivered once the whole list is processed.
         if (target === "2" || target === "&2") {
           if (fd === 1) {
-            stderr += stdout;
-            stdout = "";
+            fd1Sink = fd2Sink;
           }
         }
-        // 2>&1, 2<&1: redirect stderr to stdout
+        // 2>&1, 2<&1: duplicate fd 2 from fd 1 — same deferred delivery.
         else if (target === "1" || target === "&1") {
           if (fd === 2) {
-            stdout += stderr;
-            stderr = "";
+            fd2Sink = fd1Sink;
           } else {
             // 1>&1 is a no-op, but other fds redirect to stdout
             stdout += stderr;
@@ -817,28 +757,19 @@ export async function applyRedirections(
               stdout = "";
               break;
             }
+            // Truncate now; content is delivered to the final sinks after
+            // the whole redirection list is processed.
+            await ctx.fs.writeFile(filePath, "", "binary");
             if (redir.fd == null) {
-              // >&word (no explicit fd) - write both stdout and stderr to the file
-              const combined = stdout + stderr;
-              await ctx.fs.writeFile(
-                filePath,
-                combined,
-                getStdoutEncoding(combined),
-              );
-              stdout = "";
-              stderr = "";
+              // >&word (no explicit fd) - both stdout and stderr to the file
+              fd1Sink = { kind: "file", path: filePath, append: false };
+              fd2Sink = fd1Sink;
             } else if (fd === 1) {
               // 1>&word - redirect stdout to file
-              await ctx.fs.writeFile(
-                filePath,
-                stdout,
-                getStdoutEncoding(stdout),
-              );
-              stdout = "";
+              fd1Sink = { kind: "file", path: filePath, append: false };
             } else if (fd === 2) {
               // 2>&word - redirect stderr to file
-              await ctx.fs.writeFile(filePath, stderr, getFileEncoding(stderr));
-              stderr = "";
+              fd2Sink = { kind: "file", path: filePath, append: false };
             }
           }
         }
@@ -863,11 +794,11 @@ export async function applyRedirections(
           stdout = "";
           break;
         }
-        // Smart encoding: binary for byte data, UTF-8 for Unicode text
-        const combined = stdout + stderr;
-        await ctx.fs.writeFile(filePath, combined, getStdoutEncoding(combined));
-        stdout = "";
-        stderr = "";
+        // Truncate now; content is delivered to the final sinks after the
+        // whole redirection list is processed.
+        await ctx.fs.writeFile(filePath, "", "binary");
+        fd1Sink = { kind: "file", path: filePath, append: false };
+        fd2Sink = fd1Sink;
         break;
       }
 
@@ -892,16 +823,78 @@ export async function applyRedirections(
           stdout = "";
           break;
         }
-        // Smart encoding: binary for byte data, UTF-8 for Unicode text
-        const combined = stdout + stderr;
-        await ctx.fs.appendFile(
-          filePath,
-          combined,
-          getStdoutEncoding(combined),
-        );
-        stdout = "";
-        stderr = "";
+        // Create if missing; content is delivered to the final sinks after
+        // the whole redirection list is processed.
+        await ctx.fs.appendFile(filePath, "", "binary");
+        fd1Sink = { kind: "file", path: filePath, append: true };
+        fd2Sink = fd1Sink;
         break;
+      }
+    }
+  }
+
+  // Deliver content still held in the streams to each fd's final sink.
+  // "live-stdout" / "live-stderr" mean the caller's own streams as they were
+  // before any redirection — a dup snapshot of a live fd keeps pointing
+  // there even if a later redirection sends the source fd elsewhere.
+  //
+  // A duplication (`2>&1`) shares the source fd's sink OBJECT — one open
+  // descriptor, so both streams go through it in order. Two independent
+  // redirects that happen to name the same path (`> f 2> f`) are separate
+  // descriptors, each writing from its own start position, so the later
+  // non-empty write clobbers the earlier one — matching bash's
+  // independent-open behavior.
+  if (stdout !== "" || stderr !== "") {
+    const pendingStdout = stdout;
+    const pendingStderr = stderr;
+    stdout = "";
+    stderr = "";
+    const deliverToFile = async (
+      sink: { path: string; append: boolean },
+      content: string,
+      encoding: "binary" | "utf8",
+    ) => {
+      if (sink.append) {
+        await ctx.fs.appendFile(sink.path, content, encoding);
+      } else {
+        await ctx.fs.writeFile(sink.path, content, encoding);
+      }
+    };
+    if (fd1Sink === fd2Sink && fd1Sink.kind === "file") {
+      // stdout-then-stderr order, not the command's temporal write order:
+      // ExecResult accumulates the two streams separately, so interleaving
+      // is not recorded anywhere in the interpreter. This matches the
+      // convention of the live-stream merge (`stdout += stderr`) used for a
+      // bare `2>&1`.
+      const combined = pendingStdout + pendingStderr;
+      if (combined !== "") {
+        await deliverToFile(fd1Sink, combined, getStdoutEncoding(combined));
+      }
+    } else {
+      for (const [content, sink, isStdout] of [
+        [pendingStdout, fd1Sink, true],
+        [pendingStderr, fd2Sink, false],
+      ] as const) {
+        if (content === "") {
+          continue;
+        }
+        switch (sink.kind) {
+          case "live-stdout":
+            stdout += content;
+            break;
+          case "live-stderr":
+            stderr += content;
+            break;
+          case "file":
+            await deliverToFile(
+              sink,
+              content,
+              isStdout ? getStdoutEncoding(content) : getFileEncoding(content),
+            );
+            break;
+          case "discard":
+            break;
+        }
       }
     }
   }
