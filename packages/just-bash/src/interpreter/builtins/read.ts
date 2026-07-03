@@ -2,6 +2,7 @@
  * read - Read a line of input builtin
  */
 
+import { latin1FromBytes } from "../../encoding.js";
 import type { ExecResult } from "../../types.js";
 import { clearArray } from "../helpers/array.js";
 import {
@@ -55,7 +56,6 @@ function encodeRwFdContent(
 export function handleRead(
   ctx: InterpreterContext,
   args: string[],
-  stdin: string,
   stdinSourceFd = -1,
 ): ExecResult {
   // Parse options
@@ -263,9 +263,11 @@ export function handleRead(
     return result("", "", 1);
   }
 
-  // Use stdin from parameter, or fall back to groupStdin (for piped groups/while loops)
-  // If -u is specified, use the file descriptor content instead
-  let effectiveStdin = stdin;
+  // Read from the scope's stdin stream without consuming it yet — read is
+  // a partial consumer: it parses a line, then advances the shared stream
+  // by exactly the bytes it used so the next reader picks up after it.
+  // If -u is specified, use the file descriptor content instead.
+  let effectiveStdin: string;
 
   if (fileDescriptor >= 0) {
     // Read from specified file descriptor
@@ -274,8 +276,10 @@ export function handleRead(
     } else {
       effectiveStdin = "";
     }
-  } else if (!effectiveStdin && ctx.state.groupStdin !== undefined) {
-    effectiveStdin = ctx.state.groupStdin;
+  } else {
+    // read does byte-position math over the buffer, so keep the latin1
+    // byte view rather than decoding to text.
+    effectiveStdin = latin1FromBytes(ctx.state.stdin.peek());
   }
 
   // Handle -d '' (empty delimiter) - reads until NUL byte
@@ -308,8 +312,8 @@ export function handleRead(
           );
         }
       }
-    } else if (ctx.state.groupStdin !== undefined && !stdin) {
-      ctx.state.groupStdin = effectiveStdin.substring(bytesConsumed);
+    } else {
+      ctx.state.stdin.advance(bytesConsumed);
     }
   };
 

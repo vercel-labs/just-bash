@@ -6,11 +6,9 @@
 
 import type {
   GroupNode,
-  HereDocNode,
   ScriptNode,
   StatementNode,
   SubshellNode,
-  WordNode,
 } from "../ast/types.js";
 import { Parser } from "../parser/parser.js";
 import type { ParseException } from "../parser/types.js";
@@ -25,9 +23,8 @@ import {
   ReturnError,
   SubshellExitError,
 } from "./errors.js";
-import { expandWord } from "./expansion.js";
 import { getErrorMessage } from "./helpers/errors.js";
-import { checkFdLimit, failure, result } from "./helpers/result.js";
+import { failure, result } from "./helpers/result.js";
 import {
   applyRedirections,
   preOpenOutputRedirects,
@@ -47,7 +44,6 @@ export type ExecuteStatementFn = (stmt: StatementNode) => Promise<ExecResult>;
 export async function executeSubshell(
   ctx: InterpreterContext,
   node: SubshellNode,
-  stdin: string,
   executeStatement: ExecuteStatementFn,
 ): Promise<ExecResult> {
   // Pre-open output redirects to truncate files BEFORE executing body
@@ -109,11 +105,10 @@ export async function executeSubshell(
   const savedBashPid = ctx.state.bashPid;
   ctx.state.bashPid = ctx.state.nextVirtualPid++;
 
-  // Save any existing groupStdin and set new one from pipeline
-  const savedGroupStdin = ctx.state.groupStdin;
-  if (stdin) {
-    ctx.state.groupStdin = stdin;
-  }
+  // Note: stdin (pipeline or redirect) was installed as a shared stream by
+  // the command dispatcher. The subshell deliberately shares it with the
+  // parent — like a real fd, consuming input inside the subshell advances
+  // the offset for the parent too.
 
   let stdout = "";
   let stderr = "";
@@ -130,7 +125,6 @@ export async function executeSubshell(
     ctx.state.fullyUnsetLocals = savedFullyUnsetLocals;
     ctx.state.loopDepth = savedLoopDepth;
     ctx.state.parentHasLoopContext = savedParentHasLoopContext;
-    ctx.state.groupStdin = savedGroupStdin;
     ctx.state.bashPid = savedBashPid;
     ctx.state.lastArg = savedLastArg;
   };
@@ -216,7 +210,6 @@ export async function executeSubshell(
 export async function executeGroup(
   ctx: InterpreterContext,
   node: GroupNode,
-  stdin: string,
   executeStatement: ExecuteStatementFn,
 ): Promise<ExecResult> {
   let stdout = "";
@@ -232,51 +225,9 @@ export async function executeGroup(
     return fdVarError;
   }
 
-  // Process heredoc and input redirections to get stdin content
-  let effectiveStdin = stdin;
-  for (const redir of node.redirections) {
-    if (
-      (redir.operator === "<<" || redir.operator === "<<-") &&
-      redir.target.type === "HereDoc"
-    ) {
-      const hereDoc = redir.target as HereDocNode;
-      let content = await expandWord(ctx, hereDoc.content);
-      if (hereDoc.stripTabs) {
-        content = content
-          .split("\n")
-          .map((line) => line.replace(/^\t+/, ""))
-          .join("\n");
-      }
-      // If this is a non-standard fd (not 0), store in fileDescriptors for -u option
-      const fd = redir.fd ?? 0;
-      if (fd !== 0) {
-        if (!ctx.state.fileDescriptors) {
-          ctx.state.fileDescriptors = new Map();
-        }
-        checkFdLimit(ctx);
-        ctx.state.fileDescriptors.set(fd, content);
-      } else {
-        effectiveStdin = content;
-      }
-    } else if (redir.operator === "<<<" && redir.target.type === "Word") {
-      effectiveStdin = `${await expandWord(ctx, redir.target as WordNode)}\n`;
-    } else if (redir.operator === "<" && redir.target.type === "Word") {
-      try {
-        const target = await expandWord(ctx, redir.target as WordNode);
-        const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-        effectiveStdin = await ctx.fs.readFile(filePath);
-      } catch {
-        const target = await expandWord(ctx, redir.target as WordNode);
-        return result("", `bash: ${target}: No such file or directory\n`, 1);
-      }
-    }
-  }
-
-  // Save any existing groupStdin and set new one from pipeline
-  const savedGroupStdin = ctx.state.groupStdin;
-  if (effectiveStdin) {
-    ctx.state.groupStdin = effectiveStdin;
-  }
+  // Stdin redirections were already resolved and installed as the scope's
+  // stdin stream by the command dispatcher; body commands consume it from
+  // ctx.state.stdin by reference.
 
   try {
     for (const stmt of node.body) {
@@ -286,8 +237,6 @@ export async function executeGroup(
       exitCode = res.exitCode;
     }
   } catch (error) {
-    // Restore groupStdin before handling error
-    ctx.state.groupStdin = savedGroupStdin;
     // ExecutionLimitError must always propagate - these are safety limits
     if (error instanceof ExecutionLimitError) {
       throw error;
@@ -302,9 +251,6 @@ export async function executeGroup(
     }
     return result(stdout, `${stderr}${getErrorMessage(error)}\n`, 1);
   }
-
-  // Restore groupStdin
-  ctx.state.groupStdin = savedGroupStdin;
 
   // Apply output redirections
   const bodyResult = result(stdout, stderr, exitCode);
@@ -325,7 +271,6 @@ export async function executeUserScript(
   ctx: InterpreterContext,
   scriptPath: string,
   args: string[],
-  stdin: string,
   executeScript: ExecuteScriptFn,
 ): Promise<ExecResult> {
   // Read the script content
@@ -353,16 +298,13 @@ export async function executeUserScript(
   const savedParentHasLoopContext = ctx.state.parentHasLoopContext;
   const savedLastArg = ctx.state.lastArg;
   const savedBashPid = ctx.state.bashPid;
-  const savedGroupStdin = ctx.state.groupStdin;
   const savedSource = ctx.state.currentSource;
 
-  // Set up subshell-like environment
+  // Set up subshell-like environment. Stdin is inherited by reference
+  // from the caller's scope (installed by redirect/pipeline, if any).
   ctx.state.parentHasLoopContext = savedLoopDepth > 0;
   ctx.state.loopDepth = 0;
   ctx.state.bashPid = ctx.state.nextVirtualPid++;
-  if (stdin) {
-    ctx.state.groupStdin = stdin;
-  }
   ctx.state.currentSource = scriptPath;
 
   // Set positional parameters ($1, $2, etc.) from args
@@ -387,7 +329,6 @@ export async function executeUserScript(
     ctx.state.parentHasLoopContext = savedParentHasLoopContext;
     ctx.state.lastArg = savedLastArg;
     ctx.state.bashPid = savedBashPid;
-    ctx.state.groupStdin = savedGroupStdin;
     ctx.state.currentSource = savedSource;
   };
 

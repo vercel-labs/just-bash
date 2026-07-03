@@ -34,7 +34,9 @@ async function readBinary(
     // Convert binary string directly to bytes without UTF-8 re-encoding
     return {
       ok: true,
-      data: Uint8Array.from(latin1FromBytes(ctx.stdin), (c) => c.charCodeAt(0)),
+      data: Uint8Array.from(latin1FromBytes(ctx.stdin.readAll()), (c) =>
+        c.charCodeAt(0),
+      ),
     };
   }
 
@@ -44,7 +46,9 @@ async function readBinary(
     if (file === "-") {
       // Convert binary string directly to bytes without UTF-8 re-encoding
       chunks.push(
-        Uint8Array.from(latin1FromBytes(ctx.stdin), (c) => c.charCodeAt(0)),
+        Uint8Array.from(latin1FromBytes(ctx.stdin.readAll()), (c) =>
+          c.charCodeAt(0),
+        ),
       );
       continue;
     }

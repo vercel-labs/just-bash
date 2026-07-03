@@ -71,14 +71,14 @@ export const rev: Command = {
       // Read from stdin. rev reverses by codepoint, so decode bytes to UTF-8
       // first — reversing the latin1 bytes of a multibyte sequence would
       // shred valid UTF-8 into garbage.
-      const input = decodeBytesToUtf8(ctx.stdin) ?? "";
+      const input = decodeBytesToUtf8(ctx.stdin.readAll()) ?? "";
       output = processContent(input);
     } else {
       // Process each file
       for (const file of files) {
         if (file === "-") {
           // Dash means read from stdin
-          const input = decodeBytesToUtf8(ctx.stdin) ?? "";
+          const input = decodeBytesToUtf8(ctx.stdin.readAll()) ?? "";
           output += processContent(input);
         } else {
           const filePath = ctx.fs.resolvePath(ctx.cwd, file);

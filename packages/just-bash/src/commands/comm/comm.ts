@@ -80,7 +80,7 @@ export const commCommand: Command = {
     // compares equal regardless of which leg it came from.
     const readFile = async (file: string): Promise<string | null> => {
       if (file === "-") {
-        return decodeBytesToUtf8(ctx.stdin);
+        return decodeBytesToUtf8(ctx.stdin.readAll());
       }
       try {
         const path = ctx.fs.resolvePath(ctx.cwd, file);

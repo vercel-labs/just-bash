@@ -543,7 +543,7 @@ export const sedCommand: Command = {
     // UTF-8 so multibyte sequences match as single chars rather than several
     // latin1 bytes.
     if (files.length === 0) {
-      content = decodeBytesToUtf8(ctx.stdin);
+      content = decodeBytesToUtf8(ctx.stdin.readAll());
       try {
         const result = await withDefenseContext("stdin processing", () =>
           processContent(content, commands, effectiveSilent, {
@@ -586,7 +586,7 @@ export const sedCommand: Command = {
         if (stdinConsumed) {
           fileContent = "";
         } else {
-          fileContent = decodeBytesToUtf8(ctx.stdin);
+          fileContent = decodeBytesToUtf8(ctx.stdin.readAll());
           stdinConsumed = true;
         }
       } else {

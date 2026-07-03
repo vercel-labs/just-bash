@@ -144,7 +144,7 @@ export async function cmdFixlengths(
   let input: string;
 
   if (!file || file === "-") {
-    input = decodeBytesToUtf8(ctx.stdin);
+    input = decodeBytesToUtf8(ctx.stdin.readAll());
   } else {
     try {
       const path = ctx.fs.resolvePath(ctx.cwd, file);
@@ -516,7 +516,7 @@ async function cmdFromJson(
   let input: string;
 
   if (!file || file === "-") {
-    input = decodeBytesToUtf8(ctx.stdin);
+    input = decodeBytesToUtf8(ctx.stdin.readAll());
   } else {
     try {
       const path = ctx.fs.resolvePath(ctx.cwd, file);

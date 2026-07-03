@@ -226,22 +226,26 @@ export const grepCommand: Command = {
       };
     }
 
-    // If no files and stdin is provided (including empty string), read from
-    // stdin. grep runs regex over text — decode bytes to UTF-8 so multibyte
-    // codepoints match `.` / character classes correctly.
-    if (files.length === 0 && ctx.stdin !== undefined) {
-      const result = searchContent(decodeBytesToUtf8(ctx.stdin), regex, {
-        invertMatch,
-        showLineNumbers,
-        countOnly,
-        filename: "",
-        onlyMatching,
-        beforeContext,
-        afterContext,
-        maxCount,
-        kResetGroup,
-        preFilter,
-      });
+    // If no files, read from stdin (even when empty). grep runs regex over
+    // text — decode bytes to UTF-8 so multibyte codepoints match `.` /
+    // character classes correctly.
+    if (files.length === 0) {
+      const result = searchContent(
+        decodeBytesToUtf8(ctx.stdin.readAll()),
+        regex,
+        {
+          invertMatch,
+          showLineNumbers,
+          countOnly,
+          filename: "",
+          onlyMatching,
+          beforeContext,
+          afterContext,
+          maxCount,
+          kResetGroup,
+          preFilter,
+        },
+      );
       if (quietMode) {
         return { stdout: "", stderr: "", exitCode: result.matched ? 0 : 1 };
       }

@@ -229,7 +229,9 @@ export const strings: Command = {
     // Pass latin1-shaped bytes directly so multibyte UTF-8 sequences in the
     // source aren't re-encoded by TextEncoder.
     const stdinBytes = (): Uint8Array =>
-      Uint8Array.from(latin1FromBytes(ctx.stdin) ?? "", (c) => c.charCodeAt(0));
+      Uint8Array.from(latin1FromBytes(ctx.stdin.readAll()) ?? "", (c) =>
+        c.charCodeAt(0),
+      );
 
     if (files.length === 0) {
       // Read from stdin

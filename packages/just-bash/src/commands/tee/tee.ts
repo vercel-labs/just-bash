@@ -32,7 +32,7 @@ export const teeCommand: Command = {
     const files = parsed.result.positional;
     // tee is byte-clean: stdin bytes are written to each file and the same
     // bytes pass through to stdout.
-    const content = latin1FromBytes(ctx.stdin);
+    const content = latin1FromBytes(ctx.stdin.readAll());
     let stderr = "";
     let exitCode = 0;
 

@@ -67,10 +67,10 @@ export async function readFiles(
     batchSize = DEFAULT_BATCH_SIZE,
   } = options;
 
-  // No files - read from stdin
+  // No files - read from stdin (consuming it, like a process draining fd 0)
   if (files.length === 0) {
     return {
-      files: [{ filename: "", content: ctx.stdin }],
+      files: [{ filename: "", content: ctx.stdin.readAll() }],
       stderr: "",
       exitCode: 0,
     };
@@ -86,9 +86,11 @@ export async function readFiles(
     const batchResults = await Promise.all(
       batch.map(async (file) => {
         if (allowStdinMarker && file === "-") {
+          // First "-" drains stdin; later ones see it exhausted (as in
+          // bash, where `cat - -` reads stdin only once).
           return {
             filename: "-",
-            content: ctx.stdin,
+            content: ctx.stdin.readAll(),
             error: null as string | null,
           };
         }

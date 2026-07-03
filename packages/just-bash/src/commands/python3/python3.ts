@@ -554,7 +554,7 @@ export const python3Command: Command = {
       // Empty stdin runs an empty program (exit 0) — matching CPython's
       // behavior in non-interactive contexts where no program is provided.
       // Decode bytes — Python source can hold unicode string literals.
-      pythonCode = decodeBytesToUtf8(ctx.stdin);
+      pythonCode = decodeBytesToUtf8(ctx.stdin.readAll());
       scriptPath = "-";
     } else if (parsed.scriptFile !== null) {
       const filePath = ctx.fs.resolvePath(ctx.cwd, parsed.scriptFile);
@@ -578,16 +578,19 @@ export const python3Command: Command = {
           exitCode: 2,
         };
       }
-    } else if (decodeBytesToUtf8(ctx.stdin).trim()) {
-      pythonCode = decodeBytesToUtf8(ctx.stdin);
-      scriptPath = "<stdin>";
     } else {
-      return {
-        stdout: "",
-        stderr:
-          "python3: no input provided (use -c CODE, -m MODULE, or provide a script file)\n",
-        exitCode: 2,
-      };
+      // readAll() consumes stdin, so read once and branch on the result.
+      const stdinCode = decodeBytesToUtf8(ctx.stdin.readAll());
+      if (!stdinCode.trim()) {
+        return {
+          stdout: "",
+          stderr:
+            "python3: no input provided (use -c CODE, -m MODULE, or provide a script file)\n",
+          exitCode: 2,
+        };
+      }
+      pythonCode = stdinCode;
+      scriptPath = "<stdin>";
     }
 
     return executePython(pythonCode, ctx, scriptPath, parsed.scriptArgs);

@@ -11,17 +11,22 @@ import {
   stdoutAsBytes,
 } from "../encoding.js";
 import { _performanceNow } from "../security/trusted-globals.js";
+import { StdinStream } from "../stdin-stream.js";
 import type { ExecResult } from "../types.js";
 import { BadSubstitutionError, ErrexitError, ExitError } from "./errors.js";
 import { OK } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
 
 /**
- * Type for executeCommand callback
+ * Type for executeCommand callback.
+ *
+ * `pipeStdin` is the stream carrying the previous stage's output, or
+ * `null` for the first stage / a single command, which inherits the
+ * enclosing stdin.
  */
 export type ExecuteCommandFn = (
   node: CommandNode,
-  stdin: string,
+  pipeStdin: StdinStream | null,
 ) => Promise<ExecResult>;
 
 /**
@@ -35,7 +40,9 @@ export async function executePipeline(
   // Record start time for timed pipelines
   const startTime = node.timed ? _performanceNow() : 0;
 
-  let stdin = "";
+  // The next stage's stdin; null means "inherit the enclosing stdin"
+  // (only the first stage inherits, matching bash fd inheritance).
+  let pipeStdin: StdinStream | null = null;
   let lastResult: ExecResult = OK;
   let pipefailExitCode = 0; // Track rightmost failing command
   const pipestatusExitCodes: number[] = []; // Track all exit codes for PIPESTATUS
@@ -50,21 +57,12 @@ export async function executePipeline(
   for (let i = 0; i < node.commands.length; i++) {
     const command = node.commands[i];
     const isLast = i === node.commands.length - 1;
-    const isFirst = i === 0;
 
     // In a multi-command pipeline, each command runs in a subshell context
     // where $_ starts empty (subshells don't inherit $_ from parent in same way)
     if (isMultiCommandPipeline) {
       // Clear $_ for each pipeline command - they each get fresh subshell context
       ctx.state.lastArg = "";
-
-      // After the first command, clear groupStdin so subsequent commands
-      // only see stdin from the pipeline (even if empty), not the original groupStdin
-      // This prevents commands like head from incorrectly falling back to groupStdin
-      // when they receive empty output from a previous command (e.g., grep with no matches)
-      if (!isFirst) {
-        ctx.state.groupStdin = undefined;
-      }
     }
 
     // Determine if this command runs in a subshell context
@@ -79,7 +77,7 @@ export async function executePipeline(
 
     let result: ExecResult;
     try {
-      result = await executeCommand(command, stdin);
+      result = await executeCommand(command, pipeStdin);
     } catch (error) {
       // BadSubstitutionError should fail the command but not abort the script
       if (error instanceof BadSubstitutionError) {
@@ -140,12 +138,13 @@ export async function executePipeline(
         // |& pipes stderr + stdout. stderr is text (no producer marks it
         // binary today); UTF-8 encode it before concatenating with the
         // stdout bytes so the merged stream is byte-shaped end-to-end.
-        stdin =
+        pipeStdin = new StdinStream(
           latin1FromBytes(encodeUtf8ToBytes(result.stderr)) +
-          latin1FromBytes(stdoutAsBytes(result));
+            latin1FromBytes(stdoutAsBytes(result)),
+        );
       } else {
         // Regular | only pipes stdout; stderr goes to the parent
-        stdin = latin1FromBytes(stdoutAsBytes(result));
+        pipeStdin = new StdinStream(latin1FromBytes(stdoutAsBytes(result)));
         accumulatedStderr += result.stderr;
       }
       lastResult = {

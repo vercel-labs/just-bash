@@ -1,0 +1,128 @@
+{
+  "01756da43756ce76": {
+    "command": "{ (read x; echo \"sub=$x\"); read y; echo \"y=$y\"; } < f.txt",
+    "files": {
+      "f.txt": "a\nb\nc\n"
+    },
+    "stdout": "sub=a\ny=b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1927c7b331c4a1ca": {
+    "command": "while read o; do\n  while read i; do echo \"$o-$i\"; done < inner.txt\ndone < outer.txt",
+    "files": {
+      "outer.txt": "1\n2\n",
+      "inner.txt": "x\ny\n"
+    },
+    "stdout": "1-x\n1-y\n2-x\n2-y\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2ec775de1e1c8550": {
+    "command": "printf 'x\\ny\\n' | cat - -",
+    "files": {},
+    "stdout": "x\ny\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2f33c1ff284be0b7": {
+    "command": "while read l; do echo \"$l\" | tr a-z A-Z; done < f.txt",
+    "files": {
+      "f.txt": "a\nb\nc\n"
+    },
+    "stdout": "A\nB\nC\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "35f1a4f42d5d6b09": {
+    "command": "f() { cat; } < f.txt\nprintf 'PIPE\\n' | f",
+    "files": {
+      "f.txt": "a\nb\nc\n"
+    },
+    "stdout": "a\nb\nc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "39a865051cd3a2ca": {
+    "command": "f() { echo ran; } < missing.txt\nf\necho \"rc=$?\"",
+    "files": {},
+    "stdout": "rc=1\n",
+    "stderr": "environment: line 1: missing.txt: No such file or directory\n",
+    "exitCode": 0
+  },
+  "4b9c91429aeeb51a": {
+    "command": "printf 'a\\nb\\nc\\n' | { while read l; do echo \"L:$l\"; cat > /dev/null; done; echo done; }",
+    "files": {},
+    "stdout": "L:a\ndone\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "682d7b4917567989": {
+    "command": "{ read x; echo \"x=$x\"; tr a-z A-Z; } < f.txt",
+    "files": {
+      "f.txt": "a\nb\nc\n"
+    },
+    "stdout": "x=a\nB\nC\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6b47fb983d362d03": {
+    "command": "printf 'a\\nb\\nc\\n' | while read l; do echo \"$l\" | cat; done",
+    "files": {},
+    "stdout": "a\nb\nc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "735f94249ebd302b": {
+    "command": "{ read a; read b; echo \"$b:$a\"; } < f.txt",
+    "files": {
+      "f.txt": "a\nb\nc\n"
+    },
+    "stdout": "b:a\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8160a10d878359cf": {
+    "command": "while read l; do echo \"L:$l\"; cat; done < f.txt",
+    "files": {
+      "f.txt": "a\nb\nc\n"
+    },
+    "stdout": "L:a\nb\nc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "89be2b49146a8c1b": {
+    "command": "while read l; do echo \"L:$l\"; grep b; done < f.txt",
+    "files": {
+      "f.txt": "a\nb\nc\n"
+    },
+    "stdout": "L:a\nb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "92e40cd5403e307a": {
+    "command": "{ eval 'read x'; echo \"x=$x\"; read y; echo \"y=$y\"; } < f.txt",
+    "files": {
+      "f.txt": "a\nb\nc\n"
+    },
+    "stdout": "x=a\ny=b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c1430ffea3cfc418": {
+    "command": "printf 'x\\ny\\n' | diff - -\necho \"rc=$?\"",
+    "files": {},
+    "stdout": "rc=0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fcded2f07c04fadb": {
+    "command": "{ printf '' | cat; echo \"after:$(cat)\"; } < f.txt",
+    "files": {
+      "f.txt": "a\nb\nc\n"
+    },
+    "stdout": "after:a\nb\nc\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

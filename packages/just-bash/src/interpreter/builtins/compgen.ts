@@ -472,7 +472,7 @@ export async function handleCompgen(
 
       try {
         // Call the function - errors during execution return exit code 1
-        const funcResult = await callFunction(ctx, func, funcArgs, "");
+        const funcResult = await callFunction(ctx, func, funcArgs);
 
         // Check if there was an error (e.g., division by zero)
         if (funcResult.exitCode !== 0) {

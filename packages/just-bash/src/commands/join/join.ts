@@ -294,7 +294,7 @@ export const join: Command = {
     const contents: string[] = [];
     for (const file of files) {
       if (file === "-") {
-        contents.push(decodeBytesToUtf8(ctx.stdin) ?? "");
+        contents.push(decodeBytesToUtf8(ctx.stdin.readAll()) ?? "");
       } else {
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
         const content = await ctx.fs.readFile(filePath);

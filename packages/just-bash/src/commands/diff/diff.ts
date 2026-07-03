@@ -58,10 +58,14 @@ export const diffCommand: Command = {
 
     // diff compares lines as strings. Normalize stdin (byte buffer) to
     // UTF-8 so it compares correctly against file content (utf8 by default).
+    // Read stdin once so `diff - -` compares stdin against itself (GNU
+    // behavior) instead of draining it on the first operand.
+    const stdinContent =
+      f1 === "-" || f2 === "-" ? decodeBytesToUtf8(ctx.stdin.readAll()) : "";
     try {
       c1 =
         f1 === "-"
-          ? decodeBytesToUtf8(ctx.stdin)
+          ? stdinContent
           : await ctx.fs.readFile(ctx.fs.resolvePath(ctx.cwd, f1));
     } catch {
       return {
@@ -74,7 +78,7 @@ export const diffCommand: Command = {
     try {
       c2 =
         f2 === "-"
-          ? decodeBytesToUtf8(ctx.stdin)
+          ? stdinContent
           : await ctx.fs.readFile(ctx.fs.resolvePath(ctx.cwd, f2));
     } catch {
       return {

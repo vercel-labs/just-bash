@@ -1,7 +1,7 @@
-import type { ByteString } from "./encoding.js";
 import type { IFileSystem } from "./fs/interface.js";
 import type { ExecutionLimits } from "./limits.js";
 import type { SecureFetch } from "./network/index.js";
+import type { StdinStream } from "./stdin-stream.js";
 
 /**
  * Lightweight interface for feature coverage tracking during fuzzing.
@@ -141,18 +141,25 @@ export interface CommandContext {
    */
   exportedEnv?: Record<string, string>;
   /**
-   * Standard input as a byte buffer. Opaque on purpose — see `encoding.ts`.
+   * Standard input as a shared, consumable stream — the shell's fd 0.
    *
-   * Pipelines carry bytes (a previous command's stdout becomes this stdin).
-   * Choose a conversion at the use site:
-   *   - `latin1FromBytes(ctx.stdin)` to forward bytes unchanged (cat, head,
+   * Reading is consuming: `ctx.stdin.readAll()` returns the remaining
+   * bytes and advances the stream, for this command AND for every other
+   * holder of the same stream (e.g. the next iteration of a `while read`
+   * loop whose stdin this command just drained — exactly how bash file
+   * descriptors behave). Commands that forward stdin to a subcommand
+   * without consuming it (`timeout`, `time`, `env`) use `ctx.stdin.peek()`.
+   *
+   * Both return an opaque `ByteString` (pipelines carry bytes; see
+   * `encoding.ts`). Choose a conversion at the use site:
+   *   - `latin1FromBytes(...)` to forward bytes unchanged (cat, head,
    *     tee, base64 -d, gzip, ...).
-   *   - `decodeBytesToUtf8(ctx.stdin)` to interpret as UTF-8 text (jq, sed,
+   *   - `decodeBytesToUtf8(...)` to interpret as UTF-8 text (jq, sed,
    *     grep, awk, parsers, code execution, char-position math, ...).
    * Mixing the two — calling string methods on a latin1 byte buffer that
-   * actually holds UTF-8 — is the bug class this type prevents.
+   * actually holds UTF-8 — is the bug class the type prevents.
    */
-  stdin: ByteString;
+  stdin: StdinStream;
   /**
    * Execution limits configuration.
    * Available when running commands via BashEnv interpreter.

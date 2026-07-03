@@ -244,7 +244,7 @@ export const fold: Command = {
     if (files.length === 0) {
       // Read from stdin. fold counts width in codepoints (and tab-stops),
       // so decode bytes — wrapping mid-multibyte would corrupt the data.
-      const input = decodeBytesToUtf8(ctx.stdin) ?? "";
+      const input = decodeBytesToUtf8(ctx.stdin.readAll()) ?? "";
       output = processContent(input, options);
     } else {
       // Process each file

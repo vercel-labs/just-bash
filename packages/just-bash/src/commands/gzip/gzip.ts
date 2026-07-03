@@ -288,7 +288,7 @@ async function processFile(
 
   // Handle stdin
   if (file === "-" || file === "") {
-    inputData = Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
+    inputData = Uint8Array.from(latin1FromBytes(ctx.stdin.readAll()), (c) =>
       c.charCodeAt(0),
     );
     if (decompress) {
@@ -611,7 +611,7 @@ async function listFile(
   let inputData: Uint8Array;
 
   if (file === "-" || file === "") {
-    inputData = Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
+    inputData = Uint8Array.from(latin1FromBytes(ctx.stdin.readAll()), (c) =>
       c.charCodeAt(0),
     );
   } else {
@@ -664,7 +664,7 @@ async function testFile(
   let inputData: Uint8Array;
 
   if (file === "-" || file === "") {
-    inputData = Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
+    inputData = Uint8Array.from(latin1FromBytes(ctx.stdin.readAll()), (c) =>
       c.charCodeAt(0),
     );
   } else {

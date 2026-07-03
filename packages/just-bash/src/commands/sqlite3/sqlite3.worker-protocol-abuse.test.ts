@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { EMPTY_BYTES } from "../../encoding.js";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
+import { StdinStream } from "../../stdin-stream.js";
 import type { CommandContext } from "../../types.js";
 import { _internals, sqlite3Command } from "./sqlite3.js";
 
@@ -59,7 +59,7 @@ function createContext(
       ["PATH", "/usr/bin:/bin"],
       ["IFS", " \t\n"],
     ]),
-    stdin: EMPTY_BYTES,
+    stdin: new StdinStream(),
     ...overrides,
   };
 }

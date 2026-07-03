@@ -90,7 +90,7 @@ export async function readCsvInput(
 
   // CSV is text; decode bytes so multibyte fields aren't split mid-codepoint.
   if (!file || file === "-") {
-    input = decodeBytesToUtf8(ctx.stdin);
+    input = decodeBytesToUtf8(ctx.stdin.readAll());
   } else {
     try {
       const path = ctx.fs.resolvePath(ctx.cwd, file);

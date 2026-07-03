@@ -172,12 +172,12 @@ export const column: Command = {
     // see follow-up.)
     let content: string;
     if (files.length === 0) {
-      content = decodeBytesToUtf8(ctx.stdin) ?? "";
+      content = decodeBytesToUtf8(ctx.stdin.readAll()) ?? "";
     } else {
       const parts: string[] = [];
       for (const file of files) {
         if (file === "-") {
-          parts.push(decodeBytesToUtf8(ctx.stdin) ?? "");
+          parts.push(decodeBytesToUtf8(ctx.stdin.readAll()) ?? "");
         } else {
           const filePath = ctx.fs.resolvePath(ctx.cwd, file);
           const fileContent = await ctx.fs.readFile(filePath);

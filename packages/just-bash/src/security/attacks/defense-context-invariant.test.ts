@@ -4,9 +4,9 @@ import { awkCommand2 } from "../../commands/awk/awk2.js";
 import { jqCommand } from "../../commands/jq/jq.js";
 import { sedCommand } from "../../commands/sed/sed.js";
 import { yqCommand } from "../../commands/yq/yq.js";
-import { EMPTY_BYTES, unsafeBytesFromLatin1 } from "../../encoding.js";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
 import { createDefenseAwareCommandContext } from "../../interpreter/defense-aware-command-context.js";
+import { StdinStream } from "../../stdin-stream.js";
 import type { CommandContext } from "../../types.js";
 import { awaitWithDefenseContext } from "../defense-context.js";
 import {
@@ -21,7 +21,7 @@ function createCommandContext(
     fs: new InMemoryFs(),
     cwd: "/",
     env: new Map([["PATH", "/usr/bin:/bin"]]),
-    stdin: EMPTY_BYTES,
+    stdin: new StdinStream(),
     requireDefenseContext: true,
     ...overrides,
   };
@@ -98,7 +98,7 @@ describe("Defense context invariant", () => {
     await expect(
       awkCommand2.execute(
         ["{ print $0 }"],
-        createCommandContext({ stdin: unsafeBytesFromLatin1("x\n") }),
+        createCommandContext({ stdin: new StdinStream("x\n") }),
       ),
     ).rejects.toBeInstanceOf(SecurityViolationError);
   });
@@ -109,7 +109,7 @@ describe("Defense context invariant", () => {
     await expect(
       sedCommand.execute(
         ["s/a/b/"],
-        createCommandContext({ stdin: unsafeBytesFromLatin1("a\n") }),
+        createCommandContext({ stdin: new StdinStream("a\n") }),
       ),
     ).rejects.toBeInstanceOf(SecurityViolationError);
   });
@@ -120,7 +120,7 @@ describe("Defense context invariant", () => {
     await expect(
       jqCommand.execute(
         ["."],
-        createCommandContext({ stdin: unsafeBytesFromLatin1("{}\n") }),
+        createCommandContext({ stdin: new StdinStream("{}\n") }),
       ),
     ).rejects.toBeInstanceOf(SecurityViolationError);
   });
@@ -131,7 +131,7 @@ describe("Defense context invariant", () => {
     await expect(
       yqCommand.execute(
         ["."],
-        createCommandContext({ stdin: unsafeBytesFromLatin1("x: 1\n") }),
+        createCommandContext({ stdin: new StdinStream("x: 1\n") }),
       ),
     ).rejects.toBeInstanceOf(SecurityViolationError);
   });

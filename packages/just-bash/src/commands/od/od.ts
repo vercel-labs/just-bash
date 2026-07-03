@@ -49,7 +49,7 @@ async function odExecute(
 
   // Get input - from file or stdin. od is byte-oriented: dump the raw byte
   // buffer character-by-character, where each char is one byte.
-  let input: string = latin1FromBytes(ctx.stdin);
+  let input: string = latin1FromBytes(ctx.stdin.readAll());
 
   // Check for file argument
   if (fileArgs.length > 0 && fileArgs[0] !== "-") {

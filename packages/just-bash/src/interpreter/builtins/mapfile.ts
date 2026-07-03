@@ -13,6 +13,7 @@
  *   array      Array name (default: MAPFILE)
  */
 
+import { latin1FromBytes } from "../../encoding.js";
 import type { ExecResult } from "../../types.js";
 import { clearArray } from "../helpers/array.js";
 import { result } from "../helpers/result.js";
@@ -21,7 +22,6 @@ import type { InterpreterContext } from "../types.js";
 export function handleMapfile(
   ctx: InterpreterContext,
   args: string[],
-  stdin: string,
 ): ExecResult {
   // Parse options
   let delimiter = "\n";
@@ -62,15 +62,13 @@ export function handleMapfile(
     }
   }
 
-  // Use stdin from parameter, or fall back to groupStdin
-  let effectiveStdin = stdin;
-  if (!effectiveStdin && ctx.state.groupStdin !== undefined) {
-    effectiveStdin = ctx.state.groupStdin;
-  }
+  // mapfile consumes all of stdin, even when -n stops assigning early
+  // (matching the previous behavior of draining the shared input).
+  const effectiveStdin = latin1FromBytes(ctx.state.stdin.readAll());
 
   // Split input by delimiter
   const lines: string[] = [];
-  let remaining = effectiveStdin;
+  let remaining: string = effectiveStdin;
   let lineCount = 0;
   let skipped = 0;
   const maxArrayElements = ctx.limits?.maxArrayElements ?? 100000;
@@ -161,11 +159,6 @@ export function handleMapfile(
     `${arrayName}__length`,
     String(Math.max(existingLength, newEndIndex)),
   );
-
-  // Consume from groupStdin if we used it
-  if (ctx.state.groupStdin !== undefined && !stdin) {
-    ctx.state.groupStdin = "";
-  }
 
   return result("", "", 0);
 }

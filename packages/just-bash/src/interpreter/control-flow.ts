@@ -15,11 +15,9 @@ import type {
   CaseNode,
   CStyleForNode,
   ForNode,
-  HereDocNode,
   IfNode,
   UntilNode,
   WhileNode,
-  WordNode,
 } from "../ast/types.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
@@ -258,48 +256,15 @@ export async function executeCStyleFor(
 export async function executeWhile(
   ctx: InterpreterContext,
   node: WhileNode,
-  stdin = "",
 ): Promise<ExecResult> {
   let stdout = "";
   let stderr = "";
   let exitCode = 0;
   let iterations = 0;
 
-  // Process here-doc redirections to get stdin content
-  let effectiveStdin = stdin;
-  for (const redir of node.redirections) {
-    if (
-      (redir.operator === "<<" || redir.operator === "<<-") &&
-      redir.target.type === "HereDoc"
-    ) {
-      const hereDoc = redir.target as HereDocNode;
-      let content = await expandWord(ctx, hereDoc.content);
-      if (hereDoc.stripTabs) {
-        content = content
-          .split("\n")
-          .map((line) => line.replace(/^\t+/, ""))
-          .join("\n");
-      }
-      effectiveStdin = content;
-    } else if (redir.operator === "<<<" && redir.target.type === "Word") {
-      effectiveStdin = `${await expandWord(ctx, redir.target as WordNode)}\n`;
-    } else if (redir.operator === "<" && redir.target.type === "Word") {
-      try {
-        const target = await expandWord(ctx, redir.target as WordNode);
-        const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-        effectiveStdin = await ctx.fs.readFile(filePath);
-      } catch {
-        const target = await expandWord(ctx, redir.target as WordNode);
-        return failure(`bash: ${target}: No such file or directory\n`);
-      }
-    }
-  }
-
-  // Save and set groupStdin for piped while loops
-  const savedGroupStdin = ctx.state.groupStdin;
-  if (effectiveStdin) {
-    ctx.state.groupStdin = effectiveStdin;
-  }
+  // Stdin redirections (<, <<, <<<) were already resolved and installed
+  // as the scope's stdin stream by the command dispatcher; body commands
+  // (read, cat, ...) consume it from ctx.state.stdin by reference.
 
   ctx.state.loopDepth++;
   try {
@@ -390,7 +355,6 @@ export async function executeWhile(
     }
   } finally {
     ctx.state.loopDepth--;
-    ctx.state.groupStdin = savedGroupStdin;
   }
 
   return result(stdout, stderr, exitCode);

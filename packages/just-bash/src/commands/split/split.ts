@@ -345,7 +345,7 @@ export const split: Command = {
     // non-ASCII files.
     let content: string;
     if (inputFile === "-") {
-      content = latin1FromBytes(ctx.stdin) ?? "";
+      content = latin1FromBytes(ctx.stdin.readAll()) ?? "";
     } else {
       const filePath = ctx.fs.resolvePath(ctx.cwd, inputFile);
       try {

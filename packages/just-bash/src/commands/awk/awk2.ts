@@ -239,7 +239,7 @@ export const awkCommand2: Command = {
       } else {
         // awk parses fields with regex / FS — decode bytes to UTF-8 so
         // non-ASCII data isn't split mid-codepoint.
-        const lines = decodeBytesToUtf8(ctx.stdin).split("\n");
+        const lines = decodeBytesToUtf8(ctx.stdin.readAll()).split("\n");
         if (lines.length > 0 && lines[lines.length - 1] === "") {
           lines.pop();
         }

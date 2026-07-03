@@ -37,9 +37,10 @@ const hello = defineCommand("hello", async (args, ctx) => {
 });
 
 const upper = defineCommand("upper", async (args, ctx) => {
-  // ctx.stdin is a ByteString — decode to text before string ops.
+  // ctx.stdin is a stream: readAll() consumes it and returns a ByteString —
+  // decode to text before string ops.
   return {
-    stdout: decodeBytesToUtf8(ctx.stdin).toUpperCase(),
+    stdout: decodeBytesToUtf8(ctx.stdin.readAll()).toUpperCase(),
     stderr: "",
     exitCode: 0,
   };
@@ -51,7 +52,7 @@ await bash.exec("hello Alice"); // "Hello, Alice!\n"
 await bash.exec("echo 'test' | upper"); // "TEST\n"
 ```
 
-Custom commands receive a `CommandContext` with `fs`, `cwd`, `env`, `stdin`, and `exec` (for subcommands), and work with pipes, redirections, and all shell features.
+Custom commands receive a `CommandContext` with `fs`, `cwd`, `env`, `stdin` (a consumable stream: `readAll()` to drain it, `peek()` to inspect without consuming), and `exec` (for subcommands), and work with pipes, redirections, and all shell features.
 
 <details>
 <summary><h2>Supported Commands</h2></summary>

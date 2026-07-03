@@ -85,7 +85,7 @@ export async function executeSearch(
     try {
       let content: string;
       if (patternFile === "-") {
-        content = decodeBytesToUtf8(ctx.stdin);
+        content = decodeBytesToUtf8(ctx.stdin.readAll());
       } else {
         const filePath = ctx.fs.resolvePath(ctx.cwd, patternFile);
         content = await ctx.fs.readFile(filePath);

@@ -112,7 +112,7 @@ export const readFromFdCommand: Command = defineCommand(
       let content = "";
       if (fd === 0) {
         // FD 0 is stdin — diagnostic only, byte-clean passthrough
-        content = latin1FromBytes(ctx.stdin) || "";
+        content = latin1FromBytes(ctx.stdin.readAll()) || "";
       } else if (ctx.fileDescriptors) {
         // Other FDs from the fileDescriptors map
         content = ctx.fileDescriptors.get(fd) || "";

@@ -126,7 +126,7 @@ export async function processHeadTailFiles(
   // marked binary so the pipeline glue / redirects don't UTF-8 re-encode it.
   if (files.length === 0) {
     return {
-      stdout: contentProcessor(latin1FromBytes(ctx.stdin)),
+      stdout: contentProcessor(latin1FromBytes(ctx.stdin.readAll())),
       stderr: "",
       exitCode: 0,
       stdoutEncoding: "binary",

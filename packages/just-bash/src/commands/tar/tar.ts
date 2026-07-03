@@ -683,7 +683,7 @@ async function extractTarArchive(
     }
   } else {
     // Read from stdin - convert binary string directly to bytes without UTF-8 re-encoding
-    archiveData = Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
+    archiveData = Uint8Array.from(latin1FromBytes(ctx.stdin.readAll()), (c) =>
       c.charCodeAt(0),
     );
   }
@@ -923,7 +923,7 @@ async function listTarArchive(
     }
   } else {
     // Read from stdin - convert binary string directly to bytes without UTF-8 re-encoding
-    archiveData = Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
+    archiveData = Uint8Array.from(latin1FromBytes(ctx.stdin.readAll()), (c) =>
       c.charCodeAt(0),
     );
   }

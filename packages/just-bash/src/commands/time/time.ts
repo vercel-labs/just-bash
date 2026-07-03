@@ -117,8 +117,10 @@ export const timeCommand: Command = {
       result = await ctx.exec(shellJoinArgs([commandArgs[0]]), {
         env: mapToRecord(ctx.env),
         cwd: ctx.cwd,
-        stdin: latin1FromBytes(ctx.stdin),
-        // ctx.stdin is already byte-shaped — forward verbatim.
+        // Forward stdin to the subcommand without consuming the outer
+        // stream — the subcommand's exec gets its own copy. Bytes are
+        // already latin1-shaped; pass verbatim.
+        stdin: latin1FromBytes(ctx.stdin.peek()),
         stdinKind: "bytes",
         signal: ctx.signal,
         args: commandArgs.slice(1),

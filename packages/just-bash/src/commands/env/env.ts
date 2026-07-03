@@ -111,8 +111,10 @@ export const envCommand: Command = {
       cwd: ctx.cwd,
       env: mapToRecord(newEnv),
       replaceEnv: true,
-      stdin: latin1FromBytes(ctx.stdin),
-      // ctx.stdin is already byte-shaped — forward verbatim.
+      // Forward stdin to the subcommand without consuming the outer
+      // stream — the subcommand's exec gets its own copy. Bytes are
+      // already latin1-shaped; pass verbatim.
+      stdin: latin1FromBytes(ctx.stdin.peek()),
       stdinKind: "bytes",
       signal: ctx.signal,
       args: cmdArgs,

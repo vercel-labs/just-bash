@@ -97,7 +97,7 @@ export const xargsCommand: Command = {
     // (whitespace). xargs' delimiters (`\0`, ASCII whitespace, user-provided
     // single-byte delim) all live in the ASCII range, but the args produced
     // are passed onward as text — decode so multibyte filenames survive.
-    const stdinText = decodeBytesToUtf8(ctx.stdin);
+    const stdinText = decodeBytesToUtf8(ctx.stdin.readAll());
     let items: string[];
     if (nullSeparator) {
       items = stdinText.split("\0").filter((s) => s.length > 0);

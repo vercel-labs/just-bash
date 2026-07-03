@@ -19,7 +19,6 @@ import type { InterpreterContext } from "../types.js";
 export async function handleEval(
   ctx: InterpreterContext,
   args: string[],
-  stdin?: string,
 ): Promise<ExecResult> {
   // Handle options like bash does:
   // -- ends option processing
@@ -50,13 +49,9 @@ export async function handleEval(
     return OK;
   }
 
-  // Save and set groupStdin for piped eval commands
-  // This allows stdin from the pipeline to flow to commands within eval
-  const savedGroupStdin = ctx.state.groupStdin;
-  const effectiveStdin = stdin ?? ctx.state.groupStdin;
-  if (effectiveStdin !== undefined) {
-    ctx.state.groupStdin = effectiveStdin;
-  }
+  // Stdin (from a pipeline or redirect on the eval command itself) is
+  // already installed as the scope's shared stream, so commands inside
+  // the evaluated script consume it directly.
 
   try {
     // Parse and execute in the current environment
@@ -76,8 +71,5 @@ export async function handleEval(
       return failure(`bash: eval: ${(error as Error).message}\n`);
     }
     throw error;
-  } finally {
-    // Restore groupStdin
-    ctx.state.groupStdin = savedGroupStdin;
   }
 }

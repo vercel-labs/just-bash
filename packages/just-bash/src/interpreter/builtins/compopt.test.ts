@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { StdinStream } from "../../stdin-stream.js";
 import type { InterpreterContext, InterpreterState } from "../types.js";
 import { handleComplete } from "./complete.js";
 import { handleCompopt } from "./compopt.js";
@@ -8,6 +9,7 @@ function createMockCtx(): InterpreterContext {
   const state: InterpreterState = {
     env: new Map(),
     cwd: "/",
+    stdin: new StdinStream(),
     previousDir: "/",
     functions: new Map(),
     localScopes: [],

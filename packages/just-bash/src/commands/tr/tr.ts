@@ -176,7 +176,7 @@ export const trCommand: Command = {
     // Translation operates on codepoints — set1 / set2 args are real Unicode
     // strings, so we must decode bytes to UTF-8 first, otherwise multibyte
     // chars don't match the SET they were spelled with.
-    const content = decodeBytesToUtf8(ctx.stdin);
+    const content = decodeBytesToUtf8(ctx.stdin.readAll());
 
     // Helper to check if character is in set1 (considering complement mode)
     const isInSet1 = (char: string): boolean => {

@@ -290,7 +290,7 @@ export const yqCommand: Command = {
     if (options.nullInput) {
       input = "";
     } else if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-      input = decodeBytesToUtf8(ctx.stdin);
+      input = decodeBytesToUtf8(ctx.stdin.readAll());
     } else {
       try {
         const resolvedFilePath = ctx.fs.resolvePath(ctx.cwd, files[0]);

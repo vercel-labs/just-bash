@@ -542,7 +542,7 @@ export const sqlite3Command: Command = {
 
     // Get SQL from argument or stdin. SQL is text — decode bytes to UTF-8 so
     // string literals containing multibyte characters survive intact.
-    let sql = sqlArg || decodeBytesToUtf8(ctx.stdin).trim();
+    let sql = sqlArg || decodeBytesToUtf8(ctx.stdin.readAll()).trim();
     if (options.cmd) {
       sql = options.cmd + (sql ? `; ${sql}` : "");
     }

@@ -598,18 +598,21 @@ export const jsExecCommand: Command = {
           exitCode: 2,
         };
       }
-    } else if (decodeBytesToUtf8(ctx.stdin).trim()) {
+    } else {
+      // readAll() consumes stdin, so read once and branch on the result.
       // Decode bytes — JS source can contain unicode identifiers and string
       // literals; running latin1 bytes as code corrupts them.
-      jsCode = decodeBytesToUtf8(ctx.stdin);
+      const stdinCode = decodeBytesToUtf8(ctx.stdin.readAll());
+      if (!stdinCode.trim()) {
+        return {
+          stdout: "",
+          stderr:
+            "js-exec: no input provided (use -c CODE or provide a script file)\n",
+          exitCode: 2,
+        };
+      }
+      jsCode = stdinCode;
       scriptPath = "<stdin>";
-    } else {
-      return {
-        stdout: "",
-        stderr:
-          "js-exec: no input provided (use -c CODE or provide a script file)\n",
-        exitCode: 2,
-      };
     }
 
     // Auto-detect module mode and type stripping from file extension

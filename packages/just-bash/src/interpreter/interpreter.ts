@@ -15,7 +15,6 @@ import type {
   CommandNode,
   ConditionalCommandNode,
   GroupNode,
-  HereDocNode,
   PipelineNode,
   ScriptNode,
   SimpleCommandNode,
@@ -23,12 +22,7 @@ import type {
   SubshellNode,
   WordNode,
 } from "../ast/types.js";
-import {
-  decodedTextFromResult,
-  encodeUtf8ToBytes,
-  latin1FromBytes,
-  readBytesFrom,
-} from "../encoding.js";
+import { decodedTextFromResult } from "../encoding.js";
 import type { IFileSystem } from "../fs/interface.js";
 import { mapToRecord } from "../helpers/env.js";
 import type { ExecutionLimits } from "../limits.js";
@@ -38,6 +32,7 @@ import {
   DefenseInDepthBox,
   SecurityViolationError,
 } from "../security/defense-in-depth-box.js";
+import { StdinStream } from "../stdin-stream.js";
 import type {
   CommandRegistry,
   ExecResult,
@@ -91,10 +86,7 @@ import {
   throwExecutionLimit,
 } from "./helpers/result.js";
 import { isPosixSpecialBuiltin } from "./helpers/shell-constants.js";
-import {
-  isWordLiteralMatch,
-  parseRwFdContent,
-} from "./helpers/word-matching.js";
+import { isWordLiteralMatch } from "./helpers/word-matching.js";
 import { traceSimpleCommand } from "./helpers/xtrace.js";
 import { executePipeline as executePipelineHelper } from "./pipeline-execution.js";
 import {
@@ -103,6 +95,11 @@ import {
   processFdVariableRedirections,
 } from "./redirections.js";
 import { processAssignments } from "./simple-command-assignments.js";
+import {
+  resolveStdinRedirections,
+  withStdin,
+  withStdinRedirects,
+} from "./stdin-redirect.js";
 import {
   executeGroup as executeGroupHelper,
   executeSubshell as executeSubshellHelper,
@@ -375,9 +372,8 @@ export class Interpreter {
   private async executeUserScript(
     scriptPath: string,
     args: string[],
-    stdin = "",
   ): Promise<ExecResult> {
-    return executeUserScriptHelper(this.ctx, scriptPath, args, stdin, (ast) =>
+    return executeUserScriptHelper(this.ctx, scriptPath, args, (ast) =>
       this.executeScript(ast),
     );
   }
@@ -484,37 +480,65 @@ export class Interpreter {
   }
 
   private async executePipeline(node: PipelineNode): Promise<ExecResult> {
-    return executePipelineHelper(this.ctx, node, (cmd, stdin) =>
-      this.executeCommand(cmd, stdin),
+    return executePipelineHelper(this.ctx, node, (cmd, pipeStdin) =>
+      this.executeCommand(cmd, pipeStdin),
     );
   }
 
   private async executeCommand(
     node: CommandNode,
-    stdin: string,
+    pipeStdin: StdinStream | null,
   ): Promise<ExecResult> {
     this.assertDefenseContext("command");
 
     this.ctx.coverage?.hit(`bash:cmd:${node.type}`);
+
+    // A pipeline stage's stdin (the previous stage's stdout) is installed
+    // for the whole node — simple or compound — so everything below reads
+    // the same shared stream. A `null` means "inherit the enclosing stdin"
+    // (first stage / single command).
+    if (pipeStdin) {
+      return withStdin(this.ctx, pipeStdin, () => this.dispatchCommand(node));
+    }
+    return this.dispatchCommand(node);
+  }
+
+  private async dispatchCommand(node: CommandNode): Promise<ExecResult> {
     switch (node.type) {
       case "SimpleCommand":
-        return this.executeSimpleCommand(node, stdin);
+        return this.executeSimpleCommand(node);
       case "If":
-        return executeIf(this.ctx, node);
+        return withStdinRedirects(this.ctx, node.redirections, () =>
+          executeIf(this.ctx, node),
+        );
       case "For":
-        return executeFor(this.ctx, node);
+        return withStdinRedirects(this.ctx, node.redirections, () =>
+          executeFor(this.ctx, node),
+        );
       case "CStyleFor":
-        return executeCStyleFor(this.ctx, node);
+        return withStdinRedirects(this.ctx, node.redirections, () =>
+          executeCStyleFor(this.ctx, node),
+        );
       case "While":
-        return executeWhile(this.ctx, node, stdin);
+        return withStdinRedirects(this.ctx, node.redirections, () =>
+          executeWhile(this.ctx, node),
+        );
       case "Until":
-        return executeUntil(this.ctx, node);
+        return withStdinRedirects(this.ctx, node.redirections, () =>
+          executeUntil(this.ctx, node),
+        );
       case "Case":
-        return executeCase(this.ctx, node);
+        return withStdinRedirects(this.ctx, node.redirections, () =>
+          executeCase(this.ctx, node),
+        );
       case "Subshell":
-        return this.executeSubshell(node, stdin);
+        return withStdinRedirects(this.ctx, node.redirections, () =>
+          this.executeSubshell(node),
+        );
       case "Group":
-        return this.executeGroup(node, stdin);
+        return withStdinRedirects(this.ctx, node.redirections, () =>
+          this.executeGroup(node),
+        );
       case "FunctionDef":
         return executeFunctionDef(this.ctx, node);
       case "ArithmeticCommand":
@@ -528,10 +552,9 @@ export class Interpreter {
 
   private async executeSimpleCommand(
     node: SimpleCommandNode,
-    stdin: string,
   ): Promise<ExecResult> {
     try {
-      return await this.executeSimpleCommandInner(node, stdin);
+      return await this.executeSimpleCommandInner(node);
     } catch (error) {
       if (error instanceof GlobError) {
         // GlobError from failglob should return exit code 1 with error message
@@ -545,7 +568,6 @@ export class Interpreter {
 
   private async executeSimpleCommandInner(
     node: SimpleCommandNode,
-    stdin: string,
   ): Promise<ExecResult> {
     // Update currentLine for $LINENO
     if (node.line !== undefined) {
@@ -656,102 +678,21 @@ export class Interpreter {
       return fdVarError;
     }
 
-    // Track source FD for stdin from read-write file descriptors
-    // This allows the read builtin to update the FD's position after reading
-    let stdinSourceFd = -1;
-
-    for (const redir of node.redirections) {
-      if (
-        (redir.operator === "<<" || redir.operator === "<<-") &&
-        redir.target.type === "HereDoc"
-      ) {
-        const hereDoc = redir.target as HereDocNode;
-        let content = await expandWord(this.ctx, hereDoc.content);
-        // <<- strips leading tabs from each line
-        if (hereDoc.stripTabs) {
-          content = content
-            .split("\n")
-            .map((line) => line.replace(/^\t+/, ""))
-            .join("\n");
-        }
-        // Heredocs land here as JS Unicode text; the pipeline contract
-        // expects stdin to be a latin1 byte buffer. UTF-8 encode the
-        // text once at the source so byte consumers downstream see real
-        // bytes and binary writes don't truncate codepoints to their
-        // low byte.
-        content = latin1FromBytes(encodeUtf8ToBytes(content));
-        // If this is a non-standard fd (not 0), store in fileDescriptors for -u option
-        const fd = redir.fd ?? 0;
-        if (fd !== 0) {
-          if (!this.ctx.state.fileDescriptors) {
-            this.ctx.state.fileDescriptors = new Map();
-          }
-          checkFdLimit(this.ctx);
-          this.ctx.state.fileDescriptors.set(fd, content);
-        } else {
-          stdin = content;
-        }
-        continue;
+    // Resolve stdin redirections (<, <<, <<-, <<<, <&) for this command.
+    // A resolved redirect installs a fresh stream scoped to the command;
+    // otherwise the command inherits the enclosing stdin.
+    const resolvedStdin = await resolveStdinRedirections(
+      this.ctx,
+      node.redirections,
+    );
+    if ("error" in resolvedStdin) {
+      for (const [name, value] of tempAssignments) {
+        if (value === undefined) this.ctx.state.env.delete(name);
+        else this.ctx.state.env.set(name, value);
       }
-
-      if (redir.operator === "<<<" && redir.target.type === "Word") {
-        // Same byte-encoding step as heredoc — here-strings deliver
-        // JS Unicode text and need to land as bytes.
-        stdin = latin1FromBytes(
-          encodeUtf8ToBytes(
-            `${await expandWord(this.ctx, redir.target as WordNode)}\n`,
-          ),
-        );
-        continue;
-      }
-
-      if (redir.operator === "<" && redir.target.type === "Word") {
-        try {
-          const target = await expandWord(this.ctx, redir.target as WordNode);
-          const filePath = this.ctx.fs.resolvePath(this.ctx.state.cwd, target);
-          // Read as raw bytes — `<` is a transparent file-to-stdin
-          // pipe and we don't want the smart-utf8 read path turning
-          // valid bytes into U+FFFD replacement chars.
-          stdin = latin1FromBytes(await readBytesFrom(this.ctx.fs, filePath));
-        } catch {
-          const target = await expandWord(this.ctx, redir.target as WordNode);
-          for (const [name, value] of tempAssignments) {
-            if (value === undefined) this.ctx.state.env.delete(name);
-            else this.ctx.state.env.set(name, value);
-          }
-          return failure(`bash: ${target}: No such file or directory\n`);
-        }
-      }
-
-      // Handle <& input redirection from file descriptor
-      if (redir.operator === "<&" && redir.target.type === "Word") {
-        const target = await expandWord(this.ctx, redir.target as WordNode);
-        const sourceFd = Number.parseInt(target, 10);
-        if (!Number.isNaN(sourceFd) && this.ctx.state.fileDescriptors) {
-          const fdContent = this.ctx.state.fileDescriptors.get(sourceFd);
-          if (fdContent !== undefined) {
-            // Handle different FD content formats
-            if (fdContent.startsWith("__rw__:")) {
-              // Read/write mode: format is __rw__:pathLength:path:position:content
-              const parsed = parseRwFdContent(fdContent);
-              if (parsed) {
-                // Return content starting from current position
-                stdin = parsed.content.slice(parsed.position);
-                stdinSourceFd = sourceFd;
-              }
-            } else if (
-              fdContent.startsWith("__file__:") ||
-              fdContent.startsWith("__file_append__:")
-            ) {
-              // These are output-only, can't read from them
-            } else {
-              // Plain content (from exec N< file or here-docs)
-              stdin = fdContent;
-            }
-          }
-        }
-      }
+      return resolvedStdin.error;
     }
+    const { stdin: redirectStdin, stdinSourceFd } = resolvedStdin;
 
     const commandName = await expandWord(this.ctx, node.name);
 
@@ -844,15 +785,18 @@ export class Interpreter {
         if (args.length > 0) {
           const newCommandName = args.shift() as string;
           quotedArgs.shift();
-          return await this.runCommand(
-            newCommandName,
-            args,
-            quotedArgs,
-            stdin,
-            false,
-            false,
-            stdinSourceFd,
-          );
+          const run = (): Promise<ExecResult> =>
+            this.runCommand(
+              newCommandName,
+              args,
+              quotedArgs,
+              false,
+              false,
+              stdinSourceFd,
+            );
+          return redirectStdin !== null
+            ? await withStdin(this.ctx, new StdinStream(redirectStdin), run)
+            : await run();
         }
         // No args - treat as no-op (status 0)
         // Preserve lastExitCode for command subs like $(exit 42)
@@ -1069,15 +1013,19 @@ export class Interpreter {
     let controlFlowError: BreakError | ContinueError | null = null;
 
     try {
-      cmdResult = await this.runCommand(
-        commandName,
-        args,
-        quotedArgs,
-        stdin,
-        false,
-        false,
-        stdinSourceFd,
-      );
+      const run = (): Promise<ExecResult> =>
+        this.runCommand(
+          commandName,
+          args,
+          quotedArgs,
+          false,
+          false,
+          stdinSourceFd,
+        );
+      cmdResult =
+        redirectStdin !== null
+          ? await withStdin(this.ctx, new StdinStream(redirectStdin), run)
+          : await run();
     } catch (error) {
       // For break/continue, we still need to apply redirections before propagating
       // This handles cases like "break > file" where the file should be created
@@ -1181,17 +1129,16 @@ export class Interpreter {
     commandName: string,
     args: string[],
     quotedArgs: boolean[],
-    stdin: string,
     skipFunctions = false,
     useDefaultPath = false,
     stdinSourceFd = -1,
   ): Promise<ExecResult> {
     const dispatchCtx: BuiltinDispatchContext = {
       ctx: this.ctx,
-      runCommand: (name, a, qa, s, sf, udp, ssf) =>
-        this.runCommand(name, a, qa, s, sf, udp, ssf),
+      runCommand: (name, a, qa, sf, udp, ssf) =>
+        this.runCommand(name, a, qa, sf, udp, ssf),
       buildExportedEnv: () => this.buildExportedEnv(),
-      executeUserScript: (path, a, s) => this.executeUserScript(path, a, s),
+      executeUserScript: (path, a) => this.executeUserScript(path, a),
     };
 
     // Try builtin dispatch first
@@ -1200,7 +1147,6 @@ export class Interpreter {
       commandName,
       args,
       quotedArgs,
-      stdin,
       skipFunctions,
       useDefaultPath,
       stdinSourceFd,
@@ -1215,7 +1161,6 @@ export class Interpreter {
       dispatchCtx,
       commandName,
       args,
-      stdin,
       useDefaultPath,
     );
   }
@@ -1231,17 +1176,14 @@ export class Interpreter {
     return findCommandInPathHelper(this.ctx, commandName);
   }
 
-  private async executeSubshell(
-    node: SubshellNode,
-    stdin = "",
-  ): Promise<ExecResult> {
-    return executeSubshellHelper(this.ctx, node, stdin, (stmt) =>
+  private async executeSubshell(node: SubshellNode): Promise<ExecResult> {
+    return executeSubshellHelper(this.ctx, node, (stmt) =>
       this.executeStatement(stmt),
     );
   }
 
-  private async executeGroup(node: GroupNode, stdin = ""): Promise<ExecResult> {
-    return executeGroupHelper(this.ctx, node, stdin, (stmt) =>
+  private async executeGroup(node: GroupNode): Promise<ExecResult> {
+    return executeGroupHelper(this.ctx, node, (stmt) =>
       this.executeStatement(stmt),
     );
   }

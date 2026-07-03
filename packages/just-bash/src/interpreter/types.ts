@@ -11,6 +11,7 @@ import type {
 import type { IFileSystem } from "../fs/interface.js";
 import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
+import type { StdinStream } from "../stdin-stream.js";
 import type {
   CommandRegistry,
   ExecResult,
@@ -305,8 +306,16 @@ export interface ProcessState {
  * Used for process substitution, here-documents, and compound command stdin.
  */
 export interface IOState {
-  /** Stdin available for commands in compound commands (groups, subshells, while loops with piped input) */
-  groupStdin?: string;
+  /**
+   * Standard input for the current scope — the interpreter's fd 0.
+   *
+   * Shared by reference like a real file descriptor: consuming input
+   * anywhere (a command's `readAll()`, `read`'s `advance(n)`) advances it
+   * for every other holder, including across subshell and pipeline-stage
+   * boundaries. Redirects and pipeline stages install a fresh stream for
+   * their scope (save/install/restore); nothing ever copies the content.
+   */
+  stdin: StdinStream;
   /** File descriptors for process substitution and here-docs */
   fileDescriptors?: Map<number, string>;
   /** Next available file descriptor for {varname}>file allocation (starts at 10) */
@@ -423,7 +432,10 @@ export interface InterpreterContext {
   ) => Promise<ExecResult>;
   executeScript: (node: ScriptNode) => Promise<ExecResult>;
   executeStatement: (node: StatementNode) => Promise<ExecResult>;
-  executeCommand: (node: CommandNode, stdin: string) => Promise<ExecResult>;
+  executeCommand: (
+    node: CommandNode,
+    pipeStdin: StdinStream | null,
+  ) => Promise<ExecResult>;
   /** Optional secure fetch function for network-enabled commands */
   fetch?: SecureFetch;
   /** Optional sleep function for testing with mock clocks */

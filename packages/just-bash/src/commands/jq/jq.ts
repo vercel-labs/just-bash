@@ -332,7 +332,10 @@ export const jqCommand: Command = {
     if (nullInput) {
       // No input
     } else if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-      inputs.push({ source: "stdin", content: decodeBytesToUtf8(ctx.stdin) });
+      inputs.push({
+        source: "stdin",
+        content: decodeBytesToUtf8(ctx.stdin.readAll()),
+      });
     } else {
       // Read all files in parallel using shared utility
       const result = await withDefenseContext("file read", () =>

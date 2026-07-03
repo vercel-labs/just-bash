@@ -170,7 +170,7 @@ export function createChecksumCommand(
       // through without decoding.
       const readBinary = async (file: string): Promise<Uint8Array | null> => {
         if (file === "-") {
-          return Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
+          return Uint8Array.from(latin1FromBytes(ctx.stdin.readAll()), (c) =>
             c.charCodeAt(0),
           );
         }
@@ -190,7 +190,7 @@ export function createChecksumCommand(
           // Decode UTF-8 so non-ASCII filenames in the list survive.
           const content =
             file === "-"
-              ? decodeBytesToUtf8(ctx.stdin)
+              ? decodeBytesToUtf8(ctx.stdin.readAll())
               : await ctx.fs
                   .readFile(ctx.fs.resolvePath(ctx.cwd, file))
                   .catch(() => null);

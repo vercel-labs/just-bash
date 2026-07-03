@@ -218,7 +218,7 @@ export const expand: Command = {
     if (files.length === 0) {
       // expand counts column positions for tab-stop math; decode bytes so a
       // multibyte char counts as one column rather than 2–4.
-      const input = decodeBytesToUtf8(ctx.stdin) ?? "";
+      const input = decodeBytesToUtf8(ctx.stdin.readAll()) ?? "";
       output = processContent(input, options);
     } else {
       for (const file of files) {

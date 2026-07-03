@@ -281,7 +281,7 @@ export const nl: Command = {
     if (files.length === 0) {
       // Read from stdin. nl reads files as utf8 by default; normalize stdin
       // to text so the line-numbered output is consistent with file inputs.
-      const input = decodeBytesToUtf8(ctx.stdin) ?? "";
+      const input = decodeBytesToUtf8(ctx.stdin.readAll()) ?? "";
       const result = processContent(input, options, lineNumber);
       output = result.output;
     } else {

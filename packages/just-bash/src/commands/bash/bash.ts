@@ -39,7 +39,7 @@ export const bashCommand: Command = {
     // No arguments - read script from stdin if available. Decode bytes — a
     // bash script's UTF-8 string literals must reach the parser as text.
     if (args.length === 0) {
-      const stdinText = decodeBytesToUtf8(ctx.stdin);
+      const stdinText = decodeBytesToUtf8(ctx.stdin.readAll());
       if (stdinText.trim()) {
         return executeScript(stdinText, "bash", [], ctx);
       }
@@ -91,7 +91,7 @@ export const shCommand: Command = {
     // No arguments - read script from stdin if available. Decode bytes — a
     // shell script's UTF-8 string literals must reach the parser as text.
     if (args.length === 0) {
-      const stdinText = decodeBytesToUtf8(ctx.stdin);
+      const stdinText = decodeBytesToUtf8(ctx.stdin.readAll());
       if (stdinText.trim()) {
         return executeScript(stdinText, "sh", [], ctx);
       }
@@ -162,7 +162,9 @@ async function executeScript(
   const result = await ctx.exec(scriptToRun, {
     env: positionalEnv,
     cwd: ctx.cwd,
-    stdin: latin1FromBytes(ctx.stdin),
+    // Forward stdin without consuming the outer stream — the nested
+    // exec seeds its own stream from this copy.
+    stdin: latin1FromBytes(ctx.stdin.peek()),
     stdinKind: "bytes",
     signal: ctx.signal,
   });

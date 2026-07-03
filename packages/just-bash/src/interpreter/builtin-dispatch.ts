@@ -6,7 +6,6 @@
  */
 
 import { isBrowserExcludedCommand } from "../commands/browser-excluded.js";
-import { unsafeBytesFromLatin1 } from "../encoding.js";
 import { sanitizeErrorMessage } from "../fs/sanitize-error.js";
 import { awaitWithDefenseContext } from "../security/defense-context.js";
 import {
@@ -68,7 +67,6 @@ export type RunCommandFn = (
   commandName: string,
   args: string[],
   quotedArgs: boolean[],
-  stdin: string,
   skipFunctions?: boolean,
   useDefaultPath?: boolean,
   stdinSourceFd?: number,
@@ -85,7 +83,6 @@ export type BuildExportedEnvFn = () => Record<string, string>;
 export type ExecuteUserScriptFn = (
   scriptPath: string,
   args: string[],
-  stdin?: string,
 ) => Promise<ExecResult>;
 
 /**
@@ -107,7 +104,6 @@ export async function dispatchBuiltin(
   commandName: string,
   args: string[],
   _quotedArgs: boolean[],
-  stdin: string,
   skipFunctions: boolean,
   _useDefaultPath: boolean,
   stdinSourceFd: number,
@@ -147,7 +143,7 @@ export async function dispatchBuiltin(
   // In POSIX mode, eval is a special builtin that cannot be overridden by functions
   // In non-POSIX mode (bash default), functions can override eval
   if (commandName === "eval" && ctx.state.options.posix) {
-    return handleEval(ctx, args, stdin);
+    return handleEval(ctx, args);
   }
   if (commandName === "shift") {
     return handleShift(ctx, args);
@@ -177,10 +173,10 @@ export async function dispatchBuiltin(
     return handleSource(ctx, args);
   }
   if (commandName === "read") {
-    return handleRead(ctx, args, stdin, stdinSourceFd);
+    return handleRead(ctx, args, stdinSourceFd);
   }
   if (commandName === "mapfile" || commandName === "readarray") {
-    return handleMapfile(ctx, args, stdin);
+    return handleMapfile(ctx, args);
   }
   if (commandName === "declare" || commandName === "typeset") {
     return handleDeclare(ctx, args);
@@ -193,13 +189,13 @@ export async function dispatchBuiltin(
   if (!skipFunctions) {
     const func = ctx.state.functions.get(commandName);
     if (func) {
-      return callFunction(ctx, func, args, stdin);
+      return callFunction(ctx, func, args);
     }
   }
   // Simple builtins (can be overridden by functions)
   // eval: In non-POSIX mode, functions can override eval (handled above for POSIX mode)
   if (commandName === "eval") {
-    return handleEval(ctx, args, stdin);
+    return handleEval(ctx, args);
   }
   if (commandName === "cd") {
     return await handleCd(ctx, args);
@@ -214,10 +210,10 @@ export async function dispatchBuiltin(
     return handleLet(ctx, args);
   }
   if (commandName === "command") {
-    return handleCommandBuiltin(dispatchCtx, args, stdin);
+    return handleCommandBuiltin(dispatchCtx, args);
   }
   if (commandName === "builtin") {
-    return handleBuiltinBuiltin(dispatchCtx, args, stdin);
+    return handleBuiltinBuiltin(dispatchCtx, args);
   }
   if (commandName === "shopt") {
     return handleShopt(ctx, args);
@@ -228,7 +224,7 @@ export async function dispatchBuiltin(
       return OK;
     }
     const [cmd, ...rest] = args;
-    return runCommand(cmd, rest, [], stdin, false, false, -1);
+    return runCommand(cmd, rest, [], false, false, -1);
   }
   if (commandName === "wait") {
     // wait - wait for background jobs (stub: no-op in this context)
@@ -271,7 +267,6 @@ export async function dispatchBuiltin(
 async function handleCommandBuiltin(
   dispatchCtx: BuiltinDispatchContext,
   args: string[],
-  stdin: string,
 ): Promise<ExecResult> {
   const { ctx, runCommand } = dispatchCtx;
 
@@ -316,7 +311,7 @@ async function handleCommandBuiltin(
   // Run command without checking functions, but builtins are still available
   // Pass useDefaultPath to use /usr/bin:/bin instead of $PATH
   const [cmd, ...rest] = cmdArgs;
-  return runCommand(cmd, rest, [], stdin, true, useDefaultPath, -1);
+  return runCommand(cmd, rest, [], true, useDefaultPath, -1);
 }
 
 /**
@@ -325,7 +320,6 @@ async function handleCommandBuiltin(
 async function handleBuiltinBuiltin(
   dispatchCtx: BuiltinDispatchContext,
   args: string[],
-  stdin: string,
 ): Promise<ExecResult> {
   const { runCommand } = dispatchCtx;
 
@@ -349,7 +343,7 @@ async function handleBuiltinBuiltin(
   }
   const [, ...rest] = cmdArgs;
   // Run as builtin (recursive call, skip function lookup)
-  return runCommand(cmd, rest, [], stdin, true, false, -1);
+  return runCommand(cmd, rest, [], true, false, -1);
 }
 
 /**
@@ -360,7 +354,6 @@ export async function executeExternalCommand(
   dispatchCtx: BuiltinDispatchContext,
   commandName: string,
   args: string[],
-  stdin: string,
   useDefaultPath: boolean,
 ): Promise<ExecResult> {
   const { ctx, buildExportedEnv, executeUserScript } = dispatchCtx;
@@ -401,7 +394,7 @@ export async function executeExternalCommand(
       }
       ctx.state.hashTable.set(commandName, resolved.path);
     }
-    return await executeUserScript(resolved.path, args, stdin);
+    return await executeUserScript(resolved.path, args);
   }
   const { cmd, path: cmdPath } = resolved;
   // Add to hash table for PATH caching (only for non-path commands)
@@ -412,18 +405,6 @@ export async function executeExternalCommand(
     ctx.state.hashTable.set(commandName, cmdPath);
   }
 
-  // Use groupStdin as fallback if no stdin from redirections/pipeline —
-  // needed for commands inside groups/functions that receive stdin via
-  // heredoc. The pipeline glue (pipeline-execution.ts) and the
-  // stdin-source sites (heredoc, here-string, `< file`, options.stdin)
-  // are responsible for handing us a latin1-shaped byte buffer; we just
-  // brand it. Commands that decode their input internally (sed, jq,
-  // ...) return text via `textOutput()`, and the pipe / redirect layer
-  // converts to bytes on their behalf.
-  const effectiveStdin = unsafeBytesFromLatin1(
-    stdin || ctx.state.groupStdin || "",
-  );
-
   // Build exported environment for commands that need it (printenv, env, etc.)
   // Most builtins need access to the full env to modify state
   const exportedEnv = buildExportedEnv();
@@ -433,7 +414,11 @@ export async function executeExternalCommand(
     cwd: ctx.state.cwd,
     env: ctx.state.env,
     exportedEnv,
-    stdin: effectiveStdin,
+    // The scope's shared stdin stream, installed by the pipeline stage or
+    // stdin redirect (if any). Reading from it consumes input for every
+    // other holder of the stream — that's what makes `while read` loops
+    // over redirected stdin work when body commands also read stdin.
+    stdin: ctx.state.stdin,
     limits: ctx.limits,
     exec: ctx.execFn,
     fetch: ctx.fetch,
