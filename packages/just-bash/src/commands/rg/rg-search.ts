@@ -116,9 +116,6 @@ export async function executeSearch(
     };
   }
 
-  // Default to current directory
-  const paths = inputPaths.length === 0 ? ["."] : inputPaths;
-
   // Determine case sensitivity
   const effectiveIgnoreCase = determineIgnoreCase(options, patterns);
 
@@ -140,6 +137,70 @@ export async function executeSearch(
       exitCode: 2,
     };
   }
+
+  // If no paths given and stdin has content, search stdin (like real rg).
+  // In a pipeline, the previous command's stdout becomes this command's
+  // stdin — search that text instead of defaulting to the current directory.
+  // Skip when `-f -` already consumed stdin for patterns to avoid
+  // double-consuming it as both pattern source and search input.
+  const stdinConsumedByPatternFile = options.patternFiles.includes("-");
+  const stdinText = decodeBytesToUtf8(ctx.stdin);
+  if (
+    inputPaths.length === 0 &&
+    stdinText.length > 0 &&
+    !stdinConsumedByPatternFile
+  ) {
+    const content = stdinText;
+    const result = searchContent(content, regex, {
+      invertMatch: options.invertMatch,
+      showLineNumbers: options.lineNumber,
+      countOnly: options.count,
+      countMatches: options.countMatches,
+      filename: "",
+      onlyMatching: options.onlyMatching,
+      beforeContext: options.beforeContext,
+      afterContext: options.afterContext,
+      maxCount: options.maxCount,
+      contextSeparator: options.contextSeparator,
+      showColumn: options.column,
+      vimgrep: options.vimgrep,
+      showByteOffset: options.byteOffset,
+      replace:
+        options.replace !== null ? convertReplacement(options.replace) : null,
+      passthru: options.passthru,
+      multiline: options.multiline,
+      kResetGroup,
+    });
+
+    if (options.quiet) {
+      return { stdout: "", stderr: "", exitCode: result.matched ? 0 : 1 };
+    }
+
+    if (options.filesWithMatches) {
+      return {
+        stdout: result.matched ? "(standard input)\n" : "",
+        stderr: "",
+        exitCode: result.matched ? 0 : 1,
+      };
+    }
+
+    if (options.filesWithoutMatch) {
+      return {
+        stdout: result.matched ? "" : "(standard input)\n",
+        stderr: "",
+        exitCode: result.matched ? 1 : 0,
+      };
+    }
+
+    return {
+      stdout: result.output,
+      stderr: "",
+      exitCode: result.matched ? 0 : 1,
+    };
+  }
+
+  // Default to current directory
+  const paths = inputPaths.length === 0 ? ["."] : inputPaths;
 
   // Load gitignore files
   let gitignore: GitignoreManager | null = null;
