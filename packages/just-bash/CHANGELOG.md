@@ -1,5 +1,65 @@
 # just-bash
 
+## 3.0.3
+
+### Patch Changes
+
+- [#277](https://github.com/vercel-labs/just-bash/pull/277) [`aec5643`](https://github.com/vercel-labs/just-bash/commit/aec56431d7d9b6fcb141bbfe25d26f4931f54f80) Thanks [@mutewinter](https://github.com/mutewinter)! - interpreter: avoid lazy import in variable assignment path that trips defense-in-depth (fixes [#273](https://github.com/vercel-labs/just-bash/issues/273))
+
+  Any non-`export` variable assignment (bare `SECRET=s`, prefixed `SECRET=s cmd`,
+  or before a custom command) failed with a defense-in-depth security violation
+  (`dynamic import of Node.js builtin 'node:module' is blocked during script
+execution`), while plain commands and `export`-ed assignments passed.
+
+  `processScalarAssignment()` resolved `isArray` via `await import("./expansion.js")`
+  in two spots. In the bundled `dist`, that dynamic `import()` marks `expansion.js`
+  as a lazily-linked chunk whose `createRequire` banner imports `node:module`; the
+  defense layer's ESM `resolve` hook blocks that builtin import when the sandbox is
+  active and untrusted, so it blocked just-bash's own chunk load. The file already
+  statically imports from `./expansion.js`, so `isArray` is now pulled from that
+  static import and the two lazy imports are removed — no lazy `node:module`-bearing
+  chunk is linked at runtime. No public API change.
+
+- [#276](https://github.com/vercel-labs/just-bash/pull/276) [`1ec5eec`](https://github.com/vercel-labs/just-bash/commit/1ec5eec0aefd099d23ac9f056df1e6612c81d49b) Thanks [@mutewinter](https://github.com/mutewinter)! - interpreter: preserve leading whitespace in multi-line quoted strings (fixes [#259](https://github.com/vercel-labs/just-bash/issues/259))
+
+  `exec()` runs each script through `normalizeScript()`, which `trimStart()`s
+  leading indentation from lines so indented template-literal scripts parse. It
+  was applied line-by-line and stripped the leading whitespace inside multi-line
+  single- and double-quoted strings too. The visible symptom was `python3 -c
+'...'` (and `node -e`, `awk`, etc.) with an indented body failing with
+  `IndentationError`, while the same code via heredoc or pipe worked.
+
+  `normalizeScript()` is now quote-aware (mirroring the earlier heredoc-aware
+  fix): it only strips indentation from lines that begin outside any quote, and
+  preserves lines that begin inside an unterminated single- or double-quoted
+  string verbatim. This also un-skips four sed spec tests whose indented stdin
+  was previously being corrupted.
+
+- [#286](https://github.com/vercel-labs/just-bash/pull/286) [`cb2b583`](https://github.com/vercel-labs/just-bash/commit/cb2b583b3f46e6bb4e6982c4bfe19903ec811a87) Thanks [@privatenumber](https://github.com/privatenumber)! - interpreter: deliver redirected output to each fd's final target (fixes `cmd > file 2>&1` leaking stderr to stdout)
+
+  `applyRedirections()` processed a command's redirection list sequentially over
+  the result's stdout/stderr strings, moving content at each step. The
+  duplication operators (`2>&1`, `1>&2`) merged into the live stream regardless
+  of where the source fd pointed, so the canonical `cmd > file 2>&1` wrote
+  stdout to the file but leaked stderr onto the caller's stdout — including
+  "command not found" errors and custom-command stderr. Any wrapper protocol
+  that parses the enclosing script's stdout (e.g. a runner emitting a JSON
+  payload after `eval "$CMD" > "$OUT" 2>&1`) saw the leaked stderr corrupt its
+  stream. Ordering variants were wrong in other ways: `cmd 2>&1 > file` put
+  stderr in the file instead of on stdout, and `cmd > a > b` wrote content to
+  `a` instead of `b`.
+
+  The pass now mirrors how bash sets up fds before running the command: each
+  output redirection only opens/truncates its target and re-points the fd's
+  sink (file, /dev/null, or a snapshot of the caller-visible stream), and
+  duplication operators copy the source fd's current sink. Stream content is
+  delivered once, after the whole list is processed, to each fd's final sink.
+  This makes `cmd > file 2>&1` send stderr to the file, `cmd 2>&1 > file` keep
+  stderr on the caller's stdout, `cmd > all 2>&1 2> err` let the later `2> err`
+  reclaim stderr, and `cmd > a > b` truncate `a` while writing content to `b`.
+  The `/dev/null`-as-regular-VFS-file behavior for stdout redirects is
+  preserved.
+
 ## 3.0.2
 
 ### Patch Changes
