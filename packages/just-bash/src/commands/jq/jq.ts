@@ -175,6 +175,14 @@ function parseJsonStream(input: string): unknown[] {
   return results;
 }
 
+/**
+ * Error result for external-argument option parsing failures.
+ * jq uses exit code 2 for command-line option errors.
+ */
+function jqArgError(message: string): ExecResult {
+  return { stdout: "", stderr: `jq: ${message}\n`, exitCode: 2 };
+}
+
 const jqHelp = {
   name: "jq",
   summary: "command-line JSON processor",
@@ -192,6 +200,10 @@ const jqHelp = {
     "-C, --color       colorize output (ignored)",
     "-M, --monochrome  monochrome output (ignored)",
     "    --tab         use tabs for indentation",
+    "    --arg NAME VALUE      bind $NAME to the string VALUE",
+    "    --argjson NAME JSON   bind $NAME to the JSON-decoded value JSON",
+    "    --rawfile NAME FILE   bind $NAME to the raw contents of FILE",
+    "    --slurpfile NAME FILE bind $NAME to the array of JSON values in FILE",
     "    --help        display this help and exit",
   ],
 };
@@ -279,6 +291,12 @@ export const jqCommand: Command = {
     let filter = ".";
     let filterSet = false;
     const files: string[] = [];
+    const namedArgs = new Map<string, QueryValue>();
+    const fileBindings: {
+      name: string;
+      file: string;
+      mode: "raw" | "slurp";
+    }[] = [];
 
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
@@ -297,7 +315,56 @@ export const jqCommand: Command = {
       } else if (a === "-M" || a === "--monochrome") {
         /* ignored */
       } else if (a === "--tab") useTab = true;
-      else if (a === "-") files.push("-");
+      else if (a === "--arg") {
+        const name = args[i + 1];
+        const value = args[i + 2];
+        if (name === undefined || value === undefined) {
+          return jqArgError(
+            "--arg takes two parameters (e.g. --arg varname value)",
+          );
+        }
+        namedArgs.set(name, value);
+        i += 2;
+      } else if (a === "--argjson") {
+        const name = args[i + 1];
+        const json = args[i + 2];
+        if (name === undefined || json === undefined) {
+          return jqArgError(
+            "--argjson takes two parameters (e.g. --argjson varname text)",
+          );
+        }
+        let parsed: unknown[];
+        try {
+          parsed = parseJsonStream(json.trim());
+        } catch {
+          return jqArgError("invalid JSON text passed to --argjson");
+        }
+        if (parsed.length !== 1) {
+          return jqArgError("invalid JSON text passed to --argjson");
+        }
+        namedArgs.set(name, parsed[0]);
+        i += 2;
+      } else if (a === "--rawfile") {
+        const name = args[i + 1];
+        const file = args[i + 2];
+        if (name === undefined || file === undefined) {
+          return jqArgError(
+            "--rawfile takes two parameters (e.g. --rawfile varname filename)",
+          );
+        }
+        fileBindings.push({ name, file, mode: "raw" });
+        i += 2;
+      } else if (a === "--slurpfile") {
+        const name = args[i + 1];
+        const file = args[i + 2];
+        if (name === undefined || file === undefined) {
+          return jqArgError(
+            "--slurpfile takes two parameters (e.g. --slurpfile varname filename)",
+          );
+        }
+        fileBindings.push({ name, file, mode: "slurp" });
+        i += 2;
+      } else if (a === "-") files.push("-");
       else if (a.startsWith("--")) return unknownOption("jq", a);
       else if (a.startsWith("-")) {
         for (const c of a.slice(1)) {
@@ -322,6 +389,35 @@ export const jqCommand: Command = {
         filterSet = true;
       } else {
         files.push(a);
+      }
+    }
+
+    // Read files bound via --rawfile/--slurpfile through the shared file
+    // reader so they get the same security posture as normal input files.
+    if (fileBindings.length > 0) {
+      const result = await withDefenseContext("arg file read", () =>
+        readFiles(
+          ctx,
+          fileBindings.map((b) => b.file),
+          { cmdName: "jq", stopOnError: true },
+        ),
+      );
+      if (result.exitCode !== 0) {
+        return { stdout: "", stderr: result.stderr, exitCode: 2 };
+      }
+      for (let b = 0; b < fileBindings.length; b++) {
+        const { name, mode } = fileBindings[b];
+        const text = decodeBytesToUtf8(result.files[b].content);
+        if (mode === "raw") {
+          namedArgs.set(name, text);
+        } else {
+          const trimmed = text.trim();
+          try {
+            namedArgs.set(name, trimmed ? parseJsonStream(trimmed) : []);
+          } catch {
+            return jqArgError("invalid JSON text passed to --slurpfile");
+          }
+        }
       }
     }
 
@@ -363,6 +459,7 @@ export const jqCommand: Command = {
           ? { maxIterations: ctx.limits.maxJqIterations }
           : undefined,
         env: ctx.env,
+        namedArgs,
         coverage: ctx.coverage,
         requireDefenseContext: ctx.requireDefenseContext,
       };

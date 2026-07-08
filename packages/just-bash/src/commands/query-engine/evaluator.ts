@@ -115,6 +115,8 @@ export interface EvalContext {
   limits: Required<Pick<QueryExecutionLimits, "maxIterations">> &
     QueryExecutionLimits;
   env?: Map<string, string>;
+  /** Named arguments (bare names) exposed via $ARGS.named */
+  namedArgs?: Map<string, QueryValue>;
   requireDefenseContext?: boolean;
   defenseContextChecked?: boolean;
   /** Original document root for parent/root navigation */
@@ -131,14 +133,22 @@ export interface EvalContext {
 }
 
 function createContext(options?: EvaluateOptions): EvalContext {
+  const vars = new Map<string, QueryValue>();
+  if (options?.namedArgs) {
+    // Seed $NAME variables; jq stores variable references with the $ prefix.
+    for (const [name, value] of options.namedArgs) {
+      vars.set(`$${name}`, value);
+    }
+  }
   return {
-    vars: new Map(),
+    vars,
     limits: {
       maxIterations:
         options?.limits?.maxIterations ?? DEFAULT_MAX_JQ_ITERATIONS,
       maxDepth: options?.limits?.maxDepth ?? DEFAULT_MAX_JQ_DEPTH,
     },
     env: options?.env,
+    namedArgs: options?.namedArgs,
     coverage: options?.coverage,
     requireDefenseContext: options?.requireDefenseContext,
     defenseContextChecked: false,
@@ -156,6 +166,7 @@ function withVar(
     vars: newVars,
     limits: ctx.limits,
     env: ctx.env,
+    namedArgs: ctx.namedArgs,
     requireDefenseContext: ctx.requireDefenseContext,
     defenseContextChecked: ctx.defenseContextChecked,
     root: ctx.root,
@@ -358,6 +369,8 @@ function applyPathTransform(
 export interface EvaluateOptions {
   limits?: QueryExecutionLimits;
   env?: Map<string, string>;
+  /** Named arguments (bare names) bound to $NAME and exposed via $ARGS.named */
+  namedArgs?: Map<string, QueryValue>;
   coverage?: FeatureCoverageWriter;
   requireDefenseContext?: boolean;
 }
@@ -710,6 +723,20 @@ export function evaluate(
       if (ast.name === "$ENV") {
         // Convert Map to object for jq's internal representation (null-prototype prevents prototype pollution)
         return [ctx.env ? mapToRecord(ctx.env) : Object.create(null)];
+      }
+      // $ARGS exposes named/positional external arguments. jq orders the keys
+      // as { positional, named }. Positional args are handled in a later wave.
+      if (ast.name === "$ARGS") {
+        const named: Record<string, QueryValue> = Object.create(null);
+        if (ctx.namedArgs) {
+          for (const [name, value] of ctx.namedArgs) {
+            if (isSafeKey(name)) named[name] = value;
+          }
+        }
+        const argsObj: Record<string, QueryValue> = Object.create(null);
+        argsObj.positional = [];
+        argsObj.named = named;
+        return [argsObj];
       }
       const v = ctx.vars.get(ast.name);
       return v !== undefined ? [v] : [null];
