@@ -1,0 +1,90 @@
+{
+  "29c465e8ba4443cf": {
+    "command": "echo '{}' | jq --arg name World '{greeting: (\"Hello \" + $name)}'",
+    "files": {},
+    "stdout": "{\n  \"greeting\": \"Hello World\"\n}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "306111682fc4bbee": {
+    "command": "jq -n --arg x",
+    "files": {},
+    "stdout": "",
+    "stderr": "jq: --arg takes two parameters (e.g. --arg varname value)\nUse jq --help for help with command-line options,\nor see the jq manpage, or online docs  at https://jqlang.github.io/jq\n",
+    "exitCode": 2
+  },
+  "3d56250c54eee7c9": {
+    "command": "jq -n --argjson x '{\"a\":1}' '$x.a'",
+    "files": {},
+    "stdout": "1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "59b0caee68c71a3a": {
+    "command": "jq -cn '$ARGS.positional'",
+    "files": {},
+    "stdout": "[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "78da9edc39aeb8cb": {
+    "command": "jq -n --argjson x notjson '$x'",
+    "files": {},
+    "stdout": "",
+    "stderr": "jq: invalid JSON text passed to --argjson\nUse jq --help for help with command-line options,\nor see the jq manpage, or online docs  at https://jqlang.github.io/jq\n",
+    "exitCode": 2
+  },
+  "80bd68420f7f1861": {
+    "command": "jq -cn --slurpfile s sf.json '$s'",
+    "files": {
+      "sf.json": "1 2 3\n"
+    },
+    "stdout": "[1,2,3]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b9a885019f854664": {
+    "command": "jq -cn --arg a 1 '$ARGS'",
+    "files": {},
+    "stdout": "{\"positional\":[],\"named\":{\"a\":\"1\"}}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cacd71671fc7a519": {
+    "command": "jq -n --argjson x 5 '$x'",
+    "files": {},
+    "stdout": "5\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cf68bd5ad736b14e": {
+    "command": "jq -n --rawfile r rf.txt '$r'",
+    "files": {
+      "rf.txt": "line1\nline2\n"
+    },
+    "stdout": "\"line1\\nline2\\n\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "dfb7614f8376fead": {
+    "command": "jq -n --arg x 5 '$x'",
+    "files": {},
+    "stdout": "\"5\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "eba4481aa44b77a4": {
+    "command": "jq -cn --arg a 1 --argjson b 2 '$ARGS.named'",
+    "files": {},
+    "stdout": "{\"a\":\"1\",\"b\":2}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f46c266001cf63cd": {
+    "command": "jq -cn '$ARGS.named'",
+    "files": {},
+    "stdout": "{}\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
