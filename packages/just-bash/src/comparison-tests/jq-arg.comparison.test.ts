@@ -33,6 +33,26 @@ describe("jq named-argument flags - Real Bash Comparison", () => {
     });
   });
 
+  describe("multiple --arg", () => {
+    it("populates $ARGS.named in order", async () => {
+      const env = await setupFiles(testDir, {});
+      await compareOutputs(
+        env,
+        testDir,
+        "jq -cn --arg a foo --arg b bar --arg c baz '$ARGS.named'",
+      );
+    });
+
+    it("binds each $name for use in a filter", async () => {
+      const env = await setupFiles(testDir, {});
+      await compareOutputs(
+        env,
+        testDir,
+        "jq -n --arg first Ada --arg last Lovelace '$first + \" \" + $last'",
+      );
+    });
+  });
+
   describe("--argjson", () => {
     it("binds a JSON number", async () => {
       const env = await setupFiles(testDir, {});

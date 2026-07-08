@@ -22,6 +22,28 @@ describe("jq named-argument flags", () => {
     });
   });
 
+  describe("multiple --arg", () => {
+    it("populates $ARGS.named in order", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "jq -cn --arg a foo --arg b bar --arg c baz '$ARGS.named'",
+      );
+      expect(result.stdout).toBe('{"a":"foo","b":"bar","c":"baz"}\n');
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("binds each $NAME for use in a filter", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "jq -n --arg first Ada --arg last Lovelace '$first + \" \" + $last'",
+      );
+      expect(result.stdout).toBe('"Ada Lovelace"\n');
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
   describe("--argjson", () => {
     it("binds $NAME to a JSON number", async () => {
       const env = new Bash();

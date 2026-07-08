@@ -1,4 +1,11 @@
 {
+  "182a418ef9169fee": {
+    "command": "jq -cn --arg a foo --arg b bar --arg c baz '$ARGS.named'",
+    "files": {},
+    "stdout": "{\"a\":\"foo\",\"b\":\"bar\",\"c\":\"baz\"}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "29c465e8ba4443cf": {
     "command": "echo '{}' | jq --arg name World '{greeting: (\"Hello \" + $name)}'",
     "files": {},
@@ -24,6 +31,13 @@
     "command": "jq -cn '$ARGS.positional'",
     "files": {},
     "stdout": "[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "663f71c927f1e87a": {
+    "command": "jq -n --arg first Ada --arg last Lovelace '$first + \" \" + $last'",
+    "files": {},
+    "stdout": "\"Ada Lovelace\"\n",
     "stderr": "",
     "exitCode": 0
   },
