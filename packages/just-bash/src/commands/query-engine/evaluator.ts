@@ -117,6 +117,8 @@ export interface EvalContext {
   env?: Map<string, string>;
   /** Named arguments (bare names) exposed via $ARGS.named */
   namedArgs?: Map<string, QueryValue>;
+  /** Positional arguments (in order) exposed via $ARGS.positional */
+  positionalArgs?: QueryValue[];
   requireDefenseContext?: boolean;
   defenseContextChecked?: boolean;
   /** Original document root for parent/root navigation */
@@ -149,6 +151,7 @@ function createContext(options?: EvaluateOptions): EvalContext {
     },
     env: options?.env,
     namedArgs: options?.namedArgs,
+    positionalArgs: options?.positionalArgs,
     coverage: options?.coverage,
     requireDefenseContext: options?.requireDefenseContext,
     defenseContextChecked: false,
@@ -167,6 +170,7 @@ function withVar(
     limits: ctx.limits,
     env: ctx.env,
     namedArgs: ctx.namedArgs,
+    positionalArgs: ctx.positionalArgs,
     requireDefenseContext: ctx.requireDefenseContext,
     defenseContextChecked: ctx.defenseContextChecked,
     root: ctx.root,
@@ -371,6 +375,8 @@ export interface EvaluateOptions {
   env?: Map<string, string>;
   /** Named arguments (bare names) bound to $NAME and exposed via $ARGS.named */
   namedArgs?: Map<string, QueryValue>;
+  /** Positional arguments (in order) exposed via $ARGS.positional */
+  positionalArgs?: QueryValue[];
   coverage?: FeatureCoverageWriter;
   requireDefenseContext?: boolean;
 }
@@ -725,7 +731,7 @@ export function evaluate(
         return [ctx.env ? mapToRecord(ctx.env) : Object.create(null)];
       }
       // $ARGS exposes named/positional external arguments. jq orders the keys
-      // as { positional, named }. Positional args are handled in a later wave.
+      // as { positional, named }.
       if (ast.name === "$ARGS") {
         const named: Record<string, QueryValue> = Object.create(null);
         if (ctx.namedArgs) {
@@ -734,7 +740,7 @@ export function evaluate(
           }
         }
         const argsObj: Record<string, QueryValue> = Object.create(null);
-        argsObj.positional = [];
+        argsObj.positional = ctx.positionalArgs ? [...ctx.positionalArgs] : [];
         argsObj.named = named;
         return [argsObj];
       }
