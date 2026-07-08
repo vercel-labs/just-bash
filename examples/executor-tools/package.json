@@ -1,6 +1,6 @@
 {
   "name": "executor-tools-example",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Example of @just-bash/executor — inline tools + GraphQL/OpenAPI/MCP discovery",
   "type": "module",
   "scripts": {
