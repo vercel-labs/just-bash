@@ -1,5 +1,31 @@
 # just-bash
 
+## 3.1.0
+
+### Minor Changes
+
+- [#284](https://github.com/vercel-labs/just-bash/pull/284) [`af2e0f4`](https://github.com/vercel-labs/just-bash/commit/af2e0f4cdeb5417ea59e25140038c239dd8fd92d) Thanks [@arimxyer](https://github.com/arimxyer)! - sandbox: forward capability flags from `SandboxOptions` into the underlying `Bash`
+
+  `Sandbox.create(opts)` previously constructed its internal `Bash` with only a subset
+  of `BashOptions`, silently dropping the optional capability flags (`python`,
+  `javascript`, `commands`, `customCommands`, `fetch`). A host that drives just-bash
+  through the `Sandbox` API (rather than `new Bash(...)`) therefore could not enable
+  python3, js-exec, a restricted command set, custom commands, or a custom fetch — even
+  though the runtimes ship in the package.
+
+  `SandboxOptions` now exposes those fields and `Sandbox.create` forwards them into the
+  `Bash` it builds. Behavior is unchanged when a caller omits them (each falls back to
+  its existing `BashOptions` default — Python/js-exec stay off, the full command set
+  stays available). Fixes the root cause behind vercel/eve#431.
+
+### Patch Changes
+
+- [#268](https://github.com/vercel-labs/just-bash/pull/268) [`7a5a0b9`](https://github.com/vercel-labs/just-bash/commit/7a5a0b9ae3bf0524722653cbf4b45e6bc176cf22) Thanks [@trieloff](https://github.com/trieloff)! - jq: allow nested double-quoted strings inside `"\(...)"` string interpolation
+
+  jq string interpolation of the form `"\(...)"` that contained a nested double-quoted string — for example `"\(sub("T.*";""))"` or `"\(ltrimstr("ab"))"` — previously failed with a parse error. The tokenizer terminated the outer string at the first `"` it saw inside the interpolation expression, so the rest of the expression became orphaned tokens.
+
+  The lexer now tracks `\(...)` depth while consuming a string literal and treats nested `"..."` pairs as opaque content while inside an interpolation, restoring them verbatim into the captured interpolation source. `parseStringInterpolation` similarly skips over nested strings when balancing parentheses, so the interpolation expression is captured as a whole and handed to the expression parser intact.
+
 ## 3.0.3
 
 ### Patch Changes
