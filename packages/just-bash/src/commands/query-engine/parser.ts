@@ -283,8 +283,13 @@ function tokenize(input: string): Token[] {
     // Strings
     if (c === '"') {
       let str = "";
-      while (!isEof() && peek() !== '"') {
-        if (peek() === "\\") {
+      // Track \( ... ) interpolation depth so an inner `"` (nested string
+      // literal) inside the interpolation doesn't terminate the outer string.
+      let interpDepth = 0;
+      while (!isEof()) {
+        const ch = peek();
+        if (interpDepth === 0 && ch === '"') break;
+        if (interpDepth === 0 && ch === "\\") {
           advance();
           if (isEof()) break;
           const escaped = advance();
@@ -306,13 +311,37 @@ function tokenize(input: string): Token[] {
               break;
             case "(":
               str += "\\(";
+              interpDepth = 1;
               break; // Keep for string interpolation
             default:
               str += escaped;
           }
-        } else {
-          str += advance();
+          continue;
         }
+        if (interpDepth > 0) {
+          // Inside \( ... ): preserve raw characters so the interpolation
+          // parser can re-tokenize them. Skip over nested string literals
+          // verbatim and track paren depth.
+          if (ch === '"') {
+            str += advance(); // opening quote
+            while (!isEof()) {
+              const nc = peek();
+              if (nc === "\\") {
+                str += advance(); // backslash
+                if (!isEof()) str += advance(); // escaped char
+                continue;
+              }
+              str += advance();
+              if (nc === '"') break;
+            }
+            continue;
+          }
+          if (ch === "(") interpDepth++;
+          else if (ch === ")") interpDepth--;
+          str += advance();
+          continue;
+        }
+        str += advance();
       }
       if (!isEof()) advance(); // closing quote
       tokens.push({ type: "STRING", value: str, pos: start });
@@ -1091,13 +1120,35 @@ class Parser {
           current = "";
         }
         i += 2;
-        // Find matching paren
+        // Find matching paren, skipping over nested string literals so
+        // parens inside them don't affect depth counting.
         let depth = 1;
         let exprStr = "";
         while (i < str.length && depth > 0) {
-          if (str[i] === "(") depth++;
-          else if (str[i] === ")") depth--;
-          if (depth > 0) exprStr += str[i];
+          const ch = str[i];
+          if (ch === '"') {
+            exprStr += ch;
+            i++;
+            while (i < str.length) {
+              const nc = str[i];
+              if (nc === "\\") {
+                exprStr += nc;
+                i++;
+                if (i < str.length) {
+                  exprStr += str[i];
+                  i++;
+                }
+                continue;
+              }
+              exprStr += nc;
+              i++;
+              if (nc === '"') break;
+            }
+            continue;
+          }
+          if (ch === "(") depth++;
+          else if (ch === ")") depth--;
+          if (depth > 0) exprStr += ch;
           i++;
         }
         const tokens = tokenize(exprStr);
