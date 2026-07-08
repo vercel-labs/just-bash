@@ -635,6 +635,7 @@ export class Bash {
       ...this.state,
       env: execEnv,
       cwd: newCwd,
+      previousDir: options?.env?.OLDPWD ?? this.state.previousDir,
       // Deep copy mutable objects to prevent interference
       functions: new Map(this.state.functions),
       localScopes: [...this.state.localScopes],
