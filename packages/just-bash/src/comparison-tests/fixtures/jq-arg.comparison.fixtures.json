@@ -6,6 +6,13 @@
     "stderr": "",
     "exitCode": 0
   },
+  "23acb9b1149931ff": {
+    "command": "jq -cn --arg __proto__ pwned '$ARGS.named'",
+    "files": {},
+    "stdout": "{\"__proto__\":\"pwned\"}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "29c465e8ba4443cf": {
     "command": "echo '{}' | jq --arg name World '{greeting: (\"Hello \" + $name)}'",
     "files": {},
@@ -84,6 +91,13 @@
     "command": "jq -n --arg x 5 '$x'",
     "files": {},
     "stdout": "\"5\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e67f16fe351d154e": {
+    "command": "jq -cn --argjson __proto__ '{\"pwned\":123}' '$ARGS.named.pwned'",
+    "files": {},
+    "stdout": "null\n",
     "stderr": "",
     "exitCode": 0
   },

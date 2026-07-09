@@ -118,6 +118,26 @@ describe("jq named-argument flags - Real Bash Comparison", () => {
     });
   });
 
+  describe("prototype-sensitive arg names", () => {
+    it("keeps a __proto__ arg name in $ARGS.named", async () => {
+      const env = await setupFiles(testDir, {});
+      await compareOutputs(
+        env,
+        testDir,
+        "jq -cn --arg __proto__ pwned '$ARGS.named'",
+      );
+    });
+
+    it("reads through a __proto__ arg without inheriting", async () => {
+      const env = await setupFiles(testDir, {});
+      await compareOutputs(
+        env,
+        testDir,
+        "jq -cn --argjson __proto__ '{\"pwned\":123}' '$ARGS.named.pwned'",
+      );
+    });
+  });
+
   describe("errors", () => {
     it("errors non-zero on a missing operand", async () => {
       const env = await setupFiles(testDir, {});

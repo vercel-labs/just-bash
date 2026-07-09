@@ -145,16 +145,35 @@ describe("jq named-argument flags", () => {
       expect(result.exitCode).toBe(2);
     });
 
+    it("keeps a __proto__ arg name as a plain data key (faithful to real jq)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "jq -cn --arg __proto__ pwned '$ARGS.named'",
+      );
+      expect(result.stdout).toBe('{"__proto__":"pwned"}\n');
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("reads through a __proto__ arg without inheriting (returns null)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "jq -cn --argjson __proto__ '{\"pwned\":123}' '$ARGS.named.pwned'",
+      );
+      expect(result.stdout).toBe("null\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("does not pollute Object.prototype via a __proto__ arg name", async () => {
       const env = new Bash();
       const result = await env.exec(
         "jq -cn --arg __proto__ pwned '$ARGS.named'",
       );
-      expect(result.stdout).toBe("{}\n");
+      expect(result.stdout).toBe('{"__proto__":"pwned"}\n');
       expect(result.exitCode).toBe(0);
-      expect((Object.prototype as Record<string, unknown>).__proto__).not.toBe(
-        "pwned",
-      );
+      expect(({} as Record<string, unknown>).pwned).toBeUndefined();
+      expect(Object.getPrototypeOf({})).toBe(Object.prototype);
     });
 
     it("leaves other unknown long options unchanged", async () => {

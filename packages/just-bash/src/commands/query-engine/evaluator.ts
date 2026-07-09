@@ -733,10 +733,21 @@ export function evaluate(
       // $ARGS exposes named/positional external arguments. jq orders the keys
       // as { positional, named }.
       if (ast.name === "$ARGS") {
+        // Faithful to real jq: every named arg is kept as an ordinary data key
+        // in insertion order, including prototype-sensitive names like
+        // "__proto__". The null-prototype object makes this safe (no pollution).
         const named: Record<string, QueryValue> = Object.create(null);
         if (ctx.namedArgs) {
           for (const [name, value] of ctx.namedArgs) {
-            if (isSafeKey(name)) named[name] = value;
+            // defineProperty (vs `named[name] = value`) stores a "__proto__" key
+            // as a plain own data property instead of hitting the accessor.
+            // @banned-pattern-ignore: null-prototype target; keys are inert data.
+            Object.defineProperty(named, name, {
+              value,
+              enumerable: true,
+              writable: true,
+              configurable: true,
+            });
           }
         }
         const argsObj: Record<string, QueryValue> = Object.create(null);
