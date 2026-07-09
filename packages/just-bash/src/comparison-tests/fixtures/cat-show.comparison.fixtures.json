@@ -1,0 +1,222 @@
+{
+  "044a8a4e0fa51fa2": {
+    "command": "cat --show-nonprinting ctrl.txt",
+    "files": {
+      "ctrl.txt": "bell\u0007end\nesc\u001bhere\ndelmark\n"
+    },
+    "stdout": "bell^Gend\nesc^[here\ndel^?mark\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "20119c401f76835e": {
+    "command": "cat -nb blanks.txt",
+    "files": {
+      "blanks.txt": "a\n\n\n\nb\n\n\nc\n"
+    },
+    "stdout": "     1\ta\n\n\n\n     2\tb\n\n\n     3\tc\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "4294948bf58cb6fd": {
+    "command": "cat --show-tabs tabs.txt",
+    "files": {
+      "tabs.txt": "col1\tcol2\tcol3\n"
+    },
+    "stdout": "col1^Icol2^Icol3\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "452a30834ad08854": {
+    "command": "cat --squeeze-blank blanks.txt",
+    "files": {
+      "blanks.txt": "a\n\n\n\nb\n\n\nc\n"
+    },
+    "stdout": "a\n\nb\n\nc\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "5850160a7e5e4076": {
+    "command": "cat -v ctrl.txt",
+    "files": {
+      "ctrl.txt": "bell\u0007end\nesc\u001bhere\ndelmark\n"
+    },
+    "stdout": "bell^Gend\nesc^[here\ndel^?mark\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "599408168547599e": {
+    "command": "cat -bE blanks.txt",
+    "files": {
+      "blanks.txt": "a\n\n\n\nb\n\n\nc\n"
+    },
+    "stdout": "     1\ta$\n$\n$\n$\n     2\tb$\n$\n$\n     3\tc$\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "6b86128309f82b35": {
+    "command": "cat -sn blanks.txt",
+    "files": {
+      "blanks.txt": "a\n\n\n\nb\n\n\nc\n"
+    },
+    "stdout": "     1\ta\n     2\t\n     3\tb\n     4\t\n     5\tc\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "70dc12563ec9b4d7": {
+    "command": "cat -E notrail.txt",
+    "files": {
+      "notrail.txt": "tab\there no newline"
+    },
+    "stdout": "tab\there no newline",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "7760243dfcbf947e": {
+    "command": "cat -vET mixed.txt",
+    "files": {
+      "mixed.txt": "tab\there\nctrl\u0007bell\ndeldel\n"
+    },
+    "stdout": "tab^Ihere$\nctrl^Gbell$\ndel^?del$\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "9980f3f6aa971e21": {
+    "command": "cat -A notrail.txt",
+    "files": {
+      "notrail.txt": "tab\there no newline"
+    },
+    "stdout": "tab^Ihere no newline",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "9a837367dd8691d7": {
+    "command": "cat -e mixed.txt",
+    "files": {
+      "mixed.txt": "tab\there\nctrl\u0007bell\ndeldel\n"
+    },
+    "stdout": "tab\there$\nctrl^Gbell$\ndel^?del$\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "9e1e48c2e33d9997": {
+    "command": "cat -u basic.txt",
+    "files": {
+      "basic.txt": "line 1\nline 2\nline 3\n"
+    },
+    "stdout": "line 1\nline 2\nline 3\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ab7b66d85210c7d9": {
+    "command": "cat --number-nonblank blanks.txt",
+    "files": {
+      "blanks.txt": "a\n\n\n\nb\n\n\nc\n"
+    },
+    "stdout": "     1\ta\n\n\n\n     2\tb\n\n\n     3\tc\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ac561dbe85ab9a02": {
+    "command": "cat --show-all mixed.txt",
+    "files": {
+      "mixed.txt": "tab\there\nctrl\u0007bell\ndeldel\n"
+    },
+    "stdout": "tab^Ihere$\nctrl^Gbell$\ndel^?del$\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b392b9efa61475e0": {
+    "command": "cat -t tabs.txt",
+    "files": {
+      "tabs.txt": "col1\tcol2\tcol3\n"
+    },
+    "stdout": "col1^Icol2^Icol3\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "bf25bc8aec889481": {
+    "command": "cat --show-ends basic.txt",
+    "files": {
+      "basic.txt": "line 1\nline 2\nline 3\n"
+    },
+    "stdout": "line 1$\nline 2$\nline 3$\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ca3ac60006423c04": {
+    "command": "cat -b blanks.txt",
+    "files": {
+      "blanks.txt": "a\n\n\n\nb\n\n\nc\n"
+    },
+    "stdout": "     1\ta\n\n\n\n     2\tb\n\n\n     3\tc\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d3d5075ff97a97ca": {
+    "command": "cat -An mixed.txt",
+    "files": {
+      "mixed.txt": "tab\there\nctrl\u0007bell\ndeldel\n"
+    },
+    "stdout": "     1\ttab^Ihere$\n     2\tctrl^Gbell$\n     3\tdel^?del$\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "de9d74ef7f2470c4": {
+    "command": "cat -A mixed.txt",
+    "files": {
+      "mixed.txt": "tab\there\nctrl\u0007bell\ndeldel\n"
+    },
+    "stdout": "tab^Ihere$\nctrl^Gbell$\ndel^?del$\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e453713c81330d88": {
+    "command": "cat -T tabs.txt",
+    "files": {
+      "tabs.txt": "col1\tcol2\tcol3\n"
+    },
+    "stdout": "col1^Icol2^Icol3\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "fea0ba381c025a27": {
+    "command": "cat -s blanks.txt",
+    "files": {
+      "blanks.txt": "a\n\n\n\nb\n\n\nc\n"
+    },
+    "stdout": "a\n\nb\n\nc\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "feaa71664184f56c": {
+    "command": "cat -E basic.txt",
+    "files": {
+      "basic.txt": "line 1\nline 2\nline 3\n"
+    },
+    "stdout": "line 1$\nline 2$\nline 3$\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}
