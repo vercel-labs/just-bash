@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-just-bash is a TypeScript implementation of a bash interpreter with an in-memory virtual filesystem. Designed for AI agents needing a secure, sandboxed bash environment. No WASM dependencies allowed.
+just-bash is a TypeScript implementation of a bash interpreter with an in-memory virtual filesystem. Designed for AI agents needing a secure, sandboxed bash environment. No new WASM dependencies without approval; approved exceptions are sql.js (SQLite), quickjs-emscripten (js-exec), and the vendored CPython WASM (python3).
 
 ## Commands
 
@@ -257,6 +257,6 @@ Object.setPrototypeOf(MAP, null);
 - Always verify with `pnpm typecheck && pnpm lint:fix && pnpm knip && pnpm test:run` before finishing
 - Assert full stdout/stderr in tests, not partial matches
 - Implementation must match real bash behavior, not convenience
-- Dependencies using WASM are not allowed (exception: sql.js for SQLite, approved for security sandboxing)
+- No new WASM dependencies without approval. Approved exceptions: sql.js (SQLite), quickjs-emscripten (js-exec), and the vendored CPython WASM (python3); see THREAT_MODEL.md §4.7
 - We explicitly don't support 64-bit integers
 - All parsing/execution must have reasonable limits to prevent runaway compute

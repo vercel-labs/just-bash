@@ -159,7 +159,7 @@ The following components are **trusted** and outside the scope of just-bash's ru
 | WeakRef/FinalizationRegistry | GC observation/side channels | Blocked by defense-in-depth proxy | `src/security/blocked-globals.ts` |
 | process.chdir() | Confuse CWD tracking | Blocked by defense-in-depth proxy | `src/security/blocked-globals.ts` |
 | **dynamic import()** | `import('/tmp/evil.js')` | **BLOCKED**: `Module._resolveFilename` blocks file specifiers; ESM loader hooks block `data:`/`blob:` URLs (Node.js 20.6+; see §4.1) | `src/security/defense-in-depth-box.ts` |
-| child_process | spawn/exec/fork | Not imported anywhere; no code path from interpreter | Architecture |
+| child_process | spawn/exec/fork | Not imported anywhere; no code path from interpreter. **With `javascript` enabled**, a *virtual* `child_process` module exists *inside* QuickJS (`js-exec-worker.ts:261–280`) whose `execSync`/`spawnSync` re-enter the sandbox via the SAB bridge, not the host OS — see §4.11 | Architecture (+ virtual shim, §4.11) |
 
 ### 3.6 Information Disclosure
 
@@ -249,6 +249,8 @@ If any code captures a reference to `Function`, `eval`, etc. **before** the defe
 
 **Mitigation**: Defense-in-depth is a secondary layer. The primary defense is that no code path exists from bash interpretation to JavaScript execution.
 
+**Architectural invariant**: §4.2 and §4.3 both depend on a single invariant — **no bash→host-JS code path**: there must be no route by which an untrusted bash script can reach the host's `eval`, `new Function`, or dynamic `import()`, the only primitives that could turn these defense-in-depth gaps into a real escape. While that invariant holds, §4.2 and §4.3 stay LOW (defense-in-depth is secondary). If the invariant ever breaks, these residuals become **CRITICAL** — a pre-captured `Function` reference (§4.2) or a `globalThis.Function` reassignment (§4.3) would then be a direct JS-execution escape. The invariant is **guarded by the `check-banned-patterns` linter** (`scripts/check-banned-patterns.js`), which bans `eval(`, `new Function(`, and non-literal dynamic `import()` in source, so a path to host-JS code execution cannot be introduced silently. See §4.1 (three-layer `import()` mitigation) and §4.11 (the opt-in js-exec surface, the *only* intentional guest-JS execution path, which keeps the guest off the host's `eval`/`Function`).
+
 ### 4.3 globalThis Property Reassignment
 
 **Risk**: LOW (defense-in-depth is secondary)
@@ -256,6 +258,8 @@ If any code captures a reference to `Function`, `eval`, etc. **before** the defe
 Attackers within the sandbox could overwrite `globalThis.Function` or use `Object.defineProperty` to replace blocking proxies. This is documented and tested.
 
 **Mitigation**: Same as §4.2 — relies on no code path existing, not on the monkey-patching being unbypassable.
+
+**Architectural invariant**: See §4.2 — relies on the same no-bash→host-JS-code-path invariant, which is guarded by the `check-banned-patterns` linter (`scripts/check-banned-patterns.js` bans `eval(`, `new Function(`, non-literal `import()`). Becomes **CRITICAL** if that invariant ever breaks.
 
 ### 4.4 Signal/Job Control Not Fully Modeled
 
@@ -327,6 +331,36 @@ Heredocs with variable expansion are size-limited (10MB) but nested heredocs wit
 **Risk**: LOW
 
 `Reflect` is frozen (not blocked) in the defense-in-depth layer. `Reflect.construct`, `Reflect.apply` etc. remain callable but cannot construct `Function` directly because the `Function` constructor itself is blocked.
+
+### 4.11 JavaScript Execution Surface (When Enabled)
+
+**Risk**: MEDIUM (intentional, opt-in, isolation by construction)
+
+When `javascript: true` — or an `invokeTool` hook is provided, which implicitly enables js-exec (`src/Bash.ts`) — the `js-exec` and `node` commands execute untrusted JavaScript/TypeScript inside QuickJS (compiled to WASM via Emscripten) in a dedicated Worker thread. The `node` command is a stub that reroutes to js-exec; both surface the same boundary. Like Python (§4.7), this is an opt-in code-execution surface whose safety rests on isolation by construction rather than on a JS-level sandbox over the host.
+
+**Enabling the surface**: js-exec is registered only when `options.javascript || jsConfig.invokeTool` (`src/Bash.ts`). It is absent from the command registry and unreachable from any bash script unless the host explicitly turns it on. The `invokeTool` hook enables js-exec implicitly because the hook is meaningless without it.
+
+**Host bridge (SharedArrayBuffer)**: User code runs inside QuickJS, which has no Node.js APIs of its own. A synchronous SharedArrayBuffer protocol (`src/commands/worker-bridge/protocol.ts`) bridges selected host capabilities back into the guest:
+- **Virtual filesystem** — file read/write/stat are routed through the bridge to the in-memory OverlayFS, the same VFS the interpreter uses; no host-FS access.
+- **`exec`** — `bridge-handler.ts` calls the host `exec` callback, which is `Bash.exec.bind(this)` (`src/Bash.ts`), i.e. it **re-enters the sandbox interpreter**, not the OS. Output is capped to the remaining execution deadline.
+- **`fetch`** — Web Fetch API, gated by the host `secureFetch` allow-list (off by default).
+- **`invokeTool`** — host-supplied tool hook for agent-driven tool calls; absent unless the host provides it.
+
+**Virtual `child_process` shim**: Inside QuickJS, `import "child_process"` resolves to a **virtual module** (`js-exec-worker.ts:261–280`), not Node's `child_process`. Its `execSync`/`exec`/`spawnSync` route through `globalThis[Symbol.for('jb:exec')]` → the bridge → `Bash.exec`, so they re-enter the sandbox (no `spawn`/`fork`/OS process). This is the shim referenced from §3.5. Re-entrant js-exec is detected via AsyncLocalStorage and rejected to prevent deadlock ("recursive invocation is not supported").
+
+**Isolation rests on**:
+- **QuickJS WASM** — untrusted JS executes in the QuickJS interpreter within WASM linear memory; the guest has no access to Node.js host objects, only the four explicitly bridged primitives above.
+- **Worker thread** — a dedicated worker per execution; terminated on timeout (`worker.terminate()`) and recycled after idle.
+- **`WorkerDefenseInDepth`** — activated after QuickJS loads with only `shared_array_buffer`, `atomics`, `process_stdout`, `process_stderr` excluded (SAB/Atomics are required by the sync bridge; stdout/stderr because Emscripten routes WASM output through Node's console).
+- **Memory cap** — QuickJS memory limited to 64MB (`MEMORY_LIMIT`, `js-exec-worker.ts`).
+- **Timeout** — 10s default, 60s when network/fetch is enabled (`DEFAULT_JS_TIMEOUT_MS` / `DEFAULT_JS_NETWORK_TIMEOUT_MS`, `js-exec.ts`); enforced by terminating the worker.
+
+**Accepted behaviors** (not vulnerabilities):
+- `eval()`/`new Function()` inside QuickJS execute arbitrary *guest* JS — same posture as Python's `eval()`/`exec()` (§4.7); no host-JS escalation path because the guest cannot reach the host's `eval`/`Function`.
+- The bridge `exec` re-enters the sandbox, so any command reachable from js-exec is one the host already permitted in the bash environment; it does not widen the command surface beyond what bash itself can reach.
+- TS source is transpiled to JS before being handed to QuickJS; this is a guest-side convenience, not a host code path.
+
+**Residual risk**: The security of this surface depends on the QuickJS/WASM boundary holding — i.e. the guest genuinely cannot reach host-JS primitives except through the four bridged calls above. The escape vectors to watch are a QuickJS/WASM breakout, or a bridge-call handler that acts on attacker-controlled arguments without validation (path validation in the FS bridge is delegated to the OverlayFs gates; `exec` re-enters the interpreter, which applies its own limits). Severity is **MEDIUM**, analogous to Python (§4.7): opt-in, isolated by construction, bounded by memory + timeout, and only as trustworthy as the WASM boundary it rests on. This surface is also the one residual that can weaken the no-bash→host-JS-code-path invariant of §4.2/§4.3 — but only if the WASM boundary is broken, since the guest is intentionally kept off the host's `eval`/`Function`/`import()`.
 
 ---
 

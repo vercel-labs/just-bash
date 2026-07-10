@@ -70,7 +70,7 @@ Custom commands receive a `CommandContext` with `fs`, `cwd`, `env`, `stdin`, and
 
 ### Optional Runtimes
 
-`js-exec` (JavaScript/TypeScript via QuickJS; requires `javascript: true`), `python3`/`python` (Python via CPython; requires `python: true`)
+`js-exec` (JavaScript/TypeScript via QuickJS; requires `javascript: true`), `python3`/`python` (Python via CPython; requires `python: true`). The `node` command is an alias of the `js-exec` runtime, not a real Node.js process.
 
 ### Compression & Archives
 
@@ -594,7 +594,7 @@ All limits have defaults. Error messages tell you which limit was hit. Increase 
 
 ## Browser Support
 
-The core shell (parsing, execution, filesystem, and all built-in commands) works in browser environments. The following features require Node.js and are unavailable in browsers: `python3`/`python`, `sqlite3`, `js-exec`, and `OverlayFs`/`ReadWriteFs` (which access the real filesystem).
+The core shell (parsing, execution, filesystem, and all built-in commands) works in browser environments. The following features require Node.js and are unavailable in browsers: `python3`/`python`, `sqlite3`, `js-exec`/`node`, `tar`, `yq`, `xan`, and `OverlayFs`/`ReadWriteFs` (which access the real filesystem).
 
 ## Default Layout
 
