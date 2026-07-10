@@ -29,7 +29,7 @@ jobs:
         run: pnpm build
 
       - name: Run coverage
-        run: pnpm --filter just-bash test:coverage
+        run: pnpm --filter just-bash test:coverage:unit
 
       - name: Upload coverage report
         if: always()
