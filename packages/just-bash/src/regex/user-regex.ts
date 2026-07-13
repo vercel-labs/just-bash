@@ -81,9 +81,6 @@ export class UserRegex implements RegexLike {
   // Cache native RegExp for compatibility - created lazily
   private _nativeRegex: RegExp | null = null;
   // Reusable RE2 Matcher to avoid per-call allocation in tight grep loops.
-  // Matcher allocation dominates regex.test/exec cost when called once per line
-  // across thousands of lines. We mutate charSequence in-place (not resetMatcherInput,
-  // which is broken in re2js 1.2.1 — see acquireMatcher).
   private _matcher: ReturnType<RE2JS["matcher"]> | null = null;
   private _matcherInput: string | null = null;
 
@@ -93,20 +90,14 @@ export class UserRegex implements RegexLike {
       this._matcherInput = input;
       return this._matcher;
     }
+
     if (this._matcherInput !== input) {
-      // Swap the cached Utf16MatcherInput's charSequence in-place to avoid
-      // allocating a new Matcher per call. RE2JS's resetMatcherInput is not
-      // safe with raw strings (the constructor wraps strings via
-      // MatcherInput.utf16, but resetMatcherInput assigns its argument
-      // directly and then calls .length() as a method, which throws on a
-      // raw string). MatcherInput is not exported, so we mutate the existing
-      // wrapper's charSequence field — Matcher.reset() reads matcherInput.length()
-      // afterwards, so the new length is picked up correctly.
-      // biome-ignore lint/suspicious/noExplicitAny: reaching into re2js internals
-      (this._matcher as any).matcherInput.charSequence = input;
+      this._matcher.resetMatcherInput(input);
       this._matcherInput = input;
+    } else {
+      this._matcher.reset();
     }
-    this._matcher.reset();
+
     return this._matcher;
   }
 
@@ -138,7 +129,7 @@ export class UserRegex implements RegexLike {
           pattern.includes("(?<!")
         ) {
           explanation =
-            " Lookahead (?=, ?!) and lookbehind (?<=, ?<!) assertions are not supported in this environment because the regex engine uses RE2 for ReDoS protection. RE2 guarantees linear-time matching but cannot support these features.";
+            " Lookahead (?=, ?!) and lookbehind (?<=, ?<!) assertions are not supported in this environment because the regex engine uses RE2 for ReDoS protection. RE2 guarantees linear-time matching but cannot support these features."; // in reallity it can, it just have performance penalties - https://github.com/le0pard/re2js#lookbehinds-linear-time-execution
         } else if (msg.includes("backreference") || /\\[1-9]/.test(pattern)) {
           explanation =
             " Backreferences (\\1, \\2, etc.) are not supported in this environment because the regex engine uses RE2 for ReDoS protection. RE2 guarantees linear-time matching but cannot support backreferences.";
@@ -156,12 +147,15 @@ export class UserRegex implements RegexLike {
    * Test if the pattern matches the input string.
    */
   test(input: string): boolean {
-    // Reset lastIndex for global regexes to ensure consistent behavior
     if (this._global) {
+      // Reset lastIndex for global regexes to ensure consistent behavior
       this._lastIndex = 0;
+      // global .test() must advance lastIndex exactly like .exec()
+      return this.exec(input) !== null;
     }
-    const matcher = this.acquireMatcher(input);
-    return matcher.find();
+
+    // The DFA engine is blisteringly fast for simple existence checks
+    return this._re2.test(input);
   }
 
   /**
@@ -201,15 +195,7 @@ export class UserRegex implements RegexLike {
     // Add named groups if any
     const namedGroups = this._re2.namedGroups();
     if (namedGroups && Object.keys(namedGroups).length > 0) {
-      // Use Object.create(null) to prevent prototype pollution from names like __proto__
-      const groups: { [key: string]: string } = Object.create(null);
-      for (const [name, index] of Object.entries(namedGroups)) {
-        const value = matcher.group(index as number);
-        if (value !== null) {
-          groups[name] = value;
-        }
-      }
-      execResult.groups = groups;
+      execResult.groups = matcher.getNamedGroups() as { [key: string]: string };
     }
 
     // Update lastIndex for global regex
@@ -232,30 +218,12 @@ export class UserRegex implements RegexLike {
     // Reset lastIndex for consistent behavior
     if (this._global) {
       this._lastIndex = 0;
+
+      const matches = Array.from(this._re2.matchAll(input), (m) => m[0]);
+      return matches.length > 0 ? (matches as RegExpMatchArray) : null;
     }
 
-    if (!this._global) {
-      // Non-global: return first match with groups (same as exec)
-      return this.exec(input);
-    }
-
-    // Global: return all matches without groups
-    const matches: string[] = [];
-    const matcher = this.acquireMatcher(input);
-    let pos = 0;
-
-    while (matcher.find(pos)) {
-      const matchStr = matcher.group(0) ?? "";
-      matches.push(matchStr);
-      pos = matcher.end(0);
-      // Handle zero-length matches
-      if (matcher.start(0) === matcher.end(0)) {
-        pos++;
-      }
-      if (pos > input.length) break;
-    }
-
-    return matches.length > 0 ? (matches as RegExpMatchArray) : null;
+    return this.exec(input);
   }
 
   /**
@@ -269,78 +237,15 @@ export class UserRegex implements RegexLike {
       this._lastIndex = 0;
     }
 
-    if (typeof replacement === "string") {
-      const matcher = this.acquireMatcher(input);
-      if (this._global) {
-        return matcher.replaceAll(replacement, true);
-      }
-      return matcher.replaceFirst(replacement, true);
+    const matcher =
+      typeof replacement === "function"
+        ? this._re2.matcher(input)
+        : this.acquireMatcher(input);
+
+    if (this._global) {
+      return matcher.replaceAll(replacement);
     }
-
-    // Callback replacement - we need to do this manually.
-    // Use a fresh Matcher rather than the shared cached one: the user-provided
-    // callback may re-enter this same UserRegex instance (e.g. call test/exec/
-    // replace), which would route through acquireMatcher and repoint the shared
-    // matcher's charSequence to a different input. The next matcher.find(pos)
-    // would then advance through the wrong string. A fresh matcher keeps the
-    // iteration state private to this replace() call.
-    const result: string[] = [];
-    const matcher = this._re2.matcher(input);
-    let lastEnd = 0;
-    let pos = 0;
-    const groupCount = this._re2.groupCount();
-    const namedGroups = this._re2.namedGroups();
-
-    while (matcher.find(pos)) {
-      // Add text before match
-      result.push(input.slice(lastEnd, matcher.start(0)));
-
-      // Build callback arguments
-      const args: (string | number | Record<string, string>)[] = [];
-      const fullMatch = matcher.group(0) ?? "";
-
-      // Add capture groups
-      for (let i = 1; i <= groupCount; i++) {
-        args.push(matcher.group(i) as string);
-      }
-
-      // Add index and input
-      args.push(matcher.start(0));
-      args.push(input);
-
-      // Add named groups if present
-      if (namedGroups && Object.keys(namedGroups).length > 0) {
-        // Use Object.create(null) to prevent prototype pollution from names like __proto__
-        const groups: Record<string, string> = Object.create(null);
-        for (const [name, index] of Object.entries(namedGroups)) {
-          groups[name] = matcher.group(index as number) ?? "";
-        }
-        args.push(groups);
-      }
-
-      // Capture positions before invoking callback. The matcher is private to
-      // this call, but capturing now avoids relying on matcher state being
-      // unchanged across the callback boundary.
-      const matchStart = matcher.start(0);
-      const matchEnd = matcher.end(0);
-
-      result.push(replacement(fullMatch, ...args));
-
-      lastEnd = matchEnd;
-      pos = lastEnd;
-      // Handle zero-length matches
-      if (matchStart === matchEnd) {
-        pos++;
-      }
-
-      if (!this._global) break;
-      if (pos > input.length) break;
-    }
-
-    // Add remaining text
-    result.push(input.slice(lastEnd));
-
-    return result.join("");
+    return matcher.replaceFirst(replacement);
   }
 
   /**
@@ -381,50 +286,8 @@ export class UserRegex implements RegexLike {
     }
 
     this._lastIndex = 0;
-    // matchAll is a generator that suspends at `yield`. The shared `_matcher`
-    // would be corrupted if a caller interleaves any other method on the same
-    // UserRegex instance between two `next()` calls (acquireMatcher would
-    // reset/repoint it). Use a fresh Matcher to keep iterator state private.
-    const matcher = this._re2.matcher(input);
-    const groupCount = this._re2.groupCount();
-    const namedGroups = this._re2.namedGroups();
-    let pos = 0;
 
-    while (matcher.find(pos)) {
-      // Build result array
-      const result: string[] = [];
-      result.push(matcher.group(0) ?? "");
-
-      for (let i = 1; i <= groupCount; i++) {
-        result.push(matcher.group(i) as string);
-      }
-
-      const execResult = result as unknown as RegExpMatchArray;
-      execResult.index = matcher.start(0);
-      execResult.input = input;
-
-      // Add named groups if any
-      if (namedGroups && Object.keys(namedGroups).length > 0) {
-        // Use Object.create(null) to prevent prototype pollution from names like __proto__
-        const groups: { [key: string]: string } = Object.create(null);
-        for (const [name, index] of Object.entries(namedGroups)) {
-          const value = matcher.group(index as number);
-          if (value !== null) {
-            groups[name] = value;
-          }
-        }
-        execResult.groups = groups;
-      }
-
-      yield execResult;
-
-      pos = matcher.end(0);
-      // Prevent infinite loop on zero-length matches
-      if (matcher.start(0) === matcher.end(0)) {
-        pos++;
-      }
-      if (pos > input.length) break;
-    }
+    yield* this._re2.matchAll(input) as IterableIterator<RegExpMatchArray>;
   }
 
   /**
@@ -528,6 +391,7 @@ export class ConstantRegex implements RegexLike {
     if (this._regex.global) {
       this._regex.lastIndex = 0;
     }
+
     return this._regex.test(input);
   }
 
