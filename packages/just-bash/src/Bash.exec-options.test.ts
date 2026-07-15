@@ -193,6 +193,29 @@ describe("exec options", () => {
       const envResult = await env.exec("echo $MODE");
       expect(envResult.stdout).toBe("dev\n");
     });
+
+    it("should use OLDPWD from per-exec env for cd dash", async () => {
+      const env = new Bash({ cwd: "/" });
+      await env.exec("mkdir -p /tmp/old /tmp/new");
+
+      const firstCd = await env.exec("cd /tmp/old", {
+        cwd: "/",
+        env: env.getEnv(),
+      });
+      const secondCd = await env.exec("cd ../new", {
+        cwd: firstCd.env.PWD,
+        env: firstCd.env,
+      });
+
+      const result = await env.exec("cd -", {
+        cwd: secondCd.env.PWD,
+        env: secondCd.env,
+      });
+
+      expect(result.stdout).toBe("/tmp/old\n");
+      expect(result.env.PWD).toBe("/tmp/old");
+      expect(result.env.OLDPWD).toBe("/tmp/new");
+    });
   });
 
   describe("error handling", () => {
