@@ -18,6 +18,7 @@ export type {
   NetworkCommandName,
 } from "./commands/registry.js";
 export {
+  createLazyCommands as createBuiltinCommands,
   getCommandNames,
   getNetworkCommandNames,
 } from "./commands/registry.js";

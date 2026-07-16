@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createBuiltinCommands as createBrowserBuiltinCommands } from "./browser.js";
 import { Bash, createBuiltinCommands, defineCommand } from "./index.js";
 
 describe("createBuiltinCommands", () => {
@@ -6,6 +7,12 @@ describe("createBuiltinCommands", () => {
     const commands = createBuiltinCommands(["cat", "grep"]);
 
     expect(commands.map((command) => command.name)).toEqual(["cat", "grep"]);
+  });
+
+  it("is available from the browser entry point", () => {
+    expect(createBrowserBuiltinCommands(["cat"]).map((command) => command.name)).toEqual([
+      "cat",
+    ]);
   });
 
   it("allows a custom command to decorate a built-in", async () => {
