@@ -22,6 +22,7 @@ export type {
   PythonCommandName,
 } from "./commands/registry.js";
 export {
+  createLazyCommands as createBuiltinCommands,
   getCommandNames,
   getJavaScriptCommandNames,
   getNetworkCommandNames,
