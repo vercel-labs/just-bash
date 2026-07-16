@@ -10,7 +10,7 @@ import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { _Headers } from "../../security/trusted-globals.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
-import { generateMultipartBody } from "./form.js";
+import { encodeCurlData, generateMultipartBody } from "./form.js";
 import { curlHelp } from "./help.js";
 import { parseOptions } from "./parse.js";
 import {
@@ -21,65 +21,52 @@ import {
 import type { CurlOptions } from "./types.js";
 
 /**
- * Resolve the body for `-d`/`--data`/`--data-binary` (and their `@file`
- * forms). Real curl strips CR and LF from `-d @file` reads (ascii mode);
- * `--data-binary @file` is sent verbatim. Inline values are returned as-is.
- */
-async function resolveDataBody(
-  options: CurlOptions,
-  ctx: CommandContext,
-): Promise<string | undefined> {
-  if (options.dataFile) {
-    const filePath = ctx.fs.resolvePath(ctx.cwd, options.dataFile.path);
-    let content = await ctx.fs.readFile(filePath);
-    if (options.dataFile.mode === "ascii") {
-      content = content.replace(/[\r\n]/g, "");
-    }
-    // `--data-urlencode` arguments that appear *after* a `-d @file` keep
-    // accumulating into `options.data`; preserve that concatenation so a
-    // mixed invocation like `-d @file --data-urlencode "x=1"` still emits
-    // both payloads joined with `&`.
-    return options.data ? `${content}&${options.data}` : content;
-  }
-  return options.data;
-}
-
-/**
- * Append `--data-urlencode @file` and `--data-urlencode name@file` payloads
- * to the existing inline urlencode payload. File contents are URL-encoded
- * after read and joined with `&`, matching real curl's behavior.
+ * Resolve every `-d`/`--data*`/`--data-urlencode` part into a single payload,
+ * reading any `@file` references and joining the parts with `&` — matching
+ * real curl's concatenation of repeated data flags. Returns undefined when no
+ * data flags were given.
  *
- * Note: file contents are passed through `encodeURIComponent` directly
- * rather than the inline-form helper. The inline helper (`encodeFormData`)
- * splits on the first `=` to separate `name=value` arguments, which would
- * mis-encode any `=` byte inside the file. For `@file` (and `name@file`)
- * forms the entire file body is the value — `=` bytes must be percent-
- * encoded like every other reserved character.
+ * Per-part `@file` handling mirrors real curl:
+ *   - ascii (`-d`/`--data` @file): strip CR and LF after reading.
+ *   - binary (`--data-binary` @file): send the bytes verbatim.
+ *   - urlencode (`--data-urlencode` @file/name@file): URL-encode the whole
+ *     file body as one value (so a `=` byte inside the file is percent-encoded
+ *     rather than treated as a name/value separator), with an optional
+ *     `name=` prefix.
  */
-async function resolveUrlencodeFiles(
+async function resolveData(
   options: CurlOptions,
   ctx: CommandContext,
-  base: string | undefined,
 ): Promise<string | undefined> {
-  if (options.urlencodeFiles.length === 0) return base;
-  const parts: string[] = base ? [base] : [];
-  for (const entry of options.urlencodeFiles) {
-    const filePath = ctx.fs.resolvePath(ctx.cwd, entry.path);
-    const content = await ctx.fs.readFile(filePath);
-    const encoded = encodeURIComponent(content);
-    parts.push(
-      entry.name ? `${encodeURIComponent(entry.name)}=${encoded}` : encoded,
-    );
+  if (options.dataParts.length === 0) return undefined;
+  const parts: string[] = [];
+  for (const part of options.dataParts) {
+    if (part.file) {
+      const filePath = ctx.fs.resolvePath(ctx.cwd, part.file.path);
+      const content = await ctx.fs.readFile(filePath);
+      if (part.file.mode === "ascii") {
+        parts.push(content.replace(/[\r\n]/g, ""));
+      } else if (part.file.mode === "binary") {
+        parts.push(content);
+      } else {
+        const encoded = encodeCurlData(content);
+        parts.push(part.file.name ? `${part.file.name}=${encoded}` : encoded);
+      }
+    } else {
+      parts.push(part.value ?? "");
+    }
   }
   return parts.join("&");
 }
 
 /**
- * Prepare request body from options, reading files if needed
+ * Prepare request body from options, reading files if needed. `resolvedData`
+ * is the already-joined `-d`/`--data*` payload (see resolveData).
  */
 async function prepareRequestBody(
   options: CurlOptions,
   ctx: CommandContext,
+  resolvedData: string | undefined,
 ): Promise<{ body?: string; contentType?: string }> {
   // Handle -T/--upload-file
   if (options.uploadFile) {
@@ -116,18 +103,32 @@ async function prepareRequestBody(
     };
   }
 
-  // Handle -d/--data/--data-binary/--data-raw (inline + @file) and
-  // accumulated --data-urlencode files. The two flavors are merged with `&`
-  // because real curl lets you mix `-d foo --data-urlencode @file` and
-  // concatenates the payloads.
-  let body = await resolveDataBody(options, ctx);
-  body = await resolveUrlencodeFiles(options, ctx, body);
-  if (body !== undefined) {
-    return { body };
+  // Handle -d/--data/--data-binary/--data-raw/--data-urlencode (inline +
+  // @file). In -G/--get mode the payload goes onto the URL query string
+  // instead of the body (handled by the caller), so emit no body here.
+  if (resolvedData !== undefined && !options.getMode) {
+    return {
+      body: resolvedData,
+      contentType: "application/x-www-form-urlencoded",
+    };
   }
 
   // @banned-pattern-ignore: returns typed object with known keys (body, contentType), not user data
   return {};
+}
+
+function appendDataToUrl(url: string, data: string | undefined): string {
+  if (!data) return url;
+  const hashIndex = url.indexOf("#");
+  const base = hashIndex === -1 ? url : url.slice(0, hashIndex);
+  const fragment = hashIndex === -1 ? "" : url.slice(hashIndex);
+  const separator =
+    base.endsWith("?") || base.endsWith("&")
+      ? ""
+      : base.includes("?")
+        ? "&"
+        : "?";
+  return `${base}${separator}${data}${fragment}`;
 }
 
 /**
@@ -274,8 +275,20 @@ export const curlCommand: Command = {
     }
 
     try {
+      // Resolve -d/--data* payloads (reading any @file references) once, then
+      // either append to the URL (-G/--get) or send as the body.
+      const resolvedData = await resolveData(options, ctx);
+
+      if (options.getMode) {
+        url = appendDataToUrl(url, resolvedData);
+      }
+
       // Prepare body and headers
-      const { body, contentType } = await prepareRequestBody(options, ctx);
+      const { body, contentType } = await prepareRequestBody(
+        options,
+        ctx,
+        resolvedData,
+      );
       const headers = prepareHeaders(options, contentType);
 
       const result = await ctx.fetch(url, {

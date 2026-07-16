@@ -145,7 +145,7 @@ describe("curl option parsing", () => {
         'curl -s --data-urlencode "name=John Doe" https://api.example.com/test',
       );
       expect(result.exitCode).toBe(0);
-      expect(lastRequest?.options.body).toContain("John%20Doe");
+      expect(lastRequest?.options.body).toContain("John+Doe");
     });
 
     it("should handle --data-urlencode=value form", async () => {
@@ -154,7 +154,7 @@ describe("curl option parsing", () => {
         'curl -s --data-urlencode="foo=bar baz" https://api.example.com/test',
       );
       expect(result.exitCode).toBe(0);
-      expect(lastRequest?.options.body).toContain("bar%20baz");
+      expect(lastRequest?.options.body).toContain("bar+baz");
     });
 
     it("should append multiple --data-urlencode values", async () => {
