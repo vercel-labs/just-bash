@@ -4,9 +4,17 @@
 
 import type { FormField } from "./types.js";
 
+export function encodeCurlData(value: string): string {
+  return encodeURIComponent(value)
+    .replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16)}`)
+    .replace(/%20/g, "+")
+    .replace(/%[0-9A-F]{2}/g, (percentEscape) => percentEscape.toLowerCase());
+}
+
 /**
  * URL-encode form data in curl's --data-urlencode format
- * Supports: name=content, =content, name@file, @file
+ * Supports: name=content, =content, content. The `@file` / `name@file` forms
+ * are detected in parseOptions and deferred to execute time (see resolveData).
  */
 export function encodeFormData(input: string): string {
   // Check for name=value format
@@ -14,13 +22,11 @@ export function encodeFormData(input: string): string {
   if (eqIndex >= 0) {
     const name = input.slice(0, eqIndex);
     const value = input.slice(eqIndex + 1);
-    if (name) {
-      return `${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
-    }
-    return encodeURIComponent(value);
+    const encoded = encodeCurlData(value);
+    return name ? `${name}=${encoded}` : encoded;
   }
   // Plain value
-  return encodeURIComponent(input);
+  return encodeCurlData(input);
 }
 
 /**
