@@ -31,8 +31,16 @@ const IS_BROWSER = typeof __BROWSER__ !== "undefined" && __BROWSER__;
 
 export interface PinnedAddress {
   hostname: string;
-  address: string;
-  family: 4 | 6;
+  /**
+   * All public addresses validated at preflight. The patched `dns.lookup`
+   * filters this list by the requested family at connect time, so callers
+   * that explicitly ask for IPv4 or IPv6 (undici under `globalThis.fetch`
+   * with `verbatim: true` will do this when one family is unreachable on
+   * the host) get a matching address as long as the preflight returned
+   * one. Multiple addresses of the same family are preserved verbatim;
+   * any one of them is safe to pin to since each was validated as public.
+   */
+  addresses: { address: string; family: 4 | 6 }[];
 }
 
 type AsyncLocalStorageType<T> = {
@@ -114,13 +122,19 @@ function installDnsHook(): void {
 
     const cb = callback;
 
-    if (
-      options.family !== undefined &&
-      options.family !== 0 &&
-      options.family !== pinned.family
-    ) {
-      // Family mismatch — emulate ENOTFOUND so the connection fails closed
-      // rather than silently returning a wrong-family address.
+    // Filter the pinned set by the requested family. `family: 0` (or
+    // undefined) means "any" — undici's default with `verbatim: true`.
+    const requestedFamily =
+      options.family === 4 || options.family === 6 ? options.family : 0;
+    const matching =
+      requestedFamily === 0
+        ? pinned.addresses
+        : pinned.addresses.filter((a) => a.family === requestedFamily);
+
+    if (matching.length === 0) {
+      // No pinned address satisfies the requested family — emulate
+      // ENOTFOUND so the connection fails closed rather than silently
+      // returning a wrong-family address.
       const err = new Error(
         `ENOTFOUND ${hostname}`,
       ) as NodeJS.ErrnoException & { hostname?: string };
@@ -134,9 +148,12 @@ function installDnsHook(): void {
 
     process.nextTick(() => {
       if (options.all) {
-        cb(null, [{ address: pinned.address, family: pinned.family }]);
+        cb(
+          null,
+          matching.map((a) => ({ address: a.address, family: a.family })),
+        );
       } else {
-        cb(null, pinned.address, pinned.family);
+        cb(null, matching[0].address, matching[0].family);
       }
     });
   }
@@ -150,8 +167,8 @@ function installDnsHook(): void {
 
 /**
  * Run `fn` with `dns.lookup` for `pinned.hostname` resolving to
- * `pinned.address`/`pinned.family`. Resolutions for other hostnames
- * pass through to the original `dns.lookup`.
+ * one of `pinned.addresses`, filtered to the family requested by the caller.
+ * Resolutions for other hostnames pass through to the original `dns.lookup`.
  */
 export function pinDns<T>(
   pinned: PinnedAddress,

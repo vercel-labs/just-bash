@@ -170,7 +170,13 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
           try {
             const addresses = await resolveDns(hostname);
             // First pass: any private address rejects the whole resolution.
-            // Second pass: pick the first public address to pin the fetch to.
+            // Second pass: pin to ALL validated addresses (including both
+            // families when dual-stack) so that whichever family undici asks
+            // for at connect time has a pre-validated answer. Returning only
+            // the first address would break IPv6-first dual-stack hostnames
+            // when undici later requests IPv4 explicitly (or vice versa) —
+            // the family-mismatch guard in dns-pin would fire ENOTFOUND for
+            // an otherwise-allowed host.
             for (const { address } of addresses) {
               if (isPrivateIp(address)) {
                 throw new NetworkAccessDeniedError(
@@ -179,13 +185,13 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
                 );
               }
             }
-            const first = addresses[0];
-            if (first) {
-              return {
-                hostname,
-                address: first.address,
-                family: first.family === 6 ? 6 : 4,
-              };
+            const pinnedAddresses: { address: string; family: 4 | 6 }[] =
+              addresses.map((a) => ({
+                address: a.address,
+                family: a.family === 6 ? 6 : 4,
+              }));
+            if (pinnedAddresses.length > 0) {
+              return { hostname, addresses: pinnedAddresses };
             }
           } catch (dnsErr) {
             if (dnsErr instanceof NetworkAccessDeniedError) throw dnsErr;

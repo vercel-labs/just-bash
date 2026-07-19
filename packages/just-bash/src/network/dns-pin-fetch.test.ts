@@ -36,6 +36,18 @@ function lookupAll(
   });
 }
 
+function lookupSingle(
+  hostname: string,
+  family: 4 | 6,
+): Promise<{ address: string; family: number }> {
+  return new Promise((resolve, reject) => {
+    dns.lookup(hostname, { family }, (err, address, resolvedFamily) => {
+      if (err) reject(err);
+      else resolve({ address, family: resolvedFamily });
+    });
+  });
+}
+
 describe("secureFetch DNS pinning", () => {
   it("pins dns.lookup inside fetch to the address validated at preflight", async () => {
     const seen: { address: string; family: number }[][] = [];
@@ -60,6 +72,28 @@ describe("secureFetch DNS pinning", () => {
     expect(seen).toEqual([[{ address: "93.184.216.34", family: 4 }]]);
     // sanity check: 93.184.216.34 is example.com — definitely not what real
     // DNS would return for "attacker.example", proving pinning is engaged.
+  });
+
+  it("preserves a dual-stack preflight for a family-specific connect lookup", async () => {
+    let seen: { address: string; family: number } | undefined;
+    globalThis.fetch = (async () => {
+      // Mimic an HTTP client selecting IPv4 after an IPv6-first preflight.
+      seen = await lookupSingle("dualstack.example", 4);
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    const secureFetch = createSecureFetch({
+      dangerouslyAllowFullInternetAccess: true,
+      denyPrivateRanges: true,
+      _dnsResolve: async () => [
+        { address: "2001:4860:4860::8888", family: 6 },
+        { address: "8.8.8.8", family: 4 },
+      ],
+    });
+
+    const result = await secureFetch("https://dualstack.example/path");
+    expect(result.status).toBe(200);
+    expect(seen).toEqual({ address: "8.8.8.8", family: 4 });
   });
 
   it("does not pin when denyPrivateRanges is off (no preflight DNS validation)", async () => {
