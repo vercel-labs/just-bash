@@ -273,7 +273,10 @@ describe("Execution Protection", () => {
     });
 
     it("should protect against recursive eval", async () => {
-      const env = new Bash({ maxCallDepth: 20 });
+      // This recursion does not create function frames, so call depth is not
+      // the relevant guard. Keep the attack fixture explicitly cheap while
+      // the normal profile remains liberal for real scripts.
+      const env = new Bash({ maxCommandCount: 100 });
       const result = await env.exec(`
         cmd='eval "$cmd"'
         eval "$cmd"

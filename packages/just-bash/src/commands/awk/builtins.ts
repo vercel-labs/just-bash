@@ -4,6 +4,10 @@
  * Implementation of AWK built-in functions for the AST-based interpreter.
  */
 
+import { BoundedStringBuilder } from "../../bounded-builder.js";
+import { utf8ByteLength } from "../../encoding.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { AwkExpr } from "./ast.js";
 import type { AwkRuntimeContext } from "./interpreter/context.js";
@@ -33,6 +37,51 @@ function toAwkString(val: AwkValue): string {
   if (typeof val === "string") return val;
   if (Number.isInteger(val)) return String(val);
   return String(val);
+}
+
+const DEFAULT_AWK_STRING_LIMIT = 10 * 1024 * 1024;
+
+function createAwkStringBuilder(maxBytes: number): BoundedStringBuilder {
+  return new BoundedStringBuilder(
+    maxBytes,
+    "awk string",
+    () =>
+      new ExecutionLimitError(
+        `string size limit exceeded (${maxBytes} bytes)`,
+        "string_length",
+      ),
+  );
+}
+
+function awkStringLimit(ctx: AwkRuntimeContext): number {
+  return ctx.maxOutputSize > 0 ? ctx.maxOutputSize : DEFAULT_AWK_STRING_LIMIT;
+}
+
+function boundedRegexReplace(
+  target: string,
+  regex: UserRegex,
+  shouldReplace: (matchNumber: number) => boolean,
+  replacer: (match: RegExpMatchArray) => string,
+  maxBytes: number,
+): { value: string; replacements: number } {
+  const output = createAwkStringBuilder(maxBytes);
+  let cursor = 0;
+  let matchNumber = 0;
+  let replacements = 0;
+  for (const match of regex.matchAll(target)) {
+    const index = match.index ?? 0;
+    matchNumber++;
+    output.append(target.slice(cursor, index));
+    if (shouldReplace(matchNumber)) {
+      output.append(replacer(match));
+      replacements++;
+    } else {
+      output.append(match[0]);
+    }
+    cursor = index + match[0].length;
+  }
+  output.append(target.slice(cursor));
+  return { value: output.build(), replacements };
 }
 
 /**
@@ -184,13 +233,26 @@ async function awkSplit(
     sep = createUserRegex("\\s+");
   }
 
-  const parts = typeof sep === "string" ? str.split(sep) : sep.split(str);
+  const previousCount = Object.keys(ctx.arrays[arrayName] ?? {}).length;
+  const available =
+    ctx.maxArrayElements - ctx.arrayElementCount + previousCount;
+  const parts =
+    typeof sep === "string"
+      ? str.split(sep, available + 1)
+      : sep.split(str, available + 1);
+  if (parts.length > available) {
+    throw new ExecutionLimitError(
+      `array element limit exceeded (${ctx.maxArrayElements})`,
+      "array_elements",
+    );
+  }
 
   // Use null-prototype to prevent prototype pollution with user-controlled keys
   ctx.arrays[arrayName] = Object.create(null);
   for (let i = 0; i < parts.length; i++) {
     ctx.arrays[arrayName][String(i + 1)] = parts[i];
   }
+  ctx.arrayElementCount += parts.length - previousCount;
 
   return parts.length;
 }
@@ -208,12 +270,19 @@ async function awkSub(
   const target = getTargetValue(targetName, ctx);
 
   try {
-    const regex = createUserRegex(pattern);
-    const newTarget = regex.replace(target, createSubReplacer(replacement));
-    const changed = newTarget !== target ? 1 : 0;
-    applyTargetValue(targetName, newTarget, ctx);
-    return changed;
-  } catch {
+    const regex = createUserRegex(pattern, "g");
+    const replaced = boundedRegexReplace(
+      target,
+      regex,
+      (matchNumber) => matchNumber === 1,
+      (match) =>
+        createSubReplacement(replacement, match[0], awkStringLimit(ctx)),
+      awkStringLimit(ctx),
+    );
+    applyTargetValue(targetName, replaced.value, ctx);
+    return replaced.replacements;
+  } catch (error) {
+    rethrowFatalExecutionError(error);
     return 0;
   }
 }
@@ -232,43 +301,51 @@ async function awkGsub(
 
   try {
     const regex = createUserRegex(pattern, "g");
-    const matches = regex.match(target);
-    const count = matches ? matches.length : 0;
-    const newTarget = regex.replace(target, createSubReplacer(replacement));
-    applyTargetValue(targetName, newTarget, ctx);
-    return count;
-  } catch {
+    const replaced = boundedRegexReplace(
+      target,
+      regex,
+      () => true,
+      (match) =>
+        createSubReplacement(replacement, match[0], awkStringLimit(ctx)),
+      awkStringLimit(ctx),
+    );
+    applyTargetValue(targetName, replaced.value, ctx);
+    return replaced.replacements;
+  } catch (error) {
+    rethrowFatalExecutionError(error);
     return 0;
   }
 }
 
-function createSubReplacer(replacement: string): (match: string) => string {
-  return (match: string) => {
-    let result = "";
-    let i = 0;
-    while (i < replacement.length) {
-      if (replacement[i] === "\\" && i + 1 < replacement.length) {
-        const next = replacement[i + 1];
-        if (next === "&") {
-          result += "&";
-          i += 2;
-        } else if (next === "\\") {
-          result += "\\";
-          i += 2;
-        } else {
-          result += replacement[i + 1];
-          i += 2;
-        }
-      } else if (replacement[i] === "&") {
-        result += match;
-        i++;
+function createSubReplacement(
+  replacement: string,
+  match: string,
+  maxBytes: number,
+): string {
+  const result = createAwkStringBuilder(maxBytes);
+  let i = 0;
+  while (i < replacement.length) {
+    if (replacement[i] === "\\" && i + 1 < replacement.length) {
+      const next = replacement[i + 1];
+      if (next === "&") {
+        result.append("&");
+        i += 2;
+      } else if (next === "\\") {
+        result.append("\\");
+        i += 2;
       } else {
-        result += replacement[i];
-        i++;
+        result.append(replacement[i + 1]);
+        i += 2;
       }
+    } else if (replacement[i] === "&") {
+      result.append(match);
+      i++;
+    } else {
+      result.append(replacement[i]);
+      i++;
     }
-    return result;
-  };
+  }
+  return result.build();
 }
 
 async function awkMatch(
@@ -323,29 +400,37 @@ async function awkGensub(
 
     if (isGlobal) {
       const regex = createUserRegex(pattern, "g");
-      return regex.replace(target, (match, ...groups) =>
-        processGensub(
-          replacement,
-          match as string,
-          groups.slice(0, -2) as string[],
-        ),
-      );
-    } else {
-      let count = 0;
-      const regex = createUserRegex(pattern, "g");
-      return regex.replace(target, (match, ...groups) => {
-        count++;
-        if (count === occurrenceNum) {
-          return processGensub(
+      return boundedRegexReplace(
+        target,
+        regex,
+        () => true,
+        (match) =>
+          processGensub(
             replacement,
-            match as string,
-            groups.slice(0, -2) as string[],
-          );
-        }
-        return match as string;
-      });
+            match[0],
+            match.slice(1),
+            awkStringLimit(ctx),
+          ),
+        awkStringLimit(ctx),
+      ).value;
+    } else {
+      const regex = createUserRegex(pattern, "g");
+      return boundedRegexReplace(
+        target,
+        regex,
+        (matchNumber) => matchNumber === occurrenceNum,
+        (match) =>
+          processGensub(
+            replacement,
+            match[0],
+            match.slice(1),
+            awkStringLimit(ctx),
+          ),
+        awkStringLimit(ctx),
+      ).value;
     }
-  } catch {
+  } catch (error) {
+    rethrowFatalExecutionError(error);
     return target;
   }
 }
@@ -354,41 +439,42 @@ function processGensub(
   replacement: string,
   match: string,
   groups: string[],
+  maxBytes: number,
 ): string {
-  let result = "";
+  const result = createAwkStringBuilder(maxBytes);
   let i = 0;
   while (i < replacement.length) {
     if (replacement[i] === "\\" && i + 1 < replacement.length) {
       const next = replacement[i + 1];
       if (next === "&") {
-        result += "&";
+        result.append("&");
         i += 2;
       } else if (next === "0") {
-        result += match;
+        result.append(match);
         i += 2;
       } else if (next >= "1" && next <= "9") {
         const idx = parseInt(next, 10) - 1;
-        result += groups[idx] || "";
+        result.append(groups[idx] || "");
         i += 2;
       } else if (next === "n") {
-        result += "\n";
+        result.append("\n");
         i += 2;
       } else if (next === "t") {
-        result += "\t";
+        result.append("\t");
         i += 2;
       } else {
-        result += next;
+        result.append(next);
         i += 2;
       }
     } else if (replacement[i] === "&") {
-      result += match;
+      result.append(match);
       i++;
     } else {
-      result += replacement[i];
+      result.append(replacement[i]);
       i++;
     }
   }
-  return result;
+  return result.build();
 }
 
 async function awkTolower(
@@ -411,7 +497,7 @@ async function awkToupper(
 
 async function awkSprintf(
   args: AwkExpr[],
-  _ctx: AwkRuntimeContext,
+  ctx: AwkRuntimeContext,
   evaluator: AwkEvaluator,
 ): Promise<string> {
   if (args.length === 0) return "";
@@ -420,7 +506,7 @@ async function awkSprintf(
   for (let i = 1; i < args.length; i++) {
     values.push(await evaluator.evalExpr(args[i]));
   }
-  return formatPrintf(format, values);
+  return formatPrintf(format, values, awkStringLimit(ctx));
 }
 
 // ─── Math Functions ─────────────────────────────────────────────
@@ -526,10 +612,27 @@ function unimplemented(name: string): AwkBuiltinFn {
 
 const MAX_PRINTF_WIDTH = 10000;
 
-export function formatPrintf(format: string, values: AwkValue[]): string {
+export function formatPrintf(
+  format: string,
+  values: AwkValue[],
+  maxBytes: number = DEFAULT_AWK_STRING_LIMIT,
+): string {
   let valueIdx = 0;
   let result = "";
+  let resultBytes = 0;
   let i = 0;
+  const maxFieldWidth = Math.min(MAX_PRINTF_WIDTH, maxBytes);
+  const append = (value: string): void => {
+    const bytes = utf8ByteLength(value);
+    if (bytes > maxBytes - resultBytes) {
+      throw new ExecutionLimitError(
+        `formatted string size limit exceeded (${maxBytes} bytes)`,
+        "string_length",
+      );
+    }
+    result += value;
+    resultBytes += bytes;
+  };
 
   while (i < format.length) {
     if (format[i] === "%" && i + 1 < format.length) {
@@ -580,11 +683,17 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
       if (format[j] === "*") {
         const widthVal = values[valueIdx++];
         const w = widthVal !== undefined ? Math.floor(Number(widthVal)) : 0;
+        if (!Number.isFinite(w) || !Number.isSafeInteger(w)) {
+          throw new ExecutionLimitError(
+            `printf width limit exceeded (${maxFieldWidth} bytes)`,
+            "string_length",
+          );
+        }
         if (w < 0) {
           flags += "-";
-          width = String(Math.min(-w, MAX_PRINTF_WIDTH));
+          width = String(-w);
         } else {
-          width = String(Math.min(w, MAX_PRINTF_WIDTH));
+          width = String(w);
         }
         j++;
       } else {
@@ -592,9 +701,11 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
           width += format[j++];
         }
       }
-      // Cap width to prevent memory bombs
-      if (width && parseInt(width, 10) > MAX_PRINTF_WIDTH) {
-        width = String(MAX_PRINTF_WIDTH);
+      if (width && parseInt(width, 10) > maxFieldWidth) {
+        throw new ExecutionLimitError(
+          `printf width limit exceeded (${maxFieldWidth} bytes)`,
+          "string_length",
+        );
       }
 
       if (format[j] === ".") {
@@ -602,21 +713,29 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
         // Handle * for precision
         if (format[j] === "*") {
           const precVal = values[valueIdx++];
-          precision = String(
-            Math.min(
-              precVal !== undefined ? Math.floor(Number(precVal)) : 0,
-              MAX_PRINTF_WIDTH,
-            ),
-          );
+          const parsedPrecision =
+            precVal !== undefined ? Math.floor(Number(precVal)) : 0;
+          if (
+            !Number.isFinite(parsedPrecision) ||
+            !Number.isSafeInteger(parsedPrecision)
+          ) {
+            throw new ExecutionLimitError(
+              `printf precision limit exceeded (${maxFieldWidth} bytes)`,
+              "string_length",
+            );
+          }
+          precision = parsedPrecision < 0 ? "" : String(parsedPrecision);
           j++;
         } else {
           while (j < format.length && /\d/.test(format[j])) {
             precision += format[j++];
           }
         }
-        // Cap precision to prevent memory bombs
-        if (precision && parseInt(precision, 10) > MAX_PRINTF_WIDTH) {
-          precision = String(MAX_PRINTF_WIDTH);
+        if (precision && parseInt(precision, 10) > maxFieldWidth) {
+          throw new ExecutionLimitError(
+            `printf precision limit exceeded (${maxFieldWidth} bytes)`,
+            "string_length",
+          );
         }
       }
 
@@ -642,7 +761,7 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
               str = str.padStart(w);
             }
           }
-          result += str;
+          append(str);
           if (positionalIdx === undefined) valueIdx++;
           break;
         }
@@ -683,7 +802,7 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
               str = str.padStart(w);
             }
           }
-          result += str;
+          append(str);
           if (positionalIdx === undefined) valueIdx++;
           break;
         }
@@ -692,6 +811,12 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
           let num = val !== undefined ? Number(val) : 0;
           if (Number.isNaN(num)) num = 0;
           const prec = precision ? parseInt(precision, 10) : 6;
+          if (prec > 100) {
+            throw new ExecutionLimitError(
+              "printf floating-point precision limit exceeded (100 digits)",
+              "string_length",
+            );
+          }
           let str = num.toFixed(prec);
           if (width) {
             const w = parseInt(width, 10);
@@ -701,7 +826,7 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
               str = str.padStart(w);
             }
           }
-          result += str;
+          append(str);
           if (positionalIdx === undefined) valueIdx++;
           break;
         }
@@ -711,6 +836,12 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
           let num = val !== undefined ? Number(val) : 0;
           if (Number.isNaN(num)) num = 0;
           const prec = precision ? parseInt(precision, 10) : 6;
+          if (prec > 100) {
+            throw new ExecutionLimitError(
+              "printf floating-point precision limit exceeded (100 digits)",
+              "string_length",
+            );
+          }
           let str = num.toExponential(prec);
           if (spec === "E") str = str.toUpperCase();
           if (width) {
@@ -721,7 +852,7 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
               str = str.padStart(w);
             }
           }
-          result += str;
+          append(str);
           if (positionalIdx === undefined) valueIdx++;
           break;
         }
@@ -731,6 +862,12 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
           let num = val !== undefined ? Number(val) : 0;
           if (Number.isNaN(num)) num = 0;
           const prec = precision ? parseInt(precision, 10) : 6;
+          if (prec > 100) {
+            throw new ExecutionLimitError(
+              "printf floating-point precision limit exceeded (100 digits)",
+              "string_length",
+            );
+          }
           const exp = num !== 0 ? Math.floor(Math.log10(Math.abs(num))) : 0;
           let str: string;
           if (num === 0) {
@@ -757,7 +894,7 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
               str = str.padStart(w);
             }
           }
-          result += str;
+          append(str);
           if (positionalIdx === undefined) valueIdx++;
           break;
         }
@@ -788,7 +925,7 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
               str = str.padStart(w);
             }
           }
-          result += str;
+          append(str);
           if (positionalIdx === undefined) valueIdx++;
           break;
         }
@@ -817,50 +954,50 @@ export function formatPrintf(format: string, values: AwkValue[]): string {
               str = str.padStart(w);
             }
           }
-          result += str;
+          append(str);
           if (positionalIdx === undefined) valueIdx++;
           break;
         }
 
         case "c": {
           if (typeof val === "number") {
-            result += String.fromCharCode(val);
+            append(String.fromCharCode(val));
           } else {
-            result += String(val ?? "").charAt(0) || "";
+            append(String(val ?? "").charAt(0) || "");
           }
           if (positionalIdx === undefined) valueIdx++;
           break;
         }
 
         case "%":
-          result += "%";
+          append("%");
           break;
 
         default:
-          result += format.substring(i, j + 1);
+          append(format.substring(i, j + 1));
       }
       i = j + 1;
     } else if (format[i] === "\\" && i + 1 < format.length) {
       const esc = format[i + 1];
       switch (esc) {
         case "n":
-          result += "\n";
+          append("\n");
           break;
         case "t":
-          result += "\t";
+          append("\t");
           break;
         case "r":
-          result += "\r";
+          append("\r");
           break;
         case "\\":
-          result += "\\";
+          append("\\");
           break;
         default:
-          result += esc;
+          append(esc);
       }
       i += 2;
     } else {
-      result += format[i++];
+      append(format[i++]);
     }
   }
 

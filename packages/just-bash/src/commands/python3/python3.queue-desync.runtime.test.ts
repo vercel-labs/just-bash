@@ -2,6 +2,15 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
 
+function expectFiveMillisecondTimeout(stderr: string): void {
+  // The request controller is authoritative. The bridge may independently
+  // observe the same deadline before it is stopped, so its diagnostic is
+  // intentionally optional rather than part of the protocol contract.
+  expect(stderr).toMatch(
+    /^(?:\n?python3: execution timeout exceeded\n)?python3: Execution timeout: exceeded 5ms limit\n$/,
+  );
+}
+
 describe("python3 queue runtime desync checks", () => {
   it(
     "isolated python timeout baseline (no shared queue contention)",
@@ -17,9 +26,7 @@ describe("python3 queue runtime desync checks", () => {
       );
 
       expect(result.stdout).toBe("");
-      expect(result.stderr).toBe(
-        "\npython3: execution timeout exceeded\npython3: Execution timeout: exceeded 5ms limit\n",
-      );
+      expectFiveMillisecondTimeout(result.stderr);
       expect(result.exitCode).toBe(124);
     },
   );
@@ -56,9 +63,7 @@ describe("python3 queue runtime desync checks", () => {
       const firstResult = await firstPromise;
 
       expect(secondResult.stdout).toBe("");
-      expect(secondResult.stderr).toBe(
-        "\npython3: execution timeout exceeded\npython3: Execution timeout: exceeded 5ms limit\n",
-      );
+      expectFiveMillisecondTimeout(secondResult.stderr);
       expect(secondResult.exitCode).toBe(124);
 
       expect(firstResult.stdout).toBe("FIRST_BEGIN\nFIRST_END\n");
@@ -98,9 +103,7 @@ describe("python3 queue runtime desync checks", () => {
       );
 
       expect(timedResult.stdout).toBe("");
-      expect(timedResult.stderr).toBe(
-        "\npython3: execution timeout exceeded\npython3: Execution timeout: exceeded 5ms limit\n",
-      );
+      expectFiveMillisecondTimeout(timedResult.stderr);
       expect(timedResult.exitCode).toBe(124);
 
       await blockerPromise;

@@ -82,8 +82,8 @@ if (showAst) {
 // Use high limits for dev:exec (typical use is exploration of large filesystems)
 const executionLimits = noLimit
   ? {
-      maxCommandCount: Number.MAX_SAFE_INTEGER,
-      maxLoopIterations: Number.MAX_SAFE_INTEGER,
+      maxCommandCount: 10_000_000,
+      maxLoopIterations: 10_000_000,
     }
   : {
       maxCommandCount: 100000, // Higher default for dev:exec

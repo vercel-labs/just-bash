@@ -3,12 +3,13 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { clearArray } from "../helpers/array.js";
+import { clearArray, setArrayElement } from "../helpers/array.js";
 import {
   getIfs,
   splitByIfsForRead,
   stripTrailingIfsWhitespace,
 } from "../helpers/ifs.js";
+import { checkReadonlyError } from "../helpers/readonly.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -236,6 +237,14 @@ export function handleRead(
   // Default variable is REPLY
   if (varNames.length === 0 && arrayName === null) {
     varNames.push("REPLY");
+  }
+
+  const destinations = arrayName ? [arrayName] : varNames;
+  for (const name of destinations) {
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+      return result("", `bash: read: \`${name}': not a valid identifier\n`, 1);
+    }
+    checkReadonlyError(ctx, name, "bash");
   }
 
   // Note: prompt (-p) would typically output to terminal, but we ignore it in non-interactive mode
@@ -468,26 +477,23 @@ export function handleRead(
 
   // Split by IFS (default is space, tab, newline)
   const ifs = getIfs(ctx.state.env);
+  const maxArrayElements = ctx.limits.maxArrayElements;
 
   // Handle array assignment (-a)
   if (arrayName) {
     // Pass raw flag - splitting respects backslash escapes in non-raw mode
-    const { words } = splitByIfsForRead(line, ifs, undefined, raw);
-
-    // Check array element limit
-    const maxArrayElements = ctx.limits?.maxArrayElements ?? 100000;
-    if (words.length > maxArrayElements) {
-      return result(
-        "",
-        `read: array element limit exceeded (${maxArrayElements})\n`,
-        1,
-      );
-    }
+    const { words } = splitByIfsForRead(
+      line,
+      ifs,
+      maxArrayElements,
+      undefined,
+      raw,
+    );
 
     clearArray(ctx, arrayName);
     // Assign words to array elements, processing backslash escapes after splitting
     for (let j = 0; j < words.length; j++) {
-      ctx.state.env.set(`${arrayName}_${j}`, processBackslashEscapes(words[j]));
+      setArrayElement(ctx, arrayName, j, processBackslashEscapes(words[j]));
     }
     return result("", "", foundDelimiter ? 0 : 1);
   }
@@ -495,7 +501,13 @@ export function handleRead(
   // Use the advanced IFS splitting for read with proper whitespace/non-whitespace handling
   // Pass raw flag - splitting respects backslash escapes in non-raw mode
   const maxSplit = varNames.length;
-  const { words, wordStarts } = splitByIfsForRead(line, ifs, maxSplit, raw);
+  const { words, wordStarts } = splitByIfsForRead(
+    line,
+    ifs,
+    maxArrayElements,
+    maxSplit,
+    raw,
+  );
 
   // Assign words to variables
   for (let j = 0; j < varNames.length; j++) {

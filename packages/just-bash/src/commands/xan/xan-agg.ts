@@ -4,7 +4,12 @@
 
 import type { CommandContext, ExecResult } from "../../types.js";
 import type { EvaluateOptions } from "../query-engine/index.js";
-import { buildAggRow, computeAgg, parseAggExpr } from "./aggregation.js";
+import {
+  type AggregationLimits,
+  buildAggRow,
+  computeAgg,
+  parseAggExpr,
+} from "./aggregation.js";
 import {
   type CsvData,
   type CsvRow,
@@ -13,6 +18,15 @@ import {
   readCsvInput,
   safeSetRow,
 } from "./csv.js";
+
+function getAggregationLimits(ctx: CommandContext): AggregationLimits {
+  return {
+    maxArrayElements: ctx.limits.maxArrayElements,
+    maxStringLength: ctx.limits.maxStringLength,
+    maxIterations: ctx.limits.maxJqIterations,
+    maxDepth: ctx.limits.maxQueryDepth,
+  };
+}
 
 export async function cmdAgg(
   args: string[],
@@ -44,13 +58,17 @@ export async function cmdAgg(
 
   const evalOptions: EvaluateOptions = {
     limits: ctx.limits
-      ? { maxIterations: ctx.limits.maxJqIterations }
+      ? {
+          maxIterations: ctx.limits.maxJqIterations,
+          maxStringLength: ctx.limits.maxStringLength,
+        }
       : undefined,
   };
 
-  const specs = parseAggExpr(expr);
+  const aggregationLimits = getAggregationLimits(ctx);
+  const specs = parseAggExpr(expr, aggregationLimits);
   const headers = specs.map((s) => s.alias);
-  const row = buildAggRow(data, specs, evalOptions);
+  const row = buildAggRow(data, specs, evalOptions, aggregationLimits);
 
   return { stdout: formatCsv(headers, [row]), stderr: "", exitCode: 0 };
 }
@@ -91,18 +109,22 @@ export async function cmdGroupby(
 
   const evalOptions: EvaluateOptions = {
     limits: ctx.limits
-      ? { maxIterations: ctx.limits.maxJqIterations }
+      ? {
+          maxIterations: ctx.limits.maxJqIterations,
+          maxStringLength: ctx.limits.maxStringLength,
+        }
       : undefined,
   };
 
   const groupKeys = groupCols.split(",");
-  const specs = parseAggExpr(aggExpr);
+  const aggregationLimits = getAggregationLimits(ctx);
+  const specs = parseAggExpr(aggExpr, aggregationLimits);
 
   // Group rows by key - use array to preserve first-seen order
   const groupOrder: string[] = [];
   const groups = new Map<string, CsvData>();
   for (const row of data) {
-    const key = groupKeys.map((k) => String(row[k])).join("\0");
+    const key = JSON.stringify(groupKeys.map((k) => String(row[k])));
     if (!groups.has(key)) {
       groups.set(key, []);
       groupOrder.push(key);
@@ -124,7 +146,11 @@ export async function cmdGroupby(
     }
     // Compute aggregates
     for (const spec of specs) {
-      safeSetRow(row, spec.alias, computeAgg(groupData, spec, evalOptions));
+      safeSetRow(
+        row,
+        spec.alias,
+        computeAgg(groupData, spec, evalOptions, aggregationLimits),
+      );
     }
     results.push(row);
   }

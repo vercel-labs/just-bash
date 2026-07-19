@@ -47,21 +47,24 @@ async function odExecute(
     outputFormats.push("octal");
   }
 
-  // Get input - from file or stdin. od is byte-oriented: dump the raw byte
-  // buffer character-by-character, where each char is one byte.
-  let input: string = latin1FromBytes(ctx.stdin);
-
-  // Check for file argument
-  if (fileArgs.length > 0 && fileArgs[0] !== "-") {
-    const filePath = fileArgs[0].startsWith("/")
-      ? fileArgs[0]
-      : `${ctx.cwd}/${fileArgs[0]}`;
+  // Concatenate every operand in order. A `-` operand contributes stdin at
+  // that exact position; with no operands stdin is the sole input.
+  let input = "";
+  const operands = fileArgs.length === 0 ? ["-"] : fileArgs;
+  for (const operand of operands) {
+    if (operand === "-") {
+      input += latin1FromBytes(ctx.stdin);
+      continue;
+    }
+    const filePath = operand.startsWith("/")
+      ? operand
+      : `${ctx.cwd}/${operand}`;
     try {
-      input = latin1FromBytes(await readBytesFrom(ctx.fs, filePath));
+      input += latin1FromBytes(await readBytesFrom(ctx.fs, filePath));
     } catch {
       return {
         stdout: "",
-        stderr: `od: ${fileArgs[0]}: No such file or directory\n`,
+        stderr: `od: ${operand}: No such file or directory\n`,
         exitCode: 1,
       };
     }

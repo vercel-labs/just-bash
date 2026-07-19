@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { DefenseInDepthBox } from "./defense-in-depth-box.js";
 import type { SecurityViolation } from "./types.js";
@@ -5,6 +6,12 @@ import {
   WorkerDefenseInDepth,
   WorkerSecurityViolationError,
 } from "./worker-defense-in-depth.js";
+
+const hostRequire = createRequire(import.meta.url);
+const HostModule = hostRequire("node:module").Module as {
+  _load: (specifier: string) => unknown;
+  _resolveFilename: (specifier: string, parent?: unknown) => string;
+};
 
 /**
  * IMPORTANT: WorkerDefenseInDepth tests require special handling.
@@ -626,15 +633,21 @@ describe("WorkerDefenseInDepth", () => {
         expect(error?.message).toContain("Atomics");
       });
 
-      it("should freeze Reflect (not block it)", () => {
+      it("should freeze Reflect and expose it through a read-only proxy", () => {
         defense = new WorkerDefenseInDepth({});
 
         const result = Reflect.get({ test: 42 }, "test");
-        const isFrozen = Object.isFrozen(Reflect);
+        let mutationError: unknown;
+        try {
+          (Reflect as unknown as Record<string, unknown>).sandboxEscape = 1;
+        } catch (error) {
+          mutationError = error;
+        }
 
         defense.deactivate();
         expect(result).toBe(42);
-        expect(isFrozen).toBe(true);
+        expect(mutationError).toBeInstanceOf(WorkerSecurityViolationError);
+        expect(Object.isFrozen(Reflect)).toBe(true);
       });
     });
   });
@@ -832,6 +845,40 @@ describe("WorkerDefenseInDepth", () => {
   });
 
   describe("worker-specific behavior", () => {
+    it("blocks require and direct loader calls without consulting stack text", () => {
+      const originalPrepareStackTrace = Error.prepareStackTrace;
+      Error.prepareStackTrace = () =>
+        "node:internal/modules/cjs/loader malicious-sourceURL";
+      defense = new WorkerDefenseInDepth({});
+
+      const attempts = [
+        function maliciousLoaderFrame() {
+          return hostRequire("node:child_process");
+        },
+        function directLoad() {
+          return HostModule._load("node:child_process");
+        },
+        function directResolve() {
+          return HostModule._resolveFilename("node:child_process");
+        },
+      ];
+      const errors: unknown[] = [];
+      for (const attempt of attempts) {
+        try {
+          attempt();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+
+      defense.deactivate();
+      Error.prepareStackTrace = originalPrepareStackTrace;
+      expect(errors).toHaveLength(3);
+      expect(
+        errors.every((error) => error instanceof WorkerSecurityViolationError),
+      ).toBe(true);
+    });
+
     it("should always block (no context tracking needed)", () => {
       defense = new WorkerDefenseInDepth({});
 

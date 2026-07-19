@@ -201,6 +201,9 @@ importers:
       turndown:
         specifier: ^7.2.2
         version: 7.2.4
+      undici:
+        specifier: ^7.25.0
+        version: 7.25.0
       yaml:
         specifier: ^2.8.2
         version: 2.8.3

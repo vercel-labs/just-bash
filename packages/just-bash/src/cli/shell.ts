@@ -8,6 +8,7 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import * as readline from "node:readline";
 import { Bash } from "../Bash.js";
 import { OverlayFs } from "../fs/overlay-fs/overlay-fs.js";
@@ -37,6 +38,7 @@ class VirtualShell {
   private rl: readline.Interface;
   private running = true;
   private history: string[] = [];
+  private readonly initialization: Promise<void>;
 
   private isInteractive: boolean;
 
@@ -64,6 +66,7 @@ class VirtualShell {
           ? { dangerouslyAllowFullInternetAccess: true }
           : undefined,
     });
+    this.initialization = this.seedFiles(overlayFs, options.files);
 
     // Check if stdin is a TTY (interactive mode)
     this.isInteractive = process.stdin.isTTY === true;
@@ -87,6 +90,23 @@ class VirtualShell {
         console.log("\nGoodbye!");
         process.exit(0);
       });
+    }
+  }
+
+  private async seedFiles(
+    overlayFs: OverlayFs,
+    files: Record<string, string> | undefined,
+  ): Promise<void> {
+    if (!files) return;
+    for (const [fileName, content] of Object.entries(files)) {
+      if (typeof content !== "string") {
+        throw new TypeError(`Invalid --files content for ${fileName}`);
+      }
+      const virtualPath = overlayFs.resolvePath("/", fileName);
+      await overlayFs.mkdir(path.posix.dirname(virtualPath), {
+        recursive: true,
+      });
+      await overlayFs.writeFile(virtualPath, content);
     }
   }
 
@@ -175,6 +195,7 @@ Reads from real filesystem, writes stay in memory (OverlayFs).
   }
 
   async run(): Promise<void> {
+    await this.initialization;
     if (this.isInteractive) {
       this.printWelcome();
       this.prompt();
@@ -231,6 +252,7 @@ writes stay in memory (copy-on-write).
 
 Options:
   --cwd <dir>         Set initial working directory (default: /)
+  --files <json-file> Seed copy-on-write files from a JSON object
   --network           Enable network access (disabled by default)
   --no-network        Disable network access (default)
   --help, -h          Show this help message
@@ -249,4 +271,7 @@ Example:
 // Main entry point
 const options = parseArgs();
 const shell = new VirtualShell(options);
-shell.run();
+void shell.run().catch((error) => {
+  console.error(`Error initializing virtual shell: ${getErrorMessage(error)}`);
+  process.exitCode = 1;
+});

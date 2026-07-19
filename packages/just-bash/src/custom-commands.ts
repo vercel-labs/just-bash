@@ -45,7 +45,7 @@ export function defineCommand(
   name: string,
   execute: (args: string[], ctx: CommandContext) => Promise<ExecResult>,
 ): Command {
-  return { name, trusted: true, execute };
+  return { name, trusted: false, execute };
 }
 
 /**
@@ -54,14 +54,32 @@ export function defineCommand(
  */
 export function createLazyCustomCommand(lazy: LazyCommand): Command {
   let cached: Command | null = null;
+  let loading: Promise<Command> | null = null;
   return {
     name: lazy.name,
-    trusted: true,
+    trusted: false,
     async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
       if (!cached) {
-        cached = await lazy.load();
+        let currentLoading = loading;
+        if (!currentLoading) {
+          currentLoading = lazy.load().then((command) => {
+            cached = command;
+            return command;
+          });
+          loading = currentLoading;
+        }
+        try {
+          cached = await currentLoading;
+        } catch (error) {
+          // A failed dynamic import may be transient. Permit a later explicit
+          // invocation to retry while still single-flighting concurrent calls.
+          if (loading === currentLoading) loading = null;
+          throw error;
+        }
       }
-      return cached.execute(args, ctx);
+      const command = cached;
+      if (!command) throw new Error(`Failed to load command: ${lazy.name}`);
+      return command.execute(args, ctx);
     },
   };
 }

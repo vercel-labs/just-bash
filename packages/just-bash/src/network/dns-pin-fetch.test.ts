@@ -1,130 +1,262 @@
-/**
- * End-to-end test that secureFetch pins DNS resolution at the actual
- * connection layer to the address validated at preflight.
- *
- * The CRITICAL DNS rebinding finding said the preflight DNS lookup
- * (in checkAllowed) and the connect-time DNS lookup (inside undici
- * under globalThis.fetch) were independent, so an attacker controlling
- * authoritative DNS could return a public IP at preflight and 127.0.0.1
- * at connect time. The fix wraps the actual fetch in `pinDns(...)`,
- * which intercepts `dns.lookup` for the validated hostname so that
- * undici receives the pre-validated IP.
- *
- * To prove the fix engages, we install a stub `globalThis.fetch` that —
- * inside its body — calls `dns.lookup` for the same hostname. If pinning
- * is active, the lookup must return the pinned IP, NOT what real DNS
- * (or the test default) would return.
- */
-import dns from "node:dns";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  DnsPinningUnavailableError,
+  type PinnedAddress,
+  type PinnedConnectionOwnerFactory,
+} from "./dns-pin.js";
 import { createSecureFetch } from "./fetch.js";
 
-const originalFetch: typeof globalThis.fetch = globalThis.fetch;
+const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-function lookupAll(
-  hostname: string,
-): Promise<{ address: string; family: number }[]> {
-  return new Promise((resolve, reject) => {
-    dns.lookup(hostname, { all: true }, (err, addresses) => {
-      if (err) reject(err);
-      else resolve(addresses as { address: string; family: number }[]);
-    });
-  });
+function fakeOwners(
+  responder: (
+    url: string,
+    init: RequestInit,
+    pin: PinnedAddress,
+    ownerId: number,
+  ) => Promise<Response> | Response,
+): {
+  factory: PinnedConnectionOwnerFactory;
+  pins: PinnedAddress[];
+  closed: number[];
+} {
+  const pins: PinnedAddress[] = [];
+  const closed: number[] = [];
+  const factory: PinnedConnectionOwnerFactory = async (pin) => {
+    const ownerId = pins.push(pin);
+    return {
+      fetch: async (url, init) => responder(url, init, pin, ownerId),
+      async close() {
+        closed.push(ownerId);
+      },
+    };
+  };
+  return { factory, pins, closed };
 }
 
-describe("secureFetch DNS pinning", () => {
-  it("pins dns.lookup inside fetch to the address validated at preflight", async () => {
-    const seen: { address: string; family: number }[][] = [];
-    globalThis.fetch = (async () => {
-      // Connect-time resolution path: this is what undici would do.
-      // With pinning, the lookup must return the validated address even
-      // though no real DNS server resolves "attacker.example".
-      seen.push(await lookupAll("attacker.example"));
-      return new Response("ok", { status: 200 });
-    }) as typeof fetch;
+function publicDns(address = "93.184.216.34") {
+  return async () => [{ address, family: 4 as const }];
+}
 
+describe("secureFetch request-owned connection binding", () => {
+  it("does not reuse a pre-populated global origin pool", async () => {
+    const globalFetch = vi.fn(async () => new Response("wrong pool"));
+    globalThis.fetch = globalFetch as typeof fetch;
+    const owners = fakeOwners(
+      async () => new Response("bound", { status: 200 }),
+    );
     const secureFetch = createSecureFetch({
       dangerouslyAllowFullInternetAccess: true,
       denyPrivateRanges: true,
-      // Preflight returns a public IP (passes private-range check).
-      // Pinning must use this exact address at connect time.
-      _dnsResolve: async () => [{ address: "93.184.216.34", family: 4 }],
+      _dnsResolve: publicDns(),
+      _createConnectionOwner: owners.factory,
     });
 
-    const result = await secureFetch("https://attacker.example/path");
-    expect(result.status).toBe(200);
-    expect(seen).toEqual([[{ address: "93.184.216.34", family: 4 }]]);
-    // sanity check: 93.184.216.34 is example.com — definitely not what real
-    // DNS would return for "attacker.example", proving pinning is engaged.
+    const result = await secureFetch("https://same-origin.example/data");
+
+    expect(new TextDecoder().decode(result.body)).toBe("bound");
+    expect(globalFetch).not.toHaveBeenCalled();
+    expect(owners.pins).toEqual([
+      {
+        hostname: "same-origin.example",
+        address: "93.184.216.34",
+        family: 4,
+      },
+    ]);
+    expect(owners.closed).toEqual([1]);
   });
 
-  it("does not pin when denyPrivateRanges is off (no preflight DNS validation)", async () => {
-    let lookupErr: NodeJS.ErrnoException | null = null;
-    globalThis.fetch = (async () => {
-      // No pinning context — dns.lookup of an invalid host should
-      // fall through to the real resolver and produce ENOTFOUND.
-      try {
-        await lookupAll("definitely-not-a-real-host.invalid");
-      } catch (e) {
-        lookupErr = e as NodeJS.ErrnoException;
-      }
-      return new Response("ok", { status: 200 });
-    }) as typeof fetch;
-
+  it("keeps concurrent pins for the same hostname in separate owners", async () => {
+    let resolution = 0;
+    const owners = fakeOwners(
+      async (_url, _init, pin) => new Response(pin.address),
+    );
     const secureFetch = createSecureFetch({
       dangerouslyAllowFullInternetAccess: true,
-      denyPrivateRanges: false,
+      denyPrivateRanges: true,
+      _dnsResolve: async () => [
+        {
+          address: ++resolution === 1 ? "1.1.1.1" : "8.8.8.8",
+          family: 4,
+        },
+      ],
+      _createConnectionOwner: owners.factory,
     });
 
-    const result = await secureFetch(
-      "https://definitely-not-a-real-host.invalid/x",
-    );
-    expect(result.status).toBe(200);
-    expect(lookupErr).not.toBeNull();
-    expect(lookupErr).toMatchObject({ code: "ENOTFOUND" });
+    const results = await Promise.all([
+      secureFetch("https://concurrent.example/first"),
+      secureFetch("https://concurrent.example/second"),
+    ]);
+
+    expect(
+      results.map((result) => new TextDecoder().decode(result.body)),
+    ).toEqual(["1.1.1.1", "8.8.8.8"]);
+    expect(owners.pins.map((pin) => pin.address)).toEqual([
+      "1.1.1.1",
+      "8.8.8.8",
+    ]);
+    expect(owners.closed.sort()).toEqual([1, 2]);
   });
 
-  it("re-pins on redirect to a different host", async () => {
-    const seen: { hostname: string; address: string; family: number }[] = [];
-    let firstCall = true;
-    globalThis.fetch = (async (url: string | URL | Request) => {
-      const u = new URL(typeof url === "string" ? url : url.toString());
-      const addrs = await lookupAll(u.hostname);
-      seen.push({
-        hostname: u.hostname,
-        address: addrs[0].address,
-        family: addrs[0].family,
-      });
-      if (firstCall) {
-        firstCall = false;
+  it("creates and disposes a new bound owner for every redirect hop", async () => {
+    const owners = fakeOwners(async (url, _init, pin) => {
+      if (url.includes("first.example")) {
         return new Response("", {
           status: 302,
           headers: { location: "https://second.example/landing" },
         });
       }
-      return new Response("ok", { status: 200 });
-    }) as typeof fetch;
-
+      return new Response(pin.address);
+    });
     const secureFetch = createSecureFetch({
       allowedUrlPrefixes: ["https://first.example", "https://second.example"],
       denyPrivateRanges: true,
-      _dnsResolve: async (hostname: string) => {
-        if (hostname === "first.example") {
-          return [{ address: "8.8.8.8", family: 4 }];
-        }
-        return [{ address: "1.1.1.1", family: 4 }];
-      },
+      _dnsResolve: async (hostname) => [
+        {
+          address: hostname === "first.example" ? "8.8.8.8" : "1.1.1.1",
+          family: 4,
+        },
+      ],
+      _createConnectionOwner: owners.factory,
     });
 
     const result = await secureFetch("https://first.example/start");
-    expect(result.status).toBe(200);
-    expect(seen).toEqual([
-      { hostname: "first.example", address: "8.8.8.8", family: 4 },
-      { hostname: "second.example", address: "1.1.1.1", family: 4 },
+
+    expect(new TextDecoder().decode(result.body)).toBe("1.1.1.1");
+    expect(owners.pins.map((pin) => pin.address)).toEqual([
+      "8.8.8.8",
+      "1.1.1.1",
     ]);
+    expect(owners.closed).toEqual([1, 2]);
+  });
+
+  it("fails closed before transport use when binding is unavailable", async () => {
+    const transport = vi.fn();
+    const secureFetch = createSecureFetch({
+      dangerouslyAllowFullInternetAccess: true,
+      denyPrivateRanges: true,
+      _dnsResolve: publicDns(),
+      _createConnectionOwner: async () => {
+        throw new DnsPinningUnavailableError();
+      },
+    });
+    globalThis.fetch = transport as typeof fetch;
+
+    await expect(secureFetch("https://attacker.example/path")).rejects.toThrow(
+      "Network access denied: DNS pinning unavailable for private IP enforcement",
+    );
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("uses one cumulative deadline across slow redirect hops", async () => {
+    let calls = 0;
+    const owners = fakeOwners(async (_url, init) => {
+      calls++;
+      await new Promise<void>((resolve, reject) => {
+        const id = setTimeout(resolve, 20);
+        init.signal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(id);
+            reject(init.signal?.reason);
+          },
+          { once: true },
+        );
+      });
+      return new Response("", {
+        status: 302,
+        headers: { location: `/hop-${calls}` },
+      });
+    });
+    const secureFetch = createSecureFetch({
+      dangerouslyAllowFullInternetAccess: true,
+      denyPrivateRanges: true,
+      timeoutMs: 35,
+      _dnsResolve: publicDns(),
+      _createConnectionOwner: owners.factory,
+    });
+
+    await expect(
+      secureFetch("https://slow.example/start"),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(calls).toBe(2);
+    expect(owners.closed).toEqual([1, 2]);
+  });
+
+  it("parent abort closes the live owner and prevents later effects", async () => {
+    const controller = new AbortController();
+    let laterEffect = false;
+    let requestSignal: AbortSignal | undefined;
+    const owners = fakeOwners(async (_url, init) => {
+      requestSignal = init.signal ?? undefined;
+      return await new Promise<Response>((resolve, reject) => {
+        const id = setTimeout(() => {
+          laterEffect = true;
+          resolve(new Response("late"));
+        }, 40);
+        init.signal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(id);
+            reject(init.signal?.reason);
+          },
+          { once: true },
+        );
+      });
+    });
+    const secureFetch = createSecureFetch({
+      dangerouslyAllowFullInternetAccess: true,
+      denyPrivateRanges: true,
+      _dnsResolve: publicDns(),
+      _createConnectionOwner: owners.factory,
+    });
+
+    const pending = secureFetch("https://abort.example/slow", {
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(new Error("parent stopped")), 5);
+
+    await expect(pending).rejects.toThrow("parent stopped");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(requestSignal?.aborted).toBe(true);
+    expect(owners.closed).toEqual([1]);
+    expect(laterEffect).toBe(false);
+  });
+
+  it("closes an owner whose factory fulfills after parent abort", async () => {
+    const controller = new AbortController();
+    let fetchCalled = false;
+    let closeCalls = 0;
+    const secureFetch = createSecureFetch({
+      dangerouslyAllowFullInternetAccess: true,
+      denyPrivateRanges: true,
+      _dnsResolve: publicDns(),
+      _createConnectionOwner: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        return {
+          async fetch() {
+            fetchCalled = true;
+            return new Response("late");
+          },
+          async close() {
+            closeCalls++;
+          },
+        };
+      },
+    });
+
+    const pending = secureFetch("https://late-owner.example/slow", {
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(new Error("parent stopped")), 5);
+
+    await expect(pending).rejects.toThrow("parent stopped");
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(fetchCalled).toBe(false);
+    expect(closeCalls).toBe(1);
   });
 });

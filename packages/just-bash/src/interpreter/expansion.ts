@@ -24,6 +24,7 @@ import {
   ExecutionLimitError,
   ExitError,
 } from "./errors.js";
+import { cloneArrays } from "./helpers/array.js";
 
 /**
  * Check if a string exceeds the maximum allowed length.
@@ -360,6 +361,10 @@ async function expandBracesInPartsAsync(
             item.step,
             item.startStr,
             item.endStr,
+            {
+              maxResults: ctx.limits.maxBraceExpansionResults,
+              maxStringBytes: ctx.limits.maxStringLength,
+            },
           );
           if (range.expanded) {
             for (const val of range.expanded) {
@@ -602,7 +607,11 @@ export async function expandRedirectTarget(
 
   if (hasUnquotedExpansion && !isIfsEmpty(ctx.state.env)) {
     const ifsChars = getIfs(ctx.state.env);
-    const splitWords = splitByIfsForExpansion(value, ifsChars);
+    const splitWords = splitByIfsForExpansion(
+      value,
+      ifsChars,
+      ctx.limits.maxArrayElements,
+    );
     if (splitWords.length > 1) {
       // Word splitting produces multiple words - ambiguous redirect
       return {
@@ -766,6 +775,7 @@ async function expandPart(
       // Save environment - command substitutions run in a subshell and should not
       // modify parent environment (e.g., aliases defined inside $() should not leak)
       const savedEnv = new Map(ctx.state.env);
+      const savedArrays = cloneArrays(ctx.state.arrays);
       const savedCwd = ctx.state.cwd;
       // Suppress verbose mode (set -v) inside command substitutions
       // bash only prints verbose output for the main script
@@ -776,6 +786,7 @@ async function expandPart(
         // Restore environment but preserve exit code
         const exitCode = result.exitCode;
         ctx.state.env = savedEnv;
+        ctx.state.arrays = savedArrays;
         ctx.state.cwd = savedCwd;
         ctx.state.suppressVerbose = savedSuppressVerbose;
         // Store the exit code for $?
@@ -800,6 +811,7 @@ async function expandPart(
       } catch (error) {
         // Restore environment on error as well
         ctx.state.env = savedEnv;
+        ctx.state.arrays = savedArrays;
         ctx.state.cwd = savedCwd;
         ctx.state.bashPid = savedBashPid;
         ctx.substitutionDepth = savedDepth;
@@ -866,6 +878,10 @@ async function expandPart(
             item.step,
             item.startStr,
             item.endStr,
+            {
+              maxResults: ctx.limits.maxBraceExpansionResults,
+              maxStringBytes: ctx.limits.maxStringLength,
+            },
           );
           if (range.expanded) {
             results.push(...range.expanded);

@@ -159,13 +159,20 @@ async function executeScript(
   // Forward our already-byte-shaped stdin verbatim — `stdinKind: "bytes"`
   // tells the nested exec entry to skip the default text-mode UTF-8
   // encoding and avoid double-encoding.
-  const result = await ctx.exec(scriptToRun, {
-    env: positionalEnv,
-    cwd: ctx.cwd,
-    stdin: latin1FromBytes(ctx.stdin),
-    stdinKind: "bytes",
-    signal: ctx.signal,
-  });
+  const nestedExec = ctx.execWithInheritedStdin;
+  const result = nestedExec
+    ? await nestedExec(scriptToRun, {
+        env: positionalEnv,
+        cwd: ctx.cwd,
+        signal: ctx.signal,
+      })
+    : await ctx.exec(scriptToRun, {
+        env: positionalEnv,
+        cwd: ctx.cwd,
+        stdin: latin1FromBytes(ctx.stdin),
+        stdinKind: "bytes",
+        signal: ctx.signal,
+      });
   return result;
 }
 

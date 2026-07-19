@@ -47,13 +47,42 @@ export function normalizeAllowListEntry(entry: string): {
   };
 }
 
-function hasAmbiguousPathSeparators(pathname: string): boolean {
-  if (pathname.includes("\\")) {
-    return true;
+const MAX_PATH_DECODE_PASSES = 3;
+
+/**
+ * Reject path forms whose meaning can change after common proxy or
+ * application-server canonicalization. Path-scoped entries are authority
+ * boundaries, so invalid escapes and nested encodings fail closed.
+ */
+function hasAmbiguousPathSyntax(pathname: string): boolean {
+  let candidate = pathname;
+
+  for (let pass = 0; pass < MAX_PATH_DECODE_PASSES; pass++) {
+    if (candidate.includes("\\") || candidate.includes(";")) return true;
+    if (/%(?![0-9a-f]{2})/i.test(candidate)) return true;
+
+    const normalized = candidate.toLowerCase();
+    if (
+      normalized.includes("%2f") ||
+      normalized.includes("%2e") ||
+      normalized.includes("%5c") ||
+      normalized.includes("%3b")
+    ) {
+      return true;
+    }
+
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(candidate);
+    } catch {
+      return true;
+    }
+    if (decoded === candidate) return false;
+    candidate = decoded;
   }
 
-  const normalized = pathname.toLowerCase();
-  return normalized.includes("%2f") || normalized.includes("%5c");
+  // Do not let an upstream with a deeper decode stack reinterpret a path.
+  return candidate.includes("%");
 }
 
 function matchesPathPrefix(pathname: string, pathPrefix: string): boolean {
@@ -103,7 +132,7 @@ export function matchesAllowListEntry(
   if (
     normalizedEntry.pathPrefix !== "/" &&
     normalizedEntry.pathPrefix !== "" &&
-    hasAmbiguousPathSeparators(parsedUrl.pathname)
+    hasAmbiguousPathSyntax(parsedUrl.pathname)
   ) {
     return false;
   }
@@ -443,7 +472,7 @@ export function validateAllowList(
     if (
       url.pathname !== "/" &&
       url.pathname !== "" &&
-      hasAmbiguousPathSeparators(url.pathname)
+      hasAmbiguousPathSyntax(url.pathname)
     ) {
       errors.push(
         `Allow-list entry contains ambiguous path separators: "${entry}"`,

@@ -4,6 +4,7 @@
  * Handles path manipulation functions like getpath, setpath, delpaths, paths, etc.
  */
 
+import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
 import { asQueryRecord } from "../safe-object.js";
@@ -34,6 +35,38 @@ type CollectPathsFn = (
   currentPath: (string | number)[],
   paths: (string | number)[][],
 ) => void;
+
+function validateBoundedPath(
+  path: unknown,
+  ctx: EvalContext,
+): (string | number)[] {
+  if (!Array.isArray(path)) throw new Error("path must be an array");
+  const maxDepth = ctx.limits.maxDepth;
+  if (path.length > maxDepth) {
+    throw new ExecutionLimitError(
+      `query depth limit exceeded (${maxDepth})`,
+      "recursion",
+    );
+  }
+  const maxElements = ctx.limits.maxArrayElements;
+  for (const component of path) {
+    if (typeof component === "number") {
+      if (
+        !Number.isSafeInteger(component) ||
+        component < 0 ||
+        component >= maxElements
+      ) {
+        throw new ExecutionLimitError(
+          `query array index limit exceeded (${maxElements})`,
+          "array_elements",
+        );
+      }
+    } else if (typeof component !== "string") {
+      throw new Error("path components must be strings or integers");
+    }
+  }
+  return path;
+}
 
 /**
  * Handle path builtins that need evaluate function for arguments.
@@ -88,7 +121,7 @@ export function evalPathBuiltin(
     case "setpath": {
       if (args.length < 2) return [null];
       const paths = evaluate(value, args[0], ctx);
-      const path = paths[0] as (string | number)[];
+      const path = validateBoundedPath(paths[0], ctx);
       const vals = evaluate(value, args[1], ctx);
       const newVal = vals[0];
       return [setPath(value, path, newVal)];
@@ -128,12 +161,14 @@ export function evalPathBuiltin(
       // Build result object with only the picked paths
       let result: QueryValue = null;
       for (const path of allPaths) {
-        // Check for negative indices which are not allowed
+        // Preserve jq's established error for the `last` sentinel before the
+        // generic configured-index ceiling classifies all negative numbers.
         for (const key of path) {
           if (typeof key === "number" && key < 0) {
             throw new Error("Out of bounds negative array index");
           }
         }
+        validateBoundedPath(path, ctx);
         // Get the value at this path from the input
         let current: QueryValue = value;
         for (const key of path) {

@@ -21,7 +21,7 @@ export type Expression =
       matchType: "exact" | "all" | "any"; // exact, -mode (all), /mode (any)
     }
   | { type: "prune" } // Returns true and prevents descending into directories
-  | { type: "print" } // Returns true and marks path for printing
+  | { type: "action"; action: FindAction }
   | { type: "not"; expr: Expression }
   | { type: "and"; left: Expression; right: Expression }
   | { type: "or"; left: Expression; right: Expression };
@@ -55,7 +55,8 @@ export interface EvalContext {
 export interface EvalResult {
   matches: boolean;
   pruned: boolean; // Set to true if -prune was evaluated and matched
-  printed: boolean; // Set to true if -print was evaluated and matched
+  printed: boolean; // Kept for the prune-only fast path
+  actions?: FindAction[]; // Actions reached while evaluating this entry
 }
 
 // Parse result from expression parser
@@ -63,5 +64,4 @@ export interface ParseResult {
   expr: Expression | null;
   pathIndex: number;
   error?: string;
-  actions: FindAction[];
 }

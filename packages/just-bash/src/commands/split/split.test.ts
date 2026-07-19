@@ -2,6 +2,51 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
 describe("split", () => {
+  describe("destructive-write preflight", () => {
+    it("rejects an output name that aliases the input before writing", async () => {
+      const bash = new Bash({ files: { "/xaa": "original" } });
+      const result = await bash.exec("split -b 1 /xaa x");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("would overwrite input");
+      expect(await bash.readFile("/xaa")).toBe("original");
+      await expect(bash.readFile("/xab")).rejects.toThrow();
+    });
+
+    it("rejects alphabetic suffix exhaustion before overwriting files", async () => {
+      const bash = new Bash({
+        files: { "/input": "x".repeat(27), "/xa": "preserve" },
+      });
+      const result = await bash.exec("split -a 1 -b 1 /input x");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("suffixes exhausted");
+      expect(await bash.readFile("/xa")).toBe("preserve");
+    });
+
+    it("rejects extra positional operands", async () => {
+      const bash = new Bash({ files: { "/input": "data" } });
+      const result = await bash.exec("split /input x ignored");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("extra operand");
+      await expect(bash.readFile("/xaa")).rejects.toThrow();
+    });
+
+    it("preserves arbitrary bytes across chunk boundaries", async () => {
+      const bash = new Bash({
+        files: { "/input": new Uint8Array([0, 0x7f, 0x80, 0xff, 10]) },
+      });
+      const result = await bash.exec("split -b 2 /input out-");
+      expect(result.exitCode).toBe(0);
+      const chunks = await Promise.all([
+        bash.fs.readFileBuffer("/out-aa"),
+        bash.fs.readFileBuffer("/out-ab"),
+        bash.fs.readFileBuffer("/out-ac"),
+      ]);
+      expect(Array.from(chunks.flatMap((chunk) => Array.from(chunk)))).toEqual([
+        0, 0x7f, 0x80, 0xff, 10,
+      ]);
+    });
+  });
+
   describe("basic functionality", () => {
     it("splits file into 1000-line chunks by default", async () => {
       // Create a file with 2500 lines

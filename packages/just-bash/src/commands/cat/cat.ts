@@ -1,7 +1,8 @@
-import { latin1FromBytes } from "../../encoding.js";
+import { latin1FromBytes, readBytesFrom } from "../../encoding.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
-import { readFiles } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const catHelp = {
@@ -85,12 +86,12 @@ export const catCommand: Command = {
 
     const files = parsed.result.positional;
 
-    // Read files (allows "-" for stdin)
-    const readResult = await readFiles(ctx, files, {
-      cmdName: "cat",
-      allowStdinMarker: true,
-      stopOnError: false,
-    });
+    const maxStringLength = ctx.limits.maxStringLength;
+    const maxOutputSize = Math.min(maxStringLength, ctx.limits.maxOutputSize);
+    const inputs = files.length === 0 ? ["-"] : files;
+    let stderr = "";
+    let exitCode = 0;
+    let aggregateInputBytes = 0;
 
     let stdout: string;
     const transform =
@@ -101,21 +102,40 @@ export const catCommand: Command = {
       numberAll ||
       numberNonblank;
 
+    let stream = "";
+    for (const file of inputs) {
+      try {
+        const content =
+          file === "-"
+            ? ctx.stdin
+            : await readBytesFrom(ctx.fs, ctx.fs.resolvePath(ctx.cwd, file));
+        const rawContent = latin1FromBytes(content);
+        const contentLength = rawContent.length;
+        const inputLimit = transform ? maxStringLength : maxOutputSize;
+        if (contentLength > inputLimit - aggregateInputBytes) {
+          throw new ExecutionLimitError(
+            `cat: ${transform ? "input" : "output"} size limit exceeded (${inputLimit} bytes)`,
+            transform ? "string_length" : "output_size",
+          );
+        }
+        aggregateInputBytes += contentLength;
+        stream += rawContent;
+      } catch (error) {
+        rethrowFatalExecutionError(error);
+        stderr += `cat: ${file}: No such file or directory\n`;
+        exitCode = 1;
+      }
+    }
+
     if (!transform) {
-      // Byte-clean fast path: emit raw bytes unchanged. The output boundary
-      // (Bash.exec) decodes UTF-8 sequences back to Unicode for terminals.
-      stdout = "";
-      for (const { content } of readResult.files) {
-        stdout += latin1FromBytes(content);
-      }
+      stdout = stream;
     } else {
-      // Numbering and squeeze state continue across all inputs, so process
-      // the concatenated byte stream as a single unit.
-      let stream = "";
-      for (const { content } of readResult.files) {
-        stream += latin1FromBytes(content);
-      }
-      stdout = formatCat(stream, opts);
+      stdout = formatCat(
+        stream,
+        opts,
+        maxOutputSize,
+        ctx.limits.maxArrayElements,
+      );
     }
 
     // cat is byte-clean: it forwards every byte of stdin / file content
@@ -125,8 +145,8 @@ export const catCommand: Command = {
     // smart-utf8 encoding path that would otherwise double-encode.
     return {
       stdout,
-      stderr: readResult.stderr,
-      exitCode: readResult.exitCode,
+      stderr,
+      exitCode,
       stdoutEncoding: "binary",
     };
   },
@@ -150,17 +170,30 @@ function showNonprintingByte(byte: number): string {
 }
 
 /** Apply -v / -T transforms to a single line's bytes (excludes the newline). */
-function transformLine(line: string, opts: CatOptions): string {
+function transformLine(
+  line: string,
+  opts: CatOptions,
+  maxLength: number,
+): string {
   if (!opts.showNonprinting && !opts.showTabs) return line;
   let out = "";
+  const append = (value: string): void => {
+    if (value.length > maxLength - out.length) {
+      throw new ExecutionLimitError(
+        `cat: output size limit exceeded`,
+        "output_size",
+      );
+    }
+    out += value;
+  };
   for (let i = 0; i < line.length; i++) {
     const b = line.charCodeAt(i);
     if (b === 9) {
-      out += opts.showTabs ? "^I" : "\t";
+      append(opts.showTabs ? "^I" : "\t");
     } else if (opts.showNonprinting) {
-      out += showNonprintingByte(b);
+      append(showNonprintingByte(b));
     } else {
-      out += line[i];
+      append(line[i]);
     }
   }
   return out;
@@ -170,11 +203,35 @@ function transformLine(line: string, opts: CatOptions): string {
  * Format the concatenated byte stream applying numbering, squeeze, and the
  * -v/-T/-E transforms in GNU per-line order.
  */
-function formatCat(stream: string, opts: CatOptions): string {
+function formatCat(
+  stream: string,
+  opts: CatOptions,
+  maxOutputSize: number,
+  maxArrayElements: number,
+): string {
+  let partCount = 1;
+  for (let i = 0; i < stream.length; i++) {
+    if (stream.charCodeAt(i) === 10) partCount++;
+    if (partCount > maxArrayElements) {
+      throw new ExecutionLimitError(
+        `cat: array element limit exceeded (${maxArrayElements})`,
+        "array_elements",
+      );
+    }
+  }
   const parts = stream.split("\n");
   let out = "";
   let lineNo = 1;
   let prevBlank = false;
+  const append = (value: string): void => {
+    if (value.length > maxOutputSize - out.length) {
+      throw new ExecutionLimitError(
+        `cat: output size limit exceeded (${maxOutputSize} bytes)`,
+        "output_size",
+      );
+    }
+    out += value;
+  };
 
   for (let i = 0; i < parts.length; i++) {
     const isLast = i === parts.length - 1;
@@ -199,9 +256,16 @@ function formatCat(stream: string, opts: CatOptions): string {
       lineNo++;
     }
 
-    out += prefix + transformLine(content, opts);
+    const remaining = maxOutputSize - out.length - prefix.length;
+    if (remaining < 0) {
+      throw new ExecutionLimitError(
+        `cat: output size limit exceeded (${maxOutputSize} bytes)`,
+        "output_size",
+      );
+    }
+    append(prefix + transformLine(content, opts, remaining));
     if (terminated) {
-      out += opts.showEnds ? "$\n" : "\n";
+      append(opts.showEnds ? "$\n" : "\n");
     }
   }
 

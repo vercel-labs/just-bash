@@ -297,6 +297,8 @@ export const curlCommand: Command = {
         body,
         followRedirects: options.followRedirects,
         timeoutMs: options.timeoutMs,
+        maxRedirects: options.maxRedirects,
+        signal: ctx.signal,
       });
 
       // Save cookies if requested

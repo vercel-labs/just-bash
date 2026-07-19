@@ -165,7 +165,7 @@ export async function cmdImplode(
   let currentRow: CsvRow | null = null;
 
   for (const row of data) {
-    const key = keyCols.map((k) => String(row[k] ?? "")).join("\0");
+    const key = JSON.stringify(keyCols.map((k) => String(row[k] ?? "")));
     const value = row[column];
     const strValue = value === null || value === undefined ? "" : String(value);
 
@@ -419,45 +419,58 @@ export async function cmdPivot(
   // Group data
   const groups = new Map<
     string,
-    Map<string, (string | number | boolean | null)[]>
+    {
+      keyParts: string[];
+      pivots: Map<string, (string | number | boolean | null)[]>;
+    }
   >();
   const groupOrder: string[] = [];
 
   for (const row of data) {
-    const groupKey = groupCols.map((c) => String(row[c] ?? "")).join("\0");
+    const groupKeyParts = groupCols.map((c) => String(row[c] ?? ""));
+    const groupKey = JSON.stringify(groupKeyParts);
     const pivotVal = String(row[pivotCol] ?? "");
     const aggVal = row[aggCol];
 
     if (!groups.has(groupKey)) {
-      groups.set(groupKey, new Map());
+      groups.set(groupKey, { keyParts: groupKeyParts, pivots: new Map() });
       groupOrder.push(groupKey);
     }
     const group = groups.get(groupKey);
     if (!group) continue;
-    if (!group.has(pivotVal)) {
-      group.set(pivotVal, []);
+    if (!group.pivots.has(pivotVal)) {
+      group.pivots.set(pivotVal, []);
     }
-    group.get(pivotVal)?.push(aggVal);
+    group.pivots.get(pivotVal)?.push(aggVal);
   }
 
   // Build output
+  const collidingHeader = pivotValues.find((value) =>
+    groupCols.includes(value),
+  );
+  if (collidingHeader !== undefined) {
+    return {
+      stdout: "",
+      stderr: `xan pivot: duplicate output header '${collidingHeader}'\n`,
+      exitCode: 1,
+    };
+  }
   const newHeaders = [...groupCols, ...pivotValues];
   const newData: CsvData = [];
 
   for (const groupKey of groupOrder) {
-    const groupKeyParts = groupKey.split("\0");
     const group = groups.get(groupKey);
     if (!group) continue;
     const row: CsvRow = createSafeRow();
 
     // Add group key values
     for (let i = 0; i < groupCols.length; i++) {
-      safeSetRow(row, groupCols[i], groupKeyParts[i]);
+      safeSetRow(row, groupCols[i], group.keyParts[i]);
     }
 
     // Add aggregated values for each pivot column
     for (const pivotVal of pivotValues) {
-      const values = group.get(pivotVal) || [];
+      const values = group.pivots.get(pivotVal) || [];
       safeSetRow(row, pivotVal, computeSimpleAgg(aggFunc, values));
     }
 

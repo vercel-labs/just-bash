@@ -41,6 +41,7 @@ import {
 } from "../path-utils.js";
 import {
   isPathWithinRoot,
+  isSameOrDescendantPath,
   normalizePath,
   resolveCanonicalPath,
   resolveCanonicalPathNoSymlinks,
@@ -58,12 +59,14 @@ interface MemoryFileEntry {
   content: Uint8Array;
   mode: number;
   mtime: Date;
+  identity?: string;
 }
 
 interface MemoryDirEntry {
   type: "directory";
   mode: number;
   mtime: Date;
+  identity?: string;
 }
 
 interface MemorySymlinkEntry {
@@ -122,6 +125,15 @@ export class OverlayFs implements IFileSystem {
   private readonly allowSymlinks: boolean;
   private readonly memory: Map<string, MemoryEntry> = new Map();
   private readonly deleted: Set<string> = new Set();
+  private nextMemoryIdentity = 1;
+
+  private identityFor(entry: MemoryEntry): string {
+    if (entry.type === "symlink") return "";
+    if (!entry.identity) {
+      entry.identity = `overlay:${this.nextMemoryIdentity++}`;
+    }
+    return entry.identity;
+  }
 
   constructor(options: OverlayFsOptions) {
     // Resolve to absolute path
@@ -580,6 +592,7 @@ export class OverlayFs implements IFileSystem {
         mode: entry.mode,
         size,
         mtime: entry.mtime,
+        identity: this.identityFor(entry),
       };
     }
 
@@ -611,6 +624,8 @@ export class OverlayFs implements IFileSystem {
         mode: lstatResult.mode,
         size: lstatResult.size,
         mtime: lstatResult.mtime,
+        dev: lstatResult.dev,
+        ino: lstatResult.ino,
       };
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") {
@@ -654,6 +669,7 @@ export class OverlayFs implements IFileSystem {
         mode: entry.mode,
         size,
         mtime: entry.mtime,
+        identity: this.identityFor(entry),
       };
     }
 
@@ -675,6 +691,8 @@ export class OverlayFs implements IFileSystem {
         mode: stat.mode,
         size: stat.size,
         mtime: stat.mtime,
+        dev: stat.dev,
+        ino: stat.ino,
       };
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") {
@@ -1036,6 +1054,9 @@ export class OverlayFs implements IFileSystem {
       if (!options?.recursive) {
         throw new Error(`EISDIR: is a directory, cp '${src}'`);
       }
+      if (isSameOrDescendantPath(srcNorm, destNorm)) {
+        throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
+      }
       await this.mkdir(destNorm, { recursive: true });
       const children = await this.readdir(srcNorm);
       for (const child of children) {
@@ -1192,6 +1213,7 @@ export class OverlayFs implements IFileSystem {
       content,
       mode: existingStat.mode,
       mtime: new Date(),
+      identity: existingStat.identity ?? `overlay:${this.nextMemoryIdentity++}`,
     });
     this.deleted.delete(newNorm);
   }

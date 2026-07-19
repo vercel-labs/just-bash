@@ -146,20 +146,14 @@ describe("allow-list bypass attempts", () => {
       await expectBlocked(env, "https://api.example.com/v1/%2e%2e/v2/users");
     });
 
-    it("handles double-encoded path traversal - encoded dots stay encoded", async () => {
+    it("blocks double-encoded path traversal", async () => {
       const env = createBashEnvAdapter({
         network: { allowedUrlPrefixes: ["https://api.example.com/v1/"] },
       });
-      // %252e = %2e after single decode, which stays in path as literal %2e
-      // The path /v1/%252e%252e/v2/users starts with /v1/ so it's allowed
-      // This is correct - the encoded chars are not interpreted as traversal
-      const result = await env.exec(
-        'curl "https://api.example.com/v1/%252e%252e/v2/users"',
+      await expectBlocked(
+        env,
+        "https://api.example.com/v1/%252e%252e/v2/users",
       );
-      // Should pass allow-list (path starts with /v1/), returns 404 from mock
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toBe("Not Found");
-      expect(result.stderr).toBe("");
     });
 
     it("blocks backslash path traversal", async () => {

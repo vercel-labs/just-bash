@@ -43,13 +43,15 @@ function parseRange(spec: string): CutRange[] {
 
 function extractByRanges(items: string[], ranges: CutRange[]): string[] {
   const result: string[] = [];
+  const selectedIndices = new Set<number>();
 
   for (const range of ranges) {
     const start = range.start - 1; // Convert to 0-indexed
     const end = range.end === null ? items.length : range.end;
 
     for (let i = start; i < end && i < items.length; i++) {
-      if (i >= 0 && !result.includes(items[i])) {
+      if (i >= 0 && !selectedIndices.has(i)) {
+        selectedIndices.add(i);
         result.push(items[i]);
       }
     }

@@ -4,6 +4,7 @@
  * Recursive descent parser that builds an AST from tokens.
  */
 
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type {
   AwkArrayAccess,
   AwkBlock,
@@ -19,14 +20,64 @@ import type {
 import { AwkLexer, type Token, TokenType } from "./lexer.js";
 import { parsePrintfStatement, parsePrintStatement } from "./parser2-print.js";
 
+export interface AwkParserLimits {
+  maxSourceLength?: number;
+  maxTokens?: number;
+  maxDepth?: number;
+  maxOperations?: number;
+}
+
 export class AwkParser {
   tokens: Token[] = [];
   pos = 0;
+  private depth = 0;
+  private operations = 0;
+  private readonly limits: Required<AwkParserLimits>;
+
+  constructor(limits: AwkParserLimits = {}) {
+    this.limits = {
+      maxSourceLength: limits.maxSourceLength ?? 10 * 1024 * 1024,
+      maxTokens: limits.maxTokens ?? 100_000,
+      maxDepth: limits.maxDepth ?? 100,
+      maxOperations: limits.maxOperations ?? 100_000,
+    };
+  }
 
   parse(input: string): AwkProgram {
-    const lexer = new AwkLexer(input);
+    if (input.length > this.limits.maxSourceLength) {
+      throw new ExecutionLimitError(
+        `awk: source length limit exceeded (${this.limits.maxSourceLength})`,
+        "string_length",
+      );
+    }
+    const lexer = new AwkLexer(input, this.limits.maxTokens);
     this.tokens = lexer.tokenize();
     this.pos = 0;
+    this.depth = 0;
+    this.operations = 0;
+    let delimiterDepth = 0;
+    for (const token of this.tokens) {
+      this.useOperation();
+      if (
+        token.type === TokenType.LPAREN ||
+        token.type === TokenType.LBRACKET ||
+        token.type === TokenType.LBRACE
+      ) {
+        delimiterDepth++;
+        if (delimiterDepth > this.limits.maxDepth) {
+          throw new ExecutionLimitError(
+            `awk: parser depth limit exceeded (${this.limits.maxDepth})`,
+            "recursion",
+          );
+        }
+      } else if (
+        token.type === TokenType.RPAREN ||
+        token.type === TokenType.RBRACKET ||
+        token.type === TokenType.RBRACE
+      ) {
+        delimiterDepth = Math.max(0, delimiterDepth - 1);
+      }
+    }
     return this.parseProgram();
   }
 
@@ -48,11 +99,46 @@ export class AwkParser {
   }
 
   advance(): Token {
+    this.useOperation();
     const token = this.current();
     if (this.pos < this.tokens.length) {
       this.pos++;
     }
     return token;
+  }
+
+  useOperation(count = 1): void {
+    if (count > this.limits.maxOperations - this.operations) {
+      throw new ExecutionLimitError(
+        `awk: parser operation limit exceeded (${this.limits.maxOperations})`,
+        "iterations",
+      );
+    }
+    this.operations += count;
+  }
+
+  withDepth<T>(operation: () => T): T {
+    if (this.depth >= this.limits.maxDepth) {
+      throw new ExecutionLimitError(
+        `awk: parser depth limit exceeded (${this.limits.maxDepth})`,
+        "recursion",
+      );
+    }
+    this.depth++;
+    try {
+      return operation();
+    } finally {
+      this.depth--;
+    }
+  }
+
+  assertArrayLength(length: number): void {
+    if (length >= this.limits.maxTokens) {
+      throw new ExecutionLimitError(
+        `awk: AST array limit exceeded (${this.limits.maxTokens})`,
+        "array_elements",
+      );
+    }
   }
 
   match(...types: TokenType[]): boolean {
@@ -461,7 +547,7 @@ export class AwkParser {
   // ─── Expression parsing (precedence climbing) ──────────────
 
   parseExpression(): AwkExpr {
-    return this.parseAssignment();
+    return this.withDepth(() => this.parseAssignment());
   }
 
   private parseAssignment(): AwkExpr {
@@ -479,7 +565,7 @@ export class AwkParser {
       )
     ) {
       const opToken = this.advance();
-      const value = this.parseAssignment();
+      const value = this.parseExpression();
 
       if (
         expr.type !== "variable" &&
@@ -760,7 +846,7 @@ export class AwkParser {
     // Prefix increment/decrement
     if (this.check(TokenType.INCREMENT)) {
       this.advance();
-      const operand = this.parseUnary();
+      const operand = this.withDepth(() => this.parseUnary());
       if (
         operand.type !== "variable" &&
         operand.type !== "field" &&
@@ -782,7 +868,7 @@ export class AwkParser {
 
     if (this.check(TokenType.DECREMENT)) {
       this.advance();
-      const operand = this.parseUnary();
+      const operand = this.withDepth(() => this.parseUnary());
       if (
         operand.type !== "variable" &&
         operand.type !== "field" &&
@@ -806,7 +892,7 @@ export class AwkParser {
     // In AWK, -2^2 = -(2^2) = -4, so unary binds looser than exponent
     if (this.match(TokenType.NOT, TokenType.MINUS, TokenType.PLUS)) {
       const op = this.advance().value as "!" | "-" | "+";
-      const operand = this.parseUnary();
+      const operand = this.withDepth(() => this.parseUnary());
       return { type: "unary", operator: op, operand };
     }
 
@@ -821,7 +907,7 @@ export class AwkParser {
       // Exponent is right-associative, and binds tighter than unary
       // So 2^3^2 = 2^(3^2) = 2^9 = 512
       // But -2^2 = -(2^2) = -4 (unary handled in parseUnary)
-      const right = this.parsePower();
+      const right = this.withDepth(() => this.parsePower());
       left = { type: "binary", operator: "^", left, right };
     }
 
@@ -875,7 +961,7 @@ export class AwkParser {
     // Prefix increment/decrement for field index
     if (this.check(TokenType.INCREMENT)) {
       this.advance();
-      const operand = this.parseFieldIndex();
+      const operand = this.withDepth(() => this.parseFieldIndex());
       if (
         operand.type !== "variable" &&
         operand.type !== "field" &&
@@ -895,7 +981,7 @@ export class AwkParser {
 
     if (this.check(TokenType.DECREMENT)) {
       this.advance();
-      const operand = this.parseFieldIndex();
+      const operand = this.withDepth(() => this.parseFieldIndex());
       if (
         operand.type !== "variable" &&
         operand.type !== "field" &&
@@ -916,7 +1002,7 @@ export class AwkParser {
     // Unary operators (-, +, !)
     if (this.match(TokenType.NOT, TokenType.MINUS, TokenType.PLUS)) {
       const op = this.advance().value as "!" | "-" | "+";
-      const operand = this.parseFieldIndex();
+      const operand = this.withDepth(() => this.parseFieldIndex());
       return { type: "unary", operator: op, operand };
     }
 
@@ -932,7 +1018,7 @@ export class AwkParser {
 
     if (this.check(TokenType.CARET)) {
       this.advance();
-      const right = this.parseFieldIndexPower();
+      const right = this.withDepth(() => this.parseFieldIndexPower());
       left = { type: "binary", operator: "^", left, right };
     }
 

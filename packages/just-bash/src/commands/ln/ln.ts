@@ -63,6 +63,13 @@ export const lnCommand: Command = {
     if (remaining.length < 2) {
       return { stdout: "", stderr: "ln: missing file operand\n", exitCode: 1 };
     }
+    if (remaining.length > 2) {
+      return {
+        stdout: "",
+        stderr: `ln: extra operand '${remaining[2]}'\n`,
+        exitCode: 1,
+      };
+    }
 
     const target = remaining[0];
     const linkName = remaining[1];

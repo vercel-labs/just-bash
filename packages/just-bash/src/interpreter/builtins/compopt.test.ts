@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { ExecutionScope } from "../../execution-scope.js";
+import { resolveLimits } from "../../limits.js";
 import type { InterpreterContext, InterpreterState } from "../types.js";
 import { handleComplete } from "./complete.js";
 import { handleCompopt } from "./compopt.js";
@@ -61,6 +63,7 @@ function createMockCtx(): InterpreterContext {
     fs: {} as unknown as InterpreterContext["fs"],
     commands: {} as unknown as InterpreterContext["commands"],
     limits: {} as unknown as InterpreterContext["limits"],
+    executionScope: new ExecutionScope(resolveLimits()),
     execFn: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
     executeScript: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
     executeStatement: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
@@ -101,7 +104,7 @@ describe("compopt builtin", () => {
     ]);
     expect(result.exitCode).toBe(0);
 
-    const spec = ctx.state.completionSpecs?.get("__default__");
+    const spec = ctx.state.defaultCompletionSpec;
     expect(spec).toBeDefined();
     expect(spec?.options).toContain("nospace");
     expect(spec?.options).toContain("filenames");
@@ -112,7 +115,7 @@ describe("compopt builtin", () => {
     const result = handleCompopt(ctx, ["-E", "-o", "default"]);
     expect(result.exitCode).toBe(0);
 
-    const spec = ctx.state.completionSpecs?.get("__empty__");
+    const spec = ctx.state.emptyCompletionSpec;
     expect(spec).toBeDefined();
     expect(spec?.options).toContain("default");
   });

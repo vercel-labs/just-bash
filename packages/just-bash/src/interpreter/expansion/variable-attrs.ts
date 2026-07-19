@@ -4,6 +4,7 @@
  * Functions for getting variable attributes (${var@a} transformation).
  */
 
+import { getArray } from "../helpers/array.js";
 import { isNameref } from "../helpers/nameref.js";
 import { isReadonly } from "../helpers/readonly.js";
 import type { InterpreterContext } from "../types.js";
@@ -31,13 +32,8 @@ export function getVariableAttributes(
 
   let attrs = "";
 
-  // Check for indexed array (has numeric elements via name_0, name_1, etc. or __length marker)
-  const isIndexedArray =
-    ctx.state.env.has(`${name}__length`) ||
-    Array.from(ctx.state.env.keys()).some(
-      (k) =>
-        k.startsWith(`${name}_`) && /^[0-9]+$/.test(k.slice(name.length + 1)),
-    );
+  // Check the structured array kind.
+  const isIndexedArray = getArray(ctx, name)?.kind === "indexed";
 
   // Check for associative array
   const isAssocArray = ctx.state.associativeArrays?.has(name) ?? false;

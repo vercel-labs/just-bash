@@ -17,14 +17,25 @@ import type {
   ForNode,
   HereDocNode,
   IfNode,
+  StatementNode,
   UntilNode,
   WhileNode,
   WordNode,
 } from "../ast/types.js";
+import { utf8ByteLength } from "../encoding.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import { matchPattern } from "./conditionals.js";
-import { BreakError, ContinueError, GlobError } from "./errors.js";
+import {
+  BreakError,
+  ContinueError,
+  ErrexitError,
+  ExecutionLimitError,
+  ExitError,
+  GlobError,
+  isScopeExitError,
+  SubshellExitError,
+} from "./errors.js";
 import {
   escapeGlobChars,
   expandWord,
@@ -32,35 +43,120 @@ import {
   isWordFullyQuoted,
 } from "./expansion.js";
 import { executeCondition } from "./helpers/condition.js";
+import { getErrorMessage } from "./helpers/errors.js";
 import { handleLoopError } from "./helpers/loop.js";
-import { failure, result, throwExecutionLimit } from "./helpers/result.js";
-import { executeStatements } from "./helpers/statements.js";
+import { failure, throwExecutionLimit } from "./helpers/result.js";
 import { applyRedirections, preOpenOutputRedirects } from "./redirections.js";
 import type { InterpreterContext } from "./types.js";
+
+class CompoundOutput {
+  private stdoutChunks: string[] = [];
+  private stderrChunks: string[] = [];
+  private totalBytes = 0;
+
+  constructor(private readonly ctx: InterpreterContext) {}
+
+  append(stdout: string, stderr: string): void {
+    const addedBytes = utf8ByteLength(stdout) + utf8ByteLength(stderr);
+    if (addedBytes > this.ctx.limits.maxOutputSize - this.totalBytes) {
+      throwExecutionLimit(
+        `total output size exceeded (>${this.ctx.limits.maxOutputSize} bytes), increase executionLimits.maxOutputSize`,
+        "output_size",
+      );
+    }
+    if (stdout) this.stdoutChunks.push(stdout);
+    if (stderr) this.stderrChunks.push(stderr);
+    this.totalBytes += addedBytes;
+  }
+
+  /** Append output synthesized here rather than relayed from a child. */
+  appendUnaccounted(stdout: string, stderr: string): void {
+    this.ctx.executionScope.appendOutput("stdout", stdout, "control-flow");
+    this.ctx.executionScope.appendOutput("stderr", stderr, "control-flow");
+    this.append(stdout, stderr);
+  }
+
+  replace(stdout: string, stderr: string): void {
+    this.stdoutChunks = [];
+    this.stderrChunks = [];
+    this.totalBytes = 0;
+    this.append(stdout, stderr);
+  }
+
+  get stdout(): string {
+    return this.stdoutChunks.join("");
+  }
+
+  get stderr(): string {
+    return this.stderrChunks.join("");
+  }
+
+  /** Preserve child accounting while relaying compound-command output. */
+  build(exitCode: number): ExecResult {
+    const stdout = this.stdout;
+    const stderr = this.stderr;
+    return {
+      stdout,
+      stderr,
+      exitCode,
+      internalOutputAccounting: {
+        stdout: utf8ByteLength(stdout),
+        stderr: utf8ByteLength(stderr),
+      },
+    };
+  }
+}
+
+async function executeBoundedStatements(
+  ctx: InterpreterContext,
+  statements: StatementNode[],
+  output: CompoundOutput,
+): Promise<ExecResult> {
+  let exitCode = 0;
+  try {
+    for (const statement of statements) {
+      const statementResult = await ctx.executeStatement(statement);
+      output.append(statementResult.stdout, statementResult.stderr);
+      exitCode = statementResult.exitCode;
+    }
+  } catch (error) {
+    if (
+      isScopeExitError(error) ||
+      error instanceof ErrexitError ||
+      error instanceof ExitError ||
+      error instanceof ExecutionLimitError ||
+      error instanceof SubshellExitError
+    ) {
+      error.prependOutput(output.stdout, output.stderr);
+      throw error;
+    }
+    output.appendUnaccounted("", `${getErrorMessage(error)}\n`);
+    return output.build(1);
+  }
+  return output.build(exitCode);
+}
 
 export async function executeIf(
   ctx: InterpreterContext,
   node: IfNode,
 ): Promise<ExecResult> {
-  let stdout = "";
-  let stderr = "";
+  const output = new CompoundOutput(ctx);
 
   for (const clause of node.clauses) {
     // Condition evaluation should not trigger errexit
     const condResult = await executeCondition(ctx, clause.condition);
-    stdout += condResult.stdout;
-    stderr += condResult.stderr;
+    output.append(condResult.stdout, condResult.stderr);
 
     if (condResult.exitCode === 0) {
-      return executeStatements(ctx, clause.body, stdout, stderr);
+      return executeBoundedStatements(ctx, clause.body, output);
     }
   }
 
   if (node.elseBody) {
-    return executeStatements(ctx, node.elseBody, stdout, stderr);
+    return executeBoundedStatements(ctx, node.elseBody, output);
   }
 
-  return result(stdout, stderr, 0);
+  return output.build(0);
 }
 
 export async function executeFor(
@@ -70,13 +166,15 @@ export async function executeFor(
   // Pre-open output redirects to truncate files BEFORE expanding words
   // This matches bash behavior where redirect files are opened before
   // any command substitutions in the word list are evaluated
-  const preOpenError = await preOpenOutputRedirects(ctx, node.redirections);
-  if (preOpenError) {
-    return preOpenError;
+  const preparedRedirects = await preOpenOutputRedirects(
+    ctx,
+    node.redirections,
+  );
+  if (preparedRedirects.error) {
+    return preparedRedirects.error;
   }
 
-  let stdout = "";
-  let stderr = "";
+  const output = new CompoundOutput(ctx);
   let exitCode = 0;
   let iterations = 0;
 
@@ -113,8 +211,8 @@ export async function executeFor(
         throwExecutionLimit(
           `for loop: too many iterations (${ctx.limits.maxLoopIterations}), increase executionLimits.maxLoopIterations`,
           "iterations",
-          stdout,
-          stderr,
+          output.stdout,
+          output.stderr,
         );
       }
 
@@ -123,25 +221,28 @@ export async function executeFor(
       try {
         for (const stmt of node.body) {
           const stmtResult = await ctx.executeStatement(stmt);
-          stdout += stmtResult.stdout;
-          stderr += stmtResult.stderr;
+          output.append(stmtResult.stdout, stmtResult.stderr);
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
         const loopResult = handleLoopError(
           error,
-          stdout,
-          stderr,
+          output.stdout,
+          output.stderr,
           ctx.state.loopDepth,
         );
-        stdout = loopResult.stdout;
-        stderr = loopResult.stderr;
+        output.replace(loopResult.stdout, loopResult.stderr);
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") continue;
         if (loopResult.action === "error") {
           // Apply output redirections before returning
-          const bodyResult = result(stdout, stderr, loopResult.exitCode ?? 1);
-          return applyRedirections(ctx, bodyResult, node.redirections);
+          const bodyResult = output.build(loopResult.exitCode ?? 1);
+          return applyRedirections(
+            ctx,
+            bodyResult,
+            node.redirections,
+            preparedRedirects.targets,
+          );
         }
         throw loopResult.error;
       }
@@ -154,8 +255,13 @@ export async function executeFor(
   // Do NOT ctx.state.env.delete(node.variable) here
 
   // Apply output redirections
-  const bodyResult = result(stdout, stderr, exitCode);
-  return applyRedirections(ctx, bodyResult, node.redirections);
+  const bodyResult = output.build(exitCode);
+  return applyRedirections(
+    ctx,
+    bodyResult,
+    node.redirections,
+    preparedRedirects.targets,
+  );
 }
 
 export async function executeCStyleFor(
@@ -165,9 +271,12 @@ export async function executeCStyleFor(
   // Pre-open output redirects to truncate files BEFORE evaluating expressions
   // This matches bash behavior where redirect files are opened before
   // any command substitutions in the loop are evaluated
-  const preOpenError = await preOpenOutputRedirects(ctx, node.redirections);
-  if (preOpenError) {
-    return preOpenError;
+  const preparedRedirects = await preOpenOutputRedirects(
+    ctx,
+    node.redirections,
+  );
+  if (preparedRedirects.error) {
+    return preparedRedirects.error;
   }
 
   // Update currentLine for $LINENO - set to loop header line
@@ -176,8 +285,7 @@ export async function executeCStyleFor(
     ctx.state.currentLine = loopLine;
   }
 
-  let stdout = "";
-  let stderr = "";
+  const output = new CompoundOutput(ctx);
   let exitCode = 0;
   let iterations = 0;
 
@@ -193,8 +301,8 @@ export async function executeCStyleFor(
         throwExecutionLimit(
           `for loop: too many iterations (${ctx.limits.maxLoopIterations}), increase executionLimits.maxLoopIterations`,
           "iterations",
-          stdout,
-          stderr,
+          output.stdout,
+          output.stderr,
         );
       }
 
@@ -213,19 +321,17 @@ export async function executeCStyleFor(
       try {
         for (const stmt of node.body) {
           const stmtResult = await ctx.executeStatement(stmt);
-          stdout += stmtResult.stdout;
-          stderr += stmtResult.stderr;
+          output.append(stmtResult.stdout, stmtResult.stderr);
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
         const loopResult = handleLoopError(
           error,
-          stdout,
-          stderr,
+          output.stdout,
+          output.stderr,
           ctx.state.loopDepth,
         );
-        stdout = loopResult.stdout;
-        stderr = loopResult.stderr;
+        output.replace(loopResult.stdout, loopResult.stderr);
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") {
           // Still need to run the update expression on continue
@@ -236,8 +342,13 @@ export async function executeCStyleFor(
         }
         if (loopResult.action === "error") {
           // Apply output redirections before returning
-          const bodyResult = result(stdout, stderr, loopResult.exitCode ?? 1);
-          return applyRedirections(ctx, bodyResult, node.redirections);
+          const bodyResult = output.build(loopResult.exitCode ?? 1);
+          return applyRedirections(
+            ctx,
+            bodyResult,
+            node.redirections,
+            preparedRedirects.targets,
+          );
         }
         throw loopResult.error;
       }
@@ -251,8 +362,13 @@ export async function executeCStyleFor(
   }
 
   // Apply output redirections
-  const bodyResult = result(stdout, stderr, exitCode);
-  return applyRedirections(ctx, bodyResult, node.redirections);
+  const bodyResult = output.build(exitCode);
+  return applyRedirections(
+    ctx,
+    bodyResult,
+    node.redirections,
+    preparedRedirects.targets,
+  );
 }
 
 export async function executeWhile(
@@ -260,8 +376,7 @@ export async function executeWhile(
   node: WhileNode,
   stdin = "",
 ): Promise<ExecResult> {
-  let stdout = "";
-  let stderr = "";
+  const output = new CompoundOutput(ctx);
   let exitCode = 0;
   let iterations = 0;
 
@@ -309,8 +424,8 @@ export async function executeWhile(
         throwExecutionLimit(
           `while loop: too many iterations (${ctx.limits.maxLoopIterations}), increase executionLimits.maxLoopIterations`,
           "iterations",
-          stdout,
-          stderr,
+          output.stdout,
+          output.stderr,
         );
       }
 
@@ -324,30 +439,27 @@ export async function executeWhile(
       try {
         for (const stmt of node.condition) {
           const result = await ctx.executeStatement(stmt);
-          stdout += result.stdout;
-          stderr += result.stderr;
+          output.append(result.stdout, result.stderr);
           conditionExitCode = result.exitCode;
         }
       } catch (error) {
         // break/continue in condition should affect THIS while loop
         if (error instanceof BreakError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
+          output.append(error.stdout, error.stderr);
           if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
-            error.stdout = stdout;
-            error.stderr = stderr;
+            error.stdout = output.stdout;
+            error.stderr = output.stderr;
             ctx.state.inCondition = savedInCondition;
             throw error;
           }
           shouldBreak = true;
         } else if (error instanceof ContinueError) {
-          stdout += error.stdout;
-          stderr += error.stderr;
+          output.append(error.stdout, error.stderr);
           if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
-            error.stdout = stdout;
-            error.stderr = stderr;
+            error.stdout = output.stdout;
+            error.stderr = output.stderr;
             ctx.state.inCondition = savedInCondition;
             throw error;
           }
@@ -367,23 +479,21 @@ export async function executeWhile(
       try {
         for (const stmt of node.body) {
           const stmtResult = await ctx.executeStatement(stmt);
-          stdout += stmtResult.stdout;
-          stderr += stmtResult.stderr;
+          output.append(stmtResult.stdout, stmtResult.stderr);
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
         const loopResult = handleLoopError(
           error,
-          stdout,
-          stderr,
+          output.stdout,
+          output.stderr,
           ctx.state.loopDepth,
         );
-        stdout = loopResult.stdout;
-        stderr = loopResult.stderr;
+        output.replace(loopResult.stdout, loopResult.stderr);
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") continue;
         if (loopResult.action === "error") {
-          return result(stdout, stderr, loopResult.exitCode ?? 1);
+          return output.build(loopResult.exitCode ?? 1);
         }
         throw loopResult.error;
       }
@@ -393,15 +503,14 @@ export async function executeWhile(
     ctx.state.groupStdin = savedGroupStdin;
   }
 
-  return result(stdout, stderr, exitCode);
+  return output.build(exitCode);
 }
 
 export async function executeUntil(
   ctx: InterpreterContext,
   node: UntilNode,
 ): Promise<ExecResult> {
-  let stdout = "";
-  let stderr = "";
+  const output = new CompoundOutput(ctx);
   let exitCode = 0;
   let iterations = 0;
 
@@ -413,38 +522,35 @@ export async function executeUntil(
         throwExecutionLimit(
           `until loop: too many iterations (${ctx.limits.maxLoopIterations}), increase executionLimits.maxLoopIterations`,
           "iterations",
-          stdout,
-          stderr,
+          output.stdout,
+          output.stderr,
         );
       }
 
       // Condition evaluation should not trigger errexit
       const condResult = await executeCondition(ctx, node.condition);
-      stdout += condResult.stdout;
-      stderr += condResult.stderr;
+      output.append(condResult.stdout, condResult.stderr);
 
       if (condResult.exitCode === 0) break;
 
       try {
         for (const stmt of node.body) {
           const stmtResult = await ctx.executeStatement(stmt);
-          stdout += stmtResult.stdout;
-          stderr += stmtResult.stderr;
+          output.append(stmtResult.stdout, stmtResult.stderr);
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
         const loopResult = handleLoopError(
           error,
-          stdout,
-          stderr,
+          output.stdout,
+          output.stderr,
           ctx.state.loopDepth,
         );
-        stdout = loopResult.stdout;
-        stderr = loopResult.stderr;
+        output.replace(loopResult.stdout, loopResult.stderr);
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") continue;
         if (loopResult.action === "error") {
-          return result(stdout, stderr, loopResult.exitCode ?? 1);
+          return output.build(loopResult.exitCode ?? 1);
         }
         throw loopResult.error;
       }
@@ -453,7 +559,7 @@ export async function executeUntil(
     ctx.state.loopDepth--;
   }
 
-  return result(stdout, stderr, exitCode);
+  return output.build(exitCode);
 }
 
 export async function executeCase(
@@ -463,13 +569,15 @@ export async function executeCase(
   // Pre-open output redirects to truncate files BEFORE expanding case word
   // This matches bash behavior where redirect files are opened before
   // any command substitutions in the case word are evaluated
-  const preOpenError = await preOpenOutputRedirects(ctx, node.redirections);
-  if (preOpenError) {
-    return preOpenError;
+  const preparedRedirects = await preOpenOutputRedirects(
+    ctx,
+    node.redirections,
+  );
+  if (preparedRedirects.error) {
+    return preparedRedirects.error;
   }
 
-  let stdout = "";
-  let stderr = "";
+  const output = new CompoundOutput(ctx);
   let exitCode = 0;
 
   const value = await expandWord(ctx, node.word);
@@ -500,14 +608,8 @@ export async function executeCase(
     }
 
     if (matched) {
-      const bodyResult = await executeStatements(
-        ctx,
-        item.body,
-        stdout,
-        stderr,
-      );
-      stdout = bodyResult.stdout;
-      stderr = bodyResult.stderr;
+      const bodyResult = await executeBoundedStatements(ctx, item.body, output);
+      output.replace(bodyResult.stdout, bodyResult.stderr);
       exitCode = bodyResult.exitCode;
 
       // Handle different terminators:
@@ -528,6 +630,11 @@ export async function executeCase(
   }
 
   // Apply output redirections
-  const bodyResult = result(stdout, stderr, exitCode);
-  return applyRedirections(ctx, bodyResult, node.redirections);
+  const bodyResult = output.build(exitCode);
+  return applyRedirections(
+    ctx,
+    bodyResult,
+    node.redirections,
+    preparedRedirects.targets,
+  );
 }

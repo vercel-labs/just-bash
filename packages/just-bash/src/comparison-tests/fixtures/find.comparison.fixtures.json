@@ -232,5 +232,35 @@
     "stdout": ".\n./dir\n",
     "stderr": "",
     "exitCode": 0
+  },
+  "fd882bd92fe51920": {
+    "command": "find . -type f \\( -name keep -print -o -name remove -print \\)",
+    "files": {
+      "keep": "",
+      "remove": "",
+      "other": ""
+    },
+    "stdout": "./keep\n./remove\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f5f1f7c6e957fe10": {
+    "command": "find . -type f ! -print",
+    "files": {
+      "file": ""
+    },
+    "stdout": "./file\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bbd47cdce563ae5c": {
+    "command": "find . -type f -path '*/pulls/*.json' -print | sort",
+    "files": {
+      "pulls/direct.json": "",
+      "pulls/nested/deep.json": ""
+    },
+    "stdout": "./pulls/direct.json\n./pulls/nested/deep.json\n",
+    "stderr": "",
+    "exitCode": 0
   }
 }

@@ -144,6 +144,7 @@ export const pasteCommand: Command = {
 function joinWithDelimiters(parts: string[], delimiters: string): string {
   if (parts.length === 0) return "";
   if (parts.length === 1) return parts[0];
+  if (delimiters.length === 0) return parts.join("");
 
   let result = parts[0];
   for (let i = 1; i < parts.length; i++) {

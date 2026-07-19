@@ -13,6 +13,7 @@ import {
 import { _performanceNow } from "../security/trusted-globals.js";
 import type { ExecResult } from "../types.js";
 import { BadSubstitutionError, ErrexitError, ExitError } from "./errors.js";
+import { clearArray, cloneArrays, setArrayElement } from "./helpers/array.js";
 import { OK } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -40,6 +41,7 @@ export async function executePipeline(
   let pipefailExitCode = 0; // Track rightmost failing command
   const pipestatusExitCodes: number[] = []; // Track all exit codes for PIPESTATUS
   let accumulatedStderr = ""; // Accumulate stderr from all pipeline commands
+  let accumulatedStderrBytes = 0;
 
   // For multi-command pipelines, save parent's $_ because pipeline commands
   // run in subshell-like contexts and should not affect parent's $_
@@ -76,6 +78,7 @@ export async function executePipeline(
     // Save environment for commands running in subshell context
     // This prevents variable assignments (e.g., ${cmd=echo}) from leaking to parent
     const savedEnv = runsInSubshell ? new Map(ctx.state.env) : null;
+    const savedArrays = runsInSubshell ? cloneArrays(ctx.state.arrays) : null;
 
     let result: ExecResult;
     try {
@@ -110,6 +113,7 @@ export async function executePipeline(
         // Restore environment before re-throwing
         if (savedEnv) {
           ctx.state.env = savedEnv;
+          ctx.state.arrays = savedArrays ?? new Map();
         }
         throw error;
       }
@@ -118,6 +122,7 @@ export async function executePipeline(
     // Restore environment for subshell commands to prevent variable assignment leakage
     if (savedEnv) {
       ctx.state.env = savedEnv;
+      ctx.state.arrays = savedArrays ?? new Map();
     }
 
     // Track exit code for PIPESTATUS
@@ -147,6 +152,7 @@ export async function executePipeline(
         // Regular | only pipes stdout; stderr goes to the parent
         stdin = latin1FromBytes(stdoutAsBytes(result));
         accumulatedStderr += result.stderr;
+        accumulatedStderrBytes += result.internalOutputAccounting?.stderr ?? 0;
       }
       lastResult = {
         stdout: "",
@@ -165,6 +171,12 @@ export async function executePipeline(
     lastResult = {
       ...lastResult,
       stderr: accumulatedStderr + lastResult.stderr,
+      internalOutputAccounting: {
+        stdout: lastResult.internalOutputAccounting?.stdout ?? 0,
+        stderr:
+          accumulatedStderrBytes +
+          (lastResult.internalOutputAccounting?.stderr ?? 0),
+      },
     };
   }
 
@@ -177,18 +189,15 @@ export async function executePipeline(
     node.commands.length > 1 ||
     (node.commands.length === 1 && node.commands[0].type === "SimpleCommand");
 
+  const effectivePipestatus =
+    lastResult.internalPipeStatusOverride ?? pipestatusExitCodes;
   if (shouldSetPipestatus) {
     // Clear any previous PIPESTATUS entries
-    for (const key of ctx.state.env.keys()) {
-      if (key.startsWith("PIPESTATUS_")) {
-        ctx.state.env.delete(key);
-      }
-    }
+    clearArray(ctx, "PIPESTATUS");
     // Set new PIPESTATUS entries
-    for (let i = 0; i < pipestatusExitCodes.length; i++) {
-      ctx.state.env.set(`PIPESTATUS_${i}`, String(pipestatusExitCodes[i]));
+    for (let i = 0; i < effectivePipestatus.length; i++) {
+      setArrayElement(ctx, "PIPESTATUS", i, String(effectivePipestatus[i]));
     }
-    ctx.state.env.set("PIPESTATUS__length", String(pipestatusExitCodes.length));
   }
 
   // If pipefail is enabled, use the rightmost failing exit code
@@ -238,5 +247,8 @@ export async function executePipeline(
   }
   // With lastpipe, the last command already updated $_ in the main shell context
 
-  return lastResult;
+  lastResult = ctx.executionScope.accountResult(lastResult, "pipeline");
+  const { internalPipeStatusOverride: _internalOverride, ...publicResult } =
+    lastResult;
+  return publicResult;
 }

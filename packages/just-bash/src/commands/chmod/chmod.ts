@@ -235,6 +235,9 @@ function parseMode(modeStr: string, currentMode = 0o644): number {
       } else if (op === "=") {
         // Clear the bits for this who, then set
         mode &= ~(0o7 << shift);
+        if (w === "u") mode &= ~0o4000;
+        if (w === "g") mode &= ~0o2000;
+        if (w === "o") mode &= ~0o1000;
         mode |= bits;
       }
     }
@@ -245,19 +248,16 @@ function parseMode(modeStr: string, currentMode = 0o644): number {
     } else if (op === "-") {
       mode &= ~specialBits;
     } else if (op === "=") {
-      // For =, clear and set the special bits if specified
+      // Associated special bits were cleared with each selected class above.
       if (perms.includes("s")) {
         if (who.includes("u")) {
-          mode &= ~0o4000;
           mode |= specialBits & 0o4000;
         }
         if (who.includes("g")) {
-          mode &= ~0o2000;
           mode |= specialBits & 0o2000;
         }
       }
       if (perms.includes("t")) {
-        mode &= ~0o1000;
         mode |= specialBits & 0o1000;
       }
     }

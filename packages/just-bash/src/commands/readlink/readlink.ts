@@ -1,3 +1,8 @@
+import { FileTraversalBudget } from "../../fs/traversal.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -44,6 +49,13 @@ export const readlinkCommand: Command = {
 
     let stdout = "";
     let anyError = false;
+    const budget = new FileTraversalBudget({
+      limits: ctx.limits,
+      signal: ctx.signal,
+      executionScope: ctx.executionScope,
+      site: "readlink",
+      label: "symlink traversal",
+    });
 
     for (const file of files) {
       const filePath = ctx.fs.resolvePath(ctx.cwd, file);
@@ -55,6 +67,7 @@ export const readlinkCommand: Command = {
           const seen = new Set<string>();
 
           while (true) {
+            budget.visit(seen.size);
             if (seen.has(currentPath)) {
               // Circular symlink detected
               break;
@@ -82,7 +95,13 @@ export const readlinkCommand: Command = {
           const target = await ctx.fs.readlink(filePath);
           stdout += `${target}\n`;
         }
-      } catch {
+      } catch (error) {
+        if (
+          error instanceof ExecutionLimitError ||
+          error instanceof ExecutionAbortedError
+        ) {
+          throw error;
+        }
         if (!canonicalize) {
           // Only error for non-canonicalize mode on non-symlinks
           anyError = true;

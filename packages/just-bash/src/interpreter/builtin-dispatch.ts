@@ -6,7 +6,7 @@
  */
 
 import { isBrowserExcludedCommand } from "../commands/browser-excluded.js";
-import { unsafeBytesFromLatin1 } from "../encoding.js";
+import { latin1FromBytes, unsafeBytesFromLatin1 } from "../encoding.js";
 import { sanitizeErrorMessage } from "../fs/sanitize-error.js";
 import { awaitWithDefenseContext } from "../security/defense-context.js";
 import {
@@ -49,11 +49,15 @@ import {
 } from "./command-resolution.js";
 import { evaluateTestArgs } from "./conditionals.js";
 import { createDefenseAwareCommandContext } from "./defense-aware-command-context.js";
-import { ExecutionLimitError } from "./errors.js";
+import { ExecutionLimitError, ExitError } from "./errors.js";
 import { callFunction } from "./functions.js";
+import { setArrayElement } from "./helpers/array.js";
 import { getErrorMessage } from "./helpers/errors.js";
+import { resolveNamerefForAssignment } from "./helpers/nameref.js";
+import { isReadonly } from "./helpers/readonly.js";
 import { failure, OK, testResult } from "./helpers/result.js";
 import { SHELL_BUILTINS } from "./helpers/shell-constants.js";
+import { computeIndexedArrayIndex } from "./simple-command-assignments.js";
 import {
   findFirstInPath as findFirstInPathHelper,
   handleCommandV as handleCommandVHelper,
@@ -195,6 +199,33 @@ export async function dispatchBuiltin(
     if (func) {
       return callFunction(ctx, func, args, stdin);
     }
+  }
+  // Internal transform primitive, reached through `builtin` so a user-defined
+  // function with this name remains ordinary shell state. Arguments have
+  // already expanded from one PIPESTATUS snapshot before dispatch.
+  if (commandName === "__just_bash_tee_restore") {
+    if (args.length === 0 || args.length > ctx.limits.maxArrayElements)
+      return failure("bash: invalid internal pipeline status restore\n", 2);
+    const statuses: number[] = [];
+    for (const arg of args) {
+      if (!/^(?:0|[1-9][0-9]{0,2})$/.test(arg))
+        return failure("bash: invalid internal pipeline status restore\n", 2);
+      const status = Number(arg);
+      if (!Number.isSafeInteger(status) || status > 255)
+        return failure("bash: invalid internal pipeline status restore\n", 2);
+      statuses.push(status);
+    }
+    const last = statuses[statuses.length - 1] ?? 0;
+    const rightmostFailure = [...statuses].reverse().find((code) => code !== 0);
+    return {
+      stdout: "",
+      stderr: "",
+      exitCode:
+        ctx.state.options.pipefail && rightmostFailure !== undefined
+          ? rightmostFailure
+          : last,
+      internalPipeStatusOverride: statuses,
+    };
   }
   // Simple builtins (can be overridden by functions)
   // eval: In non-POSIX mode, functions can override eval (handled above for POSIX mode)
@@ -343,7 +374,7 @@ async function handleBuiltinBuiltin(
   }
   const cmd = cmdArgs[0];
   // Check if the command is a shell builtin
-  if (!SHELL_BUILTINS.has(cmd)) {
+  if (cmd !== "__just_bash_tee_restore" && !SHELL_BUILTINS.has(cmd)) {
     // Not a builtin - return error
     return failure(`bash: builtin: ${cmd}: not a shell builtin\n`);
   }
@@ -430,12 +461,72 @@ export async function executeExternalCommand(
 
   const cmdCtx: CommandContext = {
     fs: ctx.fs,
+    fsIdentity: ctx.fs,
     cwd: ctx.state.cwd,
     env: ctx.state.env,
+    assignShellVariable: async (name, value, subscript) => {
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+        throw new Error(`${name}: not a valid identifier`);
+      }
+      const requestedTarget =
+        subscript === undefined ? name : `${name}[${subscript}]`;
+      const resolvedTarget = resolveNamerefForAssignment(ctx, name, value);
+      if (resolvedTarget === undefined) {
+        throw new Error(`${name}: circular name reference`);
+      }
+      if (resolvedTarget === null) return;
+
+      const resolvedMatch = resolvedTarget.match(
+        /^([a-zA-Z_][a-zA-Z0-9_]*)(?:\[(.*)\])?$/,
+      );
+      if (!resolvedMatch) {
+        throw new Error(`${requestedTarget}: not a valid identifier`);
+      }
+      const targetName = resolvedMatch[1];
+      const targetSubscript = resolvedMatch[2] ?? subscript;
+      if (isReadonly(ctx, name) || isReadonly(ctx, targetName)) {
+        throw new Error(`${targetName}: readonly variable`);
+      }
+      if (targetSubscript === undefined) {
+        ctx.state.env.set(targetName, value);
+      } else {
+        const kind = ctx.state.associativeArrays?.has(targetName)
+          ? "associative"
+          : "indexed";
+        if (kind === "associative") {
+          setArrayElement(ctx, targetName, targetSubscript, value, kind);
+          return;
+        }
+        const computed = await computeIndexedArrayIndex(
+          ctx,
+          targetName,
+          targetSubscript,
+        );
+        if (computed.error) {
+          throw new ExitError(
+            computed.error.exitCode,
+            computed.error.stdout,
+            computed.error.stderr,
+          );
+        }
+        setArrayElement(ctx, targetName, computed.index, value, kind);
+      }
+    },
     exportedEnv,
     stdin: effectiveStdin,
     limits: ctx.limits,
-    exec: ctx.execFn,
+    executionScope: ctx.executionScope,
+    exec: (script, options) => ctx.execFn(script, options, false),
+    execWithInheritedStdin: (script, options) =>
+      ctx.execFn(
+        script,
+        {
+          ...options,
+          stdin: latin1FromBytes(effectiveStdin),
+          stdinKind: "bytes",
+        },
+        true,
+      ),
     fetch: ctx.fetch,
     getRegisteredCommands: () => Array.from(ctx.commands.keys()),
     sleep: ctx.sleep,

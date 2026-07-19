@@ -8,6 +8,7 @@ import { constants, gunzipSync, gzipSync } from "node:zlib";
 import { latin1FromBytes } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
+import { CodecBudget } from "../compression/codec-budget.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const gzipHelp = {
@@ -218,6 +219,25 @@ function parseGzipHeader(data: Uint8Array): {
 }
 
 /**
+ * Gzip FNAME is attacker-controlled metadata, not a path. Only an immediate
+ * filename component may influence the extraction target. Unsafe names fall
+ * back to the input archive's filename.
+ */
+function safeStoredFilename(name: string): string | null {
+  if (
+    name.length === 0 ||
+    name === "." ||
+    name === ".." ||
+    name.includes("/") ||
+    name.includes("\\") ||
+    /[\0-\x1f\x7f]/.test(name)
+  ) {
+    return null;
+  }
+  return name;
+}
+
+/**
  * Get the uncompressed size from gzip trailer (last 4 bytes)
  */
 function getUncompressedSize(data: Uint8Array): number {
@@ -243,27 +263,57 @@ function toBinaryString(data: Uint8Array): string {
 }
 
 function getMaxDecompressedSize(ctx: CommandContext): number {
-  return ctx.limits?.maxOutputSize ?? 0;
+  return ctx.limits.maxOutputSize;
 }
 
 function gunzipWithLimit(
   inputData: Uint8Array,
   maxDecompressedSize: number,
+  maxCompressedSize: number,
+  signal?: AbortSignal,
 ): Uint8Array {
-  if (maxDecompressedSize > 0) {
-    // Fast pre-check from gzip trailer (ISIZE) to fail before inflate when possible.
-    const advertisedSize = getUncompressedSize(inputData);
-    if (advertisedSize > maxDecompressedSize) {
-      throw new Error(
-        `decompressed data exceeds limit (${maxDecompressedSize} bytes)`,
-      );
-    }
-    return gunzipSync(inputData, {
-      maxOutputLength: maxDecompressedSize,
-    });
+  if (maxDecompressedSize <= 0) {
+    throw new Error("decompressed data exceeds limit (0 bytes)");
   }
 
-  return gunzipSync(inputData);
+  const budget = new CodecBudget({
+    maxInputBytes: maxCompressedSize,
+    maxOutputBytes: maxDecompressedSize,
+    maxExpansionRatio: 10_000,
+    signal,
+    label: "gzip",
+  });
+  budget.acceptInput(inputData.length);
+  // Fast pre-check from gzip trailer (ISIZE) to fail before inflate when possible.
+  const advertisedSize = getUncompressedSize(inputData);
+  if (advertisedSize > maxDecompressedSize) {
+    throw new Error(
+      `decompressed data exceeds limit (${maxDecompressedSize} bytes)`,
+    );
+  }
+  // @banned-pattern-ignore: CodecBudget and zlib maxOutputLength bound allocation before decode
+  const result = gunzipSync(inputData, {
+    maxOutputLength: maxDecompressedSize,
+  });
+  budget.acceptOutput(result.length);
+  return result;
+}
+
+function gzipWithLimit(
+  inputData: Uint8Array,
+  level: number,
+  ctx: CommandContext,
+): Uint8Array {
+  const budget = new CodecBudget({
+    maxInputBytes: ctx.limits.maxInputBytes,
+    maxOutputBytes: ctx.limits.maxOutputSize,
+    signal: ctx.signal,
+    label: "gzip",
+  });
+  budget.acceptInput(inputData.length);
+  const result = gzipSync(inputData, { level });
+  budget.acceptOutput(result.length);
+  return result;
 }
 
 interface GzipResult {
@@ -303,7 +353,12 @@ async function processFile(
         return { stdout: "", stderr: "", exitCode: 1 };
       }
       try {
-        const decompressed = gunzipWithLimit(inputData, maxDecompressedSize);
+        const decompressed = gunzipWithLimit(
+          inputData,
+          maxDecompressedSize,
+          ctx.limits.maxInputBytes,
+          ctx.signal,
+        );
         // Use binary string (latin1) to preserve bytes
         return {
           stdout: toBinaryString(decompressed),
@@ -321,7 +376,7 @@ async function processFile(
     } else {
       // Compress stdin
       const level = getCompressionLevel(flags);
-      const compressed = gzipSync(inputData, { level });
+      const compressed = gzipWithLimit(inputData, level, ctx);
       // Output raw bytes as binary - this is tricky since stdout is string
       // We'll use latin1 encoding to preserve bytes
       return {
@@ -404,7 +459,12 @@ async function processFile(
 
     let decompressed: Uint8Array;
     try {
-      decompressed = gunzipWithLimit(inputData, maxDecompressedSize);
+      decompressed = gunzipWithLimit(
+        inputData,
+        maxDecompressedSize,
+        ctx.limits.maxInputBytes,
+        ctx.signal,
+      );
     } catch (e) {
       const msg = e instanceof Error ? e.message : "unknown error";
       return {
@@ -426,8 +486,11 @@ async function processFile(
     // Determine output filename
     if (flags.name) {
       const header = parseGzipHeader(inputData);
-      if (header.originalName) {
-        outputPath = ctx.fs.resolvePath(ctx.cwd, header.originalName);
+      const storedName = header.originalName
+        ? safeStoredFilename(header.originalName)
+        : null;
+      if (storedName) {
+        outputPath = ctx.fs.resolvePath(ctx.cwd, storedName);
       } else {
         outputPath = inputPath.slice(0, -suffix.length);
       }
@@ -487,7 +550,7 @@ async function processFile(
     let compressed: Uint8Array;
 
     try {
-      compressed = gzipSync(inputData, { level });
+      compressed = gzipWithLimit(inputData, level, ctx);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "unknown error";
       return {
@@ -692,7 +755,12 @@ async function testFile(
   }
 
   try {
-    gunzipWithLimit(inputData, getMaxDecompressedSize(ctx));
+    gunzipWithLimit(
+      inputData,
+      getMaxDecompressedSize(ctx),
+      ctx.limits.maxInputBytes,
+      ctx.signal,
+    );
     if (flags.verbose) {
       return { stdout: "", stderr: `${file}:\tOK\n`, exitCode: 0 };
     }

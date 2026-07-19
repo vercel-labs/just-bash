@@ -3,9 +3,28 @@
  * Implements bash's shopt builtin for managing shell-specific options
  */
 
+import { utf8ByteLength } from "../../commands/printf/escapes.js";
 import type { ExecResult } from "../../types.js";
+import { ExecutionLimitError } from "../errors.js";
 import { updateBashopts, updateShellopts } from "../helpers/shellopts.js";
 import type { InterpreterContext } from "../types.js";
+
+function pushBoundedLine(
+  lines: string[],
+  line: string,
+  usedBytes: number,
+  maxBytes: number,
+): number {
+  const nextBytes = usedBytes + utf8ByteLength(line) + 1;
+  if (nextBytes > maxBytes) {
+    throw new ExecutionLimitError(
+      `shopt: output size limit exceeded (${maxBytes} bytes)`,
+      "output_size",
+    );
+  }
+  lines.push(line);
+  return nextBytes;
+}
 
 // All supported shopt options
 const SHOPT_OPTIONS = [
@@ -82,6 +101,17 @@ export function handleShopt(
   ctx: InterpreterContext,
   args: string[],
 ): ExecResult {
+  const maxArrayElements = ctx.limits.maxArrayElements;
+  if (args.length > maxArrayElements) {
+    throw new ExecutionLimitError(
+      `shopt: argument limit exceeded (${maxArrayElements})`,
+      "array_elements",
+    );
+  }
+  const maxOutputBytes = Math.min(
+    ctx.limits.maxOutputSize,
+    ctx.limits.maxStringLength,
+  );
   // Parse arguments
   let setFlag = false; // -s: set option
   let unsetFlag = false; // -u: unset option
@@ -195,12 +225,19 @@ export function handleShopt(
 
   // Option names provided
   let hasError = false;
-  let stderr = "";
+  const stderrLines: string[] = [];
+  let stderrBytes = 0;
   const output: string[] = [];
+  let outputBytes = 0;
 
   for (const name of optionNames) {
     if (!isShoptOption(name) && !isStubOption(name)) {
-      stderr += `shopt: ${name}: invalid shell option name\n`;
+      stderrBytes = pushBoundedLine(
+        stderrLines,
+        `shopt: ${name}: invalid shell option name`,
+        stderrBytes,
+        maxOutputBytes,
+      );
       hasError = true;
       continue;
     }
@@ -228,13 +265,23 @@ export function handleShopt(
             hasError = true;
           }
         } else if (printFlag) {
-          output.push(`shopt ${value ? "-s" : "-u"} ${name}`);
+          outputBytes = pushBoundedLine(
+            output,
+            `shopt ${value ? "-s" : "-u"} ${name}`,
+            outputBytes,
+            maxOutputBytes,
+          );
           // In bash, shopt -p returns exit code 1 if the option is unset
           if (!value) {
             hasError = true;
           }
         } else {
-          output.push(`${name}\t\t${value ? "on" : "off"}`);
+          outputBytes = pushBoundedLine(
+            output,
+            `${name}\t\t${value ? "on" : "off"}`,
+            outputBytes,
+            maxOutputBytes,
+          );
           // In bash, shopt without flags returns exit code 1 if the option is unset
           if (!value) {
             hasError = true;
@@ -245,10 +292,20 @@ export function handleShopt(
         if (quietFlag) {
           hasError = true;
         } else if (printFlag) {
-          output.push(`shopt -u ${name}`);
+          outputBytes = pushBoundedLine(
+            output,
+            `shopt -u ${name}`,
+            outputBytes,
+            maxOutputBytes,
+          );
           hasError = true; // Stub options are always off
         } else {
-          output.push(`${name}\t\toff`);
+          outputBytes = pushBoundedLine(
+            output,
+            `${name}\t\toff`,
+            outputBytes,
+            maxOutputBytes,
+          );
           hasError = true; // Stub options are always off
         }
       }
@@ -258,7 +315,7 @@ export function handleShopt(
   return {
     exitCode: hasError ? 1 : 0,
     stdout: output.length > 0 ? `${output.join("\n")}\n` : "",
-    stderr,
+    stderr: stderrLines.length > 0 ? `${stderrLines.join("\n")}\n` : "",
   };
 }
 
@@ -273,6 +330,10 @@ function handleSetOptions(
   printFlag: boolean,
   quietFlag: boolean,
 ): ExecResult {
+  const maxOutputBytes = Math.min(
+    ctx.limits.maxOutputSize,
+    ctx.limits.maxStringLength,
+  );
   // Map set -o option names to ShellOptions (implemented options)
   const SET_OPTIONS = new Map<string, keyof typeof ctx.state.options>([
     ["errexit", "errexit"],
@@ -333,15 +394,22 @@ function handleSetOptions(
   }
 
   let hasError = false;
-  let stderr = "";
+  const stderrLines: string[] = [];
+  let stderrBytes = 0;
   const output: string[] = [];
+  let outputBytes = 0;
 
   for (const name of optionNames) {
     const isImplemented = SET_OPTIONS.has(name);
     const isNoOp = NOOP_OPTIONS.includes(name);
 
     if (!isImplemented && !isNoOp) {
-      stderr += `shopt: ${name}: invalid option name\n`;
+      stderrBytes = pushBoundedLine(
+        stderrLines,
+        `shopt: ${name}: invalid option name`,
+        stderrBytes,
+        maxOutputBytes,
+      );
       hasError = true;
       continue;
     }
@@ -355,10 +423,20 @@ function handleSetOptions(
         if (quietFlag) {
           hasError = true; // No-op options are always off
         } else if (printFlag) {
-          output.push(`set +o ${name}`);
+          outputBytes = pushBoundedLine(
+            output,
+            `set +o ${name}`,
+            outputBytes,
+            maxOutputBytes,
+          );
           hasError = true; // Always off
         } else {
-          output.push(`${name}\t\toff`);
+          outputBytes = pushBoundedLine(
+            output,
+            `${name}\t\toff`,
+            outputBytes,
+            maxOutputBytes,
+          );
           hasError = true; // Always off
         }
       }
@@ -387,13 +465,23 @@ function handleSetOptions(
           hasError = true;
         }
       } else if (printFlag) {
-        output.push(`set ${value ? "-o" : "+o"} ${name}`);
+        outputBytes = pushBoundedLine(
+          output,
+          `set ${value ? "-o" : "+o"} ${name}`,
+          outputBytes,
+          maxOutputBytes,
+        );
         // In bash, shopt -o -p returns exit code 1 if the option is unset
         if (!value) {
           hasError = true;
         }
       } else {
-        output.push(`${name}\t\t${value ? "on" : "off"}`);
+        outputBytes = pushBoundedLine(
+          output,
+          `${name}\t\t${value ? "on" : "off"}`,
+          outputBytes,
+          maxOutputBytes,
+        );
         // In bash, shopt -o without flags returns exit code 1 if the option is unset
         if (!value) {
           hasError = true;
@@ -405,6 +493,6 @@ function handleSetOptions(
   return {
     exitCode: hasError ? 1 : 0,
     stdout: output.length > 0 ? `${output.join("\n")}\n` : "",
-    stderr,
+    stderr: stderrLines.length > 0 ? `${stderrLines.join("\n")}\n` : "",
   };
 }

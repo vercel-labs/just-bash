@@ -7,7 +7,8 @@
  */
 
 import type { SubstringOp, WordPart } from "../../ast/types.js";
-import { ArithmeticError, ExitError } from "../errors.js";
+import { utf8ByteLength } from "../../commands/printf/escapes.js";
+import { ArithmeticError, ExecutionLimitError, ExitError } from "../errors.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
 import type { InterpreterContext } from "../types.js";
 import { expandPrompt } from "./prompt.js";
@@ -86,6 +87,12 @@ export async function handleArraySlicing(
 
   // Get array elements (sorted by index)
   const elements = getArrayElements(ctx, arrayName);
+  if (elements.length > ctx.limits.maxArrayElements) {
+    throw new ExecutionLimitError(
+      `array transform element limit exceeded (${ctx.limits.maxArrayElements})`,
+      "array_elements",
+    );
+  }
 
   // For sparse arrays, offset refers to index position, not element position
   // Find the first element whose index >= offset (or computed index for negative offset)
@@ -205,6 +212,12 @@ export function handleArrayTransform(
         default:
           resultValue = scalarValue;
       }
+      if (utf8ByteLength(resultValue) > ctx.limits.maxStringLength) {
+        throw new ExecutionLimitError(
+          `array transform string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+          "string_length",
+        );
+      }
       return { values: [resultValue], quoted: true };
     }
     // Variable is unset
@@ -217,43 +230,55 @@ export function handleArrayTransform(
   // Get the attribute for this array (same for all elements)
   const arrayAttr = getVariableAttributes(ctx, arrayName);
 
-  // Transform each element based on operator
-  let transformedValues: string[];
-  switch (operation.operator) {
-    case "a":
-      // Return attribute letter for each element
-      // All elements of the same array have the same attribute
-      transformedValues = elements.map(() => arrayAttr);
-      break;
-    case "P":
-      // Apply prompt expansion to each element
-      transformedValues = elements.map(([, v]) => expandPrompt(ctx, v));
-      break;
-    case "Q":
-      // Quote each element
-      transformedValues = elements.map(([, v]) => quoteValue(v));
-      break;
-    case "u":
-      // Capitalize first character only (ucfirst)
-      transformedValues = elements.map(
-        ([, v]) => v.charAt(0).toUpperCase() + v.slice(1),
+  // Transform incrementally and account the aggregate retained strings.
+  const transformedValues: string[] = [];
+  let transformedBytes = 0;
+  for (const [, value] of elements) {
+    let transformed: string;
+    switch (operation.operator) {
+      case "a":
+        transformed = arrayAttr;
+        break;
+      case "P":
+        transformed = expandPrompt(ctx, value);
+        break;
+      case "Q":
+        transformed = quoteValue(value);
+        break;
+      case "u":
+        transformed = value.charAt(0).toUpperCase() + value.slice(1);
+        break;
+      case "U":
+        transformed = value.toUpperCase();
+        break;
+      case "L":
+        transformed = value.toLowerCase();
+        break;
+      default:
+        transformed = value;
+    }
+    const bytes = utf8ByteLength(transformed);
+    if (bytes > ctx.limits.maxStringLength - transformedBytes) {
+      throw new ExecutionLimitError(
+        `array transform string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
       );
-      break;
-    case "U":
-      // Uppercase all characters
-      transformedValues = elements.map(([, v]) => v.toUpperCase());
-      break;
-    case "L":
-      // Lowercase all characters
-      transformedValues = elements.map(([, v]) => v.toLowerCase());
-      break;
-    default:
-      transformedValues = elements.map(([, v]) => v);
+    }
+    transformedValues.push(transformed);
+    transformedBytes += bytes;
   }
 
   if (isStar) {
     // "${arr[*]@X}" - join all values with IFS into one word
     const ifsSep = getIfsSeparator(ctx.state.env);
+    const separatorBytes =
+      Math.max(0, transformedValues.length - 1) * utf8ByteLength(ifsSep);
+    if (separatorBytes > ctx.limits.maxStringLength - transformedBytes) {
+      throw new ExecutionLimitError(
+        `array transform string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
     return { values: [transformedValues.join(ifsSep)], quoted: true };
   }
 

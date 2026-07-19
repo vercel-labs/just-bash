@@ -3,7 +3,12 @@ import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
-import { applyWidth, processEscapes } from "./escapes.js";
+import {
+  applyWidth,
+  assertFormattingInteger,
+  processEscapes,
+  utf8ByteLength,
+} from "./escapes.js";
 import { formatStrftime } from "./strftime.js";
 
 /**
@@ -179,7 +184,9 @@ export const printfCommand: Command = {
         targetVar = args[argIndex + 1];
         // Validate variable name
         if (
-          !/^[a-zA-Z_][a-zA-Z0-9_]*(\[[a-zA-Z0-9_@*"'$]+\])?$/.test(targetVar)
+          !/^[a-zA-Z_][a-zA-Z0-9_]*(?:\[[^\]\n]+\])?$/.test(targetVar) ||
+          /[;\r\\]/.test(targetVar) ||
+          targetVar.includes("..")
         ) {
           return {
             stdout: "",
@@ -208,11 +215,17 @@ export const printfCommand: Command = {
     const formatArgs = args.slice(argIndex + 1);
 
     try {
-      // First, process escape sequences in the format string
-      const processedFormat = processEscapes(format);
+      const maxOutputBytes = Math.min(
+        ctx.limits.maxStringLength,
+        ctx.limits.maxOutputSize,
+      );
+
+      // First, process escape sequences in the format string.
+      const processedFormat = processEscapes(format, maxOutputBytes);
 
       // Format and handle argument reuse (bash loops through format until all args consumed)
       let output = "";
+      let outputBytes = 0;
       let argPos = 0;
       let hadError = false;
       let errorMessage = "";
@@ -220,27 +233,23 @@ export const printfCommand: Command = {
       // Get TZ from shell environment for strftime formatting
       const tz = ctx.env.get("TZ");
 
-      const maxStringLength = ctx.limits?.maxStringLength;
-
       do {
         const { result, argsConsumed, error, errMsg, stopped } = formatOnce(
           processedFormat,
           formatArgs,
           argPos,
           tz,
+          maxOutputBytes - outputBytes,
         );
-        output += result;
-        // Check output size against limit
-        if (
-          maxStringLength !== undefined &&
-          maxStringLength > 0 &&
-          output.length > maxStringLength
-        ) {
+        const resultBytes = utf8ByteLength(result);
+        if (resultBytes > maxOutputBytes - outputBytes) {
           throw new ExecutionLimitError(
-            `printf: output size limit exceeded (${maxStringLength} bytes)`,
+            `printf: output size limit exceeded (${maxOutputBytes} bytes)`,
             "string_length",
           );
         }
+        output += result;
+        outputBytes += resultBytes;
         argPos += argsConsumed;
         if (error) {
           hadError = true;
@@ -270,9 +279,22 @@ export const printfCommand: Command = {
           key = key.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, varName) => {
             return ctx.env.get(varName) ?? "";
           });
-          ctx.env.set(`${arrayName}_${key}`, output);
+          if (ctx.assignShellVariable) {
+            await ctx.assignShellVariable(arrayName, output, key);
+          } else {
+            throw new Error(
+              "printf -v array assignment requires an interpreter assignment gateway",
+            );
+          }
         } else {
-          ctx.env.set(targetVar, output);
+          if (ctx.assignShellVariable) {
+            await ctx.assignShellVariable(targetVar, output);
+          } else {
+            if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(targetVar)) {
+              throw new Error(`${targetVar}: not a valid identifier`);
+            }
+            ctx.env.set(targetVar, output);
+          }
         }
         return { stdout: "", stderr: errorMessage, exitCode: hadError ? 1 : 0 };
       }
@@ -283,7 +305,13 @@ export const printfCommand: Command = {
         exitCode: hadError ? 1 : 0,
       };
     } catch (error) {
-      if (error instanceof ExecutionLimitError) {
+      if (
+        error instanceof ExecutionLimitError ||
+        (typeof error === "object" &&
+          error !== null &&
+          "name" in error &&
+          error.name === "ExitError")
+      ) {
         throw error;
       }
       return {
@@ -304,6 +332,7 @@ function formatOnce(
   args: string[],
   argPos: number,
   tz?: string,
+  maxOutputBytes = 10 * 1024 * 1024,
 ): {
   result: string;
   argsConsumed: number;
@@ -316,6 +345,19 @@ function formatOnce(
   let argsConsumed = 0;
   let error = false;
   let errMsg = "";
+  let resultBytes = 0;
+
+  const append = (value: string): void => {
+    const valueBytes = utf8ByteLength(value);
+    if (valueBytes > maxOutputBytes - resultBytes) {
+      throw new ExecutionLimitError(
+        `printf: output size limit exceeded (${maxOutputBytes} bytes)`,
+        "string_length",
+      );
+    }
+    result += value;
+    resultBytes += valueBytes;
+  };
 
   while (i < format.length) {
     if (format[i] === "%" && i + 1 < format.length) {
@@ -325,7 +367,7 @@ function formatOnce(
 
       // Check for %%
       if (format[i] === "%") {
-        result += "%";
+        append("%");
         i++;
         continue;
       }
@@ -340,6 +382,10 @@ function formatOnce(
         const precision = strftimeMatch[2]
           ? parseInt(strftimeMatch[2], 10)
           : -1;
+        assertFormattingInteger(width, maxOutputBytes, "width");
+        if (precision !== -1) {
+          assertFormattingInteger(precision, maxOutputBytes, "precision");
+        }
         const strftimeFmt = strftimeMatch[3];
         const fullMatch = strftimeMatch[0];
 
@@ -359,28 +405,19 @@ function formatOnce(
         }
 
         // Format using strftime
-        let formatted = formatStrftime(strftimeFmt, timestamp, tz);
+        let formatted = formatStrftime(strftimeFmt, timestamp, tz, {
+          maxOperations: maxOutputBytes - resultBytes,
+          maxOutputBytes: maxOutputBytes - resultBytes,
+        });
 
-        // Apply precision (truncate)
-        if (precision >= 0 && formatted.length > precision) {
-          formatted = formatted.slice(0, precision);
-        }
+        formatted = applyWidth(
+          formatted,
+          width,
+          precision,
+          maxOutputBytes - resultBytes,
+        );
 
-        // Apply width
-        if (width !== 0) {
-          const absWidth = Math.abs(width);
-          if (formatted.length < absWidth) {
-            if (width < 0) {
-              // Left-justify
-              formatted = formatted.padEnd(absWidth, " ");
-            } else {
-              // Right-justify
-              formatted = formatted.padStart(absWidth, " ");
-            }
-          }
-        }
-
-        result += formatted;
+        append(formatted);
         i = specStart + fullMatch.length;
         continue;
       }
@@ -430,14 +467,22 @@ function formatOnce(
       let adjustedSpec = fullSpec;
       if (widthFromArg) {
         const w = parseInt(args[argPos + argsConsumed] || "0", 10);
+        assertFormattingInteger(w, maxOutputBytes - resultBytes, "width");
         argsConsumed++;
         adjustedSpec = adjustedSpec.replace("*", String(w));
       }
       if (precisionFromArg) {
         const p = parseInt(args[argPos + argsConsumed] || "0", 10);
+        if (p >= 0) {
+          assertFormattingInteger(p, maxOutputBytes - resultBytes, "precision");
+        } else if (!Number.isSafeInteger(p)) {
+          assertFormattingInteger(p, maxOutputBytes - resultBytes, "precision");
+        }
         argsConsumed++;
         adjustedSpec = adjustedSpec.replace(".*", `.${p}`);
       }
+
+      assertFormatSpecBounds(adjustedSpec, maxOutputBytes - resultBytes);
 
       // Get the argument
       const arg = args[argPos + argsConsumed] || "";
@@ -448,8 +493,9 @@ function formatOnce(
         adjustedSpec,
         specifier,
         arg,
+        maxOutputBytes - resultBytes,
       );
-      result += value;
+      append(value);
       if (parseError) {
         error = true;
         if (parseErrMsg) errMsg = parseErrMsg;
@@ -459,7 +505,7 @@ function formatOnce(
         return { result, argsConsumed, error, errMsg, stopped: true };
       }
     } else {
-      result += format[i];
+      append(format[i]);
       i++;
     }
   }
@@ -474,6 +520,7 @@ function formatValue(
   spec: string,
   specifier: string,
   arg: string,
+  maxOutputBytes: number,
 ): {
   value: string;
   parseError: boolean;
@@ -548,21 +595,21 @@ function formatValue(
     }
     case "s":
       return {
-        value: formatString(spec, arg),
+        value: formatString(spec, arg, maxOutputBytes),
         parseError: false,
         parseErrMsg: "",
       };
     case "q":
       // Shell quoting with width support
       return {
-        value: formatQuoted(spec, arg),
+        value: formatQuoted(spec, arg, maxOutputBytes),
         parseError: false,
         parseErrMsg: "",
       };
     case "b": {
       // Interpret escape sequences in arg
       // Returns {value, stopped} - if stopped is true, \c was encountered
-      const bResult = processBEscapes(arg);
+      const bResult = processBEscapes(arg, maxOutputBytes);
       return {
         value: bResult.value,
         parseError: false,
@@ -584,6 +631,17 @@ function formatValue(
           parseErrMsg: `printf: [sprintf] unexpected placeholder\n`,
         };
       }
+  }
+}
+
+function assertFormatSpecBounds(spec: string, maxOutputBytes: number): void {
+  const match = spec.match(/^%[-+0 #' ]*(\d*)(?:\.(\d*))?/);
+  if (!match) return;
+  const width = match[1] ? Number(match[1]) : 0;
+  const precision = match[2] !== undefined ? Number(match[2]) : -1;
+  assertFormattingInteger(width, maxOutputBytes, "width");
+  if (precision !== -1) {
+    assertFormattingInteger(precision, maxOutputBytes, "precision");
   }
 }
 
@@ -800,18 +858,66 @@ function formatHex(spec: string, num: number): string {
  * Shell-quote a string (for %q)
  * Bash uses backslash escaping for printable chars, $'...' only for control chars
  */
-function shellQuote(str: string): string {
+function shellQuote(str: string, maxOutputBytes: number): string {
   if (str === "") {
+    if (maxOutputBytes < 2) {
+      throw new ExecutionLimitError(
+        `printf: output size limit exceeded (${maxOutputBytes} bytes)`,
+        "string_length",
+      );
+    }
     return "''";
   }
   // If string contains only safe characters, return as-is
   if (/^[a-zA-Z0-9_./-]+$/.test(str)) {
+    if (utf8ByteLength(str) > maxOutputBytes) {
+      throw new ExecutionLimitError(
+        `printf: output size limit exceeded (${maxOutputBytes} bytes)`,
+        "string_length",
+      );
+    }
     return str;
   }
 
   // Check if we need $'...' syntax (for control chars, newlines, high bytes, etc.)
   // High bytes (0x80-0xff) need escaping as they are not printable ASCII
   const needsDollarQuote = /[\x00-\x1f\x7f-\xff]/.test(str);
+
+  let prospectiveBytes = needsDollarQuote ? 3 : 0; // $' plus closing quote
+  for (const char of str) {
+    const code = char.charCodeAt(0);
+    if (needsDollarQuote) {
+      if (
+        char === "'" ||
+        char === "\\" ||
+        char === "\n" ||
+        char === "\t" ||
+        char === "\r" ||
+        char === "\x07" ||
+        char === "\b" ||
+        char === "\f" ||
+        char === "\v" ||
+        char === "\x1b" ||
+        char === '"'
+      ) {
+        prospectiveBytes += 2;
+      } else if (code < 32 || (code >= 127 && code <= 255)) {
+        prospectiveBytes += 4;
+      } else {
+        prospectiveBytes += utf8ByteLength(char);
+      }
+    } else {
+      prospectiveBytes +=
+        utf8ByteLength(char) +
+        (" \t|&;<>()$`\\\"'*?[#~=%!{}".includes(char) ? 1 : 0);
+    }
+    if (prospectiveBytes > maxOutputBytes) {
+      throw new ExecutionLimitError(
+        `printf: output size limit exceeded (${maxOutputBytes} bytes)`,
+        "string_length",
+      );
+    }
+  }
 
   if (needsDollarQuote) {
     // Use $'...' format with escape sequences for control characters
@@ -869,7 +975,11 @@ function shellQuote(str: string): string {
  * Format a string with %s, respecting width and precision
  * Note: %06s should NOT zero-pad (0 flag is ignored for strings)
  */
-function formatString(spec: string, str: string): string {
+function formatString(
+  spec: string,
+  str: string,
+  maxOutputBytes: number,
+): string {
   const match = spec.match(/^%(-?)(\d*)(\.(\d*))?s$/);
   if (!match) {
     return sprintf(spec.replace(/0+(?=\d)/, ""), str);
@@ -884,14 +994,18 @@ function formatString(spec: string, str: string): string {
 
   // Use shared width/alignment utility
   const width = leftJustify ? -widthVal : widthVal;
-  return applyWidth(str, width, precision);
+  return applyWidth(str, width, precision, maxOutputBytes);
 }
 
 /**
  * Format a quoted string with %q, respecting width
  */
-function formatQuoted(spec: string, str: string): string {
-  const quoted = shellQuote(str);
+function formatQuoted(
+  spec: string,
+  str: string,
+  maxOutputBytes: number,
+): string {
+  const quoted = shellQuote(str, maxOutputBytes);
 
   const match = spec.match(/^%(-?)(\d*)q$/);
   if (!match) {
@@ -901,16 +1015,7 @@ function formatQuoted(spec: string, str: string): string {
   const leftJustify = match[1] === "-";
   const width = match[2] ? parseInt(match[2], 10) : 0;
 
-  let result = quoted;
-  if (width > result.length) {
-    if (leftJustify) {
-      result = result.padEnd(width, " ");
-    } else {
-      result = result.padStart(width, " ");
-    }
-  }
-
-  return result;
+  return applyWidth(quoted, leftJustify ? -width : width, -1, maxOutputBytes);
 }
 
 /**
@@ -992,7 +1097,16 @@ function formatFloat(spec: string, specifier: string, num: number): string {
  * - Octal can be \NNN or \0NNN
  * Returns {value, stopped} - stopped is true if \c was encountered
  */
-function processBEscapes(str: string): { value: string; stopped: boolean } {
+function processBEscapes(
+  str: string,
+  maxOutputBytes: number,
+): { value: string; stopped: boolean } {
+  if (utf8ByteLength(str) > maxOutputBytes) {
+    throw new ExecutionLimitError(
+      `printf: output size limit exceeded (${maxOutputBytes} bytes)`,
+      "string_length",
+    );
+  }
   let result = "";
   let i = 0;
 

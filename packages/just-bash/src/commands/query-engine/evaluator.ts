@@ -9,6 +9,7 @@ import { mapToRecord } from "../../helpers/env.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { assertDefenseContext } from "../../security/defense-context.js";
 import type { FeatureCoverageWriter } from "../../types.js";
+import { utf8ByteLength } from "../printf/escapes.js";
 import {
   evalArrayBuiltin,
   evalControlBuiltin,
@@ -69,6 +70,7 @@ class JqError extends Error {
 }
 
 const DEFAULT_MAX_JQ_ITERATIONS = 10000;
+const DEFAULT_MAX_STRING_LENGTH = 10 * 1024 * 1024;
 // Depth limit for nested structures - must be low enough to avoid V8 stack overflow
 // during JSON.stringify/parse which have their own recursion limits (~2000-10000 depending on V8 version)
 const DEFAULT_MAX_JQ_DEPTH = 2000;
@@ -108,12 +110,16 @@ const SIMPLE_MATH_FUNCTIONS = new Map<string, (x: number) => number>([
 export interface QueryExecutionLimits {
   maxIterations?: number;
   maxDepth?: number;
+  maxStringLength?: number;
+  maxOutputSize?: number;
+  maxArrayElements?: number;
 }
+
+export type ResolvedQueryExecutionLimits = Required<QueryExecutionLimits>;
 
 export interface EvalContext {
   vars: Map<string, QueryValue>;
-  limits: Required<Pick<QueryExecutionLimits, "maxIterations">> &
-    QueryExecutionLimits;
+  limits: ResolvedQueryExecutionLimits;
   env?: Map<string, string>;
   requireDefenseContext?: boolean;
   defenseContextChecked?: boolean;
@@ -137,6 +143,11 @@ function createContext(options?: EvaluateOptions): EvalContext {
       maxIterations:
         options?.limits?.maxIterations ?? DEFAULT_MAX_JQ_ITERATIONS,
       maxDepth: options?.limits?.maxDepth ?? DEFAULT_MAX_JQ_DEPTH,
+      maxStringLength:
+        options?.limits?.maxStringLength ?? DEFAULT_MAX_STRING_LENGTH,
+      maxOutputSize:
+        options?.limits?.maxOutputSize ?? DEFAULT_MAX_STRING_LENGTH,
+      maxArrayElements: options?.limits?.maxArrayElements ?? 100_000,
     },
     env: options?.env,
     coverage: options?.coverage,
@@ -1397,7 +1408,17 @@ function evalBinaryOp(
           if (l === null) return r;
           if (r === null) return l;
           if (typeof l === "number" && typeof r === "number") return l + r;
-          if (typeof l === "string" && typeof r === "string") return l + r;
+          if (typeof l === "string" && typeof r === "string") {
+            const maxStringLength = ctx.limits.maxStringLength;
+            const combinedBytes = utf8ByteLength(l) + utf8ByteLength(r);
+            if (combinedBytes > maxStringLength) {
+              throw new ExecutionLimitError(
+                `string size limit exceeded (${maxStringLength} bytes)`,
+                "string_length",
+              );
+            }
+            return l + r;
+          }
           if (Array.isArray(l) && Array.isArray(r)) return [...l, ...r];
           if (
             l &&
@@ -1428,8 +1449,25 @@ function evalBinaryOp(
           return null;
         case "*":
           if (typeof l === "number" && typeof r === "number") return l * r;
-          if (typeof l === "string" && typeof r === "number")
-            return l.repeat(r);
+          if (typeof l === "string" && typeof r === "number") {
+            if (!Number.isFinite(r)) {
+              throw new Error(`invalid string repetition count: ${r}`);
+            }
+            const repeatCount = Math.trunc(r);
+            if (repeatCount < 0) return null;
+            const inputBytes = utf8ByteLength(l);
+            const maxStringLength = ctx.limits.maxStringLength;
+            if (
+              inputBytes > 0 &&
+              repeatCount > Math.floor(maxStringLength / inputBytes)
+            ) {
+              throw new ExecutionLimitError(
+                `string size limit exceeded (${maxStringLength} bytes)`,
+                "string_length",
+              );
+            }
+            return l.repeat(repeatCount);
+          }
           {
             const lObj = asQueryRecord(l);
             const rObj = asQueryRecord(r);

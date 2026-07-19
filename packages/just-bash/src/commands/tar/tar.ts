@@ -32,6 +32,25 @@ import { parseOptions, type TarOptions } from "./tar-options.js";
 
 const BATCH_SIZE = 100;
 
+function archiveLimits(ctx: CommandContext) {
+  return {
+    maxArchiveSize: ctx.limits.maxArchiveBytes,
+    maxCompressedSize: ctx.limits.maxArchiveCompressedBytes,
+    maxEntrySize: ctx.limits.maxArchiveEntryBytes,
+    maxEntries: ctx.limits.maxArchiveEntries,
+    signal: ctx.signal,
+    executionScope: ctx.executionScope,
+  };
+}
+
+function isAborted(ctx: CommandContext): boolean {
+  return ctx.signal?.aborted === true;
+}
+
+function abortedResult(): ExecResult {
+  return { stdout: "", stderr: "tar: operation aborted\n", exitCode: 126 };
+}
+
 const tarHelp = {
   name: "tar",
   summary: "manipulate tape archives",
@@ -216,8 +235,13 @@ async function collectFiles(
   const errors: string[] = [];
   const fullPath = ctx.fs.resolvePath(basePath, relativePath);
 
+  if (isAborted(ctx)) {
+    return { entries, errors: ["tar: operation aborted"] };
+  }
+
   try {
     const stat = await ctx.fs.stat(fullPath);
+    if (isAborted(ctx)) return { entries, errors: ["tar: operation aborted"] };
 
     if (matchesExclude(relativePath, exclude)) {
       return { entries, errors };
@@ -234,9 +258,13 @@ async function collectFiles(
 
       // Read directory contents
       const items = await ctx.fs.readdir(fullPath);
+      if (isAborted(ctx))
+        return { entries, errors: ["tar: operation aborted"] };
 
       // Process in batches
       for (let i = 0; i < items.length; i += BATCH_SIZE) {
+        if (isAborted(ctx))
+          return { entries, errors: ["tar: operation aborted"] };
         const batch = items.slice(i, i + BATCH_SIZE);
         const results = await Promise.all(
           batch.map((item) =>
@@ -256,6 +284,8 @@ async function collectFiles(
     } else if (stat.isFile) {
       // Read file content
       const content = await ctx.fs.readFileBuffer(fullPath);
+      if (isAborted(ctx))
+        return { entries, errors: ["tar: operation aborted"] };
       entries.push({
         name: relativePath,
         content,
@@ -265,6 +295,8 @@ async function collectFiles(
     } else if (stat.isSymbolicLink) {
       // Read symlink target
       const target = await ctx.fs.readlink(fullPath);
+      if (isAborted(ctx))
+        return { entries, errors: ["tar: operation aborted"] };
       entries.push({
         name: relativePath,
         isSymlink: true,
@@ -307,6 +339,7 @@ async function createTarArchive(
   let verboseOutput = "";
 
   for (const file of files) {
+    if (isAborted(ctx)) return abortedResult();
     const { entries, errors } = await collectFiles(
       ctx,
       workDir,
@@ -335,15 +368,27 @@ async function createTarArchive(
   let archiveData: Uint8Array;
   try {
     if (options.gzip) {
-      archiveData = await createCompressedArchive(allEntries);
+      archiveData = await createCompressedArchive(
+        allEntries,
+        archiveLimits(ctx),
+      );
     } else if (options.bzip2) {
-      archiveData = await createBzip2CompressedArchive(allEntries);
+      archiveData = await createBzip2CompressedArchive(
+        allEntries,
+        archiveLimits(ctx),
+      );
     } else if (options.xz) {
-      archiveData = await createXzCompressedArchive(allEntries);
+      archiveData = await createXzCompressedArchive(
+        allEntries,
+        archiveLimits(ctx),
+      );
     } else if (options.zstd) {
-      archiveData = await createZstdCompressedArchive(allEntries);
+      archiveData = await createZstdCompressedArchive(
+        allEntries,
+        archiveLimits(ctx),
+      );
     } else {
-      archiveData = await createArchive(allEntries);
+      archiveData = await createArchive(allEntries, archiveLimits(ctx));
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown error";
@@ -429,7 +474,7 @@ async function appendTarArchive(
   }
 
   // Parse existing archive
-  const parseResult = await parseArchive(existingData);
+  const parseResult = await parseArchive(existingData, archiveLimits(ctx));
   if (parseResult.error) {
     return {
       stdout: "",
@@ -483,7 +528,7 @@ async function appendTarArchive(
   // Create new archive
   let archiveData: Uint8Array;
   try {
-    archiveData = await createArchive(allEntries);
+    archiveData = await createArchive(allEntries, archiveLimits(ctx));
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown error";
     return {
@@ -551,7 +596,7 @@ async function updateTarArchive(
   }
 
   // Parse existing archive
-  const parseResult = await parseArchive(existingData);
+  const parseResult = await parseArchive(existingData, archiveLimits(ctx));
   if (parseResult.error) {
     return {
       stdout: "",
@@ -630,7 +675,7 @@ async function updateTarArchive(
   // Create new archive
   let archiveData: Uint8Array;
   try {
-    archiveData = await createArchive(allEntries);
+    archiveData = await createArchive(allEntries, archiveLimits(ctx));
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown error";
     return {
@@ -697,15 +742,24 @@ async function extractTarArchive(
   const useZstd = options.zstd || isZstdCompressed(archiveData);
 
   if (useGzip) {
-    parseResult = await parseCompressedArchive(archiveData);
+    parseResult = await parseCompressedArchive(archiveData, archiveLimits(ctx));
   } else if (useBzip2) {
-    parseResult = await parseBzip2CompressedArchive(archiveData);
+    parseResult = await parseBzip2CompressedArchive(
+      archiveData,
+      archiveLimits(ctx),
+    );
   } else if (useXz) {
-    parseResult = await parseXzCompressedArchive(archiveData);
+    parseResult = await parseXzCompressedArchive(
+      archiveData,
+      archiveLimits(ctx),
+    );
   } else if (useZstd) {
-    parseResult = await parseZstdCompressedArchive(archiveData);
+    parseResult = await parseZstdCompressedArchive(
+      archiveData,
+      archiveLimits(ctx),
+    );
   } else {
-    parseResult = await parseArchive(archiveData);
+    parseResult = await parseArchive(archiveData, archiveLimits(ctx));
   }
 
   if (parseResult.error) {
@@ -731,6 +785,7 @@ async function extractTarArchive(
 
   // Create target directory if it doesn't exist (only if not extracting to stdout)
   if (options.directory && !options.toStdout) {
+    if (isAborted(ctx)) return abortedResult();
     try {
       await ctx.fs.mkdir(workDir, { recursive: true });
     } catch {
@@ -740,6 +795,7 @@ async function extractTarArchive(
 
   // Extract entries
   for (const entry of parseResult.entries) {
+    if (isAborted(ctx)) return abortedResult();
     // Apply strip-components
     const name = stripComponents(entry.name, options.strip);
     if (!name) continue;
@@ -788,6 +844,7 @@ async function extractTarArchive(
         // Skip directories when extracting to stdout
         if (options.toStdout) continue;
 
+        if (isAborted(ctx)) return abortedResult();
         await ctx.fs.mkdir(targetPath, { recursive: true });
         if (options.verbose) {
           verboseOutput += `${safeName}\n`;
@@ -825,6 +882,7 @@ async function extractTarArchive(
           }
         }
 
+        if (isAborted(ctx)) return abortedResult();
         await ctx.fs.writeFile(targetPath, entry.content);
 
         // Set permissions if preserving
@@ -876,6 +934,7 @@ async function extractTarArchive(
         }
 
         try {
+          if (isAborted(ctx)) return abortedResult();
           await ctx.fs.symlink(entry.linkTarget, targetPath);
         } catch {
           // Symlink may already exist
@@ -886,6 +945,7 @@ async function extractTarArchive(
         }
       }
     } catch (e) {
+      if (isAborted(ctx)) return abortedResult();
       const msg = e instanceof Error ? e.message : "unknown error";
       errors.push(`tar: ${safeName}: ${msg}`);
     }
@@ -937,15 +997,24 @@ async function listTarArchive(
   const useZstd = options.zstd || isZstdCompressed(archiveData);
 
   if (useGzip) {
-    parseResult = await parseCompressedArchive(archiveData);
+    parseResult = await parseCompressedArchive(archiveData, archiveLimits(ctx));
   } else if (useBzip2) {
-    parseResult = await parseBzip2CompressedArchive(archiveData);
+    parseResult = await parseBzip2CompressedArchive(
+      archiveData,
+      archiveLimits(ctx),
+    );
   } else if (useXz) {
-    parseResult = await parseXzCompressedArchive(archiveData);
+    parseResult = await parseXzCompressedArchive(
+      archiveData,
+      archiveLimits(ctx),
+    );
   } else if (useZstd) {
-    parseResult = await parseZstdCompressedArchive(archiveData);
+    parseResult = await parseZstdCompressedArchive(
+      archiveData,
+      archiveLimits(ctx),
+    );
   } else {
-    parseResult = await parseArchive(archiveData);
+    parseResult = await parseArchive(archiveData, archiveLimits(ctx));
   }
 
   if (parseResult.error) {
@@ -959,6 +1028,7 @@ async function listTarArchive(
   let stdout = "";
 
   for (const entry of parseResult.entries) {
+    if (isAborted(ctx)) return abortedResult();
     // Apply strip-components for display
     const name = stripComponents(entry.name, options.strip);
     if (!name) continue;
@@ -1009,6 +1079,7 @@ async function listTarArchive(
 export const tarCommand: Command = {
   name: "tar",
   async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+    if (isAborted(ctx)) return abortedResult();
     if (hasHelpFlag(args)) {
       return showHelp(tarHelp);
     }

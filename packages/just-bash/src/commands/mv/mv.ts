@@ -1,3 +1,14 @@
+import { isSameOrDescendantPath } from "../../fs/path-utils.js";
+import {
+  compareCanonicalContainment,
+  compareFileIdentity,
+  FileTraversalBudget,
+  traverseFileTree,
+} from "../../fs/traversal.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
@@ -57,6 +68,12 @@ export const mvCommand: Command = {
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
+    const traversalBudget = new FileTraversalBudget({
+      limits: ctx.limits,
+      signal: ctx.signal,
+      executionScope: ctx.executionScope,
+      site: "mv",
+    });
 
     // Note: force is accepted but not used since we don't prompt
     void force;
@@ -82,6 +99,7 @@ export const mvCommand: Command = {
     for (const src of sources) {
       try {
         const srcPath = ctx.fs.resolvePath(ctx.cwd, src);
+        const srcStat = await ctx.fs.stat(srcPath);
 
         let targetPath = destPath;
         if (destIsDir) {
@@ -89,7 +107,26 @@ export const mvCommand: Command = {
           targetPath =
             destPath === "/" ? `/${basename}` : `${destPath}/${basename}`;
         }
-
+        if (
+          srcStat.isDirectory &&
+          (isSameOrDescendantPath(srcPath, targetPath) ||
+            (await compareCanonicalContainment(
+              ctx.fs,
+              srcPath,
+              targetPath,
+              traversalBudget,
+            )) === "inside")
+        ) {
+          stderr += `mv: cannot move '${src}' into itself, '${targetPath}'\n`;
+          exitCode = 1;
+          continue;
+        }
+        if (
+          (await compareFileIdentity(ctx.fs, srcPath, targetPath)) === "same"
+        ) {
+          // POSIX rename of a file onto itself succeeds without changing it.
+          continue;
+        }
         // Check if target exists for -n flag
         if (noClobber) {
           try {
@@ -101,6 +138,22 @@ export const mvCommand: Command = {
           }
         }
 
+        if (srcStat.isDirectory) {
+          await traverseFileTree(
+            {
+              fs: ctx.fs,
+              root: srcPath,
+              limits: ctx.limits,
+              signal: ctx.signal,
+              executionScope: ctx.executionScope,
+              site: "mv",
+              symlinks: "never",
+              budget: traversalBudget,
+            },
+            () => undefined,
+          );
+        }
+
         await ctx.fs.mv(srcPath, targetPath);
 
         if (verbose) {
@@ -110,6 +163,12 @@ export const mvCommand: Command = {
           stdout += `renamed '${src}' -> '${targetName}'\n`;
         }
       } catch (error) {
+        if (
+          error instanceof ExecutionLimitError ||
+          error instanceof ExecutionAbortedError
+        ) {
+          throw error;
+        }
         const message = getErrorMessage(error);
         if (message.includes("ENOENT") || message.includes("no such file")) {
           stderr += `mv: cannot stat '${src}': No such file or directory\n`;

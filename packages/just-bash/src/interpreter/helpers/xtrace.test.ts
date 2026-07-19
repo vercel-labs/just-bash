@@ -96,6 +96,19 @@ echo line1`);
       expect(result.stderr).toContain("echo test");
       expect(result.exitCode).toBe(0);
     });
+
+    it("suppresses xtrace while expanding PS4 command substitutions", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        PS4='$(printf P)'
+        set -x
+        echo test
+      `);
+      expect(result.stdout).toBe("test\n");
+      expect(result.stderr).toContain("Pecho test");
+      expect(result.stderr).not.toContain("printf P");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("tracing with special characters", () => {

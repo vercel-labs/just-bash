@@ -37,6 +37,10 @@ const splitHelp = {
 /** Maximum number of output files to prevent resource exhaustion */
 const MAX_OUTPUT_FILES = 100_000;
 
+function toUint8Array(content: string): Uint8Array {
+  return Uint8Array.from(content, (char) => char.charCodeAt(0));
+}
+
 type SplitMode = "lines" | "bytes" | "chunks";
 
 interface SplitOptions {
@@ -111,81 +115,62 @@ function generateSuffix(
 /**
  * Split content by lines.
  */
-function splitByLines(
-  content: string,
-  linesPerFile: number,
-): { content: string; hasContent: boolean }[] {
-  const lines = content.split("\n");
-  const hasTrailingNewline =
-    content.endsWith("\n") && lines[lines.length - 1] === "";
-  if (hasTrailingNewline) {
-    lines.pop();
+function splitByLines(content: Uint8Array, linesPerFile: number): Uint8Array[] {
+  const chunks: Uint8Array[] = [];
+  let start = 0;
+  let lines = 0;
+  for (let i = 0; i < content.length; i++) {
+    if (content[i] !== 0x0a) continue;
+    lines++;
+    if (lines === linesPerFile) {
+      chunks.push(content.slice(start, i + 1));
+      start = i + 1;
+      lines = 0;
+    }
   }
-
-  const chunks: { content: string; hasContent: boolean }[] = [];
-
-  for (let i = 0; i < lines.length; i += linesPerFile) {
-    const chunkLines = lines.slice(i, i + linesPerFile);
-    const isLastChunk = i + linesPerFile >= lines.length;
-    // Add newline after each line, but for the last chunk only if original had trailing newline
-    const chunkContent =
-      isLastChunk && !hasTrailingNewline
-        ? chunkLines.join("\n")
-        : `${chunkLines.join("\n")}\n`;
-    chunks.push({ content: chunkContent, hasContent: true });
-  }
-
+  if (start < content.length) chunks.push(content.slice(start));
   return chunks;
 }
 
 /**
  * Split content by bytes.
  */
-function splitByBytes(
-  content: string,
-  bytesPerFile: number,
-): { content: string; hasContent: boolean }[] {
-  const encoder = new TextEncoder();
-  const bytes = encoder.encode(content);
-  const decoder = new TextDecoder();
-  const chunks: { content: string; hasContent: boolean }[] = [];
-
-  for (let i = 0; i < bytes.length; i += bytesPerFile) {
-    const chunkBytes = bytes.slice(i, i + bytesPerFile);
-    chunks.push({
-      content: decoder.decode(chunkBytes),
-      hasContent: chunkBytes.length > 0,
-    });
-  }
-
+function splitByBytes(content: Uint8Array, bytesPerFile: number): Uint8Array[] {
+  const chunks: Uint8Array[] = [];
+  for (let i = 0; i < content.length; i += bytesPerFile)
+    chunks.push(content.slice(i, i + bytesPerFile));
   return chunks;
 }
 
 /**
  * Split content into N equal chunks.
  */
-function splitIntoChunks(
-  content: string,
-  numChunks: number,
-): { content: string; hasContent: boolean }[] {
-  const encoder = new TextEncoder();
-  const bytes = encoder.encode(content);
-  const decoder = new TextDecoder();
-  const chunks: { content: string; hasContent: boolean }[] = [];
-
-  const bytesPerChunk = Math.ceil(bytes.length / numChunks);
+function splitIntoChunks(content: Uint8Array, numChunks: number): Uint8Array[] {
+  const chunks: Uint8Array[] = [];
+  const bytesPerChunk = Math.ceil(content.length / numChunks);
 
   for (let i = 0; i < numChunks; i++) {
     const start = i * bytesPerChunk;
-    const end = Math.min(start + bytesPerChunk, bytes.length);
-    const chunkBytes = bytes.slice(start, end);
-    chunks.push({
-      content: decoder.decode(chunkBytes),
-      hasContent: chunkBytes.length > 0,
-    });
+    const end = Math.min(start + bytesPerChunk, content.length);
+    if (start < end) chunks.push(content.slice(start, end));
   }
-
   return chunks;
+}
+
+function suffixCapacity(numeric: boolean, length: number): number {
+  const capacity = numeric ? 10 ** length : 26 ** length;
+  return Number.isSafeInteger(capacity) ? capacity : Number.MAX_SAFE_INTEGER;
+}
+
+async function canonicalIdentity(
+  ctx: CommandContext,
+  path: string,
+): Promise<string> {
+  try {
+    return await ctx.fs.realpath(path);
+  } catch {
+    return path;
+  }
 }
 
 export const split: Command = {
@@ -335,6 +320,13 @@ export const split: Command = {
     if (positionalArgs.length >= 2) {
       prefix = positionalArgs[1];
     }
+    if (positionalArgs.length > 2) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `split: extra operand '${positionalArgs[2]}'\n`,
+      };
+    }
 
     // Read input content. split is byte-clean — it chunks the file by line
     // or byte count and never interprets content. Both stdin and named
@@ -343,14 +335,16 @@ export const split: Command = {
     // would decode multibyte codepoints, then the binary write would
     // truncate each one back to a single low byte — silent data loss for
     // non-ASCII files.
-    let content: string;
+    let content: Uint8Array;
+    let inputPath: string | null = null;
     if (inputFile === "-") {
-      content = latin1FromBytes(ctx.stdin) ?? "";
+      content = toUint8Array(latin1FromBytes(ctx.stdin));
     } else {
-      const filePath = ctx.fs.resolvePath(ctx.cwd, inputFile);
+      inputPath = ctx.fs.resolvePath(ctx.cwd, inputFile);
       try {
-        const fileBytes = await readBytesFrom(ctx.fs, filePath);
-        content = latin1FromBytes(fileBytes);
+        content = toUint8Array(
+          latin1FromBytes(await readBytesFrom(ctx.fs, inputPath)),
+        );
       } catch {
         return {
           exitCode: 1,
@@ -361,7 +355,7 @@ export const split: Command = {
     }
 
     // Handle empty input
-    if (content === "") {
+    if (content.length === 0) {
       return {
         exitCode: 0,
         stdout: "",
@@ -369,8 +363,16 @@ export const split: Command = {
       };
     }
 
+    if (options.mode === "chunks" && options.chunks > MAX_OUTPUT_FILES) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `split: too many output files (${options.chunks}), limit is ${MAX_OUTPUT_FILES}\n`,
+      };
+    }
+
     // Split content
-    let chunks: { content: string; hasContent: boolean }[];
+    let chunks: Uint8Array[];
     switch (options.mode) {
       case "lines":
         chunks = splitByLines(content, options.lines);
@@ -396,22 +398,80 @@ export const split: Command = {
       };
     }
 
-    // Write output files
-    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-      const chunk = chunks[chunkIndex];
-      if (!chunk.hasContent) continue;
+    const capacity = suffixCapacity(
+      options.useNumericSuffix,
+      options.suffixLength,
+    );
+    if (chunks.length > capacity) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `split: output file suffixes exhausted at ${capacity} files\n`,
+      };
+    }
 
+    // Plan and validate every output before the first destructive write.
+    const outputs: { path: string; content: Uint8Array }[] = [];
+    const identities = new Set<string>();
+    const inputIdentity = inputPath
+      ? await canonicalIdentity(ctx, inputPath)
+      : null;
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
       const suffix = generateSuffix(
         chunkIndex,
         options.useNumericSuffix,
         options.suffixLength,
       );
       const filename = `${prefix}${suffix}${options.additionalSuffix}`;
-      const filePath = ctx.fs.resolvePath(ctx.cwd, filename);
+      const path = ctx.fs.resolvePath(ctx.cwd, filename);
+      const identity = await canonicalIdentity(ctx, path);
+      if (identities.has(identity)) {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: `split: duplicate output file '${filename}'\n`,
+        };
+      }
+      if (inputIdentity !== null && identity === inputIdentity) {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: `split: output file '${filename}' would overwrite input\n`,
+        };
+      }
+      identities.add(identity);
+      outputs.push({ path, content: chunks[chunkIndex] });
+    }
 
-      // chunk.content is the latin1 byte view of stdin — write as binary
-      // so writeFile doesn't re-encode every >0x7F char as a UTF-8 sequence.
-      await ctx.fs.writeFile(filePath, chunk.content, "binary");
+    // Preserve overwritten files and roll back all earlier writes if a later
+    // backend operation fails. This provides atomic observable contents even
+    // for IFileSystem implementations without an atomic multi-file rename.
+    const prior = new Map<string, Uint8Array | null>();
+    for (const output of outputs) {
+      prior.set(
+        output.path,
+        (await ctx.fs.exists(output.path))
+          ? await ctx.fs.readFileBuffer(output.path)
+          : null,
+      );
+    }
+    const written: string[] = [];
+    try {
+      for (const output of outputs) {
+        await ctx.fs.writeFile(output.path, output.content);
+        written.push(output.path);
+      }
+    } catch {
+      for (const path of written.reverse()) {
+        const old = prior.get(path);
+        if (old === null) await ctx.fs.rm(path, { force: true });
+        else if (old !== undefined) await ctx.fs.writeFile(path, old);
+      }
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: "split: failed to write output\n",
+      };
     }
 
     return {

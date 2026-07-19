@@ -4,13 +4,37 @@
  * Handles prompt escape sequences for ${var@P} transformation and PS1/PS2/PS3/PS4.
  */
 
+import { utf8ByteLength } from "../../commands/printf/escapes.js";
+import { ExecutionLimitError } from "../errors.js";
 import type { InterpreterContext } from "../types.js";
+
+function boundedAppender(maxBytes: number): {
+  append: (value: string) => void;
+  build: () => string;
+} {
+  const chunks: string[] = [];
+  let bytes = 0;
+  return {
+    append(value: string): void {
+      const valueBytes = utf8ByteLength(value);
+      if (valueBytes > maxBytes - bytes) {
+        throw new ExecutionLimitError(
+          `prompt expansion exceeds string length limit (${maxBytes} bytes)`,
+          "string_length",
+        );
+      }
+      if (value) chunks.push(value);
+      bytes += valueBytes;
+    },
+    build: () => chunks.join(""),
+  };
+}
 
 /**
  * Simple strftime implementation for prompt \D{format}
  * Only supports common format specifiers
  */
-function simpleStrftime(format: string, date: Date): string {
+function simpleStrftime(format: string, date: Date, maxBytes: number): string {
   const pad = (n: number, width = 2) => String(n).padStart(width, "0");
 
   // If format is empty, use locale default time format (like %X)
@@ -21,56 +45,56 @@ function simpleStrftime(format: string, date: Date): string {
     return `${h}:${m}:${s}`;
   }
 
-  let result = "";
+  const result = boundedAppender(maxBytes);
   let i = 0;
   while (i < format.length) {
     if (format[i] === "%") {
       if (i + 1 >= format.length) {
-        result += "%";
+        result.append("%");
         i++;
         continue;
       }
       const spec = format[i + 1];
       switch (spec) {
         case "H":
-          result += pad(date.getHours());
+          result.append(pad(date.getHours()));
           break;
         case "M":
-          result += pad(date.getMinutes());
+          result.append(pad(date.getMinutes()));
           break;
         case "S":
-          result += pad(date.getSeconds());
+          result.append(pad(date.getSeconds()));
           break;
         case "d":
-          result += pad(date.getDate());
+          result.append(pad(date.getDate()));
           break;
         case "m":
-          result += pad(date.getMonth() + 1);
+          result.append(pad(date.getMonth() + 1));
           break;
         case "Y":
-          result += date.getFullYear();
+          result.append(String(date.getFullYear()));
           break;
         case "y":
-          result += pad(date.getFullYear() % 100);
+          result.append(pad(date.getFullYear() % 100));
           break;
         case "I": {
           let h = date.getHours() % 12;
           if (h === 0) h = 12;
-          result += pad(h);
+          result.append(pad(h));
           break;
         }
         case "p":
-          result += date.getHours() < 12 ? "AM" : "PM";
+          result.append(date.getHours() < 12 ? "AM" : "PM");
           break;
         case "P":
-          result += date.getHours() < 12 ? "am" : "pm";
+          result.append(date.getHours() < 12 ? "am" : "pm");
           break;
         case "%":
-          result += "%";
+          result.append("%");
           break;
         case "a": {
           const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-          result += days[date.getDay()];
+          result.append(days[date.getDay()]);
           break;
         }
         case "b": {
@@ -88,20 +112,20 @@ function simpleStrftime(format: string, date: Date): string {
             "Nov",
             "Dec",
           ];
-          result += months[date.getMonth()];
+          result.append(months[date.getMonth()]);
           break;
         }
         default:
           // Unknown specifier - pass through
-          result += `%${spec}`;
+          result.append(`%${spec}`);
       }
       i += 2;
     } else {
-      result += format[i];
+      result.append(format[i]);
       i++;
     }
   }
-  return result;
+  return result.build();
 }
 
 /**
@@ -137,7 +161,7 @@ function simpleStrftime(format: string, date: Date): string {
  * - \NNN - octal character code
  */
 export function expandPrompt(ctx: InterpreterContext, value: string): string {
-  let result = "";
+  const result = boundedAppender(ctx.limits.maxStringLength);
   let i = 0;
 
   // Get environment values for prompt escapes
@@ -181,7 +205,7 @@ export function expandPrompt(ctx: InterpreterContext, value: string): string {
     if (char === "\\") {
       if (i + 1 >= value.length) {
         // Trailing backslash
-        result += "\\";
+        result.append("\\");
         i++;
         continue;
       }
@@ -203,35 +227,35 @@ export function expandPrompt(ctx: InterpreterContext, value: string): string {
         }
         // Parse octal, wrap around at 256 (e.g., \555 = 365 octal = 245 decimal, wraps to 109 = 'm')
         const code = Number.parseInt(octalStr, 8) % 256;
-        result += String.fromCharCode(code);
+        result.append(String.fromCharCode(code));
         i = j;
         continue;
       }
 
       switch (next) {
         case "\\":
-          result += "\\";
+          result.append("\\");
           i += 2;
           break;
         case "a":
-          result += "\x07"; // Bell
+          result.append("\x07"); // Bell
           i += 2;
           break;
         case "e":
-          result += "\x1b"; // Escape
+          result.append("\x1b"); // Escape
           i += 2;
           break;
         case "n":
-          result += "\n";
+          result.append("\n");
           i += 2;
           break;
         case "r":
-          result += "\r";
+          result.append("\r");
           i += 2;
           break;
         case "$":
           // $ for regular user, # for root - we always use $ since we're not running as root
-          result += "$";
+          result.append("$");
           i += 2;
           break;
         case "[":
@@ -240,29 +264,31 @@ export function expandPrompt(ctx: InterpreterContext, value: string): string {
           i += 2;
           break;
         case "u":
-          result += user;
+          result.append(user);
           i += 2;
           break;
         case "h":
-          result += shortHost;
+          result.append(shortHost);
           i += 2;
           break;
         case "H":
-          result += hostname;
+          result.append(hostname);
           i += 2;
           break;
         case "w":
-          result += tildeExpanded;
+          result.append(tildeExpanded);
           i += 2;
           break;
         case "W":
-          result += pwdBasename;
+          result.append(pwdBasename);
           i += 2;
           break;
         case "d": {
           // Date: Weekday Month Day
           const dayStr = String(now.getDate()).padStart(2, " ");
-          result += `${weekdays[now.getDay()]} ${months[now.getMonth()]} ${dayStr}`;
+          result.append(
+            `${weekdays[now.getDay()]} ${months[now.getMonth()]} ${dayStr}`,
+          );
           i += 2;
           break;
         }
@@ -271,7 +297,7 @@ export function expandPrompt(ctx: InterpreterContext, value: string): string {
           const h = String(now.getHours()).padStart(2, "0");
           const m = String(now.getMinutes()).padStart(2, "0");
           const s = String(now.getSeconds()).padStart(2, "0");
-          result += `${h}:${m}:${s}`;
+          result.append(`${h}:${m}:${s}`);
           i += 2;
           break;
         }
@@ -282,7 +308,7 @@ export function expandPrompt(ctx: InterpreterContext, value: string): string {
           const hStr = String(h).padStart(2, "0");
           const m = String(now.getMinutes()).padStart(2, "0");
           const s = String(now.getSeconds()).padStart(2, "0");
-          result += `${hStr}:${m}:${s}`;
+          result.append(`${hStr}:${m}:${s}`);
           i += 2;
           break;
         }
@@ -293,7 +319,7 @@ export function expandPrompt(ctx: InterpreterContext, value: string): string {
           const hStr = String(h).padStart(2, "0");
           const m = String(now.getMinutes()).padStart(2, "0");
           const ampm = now.getHours() < 12 ? "AM" : "PM";
-          result += `${hStr}:${m} ${ampm}`;
+          result.append(`${hStr}:${m} ${ampm}`);
           i += 2;
           break;
         }
@@ -301,7 +327,7 @@ export function expandPrompt(ctx: InterpreterContext, value: string): string {
           // Time: HH:MM (24-hour)
           const h = String(now.getHours()).padStart(2, "0");
           const m = String(now.getMinutes()).padStart(2, "0");
-          result += `${h}:${m}`;
+          result.append(`${h}:${m}`);
           i += 2;
           break;
         }
@@ -312,69 +338,71 @@ export function expandPrompt(ctx: InterpreterContext, value: string): string {
             if (closeIdx !== -1) {
               const format = value.slice(i + 3, closeIdx);
               // Simple strftime implementation for common formats
-              result += simpleStrftime(format, now);
+              result.append(
+                simpleStrftime(format, now, ctx.limits.maxStringLength),
+              );
               i = closeIdx + 1;
             } else {
               // No closing brace - treat literally
-              result += "\\D";
+              result.append("\\D");
               i += 2;
             }
           } else {
-            result += "\\D";
+            result.append("\\D");
             i += 2;
           }
           break;
         case "s":
           // Shell name
-          result += "bash";
+          result.append("bash");
           i += 2;
           break;
         case "v":
           // Version: major.minor
-          result += "5.0"; // Pretend to be bash 5.0
+          result.append("5.0"); // Pretend to be bash 5.0
           i += 2;
           break;
         case "V":
           // Version: major.minor.patch
-          result += "5.0.0"; // Pretend to be bash 5.0.0
+          result.append("5.0.0"); // Pretend to be bash 5.0.0
           i += 2;
           break;
         case "j":
           // Number of jobs - we don't track jobs, so return 0
-          result += "0";
+          result.append("0");
           i += 2;
           break;
         case "l":
           // Terminal device basename - we're not in a real terminal
-          result += "tty";
+          result.append("tty");
           i += 2;
           break;
         case "#":
           // Command number
-          result += cmdNum;
+          result.append(cmdNum);
           i += 2;
           break;
         case "!":
           // History number - same as command number
-          result += cmdNum;
+          result.append(cmdNum);
           i += 2;
           break;
         case "x":
           // \xNN hex literals are NOT supported in bash prompt expansion
           // Just pass through as literal
-          result += "\\x";
+          result.append("\\x");
           i += 2;
           break;
         default:
           // Unknown escape - pass through as literal
-          result += `\\${next}`;
+          result.append(`\\${next}`);
           i += 2;
       }
     } else {
-      result += char;
+      result.append(char);
       i++;
     }
   }
 
-  return result;
+  return result.build();
 }

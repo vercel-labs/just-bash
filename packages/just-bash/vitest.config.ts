@@ -24,7 +24,7 @@ export default defineConfig({
     // but vi.mock works in forks as of vitest v4.
     poolMatchGlobs: [
       ["forks", "**/security/attacks/**"],
-      ["forks", "**/security/defense-in-depth-box*.test.ts"],
+      ["forks", "**/security/defense-in-depth*.test.ts"],
       ["forks", "**/browser.bundle.test.ts"],
       ["forks", "**/python3.test.ts"],
       ["forks", "**/python3.advanced.test.ts"],

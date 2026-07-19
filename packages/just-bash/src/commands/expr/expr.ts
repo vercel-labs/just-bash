@@ -246,7 +246,11 @@ function evaluateExpr(args: string[]): string {
     return token;
   }
 
-  return parseOr();
+  const result = parseOr();
+  if (i !== args.length) {
+    throw new Error("syntax error");
+  }
+  return result;
 }
 
 import type { CommandFuzzInfo } from "../fuzz-flags-types.js";

@@ -129,6 +129,33 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
   });
 
   describe("deletion security", () => {
+    it("removes an allowed symlink entry without deleting its file target", async () => {
+      const target = path.join(tempDir, "target.txt");
+      const link = path.join(tempDir, "target-link");
+      fs.writeFileSync(target, "preserve me");
+      fs.symlinkSync(target, link);
+
+      await rwfs.rm("/target-link");
+
+      expect(fs.existsSync(link)).toBe(false);
+      expect(fs.readFileSync(target, "utf8")).toBe("preserve me");
+    });
+
+    it("removes an allowed symlink entry without recursively deleting its directory target", async () => {
+      const target = path.join(tempDir, "target-dir");
+      const link = path.join(tempDir, "target-dir-link");
+      fs.mkdirSync(target);
+      fs.writeFileSync(path.join(target, "keep.txt"), "preserve me");
+      fs.symlinkSync(target, link);
+
+      await rwfs.rm("/target-dir-link", { recursive: true });
+
+      expect(fs.existsSync(link)).toBe(false);
+      expect(fs.readFileSync(path.join(target, "keep.txt"), "utf8")).toBe(
+        "preserve me",
+      );
+    });
+
     it("should not delete files outside root", async () => {
       // Try to delete the outside file
       await expect(rwfs.rm(outsideFile)).rejects.toThrow();
@@ -514,7 +541,7 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
       expect(realContent).toBe("TOP SECRET DATA - YOU SHOULD NOT SEE THIS");
     });
 
-    it("should block rm via pre-existing OS symlink pointing outside", async () => {
+    it("should unlink a pre-existing OS symlink without touching its outside target", async () => {
       const linkPath = path.join(tempDir, "rm-escape");
       try {
         fs.symlinkSync(outsideFile, linkPath);
@@ -522,8 +549,8 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
         return;
       }
 
-      await expect(rwfs.rm("/rm-escape")).rejects.toThrow();
-      // Verify the real file still exists
+      await rwfs.rm("/rm-escape");
+      expect(fs.existsSync(linkPath)).toBe(false);
       expect(fs.existsSync(outsideFile)).toBe(true);
     });
 
@@ -814,27 +841,10 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
         return;
       }
 
-      // Recursive copy should skip the escape symlink
-      await rwfs.cp("/src-dir", "/dest-dir", { recursive: true });
-
-      // safe.txt should be copied
-      const safe = await rwfs.readFile("/dest-dir/safe.txt");
-      expect(safe).toBe("safe");
-
-      // escape-link should NOT be copied (or should not point outside)
-      const destLinkPath = path.join(tempDir, "dest-dir", "escape-link");
-      if (fs.existsSync(destLinkPath)) {
-        // If it was copied, verify it doesn't point outside
-        try {
-          const resolved = fs.realpathSync(destLinkPath);
-          const canonicalRoot = fs.realpathSync(tempDir);
-          expect(
-            resolved.startsWith(canonicalRoot) || resolved === canonicalRoot,
-          ).toBe(true);
-        } catch {
-          // ENOENT is fine - broken symlink is safe
-        }
-      }
+      await expect(
+        rwfs.cp("/src-dir", "/dest-dir", { recursive: true }),
+      ).rejects.toThrow("contains an unsafe symlink");
+      expect(fs.existsSync(path.join(tempDir, "dest-dir"))).toBe(false);
     });
   });
 
@@ -1443,15 +1453,10 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
         return; // symlinks not supported, skip
       }
 
-      await rwfs.cp("/cp-src", "/cp-dest", { recursive: true });
-
-      // Safe file should be copied
-      const safeContent = await rwfs.readFile("/cp-dest/safe.txt");
-      expect(safeContent).toBe("safe content");
-
-      // Escaping symlink should NOT be copied (filter blocks it)
-      const escapeExists = await rwfs.exists("/cp-dest/escape-link");
-      expect(escapeExists).toBe(false);
+      await expect(
+        rwfs.cp("/cp-src", "/cp-dest", { recursive: true }),
+      ).rejects.toThrow("contains an unsafe symlink");
+      expect(fs.existsSync(path.join(tempDir, "cp-dest"))).toBe(false);
     });
   });
 

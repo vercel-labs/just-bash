@@ -13,7 +13,11 @@ import {
   safeSetRow,
   toSafeRow,
 } from "./csv.js";
-import { parseNamedExpressions } from "./moonblade-parser.js";
+import {
+  getMoonbladeLimits,
+  parseMoonblade,
+  parseNamedExpressions,
+} from "./moonblade-parser.js";
 import { moonbladeToJq } from "./moonblade-to-jq.js";
 
 export async function cmdMap(
@@ -52,15 +56,19 @@ export async function cmdMap(
   if (error) return error;
 
   // Parse moonblade expressions
-  const namedExprs = parseNamedExpressions(mapExpr);
+  const moonbladeLimits = getMoonbladeLimits(ctx);
+  const namedExprs = parseNamedExpressions(mapExpr, moonbladeLimits);
   const specs = namedExprs.map(({ expr, name }) => ({
     alias: typeof name === "string" ? name : name[0],
-    ast: moonbladeToJq(expr),
+    ast: moonbladeToJq(expr, true, moonbladeLimits),
   }));
 
   const evalOptions: EvaluateOptions = {
     limits: ctx.limits
-      ? { maxIterations: ctx.limits.maxJqIterations }
+      ? {
+          maxIterations: ctx.limits.maxJqIterations,
+          maxStringLength: ctx.limits.maxStringLength,
+        }
       : undefined,
   };
 
@@ -166,14 +174,20 @@ export async function cmdTransform(
   }
 
   // Parse the expression
+  const moonbladeLimits = getMoonbladeLimits(ctx);
   const ast = moonbladeToJq(
-    parseNamedExpressions(transformExpr)[0]?.expr ||
-      require("./moonblade-parser.js").parseMoonblade(transformExpr),
+    parseNamedExpressions(transformExpr, moonbladeLimits)[0]?.expr ||
+      parseMoonblade(transformExpr, moonbladeLimits),
+    true,
+    moonbladeLimits,
   );
 
   const evalOptions: EvaluateOptions = {
     limits: ctx.limits
-      ? { maxIterations: ctx.limits.maxJqIterations }
+      ? {
+          maxIterations: ctx.limits.maxJqIterations,
+          maxStringLength: ctx.limits.maxStringLength,
+        }
       : undefined,
   };
 

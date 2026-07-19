@@ -3,7 +3,12 @@
  */
 
 import type { CommandContext, ExecResult } from "../../types.js";
+import { XanOutputBuilder } from "./bounded-output.js";
 import { readCsvInput } from "./csv.js";
+
+function outputLimit(ctx: CommandContext): number {
+  return Math.min(ctx.limits.maxStringLength, ctx.limits.maxOutputSize);
+}
 
 /**
  * Flatten: display records vertically, one field per line
@@ -41,29 +46,33 @@ export async function cmdFlatten(
   const rows = limit > 0 ? data.slice(0, limit) : data;
 
   // Calculate max header width for alignment
-  const maxHeaderWidth = Math.max(...displayHeaders.map((h) => h.length));
+  let maxHeaderWidth = 0;
+  for (const header of displayHeaders) {
+    maxHeaderWidth = Math.max(maxHeaderWidth, header.length);
+  }
 
-  // Build output
-  const lines: string[] = [];
-  const separator = "─".repeat(80);
+  const output = new XanOutputBuilder(outputLimit(ctx));
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    lines.push(`Row n°${i}`);
-    lines.push(separator);
+    output.append(`Row n°${i}\n`);
+    output.repeat("─", 80);
+    output.append("\n");
 
     for (const h of displayHeaders) {
       const val = row[h];
       const valStr = val === null || val === undefined ? "" : String(val);
-      lines.push(`${h.padEnd(maxHeaderWidth)} ${valStr}`);
+      output.append(h);
+      output.repeat(" ", maxHeaderWidth - h.length + 1);
+      output.append(`${valStr}\n`);
     }
 
     if (i < rows.length - 1) {
-      lines.push(""); // Empty line between records
+      output.append("\n");
     }
   }
 
-  return { stdout: `${lines.join("\n")}\n`, stderr: "", exitCode: 0 };
+  return { stdout: output.build(), stderr: "", exitCode: 0 };
 }
 
 export async function cmdView(
@@ -96,31 +105,54 @@ export async function cmdView(
     }
   }
 
-  // Build table
-  const lines: string[] = [];
+  const output = new XanOutputBuilder(outputLimit(ctx));
   const border = "─";
   const sep = "│";
 
   // Top border
-  lines.push(`┌${widths.map((w) => border.repeat(w + 2)).join("┬")}┐`);
+  output.append("┌");
+  for (let i = 0; i < widths.length; i++) {
+    if (i > 0) output.append("┬");
+    output.repeat(border, widths[i] + 2);
+  }
+  output.append("┐\n");
 
   // Header
-  const headerRow = headers.map((h, i) => ` ${h.padEnd(widths[i])} `).join(sep);
-  lines.push(`${sep}${headerRow}${sep}`);
+  output.append(sep);
+  for (let i = 0; i < headers.length; i++) {
+    if (i > 0) output.append(sep);
+    output.append(` ${headers[i]}`);
+    output.repeat(" ", widths[i] - headers[i].length + 1);
+  }
+  output.append(`${sep}\n`);
 
   // Header separator
-  lines.push(`├${widths.map((w) => border.repeat(w + 2)).join("┼")}┤`);
+  output.append("├");
+  for (let i = 0; i < widths.length; i++) {
+    if (i > 0) output.append("┼");
+    output.repeat(border, widths[i] + 2);
+  }
+  output.append("┤\n");
 
   // Data rows
   for (const row of rows) {
-    const dataRow = headers
-      .map((h, i) => ` ${String(row[h] ?? "").padEnd(widths[i])} `)
-      .join(sep);
-    lines.push(`${sep}${dataRow}${sep}`);
+    output.append(sep);
+    for (let i = 0; i < headers.length; i++) {
+      if (i > 0) output.append(sep);
+      const value = String(row[headers[i]] ?? "");
+      output.append(` ${value}`);
+      output.repeat(" ", widths[i] - value.length + 1);
+    }
+    output.append(`${sep}\n`);
   }
 
   // Bottom border
-  lines.push(`└${widths.map((w) => border.repeat(w + 2)).join("┴")}┘`);
+  output.append("└");
+  for (let i = 0; i < widths.length; i++) {
+    if (i > 0) output.append("┴");
+    output.repeat(border, widths[i] + 2);
+  }
+  output.append("┘\n");
 
-  return { stdout: `${lines.join("\n")}\n`, stderr: "", exitCode: 0 };
+  return { stdout: output.build(), stderr: "", exitCode: 0 };
 }

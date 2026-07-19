@@ -7,7 +7,11 @@
 
 import type { ExecResult } from "../../types.js";
 import { PosixFatalError } from "../errors.js";
-import { getArrayIndices, getAssocArrayKeys } from "../helpers/array.js";
+import {
+  getArrayElement,
+  getArrayIndices,
+  getAssocArrayKeys,
+} from "../helpers/array.js";
 import { quoteArrayValue, quoteValue } from "../helpers/quoting.js";
 import { failure, OK, success } from "../helpers/result.js";
 import { updateShellopts } from "../helpers/shellopts.js";
@@ -168,7 +172,7 @@ function formatArrayOutput(ctx: InterpreterContext, arrayName: string): string {
   }
 
   const elements = indices.map((i) => {
-    const value = ctx.state.env.get(`${arrayName}_${i}`) ?? "";
+    const value = getArrayElement(ctx, arrayName, i) ?? "";
     return `[${i}]=${quoteArrayValue(value)}`;
   });
 
@@ -180,15 +184,8 @@ function formatArrayOutput(ctx: InterpreterContext, arrayName: string): string {
  * Keys with spaces or special characters are quoted with double quotes
  */
 function quoteAssocKey(key: string): string {
-  // If key contains no special chars, return as-is
-  // Safe chars: alphanumerics, underscore
-  if (/^[a-zA-Z0-9_]+$/.test(key)) {
-    return key;
-  }
-  // Use double quotes for keys with spaces or shell metacharacters
-  // Escape backslashes and double quotes
-  const escaped = key.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  return `"${escaped}"`;
+  if (/^[a-zA-Z0-9_]+$/.test(key)) return key;
+  return quoteArrayValue(key);
 }
 
 /**
@@ -206,7 +203,7 @@ function formatAssocArrayOutput(
   }
 
   const elements = keys.map((k) => {
-    const value = ctx.state.env.get(`${arrayName}_${k}`) ?? "";
+    const value = getArrayElement(ctx, arrayName, k) ?? "";
     return `[${quoteAssocKey(k)}]=${quoteArrayValue(value)}`;
   });
 
@@ -221,16 +218,9 @@ function getIndexedArrayNames(ctx: InterpreterContext): Set<string> {
   const arrayNames = new Set<string>();
   const assocArrays = ctx.state.associativeArrays ?? new Set<string>();
 
-  for (const key of ctx.state.env.keys()) {
-    // Match array element pattern: name_index where index is numeric
-    const match = key.match(/^([a-zA-Z_][a-zA-Z0-9_]*)_(\d+)$/);
-    if (match) {
-      const name = match[1];
-      // Exclude associative arrays - they're handled separately
-      if (!assocArrays.has(name)) {
-        arrayNames.add(name);
-      }
-    }
+  for (const [name, array] of ctx.state.arrays ?? []) {
+    if (array.kind === "indexed" && !assocArrays.has(name))
+      arrayNames.add(name);
   }
   return arrayNames;
 }
@@ -275,28 +265,7 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
     const indexedArrayNames = getIndexedArrayNames(ctx);
     const assocArrayNames = getAssocArrayNames(ctx);
 
-    // Helper function to check if a key is an element of any assoc array
-    const isAssocArrayElement = (key: string): boolean => {
-      for (const arrayName of assocArrayNames) {
-        const prefix = `${arrayName}_`;
-        const metadataSuffix = `${arrayName}__length`;
-        // Skip metadata entries
-        if (key === metadataSuffix) {
-          continue;
-        }
-        if (key.startsWith(prefix)) {
-          const elemKey = key.slice(prefix.length);
-          // Skip if the key part starts with "_length" (metadata pattern)
-          if (elemKey.startsWith("_length")) {
-            continue;
-          }
-          return true;
-        }
-      }
-      return false;
-    };
-
-    // Collect scalar variables (excluding array elements and internal metadata)
+    // Collect scalar variables from their independent namespace.
     const scalarEntries: [string, string][] = [];
     for (const [key, value] of ctx.state.env) {
       // Only valid variable names
@@ -309,26 +278,6 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
       }
       // Skip if this is an associative array
       if (assocArrayNames.has(key)) {
-        continue;
-      }
-      // Skip indexed array element variables (name_index pattern where name is an indexed array)
-      const arrayElementMatch = key.match(/^([a-zA-Z_][a-zA-Z0-9_]*)_(\d+)$/);
-      if (arrayElementMatch && indexedArrayNames.has(arrayElementMatch[1])) {
-        continue;
-      }
-      // Skip indexed array metadata variables (name__length pattern)
-      const arrayMetadataMatch = key.match(
-        /^([a-zA-Z_][a-zA-Z0-9_]*)__length$/,
-      );
-      if (arrayMetadataMatch && indexedArrayNames.has(arrayMetadataMatch[1])) {
-        continue;
-      }
-      // Skip associative array element variables
-      if (isAssocArrayElement(key)) {
-        continue;
-      }
-      // Skip associative array metadata (name__length pattern for assoc arrays)
-      if (arrayMetadataMatch && assocArrayNames.has(arrayMetadataMatch[1])) {
         continue;
       }
       scalarEntries.push([key, value]);

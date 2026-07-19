@@ -14,7 +14,9 @@ import type {
   WordNode,
   WordPart,
 } from "../../ast/types.js";
+import { utf8ByteLength } from "../../commands/printf/escapes.js";
 import { createUserRegex } from "../../regex/index.js";
+import { ExecutionLimitError } from "../errors.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
 import { escapeRegex } from "../helpers/regex.js";
 import type { InterpreterContext } from "../types.js";
@@ -62,11 +64,64 @@ export type ExpandWordPartsAsyncFn = (
  */
 function getPositionalParams(ctx: InterpreterContext): string[] {
   const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
+  if (numParams > ctx.limits.maxArrayElements) {
+    throw new ExecutionLimitError(
+      `positional parameter element limit exceeded (${ctx.limits.maxArrayElements})`,
+      "array_elements",
+    );
+  }
   const params: string[] = [];
+  let bytes = 0;
   for (let i = 1; i <= numParams; i++) {
-    params.push(ctx.state.env.get(String(i)) || "");
+    const value = ctx.state.env.get(String(i)) || "";
+    const valueBytes = utf8ByteLength(value);
+    if (valueBytes > ctx.limits.maxStringLength - bytes) {
+      throw new ExecutionLimitError(
+        `positional parameter string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
+    params.push(value);
+    bytes += valueBytes;
   }
   return params;
+}
+
+function appendBounded(
+  current: string,
+  fragment: string,
+  maxBytes: number,
+): string {
+  if (utf8ByteLength(fragment) > maxBytes - utf8ByteLength(current)) {
+    throw new ExecutionLimitError(
+      `positional expansion string limit exceeded (${maxBytes} bytes)`,
+      "string_length",
+    );
+  }
+  return current + fragment;
+}
+
+function pushBounded(
+  values: string[],
+  value: string,
+  usedBytes: { value: number },
+  ctx: InterpreterContext,
+): void {
+  if (values.length >= ctx.limits.maxArrayElements) {
+    throw new ExecutionLimitError(
+      `positional expansion element limit exceeded (${ctx.limits.maxArrayElements})`,
+      "array_elements",
+    );
+  }
+  const bytes = utf8ByteLength(value);
+  if (bytes > ctx.limits.maxStringLength - usedBytes.value) {
+    throw new ExecutionLimitError(
+      `positional expansion string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+      "string_length",
+    );
+  }
+  values.push(value);
+  usedBytes.value += bytes;
 }
 
 /**
@@ -251,13 +306,21 @@ export async function handlePositionalPatternReplacement(
   // Expand prefix (parts before ${@/...})
   let prefix = "";
   for (let i = 0; i < patReplAtIndex; i++) {
-    prefix += await expandPart(ctx, dqPart.parts[i]);
+    prefix = appendBounded(
+      prefix,
+      await expandPart(ctx, dqPart.parts[i]),
+      ctx.limits.maxStringLength,
+    );
   }
 
   // Expand suffix (parts after ${@/...})
   let suffix = "";
   for (let i = patReplAtIndex + 1; i < dqPart.parts.length; i++) {
-    suffix += await expandPart(ctx, dqPart.parts[i]);
+    suffix = appendBounded(
+      suffix,
+      await expandPart(ctx, dqPart.parts[i]),
+      ctx.limits.maxStringLength,
+    );
   }
 
   if (params.length === 0) {
@@ -310,19 +373,63 @@ export async function handlePositionalPatternReplacement(
 
   // Apply replacement to each param
   const replacedParams: string[] = [];
+  const replacedBytes = { value: 0 };
   try {
     const re = createUserRegex(regexPattern, operation.all ? "g" : "");
     for (const param of params) {
-      replacedParams.push(re.replace(param, replacement));
+      // Count matches first and reject a conservative upper bound before the
+      // regex engine constructs an amplified replacement string.
+      let matchCount = 0;
+      re.lastIndex = 0;
+      for (let match = re.exec(param); match; match = re.exec(param)) {
+        matchCount++;
+        if (!operation.all) break;
+        if (match[0].length === 0) re.lastIndex++;
+      }
+      const paramBytes = utf8ByteLength(param);
+      const replacementBytes = utf8ByteLength(replacement);
+      let referenceCount = 0;
+      const referencePattern = /\$(?:\$|&|\d+|<[^>]+>|`|')/g;
+      while (referencePattern.exec(replacement) !== null) referenceCount++;
+      const upperBound =
+        paramBytes +
+        matchCount * replacementBytes +
+        matchCount * referenceCount * paramBytes;
+      if (upperBound > ctx.limits.maxStringLength - replacedBytes.value) {
+        throw new ExecutionLimitError(
+          `positional expansion string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+          "string_length",
+        );
+      }
+      pushBounded(
+        replacedParams,
+        re.replace(param, replacement),
+        replacedBytes,
+        ctx,
+      );
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof ExecutionLimitError) throw error;
     // Invalid regex - return params unchanged
-    replacedParams.push(...params);
+    for (const param of params) {
+      pushBounded(replacedParams, param, replacedBytes, ctx);
+    }
   }
 
   if (patReplIsStar) {
     // "${*/...}" - join all params with IFS into one word
     const ifsSep = getIfsSeparator(ctx.state.env);
+    const joinBytes =
+      replacedBytes.value +
+      Math.max(0, replacedParams.length - 1) * utf8ByteLength(ifsSep) +
+      utf8ByteLength(prefix) +
+      utf8ByteLength(suffix);
+    if (joinBytes > ctx.limits.maxStringLength) {
+      throw new ExecutionLimitError(
+        `positional expansion string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
     return {
       values: [prefix + replacedParams.join(ifsSep) + suffix],
       quoted: true,
@@ -330,6 +437,15 @@ export async function handlePositionalPatternReplacement(
   }
 
   // "${@/...}" - each param is a separate word
+  if (
+    utf8ByteLength(prefix) + replacedBytes.value + utf8ByteLength(suffix) >
+    ctx.limits.maxStringLength
+  ) {
+    throw new ExecutionLimitError(
+      `positional expansion string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+      "string_length",
+    );
+  }
   if (replacedParams.length === 1) {
     return {
       values: [prefix + replacedParams[0] + suffix],
@@ -397,13 +513,21 @@ export async function handlePositionalPatternRemoval(
   // Expand prefix (parts before ${@#...})
   let prefix = "";
   for (let i = 0; i < patRemAtIndex; i++) {
-    prefix += await expandPart(ctx, dqPart.parts[i]);
+    prefix = appendBounded(
+      prefix,
+      await expandPart(ctx, dqPart.parts[i]),
+      ctx.limits.maxStringLength,
+    );
   }
 
   // Expand suffix (parts after ${@#...})
   let suffix = "";
   for (let i = patRemAtIndex + 1; i < dqPart.parts.length; i++) {
-    suffix += await expandPart(ctx, dqPart.parts[i]);
+    suffix = appendBounded(
+      suffix,
+      await expandPart(ctx, dqPart.parts[i]),
+      ctx.limits.maxStringLength,
+    );
   }
 
   if (params.length === 0) {
@@ -437,15 +561,41 @@ export async function handlePositionalPatternRemoval(
 
   // Apply pattern removal to each param
   const strippedParams: string[] = [];
+  const strippedBytes = { value: 0 };
+  let removalWork = 0;
   for (const param of params) {
-    strippedParams.push(
+    const paramWork = operation.greedy
+      ? param.length
+      : param.length * param.length;
+    if (paramWork > ctx.limits.maxGlobOperations - removalWork) {
+      throw new ExecutionLimitError(
+        `positional pattern-removal work limit exceeded (${ctx.limits.maxGlobOperations})`,
+        "glob_operations",
+      );
+    }
+    removalWork += paramWork;
+    pushBounded(
+      strippedParams,
       applyPatternRemoval(param, regexStr, operation.side, operation.greedy),
+      strippedBytes,
+      ctx,
     );
   }
 
   if (patRemIsStar) {
     // "${*#...}" - join all params with IFS into one word
     const ifsSep = getIfsSeparator(ctx.state.env);
+    const joinBytes =
+      strippedBytes.value +
+      Math.max(0, strippedParams.length - 1) * utf8ByteLength(ifsSep) +
+      utf8ByteLength(prefix) +
+      utf8ByteLength(suffix);
+    if (joinBytes > ctx.limits.maxStringLength) {
+      throw new ExecutionLimitError(
+        `positional expansion string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
     return {
       values: [prefix + strippedParams.join(ifsSep) + suffix],
       quoted: true,
@@ -453,6 +603,15 @@ export async function handlePositionalPatternRemoval(
   }
 
   // "${@#...}" - each param is a separate word
+  if (
+    utf8ByteLength(prefix) + strippedBytes.value + utf8ByteLength(suffix) >
+    ctx.limits.maxStringLength
+  ) {
+    throw new ExecutionLimitError(
+      `positional expansion string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+      "string_length",
+    );
+  }
   if (strippedParams.length === 1) {
     return {
       values: [prefix + strippedParams[0] + suffix],

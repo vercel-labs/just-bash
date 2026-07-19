@@ -4,13 +4,22 @@
 
 import Papa from "papaparse";
 import { decodeBytesToUtf8 } from "../../encoding.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { CommandContext, ExecResult } from "../../types.js";
+import { utf8ByteLength } from "../printf/escapes.js";
 
 export interface CsvRow {
   [key: string]: string | number | boolean | null;
 }
 
 export type CsvData = CsvRow[];
+
+export interface CsvParseLimits {
+  maxStringLength?: number;
+  maxArrayElements?: number;
+  maxRows?: number;
+  maxCells?: number;
+}
 
 /**
  * Create a null-prototype CsvRow to prevent prototype pollution.
@@ -54,20 +63,69 @@ export function toSafeRow(plainRow: Record<string, unknown>): CsvRow {
 }
 
 /** Parse CSV input string to array of row objects */
-export function parseCsv(input: string): { headers: string[]; data: CsvData } {
-  const result = Papa.parse<CsvRow>(input.trim(), {
+export function parseCsv(
+  input: string,
+  limits: CsvParseLimits = {},
+): { headers: string[]; data: CsvData } {
+  const maxStringLength = limits.maxStringLength ?? 10 * 1024 * 1024;
+  const maxArrayElements = limits.maxArrayElements ?? 100_000;
+  const maxRows = limits.maxRows ?? maxArrayElements;
+  const maxCells = limits.maxCells ?? 10_000_000;
+  if (utf8ByteLength(input) > maxStringLength) {
+    throw new ExecutionLimitError(
+      `xan: CSV input size limit exceeded (${maxStringLength} bytes)`,
+      "string_length",
+    );
+  }
+
+  const safeData: CsvData = [];
+  const normalizedInput = input.trim();
+  const headerResult = Papa.parse<string[]>(normalizedInput, {
+    preview: 1,
+    skipEmptyLines: true,
+  });
+  let headers = headerResult.data[0] ?? [];
+  if (headers.length > maxArrayElements) {
+    throw new ExecutionLimitError(
+      `xan: CSV column limit exceeded (${maxArrayElements})`,
+      "array_elements",
+    );
+  }
+  let cellCount = 0;
+  let limitError: ExecutionLimitError | undefined;
+  Papa.parse<Record<string, unknown>>(normalizedInput, {
     header: true,
     dynamicTyping: true,
     skipEmptyLines: true,
+    step: (result, parser) => {
+      const fields = Object.keys(result.data);
+      if (safeData.length === 0 && result.meta.fields) {
+        if (result.meta.fields.length > maxArrayElements) {
+          limitError = new ExecutionLimitError(
+            `xan: CSV column limit exceeded (${maxArrayElements})`,
+            "array_elements",
+          );
+          parser.abort();
+          return;
+        }
+        headers = [...result.meta.fields];
+      }
+      if (safeData.length >= maxRows || fields.length > maxCells - cellCount) {
+        limitError = new ExecutionLimitError(
+          safeData.length >= maxRows
+            ? `xan: CSV row limit exceeded (${maxRows})`
+            : `xan: CSV cell limit exceeded (${maxCells})`,
+          "array_elements",
+        );
+        parser.abort();
+        return;
+      }
+      cellCount += fields.length;
+      safeData.push(toSafeRow(result.data));
+    },
   });
-  // Convert each row to a null-prototype object to prevent prototype pollution
-  const safeData = result.data.map((row) =>
-    toSafeRow(row as Record<string, unknown>),
-  );
-  return {
-    headers: result.meta.fields || [],
-    data: safeData,
-  };
+  if (limitError) throw limitError;
+  return { headers, data: safeData };
 }
 
 /** Format array of row objects back to CSV string */
@@ -108,6 +166,14 @@ export async function readCsvInput(
     }
   }
 
-  const { headers, data } = parseCsv(input);
+  const { headers, data } = parseCsv(input, {
+    maxStringLength: Math.min(
+      ctx.limits.maxInputBytes,
+      ctx.limits.maxStringLength,
+    ),
+    maxArrayElements: ctx.limits.maxArrayElements,
+    maxRows: ctx.limits.maxCsvRows,
+    maxCells: ctx.limits.maxCsvCells,
+  });
   return { headers, data };
 }

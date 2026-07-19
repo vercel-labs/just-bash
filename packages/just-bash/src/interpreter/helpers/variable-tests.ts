@@ -2,7 +2,11 @@ import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import { evaluateArithmetic } from "../arithmetic.js";
 import type { InterpreterContext } from "../types.js";
-import { getArrayIndices, getAssocArrayKeys } from "./array.js";
+import {
+  getArrayIndices,
+  getAssocArrayKeys,
+  hasArrayElement,
+} from "./array.js";
 
 /**
  * Evaluates the -v (variable is set) test.
@@ -39,7 +43,7 @@ export async function evaluateVariableTest(
       key = key.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, varName) => {
         return ctx.state.env.get(varName) || "";
       });
-      return ctx.state.env.has(`${arrayName}_${key}`);
+      return hasArrayElement(ctx, arrayName, key);
     }
 
     // Evaluate as arithmetic expression (handles variables like zero+0)
@@ -81,7 +85,7 @@ export async function evaluateVariableTest(
       }
     }
 
-    return ctx.state.env.has(`${arrayName}_${index}`);
+    return hasArrayElement(ctx, arrayName, index);
   }
 
   // Check if it's a regular variable

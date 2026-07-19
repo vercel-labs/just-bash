@@ -172,7 +172,7 @@ describe("Defense-in-depth timing confusion hypotheses", () => {
     expect(microtaskError).toBeInstanceOf(SecurityViolationError);
   });
 
-  it("TC-04: callback handoff from run() to outside context stays blocked while box is active", async () => {
+  it("TC-04: an unbound callback outside context is not attributed to an active execution", async () => {
     const box = DefenseInDepthBox.getInstance(true);
     const handle = box.activate();
 
@@ -204,9 +204,9 @@ describe("Defense-in-depth timing confusion hypotheses", () => {
 
     handle.deactivate();
 
-    expect(handoffId).toBe(handle.executionId);
-    expect(handoffError).toBeInstanceOf(SecurityViolationError);
-    expect(handoffValue).toBeUndefined();
+    expect(handoffId).toBeUndefined();
+    expect(handoffError).toBeUndefined();
+    expect(handoffValue).toBe(4242);
   });
 
   it("TC-05: bindCurrentContext preserves executionId and blocking for handoff callbacks", async () => {
@@ -241,7 +241,7 @@ describe("Defense-in-depth timing confusion hypotheses", () => {
     expect(boundError).toBeInstanceOf(SecurityViolationError);
   });
 
-  it("TC-05b: bindCurrentContext remains blocking with multiple active executions", async () => {
+  it("TC-05b: bindCurrentContext never guesses between active executions", async () => {
     const box = DefenseInDepthBox.getInstance(true);
     const handleA = box.activate();
     const handleB = box.activate();
@@ -267,10 +267,9 @@ describe("Defense-in-depth timing confusion hypotheses", () => {
     handleA.deactivate();
     handleB.deactivate();
 
-    expect(seenId).toBeDefined();
-    expect([handleA.executionId, handleB.executionId]).toContain(seenId);
-    expect(callbackError).toBeInstanceOf(SecurityViolationError);
-    expect(callbackValue).toBeUndefined();
+    expect(seenId).toBeUndefined();
+    expect(callbackError).toBeUndefined();
+    expect(callbackValue).toBe(9191);
   });
 
   it("TC-06: pre-captured _setInterval preserves defense trace context", async () => {

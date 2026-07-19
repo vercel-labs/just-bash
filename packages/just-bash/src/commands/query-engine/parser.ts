@@ -376,9 +376,15 @@ function tokenize(input: string): Token[] {
 class Parser {
   private tokens: Token[];
   private pos = 0;
+  private depth: number;
 
-  constructor(tokens: Token[]) {
+  constructor(
+    tokens: Token[],
+    private readonly maxDepth: number,
+    initialDepth = 0,
+  ) {
     this.tokens = tokens;
+    this.depth = initialDepth;
   }
 
   private peek(offset = 0): Token {
@@ -451,7 +457,16 @@ class Parser {
   }
 
   private parseExpr(): AstNode {
-    return this.parsePipe();
+    this.depth++;
+    if (this.depth > this.maxDepth) {
+      this.depth--;
+      throw new Error(`query parse depth limit exceeded (${this.maxDepth})`);
+    }
+    try {
+      return this.parsePipe();
+    } finally {
+      this.depth--;
+    }
   }
 
   /**
@@ -463,6 +478,19 @@ class Parser {
    *   {$a, ...}         - shorthand object destructuring (key same as var name)
    */
   private parsePattern(): DestructurePattern {
+    this.depth++;
+    if (this.depth > this.maxDepth) {
+      this.depth--;
+      throw new Error(`query parse depth limit exceeded (${this.maxDepth})`);
+    }
+    try {
+      return this.parsePatternInner();
+    } finally {
+      this.depth--;
+    }
+  }
+
+  private parsePatternInner(): DestructurePattern {
     // Array pattern: [$a, $b, ...]
     if (this.match("LBRACKET")) {
       const elements: DestructurePattern[] = [];
@@ -734,11 +762,18 @@ class Parser {
   }
 
   private parseUnary(): AstNode {
-    if (this.match("MINUS")) {
-      const operand = this.parseUnary();
-      return { type: "UnaryOp", op: "-", operand };
+    let unaryCount = 0;
+    while (this.match("MINUS")) {
+      unaryCount++;
+      if (this.depth + unaryCount > this.maxDepth) {
+        throw new Error(`query parse depth limit exceeded (${this.maxDepth})`);
+      }
     }
-    return this.parsePostfix();
+    let operand = this.parsePostfix();
+    while (unaryCount-- > 0) {
+      operand = { type: "UnaryOp", op: "-", operand };
+    }
+    return operand;
   }
 
   private parsePostfix(): AstNode {
@@ -1152,7 +1187,7 @@ class Parser {
           i++;
         }
         const tokens = tokenize(exprStr);
-        const parser = new Parser(tokens);
+        const parser = new Parser(tokens, this.maxDepth, this.depth);
         parts.push(parser.parse());
       } else {
         current += str[i];
@@ -1172,8 +1207,27 @@ class Parser {
 // Convenience function
 // ============================================================================
 
-export function parse(input: string): AstNode {
+export interface QueryParseLimits {
+  maxDepth?: number;
+  maxTokens?: number;
+  maxSourceLength?: number;
+}
+
+export function parse(input: string, limits: QueryParseLimits = {}): AstNode {
+  const maxDepth = limits.maxDepth ?? 256;
+  const maxTokens = limits.maxTokens ?? 100_000;
+  const maxSourceLength = limits.maxSourceLength ?? 1_048_576;
+  if (input.length > maxSourceLength) {
+    throw new Error(
+      `query source length limit exceeded (${maxSourceLength} characters)`,
+    );
+  }
+  // A token needs at least one source character. Enforcing this before
+  // tokenization bounds the token array prospectively as well.
+  if (input.length + 1 > maxTokens) {
+    throw new Error(`query token limit exceeded (${maxTokens})`);
+  }
   const tokens = tokenize(input);
-  const parser = new Parser(tokens);
+  const parser = new Parser(tokens, maxDepth);
   return parser.parse();
 }

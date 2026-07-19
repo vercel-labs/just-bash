@@ -106,7 +106,10 @@ function parseDate(s: string, tz?: string): Date | null {
   if (s.startsWith("@")) {
     const suffix = s.slice(1);
     if (!/^-?\d+$/.test(suffix)) return null;
-    return new Date(Number.parseInt(suffix, 10) * 1000);
+    const seconds = Number(suffix);
+    if (!Number.isSafeInteger(seconds)) return null;
+    const date = new Date(seconds * 1000);
+    return Number.isNaN(date.getTime()) ? null : date;
   }
   const l = s.toLowerCase().trim();
   if (l === "now" || l === "today") return new Date();
@@ -178,11 +181,33 @@ export const dateCommand: Command = {
     const ts = Math.floor(date.getTime() / 1000);
 
     let out: string;
-    if (fmt) out = formatStrftime(fmt, ts, displayTz);
-    else if (iso) out = formatStrftime("%Y-%m-%dT%H:%M:%S%z", ts, displayTz);
+    const strftimeLimits = {
+      maxOperations: ctx.limits.maxLoopIterations,
+      maxOutputBytes:
+        Math.min(ctx.limits.maxStringLength, ctx.limits.maxOutputSize) - 1,
+    };
+    if (fmt) out = formatStrftime(fmt, ts, displayTz, strftimeLimits);
+    else if (iso)
+      out = formatStrftime(
+        "%Y-%m-%dT%H:%M:%S%z",
+        ts,
+        displayTz,
+        strftimeLimits,
+      );
     else if (rfc)
-      out = formatStrftime("%a, %d %b %Y %H:%M:%S %z", ts, displayTz);
-    else out = formatStrftime("%a %b %e %H:%M:%S %Z %Y", ts, displayTz);
+      out = formatStrftime(
+        "%a, %d %b %Y %H:%M:%S %z",
+        ts,
+        displayTz,
+        strftimeLimits,
+      );
+    else
+      out = formatStrftime(
+        "%a %b %e %H:%M:%S %Z %Y",
+        ts,
+        displayTz,
+        strftimeLimits,
+      );
 
     return { stdout: `${out}\n`, stderr: "", exitCode: 0 };
   },

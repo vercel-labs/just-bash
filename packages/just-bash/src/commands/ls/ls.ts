@@ -1,5 +1,10 @@
 import { minimatch } from "minimatch";
 import type { FsStat } from "../../fs/interface.js";
+import { FileTraversalBudget } from "../../fs/traversal.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
@@ -130,6 +135,12 @@ export const lsCommand: Command = {
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
+    const traversalBudget = new FileTraversalBudget({
+      limits: ctx.limits,
+      signal: ctx.signal,
+      executionScope: ctx.executionScope,
+      site: "ls",
+    });
 
     for (let i = 0; i < paths.length; i++) {
       const path = paths[i];
@@ -183,6 +194,7 @@ export const lsCommand: Command = {
           humanReadable,
           sortBySize,
           classifyFiles,
+          traversalBudget,
         );
         stdout += result.stdout;
         stderr += result.stderr;
@@ -200,6 +212,10 @@ export const lsCommand: Command = {
           humanReadable,
           sortBySize,
           classifyFiles,
+          false,
+          traversalBudget,
+          0,
+          new Set(),
         );
         stdout += result.stdout;
         stderr += result.stderr;
@@ -221,6 +237,7 @@ async function listGlob(
   humanReadable: boolean = false,
   sortBySize: boolean = false,
   classifyFiles: boolean = false,
+  traversalBudget?: FileTraversalBudget,
 ): Promise<ExecResult> {
   const showHidden = showAll || showAlmostAll;
   const allPaths = ctx.fs.getAllPaths();
@@ -228,8 +245,11 @@ async function listGlob(
 
   const matches: string[] = [];
   for (const p of allPaths) {
-    const relativePath = p.startsWith(basePath)
-      ? p.slice(basePath.length + 1) || p
+    traversalBudget?.visit(p.split("/").length - 1);
+    const isWithinBase =
+      p === basePath || basePath === "/" || p.startsWith(`${basePath}/`);
+    const relativePath = isWithinBase
+      ? p.slice(basePath === "/" ? 1 : basePath.length + 1) || p
       : p;
 
     if (minimatch(relativePath, pattern) || minimatch(p, pattern)) {
@@ -330,11 +350,20 @@ async function listPath(
   sortBySize: boolean = false,
   classifyFiles: boolean = false,
   _isSubdir: boolean = false,
+  traversalBudget: FileTraversalBudget = new FileTraversalBudget({
+    limits: ctx.limits,
+    signal: ctx.signal,
+    executionScope: ctx.executionScope,
+    site: "ls",
+  }),
+  traversalDepth = 0,
+  ancestorIdentities: Set<string> = new Set(),
 ): Promise<ExecResult> {
   const showHidden = showAll || showAlmostAll;
   const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
 
   try {
+    traversalBudget.visit(traversalDepth);
     const stat = await ctx.fs.stat(fullPath);
 
     if (!stat.isDirectory) {
@@ -358,8 +387,24 @@ async function listPath(
       return { stdout: `${path}${fileSuffix}\n`, stderr: "", exitCode: 0 };
     }
 
+    const identity =
+      stat.identity ??
+      (stat.dev !== undefined && stat.ino !== undefined
+        ? `${String(stat.dev)}:${String(stat.ino)}`
+        : await ctx.fs.realpath(fullPath).catch(() => undefined));
+    if (identity !== undefined && ancestorIdentities.has(identity)) {
+      return {
+        stdout: "",
+        stderr: `ls: ${path}: symbolic link cycle detected\n`,
+        exitCode: 2,
+      };
+    }
+    const childAncestors = new Set(ancestorIdentities);
+    if (identity !== undefined) childAncestors.add(identity);
+
     // It's a directory
     let entries = await ctx.fs.readdir(fullPath);
+    traversalBudget.checkpoint();
 
     // Filter hidden files unless -a or -A
     if (!showHidden) {
@@ -396,6 +441,8 @@ async function listPath(
     }
 
     let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
 
     // For recursive listing:
     // - All directories get a header (including the first one)
@@ -561,6 +608,9 @@ async function listPath(
               sortBySize,
               classifyFiles,
               true,
+              traversalBudget,
+              traversalDepth + 1,
+              childAncestors,
             );
             return { name: dir.name, result };
           }),
@@ -578,11 +628,19 @@ async function listPath(
       for (const { result } of subResults) {
         stdout += "\n";
         stdout += result.stdout;
+        stderr += result.stderr;
+        if (result.exitCode !== 0) exitCode = result.exitCode;
       }
     }
 
-    return { stdout, stderr: "", exitCode: 0 };
-  } catch {
+    return { stdout, stderr, exitCode };
+  } catch (error) {
+    if (
+      error instanceof ExecutionLimitError ||
+      error instanceof ExecutionAbortedError
+    ) {
+      throw error;
+    }
     return {
       stdout: "",
       stderr: `ls: ${path}: No such file or directory\n`,

@@ -144,6 +144,15 @@ c`,
 });
 
 describe("awk command pipe getline", () => {
+  it("keeps command stream state outside user variables", async () => {
+    const env = new Bash();
+    const result = await env.exec(
+      `awk 'BEGIN { __cmd_echo="[]"; __cmdi_echo=99; r=("echo" | getline x); print r }'`,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("1\n");
+  });
+
   it("reads from command pipe into $0", async () => {
     const env = new Bash();
     const result = await env.exec(

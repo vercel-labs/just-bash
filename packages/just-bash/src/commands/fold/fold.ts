@@ -7,7 +7,7 @@
  * If no FILE is specified, standard input is read.
  */
 
-import { decodeBytesToUtf8 } from "../../encoding.js";
+import { decodeBytesToUtf8, utf8ByteLength } from "../../encoding.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -46,7 +46,7 @@ function getCharWidth(
 ): number {
   if (countBytes) {
     // In byte mode, each character is 1 byte (simplified - assumes ASCII)
-    return new TextEncoder().encode(char).length;
+    return utf8ByteLength(char);
   }
 
   if (char === "\t") {
@@ -75,8 +75,10 @@ function foldLine(line: string, options: FoldOptions): string {
   let lastSpaceIndex = -1;
   let lastSpaceColumn = 0;
 
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
+  // Iterate by Unicode code point so a wrap can never split a surrogate pair.
+  // `currentLine` remains a JavaScript string, therefore tracked indices are
+  // still UTF-16 offsets suitable for slice().
+  for (const char of line) {
     const charWidth = getCharWidth(char, currentColumn, countBytes);
 
     // Would this character exceed the width?

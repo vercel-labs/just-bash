@@ -54,7 +54,7 @@ describe("BashEnv with OverlayFs - E2E", () => {
     it("should read last lines with tail", async () => {
       const result = await env.exec("tail -n 2 /sample.txt");
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toBe("line4\nline5\n");
+      expect(result.stdout).toBe("line4\nline5");
     });
 
     it("should count lines with wc", async () => {

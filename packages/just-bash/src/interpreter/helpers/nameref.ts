@@ -6,6 +6,7 @@
  */
 
 import type { InterpreterContext } from "../types.js";
+import { hasArray } from "./array.js";
 
 /**
  * Check if a variable is a nameref
@@ -69,17 +70,13 @@ export function targetExists(ctx: InterpreterContext, target: string): boolean {
   if (arrayMatch) {
     const arrayName = arrayMatch[1];
     // Check if array exists (has any elements or is declared as assoc)
-    const hasElements = Array.from(ctx.state.env.keys()).some(
-      (k) => k.startsWith(`${arrayName}_`) && !k.includes("__"),
-    );
+    const hasElements = hasArray(ctx, arrayName);
     const isAssoc = ctx.state.associativeArrays?.has(arrayName) ?? false;
     return hasElements || isAssoc;
   }
 
   // Check if it's an array (stored as target_0, target_1, etc.)
-  const hasArrayElements = Array.from(ctx.state.env.keys()).some(
-    (k) => k.startsWith(`${target}_`) && !k.includes("__"),
-  );
+  const hasArrayElements = hasArray(ctx, target);
   if (hasArrayElements) {
     return true;
   }

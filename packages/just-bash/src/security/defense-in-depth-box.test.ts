@@ -74,6 +74,41 @@ describe("DefenseInDepthBox", () => {
       expect(instance1).toBe(instance2);
     });
 
+    it("should compare exclusions independent of order", () => {
+      const instance1 = DefenseInDepthBox.getInstance({
+        enabled: true,
+        excludeViolationTypes: ["proxy", "webassembly", "proxy"],
+      });
+      const instance2 = DefenseInDepthBox.getInstance({
+        enabled: true,
+        excludeViolationTypes: ["webassembly", "proxy"],
+      });
+      expect(instance1).toBe(instance2);
+    });
+
+    it("should reject conflicting exclusions and callbacks", () => {
+      const callback = () => {};
+      DefenseInDepthBox.getInstance({
+        enabled: true,
+        onViolation: callback,
+        excludeViolationTypes: ["proxy"],
+      });
+      expect(() =>
+        DefenseInDepthBox.getInstance({
+          enabled: true,
+          onViolation: callback,
+          excludeViolationTypes: ["webassembly"],
+        }),
+      ).toThrow(/config conflict/);
+      expect(() =>
+        DefenseInDepthBox.getInstance({
+          enabled: true,
+          onViolation: () => {},
+          excludeViolationTypes: ["proxy"],
+        }),
+      ).toThrow(/config conflict/);
+    });
+
     it("should allow compatible configs after resetInstance", () => {
       DefenseInDepthBox.getInstance({ enabled: true, auditMode: true });
       DefenseInDepthBox.resetInstance();
@@ -1239,25 +1274,25 @@ describe("DefenseInDepthBox", () => {
         expect(error?.message).toContain("FinalizationRegistry");
       });
 
-      it("should freeze Reflect (not block it)", async () => {
-        // Reflect uses "freeze" strategy - it's frozen to prevent modification,
-        // but its methods still work. This is intentional because:
-        // 1. Reflect is needed by some legitimate code
-        // 2. Freezing prevents adding malicious methods
-        // 3. Primary sandboxing should prevent misuse
+      it("should freeze Reflect and expose it through a read-only proxy", async () => {
         const box = DefenseInDepthBox.getInstance(true);
         const handle = box.activate();
 
         let result: unknown;
+        let mutationError: unknown;
         await handle.run(async () => {
-          // Reflect still works - it's frozen, not blocked
           result = Reflect.get({ test: 42 }, "test");
+          try {
+            (Reflect as unknown as Record<string, unknown>).sandboxEscape = 1;
+          } catch (error) {
+            mutationError = error;
+          }
         });
 
         handle.deactivate();
 
         expect(result).toBe(42);
-        // Verify Reflect is frozen
+        expect(mutationError).toBeInstanceOf(SecurityViolationError);
         expect(Object.isFrozen(Reflect)).toBe(true);
       });
     });

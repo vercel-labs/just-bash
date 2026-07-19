@@ -76,9 +76,11 @@ export function quoteValue(value: string): string {
     return dollarQuote(value);
   }
 
+  if (value === "") return "''";
+
   // If value contains no special chars, return as-is
   // Safe chars: alphanumerics, underscore, slash, dot, colon, hyphen, at, percent, plus, comma, equals
-  if (/^[a-zA-Z0-9_/.:\-@%+,=]*$/.test(value)) {
+  if (/^[a-zA-Z0-9_/.:\-@%+,=]+$/.test(value)) {
     return value;
   }
 
@@ -98,7 +100,11 @@ export function quoteArrayValue(value: string): string {
   }
   // For array elements, bash always uses double quotes
   // Escape backslashes and double quotes
-  const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const escaped = value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, "\\$")
+    .replace(/`/g, "\\`");
   return `"${escaped}"`;
 }
 
@@ -112,6 +118,10 @@ export function quoteDeclareValue(value: string): string {
     return dollarQuote(value);
   }
   // Otherwise use double quotes with escaping
-  const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const escaped = value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, "\\$")
+    .replace(/`/g, "\\`");
   return `"${escaped}"`;
 }

@@ -197,6 +197,77 @@ describe("just-bash CLI", () => {
       expect(result.stdout).toBe("in cwd");
       expect(result.exitCode).toBe(0);
     });
+
+    it("binds an explicit symlink root to its canonical target", () => {
+      const target = path.join(tempDir, "root-target");
+      const link = path.join(tempDir, "root-link");
+      fs.mkdirSync(target);
+      fs.writeFileSync(path.join(target, "inside.txt"), "inside");
+      try {
+        fs.symlinkSync(target, link);
+      } catch {
+        return;
+      }
+
+      const result = runCli(["-c", "'cat inside.txt'", "--root", link]);
+
+      expect(result.stdout).toBe("inside");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("does not reinterpret an inline-script positional from filesystem state", () => {
+      const narrowRoot = path.join(tempDir, "narrow");
+      fs.mkdirSync(narrowRoot);
+      const result = runCli(["-c", "'echo unsafe'", narrowRoot]);
+
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "Error: script file cannot be combined with -c\n",
+      );
+      expect(result.exitCode).toBe(1);
+    });
+
+    it("treats a positional as a script file even when it names a directory", () => {
+      fs.mkdirSync(path.join(tempDir, "script-name"));
+
+      const result = runCli(["script-name"], {
+        cwd: tempDir,
+        input: "echo ignored",
+      });
+
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "Error: Cannot read script file: script-name\nEIO: open '<path>'\n",
+      );
+      expect(result.exitCode).toBe(1);
+    });
+
+    it("requires --root rather than a positional root", () => {
+      const result = runCli([
+        "-c",
+        "'echo unsafe'",
+        tempDir,
+        "--root",
+        tempDir,
+      ]);
+
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "Error: script file cannot be combined with -c\n",
+      );
+      expect(result.exitCode).toBe(1);
+    });
+
+    it("rejects extra positional arguments", () => {
+      const result = runCli(["-c", "'echo unsafe'", tempDir, tempDir]);
+
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "Error: script file cannot be combined with -c\n",
+      );
+      expect(result.exitCode).toBe(1);
+    });
   });
 
   describe("--json output", () => {
@@ -287,6 +358,14 @@ describe("just-bash CLI", () => {
       fs.writeFileSync(path.join(tempDir, "script.sh"), "echo from-script");
       const result = runCli(["script.sh", "--root", tempDir]);
       expect(result.stdout).toBe("from-script\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("uses -- to execute a script file whose name starts with a dash", () => {
+      fs.writeFileSync(path.join(tempDir, "-script.sh"), "echo dash-script");
+      const result = runCli(["--root", tempDir, "--", "-script.sh"]);
+      expect(result.stdout).toBe("dash-script\n");
+      expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
   });

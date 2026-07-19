@@ -47,6 +47,13 @@ export async function cmdTranspose(
     firstCol,
     ...data.map((row, i) => String(row[firstCol] ?? `row_${i}`)),
   ];
+  if (new Set(newHeaders).size !== newHeaders.length) {
+    return {
+      stdout: "",
+      stderr: "xan transpose: duplicate output headers\n",
+      exitCode: 1,
+    };
+  }
 
   // Each remaining column becomes a row
   const newData: CsvData = [];

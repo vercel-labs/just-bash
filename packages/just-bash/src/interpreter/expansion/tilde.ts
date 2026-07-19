@@ -53,3 +53,14 @@ export function applyTildeExpansion(
   // Unknown user - keep literal
   return value;
 }
+
+/** Apply assignment-context tilde expansion at the start and after each `:`. */
+export function applyAssignmentTildeExpansion(
+  ctx: InterpreterContext,
+  value: string,
+): string {
+  return value
+    .split(":")
+    .map((segment) => applyTildeExpansion(ctx, segment))
+    .join(":");
+}

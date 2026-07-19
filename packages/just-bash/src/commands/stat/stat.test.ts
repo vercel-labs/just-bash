@@ -77,6 +77,23 @@ describe("stat command", () => {
       const result = await env.exec('stat -c "%n: %s bytes" /test.txt');
       expect(result.stdout.trim()).toBe("/test.txt: 11 bytes");
     });
+
+    it("inserts replacement metacharacters in filenames literally", async () => {
+      const env = new Bash({ files: { "/$`": "x" } });
+      const result = await env.exec("stat -c '%n%n' '/$`'");
+      expect(result.stdout).toBe("/$`/$`\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("bounds custom-format output before returning it", async () => {
+      const env = new Bash({
+        files: { "/long-name": "x" },
+        executionLimits: { maxOutputSize: 12 },
+      });
+      const result = await env.exec("stat -c '%n%n' /long-name");
+      expect(result.exitCode).toBe(126);
+      expect(result.stderr).toContain("output size limit exceeded");
+    });
   });
 
   describe("multiple files", () => {

@@ -1,3 +1,14 @@
+import { isSameOrDescendantPath } from "../../fs/path-utils.js";
+import {
+  compareCanonicalContainment,
+  compareFileIdentity,
+  FileTraversalBudget,
+  traverseFileTree,
+} from "../../fs/traversal.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
@@ -57,6 +68,12 @@ export const cpCommand: Command = {
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
+    const traversalBudget = new FileTraversalBudget({
+      limits: ctx.limits,
+      signal: ctx.signal,
+      executionScope: ctx.executionScope,
+      site: "cp",
+    });
 
     // Check if dest is a directory
     let destIsDir = false;
@@ -93,6 +110,28 @@ export const cpCommand: Command = {
           exitCode = 1;
           continue;
         }
+        if (
+          srcStat.isDirectory &&
+          (isSameOrDescendantPath(srcPath, targetPath) ||
+            (await compareCanonicalContainment(
+              ctx.fs,
+              srcPath,
+              targetPath,
+              traversalBudget,
+            )) === "inside")
+        ) {
+          stderr += `cp: cannot copy '${src}' into itself, '${targetPath}'\n`;
+          exitCode = 1;
+          continue;
+        }
+
+        if (
+          (await compareFileIdentity(ctx.fs, srcPath, targetPath)) === "same"
+        ) {
+          stderr += `cp: '${src}' and '${targetPath}' are the same file\n`;
+          exitCode = 1;
+          continue;
+        }
 
         // Check for no-clobber: skip if target exists
         if (noClobber) {
@@ -103,6 +142,22 @@ export const cpCommand: Command = {
           } catch {
             // Target doesn't exist, proceed with copy
           }
+        }
+
+        if (srcStat.isDirectory) {
+          await traverseFileTree(
+            {
+              fs: ctx.fs,
+              root: srcPath,
+              limits: ctx.limits,
+              signal: ctx.signal,
+              executionScope: ctx.executionScope,
+              site: "cp",
+              symlinks: "never",
+              budget: traversalBudget,
+            },
+            () => undefined,
+          );
         }
 
         await ctx.fs.cp(srcPath, targetPath, { recursive });
@@ -117,6 +172,12 @@ export const cpCommand: Command = {
           stdout += `'${src}' -> '${targetPath}'\n`;
         }
       } catch (error) {
+        if (
+          error instanceof ExecutionLimitError ||
+          error instanceof ExecutionAbortedError
+        ) {
+          throw error;
+        }
         const message = getErrorMessage(error);
         if (message.includes("ENOENT") || message.includes("no such file")) {
           stderr += `cp: cannot stat '${src}': No such file or directory\n`;

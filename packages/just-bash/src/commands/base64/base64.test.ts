@@ -108,6 +108,43 @@ describe("base64", () => {
   });
 
   describe("error handling", () => {
+    it("rejects input that exceeds maxStringLength before encoding", async () => {
+      const env = new Bash({
+        files: { "/large": "123456789" },
+        executionLimits: { maxStringLength: 8 },
+      });
+      const result = await env.exec("base64 /large");
+      expect(result.exitCode).toBe(126);
+      expect(result.stderr).toContain("input size limit exceeded");
+    });
+
+    it("rejects encoded output that would exceed maxOutputSize", async () => {
+      const env = new Bash({
+        files: { "/six": "123456" },
+        executionLimits: { maxOutputSize: 8 },
+      });
+      const result = await env.exec("base64 /six");
+      expect(result.exitCode).toBe(126);
+      expect(result.stderr).toContain("output size limit exceeded");
+    });
+
+    it("rejects unsafe wrap sizes", async () => {
+      const env = new Bash();
+      const result = await env.exec("base64 -w -1");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("invalid wrap size");
+    });
+
+    it("rejects wrap widths that would create too many fragments", async () => {
+      const env = new Bash({
+        files: { "/data": "abc" },
+        executionLimits: { maxArrayElements: 2 },
+      });
+      const result = await env.exec("base64 -w 1 /data");
+      expect(result.exitCode).toBe(126);
+      expect(result.stderr).toContain("wrapped line limit exceeded");
+    });
+
     it("should error on missing file", async () => {
       const env = new Bash();
       const result = await env.exec("base64 /nonexistent.txt");

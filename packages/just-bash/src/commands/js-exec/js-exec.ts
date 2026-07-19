@@ -8,7 +8,6 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { decodeBytesToUtf8 } from "../../encoding.js";
@@ -29,15 +28,13 @@ import type {
 import { hasHelpFlag } from "../help.js";
 import { BridgeHandler } from "../worker-bridge/bridge-handler.js";
 import { createSharedBuffer } from "../worker-bridge/protocol.js";
+import { WorkerRequestController } from "../worker-request-controller.js";
 import type {
   JsExecWorkerInput,
   JsExecWorkerOutput,
 } from "./js-exec-worker.js";
 
-/** Default JavaScript execution timeout in milliseconds */
-const DEFAULT_JS_TIMEOUT_MS = 10000;
 /** Default JavaScript execution timeout when network is enabled */
-const DEFAULT_JS_NETWORK_TIMEOUT_MS = 60000;
 
 /**
  * Tracks js-exec execution context via AsyncLocalStorage.
@@ -129,7 +126,7 @@ Not Available:
 
 Limits:
   Memory: 64 MB per execution
-  Timeout: 10 s (60 s with network; configurable via maxJsTimeoutMs)
+  Timeout: 10 s by default; configurable via maxJsTimeoutMs
   Engine: QuickJS (compiled to WebAssembly)
 `;
 
@@ -221,21 +218,81 @@ let workerIdleTimeout: ReturnType<typeof setTimeout> | null = null;
 // Queue for serializing JS executions (QuickJS is single-threaded)
 type QueuedExecution = {
   input: JsExecWorkerInput;
+  bridgeHandler: BridgeHandler;
   resolve: (result: JsExecWorkerOutput) => void;
-  canceled?: boolean;
+  controller: WorkerRequestController;
 };
 const executionQueue: QueuedExecution[] = [];
 let currentExecution: QueuedExecution | null = null;
+let workerInitializationFailure: string | null = null;
+const WORKER_TERMINATION_ACK_MS = 1_000;
+
+function terminateOwnedWorker(
+  owner: QueuedExecution,
+  worker: Worker,
+  ownerResult: JsExecWorkerOutput,
+): void {
+  // Keep the owning request alive until teardown settles. Defense-in-depth
+  // intentionally suppresses callbacks inherited from a deactivated execution;
+  // resolving first would therefore strand currentExecution forever.
+  owner.controller.close();
+  let settled = false;
+  const failClosed = (): void => {
+    if (settled) return;
+    settled = true;
+    _clearTimeout(timer);
+    if (currentExecution !== owner) return;
+    // Rejection is not proof that the worker stopped. Retain ownership and
+    // poison the singleton so no replacement can overlap stale authority.
+    workerInitializationFailure = "worker termination was not acknowledged";
+    for (const queued of executionQueue) {
+      queued.bridgeHandler.stop();
+      queued.resolve({ success: false, error: workerInitializationFailure });
+    }
+    executionQueue.length = 0;
+    owner.resolve(ownerResult);
+  };
+  const acknowledge = (): void => {
+    if (settled) return;
+    settled = true;
+    _clearTimeout(timer);
+    if (currentExecution !== owner) return;
+    owner.resolve(ownerResult);
+    currentExecution = null;
+    processNextExecution();
+  };
+  const timer = _setTimeout(() => {
+    failClosed();
+  }, WORKER_TERMINATION_ACK_MS);
+  void owner.controller
+    .terminate(worker)
+    .then(
+      (terminated) => (terminated ? acknowledge() : failClosed()),
+      failClosed,
+    );
+}
+
+/** @internal Reset singleton worker state — for focused protocol tests only. */
+export function _resetJsExecWorkerForTests(): void {
+  if (workerIdleTimeout) {
+    _clearTimeout(workerIdleTimeout);
+    workerIdleTimeout = null;
+  }
+  currentExecution?.bridgeHandler.stop();
+  currentExecution = null;
+  for (const queued of executionQueue) queued.bridgeHandler.stop();
+  executionQueue.length = 0;
+  const worker = sharedWorker;
+  sharedWorker = null;
+  if (worker) void worker.terminate();
+  workerInitializationFailure = null;
+}
 
 const workerPath = fileURLToPath(
   new URL("./js-exec-worker.js", import.meta.url),
 );
 
 function processNextExecution(): void {
-  // Skip canceled entries (timed out before execution started)
-  while (executionQueue.length > 0 && executionQueue[0].canceled) {
-    executionQueue.shift();
-  }
   if (currentExecution || executionQueue.length === 0) {
     return;
   }
@@ -245,8 +302,29 @@ function processNextExecution(): void {
     return;
   }
   currentExecution = next;
-  const worker = getOrCreateWorker();
-  worker.postMessage(currentExecution.input);
+  let worker: Worker | null = null;
+  try {
+    worker = getOrCreateWorker();
+    worker.postMessage(next.input);
+  } catch (error) {
+    // Dispatch is transactional: an entry owns the slot only if its message
+    // was posted. Settle the identity-owned entry and gate the next dispatch
+    // on teardown of any worker that was partially created.
+    next.bridgeHandler.stop();
+    const result: JsExecWorkerOutput = {
+      success: false,
+      error: sanitizeHostErrorMessage(getErrorMessage(error)),
+    };
+    const partialWorker = worker ?? sharedWorker;
+    if (sharedWorker === partialWorker) sharedWorker = null;
+    if (partialWorker) {
+      terminateOwnedWorker(next, partialWorker, result);
+    } else {
+      next.resolve(result);
+      if (currentExecution === next) currentExecution = null;
+      processNextExecution();
+    }
+  }
 }
 
 /**
@@ -263,6 +341,7 @@ function normalizeJsWorkerMessage(
 
   const raw = msg as {
     protocolToken?: unknown;
+    type?: unknown;
     success?: unknown;
     error?: unknown;
     defenseStats?: unknown;
@@ -291,6 +370,10 @@ function normalizeJsWorkerMessage(
 
   return {
     success: false,
+    type:
+      raw.type === "initialization-failure"
+        ? "initialization-failure"
+        : undefined,
     error:
       typeof raw.error === "string" && raw.error.length > 0
         ? raw.error
@@ -309,6 +392,7 @@ function getOrCreateWorker(): Worker {
     return sharedWorker;
   }
 
+  // @banned-pattern-ignore: singleton constructor is owned by each WorkerRequestController request lifecycle
   const worker = DefenseInDepthBox.runTrusted(() => new Worker(workerPath));
   sharedWorker = worker;
 
@@ -318,10 +402,38 @@ function getOrCreateWorker(): Worker {
       return;
     }
     if (currentExecution) {
-      const result = normalizeJsWorkerMessage(
-        msg,
-        currentExecution.input.protocolToken,
-      );
+      let result: JsExecWorkerOutput;
+      try {
+        currentExecution.controller.assertMessageSize(msg, "response");
+        result = normalizeJsWorkerMessage(
+          msg,
+          currentExecution.input.protocolToken,
+        );
+      } catch (error) {
+        result = {
+          success: false,
+          error: sanitizeHostErrorMessage(getErrorMessage(error)),
+        };
+      }
+      if (result.type === "initialization-failure") {
+        workerInitializationFailure =
+          result.error ?? "Worker initialization failed";
+        currentExecution.bridgeHandler.stop();
+        currentExecution.resolve(result);
+        currentExecution = null;
+        for (const queued of executionQueue) {
+          queued.bridgeHandler.stop();
+          queued.resolve({
+            success: false,
+            type: "initialization-failure",
+            error: workerInitializationFailure,
+          });
+        }
+        executionQueue.length = 0;
+        sharedWorker = null;
+        void worker.terminate();
+        return;
+      }
       currentExecution.resolve(result);
       currentExecution = null;
     }
@@ -421,6 +533,7 @@ async function queueAndRun(
   workerInput: JsExecWorkerInput,
   bridgeHandler: BridgeHandler,
   timeoutMs: number,
+  controller: WorkerRequestController,
 ): Promise<{
   bridgeOutput: import("../worker-bridge/bridge-handler.js").BridgeOutput;
   workerResult: JsExecWorkerOutput;
@@ -432,37 +545,60 @@ async function queueAndRun(
 
   const queueEntry: QueuedExecution = {
     input: workerInput,
+    bridgeHandler,
     resolve: () => {},
+    controller,
   };
+  controller.assertMessageSize(
+    { ...workerInput, sharedBuffer: undefined },
+    "request",
+  );
 
-  const timeoutHandle = _setTimeout(() => {
+  const cancel = (reason: "abort" | "timeout"): void => {
+    bridgeHandler.stop();
+    const result: JsExecWorkerOutput = {
+      success: false,
+      error:
+        reason === "abort"
+          ? queueEntry.controller.abortMessage()
+          : queueEntry.controller.timeoutMessage(),
+    };
     if (currentExecution === queueEntry) {
       const workerToTerminate = sharedWorker;
+      sharedWorker = null;
       if (workerToTerminate) {
-        sharedWorker = null;
-        void workerToTerminate.terminate();
-      }
-      currentExecution = null;
-      processNextExecution();
-    } else {
-      queueEntry.canceled = true;
-      if (!currentExecution) {
+        terminateOwnedWorker(queueEntry, workerToTerminate, result);
+      } else {
+        queueEntry.resolve(result);
+        currentExecution = null;
         processNextExecution();
       }
+    } else {
+      const index = executionQueue.indexOf(queueEntry);
+      if (index !== -1) executionQueue.splice(index, 1);
+      queueEntry.resolve(result);
+      if (!currentExecution) processNextExecution();
     }
-    queueEntry.resolve({
-      success: false,
-      error: `Execution timeout: exceeded ${timeoutMs}ms limit`,
-    });
-  }, timeoutMs);
+  };
 
   queueEntry.resolve = (result: JsExecWorkerOutput) => {
-    _clearTimeout(timeoutHandle);
+    queueEntry.controller.close();
     resolveWorker(result);
   };
 
-  executionQueue.push(queueEntry);
-  processNextExecution();
+  // Cancellation must be observable before queue insertion.
+  queueEntry.controller.arm(cancel);
+  if (!queueEntry.controller.isCanceled) {
+    executionQueue.push(queueEntry);
+    try {
+      processNextExecution();
+    } catch (error) {
+      const index = executionQueue.indexOf(queueEntry);
+      if (index !== -1) executionQueue.splice(index, 1);
+      queueEntry.controller.close();
+      throw error;
+    }
+  }
 
   const [bridgeOutput, workerResult] = await Promise.all([
     bridgeHandler.run(timeoutMs),
@@ -477,10 +613,7 @@ async function queueAndRun(
 
 /** Resolve the effective timeout for a js-exec execution. */
 function resolveTimeout(ctx: CommandContext): number {
-  const userTimeout = ctx.limits?.maxJsTimeoutMs ?? DEFAULT_JS_TIMEOUT_MS;
-  return ctx.fetch
-    ? Math.max(userTimeout, DEFAULT_JS_NETWORK_TIMEOUT_MS)
-    : userTimeout;
+  return ctx.limits.maxJsTimeoutMs;
 }
 
 async function executeJSInner(
@@ -492,6 +625,13 @@ async function executeJSInner(
   isModule?: boolean,
   stripTypes?: boolean,
 ): Promise<ExecResult> {
+  if (workerInitializationFailure !== null) {
+    return {
+      stdout: "",
+      stderr: `js-exec: ${sanitizeHostErrorMessage(workerInitializationFailure)}\n`,
+      exitCode: 1,
+    };
+  }
   const sharedBuffer = createSharedBuffer();
 
   // Wrap ctx.exec to set AsyncLocalStorage context for re-entrant detection.
@@ -509,16 +649,21 @@ async function executeJSInner(
     ctx.cwd,
     "js-exec",
     ctx.fetch,
-    ctx.limits?.maxOutputSize ?? 0,
+    ctx.limits.maxOutputSize,
     wrappedExec,
     ctx.invokeTool,
   );
 
   const timeoutMs = resolveTimeout(ctx);
-  const protocolToken = randomBytes(16).toString("hex");
+  const requestController = new WorkerRequestController({
+    commandName: "js-exec",
+    timeoutMs,
+    signal: ctx.signal,
+    maxMessageBytes: ctx.limits.maxWorkerMessageBytes,
+  });
 
   const workerInput: JsExecWorkerInput = {
-    protocolToken,
+    protocolToken: requestController.protocolToken,
     sharedBuffer,
     jsCode,
     cwd: ctx.cwd,
@@ -536,13 +681,17 @@ async function executeJSInner(
     workerInput,
     bridgeHandler,
     timeoutMs,
+    requestController,
   );
 
   if (!workerResult.success && workerResult.error) {
+    const canceled =
+      workerResult.error === requestController.timeoutMessage() ||
+      workerResult.error === requestController.abortMessage();
     return {
       stdout: bridgeOutput.stdout,
       stderr: `${bridgeOutput.stderr}js-exec: ${sanitizeHostErrorMessage(workerResult.error)}\n`,
-      exitCode: bridgeOutput.exitCode || 1,
+      exitCode: bridgeOutput.exitCode || (canceled ? 124 : 1),
     };
   }
 

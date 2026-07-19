@@ -6,7 +6,9 @@
  * Columnate input. Fill rows first by default, or create a table with -t.
  */
 
-import { decodeBytesToUtf8 } from "../../encoding.js";
+import { BoundedStringBuilder } from "../../bounded-builder.js";
+import { decodeBytesToUtf8, utf8ByteLength } from "../../encoding.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -48,22 +50,23 @@ function splitFields(
   line: string,
   separator: string | undefined,
   noMerge: boolean,
+  limit: number,
 ): string[] {
   if (separator) {
     if (noMerge) {
-      return line.split(separator);
+      return line.split(separator, limit);
     }
     // Split by separator, removing empty fields from consecutive separators
-    return line.split(separator).filter((f) => f.length > 0);
+    return line.split(separator, limit).filter((f) => f.length > 0);
   }
 
   // Default: split by whitespace
   if (noMerge) {
     // With -n, preserve empty fields between whitespace
-    return line.split(/[ \t]/);
+    return line.split(/[ \t]/, limit);
   }
   // Default: consecutive whitespace is one delimiter
-  return line.split(/[ \t]+/).filter((f) => f.length > 0);
+  return line.split(/[ \t]+/, limit).filter((f) => f.length > 0);
 }
 
 /**
@@ -87,36 +90,48 @@ function calculateColumnWidths(rows: string[][]): number[] {
 /**
  * Format rows as a table with aligned columns.
  */
-function formatTable(rows: string[][], outputSep: string): string {
+function formatTable(
+  rows: string[][],
+  outputSep: string,
+  maxOutputBytes: number,
+): string {
   if (rows.length === 0) return "";
 
   const widths = calculateColumnWidths(rows);
-  const lines: string[] = [];
+  const output = new BoundedStringBuilder(
+    maxOutputBytes,
+    "column",
+    undefined,
+    1,
+  );
 
-  for (const row of rows) {
-    const cells: string[] = [];
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex];
+    if (rowIndex > 0) output.append("\n");
     for (let i = 0; i < row.length; i++) {
-      // Last column doesn't need padding
-      if (i === row.length - 1) {
-        cells.push(row[i]);
-      } else {
-        cells.push(row[i].padEnd(widths[i]));
-      }
+      if (i > 0) output.append(outputSep);
+      output.append(row[i]);
+      if (i < row.length - 1) output.repeat(" ", widths[i] - row[i].length);
     }
-    lines.push(cells.join(outputSep));
   }
 
-  return lines.join("\n");
+  return output.build();
 }
 
 /**
  * Fill mode: arrange items into columns that fit within width.
  */
-function formatFill(items: string[], width: number, outputSep: string): string {
+function formatFill(
+  items: string[],
+  width: number,
+  outputSep: string,
+  maxOutputBytes: number,
+): string {
   if (items.length === 0) return "";
 
   // Find the maximum item width
-  const maxItemWidth = Math.max(...items.map((item) => item.length));
+  let maxItemWidth = 0;
+  for (const item of items) maxItemWidth = Math.max(maxItemWidth, item.length);
   const sepWidth = outputSep.length;
 
   // Calculate how many columns can fit
@@ -128,9 +143,15 @@ function formatFill(items: string[], width: number, outputSep: string): string {
   const numRows = Math.ceil(items.length / numColumns);
 
   // Build rows, filling column by column (down, then right)
-  const lines: string[] = [];
+  const output = new BoundedStringBuilder(
+    maxOutputBytes,
+    "column",
+    undefined,
+    1,
+  );
   for (let row = 0; row < numRows; row++) {
-    const cells: string[] = [];
+    if (row > 0) output.append("\n");
+    let emittedCell = false;
     for (let col = 0; col < numColumns; col++) {
       const index = col * numRows + row;
       if (index < items.length) {
@@ -138,16 +159,19 @@ function formatFill(items: string[], width: number, outputSep: string): string {
         const isLastInRow =
           col === numColumns - 1 || (col + 1) * numRows + row >= items.length;
         if (isLastInRow) {
-          cells.push(items[index]);
+          if (emittedCell) output.append(outputSep);
+          output.append(items[index]);
         } else {
-          cells.push(items[index].padEnd(maxItemWidth));
+          if (emittedCell) output.append(outputSep);
+          output.append(items[index]);
+          output.repeat(" ", maxItemWidth - items[index].length);
         }
+        emittedCell = true;
       }
     }
-    lines.push(cells.join(outputSep));
   }
 
-  return lines.join("\n");
+  return output.build();
 }
 
 export const column: Command = {
@@ -165,6 +189,27 @@ export const column: Command = {
 
     // Default output separator is two spaces
     const outSep = outputSep ?? "  ";
+    const maxInputBytes = Math.min(
+      ctx.limits.maxInputBytes,
+      ctx.limits.maxStringLength,
+    );
+    const maxArrayElements = ctx.limits.maxArrayElements;
+    const maxOutputBytes = Math.min(
+      ctx.limits.maxStringLength,
+      ctx.limits.maxOutputSize,
+    );
+    if (
+      !Number.isFinite(width) ||
+      !Number.isSafeInteger(width) ||
+      width <= 0 ||
+      width > 10 * 1024 * 1024
+    ) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `column: invalid width: ${width}\n`,
+      };
+    }
 
     // Read input. column uses .length / .padEnd for column widths, which
     // operate on codepoints — decode bytes to UTF-8 so accented / CJK chars
@@ -175,9 +220,18 @@ export const column: Command = {
       content = decodeBytesToUtf8(ctx.stdin) ?? "";
     } else {
       const parts: string[] = [];
+      let inputBytes = 0;
       for (const file of files) {
         if (file === "-") {
-          parts.push(decodeBytesToUtf8(ctx.stdin) ?? "");
+          const part = decodeBytesToUtf8(ctx.stdin) ?? "";
+          inputBytes += utf8ByteLength(part);
+          if (inputBytes > maxInputBytes) {
+            throw new ExecutionLimitError(
+              `column: input size limit exceeded (${maxInputBytes} bytes)`,
+              "string_length",
+            );
+          }
+          parts.push(part);
         } else {
           const filePath = ctx.fs.resolvePath(ctx.cwd, file);
           const fileContent = await ctx.fs.readFile(filePath);
@@ -188,10 +242,23 @@ export const column: Command = {
               stderr: `column: ${file}: No such file or directory\n`,
             };
           }
+          inputBytes += utf8ByteLength(fileContent);
+          if (inputBytes > maxInputBytes) {
+            throw new ExecutionLimitError(
+              `column: input size limit exceeded (${maxInputBytes} bytes)`,
+              "string_length",
+            );
+          }
           parts.push(fileContent);
         }
       }
       content = parts.join("");
+    }
+    if (utf8ByteLength(content) > maxInputBytes) {
+      throw new ExecutionLimitError(
+        `column: input size limit exceeded (${maxInputBytes} bytes)`,
+        "string_length",
+      );
     }
 
     // Handle empty input
@@ -204,7 +271,13 @@ export const column: Command = {
     }
 
     // Split into lines, handling trailing newline
-    const lines = content.split("\n");
+    const lines = content.split("\n", maxArrayElements + 1);
+    if (lines.length > maxArrayElements) {
+      throw new ExecutionLimitError(
+        `column: field limit exceeded (${maxArrayElements})`,
+        "array_elements",
+      );
+    }
     const hasTrailingNewline =
       content.endsWith("\n") && lines[lines.length - 1] === "";
     if (hasTrailingNewline) {
@@ -218,18 +291,36 @@ export const column: Command = {
 
     if (table) {
       // Table mode: split each line into fields and align
-      const rows = nonEmptyLines.map((line) =>
-        splitFields(line, separator, noMerge),
-      );
-      output = formatTable(rows, outSep);
+      const rows: string[][] = [];
+      let fieldCount = 0;
+      for (const line of nonEmptyLines) {
+        const remaining = maxArrayElements - fieldCount;
+        const fields = splitFields(line, separator, noMerge, remaining + 1);
+        fieldCount += fields.length;
+        if (fieldCount > maxArrayElements) {
+          throw new ExecutionLimitError(
+            `column: field limit exceeded (${maxArrayElements})`,
+            "array_elements",
+          );
+        }
+        rows.push(fields);
+      }
+      output = formatTable(rows, outSep, maxOutputBytes);
     } else {
       // Fill mode: collect all items and arrange into columns
       const items: string[] = [];
       for (const line of nonEmptyLines) {
-        const fields = splitFields(line, separator, noMerge);
-        items.push(...fields);
+        const remaining = maxArrayElements - items.length;
+        const fields = splitFields(line, separator, noMerge, remaining + 1);
+        if (fields.length > remaining) {
+          throw new ExecutionLimitError(
+            `column: field limit exceeded (${maxArrayElements})`,
+            "array_elements",
+          );
+        }
+        for (const field of fields) items.push(field);
       }
-      output = formatFill(items, width, outSep);
+      output = formatFill(items, width, outSep, maxOutputBytes);
     }
 
     // Add trailing newline if there was output

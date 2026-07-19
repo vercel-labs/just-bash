@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EMPTY_BYTES } from "../../encoding.js";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
+import { resolveLimits } from "../../limits.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import type { CommandContext } from "../../types.js";
 import { _internals, sqlite3Command } from "./sqlite3.js";
@@ -10,7 +11,11 @@ type WorkerScript = (worker: {
   emitAuthenticated: (event: string, payload: Record<string, unknown>) => void;
 }) => void;
 
-function createMockWorker(script: WorkerScript, protocolToken: string) {
+function createMockWorker(
+  script: WorkerScript,
+  protocolToken: string,
+  options: { rejectTermination?: boolean } = {},
+) {
   const handlers = new Map<string, Array<(payload?: unknown) => void>>();
 
   const worker = {
@@ -21,6 +26,9 @@ function createMockWorker(script: WorkerScript, protocolToken: string) {
       return worker;
     },
     terminate(): Promise<number> {
+      if (options.rejectTermination) {
+        return Promise.reject(new Error("termination rejected"));
+      }
       const list = handlers.get("exit") ?? [];
       for (const cb of list) cb(0);
       return Promise.resolve(0);
@@ -61,6 +69,7 @@ function createContext(
     ]),
     stdin: EMPTY_BYTES,
     ...overrides,
+    limits: overrides.limits ?? resolveLimits(),
   };
 }
 
@@ -198,5 +207,46 @@ describe("sqlite3 worker protocol abuse", () => {
       "sqlite3: Malformed worker response: invalid protocol token\n",
     );
     expect(result.exitCode).toBe(1);
+  });
+
+  it("poisons the database lock when termination is not acknowledged", async () => {
+    const fs = new InMemoryFs({ "/database.db": "empty" });
+    const createWorker = vi
+      .spyOn(_internals, "createWorker")
+      .mockImplementation((_path, input) => {
+        return createMockWorker(
+          (worker) => {
+            worker.emitAuthenticated("message", {
+              success: true,
+              results: [],
+              hasModifications: false,
+              dbBuffer: null,
+            });
+          },
+          input.protocolToken,
+          { rejectTermination: true },
+        ) as never;
+      });
+
+    const first = sqlite3Command.execute(
+      ["/database.db", "SELECT 1"],
+      createContext({ fs }),
+    );
+    const second = sqlite3Command.execute(
+      ["/database.db", "SELECT 2"],
+      createContext({ fs }),
+    );
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(firstResult.stderr).toContain("termination was not acknowledged");
+    expect(secondResult.stderr).toContain("termination was not acknowledged");
+    expect(createWorker).toHaveBeenCalledTimes(1);
+
+    const third = await sqlite3Command.execute(
+      ["/database.db", "SELECT 3"],
+      createContext({ fs }),
+    );
+    expect(third.stderr).toContain("termination was not acknowledged");
+    expect(createWorker).toHaveBeenCalledTimes(1);
   });
 });

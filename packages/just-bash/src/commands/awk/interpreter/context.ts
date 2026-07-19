@@ -52,12 +52,18 @@ export interface AwkRuntimeContext {
   // For getline support (current file)
   lines?: string[];
   lineIndex?: number;
+  /** Internal getline streams, isolated from the AWK variable namespace. */
+  getlineCommandStreams: Map<string, { lines: string[]; index: number }>;
+  getlineFileStreams: Map<string, { lines: string[]; index: number }>;
   fieldSep: RegexLike;
 
   // Execution limits
   maxIterations: number;
   maxRecursionDepth: number;
   maxOutputSize: number;
+  maxArrayElements: number;
+  arrayElementCount: number;
+  recordsProcessed: number;
   currentRecursionDepth: number;
 
   // Control flow
@@ -101,6 +107,7 @@ export interface CreateContextOptions {
   maxIterations?: number;
   maxRecursionDepth?: number;
   maxOutputSize?: number;
+  maxArrayElements?: number;
   fs?: AwkFileSystem;
   cwd?: string;
   exec?: (
@@ -118,6 +125,7 @@ export function createRuntimeContext(
     maxIterations = DEFAULT_MAX_ITERATIONS,
     maxRecursionDepth = DEFAULT_MAX_RECURSION_DEPTH,
     maxOutputSize = 0,
+    maxArrayElements = 100_000,
     fs,
     cwd,
     exec,
@@ -152,11 +160,16 @@ export function createRuntimeContext(
     ENVIRON: Object.create(null) as Record<string, string>,
 
     functions: new Map(),
+    getlineCommandStreams: new Map(),
+    getlineFileStreams: new Map(),
 
     fieldSep,
     maxIterations,
     maxRecursionDepth,
     maxOutputSize,
+    maxArrayElements,
+    arrayElementCount: 0,
+    recordsProcessed: 0,
     currentRecursionDepth: 0,
 
     exitCode: 0,

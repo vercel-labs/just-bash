@@ -4,15 +4,18 @@
 
 import { createUserRegex, type RegexLike } from "../../regex/index.js";
 import type { AstNode } from "../query-engine/parser.js";
-import { parseMoonblade } from "./moonblade-parser.js";
+import { type MoonbladeLimits, parseMoonblade } from "./moonblade-parser.js";
 import { moonbladeToJq } from "./moonblade-to-jq.js";
 
 /**
  * Parse a moonblade expression and transform to jq AST
  */
-export function parseMoonbladeExpr(expr: string): AstNode {
-  const moonbladeAst = parseMoonblade(expr);
-  return moonbladeToJq(moonbladeAst);
+export function parseMoonbladeExpr(
+  expr: string,
+  limits: MoonbladeLimits = {},
+): AstNode {
+  const moonbladeAst = parseMoonblade(expr, limits);
+  return moonbladeToJq(moonbladeAst, true, limits);
 }
 
 /**

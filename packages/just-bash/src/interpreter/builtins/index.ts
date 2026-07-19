@@ -48,4 +48,3 @@ export { handleSet } from "./set.js";
 export { handleShift } from "./shift.js";
 export { handleSource } from "./source.js";
 export { handleUnset } from "./unset.js";
-export { getLocalVarDepth } from "./variable-assignment.js";

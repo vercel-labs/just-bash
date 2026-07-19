@@ -1,3 +1,4 @@
+import { FileTraversalBudget } from "../../fs/traversal.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
@@ -41,9 +42,16 @@ export const rmdirCommand: Command = {
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
+    const budget = new FileTraversalBudget({
+      limits: ctx.limits,
+      signal: ctx.signal,
+      executionScope: ctx.executionScope,
+      site: "rmdir",
+      label: "parent traversal",
+    });
 
     for (const dir of dirs) {
-      const result = await removeDir(ctx, dir, parents, verbose);
+      const result = await removeDir(ctx, dir, parents, verbose, budget);
       stdout += result.stdout;
       stderr += result.stderr;
       if (result.exitCode !== 0) {
@@ -60,6 +68,7 @@ async function removeDir(
   dir: string,
   parents: boolean,
   verbose: boolean,
+  budget: FileTraversalBudget,
 ): Promise<ExecResult> {
   let stdout = "";
   let stderr = "";
@@ -82,6 +91,7 @@ async function removeDir(
 
     // Keep removing parent directories until we hit an error or root
     while (true) {
+      budget.visit(0);
       const parentPath = getParentPath(currentPath);
       const parentDir = getParentPath(currentDir);
 

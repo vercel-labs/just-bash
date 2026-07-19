@@ -295,7 +295,7 @@ When `python: true`, CPython 3.13 Emscripten provides full Python execution via 
 - Disabled by default; must be explicitly enabled via `{ python: true }`
 - 30-second timeout (`maxPythonTimeoutMs`; configurable)
 - Fresh Worker thread per execution (EXIT_RUNTIME; no state leakage between runs)
-- `WorkerDefenseInDepth` with only 2 exclusions: `shared_array_buffer`, `atomics`
+- `WorkerDefenseInDepth` with narrowly documented Emscripten compatibility exclusions; an earlier worker-entry guard blocks the exact dangerous CommonJS builtins before CPython loads
 - Stdlib shipped as `.pyc`-only zip in MEMFS (no real FS access, no runtime compilation)
 - 18+ file operations (open, stat, glob, pathlib, shutil, etc.) redirected through `/host` mount
 - C-level file operations (`_io.open`) also confined by Emscripten VFS (no NODEFS/NODERAWFS)
@@ -308,7 +308,7 @@ When `python: true`, CPython 3.13 Emscripten provides full Python execution via 
 - Python's `eval()` and `exec()` execute arbitrary Python (same as bash `eval`; no JS escalation path)
 - `/lib` (MEMFS stdlib) is writable within a single execution (each execution is fresh)
 - Symlink targets are readable via `os.readlink()` but not followable outside root
-- Python can allocate memory up to WASM limits (mitigated by 30s timeout)
+- CPython's WASM linear memory is not reliably contained by Node worker `resourceLimits`. Queue, deadline, bridge, and HOSTFS size controls bound other resources, but strong heap containment requires process/container isolation or a lower-memory CPython WASM build.
 
 ### 4.8 Error Message Information Leakage
 

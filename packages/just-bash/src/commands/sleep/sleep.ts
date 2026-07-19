@@ -62,7 +62,30 @@ export const sleepCommand: Command = {
 
     // Use mock sleep if available in context, otherwise real setTimeout
     if (ctx.sleep) {
-      await ctx.sleep(totalMs);
+      const sleepPromise = Promise.resolve(ctx.sleep(totalMs));
+      if (ctx.signal) {
+        let onAbort: (() => void) | undefined;
+        const abortPromise = new Promise<void>((resolve) => {
+          onAbort = resolve;
+          ctx.signal?.addEventListener("abort", onAbort, { once: true });
+          // The host hook is invoked before this listener is installed and may
+          // synchronously abort the execution.
+          if (ctx.signal?.aborted) resolve();
+        });
+        try {
+          // A host-provided sleep hook may not know about cancellation. Stop
+          // awaiting it when execution is aborted so timeout can fully unwind
+          // the child pipeline before its parent execution scope closes. The
+          // race keeps a rejection handler attached to the abandoned promise.
+          await Promise.race([sleepPromise, abortPromise]);
+        } finally {
+          if (onAbort) {
+            ctx.signal.removeEventListener("abort", onAbort);
+          }
+        }
+      } else {
+        await sleepPromise;
+      }
     } else if (ctx.signal) {
       // Abort-aware sleep: resolve early if the signal fires.
       // Named handler so we can remove it when the timer resolves normally.

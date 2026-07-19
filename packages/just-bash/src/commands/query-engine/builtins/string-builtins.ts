@@ -4,7 +4,9 @@
  * Handles string manipulation functions like join, split, test, match, gsub, etc.
  */
 
+import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import { createUserRegex } from "../../../regex/index.js";
+import { utf8ByteLength } from "../../printf/escapes.js";
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
 import type { QueryValue } from "../value-operations.js";
@@ -14,6 +16,42 @@ type EvalFn = (
   ast: AstNode,
   ctx: EvalContext,
 ) => QueryValue[];
+
+function resultLimit(ctx: EvalContext): number {
+  return ctx.limits.maxArrayElements;
+}
+
+function stringLimit(ctx: EvalContext): number {
+  return Math.min(ctx.limits.maxStringLength, ctx.limits.maxOutputSize);
+}
+
+function assertResultCount(ctx: EvalContext, count: number): void {
+  const limit = resultLimit(ctx);
+  if (!Number.isSafeInteger(count) || count < 0 || count > limit) {
+    throw new ExecutionLimitError(
+      `query result element limit exceeded (${limit})`,
+      "array_elements",
+    );
+  }
+}
+
+function countLiteralSplit(
+  value: string,
+  separator: string,
+  limit: number,
+): number {
+  if (value === "") return separator === "" ? 0 : 1;
+  if (separator === "") return value.length;
+  let count = 1;
+  let offset = 0;
+  while (true) {
+    const match = value.indexOf(separator, offset);
+    if (match < 0) return count;
+    count++;
+    if (count > limit) return count;
+    offset = match + separator.length;
+  }
+}
 
 /**
  * Handle string builtins that need evaluate function for arguments.
@@ -38,17 +76,39 @@ export function evalStringBuiltin(
         }
       }
       // Handle generator args - each separator produces its own output
-      return seps.map((sep) =>
-        value
-          .map((x) => (x === null ? "" : typeof x === "string" ? x : String(x)))
-          .join(String(sep)),
-      );
+      assertResultCount(ctx, seps.length);
+      return seps.map((sep) => {
+        const separator = String(sep);
+        let bytes = 0;
+        for (let i = 0; i < value.length; i++) {
+          const text =
+            value[i] === null
+              ? ""
+              : typeof value[i] === "string"
+                ? value[i]
+                : String(value[i]);
+          bytes += utf8ByteLength(text as string);
+          if (i > 0) bytes += utf8ByteLength(separator);
+          if (bytes > stringLimit(ctx)) {
+            throw new ExecutionLimitError(
+              `query string size limit exceeded (${stringLimit(ctx)} bytes)`,
+              "string_length",
+            );
+          }
+        }
+        return value
+          .map((item) =>
+            item === null ? "" : typeof item === "string" ? item : String(item),
+          )
+          .join(separator);
+      });
     }
 
     case "split": {
       if (typeof value !== "string" || args.length === 0) return [null];
       const seps = evaluate(value, args[0], ctx);
       const sep = String(seps[0]);
+      assertResultCount(ctx, countLiteralSplit(value, sep, resultLimit(ctx)));
       return [value.split(sep)];
     }
 
@@ -65,8 +125,16 @@ export function evalStringBuiltin(
           pattern,
           flags.includes("g") ? flags : `${flags}g`,
         );
-        return regex.split(value);
-      } catch {
+        let count = 1;
+        for (const match of regex.matchAll(value)) {
+          count += Math.max(1, match.length);
+          assertResultCount(ctx, count);
+        }
+        const split = regex.split(value);
+        assertResultCount(ctx, split.length);
+        return split;
+      } catch (error) {
+        if (error instanceof ExecutionLimitError) throw error;
         return [];
       }
     }
@@ -84,17 +152,21 @@ export function evalStringBuiltin(
           pattern,
           flags.includes("g") ? flags : `${flags}g`,
         );
-        const matches = [...regex.matchAll(value)];
-        // Return each match - if groups exist, return array of groups, else return match string
-        return matches.map((m) => {
+        const results: QueryValue[] = [];
+        for (const m of regex.matchAll(value)) {
+          assertResultCount(ctx, results.length + 1);
           if (m.length > 1) {
             // Has capture groups - return array of captured groups (excluding full match)
-            return m.slice(1);
+            assertResultCount(ctx, m.length - 1);
+            results.push(m.slice(1));
+          } else {
+            // No capture groups - return full match string
+            results.push(m[0]);
           }
-          // No capture groups - return full match string
-          return m[0];
-        });
-      } catch {
+        }
+        return results;
+      } catch (error) {
+        if (error instanceof ExecutionLimitError) throw error;
         return [];
       }
     }
@@ -274,6 +346,11 @@ export function evalStringBuiltin(
 
     case "explode":
       if (typeof value === "string") {
+        let count = 0;
+        for (const _codePoint of value) {
+          count++;
+          assertResultCount(ctx, count);
+        }
         return [Array.from(value).map((c) => c.codePointAt(0))];
       }
       return [null];

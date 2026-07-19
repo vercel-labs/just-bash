@@ -24,6 +24,7 @@ import {
   DEFAULT_DIR_MODE,
   DEFAULT_FILE_MODE,
   dirname,
+  isSameOrDescendantPath,
   joinPath,
   MAX_SYMLINK_DEPTH,
   normalizePath,
@@ -69,6 +70,17 @@ function isFileInit(
 
 export class InMemoryFs implements IFileSystem {
   private data: Map<string, FsEntry> = new Map();
+  private entryIdentities = new WeakMap<FsEntry, string>();
+  private nextEntryIdentity = 1;
+
+  private identityFor(entry: FsEntry): string {
+    let identity = this.entryIdentities.get(entry);
+    if (!identity) {
+      identity = `memfs:${this.nextEntryIdentity++}`;
+      this.entryIdentities.set(entry, identity);
+    }
+    return identity;
+  }
 
   constructor(initialFiles?: InitialFiles) {
     // Create root directory
@@ -325,6 +337,7 @@ export class InMemoryFs implements IFileSystem {
       mode: entry.mode,
       size,
       mtime: entry.mtime || new Date(),
+      identity: this.identityFor(entry),
     };
   }
 
@@ -373,6 +386,7 @@ export class InMemoryFs implements IFileSystem {
       mode: entry.mode,
       size,
       mtime: entry.mtime || new Date(),
+      identity: this.identityFor(entry),
     };
   }
 
@@ -624,6 +638,9 @@ export class InMemoryFs implements IFileSystem {
       if (!options?.recursive) {
         throw new Error(`EISDIR: is a directory, cp '${src}'`);
       }
+      if (isSameOrDescendantPath(srcNorm, destNorm)) {
+        throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
+      }
       await this.mkdir(destNorm, { recursive: true });
       const children = await this.readdir(srcNorm);
       for (const child of children) {
@@ -710,12 +727,14 @@ export class InMemoryFs implements IFileSystem {
     this.ensureParentDirs(newNorm);
     // For hard links, we create a copy (simulating inode sharing)
     // In a real fs, they'd share the same inode
-    this.data.set(newNorm, {
+    const linkedEntry: FileEntry = {
       type: "file",
       content: (resolved as FileEntry).content,
       mode: resolved.mode,
       mtime: resolved.mtime,
-    });
+    };
+    this.entryIdentities.set(linkedEntry, this.identityFor(resolved));
+    this.data.set(newNorm, linkedEntry);
   }
 
   // Read the target of a symbolic link

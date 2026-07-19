@@ -22,7 +22,7 @@ import {
   expandWordForPattern,
   expandWordForRegex,
 } from "./expansion.js";
-import { clearArray } from "./helpers/array.js";
+import { clearArray, setArrayElement } from "./helpers/array.js";
 import {
   evaluateBinaryFileTest,
   evaluateFileTest,
@@ -122,7 +122,7 @@ export async function evaluateConditional(
             if (match) {
               // Store full match at index 0, capture groups at indices 1, 2, ...
               for (let i = 0; i < match.length; i++) {
-                ctx.state.env.set(`BASH_REMATCH_${i}`, match[i] || "");
+                setArrayElement(ctx, "BASH_REMATCH", i, match[i] || "");
               }
             }
             return match !== null;

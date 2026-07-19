@@ -124,6 +124,7 @@ export class BridgeHandler {
         this.output.exitCode = 124;
         break;
       }
+      if (!this.running) break;
 
       const opCode = this.protocol.getOpCode();
       await this.handleOperation(opCode);
@@ -138,6 +139,9 @@ export class BridgeHandler {
 
   stop(): void {
     this.running = false;
+    // Wake a handler blocked before the worker's first bridge operation.
+    this.protocol.setStatus(Status.READY);
+    this.protocol.notify();
   }
 
   private async handleOperation(opCode: OpCodeType): Promise<void> {

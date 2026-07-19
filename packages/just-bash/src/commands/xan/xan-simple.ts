@@ -17,7 +17,10 @@ import {
   safeSetRow,
   toSafeRow,
 } from "./csv.js";
-import { parseNamedExpressions } from "./moonblade-parser.js";
+import {
+  getMoonbladeLimits,
+  parseNamedExpressions,
+} from "./moonblade-parser.js";
 import { moonbladeToJq } from "./moonblade-to-jq.js";
 
 /**
@@ -178,7 +181,15 @@ export async function cmdCat(
   let allHeaders: string[] = [];
 
   for (const { content } of result.files) {
-    const { headers, data } = parseCsv(decodeBytesToUtf8(content));
+    const { headers, data } = parseCsv(decodeBytesToUtf8(content), {
+      maxStringLength: Math.min(
+        ctx.limits.maxInputBytes,
+        ctx.limits.maxStringLength,
+      ),
+      maxArrayElements: ctx.limits.maxArrayElements,
+      maxRows: ctx.limits.maxCsvRows,
+      maxCells: ctx.limits.maxCsvCells,
+    });
     allFiles.push({ headers, data });
 
     // Collect all unique headers
@@ -334,15 +345,19 @@ export async function cmdFlatmap(
   if (error) return error;
 
   // Parse expression
-  const namedExprs = parseNamedExpressions(expr);
+  const moonbladeLimits = getMoonbladeLimits(ctx);
+  const namedExprs = parseNamedExpressions(expr, moonbladeLimits);
   const specs = namedExprs.map(({ expr: e, name }) => ({
     alias: typeof name === "string" ? name : name[0],
-    ast: moonbladeToJq(e),
+    ast: moonbladeToJq(e, true, moonbladeLimits),
   }));
 
   const evalOptions: EvaluateOptions = {
     limits: ctx.limits
-      ? { maxIterations: ctx.limits.maxJqIterations }
+      ? {
+          maxIterations: ctx.limits.maxJqIterations,
+          maxStringLength: ctx.limits.maxStringLength,
+        }
       : undefined,
   };
 

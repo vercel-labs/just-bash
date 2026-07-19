@@ -355,9 +355,18 @@ export class UserRegex implements RegexLike {
     if (limit === 0) {
       return [];
     }
-    // RE2JS returns remainder in last element; JS just takes first N elements
-    const result = this._re2.split(input, -1);
-    return result.slice(0, limit);
+    const result: string[] = [];
+    const matcher = this._re2.matcher(input);
+    let lastEnd = 0;
+    let searchFrom = 0;
+    while (result.length < limit && matcher.find(searchFrom)) {
+      result.push(input.slice(lastEnd, matcher.start(0)));
+      lastEnd = matcher.end(0);
+      searchFrom =
+        matcher.end(0) > matcher.start(0) ? matcher.end(0) : matcher.end(0) + 1;
+    }
+    if (result.length < limit) result.push(input.slice(lastEnd));
+    return result;
   }
 
   /**

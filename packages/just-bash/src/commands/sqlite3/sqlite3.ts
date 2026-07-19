@@ -11,22 +11,23 @@
  * making ATTACH DATABASE and VACUUM INTO safe (they only operate on virtual buffers).
  */
 
-import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import initSqlJs from "sql.js";
 import { decodeBytesToUtf8 } from "../../encoding.js";
+import type { ResourceLease } from "../../execution-scope.js";
 import {
   sanitizeErrorMessage,
   sanitizeHostErrorMessage,
 } from "../../fs/sanitize-error.js";
+import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { bindDefenseContextCallback } from "../../security/defense-context.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
-import { _clearTimeout, _setTimeout } from "../../timers.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
+import { WorkerRequestController } from "../worker-request-controller.js";
 
 import {
   type FormatOptions,
@@ -40,8 +41,110 @@ import type {
   WorkerSuccess,
 } from "./worker.js";
 
-/** Default query timeout in milliseconds (5 seconds) */
-const DEFAULT_QUERY_TIMEOUT_MS = 5000;
+const MAX_DATABASE_LOCK_WAITERS = 1024;
+const SQLITE_WORKER_OLD_GENERATION_MB = 128;
+const SQLITE_WORKER_YOUNG_GENERATION_MB = 16;
+const WORKER_TERMINATION_UNACKNOWLEDGED =
+  "Worker termination was not acknowledged";
+
+function assertDatabaseSize(size: number, maximum: number): void {
+  if (!Number.isSafeInteger(size) || size < 0 || size > maximum) {
+    throw new Error(`database exceeds ${maximum} byte limit`);
+  }
+}
+
+interface DatabaseLock {
+  held: boolean;
+  poisonedError?: string;
+  waiters: Array<{
+    grant(): void;
+    reject(error: Error): void;
+    signal?: AbortSignal;
+    abort?: () => void;
+  }>;
+}
+
+// Lock namespaces are scoped to an IFileSystem instance. Identical virtual
+// paths in independent Bash environments must never block one another.
+const databaseLocks = new WeakMap<object, Map<string, DatabaseLock>>();
+
+async function acquireDatabaseLock(
+  fsIdentity: object,
+  path: string,
+  signal?: AbortSignal,
+): Promise<() => void> {
+  let locks = databaseLocks.get(fsIdentity);
+  if (!locks) {
+    locks = new Map();
+    databaseLocks.set(fsIdentity, locks);
+  }
+  let lock = locks.get(path);
+  if (!lock) {
+    lock = { held: false, waiters: [] };
+    locks.set(path, lock);
+  }
+  if (lock.poisonedError) throw new Error(lock.poisonedError);
+  if (lock.held) {
+    if (lock.waiters.length >= MAX_DATABASE_LOCK_WAITERS)
+      throw new Error("too many concurrent database operations");
+    await new Promise<void>((resolve, reject) => {
+      const waiter: DatabaseLock["waiters"][number] = {
+        signal,
+        grant() {
+          if (signal && waiter.abort) {
+            signal.removeEventListener("abort", waiter.abort);
+          }
+          resolve();
+        },
+        reject,
+      };
+      if (signal) {
+        waiter.abort = () => {
+          const index = lock?.waiters.indexOf(waiter) ?? -1;
+          if (index !== -1) lock?.waiters.splice(index, 1);
+          reject(new Error("database lock wait aborted"));
+        };
+        signal.addEventListener("abort", waiter.abort, { once: true });
+        if (signal.aborted) {
+          waiter.abort();
+          return;
+        }
+      }
+      lock?.waiters.push(waiter);
+    });
+  } else {
+    lock.held = true;
+  }
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (lock?.poisonedError) return;
+    const next = lock?.waiters.shift();
+    if (next) next.grant();
+    else {
+      if (lock) lock.held = false;
+      locks?.delete(path);
+    }
+  };
+}
+
+function poisonDatabaseLock(
+  fsIdentity: object,
+  path: string,
+  error: string,
+): void {
+  const lock = databaseLocks.get(fsIdentity)?.get(path);
+  if (!lock || lock.poisonedError) return;
+  lock.poisonedError = error;
+  for (const waiter of lock.waiters.splice(0)) {
+    if (waiter.signal && waiter.abort) {
+      waiter.signal.removeEventListener("abort", waiter.abort);
+    }
+    waiter.reject(new Error(error));
+  }
+}
 
 const sqlite3Help = {
   name: "sqlite3",
@@ -279,16 +382,28 @@ function findWorkerPath(
 export const _internals: {
   createWorker(workerPath: string, input: WorkerInput): Worker;
   findWorkerPath(currentDir?: string): string;
+  acquireDatabaseLock(
+    fsIdentity: object,
+    path: string,
+    signal?: AbortSignal,
+  ): Promise<() => void>;
 } = {
   createWorker(workerPath: string, input: WorkerInput): Worker {
-    return new Worker(workerPath, { workerData: input });
+    // @banned-pattern-ignore: factory result is immediately owned by the per-request WorkerRequestController
+    return new Worker(workerPath, {
+      workerData: input,
+      // This bounds V8-managed allocations in addition to the explicit
+      // result/database bridge budgets. WASM linear memory still requires the
+      // application-level checks enforced inside the worker.
+      resourceLimits: {
+        maxOldGenerationSizeMb: SQLITE_WORKER_OLD_GENERATION_MB,
+        maxYoungGenerationSizeMb: SQLITE_WORKER_YOUNG_GENERATION_MB,
+      },
+    });
   },
   findWorkerPath,
+  acquireDatabaseLock,
 };
-
-function generateWorkerProtocolToken(): string {
-  return randomBytes(16).toString("hex");
-}
 
 function normalizeWorkerResult(
   result: unknown,
@@ -385,53 +500,124 @@ function normalizeWorkerResult(
 
 async function executeInWorker(
   input: WorkerInput,
-  timeoutMs: number,
+  controller: WorkerRequestController,
   requireDefenseContext: boolean | undefined,
 ): Promise<WorkerOutput> {
   // Try to use worker thread for timeout protection
   try {
     const workerPath = findWorkerPath();
 
-    return await new Promise((resolve, reject) => {
-      const worker = DefenseInDepthBox.runTrusted(() =>
-        _internals.createWorker(workerPath, input),
-      );
+    return await new Promise((resolve) => {
+      let worker: Worker | undefined;
+      let settled = false;
+      let listenersAttached = false;
 
-      const onTimeout = bindDefenseContextCallback(
-        requireDefenseContext,
-        "sqlite3",
-        "worker timeout callback",
-        () => {
-          worker.terminate();
-          resolve({
-            success: false,
-            error: `Query timeout: execution exceeded ${timeoutMs}ms limit`,
-          });
-        },
-      );
-
-      const dispatchTimeout = (): void => {
-        try {
-          onTimeout();
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          resolve({
-            success: false,
-            error: sanitizeHostErrorMessage(message),
-          });
-        }
+      const cleanupListeners = (): void => {
+        if (!listenersAttached || !worker) return;
+        listenersAttached = false;
+        worker.removeListener?.("message", dispatchMessage);
+        worker.removeListener?.("error", dispatchError);
+        worker.removeListener?.("exit", dispatchExit);
       };
 
-      const timeout = _setTimeout(dispatchTimeout, timeoutMs);
+      const settle = async (
+        result: WorkerOutput,
+        terminate: boolean,
+      ): Promise<void> => {
+        if (settled) return;
+        settled = true;
+        cleanupListeners();
+        const acknowledged = terminate
+          ? await controller.terminate(worker)
+          : false;
+        controller.close();
+        resolve(
+          acknowledged
+            ? result
+            : {
+                success: false,
+                error: WORKER_TERMINATION_UNACKNOWLEDGED,
+              },
+        );
+      };
+
+      const onCancel = bindDefenseContextCallback(
+        requireDefenseContext,
+        "sqlite3",
+        "worker cancellation callback",
+        (reason: "abort" | "timeout") => {
+          void settle(
+            {
+              success: false,
+              error:
+                reason === "abort"
+                  ? controller.abortMessage()
+                  : controller.timeoutMessage("Query"),
+            },
+            true,
+          );
+        },
+      );
+      controller.arm((reason) => {
+        try {
+          onCancel(reason);
+        } catch (error) {
+          void settle(
+            {
+              success: false,
+              error: sanitizeHostErrorMessage(getErrorMessage(error)),
+            },
+            true,
+          );
+        }
+      });
+      if (controller.isCanceled) return;
+
+      try {
+        worker = DefenseInDepthBox.runTrusted(() =>
+          _internals.createWorker(workerPath, input),
+        );
+      } catch (error) {
+        controller.close();
+        throw error;
+      }
 
       const onMessage = bindDefenseContextCallback(
         requireDefenseContext,
         "sqlite3",
         "worker message callback",
         (result: unknown) => {
-          _clearTimeout(timeout);
-          resolve(normalizeWorkerResult(result, input.protocolToken));
+          try {
+            const response =
+              result && typeof result === "object"
+                ? {
+                    protocolToken: (result as Record<string, unknown>)
+                      .protocolToken,
+                    type: (result as Record<string, unknown>).type,
+                    violation: (result as Record<string, unknown>).violation,
+                    success: (result as Record<string, unknown>).success,
+                    error: (result as Record<string, unknown>).error,
+                    results: (result as Record<string, unknown>).results,
+                    hasModifications: (result as Record<string, unknown>)
+                      .hasModifications,
+                    defenseStats: (result as Record<string, unknown>)
+                      .defenseStats,
+                  }
+                : result;
+            controller.assertMessageSize(response, "response");
+            void settle(
+              normalizeWorkerResult(result, input.protocolToken),
+              true,
+            );
+          } catch (error) {
+            void settle(
+              {
+                success: false,
+                error: sanitizeHostErrorMessage(getErrorMessage(error)),
+              },
+              true,
+            );
+          }
         },
       );
       const onError = bindDefenseContextCallback(
@@ -439,8 +625,13 @@ async function executeInWorker(
         "sqlite3",
         "worker error callback",
         (err: unknown) => {
-          _clearTimeout(timeout);
-          reject(err);
+          void settle(
+            {
+              success: false,
+              error: sanitizeHostErrorMessage(getErrorMessage(err)),
+            },
+            true,
+          );
         },
       );
       const onExit = bindDefenseContextCallback(
@@ -448,12 +639,11 @@ async function executeInWorker(
         "sqlite3",
         "worker exit callback",
         (code: number) => {
-          _clearTimeout(timeout);
           if (code !== 0) {
-            resolve({
-              success: false,
-              error: `Worker exited with code ${code}`,
-            });
+            void settle(
+              { success: false, error: `Worker exited with code ${code}` },
+              false,
+            );
           }
         },
       );
@@ -462,13 +652,12 @@ async function executeInWorker(
         try {
           onMessage(result);
         } catch (error) {
-          _clearTimeout(timeout);
           const message =
             error instanceof Error ? error.message : String(error);
-          resolve({
-            success: false,
-            error: sanitizeHostErrorMessage(message),
-          });
+          void settle(
+            { success: false, error: sanitizeHostErrorMessage(message) },
+            true,
+          );
         }
       };
 
@@ -476,10 +665,12 @@ async function executeInWorker(
         try {
           onError(err);
         } catch (error) {
-          _clearTimeout(timeout);
           const message =
             error instanceof Error ? error.message : String(error);
-          reject(new Error(sanitizeHostErrorMessage(message)));
+          void settle(
+            { success: false, error: sanitizeHostErrorMessage(message) },
+            true,
+          );
         }
       };
 
@@ -487,19 +678,19 @@ async function executeInWorker(
         try {
           onExit(code);
         } catch (error) {
-          _clearTimeout(timeout);
           const message =
             error instanceof Error ? error.message : String(error);
-          resolve({
-            success: false,
-            error: sanitizeHostErrorMessage(message),
-          });
+          void settle(
+            { success: false, error: sanitizeHostErrorMessage(message) },
+            true,
+          );
         }
       };
 
       worker.on("message", dispatchMessage);
       worker.on("error", dispatchError);
       worker.on("exit", dispatchExit);
+      listenersAttached = true;
     });
   } catch (e) {
     // Worker failed to load - do not fall back to direct execution
@@ -557,16 +748,38 @@ export const sqlite3Command: Command = {
     // Load database buffer
     const isMemory = database === ":memory:";
     let dbPath = "";
+    let lockPath = "";
     let dbBuffer: Uint8Array | null = null;
+    let releaseLock: (() => void) | undefined;
+    let databaseLease: ResourceLease | undefined;
 
     try {
       if (!isMemory) {
         dbPath = ctx.fs.resolvePath(ctx.cwd, database);
+        lockPath = (await ctx.fs.exists(dbPath))
+          ? await ctx.fs.realpath(dbPath)
+          : dbPath;
+        releaseLock = await acquireDatabaseLock(
+          ctx.fsIdentity ?? ctx.fs,
+          lockPath,
+          ctx.signal,
+        );
         if (await ctx.fs.exists(dbPath)) {
+          // Reject prospectively where the backend exposes a size, then check
+          // the actual buffer again to close stat/read races.
+          const fileStat = await ctx.fs.stat(dbPath);
+          assertDatabaseSize(fileStat.size, ctx.limits.maxDatabaseBytes);
           dbBuffer = await ctx.fs.readFileBuffer(dbPath);
+          assertDatabaseSize(dbBuffer.byteLength, ctx.limits.maxDatabaseBytes);
+          databaseLease = ctx.executionScope?.reserveBytes(
+            "sqlite-database",
+            dbBuffer.byteLength,
+            "sqlite3 database",
+          );
         }
       }
     } catch (e) {
+      releaseLock?.();
       const message = sanitizeErrorMessage((e as Error).message);
       return {
         stdout: "",
@@ -575,112 +788,177 @@ export const sqlite3Command: Command = {
       };
     }
 
-    // Get timeout from execution limits or use default
-    const timeoutMs =
-      ctx.limits?.maxSqliteTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS;
-
-    // Execute in worker with timeout
-    const workerInput: WorkerInput = {
-      protocolToken: generateWorkerProtocolToken(),
-      dbBuffer,
-      sql,
-      options: {
-        bail: options.bail,
-        echo: options.echo,
-      },
-    };
-
-    let result: WorkerOutput;
     try {
-      result = await executeInWorker(
-        workerInput,
+      // Get timeout from execution limits or use default
+      const timeoutMs = ctx.limits.maxSqliteTimeoutMs;
+
+      const requestController = new WorkerRequestController({
+        commandName: "sqlite3",
         timeoutMs,
-        ctx.requireDefenseContext,
+        signal: ctx.signal,
+        maxMessageBytes: ctx.limits.maxWorkerMessageBytes,
+      });
+
+      // Execute in worker with timeout
+      const workerInput: WorkerInput = {
+        protocolToken: requestController.protocolToken,
+        dbBuffer,
+        sql,
+        options: {
+          bail: options.bail,
+          echo: options.echo,
+        },
+        limits: {
+          maxResultRows: ctx.limits.maxArrayElements,
+          maxResultBytes: ctx.limits.maxDatabaseResultBytes,
+          maxDatabaseBytes: ctx.limits.maxDatabaseBytes,
+        },
+      };
+      requestController.assertMessageSize(
+        { ...workerInput, dbBuffer: undefined },
+        "request",
       );
-    } catch (e) {
-      const message = sanitizeHostErrorMessage((e as Error).message);
-      return {
-        stdout: "",
-        stderr: `sqlite3: worker error: ${message}\n`,
-        exitCode: 1,
-      };
-    }
 
-    if (!result.success) {
-      const message = sanitizeHostErrorMessage(result.error);
-      return {
-        stdout: "",
-        stderr: `sqlite3: ${message}\n`,
-        exitCode: 1,
-      };
-    }
-
-    // Format output
-    const formatOptions: FormatOptions = {
-      mode: options.mode,
-      header: options.header,
-      separator: options.separator,
-      newline: options.newline,
-      nullValue: options.nullValue,
-    };
-
-    let stdout = "";
-
-    // Echo SQL if requested
-    if (options.echo) {
-      stdout += `${sql}\n`;
-    }
-
-    // Process results
-    let hadError = false;
-    for (const stmtResult of result.results) {
-      if (stmtResult.type === "error") {
-        if (options.bail) {
-          return {
-            stdout,
-            stderr: `Error: ${stmtResult.error}\n`,
-            exitCode: 1,
-          };
-        }
-        stdout += `Error: ${stmtResult.error}\n`;
-        hadError = true;
-      } else if (stmtResult.columns && stmtResult.rows) {
-        if (stmtResult.rows.length > 0 || options.header) {
-          stdout += formatOutput(
-            stmtResult.columns,
-            stmtResult.rows,
-            formatOptions,
+      let result: WorkerOutput;
+      let workerCloneLease: ResourceLease | undefined;
+      try {
+        if (dbBuffer) {
+          // Structured clone retains another database image while the host
+          // copy is live. Keep the dedicated limit check even though protocol
+          // metadata accounting deliberately excludes the already-counted DB.
+          assertDatabaseSize(dbBuffer.byteLength, ctx.limits.maxDatabaseBytes);
+          workerCloneLease = ctx.executionScope?.reserveBytes(
+            "sqlite-worker-clone",
+            dbBuffer.byteLength,
+            "sqlite3 worker clone",
           );
         }
-      }
-    }
-
-    // Write back modifications if needed
-    if (
-      result.hasModifications &&
-      !options.readonly &&
-      !isMemory &&
-      dbPath &&
-      result.dbBuffer
-    ) {
-      try {
-        await ctx.fs.writeFile(dbPath, result.dbBuffer);
+        result = await executeInWorker(
+          workerInput,
+          requestController,
+          ctx.requireDefenseContext,
+        );
       } catch (e) {
-        const message = sanitizeErrorMessage((e as Error).message);
+        const message = sanitizeHostErrorMessage((e as Error).message);
         return {
-          stdout,
-          stderr: `sqlite3: failed to write database: ${message}\n`,
+          stdout: "",
+          stderr: `sqlite3: worker error: ${message}\n`,
+          exitCode: 1,
+        };
+      } finally {
+        workerCloneLease?.release();
+      }
+
+      if (!result.success) {
+        if (lockPath && result.error === WORKER_TERMINATION_UNACKNOWLEDGED) {
+          poisonDatabaseLock(ctx.fsIdentity ?? ctx.fs, lockPath, result.error);
+        }
+        const message = sanitizeHostErrorMessage(result.error);
+        return {
+          stdout: "",
+          stderr: `sqlite3: ${message}\n`,
           exitCode: 1,
         };
       }
-    }
 
-    // sqlite3 emits text; the pipeline handles encoding.
-    return {
-      stdout,
-      stderr: "",
-      exitCode: hadError && options.bail ? 1 : 0,
-    };
+      // Format output
+      const maxFormattedOutput = Math.min(
+        ctx.limits.maxStringLength,
+        ctx.limits.maxOutputSize,
+      );
+      const formatOptions: FormatOptions = {
+        mode: options.mode,
+        header: options.header,
+        separator: options.separator,
+        newline: options.newline,
+        nullValue: options.nullValue,
+        maxOutputSize: maxFormattedOutput,
+      };
+
+      let stdout = "";
+
+      // Echo SQL if requested
+      if (options.echo) {
+        stdout += `${sql}\n`;
+      }
+
+      // Process results
+      let hadError = false;
+      let bailError: string | null = null;
+      for (const stmtResult of result.results) {
+        if (stmtResult.type === "error") {
+          if (options.bail) {
+            bailError = stmtResult.error ?? "SQL error";
+            hadError = true;
+            break;
+          }
+          stdout += `Error: ${stmtResult.error}\n`;
+          hadError = true;
+        } else if (stmtResult.columns && stmtResult.rows) {
+          if (stmtResult.rows.length > 0 || options.header) {
+            try {
+              const remainingOutput = Math.max(
+                0,
+                maxFormattedOutput - Buffer.byteLength(stdout, "utf8"),
+              );
+              stdout += formatOutput(stmtResult.columns, stmtResult.rows, {
+                ...formatOptions,
+                maxOutputSize: remainingOutput,
+              });
+            } catch (error) {
+              const message = sanitizeErrorMessage((error as Error).message);
+              return {
+                stdout,
+                stderr: `sqlite3: ${message}\n`,
+                exitCode: 1,
+              };
+            }
+          }
+        }
+      }
+
+      // Write back modifications if needed
+      if (
+        result.hasModifications &&
+        !options.readonly &&
+        !isMemory &&
+        dbPath &&
+        result.dbBuffer
+      ) {
+        try {
+          assertDatabaseSize(
+            result.dbBuffer.byteLength,
+            ctx.limits.maxDatabaseBytes,
+          );
+          await ctx.fs.writeFile(dbPath, result.dbBuffer);
+        } catch (e) {
+          const message = sanitizeErrorMessage((e as Error).message);
+          return {
+            stdout,
+            stderr: `sqlite3: failed to write database: ${message}\n`,
+            exitCode: 1,
+          };
+        }
+      }
+
+      if (bailError !== null) {
+        return {
+          stdout,
+          stderr: `Error: ${bailError}\n`,
+          exitCode: 1,
+        };
+      }
+
+      // sqlite3 emits text; the pipeline handles encoding.
+      return {
+        stdout,
+        stderr: "",
+        exitCode: hadError && options.bail ? 1 : 0,
+      };
+    } finally {
+      databaseLease?.release();
+      releaseLock?.();
+    }
   },
 };
 

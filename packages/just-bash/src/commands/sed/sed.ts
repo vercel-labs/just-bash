@@ -460,6 +460,7 @@ export const sedCommand: Command = {
     const { commands, error, silentMode } = parseMultipleScripts(
       scripts,
       extendedRegex,
+      ctx.limits,
     );
     if (error) {
       return {

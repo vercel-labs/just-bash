@@ -14,7 +14,8 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { clearArray } from "../helpers/array.js";
+import { clearArray, setArrayElement } from "../helpers/array.js";
+import { checkReadonlyError } from "../helpers/readonly.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -62,6 +63,12 @@ export function handleMapfile(
     }
   }
 
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(arrayName)) {
+    return result("", `mapfile: ${arrayName}: not a valid identifier\n`, 1);
+  }
+  // Authorization precedes parsing/consuming potentially large input.
+  checkReadonlyError(ctx, arrayName, "mapfile");
+
   // Use stdin from parameter, or fall back to groupStdin
   let effectiveStdin = stdin;
   if (!effectiveStdin && ctx.state.groupStdin !== undefined) {
@@ -73,7 +80,7 @@ export function handleMapfile(
   let remaining = effectiveStdin;
   let lineCount = 0;
   let skipped = 0;
-  const maxArrayElements = ctx.limits?.maxArrayElements ?? 100000;
+  const maxArrayElements = ctx.limits.maxArrayElements;
 
   while (remaining.length > 0) {
     const delimIndex = remaining.indexOf(delimiter);
@@ -148,19 +155,8 @@ export function handleMapfile(
   }
 
   for (let j = 0; j < lines.length; j++) {
-    ctx.state.env.set(`${arrayName}_${origin + j}`, lines[j]);
+    setArrayElement(ctx, arrayName, origin + j, lines[j]);
   }
-
-  // Set array length metadata to be the max of existing length and new end position
-  const existingLength = parseInt(
-    ctx.state.env.get(`${arrayName}__length`) || "0",
-    10,
-  );
-  const newEndIndex = origin + lines.length;
-  ctx.state.env.set(
-    `${arrayName}__length`,
-    String(Math.max(existingLength, newEndIndex)),
-  );
 
   // Consume from groupStdin if we used it
   if (ctx.state.groupStdin !== undefined && !stdin) {

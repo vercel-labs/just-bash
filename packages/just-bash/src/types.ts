@@ -1,4 +1,5 @@
 import type { ByteString } from "./encoding.js";
+import type { ExecutionScope } from "./execution-scope.js";
 import type { IFileSystem } from "./fs/interface.js";
 import type { ExecutionLimits } from "./limits.js";
 import type { SecureFetch } from "./network/index.js";
@@ -39,6 +40,19 @@ export interface ExecResult {
    * `"binary"` to mark binary output. New code should prefer `stdoutKind`.
    */
   stdoutEncoding?: "binary";
+  /** @internal PIPESTATUS override used by synthesized transform builtins. */
+  internalPipeStatusOverride?: number[];
+  /**
+   * Bytes in the current result that have already been charged to the shared
+   * execution output budget. Interpreter plumbing must preserve this when it
+   * combines child results so nested shells do not refresh or double-charge
+   * the budget.
+   * @internal
+   */
+  internalOutputAccounting?: {
+    stdout: number;
+    stderr: number;
+  };
 }
 
 /** Result from BashEnv.exec() - always includes env */
@@ -130,10 +144,18 @@ export type TraceCallback = (event: TraceEvent) => void;
 export interface CommandContext {
   /** Virtual filesystem interface for file operations */
   fs: IFileSystem;
+  /** Stable identity of the underlying filesystem across defense wrappers. */
+  fsIdentity?: object;
   /** Current working directory */
   cwd: string;
   /** Environment variables - uses Map to prevent prototype pollution */
   env: Map<string, string>;
+  /** Interpreter-owned assignment gateway for commands such as `printf -v`. */
+  assignShellVariable?: (
+    name: string,
+    value: string,
+    subscript?: string,
+  ) => void | Promise<void>;
   /**
    * Exported environment variables only.
    * Used by commands like printenv and env that should only show exported vars.
@@ -155,9 +177,11 @@ export interface CommandContext {
   stdin: ByteString;
   /**
    * Execution limits configuration.
-   * Available when running commands via BashEnv interpreter.
+   * Fully resolved by Bash before a command is invoked.
    */
-  limits?: Required<ExecutionLimits>;
+  limits: Required<ExecutionLimits>;
+  /** Shared top-level accounting, present for interpreter-dispatched commands. */
+  executionScope?: ExecutionScope;
   /**
    * Performance trace callback for profiling.
    * If provided, commands emit timing events for analysis.
@@ -171,6 +195,11 @@ export interface CommandContext {
    * @param options - Required options including `cwd` to prevent directory bugs
    */
   exec?: (command: string, options: CommandExecOptions) => Promise<ExecResult>;
+  /** @internal Closed path for forwarding this command's already-accounted stdin. */
+  execWithInheritedStdin?: (
+    command: string,
+    options: Omit<CommandExecOptions, "stdin" | "stdinKind">,
+  ) => Promise<ExecResult>;
   /**
    * Secure fetch function for network requests (e.g., for `curl`).
    * Only available when `network` option is configured in BashEnv.

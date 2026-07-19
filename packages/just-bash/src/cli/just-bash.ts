@@ -5,10 +5,9 @@
  * Reads from the real filesystem, but writes stay in memory.
  *
  * Usage:
- *   just-bash [options] [root-path]
- *   just-bash -c 'script' [root-path]
- *   echo 'script' | just-bash [root-path]
- *   just-bash script.sh [root-path]
+ *   just-bash [options] [script-file]
+ *   just-bash -c 'script' [options]
+ *   echo 'script' | just-bash [options]
  *
  * Options:
  *   -c <script>       Execute the script from command line argument
@@ -21,7 +20,6 @@
  *
  * Arguments:
  *   script.sh         Script file to execute (reads from OverlayFS)
- *   root-path         Root directory (alternative to --root)
  *
  * Examples:
  *   # Execute inline script in current directory
@@ -127,10 +125,14 @@ function parseArgs(args: string[]): CliOptions {
   };
 
   let i = 0;
+  const positionals: string[] = [];
   while (i < args.length) {
     const arg = args[i];
 
-    if (arg === "-h" || arg === "--help") {
+    if (arg === "--") {
+      positionals.push(...args.slice(i + 1));
+      break;
+    } else if (arg === "-h" || arg === "--help") {
       options.help = true;
       i++;
     } else if (arg === "-v" || arg === "--version") {
@@ -204,15 +206,24 @@ function parseArgs(args: string[]): CliOptions {
         process.exit(1);
       }
     } else {
-      // Positional argument - could be script file or root path
-      if (!options.scriptFile && !options.script) {
-        options.scriptFile = arg;
-      } else if (options.scriptFile && options.root === process.cwd()) {
-        // Second positional is root
-        options.root = resolve(arg);
-      }
+      positionals.push(arg);
       i++;
     }
+  }
+
+  const rejectPositionals = (message: string): never => {
+    console.error(`Error: ${message}`);
+    process.exit(1);
+  };
+
+  if (options.script && positionals.length > 0) {
+    rejectPositionals("script file cannot be combined with -c");
+  }
+  if (positionals.length > 1) {
+    rejectPositionals("unexpected extra positional argument");
+  }
+  if (positionals.length === 1) {
+    options.scriptFile = positionals[0];
   }
 
   return options;

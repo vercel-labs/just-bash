@@ -11,14 +11,18 @@
  */
 
 import type { RedirectionNode, WordNode } from "../ast/types.js";
+import { utf8ByteLength } from "../encoding.js";
 import type { ExecResult } from "../types.js";
 import {
   expandRedirectTarget,
   expandWord,
   hasQuotedMultiValueAt,
 } from "./expansion.js";
+import { checkReadonlyError } from "./helpers/readonly.js";
 import { checkFdLimit, result as makeResult } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
+
+class RedirectTargetDoesNotExist extends Error {}
 
 /**
  * Check if a redirect target is valid for output (not a directory, respects noclobber).
@@ -31,6 +35,7 @@ async function checkOutputRedirectTarget(
   options: { checkNoclobber?: boolean; isClobber?: boolean },
 ): Promise<string | null> {
   try {
+    if (!(await ctx.fs.exists(filePath))) return null;
     const stat = await ctx.fs.stat(filePath);
     if (stat.isDirectory) {
       return `bash: ${target}: Is a directory\n`;
@@ -44,7 +49,7 @@ async function checkOutputRedirectTarget(
       return `bash: ${target}: cannot overwrite existing file\n`;
     }
   } catch {
-    // File doesn't exist, that's ok - we'll create it
+    return `bash: ${target}: cannot open redirect target\n`;
   }
   return null;
 }
@@ -178,105 +183,94 @@ function allocateFd(ctx: InterpreterContext): number {
 export async function processFdVariableRedirections(
   ctx: InterpreterContext,
   redirections: RedirectionNode[],
+  preExpandedTargets?: ExpandedRedirectTargets,
 ): Promise<ExecResult | null> {
-  for (const redir of redirections) {
-    if (!redir.fdVariable) {
+  for (let index = 0; index < redirections.length; index++) {
+    const redir = redirections[index];
+    if (!redir.fdVariable || redir.target.type !== "Word") continue;
+    checkReadonlyError(ctx, redir.fdVariable);
+
+    const isFdRedirect = redir.operator === ">&" || redir.operator === "<&";
+    let target = preExpandedTargets?.get(index);
+    if (target !== undefined) {
+      // Prepared by the compound-command open step; never expand it again.
+    } else if (isFdRedirect) {
+      if (hasQuotedMultiValueAt(ctx, redir.target as WordNode))
+        return makeResult("", "bash: $@: ambiguous redirect\n", 1);
+      target = await expandWord(ctx, redir.target as WordNode);
+    } else {
+      const expanded = await expandRedirectTarget(
+        ctx,
+        redir.target as WordNode,
+      );
+      if ("error" in expanded) return makeResult("", expanded.error, 1);
+      target = expanded.target;
+    }
+
+    if (target.includes("\0"))
+      return makeResult(
+        "",
+        `bash: ${target.replace(/\0/g, "")}: No such file or directory\n`,
+        1,
+      );
+
+    ctx.state.fileDescriptors ??= new Map();
+    if (isFdRedirect && target === "-") {
+      const existingFd = ctx.state.env.get(redir.fdVariable);
+      if (existingFd !== undefined) {
+        const fdNum = Number.parseInt(existingFd, 10);
+        if (!Number.isNaN(fdNum)) ctx.state.fileDescriptors.delete(fdNum);
+      }
       continue;
     }
 
-    // Initialize fileDescriptors map if needed
-    if (!ctx.state.fileDescriptors) {
-      ctx.state.fileDescriptors = new Map();
-    }
-
-    // Handle close operation: {fd}>&- or {fd}<&-
-    // For close operations, we look up the existing variable value (the FD number)
-    // and close that FD, rather than allocating a new one.
-    if (
-      (redir.operator === ">&" || redir.operator === "<&") &&
-      redir.target.type === "Word"
+    let fdInfo: string | undefined;
+    if (isFdRedirect) {
+      const sourceFd = Number.parseInt(target, 10);
+      if (!Number.isNaN(sourceFd))
+        fdInfo = ctx.state.fileDescriptors.get(sourceFd);
+    } else if (
+      redir.operator === ">" ||
+      redir.operator === ">>" ||
+      redir.operator === ">|" ||
+      redir.operator === "&>" ||
+      redir.operator === "&>>"
     ) {
-      const target = await expandWord(ctx, redir.target as WordNode);
-      if (target === "-") {
-        // Close operation - look up the FD from the variable and close it
-        const existingFd = ctx.state.env.get(redir.fdVariable);
-        if (existingFd !== undefined) {
-          const fdNum = Number.parseInt(existingFd, 10);
-          if (!Number.isNaN(fdNum)) {
-            ctx.state.fileDescriptors.delete(fdNum);
-          }
-        }
-        // Don't allocate a new FD for close operations
-        continue;
-      }
-    }
-
-    // Allocate a new FD (for non-close operations)
-    const fd = allocateFd(ctx);
-
-    // Set the variable to the allocated FD number
-    ctx.state.env.set(redir.fdVariable, String(fd));
-
-    // For file redirections, store the file path mapping
-    if (redir.target.type === "Word") {
-      const target = await expandWord(ctx, redir.target as WordNode);
-
-      // Handle FD duplication: {fd}>&N or {fd}<&N
-      if (redir.operator === ">&" || redir.operator === "<&") {
-        const sourceFd = Number.parseInt(target, 10);
-        if (!Number.isNaN(sourceFd)) {
-          // Duplicate the source FD's content to the new FD
-          const content = ctx.state.fileDescriptors.get(sourceFd);
-          if (content !== undefined) {
-            checkFdLimit(ctx);
-            ctx.state.fileDescriptors.set(fd, content);
-          }
-          continue;
-        }
-      }
-
-      // For output redirections to files, we'll handle actual writing in applyRedirections
-      // Store the target file path associated with this FD
-      if (
-        redir.operator === ">" ||
-        redir.operator === ">>" ||
-        redir.operator === ">|" ||
-        redir.operator === "&>" ||
-        redir.operator === "&>>"
-      ) {
-        // Mark this FD as pointing to a file (store file path for later use)
-        // Use a special format to distinguish from content
+      const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+      const append = redir.operator === ">>" || redir.operator === "&>>";
+      const redirectOptions = append
+        ? { checkNoclobber: false }
+        : { checkNoclobber: true, isClobber: redir.operator === ">|" };
+      const error = await checkOutputRedirectTarget(
+        ctx,
+        filePath,
+        target,
+        redirectOptions,
+      );
+      if (error) return makeResult("", error, 1);
+      checkFdLimit(ctx);
+      if (append) await ctx.fs.appendFile(filePath, "", "binary");
+      else await ctx.fs.writeFile(filePath, "", "binary");
+      fdInfo = `__file__:${filePath}`;
+    } else if (redir.operator === "<<<") {
+      fdInfo = `${target}\n`;
+    } else if (redir.operator === "<" || redir.operator === "<>") {
+      try {
         const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-        // For truncating operators (>, >|, &>), create/truncate the file now
-        if (
-          redir.operator === ">" ||
-          redir.operator === ">|" ||
-          redir.operator === "&>"
-        ) {
-          await ctx.fs.writeFile(filePath, "", "binary");
-        }
-        checkFdLimit(ctx);
-        ctx.state.fileDescriptors.set(fd, `__file__:${filePath}`);
-      } else if (redir.operator === "<<<") {
-        // For here-strings, store the target value plus newline as the FD content
-        checkFdLimit(ctx);
-        ctx.state.fileDescriptors.set(fd, `${target}\n`);
-      } else if (redir.operator === "<" || redir.operator === "<>") {
-        // For input redirections, read the file content
-        try {
-          const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-          const content = await ctx.fs.readFile(filePath);
-          checkFdLimit(ctx);
-          ctx.state.fileDescriptors.set(fd, content);
-        } catch {
-          return makeResult(
-            "",
-            `bash: ${target}: No such file or directory\n`,
-            1,
-          );
-        }
+        fdInfo = await ctx.fs.readFile(filePath);
+      } catch {
+        return makeResult(
+          "",
+          `bash: ${target}: No such file or directory\n`,
+          1,
+        );
       }
     }
+
+    checkFdLimit(ctx);
+    const fd = allocateFd(ctx);
+    ctx.state.env.set(redir.fdVariable, String(fd));
+    if (fdInfo !== undefined) ctx.state.fileDescriptors.set(fd, fdInfo);
   }
 
   return null; // Success
@@ -298,8 +292,23 @@ export async function processFdVariableRedirections(
 export async function preOpenOutputRedirects(
   ctx: InterpreterContext,
   redirections: RedirectionNode[],
-): Promise<ExecResult | null> {
-  for (const redir of redirections) {
+): Promise<{
+  targets: ExpandedRedirectTargets;
+  error: ExecResult | null;
+}> {
+  for (const redirection of redirections) {
+    if (redirection.fdVariable) checkReadonlyError(ctx, redirection.fdVariable);
+  }
+  const expanded = await preExpandRedirectTargets(ctx, redirections);
+  if (expanded.error)
+    return {
+      targets: expanded.targets,
+      error: makeResult("", expanded.error, 1),
+    };
+
+  const targetsToOpen: Array<{ filePath: string; target: string }> = [];
+  for (let index = 0; index < redirections.length; index++) {
+    const redir = redirections[index];
     if (redir.target.type === "HereDoc") {
       continue;
     }
@@ -319,9 +328,9 @@ export async function preOpenOutputRedirects(
 
     // Expand redirect target with glob handling (failglob, ambiguous redirect)
     // For >&, use plain expansion first to check if it's a number
-    let target: string;
+    const target = expanded.targets.get(index);
+    if (target === undefined) continue;
     if (isGreaterAmpersand) {
-      target = await expandWord(ctx, redir.target as WordNode);
       // If it's a number, -, or has explicit fd, it's an FD redirect, not a file redirect
       if (
         target === "-" ||
@@ -330,17 +339,6 @@ export async function preOpenOutputRedirects(
       ) {
         continue;
       }
-      // It's a file redirect - re-expand with redirect target handling
-      // (though we already have the expanded value, use it directly)
-    } else {
-      const expandResult = await expandRedirectTarget(
-        ctx,
-        redir.target as WordNode,
-      );
-      if ("error" in expandResult) {
-        return makeResult("", expandResult.error, 1);
-      }
-      target = expandResult.target;
     }
     const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
     const isClobber = redir.operator === ">|";
@@ -348,14 +346,26 @@ export async function preOpenOutputRedirects(
     // Reject paths containing null bytes - these cause filesystem errors
     // and are never valid in bash
     if (filePath.includes("\0")) {
-      return makeResult("", `bash: ${target}: No such file or directory\n`, 1);
+      return {
+        targets: expanded.targets,
+        error: makeResult(
+          "",
+          `bash: ${target}: No such file or directory\n`,
+          1,
+        ),
+      };
     }
 
     // Check if target is a directory or noclobber prevents overwrite
     try {
+      const exists = await ctx.fs.exists(filePath);
+      if (!exists) throw new RedirectTargetDoesNotExist();
       const stat = await ctx.fs.stat(filePath);
       if (stat.isDirectory) {
-        return makeResult("", `bash: ${target}: Is a directory\n`, 1);
+        return {
+          targets: expanded.targets,
+          error: makeResult("", `bash: ${target}: Is a directory\n`, 1),
+        };
       }
       // Check noclobber: if file exists and noclobber is set, refuse to overwrite
       // unless using >| (clobber operator) or writing to /dev/null
@@ -365,36 +375,62 @@ export async function preOpenOutputRedirects(
         !stat.isDirectory &&
         target !== "/dev/null"
       ) {
-        return makeResult(
-          "",
-          `bash: ${target}: cannot overwrite existing file\n`,
-          1,
-        );
+        return {
+          targets: expanded.targets,
+          error: makeResult(
+            "",
+            `bash: ${target}: cannot overwrite existing file\n`,
+            1,
+          ),
+        };
       }
-    } catch {
-      // File doesn't exist, that's ok - we'll create it
-    }
-
-    // Pre-truncate the file (create empty file)
-    // This makes the file empty before any command substitutions in the
-    // compound command body are evaluated
-    // Skip special device files that don't need pre-truncation
-    if (
-      target !== "/dev/null" &&
-      target !== "/dev/stdout" &&
-      target !== "/dev/stderr" &&
-      target !== "/dev/full"
-    ) {
-      await ctx.fs.writeFile(filePath, "", "binary");
+    } catch (error) {
+      if (!(error instanceof RedirectTargetDoesNotExist)) {
+        return {
+          targets: expanded.targets,
+          error: makeResult(
+            "",
+            `bash: ${target}: cannot open redirect target\n`,
+            1,
+          ),
+        };
+      }
     }
 
     // /dev/full always returns ENOSPC when written to
     if (target === "/dev/full") {
-      return makeResult("", `bash: /dev/full: No space left on device\n`, 1);
+      return {
+        targets: expanded.targets,
+        error: makeResult("", `bash: /dev/full: No space left on device\n`, 1),
+      };
+    }
+    if (
+      target !== "/dev/null" &&
+      target !== "/dev/stdout" &&
+      target !== "/dev/stderr"
+    )
+      targetsToOpen.push({ filePath, target });
+  }
+
+  // Only begin destructive opens after every target has expanded and passed
+  // policy validation. This prevents a later directory/noclobber failure from
+  // leaving an earlier redirect truncated.
+  for (const { filePath, target } of targetsToOpen) {
+    try {
+      await ctx.fs.writeFile(filePath, "", "binary");
+    } catch {
+      return {
+        targets: expanded.targets,
+        error: makeResult(
+          "",
+          `bash: ${target}: cannot open redirect target\n`,
+          1,
+        ),
+      };
     }
   }
 
-  return null; // Success - no error
+  return { targets: expanded.targets, error: null };
 }
 
 export async function applyRedirections(
@@ -403,6 +439,11 @@ export async function applyRedirections(
   redirections: RedirectionNode[],
   preExpandedTargets?: ExpandedRedirectTargets,
 ): Promise<ExecResult> {
+  // Output redirected away from the caller still consumes the shared budget.
+  // Unredirected pipeline output is charged once at the pipeline boundary.
+  if (redirections.length > 0) {
+    result = ctx.executionScope.accountResult(result, "redirection");
+  }
   let { stdout, stderr, exitCode } = result;
 
   // Determine encoding for stdout writes from the producer's explicit
@@ -947,6 +988,28 @@ export async function applyRedirections(
   }
   if (result.stdoutEncoding === "binary") {
     finalResult.stdoutEncoding = "binary";
+  }
+  if (result.internalPipeStatusOverride) {
+    finalResult.internalPipeStatusOverride = result.internalPipeStatusOverride;
+  }
+  const hasOutputRedirection =
+    redirections.length > 0 ||
+    ctx.state.fileDescriptors?.has(1) === true ||
+    ctx.state.fileDescriptors?.has(2) === true;
+  if (hasOutputRedirection) {
+    const priorTotal =
+      (result.internalOutputAccounting?.stdout ?? 0) +
+      (result.internalOutputAccounting?.stderr ?? 0);
+    const finalStdoutBytes = utf8ByteLength(finalResult.stdout);
+    const finalStderrBytes = utf8ByteLength(finalResult.stderr);
+    const inheritedStdout = Math.min(finalStdoutBytes, priorTotal);
+    finalResult.internalOutputAccounting = {
+      stdout: inheritedStdout,
+      stderr: Math.min(finalStderrBytes, priorTotal - inheritedStdout),
+    };
+    ctx.executionScope.accountResult(finalResult, "redirection");
+  } else if (result.internalOutputAccounting) {
+    finalResult.internalOutputAccounting = result.internalOutputAccounting;
   }
   return finalResult;
 }

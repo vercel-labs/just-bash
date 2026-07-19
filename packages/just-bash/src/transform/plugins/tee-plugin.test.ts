@@ -668,6 +668,24 @@ describe("TeePlugin semantics preservation", () => {
     );
   });
 
+  it("does not clobber or assign former temp-variable names", async () => {
+    await assertSameSemantics(
+      `__tps0=keep; __tps1=guard; readonly __tps1; echo hello | grep hello; printf '%s|%s|%s' "$__tps0" "$__tps1" "\${PIPESTATUS[*]}"`,
+    );
+  });
+
+  it("does not create former temp variables when they were absent", async () => {
+    await assertSameSemantics(
+      `unset __tps0 __tps1; echo hello | grep hello; printf '%s|%s' "\${__tps0-unset}" "\${__tps1-unset}"`,
+    );
+  });
+
+  it("does not reserve the internal restore name in the function namespace", async () => {
+    await assertSameSemantics(
+      `__just_bash_tee_restore() { echo user-function; }; __just_bash_tee_restore; false | true; echo "\${PIPESTATUS[*]}"`,
+    );
+  });
+
   it("|& pipes stderr through to next command", async () => {
     await assertSameSemantics("ls /no_such_xyz |& cat");
   });
@@ -746,11 +764,36 @@ describe("TeePlugin transform output", () => {
     expect(r.metadata.teeFiles).toHaveLength(0);
   });
 
-  it("pipeline: wraps each command, saves + restores PIPESTATUS", () => {
+  it("pipeline: wraps each command and restores PIPESTATUS without variables", () => {
     const r = transform("echo hello | grep hello");
     expect(r.script).toBe(
-      `echo hello | tee ${D}-000-echo.stdout.txt | grep hello | tee ${D}-001-grep.stdout.txt ; __tps0=\${PIPESTATUS[0]} __tps1=\${PIPESTATUS[2]} ; (exit $__tps0) | (exit $__tps1)`,
+      `echo hello | tee ${D}-000-echo.stdout.txt | grep hello | tee ${D}-001-grep.stdout.txt ; builtin __just_bash_tee_restore \${PIPESTATUS[0]} \${PIPESTATUS[2]}`,
     );
+  });
+
+  it("encodes path-like command names into one contained filename", () => {
+    const r = transform("../../../outside | cat");
+    const meta = r.metadata.teeFiles as TeePluginMetadata["teeFiles"];
+
+    expect(meta).toHaveLength(2);
+    expect(meta[0].commandName).toBe("../../../outside");
+    expect(meta[0].stdoutFile.startsWith("/tmp/logs/")).toBe(true);
+    expect(meta[0].stdoutFile.slice("/tmp/logs/".length)).not.toContain("/");
+    expect(meta[0].stdoutFile).not.toContain("..");
+    expect(r.script).not.toContain("/tmp/outside");
+  });
+
+  it("rejects traversal in the configured output directory", () => {
+    expect(() =>
+      new BashTransformPipeline()
+        .use(
+          new TeePlugin({
+            outputDir: "/tmp/logs/../../escape",
+            timestamp: FIXED_DATE,
+          }),
+        )
+        .transform("echo safe | cat"),
+    ).toThrow("tee output directory must be an absolute safe path");
   });
 
   it("single commands in && / || chains: no wrapping", () => {
@@ -762,7 +805,7 @@ describe("TeePlugin transform output", () => {
   it("pipeline in && chain: wraps the pipeline, skips the single command", () => {
     const r = transform("echo hello | grep hello && echo found");
     expect(r.script).toBe(
-      `echo hello | tee ${D}-000-echo.stdout.txt | grep hello | tee ${D}-001-grep.stdout.txt ; __tps0=\${PIPESTATUS[0]} __tps1=\${PIPESTATUS[2]} ; (exit $__tps0) | (exit $__tps1) && echo found`,
+      `echo hello | tee ${D}-000-echo.stdout.txt | grep hello | tee ${D}-001-grep.stdout.txt ; builtin __just_bash_tee_restore \${PIPESTATUS[0]} \${PIPESTATUS[2]} && echo found`,
     );
     expect(r.metadata.teeFiles).toHaveLength(2);
   });
@@ -788,7 +831,7 @@ describe("TeePlugin transform output", () => {
     expect(r.script).toContain("003-cat");
   });
 
-  it("still saves/restores PIPESTATUS even when only some commands wrapped", () => {
+  it("still restores PIPESTATUS even when only some commands wrapped", () => {
     const r = new BashTransformPipeline()
       .use(
         new TeePlugin({
@@ -801,7 +844,16 @@ describe("TeePlugin transform output", () => {
     // echo is wrapped (tee inserted), cat is not. PIPESTATUS still needs
     // restoring because tee inflated it from 2 to 3 entries.
     expect(r.script).toBe(
-      `echo hello | tee ${D}-000-echo.stdout.txt | cat ; __tps0=\${PIPESTATUS[0]} __tps1=\${PIPESTATUS[2]} ; (exit $__tps0) | (exit $__tps1)`,
+      `echo hello | tee ${D}-000-echo.stdout.txt | cat ; builtin __just_bash_tee_restore \${PIPESTATUS[0]} \${PIPESTATUS[2]}`,
     );
+  });
+
+  it("serialized transformed output replays without temp variable state", async () => {
+    const transformed = transform("false | true; echo ${PIPESTATUS[*]}");
+    const plain = new Bash();
+    const result = await plain.exec(transformed.script);
+    expect(result.stdout).toBe("1 0\n");
+    expect(result.exitCode).toBe(0);
+    expect(transformed.script).not.toContain("__tps");
   });
 });

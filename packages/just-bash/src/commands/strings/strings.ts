@@ -7,7 +7,10 @@
  * MIN characters long. If no FILE is specified, standard input is read.
  */
 
-import { latin1FromBytes } from "../../encoding.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -73,36 +76,97 @@ function formatOffset(offset: number, format: OffsetFormat): string {
 function extractStrings(
   data: Uint8Array | string,
   options: StringsOptions,
+  budget: {
+    maxArrayElements: number;
+    maxIterations: number;
+    maxStringLength: number;
+    maxOutputSize: number;
+    iterations: number;
+    inputBytes: number;
+    resultCount: number;
+    outputBytes: number;
+  },
+  latin1String = false,
+  signal?: AbortSignal,
 ): string[] {
   const results: string[] = [];
-  let currentString = "";
+  let currentLength = 0;
   let stringStart = 0;
 
   // Convert string to bytes if needed
   const bytes =
-    typeof data === "string" ? new TextEncoder().encode(data) : data;
+    typeof data === "string" && !latin1String
+      ? new TextEncoder().encode(data)
+      : data;
+  if (bytes.length > budget.maxStringLength - budget.inputBytes) {
+    throw new ExecutionLimitError(
+      `strings: aggregate input size limit exceeded (${budget.maxStringLength} bytes)`,
+      "string_length",
+    );
+  }
+  budget.inputBytes += bytes.length;
+  const decoder = new TextDecoder();
+  const readRun = (start: number, end: number): string =>
+    typeof bytes === "string"
+      ? bytes.slice(start, end)
+      : decoder.decode(bytes.subarray(start, end));
+
+  const appendResult = (value: string): void => {
+    if (++budget.iterations > budget.maxIterations) {
+      throw new ExecutionLimitError(
+        `strings: iteration limit exceeded (${budget.maxIterations})`,
+        "iterations",
+      );
+    }
+    if (budget.resultCount >= budget.maxArrayElements) {
+      throw new ExecutionLimitError(
+        `strings: array element limit exceeded (${budget.maxArrayElements})`,
+        "array_elements",
+      );
+    }
+    const prospectiveBytes = value.length + 1;
+    if (prospectiveBytes > budget.maxOutputSize - budget.outputBytes) {
+      throw new ExecutionLimitError(
+        `strings: output size limit exceeded (${budget.maxOutputSize} bytes)`,
+        "output_size",
+      );
+    }
+    results.push(value);
+    budget.resultCount++;
+    budget.outputBytes += prospectiveBytes;
+  };
 
   for (let i = 0; i < bytes.length; i++) {
-    const byte = bytes[i];
+    if ((i & 4095) === 0 && signal?.aborted) {
+      throw new ExecutionAbortedError();
+    }
+    const byte =
+      typeof bytes === "string" ? bytes.charCodeAt(i) & 0xff : bytes[i];
 
     if (isPrintable(byte)) {
-      if (currentString.length === 0) {
+      if (currentLength === 0) {
         stringStart = i;
       }
-      currentString += String.fromCharCode(byte);
-    } else {
-      if (currentString.length >= options.minLength) {
-        const prefix = formatOffset(stringStart, options.offsetFormat);
-        results.push(`${prefix}${currentString}`);
+      if (currentLength >= budget.maxStringLength) {
+        throw new ExecutionLimitError(
+          `strings: string length limit exceeded (${budget.maxStringLength} bytes)`,
+          "string_length",
+        );
       }
-      currentString = "";
+      currentLength++;
+    } else {
+      if (currentLength >= options.minLength) {
+        const prefix = formatOffset(stringStart, options.offsetFormat);
+        appendResult(`${prefix}${readRun(stringStart, i)}`);
+      }
+      currentLength = 0;
     }
   }
 
   // Handle string at end of data
-  if (currentString.length >= options.minLength) {
+  if (currentLength >= options.minLength) {
     const prefix = formatOffset(stringStart, options.offsetFormat);
-    results.push(`${prefix}${currentString}`);
+    appendResult(`${prefix}${readRun(stringStart, bytes.length)}`);
   }
 
   return results;
@@ -223,22 +287,43 @@ export const strings: Command = {
     }
 
     let output = "";
+    const budget = {
+      maxArrayElements: ctx.limits.maxArrayElements,
+      maxIterations: ctx.limits.maxLoopIterations,
+      maxStringLength: Math.min(
+        ctx.limits.maxInputBytes,
+        ctx.limits.maxStringLength,
+      ),
+      maxOutputSize: Math.min(
+        ctx.limits.maxOutputSize,
+        ctx.limits.maxStringLength,
+      ),
+      iterations: 0,
+      inputBytes: 0,
+      resultCount: 0,
+      outputBytes: 0,
+    };
 
     // strings extracts ASCII-printable runs from a binary buffer — the
     // input must reach the byte loop as raw bytes, not as decoded text.
     // Pass latin1-shaped bytes directly so multibyte UTF-8 sequences in the
     // source aren't re-encoded by TextEncoder.
-    const stdinBytes = (): Uint8Array =>
-      Uint8Array.from(latin1FromBytes(ctx.stdin) ?? "", (c) => c.charCodeAt(0));
+    const stdinBytes = (): string => ctx.stdin as unknown as string;
 
     if (files.length === 0) {
       // Read from stdin
-      const strings = extractStrings(stdinBytes(), options);
+      const strings = extractStrings(
+        stdinBytes(),
+        options,
+        budget,
+        true,
+        ctx.signal,
+      );
       output = strings.length > 0 ? `${strings.join("\n")}\n` : "";
     } else {
       // Process each file
       for (const file of files) {
-        let buffer: Uint8Array;
+        let buffer: Uint8Array | string;
         if (file === "-") {
           buffer = stdinBytes();
         } else {
@@ -253,7 +338,13 @@ export const strings: Command = {
             };
           }
         }
-        const strings = extractStrings(buffer, options);
+        const strings = extractStrings(
+          buffer,
+          options,
+          budget,
+          typeof buffer === "string",
+          ctx.signal,
+        );
         if (strings.length > 0) {
           output += `${strings.join("\n")}\n`;
         }

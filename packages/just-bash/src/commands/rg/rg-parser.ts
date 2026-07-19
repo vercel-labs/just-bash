@@ -56,6 +56,20 @@ function validateFilesize(value: string): ExecResult | null {
   return null;
 }
 
+function validateNonnegativeInteger(
+  option: string,
+  value: string,
+): ExecResult | null {
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
+    return {
+      stdout: "",
+      stderr: `rg: invalid --${option} value: ${value}\n`,
+      exitCode: 1,
+    };
+  }
+  return null;
+}
+
 /**
  * Validate a file type name
  * Note: We don't strictly validate type names because --type-add can define custom types.
@@ -109,7 +123,13 @@ const VALUE_OPTS: ValueOptDef[] = [
   { short: "e", long: "regexp", target: "patterns", multi: true },
   { short: "f", long: "file", target: "patternFiles", multi: true },
   { short: "r", long: "replace", target: "replace" },
-  { short: "d", long: "max-depth", target: "maxDepth", parse: parseInt },
+  {
+    short: "d",
+    long: "max-depth",
+    target: "maxDepth",
+    parse: (value) => Number(value),
+    validate: (value) => validateNonnegativeInteger("max-depth", value),
+  },
   {
     long: "max-filesize",
     target: "maxFilesize",

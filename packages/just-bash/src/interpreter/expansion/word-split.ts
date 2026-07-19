@@ -388,7 +388,11 @@ export async function smartWordSplit(
         words: parts,
         hadLeadingDelimiter,
         hadTrailingDelimiter,
-      } = splitByIfsForExpansionEx(segment.value, ifsChars);
+      } = splitByIfsForExpansionEx(
+        segment.value,
+        ifsChars,
+        ctx.limits.maxArrayElements,
+      );
 
       // If the previous segment was a quoted empty and this splittable segment
       // has leading IFS delimiter, the quoted empty should anchor an empty word
@@ -524,6 +528,7 @@ async function smartWordSplitWithUnquotedLiterals(
       const { words: parts, hadTrailingDelimiter } = splitByIfsForExpansionEx(
         segment.value,
         ifsChars,
+        ctx.limits.maxArrayElements,
       );
 
       if (parts.length === 0) {

@@ -82,6 +82,15 @@ describe("xan from json", () => {
 });
 
 describe("xan transpose", () => {
+  it("rejects duplicate derived headers instead of overwriting cells", async () => {
+    const bash = new Bash({
+      files: { "/data.csv": "name,value\nduplicate,1\nduplicate,2\n" },
+    });
+    const result = await bash.exec("xan transpose /data.csv");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("duplicate output headers");
+  });
+
   it("transposes rows and columns", async () => {
     const bash = new Bash({
       files: {

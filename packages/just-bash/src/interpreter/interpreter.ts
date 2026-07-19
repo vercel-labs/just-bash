@@ -29,6 +29,8 @@ import {
   latin1FromBytes,
   readBytesFrom,
 } from "../encoding.js";
+import { ExecutionOutputAccumulator } from "../execution-output.js";
+import type { ExecutionScope } from "../execution-scope.js";
 import type { IFileSystem } from "../fs/interface.js";
 import { mapToRecord } from "../helpers/env.js";
 import type { ExecutionLimits } from "../limits.js";
@@ -88,7 +90,6 @@ import {
   OK,
   result,
   testResult,
-  throwExecutionLimit,
 } from "./helpers/result.js";
 import { isPosixSpecialBuiltin } from "./helpers/shell-constants.js";
 import {
@@ -108,7 +109,11 @@ import {
   executeSubshell as executeSubshellHelper,
   executeUserScript as executeUserScriptHelper,
 } from "./subshell-group.js";
-import type { InterpreterContext, InterpreterState } from "./types.js";
+import type {
+  InterpreterContext,
+  InterpreterExecOptions,
+  InterpreterState,
+} from "./types.js";
 
 export type { InterpreterContext, InterpreterState } from "./types.js";
 
@@ -116,15 +121,11 @@ export interface InterpreterOptions {
   fs: IFileSystem;
   commands: CommandRegistry;
   limits: Required<ExecutionLimits>;
+  executionScope: ExecutionScope;
   exec: (
     script: string,
-    options?: {
-      env?: Record<string, string>;
-      cwd?: string;
-      replaceEnv?: boolean;
-      signal?: AbortSignal;
-      args?: string[];
-    },
+    options?: InterpreterExecOptions,
+    stdinAlreadyAccounted?: boolean,
   ) => Promise<ExecResult>;
   /** Optional secure fetch function for network-enabled commands */
   fetch?: SecureFetch;
@@ -153,6 +154,7 @@ export class Interpreter {
       fs: options.fs,
       commands: options.commands,
       limits: options.limits,
+      executionScope: options.executionScope,
       execFn: options.exec,
       executeScript: this.executeScript.bind(this),
       executeStatement: this.executeStatement.bind(this),
@@ -228,24 +230,11 @@ export class Interpreter {
   async executeScript(node: ScriptNode): Promise<ExecResult> {
     this.assertDefenseContext("execution");
 
-    let stdout = "";
-    let stderr = "";
     let exitCode = 0;
-    const maxOutputSize = this.ctx.limits.maxOutputSize;
-
-    const appendOutput = (nextStdout: string, nextStderr: string): void => {
-      if (
-        stdout.length + stderr.length + nextStdout.length + nextStderr.length >
-        maxOutputSize
-      ) {
-        throwExecutionLimit(
-          `total output size exceeded (>${maxOutputSize} bytes), increase executionLimits.maxOutputSize`,
-          "output_size",
-        );
-      }
-      stdout += nextStdout;
-      stderr += nextStderr;
-    };
+    const output = new ExecutionOutputAccumulator(
+      this.ctx.executionScope,
+      "script",
+    );
 
     for (const statement of node.statements) {
       try {
@@ -256,7 +245,7 @@ export class Interpreter {
         // bytes 0xC3 0xB6); concatenated raw, the lone high byte makes the
         // combined stream invalid UTF-8 and the boundary decoder bails, leaving
         // the byte half as mojibake. Decoding per statement isolates each shape.
-        appendOutput(decodedTextFromResult(result), result.stderr);
+        output.appendResult(result, decodedTextFromResult(result));
         exitCode = result.exitCode;
         this.ctx.state.lastExitCode = exitCode;
         this.ctx.state.env.set("?", String(exitCode));
@@ -264,59 +253,92 @@ export class Interpreter {
         // ExitError always propagates up to terminate the script
         // This allows 'eval exit 42' and 'source exit.sh' to exit properly
         if (error instanceof ExitError) {
-          error.prependOutput(stdout, stderr);
+          error.prependOutput(output.stdout, output.stderr);
           throw error;
         }
         // PosixFatalError terminates the script in POSIX mode
         // POSIX 2.8.1: special builtins cause shell to exit on error
         if (error instanceof PosixFatalError) {
-          appendOutput(error.stdout, error.stderr);
+          output.append(
+            "stdout",
+            error.stdout,
+            error.internalOutputAccounting.stdout,
+          );
+          output.append(
+            "stderr",
+            error.stderr,
+            error.internalOutputAccounting.stderr,
+          );
           exitCode = error.exitCode;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
           return {
-            stdout,
-            stderr,
+            ...output.build(exitCode),
             exitCode,
             env: mapToRecord(this.ctx.state.env),
           };
         }
         // ExecutionLimitError must always propagate - these are safety limits
         if (error instanceof ExecutionLimitError) {
+          output.prependTo(error);
           throw error;
         }
         if (error instanceof ErrexitError) {
-          appendOutput(error.stdout, error.stderr);
+          output.append(
+            "stdout",
+            error.stdout,
+            error.internalOutputAccounting.stdout,
+          );
+          output.append(
+            "stderr",
+            error.stderr,
+            error.internalOutputAccounting.stderr,
+          );
           exitCode = error.exitCode;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
           return {
-            stdout,
-            stderr,
+            ...output.build(exitCode),
             exitCode,
             env: mapToRecord(this.ctx.state.env),
           };
         }
         if (error instanceof NounsetError) {
-          appendOutput(error.stdout, error.stderr);
+          output.append(
+            "stdout",
+            error.stdout,
+            error.internalOutputAccounting.stdout,
+          );
+          output.append(
+            "stderr",
+            error.stderr,
+            error.internalOutputAccounting.stderr,
+          );
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
           return {
-            stdout,
-            stderr,
+            ...output.build(exitCode),
             exitCode,
             env: mapToRecord(this.ctx.state.env),
           };
         }
         if (error instanceof BadSubstitutionError) {
-          appendOutput(error.stdout, error.stderr);
+          output.append(
+            "stdout",
+            error.stdout,
+            error.internalOutputAccounting.stdout,
+          );
+          output.append(
+            "stderr",
+            error.stderr,
+            error.internalOutputAccounting.stderr,
+          );
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
           return {
-            stdout,
-            stderr,
+            ...output.build(exitCode),
             exitCode,
             env: mapToRecord(this.ctx.state.env),
           };
@@ -324,7 +346,16 @@ export class Interpreter {
         // ArithmeticError in expansion (e.g., echo $((42x))) - the command fails
         // but the script continues execution. This matches bash behavior.
         if (error instanceof ArithmeticError) {
-          appendOutput(error.stdout, error.stderr);
+          output.append(
+            "stdout",
+            error.stdout,
+            error.internalOutputAccounting.stdout,
+          );
+          output.append(
+            "stderr",
+            error.stderr,
+            error.internalOutputAccounting.stderr,
+          );
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -334,7 +365,16 @@ export class Interpreter {
         // BraceExpansionError for invalid ranges (e.g., {z..A} mixed case) - the command fails
         // but the script continues execution. This matches bash behavior.
         if (error instanceof BraceExpansionError) {
-          appendOutput(error.stdout, error.stderr);
+          output.append(
+            "stdout",
+            error.stdout,
+            error.internalOutputAccounting.stdout,
+          );
+          output.append(
+            "stderr",
+            error.stderr,
+            error.internalOutputAccounting.stderr,
+          );
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -345,16 +385,17 @@ export class Interpreter {
         if (error instanceof BreakError || error instanceof ContinueError) {
           // If we're inside a loop, propagate the error up (for eval/source inside loops)
           if (this.ctx.state.loopDepth > 0) {
-            error.prependOutput(stdout, stderr);
+            error.prependOutput(output.stdout, output.stderr);
             throw error;
           }
           // Outside loops (level exceeded loop depth), silently continue with next statement
-          appendOutput(error.stdout, error.stderr);
+          output.append("stdout", error.stdout);
+          output.append("stderr", error.stderr);
           continue;
         }
         // Handle return - prepend accumulated output before propagating
         if (error instanceof ReturnError) {
-          error.prependOutput(stdout, stderr);
+          error.prependOutput(output.stdout, output.stderr);
           throw error;
         }
         throw error;
@@ -362,9 +403,7 @@ export class Interpreter {
     }
 
     return {
-      stdout,
-      stderr,
-      exitCode,
+      ...output.build(exitCode),
       env: mapToRecord(this.ctx.state.env),
     };
   }
@@ -390,13 +429,7 @@ export class Interpreter {
       throw new ExecutionAbortedError();
     }
 
-    this.ctx.state.commandCount++;
-    if (this.ctx.state.commandCount > this.ctx.limits.maxCommandCount) {
-      throwExecutionLimit(
-        `too many commands executed (>${this.ctx.limits.maxCommandCount}), increase executionLimits.maxCommandCount`,
-        "commands",
-      );
-    }
+    this.ctx.state.commandCount = this.ctx.executionScope.chargeCommand();
 
     // Check for deferred syntax error. This is triggered when execution reaches
     // a statement that has a syntax error (like standalone `}`), but the error
@@ -415,8 +448,10 @@ export class Interpreter {
     // It will be set by inner compound command executions if needed
     this.ctx.state.errexitSafe = false;
 
-    let stdout = "";
-    let stderr = "";
+    const statementOutput = new ExecutionOutputAccumulator(
+      this.ctx.executionScope,
+      "statement",
+    );
 
     // verbose mode (set -v): print unevaluated source before execution
     // Don't print verbose output inside command substitutions (suppressVerbose flag)
@@ -425,33 +460,37 @@ export class Interpreter {
       !this.ctx.state.suppressVerbose &&
       node.sourceText
     ) {
-      stderr += `${node.sourceText}\n`;
+      statementOutput.append("stderr", `${node.sourceText}\n`);
     }
     let exitCode = 0;
     let lastExecutedIndex = -1;
     let lastPipelineNegated = false;
 
-    for (let i = 0; i < node.pipelines.length; i++) {
-      const pipeline = node.pipelines[i];
-      const operator = i > 0 ? node.operators[i - 1] : null;
+    try {
+      for (let i = 0; i < node.pipelines.length; i++) {
+        const pipeline = node.pipelines[i];
+        const operator = i > 0 ? node.operators[i - 1] : null;
 
-      if (operator === "&&" && exitCode !== 0) continue;
-      if (operator === "||" && exitCode === 0) continue;
+        if (operator === "&&" && exitCode !== 0) continue;
+        if (operator === "||" && exitCode === 0) continue;
 
-      const result = await this.executePipeline(pipeline);
-      // Decode each pipeline's stdout to text via its explicit `stdoutKind`
-      // before concatenating, so a statement that joins text-shaped and
-      // byte-shaped pipelines with && / || does not interleave raw byte and
-      // Unicode chunks (which would defeat the output-boundary UTF-8 decode).
-      stdout += decodedTextFromResult(result);
-      stderr += result.stderr;
-      exitCode = result.exitCode;
-      lastExecutedIndex = i;
-      lastPipelineNegated = pipeline.negated;
+        const result = await this.executePipeline(pipeline);
+        // Decode each pipeline's stdout to text via its explicit `stdoutKind`
+        // before concatenating, so a statement that joins text-shaped and
+        // byte-shaped pipelines with && / || does not interleave raw byte and
+        // Unicode chunks (which would defeat the output-boundary UTF-8 decode).
+        statementOutput.appendResult(result, decodedTextFromResult(result));
+        exitCode = result.exitCode;
+        lastExecutedIndex = i;
+        lastPipelineNegated = pipeline.negated;
 
-      // Update $? after each pipeline so it's available for subsequent commands
-      this.ctx.state.lastExitCode = exitCode;
-      this.ctx.state.env.set("?", String(exitCode));
+        // Update $? after each pipeline so it's available for subsequent commands
+        this.ctx.state.lastExitCode = exitCode;
+        this.ctx.state.env.set("?", String(exitCode));
+      }
+    } catch (error) {
+      statementOutput.prependTo(error);
+      throw error;
     }
 
     // Track whether this exit code is "safe" for errexit purposes
@@ -477,10 +516,12 @@ export class Interpreter {
       !this.ctx.state.inCondition &&
       !innerWasSafe
     ) {
-      throw new ErrexitError(exitCode, stdout, stderr);
+      const error = new ErrexitError(exitCode);
+      error.prependOutput(statementOutput.stdout, statementOutput.stderr);
+      throw error;
     }
 
-    return result(stdout, stderr, exitCode);
+    return statementOutput.build(exitCode);
   }
 
   private async executePipeline(node: PipelineNode): Promise<ExecResult> {
@@ -558,14 +599,20 @@ export class Interpreter {
     // The aliasExpansionStack persists across iterations to prevent infinite loops.
     if (this.ctx.state.shoptOptions.expand_aliases && node.name) {
       let currentNode = node;
-      let maxExpansions = 100; // Safety limit
-      while (maxExpansions > 0) {
+      let expansionCount = 0;
+      while (true) {
         const expandedNode = this.expandAlias(currentNode);
         if (expandedNode === currentNode) {
           break; // No expansion occurred
         }
+        if (expansionCount >= this.ctx.limits.maxCallDepth) {
+          throw new ExecutionLimitError(
+            `alias expansion depth limit exceeded (${this.ctx.limits.maxCallDepth})`,
+            "recursion",
+          );
+        }
+        expansionCount++;
         currentNode = expandedNode;
-        maxExpansions--;
       }
       // Clear the alias expansion stack after all expansions are done
       this.aliasExpansionStack.clear();
@@ -594,16 +641,21 @@ export class Interpreter {
       // In bash, this creates/truncates the file and returns success
       if (node.redirections.length > 0) {
         // Process the redirects - this creates/truncates files as needed
-        const redirectError = await preOpenOutputRedirects(
+        const preparedRedirects = await preOpenOutputRedirects(
           this.ctx,
           node.redirections,
         );
-        if (redirectError) {
-          return redirectError;
+        if (preparedRedirects.error) {
+          return preparedRedirects.error;
         }
         // Apply redirections to empty result (for append, read redirects, etc.)
         const baseResult = result("", xtraceAssignmentOutput, 0);
-        return applyRedirections(this.ctx, baseResult, node.redirections);
+        return applyRedirections(
+          this.ctx,
+          baseResult,
+          node.redirections,
+          preparedRedirects.targets,
+        );
       }
 
       // Assignment-only command: preserve the exit code from command substitution
@@ -1224,7 +1276,11 @@ export class Interpreter {
   private aliasExpansionStack: Set<string> = new Set();
 
   private expandAlias(node: SimpleCommandNode): SimpleCommandNode {
-    return expandAliasHelper(this.ctx.state, node, this.aliasExpansionStack);
+    return expandAliasHelper(
+      { env: this.ctx.state.env, limits: this.ctx.limits },
+      node,
+      this.aliasExpansionStack,
+    );
   }
 
   async findCommandInPath(commandName: string): Promise<string[]> {
@@ -1257,12 +1313,12 @@ export class Interpreter {
     // Pre-open output redirects to truncate files BEFORE evaluating expression
     // This matches bash behavior where redirect files are opened before
     // any command substitutions in the arithmetic expression are evaluated
-    const preOpenError = await preOpenOutputRedirects(
+    const preparedRedirects = await preOpenOutputRedirects(
       this.ctx,
       node.redirections,
     );
-    if (preOpenError) {
-      return preOpenError;
+    if (preparedRedirects.error) {
+      return preparedRedirects.error;
     }
 
     try {
@@ -1280,13 +1336,23 @@ export class Interpreter {
         };
         this.ctx.state.expansionStderr = "";
       }
-      return applyRedirections(this.ctx, bodyResult, node.redirections);
+      return applyRedirections(
+        this.ctx,
+        bodyResult,
+        node.redirections,
+        preparedRedirects.targets,
+      );
     } catch (error) {
       // Apply output redirections before returning
       const bodyResult = failure(
         `bash: arithmetic expression: ${(error as Error).message}\n`,
       );
-      return applyRedirections(this.ctx, bodyResult, node.redirections);
+      return applyRedirections(
+        this.ctx,
+        bodyResult,
+        node.redirections,
+        preparedRedirects.targets,
+      );
     }
   }
 
@@ -1301,12 +1367,12 @@ export class Interpreter {
     // Pre-open output redirects to truncate files BEFORE evaluating expression
     // This matches bash behavior where redirect files are opened before
     // any command substitutions in the conditional expression are evaluated
-    const preOpenError = await preOpenOutputRedirects(
+    const preparedRedirects = await preOpenOutputRedirects(
       this.ctx,
       node.redirections,
     );
-    if (preOpenError) {
-      return preOpenError;
+    if (preparedRedirects.error) {
+      return preparedRedirects.error;
     }
 
     try {
@@ -1321,7 +1387,12 @@ export class Interpreter {
         };
         this.ctx.state.expansionStderr = "";
       }
-      return applyRedirections(this.ctx, bodyResult, node.redirections);
+      return applyRedirections(
+        this.ctx,
+        bodyResult,
+        node.redirections,
+        preparedRedirects.targets,
+      );
     } catch (error) {
       // Apply output redirections before returning
       // ArithmeticError (e.g., division by zero) returns exit code 1
@@ -1331,7 +1402,12 @@ export class Interpreter {
         `bash: conditional expression: ${(error as Error).message}\n`,
         exitCode,
       );
-      return applyRedirections(this.ctx, bodyResult, node.redirections);
+      return applyRedirections(
+        this.ctx,
+        bodyResult,
+        node.redirections,
+        preparedRedirects.targets,
+      );
     }
   }
 }

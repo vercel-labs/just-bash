@@ -93,7 +93,7 @@ describe("head", () => {
       files: { "/test.txt": "no newline" },
     });
     const result = await env.exec("head -n 1 /test.txt");
-    expect(result.stdout).toBe("no newline\n");
+    expect(result.stdout).toBe("no newline");
   });
 
   it("should show first line only with -n 1", async () => {

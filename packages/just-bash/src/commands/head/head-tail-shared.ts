@@ -196,7 +196,7 @@ export function getHead(
     const nextNewline = content.indexOf("\n", pos);
     if (nextNewline === -1) {
       // No more newlines, rest of content is last line
-      return `${content}\n`;
+      return content;
     }
     lineCount++;
     pos = nextNewline + 1;
@@ -215,6 +215,7 @@ export function getTail(
   fromLine: boolean,
 ): string {
   if (bytes !== null) {
+    if (bytes === 0) return "";
     return content.slice(-bytes);
   }
 
@@ -227,12 +228,11 @@ export function getTail(
     let lineCount = 1;
     while (pos < len && lineCount < lines) {
       const nextNewline = content.indexOf("\n", pos);
-      if (nextNewline === -1) break;
+      if (nextNewline === -1) return "";
       lineCount++;
       pos = nextNewline + 1;
     }
-    const result = content.slice(pos);
-    return result.endsWith("\n") ? result : `${result}\n`;
+    return content.slice(pos);
   }
 
   if (lines === 0) return "";
@@ -254,6 +254,5 @@ export function getTail(
   }
 
   if (pos < 0) pos = 0;
-  const result = content.slice(pos);
-  return content[len - 1] === "\n" ? result : `${result}\n`;
+  return content.slice(pos);
 }

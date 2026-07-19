@@ -28,6 +28,32 @@ describe("sleep command", () => {
       expect(result.exitCode).toBe(0);
       expect(sleptMs).toBe(500);
     });
+
+    it("should stop awaiting a host sleep hook when execution is aborted", async () => {
+      const controller = new AbortController();
+      const env = new Bash({
+        sleep: async () => new Promise<void>(() => {}),
+      });
+
+      const execution = env.exec("sleep 10", { signal: controller.signal });
+      controller.abort();
+
+      await expect(execution).resolves.toMatchObject({ exitCode: 124 });
+    });
+
+    it("should observe an abort triggered synchronously by the host hook", async () => {
+      const controller = new AbortController();
+      const env = new Bash({
+        sleep: async () => {
+          controller.abort();
+          return new Promise<void>(() => {});
+        },
+      });
+
+      await expect(
+        env.exec("sleep 10", { signal: controller.signal }),
+      ).resolves.toMatchObject({ exitCode: 124 });
+    });
   });
 
   describe("duration suffixes", () => {

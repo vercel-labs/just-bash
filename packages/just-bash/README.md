@@ -368,7 +368,7 @@ await env.exec('js-exec -c "console.log(API_BASE)"');
 
 `fs.readFileSync()` returns a `Buffer` by default (matching Node.js). Pass an encoding like `'utf8'` to get a string.
 
-**Note:** The `js-exec` command only exists when `javascript` is configured. It is not available in browser environments. Execution runs in a QuickJS WASM sandbox with a 64 MB memory limit and configurable timeout (default: 10s, 60s with network).
+**Note:** The `js-exec` command only exists when `javascript` is configured. It is not available in browser environments. Execution runs in a QuickJS WASM sandbox with a 64 MB memory limit and configurable timeout (30 seconds in the default `normal` profile and 10 seconds in the opt-in `hardened` profile). Enabling network access does not extend the configured deadline.
 
 #### Tool Invocation Hook
 
@@ -433,7 +433,7 @@ await env.exec('sqlite3 :memory: "SELECT 1 + 1"');
 await env.exec('sqlite3 data.db "SELECT * FROM users"');
 ```
 
-**Note:** SQLite is not available in browser environments. Queries run in a worker thread with a configurable timeout (default: 5 seconds) to prevent runaway queries from blocking execution.
+**Note:** SQLite is not available in browser environments. Queries run in a worker thread with a configurable timeout (30 seconds in the default `normal` profile and 5 seconds in the opt-in `hardened` profile) to prevent runaway queries from blocking execution.
 
 ## AST Transform Plugins
 
@@ -571,17 +571,22 @@ Bash protects against infinite loops and deep recursion with configurable limits
 
 ```typescript
 const env = new Bash({
+  // `normal` is the liberal, compatibility-oriented default. Use `hardened`
+  // for tighter untrusted-workload policy, then override individual resources.
+  executionLimitProfile: "hardened",
   executionLimits: {
     maxCallDepth: 100, // Max function recursion depth
-    maxCommandCount: 10000, // Max total commands executed
-    maxLoopIterations: 10000, // Max iterations per loop
-    maxAwkIterations: 10000, // Max iterations in awk programs
-    maxSedIterations: 10000, // Max iterations in sed scripts
+    maxCommandCount: 20000, // Shared across nested execution
+    maxOutputSize: 32 * 1024 * 1024, // Aggregate stdout + stderr bytes
+    maxArchiveBytes: 256 * 1024 * 1024, // Expanded archive bytes
+    maxDatabaseBytes: 128 * 1024 * 1024, // SQLite image bytes
   },
 });
 ```
 
-All limits have defaults. Error messages tell you which limit was hit. Increase as needed for your workload.
+All resources remain bounded in both profiles. Explicit values override the
+selected profile, and invalid or policy-ceiling-exceeding values are rejected
+when `Bash` is constructed. Error messages identify the resource that was hit.
 
 ## Security Model
 
@@ -590,6 +595,7 @@ All limits have defaults. Error messages tell you which limit was hit. Increase 
 - There is no network access by default. When enabled, requests are checked against URL prefix allow-lists and HTTP-method allow-lists.
 - Python and JavaScript execution are off by default as they represent additional security surface.
 - Execution is protected against infinite loops and deep recursion with configurable limits.
+- Node worker `resourceLimits` do not reliably cap the WebAssembly linear memory used by CPython or sql.js. Queue, deadline, file, database, bridge, and payload limits reduce exposure, but strong memory containment for these opt-in runtimes requires process/container isolation or a WASM build with a lower hard maximum.
 - Use [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) if you need a full VM with arbitrary binary execution.
 
 ## Browser Support

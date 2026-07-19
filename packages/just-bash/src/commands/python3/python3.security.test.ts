@@ -91,6 +91,40 @@ describe("python3 security", () => {
   });
 
   describe("filesystem isolation", () => {
+    it("rejects sparse HOSTFS writes before allocating the resulting file", async () => {
+      const env = new Bash({
+        python: true,
+        executionLimits: { maxStringLength: 128 },
+      });
+
+      const result = await env.exec(
+        `python3 -c "f=open('/tmp/sparse.bin','wb'); f.seek(1024); f.write(b'x')"`,
+      );
+
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("OSError: [Errno 28] Invalid argument");
+      expect(result.exitCode).toBe(1);
+      const bytes = await env.fs.readFileBuffer("/tmp/sparse.bin");
+      expect(bytes.byteLength).toBeLessThanOrEqual(128);
+    });
+
+    it("rejects oversized HOSTFS truncate before allocating the file", async () => {
+      const env = new Bash({
+        python: true,
+        executionLimits: { maxStringLength: 128 },
+      });
+
+      const result = await env.exec(
+        `python3 -c "f=open('/tmp/truncated.bin','wb'); f.truncate(1024)"`,
+      );
+
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("[Errno 27]");
+      expect(result.exitCode).toBe(1);
+      const bytes = await env.fs.readFileBuffer("/tmp/truncated.bin");
+      expect(bytes.byteLength).toBeLessThanOrEqual(128);
+    });
+
     it("should not have /etc/passwd (no host FS)", async () => {
       const env = new Bash({ python: true });
       const result = await env.exec(

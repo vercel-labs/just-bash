@@ -1,4 +1,11 @@
-import type { Command, ExecResult } from "../../types.js";
+import {
+  boundedJoin,
+  checkedAdd,
+  checkedMultiply,
+} from "../../bounded-builder.js";
+import { utf8ByteLength } from "../../encoding.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+import type { Command, CommandContext, ExecResult } from "../../types.js";
 
 /**
  * seq - print a sequence of numbers
@@ -15,7 +22,7 @@ import type { Command, ExecResult } from "../../types.js";
 export const seqCommand: Command = {
   name: "seq",
 
-  async execute(args: string[]): Promise<ExecResult> {
+  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
     let separator = "\n";
     let equalizeWidth = false;
     const nums: string[] = [];
@@ -94,8 +101,12 @@ export const seqCommand: Command = {
     }
 
     // Validate numbers
-    if (Number.isNaN(first) || Number.isNaN(increment) || Number.isNaN(last)) {
-      const invalid = nums.find((n) => Number.isNaN(parseFloat(n)));
+    if (
+      !Number.isFinite(first) ||
+      !Number.isFinite(increment) ||
+      !Number.isFinite(last)
+    ) {
+      const invalid = nums.find((n) => !Number.isFinite(parseFloat(n)));
       return {
         stdout: "",
         stderr: `seq: invalid floating point argument: '${invalid}'\n`,
@@ -128,20 +139,54 @@ export const seqCommand: Command = {
     );
 
     // Limit iterations to prevent infinite loops
-    const maxIterations = 100000;
+    const maxIterations = Math.min(
+      ctx.limits.maxLoopIterations,
+      ctx.limits.maxArrayElements,
+    );
+    const maxOutputSize = Math.min(
+      ctx.limits.maxOutputSize,
+      ctx.limits.maxStringLength,
+    );
+    const separatorBytes = utf8ByteLength(separator);
+    let projectedOutputBytes = 0;
     let iterations = 0;
+
+    const appendResult = (value: string): void => {
+      if (iterations >= maxIterations) {
+        throw new ExecutionLimitError(
+          `seq: iteration limit exceeded (${maxIterations})`,
+          "iterations",
+        );
+      }
+      const nextSize = checkedAdd(
+        checkedAdd(
+          projectedOutputBytes,
+          results.length > 0 ? separatorBytes : 0,
+          "seq",
+        ),
+        checkedAdd(utf8ByteLength(value), 1, "seq"),
+        "seq",
+      );
+      if (nextSize > maxOutputSize) {
+        throw new ExecutionLimitError(
+          `seq: output size limit exceeded (${maxOutputSize} bytes)`,
+          "output_size",
+        );
+      }
+      projectedOutputBytes = nextSize - 1;
+      results.push(value);
+      iterations++;
+    };
 
     if (increment > 0) {
       for (let n = first; n <= last + 1e-10; n += increment) {
-        if (iterations++ > maxIterations) break;
-        results.push(
+        appendResult(
           precision > 0 ? n.toFixed(precision) : String(Math.round(n)),
         );
       }
     } else {
       for (let n = first; n >= last - 1e-10; n += increment) {
-        if (iterations++ > maxIterations) break;
-        results.push(
+        appendResult(
           precision > 0 ? n.toFixed(precision) : String(Math.round(n)),
         );
       }
@@ -149,7 +194,37 @@ export const seqCommand: Command = {
 
     // Equalize width if requested
     if (equalizeWidth && results.length > 0) {
-      const maxLen = Math.max(...results.map((r) => r.replace("-", "").length));
+      let maxLen = 0;
+      for (const result of results) {
+        maxLen = Math.max(
+          maxLen,
+          result.startsWith("-") ? result.length - 1 : result.length,
+        );
+      }
+      const valuesBytes = results.reduce(
+        (total, result) =>
+          checkedAdd(total, maxLen + (result.startsWith("-") ? 1 : 0), "seq"),
+        0,
+      );
+      const paddedOutputBytes = checkedAdd(
+        checkedAdd(
+          valuesBytes,
+          checkedMultiply(
+            separatorBytes,
+            Math.max(0, results.length - 1),
+            "seq",
+          ),
+          "seq",
+        ),
+        1,
+        "seq",
+      );
+      if (paddedOutputBytes > maxOutputSize) {
+        throw new ExecutionLimitError(
+          `seq: output size limit exceeded (${maxOutputSize} bytes)`,
+          "output_size",
+        );
+      }
       for (let j = 0; j < results.length; j++) {
         const isNegative = results[j].startsWith("-");
         const num = isNegative ? results[j].slice(1) : results[j];
@@ -158,7 +233,7 @@ export const seqCommand: Command = {
       }
     }
 
-    const output = results.join(separator);
+    const output = boundedJoin(results, separator, maxOutputSize - 1, "seq");
     return {
       stdout: output ? `${output}\n` : "",
       stderr: "",

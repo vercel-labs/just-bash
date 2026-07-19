@@ -61,7 +61,7 @@ describe("worker protocol runtime desync probes", () => {
       );
       expect(timedResult.stdout).toBe("");
       expect(timedResult.stderr).toBe(
-        "sqlite3: Query timeout: execution exceeded 5ms limit\n",
+        "sqlite3: Query timeout: exceeded 5ms limit\n",
       );
       expect(timedResult.exitCode).toBe(1);
 

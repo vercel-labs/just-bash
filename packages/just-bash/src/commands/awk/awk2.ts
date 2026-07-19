@@ -5,6 +5,7 @@
  */
 
 import { decodeBytesToUtf8 } from "../../encoding.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { mapToRecord } from "../../helpers/env.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { ConstantRegex, createUserRegex } from "../../regex/index.js";
@@ -15,6 +16,7 @@ import {
 import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { utf8ByteLength } from "../printf/escapes.js";
 import type { AwkProgram } from "./ast.js";
 import {
   type AwkFileSystem,
@@ -99,11 +101,17 @@ export const awkCommand2: Command = {
     const files = args.slice(programIdx + 1);
 
     // Parse program
-    const parser = new AwkParser();
+    const parser = new AwkParser({
+      maxSourceLength: ctx.limits.maxStringLength,
+      maxTokens: ctx.limits.maxAwkParserTokens,
+      maxDepth: ctx.limits.maxAwkParserDepth,
+      maxOperations: ctx.limits.maxAwkParserOperations,
+    });
     let ast: AwkProgram;
     try {
       ast = parser.parse(program);
     } catch (e) {
+      rethrowFatalExecutionError(e);
       const msg = e instanceof Error ? e.message : String(e);
       return { stdout: "", stderr: `awk: ${msg}\n`, exitCode: 1 };
     }
@@ -138,8 +146,12 @@ export const awkCommand2: Command = {
     const execFn = ctx.exec;
     const runtimeCtx = createRuntimeContext({
       fieldSep,
-      maxIterations: ctx.limits?.maxAwkIterations,
-      maxOutputSize: ctx.limits?.maxStringLength,
+      maxIterations: ctx.limits.maxAwkIterations,
+      maxOutputSize: Math.min(
+        ctx.limits.maxStringLength,
+        ctx.limits.maxOutputSize,
+      ),
+      maxArrayElements: ctx.limits.maxArrayElements,
       fs: awkFs,
       cwd: ctx.cwd,
       // Wrap ctx.exec to match the expected signature for command pipe getline
@@ -206,27 +218,85 @@ export const awkCommand2: Command = {
         };
       }
 
-      // Collect file contents
-      interface FileData {
-        filename: string;
-        lines: string[];
-      }
-      const fileDataList: FileData[] = [];
+      const maxInputBytes = Math.min(
+        ctx.limits.maxInputBytes,
+        ctx.limits.maxStringLength,
+      );
+      const maxRecords = ctx.limits.maxArrayElements;
+      let aggregateInputBytes = 0;
+
+      const processInput = async (
+        filename: string,
+        content: string,
+      ): Promise<void> => {
+        const contentBytes = utf8ByteLength(content);
+        if (contentBytes > maxInputBytes - aggregateInputBytes) {
+          throw new ExecutionLimitError(
+            `aggregate input size limit exceeded (${maxInputBytes} bytes)`,
+            "string_length",
+          );
+        }
+        aggregateInputBytes += contentBytes;
+
+        let recordCount = content.length > 0 ? 1 : 0;
+        for (let index = 0; index < content.length; index++) {
+          if (content.charCodeAt(index) === 10) recordCount++;
+          if (recordCount > maxRecords + 1) {
+            throw new ExecutionLimitError(
+              `record array limit exceeded (${maxRecords})`,
+              "array_elements",
+            );
+          }
+        }
+
+        const lines = content.split("\n");
+        if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+        if (lines.length > maxRecords) {
+          throw new ExecutionLimitError(
+            `record array limit exceeded (${maxRecords})`,
+            "array_elements",
+          );
+        }
+
+        runtimeCtx.FILENAME = filename;
+        runtimeCtx.FNR = 0;
+        runtimeCtx.lines = lines;
+        runtimeCtx.lineIndex = -1;
+        runtimeCtx.shouldNextFile = false;
+
+        // Use while loop with lineIndex to support getline advancing the line
+        while (runtimeCtx.lineIndex < lines.length - 1) {
+          runtimeCtx.lineIndex++;
+          const activeLineIndex = runtimeCtx.lineIndex;
+          await withDefenseContext("line execution", () =>
+            interp.executeLine(lines[activeLineIndex]),
+          );
+          if (runtimeCtx.shouldExit || runtimeCtx.shouldNextFile) break;
+        }
+      };
 
       if (files.length > 0) {
         for (const file of files) {
+          let content: string;
           try {
             const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-            const content = await withDefenseContext("input file read", () =>
+            const stat = await withDefenseContext("input file stat", () =>
+              ctx.fs.stat(filePath),
+            );
+            if (stat.size > maxInputBytes - aggregateInputBytes) {
+              throw new ExecutionLimitError(
+                `aggregate input size limit exceeded (${maxInputBytes} bytes)`,
+                "string_length",
+              );
+            }
+            content = await withDefenseContext("input file read", () =>
               ctx.fs.readFile(filePath),
             );
-            const lines = content.split("\n");
-            if (lines.length > 0 && lines[lines.length - 1] === "") {
-              lines.pop();
-            }
-            fileDataList.push({ filename: file, lines });
           } catch (e) {
-            if (e instanceof SecurityViolationError) {
+            if (
+              e instanceof SecurityViolationError ||
+              e instanceof ExecutionLimitError
+            ) {
               throw e;
             }
             return {
@@ -235,36 +305,17 @@ export const awkCommand2: Command = {
               exitCode: 1,
             };
           }
+          await withDefenseContext("input processing", () =>
+            processInput(file, content),
+          );
+          if (runtimeCtx.shouldExit) break;
         }
       } else {
         // awk parses fields with regex / FS — decode bytes to UTF-8 so
         // non-ASCII data isn't split mid-codepoint.
-        const lines = decodeBytesToUtf8(ctx.stdin).split("\n");
-        if (lines.length > 0 && lines[lines.length - 1] === "") {
-          lines.pop();
-        }
-        fileDataList.push({ filename: "", lines });
-      }
-
-      // Process each file
-      for (const fileData of fileDataList) {
-        runtimeCtx.FILENAME = fileData.filename;
-        runtimeCtx.FNR = 0;
-        runtimeCtx.lines = fileData.lines;
-        runtimeCtx.lineIndex = -1;
-        runtimeCtx.shouldNextFile = false;
-
-        // Use while loop with lineIndex to support getline advancing the line
-        while (runtimeCtx.lineIndex < fileData.lines.length - 1) {
-          runtimeCtx.lineIndex++;
-          const activeLineIndex = runtimeCtx.lineIndex;
-          await withDefenseContext("line execution", () =>
-            interp.executeLine(fileData.lines[activeLineIndex]),
-          );
-          if (runtimeCtx.shouldExit || runtimeCtx.shouldNextFile) break;
-        }
-
-        if (runtimeCtx.shouldExit) break;
+        await withDefenseContext("stdin processing", () =>
+          processInput("", decodeBytesToUtf8(ctx.stdin)),
+        );
       }
 
       // Execute END blocks (always run, even after exit - AWK semantics)

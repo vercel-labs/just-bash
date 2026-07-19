@@ -252,7 +252,11 @@ export async function handleUnquotedArrayPatternReplacement(
       return { values: joined ? [joined] : [], quoted: false };
     }
     return {
-      values: splitByIfsForExpansion(joined, ifsChars),
+      values: splitByIfsForExpansion(
+        joined,
+        ifsChars,
+        ctx.limits.maxArrayElements,
+      ),
       quoted: false,
     };
   }
@@ -267,7 +271,9 @@ export async function handleUnquotedArrayPatternReplacement(
     if (val === "") {
       allWords.push("");
     } else {
-      allWords.push(...splitByIfsForExpansion(val, ifsChars));
+      allWords.push(
+        ...splitByIfsForExpansion(val, ifsChars, ctx.limits.maxArrayElements),
+      );
     }
   }
   return { values: allWords, quoted: false };
@@ -378,7 +384,11 @@ export async function handleUnquotedArrayPatternRemoval(
       return { values: joined ? [joined] : [], quoted: false };
     }
     return {
-      values: splitByIfsForExpansion(joined, ifsChars),
+      values: splitByIfsForExpansion(
+        joined,
+        ifsChars,
+        ctx.limits.maxArrayElements,
+      ),
       quoted: false,
     };
   }
@@ -393,7 +403,9 @@ export async function handleUnquotedArrayPatternRemoval(
     if (val === "") {
       allWords.push("");
     } else {
-      allWords.push(...splitByIfsForExpansion(val, ifsChars));
+      allWords.push(
+        ...splitByIfsForExpansion(val, ifsChars, ctx.limits.maxArrayElements),
+      );
     }
   }
   return { values: allWords, quoted: false };
@@ -493,7 +505,11 @@ export async function handleUnquotedPositionalPatternRemoval(
       return { values: joined ? [joined] : [], quoted: false };
     }
     return {
-      values: splitByIfsForExpansion(joined, ifsChars),
+      values: splitByIfsForExpansion(
+        joined,
+        ifsChars,
+        ctx.limits.maxArrayElements,
+      ),
       quoted: false,
     };
   }
@@ -508,7 +524,9 @@ export async function handleUnquotedPositionalPatternRemoval(
     if (val === "") {
       allWords.push("");
     } else {
-      allWords.push(...splitByIfsForExpansion(val, ifsChars));
+      allWords.push(
+        ...splitByIfsForExpansion(val, ifsChars, ctx.limits.maxArrayElements),
+      );
     }
   }
   return { values: allWords, quoted: false };
@@ -621,7 +639,11 @@ export async function handleUnquotedPositionalSlicing(
       return { values: [combined], quoted: false };
     }
     return {
-      values: splitByIfsForExpansion(combined, ifsChars),
+      values: splitByIfsForExpansion(
+        combined,
+        ifsChars,
+        ctx.limits.maxArrayElements,
+      ),
       quoted: false,
     };
   }
@@ -636,7 +658,11 @@ export async function handleUnquotedPositionalSlicing(
     if (ifsEmpty) {
       allWords = joined ? [joined] : [];
     } else {
-      allWords = splitByIfsForExpansion(joined, ifsChars);
+      allWords = splitByIfsForExpansion(
+        joined,
+        ifsChars,
+        ctx.limits.maxArrayElements,
+      );
     }
   } else {
     // ${@:offset} unquoted - each sliced param is separate, then IFS-split each
@@ -663,7 +689,11 @@ export async function handleUnquotedPositionalSlicing(
         if (param === "") {
           allWords.push("");
         } else {
-          const parts = splitByIfsForExpansion(param, ifsChars);
+          const parts = splitByIfsForExpansion(
+            param,
+            ifsChars,
+            ctx.limits.maxArrayElements,
+          );
           allWords.push(...parts);
         }
       }
@@ -717,7 +747,11 @@ export async function handleUnquotedSimplePositional(
     } else {
       const ifsSep = getIfsSeparator(ctx.state.env);
       const joined = params.join(ifsSep);
-      allWords = splitByIfsForExpansion(joined, ifsChars);
+      allWords = splitByIfsForExpansion(
+        joined,
+        ifsChars,
+        ctx.limits.maxArrayElements,
+      );
     }
   } else {
     // $@ - each param is a separate word, then each is subject to IFS splitting
@@ -731,7 +765,11 @@ export async function handleUnquotedSimplePositional(
         if (param === "") {
           continue;
         }
-        const parts = splitByIfsForExpansion(param, ifsChars);
+        const parts = splitByIfsForExpansion(
+          param,
+          ifsChars,
+          ctx.limits.maxArrayElements,
+        );
         allWords.push(...parts);
       }
     } else {
@@ -741,7 +779,11 @@ export async function handleUnquotedSimplePositional(
         if (param === "") {
           allWords.push("");
         } else {
-          const parts = splitByIfsForExpansion(param, ifsChars);
+          const parts = splitByIfsForExpansion(
+            param,
+            ifsChars,
+            ctx.limits.maxArrayElements,
+          );
           allWords.push(...parts);
         }
       }
@@ -811,7 +853,11 @@ export async function handleUnquotedSimpleArray(
     } else {
       const ifsSep = getIfsSeparator(ctx.state.env);
       const joined = values.join(ifsSep);
-      allWords = splitByIfsForExpansion(joined, ifsChars);
+      allWords = splitByIfsForExpansion(
+        joined,
+        ifsChars,
+        ctx.limits.maxArrayElements,
+      );
     }
   } else {
     // ${arr[@]} unquoted - each element is a separate word, then each is subject to IFS splitting
@@ -825,7 +871,11 @@ export async function handleUnquotedSimpleArray(
         if (val === "") {
           continue;
         }
-        const parts = splitByIfsForExpansion(val, ifsChars);
+        const parts = splitByIfsForExpansion(
+          val,
+          ifsChars,
+          ctx.limits.maxArrayElements,
+        );
         allWords.push(...parts);
       }
     } else {
@@ -835,7 +885,11 @@ export async function handleUnquotedSimpleArray(
         if (val === "") {
           allWords.push("");
         } else {
-          const parts = splitByIfsForExpansion(val, ifsChars);
+          const parts = splitByIfsForExpansion(
+            val,
+            ifsChars,
+            ctx.limits.maxArrayElements,
+          );
           allWords.push(...parts);
         }
       }
@@ -889,7 +943,11 @@ export function handleUnquotedVarNamePrefix(
     } else {
       const ifsSep = getIfsSeparator(ctx.state.env);
       const joined = matchingVars.join(ifsSep);
-      allWords = splitByIfsForExpansion(joined, ifsChars);
+      allWords = splitByIfsForExpansion(
+        joined,
+        ifsChars,
+        ctx.limits.maxArrayElements,
+      );
     }
   } else {
     // ${!prefix@} unquoted - each name is a separate word, then each is subject to IFS splitting
@@ -899,7 +957,11 @@ export function handleUnquotedVarNamePrefix(
     } else {
       allWords = [];
       for (const name of matchingVars) {
-        const parts = splitByIfsForExpansion(name, ifsChars);
+        const parts = splitByIfsForExpansion(
+          name,
+          ifsChars,
+          ctx.limits.maxArrayElements,
+        );
         allWords.push(...parts);
       }
     }
@@ -948,7 +1010,11 @@ export function handleUnquotedArrayKeys(
     } else {
       const ifsSep = getIfsSeparator(ctx.state.env);
       const joined = keys.join(ifsSep);
-      allWords = splitByIfsForExpansion(joined, ifsChars);
+      allWords = splitByIfsForExpansion(
+        joined,
+        ifsChars,
+        ctx.limits.maxArrayElements,
+      );
     }
   } else {
     // ${!arr[@]} unquoted - each key is a separate word, then each is subject to IFS splitting
@@ -958,7 +1024,11 @@ export function handleUnquotedArrayKeys(
     } else {
       allWords = [];
       for (const key of keys) {
-        const parts = splitByIfsForExpansion(key, ifsChars);
+        const parts = splitByIfsForExpansion(
+          key,
+          ifsChars,
+          ctx.limits.maxArrayElements,
+        );
         allWords.push(...parts);
       }
     }
@@ -1045,7 +1115,11 @@ export async function handleUnquotedPositionalWithPrefixSuffix(
       words = [];
       for (const word of rawWords) {
         if (word === "") continue;
-        const parts = splitByIfsForExpansion(word, ifsChars);
+        const parts = splitByIfsForExpansion(
+          word,
+          ifsChars,
+          ctx.limits.maxArrayElements,
+        );
         words.push(...parts);
       }
     } else {
@@ -1055,7 +1129,11 @@ export async function handleUnquotedPositionalWithPrefixSuffix(
         if (word === "") {
           words.push("");
         } else {
-          const parts = splitByIfsForExpansion(word, ifsChars);
+          const parts = splitByIfsForExpansion(
+            word,
+            ifsChars,
+            ctx.limits.maxArrayElements,
+          );
           words.push(...parts);
         }
       }

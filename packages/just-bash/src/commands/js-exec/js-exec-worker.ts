@@ -56,6 +56,7 @@ export interface JsExecWorkerInput {
 
 export interface JsExecWorkerOutput {
   protocolToken?: string;
+  type?: "initialization-failure";
   success: boolean;
   error?: string;
   defenseStats?: WorkerDefenseStats;
@@ -1463,23 +1464,25 @@ async function executeCode(
 
 // Initial load: initialize with defense-in-depth
 // Store the promise so the message handler can await the same initialization
-const initPromise = initializeWithDefense().catch((e) => {
-  // Intentionally omits protocolToken — init errors happen before we receive
-  // any input, so there is no token to echo back. js-exec.ts handles this by
-  // accepting init-error messages without a token check.
-  parentPort?.postMessage({
-    success: false,
-    // @banned-pattern-ignore: worker-internal init error; message stays within worker protocol, sanitized by js-exec.ts before user output
-    error: (e as Error).message,
-    defenseStats: defense?.getStats(),
-  });
+const initPromise = initializeWithDefense();
+let initializationFailure: unknown;
+void initPromise.catch((error) => {
+  initializationFailure = error;
 });
 
 // Handle messages from main thread
 parentPort?.on("message", async (input: JsExecWorkerInput) => {
+  let initialized = false;
   try {
-    // Wait for the initial defense setup to complete (avoids race condition)
-    await initPromise;
+    if (initializationFailure !== undefined) throw initializationFailure;
+    try {
+      await initPromise;
+    } catch (error) {
+      initializationFailure = error;
+      throw error;
+    }
+    if (initializationFailure !== undefined) throw initializationFailure;
+    initialized = true;
     const result = await executeCode(input);
     result.defenseStats = defense?.getStats();
     result.protocolToken = input.protocolToken;
@@ -1487,9 +1490,10 @@ parentPort?.on("message", async (input: JsExecWorkerInput) => {
   } catch (e) {
     parentPort?.postMessage({
       protocolToken: input.protocolToken,
+      type: initialized ? undefined : "initialization-failure",
       success: false,
       // @banned-pattern-ignore: worker-internal error; message stays within worker protocol, sanitized by js-exec.ts before user output
-      error: (e as Error).message,
+      error: e instanceof Error ? e.message : String(e),
       defenseStats: defense?.getStats(),
     });
   }

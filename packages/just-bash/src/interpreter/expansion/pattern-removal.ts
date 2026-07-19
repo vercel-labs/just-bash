@@ -42,66 +42,18 @@ export function applyPatternRemoval(
 /**
  * Get variable names that match a given prefix.
  * Used for ${!prefix*} and ${!prefix@} expansions.
- * Handles arrays properly - includes array base names from __length markers,
- * excludes internal storage keys like arr_0, arr__length.
+ * Includes names from both the scalar and structured-array namespaces.
  */
 export function getVarNamesWithPrefix(
   ctx: InterpreterContext,
   prefix: string,
 ): string[] {
-  const envKeys = Array.from(ctx.state.env.keys());
   const matchingVars = new Set<string>();
-
-  // Get sets of array names for filtering
-  const assocArrays = ctx.state.associativeArrays ?? new Set<string>();
-  const indexedArrays = new Set<string>();
-  // Find indexed arrays by looking for _\d+$ patterns
-  for (const k of envKeys) {
-    const match = k.match(/^([a-zA-Z_][a-zA-Z0-9_]*)_\d+$/);
-    if (match) {
-      indexedArrays.add(match[1]);
-    }
-    const lengthMatch = k.match(/^([a-zA-Z_][a-zA-Z0-9_]*)__length$/);
-    if (lengthMatch) {
-      indexedArrays.add(lengthMatch[1]);
-    }
+  for (const name of ctx.state.env.keys()) {
+    if (name.startsWith(prefix)) matchingVars.add(name);
   }
-
-  // Helper to check if a key is an associative array element
-  const isAssocArrayElement = (key: string): boolean => {
-    for (const arrayName of assocArrays) {
-      const elemPrefix = `${arrayName}_`;
-      if (key.startsWith(elemPrefix) && key !== arrayName) {
-        return true;
-      }
-    }
-    return false;
-  };
-
-  for (const k of envKeys) {
-    if (k.startsWith(prefix)) {
-      // Check if this is an internal array storage key
-      if (k.includes("__")) {
-        // For __length markers, add the base array name
-        const lengthMatch = k.match(/^([a-zA-Z_][a-zA-Z0-9_]*)__length$/);
-        if (lengthMatch?.[1].startsWith(prefix)) {
-          matchingVars.add(lengthMatch[1]);
-        }
-        // Skip other internal markers
-      } else if (/_\d+$/.test(k)) {
-        // Skip indexed array element storage (arr_0)
-        // But add the base array name if it matches
-        const match = k.match(/^([a-zA-Z_][a-zA-Z0-9_]*)_\d+$/);
-        if (match?.[1].startsWith(prefix)) {
-          matchingVars.add(match[1]);
-        }
-      } else if (isAssocArrayElement(k)) {
-        // Skip associative array elements
-      } else {
-        // Regular variable
-        matchingVars.add(k);
-      }
-    }
+  for (const name of ctx.state.arrays?.keys() ?? []) {
+    if (name.startsWith(prefix)) matchingVars.add(name);
   }
 
   return [...matchingVars].sort();

@@ -6,6 +6,7 @@ import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { evaluateArithmetic } from "../arithmetic.js";
+import { clearArray, setArrayElement } from "../helpers/array.js";
 import { checkReadonlyError, markReadonly } from "../helpers/readonly.js";
 import type { InterpreterContext } from "../types.js";
 import { parseArrayElements } from "./declare-array-parsing.js";
@@ -110,23 +111,15 @@ export async function setVariable(
   }
 
   if (isArray && arrayElements) {
-    // Set array elements
+    clearArray(ctx, name);
     for (let i = 0; i < arrayElements.length; i++) {
-      ctx.state.env.set(`${name}_${i}`, arrayElements[i]);
+      setArrayElement(ctx, name, i, arrayElements[i]);
     }
-    ctx.state.env.set(`${name}__length`, String(arrayElements.length));
+    ctx.state.env.delete(name);
   } else if (arrayIndex !== undefined && value !== undefined) {
     // Array index assignment: a[index]=value
     const index = await evaluateArrayIndex(ctx, arrayIndex);
-    ctx.state.env.set(`${name}_${index}`, value);
-    // Update array length if needed (sparse arrays may have gaps)
-    const currentLength = parseInt(
-      ctx.state.env.get(`${name}__length`) ?? "0",
-      10,
-    );
-    if (index >= currentLength) {
-      ctx.state.env.set(`${name}__length`, String(index + 1));
-    }
+    setArrayElement(ctx, name, index, value);
   } else if (value !== undefined) {
     // Set scalar value
     ctx.state.env.set(name, value);

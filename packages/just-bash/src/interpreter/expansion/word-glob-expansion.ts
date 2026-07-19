@@ -772,7 +772,11 @@ async function expandMixedWordParts(
       if (ifsEmpty) {
         partWords.push(value ? [value] : []);
       } else {
-        const split = splitByIfsForExpansion(value, ifsChars);
+        const split = splitByIfsForExpansion(
+          value,
+          ifsChars,
+          ctx.limits.maxArrayElements,
+        );
         partWords.push(split);
       }
     } else {
@@ -780,7 +784,11 @@ async function expandMixedWordParts(
       if (ifsEmpty) {
         partWords.push(value ? [value] : []);
       } else {
-        const split = splitByIfsForExpansion(value, ifsChars);
+        const split = splitByIfsForExpansion(
+          value,
+          ifsChars,
+          ctx.limits.maxArrayElements,
+        );
         partWords.push(split);
       }
     }
@@ -891,7 +899,11 @@ async function handleFinalGlobExpansion(
     const unescapedValue = unescapeGlobPattern(value);
     if (!isIfsEmpty(ctx.state.env)) {
       const ifsChars = getIfs(ctx.state.env);
-      const splitValues = splitByIfsForExpansion(unescapedValue, ifsChars);
+      const splitValues = splitByIfsForExpansion(
+        unescapedValue,
+        ifsChars,
+        ctx.limits.maxArrayElements,
+      );
       return { values: splitValues, quoted: false };
     }
     return { values: [unescapedValue], quoted: false };
@@ -920,7 +932,11 @@ async function handleFinalGlobExpansion(
     const unescapedValue = unescapeGlobPattern(value);
     if (!isIfsEmpty(ctx.state.env)) {
       const ifsChars = getIfs(ctx.state.env);
-      const splitValues = splitByIfsForExpansion(unescapedValue, ifsChars);
+      const splitValues = splitByIfsForExpansion(
+        unescapedValue,
+        ifsChars,
+        ctx.limits.maxArrayElements,
+      );
       return { values: splitValues, quoted: false };
     }
     return { values: [unescapedValue], quoted: false };

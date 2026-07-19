@@ -23,6 +23,37 @@ async function setupDb(env: Bash, schema: string): Promise<void> {
 }
 
 describe("sqlite3 writeback covers non-prefixed mutations", () => {
+  it("writes back successful statements before a -bail error", async () => {
+    const env = new Bash();
+    const write = await env.exec(
+      `sqlite3 -bail /tmp/db.sqlite "CREATE TABLE t(x); INSERT INTO t VALUES(7); SELECT * FROM missing"`,
+    );
+    expect(write.exitCode).toBe(1);
+    expect(write.stderr).toContain("missing");
+
+    const read = await env.exec(`sqlite3 /tmp/db.sqlite "SELECT x FROM t"`);
+    expect(read.exitCode).toBe(0);
+    expect(read.stdout).toBe("7\n");
+  });
+
+  it("serializes concurrent read/modify/write cycles on one filesystem", async () => {
+    const env = new Bash();
+    await setupDb(
+      env,
+      "CREATE TABLE counter(x); INSERT INTO counter VALUES(0)",
+    );
+    const [first, second] = await Promise.all([
+      env.exec(`sqlite3 /tmp/db.sqlite "UPDATE counter SET x=x+1"`),
+      env.exec(`sqlite3 /tmp/db.sqlite "UPDATE counter SET x=x+1"`),
+    ]);
+    expect(first.exitCode).toBe(0);
+    expect(second.exitCode).toBe(0);
+    const read = await env.exec(
+      `sqlite3 /tmp/db.sqlite "SELECT x FROM counter"`,
+    );
+    expect(read.stdout).toBe("2\n");
+  });
+
   it("persists a CTE-prefixed INSERT (WITH ... INSERT)", async () => {
     const env = new Bash();
     await setupDb(env, "CREATE TABLE t(x INT); INSERT INTO t VALUES(1)");
@@ -95,6 +126,28 @@ describe("sqlite3 writeback covers non-prefixed mutations", () => {
     const read = await env.exec(`sqlite3 /tmp/db.sqlite "PRAGMA user_version"`);
     expect(read.exitCode).toBe(0);
     expect(read.stdout).toBe("42\n");
+  });
+
+  it("persists an argumentless incremental_vacuum PRAGMA", async () => {
+    const env = new Bash();
+    await setupDb(
+      env,
+      "PRAGMA auto_vacuum=incremental; VACUUM; CREATE TABLE t(x); WITH RECURSIVE n(v) AS (VALUES(1) UNION ALL SELECT v+1 FROM n WHERE v<80) INSERT INTO t SELECT zeroblob(4096) FROM n; DELETE FROM t",
+    );
+    const before = await env.exec(
+      `sqlite3 /tmp/db.sqlite "PRAGMA freelist_count"`,
+    );
+    const beforeCount = Number(before.stdout.trim());
+    expect(beforeCount).toBeGreaterThan(0);
+
+    const vacuum = await env.exec(
+      `sqlite3 /tmp/db.sqlite "PRAGMA incremental_vacuum"`,
+    );
+    expect(vacuum.exitCode).toBe(0);
+    const after = await env.exec(
+      `sqlite3 /tmp/db.sqlite "PRAGMA freelist_count"`,
+    );
+    expect(Number(after.stdout.trim())).toBeLessThan(beforeCount);
   });
 
   it("persists a comment-led INSERT (line comment)", async () => {

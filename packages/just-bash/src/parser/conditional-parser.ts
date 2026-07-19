@@ -173,7 +173,7 @@ function parseCondNot(p: Parser): ConditionalExpressionNode {
   if (p.check(TokenType.BANG)) {
     p.advance();
     p.skipNewlines();
-    const operand = parseCondNot(p);
+    const operand = p.withDepth(() => parseCondNot(p));
     return { type: "CondNot", operand };
   }
 
@@ -184,7 +184,7 @@ function parseCondPrimary(p: Parser): ConditionalExpressionNode {
   // Handle grouping: ( expr )
   if (p.check(TokenType.LPAREN)) {
     p.advance();
-    const expression = parseConditionalExpression(p);
+    const expression = p.withDepth(() => parseConditionalExpression(p));
     p.expect(TokenType.RPAREN);
     return { type: "CondGroup", expression };
   }

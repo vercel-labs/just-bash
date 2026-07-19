@@ -4,6 +4,14 @@
  * Handles date/time formatting for printf's %(...)T directive.
  */
 
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { utf8ByteLength } from "./escapes.js";
+
+interface StrftimeLimits {
+  maxOperations?: number;
+  maxOutputBytes?: number;
+}
+
 /**
  * Format a timestamp using strftime-like format string.
  */
@@ -11,27 +19,63 @@ export function formatStrftime(
   format: string,
   timestamp: number,
   tz?: string,
+  limits: StrftimeLimits = {},
 ): string {
   const date = new Date(timestamp * 1000);
+  const parts = getDatePartsInTimezone(date, tz);
 
   // Build result by replacing format directives
   let result = "";
+  let resultBytes = 0;
   let i = 0;
+  let operations = 0;
+  const directiveCache = new Map<string, string | null>();
+
+  const append = (value: string): void => {
+    const valueBytes = utf8ByteLength(value);
+    if (
+      limits.maxOutputBytes !== undefined &&
+      valueBytes > limits.maxOutputBytes - resultBytes
+    ) {
+      throw new ExecutionLimitError(
+        `strftime: output size limit exceeded (${limits.maxOutputBytes} bytes)`,
+        "output_size",
+      );
+    }
+    result += value;
+    resultBytes += valueBytes;
+  };
 
   while (i < format.length) {
+    operations++;
+    if (
+      limits.maxOperations !== undefined &&
+      operations > limits.maxOperations
+    ) {
+      throw new ExecutionLimitError(
+        `strftime: iteration limit exceeded (${limits.maxOperations})`,
+        "iterations",
+      );
+    }
     if (format[i] === "%" && i + 1 < format.length) {
       const directive = format[i + 1];
-      const formatted = formatStrftimeDirective(date, directive, tz);
+      let formatted: string | null;
+      if (directiveCache.has(directive)) {
+        formatted = directiveCache.get(directive) ?? null;
+      } else {
+        formatted = formatStrftimeDirective(date, parts, directive, tz);
+        directiveCache.set(directive, formatted);
+      }
       if (formatted !== null) {
-        result += formatted;
+        append(formatted);
         i += 2;
       } else {
         // Unknown directive, keep as-is
-        result += format[i];
+        append(format[i]);
         i++;
       }
     } else {
-      result += format[i];
+      append(format[i]);
       i++;
     }
   }
@@ -122,11 +166,10 @@ function getDatePartsInTimezone(
  */
 function formatStrftimeDirective(
   date: Date,
+  parts: ReturnType<typeof getDatePartsInTimezone>,
   directive: string,
   tz?: string,
 ): string | null {
-  const parts = getDatePartsInTimezone(date, tz);
-
   const pad = (n: number, width = 2): string => String(n).padStart(width, "0");
 
   const dayOfYear = getDayOfYearForParts(parts.year, parts.month, parts.day);

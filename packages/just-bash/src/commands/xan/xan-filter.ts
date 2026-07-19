@@ -7,6 +7,7 @@ import { showHelp } from "../help.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
 import { parseMoonbladeExpr } from "./column-selection.js";
 import { type CsvData, formatCsv, readCsvInput } from "./csv.js";
+import { getMoonbladeLimits } from "./moonblade-parser.js";
 
 export async function cmdFilter(
   args: string[],
@@ -57,11 +58,14 @@ export async function cmdFilter(
 
   const evalOptions: EvaluateOptions = {
     limits: ctx.limits
-      ? { maxIterations: ctx.limits.maxJqIterations }
+      ? {
+          maxIterations: ctx.limits.maxJqIterations,
+          maxStringLength: ctx.limits.maxStringLength,
+        }
       : undefined,
   };
 
-  const ast = parseMoonbladeExpr(expr);
+  const ast = parseMoonbladeExpr(expr, getMoonbladeLimits(ctx));
   const filtered: CsvData = [];
   for (const row of data) {
     if (limit > 0 && filtered.length >= limit) break;

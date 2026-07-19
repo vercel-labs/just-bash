@@ -8,6 +8,7 @@ import {
   type LazyCommand,
 } from "./custom-commands.js";
 import { decodeBytesToUtf8, EMPTY_BYTES } from "./encoding.js";
+import { resolveLimits } from "./limits.js";
 import type { Command } from "./types.js";
 
 describe("custom-commands", () => {
@@ -20,6 +21,7 @@ describe("custom-commands", () => {
       }));
 
       expect(cmd.name).toBe("test");
+      expect(cmd.trusted).toBe(false);
       expect(typeof cmd.execute).toBe("function");
     });
 
@@ -84,6 +86,7 @@ describe("custom-commands", () => {
         cwd: "/",
         env: new Map(),
         stdin: EMPTY_BYTES,
+        limits: resolveLimits(),
       });
       expect(loadCount).toBe(1);
       expect(result1.stdout).toBe("lazy loaded\n");
@@ -94,9 +97,84 @@ describe("custom-commands", () => {
         cwd: "/",
         env: new Map(),
         stdin: EMPTY_BYTES,
+        limits: resolveLimits(),
       });
       expect(loadCount).toBe(1);
       expect(result2.stdout).toBe("lazy loaded\n");
+    });
+
+    it("single-flights concurrent first execution", async () => {
+      let loadCount = 0;
+      let release: (() => void) | undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const cmd = createLazyCustomCommand({
+        name: "concurrent",
+        load: async () => {
+          loadCount++;
+          await gate;
+          return defineCommand("concurrent", async () => ({
+            stdout: "loaded\n",
+            stderr: "",
+            exitCode: 0,
+          }));
+        },
+      });
+      const context = {
+        fs: {} as never,
+        cwd: "/",
+        env: new Map<string, string>(),
+        stdin: EMPTY_BYTES,
+        limits: resolveLimits(),
+      };
+
+      const executions = [
+        cmd.execute([], context),
+        cmd.execute([], context),
+        cmd.execute([], context),
+      ];
+      expect(loadCount).toBe(1);
+      release?.();
+
+      const results = await Promise.all(executions);
+      expect(results.map((result) => result.stdout)).toEqual([
+        "loaded\n",
+        "loaded\n",
+        "loaded\n",
+      ]);
+      expect(loadCount).toBe(1);
+    });
+
+    it("allows a retry after a rejected load", async () => {
+      let loadCount = 0;
+      const cmd = createLazyCustomCommand({
+        name: "retry",
+        load: async () => {
+          loadCount++;
+          if (loadCount === 1) throw new Error("temporary load failure");
+          return defineCommand("retry", async () => ({
+            stdout: "retried\n",
+            stderr: "",
+            exitCode: 0,
+          }));
+        },
+      });
+      const context = {
+        fs: {} as never,
+        cwd: "/",
+        env: new Map<string, string>(),
+        stdin: EMPTY_BYTES,
+        limits: resolveLimits(),
+      };
+
+      await expect(cmd.execute([], context)).rejects.toThrow(
+        "temporary load failure",
+      );
+      const result = await cmd.execute([], context);
+
+      expect(result.stdout).toBe("retried\n");
+      expect(loadCount).toBe(2);
     });
   });
 

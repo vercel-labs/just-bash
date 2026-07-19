@@ -15,6 +15,7 @@ import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { readFiles } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { utf8ByteLength } from "../printf/escapes.js";
 import {
   type EvaluateOptions,
   evaluate,
@@ -355,12 +356,22 @@ export const jqCommand: Command = {
     }
 
     try {
-      const ast = parse(filter);
+      const ast = parse(filter, {
+        maxDepth: ctx.limits.maxQueryDepth,
+        maxTokens: ctx.limits.maxQueryTokens,
+        maxSourceLength: ctx.limits.maxStringLength,
+      });
       let values: QueryValue[] = [];
 
       const evalOptions: EvaluateOptions = {
         limits: ctx.limits
-          ? { maxIterations: ctx.limits.maxJqIterations }
+          ? {
+              maxIterations: ctx.limits.maxJqIterations,
+              maxStringLength: ctx.limits.maxStringLength,
+              maxOutputSize: ctx.limits.maxOutputSize,
+              maxArrayElements: ctx.limits.maxQueryElements,
+              maxDepth: ctx.limits.maxQueryDepth,
+            }
           : undefined,
         env: ctx.env,
         coverage: ctx.coverage,
@@ -421,24 +432,31 @@ export const jqCommand: Command = {
         }
       }
 
-      const formatted = values.map((v) =>
-        formatValue(v, compact, raw, sortKeys, useTab),
-      );
       const separator = joinOutput ? "" : "\n";
-      const output = formatted.join(separator);
-
-      // Check output size against limit
-      const maxStringLength = ctx.limits?.maxStringLength;
-      if (
-        maxStringLength !== undefined &&
-        maxStringLength > 0 &&
-        output.length > maxStringLength
-      ) {
-        throw new ExecutionLimitError(
-          `jq: output size limit exceeded (${maxStringLength} bytes)`,
-          "string_length",
-        );
+      const maxStringLength = Math.min(
+        ctx.limits.maxStringLength,
+        ctx.limits.maxOutputSize,
+      );
+      const formatted: string[] = [];
+      let outputBytes = 0;
+      for (const value of values) {
+        const text = formatValue(value, compact, raw, sortKeys, useTab);
+        const textBytes = utf8ByteLength(text);
+        const separatorBytes = formatted.length > 0 ? separator.length : 0;
+        const finalNewlineBytes = joinOutput ? 0 : 1;
+        if (
+          outputBytes + separatorBytes + textBytes + finalNewlineBytes >
+          maxStringLength
+        ) {
+          throw new ExecutionLimitError(
+            `output size limit exceeded (${maxStringLength} bytes)`,
+            "string_length",
+          );
+        }
+        outputBytes += separatorBytes + textBytes;
+        formatted.push(text);
       }
+      const output = formatted.join(separator);
 
       const exitCode =
         exitStatus &&

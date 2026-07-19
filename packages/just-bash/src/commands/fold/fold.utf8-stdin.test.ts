@@ -10,4 +10,21 @@ describe("fold reads UTF-8 from stdin", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("한글\nca\nfé\n");
   });
+
+  it("never splits an emoji surrogate pair", async () => {
+    const env = new Bash({ files: { "/in.txt": "A😀B\n" } });
+    const result = await env.exec("cat /in.txt | fold -w 1");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("A\n😀\nB\n");
+    expect(result.stdout).not.toMatch(
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u,
+    );
+  });
+
+  it("counts the complete UTF-8 byte width of each codepoint", async () => {
+    const env = new Bash({ files: { "/in.txt": "😀a\n" } });
+    const result = await env.exec("cat /in.txt | fold -b -w 4");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("😀\na\n");
+  });
 });

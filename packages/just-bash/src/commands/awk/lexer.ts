@@ -4,6 +4,8 @@
  * Tokenizes AWK source code into a stream of tokens.
  */
 
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+
 export enum TokenType {
   // Literals
   NUMBER = "NUMBER",
@@ -165,7 +167,10 @@ export class AwkLexer {
   private column = 1;
   private lastTokenType: TokenType | null = null;
 
-  constructor(input: string) {
+  constructor(
+    input: string,
+    private readonly maxTokens = 100_000,
+  ) {
     this.input = input;
   }
 
@@ -174,9 +179,21 @@ export class AwkLexer {
     while (this.pos < this.input.length) {
       const token = this.nextToken();
       if (token) {
+        if (tokens.length >= this.maxTokens) {
+          throw new ExecutionLimitError(
+            `awk: token limit exceeded (${this.maxTokens})`,
+            "array_elements",
+          );
+        }
         tokens.push(token);
         this.lastTokenType = token.type;
       }
+    }
+    if (tokens.length >= this.maxTokens) {
+      throw new ExecutionLimitError(
+        `awk: token limit exceeded (${this.maxTokens})`,
+        "array_elements",
+      );
     }
     tokens.push(this.makeToken(TokenType.EOF, ""));
     return tokens;

@@ -30,6 +30,7 @@ import {
   ExecutionLimitError,
   ExitError,
 } from "../errors.js";
+import { getArrayElement, setArrayElement } from "../helpers/array.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
 import { getNamerefTarget, isNameref } from "../helpers/nameref.js";
 import { escapeRegex } from "../helpers/regex.js";
@@ -138,15 +139,7 @@ export async function handleAssignDefault(
         if (Number.isNaN(index)) index = 0;
       }
       // Set array element
-      ctx.state.env.set(`${arrayName}_${index}`, defaultValue);
-      // Update array length if needed
-      const currentLength = Number.parseInt(
-        ctx.state.env.get(`${arrayName}__length`) || "0",
-        10,
-      );
-      if (index >= currentLength) {
-        ctx.state.env.set(`${arrayName}__length`, String(index + 1));
-      }
+      setArrayElement(ctx, arrayName, index, defaultValue);
     } else {
       ctx.state.env.set(parameter, defaultValue);
     }
@@ -389,7 +382,7 @@ export function handleLength(
         firstElement !== undefined ? [...String(firstElement)].length : 0,
       );
     }
-    const firstElement = ctx.state.env.get(`${parameter}_0`) || "";
+    const firstElement = getArrayElement(ctx, parameter, 0) || "";
     return String([...firstElement].length);
   }
   // Use spread to count Unicode code points, not UTF-16 code units

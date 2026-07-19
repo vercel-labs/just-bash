@@ -18,6 +18,7 @@ import {
 import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { utf8ByteLength } from "../printf/escapes.js";
 import {
   type EvaluateOptions,
   evaluate,
@@ -124,6 +125,21 @@ EXAMPLES:
   ],
 };
 
+function parseIndent(value: string | undefined): number | null {
+  if (value === undefined || !/^\d+$/.test(value)) return null;
+  const indent = Number(value);
+  if (!Number.isSafeInteger(indent) || indent < 0 || indent > 32) return null;
+  return indent;
+}
+
+function invalidIndent(value: string | undefined): ExecResult {
+  return {
+    stdout: "",
+    stderr: `yq: invalid indent '${value ?? ""}' (expected integer 0..32)\n`,
+    exitCode: 2,
+  };
+}
+
 interface YqOptions extends FormatOptions {
   exitStatus: boolean;
   slurp: boolean;
@@ -174,7 +190,10 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
       }
       options.outputFormat = format;
     } else if (a.startsWith("--indent=")) {
-      options.indent = Number.parseInt(a.slice(9), 10);
+      const indentValue = a.slice(9);
+      const indent = parseIndent(indentValue);
+      if (indent === null) return invalidIndent(indentValue);
+      options.indent = indent;
     } else if (a.startsWith("--xml-attribute-prefix=")) {
       options.xmlAttributePrefix = a.slice(23);
     } else if (a.startsWith("--xml-content-name=")) {
@@ -199,7 +218,10 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
       }
       options.outputFormat = format;
     } else if (a === "-I" || a === "--indent") {
-      options.indent = Number.parseInt(args[++i], 10);
+      const indentValue = args[++i];
+      const indent = parseIndent(indentValue);
+      if (indent === null) return invalidIndent(indentValue);
+      options.indent = indent;
     } else if (a === "-r" || a === "--raw-output") {
       options.raw = true;
     } else if (a === "-c" || a === "--compact") {
@@ -311,12 +333,22 @@ export const yqCommand: Command = {
     }
 
     try {
-      const ast = parse(filter);
+      const ast = parse(filter, {
+        maxDepth: ctx.limits.maxQueryDepth,
+        maxTokens: ctx.limits.maxQueryTokens,
+        maxSourceLength: ctx.limits.maxStringLength,
+      });
       let values: QueryValue[];
 
       const evalOptions: EvaluateOptions = {
         limits: ctx.limits
-          ? { maxIterations: ctx.limits.maxJqIterations }
+          ? {
+              maxIterations: ctx.limits.maxJqIterations,
+              maxStringLength: ctx.limits.maxStringLength,
+              maxOutputSize: ctx.limits.maxOutputSize,
+              maxArrayElements: ctx.limits.maxQueryElements,
+              maxDepth: ctx.limits.maxQueryDepth,
+            }
           : undefined,
         env: ctx.env,
         coverage: ctx.coverage,
@@ -352,9 +384,32 @@ export const yqCommand: Command = {
       }
 
       // Format output
-      const formatted = values.map((v) => formatOutput(v, options));
+      const maxOutputSize = Math.min(
+        ctx.limits.maxStringLength,
+        ctx.limits.maxOutputSize,
+      );
       const separator = options.joinOutput ? "" : "\n";
-      const output = formatted.filter((s) => s !== "").join(separator);
+      const formatted: string[] = [];
+      let outputBytes = 0;
+      for (const value of values) {
+        const text = formatOutput(value, options);
+        if (text === "") continue;
+        const textBytes = utf8ByteLength(text);
+        const separatorBytes = formatted.length > 0 ? separator.length : 0;
+        const finalNewlineBytes = options.joinOutput ? 0 : 1;
+        if (
+          outputBytes + separatorBytes + textBytes + finalNewlineBytes >
+          maxOutputSize
+        ) {
+          throw new ExecutionLimitError(
+            `output size limit exceeded (${maxOutputSize} bytes)`,
+            "output_size",
+          );
+        }
+        outputBytes += separatorBytes + textBytes;
+        formatted.push(text);
+      }
+      const output = formatted.join(separator);
       const finalOutput = output
         ? options.joinOutput
           ? output

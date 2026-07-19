@@ -6,6 +6,8 @@
  * depends heavily on what command is being parsed.
  */
 
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+
 export enum SedTokenType {
   // Addresses
   NUMBER = "NUMBER",
@@ -70,15 +72,31 @@ export class SedLexer {
   private line = 1;
   private column = 1;
 
-  constructor(input: string) {
+  constructor(
+    input: string,
+    private readonly maxInputLength: number = 1024 * 1024,
+    private readonly maxTokens: number = 100_000,
+  ) {
     this.input = input;
   }
 
   tokenize(): SedToken[] {
+    if (this.input.length > this.maxInputLength) {
+      throw new ExecutionLimitError(
+        `sed: script size limit exceeded (${this.maxInputLength} bytes)`,
+        "string_length",
+      );
+    }
     const tokens: SedToken[] = [];
     while (this.pos < this.input.length) {
       const token = this.nextToken();
       if (token) {
+        if (tokens.length >= this.maxTokens - 1) {
+          throw new ExecutionLimitError(
+            `sed: token limit exceeded (${this.maxTokens})`,
+            "array_elements",
+          );
+        }
         tokens.push(token);
       }
     }

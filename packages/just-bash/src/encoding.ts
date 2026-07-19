@@ -24,6 +24,24 @@ export interface ByteString {
 const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
 const utf8Encoder = new TextEncoder();
 
+/** Return UTF-8 byte length without allocating an encoded copy. */
+export function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x7f) bytes++;
+    else if (code <= 0x7ff) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index++;
+      } else bytes += 3;
+    } else bytes += 3;
+  }
+  return bytes;
+}
+
 /**
  * Tag a latin1 byte buffer (each char = one byte) as a `ByteString`. Use at
  * the pipeline edge: `cmdCtx.stdin = unsafeBytesFromLatin1(prevStdout)`.

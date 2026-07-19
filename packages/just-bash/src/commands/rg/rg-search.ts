@@ -170,6 +170,9 @@ export async function executeSearch(
       passthru: options.passthru,
       multiline: options.multiline,
       kResetGroup,
+      maxWork: ctx.limits.maxLoopIterations,
+      maxMatches: ctx.limits.maxArrayElements,
+      signal: ctx.signal,
     });
 
     if (options.quiet) {
@@ -803,7 +806,12 @@ async function readFileContent(
       const buffer = await ctx.fs.readFileBuffer(filePath);
       if (isGzip(buffer)) {
         try {
-          const decompressed = gunzipSync(buffer);
+          const maxOutputLength = Math.min(
+            ctx.limits.maxStringLength,
+            ctx.limits.maxOutputSize,
+          );
+          // @banned-pattern-ignore: zlib maxOutputLength is derived from resolved execution byte limits
+          const decompressed = gunzipSync(buffer, { maxOutputLength });
           const content = new TextDecoder().decode(decompressed);
           const sample = content.slice(0, 8192);
           return { content, isBinary: sample.includes("\0") };
@@ -864,7 +872,9 @@ async function searchFiles(
   let filesWithMatch = 0;
   let bytesSearched = 0;
 
-  const BATCH_SIZE = 50;
+  // Compressed files retain both the decompressed byte buffer and decoded
+  // string while being searched. Keep their concurrency deliberately small.
+  const BATCH_SIZE = options.searchZip ? 2 : 50;
   outer: for (let i = 0; i < files.length; i += BATCH_SIZE) {
     const batch = files.slice(i, i + BATCH_SIZE);
 
@@ -906,6 +916,9 @@ async function searchFiles(
           passthru: options.passthru,
           multiline: options.multiline,
           kResetGroup,
+          maxWork: ctx.limits.maxLoopIterations,
+          maxMatches: ctx.limits.maxArrayElements,
+          signal: ctx.signal,
         });
 
         // For JSON mode, we need to track matches differently

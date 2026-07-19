@@ -6,6 +6,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createSecureFetch } from "../fetch.js";
 import type { DnsLookupResult } from "../types.js";
 import {
   createBashEnvAdapter,
@@ -164,7 +165,7 @@ describe("DNS rebinding SSRF protection", () => {
       await expectBlockedDnsFailure(env, "https://timeout.example.com/data");
     });
 
-    it("allows ENOTFOUND through (domain does not exist)", async () => {
+    it("blocks ENOTFOUND without reaching fetch", async () => {
       const env = createBashEnvAdapter({
         network: {
           dangerouslyAllowFullInternetAccess: true,
@@ -173,13 +174,61 @@ describe("DNS rebinding SSRF protection", () => {
         },
       });
 
-      // ENOTFOUND means domain doesn't exist — can't resolve to private IP
-      // Request proceeds to fetch (which would fail naturally)
-      await expectAllowed(
-        env,
-        "https://api.example.com/data",
-        MOCK_SUCCESS_BODY,
+      const callsBefore = mockFetch.mock.calls.length;
+      await expectBlockedDnsFailure(env, "https://api.example.com/data");
+      expect(mockFetch.mock.calls).toHaveLength(callsBefore);
+    });
+
+    it("blocks ENODATA without reaching fetch", async () => {
+      const env = createBashEnvAdapter({
+        network: {
+          dangerouslyAllowFullInternetAccess: true,
+          denyPrivateRanges: true,
+          _dnsResolve: failingResolver("ENODATA"),
+        },
+      });
+
+      const callsBefore = mockFetch.mock.calls.length;
+      await expectBlockedDnsFailure(env, "https://api.example.com/data");
+      expect(mockFetch.mock.calls).toHaveLength(callsBefore);
+    });
+
+    it("blocks an empty DNS answer without reaching fetch", async () => {
+      const env = createBashEnvAdapter({
+        network: {
+          dangerouslyAllowFullInternetAccess: true,
+          denyPrivateRanges: true,
+          _dnsResolve: fakeResolver([]),
+        },
+      });
+
+      const callsBefore = mockFetch.mock.calls.length;
+      const result = await env.exec('curl "https://api.example.com/data"');
+      expect(result.exitCode).toBe(7);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "curl: (7) Network access denied: DNS resolution returned no addresses for private IP check: https://api.example.com/data\n",
       );
+      expect(mockFetch.mock.calls).toHaveLength(callsBefore);
+    });
+
+    it.each<DnsLookupResult>([
+      { address: "not-an-ip", family: 4 },
+      { address: "93.184.216.34", family: 6 },
+      { address: "2001:4860:4860::8888", family: 4 },
+      { address: "93.184.216.34", family: 0 },
+    ])("blocks malformed DNS address metadata: %j", async (answer) => {
+      const secureFetch = createSecureFetch({
+        dangerouslyAllowFullInternetAccess: true,
+        denyPrivateRanges: true,
+        _dnsResolve: fakeResolver([answer]),
+      });
+
+      const callsBefore = mockFetch.mock.calls.length;
+      await expect(secureFetch("https://api.example.com/data")).rejects.toThrow(
+        "Network access denied: DNS returned an invalid address for private IP check",
+      );
+      expect(mockFetch.mock.calls).toHaveLength(callsBefore);
     });
   });
 

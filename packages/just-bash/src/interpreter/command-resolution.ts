@@ -26,6 +26,10 @@ export type ResolveCommandResult =
   | { error: "not_found" | "permission_denied"; path?: string }
   | null;
 
+function isTrustedCommandStub(path: string, commandName: string): boolean {
+  return path === `/bin/${commandName}` || path === `/usr/bin/${commandName}`;
+}
+
 /**
  * Resolve a command name to its implementation via PATH lookup.
  * Returns the command and its resolved path, or null if not found.
@@ -47,10 +51,6 @@ export async function resolveCommand(
     if (!(await ctx.fs.exists(resolvedPath))) {
       return { error: "not_found", path: resolvedPath };
     }
-    // Extract command name from path
-    const cmdName = resolvedPath.split("/").pop() || commandName;
-    const cmd = ctx.commands.get(cmdName);
-
     // Check file properties
     try {
       const stat = await ctx.fs.stat(resolvedPath);
@@ -58,18 +58,18 @@ export async function resolveCommand(
         // Trying to execute a directory
         return { error: "permission_denied", path: resolvedPath };
       }
-      // For registered commands (like /bin/echo), skip execute check
-      // since they're our internal implementations
-      if (cmd) {
+      const cmdName = resolvedPath.split("/").pop() || commandName;
+      const cmd = ctx.commands.get(cmdName);
+      if (cmd && isTrustedCommandStub(resolvedPath, cmdName)) {
         return { cmd, path: resolvedPath };
       }
-      // For non-registered commands, check if the file is executable
       const isExecutable = (stat.mode & 0o111) !== 0;
       if (!isExecutable) {
         // File exists but is not executable - permission denied
         return { error: "permission_denied", path: resolvedPath };
       }
-      // File exists and is executable - treat as user script
+      // Explicit non-system paths always denote the file, never a same-basename
+      // registered command.
       return { script: true, path: resolvedPath };
     } catch {
       // If stat fails, treat as not found
@@ -81,25 +81,21 @@ export async function resolveCommand(
   if (!pathOverride && ctx.state.hashTable) {
     const cachedPath = ctx.state.hashTable.get(commandName);
     if (cachedPath) {
-      // Verify the cached path still exists
-      if (await ctx.fs.exists(cachedPath)) {
-        const cmd = ctx.commands.get(commandName);
-        if (cmd) {
-          return { cmd, path: cachedPath };
-        }
-        // Also check if it's an executable script (not just registered commands)
-        try {
-          const stat = await ctx.fs.stat(cachedPath);
-          if (!stat.isDirectory && (stat.mode & 0o111) !== 0) {
+      try {
+        const stat = await ctx.fs.stat(cachedPath);
+        if (!stat.isDirectory) {
+          const cmd = ctx.commands.get(commandName);
+          if (cmd && isTrustedCommandStub(cachedPath, commandName)) {
+            return { cmd, path: cachedPath };
+          }
+          if ((stat.mode & 0o111) !== 0) {
             return { script: true, path: cachedPath };
           }
-        } catch {
-          // If stat fails, fall through to PATH search
         }
-      } else {
-        // Remove stale entry from hash table
-        ctx.state.hashTable.delete(commandName);
+      } catch {
+        // Invalid cached entries are evicted before doing a fresh PATH search.
       }
+      ctx.state.hashTable.delete(commandName);
     }
   }
 
@@ -126,7 +122,7 @@ export async function resolveCommand(
         const cmd = ctx.commands.get(commandName);
 
         // Determine if this is a system directory where command stubs live
-        const isSystemDir = dir === "/bin" || dir === "/usr/bin";
+        const isSystemDir = isTrustedCommandStub(fullPath, commandName);
 
         if (cmd && isSystemDir) {
           // Registered commands in system directories work without execute bits
@@ -205,11 +201,22 @@ export async function findCommandInPath(
       ? dir
       : ctx.fs.resolvePath(ctx.state.cwd, dir);
     const fullPath = `${resolvedDir}/${commandName}`;
+    // Registered commands model binaries provided by the sandbox's system
+    // directories. Report those virtual binaries for `type -a/-P`, while
+    // continuing to require a real executable for every user-controlled PATH
+    // directory so a same-basename script is never mistaken for a builtin.
+    if (
+      isTrustedCommandStub(fullPath, commandName) &&
+      ctx.commands.has(commandName)
+    ) {
+      paths.push(fullPath);
+      continue;
+    }
     if (await ctx.fs.exists(fullPath)) {
       // Check if it's a directory - skip directories
       try {
         const stat = await ctx.fs.stat(fullPath);
-        if (stat.isDirectory) {
+        if (stat.isDirectory || (stat.mode & 0o111) === 0) {
           continue;
         }
       } catch {

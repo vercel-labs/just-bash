@@ -1,3 +1,4 @@
+import { combineAbortSignals } from "../../abort-signals.js";
 import { latin1FromBytes } from "../../encoding.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { _clearTimeout, _setTimeout } from "../../timers.js";
@@ -120,20 +121,25 @@ export const timeoutCommand: Command = {
     // When the timeout fires, the signal is aborted, causing the interpreter
     // to stop at the next statement boundary — no post-timeout side effects.
     const controller = new AbortController();
+    const combinedAbort = combineAbortSignals(ctx.signal, controller.signal);
 
     let timerId: ReturnType<typeof _setTimeout> | undefined;
+    let abortListener: (() => void) | undefined;
     try {
       const timeoutPromise = new Promise<{ timedOut: true }>((resolve) => {
+        abortListener = () => resolve({ timedOut: true });
+        combinedAbort.signal?.addEventListener("abort", abortListener, {
+          once: true,
+        });
         timerId = _setTimeout(() => {
           controller.abort();
-          resolve({ timedOut: true });
         }, durationMs);
       });
 
       const execPromise = ctx
         .exec(shellJoinArgs([commandArgs[0]]), {
           cwd: ctx.cwd,
-          signal: controller.signal,
+          signal: combinedAbort.signal,
           stdin: latin1FromBytes(ctx.stdin),
           // ctx.stdin is already byte-shaped — forward verbatim.
           stdinKind: "bytes",
@@ -144,6 +150,12 @@ export const timeoutCommand: Command = {
       const outcome = await Promise.race([timeoutPromise, execPromise]);
 
       if (outcome.timedOut) {
+        // Cancellation is cooperative. Do not let the public execution scope
+        // close while the child pipeline is still unwinding: late accounting,
+        // output, or side effects would otherwise escape the timeout result.
+        // Built-in commands and worker bridges are required to settle when
+        // their signal aborts.
+        await execPromise.catch(() => undefined);
         return {
           stdout: "",
           stderr: "",
@@ -156,6 +168,10 @@ export const timeoutCommand: Command = {
       if (timerId !== undefined) {
         _clearTimeout(timerId);
       }
+      if (abortListener) {
+        combinedAbort.signal?.removeEventListener("abort", abortListener);
+      }
+      combinedAbort.cleanup();
     }
   },
 };

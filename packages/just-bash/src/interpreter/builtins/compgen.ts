@@ -27,6 +27,13 @@ import type { ExecResult } from "../../types.js";
 import { matchPattern } from "../conditionals.js";
 import { expandWord, getArrayElements } from "../expansion.js";
 import { callFunction } from "../functions.js";
+import {
+  clearArray,
+  cloneArray,
+  ensureArray,
+  getArray,
+  hasArray,
+} from "../helpers/array.js";
 import { failure, result, success } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -434,11 +441,12 @@ export async function handleCompgen(
       const savedEnv = new Map<string, string | undefined>();
 
       // Save and set COMP_WORDS (empty array - no elements)
-      savedEnv.set(
-        "COMP_WORDS__length",
-        ctx.state.env.get("COMP_WORDS__length"),
-      );
-      ctx.state.env.set("COMP_WORDS__length", "0");
+      const currentCompWords = getArray(ctx, "COMP_WORDS");
+      const savedCompWords = currentCompWords
+        ? cloneArray(currentCompWords)
+        : undefined;
+      clearArray(ctx, "COMP_WORDS");
+      ensureArray(ctx, "COMP_WORDS");
 
       // Save and set COMP_CWORD
       savedEnv.set("COMP_CWORD", ctx.state.env.get("COMP_CWORD"));
@@ -453,17 +461,13 @@ export async function handleCompgen(
       ctx.state.env.set("COMP_POINT", "0");
 
       // Clear any existing COMPREPLY
-      const savedCompreply = new Map<string, string | undefined>();
-      for (const key of ctx.state.env.keys()) {
-        if (
-          key === "COMPREPLY" ||
-          key.startsWith("COMPREPLY_") ||
-          key === "COMPREPLY__length"
-        ) {
-          savedCompreply.set(key, ctx.state.env.get(key));
-          ctx.state.env.delete(key);
-        }
-      }
+      const currentCompreply = getArray(ctx, "COMPREPLY");
+      const savedCompreply = currentCompreply
+        ? cloneArray(currentCompreply)
+        : undefined;
+      const savedCompreplyScalar = ctx.state.env.get("COMPREPLY");
+      clearArray(ctx, "COMPREPLY");
+      ctx.state.env.delete("COMPREPLY");
 
       // Determine the arguments to pass to the function
       // bash passes: command_name, word_being_completed, previous_word
@@ -478,7 +482,10 @@ export async function handleCompgen(
         if (funcResult.exitCode !== 0) {
           // Restore saved environment
           restoreEnv(ctx, savedEnv);
-          restoreEnv(ctx, savedCompreply);
+          restoreCompletionArray(ctx, "COMP_WORDS", savedCompWords);
+          restoreCompletionArray(ctx, "COMPREPLY", savedCompreply);
+          if (savedCompreplyScalar !== undefined)
+            ctx.state.env.set("COMPREPLY", savedCompreplyScalar);
           return result("", funcResult.stderr, 1);
         }
 
@@ -491,13 +498,19 @@ export async function handleCompgen(
       } catch {
         // If function execution fails, return exit code 1
         restoreEnv(ctx, savedEnv);
-        restoreEnv(ctx, savedCompreply);
+        restoreCompletionArray(ctx, "COMP_WORDS", savedCompWords);
+        restoreCompletionArray(ctx, "COMPREPLY", savedCompreply);
+        if (savedCompreplyScalar !== undefined)
+          ctx.state.env.set("COMPREPLY", savedCompreplyScalar);
         return result("", "", 1);
       }
 
       // Restore saved environment
       restoreEnv(ctx, savedEnv);
-      restoreEnv(ctx, savedCompreply);
+      restoreCompletionArray(ctx, "COMP_WORDS", savedCompWords);
+      restoreCompletionArray(ctx, "COMPREPLY", savedCompreply);
+      if (savedCompreplyScalar !== undefined)
+        ctx.state.env.set("COMPREPLY", savedCompreplyScalar);
     }
   }
 
@@ -579,27 +592,13 @@ function getVariableNames(
 ): string[] {
   const names: Set<string> = new Set();
 
-  // Add all environment variables
+  // Add scalar and array names from their separate namespaces.
   for (const key of ctx.state.env.keys()) {
-    // Skip internal array markers
-    if (key.includes("_") && /^[a-zA-Z_][a-zA-Z0-9_]*_\d+$/.test(key)) {
-      continue;
-    }
-    if (key.endsWith("__length")) {
-      continue;
-    }
-    // Extract base name for array variables
-    const baseName = key.split("_")[0];
     if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
       names.add(key);
-    } else if (
-      baseName &&
-      /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(baseName) &&
-      ctx.state.env.has(`${baseName}__length`)
-    ) {
-      names.add(baseName);
     }
   }
+  for (const name of ctx.state.arrays?.keys() ?? []) names.add(name);
 
   // Filter by prefix if provided
   let resultArr = Array.from(names);
@@ -627,15 +626,7 @@ function getExportedVariableNames(
   }
 
   // Filter out variables that don't exist or are internal
-  resultArr = resultArr.filter((n) => {
-    if (n.includes("_") && /^[a-zA-Z_][a-zA-Z0-9_]*_\d+$/.test(n)) {
-      return false;
-    }
-    if (n.endsWith("__length")) {
-      return false;
-    }
-    return ctx.state.env.has(n);
-  });
+  resultArr = resultArr.filter((n) => ctx.state.env.has(n));
 
   // Sort alphabetically
   return resultArr.sort();
@@ -1004,6 +995,16 @@ function restoreEnv(
   }
 }
 
+function restoreCompletionArray(
+  ctx: InterpreterContext,
+  name: string,
+  saved: ReturnType<typeof getArray>,
+): void {
+  ctx.state.arrays ??= new Map();
+  if (saved) ctx.state.arrays.set(name, cloneArray(saved));
+  else ctx.state.arrays.delete(name);
+}
+
 /**
  * Get COMPREPLY values (supports both scalar and array)
  * Returns values in order, skipping sparse array gaps
@@ -1012,10 +1013,7 @@ function getCompreplyValues(ctx: InterpreterContext): string[] {
   const values: string[] = [];
 
   // Check if COMPREPLY is an array
-  const lengthKey = "COMPREPLY__length";
-  const arrayLength = ctx.state.env.get(lengthKey);
-
-  if (arrayLength !== undefined) {
+  if (hasArray(ctx, "COMPREPLY")) {
     // It's an array - get elements using getArrayElements helper
     // getArrayElements returns Array<[index, value]>
     const elements = getArrayElements(ctx, "COMPREPLY");

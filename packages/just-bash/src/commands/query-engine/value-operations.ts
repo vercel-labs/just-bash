@@ -71,24 +71,47 @@ export function deepMerge(
  * Calculate the nesting depth of a value (array or object).
  */
 export function getValueDepth(value: QueryValue, maxCheck = 3000): number {
-  let depth = 0;
-  let current: QueryValue = value;
-  while (depth < maxCheck) {
+  const stack: Array<{ value: QueryValue; depth: number }> = [
+    { value, depth: 0 },
+  ];
+  const seenDepth = new WeakMap<object, number>();
+  let maximum = 0;
+
+  while (stack.length > 0) {
+    const entry = stack.pop();
+    if (!entry) break;
+    const current = entry.value;
+    if (current === null || typeof current !== "object") continue;
+
+    const containerDepth = entry.depth + 1;
+    if (containerDepth >= maxCheck) return maxCheck;
+    maximum = Math.max(maximum, containerDepth);
+
+    const previousDepth = seenDepth.get(current);
+    if (previousDepth !== undefined) {
+      // A repeated reference at the same or a deeper position is cyclic (or
+      // an equivalent shared graph) and cannot be safely recursively walked.
+      if (containerDepth >= previousDepth) return maxCheck;
+      continue;
+    }
+    seenDepth.set(current, containerDepth);
+
     if (Array.isArray(current)) {
-      if (current.length === 0) return depth + 1;
-      current = current[0];
-      depth++;
-    } else if (current !== null && typeof current === "object") {
-      const keys = Object.keys(current);
-      if (keys.length === 0) return depth + 1;
-      // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
-      current = (current as Record<string, unknown>)[keys[0]];
-      depth++;
+      for (let i = current.length - 1; i >= 0; i--) {
+        stack.push({ value: current[i], depth: containerDepth });
+      }
     } else {
-      return depth;
+      for (const key of Object.keys(current)) {
+        // @banned-pattern-ignore: Object.keys returns own properties only
+        stack.push({
+          value: (current as Record<string, unknown>)[key],
+          depth: containerDepth,
+        });
+      }
     }
   }
-  return depth;
+
+  return maximum;
 }
 
 /**

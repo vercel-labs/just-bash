@@ -51,6 +51,13 @@ describe("paste command", () => {
   });
 
   describe("-d (delimiter)", () => {
+    it("treats an empty delimiter list as an empty separator", async () => {
+      const env = createEnv();
+      const result = await env.exec("paste -d '' file1.txt file2.txt");
+      expect(result.stdout).toBe("a1\nb2\nc3\n");
+      expect(result.stdout).not.toContain("undefined");
+    });
+
     it("should use custom delimiter", async () => {
       const env = createEnv();
       const result = await env.exec("paste -d, file1.txt file2.txt");

@@ -387,23 +387,22 @@ export const fileCommand: Command = {
 
     let brief = false;
     let mimeMode = false;
+    let dereference = false;
     const files: string[] = [];
 
     for (const arg of args) {
       if (arg.startsWith("--")) {
         if (arg === "--brief") brief = true;
         else if (arg === "--mime" || arg === "--mime-type") mimeMode = true;
-        else if (arg === "--dereference") {
-          /* no-op */
-        } else return unknownOption("file", arg);
+        else if (arg === "--dereference") dereference = true;
+        else return unknownOption("file", arg);
       } else if (arg.startsWith("-") && arg !== "-") {
         // Handle combined short flags like -bi
         for (const c of arg.slice(1)) {
           if (c === "b") brief = true;
           else if (c === "i") mimeMode = true;
-          else if (c === "L") {
-            /* no-op */
-          } else return unknownOption("file", `-${c}`);
+          else if (c === "L") dereference = true;
+          else return unknownOption("file", `-${c}`);
         }
       } else {
         files.push(arg);
@@ -424,7 +423,18 @@ export const fileCommand: Command = {
     for (const file of files) {
       try {
         const path = ctx.fs.resolvePath(ctx.cwd, file);
-        const stats = await ctx.fs.stat(path);
+        const stats = dereference
+          ? await ctx.fs.stat(path)
+          : await ctx.fs.lstat(path);
+
+        if (stats.isSymbolicLink) {
+          const target = await ctx.fs.readlink(path);
+          const result = mimeMode
+            ? "inode/symlink"
+            : `symbolic link to ${target}`;
+          output += brief ? `${result}\n` : `${file}: ${result}\n`;
+          continue;
+        }
 
         if (stats.isDirectory) {
           const result = mimeMode ? "inode/directory" : "directory";

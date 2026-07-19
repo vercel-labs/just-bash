@@ -7,7 +7,8 @@
  * If no FILE is specified, standard input is read.
  */
 
-import { decodeBytesToUtf8 } from "../../encoding.js";
+import { decodeBytesToUtf8, utf8ByteLength } from "../../encoding.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -87,6 +88,7 @@ function processContent(
   content: string,
   options: NlOptions,
   currentNumber: number,
+  maxOutputBytes: number,
 ): { output: string; nextNumber: number } {
   // Handle empty input
   if (content === "") {
@@ -95,6 +97,7 @@ function processContent(
 
   const lines = content.split("\n");
   const resultLines: string[] = [];
+  let outputBytes = 0;
   let lineNumber = currentNumber;
 
   // Handle trailing newline
@@ -105,19 +108,50 @@ function processContent(
   }
 
   for (const line of lines) {
+    const newlineBytes = resultLines.length > 0 ? 1 : 0;
+    const suffixBytes =
+      utf8ByteLength(options.separator) + utf8ByteLength(line);
     if (shouldNumber(line, options.bodyStyle)) {
+      const prospectiveBytes =
+        Math.max(String(lineNumber).length, options.width) +
+        suffixBytes +
+        newlineBytes;
+      if (prospectiveBytes > maxOutputBytes - outputBytes) {
+        throw new ExecutionLimitError(
+          `nl: output size limit exceeded (${maxOutputBytes} bytes)`,
+          "output_size",
+        );
+      }
       const formattedNum = formatLineNumber(
         lineNumber,
         options.numberFormat,
         options.width,
       );
-      resultLines.push(`${formattedNum}${options.separator}${line}`);
+      const outputLine = `${formattedNum}${options.separator}${line}`;
+      resultLines.push(outputLine);
+      outputBytes += prospectiveBytes;
       lineNumber += options.increment;
     } else {
       // Empty line without numbering - just add padding spaces for alignment
+      const prospectiveBytes = options.width + suffixBytes + newlineBytes;
+      if (prospectiveBytes > maxOutputBytes - outputBytes) {
+        throw new ExecutionLimitError(
+          `nl: output size limit exceeded (${maxOutputBytes} bytes)`,
+          "output_size",
+        );
+      }
       const padding = " ".repeat(options.width);
-      resultLines.push(`${padding}${options.separator}${line}`);
+      const outputLine = `${padding}${options.separator}${line}`;
+      resultLines.push(outputLine);
+      outputBytes += prospectiveBytes;
     }
+  }
+
+  if (hasTrailingNewline && outputBytes + 1 > maxOutputBytes) {
+    throw new ExecutionLimitError(
+      `nl: output size limit exceeded (${maxOutputBytes} bytes)`,
+      "output_size",
+    );
   }
 
   return {
@@ -143,6 +177,11 @@ export const nl: Command = {
     };
 
     const files: string[] = [];
+    const maxFieldWidth = Math.min(
+      ctx.limits.maxStringLength,
+      ctx.limits.maxOutputSize,
+    );
+    const maxOutputBytes = maxFieldWidth;
     let i = 0;
 
     while (i < args.length) {
@@ -193,8 +232,12 @@ export const nl: Command = {
         options.numberFormat = format;
         i++;
       } else if (arg === "-w" && i + 1 < args.length) {
-        const width = parseInt(args[i + 1], 10);
-        if (Number.isNaN(width) || width < 1) {
+        const width = /^\d+$/.test(args[i + 1]) ? Number(args[i + 1]) : NaN;
+        if (
+          !Number.isSafeInteger(width) ||
+          width < 1 ||
+          width > maxFieldWidth
+        ) {
           return {
             exitCode: 1,
             stdout: "",
@@ -204,8 +247,12 @@ export const nl: Command = {
         options.width = width;
         i += 2;
       } else if (arg.startsWith("-w")) {
-        const width = parseInt(arg.slice(2), 10);
-        if (Number.isNaN(width) || width < 1) {
+        const width = /^\d+$/.test(arg.slice(2)) ? Number(arg.slice(2)) : NaN;
+        if (
+          !Number.isSafeInteger(width) ||
+          width < 1 ||
+          width > maxFieldWidth
+        ) {
           return {
             exitCode: 1,
             stdout: "",
@@ -282,7 +329,7 @@ export const nl: Command = {
       // Read from stdin. nl reads files as utf8 by default; normalize stdin
       // to text so the line-numbered output is consistent with file inputs.
       const input = decodeBytesToUtf8(ctx.stdin) ?? "";
-      const result = processContent(input, options, lineNumber);
+      const result = processContent(input, options, lineNumber, maxOutputBytes);
       output = result.output;
     } else {
       // Process each file
@@ -296,7 +343,12 @@ export const nl: Command = {
             stderr: `nl: ${file}: No such file or directory\n`,
           };
         }
-        const result = processContent(content, options, lineNumber);
+        const result = processContent(
+          content,
+          options,
+          lineNumber,
+          maxOutputBytes - utf8ByteLength(output),
+        );
         output += result.output;
         lineNumber = result.nextNumber;
       }
