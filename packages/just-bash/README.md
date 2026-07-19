@@ -53,6 +53,26 @@ await bash.exec("echo 'test' | upper"); // "TEST\n"
 
 Custom commands receive a `CommandContext` with `fs`, `cwd`, `env`, `stdin`, and `exec` (for subcommands), and work with pipes, redirections, and all shell features.
 
+Built-in commands can also be wrapped and registered as custom commands. This is
+useful for adding instrumentation or substituting parts of the command context
+without reimplementing the command:
+
+```typescript
+import { Bash, createBuiltinCommands, defineCommand } from "just-bash";
+
+const [builtinCat] = createBuiltinCommands(["cat"]);
+const cat = defineCommand("cat", async (args, ctx) => {
+  console.log("cat", args);
+  return builtinCat.execute(args, ctx);
+});
+
+const bash = new Bash({ customCommands: [cat] });
+```
+
+`createBuiltinCommands()` preserves lazy loading. With no argument it returns
+all standard built-in commands; pass command names to select only the commands
+you intend to wrap.
+
 <details>
 <summary><h2>Supported Commands</h2></summary>
 

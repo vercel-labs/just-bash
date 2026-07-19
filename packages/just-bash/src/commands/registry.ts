@@ -583,7 +583,7 @@ export function getNetworkCommandNames(): string[] {
  * Creates all lazy commands for registration (excludes network commands)
  * @param filter Optional array of command names to include. If not provided, all commands are created.
  */
-export function createLazyCommands(filter?: CommandName[]): Command[] {
+export function createLazyCommands(filter?: readonly CommandName[]): Command[] {
   const loaders = filter
     ? commandLoaders.filter((def) => filter.includes(def.name))
     : commandLoaders;
