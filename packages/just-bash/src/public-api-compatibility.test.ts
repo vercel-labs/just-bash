@@ -8,7 +8,7 @@ import {
 } from "./index.js";
 
 describe("public API source compatibility", () => {
-  it("separates legacy context inputs from resolved dispatch contexts", async () => {
+  it("keeps standalone inputs separate from resolved command callbacks", async () => {
     const context: CommandContext = {
       fs: new InMemoryFs(),
       cwd: "/",
@@ -33,5 +33,6 @@ describe("public API source compatibility", () => {
       exitCode: 0,
     });
     expect("limits" in context).toBe(false);
+    expect(dispatched.limits.maxOutputSize).toBeGreaterThan(0);
   });
 });

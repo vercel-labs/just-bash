@@ -523,16 +523,17 @@ export class Bash {
     if (options.customCommands) {
       for (const cmd of options.customCommands) {
         if (isLazyCommand(cmd)) {
-          this.registerCommand(createLazyCustomCommand(cmd));
+          const command = createLazyCustomCommand(cmd);
+          this.registerCommandInternal(command, true);
         } else {
-          this.registerCommand(cmd);
+          this.registerCommandInternal(cmd, true);
         }
       }
     }
   }
 
   registerCommand(command: Command): void {
-    this.registerCommandInternal(command, true, command.trusted !== false);
+    this.registerCommandInternal(command, true);
   }
 
   private registerBundledCommand(command: Command): void {
@@ -542,7 +543,7 @@ export class Bash {
   private registerCommandInternal(
     command: Command,
     isExtension: boolean,
-    trusted = command.trusted,
+    trusted = isExtension ? (command.trusted ?? true) : command.trusted,
   ): void {
     this.commands.set(command.name, {
       name: command.name,
@@ -597,17 +598,40 @@ export class Bash {
     options?: ExecOptions,
   ): Promise<BashExecResult> {
     const executionScope = new ExecutionScope(this.limits, options?.signal);
+    let result: BashExecResult;
     try {
-      return await this.execInScope(
+      result = await this.execInScope(
         commandLine,
         options,
         executionScope,
         0,
         options?.signal,
+        false, // stdinAlreadyAccounted
+        false, // defer result logging until cleanup finalizes the result
       );
-    } finally {
-      await executionScope.close();
+    } catch (error) {
+      // Cleanup must not hide the original execution failure.
+      try {
+        await executionScope.close();
+      } catch {
+        // The execution error remains the more useful and compatible failure.
+      }
+      throw error;
     }
+
+    let finalResult = result;
+    try {
+      await executionScope.close();
+    } catch {
+      // Cleanup callbacks are extension code. Convert their failure into a
+      // shell result so Bash.exec() keeps its result-oriented error contract.
+      finalResult = {
+        ...result,
+        stderr: `${result.stderr}bash: execution cleanup failed\n`,
+        exitCode: 126,
+      };
+    }
+    return commandLine.trim() ? this.logResult(finalResult) : finalResult;
   }
 
   private async execInScope(
@@ -617,7 +641,10 @@ export class Bash {
     execDepth: number,
     parentSignal: AbortSignal | undefined,
     stdinAlreadyAccounted = false,
+    shouldLogResult = true,
   ): Promise<BashExecResult> {
+    const finishResult = (result: BashExecResult): BashExecResult =>
+      shouldLogResult ? this.logResult(result) : result;
     const combinedAbort = combineAbortSignals(parentSignal, options?.signal);
     const effectiveOptions = options
       ? { ...options, signal: combinedAbort.signal }
@@ -792,7 +819,7 @@ export class Bash {
           if (metadata) {
             execResult.metadata = metadata;
           }
-          return this.logResult(execResult);
+          return finishResult(execResult);
         };
 
         // If defense-in-depth is enabled, run within the protected context
@@ -803,7 +830,7 @@ export class Bash {
       } catch (error) {
         // ExitError propagates from 'exit' builtin (including via eval/source)
         if (error instanceof ExitError) {
-          return this.logResult({
+          return finishResult({
             stdout: error.stdout,
             stderr: error.stderr,
             exitCode: error.exitCode,
@@ -812,7 +839,7 @@ export class Bash {
         }
         // PosixFatalError propagates from special builtins in POSIX mode
         if (error instanceof PosixFatalError) {
-          return this.logResult({
+          return finishResult({
             stdout: error.stdout,
             stderr: error.stderr,
             exitCode: error.exitCode,
@@ -820,7 +847,7 @@ export class Bash {
           });
         }
         if (error instanceof ArithmeticError) {
-          return this.logResult({
+          return finishResult({
             stdout: error.stdout,
             stderr: error.stderr,
             exitCode: 1,
@@ -829,7 +856,7 @@ export class Bash {
         }
         // ExecutionAbortedError is thrown when an AbortSignal fires (timeout cancellation)
         if (error instanceof ExecutionAbortedError) {
-          return this.logResult({
+          return finishResult({
             stdout: error.stdout,
             stderr: error.stderr,
             exitCode: 124, // Same as timeout exit code
@@ -839,7 +866,7 @@ export class Bash {
         // ExecutionLimitError is thrown when our conservative limits are exceeded
         // (command count, recursion depth, loop iterations)
         if (error instanceof ExecutionLimitError) {
-          return this.logResult({
+          return finishResult({
             stdout: error.stdout,
             stderr: sanitizeErrorMessage(error.stderr),
             exitCode: ExecutionLimitError.EXIT_CODE,
@@ -848,7 +875,7 @@ export class Bash {
         }
         // SecurityViolationError is thrown when defense-in-depth detects a blocked operation
         if (error instanceof SecurityViolationError) {
-          return this.logResult({
+          return finishResult({
             stdout: "",
             stderr: `bash: security violation: ${sanitizeErrorMessage(error.message)}\n`,
             exitCode: 1,
@@ -856,7 +883,7 @@ export class Bash {
           });
         }
         if ((error as ParseException).name === "ParseException") {
-          return this.logResult({
+          return finishResult({
             stdout: "",
             stderr: `bash: syntax error: ${sanitizeErrorMessage((error as Error).message)}\n`,
             exitCode: 2,
@@ -865,7 +892,7 @@ export class Bash {
         }
         // LexerError is thrown for lexer-level issues like unterminated quotes
         if (error instanceof LexerError) {
-          return this.logResult({
+          return finishResult({
             stdout: "",
             stderr: `bash: ${sanitizeErrorMessage(error.message)}\n`,
             exitCode: 2,
@@ -874,7 +901,7 @@ export class Bash {
         }
         // RangeError occurs when JavaScript call stack is exceeded (deep recursion)
         if (error instanceof RangeError) {
-          return this.logResult({
+          return finishResult({
             stdout: "",
             stderr: `bash: ${sanitizeErrorMessage(error.message)}\n`,
             exitCode: 1,
@@ -888,7 +915,7 @@ export class Bash {
       }
     } catch (error) {
       if (error instanceof ExecutionAbortedError) {
-        return this.logResult({
+        return finishResult({
           stdout: error.stdout,
           stderr: error.stderr,
           exitCode: 124,
@@ -896,7 +923,7 @@ export class Bash {
         });
       }
       if (error instanceof ExecutionLimitError) {
-        return this.logResult({
+        return finishResult({
           stdout: error.stdout,
           stderr: sanitizeErrorMessage(error.stderr),
           exitCode: ExecutionLimitError.EXIT_CODE,

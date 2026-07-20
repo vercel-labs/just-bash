@@ -295,6 +295,44 @@ describe("custom-commands", () => {
 
       expect((await bash.exec("trusted-lazy")).stdout).toBe("ok\n");
     });
+
+    it("preserves trusted execution for commands registered later", async () => {
+      const bash = new Bash();
+      bash.registerCommand({
+        name: "late-trusted-default",
+        execute: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          return { stdout: "ok\n", stderr: "", exitCode: 0 };
+        },
+      });
+
+      const result = await bash.exec("late-trusted-default");
+
+      expect(result).toMatchObject({
+        stdout: "ok\n",
+        stderr: "",
+        exitCode: 0,
+      });
+    });
+
+    it("allows commands registered later to opt into restriction", async () => {
+      const bash = new Bash();
+      bash.registerCommand({
+        name: "late-restricted",
+        trusted: false,
+        execute: async () => {
+          setTimeout(() => {}, 1);
+          return { stdout: "unexpected\n", stderr: "", exitCode: 0 };
+        },
+      });
+
+      const result = await bash.exec("late-restricted");
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("setTimeout is blocked");
+    });
+
     it("registers and executes a simple custom command", async () => {
       const hello = defineCommand("hello", async (args) => ({
         stdout: `Hello, ${args[0] || "world"}!\n`,

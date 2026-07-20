@@ -16,11 +16,9 @@ export interface DefenseInDepthConfig {
   /**
    * Enable, disable, or capability-detect the defense layer.
    *
-   * `"auto"` (the default used by `Bash`) enables protection only when the
-   * runtime provides context-aware ESM loader hooks. Explicit `true` fails
-   * closed when that boundary cannot be enforced. This keeps Node 20/22
-   * usable without pretending that their asynchronous loader hooks can see
-   * the caller's sandbox context.
+   * `true` (the default used by `Bash`) and `"auto"` both enable the strongest
+   * protection supported by the current runtime. Inspect `getStatus()` when a
+   * host requires the full contextual dynamic-import boundary.
    */
   enabled?: boolean | "auto";
 
@@ -55,6 +53,12 @@ export interface DefenseInDepthConfig {
 export interface DefenseInDepthStatus {
   requested: "auto" | "enabled" | "disabled";
   state: "enabled" | "unsupported" | "disabled";
+  /**
+   * Overall effective enforcement strength without changing the legacy
+   * `state` contract. Audit mode always reports `"none"` because it records
+   * violations without blocking them.
+   */
+  level: "full" | "best-effort" | "none";
   contextualDynamicImportProtection: boolean;
   processLifetimeIntrinsicHardening: boolean;
   /**

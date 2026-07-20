@@ -7,6 +7,40 @@ function never(): Promise<never> {
 }
 
 describe("custom command deadline boundary", () => {
+  it("returns a shell failure when extension cleanup fails", async () => {
+    const logs: Array<{
+      message: string;
+      data?: Record<string, unknown>;
+    }> = [];
+    const bash = new Bash({
+      defenseInDepth: false,
+      logger: {
+        info: (message, data) => logs.push({ message, data }),
+        debug: (message, data) => logs.push({ message, data }),
+      },
+      customCommands: [
+        defineCommand("cleanup-failure", async (_args, ctx) => {
+          ctx.executionScope?.registerCleanup(() => {
+            throw new Error("sensitive cleanup detail");
+          });
+          return { stdout: "command output\n", stderr: "", exitCode: 0 };
+        }),
+      ],
+    });
+
+    await expect(bash.exec("cleanup-failure")).resolves.toMatchObject({
+      stdout: "command output\n",
+      stderr: "bash: execution cleanup failed\n",
+      exitCode: 126,
+    });
+    expect(logs.filter(({ message }) => message === "exit")).toEqual([
+      { message: "exit", data: { exitCode: 126 } },
+    ]);
+    expect(logs.find(({ message }) => message === "stderr")?.data).toEqual({
+      output: "bash: execution cleanup failed\n",
+    });
+  });
+
   it("exposes an inert stable filesystem identity instead of the filesystem", async () => {
     const identities: object[] = [];
     let mutationError: unknown;

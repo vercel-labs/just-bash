@@ -82,7 +82,7 @@ describe("readlink", () => {
     });
 
     it("bounds aggregate symlink traversal", async () => {
-      const env = new Bash({ executionLimits: { maxLoopIterations: 2 } });
+      const env = new Bash({ executionLimits: { maxTraversalWork: 2 } });
       await env.exec("ln -s /tmp/two /tmp/one");
       await env.exec("ln -s /tmp/three /tmp/two");
       await env.exec("ln -s /tmp/four /tmp/three");

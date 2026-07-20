@@ -57,20 +57,25 @@ pipes, redirections, and all shell features. The legacy `CommandContext` remains
 available for standalone context inputs; use `createCommandContext({ fs })` when
 calling a command directly with a fully resolved context.
 
-Custom commands preserve the legacy trusted default whether registered
-directly, through `defineCommand`, or through a lazy loader. Set
-`trusted: false` (or use `defineCommand(name, execute, { trusted: false })`) to
-select the restricted extension boundary. Trusted commands run in the embedding
-process and should never execute guest-provided JavaScript.
+Host-provided commands preserve the legacy trusted default whether supplied to
+the `Bash` constructor, declared through `defineCommand`, loaded lazily, or
+added later with `bash.registerCommand()`. Set `trusted: false` (or use
+`defineCommand(name, execute, { trusted: false })`) to select the restricted
+extension boundary. Trusted commands run in the embedding process and should
+never execute guest-provided JavaScript.
 
 Every invocation is bound by `maxExecutionTimeMs`. On cancellation, just-bash
-allows at most `maxExtensionCleanupTimeMs` for cooperative cleanup and then
-revokes the command's context. A late continuation cannot use `ctx.fs`,
-`ctx.env`, `ctx.exec`, or other context capabilities. JavaScript cannot forcibly
-stop arbitrary host code, so extensions requiring a hard guarantee against
-external side effects must run in a terminable worker or process. Tests that
-invoke command objects directly can use `createCommandContext({ fs })` to get a
-fully resolved context without duplicating internal defaults.
+revokes the command context immediately; `maxExtensionCleanupTimeMs` only
+bounds how long it waits for the now-authority-free command promise to settle.
+A late continuation cannot use `ctx.fs`, `ctx.env`, `ctx.exec`, or other context
+capabilities. Cleanup work that must run at scope closure can be registered with
+`ctx.executionScope.registerCleanup()`. A cleanup failure is returned as a
+generic exit-126 shell result rather than rejecting `Bash.exec()` or exposing
+host error details. JavaScript cannot forcibly stop arbitrary host code, so
+extensions requiring a hard guarantee against external side effects must run
+in a terminable worker or process. Tests that invoke command objects directly
+can use `createCommandContext({ fs })` to get a fully resolved context without
+duplicating internal defaults.
 
 <details>
 <summary><h2>Supported Commands</h2></summary>
@@ -623,6 +628,8 @@ platform timer rather than overflowing it. Invalid values are rejected when
 
 ## Security Model
 
+The Node.js package requires Node `>=20.18.1`.
+
 - The shell only has access to the provided filesystem.
 - All execution happens without VM isolation. This does introduce additional risk. The code base was designed to be robust against prototype-pollution attacks and other break outs to the host JS engine and filesystem.
 - There is no network access by default. When enabled, requests are checked against URL prefix allow-lists and HTTP-method allow-lists.
@@ -634,6 +641,8 @@ platform timer rather than overflowing it. Invalid values are rejected when
   older runtimes retain best-effort scoped protection without failing existing
   applications. It never installs a process-global deny-all loader. Query the
   resolved capabilities with `DefenseInDepthBox.getInstance().getStatus()`.
+  Audit mode reports `level: "none"` because it records violations without
+  enforcing them.
 - Scoped defense uses reversible proxies for `Reflect`, `JSON`, and `Math` and
   restores their host descriptors on deactivation. This is reported as
   `intrinsicProtection: "scoped-best-effort"`: same-realm JavaScript that

@@ -262,6 +262,11 @@ export function resolveLimits(
   userLimits?: ExecutionLimits,
   profile: ExecutionLimitProfile = "normal",
 ): Required<ExecutionLimits> {
+  if (profile !== "normal" && profile !== "hardened") {
+    throw new RangeError(
+      `executionLimitProfile must be "normal" or "hardened"`,
+    );
+  }
   const defaults = profile === "hardened" ? HARDENED_LIMITS : DEFAULT_LIMITS;
   if (!userLimits) {
     return { ...defaults };
@@ -278,32 +283,21 @@ export function resolveLimits(
     maxJqIterations: userLimits.maxJqIterations ?? defaults.maxJqIterations,
     maxQueryTokens: userLimits.maxQueryTokens ?? defaults.maxQueryTokens,
     maxQueryDepth: userLimits.maxQueryDepth ?? defaults.maxQueryDepth,
-    maxQueryElements:
-      userLimits.maxQueryElements ??
-      userLimits.maxArrayElements ??
-      defaults.maxQueryElements,
+    maxQueryElements: userLimits.maxQueryElements ?? defaults.maxQueryElements,
     maxAwkParserTokens:
       userLimits.maxAwkParserTokens ?? defaults.maxAwkParserTokens,
     maxAwkParserDepth:
       userLimits.maxAwkParserDepth ?? defaults.maxAwkParserDepth,
     maxAwkParserOperations:
       userLimits.maxAwkParserOperations ?? defaults.maxAwkParserOperations,
-    maxCsvRows:
-      userLimits.maxCsvRows ??
-      userLimits.maxArrayElements ??
-      defaults.maxCsvRows,
+    maxCsvRows: userLimits.maxCsvRows ?? defaults.maxCsvRows,
     maxCsvCells: userLimits.maxCsvCells ?? defaults.maxCsvCells,
     maxWorkUnits: userLimits.maxWorkUnits ?? defaults.maxWorkUnits,
     maxTraversalEntries:
-      userLimits.maxTraversalEntries ??
-      userLimits.maxLoopIterations ??
-      defaults.maxTraversalEntries,
+      userLimits.maxTraversalEntries ?? defaults.maxTraversalEntries,
     maxTraversalDepth:
       userLimits.maxTraversalDepth ?? defaults.maxTraversalDepth,
-    maxTraversalWork:
-      userLimits.maxTraversalWork ??
-      userLimits.maxLoopIterations ??
-      defaults.maxTraversalWork,
+    maxTraversalWork: userLimits.maxTraversalWork ?? defaults.maxTraversalWork,
     maxLiveBytes: userLimits.maxLiveBytes ?? defaults.maxLiveBytes,
     maxInputBytes: userLimits.maxInputBytes ?? defaults.maxInputBytes,
     maxFileSystemBytes:

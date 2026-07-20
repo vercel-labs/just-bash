@@ -268,7 +268,12 @@ export interface RuntimeCommandContext {
 export type CommandContext = Omit<
   RuntimeCommandContext,
   "limits" | "executionScope"
->;
+> & {
+  /** Fully resolved when Bash dispatches the command; optional for legacy direct calls. */
+  limits?: Required<ExecutionLimits>;
+  /** Shared accounting is only available for interpreter-dispatched commands. */
+  executionScope?: CommandExecutionBudget;
+};
 
 /** Context supplied by Bash when dispatching a registered command. */
 export type ResolvedCommandContext = RuntimeCommandContext;
@@ -276,8 +281,8 @@ export type ResolvedCommandContext = RuntimeCommandContext;
 export interface Command {
   name: string;
   /**
-   * Commands registered by a host are trusted by default for compatibility.
-   * Set false to run the command through the restricted extension boundary.
+   * Host-provided commands are trusted by default for compatibility. Set this
+   * to false to select the restricted extension boundary.
    * Built-in commands should generally remain untrusted and use explicit
    * trusted wrappers only at narrow infrastructure boundaries.
    */

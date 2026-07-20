@@ -11,6 +11,9 @@
     "url": "https://github.com/vercel-labs/just-bash/issues"
   },
   "type": "module",
+  "engines": {
+    "node": ">=20.18.1"
+  },
   "main": "dist/bundle/index.js",
   "types": "dist/index.d.ts",
   "exports": {

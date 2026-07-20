@@ -5,7 +5,7 @@ describe("rmdir resource limits", () => {
   it("bounds -p parent traversal", async () => {
     const env = new Bash({
       files: { "/a/b/c/file": "x" },
-      executionLimits: { maxLoopIterations: 1 },
+      executionLimits: { maxTraversalWork: 1 },
     });
     await env.exec("rm /a/b/c/file");
     const result = await env.exec("rmdir -p /a/b/c");

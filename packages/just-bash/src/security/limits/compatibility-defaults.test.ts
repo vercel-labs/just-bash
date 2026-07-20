@@ -31,16 +31,30 @@ describe("compatibility-safe execution limit configuration", () => {
     expect(result).toMatchObject({ stdout: "ok\n", stderr: "", exitCode: 0 });
   });
 
-  it("separates query shape limits from shell call and loop limits", () => {
+  it("keeps resource-specific limits independent from legacy shell limits", () => {
+    const defaults = resolveLimits();
     const limits = resolveLimits({
       maxCallDepth: 17,
       maxJqIterations: 23,
       maxArrayElements: 31,
+      maxLoopIterations: 37,
     });
 
     expect(limits.maxQueryDepth).toBe(1_000);
     expect(limits.maxQueryTokens).toBe(100_000);
-    expect(limits.maxQueryElements).toBe(31);
+    expect(limits.maxQueryElements).toBe(defaults.maxQueryElements);
+    expect(limits.maxCsvRows).toBe(defaults.maxCsvRows);
+    expect(limits.maxTraversalEntries).toBe(defaults.maxTraversalEntries);
+    expect(limits.maxTraversalWork).toBe(defaults.maxTraversalWork);
+  });
+
+  it("rejects unknown execution limit profiles", () => {
+    expect(() => resolveLimits(undefined, "strict" as never)).toThrow(
+      RangeError,
+    );
+    expect(
+      () => new Bash({ executionLimitProfile: "strict" as never }),
+    ).toThrow(RangeError);
   });
 
   it("allows trusted hosts to configure byte budgets above 256 MiB", () => {

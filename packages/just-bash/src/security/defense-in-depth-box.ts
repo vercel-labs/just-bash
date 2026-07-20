@@ -196,6 +196,16 @@ function resolveConfig(
 ): ResolvedDefenseConfig {
   const supplied =
     typeof config === "boolean" ? { enabled: config } : (config ?? {});
+  if (
+    supplied.enabled !== undefined &&
+    supplied.enabled !== true &&
+    supplied.enabled !== false &&
+    supplied.enabled !== "auto"
+  ) {
+    throw new RangeError(
+      'defenseInDepth.enabled must be true, false, or "auto"',
+    );
+  }
   const merged = {
     ...DEFAULT_CONFIG,
     ...supplied,
@@ -446,6 +456,7 @@ export class DefenseInDepthBox {
       return {
         requested: "disabled",
         state: "disabled",
+        level: "none",
         contextualDynamicImportProtection,
         processLifetimeIntrinsicHardening:
           this.config.processLifetimeIntrinsicHardening === true,
@@ -458,6 +469,7 @@ export class DefenseInDepthBox {
       return {
         requested: this.config.requested,
         state: "unsupported",
+        level: "none",
         contextualDynamicImportProtection: false,
         processLifetimeIntrinsicHardening:
           this.config.processLifetimeIntrinsicHardening === true,
@@ -471,15 +483,22 @@ export class DefenseInDepthBox {
     return {
       requested: this.config.requested,
       state: "enabled",
+      level: this.config.auditMode
+        ? "none"
+        : contextualDynamicImportProtection
+          ? "full"
+          : "best-effort",
       contextualDynamicImportProtection,
       processLifetimeIntrinsicHardening:
         this.config.processLifetimeIntrinsicHardening === true,
       intrinsicProtection: this.config.processLifetimeIntrinsicHardening
         ? "process-lifetime"
         : "scoped-best-effort",
-      reason: contextualDynamicImportProtection
-        ? undefined
-        : "best-effort protection; context-aware ESM loader hooks are unavailable",
+      reason: this.config.auditMode
+        ? "audit mode records violations but does not block them"
+        : contextualDynamicImportProtection
+          ? undefined
+          : "best-effort protection; context-aware ESM loader hooks are unavailable",
     };
   }
 

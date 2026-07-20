@@ -37,10 +37,25 @@ describe("defense runtime capability resolution", () => {
           if (status.contextualDynamicImportProtection !== ${supportsContextualHooks}) {
             throw new Error("unexpected loader protection status: " + JSON.stringify(status));
           }
+          if (status.level !== (${supportsContextualHooks} ? "full" : "best-effort")) {
+            throw new Error("unexpected defense level: " + JSON.stringify(status));
+          }
           const autoHandle = automatic.activate();
           autoHandle.deactivate();
           const hostDataBefore = await import("data:text/javascript,export default 'host-before'");
           if (hostDataBefore.default !== "host-before") throw new Error("host data import was blocked");
+          DefenseInDepthBox.resetInstance();
+
+          let invalidRejected = false;
+          try { DefenseInDepthBox.getInstance({ enabled: "strict" }); }
+          catch (error) { invalidRejected = error instanceof RangeError; }
+          if (!invalidRejected) throw new Error("invalid defense mode was accepted");
+
+          const audit = DefenseInDepthBox.getInstance({ enabled: true, auditMode: true });
+          const auditStatus = audit.getStatus();
+          if (auditStatus.level !== "none" || !auditStatus.reason?.includes("does not block")) {
+            throw new Error("audit mode advertised enforcement: " + JSON.stringify(auditStatus));
+          }
           DefenseInDepthBox.resetInstance();
 
           if (!${supportsContextualHooks}) {

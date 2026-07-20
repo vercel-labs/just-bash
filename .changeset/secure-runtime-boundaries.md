@@ -11,4 +11,6 @@ Established command declarations and host-extension defaults remain source
 compatible. Dispatched callbacks receive a `ResolvedCommandContext` with
 required limits; applications can use `createCommandContext({ fs })` for direct
 invocation, opt into restricted custom-command execution with `trusted: false`,
-and select tighter resource policy with the `hardened` profile.
+and select tighter resource policy with the `hardened` profile. All
+host-registration paths keep their established trusted default. The supported
+Node.js floor is now declared as `>=20.18.1`.
