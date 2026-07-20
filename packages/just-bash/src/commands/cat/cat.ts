@@ -7,6 +7,7 @@ import type {
   RuntimeCommandContext,
 } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
+import { accountFileInput } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const catHelp = {
@@ -118,13 +119,17 @@ export const catCommand: RuntimeCommand = {
             : await readBytesFrom(ctx.fs, ctx.fs.resolvePath(ctx.cwd, file));
         const rawContent = latin1FromBytes(content);
         const contentLength = rawContent.length;
-        const inputLimit = transform ? maxStringLength : maxOutputSize;
+        const inputLimit = Math.min(
+          transform ? maxStringLength : maxOutputSize,
+          ctx.limits.maxInputBytes,
+        );
         if (contentLength > inputLimit - aggregateInputBytes) {
           throw new ExecutionLimitError(
             `cat: ${transform ? "input" : "output"} size limit exceeded (${inputLimit} bytes)`,
             transform ? "string_length" : "output_size",
           );
         }
+        if (file !== "-") accountFileInput(ctx, contentLength, "cat");
         aggregateInputBytes += contentLength;
         stream += rawContent;
       } catch (error) {

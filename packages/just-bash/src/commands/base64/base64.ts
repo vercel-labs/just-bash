@@ -11,6 +11,7 @@ import type {
   RuntimeCommandContext,
 } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
+import { accountFileInput } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const base64Help = {
@@ -118,6 +119,7 @@ async function readBinary(
         "input size",
         "string_length",
       );
+      accountFileInput(ctx, data.length, cmdName);
       chunks.push(data);
       totalLength += data.length;
     } catch (error) {

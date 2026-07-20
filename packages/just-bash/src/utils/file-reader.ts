@@ -6,6 +6,7 @@
  */
 
 import { type ByteString, EMPTY_BYTES, readBytesFrom } from "../encoding.js";
+import { ExecutionLimitError } from "../interpreter/errors.js";
 import type { ExecResult, RuntimeCommandContext } from "../types.js";
 import { DEFAULT_BATCH_SIZE } from "./constants.js";
 
@@ -38,6 +39,25 @@ export interface ReadFilesResult {
   stderr: string;
   /** 0 if all files read successfully, 1 if any errors */
   exitCode: number;
+}
+
+/** Charge bytes read from a file to the execution-wide input budget. */
+export function accountFileInput(
+  ctx: RuntimeCommandContext,
+  bytes: number,
+  site: string,
+): void {
+  if (
+    !Number.isSafeInteger(bytes) ||
+    bytes < 0 ||
+    bytes > ctx.limits.maxInputBytes
+  ) {
+    throw new ExecutionLimitError(
+      `${site}: input size limit exceeded (${ctx.limits.maxInputBytes} bytes)`,
+      "string_length",
+    );
+  }
+  ctx.executionScope?.consumeInput(bytes, site);
 }
 
 /**

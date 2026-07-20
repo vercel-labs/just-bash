@@ -887,6 +887,14 @@ export class Bash {
         defenseHandle?.deactivate();
       }
     } catch (error) {
+      if (error instanceof ExecutionAbortedError) {
+        return this.logResult({
+          stdout: error.stdout,
+          stderr: error.stderr,
+          exitCode: 124,
+          env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+        });
+      }
       if (error instanceof ExecutionLimitError) {
         return this.logResult({
           stdout: error.stdout,
