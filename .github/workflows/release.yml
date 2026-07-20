@@ -48,6 +48,12 @@ jobs:
           cache: "pnpm"
           registry-url: "https://registry.npmjs.org"
 
+      # node-liblzma is compiled during install. Keep this in sync with the
+      # unit-test workflow so the release gate exercises XZ support rather
+      # than silently installing without a usable native codec.
+      - name: Install XZ build dependency
+        run: sudo apt-get update && sudo apt-get install --yes liblzma-dev
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
