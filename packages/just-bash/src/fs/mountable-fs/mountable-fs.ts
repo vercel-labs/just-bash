@@ -33,6 +33,11 @@ export interface MountConfig {
  * Options for creating a MountableFs
  */
 export interface MountableFsOptions {
+  /**
+   * Allow a mount to sit inside another mount (defaults to false, which
+   * rejects it). See {@link MountableFs.mount} for the semantics.
+   */
+  allowNestedMounts?: boolean;
   /** Base filesystem used for unmounted paths (defaults to InMemoryFs) */
   base?: IFileSystem;
   /** Initial mounts to configure */
@@ -62,10 +67,12 @@ interface MountEntry {
  * ```
  */
 export class MountableFs implements IFileSystem {
+  private allowNestedMounts: boolean;
   private baseFs: IFileSystem;
   private mounts: Map<string, MountEntry> = new Map();
 
   constructor(options?: MountableFsOptions) {
+    this.allowNestedMounts = options?.allowNestedMounts ?? false;
     this.baseFs = options?.base ?? new InMemoryFs();
 
     // Add initial mounts
@@ -79,9 +86,17 @@ export class MountableFs implements IFileSystem {
   /**
    * Mount a filesystem at the specified virtual path.
    *
+   * With `allowNestedMounts`, mounts may nest: mounting `/data/private` inside
+   * an existing `/data` mount shadows that subtree, the way an OS mount does.
+   * The deepest mount owning a path wins, so `/data/private/key` routes to the
+   * inner filesystem while `/data/notes.txt` stays with the outer one, and
+   * unmounting reveals the outer filesystem's contents again. Without the
+   * option, an overlapping mount is rejected.
+   *
    * @param mountPoint - The virtual path where the filesystem will be accessible
    * @param filesystem - The filesystem to mount
-   * @throws Error if mounting at root '/' or inside an existing mount
+   * @throws Error if mounting at root '/', or inside an existing mount unless
+   * `allowNestedMounts` is set
    */
   mount(mountPoint: string, filesystem: IFileSystem): void {
     // Validate original path first (before normalization)
@@ -156,6 +171,10 @@ export class MountableFs implements IFileSystem {
       throw new Error("Cannot mount at root '/'");
     }
 
+    if (this.allowNestedMounts) {
+      return;
+    }
+
     // Check for nested mounts (but allow remounting at same path)
     for (const existingMount of this.mounts.keys()) {
       if (existingMount === mountPoint) {
@@ -219,6 +238,60 @@ export class MountableFs implements IFileSystem {
 
     // No mount found - use base filesystem
     return { fs: this.baseFs, relativePath: normalized };
+  }
+
+  /**
+   * The deepest mount point owning a normalized path, or null for the base fs.
+   * Mirrors the routing in {@link routePath}, so callers that reconstruct a
+   * full path from a mount-relative one pick the same mount that served it.
+   */
+  private owningMountPoint(normalized: string): string | null {
+    let owner: string | null = null;
+
+    for (const mountPoint of this.mounts.keys()) {
+      if (
+        (normalized === mountPoint ||
+          normalized.startsWith(`${mountPoint}/`)) &&
+        (owner === null || mountPoint.length > owner.length)
+      ) {
+        owner = mountPoint;
+      }
+    }
+
+    return owner;
+  }
+
+  /**
+   * True when any mount point lives strictly below this path, i.e. the subtree
+   * is not owned end-to-end by whichever filesystem serves the path itself.
+   */
+  private hasMountUnder(path: string): boolean {
+    const normalized = normalizePath(path);
+
+    for (const mountPoint of this.mounts.keys()) {
+      if (mountPoint.startsWith(`${normalized}/`)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * True when a deeper mount shadows this path, so the value the outer
+   * filesystem reports for it is not what a caller would actually reach.
+   */
+  private isShadowedByDeeperMount(path: string, ownerMount: string): boolean {
+    for (const mountPoint of this.mounts.keys()) {
+      if (
+        mountPoint.length > ownerMount.length &&
+        path.startsWith(`${mountPoint}/`)
+      ) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -474,8 +547,14 @@ export class MountableFs implements IFileSystem {
     const srcRoute = this.routePath(src);
     const destRoute = this.routePath(dest);
 
-    // If same filesystem, delegate directly
-    if (srcRoute.fs === destRoute.fs) {
+    // If same filesystem, delegate directly -- unless a nested mount sits
+    // under either side, in which case the owning filesystem's own view is
+    // stale and the walk has to go back through this facade.
+    if (
+      srcRoute.fs === destRoute.fs &&
+      !this.hasMountUnder(src) &&
+      !this.hasMountUnder(dest)
+    ) {
       return srcRoute.fs.cp(
         srcRoute.relativePath,
         destRoute.relativePath,
@@ -495,11 +574,17 @@ export class MountableFs implements IFileSystem {
       throw new Error(`EBUSY: mount point, cannot move '${src}'`);
     }
 
+    // Moving a directory out from under a mount would orphan that mount, the
+    // same reason rm refuses it.
+    if (this.hasMountUnder(src)) {
+      throw new Error(`EBUSY: contains mount points, cannot move '${src}'`);
+    }
+
     const srcRoute = this.routePath(src);
     const destRoute = this.routePath(dest);
 
     // If same filesystem, delegate directly
-    if (srcRoute.fs === destRoute.fs) {
+    if (srcRoute.fs === destRoute.fs && !this.hasMountUnder(dest)) {
       return srcRoute.fs.mv(srcRoute.relativePath, destRoute.relativePath);
     }
 
@@ -536,8 +621,13 @@ export class MountableFs implements IFileSystem {
       for (const p of entry.filesystem.getAllPaths()) {
         if (p === "/") {
           allPaths.add(mountPoint);
-        } else {
-          allPaths.add(`${mountPoint}${p}`);
+          continue;
+        }
+        const fullPath = `${mountPoint}${p}`;
+        // A nested mount hides whatever this filesystem holds underneath it,
+        // so those paths are unreachable and must not be listed.
+        if (!this.isShadowedByDeeperMount(fullPath, mountPoint)) {
+          allPaths.add(fullPath);
         }
       }
     }
@@ -605,15 +695,11 @@ export class MountableFs implements IFileSystem {
     // Get realpath from the underlying filesystem
     const resolvedRelative = await fs.realpath(relativePath);
 
-    // Find the mount point for this path
-    for (const [mp, _entry] of this.mounts) {
-      if (normalized === mp || normalized.startsWith(`${mp}/`)) {
-        // Path is within this mount - reconstruct full path
-        if (resolvedRelative === "/") {
-          return mp;
-        }
-        return `${mp}${resolvedRelative}`;
-      }
+    // Reconstruct against the mount that actually served the path, which with
+    // nested mounts is the deepest one and not simply the first that matches.
+    const owner = this.owningMountPoint(normalized);
+    if (owner !== null) {
+      return resolvedRelative === "/" ? owner : `${owner}${resolvedRelative}`;
     }
 
     // Path is in the base filesystem
