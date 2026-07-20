@@ -2,11 +2,13 @@
  * local - Declare local variables in functions builtin
  */
 
+import { boundedJoin } from "../../bounded-builder.js";
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { evaluateArithmetic } from "../arithmetic.js";
 import {
+  assertArrayKeysFit,
   clearArray,
   cloneArray,
   getArray,
@@ -25,6 +27,10 @@ export async function handleLocal(
   ctx: InterpreterContext,
   args: string[],
 ): Promise<ExecResult> {
+  const arrayParseLimits = {
+    maxElements: ctx.limits.maxArrayElements,
+    maxStringBytes: ctx.limits.maxStringLength,
+  };
   if (ctx.state.localScopes.length === 0) {
     return failure("bash: local: can only be used in a function\n");
   }
@@ -106,6 +112,10 @@ export async function handleLocal(
 
       checkReadonlyError(ctx, name, "bash");
 
+      // Parse and enforce limits before changing the existing local cell.
+      const elements = parseArrayElements(content, arrayParseLimits);
+      ctx.executionScope.consumeWork(elements.length, "local array assignment");
+
       // Save previous value for scope restoration
       saveArray(name);
 
@@ -113,8 +123,6 @@ export async function handleLocal(
       clearArray(ctx, name);
       setArrayKind(ctx, name, "indexed");
 
-      // Parse array elements (respects quotes)
-      const elements = parseArrayElements(content);
       for (let i = 0; i < elements.length; i++) {
         setArrayElement(ctx, name, i, elements[i]);
       }
@@ -144,7 +152,8 @@ export async function handleLocal(
       saveArray(name);
 
       // Parse new elements
-      const newElements = parseArrayElements(content);
+      const newElements = parseArrayElements(content, arrayParseLimits);
+      ctx.executionScope.consumeWork(newElements.length, "local array append");
 
       // For indexed arrays, get current highest index and append
       const existingIndices = getArrayIndices(ctx, name);
@@ -161,6 +170,12 @@ export async function handleLocal(
         // Find highest existing index + 1
         startIndex = Math.max(...existingIndices) + 1;
       }
+
+      assertArrayKeysFit(
+        ctx,
+        name,
+        Array.from({ length: newElements.length }, (_, i) => startIndex + i),
+      );
 
       // Append new elements
       for (let i = 0; i < newElements.length; i++) {
@@ -195,7 +210,15 @@ export async function handleLocal(
 
       // Append to existing value (or set if not defined)
       const existing = ctx.state.env.get(name) ?? "";
-      ctx.state.env.set(name, existing + appendValue);
+      ctx.state.env.set(
+        name,
+        boundedJoin(
+          [existing, appendValue],
+          "",
+          ctx.limits.maxStringLength,
+          "local append",
+        ),
+      );
 
       // Track local variable depth for bash-specific unset scoping
       markLocalVarDepth(ctx, name);

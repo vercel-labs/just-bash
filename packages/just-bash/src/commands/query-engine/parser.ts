@@ -417,6 +417,19 @@ class Parser {
     return this.advance();
   }
 
+  private withDepth<T>(parseNested: () => T): T {
+    this.depth++;
+    if (this.depth > this.maxDepth) {
+      this.depth--;
+      throw new Error(`query parse depth limit exceeded (${this.maxDepth})`);
+    }
+    try {
+      return parseNested();
+    } finally {
+      this.depth--;
+    }
+  }
+
   private isFieldNameAfterDot(dotOffset = 0): boolean {
     const dot = this.peek(dotOffset);
     const next = this.peek(dotOffset + 1);
@@ -664,7 +677,7 @@ class Parser {
       "UPDATE_PIPE",
     );
     if (tok) {
-      const value = this.parseVarBind();
+      const value = this.withDepth(() => this.parseVarBind());
       const op = opMap.get(tok.type);
       if (op) {
         return { type: "UpdateOp", op, path: left, value };
@@ -907,10 +920,10 @@ class Parser {
 
     // try-catch
     if (this.match("TRY")) {
-      const body = this.parsePostfix();
+      const body = this.withDepth(() => this.parsePostfix());
       let catchExpr: AstNode | undefined;
       if (this.match("CATCH")) {
-        catchExpr = this.parsePostfix();
+        catchExpr = this.withDepth(() => this.parsePostfix());
       }
       return { type: "Try", body, catch: catchExpr };
     }
@@ -1069,6 +1082,19 @@ class Parser {
   }
 
   private parseObjectConstruction(): ObjectNode {
+    this.depth++;
+    if (this.depth > this.maxDepth) {
+      this.depth--;
+      throw new Error(`query parse depth limit exceeded (${this.maxDepth})`);
+    }
+    try {
+      return this.parseObjectConstructionInner();
+    } finally {
+      this.depth--;
+    }
+  }
+
+  private parseObjectConstructionInner(): ObjectNode {
     const entries: ObjectNode["entries"] = [];
 
     if (!this.check("RBRACE")) {

@@ -16,6 +16,7 @@ import { Parser } from "../parser/parser.js";
 import { createUserRegex } from "../regex/index.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
+import { ExecutionLimitError } from "./errors.js";
 import {
   escapeRegexChars,
   expandWord,
@@ -92,6 +93,7 @@ export async function evaluateConditional(
           !isRhsQuoted,
           nocasematch,
           true, // Always enable extglob in [[ ]] pattern matching
+          ctx.limits.maxCallDepth,
         );
       }
 
@@ -413,11 +415,20 @@ async function evaluateTestNot(
   args: string[],
   pos: number,
 ): Promise<{ value: boolean; pos: number }> {
-  if (args[pos] === "!") {
-    const { value, pos: newPos } = await evaluateTestNot(ctx, args, pos + 1);
-    return { value: !value, pos: newPos };
+  const depth = ctx.executionScope.enterDepth(
+    "test_expression",
+    ctx.limits.maxCallDepth,
+    "test expression",
+  );
+  try {
+    if (args[pos] === "!") {
+      const { value, pos: newPos } = await evaluateTestNot(ctx, args, pos + 1);
+      return { value: !value, pos: newPos };
+    }
+    return evaluateTestPrimary(ctx, args, pos);
+  } finally {
+    depth.release();
   }
-  return evaluateTestPrimary(ctx, args, pos);
 }
 
 async function evaluateTestPrimary(
@@ -508,12 +519,38 @@ export function matchPattern(
   pattern: string,
   nocasematch = false,
   extglob = false,
+  maxDepth = 256,
 ): boolean {
+  if (extglob) assertExtglobDepth(pattern, maxDepth);
   const regex = `^${patternToRegexStr(pattern, extglob)}$`;
   // Use 's' flag (dotAll) so that * matches newlines in the value
   // This matches bash behavior where patterns like *foo* match multiline values
   const flags = nocasematch ? "is" : "s";
   return createUserRegex(regex, flags).test(value);
+}
+
+function assertExtglobDepth(pattern: string, maximum: number): void {
+  let depth = 0;
+  const groups: boolean[] = [];
+  for (let i = 0; i < pattern.length; i++) {
+    if (pattern[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (pattern[i] === "(") {
+      const isExtglob = i > 0 && "@*+?!".includes(pattern[i - 1]);
+      groups.push(isExtglob);
+      if (isExtglob) depth++;
+      if (depth > maximum) {
+        throw new ExecutionLimitError(
+          `extglob maximum depth (${maximum}) exceeded`,
+          "recursion",
+        );
+      }
+    } else if (pattern[i] === ")" && groups.length > 0) {
+      if (groups.pop()) depth--;
+    }
+  }
 }
 
 /**

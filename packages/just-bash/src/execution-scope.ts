@@ -4,13 +4,38 @@ import {
   ExecutionLimitError,
 } from "./interpreter/errors.js";
 import type { ExecutionLimits } from "./limits.js";
+import { _clearTimeout, _setTimeout } from "./timers.js";
 import type { ExecResult } from "./types.js";
 
 export interface ResourceLease {
   release(): void;
 }
 
+/**
+ * Accounting capability exposed to commands. Administrative lifecycle and
+ * result-accounting operations intentionally remain on ExecutionScope only.
+ */
+export interface CommandExecutionBudget {
+  readonly remainingLiveBytes: number;
+  consumeWork(units?: number, site?: string): number;
+  consumeLimited(
+    kind: string,
+    count: number,
+    maximum: number,
+    site?: string,
+  ): number;
+  consumeInput(bytes: number, site?: string): number;
+  reserveBytes(bytes: number, site?: string): ResourceLease;
+  reserveBytes(kind: string, bytes: number, site?: string): ResourceLease;
+  enterDepth(kind: string, site?: string): ResourceLease;
+  enterDepth(kind: string, maximum: number, site?: string): ResourceLease;
+  throwIfAborted(site?: string): void;
+  remainingTimeMs(): number;
+  registerCleanup(cleanup: Cleanup): () => void;
+}
+
 type Cleanup = () => void | Promise<void>;
+const OUTPUT_RELEASE_AUTHORITY = Object.freeze(Object.create(null) as object);
 
 /**
  * Security-sensitive accounting shared by every interpreter descended from a
@@ -34,6 +59,16 @@ export class ExecutionScope {
   private closed = false;
   private readonly startedAt = Date.now();
 
+  /** Bytes still available for prospective intermediate allocations. */
+  get remainingLiveBytes(): number {
+    return Math.max(0, this.limits.maxLiveBytes - this.liveBytes);
+  }
+
+  /** Snapshot used to prove accounting inherited from a nested execution. */
+  get outputBytesUsed(): number {
+    return this.outputBytes;
+  }
+
   constructor(
     private readonly limits: Required<ExecutionLimits>,
     private readonly signal: AbortSignal | undefined = undefined,
@@ -42,6 +77,11 @@ export class ExecutionScope {
   private fail(error: ExecutionLimitError | ExecutionAbortedError): never {
     this.poisoned ??= error;
     throw this.poisoned;
+  }
+
+  /** Permanently reject later work after an extension misses cancellation. */
+  poisonAfterAbort(error: ExecutionAbortedError): void {
+    this.poisoned ??= error;
   }
 
   private assertUsable(): void {
@@ -58,6 +98,42 @@ export class ExecutionScope {
 
   consumeWork(units = 1, site = "execution"): number {
     return this.consume("work", units, site);
+  }
+
+  /** Charge both the aggregate work budget and a narrower operation budget. */
+  consumeLimited(
+    kind: string,
+    count: number,
+    maximum: number,
+    site: string = kind,
+  ): number {
+    this.assertUsable();
+    const current = this.countersByKind.get(kind) ?? 0;
+    if (
+      !Number.isSafeInteger(count) ||
+      count < 0 ||
+      !Number.isSafeInteger(maximum) ||
+      maximum < 0 ||
+      count > maximum - current
+    ) {
+      this.fail(
+        new ExecutionLimitError(
+          `${site}: ${kind} work limit exceeded (${maximum})`,
+          "iterations",
+        ),
+      );
+    }
+    if (count > this.limits.maxWorkUnits - this.workUnits) {
+      this.fail(
+        new ExecutionLimitError(
+          `${site}: aggregate work limit exceeded (${this.limits.maxWorkUnits})`,
+          "iterations",
+        ),
+      );
+    }
+    this.countersByKind.set(kind, current + count);
+    this.workUnits += count;
+    return current + count;
   }
 
   consumeInput(bytes: number, site = "execution"): number {
@@ -154,9 +230,10 @@ export class ExecutionScope {
     chunk: string,
     site = "execution",
     alreadyAccountedBytes = 0,
+    kind: "text" | "bytes" = "text",
   ): number {
     this.assertUsable();
-    const bytes = utf8ByteLength(chunk);
+    const bytes = kind === "bytes" ? chunk.length : utf8ByteLength(chunk);
     if (
       !Number.isSafeInteger(alreadyAccountedBytes) ||
       alreadyAccountedBytes < 0 ||
@@ -182,19 +259,31 @@ export class ExecutionScope {
     return bytes;
   }
 
-  accountResult(result: ExecResult, site = "execution"): ExecResult {
+  accountResult(
+    result: ExecResult,
+    site = "execution",
+    maximumPriorBytes: number = Number.POSITIVE_INFINITY,
+  ): ExecResult {
     const prior = result.internalOutputAccounting;
+    const creditedStdout = Math.min(prior?.stdout ?? 0, maximumPriorBytes);
+    const creditedStderr = Math.min(
+      prior?.stderr ?? 0,
+      Math.max(0, maximumPriorBytes - creditedStdout),
+    );
     const stdout = this.appendOutput(
       "stdout",
       result.stdout,
       site,
-      prior?.stdout ?? 0,
+      creditedStdout,
+      result.stdoutKind === "bytes" || result.stdoutEncoding === "binary"
+        ? "bytes"
+        : "text",
     );
     const stderr = this.appendOutput(
       "stderr",
       result.stderr,
       site,
-      prior?.stderr ?? 0,
+      creditedStderr,
     );
     if (Object.isExtensible(result)) {
       result.internalOutputAccounting = { stdout, stderr };
@@ -205,6 +294,35 @@ export class ExecutionScope {
       ...result,
       internalOutputAccounting: { stdout, stderr },
     };
+  }
+
+  /**
+   * Relinquish bytes that were charged while a result was retained but have
+   * since become a transient pipeline input. This is deliberately limited to
+   * bytes carried by internal accounting metadata; callers must not use it to
+   * refund arbitrary output.
+   */
+  /** @internal Use relinquishPipelineOutput; the authority prevents extensions
+   * that receive an ExecutionScope from refunding their own output. */
+  relinquishOutput(bytes: number, site: string, authority: object): void {
+    this.assertUsable();
+    if (authority !== OUTPUT_RELEASE_AUTHORITY) {
+      this.fail(
+        new ExecutionLimitError(
+          `${site}: unauthorized output accounting release`,
+          "output_size",
+        ),
+      );
+    }
+    if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > this.outputBytes) {
+      this.fail(
+        new ExecutionLimitError(
+          `${site}: invalid output accounting release`,
+          "output_size",
+        ),
+      );
+    }
+    this.outputBytes -= bytes;
   }
 
   enterDepth(kind: string, site?: string): ResourceLease;
@@ -280,9 +398,38 @@ export class ExecutionScope {
     if (this.closed) return;
     this.closed = true;
     const errors: unknown[] = [];
+    const cleanupDeadline = Date.now() + this.limits.maxExtensionCleanupTimeMs;
     for (let index = this.cleanupCallbacks.length - 1; index >= 0; index--) {
       try {
-        await this.cleanupCallbacks[index]();
+        const remaining = cleanupDeadline - Date.now();
+        if (remaining <= 0) {
+          errors.push(new Error("execution cleanup grace period exceeded"));
+          break;
+        }
+        let timer: ReturnType<typeof _setTimeout> | undefined;
+        const outcome = await Promise.race([
+          Promise.resolve()
+            .then(this.cleanupCallbacks[index])
+            .then(
+              () => ({ ok: true as const }),
+              (error: unknown) => ({ ok: false as const, error }),
+            ),
+          new Promise<{ ok: false; error: Error }>((resolve) => {
+            timer = _setTimeout(
+              () =>
+                resolve({
+                  ok: false,
+                  error: new Error("execution cleanup grace period exceeded"),
+                }),
+              remaining,
+            );
+          }),
+        ]);
+        if (timer !== undefined) _clearTimeout(timer);
+        if (!outcome.ok) {
+          errors.push(outcome.error);
+          if (Date.now() >= cleanupDeadline) break;
+        }
       } catch (error) {
         errors.push(error);
       }
@@ -307,4 +454,48 @@ export class ExecutionScope {
       );
     }
   }
+}
+
+/** Build a least-authority view for command implementations. */
+export function createCommandExecutionBudget(
+  scope: ExecutionScope,
+): CommandExecutionBudget {
+  const budget = Object.create(null) as CommandExecutionBudget;
+  Object.defineProperties(budget, {
+    remainingLiveBytes: {
+      enumerable: true,
+      get: () => scope.remainingLiveBytes,
+    },
+    consumeWork: { enumerable: true, value: scope.consumeWork.bind(scope) },
+    consumeLimited: {
+      enumerable: true,
+      value: scope.consumeLimited.bind(scope),
+    },
+    consumeInput: { enumerable: true, value: scope.consumeInput.bind(scope) },
+    reserveBytes: { enumerable: true, value: scope.reserveBytes.bind(scope) },
+    enterDepth: { enumerable: true, value: scope.enterDepth.bind(scope) },
+    throwIfAborted: {
+      enumerable: true,
+      value: scope.throwIfAborted.bind(scope),
+    },
+    remainingTimeMs: {
+      enumerable: true,
+      value: scope.remainingTimeMs.bind(scope),
+    },
+    registerCleanup: {
+      enumerable: true,
+      value: scope.registerCleanup.bind(scope),
+    },
+  });
+  return Object.freeze(budget);
+}
+
+/** Release a checked pipeline intermediate without exposing refund authority
+ * through the ExecutionScope capability supplied to custom commands. */
+export function relinquishPipelineOutput(
+  scope: ExecutionScope,
+  bytes: number,
+  site = "pipeline",
+): void {
+  scope.relinquishOutput(bytes, site, OUTPUT_RELEASE_AUTHORITY);
 }

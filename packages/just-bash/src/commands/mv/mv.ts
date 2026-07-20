@@ -107,37 +107,47 @@ export const mvCommand: Command = {
           targetPath =
             destPath === "/" ? `/${basename}` : `${destPath}/${basename}`;
         }
-        if (
-          srcStat.isDirectory &&
-          (isSameOrDescendantPath(srcPath, targetPath) ||
-            (await compareCanonicalContainment(
-              ctx.fs,
-              srcPath,
-              targetPath,
-              traversalBudget,
-            )) === "inside")
-        ) {
-          stderr += `mv: cannot move '${src}' into itself, '${targetPath}'\n`;
-          exitCode = 1;
-          continue;
+        if (srcStat.isDirectory) {
+          const containment = await compareCanonicalContainment(
+            ctx.fs,
+            srcPath,
+            targetPath,
+            traversalBudget,
+          );
+          if (
+            isSameOrDescendantPath(srcPath, targetPath) ||
+            containment === "inside"
+          ) {
+            stderr += `mv: cannot move '${src}' into itself, '${targetPath}'\n`;
+            exitCode = 1;
+            continue;
+          }
+          if (containment === "unknown") {
+            stderr += `mv: cannot safely determine whether '${targetPath}' is inside '${src}'\n`;
+            exitCode = 1;
+            continue;
+          }
         }
-        if (
-          (await compareFileIdentity(ctx.fs, srcPath, targetPath)) === "same"
-        ) {
-          // POSIX rename of a file onto itself succeeds without changing it.
-          continue;
-        }
-        // Check if target exists for -n flag
+        // A no-clobber skip performs no destructive operation and therefore
+        // does not require proving the identity of the existing target.
         if (noClobber) {
           try {
             await ctx.fs.stat(targetPath);
-            // Target exists and -n is set, skip this file silently
             continue;
           } catch {
-            // Target doesn't exist, proceed with move
+            // Target doesn't exist, proceed with move.
           }
         }
-
+        const identity = await compareFileIdentity(ctx.fs, srcPath, targetPath);
+        if (identity === "same") {
+          // POSIX rename of a file onto itself succeeds without changing it.
+          continue;
+        }
+        if (identity === "unknown") {
+          stderr += `mv: cannot safely determine whether '${src}' and '${targetPath}' are the same file\n`;
+          exitCode = 1;
+          continue;
+        }
         if (srcStat.isDirectory) {
           await traverseFileTree(
             {

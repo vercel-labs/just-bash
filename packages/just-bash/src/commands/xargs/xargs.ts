@@ -1,5 +1,6 @@
 import { decodeBytesToUtf8 } from "../../encoding.js";
 import { ExecutionOutputAccumulator } from "../../execution-output.js";
+import type { ExecutionScope } from "../../execution-scope.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
@@ -228,7 +229,10 @@ export const xargsCommand: Command = {
     let outputBytes = 0;
     let commandIterations = 0;
     const output = ctx.executionScope
-      ? new ExecutionOutputAccumulator(ctx.executionScope, "xargs")
+      ? new ExecutionOutputAccumulator(
+          ctx.executionScope as ExecutionScope,
+          "xargs",
+        )
       : undefined;
     const appendOutput = (result: ExecResult): void => {
       if (output) {

@@ -208,6 +208,45 @@ describe("xan split", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe("xan split: must specify -c or -S\n");
   });
+
+  it.each([
+    "-1",
+    "0",
+    "Infinity",
+    "1.5",
+    "1x",
+    "9007199254740992",
+  ])("rejects invalid chunk size %s before entering the split loop", async (size) => {
+    const bash = new Bash({
+      files: { "/data.csv": "n\n1\n2\n" },
+    });
+
+    const result = await bash.exec(`xan split -S ${size} /data.csv`);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("positive safe integer");
+  });
+
+  it("rejects invalid chunk counts", async () => {
+    const bash = new Bash({ files: { "/data.csv": "n\n1\n" } });
+
+    const result = await bash.exec("xan split -c -1 /data.csv");
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("positive safe integer");
+  });
+
+  it("charges aggregate row work while producing chunks", async () => {
+    const bash = new Bash({
+      files: { "/data.csv": `n\n${"1\n".repeat(20)}` },
+      executionLimits: { maxWorkUnits: 10 },
+    });
+
+    const result = await bash.exec("xan split -S 2 /data.csv");
+
+    expect(result.exitCode).toBe(126);
+    expect(result.stderr).toContain("xan split rows: work work limit exceeded");
+  });
 });
 
 describe("xan partition", () => {

@@ -17,7 +17,10 @@ import {
 // @ts-expect-error - seek-bzip doesn't have types
 import seekBzip from "seek-bzip";
 import { utf8ByteLength } from "../../encoding.js";
-import type { ExecutionScope, ResourceLease } from "../../execution-scope.js";
+import type {
+  CommandExecutionBudget,
+  ResourceLease,
+} from "../../execution-scope.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import { CodecBudget } from "../compression/codec-budget.js";
 import { bzip2Compress } from "./bzip2-compress.js";
@@ -84,7 +87,7 @@ export interface ArchiveCreationLimits {
   maxExpansionRatio?: number;
   signal?: AbortSignal;
   /** Shared live-memory owner supplied by the tar command integration. */
-  executionScope?: ExecutionScope;
+  executionScope?: CommandExecutionBudget;
   /** Explicit trust boundary for native whole-buffer codecs. */
   allowTrustedWholeBufferCodecs?: boolean;
 }
@@ -96,7 +99,7 @@ type ResolvedArchiveLimits = {
   maxCompressedSize: number;
   maxExpansionRatio: number;
   signal?: AbortSignal;
-  executionScope?: ExecutionScope;
+  executionScope?: CommandExecutionBudget;
   allowTrustedWholeBufferCodecs: boolean;
 };
 

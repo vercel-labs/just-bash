@@ -22,6 +22,7 @@ import {
   sanitizeErrorMessage,
   sanitizeHostErrorMessage,
 } from "../../fs/sanitize-error.js";
+import { resolveFileIdentity } from "../../fs/traversal.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { bindDefenseContextCallback } from "../../security/defense-context.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
@@ -127,6 +128,26 @@ async function acquireDatabaseLock(
       if (lock) lock.held = false;
       locks?.delete(path);
     }
+  };
+}
+
+async function acquireDatabaseLocks(
+  fsIdentity: object,
+  paths: readonly string[],
+  signal?: AbortSignal,
+): Promise<() => void> {
+  const releases: Array<() => void> = [];
+  try {
+    // A stable global order prevents two alias sets from deadlocking.
+    for (const path of [...new Set(paths)].sort()) {
+      releases.push(await acquireDatabaseLock(fsIdentity, path, signal));
+    }
+  } catch (error) {
+    for (const release of releases.reverse()) release();
+    throw error;
+  }
+  return () => {
+    for (const release of releases.reverse()) release();
   };
 }
 
@@ -748,7 +769,7 @@ export const sqlite3Command: Command = {
     // Load database buffer
     const isMemory = database === ":memory:";
     let dbPath = "";
-    let lockPath = "";
+    let lockPaths: string[] = [];
     let dbBuffer: Uint8Array | null = null;
     let releaseLock: (() => void) | undefined;
     let databaseLease: ResourceLease | undefined;
@@ -756,12 +777,32 @@ export const sqlite3Command: Command = {
     try {
       if (!isMemory) {
         dbPath = ctx.fs.resolvePath(ctx.cwd, database);
-        lockPath = (await ctx.fs.exists(dbPath))
-          ? await ctx.fs.realpath(dbPath)
-          : dbPath;
-        releaseLock = await acquireDatabaseLock(
+        const databaseIdentity = await resolveFileIdentity(ctx.fs, dbPath);
+        if (databaseIdentity.existence === "unknown") {
+          throw new Error("database identity cannot be determined safely");
+        }
+        // Use the validated canonical spelling for all subsequent I/O. This
+        // is essential for backends whose read/stat paths follow an aliased
+        // parent but whose write path stores the lexical spelling directly.
+        if (databaseIdentity.canonicalPath !== undefined) {
+          dbPath = databaseIdentity.canonicalPath;
+        }
+        lockPaths = [];
+        if (databaseIdentity.canonicalPath !== undefined) {
+          lockPaths.push(`path:${databaseIdentity.canonicalPath}`);
+        }
+        if (databaseIdentity.existence === "existing") {
+          if (databaseIdentity.stableIdentity === undefined) {
+            throw new Error("database identity cannot be determined safely");
+          }
+          lockPaths.push(`identity:${databaseIdentity.stableIdentity}`);
+        }
+        if (lockPaths.length === 0) {
+          throw new Error("database identity cannot be determined safely");
+        }
+        releaseLock = await acquireDatabaseLocks(
           ctx.fsIdentity ?? ctx.fs,
-          lockPath,
+          lockPaths,
           ctx.signal,
         );
         if (await ctx.fs.exists(dbPath)) {
@@ -850,8 +891,17 @@ export const sqlite3Command: Command = {
       }
 
       if (!result.success) {
-        if (lockPath && result.error === WORKER_TERMINATION_UNACKNOWLEDGED) {
-          poisonDatabaseLock(ctx.fsIdentity ?? ctx.fs, lockPath, result.error);
+        if (
+          lockPaths.length > 0 &&
+          result.error === WORKER_TERMINATION_UNACKNOWLEDGED
+        ) {
+          for (const lockPath of lockPaths) {
+            poisonDatabaseLock(
+              ctx.fsIdentity ?? ctx.fs,
+              lockPath,
+              result.error,
+            );
+          }
         }
         const message = sanitizeHostErrorMessage(result.error);
         return {

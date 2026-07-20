@@ -2,7 +2,9 @@
  * read - Read a line of input builtin
  */
 
+import { utf8ByteLength } from "../../encoding.js";
 import type { ExecResult } from "../../types.js";
+import { ExecutionLimitError } from "../errors.js";
 import { clearArray, setArrayElement } from "../helpers/array.js";
 import {
   getIfs,
@@ -239,7 +241,12 @@ export function handleRead(
     varNames.push("REPLY");
   }
 
-  const destinations = arrayName ? [arrayName] : varNames;
+  const destinations = new Set<string>();
+  if (arrayName) destinations.add(arrayName);
+  for (const name of varNames) destinations.add(name);
+  // The -N path assigns REPLY even when -a was also supplied and no explicit
+  // scalar destination was given.
+  if (ncharsExact >= 0 && varNames.length === 0) destinations.add("REPLY");
   for (const name of destinations) {
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
       return result("", `bash: read: \`${name}': not a valid identifier\n`, 1);
@@ -293,6 +300,26 @@ export function handleRead(
 
   // Get input
   let line = "";
+  let lineBytes = 0;
+  const appendLine = (value: string): void => {
+    const bytes = utf8ByteLength(value);
+    if (bytes > ctx.limits.maxStringLength - lineBytes) {
+      throw new ExecutionLimitError(
+        `read: string length limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
+    line += value;
+    lineBytes += bytes;
+  };
+  const assertLineLimit = (value: string): void => {
+    if (utf8ByteLength(value) > ctx.limits.maxStringLength) {
+      throw new ExecutionLimitError(
+        `read: string length limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
+  };
   let consumed = 0;
   let foundDelimiter = true; // Assume found unless no newline at end
 
@@ -326,6 +353,7 @@ export function handleRead(
     // -N: Read exactly N characters (ignores delimiters, no IFS splitting)
     const toRead = Math.min(ncharsExact, effectiveStdin.length);
     line = effectiveStdin.substring(0, toRead);
+    assertLineLimit(line);
     consumed = toRead;
     foundDelimiter = toRead >= ncharsExact;
 
@@ -368,16 +396,16 @@ export function handleRead(
           // Backslash-delimiter (non-newline): counts as one char (the escaped delimiter)
           inputPos += 2;
           charCount++;
-          line += nextChar;
+          appendLine(nextChar);
           consumed = inputPos;
           continue;
         }
-        line += nextChar;
+        appendLine(nextChar);
         inputPos += 2;
         charCount++;
         consumed = inputPos;
       } else {
-        line += char;
+        appendLine(char);
         inputPos++;
         charCount++;
         consumed = inputPos;
@@ -417,19 +445,19 @@ export function handleRead(
 
         if (nextChar === effectiveDelimiter) {
           // Backslash-delimiter: escape the delimiter, include it literally
-          line += nextChar;
+          appendLine(nextChar);
           inputPos += 2;
           continue;
         }
 
         // Other backslash escapes: keep both for now (will be processed later)
-        line += char;
-        line += nextChar;
+        appendLine(char);
+        appendLine(nextChar);
         inputPos += 2;
         continue;
       }
 
-      line += char;
+      appendLine(char);
       inputPos++;
     }
 

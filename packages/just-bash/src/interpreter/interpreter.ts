@@ -429,8 +429,6 @@ export class Interpreter {
       throw new ExecutionAbortedError();
     }
 
-    this.ctx.state.commandCount = this.ctx.executionScope.chargeCommand();
-
     // Check for deferred syntax error. This is triggered when execution reaches
     // a statement that has a syntax error (like standalone `}`), but the error
     // was deferred to support bash's incremental parsing behavior.
@@ -809,6 +807,16 @@ export class Interpreter {
 
     const args: string[] = [];
     const quotedArgs: boolean[] = [];
+    const appendArgument = (value: string, quoted: boolean): void => {
+      if (args.length >= this.ctx.limits.maxArrayElements) {
+        throw new ExecutionLimitError(
+          `expanded argument element limit exceeded (${this.ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
+      args.push(value);
+      quotedArgs.push(quoted);
+    };
 
     // Handle local/declare/export/readonly arguments specially:
     // - For array assignments like `local a=(1 "2 3")`, preserve quote structure
@@ -842,8 +850,7 @@ export class Interpreter {
           arg,
         );
         if (arrayAssignResult) {
-          args.push(arrayAssignResult);
-          quotedArgs.push(true);
+          appendArgument(arrayAssignResult, true);
         } else {
           // Check if this looks like a scalar assignment (name=value)
           // For assignments, we should NOT glob-expand the value part
@@ -852,14 +859,12 @@ export class Interpreter {
             arg,
           );
           if (scalarAssignResult !== null) {
-            args.push(scalarAssignResult);
-            quotedArgs.push(true);
+            appendArgument(scalarAssignResult, true);
           } else {
             // Not an assignment - use normal glob expansion
             const expanded = await expandWordWithGlob(this.ctx, arg);
             for (const value of expanded.values) {
-              args.push(value);
-              quotedArgs.push(expanded.quoted);
+              appendArgument(value, expanded.quoted);
             }
           }
         }
@@ -869,8 +874,7 @@ export class Interpreter {
       for (const arg of node.args) {
         const expanded = await expandWordWithGlob(this.ctx, arg);
         for (const value of expanded.values) {
-          args.push(value);
-          quotedArgs.push(expanded.quoted);
+          appendArgument(value, expanded.quoted);
         }
       }
     }
@@ -1099,11 +1103,9 @@ export class Interpreter {
 
     // Append extra args injected via exec({ args }) and consume them
     if (this.ctx.state.extraArgs) {
-      args.push(...this.ctx.state.extraArgs);
-      for (let i = 0; i < this.ctx.state.extraArgs.length; i++) {
-        quotedArgs.push(true);
-      }
+      const extraArgs = this.ctx.state.extraArgs;
       this.ctx.state.extraArgs = undefined;
+      for (const extraArg of extraArgs) appendArgument(extraArg, true);
     }
 
     // Generate xtrace output before running the command

@@ -1,4 +1,6 @@
+import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { readAndConcat } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
@@ -21,19 +23,36 @@ interface CutRange {
   end: number | null; // null means to end of line
 }
 
-function parseRange(spec: string): CutRange[] {
+function parseRange(spec: string, maximum: number): CutRange[] {
   const ranges: CutRange[] = [];
   const parts = spec.split(",");
+
+  if (parts.length > maximum) {
+    throw new ExecutionLimitError(
+      `cut: range count limit exceeded (${maximum})`,
+      "array_elements",
+    );
+  }
 
   for (const part of parts) {
     if (part.includes("-")) {
       const [start, end] = part.split("-");
-      ranges.push({
-        start: start ? parseInt(start, 10) : 1,
-        end: end ? parseInt(end, 10) : null,
-      });
+      const parsedStart = start ? Number(start) : 1;
+      const parsedEnd = end ? Number(end) : null;
+      if (
+        !Number.isSafeInteger(parsedStart) ||
+        parsedStart < 1 ||
+        (parsedEnd !== null &&
+          (!Number.isSafeInteger(parsedEnd) || parsedEnd < parsedStart))
+      ) {
+        throw new ExecutionLimitError("cut: invalid range", "array_elements");
+      }
+      ranges.push({ start: parsedStart, end: parsedEnd });
     } else {
-      const num = parseInt(part, 10);
+      const num = Number(part);
+      if (!Number.isSafeInteger(num) || num < 1) {
+        throw new ExecutionLimitError("cut: invalid range", "array_elements");
+      }
       ranges.push({ start: num, end: num });
     }
   }
@@ -135,8 +154,29 @@ export const cutCommand: Command = {
       lines.pop();
     }
 
-    const ranges = parseRange(fieldSpec || charSpec || "1");
-    let output = "";
+    const ranges = parseRange(
+      fieldSpec || charSpec || "1",
+      ctx.limits.maxArrayElements,
+    );
+    const output = new BoundedStringBuilder(
+      Math.min(ctx.limits.maxOutputSize, ctx.limits.maxStringLength),
+      "cut",
+    );
+    let rangeWork = 0;
+    const chargeRangeWork = (count: number): void => {
+      if (
+        !Number.isSafeInteger(count) ||
+        count < 0 ||
+        count > ctx.limits.maxLoopIterations - rangeWork
+      ) {
+        throw new ExecutionLimitError(
+          `cut: range expansion limit exceeded (${ctx.limits.maxLoopIterations})`,
+          "iterations",
+        );
+      }
+      rangeWork += count;
+      ctx.executionScope?.consumeWork(count, "cut range expansion");
+    };
 
     for (const line of lines) {
       if (charSpec) {
@@ -148,13 +188,14 @@ export const cutCommand: Command = {
         for (const range of ranges) {
           const start = range.start - 1;
           const end = range.end === null ? chars.length : range.end;
+          chargeRangeWork(Math.max(0, Math.min(end, chars.length) - start));
           for (let i = start; i < end && i < chars.length; i++) {
             if (i >= 0) {
               selected.push(chars[i]);
             }
           }
         }
-        output += `${selected.join("")}\n`;
+        output.append(`${selected.join("")}\n`);
       } else {
         // Field mode
         // If -s is set, skip lines that don't contain the delimiter
@@ -162,21 +203,26 @@ export const cutCommand: Command = {
           continue;
         }
         const fields = line.split(delimiter);
+        for (const range of ranges) {
+          const start = range.start - 1;
+          const end = range.end === null ? fields.length : range.end;
+          chargeRangeWork(Math.max(0, Math.min(end, fields.length) - start));
+        }
         const selected = extractByRanges(fields, ranges);
-        output += `${selected.join(delimiter)}\n`;
+        output.append(`${selected.join(delimiter)}\n`);
       }
     }
 
     // Char mode produces decoded text; field mode forwards bytes verbatim.
     if (charSpec) {
       return {
-        stdout: output,
+        stdout: output.build(),
         stderr: "",
         exitCode: 0,
       };
     }
     return {
-      stdout: output,
+      stdout: output.build(),
       stderr: "",
       exitCode: 0,
       stdoutKind: "bytes",

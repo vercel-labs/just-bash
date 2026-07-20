@@ -10,6 +10,9 @@
  * All limits are optional - undefined values use defaults.
  */
 export interface ExecutionLimits {
+  /** Maximum shell source bytes accepted before parsing (normal default: 64 MiB) */
+  maxSourceBytes?: number;
+
   /** Maximum nested interpreter executions through ctx.exec (default: 64) */
   maxExecDepth?: number;
 
@@ -73,6 +76,9 @@ export interface ExecutionLimits {
   /** Maximum aggregate input bytes (default: 512 MiB) */
   maxInputBytes?: number;
 
+  /** Maximum bytes retained by Bash's default in-memory filesystem (default: 1 GiB) */
+  maxFileSystemBytes?: number;
+
   /** Maximum SQLite database image bytes (default: 1 GiB) */
   maxDatabaseBytes?: number;
 
@@ -96,6 +102,12 @@ export interface ExecutionLimits {
 
   /** Maximum top-level execution wall time in milliseconds (default: 1 hour) */
   maxExecutionTimeMs?: number;
+
+  /**
+   * Maximum time to let an aborted command acknowledge cancellation before its
+   * execution context is revoked (normal default: 100ms).
+   */
+  maxExtensionCleanupTimeMs?: number;
 
   /** Maximum sqlite3 query execution time in milliseconds (normal default: 30000) */
   maxSqliteTimeoutMs?: number;
@@ -137,19 +149,25 @@ export interface ExecutionLimits {
 /** Named limit presets. `normal` favors compatibility; `hardened` is opt-in. */
 export type ExecutionLimitProfile = "normal" | "hardened";
 
+/** Liberal default shared by shell and standalone transform entry points. */
+export const DEFAULT_MAX_SOURCE_BYTES: number = 64 * 1024 * 1024;
+
 /**
  * Default execution limits.
  * These liberal compatibility defaults remain bounded. Select the hardened
  * profile for tighter untrusted-workload policy.
  */
 const DEFAULT_LIMITS: Required<ExecutionLimits> = {
+  maxSourceBytes: DEFAULT_MAX_SOURCE_BYTES,
   maxExecDepth: 64,
   maxCallDepth: 100,
   maxCommandCount: 100000,
   maxLoopIterations: 100000,
   maxAwkIterations: 100000,
   maxSedIterations: 100000,
-  maxJqIterations: 100000,
+  // Core query evaluation now shares one aggregate work counter. Keep the
+  // normal profile liberal enough for large, ordinary data transforms.
+  maxJqIterations: 10_000_000,
   maxQueryTokens: 100000,
   maxQueryDepth: 1000,
   maxQueryElements: 1000000,
@@ -158,12 +176,16 @@ const DEFAULT_LIMITS: Required<ExecutionLimits> = {
   maxAwkParserOperations: 1000000,
   maxCsvRows: 1000000,
   maxCsvCells: 10000000,
-  maxWorkUnits: 1000000,
+  // Aggregate across an entire exec(), including large CSV/query transforms.
+  // Keep normal mode comfortably above the per-resource row/element limits;
+  // hardened mode below provides the tighter untrusted-workload ceiling.
+  maxWorkUnits: 100_000_000,
   maxTraversalEntries: 1_000_000,
   maxTraversalDepth: 1_000,
   maxTraversalWork: 1_000_000,
   maxLiveBytes: 512 * 1024 * 1024,
   maxInputBytes: 512 * 1024 * 1024,
+  maxFileSystemBytes: 1024 * 1024 * 1024,
   maxDatabaseBytes: 1024 * 1024 * 1024,
   maxDatabaseResultBytes: 256 * 1024 * 1024,
   maxArchiveBytes: 1024 * 1024 * 1024,
@@ -174,6 +196,7 @@ const DEFAULT_LIMITS: Required<ExecutionLimits> = {
   // Prior releases had no top-level deadline. Keep normal compatibility-safe
   // for long real workloads while retaining a finite defense-in-depth bound.
   maxExecutionTimeMs: 60 * 60 * 1000,
+  maxExtensionCleanupTimeMs: 100,
   maxSqliteTimeoutMs: 30000,
   maxPythonTimeoutMs: 30000,
   maxJsTimeoutMs: 30000,
@@ -190,6 +213,7 @@ const DEFAULT_LIMITS: Required<ExecutionLimits> = {
 
 const HARDENED_LIMITS: Required<ExecutionLimits> = {
   ...DEFAULT_LIMITS,
+  maxSourceBytes: 8 * 1024 * 1024,
   maxCommandCount: 10_000,
   maxLoopIterations: 10_000,
   maxAwkIterations: 10_000,
@@ -198,6 +222,7 @@ const HARDENED_LIMITS: Required<ExecutionLimits> = {
   maxSqliteTimeoutMs: 5_000,
   maxPythonTimeoutMs: 10_000,
   maxJsTimeoutMs: 10_000,
+  maxExtensionCleanupTimeMs: 25,
   maxGlobOperations: 100_000,
   maxStringLength: 10 * 1024 * 1024,
   maxArrayElements: 100_000,
@@ -219,6 +244,7 @@ const HARDENED_LIMITS: Required<ExecutionLimits> = {
   maxTraversalWork: 100_000,
   maxLiveBytes: 64 * 1024 * 1024,
   maxInputBytes: 32 * 1024 * 1024,
+  maxFileSystemBytes: 128 * 1024 * 1024,
   maxDatabaseBytes: 64 * 1024 * 1024,
   maxDatabaseResultBytes: 16 * 1024 * 1024,
   maxArchiveBytes: 128 * 1024 * 1024,
@@ -230,6 +256,7 @@ const HARDENED_LIMITS: Required<ExecutionLimits> = {
 };
 
 const HARD_LIMITS: Required<ExecutionLimits> = {
+  maxSourceBytes: 4 * 1024 * 1024 * 1024,
   maxExecDepth: 10_000,
   maxCallDepth: 10_000,
   maxCommandCount: 10_000_000,
@@ -251,6 +278,7 @@ const HARD_LIMITS: Required<ExecutionLimits> = {
   maxTraversalWork: 1_000_000_000,
   maxLiveBytes: 4 * 1024 * 1024 * 1024,
   maxInputBytes: 4 * 1024 * 1024 * 1024,
+  maxFileSystemBytes: 4 * 1024 * 1024 * 1024,
   maxDatabaseBytes: 4 * 1024 * 1024 * 1024,
   maxDatabaseResultBytes: 4 * 1024 * 1024 * 1024,
   maxArchiveBytes: 4 * 1024 * 1024 * 1024,
@@ -259,6 +287,7 @@ const HARD_LIMITS: Required<ExecutionLimits> = {
   maxArchiveEntries: 100_000_000,
   maxWorkerMessageBytes: 1024 * 1024 * 1024,
   maxExecutionTimeMs: 24 * 60 * 60 * 1000,
+  maxExtensionCleanupTimeMs: 60_000,
   maxSqliteTimeoutMs: 3_600_000,
   maxPythonTimeoutMs: 3_600_000,
   maxJsTimeoutMs: 3_600_000,
@@ -285,6 +314,7 @@ export function resolveLimits(
     return { ...defaults };
   }
   const resolved: Required<ExecutionLimits> = {
+    maxSourceBytes: userLimits.maxSourceBytes ?? defaults.maxSourceBytes,
     maxExecDepth: userLimits.maxExecDepth ?? defaults.maxExecDepth,
     maxCallDepth: userLimits.maxCallDepth ?? defaults.maxCallDepth,
     maxCommandCount: userLimits.maxCommandCount ?? defaults.maxCommandCount,
@@ -323,6 +353,8 @@ export function resolveLimits(
       defaults.maxTraversalWork,
     maxLiveBytes: userLimits.maxLiveBytes ?? defaults.maxLiveBytes,
     maxInputBytes: userLimits.maxInputBytes ?? defaults.maxInputBytes,
+    maxFileSystemBytes:
+      userLimits.maxFileSystemBytes ?? defaults.maxFileSystemBytes,
     maxDatabaseBytes: userLimits.maxDatabaseBytes ?? defaults.maxDatabaseBytes,
     maxDatabaseResultBytes:
       userLimits.maxDatabaseResultBytes ?? defaults.maxDatabaseResultBytes,
@@ -338,6 +370,9 @@ export function resolveLimits(
       userLimits.maxWorkerMessageBytes ?? defaults.maxWorkerMessageBytes,
     maxExecutionTimeMs:
       userLimits.maxExecutionTimeMs ?? defaults.maxExecutionTimeMs,
+    maxExtensionCleanupTimeMs:
+      userLimits.maxExtensionCleanupTimeMs ??
+      defaults.maxExtensionCleanupTimeMs,
     maxSqliteTimeoutMs:
       userLimits.maxSqliteTimeoutMs ?? defaults.maxSqliteTimeoutMs,
     maxPythonTimeoutMs:

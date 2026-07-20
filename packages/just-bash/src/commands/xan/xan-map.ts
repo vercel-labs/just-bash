@@ -2,12 +2,15 @@
  * Map command: add computed columns
  */
 
+import { checkedAdd } from "../../bounded-builder.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
 import { nullPrototypeCopy } from "../query-engine/safe-object.js";
 import {
   type CsvData,
   type CsvRow,
+  DerivedCsvBudget,
   formatCsv,
   readCsvInput,
   safeSetRow,
@@ -79,14 +82,31 @@ export async function cmdMap(
     newHeaders = [...headers];
     for (const spec of specs) {
       if (!headers.includes(spec.alias)) {
+        if (newHeaders.length >= ctx.limits.maxArrayElements) {
+          throw new ExecutionLimitError(
+            `xan map: output column limit exceeded (${ctx.limits.maxArrayElements})`,
+            "array_elements",
+          );
+        }
         newHeaders.push(spec.alias);
       }
     }
   } else {
+    if (
+      checkedAdd(headers.length, specs.length, "xan map") >
+      ctx.limits.maxArrayElements
+    ) {
+      throw new ExecutionLimitError(
+        `xan map: output column limit exceeded (${ctx.limits.maxArrayElements})`,
+        "array_elements",
+      );
+    }
     newHeaders = [...headers, ...specs.map((s) => s.alias)];
   }
 
   const newData: CsvData = [];
+  const resultBudget = new DerivedCsvBudget(ctx, "xan map");
+  if (!filter) resultBudget.addRows(data.length, newHeaders.length);
   for (let rowIndex = 0; rowIndex < data.length; rowIndex++) {
     const row = data[rowIndex];
     const newRow: CsvRow = toSafeRow(row);
@@ -98,6 +118,7 @@ export async function cmdMap(
     });
 
     for (const spec of specs) {
+      resultBudget.consumeWork();
       const results = evaluate(rowWithIndex, spec.ast, evalOptions);
       const value = results.length > 0 ? results[0] : null;
 
@@ -111,11 +132,16 @@ export async function cmdMap(
     }
 
     if (!skip) {
+      if (filter) resultBudget.addRow(newHeaders.length);
       newData.push(newRow);
     }
   }
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(newHeaders, newData, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 /**
@@ -201,10 +227,13 @@ export async function cmdTransform(
   });
 
   const newData: CsvData = [];
+  const resultBudget = new DerivedCsvBudget(ctx, "xan transform");
+  resultBudget.addRows(data.length, newHeaders.length);
   for (const row of data) {
     const newRow: CsvRow = toSafeRow(row);
 
     for (let i = 0; i < targetCols.length; i++) {
+      resultBudget.consumeWork();
       const col = targetCols[i];
       // For implicit expressions like "upper", wrap in function call
       // The _ variable represents the current column value
@@ -225,5 +254,9 @@ export async function cmdTransform(
     newData.push(newRow);
   }
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(newHeaders, newData, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }

@@ -53,6 +53,21 @@ await bash.exec("echo 'test' | upper"); // "TEST\n"
 
 Custom commands receive a `CommandContext` with `fs`, `cwd`, `env`, `stdin`, and `exec` (for subcommands), and work with pipes, redirections, and all shell features.
 
+Custom commands are untrusted by default, whether registered directly, through
+`defineCommand`, or through a lazy loader. A reviewed host extension that needs
+unrestricted Node.js globals must opt in explicitly with `trusted: true` (or
+`defineCommand(name, execute, { trusted: true })`). Trusted commands run in the
+embedding process and should never execute guest-provided JavaScript.
+
+Every invocation is bound by `maxExecutionTimeMs`. On cancellation, just-bash
+allows at most `maxExtensionCleanupTimeMs` for cooperative cleanup and then
+revokes the command's context. A late continuation cannot use `ctx.fs`,
+`ctx.env`, `ctx.exec`, or other context capabilities. JavaScript cannot forcibly
+stop arbitrary host code, so extensions requiring a hard guarantee against
+external side effects must run in a terminable worker or process. Tests that
+invoke command objects directly can use `createCommandContext({ fs })` to get a
+fully resolved context without duplicating internal defaults.
+
 <details>
 <summary><h2>Supported Commands</h2></summary>
 
@@ -189,12 +204,20 @@ const env = new Bash({
 import { Bash } from "just-bash";
 import { OverlayFs } from "just-bash/fs/overlay-fs";
 
-const overlay = new OverlayFs({ root: "/path/to/project" });
+const overlay = new OverlayFs({
+  root: "/path/to/project",
+  // Copy-on-write data is bounded independently from real-file reads.
+  maxMemoryBytes: 256 * 1024 * 1024,
+});
 const env = new Bash({ fs: overlay, cwd: overlay.getMountPoint() });
 
 await env.exec("cat package.json"); // reads from disk
 await env.exec('echo "modified" > package.json'); // stays in memory
 ```
+
+`maxMemoryBytes` defaults to 1 GiB and covers aggregate files retained in the
+copy-on-write layer, including append chunks. Set it to the deployment's memory
+budget when an `OverlayFs` is reused across executions.
 
 **ReadWriteFs** - Direct read-write access to a real directory. Use this if you want the agent to be able to write to your disk:
 
@@ -577,9 +600,13 @@ const env = new Bash({
   executionLimits: {
     maxCallDepth: 100, // Max function recursion depth
     maxCommandCount: 20000, // Shared across nested execution
+    maxSourceBytes: 8 * 1024 * 1024, // Shell source before parsing
+    maxFileSystemBytes: 256 * 1024 * 1024, // Retained default-FS data
     maxOutputSize: 32 * 1024 * 1024, // Aggregate stdout + stderr bytes
     maxArchiveBytes: 256 * 1024 * 1024, // Expanded archive bytes
     maxDatabaseBytes: 128 * 1024 * 1024, // SQLite image bytes
+    maxExecutionTimeMs: 30_000, // Whole execution wall-clock deadline
+    maxExtensionCleanupTimeMs: 25, // Cancellation acknowledgement grace
   },
 });
 ```
@@ -595,6 +622,22 @@ when `Bash` is constructed. Error messages identify the resource that was hit.
 - There is no network access by default. When enabled, requests are checked against URL prefix allow-lists and HTTP-method allow-lists.
 - Python and JavaScript execution are off by default as they represent additional security surface.
 - Execution is protected against infinite loops and deep recursion with configurable limits.
+- Host-realm defense-in-depth uses `node:module.registerHooks()` so builtin ESM
+  imports can be denied only for the untrusted async context. Its default
+  `enabled: "auto"` mode is active on runtimes that expose that API (including
+  Node 22.18 and Node 24.12) and reports `unsupported` without changing host
+  behavior on Node 20. Explicit `enabled: true` fails closed when the API is
+  unavailable; it never installs a process-global deny-all loader. Query the
+  resolved result with `DefenseInDepthBox.getInstance({ enabled: "auto" }).getStatus()`.
+- Scoped defense uses reversible proxies for `Reflect`, `JSON`, and `Math` and
+  restores their host descriptors on deactivation. This is reported as
+  `intrinsicProtection: "scoped-best-effort"`: same-realm JavaScript that
+  cached an intrinsic or a mutation function before activation cannot be fully
+  revoked (including the direct `delete` operator). The separately named
+  `processLifetimeIntrinsicHardening: true` option permanently freezes those
+  objects and locks selected well-known Symbol descriptors; use it only in a
+  disposable or process-lifetime realm. Use an isolated worker/process when
+  complete protection and reversible host state are both required.
 - Node worker `resourceLimits` do not reliably cap the WebAssembly linear memory used by CPython or sql.js. Queue, deadline, file, database, bridge, and payload limits reduce exposure, but strong memory containment for these opt-in runtimes requires process/container isolation or a WASM build with a lower hard maximum.
 - Use [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) if you need a full VM with arbitrary binary execution.
 

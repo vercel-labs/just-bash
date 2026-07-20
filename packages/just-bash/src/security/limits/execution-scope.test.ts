@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 import { defineCommand } from "../../custom-commands.js";
+import { ExecutionOutputAccumulator } from "../../execution-output.js";
 import { ExecutionScope } from "../../execution-scope.js";
 import {
   ExecutionAbortedError,
@@ -9,6 +10,40 @@ import {
 import { resolveLimits } from "../../limits.js";
 
 describe("shared nested execution scope", () => {
+  it("accounts byte-shaped stdout without UTF-8 re-encoding", () => {
+    const scope = new ExecutionScope(resolveLimits({ maxOutputSize: 2 }));
+    const result = scope.accountResult({
+      stdout: "\xff\xfe",
+      stderr: "",
+      exitCode: 0,
+      stdoutKind: "bytes",
+    });
+
+    expect(result.internalOutputAccounting).toEqual({ stdout: 2, stderr: 0 });
+    expect(scope.outputBytesUsed).toBe(2);
+    expect(() =>
+      scope.appendOutput("stdout", "x", "binary accounting regression"),
+    ).toThrow(/total output size exceeded/);
+  });
+
+  it("preserves byte-shaped accounting through output accumulators", () => {
+    const scope = new ExecutionScope(resolveLimits({ maxOutputSize: 2 }));
+    const output = new ExecutionOutputAccumulator(scope, "binary accumulator");
+
+    output.appendResult({
+      stdout: "\xff\xfe",
+      stderr: "",
+      exitCode: 0,
+      stdoutKind: "bytes",
+    });
+
+    expect(output.build(0).internalOutputAccounting).toEqual({
+      stdout: 2,
+      stderr: 0,
+    });
+    expect(scope.outputBytesUsed).toBe(2);
+  });
+
   it("poisons the whole scope after aggregate work exhaustion", () => {
     const scope = new ExecutionScope(resolveLimits({ maxWorkUnits: 2 }));
 
@@ -55,6 +90,17 @@ describe("shared nested execution scope", () => {
     await scope.close();
 
     expect(calls).toEqual(["second", "first"]);
+  });
+
+  it("bounds a cleanup callback that never acknowledges cancellation", async () => {
+    const scope = new ExecutionScope(
+      resolveLimits({ maxExtensionCleanupTimeMs: 5 }),
+    );
+    scope.registerCleanup(() => new Promise(() => {}));
+    const started = Date.now();
+
+    await expect(scope.close()).rejects.toThrow("execution cleanup failed");
+    expect(Date.now() - started).toBeLessThan(250);
   });
 
   it("observes the top-level abort signal", () => {

@@ -3,6 +3,56 @@ import { Bash } from "../../Bash.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 
 describe("yq execution limits", () => {
+  it("shares input node and document accounting across YAML slurp documents", async () => {
+    const env = new Bash({
+      files: { "/data.yaml": "---\na: 1\n---\nb: 2\n---\nc: 3\n" },
+      executionLimits: { maxQueryElements: 5 },
+    });
+
+    const result = await env.exec("yq -s '.' /data.yaml");
+
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+    expect(result.stderr).toBe("yq: query input element limit exceeded (5)\n");
+  });
+
+  it("bounds JSON escaping during serialization", async () => {
+    const env = new Bash({
+      files: { "/data.yaml": `value: "${"\\n".repeat(100)}"\n` },
+      executionLimits: { maxOutputSize: 80 },
+    });
+
+    const result = await env.exec("yq -o json '.' /data.yaml");
+
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+    expect(result.stderr).toBe("yq: output size limit exceeded (79 bytes)\n");
+  });
+
+  it("reserves eager YAML serialization against the output budget", async () => {
+    const env = new Bash({
+      files: { "/data.yaml": `value: ${"x".repeat(100)}\n` },
+      executionLimits: { maxOutputSize: 80 },
+    });
+
+    const result = await env.exec("yq '.' /data.yaml");
+
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+    expect(result.stderr).toBe("yq: output size limit exceeded (79 bytes)\n");
+  });
+
+  it("keeps configurable JSON indentation compatible", async () => {
+    const env = new Bash();
+
+    const result = await env.exec(
+      `printf 'a: 1\\n' | yq -o json --indent=4 '.'`,
+    );
+
+    expect(result).toMatchObject({
+      stdout: '{\n    "a": 1\n}\n',
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
   it("enforces maxStringLength inside query string multiplication", async () => {
     const env = new Bash({
       executionLimits: { maxStringLength: 64 },

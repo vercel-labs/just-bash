@@ -110,38 +110,49 @@ export const cpCommand: Command = {
           exitCode = 1;
           continue;
         }
-        if (
-          srcStat.isDirectory &&
-          (isSameOrDescendantPath(srcPath, targetPath) ||
-            (await compareCanonicalContainment(
-              ctx.fs,
-              srcPath,
-              targetPath,
-              traversalBudget,
-            )) === "inside")
-        ) {
-          stderr += `cp: cannot copy '${src}' into itself, '${targetPath}'\n`;
-          exitCode = 1;
-          continue;
+        if (srcStat.isDirectory) {
+          const containment = await compareCanonicalContainment(
+            ctx.fs,
+            srcPath,
+            targetPath,
+            traversalBudget,
+          );
+          if (
+            isSameOrDescendantPath(srcPath, targetPath) ||
+            containment === "inside"
+          ) {
+            stderr += `cp: cannot copy '${src}' into itself, '${targetPath}'\n`;
+            exitCode = 1;
+            continue;
+          }
+          if (containment === "unknown") {
+            stderr += `cp: cannot safely determine whether '${targetPath}' is inside '${src}'\n`;
+            exitCode = 1;
+            continue;
+          }
         }
 
-        if (
-          (await compareFileIdentity(ctx.fs, srcPath, targetPath)) === "same"
-        ) {
+        // A no-clobber skip performs no destructive operation and therefore
+        // does not require proving the identity of the existing target.
+        if (noClobber) {
+          try {
+            await ctx.fs.stat(targetPath);
+            continue;
+          } catch {
+            // Target doesn't exist, proceed with copy.
+          }
+        }
+
+        const identity = await compareFileIdentity(ctx.fs, srcPath, targetPath);
+        if (identity === "same") {
           stderr += `cp: '${src}' and '${targetPath}' are the same file\n`;
           exitCode = 1;
           continue;
         }
-
-        // Check for no-clobber: skip if target exists
-        if (noClobber) {
-          try {
-            await ctx.fs.stat(targetPath);
-            // Target exists, skip silently
-            continue;
-          } catch {
-            // Target doesn't exist, proceed with copy
-          }
+        if (identity === "unknown") {
+          stderr += `cp: cannot safely determine whether '${src}' and '${targetPath}' are the same file\n`;
+          exitCode = 1;
+          continue;
         }
 
         if (srcStat.isDirectory) {

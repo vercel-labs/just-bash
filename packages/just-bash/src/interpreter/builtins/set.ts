@@ -5,6 +5,7 @@
  * cause the script to exit immediately.
  */
 
+import { BoundedStringBuilder } from "../../bounded-builder.js";
 import type { ExecResult } from "../../types.js";
 import { PosixFatalError } from "../errors.js";
 import {
@@ -12,7 +13,12 @@ import {
   getArrayIndices,
   getAssocArrayKeys,
 } from "../helpers/array.js";
-import { quoteArrayValue, quoteValue } from "../helpers/quoting.js";
+import {
+  quoteArrayValue,
+  quotedArrayValueByteLength,
+  quotedValueByteLength,
+  quoteValue,
+} from "../helpers/quoting.js";
 import { failure, OK, success } from "../helpers/result.js";
 import { updateShellopts } from "../helpers/shellopts.js";
 import type { InterpreterContext, ShellOptions } from "../types.js";
@@ -165,27 +171,40 @@ function hasNonOptionArg(args: string[], i: number): boolean {
  * Format an array variable for set output
  * Format: arr=([0]="a" [1]="b" [2]="c")
  */
-function formatArrayOutput(ctx: InterpreterContext, arrayName: string): string {
+function appendArrayOutput(
+  ctx: InterpreterContext,
+  output: BoundedStringBuilder,
+  arrayName: string,
+): void {
   const indices = getArrayIndices(ctx, arrayName);
   if (indices.length === 0) {
-    return `${arrayName}=()`;
+    output.append(arrayName).append("=()");
+    return;
   }
 
-  const elements = indices.map((i) => {
+  output.append(arrayName).append("=(");
+  for (let position = 0; position < indices.length; position++) {
+    const i = indices[position];
     const value = getArrayElement(ctx, arrayName, i) ?? "";
-    return `[${i}]=${quoteArrayValue(value)}`;
-  });
-
-  return `${arrayName}=(${elements.join(" ")})`;
+    if (position > 0) output.append(" ");
+    output.append(`[${i}]=`);
+    output.reserve(quotedArrayValueByteLength(value));
+    output.append(quoteArrayValue(value));
+  }
+  output.append(")");
 }
 
 /**
  * Quote a key for associative array output
  * Keys with spaces or special characters are quoted with double quotes
  */
-function quoteAssocKey(key: string): string {
-  if (/^[a-zA-Z0-9_]+$/.test(key)) return key;
-  return quoteArrayValue(key);
+function appendAssocKey(output: BoundedStringBuilder, key: string): void {
+  if (/^[a-zA-Z0-9_]+$/.test(key)) {
+    output.append(key);
+    return;
+  }
+  output.reserve(quotedArrayValueByteLength(key));
+  output.append(quoteArrayValue(key));
 }
 
 /**
@@ -193,22 +212,31 @@ function quoteAssocKey(key: string): string {
  * Format: arr=([key1]="val1" [key2]="val2" )
  * Note: bash adds a trailing space before the closing paren
  */
-function formatAssocArrayOutput(
+function appendAssocArrayOutput(
   ctx: InterpreterContext,
+  output: BoundedStringBuilder,
   arrayName: string,
-): string {
+): void {
   const keys = getAssocArrayKeys(ctx, arrayName);
   if (keys.length === 0) {
-    return `${arrayName}=()`;
+    output.append(arrayName).append("=()");
+    return;
   }
 
-  const elements = keys.map((k) => {
+  output.append(arrayName).append("=(");
+  for (let position = 0; position < keys.length; position++) {
+    const k = keys[position];
     const value = getArrayElement(ctx, arrayName, k) ?? "";
-    return `[${quoteAssocKey(k)}]=${quoteArrayValue(value)}`;
-  });
+    if (position > 0) output.append(" ");
+    output.append("[");
+    appendAssocKey(output, k);
+    output.append("]=");
+    output.reserve(quotedArrayValueByteLength(value));
+    output.append(quoteArrayValue(value));
+  }
 
   // Note: bash has a trailing space before the closing paren for assoc arrays
-  return `${arrayName}=(${elements.join(" ")} )`;
+  output.append(" )");
 }
 
 /**
@@ -283,39 +311,42 @@ export function handleSet(ctx: InterpreterContext, args: string[]): ExecResult {
       scalarEntries.push([key, value]);
     }
 
-    // Build output: scalars first, then arrays
-    const lines: string[] = [];
+    const entries: (
+      | { kind: "scalar"; name: string; value: string }
+      | { kind: "indexed" | "associative"; name: string }
+    )[] = [
+      ...scalarEntries.map(([name, value]) => ({
+        kind: "scalar" as const,
+        name,
+        value,
+      })),
+      ...Array.from(indexedArrayNames, (name) => ({
+        kind: "indexed" as const,
+        name,
+      })),
+      ...Array.from(assocArrayNames, (name) => ({
+        kind: "associative" as const,
+        name,
+      })),
+    ];
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
-    // Add scalar variables
-    for (const [key, value] of scalarEntries.sort(([a], [b]) =>
-      a < b ? -1 : a > b ? 1 : 0,
-    )) {
-      lines.push(`${key}=${quoteValue(value)}`);
+    const output = new BoundedStringBuilder(ctx.limits.maxOutputSize, "set");
+    for (const entry of entries) {
+      ctx.executionScope.consumeWork(1, "set variable listing");
+      if (entry.kind === "scalar") {
+        output.append(entry.name).append("=");
+        output.reserve(quotedValueByteLength(entry.value));
+        output.append(quoteValue(entry.value));
+      } else if (entry.kind === "indexed") {
+        appendArrayOutput(ctx, output, entry.name);
+      } else {
+        appendAssocArrayOutput(ctx, output, entry.name);
+      }
+      output.append("\n");
     }
 
-    // Add indexed arrays (use ASCII sort order: uppercase before lowercase)
-    for (const arrayName of [...indexedArrayNames].sort((a, b) =>
-      a < b ? -1 : a > b ? 1 : 0,
-    )) {
-      lines.push(formatArrayOutput(ctx, arrayName));
-    }
-
-    // Add associative arrays
-    for (const arrayName of [...assocArrayNames].sort((a, b) =>
-      a < b ? -1 : a > b ? 1 : 0,
-    )) {
-      lines.push(formatAssocArrayOutput(ctx, arrayName));
-    }
-
-    // Sort all lines together (bash uses ASCII sort order: uppercase before lowercase)
-    lines.sort((a, b) => {
-      // Extract variable name for comparison
-      const nameA = a.split("=")[0];
-      const nameB = b.split("=")[0];
-      return nameA < nameB ? -1 : nameA > nameB ? 1 : 0;
-    });
-
-    return success(lines.length > 0 ? `${lines.join("\n")}\n` : "");
+    return success(output.build());
   }
 
   // Listings emitted by a no-option-name `o` bundled in a short-flag cluster

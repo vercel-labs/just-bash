@@ -18,15 +18,16 @@
  *
  * Dynamic import() mitigation (three layers):
  * 1. ESM loader hooks (module.register/registerHooks):
- *    - block data:/blob: URLs process-wide
+ *    - block data:/blob: URLs only in the untrusted async context
  *    - block Node.js builtin specifiers in untrusted sandbox context
  * 2. Module._resolveFilename blocked — catches file-based specifiers
  * 3. Filesystem restrictions — OverlayFs writes to memory only
  *
- * Residual gap: On runtimes with only module.register() (no registerHooks),
- * loader hooks run in a separate thread and cannot read AsyncLocalStorage
- * context. In that mode, context-aware Node builtin import blocking is not
- * available.
+ * Runtimes with only module.register() (no registerHooks) resolve auto mode as
+ * unsupported and reject explicitly enabled activation. Their separate loader
+ * thread cannot observe AsyncLocalStorage, so installing a partial or
+ * process-global fallback would either be misleading or break unrelated host
+ * imports.
  */
 
 import * as nodeAsyncHooks from "node:async_hooks";
@@ -36,6 +37,7 @@ import type {
   DefenseInDepthConfig,
   DefenseInDepthHandle,
   DefenseInDepthStats,
+  DefenseInDepthStatus,
   SecurityViolation,
   SecurityViolationType,
 } from "./types.js";
@@ -172,25 +174,44 @@ function runInContext(
  * Default configuration for the defense-in-depth box.
  */
 const DEFAULT_CONFIG: DefenseInDepthConfig = {
-  enabled: true,
+  enabled: "auto",
   auditMode: false,
+  processLifetimeIntrinsicHardening: false,
 };
+
+type ResolvedDefenseConfig = Omit<DefenseInDepthConfig, "enabled"> & {
+  enabled: boolean;
+  requested: "auto" | "enabled" | "disabled";
+};
+
+function hasContextualDynamicImportProtection(): boolean {
+  return !IS_BROWSER && typeof nodeModuleApi?.registerHooks === "function";
+}
 
 /**
  * Resolve user config with defaults.
  */
 function resolveConfig(
   config?: DefenseInDepthConfig | boolean,
-): DefenseInDepthConfig {
-  if (config === undefined) {
-    return { ...DEFAULT_CONFIG, enabled: false };
-  }
-  if (typeof config === "boolean") {
-    return { ...DEFAULT_CONFIG, enabled: config };
-  }
-  const resolved = {
+): ResolvedDefenseConfig {
+  const supplied =
+    typeof config === "boolean" ? { enabled: config } : (config ?? {});
+  const merged = {
     ...DEFAULT_CONFIG,
-    ...config,
+    ...supplied,
+  };
+  const requested =
+    merged.enabled === "auto"
+      ? "auto"
+      : merged.enabled
+        ? "enabled"
+        : "disabled";
+  const resolved: ResolvedDefenseConfig = {
+    ...merged,
+    enabled:
+      requested === "enabled" ||
+      (requested === "auto" && hasContextualDynamicImportProtection()),
+    requested,
   };
   if (resolved.excludeViolationTypes) {
     resolved.excludeViolationTypes = [
@@ -202,12 +223,14 @@ function resolveConfig(
 
 /** Compare every resolved option that influences singleton behavior. */
 function configsEqual(
-  left: DefenseInDepthConfig,
-  right: DefenseInDepthConfig,
+  left: ResolvedDefenseConfig,
+  right: ResolvedDefenseConfig,
 ): boolean {
   if (
     left.enabled !== right.enabled ||
     left.auditMode !== right.auditMode ||
+    left.processLifetimeIntrinsicHardening !==
+      right.processLifetimeIntrinsicHardening ||
     left.onViolation !== right.onViolation
   ) {
     return false;
@@ -236,7 +259,7 @@ export class DefenseInDepthBox {
    */
   private static trustedExecutionDepth = new Map<string, number>();
 
-  private config: DefenseInDepthConfig;
+  private config: ResolvedDefenseConfig;
   private refCount = 0;
   private patchFailures: string[] = [];
   private activeExecutionIds = new Set<string>();
@@ -247,11 +270,21 @@ export class DefenseInDepthBox {
     prop: string;
     descriptor: PropertyDescriptor | undefined;
   }> = [];
+  /**
+   * Descriptors made temporarily read-only while the shared host realm is
+   * protected. Unlike process-lifetime hardening, every entry remains
+   * configurable and is restored exactly when the last handle deactivates.
+   */
+  private temporaryIntrinsicDescriptors: Array<{
+    target: object;
+    prop: PropertyKey;
+    descriptor: PropertyDescriptor;
+  }> = [];
   private violations: SecurityViolation[] = [];
   private activationTime = 0;
   private totalActiveTimeMs = 0;
 
-  private constructor(config: DefenseInDepthConfig) {
+  private constructor(config: ResolvedDefenseConfig) {
     this.config = config;
   }
 
@@ -404,9 +437,49 @@ export class DefenseInDepthBox {
    * Returns false if AsyncLocalStorage is unavailable or config.enabled is false.
    */
   isEnabled(): boolean {
-    return (
-      this.config.enabled === true && executionContext !== null && !IS_BROWSER
-    );
+    return this.getStatus().state === "enabled";
+  }
+
+  /** Return the resolved runtime capability without activating protection. */
+  getStatus(): DefenseInDepthStatus {
+    const contextualDynamicImportProtection =
+      hasContextualDynamicImportProtection();
+    if (this.config.requested === "disabled") {
+      return {
+        requested: "disabled",
+        state: "disabled",
+        contextualDynamicImportProtection,
+        processLifetimeIntrinsicHardening:
+          this.config.processLifetimeIntrinsicHardening === true,
+        intrinsicProtection: this.config.processLifetimeIntrinsicHardening
+          ? "process-lifetime"
+          : "scoped-best-effort",
+      };
+    }
+    if (!contextualDynamicImportProtection || !executionContext || IS_BROWSER) {
+      return {
+        requested: this.config.requested,
+        state: "unsupported",
+        contextualDynamicImportProtection: false,
+        processLifetimeIntrinsicHardening:
+          this.config.processLifetimeIntrinsicHardening === true,
+        intrinsicProtection: this.config.processLifetimeIntrinsicHardening
+          ? "process-lifetime"
+          : "scoped-best-effort",
+        reason:
+          "context-aware ESM loader hooks (node:module.registerHooks) are unavailable",
+      };
+    }
+    return {
+      requested: this.config.requested,
+      state: "enabled",
+      contextualDynamicImportProtection: true,
+      processLifetimeIntrinsicHardening:
+        this.config.processLifetimeIntrinsicHardening === true,
+      intrinsicProtection: this.config.processLifetimeIntrinsicHardening
+        ? "process-lifetime"
+        : "scoped-best-effort",
+    };
   }
 
   /**
@@ -439,6 +512,14 @@ export class DefenseInDepthBox {
   activate(): DefenseInDepthHandle {
     // In browser environments, defense-in-depth is disabled (no AsyncLocalStorage)
     // Also disabled when config.enabled is false
+    if (this.config.requested === "enabled") {
+      const status = this.getStatus();
+      if (status.state === "unsupported") {
+        throw new Error(
+          `DefenseInDepthBox: enabled protection is unsupported: ${status.reason}`,
+        );
+      }
+    }
     if (!IS_BROWSER && this.config.enabled && !executionContext) {
       throw new Error(
         "DefenseInDepthBox: enabled protection requires node:async_hooks and node:module",
@@ -1033,13 +1114,169 @@ export class DefenseInDepthBox {
       );
     }
 
-    // Irreversible protections are applied only after every reversible
-    // critical patch has been installed and verified. This prevents a failed
-    // activation from half-entering process-lifetime intrinsic policy.
-    for (const blocked of permanentIntrinsicPatches) {
-      this.applyPatch(blocked);
+    // The default path installs reversible read-only proxies. The explicit
+    // process-lifetime mode additionally freezes their underlying objects and
+    // locks well-known symbols, after every reversible critical patch has been
+    // installed and verified.
+    if (!this.config.processLifetimeIntrinsicHardening) {
+      // Capture and protect the underlying objects before their global
+      // bindings are replaced with proxies.
+      this.protectReversibleIntrinsics(permanentIntrinsicPatches);
     }
-    this.lockWellKnownSymbols();
+    for (const blocked of permanentIntrinsicPatches) {
+      this.applyPatch(
+        blocked,
+        this.config.processLifetimeIntrinsicHardening === true,
+      );
+    }
+    if (this.config.processLifetimeIntrinsicHardening) {
+      this.lockWellKnownSymbols();
+    }
+  }
+
+  /**
+   * Close the cached-reference assignment path without permanently freezing
+   * host globals. The global proxies protect references obtained after
+   * activation; these temporary descriptor changes protect references cached
+   * before activation. Configurability is deliberately retained so teardown
+   * can restore the host realm byte-for-byte.
+   */
+  private protectReversibleIntrinsics(blockedGlobals: BlockedGlobal[]): void {
+    const protectedTargets = new Set<object>();
+    const protect = (target: object, prop: PropertyKey): void => {
+      const descriptor = Object.getOwnPropertyDescriptor(target, prop);
+      if (
+        !descriptor ||
+        !("value" in descriptor) ||
+        descriptor.writable !== true ||
+        descriptor.configurable !== true
+      ) {
+        return;
+      }
+      this.temporaryIntrinsicDescriptors.push({ target, prop, descriptor });
+      Object.defineProperty(target, prop, { ...descriptor, writable: false });
+    };
+
+    for (const { target, prop } of blockedGlobals) {
+      const intrinsic = (target as Record<string, unknown>)[prop];
+      if (typeof intrinsic !== "object" || intrinsic === null) continue;
+      protectedTargets.add(intrinsic);
+      for (const key of Reflect.ownKeys(intrinsic)) protect(intrinsic, key);
+    }
+
+    const symbolProperties: Array<[object, symbol]> = [];
+    // biome-ignore lint/style/noRestrictedGlobals: security protection intentionally targets the intrinsic
+    for (const ctor of [Array, Map, Set, RegExp, Promise]) {
+      symbolProperties.push([ctor, Symbol.species]);
+    }
+    for (const proto of [
+      Array.prototype,
+      String.prototype,
+      Map.prototype,
+      Set.prototype,
+    ]) {
+      symbolProperties.push([proto, Symbol.iterator]);
+    }
+    symbolProperties.push(
+      [Symbol.prototype, Symbol.toPrimitive],
+      [Date.prototype, Symbol.toPrimitive],
+      [Function.prototype, Symbol.hasInstance],
+      [Array.prototype, Symbol.unscopables],
+    );
+    for (const sym of [
+      Symbol.match,
+      Symbol.matchAll,
+      Symbol.replace,
+      Symbol.search,
+      Symbol.split,
+    ]) {
+      // biome-ignore lint/style/noRestrictedGlobals: security protection intentionally targets the intrinsic
+      symbolProperties.push([RegExp.prototype, sym]);
+    }
+    for (const proto of [
+      Map.prototype,
+      Set.prototype,
+      Promise.prototype,
+      ArrayBuffer.prototype,
+    ]) {
+      symbolProperties.push([proto, Symbol.toStringTag]);
+    }
+    for (const [target, prop] of symbolProperties) {
+      protectedTargets.add(target);
+      protect(target, prop);
+    }
+
+    // Cached Object/Reflect references resolve methods from the original
+    // intrinsic, bypassing the global proxy. Wrap the mutation entry points
+    // while active, but continue to allow them for ordinary script-owned
+    // objects and for host work outside the sandbox context.
+    const wrapMutationMethod = (
+      owner: object,
+      prop: string,
+      operation: string,
+    ): void => {
+      const descriptor = Object.getOwnPropertyDescriptor(owner, prop);
+      if (
+        !descriptor ||
+        !("value" in descriptor) ||
+        typeof descriptor.value !== "function" ||
+        descriptor.configurable !== true
+      ) {
+        return;
+      }
+      const original = descriptor.value as (...args: unknown[]) => unknown;
+      const box = this;
+      const guarded = function (this: unknown, ...args: unknown[]): unknown {
+        const target = args[0];
+        if (
+          box.shouldBlock() &&
+          typeof target === "object" &&
+          target !== null &&
+          protectedTargets.has(target)
+        ) {
+          const path = `${operation}.${prop}`;
+          const message = `${path} is blocked for protected intrinsics during script execution`;
+          const violation = box.recordViolation(
+            "prototype_mutation",
+            path,
+            message,
+          );
+          throw new SecurityViolationError(message, violation);
+        }
+        return Reflect.apply(original, this, args);
+      };
+      this.temporaryIntrinsicDescriptors.push({
+        target: owner,
+        prop,
+        descriptor,
+      });
+      Object.defineProperty(owner, prop, {
+        ...descriptor,
+        value: guarded,
+        writable: false,
+      });
+    };
+
+    for (const prop of [
+      "assign",
+      "defineProperties",
+      "defineProperty",
+      "freeze",
+      "preventExtensions",
+      "seal",
+      "setPrototypeOf",
+    ]) {
+      wrapMutationMethod(Object, prop, "Object");
+    }
+    for (const prop of [
+      "defineProperty",
+      "deleteProperty",
+      "preventExtensions",
+      "set",
+      "setPrototypeOf",
+    ]) {
+      wrapMutationMethod(Reflect, prop, "Reflect");
+    }
   }
 
   /**
@@ -1686,18 +1923,16 @@ export class DefenseInDepthBox {
   /**
    * Block dynamic import() escape vectors via ESM loader hooks.
    *
-   * Uses Node.js module.registerHooks() (23.5+, synchronous) or
-   * module.register() (20.6+, async hooks in separate thread) to install
-   * ESM loader hooks that reject dangerous specifiers.
+   * Uses Node.js module.registerHooks() (23.5+, synchronous) to install ESM
+   * loader hooks that reject dangerous specifiers.
    *
    * registerHooks() runs in-thread and can read AsyncLocalStorage. We use it
    * to block Node.js builtin specifiers (node:* and bare builtins) only in
    * untrusted sandbox context while still allowing trusted infrastructure
    * imports (runTrusted/runTrustedAsync).
    *
-   * register() hooks run in a separate loader thread and cannot read
-   * AsyncLocalStorage. In that fallback mode, only data:/blob: blocking is
-   * enforced here.
+   * module.register() is deliberately not used as a fallback: those hooks run
+   * in a separate loader thread and cannot read AsyncLocalStorage.
    *
    * This is process-wide and permanent (hooks cannot be unregistered).
    * Only applied once per process regardless of how many DefenseInDepthBox
@@ -1711,8 +1946,6 @@ export class DefenseInDepthBox {
     if (IS_BROWSER || DefenseInDepthBox.importHooksRegistered) return;
 
     try {
-      const box = this;
-
       const mod = nodeModuleApi;
       if (!mod) {
         throw new Error("node:module is unavailable");
@@ -1764,7 +1997,7 @@ export class DefenseInDepthBox {
         );
       };
 
-      const shouldRecordAuditViolation = (): boolean => {
+      const shouldRecordAuditViolation = (box: DefenseInDepthBox): boolean => {
         const store = executionContext?.getStore();
         return (
           box.config.auditMode === true &&
@@ -1774,17 +2007,26 @@ export class DefenseInDepthBox {
         );
       };
 
-      // Prefer registerHooks() (Node.js 23.5+) — synchronous, in-thread
+      // registerHooks() (Node.js 23.5+) is synchronous and in-thread.
       if (typeof mod.registerHooks === "function") {
         mod.registerHooks({
           resolve(specifier, context, nextResolve) {
+            const box = DefenseInDepthBox.instance;
+            if (!box) return nextResolve(specifier, context);
             if (
-              specifier.startsWith("data:") ||
-              specifier.startsWith("blob:")
+              (specifier.startsWith("data:") ||
+                specifier.startsWith("blob:")) &&
+              box.shouldBlock()
             ) {
-              throw new Error(
-                `dynamic import of ${specifier.startsWith("data:") ? "data:" : "blob:"} URLs is blocked by defense-in-depth`,
+              const path = `import(${specifier.startsWith("data:") ? "data:" : "blob:"})`;
+              // @banned-pattern-ignore: authorization uses the exact loader specifier and ALS capability, not a diagnostic
+              const message = `dynamic import of ${specifier.startsWith("data:") ? "data:" : "blob:"} URLs is blocked by defense-in-depth`;
+              const violation = box.recordViolation(
+                "dynamic_import_builtin",
+                path,
+                message,
               );
+              throw new SecurityViolationError(message, violation);
             }
             if (isNodeBuiltinSpecifier(specifier)) {
               const path = `import(${specifier})`;
@@ -1797,7 +2039,7 @@ export class DefenseInDepthBox {
                 );
                 throw new SecurityViolationError(message, violation);
               }
-              if (shouldRecordAuditViolation()) {
+              if (shouldRecordAuditViolation(box)) {
                 box.recordViolation(
                   "dynamic_import_builtin",
                   path,
@@ -1812,29 +2054,13 @@ export class DefenseInDepthBox {
         return;
       }
 
-      // Fall back to register() (Node.js 20.6+) — async, separate thread
-      if (typeof mod.register === "function") {
-        // NOTE: register() hooks run in a separate thread and cannot access
-        // AsyncLocalStorage context, so context-aware builtin import blocking
-        // is only possible via registerHooks().
-        // Inline the hooks as a data: URL module. This is loaded BEFORE
-        // the hooks become active, so it doesn't block its own loading.
-        const hookCode = [
-          "export async function resolve(specifier, context, nextResolve) {",
-          '  if (specifier.startsWith("data:") || specifier.startsWith("blob:")) {',
-          '    throw new Error("dynamic import of " + (specifier.startsWith("data:") ? "data:" : "blob:") + " URLs is blocked by defense-in-depth");',
-          "  }",
-          "  return nextResolve(specifier, context);",
-          "}",
-        ].join("\n");
-        mod.register(`data:text/javascript,${encodeURIComponent(hookCode)}`);
-        DefenseInDepthBox.importHooksRegistered = true;
-      }
+      throw new Error(
+        "context-aware ESM loader hooks (node:module.registerHooks) are unavailable",
+      );
     } catch (e) {
-      // module.register()/registerHooks() not available (older Node.js, edge runtimes)
-      console.debug(
-        "[DefenseInDepthBox] Could not register import() hooks:",
-        e instanceof Error ? e.message : e,
+      throw new Error(
+        `DefenseInDepthBox: could not register dynamic-import hooks: ${e instanceof Error ? e.message : String(e)}`,
+        { cause: e },
       );
     }
   }
@@ -1917,7 +2143,7 @@ export class DefenseInDepthBox {
   /**
    * Apply a single patch to a blocked global.
    */
-  private applyPatch(blocked: BlockedGlobal): void {
+  private applyPatch(blocked: BlockedGlobal, freezeIntrinsic = false): void {
     const { target, prop, violationType, strategy } = blocked;
 
     try {
@@ -1931,11 +2157,10 @@ export class DefenseInDepthBox {
       this.originalDescriptors.push({ target, prop, descriptor });
 
       if (strategy === "freeze") {
-        // Freeze the actual intrinsic so cached/alternate references cannot
-        // bypass the global proxy. This is intentionally process-lifetime for
-        // opt-in defense mode; only the global binding is restored.
+        // The global proxy is descriptor-reversible. Freezing the underlying
+        // object is reserved for an explicitly opted-in process-lifetime mode.
         if (typeof original === "object" && original !== null) {
-          Object.freeze(original);
+          if (freezeIntrinsic) Object.freeze(original);
           const path = this.getPathForTarget(target, prop);
           const proxy = this.createReadonlyObjectProxy(
             original,
@@ -1986,6 +2211,20 @@ export class DefenseInDepthBox {
    * Restore all original values.
    */
   private restorePatches(): void {
+    for (let i = this.temporaryIntrinsicDescriptors.length - 1; i >= 0; i--) {
+      const { target, prop, descriptor } =
+        this.temporaryIntrinsicDescriptors[i];
+      try {
+        Object.defineProperty(target, prop, descriptor);
+      } catch (e) {
+        console.debug(
+          `[DefenseInDepthBox] Could not restore temporary intrinsic ${String(prop)}:`,
+          e instanceof Error ? e.message : e,
+        );
+      }
+    }
+    this.temporaryIntrinsicDescriptors = [];
+
     // Restore in reverse order to handle dependencies
     for (let i = this.originalDescriptors.length - 1; i >= 0; i--) {
       const { target, prop, descriptor } = this.originalDescriptors[i];

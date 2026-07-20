@@ -2,11 +2,14 @@
  * Reshape commands: explode, implode, flatmap, pivot, join, merge
  */
 
+import { boundedJoin, checkedAdd } from "../../bounded-builder.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 import {
   type CsvData,
   type CsvRow,
   createSafeRow,
+  DerivedCsvBudget,
   formatCsv,
   readCsvInput,
   safeSetRow,
@@ -71,6 +74,7 @@ export async function cmdExplode(
     : headers;
   const targetCol = rename || column;
   const newData: CsvData = [];
+  const resultBudget = new DerivedCsvBudget(ctx, "xan explode");
 
   for (const row of data) {
     const value = row[column];
@@ -78,6 +82,7 @@ export async function cmdExplode(
 
     if (strValue === "") {
       if (!dropEmpty) {
+        resultBudget.addRow(newHeaders.length);
         const newRow: CsvRow = toSafeRow(row);
         if (rename) {
           delete newRow[column];
@@ -86,19 +91,32 @@ export async function cmdExplode(
         newData.push(newRow);
       }
     } else {
-      const parts = strValue.split(separator);
-      for (const part of parts) {
+      let start = 0;
+      while (start <= strValue.length) {
+        resultBudget.addRow(newHeaders.length);
+        const next =
+          separator === "" ? start + 1 : strValue.indexOf(separator, start);
+        const end = next === -1 ? strValue.length : next;
+        const part = strValue.slice(start, end);
         const newRow: CsvRow = toSafeRow(row);
         if (rename) {
           delete newRow[column];
         }
         safeSetRow(newRow, targetCol, part);
         newData.push(newRow);
+        if (next === -1 || (separator === "" && start >= strValue.length - 1)) {
+          break;
+        }
+        start = separator === "" ? next : next + separator.length;
       }
     }
   }
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(newHeaders, newData, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 /**
@@ -160,11 +178,13 @@ export async function cmdImplode(
 
   // Group consecutive rows with same key
   const newData: CsvData = [];
+  const resultBudget = new DerivedCsvBudget(ctx, "xan implode");
   let currentKey: string | null = null;
   let currentValues: string[] = [];
   let currentRow: CsvRow | null = null;
 
   for (const row of data) {
+    resultBudget.consumeWork();
     const key = JSON.stringify(keyCols.map((k) => String(row[k] ?? "")));
     const value = row[column];
     const strValue = value === null || value === undefined ? "" : String(value);
@@ -176,7 +196,17 @@ export async function cmdImplode(
         if (rename) {
           delete newRow[column];
         }
-        safeSetRow(newRow, targetCol, currentValues.join(separator));
+        safeSetRow(
+          newRow,
+          targetCol,
+          boundedJoin(
+            currentValues,
+            separator,
+            Math.min(ctx.limits.maxStringLength, ctx.limits.maxOutputSize),
+            "xan implode",
+          ),
+        );
+        resultBudget.addRow(newHeaders.length);
         newData.push(newRow);
       }
       // Start new group
@@ -195,11 +225,25 @@ export async function cmdImplode(
     if (rename) {
       delete newRow[column];
     }
-    safeSetRow(newRow, targetCol, currentValues.join(separator));
+    safeSetRow(
+      newRow,
+      targetCol,
+      boundedJoin(
+        currentValues,
+        separator,
+        Math.min(ctx.limits.maxStringLength, ctx.limits.maxOutputSize),
+        "xan implode",
+      ),
+    );
+    resultBudget.addRow(newHeaders.length);
     newData.push(newRow);
   }
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(newHeaders, newData, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 /**
@@ -277,6 +321,7 @@ export async function cmdJoin(
   // Build index for second file
   const index2 = new Map<string, CsvRow[]>();
   for (const row of data2) {
+    ctx.executionScope?.consumeWork(1, "xan join index");
     const keyVal = String(row[key2] ?? "");
     if (!index2.has(keyVal)) {
       index2.set(keyVal, []);
@@ -288,12 +333,49 @@ export async function cmdJoin(
   // Keep all headers from file1, add only unique headers from file2
   const headers1Set = new Set(headers1);
   const headers2Unique = headers2.filter((h) => !headers1Set.has(h));
+  if (
+    checkedAdd(headers1.length, headers2Unique.length, "xan join") >
+    ctx.limits.maxArrayElements
+  ) {
+    throw new ExecutionLimitError(
+      `xan join: output column limit exceeded (${ctx.limits.maxArrayElements})`,
+      "array_elements",
+    );
+  }
   const newHeaders = [...headers1, ...headers2Unique];
   const newData: CsvData = [];
+  const resultBudget = new DerivedCsvBudget(ctx, "xan join");
   const matched2Keys = new Set<string>();
+
+  // Prove the join product fits before allocating its first output row.
+  let prospectiveRows = 0;
+  for (const row1 of data1) {
+    ctx.executionScope?.consumeWork(1, "xan join cardinality");
+    const matches = index2.get(String(row1[key1] ?? ""));
+    prospectiveRows = checkedAdd(
+      prospectiveRows,
+      matches?.length ?? (joinType === "left" || joinType === "full" ? 1 : 0),
+      "xan join",
+    );
+  }
+  if (joinType === "right" || joinType === "full") {
+    const leftKeys = new Set<string>();
+    for (const row of data1) {
+      ctx.executionScope?.throwIfAborted("xan join cardinality");
+      leftKeys.add(String(row[key1] ?? ""));
+    }
+    for (const row2 of data2) {
+      ctx.executionScope?.throwIfAborted("xan join cardinality");
+      if (!leftKeys.has(String(row2[key2] ?? ""))) {
+        prospectiveRows = checkedAdd(prospectiveRows, 1, "xan join");
+      }
+    }
+  }
+  resultBudget.addRows(prospectiveRows, newHeaders.length);
 
   // Process joins
   for (const row1 of data1) {
+    ctx.executionScope?.throwIfAborted("xan join output");
     const keyVal = String(row1[key1] ?? "");
     const matches = index2.get(keyVal);
 
@@ -325,6 +407,7 @@ export async function cmdJoin(
   // For right/full join, add unmatched rows from second file
   if (joinType === "right" || joinType === "full") {
     for (const row2 of data2) {
+      ctx.executionScope?.throwIfAborted("xan join output");
       const keyVal = String(row2[key2] ?? "");
       if (!matched2Keys.has(keyVal)) {
         const newRow: CsvRow = createSafeRow();
@@ -340,7 +423,11 @@ export async function cmdJoin(
     }
   }
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(newHeaders, newData, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 /**
@@ -409,9 +496,18 @@ export async function cmdPivot(
 
   // Get unique pivot values (preserving order)
   const pivotValues: string[] = [];
+  const pivotValueSet = new Set<string>();
   for (const row of data) {
+    ctx.executionScope?.consumeWork(1, "xan pivot values");
     const val = String(row[pivotCol] ?? "");
-    if (!pivotValues.includes(val)) {
+    if (!pivotValueSet.has(val)) {
+      if (pivotValues.length >= ctx.limits.maxArrayElements) {
+        throw new ExecutionLimitError(
+          `xan pivot: pivot value limit exceeded (${ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
+      pivotValueSet.add(val);
       pivotValues.push(val);
     }
   }
@@ -427,6 +523,7 @@ export async function cmdPivot(
   const groupOrder: string[] = [];
 
   for (const row of data) {
+    ctx.executionScope?.consumeWork(1, "xan pivot groups");
     const groupKeyParts = groupCols.map((c) => String(row[c] ?? ""));
     const groupKey = JSON.stringify(groupKeyParts);
     const pivotVal = String(row[pivotCol] ?? "");
@@ -455,10 +552,24 @@ export async function cmdPivot(
       exitCode: 1,
     };
   }
+  const outputColumnCount = checkedAdd(
+    groupCols.length,
+    pivotValues.length,
+    "xan pivot",
+  );
+  if (outputColumnCount > ctx.limits.maxArrayElements) {
+    throw new ExecutionLimitError(
+      `xan pivot: output column limit exceeded (${ctx.limits.maxArrayElements})`,
+      "array_elements",
+    );
+  }
+  const resultBudget = new DerivedCsvBudget(ctx, "xan pivot");
+  resultBudget.addRows(groupOrder.length, outputColumnCount);
   const newHeaders = [...groupCols, ...pivotValues];
   const newData: CsvData = [];
 
   for (const groupKey of groupOrder) {
+    ctx.executionScope?.throwIfAborted("xan pivot output");
     const group = groups.get(groupKey);
     if (!group) continue;
     const row: CsvRow = createSafeRow();
@@ -477,32 +588,44 @@ export async function cmdPivot(
     newData.push(row);
   }
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(newHeaders, newData, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 function computeSimpleAgg(
   func: string,
   values: (string | number | boolean | null)[],
 ): string | number | null {
-  const nums = values
-    .filter((v) => v !== null && v !== undefined)
-    .map((v) => (typeof v === "number" ? v : Number.parseFloat(String(v))))
-    .filter((n) => !Number.isNaN(n));
+  let numericCount = 0;
+  let sum = 0;
+  let minimum = Number.POSITIVE_INFINITY;
+  let maximum = Number.NEGATIVE_INFINITY;
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    const number =
+      typeof value === "number" ? value : Number.parseFloat(String(value));
+    if (Number.isNaN(number)) continue;
+    numericCount++;
+    sum += number;
+    minimum = Math.min(minimum, number);
+    maximum = Math.max(maximum, number);
+  }
 
   switch (func) {
     case "count":
       return values.length;
     case "sum":
-      return nums.reduce((a, b) => a + b, 0);
+      return sum;
     case "mean":
     case "avg":
-      return nums.length > 0
-        ? nums.reduce((a, b) => a + b, 0) / nums.length
-        : null;
+      return numericCount > 0 ? sum / numericCount : null;
     case "min":
-      return nums.length > 0 ? Math.min(...nums) : null;
+      return numericCount > 0 ? minimum : null;
     case "max":
-      return nums.length > 0 ? Math.max(...nums) : null;
+      return numericCount > 0 ? maximum : null;
     case "first":
       return values.length > 0 ? String(values[0] ?? "") : null;
     case "last":
@@ -569,9 +692,18 @@ export async function cmdMerge(
   }
 
   // Merge all data
-  let merged: CsvData = [];
+  const merged: CsvData = [];
+  const resultBudget = new DerivedCsvBudget(ctx, "xan merge");
+  const mergedRows = allData.reduce(
+    (count, entry) => checkedAdd(count, entry.data.length, "xan merge"),
+    0,
+  );
+  resultBudget.addRows(mergedRows, commonHeaders.length);
   for (const { data } of allData) {
-    merged = merged.concat(data);
+    for (const row of data) {
+      ctx.executionScope?.throwIfAborted("xan merge output");
+      merged.push(row);
+    }
   }
 
   // Sort if column specified
@@ -597,5 +729,9 @@ export async function cmdMerge(
     });
   }
 
-  return { stdout: formatCsv(commonHeaders, merged), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(commonHeaders, merged, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }

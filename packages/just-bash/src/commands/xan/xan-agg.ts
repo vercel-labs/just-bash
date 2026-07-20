@@ -8,24 +8,39 @@ import {
   type AggregationLimits,
   buildAggRow,
   computeAgg,
+  estimateSortingWork,
   parseAggExpr,
 } from "./aggregation.js";
 import {
   type CsvData,
   type CsvRow,
   createSafeRow,
+  DerivedCsvBudget,
   formatCsv,
   readCsvInput,
   safeSetRow,
 } from "./csv.js";
 
-function getAggregationLimits(ctx: CommandContext): AggregationLimits {
+function getAggregationLimits(
+  ctx: CommandContext,
+  budget: DerivedCsvBudget,
+): AggregationLimits {
   return {
     maxArrayElements: ctx.limits.maxArrayElements,
     maxStringLength: ctx.limits.maxStringLength,
     maxIterations: ctx.limits.maxJqIterations,
     maxDepth: ctx.limits.maxQueryDepth,
+    consumeWork: (units = 1) => budget.consumeWork(units),
   };
+}
+
+function frequencyResultCount(
+  counts: ReadonlyMap<string, number>,
+  noExtra: boolean,
+  limit: number,
+): number {
+  const available = counts.size - (noExtra && counts.has("") ? 1 : 0);
+  return limit > 0 ? Math.min(available, limit) : available;
 }
 
 export async function cmdAgg(
@@ -65,12 +80,14 @@ export async function cmdAgg(
       : undefined,
   };
 
-  const aggregationLimits = getAggregationLimits(ctx);
+  const budget = new DerivedCsvBudget(ctx, "xan agg");
+  const aggregationLimits = getAggregationLimits(ctx, budget);
   const specs = parseAggExpr(expr, aggregationLimits);
   const headers = specs.map((s) => s.alias);
+  budget.addRow(headers.length);
   const row = buildAggRow(data, specs, evalOptions, aggregationLimits);
 
-  return { stdout: formatCsv(headers, [row]), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, [row], ctx), stderr: "", exitCode: 0 };
 }
 
 export async function cmdGroupby(
@@ -117,15 +134,19 @@ export async function cmdGroupby(
   };
 
   const groupKeys = groupCols.split(",");
-  const aggregationLimits = getAggregationLimits(ctx);
+  const budget = new DerivedCsvBudget(ctx, "xan groupby");
+  const aggregationLimits = getAggregationLimits(ctx, budget);
   const specs = parseAggExpr(aggExpr, aggregationLimits);
+  const headers = [...groupKeys, ...specs.map((s) => s.alias)];
 
   // Group rows by key - use array to preserve first-seen order
   const groupOrder: string[] = [];
   const groups = new Map<string, CsvData>();
   for (const row of data) {
+    budget.consumeWork(groupKeys.length + 1);
     const key = JSON.stringify(groupKeys.map((k) => String(row[k])));
     if (!groups.has(key)) {
+      budget.addRow(headers.length);
       groups.set(key, []);
       groupOrder.push(key);
     }
@@ -133,7 +154,6 @@ export async function cmdGroupby(
   }
 
   // Compute aggregates for each group
-  const headers = [...groupKeys, ...specs.map((s) => s.alias)];
   const results: CsvData = [];
 
   for (const key of groupOrder) {
@@ -155,7 +175,7 @@ export async function cmdGroupby(
     results.push(row);
   }
 
-  return { stdout: formatCsv(headers, results), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, results, ctx), stderr: "", exitCode: 0 };
 }
 
 export async function cmdFrequency(
@@ -187,6 +207,14 @@ export async function cmdFrequency(
 
   const { headers, data, error } = await readCsvInput(fileArgs, ctx);
   if (error) return error;
+  if (!Number.isSafeInteger(limit) || limit < 0) {
+    return {
+      stdout: "",
+      stderr: "xan frequency: limit must be a non-negative safe integer\n",
+      exitCode: 1,
+    };
+  }
+  const budget = new DerivedCsvBudget(ctx, "xan frequency");
 
   // If no columns specified, use all columns except group column
   let targetCols =
@@ -206,6 +234,7 @@ export async function cmdFrequency(
     // Group by column first, then count values within each group
     const groups = new Map<string, CsvData>();
     for (const row of data) {
+      budget.consumeWork();
       const key = String(row[groupCol] ?? "");
       if (!groups.has(key)) {
         groups.set(key, []);
@@ -218,33 +247,34 @@ export async function cmdFrequency(
         // Count occurrences within group
         const counts = new Map<string, number>();
         for (const row of groupData) {
+          budget.consumeWork();
           const val = row[col];
           const key =
             val === "" || val === null || val === undefined ? "" : String(val);
           counts.set(key, (counts.get(key) || 0) + 1);
         }
 
-        // Sort by count descending
-        let entries = [...counts.entries()].sort((a, b) => {
+        budget.addRows(
+          frequencyResultCount(counts, noExtra, limit),
+          resultHeaders.length,
+        );
+        budget.consumeWork(estimateSortingWork(counts.size));
+        const entries = [...counts.entries()].sort((a, b) => {
           if (b[1] !== a[1]) return b[1] - a[1];
           return a[0].localeCompare(b[0]);
         });
 
-        if (noExtra) {
-          entries = entries.filter(([val]) => val !== "");
-        }
-
-        if (limit > 0) {
-          entries = entries.slice(0, limit);
-        }
-
+        let emitted = 0;
         for (const [val, count] of entries) {
-          results.push({
-            field: col,
-            [groupCol]: groupKey,
-            value: val === "" ? "<empty>" : val,
-            count,
-          });
+          if (noExtra && val === "") continue;
+          if (limit > 0 && emitted >= limit) break;
+          const result = createSafeRow();
+          safeSetRow(result, "field", col);
+          safeSetRow(result, groupCol, groupKey);
+          safeSetRow(result, "value", val === "" ? "<empty>" : val);
+          safeSetRow(result, "count", count);
+          results.push(result);
+          emitted++;
         }
       }
     }
@@ -253,36 +283,42 @@ export async function cmdFrequency(
     for (const col of targetCols) {
       const counts = new Map<string, number>();
       for (const row of data) {
+        budget.consumeWork();
         const val = row[col];
         const key =
           val === "" || val === null || val === undefined ? "" : String(val);
         counts.set(key, (counts.get(key) || 0) + 1);
       }
 
-      let entries = [...counts.entries()].sort((a, b) => {
+      budget.addRows(
+        frequencyResultCount(counts, noExtra, limit),
+        resultHeaders.length,
+      );
+      budget.consumeWork(estimateSortingWork(counts.size));
+      const entries = [...counts.entries()].sort((a, b) => {
         if (b[1] !== a[1]) return b[1] - a[1];
         return a[0].localeCompare(b[0]);
       });
 
-      if (noExtra) {
-        entries = entries.filter(([val]) => val !== "");
-      }
-
-      if (limit > 0) {
-        entries = entries.slice(0, limit);
-      }
-
+      let emitted = 0;
       for (const [val, count] of entries) {
-        results.push({
-          field: col,
-          value: val === "" ? "<empty>" : val,
-          count,
-        });
+        if (noExtra && val === "") continue;
+        if (limit > 0 && emitted >= limit) break;
+        const result = createSafeRow();
+        safeSetRow(result, "field", col);
+        safeSetRow(result, "value", val === "" ? "<empty>" : val);
+        safeSetRow(result, "count", count);
+        results.push(result);
+        emitted++;
       }
     }
   }
 
-  return { stdout: formatCsv(resultHeaders, results), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(resultHeaders, results, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 export async function cmdStats(
@@ -306,30 +342,55 @@ export async function cmdStats(
 
   const targetCols = columns.length > 0 ? columns : headers;
   const statsHeaders = ["field", "type", "count", "min", "max", "mean"];
+  const budget = new DerivedCsvBudget(ctx, "xan stats");
+  budget.addRows(targetCols.length, statsHeaders.length);
   const results: CsvData = [];
 
   for (const col of targetCols) {
-    const values = data
-      .map((r) => r[col])
-      .filter((v) => v !== null && v !== undefined);
-    const nums = values
-      .map((v) => (typeof v === "number" ? v : Number.parseFloat(String(v))))
-      .filter((n) => !Number.isNaN(n));
+    let valueCount = 0;
+    let numericCount = 0;
+    let minimum = Number.POSITIVE_INFINITY;
+    let maximum = Number.NEGATIVE_INFINITY;
+    let sum = 0;
 
-    const isNumeric = nums.length === values.length && nums.length > 0;
+    // Keep statistics single-pass. Spreading a normal-profile CSV column into
+    // Math.min/Math.max exceeds the engine's argument limit well before the
+    // configured row ceiling and duplicates the attacker-sized input twice.
+    for (const row of data) {
+      ctx.executionScope?.consumeWork(1, "xan stats rows");
+      const value = row[col];
+      if (value === null || value === undefined) continue;
 
-    results.push({
-      field: col,
-      type: isNumeric ? "Number" : "String",
-      count: values.length,
-      min: isNumeric ? Math.min(...nums) : "",
-      max: isNumeric ? Math.max(...nums) : "",
-      mean: isNumeric
-        ? Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 1e10) /
-          1e10
-        : "",
-    });
+      valueCount++;
+      const numericValue =
+        typeof value === "number" ? value : Number.parseFloat(String(value));
+      if (Number.isNaN(numericValue)) continue;
+
+      numericCount++;
+      minimum = Math.min(minimum, numericValue);
+      maximum = Math.max(maximum, numericValue);
+      sum += numericValue;
+    }
+
+    const isNumeric = numericCount === valueCount && numericCount > 0;
+
+    const result = createSafeRow();
+    safeSetRow(result, "field", col);
+    safeSetRow(result, "type", isNumeric ? "Number" : "String");
+    safeSetRow(result, "count", valueCount);
+    safeSetRow(result, "min", isNumeric ? minimum : "");
+    safeSetRow(result, "max", isNumeric ? maximum : "");
+    safeSetRow(
+      result,
+      "mean",
+      isNumeric ? Math.round((sum / numericCount) * 1e10) / 1e10 : "",
+    );
+    results.push(result);
   }
 
-  return { stdout: formatCsv(statsHeaders, results), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(statsHeaders, results, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }

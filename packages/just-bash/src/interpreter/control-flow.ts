@@ -42,6 +42,7 @@ import {
   expandWordWithGlob,
   isWordFullyQuoted,
 } from "./expansion.js";
+import { appendBoundedElements } from "./helpers/bounded-array.js";
 import { executeCondition } from "./helpers/condition.js";
 import { getErrorMessage } from "./helpers/errors.js";
 import { handleLoopError } from "./helpers/loop.js";
@@ -192,7 +193,12 @@ export async function executeFor(
     try {
       for (const word of node.words) {
         const expanded = await expandWordWithGlob(ctx, word);
-        words.push(...expanded.values);
+        appendBoundedElements(
+          words,
+          expanded.values,
+          ctx.limits.maxArrayElements,
+          "for-loop expansion",
+        );
       }
     } catch (e) {
       if (e instanceof GlobError) {
@@ -600,7 +606,15 @@ export async function executeCase(
         }
         const nocasematch = ctx.state.shoptOptions.nocasematch;
         const extglob = ctx.state.shoptOptions.extglob;
-        if (matchPattern(value, patternStr, nocasematch, extglob)) {
+        if (
+          matchPattern(
+            value,
+            patternStr,
+            nocasematch,
+            extglob,
+            ctx.limits.maxCallDepth,
+          )
+        ) {
           matched = true;
           break;
         }

@@ -14,6 +14,14 @@ export interface AggregationLimits {
   maxStringLength?: number;
   maxIterations?: number;
   maxDepth?: number;
+  /** Charge command-wide work before performing attacker-sized operations. */
+  consumeWork?: (units?: number) => void;
+}
+
+/** Conservative comparison work to reserve before allocating a sorted copy. */
+export function estimateSortingWork(length: number): number {
+  if (length < 2) return 0;
+  return Math.ceil(length * Math.log2(length));
 }
 
 /** Aggregation specification from parsed expression */
@@ -45,6 +53,7 @@ export function parseAggExpr(
   let i = 0;
   let operations = 0;
   const useOperation = (): void => {
+    limits.consumeWork?.();
     if (++operations > maxIterations) {
       throw new ExecutionLimitError(
         `xan: aggregation parser operation limit exceeded (${maxIterations})`,
@@ -181,6 +190,7 @@ export function computeAgg(
   if (func === "all" || func === "any") {
     let iterations = 0;
     for (const row of data) {
+      limits.consumeWork?.();
       if (++iterations > maxIterations) {
         throw new ExecutionLimitError(
           `xan: aggregation iteration limit exceeded (${maxIterations})`,
@@ -197,6 +207,7 @@ export function computeAgg(
   const values: unknown[] = [];
   let iterations = 0;
   for (const row of data) {
+    limits.consumeWork?.();
     if (++iterations > maxIterations) {
       throw new ExecutionLimitError(
         `xan: aggregation iteration limit exceeded (${maxIterations})`,
@@ -222,29 +233,39 @@ export function computeAgg(
         return values.length;
       }
       // For expressions like count(n > 2), count truthy values
-      return values.filter((v) => !!v).length;
+      let count = 0;
+      for (const value of values) {
+        limits.consumeWork?.();
+        if (value) count++;
+      }
+      return count;
     }
 
     case "sum": {
-      const nums = values.map((v) =>
-        typeof v === "number" ? v : Number.parseFloat(String(v)),
-      );
-      return nums.reduce((a, b) => a + b, 0);
+      let sum = 0;
+      for (const value of values) {
+        limits.consumeWork?.();
+        sum +=
+          typeof value === "number" ? value : Number.parseFloat(String(value));
+      }
+      return sum;
     }
 
     case "mean":
     case "avg": {
-      const nums = values.map((v) =>
-        typeof v === "number" ? v : Number.parseFloat(String(v)),
-      );
-      return nums.length > 0
-        ? nums.reduce((a, b) => a + b, 0) / nums.length
-        : 0;
+      let sum = 0;
+      for (const value of values) {
+        limits.consumeWork?.();
+        sum +=
+          typeof value === "number" ? value : Number.parseFloat(String(value));
+      }
+      return values.length > 0 ? sum / values.length : 0;
     }
 
     case "min": {
       let minimum: number | null = null;
       for (const value of values) {
+        limits.consumeWork?.();
         const number =
           typeof value === "number" ? value : Number.parseFloat(String(value));
         minimum = minimum === null ? number : Math.min(minimum, number);
@@ -255,6 +276,7 @@ export function computeAgg(
     case "max": {
       let maximum: number | null = null;
       for (const value of values) {
+        limits.consumeWork?.();
         const number =
           typeof value === "number" ? value : Number.parseFloat(String(value));
         maximum = maximum === null ? number : Math.max(maximum, number);
@@ -271,10 +293,15 @@ export function computeAgg(
         : null;
 
     case "median": {
-      const nums = values
-        .map((v) => (typeof v === "number" ? v : Number.parseFloat(String(v))))
-        .filter((n) => !Number.isNaN(n))
-        .sort((a, b) => a - b);
+      const nums: number[] = [];
+      for (const value of values) {
+        limits.consumeWork?.();
+        const number =
+          typeof value === "number" ? value : Number.parseFloat(String(value));
+        if (!Number.isNaN(number)) nums.push(number);
+      }
+      limits.consumeWork?.(estimateSortingWork(nums.length));
+      nums.sort((a, b) => a - b);
       if (nums.length === 0) return null;
       const mid = Math.floor(nums.length / 2);
       if (nums.length % 2 === 0) {
@@ -286,12 +313,14 @@ export function computeAgg(
     case "mode": {
       const counts = new Map<string, number>();
       for (const v of values) {
+        limits.consumeWork?.();
         const key = String(v);
         counts.set(key, (counts.get(key) || 0) + 1);
       }
       let maxCount = 0;
       let mode: string | null = null;
       for (const [val, count] of counts) {
+        limits.consumeWork?.();
         if (count > maxCount) {
           maxCount = count;
           mode = val;
@@ -301,16 +330,20 @@ export function computeAgg(
     }
 
     case "cardinality": {
-      const unique = new Set(values.map((v) => String(v)));
+      const unique = new Set<string>();
+      for (const value of values) {
+        limits.consumeWork?.();
+        unique.add(String(value));
+      }
       return unique.size;
     }
 
     case "values": {
-      return joinAggregationValues(values, false, maxStringLength);
+      return joinAggregationValues(values, false, maxStringLength, limits);
     }
 
     case "distinct_values": {
-      return joinAggregationValues(values, true, maxStringLength);
+      return joinAggregationValues(values, true, maxStringLength, limits);
     }
 
     default:
@@ -336,11 +369,13 @@ function joinAggregationValues(
   values: unknown[],
   distinct: boolean,
   maxStringLength: number,
+  limits: AggregationLimits,
 ): string {
   const strings: string[] = [];
   const seen = distinct ? new Set<string>() : null;
   let outputBytes = 0;
   for (const value of values) {
+    limits.consumeWork?.();
     const stringValue = String(value);
     if (seen?.has(stringValue)) continue;
     seen?.add(stringValue);
@@ -355,6 +390,9 @@ function joinAggregationValues(
     strings.push(stringValue);
     outputBytes += addedBytes;
   }
-  if (distinct) strings.sort();
+  if (distinct) {
+    limits.consumeWork?.(estimateSortingWork(strings.length));
+    strings.sort();
+  }
   return strings.join("|");
 }

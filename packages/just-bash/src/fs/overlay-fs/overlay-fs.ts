@@ -57,6 +57,8 @@ const OVERLAY_PASSTHROUGH_ERRORS = ["ELOOP", "EFBIG", "EPERM"] as const;
 interface MemoryFileEntry {
   type: "file";
   content: Uint8Array;
+  /** Append segments retained without copying the complete file per append. */
+  appendChunks?: Uint8Array[];
   mode: number;
   mtime: Date;
   identity?: string;
@@ -106,6 +108,12 @@ export interface OverlayFsOptions {
   maxFileReadSize?: number;
 
   /**
+   * Maximum bytes retained by copy-on-write files in the memory layer.
+   * Defaults to 1 GiB. Real backing files are not counted until copied.
+   */
+  maxMemoryBytes?: number;
+
+  /**
    * Whether to allow following and creating symlinks on the real filesystem.
    * When false (default), any real-FS path traversing a symlink is rejected
    * and symlink() throws EPERM.
@@ -122,10 +130,46 @@ export class OverlayFs implements IFileSystem {
   private readonly mountPoint: string;
   private readonly readOnly: boolean;
   private readonly maxFileReadSize: number;
+  private readonly maxMemoryBytes: number;
   private readonly allowSymlinks: boolean;
   private readonly memory: Map<string, MemoryEntry> = new Map();
   private readonly deleted: Set<string> = new Set();
   private nextMemoryIdentity = 1;
+  private retainedMemoryBytes = 0;
+
+  private memoryEntryBytes(entry: MemoryEntry | undefined): number {
+    if (!entry || entry.type !== "file") return 0;
+    let bytes = entry.content.byteLength;
+    for (const chunk of entry.appendChunks ?? []) bytes += chunk.byteLength;
+    return bytes;
+  }
+
+  private assertMemoryCapacity(added: number, released = 0): void {
+    if (
+      !Number.isSafeInteger(added) ||
+      added < 0 ||
+      added > this.maxMemoryBytes - this.retainedMemoryBytes + released
+    ) {
+      throw new Error(
+        `ENOSPC: overlay memory byte limit exceeded (${this.maxMemoryBytes} bytes)`,
+      );
+    }
+  }
+
+  private setMemoryEntry(path: string, entry: MemoryEntry): void {
+    const released = this.memoryEntryBytes(this.memory.get(path));
+    const added = this.memoryEntryBytes(entry);
+    this.assertMemoryCapacity(added, released);
+    this.memory.set(path, entry);
+    this.retainedMemoryBytes += added - released;
+  }
+
+  private deleteMemoryEntry(path: string): void {
+    const existing = this.memory.get(path);
+    if (!existing) return;
+    this.retainedMemoryBytes -= this.memoryEntryBytes(existing);
+    this.memory.delete(path);
+  }
 
   private identityFor(entry: MemoryEntry): string {
     if (entry.type === "symlink") return "";
@@ -151,6 +195,11 @@ export class OverlayFs implements IFileSystem {
 
     // Set max file read size (default 10MB)
     this.maxFileReadSize = options.maxFileReadSize ?? 10485760;
+
+    this.maxMemoryBytes = options.maxMemoryBytes ?? 1024 * 1024 * 1024;
+    if (!Number.isSafeInteger(this.maxMemoryBytes) || this.maxMemoryBytes < 0) {
+      throw new Error("OverlayFs: invalid maxMemoryBytes");
+    }
 
     // Set symlink policy
     this.allowSymlinks = options.allowSymlinks ?? false;
@@ -183,7 +232,7 @@ export class OverlayFs implements IFileSystem {
     for (const part of parts) {
       current += `/${part}`;
       if (!this.memory.has(current)) {
-        this.memory.set(current, {
+        this.setMemoryEntry(current, {
           type: "directory",
           mode: DEFAULT_DIR_MODE,
           mtime: new Date(),
@@ -192,7 +241,7 @@ export class OverlayFs implements IFileSystem {
     }
     // Also ensure root exists
     if (!this.memory.has("/")) {
-      this.memory.set("/", {
+      this.setMemoryEntry("/", {
         type: "directory",
         mode: DEFAULT_DIR_MODE,
         mtime: new Date(),
@@ -217,7 +266,7 @@ export class OverlayFs implements IFileSystem {
     for (const part of parts) {
       current += `/${part}`;
       if (!this.memory.has(current)) {
-        this.memory.set(current, {
+        this.setMemoryEntry(current, {
           type: "directory",
           mode: DEFAULT_DIR_MODE,
           mtime: new Date(),
@@ -240,7 +289,7 @@ export class OverlayFs implements IFileSystem {
       content instanceof Uint8Array
         ? content
         : new TextEncoder().encode(content);
-    this.memory.set(normalized, {
+    this.setMemoryEntry(normalized, {
       type: "file",
       content: buffer,
       mode: DEFAULT_FILE_MODE,
@@ -346,7 +395,7 @@ export class OverlayFs implements IFileSystem {
 
     if (!this.memory.has(dir)) {
       this.ensureParentDirs(dir);
-      this.memory.set(dir, {
+      this.setMemoryEntry(dir, {
         type: "directory",
         mode: DEFAULT_DIR_MODE,
         mtime: new Date(),
@@ -436,7 +485,26 @@ export class OverlayFs implements IFileSystem {
           `EISDIR: illegal operation on a directory, read '${path}'`,
         );
       }
-      return memEntry.content;
+      if (!memEntry.appendChunks || memEntry.appendChunks.length === 0) {
+        return memEntry.content;
+      }
+      const total = memEntry.appendChunks.reduce(
+        (sum, chunk) => sum + chunk.byteLength,
+        memEntry.content.byteLength,
+      );
+      if (!Number.isSafeInteger(total)) {
+        throw new Error(`EFBIG: file too large, read '${path}'`);
+      }
+      const combined = new Uint8Array(total);
+      combined.set(memEntry.content);
+      let offset = memEntry.content.byteLength;
+      for (const chunk of memEntry.appendChunks) {
+        combined.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      memEntry.content = combined;
+      memEntry.appendChunks = undefined;
+      return combined;
     }
 
     // Fall back to real filesystem.  Use the canonical path for I/O to
@@ -506,7 +574,7 @@ export class OverlayFs implements IFileSystem {
     const encoding = getEncoding(options);
     const buffer = toBuffer(content, encoding);
 
-    this.memory.set(normalized, {
+    this.setMemoryEntry(normalized, {
       type: "file",
       content: buffer,
       mode: DEFAULT_FILE_MODE,
@@ -526,6 +594,17 @@ export class OverlayFs implements IFileSystem {
     const encoding = getEncoding(options);
     const newBuffer = toBuffer(content, encoding);
 
+    const existingEntry = this.memory.get(normalized);
+    if (existingEntry?.type === "file") {
+      this.assertMemoryCapacity(newBuffer.byteLength);
+      if (!existingEntry.appendChunks) existingEntry.appendChunks = [];
+      existingEntry.appendChunks.push(newBuffer);
+      this.retainedMemoryBytes += newBuffer.byteLength;
+      existingEntry.mtime = new Date();
+      this.deleted.delete(normalized);
+      return;
+    }
+
     // Try to read existing content
     let existingBuffer: Uint8Array;
     try {
@@ -534,14 +613,11 @@ export class OverlayFs implements IFileSystem {
       existingBuffer = new Uint8Array(0);
     }
 
-    const combined = new Uint8Array(existingBuffer.length + newBuffer.length);
-    combined.set(existingBuffer);
-    combined.set(newBuffer, existingBuffer.length);
-
     this.ensureParentDirs(normalized);
-    this.memory.set(normalized, {
+    this.setMemoryEntry(normalized, {
       type: "file",
-      content: combined,
+      content: existingBuffer,
+      appendChunks: [newBuffer],
       mode: DEFAULT_FILE_MODE,
       mtime: new Date(),
     });
@@ -582,7 +658,12 @@ export class OverlayFs implements IFileSystem {
 
       let size = 0;
       if (entry.type === "file") {
-        size = entry.content.length;
+        size =
+          entry.content.length +
+          (entry.appendChunks?.reduce(
+            (sum, chunk) => sum + chunk.byteLength,
+            0,
+          ) ?? 0);
       }
 
       return {
@@ -659,7 +740,12 @@ export class OverlayFs implements IFileSystem {
 
       let size = 0;
       if (entry.type === "file") {
-        size = entry.content.length;
+        size =
+          entry.content.length +
+          (entry.appendChunks?.reduce(
+            (sum, chunk) => sum + chunk.byteLength,
+            0,
+          ) ?? 0);
       }
 
       return {
@@ -761,7 +847,7 @@ export class OverlayFs implements IFileSystem {
       }
     }
 
-    this.memory.set(normalized, {
+    this.setMemoryEntry(normalized, {
       type: "directory",
       mode: DEFAULT_DIR_MODE,
       mtime: new Date(),
@@ -1007,7 +1093,7 @@ export class OverlayFs implements IFileSystem {
     }
 
     // Remove from memory layer
-    this.memory.delete(normalized);
+    this.deleteMemoryEntry(normalized);
 
     // Only add a tombstone when hiding a real-FS path.
     // For memory-only files there's nothing to hide, so skip the tombstone
@@ -1143,14 +1229,14 @@ export class OverlayFs implements IFileSystem {
     const stat = await this.stat(normalized);
     if (stat.isFile) {
       const content = await this.readFileBuffer(normalized);
-      this.memory.set(normalized, {
+      this.setMemoryEntry(normalized, {
         type: "file",
         content,
         mode,
         mtime: new Date(),
       });
     } else if (stat.isDirectory) {
-      this.memory.set(normalized, {
+      this.setMemoryEntry(normalized, {
         type: "directory",
         mode,
         mtime: new Date(),
@@ -1172,7 +1258,7 @@ export class OverlayFs implements IFileSystem {
     }
 
     this.ensureParentDirs(normalized);
-    this.memory.set(normalized, {
+    this.setMemoryEntry(normalized, {
       type: "symlink",
       target,
       mode: SYMLINK_MODE,
@@ -1208,7 +1294,7 @@ export class OverlayFs implements IFileSystem {
     // Copy content to new location
     const content = await this.readFileBuffer(existingNorm);
     this.ensureParentDirs(newNorm);
-    this.memory.set(newNorm, {
+    this.setMemoryEntry(newNorm, {
       type: "file",
       content,
       mode: existingStat.mode,
@@ -1447,14 +1533,14 @@ export class OverlayFs implements IFileSystem {
     const stat = await this.stat(normalized);
     if (stat.isFile) {
       const content = await this.readFileBuffer(normalized);
-      this.memory.set(normalized, {
+      this.setMemoryEntry(normalized, {
         type: "file",
         content,
         mode: stat.mode,
         mtime,
       });
     } else if (stat.isDirectory) {
-      this.memory.set(normalized, {
+      this.setMemoryEntry(normalized, {
         type: "directory",
         mode: stat.mode,
         mtime,

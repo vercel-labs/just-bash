@@ -10,6 +10,7 @@ import {
   latin1FromBytes,
   stdoutAsBytes,
 } from "../encoding.js";
+import { relinquishPipelineOutput } from "../execution-scope.js";
 import { _performanceNow } from "../security/trusted-globals.js";
 import type { ExecResult } from "../types.js";
 import { BadSubstitutionError, ErrexitError, ExitError } from "./errors.js";
@@ -81,7 +82,9 @@ export async function executePipeline(
     const savedArrays = runsInSubshell ? cloneArrays(ctx.state.arrays) : null;
 
     let result: ExecResult;
+    const outputCheckpoint = ctx.executionScope.outputBytesUsed;
     try {
+      ctx.state.commandCount = ctx.executionScope.chargeCommand();
       result = await executeCommand(command, stdin);
     } catch (error) {
       // BadSubstitutionError should fail the command but not abort the script
@@ -123,6 +126,41 @@ export async function executePipeline(
     if (savedEnv) {
       ctx.state.env = savedEnv;
       ctx.state.arrays = savedArrays ?? new Map();
+    }
+
+    // Charge every stage before it can become a retained pipeline
+    // intermediate. Metadata prevents the final visible result from being
+    // charged twice.
+    result = ctx.executionScope.accountResult(
+      result,
+      "pipeline",
+      ctx.executionScope.outputBytesUsed - outputCheckpoint,
+    );
+
+    if (!isLast) {
+      // A non-final stdout is retained only until the next stage consumes it.
+      // Keep the prospective stage check above, then return its accounting
+      // credit so a pass-through pipeline is bounded by peak retained output
+      // instead of charging the same bytes once per stage.
+      const pipeStderrToNext = node.pipeStderr?.[i] ?? false;
+      const releasedStdout = result.internalOutputAccounting?.stdout ?? 0;
+      const releasedStderr = pipeStderrToNext
+        ? (result.internalOutputAccounting?.stderr ?? 0)
+        : 0;
+      relinquishPipelineOutput(
+        ctx.executionScope,
+        releasedStdout + releasedStderr,
+        "pipeline",
+      );
+      result = {
+        ...result,
+        internalOutputAccounting: {
+          stdout: 0,
+          stderr: pipeStderrToNext
+            ? 0
+            : (result.internalOutputAccounting?.stderr ?? 0),
+        },
+      };
     }
 
     // Track exit code for PIPESTATUS

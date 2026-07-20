@@ -24,6 +24,7 @@ export class ExecutionOutputAccumulator {
     stream: "stdout" | "stderr",
     chunk: string,
     alreadyAccountedBytes = 0,
+    kind: "text" | "bytes" = "text",
   ): void {
     let bytes: number;
     try {
@@ -32,6 +33,7 @@ export class ExecutionOutputAccumulator {
         chunk,
         this.site,
         alreadyAccountedBytes,
+        kind,
       );
     } catch (error) {
       this.prependTo(error);
@@ -57,13 +59,17 @@ export class ExecutionOutputAccumulator {
   }
 
   appendResult(result: ExecResult, stdout: string = result.stdout): void {
+    const stdoutKind =
+      result.stdoutKind === "bytes" || result.stdoutEncoding === "binary"
+        ? "bytes"
+        : "text";
+    const stdoutBytes =
+      stdoutKind === "bytes" ? stdout.length : utf8ByteLength(stdout);
     this.append(
       "stdout",
       stdout,
-      Math.min(
-        result.internalOutputAccounting?.stdout ?? 0,
-        utf8ByteLength(stdout),
-      ),
+      Math.min(result.internalOutputAccounting?.stdout ?? 0, stdoutBytes),
+      stdoutKind,
     );
     this.append(
       "stderr",

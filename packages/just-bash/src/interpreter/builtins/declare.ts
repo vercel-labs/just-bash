@@ -14,12 +14,14 @@
  * Also aliased as 'typeset'
  */
 
+import { boundedJoin } from "../../bounded-builder.js";
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { evaluateArithmetic } from "../arithmetic.js";
 import { applyAssignmentTildeExpansion } from "../expansion/tilde.js";
 import {
+  assertArrayKeysFit,
   clearArray,
   cloneArray,
   getArray,
@@ -197,6 +199,10 @@ export async function handleDeclare(
   ctx: InterpreterContext,
   args: string[],
 ): Promise<ExecResult> {
+  const arrayParseLimits = {
+    maxElements: ctx.limits.maxArrayElements,
+    maxStringBytes: ctx.limits.maxStringLength,
+  };
   // Parse flags
   let declareArray = false;
   let declareAssoc = false;
@@ -451,6 +457,27 @@ export async function handleDeclare(
         }
       }
 
+      // Parse and enforce collection limits before changing array kind or
+      // clearing the existing value. Associative bare syntax consumes two
+      // tokens per retained entry.
+      const parsedAssocEntries =
+        declareAssoc && content.includes("[")
+          ? parseAssocArrayLiteral(content, arrayParseLimits)
+          : undefined;
+      const parsedElements =
+        parsedAssocEntries === undefined
+          ? parseArrayElements(content, {
+              ...arrayParseLimits,
+              maxElements: declareAssoc
+                ? arrayParseLimits.maxElements * 2
+                : arrayParseLimits.maxElements,
+            })
+          : undefined;
+      ctx.executionScope.consumeWork(
+        parsedAssocEntries?.length ?? parsedElements?.length ?? 0,
+        "declare array assignment",
+      );
+
       // Save to local scope before modifying (for local variable restoration)
       saveArrayToLocalScope(name);
 
@@ -471,8 +498,7 @@ export async function handleDeclare(
 
       // Check if this is associative array literal syntax: (['key']=value ...)
       if (declareAssoc && content.includes("[")) {
-        const entries = parseAssocArrayLiteral(content);
-        for (const [key, rawValue] of entries) {
+        for (const [key, rawValue] of parsedAssocEntries ?? []) {
           setArrayElement(
             ctx,
             name,
@@ -485,7 +511,7 @@ export async function handleDeclare(
         // For associative arrays without [key]=value syntax,
         // bash treats bare values as alternating key-value pairs
         // e.g., (1 2 3) becomes ['1']=2, ['3']=''
-        const elements = parseArrayElements(content);
+        const elements = parsedElements ?? [];
         for (let i = 0; i < elements.length; i += 2) {
           const key = elements[i];
           const value = i + 1 < elements.length ? elements[i + 1] : "";
@@ -493,7 +519,7 @@ export async function handleDeclare(
         }
       } else {
         // Parse as indexed array elements
-        const elements = parseArrayElements(content);
+        const elements = parsedElements ?? [];
         // Check if any element has [index]=value syntax (index can be number, variable, or expression)
         const hasKeyedElements = elements.some((el) => /^\[[^\]]+\]=/.test(el));
         if (hasKeyedElements) {
@@ -631,16 +657,26 @@ export async function handleDeclare(
       saveArrayToLocalScope(name);
 
       // Parse new elements
-      const newElements = parseArrayElements(content);
+      const newElements = parseArrayElements(content, arrayParseLimits);
 
       // Check if this is an associative array
       if (ctx.state.associativeArrays?.has(name)) {
         // For associative arrays, we need keyed elements: ([key]=value ...)
-        const entries = parseAssocArrayLiteral(content);
+        const entries = parseAssocArrayLiteral(content, arrayParseLimits);
+        ctx.executionScope.consumeWork(entries.length, "declare array append");
+        assertArrayKeysFit(
+          ctx,
+          name,
+          entries.map(([key]) => key),
+        );
         for (const [key, rawValue] of entries) {
           setArrayElement(ctx, name, key, rawValue, "associative");
         }
       } else {
+        ctx.executionScope.consumeWork(
+          newElements.length,
+          "declare array append",
+        );
         // For indexed arrays, get current highest index and append
         const existingIndices = getArrayIndices(ctx, name);
 
@@ -656,6 +692,12 @@ export async function handleDeclare(
           // Find highest existing index + 1
           startIndex = Math.max(...existingIndices) + 1;
         }
+
+        assertArrayKeysFit(
+          ctx,
+          name,
+          Array.from({ length: newElements.length }, (_, i) => startIndex + i),
+        );
 
         // Append new elements
         for (let i = 0; i < newElements.length; i++) {
@@ -720,14 +762,32 @@ export async function handleDeclare(
         // For arrays, append to element 0 (bash behavior)
         appendValue = applyCaseTransform(ctx, name, appendValue);
         const existing = getArrayElement(ctx, name, 0) ?? "";
-        setArrayElement(ctx, name, 0, existing + appendValue);
+        setArrayElement(
+          ctx,
+          name,
+          0,
+          boundedJoin(
+            [existing, appendValue],
+            "",
+            ctx.limits.maxStringLength,
+            "declare append",
+          ),
+        );
       } else {
         // Apply case transformation
         appendValue = applyCaseTransform(ctx, name, appendValue);
 
         // Append to existing value (or set if not defined)
         const existing = ctx.state.env.get(name) ?? "";
-        ctx.state.env.set(name, existing + appendValue);
+        ctx.state.env.set(
+          name,
+          boundedJoin(
+            [existing, appendValue],
+            "",
+            ctx.limits.maxStringLength,
+            "declare append",
+          ),
+        );
       }
 
       // Mark as local if inside a function
@@ -959,6 +1019,10 @@ export async function handleReadonly(
   ctx: InterpreterContext,
   args: string[],
 ): Promise<ExecResult> {
+  const arrayParseLimits = {
+    maxElements: ctx.limits.maxArrayElements,
+    maxStringBytes: ctx.limits.maxStringLength,
+  };
   // Parse flags
   let _declareArray = false;
   let _declareAssoc = false;
@@ -1009,16 +1073,26 @@ export async function handleReadonly(
       if (error) return error;
 
       // Parse new elements
-      const newElements = parseArrayElements(content);
+      const newElements = parseArrayElements(content, arrayParseLimits);
 
       // Check if this is an associative array
       if (ctx.state.associativeArrays?.has(name)) {
         // For associative arrays, we need keyed elements: ([key]=value ...)
-        const entries = parseAssocArrayLiteral(content);
+        const entries = parseAssocArrayLiteral(content, arrayParseLimits);
+        ctx.executionScope.consumeWork(entries.length, "readonly array append");
+        assertArrayKeysFit(
+          ctx,
+          name,
+          entries.map(([key]) => key),
+        );
         for (const [key, rawValue] of entries) {
           setArrayElement(ctx, name, key, rawValue, "associative");
         }
       } else {
+        ctx.executionScope.consumeWork(
+          newElements.length,
+          "readonly array append",
+        );
         // For indexed arrays, get current highest index and append
         const existingIndices = getArrayIndices(ctx, name);
 
@@ -1034,6 +1108,12 @@ export async function handleReadonly(
           // Find highest existing index + 1
           startIndex = Math.max(...existingIndices) + 1;
         }
+
+        assertArrayKeysFit(
+          ctx,
+          name,
+          Array.from({ length: newElements.length }, (_, i) => startIndex + i),
+        );
 
         // Append new elements
         for (let i = 0; i < newElements.length; i++) {
@@ -1057,12 +1137,20 @@ export async function handleReadonly(
 
       // Append to existing value (or set if not defined)
       const existing = ctx.state.env.get(name) ?? "";
-      ctx.state.env.set(name, existing + appendValue);
+      ctx.state.env.set(
+        name,
+        boundedJoin(
+          [existing, appendValue],
+          "",
+          ctx.limits.maxStringLength,
+          "readonly append",
+        ),
+      );
       markReadonly(ctx, name);
       continue;
     }
 
-    const assignment = parseAssignment(arg);
+    const assignment = parseAssignment(arg, arrayParseLimits);
 
     // If no value provided, just mark as readonly
     if (assignment.value === undefined && !assignment.isArray) {

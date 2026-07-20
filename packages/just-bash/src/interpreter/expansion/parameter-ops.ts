@@ -36,7 +36,11 @@ import { getNamerefTarget, isNameref } from "../helpers/nameref.js";
 import { escapeRegex } from "../helpers/regex.js";
 import type { InterpreterContext } from "../types.js";
 import { patternToRegex } from "./pattern.js";
-import { getVarNamesWithPrefix } from "./pattern-removal.js";
+import {
+  applyPatternRemoval,
+  getVarNamesWithPrefix,
+} from "./pattern-removal.js";
+import { applyPatternReplacementBounded } from "./pattern-replacement.js";
 import { expandPrompt } from "./prompt.js";
 import { quoteValue } from "./quoting.js";
 import { getArrayElements, getVariable, isArray } from "./variable.js";
@@ -233,21 +237,13 @@ export async function handlePatternRemoval(
     }
   }
 
-  // Use 's' flag (dotall) so that . matches newlines (bash ? matches any char including newline)
-  if (operation.side === "prefix") {
-    return createUserRegex(`^${regexStr}`, "s").replace(value, "");
-  }
-  const regex = createUserRegex(`${regexStr}$`, "s");
-  if (operation.greedy) {
-    return regex.replace(value, "");
-  }
-  for (let i = value.length; i >= 0; i--) {
-    const suffix = value.slice(i);
-    if (regex.test(suffix)) {
-      return value.slice(0, i);
-    }
-  }
-  return value;
+  return applyPatternRemoval(
+    ctx,
+    value,
+    regexStr,
+    operation.side,
+    operation.greedy,
+  );
 }
 
 /**
@@ -307,35 +303,13 @@ export async function handlePatternReplacement(
 
   try {
     const re = createUserRegex(regex, flags);
-    if (operation.all) {
-      let result = "";
-      let lastIndex = 0;
-      let iterCount = 0;
-      const maxStringLen = ctx.limits.maxStringLength;
-      let match: RegExpExecArray | null = re.exec(value);
-      while (match !== null) {
-        if (match[0].length === 0 && match.index === value.length) {
-          break;
-        }
-        result += value.slice(lastIndex, match.index) + replacement;
-        lastIndex = match.index + match[0].length;
-        if (match[0].length === 0) {
-          lastIndex++;
-        }
-        // Check string length every 100 iterations to catch runaway growth
-        iterCount++;
-        if (iterCount % 100 === 0 && result.length > maxStringLen) {
-          throw new ExecutionLimitError(
-            `pattern replacement: string length limit exceeded (${maxStringLen} bytes)`,
-            "string_length",
-          );
-        }
-        match = re.exec(value);
-      }
-      result += value.slice(lastIndex);
-      return result;
-    }
-    return re.replace(value, replacement);
+    return applyPatternReplacementBounded(
+      ctx,
+      value,
+      re,
+      replacement,
+      operation.all,
+    );
   } catch (e) {
     if (e instanceof ExecutionLimitError) {
       throw e;

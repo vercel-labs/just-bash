@@ -54,6 +54,27 @@ describe("sqlite3 writeback covers non-prefixed mutations", () => {
     expect(read.stdout).toBe("2\n");
   });
 
+  it("serializes creation through two aliases of the same existing parent", async () => {
+    const env = new Bash({ files: { "/real/.anchor": "" } });
+    await env.fs.symlink("/real", "/alias");
+
+    const [first, second] = await Promise.all([
+      env.exec(
+        `sqlite3 /real/new.sqlite "CREATE TABLE IF NOT EXISTS t(x); INSERT INTO t VALUES(1)"`,
+      ),
+      env.exec(
+        `sqlite3 /alias/new.sqlite "CREATE TABLE IF NOT EXISTS t(x); INSERT INTO t VALUES(2)"`,
+      ),
+    ]);
+
+    expect(first.exitCode).toBe(0);
+    expect(second.exitCode).toBe(0);
+    const read = await env.exec(
+      `sqlite3 /real/new.sqlite "SELECT x FROM t ORDER BY x"`,
+    );
+    expect(read.stdout).toBe("1\n2\n");
+  });
+
   it("persists a CTE-prefixed INSERT (WITH ... INSERT)", async () => {
     const env = new Bash();
     await setupDb(env, "CREATE TABLE t(x INT); INSERT INTO t VALUES(1)");

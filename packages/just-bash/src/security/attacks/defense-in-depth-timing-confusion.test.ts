@@ -5,7 +5,10 @@ import {
   SecurityViolationError,
 } from "../defense-in-depth-box.js";
 
-describe("Defense-in-depth timing confusion hypotheses", () => {
+const describeDefense =
+  typeof nodeModule.registerHooks === "function" ? describe : describe.skip;
+
+describeDefense("Defense-in-depth timing confusion hypotheses", () => {
   beforeEach(() => {
     DefenseInDepthBox.resetInstance();
   });
@@ -362,3 +365,5 @@ describe("Defense-in-depth timing confusion hypotheses", () => {
     expect(deferredValue).toBeUndefined();
   });
 });
+
+import * as nodeModule from "node:module";

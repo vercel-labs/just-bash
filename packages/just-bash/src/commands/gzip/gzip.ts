@@ -5,7 +5,12 @@
  */
 
 import { constants, gunzipSync, gzipSync } from "node:zlib";
+import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { latin1FromBytes } from "../../encoding.js";
+import type { ResourceLease } from "../../execution-scope.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import { traverseFileTree } from "../../fs/traversal.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { CodecBudget } from "../compression/codec-budget.js";
@@ -271,7 +276,8 @@ function gunzipWithLimit(
   maxDecompressedSize: number,
   maxCompressedSize: number,
   signal?: AbortSignal,
-): Uint8Array {
+  ctx?: CommandContext,
+): { data: Uint8Array; lease?: ResourceLease } {
   if (maxDecompressedSize <= 0) {
     throw new Error("decompressed data exceeds limit (0 bytes)");
   }
@@ -291,19 +297,42 @@ function gunzipWithLimit(
       `decompressed data exceeds limit (${maxDecompressedSize} bytes)`,
     );
   }
-  // @banned-pattern-ignore: CodecBudget and zlib maxOutputLength bound allocation before decode
-  const result = gunzipSync(inputData, {
-    maxOutputLength: maxDecompressedSize,
-  });
-  budget.acceptOutput(result.length);
-  return result;
+  let outputLease: ResourceLease | undefined;
+  try {
+    const effectiveMaxOutput = Math.min(
+      maxDecompressedSize,
+      Math.floor(
+        (ctx?.executionScope?.remainingLiveBytes ?? maxDecompressedSize * 2) /
+          2,
+      ),
+    );
+    if (effectiveMaxOutput <= 0) {
+      throw new Error("gzip: live byte limit exceeded");
+    }
+    // Reserve both the returned byte buffer and a possible latin1 stdout
+    // representation before asking the whole-buffer codec to allocate.
+    outputLease = ctx?.executionScope?.reserveBytes(
+      "gzip output",
+      effectiveMaxOutput * 2,
+      "gzip",
+    );
+    // @banned-pattern-ignore: CodecBudget, prospective reservation, and zlib maxOutputLength bound allocation before decode
+    const result = gunzipSync(inputData, {
+      maxOutputLength: effectiveMaxOutput,
+    });
+    budget.acceptOutput(result.length);
+    return { data: result, lease: outputLease };
+  } catch (error) {
+    outputLease?.release();
+    throw error;
+  }
 }
 
 function gzipWithLimit(
   inputData: Uint8Array,
   level: number,
   ctx: CommandContext,
-): Uint8Array {
+): { data: Uint8Array; lease?: ResourceLease } {
   const budget = new CodecBudget({
     maxInputBytes: ctx.limits.maxInputBytes,
     maxOutputBytes: ctx.limits.maxOutputSize,
@@ -311,9 +340,87 @@ function gzipWithLimit(
     label: "gzip",
   });
   budget.acceptInput(inputData.length);
-  const result = gzipSync(inputData, { level });
-  budget.acceptOutput(result.length);
-  return result;
+  let outputLease: ResourceLease | undefined;
+  try {
+    const effectiveMaxOutput = Math.min(
+      ctx.limits.maxOutputSize,
+      Math.floor(
+        (ctx.executionScope?.remainingLiveBytes ??
+          ctx.limits.maxOutputSize * 2) / 2,
+      ),
+    );
+    if (effectiveMaxOutput <= 0) {
+      throw new Error("gzip: live byte limit exceeded");
+    }
+    outputLease = ctx.executionScope?.reserveBytes(
+      "gzip output",
+      effectiveMaxOutput * 2,
+      "gzip",
+    );
+    const result = gzipSync(inputData, {
+      level,
+      maxOutputLength: effectiveMaxOutput,
+    });
+    budget.acceptOutput(result.length);
+    return { data: result, lease: outputLease };
+  } catch (error) {
+    outputLease?.release();
+    throw error;
+  }
+}
+
+async function readReservedFile(
+  ctx: CommandContext,
+  path: string,
+  site: string,
+): Promise<{ data: Uint8Array; lease?: ResourceLease }> {
+  const stat = await ctx.fs.stat(path);
+  if (stat.size > ctx.limits.maxInputBytes) {
+    throw new ExecutionLimitError(
+      `input size limit exceeded (${ctx.limits.maxInputBytes} bytes)`,
+      "string_length",
+    );
+  }
+  const lease = ctx.executionScope?.reserveBytes("gzip input", stat.size, site);
+  try {
+    const data = await ctx.fs.readFileBuffer(path);
+    if (data.byteLength > stat.size) {
+      throw new ExecutionLimitError(
+        "gzip: input grew while being read",
+        "string_length",
+      );
+    }
+    ctx.executionScope?.consumeInput(data.byteLength, site);
+    return { data, lease };
+  } catch (error) {
+    lease?.release();
+    throw error;
+  }
+}
+
+async function readReservedOperand(
+  ctx: CommandContext,
+  file: string,
+  site: string,
+): Promise<{ data: Uint8Array; lease?: ResourceLease }> {
+  if (file !== "-" && file !== "") {
+    return readReservedFile(ctx, ctx.fs.resolvePath(ctx.cwd, file), site);
+  }
+  const stdinBytes = latin1FromBytes(ctx.stdin);
+  const lease = ctx.executionScope?.reserveBytes(
+    "gzip input",
+    stdinBytes.length,
+    site,
+  );
+  try {
+    return {
+      data: Uint8Array.from(stdinBytes, (char) => char.charCodeAt(0)),
+      lease,
+    };
+  } catch (error) {
+    lease?.release();
+    throw error;
+  }
 }
 
 interface GzipResult {
@@ -338,52 +445,65 @@ async function processFile(
 
   // Handle stdin
   if (file === "-" || file === "") {
-    inputData = Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
-      c.charCodeAt(0),
+    const stdinBytes = latin1FromBytes(ctx.stdin);
+    const inputLease = ctx.executionScope?.reserveBytes(
+      "gzip input",
+      stdinBytes.length,
+      cmdName,
     );
-    if (decompress) {
-      if (!isGzip(inputData)) {
-        if (!flags.quiet) {
+    let codecLease: ResourceLease | undefined;
+    try {
+      inputData = Uint8Array.from(stdinBytes, (c) => c.charCodeAt(0));
+      if (decompress) {
+        if (!isGzip(inputData)) {
+          if (!flags.quiet) {
+            return {
+              stdout: "",
+              stderr: `${cmdName}: stdin: not in gzip format\n`,
+              exitCode: 1,
+            };
+          }
+          return { stdout: "", stderr: "", exitCode: 1 };
+        }
+        try {
+          const decoded = gunzipWithLimit(
+            inputData,
+            maxDecompressedSize,
+            ctx.limits.maxInputBytes,
+            ctx.signal,
+            ctx,
+          );
+          codecLease = decoded.lease;
+          return {
+            stdout: toBinaryString(decoded.data),
+            stderr: "",
+            exitCode: 0,
+          };
+        } catch (e) {
+          rethrowFatalExecutionError(e);
+          const msg = e instanceof Error ? e.message : "unknown error";
           return {
             stdout: "",
-            stderr: `${cmdName}: stdin: not in gzip format\n`,
+            stderr: `${cmdName}: stdin: ${msg}\n`,
             exitCode: 1,
           };
         }
-        return { stdout: "", stderr: "", exitCode: 1 };
-      }
-      try {
-        const decompressed = gunzipWithLimit(
+      } else {
+        const encoded = gzipWithLimit(
           inputData,
-          maxDecompressedSize,
-          ctx.limits.maxInputBytes,
-          ctx.signal,
+          getCompressionLevel(flags),
+          ctx,
         );
-        // Use binary string (latin1) to preserve bytes
+        codecLease = encoded.lease;
         return {
-          stdout: toBinaryString(decompressed),
+          stdout: toBinaryString(encoded.data),
           stderr: "",
           exitCode: 0,
         };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "unknown error";
-        return {
-          stdout: "",
-          stderr: `${cmdName}: stdin: ${msg}\n`,
-          exitCode: 1,
-        };
       }
-    } else {
-      // Compress stdin
-      const level = getCompressionLevel(flags);
-      const compressed = gzipWithLimit(inputData, level, ctx);
-      // Output raw bytes as binary - this is tricky since stdout is string
-      // We'll use latin1 encoding to preserve bytes
-      return {
-        stdout: toBinaryString(compressed),
-        stderr: "",
-        exitCode: 0,
-      };
+    } finally {
+      codecLease?.release();
+      inputLease?.release();
     }
   }
 
@@ -393,6 +513,13 @@ async function processFile(
   // Check if file exists
   try {
     const stat = await ctx.fs.stat(inputPath);
+    if (stat.size > ctx.limits.maxInputBytes) {
+      return {
+        stdout: "",
+        stderr: `${cmdName}: ${file}: input size limit exceeded (${ctx.limits.maxInputBytes} bytes)\n`,
+        exitCode: 1,
+      };
+    }
     if (stat.isDirectory) {
       if (flags.recursive) {
         // Process directory recursively
@@ -423,9 +550,14 @@ async function processFile(
   }
 
   // Read input file
+  let inputLease: ResourceLease | undefined;
+  let codecLease: ResourceLease | undefined;
   try {
-    inputData = await ctx.fs.readFileBuffer(inputPath);
-  } catch {
+    const reserved = await readReservedFile(ctx, inputPath, cmdName);
+    inputData = reserved.data;
+    inputLease = reserved.lease;
+  } catch (error) {
+    rethrowFatalExecutionError(error);
     return {
       stdout: "",
       stderr: `${cmdName}: ${file}: No such file or directory\n`,
@@ -433,179 +565,191 @@ async function processFile(
     };
   }
 
-  if (decompress) {
-    // Decompression
-    if (!file.endsWith(suffix)) {
-      if (!flags.quiet) {
+  try {
+    if (decompress) {
+      // Decompression
+      if (!file.endsWith(suffix)) {
+        if (!flags.quiet) {
+          return {
+            stdout: "",
+            stderr: `${cmdName}: ${file}: unknown suffix -- ignored\n`,
+            exitCode: 1,
+          };
+        }
+        return { stdout: "", stderr: "", exitCode: 1 };
+      }
+
+      if (!isGzip(inputData)) {
+        if (!flags.quiet) {
+          return {
+            stdout: "",
+            stderr: `${cmdName}: ${file}: not in gzip format\n`,
+            exitCode: 1,
+          };
+        }
+        return { stdout: "", stderr: "", exitCode: 1 };
+      }
+
+      let decompressed: Uint8Array;
+      try {
+        const decoded = gunzipWithLimit(
+          inputData,
+          maxDecompressedSize,
+          ctx.limits.maxInputBytes,
+          ctx.signal,
+          ctx,
+        );
+        decompressed = decoded.data;
+        codecLease = decoded.lease;
+      } catch (e) {
+        rethrowFatalExecutionError(e);
+        const msg = e instanceof Error ? e.message : "unknown error";
         return {
           stdout: "",
-          stderr: `${cmdName}: ${file}: unknown suffix -- ignored\n`,
+          stderr: `${cmdName}: ${file}: ${msg}\n`,
           exitCode: 1,
         };
       }
-      return { stdout: "", stderr: "", exitCode: 1 };
-    }
 
-    if (!isGzip(inputData)) {
-      if (!flags.quiet) {
+      if (toStdout) {
+        // Output to stdout using binary string (latin1) to preserve bytes
         return {
-          stdout: "",
-          stderr: `${cmdName}: ${file}: not in gzip format\n`,
-          exitCode: 1,
+          stdout: toBinaryString(decompressed),
+          stderr: "",
+          exitCode: 0,
         };
       }
-      return { stdout: "", stderr: "", exitCode: 1 };
-    }
 
-    let decompressed: Uint8Array;
-    try {
-      decompressed = gunzipWithLimit(
-        inputData,
-        maxDecompressedSize,
-        ctx.limits.maxInputBytes,
-        ctx.signal,
-      );
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "unknown error";
-      return {
-        stdout: "",
-        stderr: `${cmdName}: ${file}: ${msg}\n`,
-        exitCode: 1,
-      };
-    }
-
-    if (toStdout) {
-      // Output to stdout using binary string (latin1) to preserve bytes
-      return {
-        stdout: toBinaryString(decompressed),
-        stderr: "",
-        exitCode: 0,
-      };
-    }
-
-    // Determine output filename
-    if (flags.name) {
-      const header = parseGzipHeader(inputData);
-      const storedName = header.originalName
-        ? safeStoredFilename(header.originalName)
-        : null;
-      if (storedName) {
-        outputPath = ctx.fs.resolvePath(ctx.cwd, storedName);
+      // Determine output filename
+      if (flags.name) {
+        const header = parseGzipHeader(inputData);
+        const storedName = header.originalName
+          ? safeStoredFilename(header.originalName)
+          : null;
+        if (storedName) {
+          outputPath = ctx.fs.resolvePath(ctx.cwd, storedName);
+        } else {
+          outputPath = inputPath.slice(0, -suffix.length);
+        }
       } else {
         outputPath = inputPath.slice(0, -suffix.length);
       }
+
+      // Check if output exists
+      if (!flags.force) {
+        try {
+          await ctx.fs.stat(outputPath);
+          return {
+            stdout: "",
+            stderr: `${cmdName}: ${outputPath} already exists; not overwritten\n`,
+            exitCode: 1,
+          };
+        } catch {
+          // File doesn't exist, good to proceed
+        }
+      }
+
+      // Write decompressed file
+      await ctx.fs.writeFile(outputPath, decompressed);
+
+      // Remove original unless -k
+      if (!flags.keep && !toStdout) {
+        await ctx.fs.rm(inputPath);
+      }
+
+      if (flags.verbose) {
+        const ratio =
+          inputData.length > 0
+            ? ((1 - inputData.length / decompressed.length) * 100).toFixed(1)
+            : "0.0";
+        return {
+          stdout: "",
+          stderr: `${file}:\t${ratio}% -- replaced with ${outputPath.split("/").pop()}\n`,
+          exitCode: 0,
+        };
+      }
+
+      return { stdout: "", stderr: "", exitCode: 0 };
     } else {
-      outputPath = inputPath.slice(0, -suffix.length);
-    }
+      // Compression
+      if (file.endsWith(suffix)) {
+        if (!flags.quiet) {
+          return {
+            stdout: "",
+            stderr: `${cmdName}: ${file} already has ${suffix} suffix -- unchanged\n`,
+            exitCode: 1,
+          };
+        }
+        return { stdout: "", stderr: "", exitCode: 1 };
+      }
 
-    // Check if output exists
-    if (!flags.force) {
+      const level = getCompressionLevel(flags);
+      let compressed: Uint8Array;
+
       try {
-        await ctx.fs.stat(outputPath);
+        const encoded = gzipWithLimit(inputData, level, ctx);
+        compressed = encoded.data;
+        codecLease = encoded.lease;
+      } catch (e) {
+        rethrowFatalExecutionError(e);
+        const msg = e instanceof Error ? e.message : "unknown error";
         return {
           stdout: "",
-          stderr: `${cmdName}: ${outputPath} already exists; not overwritten\n`,
-          exitCode: 1,
-        };
-      } catch {
-        // File doesn't exist, good to proceed
-      }
-    }
-
-    // Write decompressed file
-    await ctx.fs.writeFile(outputPath, decompressed);
-
-    // Remove original unless -k
-    if (!flags.keep && !toStdout) {
-      await ctx.fs.rm(inputPath);
-    }
-
-    if (flags.verbose) {
-      const ratio =
-        inputData.length > 0
-          ? ((1 - inputData.length / decompressed.length) * 100).toFixed(1)
-          : "0.0";
-      return {
-        stdout: "",
-        stderr: `${file}:\t${ratio}% -- replaced with ${outputPath.split("/").pop()}\n`,
-        exitCode: 0,
-      };
-    }
-
-    return { stdout: "", stderr: "", exitCode: 0 };
-  } else {
-    // Compression
-    if (file.endsWith(suffix)) {
-      if (!flags.quiet) {
-        return {
-          stdout: "",
-          stderr: `${cmdName}: ${file} already has ${suffix} suffix -- unchanged\n`,
+          stderr: `${cmdName}: ${file}: ${msg}\n`,
           exitCode: 1,
         };
       }
-      return { stdout: "", stderr: "", exitCode: 1 };
-    }
 
-    const level = getCompressionLevel(flags);
-    let compressed: Uint8Array;
+      if (toStdout) {
+        // Output to stdout as binary
+        return {
+          stdout: toBinaryString(compressed),
+          stderr: "",
+          exitCode: 0,
+        };
+      }
 
-    try {
-      compressed = gzipWithLimit(inputData, level, ctx);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "unknown error";
-      return {
-        stdout: "",
-        stderr: `${cmdName}: ${file}: ${msg}\n`,
-        exitCode: 1,
-      };
-    }
+      outputPath = inputPath + suffix;
 
-    if (toStdout) {
-      // Output to stdout as binary
-      return {
-        stdout: toBinaryString(compressed),
-        stderr: "",
-        exitCode: 0,
-      };
-    }
+      // Check if output exists
+      if (!flags.force) {
+        try {
+          await ctx.fs.stat(outputPath);
+          return {
+            stdout: "",
+            stderr: `${cmdName}: ${outputPath} already exists; not overwritten\n`,
+            exitCode: 1,
+          };
+        } catch {
+          // File doesn't exist, good to proceed
+        }
+      }
 
-    outputPath = inputPath + suffix;
+      // Write compressed file
+      await ctx.fs.writeFile(outputPath, compressed);
 
-    // Check if output exists
-    if (!flags.force) {
-      try {
-        await ctx.fs.stat(outputPath);
+      // Remove original unless -k
+      if (!flags.keep && !toStdout) {
+        await ctx.fs.rm(inputPath);
+      }
+
+      if (flags.verbose) {
+        const ratio =
+          inputData.length > 0
+            ? ((1 - compressed.length / inputData.length) * 100).toFixed(1)
+            : "0.0";
         return {
           stdout: "",
-          stderr: `${cmdName}: ${outputPath} already exists; not overwritten\n`,
-          exitCode: 1,
+          stderr: `${file}:\t${ratio}% -- replaced with ${outputPath.split("/").pop()}\n`,
+          exitCode: 0,
         };
-      } catch {
-        // File doesn't exist, good to proceed
       }
+
+      return { stdout: "", stderr: "", exitCode: 0 };
     }
-
-    // Write compressed file
-    await ctx.fs.writeFile(outputPath, compressed);
-
-    // Remove original unless -k
-    if (!flags.keep && !toStdout) {
-      await ctx.fs.rm(inputPath);
-    }
-
-    if (flags.verbose) {
-      const ratio =
-        inputData.length > 0
-          ? ((1 - compressed.length / inputData.length) * 100).toFixed(1)
-          : "0.0";
-      return {
-        stdout: "",
-        stderr: `${file}:\t${ratio}% -- replaced with ${outputPath.split("/").pop()}\n`,
-        exitCode: 0,
-      };
-    }
-
-    return { stdout: "", stderr: "", exitCode: 0 };
+  } finally {
+    codecLease?.release();
+    inputLease?.release();
   }
 }
 
@@ -617,37 +761,37 @@ async function processDirectory(
   decompress: boolean,
   toStdout: boolean,
 ): Promise<GzipResult> {
-  const entries = await ctx.fs.readdir(dirPath);
-  let stdout = "";
-  let stderr = "";
+  const maxOutput = Math.min(
+    ctx.limits.maxOutputSize,
+    ctx.limits.maxStringLength,
+  );
+  const stdout = new BoundedStringBuilder(maxOutput, cmdName);
+  const stderr = new BoundedStringBuilder(maxOutput, cmdName);
   let exitCode = 0;
 
-  for (const entry of entries) {
-    const entryPath = ctx.fs.resolvePath(dirPath, entry);
-    const stat = await ctx.fs.stat(entryPath);
-
-    if (stat.isDirectory) {
-      const result = await processDirectory(
-        ctx,
-        entryPath,
-        flags,
-        cmdName,
-        decompress,
-        toStdout,
-      );
-      stdout += result.stdout;
-      stderr += result.stderr;
-      if (result.exitCode !== 0) exitCode = result.exitCode;
-    } else if (stat.isFile) {
+  await traverseFileTree(
+    {
+      fs: ctx.fs,
+      root: dirPath,
+      symlinks: "never",
+      limits: ctx.limits,
+      signal: ctx.signal,
+      executionScope: ctx.executionScope,
+      site: cmdName,
+    },
+    async (entry) => {
+      if (entry.depth === 0 || entry.phase !== "enter" || !entry.stat.isFile) {
+        return;
+      }
       // For decompression, only process files with the suffix
       // For compression, skip files that already have the suffix
       const suffix = flags.suffix;
-      if (decompress && !entry.endsWith(suffix)) continue;
-      if (!decompress && entry.endsWith(suffix)) continue;
+      if (decompress && !entry.path.endsWith(suffix)) return;
+      if (!decompress && entry.path.endsWith(suffix)) return;
 
-      const relativePath = entryPath.startsWith(`${ctx.cwd}/`)
-        ? entryPath.slice(ctx.cwd.length + 1)
-        : entryPath;
+      const relativePath = entry.path.startsWith(`${ctx.cwd}/`)
+        ? entry.path.slice(ctx.cwd.length + 1)
+        : entry.path;
       const result = await processFile(
         ctx,
         relativePath,
@@ -656,13 +800,13 @@ async function processDirectory(
         decompress,
         toStdout,
       );
-      stdout += result.stdout;
-      stderr += result.stderr;
+      stdout.append(result.stdout);
+      stderr.append(result.stderr);
       if (result.exitCode !== 0) exitCode = result.exitCode;
-    }
-  }
+    },
+  );
 
-  return { stdout, stderr, exitCode };
+  return { stdout: stdout.build(), stderr: stderr.build(), exitCode };
 }
 
 async function listFile(
@@ -672,50 +816,51 @@ async function listFile(
   cmdName: string,
 ): Promise<GzipResult> {
   let inputData: Uint8Array;
+  let inputLease: ResourceLease | undefined;
 
-  if (file === "-" || file === "") {
-    inputData = Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
-      c.charCodeAt(0),
-    );
-  } else {
-    const inputPath = ctx.fs.resolvePath(ctx.cwd, file);
-    try {
-      inputData = await ctx.fs.readFileBuffer(inputPath);
-    } catch {
-      return {
-        stdout: "",
-        stderr: `${cmdName}: ${file}: No such file or directory\n`,
-        exitCode: 1,
-      };
-    }
+  try {
+    const reserved = await readReservedOperand(ctx, file, cmdName);
+    inputData = reserved.data;
+    inputLease = reserved.lease;
+  } catch (error) {
+    rethrowFatalExecutionError(error);
+    return {
+      stdout: "",
+      stderr: `${cmdName}: ${file}: No such file or directory\n`,
+      exitCode: 1,
+    };
   }
 
-  if (!isGzip(inputData)) {
-    if (!flags.quiet) {
-      return {
-        stdout: "",
-        stderr: `${cmdName}: ${file}: not in gzip format\n`,
-        exitCode: 1,
-      };
+  try {
+    if (!isGzip(inputData)) {
+      if (!flags.quiet) {
+        return {
+          stdout: "",
+          stderr: `${cmdName}: ${file}: not in gzip format\n`,
+          exitCode: 1,
+        };
+      }
+      return { stdout: "", stderr: "", exitCode: 1 };
     }
-    return { stdout: "", stderr: "", exitCode: 1 };
+
+    const compressed = inputData.length;
+    const uncompressed = getUncompressedSize(inputData);
+    const ratio =
+      uncompressed > 0
+        ? ((1 - compressed / uncompressed) * 100).toFixed(1)
+        : "0.0";
+
+    const header = parseGzipHeader(inputData);
+    const name =
+      header.originalName || (file === "-" ? "" : file.replace(/\.gz$/, ""));
+
+    // Format: compressed uncompressed ratio uncompressed_name
+    const line = `${compressed.toString().padStart(10)} ${uncompressed.toString().padStart(10)} ${ratio.padStart(5)}% ${name}\n`;
+
+    return { stdout: line, stderr: "", exitCode: 0 };
+  } finally {
+    inputLease?.release();
   }
-
-  const compressed = inputData.length;
-  const uncompressed = getUncompressedSize(inputData);
-  const ratio =
-    uncompressed > 0
-      ? ((1 - compressed / uncompressed) * 100).toFixed(1)
-      : "0.0";
-
-  const header = parseGzipHeader(inputData);
-  const name =
-    header.originalName || (file === "-" ? "" : file.replace(/\.gz$/, ""));
-
-  // Format: compressed uncompressed ratio uncompressed_name
-  const line = `${compressed.toString().padStart(10)} ${uncompressed.toString().padStart(10)} ${ratio.padStart(5)}% ${name}\n`;
-
-  return { stdout: line, stderr: "", exitCode: 0 };
 }
 
 async function testFile(
@@ -725,53 +870,57 @@ async function testFile(
   cmdName: string,
 ): Promise<GzipResult> {
   let inputData: Uint8Array;
+  let inputLease: ResourceLease | undefined;
 
-  if (file === "-" || file === "") {
-    inputData = Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
-      c.charCodeAt(0),
-    );
-  } else {
-    const inputPath = ctx.fs.resolvePath(ctx.cwd, file);
-    try {
-      inputData = await ctx.fs.readFileBuffer(inputPath);
-    } catch {
-      return {
-        stdout: "",
-        stderr: `${cmdName}: ${file}: No such file or directory\n`,
-        exitCode: 1,
-      };
-    }
-  }
-
-  if (!isGzip(inputData)) {
-    if (!flags.quiet) {
-      return {
-        stdout: "",
-        stderr: `${cmdName}: ${file}: not in gzip format\n`,
-        exitCode: 1,
-      };
-    }
-    return { stdout: "", stderr: "", exitCode: 1 };
+  try {
+    const reserved = await readReservedOperand(ctx, file, cmdName);
+    inputData = reserved.data;
+    inputLease = reserved.lease;
+  } catch (error) {
+    rethrowFatalExecutionError(error);
+    return {
+      stdout: "",
+      stderr: `${cmdName}: ${file}: No such file or directory\n`,
+      exitCode: 1,
+    };
   }
 
   try {
-    gunzipWithLimit(
-      inputData,
-      getMaxDecompressedSize(ctx),
-      ctx.limits.maxInputBytes,
-      ctx.signal,
-    );
-    if (flags.verbose) {
-      return { stdout: "", stderr: `${file}:\tOK\n`, exitCode: 0 };
+    if (!isGzip(inputData)) {
+      if (!flags.quiet) {
+        return {
+          stdout: "",
+          stderr: `${cmdName}: ${file}: not in gzip format\n`,
+          exitCode: 1,
+        };
+      }
+      return { stdout: "", stderr: "", exitCode: 1 };
     }
-    return { stdout: "", stderr: "", exitCode: 0 };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "invalid";
-    return {
-      stdout: "",
-      stderr: `${cmdName}: ${file}: ${msg}\n`,
-      exitCode: 1,
-    };
+
+    try {
+      const decoded = gunzipWithLimit(
+        inputData,
+        getMaxDecompressedSize(ctx),
+        ctx.limits.maxInputBytes,
+        ctx.signal,
+        ctx,
+      );
+      decoded.lease?.release();
+      if (flags.verbose) {
+        return { stdout: "", stderr: `${file}:\tOK\n`, exitCode: 0 };
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
+    } catch (e) {
+      rethrowFatalExecutionError(e);
+      const msg = e instanceof Error ? e.message : "invalid";
+      return {
+        stdout: "",
+        stderr: `${cmdName}: ${file}: ${msg}\n`,
+        exitCode: 1,
+      };
+    }
+  } finally {
+    inputLease?.release();
   }
 }
 

@@ -4,6 +4,7 @@
  * Utility functions for working with jq/query values.
  */
 
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import {
   asQueryRecord,
   isSafeKey,
@@ -48,70 +49,132 @@ export function compare(a: QueryValue, b: QueryValue): number {
 export function deepMerge(
   a: Record<string, unknown>,
   b: Record<string, unknown>,
+  options: { maxDepth?: number; visit?: () => void } = {},
 ): Record<string, unknown> {
-  const result = nullPrototypeCopy(a);
-  for (const key of Object.keys(b)) {
-    // Skip dangerous keys to prevent prototype pollution
-    if (!isSafeKey(key)) continue;
+  const maxDepth = options.maxDepth ?? 2000;
+  const root = nullPrototypeCopy(a);
+  const stack: Array<{
+    target: Record<string, unknown>;
+    source: Record<string, unknown>;
+    depth: number;
+  }> = [{ target: root, source: b, depth: 0 }];
 
-    const resultRec = safeHasOwn(result, key)
-      ? asQueryRecord(result[key])
-      : null;
-    const bRec = asQueryRecord(b[key]);
-    if (resultRec && bRec) {
-      safeSet(result, key, deepMerge(resultRec, bRec));
-    } else {
-      safeSet(result, key, b[key]);
+  while (stack.length > 0) {
+    const frame = stack.pop();
+    if (!frame) break;
+    if (frame.depth > maxDepth) {
+      throw new ExecutionLimitError(
+        `query depth limit exceeded (${maxDepth})`,
+        "recursion",
+      );
+    }
+    for (const key of Object.keys(frame.source)) {
+      options.visit?.();
+      if (!isSafeKey(key)) continue;
+
+      const targetRec = safeHasOwn(frame.target, key)
+        ? asQueryRecord(frame.target[key])
+        : null;
+      const sourceRec = asQueryRecord(frame.source[key]);
+      if (targetRec && sourceRec) {
+        const child = nullPrototypeCopy(targetRec);
+        safeSet(frame.target, key, child);
+        stack.push({
+          target: child,
+          source: sourceRec,
+          depth: frame.depth + 1,
+        });
+      } else {
+        safeSet(frame.target, key, frame.source[key]);
+      }
     }
   }
-  return result;
+  return root;
 }
 
 /**
  * Calculate the nesting depth of a value (array or object).
  */
 export function getValueDepth(value: QueryValue, maxCheck = 3000): number {
-  const stack: Array<{ value: QueryValue; depth: number }> = [
-    { value, depth: 0 },
-  ];
-  const seenDepth = new WeakMap<object, number>();
-  let maximum = 0;
+  if (value === null || typeof value !== "object") return 0;
+  if (maxCheck <= 1) return maxCheck;
+
+  interface DepthFrame {
+    value: QueryValue[] | Record<string, QueryValue>;
+    keys?: string[];
+    nextChild: number;
+    pathDepth: number;
+    maxChildDepth: number;
+  }
+
+  const createFrame = (
+    current: QueryValue[] | Record<string, QueryValue>,
+    pathDepth: number,
+  ): DepthFrame => ({
+    value: current,
+    keys: Array.isArray(current) ? undefined : Object.keys(current),
+    nextChild: 0,
+    pathDepth,
+    maxChildDepth: 0,
+  });
+  const childCount = (frame: DepthFrame): number =>
+    frame.keys !== undefined
+      ? frame.keys.length
+      : (frame.value as QueryValue[]).length;
+  const nextChild = (frame: DepthFrame): QueryValue => {
+    if (frame.keys) {
+      const key = frame.keys[frame.nextChild++];
+      // @banned-pattern-ignore: key came from Object.keys(frame.value), so it is an own property
+      return (frame.value as Record<string, QueryValue>)[key];
+    }
+    return (frame.value as QueryValue[])[frame.nextChild++];
+  };
+
+  // A global "seen" set mistakes ordinary sharing (such as `[input, input]`)
+  // for a cycle. Track the active DFS path and memoize completed subgraphs so
+  // valid DAGs retain their real depth while actual cycles still fail closed.
+  const state = new WeakMap<object, "visiting" | "done">();
+  const depths = new WeakMap<object, number>();
+  const root = value as QueryValue[] | Record<string, QueryValue>;
+  const stack: DepthFrame[] = [createFrame(root, 1)];
+  state.set(root, "visiting");
 
   while (stack.length > 0) {
-    const entry = stack.pop();
-    if (!entry) break;
-    const current = entry.value;
-    if (current === null || typeof current !== "object") continue;
+    const frame = stack[stack.length - 1];
+    if (frame.nextChild < childCount(frame)) {
+      const child = nextChild(frame);
+      if (child === null || typeof child !== "object") continue;
 
-    const containerDepth = entry.depth + 1;
-    if (containerDepth >= maxCheck) return maxCheck;
-    maximum = Math.max(maximum, containerDepth);
+      const childState = state.get(child);
+      if (childState === "visiting") return maxCheck;
+      if (childState === "done") {
+        const childDepth = depths.get(child) ?? 0;
+        if (frame.pathDepth + childDepth >= maxCheck) return maxCheck;
+        frame.maxChildDepth = Math.max(frame.maxChildDepth, childDepth);
+        continue;
+      }
 
-    const previousDepth = seenDepth.get(current);
-    if (previousDepth !== undefined) {
-      // A repeated reference at the same or a deeper position is cyclic (or
-      // an equivalent shared graph) and cannot be safely recursively walked.
-      if (containerDepth >= previousDepth) return maxCheck;
+      const childPathDepth = frame.pathDepth + 1;
+      if (childPathDepth >= maxCheck) return maxCheck;
+      const childContainer = child as QueryValue[] | Record<string, QueryValue>;
+      state.set(child, "visiting");
+      stack.push(createFrame(childContainer, childPathDepth));
       continue;
     }
-    seenDepth.set(current, containerDepth);
 
-    if (Array.isArray(current)) {
-      for (let i = current.length - 1; i >= 0; i--) {
-        stack.push({ value: current[i], depth: containerDepth });
-      }
+    const depth = frame.maxChildDepth + 1;
+    depths.set(frame.value, depth);
+    state.set(frame.value, "done");
+    stack.pop();
+    const parent = stack.at(-1);
+    if (parent) {
+      parent.maxChildDepth = Math.max(parent.maxChildDepth, depth);
     } else {
-      for (const key of Object.keys(current)) {
-        // @banned-pattern-ignore: Object.keys returns own properties only
-        stack.push({
-          value: (current as Record<string, unknown>)[key],
-          depth: containerDepth,
-        });
-      }
+      return depth;
     }
   }
 
-  return maximum;
+  return 0;
 }
 
 /**

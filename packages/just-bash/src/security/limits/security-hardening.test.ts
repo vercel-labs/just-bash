@@ -146,9 +146,9 @@ describe("Security Hardening", () => {
         executionLimits: { maxBraceExpansionResults: 100 },
       });
       const result = await limitedBash.exec("arr=({1..200}); echo ${#arr[@]}");
-      expect(result.exitCode).toBe(0);
-      const count = Number.parseInt(result.stdout.trim(), 10);
-      expect(count).toBeLessThanOrEqual(100);
+      expect(result.exitCode).toBe(126);
+      expect(result.stderr).toContain("brace expansion");
+      expect(result.stderr).toContain("limit exceeded");
     });
 
     it("should allow brace expansion within custom limit", async () => {
@@ -166,7 +166,7 @@ describe("Security Hardening", () => {
       expect(result.stdout).toBe("676\n");
     });
 
-    it("should truncate nested brace expansion", async () => {
+    it("should fail closed instead of truncating nested brace expansion", async () => {
       const limitedBash = new Bash({
         executionLimits: { maxBraceExpansionResults: 20 },
       });
@@ -174,9 +174,8 @@ describe("Security Hardening", () => {
       const result = await limitedBash.exec(
         "arr=({1..5}{1..5}); echo ${#arr[@]}",
       );
-      expect(result.exitCode).toBe(0);
-      const count = Number.parseInt(result.stdout.trim(), 10);
-      expect(count).toBeLessThanOrEqual(20);
+      expect(result.exitCode).toBe(126);
+      expect(result.stderr).toContain("brace expansion result limit exceeded");
     });
 
     it("should allow comma brace expansion within limits", async () => {
@@ -566,11 +565,10 @@ describe("Security Hardening", () => {
   // 9. Defense-in-depth warning and isEnabled()
   // =====================================================================
   describe("9. Defense-in-depth isEnabled()", () => {
-    it("should report enabled when config is enabled", () => {
+    it("should report the resolved runtime capability", () => {
       DefenseInDepthBox.resetInstance();
       const box = DefenseInDepthBox.getInstance({ enabled: true });
-      // In Node.js test environment, AsyncLocalStorage should be available
-      expect(box.isEnabled()).toBe(true);
+      expect(box.isEnabled()).toBe(box.getStatus().state === "enabled");
       DefenseInDepthBox.resetInstance();
     });
 
@@ -581,11 +579,10 @@ describe("Security Hardening", () => {
       DefenseInDepthBox.resetInstance();
     });
 
-    it("should report disabled when not configured", () => {
+    it("should capability-detect when not configured", () => {
       DefenseInDepthBox.resetInstance();
       const box = DefenseInDepthBox.getInstance();
-      // Default config has enabled: false
-      expect(box.isEnabled()).toBe(false);
+      expect(box.isEnabled()).toBe(box.getStatus().state === "enabled");
       DefenseInDepthBox.resetInstance();
     });
   });
@@ -725,9 +722,9 @@ describe("Security Hardening", () => {
         executionLimits: { maxBraceExpansionResults: 50 },
       });
       const result = await limitedBash.exec("arr=({1..100}); echo ${#arr[@]}");
-      expect(result.exitCode).toBe(0);
-      const count = Number.parseInt(result.stdout.trim(), 10);
-      expect(count).toBeLessThanOrEqual(50);
+      expect(result.exitCode).toBe(126);
+      expect(result.stderr).toContain("brace expansion");
+      expect(result.stderr).toContain("limit exceeded");
     });
 
     it("should handle multiple limits simultaneously", async () => {

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { getValueDepth } from "./value-operations.js";
+import { deepMerge, getValueDepth } from "./value-operations.js";
 
 describe("getValueDepth", () => {
+  it("does not mistake shared subgraphs for cycles", () => {
+    const shared = ["a", "b"];
+    expect(getValueDepth([shared, shared], 16)).toBe(2);
+  });
+
   it("examines deep non-first object and array branches", () => {
     expect(getValueDepth({ first: 1, second: { a: { b: {} } } })).toBe(4);
     expect(getValueDepth([0, [1, [[2]]]])).toBe(4);
@@ -31,5 +36,29 @@ describe("getValueDepth", () => {
     });
     expect(getValueDepth({ child }, 2)).toBe(2);
     expect(accesses).toBe(0);
+  });
+});
+
+describe("deepMerge", () => {
+  it("uses an iterative depth budget for matching nested objects", () => {
+    const left = { a: { a: { a: { left: true } } } };
+    const right = { a: { a: { a: { right: true } } } };
+
+    expect(() => deepMerge(left, right, { maxDepth: 2 })).toThrow(
+      "query depth limit exceeded (2)",
+    );
+    expect(deepMerge(left, right, { maxDepth: 3 })).toEqual({
+      a: { a: { a: { left: true, right: true } } },
+    });
+  });
+
+  it("rejects cyclic object pairs without exhausting the host stack", () => {
+    const left: Record<string, unknown> = {};
+    const right: Record<string, unknown> = {};
+    left.self = left;
+    right.self = right;
+    expect(() => deepMerge(left, right, { maxDepth: 8 })).toThrow(
+      "query depth limit exceeded (8)",
+    );
   });
 });

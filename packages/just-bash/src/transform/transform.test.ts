@@ -9,6 +9,15 @@ const FIXED_DATE = new Date("2024-01-15T10:30:45.123Z");
 const TS = "2024-01-15T10-30-45.123Z";
 
 describe("transform", () => {
+  it("rejects source above maxSourceBytes before parsing", () => {
+    const bash = new Bash({ executionLimits: { maxSourceBytes: 8 } });
+
+    expect(() => bash.transform("echo 1234")).toThrow(
+      /script input size limit exceeded \(8 bytes\)/,
+    );
+    expect(() => bash.transform("echo ok")).not.toThrow();
+  });
+
   describe("no plugins", () => {
     it("returns original script unchanged", () => {
       const bash = new Bash();
@@ -228,6 +237,14 @@ describe("transform", () => {
       const result = new BashTransformPipeline().transform("echo hello");
       expect(result.script).toBe("echo hello");
       expect(result.metadata).toEqual({});
+    });
+
+    it("rejects oversized source before standalone parsing", () => {
+      const pipeline = new BashTransformPipeline(2);
+      expect(() => pipeline.transform("é")).not.toThrow();
+      expect(() => pipeline.transform("éx")).toThrow(
+        "script input size limit exceeded (2 bytes)",
+      );
     });
 
     it("merges metadata from all plugins", () => {

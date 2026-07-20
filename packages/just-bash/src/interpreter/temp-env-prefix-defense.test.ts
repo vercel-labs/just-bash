@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Bash } from "../Bash.js";
 import { DefenseInDepthBox } from "../security/defense-in-depth-box.js";
 
-describe("temp env prefix under defense-in-depth", () => {
+const describeDefense =
+  typeof nodeModule.registerHooks === "function" ? describe : describe.skip;
+
+describeDefense("temp env prefix under defense-in-depth", () => {
   afterEach(() => {
     DefenseInDepthBox.resetInstance();
   });
@@ -44,3 +47,5 @@ describe("temp env prefix under defense-in-depth", () => {
     expect(source).not.toMatch(/await\s+import\(/);
   });
 });
+
+import * as nodeModule from "node:module";

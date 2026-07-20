@@ -217,4 +217,101 @@ describe("JQ Execution Limits", () => {
       expect(result.stdout.trim()).toBe("50000");
     });
   });
+
+  describe("aggregate evaluator limits", () => {
+    it("keeps large normal-profile maps compatible while hardened work is finite", async () => {
+      const input = JSON.stringify(new Array(100_001).fill(null));
+      const normal = await new Bash().exec("jq 'map(.) | length'", {
+        stdin: input,
+      });
+      expect(normal).toMatchObject({
+        stdout: "100001\n",
+        stderr: "",
+        exitCode: 0,
+      });
+
+      const hardened = await new Bash({
+        executionLimitProfile: "hardened",
+        executionLimits: { maxQueryElements: 200_000 },
+      }).exec("jq 'map(.) | length'", { stdin: input });
+      expect(hardened.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+      expect(hardened.stderr).toContain("too many iterations (10000)");
+    });
+
+    it("rejects exponential pipe fan-out before the next result array", async () => {
+      const filter = Array.from({ length: 5 }, () => "(.,.)").join(" | ");
+      const below = new Bash({
+        executionLimits: { maxQueryElements: 31 },
+      });
+      const rejected = await below.exec(`jq -n '${filter}'`);
+      expect(rejected.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+      expect(rejected.stderr).toContain("result element limit exceeded (31)");
+
+      const exact = new Bash({
+        executionLimits: { maxQueryElements: 32 },
+      });
+      const accepted = await exact.exec(`jq -n '${filter}'`);
+      expect(accepted.exitCode).toBe(0);
+      expect(accepted.stdout.trim().split("\n")).toHaveLength(32);
+    });
+
+    it("rejects non-finite and above-limit nested update indices", async () => {
+      const env = new Bash({
+        executionLimits: { maxQueryElements: 4 },
+      });
+      const infinite = await env.exec(`jq '.a[infinite] = 1'`, {
+        stdin: '{"a":[]}',
+      });
+      expect(infinite.exitCode).not.toBe(0);
+      expect(infinite.stderr).toContain("array index must be finite");
+
+      const caughtNan = await env.exec(
+        `jq -n 'try ([range(3)] | .[nan] = 9) catch .'`,
+      );
+      expect(caughtNan.exitCode).toBe(0);
+      expect(caughtNan.stdout).toBe(
+        '"Cannot set array element at NaN index"\n',
+      );
+
+      const above = await env.exec(`jq '.a[4] = 1'`, { stdin: '{"a":[]}' });
+      expect(above.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+      expect(above.stderr).toContain("result element limit exceeded (4)");
+
+      const exact = await env.exec(`jq -c '.a[3] = 1'`, {
+        stdin: '{"a":[]}',
+      });
+      expect(exact.stdout).toBe('{"a":[null,null,null,1]}\n');
+    });
+
+    it("bounds primitive JSON streams before retaining them", async () => {
+      const env = new Bash({ executionLimits: { maxQueryElements: 4 } });
+      const result = await env.exec("jq -s length", {
+        stdin: "null\n".repeat(5),
+      });
+      expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+      expect(result.stderr).toContain("result element limit exceeded (4)");
+    });
+
+    it("appends liberal-size JSON streams without argument spreading", async () => {
+      const env = new Bash();
+      const result = await env.exec("jq -s length", {
+        stdin: "null\n".repeat(150_000),
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("150000\n");
+    });
+
+    it("rejects deep JSON before recursive formatting", async () => {
+      const env = new Bash({ executionLimits: { maxQueryDepth: 16 } });
+      const above = `${"[".repeat(17)}0${"]".repeat(17)}`;
+      const rejected = await env.exec("jq .", { stdin: above });
+      expect(rejected.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+      expect(rejected.stderr).toContain("query depth limit exceeded (16)");
+
+      const exact = `${"[".repeat(16)}0${"]".repeat(16)}`;
+      const accepted = await env.exec("jq -c .", { stdin: exact });
+      expect(accepted.exitCode).toBe(0);
+      expect(accepted.stdout).toBe(`${exact}\n`);
+    });
+  });
 });

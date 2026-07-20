@@ -171,6 +171,34 @@ export const htmlToMarkdownCommand: Command = {
         );
       }
     }
+    ctx.executionScope?.consumeWork(tagCount, "html-to-markdown tags");
+
+    const inputSize = utf8ByteLength(input);
+    const maxOutputBytes = Math.min(
+      ctx.limits.maxStringLength,
+      ctx.limits.maxOutputSize,
+    );
+    // Turndown is an opaque synchronous library. Reserve a conservative
+    // expansion envelope before calling it so neither its result nor the
+    // simultaneous input/result retention can cross configured ceilings.
+    const expansionFactor = 4;
+    if (inputSize > Math.floor((maxOutputBytes - 1) / expansionFactor)) {
+      throw new ExecutionLimitError(
+        `html-to-markdown: prospective output size limit exceeded (${maxOutputBytes} bytes)`,
+        "output_size",
+      );
+    }
+    const prospectiveOutputBytes = inputSize * expansionFactor + 1;
+    const inputLease = ctx.executionScope?.reserveBytes(
+      "html input",
+      inputSize,
+      "html-to-markdown",
+    );
+    const prospectiveOutputLease = ctx.executionScope?.reserveBytes(
+      "html prospective output",
+      prospectiveOutputBytes,
+      "html-to-markdown",
+    );
 
     try {
       const turndownService = new TurndownService({
@@ -186,10 +214,6 @@ export const htmlToMarkdownCommand: Command = {
 
       const markdown = turndownService.turndown(input).trim();
       const outputBytes = utf8ByteLength(markdown) + 1;
-      const maxOutputBytes = Math.min(
-        ctx.limits.maxStringLength,
-        ctx.limits.maxOutputSize,
-      );
       if (outputBytes > maxOutputBytes) {
         throw new ExecutionLimitError(
           `html-to-markdown: output size limit exceeded (${maxOutputBytes} bytes)`,
@@ -211,6 +235,9 @@ export const htmlToMarkdownCommand: Command = {
         }\n`,
         exitCode: 1,
       };
+    } finally {
+      prospectiveOutputLease?.release();
+      inputLease?.release();
     }
   },
 };

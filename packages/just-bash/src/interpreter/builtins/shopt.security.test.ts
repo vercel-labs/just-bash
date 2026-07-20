@@ -15,7 +15,7 @@ describe("shopt resource limits", () => {
     const env = new Bash({ executionLimits: { maxArrayElements: 4 } });
     const result = await env.exec("shopt a b c d e");
     expect(result.exitCode).toBe(126);
-    expect(result.stderr).toContain("shopt: argument limit exceeded");
+    expect(result.stderr).toContain("expanded argument element limit exceeded");
   });
 
   it("applies the same diagnostic bound to shopt -o", async () => {

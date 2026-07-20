@@ -138,7 +138,7 @@ describe("base64", () => {
     it("rejects wrap widths that would create too many fragments", async () => {
       const env = new Bash({
         files: { "/data": "abc" },
-        executionLimits: { maxArrayElements: 2 },
+        executionLimits: { maxArrayElements: 3 },
       });
       const result = await env.exec("base64 -w 1 /data");
       expect(result.exitCode).toBe(126);

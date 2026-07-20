@@ -3,6 +3,8 @@
  */
 
 import type { WordNode } from "../../ast/types.js";
+import { utf8ByteLength } from "../../encoding.js";
+import { ExecutionLimitError } from "../errors.js";
 import type { InterpreterContext, ShellArray } from "../types.js";
 
 export function cloneArray(array: ShellArray): ShellArray {
@@ -75,7 +77,45 @@ export function setArrayElement(
   value: string,
   kind?: "indexed" | "associative",
 ): void {
-  ensureArray(ctx, arrayName, kind).elements.set(String(key), value);
+  const array = ensureArray(ctx, arrayName, kind);
+  const normalizedKey = String(key);
+  if (
+    !array.elements.has(normalizedKey) &&
+    array.elements.size >= ctx.limits.maxArrayElements
+  ) {
+    throw new ExecutionLimitError(
+      `array element limit exceeded (${ctx.limits.maxArrayElements})`,
+      "array_elements",
+    );
+  }
+  if (utf8ByteLength(value) > ctx.limits.maxStringLength) {
+    throw new ExecutionLimitError(
+      `array value string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+      "string_length",
+    );
+  }
+  array.elements.set(normalizedKey, value);
+}
+
+/** Prove a batch of distinct keys fits before any persistent mutation. */
+export function assertArrayKeysFit(
+  ctx: InterpreterContext,
+  arrayName: string,
+  keys: Iterable<string | number>,
+  replace = false,
+): void {
+  const prospective = new Set<string>(
+    replace ? [] : (getArray(ctx, arrayName)?.elements.keys() ?? []),
+  );
+  for (const key of keys) {
+    prospective.add(String(key));
+    if (prospective.size > ctx.limits.maxArrayElements) {
+      throw new ExecutionLimitError(
+        `array element limit exceeded (${ctx.limits.maxArrayElements})`,
+        "array_elements",
+      );
+    }
+  }
 }
 
 export function deleteArrayElement(

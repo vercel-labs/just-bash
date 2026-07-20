@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import * as nodeModule from "node:module";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -14,86 +15,87 @@ const processListenerMethods = [
   "prependOnceListener",
 ] as const;
 
-describe("defense-in-depth lifecycle", () => {
-  beforeEach(() => DefenseInDepthBox.resetInstance());
-  afterEach(() => DefenseInDepthBox.resetInstance());
+describe.runIf(typeof nodeModule.registerHooks === "function")(
+  "defense-in-depth lifecycle",
+  () => {
+    beforeEach(() => DefenseInDepthBox.resetInstance());
+    afterEach(() => DefenseInDepthBox.resetInstance());
 
-  it("blocks every process listener registration variant without leaks", async () => {
-    const baseline = process.listenerCount("beforeExit");
-    const box = DefenseInDepthBox.getInstance(true);
-    const handle = box.activate();
-    const errors: unknown[] = [];
+    it("blocks every process listener registration variant without leaks", async () => {
+      const baseline = process.listenerCount("beforeExit");
+      const box = DefenseInDepthBox.getInstance(true);
+      const handle = box.activate();
+      const errors: unknown[] = [];
 
-    await handle.run(async () => {
-      for (const method of processListenerMethods) {
-        try {
-          process[method]("beforeExit", () => {});
-        } catch (error) {
-          errors.push(error);
+      await handle.run(async () => {
+        for (const method of processListenerMethods) {
+          try {
+            process[method]("beforeExit", () => {});
+          } catch (error) {
+            errors.push(error);
+          }
         }
-      }
+      });
+      handle.deactivate();
+
+      expect(errors).toHaveLength(processListenerMethods.length);
+      expect(
+        errors.every((error) => error instanceof SecurityViolationError),
+      ).toBe(true);
+      expect(process.listenerCount("beforeExit")).toBe(baseline);
     });
-    handle.deactivate();
 
-    expect(errors).toHaveLength(processListenerMethods.length);
-    expect(
-      errors.every((error) => error instanceof SecurityViolationError),
-    ).toBe(true);
-    expect(process.listenerCount("beforeExit")).toBe(baseline);
-  });
+    it("restores descriptors and intrinsic extensibility", () => {
+      const targets = [
+        [globalThis, "Reflect"],
+        [globalThis, "JSON"],
+        [globalThis, "Math"],
+        [Error, "stackTraceLimit"],
+      ] as const;
+      const before = targets.map(([target, key]) => ({
+        descriptor: Object.getOwnPropertyDescriptor(target, key),
+        extensible: Object.isExtensible(target),
+      }));
 
-  it("restores reversible bindings while retaining documented intrinsic locks", () => {
-    const targets = [
-      [globalThis, "Reflect"],
-      [globalThis, "JSON"],
-      [globalThis, "Math"],
-      [Error, "stackTraceLimit"],
-    ] as const;
-    const before = targets.map(([target, key]) => ({
-      descriptor: Object.getOwnPropertyDescriptor(target, key),
-      extensible: Object.isExtensible(target),
-    }));
+      const handle = DefenseInDepthBox.getInstance(true).activate();
+      handle.deactivate();
 
-    const handle = DefenseInDepthBox.getInstance(true).activate();
-    handle.deactivate();
+      const after = targets.map(([target, key]) => ({
+        descriptor: Object.getOwnPropertyDescriptor(target, key),
+        extensible: Object.isExtensible(target),
+      }));
+      expect(after).toEqual(before);
+      expect(Object.isFrozen(Reflect)).toBe(false);
+      expect(Object.isFrozen(JSON)).toBe(false);
+      expect(Object.isFrozen(Math)).toBe(false);
+    });
+  },
+);
 
-    const after = targets.map(([target, key]) => ({
-      descriptor: Object.getOwnPropertyDescriptor(target, key),
-      extensible: Object.isExtensible(target),
-    }));
-    expect(after).toEqual(before);
-    expect(Object.isFrozen(Reflect)).toBe(true);
-    expect(Object.isFrozen(JSON)).toBe(true);
-    expect(Object.isFrozen(Math)).toBe(true);
-    expect(
-      Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator)
-        ?.configurable,
-    ).toBe(false);
-  });
-});
+describe.runIf(typeof nodeModule.registerHooks === "function")(
+  "defense-in-depth Module discovery",
+  () => {
+    const sourceUrl = pathToFileURL(
+      new URL("./defense-in-depth-box.ts", import.meta.url).pathname,
+    ).href;
 
-describe("defense-in-depth Module discovery", () => {
-  const sourceUrl = pathToFileURL(
-    new URL("./defense-in-depth-box.ts", import.meta.url).pathname,
-  ).href;
+    function runSubprocess(inputType: "module" | "commonjs", body: string) {
+      return execFileSync(
+        process.execPath,
+        ["--import", "tsx", `--input-type=${inputType}`, "--eval", body],
+        { encoding: "utf8" },
+      ).trim();
+    }
 
-  function runSubprocess(inputType: "module" | "commonjs", body: string) {
-    return execFileSync(
-      process.execPath,
-      ["--import", "tsx", `--input-type=${inputType}`, "--eval", body],
-      { encoding: "utf8" },
-    ).trim();
-  }
-
-  it.each([
-    "module",
-    "commonjs",
-  ] as const)("patches and restores Module methods from a pure-%s entrypoint", (inputType) => {
-    const loadModule =
-      inputType === "module"
-        ? 'const { Module } = await import("node:module");'
-        : 'const { Module } = require("node:module");';
-    const body = `(async () => {
+    it.each([
+      "module",
+      "commonjs",
+    ] as const)("patches and restores Module methods from a pure-%s entrypoint", (inputType) => {
+      const loadModule =
+        inputType === "module"
+          ? 'const { Module } = await import("node:module");'
+          : 'const { Module } = require("node:module");';
+      const body = `(async () => {
         ${loadModule}
         const originalLoad = Module._load;
         const originalResolve = Module._resolveFilename;
@@ -108,11 +110,11 @@ describe("defense-in-depth Module discovery", () => {
         process.stdout.write("ok");
       })().catch((error) => { console.error(error); process.exitCode = 1; });`;
 
-    expect(runSubprocess(inputType, body)).toBe("ok");
-  });
+      expect(runSubprocess(inputType, body)).toBe("ok");
+    });
 
-  it("fails closed when a critical Module method cannot be patched", () => {
-    const body = `(async () => {
+    it("fails closed when a critical Module method cannot be patched", () => {
+      const body = `(async () => {
       const { Module } = await import("node:module");
       const current = Module._load;
       Object.defineProperty(Module, "_load", { value: current, writable: false, configurable: false });
@@ -123,14 +125,14 @@ describe("defense-in-depth Module discovery", () => {
       process.stdout.write("ok");
     })().catch((error) => { console.error(error); process.exitCode = 1; });`;
 
-    expect(runSubprocess("module", body)).toBe("ok");
-  });
+      expect(runSubprocess("module", body)).toBe("ok");
+    });
 
-  it("rolls back worker patches when bootstrap activation fails", () => {
-    const workerSourceUrl = pathToFileURL(
-      new URL("./worker-defense-in-depth.ts", import.meta.url).pathname,
-    ).href;
-    const body = `(async () => {
+    it("rolls back worker patches when bootstrap activation fails", () => {
+      const workerSourceUrl = pathToFileURL(
+        new URL("./worker-defense-in-depth.ts", import.meta.url).pathname,
+      ).href;
+      const body = `(async () => {
       const { Module } = await import("node:module");
       const originalFunction = globalThis.Function;
       const originalEval = globalThis.eval;
@@ -144,6 +146,7 @@ describe("defense-in-depth Module discovery", () => {
       process.stdout.write("ok");
     })().catch((error) => { console.error(error); process.exitCode = 1; });`;
 
-    expect(runSubprocess("module", body)).toBe("ok");
-  });
-});
+      expect(runSubprocess("module", body)).toBe("ok");
+    });
+  },
+);

@@ -27,4 +27,12 @@ describe("AWK parser resource limits", () => {
       parser.parse("BEGIN { print a + b + c + d + e ? 1 : 0 }"),
     ).toThrowError(/parser operation limit exceeded/);
   });
+
+  it("consumes repeated continuation newlines without host recursion", () => {
+    const parser = new AwkParser({ maxSourceLength: 100_000 });
+
+    expect(() =>
+      parser.parse(`BEGIN {${"\n".repeat(20_000)}print 1 }`),
+    ).not.toThrow();
+  });
 });

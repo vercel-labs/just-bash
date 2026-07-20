@@ -5,6 +5,8 @@
  */
 
 import { fileTypeFromBuffer } from "file-type";
+import { BoundedStringBuilder } from "../../bounded-builder.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -417,10 +419,19 @@ export const fileCommand: Command = {
       };
     }
 
-    let output = "";
+    const output = new BoundedStringBuilder(
+      Math.min(ctx.limits.maxOutputSize, ctx.limits.maxStringLength),
+      "file",
+    );
     let exitCode = 0;
 
     for (const file of files) {
+      ctx.executionScope?.consumeLimited(
+        "file-operands",
+        1,
+        ctx.limits.maxArrayElements,
+        "file",
+      );
       try {
         const path = ctx.fs.resolvePath(ctx.cwd, file);
         const stats = dereference
@@ -432,29 +443,33 @@ export const fileCommand: Command = {
           const result = mimeMode
             ? "inode/symlink"
             : `symbolic link to ${target}`;
-          output += brief ? `${result}\n` : `${file}: ${result}\n`;
+          output.append(brief ? `${result}\n` : `${file}: ${result}\n`);
           continue;
         }
 
         if (stats.isDirectory) {
           const result = mimeMode ? "inode/directory" : "directory";
-          output += brief ? `${result}\n` : `${file}: ${result}\n`;
+          output.append(brief ? `${result}\n` : `${file}: ${result}\n`);
           continue;
         }
 
         const buffer = await ctx.fs.readFileBuffer(path);
+        ctx.executionScope?.consumeInput(buffer.byteLength, "file");
         const fileType = await detectFileType(file, buffer);
         const result = mimeMode ? fileType.mime : fileType.description;
-        output += brief ? `${result}\n` : `${file}: ${result}\n`;
-      } catch {
-        output += brief
-          ? "cannot open\n"
-          : `${file}: cannot open (No such file or directory)\n`;
+        output.append(brief ? `${result}\n` : `${file}: ${result}\n`);
+      } catch (error) {
+        rethrowFatalExecutionError(error);
+        output.append(
+          brief
+            ? "cannot open\n"
+            : `${file}: cannot open (No such file or directory)\n`,
+        );
         exitCode = 1;
       }
     }
 
-    return { stdout: output, stderr: "", exitCode };
+    return { stdout: output.build(), stderr: "", exitCode };
   },
 };
 

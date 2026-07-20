@@ -267,8 +267,14 @@ export function evalObjectBuiltin(
           return [Number.NEGATIVE_INFINITY];
         }
         try {
-          return [sanitizeParsedData(JSON.parse(value))];
-        } catch {
+          return [
+            sanitizeParsedData(JSON.parse(value), {
+              maxDepth: ctx.limits.maxDepth,
+              maxElements: ctx.limits.maxArrayElements,
+            }),
+          ];
+        } catch (error) {
+          if (error instanceof ExecutionLimitError) throw error;
           throw new Error(`Invalid JSON: ${value}`);
         }
       }

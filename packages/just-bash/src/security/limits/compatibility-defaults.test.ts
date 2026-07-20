@@ -9,11 +9,15 @@ describe("compatibility-safe execution limit configuration", () => {
 
     expect(normal.maxCommandCount).toBe(100_000);
     expect(normal.maxStringLength).toBe(64 * 1024 * 1024);
+    expect(normal.maxSourceBytes).toBe(64 * 1024 * 1024);
+    expect(normal.maxFileSystemBytes).toBe(1024 * 1024 * 1024);
     expect(normal.maxOutputSize).toBe(256 * 1024 * 1024);
     expect(normal.maxArchiveCompressedBytes).toBe(512 * 1024 * 1024);
     expect(normal.maxExecutionTimeMs).toBe(60 * 60 * 1000);
     expect(hardened.maxCommandCount).toBe(10_000);
     expect(hardened.maxStringLength).toBe(10 * 1024 * 1024);
+    expect(hardened.maxSourceBytes).toBe(8 * 1024 * 1024);
+    expect(hardened.maxFileSystemBytes).toBe(128 * 1024 * 1024);
     expect(hardened.maxOutputSize).toBe(10 * 1024 * 1024);
     expect(hardened.maxArchiveCompressedBytes).toBe(64 * 1024 * 1024);
     expect(hardened.maxExecutionTimeMs).toBe(30_000);
@@ -42,11 +46,15 @@ describe("compatibility-safe execution limit configuration", () => {
     const configured = 512 * 1024 * 1024;
     const limits = resolveLimits({
       maxStringLength: configured,
+      maxSourceBytes: configured,
+      maxFileSystemBytes: configured,
       maxHeredocSize: configured,
       maxOutputSize: configured,
     });
 
     expect(limits.maxStringLength).toBe(configured);
+    expect(limits.maxSourceBytes).toBe(configured);
+    expect(limits.maxFileSystemBytes).toBe(configured);
     expect(limits.maxHeredocSize).toBe(configured);
     expect(limits.maxOutputSize).toBe(configured);
   });

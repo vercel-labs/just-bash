@@ -8,6 +8,7 @@
  * This is a reimplementation for the just-bash sandboxed environment.
  */
 
+import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { decodeBytesToUtf8 } from "../../encoding.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
@@ -18,13 +19,13 @@ import {
 import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
 import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
-import { utf8ByteLength } from "../printf/escapes.js";
 import {
   type EvaluateOptions,
   evaluate,
   parse,
   type QueryValue,
 } from "../query-engine/index.js";
+import { getValueDepth } from "../query-engine/value-operations.js";
 import {
   defaultFormatOptions,
   detectFormatFromExtension,
@@ -353,13 +354,18 @@ export const yqCommand: Command = {
         env: ctx.env,
         coverage: ctx.coverage,
         requireDefenseContext: ctx.requireDefenseContext,
+        budget: { operations: 0, callDepth: 0 },
+      };
+      const dataLimits = {
+        maxDepth: ctx.limits.maxQueryDepth,
+        maxElements: ctx.limits.maxQueryElements,
       };
 
       if (options.nullInput) {
         values = evaluate(null, ast, evalOptions);
       } else if (options.frontMatter) {
         // Extract and process front-matter only
-        const fm = extractFrontMatter(input);
+        const fm = extractFrontMatter(input, dataLimits);
         if (!fm) {
           return {
             stdout: "",
@@ -373,13 +379,13 @@ export const yqCommand: Command = {
         let items: QueryValue[];
         if (options.inputFormat === "yaml") {
           // YAML supports multiple documents separated by ---
-          items = parseAllYamlDocuments(input);
+          items = parseAllYamlDocuments(input, dataLimits);
         } else {
-          items = [parseInput(input, options)];
+          items = [parseInput(input, options, dataLimits)];
         }
         values = evaluate(items, ast, evalOptions);
       } else {
-        const parsed = parseInput(input, options);
+        const parsed = parseInput(input, options, dataLimits);
         values = evaluate(parsed, ast, evalOptions);
       }
 
@@ -389,32 +395,58 @@ export const yqCommand: Command = {
         ctx.limits.maxOutputSize,
       );
       const separator = options.joinOutput ? "" : "\n";
-      const formatted: string[] = [];
-      let outputBytes = 0;
+      const output = new BoundedStringBuilder(
+        maxOutputSize,
+        "yq output",
+        () =>
+          new ExecutionLimitError(
+            `output size limit exceeded (${maxOutputSize} bytes)`,
+            "output_size",
+          ),
+      );
+      let formattedValues = 0;
       for (const value of values) {
-        const text = formatOutput(value, options);
-        if (text === "") continue;
-        const textBytes = utf8ByteLength(text);
-        const separatorBytes = formatted.length > 0 ? separator.length : 0;
-        const finalNewlineBytes = options.joinOutput ? 0 : 1;
         if (
-          outputBytes + separatorBytes + textBytes + finalNewlineBytes >
-          maxOutputSize
+          getValueDepth(value, ctx.limits.maxQueryDepth + 1) >
+          ctx.limits.maxQueryDepth
         ) {
+          throw new ExecutionLimitError(
+            `query depth limit exceeded (${ctx.limits.maxQueryDepth})`,
+            "recursion",
+          );
+        }
+        const separatorBytes = formattedValues > 0 ? separator.length : 0;
+        const finalNewlineBytes = options.joinOutput ? 0 : 1;
+        const remainingBytes =
+          output.remainingBytes - separatorBytes - finalNewlineBytes;
+        if (remainingBytes < 0) {
           throw new ExecutionLimitError(
             `output size limit exceeded (${maxOutputSize} bytes)`,
             "output_size",
           );
         }
-        outputBytes += separatorBytes + textBytes;
-        formatted.push(text);
+        const serializationLimit = Math.min(
+          remainingBytes,
+          ctx.executionScope?.remainingLiveBytes ?? remainingBytes,
+        );
+        const serializationLease = ctx.executionScope?.reserveBytes(
+          "yq serialization",
+          serializationLimit,
+          "yq output",
+        );
+        let text: string;
+        try {
+          text = formatOutput(value, options, serializationLimit);
+        } finally {
+          serializationLease?.release();
+        }
+        if (text === "") continue;
+        if (formattedValues > 0) output.append(separator);
+        output.append(text);
+        formattedValues++;
       }
-      const output = formatted.join(separator);
-      const finalOutput = output
-        ? options.joinOutput
-          ? output
-          : `${output}\n`
-        : "";
+      if (formattedValues > 0 && !options.joinOutput) output.append("\n");
+      const finalOutput = output.build();
 
       // Handle inplace mode
       if (options.inplace && filePath) {

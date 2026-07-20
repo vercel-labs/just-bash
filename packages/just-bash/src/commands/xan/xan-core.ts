@@ -50,7 +50,7 @@ export async function cmdHead(
   if (error) return error;
 
   const rows = data.slice(0, n);
-  return { stdout: formatCsv(headers, rows), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, rows, ctx), stderr: "", exitCode: 0 };
 }
 
 export async function cmdTail(
@@ -71,7 +71,7 @@ export async function cmdTail(
   if (error) return error;
 
   const rows = data.slice(-n);
-  return { stdout: formatCsv(headers, rows), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, rows, ctx), stderr: "", exitCode: 0 };
 }
 
 export async function cmdSlice(
@@ -110,7 +110,7 @@ export async function cmdSlice(
   }
 
   const rows = data.slice(startIdx, endIdx);
-  return { stdout: formatCsv(headers, rows), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, rows, ctx), stderr: "", exitCode: 0 };
 }
 
 export async function cmdReverse(
@@ -121,5 +121,5 @@ export async function cmdReverse(
   if (error) return error;
 
   const rows = [...data].reverse();
-  return { stdout: formatCsv(headers, rows), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, rows, ctx), stderr: "", exitCode: 0 };
 }

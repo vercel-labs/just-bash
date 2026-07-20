@@ -19,9 +19,11 @@ import type {
   WordNode,
   WordPart,
 } from "../../ast/types.js";
+import { utf8ByteLength } from "../../encoding.js";
 import { createUserRegex } from "../../regex/index.js";
 import { GlobExpander } from "../../shell/glob.js";
-import { GlobError } from "../errors.js";
+import { ExecutionLimitError, GlobError } from "../errors.js";
+import { appendBoundedElements } from "../helpers/bounded-array.js";
 import {
   getIfs,
   getIfsSeparator,
@@ -37,6 +39,7 @@ import {
   applyPatternRemoval,
   getVarNamesWithPrefix,
 } from "./pattern-removal.js";
+import { applyPatternReplacementBounded } from "./pattern-replacement.js";
 import { getArrayElements } from "./variable.js";
 
 /**
@@ -47,6 +50,50 @@ export type UnquotedExpansionResult = {
   values: string[];
   quoted: boolean;
 } | null;
+
+function pushExpansionValue(
+  ctx: InterpreterContext,
+  values: string[],
+  value: string,
+  bytes: { value: number },
+): void {
+  if (values.length >= ctx.limits.maxArrayElements) {
+    throw new ExecutionLimitError(
+      `unquoted expansion element limit exceeded (${ctx.limits.maxArrayElements})`,
+      "array_elements",
+    );
+  }
+  const valueBytes = utf8ByteLength(value);
+  if (valueBytes > ctx.limits.maxStringLength - bytes.value) {
+    throw new ExecutionLimitError(
+      `unquoted expansion string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+      "string_length",
+    );
+  }
+  values.push(value);
+  bytes.value += valueBytes;
+}
+
+function joinExpansionValues(
+  ctx: InterpreterContext,
+  values: string[],
+  separator: string,
+  valueBytes: number,
+): string {
+  const separatorBytes = utf8ByteLength(separator);
+  const separators = Math.max(0, values.length - 1);
+  if (
+    separatorBytes > 0 &&
+    separators >
+      Math.floor((ctx.limits.maxStringLength - valueBytes) / separatorBytes)
+  ) {
+    throw new ExecutionLimitError(
+      `unquoted expansion string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+      "string_length",
+    );
+  }
+  return values.join(separator);
+}
 
 /**
  * Type for expandPart function reference
@@ -85,6 +132,13 @@ function createGlobExpander(ctx: InterpreterContext): GlobExpander {
     extglob: ctx.state.shoptOptions.extglob,
     globskipdots: ctx.state.shoptOptions.globskipdots,
     maxGlobOperations: ctx.limits.maxGlobOperations,
+    consumeOperation: () =>
+      ctx.executionScope.consumeLimited(
+        "glob_operations",
+        1,
+        ctx.limits.maxGlobOperations,
+        "glob expansion",
+      ),
   });
 }
 
@@ -106,7 +160,12 @@ async function applyGlobExpansion(
     if (hasGlobPattern(w, ctx.state.shoptOptions.extglob)) {
       const matches = await globExpander.expand(w);
       if (matches.length > 0) {
-        expandedValues.push(...matches);
+        appendBoundedElements(
+          expandedValues,
+          matches,
+          ctx.limits.maxArrayElements,
+          "unquoted glob expansion",
+        );
       } else if (globExpander.hasFailglob()) {
         throw new GlobError(w);
       } else if (globExpander.hasNullglob()) {
@@ -230,14 +289,29 @@ export async function handleUnquotedArrayPatternReplacement(
 
   // Apply replacement to each element
   const replacedValues: string[] = [];
+  const replacedBytes = { value: 0 };
   try {
     const re = createUserRegex(regexPattern, operation.all ? "g" : "");
     for (const value of values) {
-      replacedValues.push(re.replace(value, replacement));
+      pushExpansionValue(
+        ctx,
+        replacedValues,
+        applyPatternReplacementBounded(
+          ctx,
+          value,
+          re,
+          replacement,
+          operation.all,
+        ),
+        replacedBytes,
+      );
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof ExecutionLimitError) throw error;
     // Invalid regex - return values unchanged
-    replacedValues.push(...values);
+    for (const value of values) {
+      pushExpansionValue(ctx, replacedValues, value, replacedBytes);
+    }
   }
 
   // For unquoted, we need to IFS-split the result
@@ -247,7 +321,12 @@ export async function handleUnquotedArrayPatternReplacement(
   if (unquotedArrayIsStar) {
     // ${arr[*]/...} unquoted - join with IFS, then split
     const ifsSep = getIfsSeparator(ctx.state.env);
-    const joined = replacedValues.join(ifsSep);
+    const joined = joinExpansionValues(
+      ctx,
+      replacedValues,
+      ifsSep,
+      replacedBytes.value,
+    );
     if (ifsEmpty) {
       return { values: joined ? [joined] : [], quoted: false };
     }
@@ -267,13 +346,18 @@ export async function handleUnquotedArrayPatternReplacement(
   }
 
   const allWords: string[] = [];
+  const allWordBytes = { value: 0 };
   for (const val of replacedValues) {
     if (val === "") {
-      allWords.push("");
+      pushExpansionValue(ctx, allWords, "", allWordBytes);
     } else {
-      allWords.push(
-        ...splitByIfsForExpansion(val, ifsChars, ctx.limits.maxArrayElements),
-      );
+      for (const word of splitByIfsForExpansion(
+        val,
+        ifsChars,
+        ctx.limits.maxArrayElements,
+      )) {
+        pushExpansionValue(ctx, allWords, word, allWordBytes);
+      }
     }
   }
   return { values: allWords, quoted: false };
@@ -366,9 +450,19 @@ export async function handleUnquotedArrayPatternRemoval(
 
   // Apply pattern removal to each element
   const strippedValues: string[] = [];
+  const strippedBytes = { value: 0 };
   for (const value of values) {
-    strippedValues.push(
-      applyPatternRemoval(value, regexStr, operation.side, operation.greedy),
+    pushExpansionValue(
+      ctx,
+      strippedValues,
+      applyPatternRemoval(
+        ctx,
+        value,
+        regexStr,
+        operation.side,
+        operation.greedy,
+      ),
+      strippedBytes,
     );
   }
 
@@ -379,7 +473,12 @@ export async function handleUnquotedArrayPatternRemoval(
   if (unquotedArrayIsStar) {
     // ${arr[*]#...} unquoted - join with IFS, then split
     const ifsSep = getIfsSeparator(ctx.state.env);
-    const joined = strippedValues.join(ifsSep);
+    const joined = joinExpansionValues(
+      ctx,
+      strippedValues,
+      ifsSep,
+      strippedBytes.value,
+    );
     if (ifsEmpty) {
       return { values: joined ? [joined] : [], quoted: false };
     }
@@ -399,13 +498,18 @@ export async function handleUnquotedArrayPatternRemoval(
   }
 
   const allWords: string[] = [];
+  const allWordBytes = { value: 0 };
   for (const val of strippedValues) {
     if (val === "") {
-      allWords.push("");
+      pushExpansionValue(ctx, allWords, "", allWordBytes);
     } else {
-      allWords.push(
-        ...splitByIfsForExpansion(val, ifsChars, ctx.limits.maxArrayElements),
-      );
+      for (const word of splitByIfsForExpansion(
+        val,
+        ifsChars,
+        ctx.limits.maxArrayElements,
+      )) {
+        pushExpansionValue(ctx, allWords, word, allWordBytes);
+      }
     }
   }
   return { values: allWords, quoted: false };
@@ -487,9 +591,19 @@ export async function handleUnquotedPositionalPatternRemoval(
 
   // Apply pattern removal to each positional parameter
   const strippedParams: string[] = [];
+  const strippedBytes = { value: 0 };
   for (const param of params) {
-    strippedParams.push(
-      applyPatternRemoval(param, regexStr, operation.side, operation.greedy),
+    pushExpansionValue(
+      ctx,
+      strippedParams,
+      applyPatternRemoval(
+        ctx,
+        param,
+        regexStr,
+        operation.side,
+        operation.greedy,
+      ),
+      strippedBytes,
     );
   }
 
@@ -500,7 +614,12 @@ export async function handleUnquotedPositionalPatternRemoval(
   if (unquotedPosPatRemIsStar) {
     // ${*#...} unquoted - join with IFS, then split
     const ifsSep = getIfsSeparator(ctx.state.env);
-    const joined = strippedParams.join(ifsSep);
+    const joined = joinExpansionValues(
+      ctx,
+      strippedParams,
+      ifsSep,
+      strippedBytes.value,
+    );
     if (ifsEmpty) {
       return { values: joined ? [joined] : [], quoted: false };
     }
@@ -520,13 +639,18 @@ export async function handleUnquotedPositionalPatternRemoval(
   }
 
   const allWords: string[] = [];
+  const allWordBytes = { value: 0 };
   for (const val of strippedParams) {
     if (val === "") {
-      allWords.push("");
+      pushExpansionValue(ctx, allWords, "", allWordBytes);
     } else {
-      allWords.push(
-        ...splitByIfsForExpansion(val, ifsChars, ctx.limits.maxArrayElements),
-      );
+      for (const word of splitByIfsForExpansion(
+        val,
+        ifsChars,
+        ctx.limits.maxArrayElements,
+      )) {
+        pushExpansionValue(ctx, allWords, word, allWordBytes);
+      }
     }
   }
   return { values: allWords, quoted: false };
@@ -694,7 +818,12 @@ export async function handleUnquotedPositionalSlicing(
             ifsChars,
             ctx.limits.maxArrayElements,
           );
-          allWords.push(...parts);
+          appendBoundedElements(
+            allWords,
+            parts,
+            ctx.limits.maxArrayElements,
+            "unquoted expansion",
+          );
         }
       }
     }
@@ -770,7 +899,12 @@ export async function handleUnquotedSimplePositional(
           ifsChars,
           ctx.limits.maxArrayElements,
         );
-        allWords.push(...parts);
+        appendBoundedElements(
+          allWords,
+          parts,
+          ctx.limits.maxArrayElements,
+          "unquoted expansion",
+        );
       }
     } else {
       // Non-whitespace IFS - preserve empty params EXCEPT trailing ones
@@ -784,7 +918,12 @@ export async function handleUnquotedSimplePositional(
             ifsChars,
             ctx.limits.maxArrayElements,
           );
-          allWords.push(...parts);
+          appendBoundedElements(
+            allWords,
+            parts,
+            ctx.limits.maxArrayElements,
+            "unquoted expansion",
+          );
         }
       }
       // Remove trailing empty strings
@@ -876,7 +1015,12 @@ export async function handleUnquotedSimpleArray(
           ifsChars,
           ctx.limits.maxArrayElements,
         );
-        allWords.push(...parts);
+        appendBoundedElements(
+          allWords,
+          parts,
+          ctx.limits.maxArrayElements,
+          "unquoted expansion",
+        );
       }
     } else {
       // Non-whitespace IFS - preserve empty elements
@@ -890,7 +1034,12 @@ export async function handleUnquotedSimpleArray(
             ifsChars,
             ctx.limits.maxArrayElements,
           );
-          allWords.push(...parts);
+          appendBoundedElements(
+            allWords,
+            parts,
+            ctx.limits.maxArrayElements,
+            "unquoted expansion",
+          );
         }
       }
       // Remove trailing empty strings
@@ -962,7 +1111,12 @@ export function handleUnquotedVarNamePrefix(
           ifsChars,
           ctx.limits.maxArrayElements,
         );
-        allWords.push(...parts);
+        appendBoundedElements(
+          allWords,
+          parts,
+          ctx.limits.maxArrayElements,
+          "unquoted expansion",
+        );
       }
     }
   }
@@ -1029,7 +1183,12 @@ export function handleUnquotedArrayKeys(
           ifsChars,
           ctx.limits.maxArrayElements,
         );
-        allWords.push(...parts);
+        appendBoundedElements(
+          allWords,
+          parts,
+          ctx.limits.maxArrayElements,
+          "unquoted expansion",
+        );
       }
     }
   }
@@ -1120,7 +1279,12 @@ export async function handleUnquotedPositionalWithPrefixSuffix(
           ifsChars,
           ctx.limits.maxArrayElements,
         );
-        words.push(...parts);
+        appendBoundedElements(
+          words,
+          parts,
+          ctx.limits.maxArrayElements,
+          "unquoted expansion",
+        );
       }
     } else {
       // Non-whitespace IFS - preserve empty words (except trailing)
@@ -1134,7 +1298,12 @@ export async function handleUnquotedPositionalWithPrefixSuffix(
             ifsChars,
             ctx.limits.maxArrayElements,
           );
-          words.push(...parts);
+          appendBoundedElements(
+            words,
+            parts,
+            ctx.limits.maxArrayElements,
+            "unquoted expansion",
+          );
         }
       }
       // Remove trailing empty strings

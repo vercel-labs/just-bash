@@ -85,7 +85,9 @@ describe("interpreter expansion resource limits", () => {
 
   it("charges vectorized shortest-pattern-removal work", async () => {
     const bash = new Bash({ executionLimits: { maxGlobOperations: 16 } });
-    const result = await bash.exec('set -- aaaaa; echo "${@%z}"');
+    const result = await bash.exec(
+      'set -- aaaaa bbbbb ccccc ddddd; echo "${@%z}"',
+    );
 
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     expect(result.stderr).toContain("pattern-removal work limit exceeded (16)");

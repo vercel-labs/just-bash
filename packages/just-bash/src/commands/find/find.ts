@@ -1,5 +1,6 @@
 import { utf8ByteLength } from "../../encoding.js";
 import { ExecutionOutputAccumulator } from "../../execution-output.js";
+import type { ExecutionScope } from "../../execution-scope.js";
 import type { DirentEntry } from "../../fs/interface.js";
 import { FileTraversalBudget } from "../../fs/traversal.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
@@ -236,7 +237,10 @@ export const findCommand: Command = {
     const effects: EvaluatedEffect[] = [];
     let exitCode = 0;
     const output = ctx.executionScope
-      ? new ExecutionOutputAccumulator(ctx.executionScope, "find")
+      ? new ExecutionOutputAccumulator(
+          ctx.executionScope as ExecutionScope,
+          "find",
+        )
       : undefined;
     const stdoutChunks: string[] = [];
     const stderrChunks: string[] = [];
@@ -415,7 +419,7 @@ export const findCommand: Command = {
               : searchPath + currentPath.slice(basePath.length);
 
         // Get children for directories
-        let children: WorkItem[] = [];
+        const children: WorkItem[] = [];
         let entriesWithTypes: DirentEntry[] | null = null;
         let entries: string[] | null = null;
 
@@ -447,39 +451,50 @@ export const findCommand: Command = {
           if (hasReaddirWithFileTypes && ctx.fs.readdirWithFileTypes) {
             entriesWithTypes = await ctx.fs.readdirWithFileTypes(currentPath);
             traversalBudget.checkpoint();
-            entries = entriesWithTypes.map((e) => e.name);
+            traversalBudget.discover(entriesWithTypes.length);
+            entries = [];
+            for (const entry of entriesWithTypes) entries.push(entry.name);
             traceCounters.readdirCalls++;
             traceCounters.readdirTime += Date.now() - readdirStart;
             // Create children work items
             // In terminal directory (e.g., "pulls" for pattern "*/pulls/*.json"),
             // only process files, not subdirectories
             if (shouldDescendIntoSubdirs) {
-              children = entriesWithTypes.map((entry, idx) => ({
-                path:
-                  currentPath === "/"
-                    ? `/${entry.name}`
-                    : `${currentPath}/${entry.name}`,
-                depth: depth + 1,
-                typeInfo: {
-                  isFile: entry.isFile,
-                  isDirectory: entry.isDirectory,
-                },
-                resultIndex: idx,
-              }));
+              for (let idx = 0; idx < entriesWithTypes.length; idx++) {
+                const entry = entriesWithTypes[idx];
+                children.push({
+                  path:
+                    currentPath === "/"
+                      ? `/${entry.name}`
+                      : `${currentPath}/${entry.name}`,
+                  depth: depth + 1,
+                  typeInfo: {
+                    isFile: entry.isFile,
+                    isDirectory: entry.isDirectory,
+                  },
+                  resultIndex: idx,
+                });
+              }
             }
           } else {
             entries = await ctx.fs.readdir(currentPath);
             traversalBudget.checkpoint();
+            traversalBudget.discover(entries.length);
             traceCounters.readdirCalls++;
             traceCounters.readdirTime += Date.now() - readdirStart;
             // Create children work items
             if (shouldDescendIntoSubdirs) {
-              children = entries.map((entry, idx) => ({
-                path:
-                  currentPath === "/" ? `/${entry}` : `${currentPath}/${entry}`,
-                depth: depth + 1,
-                resultIndex: idx,
-              }));
+              for (let idx = 0; idx < entries.length; idx++) {
+                const entry = entries[idx];
+                children.push({
+                  path:
+                    currentPath === "/"
+                      ? `/${entry}`
+                      : `${currentPath}/${entry}`,
+                  depth: depth + 1,
+                  resultIndex: idx,
+                });
+              }
             }
           }
         }
@@ -582,11 +597,16 @@ export const findCommand: Command = {
           depth: node.depth,
           startingPoint: searchPath,
         };
-        return reachedActions.map((action) => ({
-          action,
-          path: node.relativePath,
-          printfData,
-        }));
+        traversalBudget.checkpoint(reachedActions.length);
+        const evaluated: EvaluatedEffect[] = [];
+        for (const action of reachedActions) {
+          evaluated.push({
+            action,
+            path: node.relativePath,
+            printfData,
+          });
+        }
+        return evaluated;
       }
 
       // Result collection for ordered results
@@ -633,9 +653,15 @@ export const findCommand: Command = {
           const parentChildMap = new Map<number, number[]>(); // parentIdx -> [childIdx in order]
 
           // BFS to discover all nodes with parallel processing
-          while (workQueue.length > 0) {
+          let workCursor = 0;
+          while (workCursor < workQueue.length) {
             const batchStart = Date.now();
-            const batch = workQueue.splice(0, FIND_BATCH_SIZE);
+            const batchEnd = Math.min(
+              workQueue.length,
+              workCursor + FIND_BATCH_SIZE,
+            );
+            const batch = workQueue.slice(workCursor, batchEnd);
+            workCursor = batchEnd;
             const nodes = await Promise.all(
               batch.map((q) => processNode(q.item)),
             );
@@ -681,29 +707,30 @@ export const findCommand: Command = {
             }
           }
 
-          // Phase 2: Build result in post-order using recursive collection
-          // This ensures children come before parent in the correct sibling order
-          function collectPostOrder(index: number): NodeResult {
-            const result: NodeResult = { effects: [] };
-            const entry = discovered[index];
-            if (!entry) return result;
-
-            // First, collect all children's results (in order)
-            for (const childIndex of entry.childIndices) {
-              const childResult = collectPostOrder(childIndex);
-              result.effects.push(...childResult.effects);
-            }
-
-            // Then, add this node's result
-            result.effects.push(...evaluateNode(entry.node));
-
-            return result;
-          }
-
-          // Start from root (index 0)
+          // Phase 2: Build post-order iteratively. Recursive reconstruction can
+          // overflow the host stack at traversal depths that are deliberately
+          // valid under a liberal normal profile.
           if (discovered.length > 0) {
-            const rootResult = collectPostOrder(0);
-            finalResult.effects.push(...rootResult.effects);
+            const stack: Array<{ index: number; visited: boolean }> = [
+              { index: 0, visited: false },
+            ];
+            while (stack.length > 0) {
+              traversalBudget.checkpoint();
+              const current = stack.pop();
+              if (!current) break;
+              const entry = discovered[current.index];
+              if (!entry) continue;
+              if (current.visited) {
+                for (const effect of evaluateNode(entry.node)) {
+                  finalResult.effects.push(effect);
+                }
+                continue;
+              }
+              stack.push({ index: current.index, visited: true });
+              for (let i = entry.childIndices.length - 1; i >= 0; i--) {
+                stack.push({ index: entry.childIndices[i], visited: false });
+              }
+            }
           }
         } else {
           // Pre-order traversal using BFS with batched processing
@@ -728,10 +755,16 @@ export const findCommand: Command = {
           // Track child order indices for each parent
           const childOrders: Map<number, number[]> = new Map();
 
-          while (workQueue.length > 0) {
+          let workCursor = 0;
+          while (workCursor < workQueue.length) {
             // Process all items in the queue in parallel batches
             const batchStart = Date.now();
-            const batch = workQueue.splice(0, FIND_BATCH_SIZE);
+            const batchEnd = Math.min(
+              workQueue.length,
+              workCursor + FIND_BATCH_SIZE,
+            );
+            const batch = workQueue.slice(workCursor, batchEnd);
+            workCursor = batchEnd;
             const processed: Array<NodeWithOrder | null> = await Promise.all(
               batch.map(async ({ item, orderIndex }) => {
                 const node = await processNode(item);
@@ -762,28 +795,32 @@ export const findCommand: Command = {
             }
           }
 
-          // Build result in pre-order by walking the tree structure
-          function collectPreOrder(orderIndex: number): void {
+          // Build result in pre-order with an explicit stack.
+          const collectionStack = [0];
+          while (collectionStack.length > 0) {
+            traversalBudget.checkpoint();
+            const orderIndex = collectionStack.pop();
+            if (orderIndex === undefined) break;
             const nodeResult = nodeResults.get(orderIndex);
             if (nodeResult) {
-              finalResult.effects.push(...nodeResult);
+              for (const effect of nodeResult) {
+                finalResult.effects.push(effect);
+              }
             }
             const children = childOrders.get(orderIndex);
             if (children) {
-              for (const childIndex of children) {
-                collectPreOrder(childIndex);
+              for (let i = children.length - 1; i >= 0; i--) {
+                collectionStack.push(children[i]);
               }
             }
           }
-
-          collectPreOrder(0);
         }
 
         return finalResult;
       }
 
       const searchResult = await findIterative();
-      effects.push(...searchResult.effects);
+      for (const effect of searchResult.effects) effects.push(effect);
 
       // Emit trace summary for this search path
       if (ctx.trace) {

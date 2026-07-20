@@ -341,6 +341,11 @@ export class AwkParser {
   // ─── Statement parsing ─────────────────────────────────────
 
   private parseStatement(): AwkStmt {
+    return this.withDepth(() => this.parseStatementAtDepth());
+  }
+
+  /** Parse one statement after reserving host-stack depth. */
+  private parseStatementAtDepth(): AwkStmt {
     // Empty statement (just semicolon or newline before actual statement)
     if (this.check(TokenType.SEMICOLON) || this.check(TokenType.NEWLINE)) {
       this.advance();

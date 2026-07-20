@@ -90,6 +90,42 @@ describe("query builtin prospective resource limits", () => {
     ).toThrow(/array index limit exceeded/);
   });
 
+  it("bounds cumulative nested setpath allocation", () => {
+    expect(
+      evaluate(null, parse("setpath([3]; 1)"), limits({ maxArrayElements: 4 })),
+    ).toEqual([[null, null, null, 1]]);
+    expect(() =>
+      evaluate(
+        null,
+        parse("setpath([7, 7]; 1)"),
+        limits({ maxArrayElements: 8, maxIterations: 100 }),
+      ),
+    ).toThrow(/cumulative array allocation limit exceeded \(8\)/);
+  });
+
+  it("bounds direct and logical evaluator result cardinality", () => {
+    expect(() =>
+      evaluate([1, 2, 3, 4], parse(".[]"), limits({ maxArrayElements: 3 })),
+    ).toThrow(/query result element limit exceeded \(3\)/);
+    expect(() =>
+      evaluate(
+        null,
+        parse("(1, 2, 3) and (4, 5, 6)"),
+        limits({ maxArrayElements: 8 }),
+      ),
+    ).toThrow(/query result element limit exceeded \(8\)/);
+  });
+
+  it("charges paths traversal to the shared query work budget", () => {
+    expect(() =>
+      evaluate(
+        { a: { b: { c: 1 } } },
+        parse("paths"),
+        limits({ maxIterations: 3 }),
+      ),
+    ).toThrow(/too many iterations \(3\)/);
+  });
+
   it("preserves jq's negative-index error for pick(last)", () => {
     expect(() => evaluate([1], parse("pick(last)"), limits())).toThrow(
       "Out of bounds negative array index",

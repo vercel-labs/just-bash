@@ -47,56 +47,61 @@ async function runAttackWithAndWithoutDefense(options: {
   return { baseline, withDefense, violations };
 }
 
-describe("Defense-in-depth independence evidence for exploit probes", () => {
-  it("awk exploit probes are contained without defense and do not trigger defense violations", async () => {
-    const { baseline, withDefense, violations } =
-      await runAttackWithAndWithoutDefense({
-        fixture: "awk-system-sinks.sh",
+describe.runIf(typeof nodeModule.registerHooks === "function")(
+  "Defense-in-depth independence evidence for exploit probes",
+  () => {
+    it("awk exploit probes are contained without defense and do not trigger defense violations", async () => {
+      const { baseline, withDefense, violations } =
+        await runAttackWithAndWithoutDefense({
+          fixture: "awk-system-sinks.sh",
+        });
+
+      expect(withDefense).toEqual(baseline);
+      expect(violations).toEqual([]);
+      assertExecResultSafe(baseline);
+      assertExecResultSafe(withDefense);
+    });
+
+    it("jq/yq exploit probes are contained with and without defense", async () => {
+      const { baseline, withDefense } = await runAttackWithAndWithoutDefense({
+        fixture: "query-engine-constructor-chain.sh",
       });
 
-    expect(withDefense).toEqual(baseline);
-    expect(violations).toEqual([]);
-    assertExecResultSafe(baseline);
-    assertExecResultSafe(withDefense);
-  });
-
-  it("jq/yq exploit probes are contained with and without defense", async () => {
-    const { baseline, withDefense } = await runAttackWithAndWithoutDefense({
-      fixture: "query-engine-constructor-chain.sh",
+      // With pre-captured timers and process.env allowed keys, defense no
+      // longer diverges for yq — the query engine's internal env var reads
+      // (LOG_TOKENS, LOG_STREAM) go through the allow-list.
+      expect(withDefense).toEqual(baseline);
+      assertExecResultSafe(baseline);
+      assertExecResultSafe(withDefense);
     });
 
-    // With pre-captured timers and process.env allowed keys, defense no
-    // longer diverges for yq — the query engine's internal env var reads
-    // (LOG_TOKENS, LOG_STREAM) go through the allow-list.
-    expect(withDefense).toEqual(baseline);
-    assertExecResultSafe(baseline);
-    assertExecResultSafe(withDefense);
-  });
+    it("sqlite exploit probes are contained with and without defense", async () => {
+      const { baseline, withDefense } = await runAttackWithAndWithoutDefense({
+        fixture: "sqlite-load-extension.sh",
+      });
 
-  it("sqlite exploit probes are contained with and without defense", async () => {
-    const { baseline, withDefense } = await runAttackWithAndWithoutDefense({
-      fixture: "sqlite-load-extension.sh",
+      // With pre-captured timers (_setTimeout/_clearTimeout), the sqlite
+      // worker timeout path no longer triggers defense violations.
+      expect(baseline.stdout).toContain("SQLITE_LOAD_EXTENSION_BLOCKED");
+      expect(withDefense).toEqual(baseline);
+      assertExecResultSafe(baseline);
+      assertExecResultSafe(withDefense);
     });
 
-    // With pre-captured timers (_setTimeout/_clearTimeout), the sqlite
-    // worker timeout path no longer triggers defense violations.
-    expect(baseline.stdout).toContain("SQLITE_LOAD_EXTENSION_BLOCKED");
-    expect(withDefense).toEqual(baseline);
-    assertExecResultSafe(baseline);
-    assertExecResultSafe(withDefense);
-  });
+    it("python exploit probes are contained with and without defense", async () => {
+      const { baseline, withDefense } = await runAttackWithAndWithoutDefense({
+        fixture: "python-worker-escape.sh",
+        python: true,
+      });
 
-  it("python exploit probes are contained with and without defense", async () => {
-    const { baseline, withDefense } = await runAttackWithAndWithoutDefense({
-      fixture: "python-worker-escape.sh",
-      python: true,
+      // With pre-captured _SharedArrayBuffer and _Atomics in the protocol
+      // module, the python worker no longer triggers defense violations.
+      expect(baseline.stdout).toContain("PYTHON_MARKER_ABSENT");
+      expect(withDefense).toEqual(baseline);
+      assertExecResultSafe(baseline);
+      assertExecResultSafe(withDefense);
     });
+  },
+);
 
-    // With pre-captured _SharedArrayBuffer and _Atomics in the protocol
-    // module, the python worker no longer triggers defense violations.
-    expect(baseline.stdout).toContain("PYTHON_MARKER_ABSENT");
-    expect(withDefense).toEqual(baseline);
-    assertExecResultSafe(baseline);
-    assertExecResultSafe(withDefense);
-  });
-});
+import * as nodeModule from "node:module";

@@ -5,13 +5,33 @@ import {
 } from "../interpreter/errors.js";
 import { resolveLimits } from "../limits.js";
 import { InMemoryFs } from "./in-memory-fs/in-memory-fs.js";
+import type { FsStat } from "./interface.js";
 import {
   canonicalizePath,
   compareCanonicalContainment,
   compareFileIdentity,
   FileSystemPolicyError,
+  resolveFileIdentity,
   traverseFileTree,
 } from "./traversal.js";
+
+class IdentitylessFs extends InMemoryFs {
+  override async stat(path: string): Promise<FsStat> {
+    const {
+      identity: _identity,
+      dev: _dev,
+      ino: _ino,
+      ...stat
+    } = await super.stat(path);
+    return stat;
+  }
+}
+
+class NoRealpathFs extends InMemoryFs {
+  override async realpath(_path: string): Promise<string> {
+    throw new Error("ENOTSUP: realpath unavailable");
+  }
+}
 
 describe("filesystem traversal primitives", () => {
   it("walks deep trees iteratively in deterministic order", async () => {
@@ -118,6 +138,44 @@ describe("filesystem traversal primitives", () => {
     await expect(
       compareCanonicalContainment(fs, "/source", "/other/new"),
     ).resolves.toBe("outside");
+  });
+
+  it("canonicalizes every missing component below the nearest existing parent", async () => {
+    const fs = new InMemoryFs({ "/real/anchor": "x" });
+    await fs.symlink("/real", "/alias");
+
+    await expect(
+      resolveFileIdentity(fs, "/alias/new/deep/file"),
+    ).resolves.toMatchObject({
+      existence: "missing",
+      canonicalPath: "/real/new/deep/file",
+    });
+  });
+
+  it("distinguishes a missing destination from unknown existing identity", async () => {
+    const fs = new IdentitylessFs({ "/source": "a", "/target": "b" });
+
+    await expect(compareFileIdentity(fs, "/source", "/new")).resolves.toBe(
+      "different",
+    );
+    await expect(compareFileIdentity(fs, "/source", "/target")).resolves.toBe(
+      "unknown",
+    );
+  });
+
+  it("uses stable identity when a backend has no realpath support", async () => {
+    const fs = new NoRealpathFs({ "/source": "a" });
+    await fs.link("/source", "/alias");
+
+    await expect(compareFileIdentity(fs, "/source", "/alias")).resolves.toBe(
+      "same",
+    );
+    await expect(compareFileIdentity(fs, "/source", "/new")).resolves.toBe(
+      "different",
+    );
+    await expect(compareCanonicalContainment(fs, "/", "/new")).resolves.toBe(
+      "unknown",
+    );
   });
 
   it("brands only canonical paths inside the policy root", async () => {

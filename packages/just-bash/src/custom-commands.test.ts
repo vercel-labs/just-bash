@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "./Bash.js";
 import {
   type CustomCommand,
+  createCommandContext,
   createLazyCustomCommand,
   defineCommand,
   isLazyCommand,
@@ -12,6 +13,18 @@ import { resolveLimits } from "./limits.js";
 import type { Command } from "./types.js";
 
 describe("custom-commands", () => {
+  it("creates a fully resolved standalone command context", () => {
+    const context = createCommandContext({
+      fs: {} as never,
+      executionLimits: { maxCommandCount: 7 },
+    });
+
+    expect(context.cwd).toBe("/");
+    expect(context.stdin).toBe(EMPTY_BYTES);
+    expect(context.limits.maxCommandCount).toBe(7);
+    expect(context.limits.maxExecutionTimeMs).toBeGreaterThan(0);
+  });
+
   describe("defineCommand", () => {
     it("creates a Command object with name and execute", () => {
       const cmd = defineCommand("test", async () => ({
@@ -23,6 +36,14 @@ describe("custom-commands", () => {
       expect(cmd.name).toBe("test");
       expect(cmd.trusted).toBe(false);
       expect(typeof cmd.execute).toBe("function");
+    });
+
+    it("requires an explicit trusted opt-in", () => {
+      const execute = async () => ({ stdout: "", stderr: "", exitCode: 0 });
+      expect(defineCommand("safe", execute).trusted).toBe(false);
+      expect(defineCommand("trusted", execute, { trusted: true }).trusted).toBe(
+        true,
+      );
     });
 
     it("execute function receives args and ctx", async () => {
@@ -179,6 +200,49 @@ describe("custom-commands", () => {
   });
 
   describe("Bash with customCommands", () => {
+    it.each([
+      "direct",
+      "helper",
+      "lazy",
+    ] as const)("uses the same untrusted default for %s commands", async (kind) => {
+      const execute = async () => {
+        setTimeout(() => {}, 1);
+        return { stdout: "unexpected\n", stderr: "", exitCode: 0 };
+      };
+      const command: CustomCommand =
+        kind === "direct"
+          ? { name: kind, execute }
+          : kind === "helper"
+            ? defineCommand(kind, execute)
+            : { name: kind, load: async () => ({ name: kind, execute }) };
+      const bash = new Bash({ customCommands: [command] });
+
+      const result = await bash.exec(kind);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("setTimeout is blocked");
+    });
+
+    it("lets a lazy command explicitly opt in to trusted execution", async () => {
+      const bash = new Bash({
+        customCommands: [
+          {
+            name: "trusted-lazy",
+            trusted: true,
+            load: async () => ({
+              name: "trusted-lazy",
+              execute: async () => {
+                await new Promise((resolve) => setTimeout(resolve, 1));
+                return { stdout: "ok\n", stderr: "", exitCode: 0 };
+              },
+            }),
+          },
+        ],
+      });
+
+      expect((await bash.exec("trusted-lazy")).stdout).toBe("ok\n");
+    });
     it("registers and executes a simple custom command", async () => {
       const hello = defineCommand("hello", async (args) => ({
         stdout: `Hello, ${args[0] || "world"}!\n`,

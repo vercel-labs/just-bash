@@ -14,9 +14,22 @@
  */
 export interface DefenseInDepthConfig {
   /**
-   * Enable or disable the defense layer. Default: true
+   * Enable, disable, or capability-detect the defense layer.
+   *
+   * `"auto"` (the default used by `Bash`) enables protection only when the
+   * runtime provides context-aware ESM loader hooks. Explicit `true` fails
+   * closed when that boundary cannot be enforced. This keeps Node 20/22
+   * usable without pretending that their asynchronous loader hooks can see
+   * the caller's sandbox context.
    */
-  enabled?: boolean;
+  enabled?: boolean | "auto";
+
+  /**
+   * Permanently freeze selected host intrinsics and lock well-known Symbol
+   * descriptors. This cannot be undone by `deactivate()` and is therefore
+   * disabled by default. Only use in a dedicated, process-lifetime realm.
+   */
+  processLifetimeIntrinsicHardening?: boolean;
 
   /**
    * Audit mode: log violations but don't block them.
@@ -37,6 +50,20 @@ export interface DefenseInDepthConfig {
    * (e.g., WebAssembly for sql.js in sqlite3 worker).
    */
   excludeViolationTypes?: SecurityViolationType[];
+}
+
+export interface DefenseInDepthStatus {
+  requested: "auto" | "enabled" | "disabled";
+  state: "enabled" | "unsupported" | "disabled";
+  contextualDynamicImportProtection: boolean;
+  processLifetimeIntrinsicHardening: boolean;
+  /**
+   * Scoped gates are reversible but cannot revoke mutation functions or
+   * intrinsic references cached before activation. Complete protection
+   * requires the explicitly irreversible process-lifetime mode or isolation.
+   */
+  intrinsicProtection: "scoped-best-effort" | "process-lifetime";
+  reason?: string;
 }
 
 /**

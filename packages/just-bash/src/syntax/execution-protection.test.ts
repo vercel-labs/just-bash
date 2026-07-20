@@ -331,8 +331,10 @@ describe("Execution Protection", () => {
       const env = new Bash();
       const result = await env.exec("echo {a..z}{a..z}{a..z}{a..z}");
 
-      // 26^4 = 456,976 items - should be limited
-      expect(result.exitCode).toBe(0);
+      // 26^4 = 456,976 items: fail closed rather than returning a partial
+      // expansion after performing prohibited collection work.
+      expect(result.exitCode).toBe(126);
+      expect(result.stderr).toContain("brace expansion result limit exceeded");
     });
   });
 

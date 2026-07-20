@@ -28,8 +28,15 @@ export {
   getPythonCommandNames,
 } from "./commands/registry.js";
 // Custom commands API
-export type { CustomCommand, LazyCommand } from "./custom-commands.js";
-export { defineCommand } from "./custom-commands.js";
+export type {
+  CommandContextOptions,
+  CustomCommand,
+  LazyCommand,
+} from "./custom-commands.js";
+export {
+  createCommandContext,
+  defineCommand,
+} from "./custom-commands.js";
 // Byte/text boundary helpers — required by custom commands that read
 // `ctx.stdin` (an opaque `ByteString`).
 export type { ByteString, OutputKind } from "./encoding.js";
@@ -99,6 +106,7 @@ export type {
   DefenseInDepthConfig,
   DefenseInDepthHandle,
   DefenseInDepthStats,
+  DefenseInDepthStatus,
   SecurityViolation,
   SecurityViolationType,
 } from "./security/index.js";

@@ -7,12 +7,19 @@
 
 import { isBrowserExcludedCommand } from "../commands/browser-excluded.js";
 import { latin1FromBytes, unsafeBytesFromLatin1 } from "../encoding.js";
+import {
+  createCommandExecutionBudget,
+  type ExecutionScope,
+} from "../execution-scope.js";
+import { getFileSystemIdentity, isFileSystemIdentity } from "../fs/identity.js";
 import { sanitizeErrorMessage } from "../fs/sanitize-error.js";
 import { awaitWithDefenseContext } from "../security/defense-context.js";
 import {
   DefenseInDepthBox,
   SecurityViolationError,
 } from "../security/defense-in-depth-box.js";
+import { _Proxy } from "../security/trusted-globals.js";
+import { _clearTimeout, _setTimeout } from "../timers.js";
 import type { CommandContext, ExecResult } from "../types.js";
 import {
   handleBreak,
@@ -49,7 +56,11 @@ import {
 } from "./command-resolution.js";
 import { evaluateTestArgs } from "./conditionals.js";
 import { createDefenseAwareCommandContext } from "./defense-aware-command-context.js";
-import { ExecutionLimitError, ExitError } from "./errors.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+  ExitError,
+} from "./errors.js";
 import { callFunction } from "./functions.js";
 import { setArrayElement } from "./helpers/array.js";
 import { getErrorMessage } from "./helpers/errors.js";
@@ -77,6 +88,297 @@ export type RunCommandFn = (
   useDefaultPath?: boolean,
   stdinSourceFd?: number,
 ) => Promise<ExecResult>;
+
+interface RevocableCommandContext {
+  context: CommandContext;
+  revoke(): void;
+}
+
+/**
+ * Give host extensions capabilities that become unusable once their invocation
+ * has ended. JavaScript promises cannot be forcibly terminated, but a late
+ * continuation must not retain a working filesystem, environment, or shell
+ * callback after its result has been abandoned.
+ */
+function createRevocableCommandContext(
+  context: CommandContext,
+  commandName: string,
+): RevocableCommandContext {
+  let active = true;
+  const facadeAbort = context.signal ? new AbortController() : undefined;
+  const wrappedValues = new WeakMap<object, object>();
+  const assertActive = () => {
+    if (!active) {
+      throw new ExecutionAbortedError(
+        "",
+        `bash: ${commandName} used its context after cancellation\n`,
+      );
+    }
+  };
+
+  /**
+   * Apply one revocation membrane to every capability that crosses from the
+   * interpreter into an extension. In particular, wrapping only the methods
+   * on CommandContext is insufficient: methods such as registerCleanup() and
+   * enterDepth() return new callable capabilities which would otherwise remain
+   * usable after the invocation has been cancelled.
+   */
+  const wrapValue = (value: unknown): unknown => {
+    if (
+      value === null ||
+      (typeof value !== "object" && typeof value !== "function")
+    ) {
+      return value;
+    }
+
+    const cached = wrappedValues.get(value);
+    if (cached !== undefined) return cached;
+
+    // Filesystem identities are frozen, inert WeakMap keys. Preserve the
+    // stable token across invocations; copying it would split SQLite and other
+    // per-filesystem coordination domains.
+    if (typeof value === "object" && isFileSystemIdentity(value)) return value;
+
+    // Binary buffers are inert command data, not ambient capabilities.
+    // Proxying an ArrayBuffer view is observably invalid: typed-array accessors
+    // require a real typed-array receiver, and structured clone rejects the
+    // proxy. Return an invocation-owned copy so commands can inspect/pass file
+    // bytes normally without retaining the filesystem's backing allocation.
+    if (value instanceof Uint8Array) {
+      const copy = new Uint8Array(value);
+      wrappedValues.set(value, copy);
+      return copy;
+    }
+    if (value instanceof ArrayBuffer) {
+      const copy = value.slice(0);
+      wrappedValues.set(value, copy);
+      return copy;
+    }
+
+    if (value instanceof Promise) {
+      const wrappedPromise = value.then((result) => {
+        assertActive();
+        return wrapValue(result);
+      });
+      wrappedValues.set(value, wrappedPromise);
+      return wrappedPromise;
+    }
+
+    if (typeof value === "function") {
+      const callable = function (this: unknown, ...args: unknown[]) {
+        assertActive();
+        return wrapValue(Reflect.apply(value, this, args));
+      };
+      wrappedValues.set(value, callable);
+      return callable;
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+    if (
+      Array.isArray(value) ||
+      prototype === Object.prototype ||
+      prototype === null
+    ) {
+      // Records and arrays are data, not ambient authority. Copy them so an
+      // ordinary command result remains readable after this invocation is
+      // revoked, while recursively membrane-wrapping any callable capability
+      // stored inside (for example ResourceLease.release).
+      const copy: object = Array.isArray(value) ? [] : Object.create(prototype);
+      wrappedValues.set(value, copy);
+      const descriptors = Object.getOwnPropertyDescriptors(value);
+      for (const descriptor of Object.values(descriptors)) {
+        if ("value" in descriptor) {
+          const member = descriptor.value;
+          descriptor.value =
+            typeof member === "function"
+              ? (...args: unknown[]) => {
+                  assertActive();
+                  return wrapValue(Reflect.apply(member, value, args));
+                }
+              : wrapValue(member);
+        }
+        if (descriptor.get) {
+          const getter = descriptor.get;
+          descriptor.get = () => {
+            assertActive();
+            return wrapValue(Reflect.apply(getter, value, []));
+          };
+        }
+        if (descriptor.set) {
+          const setter = descriptor.set;
+          descriptor.set = (nextValue: unknown) => {
+            assertActive();
+            Reflect.apply(setter, value, [nextValue]);
+          };
+        }
+      }
+      Object.defineProperties(copy, descriptors);
+      return copy;
+    }
+
+    const methods = new Map<PropertyKey, unknown>();
+    const proxy = new _Proxy(value, {
+      get(object, property) {
+        assertActive();
+        if (
+          property === "constructor" ||
+          property === "prototype" ||
+          property === "__proto__"
+        ) {
+          throw new Error(`${commandName}: unsafe context property access`);
+        }
+        // @banned-pattern-ignore: prototype gadget keys are rejected above;
+        // symbols and remaining names are ordinary properties of a fixed host capability.
+        const result = Reflect.get(object, property, object);
+        if (typeof result !== "function") return wrapValue(result);
+        if (methods.has(property)) return methods.get(property);
+        const wrapped = (...args: unknown[]) => {
+          assertActive();
+          return wrapValue(Reflect.apply(result, object, args));
+        };
+        methods.set(property, wrapped);
+        return wrapped;
+      },
+      set(object, property, nextValue) {
+        assertActive();
+        if (
+          property === "constructor" ||
+          property === "prototype" ||
+          property === "__proto__"
+        ) {
+          throw new Error(`${commandName}: unsafe context property access`);
+        }
+        // @banned-pattern-ignore: prototype gadget keys are rejected above on this fixed host capability
+        return Reflect.set(object, property, nextValue, object);
+      },
+    });
+    wrappedValues.set(value, proxy);
+    return proxy;
+  };
+
+  const wrapCapability = <T extends object>(target: T): T => {
+    return wrapValue(target) as T;
+  };
+
+  const wrapFunction = <T extends ((...args: never[]) => unknown) | undefined>(
+    fn: T,
+  ): T => {
+    if (!fn) return fn;
+    return ((...args: never[]) => {
+      assertActive();
+      return wrapValue(fn(...args));
+    }) as T;
+  };
+
+  return {
+    context: {
+      ...context,
+      fs: wrapCapability(context.fs),
+      env: wrapCapability(context.env),
+      limits: Object.freeze({ ...context.limits }),
+      exportedEnv: context.exportedEnv
+        ? Object.freeze({ ...context.exportedEnv })
+        : undefined,
+      executionScope: context.executionScope
+        ? wrapCapability(context.executionScope)
+        : undefined,
+      fileDescriptors: context.fileDescriptors
+        ? wrapCapability(context.fileDescriptors)
+        : undefined,
+      coverage: context.coverage ? wrapCapability(context.coverage) : undefined,
+      assignShellVariable: wrapFunction(context.assignShellVariable),
+      exec: wrapFunction(context.exec),
+      execWithInheritedStdin: wrapFunction(context.execWithInheritedStdin),
+      fetch: wrapFunction(context.fetch),
+      getRegisteredCommands: wrapFunction(context.getRegisteredCommands),
+      sleep: wrapFunction(context.sleep),
+      trace: wrapFunction(context.trace),
+      invokeTool: wrapFunction(context.invokeTool),
+      signal: facadeAbort?.signal,
+    },
+    revoke() {
+      active = false;
+      if (!facadeAbort?.signal.aborted) {
+        facadeAbort?.abort(
+          new ExecutionAbortedError(
+            "",
+            `bash: ${commandName} context revoked\n`,
+          ),
+        );
+      }
+    },
+  };
+}
+
+async function runWithExecutionDeadline(
+  run: () => Promise<ExecResult>,
+  context: CommandContext,
+  revoke: () => void,
+  commandName: string,
+  rawScope: ExecutionScope,
+  rawSignal: AbortSignal | undefined,
+): Promise<ExecResult> {
+  const remainingMs =
+    rawScope.remainingTimeMs() ?? context.limits.maxExecutionTimeMs;
+  const graceMs = context.limits.maxExtensionCleanupTimeMs;
+  let deadlineTimer: ReturnType<typeof _setTimeout> | undefined;
+  let abortListener: (() => void) | undefined;
+  let graceTimer: ReturnType<typeof _setTimeout> | undefined;
+
+  const commandPromise = Promise.resolve().then(run);
+  const settled = commandPromise.then(
+    (result) => ({ kind: "result" as const, result }),
+    (error: unknown) => ({ kind: "error" as const, error }),
+  );
+  const aborted = new Promise<{ kind: "abort" } | { kind: "deadline" }>(
+    (resolve) => {
+      const finishAbort = () => {
+        revoke();
+        resolve({ kind: "abort" });
+      };
+      abortListener = finishAbort;
+      rawSignal?.addEventListener("abort", finishAbort, { once: true });
+      if (rawSignal?.aborted) finishAbort();
+      deadlineTimer = _setTimeout(() => {
+        revoke();
+        resolve({ kind: "deadline" });
+      }, remainingMs);
+    },
+  );
+
+  try {
+    const outcome = await Promise.race([settled, aborted]);
+    if (outcome.kind === "result") return outcome.result;
+    if (outcome.kind === "error") throw outcome.error;
+
+    // Revoke shell-visible capabilities as soon as cancellation wins. The
+    // grace period is only for the extension promise to settle; it must not
+    // be an extra window for filesystem, descriptor, or budget mutation.
+    revoke();
+    const acknowledged = await Promise.race([
+      settled.then(() => true),
+      new Promise<false>((resolve) => {
+        graceTimer = _setTimeout(() => resolve(false), graceMs);
+      }),
+    ]);
+    const error =
+      outcome.kind === "deadline"
+        ? new ExecutionAbortedError(
+            "",
+            `bash: ${commandName} exceeded its execution deadline\n`,
+          )
+        : new ExecutionAbortedError("", "bash: execution aborted\n");
+    if (!acknowledged) rawScope.poisonAfterAbort(error);
+    throw error;
+  } finally {
+    revoke();
+    if (deadlineTimer !== undefined) _clearTimeout(deadlineTimer);
+    if (graceTimer !== undefined) _clearTimeout(graceTimer);
+    if (abortListener) {
+      rawSignal?.removeEventListener("abort", abortListener);
+    }
+  }
+}
 
 /**
  * Type for the function that builds exported environment
@@ -459,9 +761,12 @@ export async function executeExternalCommand(
   // Most builtins need access to the full env to modify state
   const exportedEnv = buildExportedEnv();
 
+  // Give extensions one stable, revocable descriptor capability even when
+  // this invocation has not created any extra descriptors yet.
+  ctx.state.fileDescriptors ??= new Map();
   const cmdCtx: CommandContext = {
     fs: ctx.fs,
-    fsIdentity: ctx.fs,
+    fsIdentity: getFileSystemIdentity(ctx.fs),
     cwd: ctx.state.cwd,
     env: ctx.state.env,
     assignShellVariable: async (name, value, subscript) => {
@@ -515,7 +820,9 @@ export async function executeExternalCommand(
     exportedEnv,
     stdin: effectiveStdin,
     limits: ctx.limits,
-    executionScope: ctx.executionScope,
+    executionScope: cmd.internalIsExtension
+      ? createCommandExecutionBudget(ctx.executionScope)
+      : ctx.executionScope,
     exec: (script, options) => ctx.execFn(script, options, false),
     execWithInheritedStdin: (script, options) =>
       ctx.execFn(
@@ -539,7 +846,11 @@ export async function executeExternalCommand(
     jsBootstrapCode: ctx.jsBootstrapCode,
     invokeTool: ctx.invokeTool,
   };
-  const guardedCmdCtx = createDefenseAwareCommandContext(cmdCtx, commandName);
+  const revocable = createRevocableCommandContext(cmdCtx, commandName);
+  const guardedCmdCtx = createDefenseAwareCommandContext(
+    revocable.context,
+    commandName,
+  );
 
   try {
     const runCommand = (): Promise<ExecResult> =>
@@ -550,14 +861,27 @@ export async function executeExternalCommand(
         () => cmd.execute(args, guardedCmdCtx),
       );
 
+    const runBoundedCommand = () =>
+      runWithExecutionDeadline(
+        runCommand,
+        guardedCmdCtx,
+        revocable.revoke,
+        commandName,
+        ctx.executionScope,
+        ctx.state.signal,
+      );
+
     if (cmd.trusted) {
       // Trusted host-extension commands may opt in to unrestricted globals.
-      return await DefenseInDepthBox.runTrustedAsync(() => runCommand());
+      return await DefenseInDepthBox.runTrustedAsync(runBoundedCommand);
     }
-    return await runCommand();
+    return await runBoundedCommand();
   } catch (error) {
     // ExecutionLimitError must propagate - these are safety limits
     if (error instanceof ExecutionLimitError) {
+      throw error;
+    }
+    if (error instanceof ExecutionAbortedError) {
       throw error;
     }
     // Security violations must propagate to top-level error handling

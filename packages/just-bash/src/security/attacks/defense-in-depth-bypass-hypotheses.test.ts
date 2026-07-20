@@ -5,7 +5,10 @@ import {
 } from "../defense-in-depth-box.js";
 import type { SecurityViolation } from "../types.js";
 
-describe("Defense-in-depth bypass hypotheses", () => {
+const describeDefense =
+  typeof nodeModule.registerHooks === "function" ? describe : describe.skip;
+
+describeDefense("Defense-in-depth bypass hypotheses", () => {
   beforeEach(() => {
     DefenseInDepthBox.resetInstance();
   });
@@ -183,3 +186,5 @@ describe("Defense-in-depth bypass hypotheses", () => {
     expect(readError?.message).toContain("process.cwd");
   });
 });
+
+import * as nodeModule from "node:module";

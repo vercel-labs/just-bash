@@ -79,4 +79,19 @@ describe("gzip security hardening", () => {
     );
     expect(result.exitCode).toBe(1);
   });
+
+  it("reserves a file read before allocating it under a tiny live-byte limit", async () => {
+    const env = new Bash({
+      files: { "/payload": "x".repeat(65) },
+      executionLimits: { maxInputBytes: 1_000, maxLiveBytes: 64 },
+    });
+
+    const result = await env.exec("gzip -c /payload");
+
+    expect(result.exitCode).toBe(126);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(
+      /gzip: live byte limit exceeded \(64 bytes\)/,
+    );
+  });
 });

@@ -21,4 +21,5 @@ export {
   type RegexLike,
   type ReplaceCallback,
   UserRegex,
+  type UserRegexLimits,
 } from "./user-regex.js";

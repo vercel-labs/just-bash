@@ -1,4 +1,4 @@
-import type { ExecutionScope } from "../execution-scope.js";
+import type { CommandExecutionBudget } from "../execution-scope.js";
 import {
   ExecutionAbortedError,
   ExecutionLimitError,
@@ -56,12 +56,89 @@ export class FileSystemPolicyError extends Error {
 export type SameFileResult = "same" | "different" | "unknown";
 export type PathContainmentResult = "inside" | "outside" | "unknown";
 
+export type ResolvedFileIdentity =
+  | {
+      readonly existence: "existing";
+      readonly canonicalPath?: string;
+      readonly stableIdentity?: string;
+    }
+  | {
+      readonly existence: "missing";
+      /** Canonical nearest-existing parent plus every missing path component. */
+      readonly canonicalPath?: string;
+    }
+  | { readonly existence: "unknown" };
+
 function statIdentity(stat: FsStat): string | undefined {
   if (stat.identity !== undefined) return `identity:${stat.identity}`;
   if (stat.dev !== undefined && stat.ino !== undefined) {
     return `inode:${String(stat.dev)}:${String(stat.ino)}`;
   }
   return undefined;
+}
+
+function isMissingPathError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("ENOENT") || message.includes("no such file");
+}
+
+/**
+ * Resolve an existing path to both its canonical spelling and, where the
+ * backend supports it, an alias-resistant identity. For a path that does not
+ * exist, canonicalize the nearest existing parent and append all missing
+ * components. Other failures remain unknown rather than being treated as
+ * non-existence.
+ */
+export async function resolveFileIdentity(
+  fs: IFileSystem,
+  path: string,
+  budget?: FileTraversalBudget,
+): Promise<ResolvedFileIdentity> {
+  const normalized = normalizePath(path);
+  let stat: FsStat | undefined;
+  try {
+    stat = await fs.stat(normalized);
+  } catch (error) {
+    if (!isMissingPathError(error)) return { existence: "unknown" };
+  }
+  if (stat !== undefined) {
+    const stableIdentity = statIdentity(stat);
+    try {
+      return {
+        existence: "existing",
+        canonicalPath: normalizePath(await fs.realpath(normalized)),
+        stableIdentity,
+      };
+    } catch {
+      return stableIdentity === undefined
+        ? { existence: "unknown" }
+        : { existence: "existing", stableIdentity };
+    }
+  }
+
+  const missingComponents: string[] = [];
+  let candidate = normalized;
+  while (true) {
+    budget?.checkpoint();
+    const parent = dirname(candidate);
+    if (parent === candidate) return { existence: "unknown" };
+    missingComponents.unshift(
+      candidate.slice(parent === "/" ? 1 : parent.length + 1),
+    );
+    candidate = parent;
+    try {
+      const canonicalParent = normalizePath(await fs.realpath(candidate));
+      return {
+        existence: "missing",
+        canonicalPath: missingComponents.reduce(
+          (current, component) => joinPath(current, component),
+          canonicalParent,
+        ),
+      };
+    } catch (error) {
+      if (!isMissingPathError(error)) return { existence: "missing" };
+    }
+  }
 }
 
 /**
@@ -73,31 +150,41 @@ export async function compareFileIdentity(
   left: string,
   right: string,
 ): Promise<SameFileResult> {
-  try {
-    const [leftStat, rightStat] = await Promise.all([
-      fs.stat(left),
-      fs.stat(right),
-    ]);
-    const leftIdentity = statIdentity(leftStat);
-    const rightIdentity = statIdentity(rightStat);
-    if (leftIdentity !== undefined && rightIdentity !== undefined) {
-      return leftIdentity === rightIdentity ? "same" : "different";
-    }
-  } catch {
+  const [leftIdentity, rightIdentity] = await Promise.all([
+    resolveFileIdentity(fs, left),
+    resolveFileIdentity(fs, right),
+  ]);
+  if (
+    leftIdentity.existence === "unknown" ||
+    rightIdentity.existence === "unknown"
+  ) {
     return "unknown";
   }
-
-  try {
-    const [leftReal, rightReal] = await Promise.all([
-      fs.realpath(left),
-      fs.realpath(right),
-    ]);
-    return normalizePath(leftReal) === normalizePath(rightReal)
+  if (
+    leftIdentity.existence === "missing" ||
+    rightIdentity.existence === "missing"
+  ) {
+    if (leftIdentity.existence !== rightIdentity.existence) return "different";
+    return leftIdentity.canonicalPath !== undefined &&
+      leftIdentity.canonicalPath === rightIdentity.canonicalPath
+      ? "same"
+      : "unknown";
+  }
+  if (
+    leftIdentity.stableIdentity !== undefined &&
+    rightIdentity.stableIdentity !== undefined
+  ) {
+    return leftIdentity.stableIdentity === rightIdentity.stableIdentity
       ? "same"
       : "different";
-  } catch {
-    return "unknown";
   }
+  // Equal canonical paths prove sameness. Different spellings do not prove
+  // inequality without alias-resistant identities because they may be hard
+  // links to the same inode.
+  return leftIdentity.canonicalPath !== undefined &&
+    leftIdentity.canonicalPath === rightIdentity.canonicalPath
+    ? "same"
+    : "unknown";
 }
 
 /**
@@ -111,27 +198,21 @@ export async function compareCanonicalContainment(
   destination: string,
   budget?: FileTraversalBudget,
 ): Promise<PathContainmentResult> {
-  let canonicalSource: string;
-  try {
-    canonicalSource = normalizePath(await fs.realpath(sourceDirectory));
-  } catch {
+  const [source, candidate] = await Promise.all([
+    resolveFileIdentity(fs, sourceDirectory, budget),
+    resolveFileIdentity(fs, destination, budget),
+  ]);
+  if (
+    source.existence !== "existing" ||
+    source.canonicalPath === undefined ||
+    candidate.existence === "unknown" ||
+    candidate.canonicalPath === undefined
+  ) {
     return "unknown";
   }
-
-  let candidate = normalizePath(destination);
-  while (true) {
-    budget?.checkpoint();
-    try {
-      const canonicalCandidate = normalizePath(await fs.realpath(candidate));
-      return isSameOrDescendantPath(canonicalSource, canonicalCandidate)
-        ? "inside"
-        : "outside";
-    } catch {
-      const parent = dirname(candidate);
-      if (parent === candidate) return "unknown";
-      candidate = parent;
-    }
-  }
+  return isSameOrDescendantPath(source.canonicalPath, candidate.canonicalPath)
+    ? "inside"
+    : "outside";
 }
 
 export type SymlinkTraversalPolicy = "never" | "follow";
@@ -139,7 +220,7 @@ export type SymlinkTraversalPolicy = "never" | "follow";
 export interface TraversalBudgetOptions {
   readonly limits: Required<ExecutionLimits>;
   readonly signal?: AbortSignal;
-  readonly executionScope?: ExecutionScope;
+  readonly executionScope?: CommandExecutionBudget;
   readonly site: string;
   /** User-facing resource name for commands with established diagnostics. */
   readonly label?: string;
@@ -148,6 +229,7 @@ export interface TraversalBudgetOptions {
 /** One shared, command-local view over the top-level execution work budget. */
 export class FileTraversalBudget {
   private entries = 0;
+  private discoveredEntries = 1;
   private work = 0;
 
   constructor(private readonly options: TraversalBudgetOptions) {}
@@ -186,6 +268,27 @@ export class FileTraversalBudget {
         "iterations",
       );
     }
+  }
+
+  /**
+   * Reserve directory children before retaining work items for them. A single
+   * readdir can return far more entries than the traversal is allowed to
+   * process, so waiting until each child is visited permits an oversized queue
+   * allocation first.
+   */
+  discover(count: number): void {
+    if (
+      !Number.isSafeInteger(count) ||
+      count < 0 ||
+      count > this.options.limits.maxTraversalEntries - this.discoveredEntries
+    ) {
+      throw new ExecutionLimitError(
+        `${this.options.site}: ${this.options.label ?? "filesystem traversal"} entry limit exceeded (${this.options.limits.maxTraversalEntries})`,
+        "iterations",
+      );
+    }
+    this.checkpoint(count);
+    this.discoveredEntries += count;
   }
 }
 

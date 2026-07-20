@@ -1,4 +1,6 @@
 import { minimatch } from "minimatch";
+import { BoundedStringBuilder } from "../../bounded-builder.js";
+import { utf8ByteLength } from "../../encoding.js";
 import type { FsStat } from "../../fs/interface.js";
 import { FileTraversalBudget } from "../../fs/traversal.js";
 import {
@@ -9,6 +11,33 @@ import type { Command, CommandContext, ExecResult } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
 import { hasHelpFlag, showHelp } from "../help.js";
+
+function appendLsOutput(
+  ctx: CommandContext,
+  current: string,
+  next: string,
+): string {
+  if (
+    utf8ByteLength(next) >
+    ctx.limits.maxOutputSize - utf8ByteLength(current)
+  ) {
+    throw new ExecutionLimitError(
+      `ls: output size limit exceeded (${ctx.limits.maxOutputSize} bytes)`,
+      "output_size",
+    );
+  }
+  return current + next;
+}
+
+function joinLsLines(ctx: CommandContext, lines: readonly string[]): string {
+  const output = new BoundedStringBuilder(ctx.limits.maxOutputSize, "ls");
+  for (let index = 0; index < lines.length; index++) {
+    if (index > 0) output.append("\n");
+    output.append(lines[index]);
+  }
+  if (lines.length > 0) output.append("\n");
+  return output.build();
+}
 
 // Format size in human-readable format (e.g., 1.5K, 234M, 2G)
 function formatHumanSize(bytes: number): string {
@@ -147,7 +176,7 @@ export const lsCommand: Command = {
 
       // Add blank line between directory listings
       if (i > 0 && stdout && !stdout.endsWith("\n\n")) {
-        stdout += "\n";
+        stdout = appendLsOutput(ctx, stdout, "\n");
       }
 
       // With -d flag, just list the directories/files themselves, not their contents
@@ -168,15 +197,23 @@ export const lsCommand: Command = {
               : String(size).padStart(5);
             const mtime = stat.mtime ?? new Date(0);
             const dateStr = formatDate(mtime);
-            stdout += `${mode} 1 user user ${sizeStr} ${dateStr} ${path}${suffix}\n`;
+            stdout = appendLsOutput(
+              ctx,
+              stdout,
+              `${mode} 1 user user ${sizeStr} ${dateStr} ${path}${suffix}\n`,
+            );
           } else {
             const suffix = classifyFiles
               ? classifySuffix(await ctx.fs.lstat(fullPath))
               : "";
-            stdout += `${path}${suffix}\n`;
+            stdout = appendLsOutput(ctx, stdout, `${path}${suffix}\n`);
           }
         } catch {
-          stderr += `ls: cannot access '${path}': No such file or directory\n`;
+          stderr = appendLsOutput(
+            ctx,
+            stderr,
+            `ls: cannot access '${path}': No such file or directory\n`,
+          );
           exitCode = 2;
         }
         continue;
@@ -196,8 +233,8 @@ export const lsCommand: Command = {
           classifyFiles,
           traversalBudget,
         );
-        stdout += result.stdout;
-        stderr += result.stderr;
+        stdout = appendLsOutput(ctx, stdout, result.stdout);
+        stderr = appendLsOutput(ctx, stderr, result.stderr);
         if (result.exitCode !== 0) exitCode = result.exitCode;
       } else {
         const result = await listPath(
@@ -217,8 +254,8 @@ export const lsCommand: Command = {
           0,
           new Set(),
         );
-        stdout += result.stdout;
-        stderr += result.stderr;
+        stdout = appendLsOutput(ctx, stdout, result.stdout);
+        stderr = appendLsOutput(ctx, stderr, result.stderr);
         if (result.exitCode !== 0) exitCode = result.exitCode;
       }
     }
@@ -317,7 +354,11 @@ async function listGlob(
         lines.push(`-rw-r--r-- 1 user user     0 Jan  1 00:00 ${match}`);
       }
     }
-    return { stdout: `${lines.join("\n")}\n`, stderr: "", exitCode: 0 };
+    return {
+      stdout: joinLsLines(ctx, lines),
+      stderr: "",
+      exitCode: 0,
+    };
   }
 
   if (classifyFiles) {
@@ -331,10 +372,18 @@ async function listGlob(
         classified.push(match);
       }
     }
-    return { stdout: `${classified.join("\n")}\n`, stderr: "", exitCode: 0 };
+    return {
+      stdout: joinLsLines(ctx, classified),
+      stderr: "",
+      exitCode: 0,
+    };
   }
 
-  return { stdout: `${matches.join("\n")}\n`, stderr: "", exitCode: 0 };
+  return {
+    stdout: joinLsLines(ctx, matches),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 async function listPath(
@@ -450,11 +499,11 @@ async function listPath(
     // - Subdirectories use './subdir:' format when starting from '.'
     // - When starting from other path, subdirs use '{path}/subdir:' format
     if (recursive || showHeader) {
-      stdout += `${path}:\n`;
+      stdout = appendLsOutput(ctx, stdout, `${path}:\n`);
     }
 
     if (longFormat) {
-      stdout += `total ${entries.length}\n`;
+      stdout = appendLsOutput(ctx, stdout, `total ${entries.length}\n`);
 
       // Separate special entries (. and ..) from regular entries
       const specialEntries = entries.filter((e) => e === "." || e === "..");
@@ -462,7 +511,11 @@ async function listPath(
 
       // Add special entries first
       for (const entry of specialEntries) {
-        stdout += `drwxr-xr-x 1 user user     0 Jan  1 00:00 ${entry}\n`;
+        stdout = appendLsOutput(
+          ctx,
+          stdout,
+          `drwxr-xr-x 1 user user     0 Jan  1 00:00 ${entry}\n`,
+        );
       }
 
       // Parallelize stat calls for regular entries
@@ -513,7 +566,7 @@ async function listPath(
       );
 
       for (const { line } of entryStats) {
-        stdout += line;
+        stdout = appendLsOutput(ctx, stdout, line);
       }
     } else if (classifyFiles) {
       // Classify each entry with type suffix
@@ -542,9 +595,9 @@ async function listPath(
         classified.push(...batchResults);
       }
 
-      stdout += classified.join("\n") + (classified.length ? "\n" : "");
+      stdout = appendLsOutput(ctx, stdout, joinLsLines(ctx, classified));
     } else {
-      stdout += entries.join("\n") + (entries.length ? "\n" : "");
+      stdout = appendLsOutput(ctx, stdout, joinLsLines(ctx, entries));
     }
 
     // Handle recursive - parallel processing for better performance
@@ -626,9 +679,9 @@ async function listPath(
 
       // Append results
       for (const { result } of subResults) {
-        stdout += "\n";
-        stdout += result.stdout;
-        stderr += result.stderr;
+        stdout = appendLsOutput(ctx, stdout, "\n");
+        stdout = appendLsOutput(ctx, stdout, result.stdout);
+        stderr = appendLsOutput(ctx, stderr, result.stderr);
         if (result.exitCode !== 0) exitCode = result.exitCode;
       }
     }

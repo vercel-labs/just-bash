@@ -16,6 +16,7 @@ import type {
 } from "../../ast/types.js";
 import { GlobExpander } from "../../shell/glob.js";
 import { GlobError } from "../errors.js";
+import { appendBoundedElements } from "../helpers/bounded-array.js";
 import {
   getIfs,
   getIfsSeparator,
@@ -230,7 +231,12 @@ async function handleBraceExpansionResults(
       hasGlobPattern(value, ctx.state.shoptOptions.extglob)
     ) {
       const matches = await expandGlobPattern(ctx, value);
-      allValues.push(...matches);
+      appendBoundedElements(
+        allValues,
+        matches,
+        ctx.limits.maxArrayElements,
+        "brace/glob expansion",
+      );
     } else {
       allValues.push(value);
     }
@@ -802,7 +808,12 @@ async function expandMixedWordParts(
     }
 
     if (result.length === 0) {
-      result.push(...words);
+      appendBoundedElements(
+        result,
+        words,
+        ctx.limits.maxArrayElements,
+        "word expansion",
+      );
     } else {
       const lastIdx = result.length - 1;
       result[lastIdx] = result[lastIdx] + words[0];
@@ -830,7 +841,12 @@ async function applyGlobToValues(
   for (const v of values) {
     if (hasGlobPattern(v, ctx.state.shoptOptions.extglob)) {
       const matches = await expandGlobPattern(ctx, v);
-      expandedValues.push(...matches);
+      appendBoundedElements(
+        expandedValues,
+        matches,
+        ctx.limits.maxArrayElements,
+        "glob expansion",
+      );
     } else {
       expandedValues.push(v);
     }
@@ -853,6 +869,13 @@ async function expandGlobPattern(
     extglob: ctx.state.shoptOptions.extglob,
     globskipdots: ctx.state.shoptOptions.globskipdots,
     maxGlobOperations: ctx.limits.maxGlobOperations,
+    consumeOperation: () =>
+      ctx.executionScope.consumeLimited(
+        "glob_operations",
+        1,
+        ctx.limits.maxGlobOperations,
+        "glob expansion",
+      ),
   });
   const matches = await globExpander.expand(pattern);
   if (matches.length > 0) {

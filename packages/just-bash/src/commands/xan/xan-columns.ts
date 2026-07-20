@@ -50,7 +50,11 @@ export async function cmdSelect(
     return newRow;
   });
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(newHeaders, newData, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 export async function cmdDrop(
@@ -92,7 +96,11 @@ export async function cmdDrop(
     return newRow;
   });
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(newHeaders, newData, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 export async function cmdRename(
@@ -156,7 +164,11 @@ export async function cmdRename(
     return newRow;
   });
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(newHeaders, newData, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 export async function cmdEnum(
@@ -187,5 +199,9 @@ export async function cmdEnum(
     return newRow;
   });
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(newHeaders, newData, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }

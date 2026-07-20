@@ -12,6 +12,7 @@ import type { InterpreterContext } from "../types.js";
  * Used by both scalar and vectorized array operations.
  */
 export function applyPatternRemoval(
+  ctx: InterpreterContext,
   value: string,
   regexStr: string,
   side: "prefix" | "suffix",
@@ -19,6 +20,12 @@ export function applyPatternRemoval(
 ): string {
   // Use 's' flag (dotall) so that . matches newlines (bash ? matches any char including newline)
   if (side === "prefix") {
+    ctx.executionScope.consumeLimited(
+      "pattern-removal",
+      Math.max(1, value.length),
+      ctx.limits.maxGlobOperations,
+      "pattern removal",
+    );
     // Prefix removal: greedy matches longest from start, non-greedy matches shortest
     return createUserRegex(`^${regexStr}`, "s").replace(value, "");
   }
@@ -26,17 +33,28 @@ export function applyPatternRemoval(
   // the rightmost (shortest) or leftmost (longest) match
   const regex = createUserRegex(`${regexStr}$`, "s");
   if (greedy) {
+    ctx.executionScope.consumeLimited(
+      "pattern-removal",
+      Math.max(1, value.length),
+      ctx.limits.maxGlobOperations,
+      "pattern removal",
+    );
     // %% - longest match: use regex directly (finds leftmost match)
     return regex.replace(value, "");
   }
-  // % - shortest match: find rightmost position where pattern matches to end
-  for (let i = value.length; i >= 0; i--) {
-    const suffix = value.slice(i);
-    if (regex.test(suffix)) {
-      return value.slice(0, i);
-    }
-  }
-  return value;
+  // % - let a greedy prefix consume as much as possible, leaving the shortest
+  // suffix that satisfies the user's pattern. This avoids the old quadratic
+  // loop over every copied suffix while preserving Bash's rightmost match.
+  ctx.executionScope.consumeLimited(
+    "pattern-removal",
+    Math.max(1, value.length),
+    ctx.limits.maxGlobOperations,
+    "pattern removal",
+  );
+  const shortest = createUserRegex(`^(?:.*)(${regexStr})$`, "s").exec(value);
+  if (!shortest) return value;
+  const suffix = shortest[1] ?? "";
+  return value.slice(0, value.length - suffix.length);
 }
 
 /**

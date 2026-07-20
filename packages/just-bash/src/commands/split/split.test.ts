@@ -1,7 +1,34 @@
-import { describe, expect, it } from "vitest";
+import * as nodeFs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
+import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
+import { ReadWriteFs } from "../../fs/read-write-fs/read-write-fs.js";
+
+const temporaryRoots: string[] = [];
+
+afterEach(() => {
+  for (const root of temporaryRoots.splice(0)) {
+    nodeFs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 describe("split", () => {
+  it("rejects input plus transactional staging above maxLiveBytes", async () => {
+    const bash = new Bash({
+      files: { "/input": "x".repeat(40) },
+      executionLimits: { maxInputBytes: 1_000, maxLiveBytes: 64 },
+    });
+
+    const result = await bash.exec("split -b 10 /input /part-");
+
+    expect(result.exitCode).toBe(126);
+    expect(result.stderr).toMatch(
+      /split: live byte limit exceeded \(64 bytes\)/,
+    );
+    expect(await bash.fs.exists("/part-aa")).toBe(false);
+  });
   describe("destructive-write preflight", () => {
     it("rejects an output name that aliases the input before writing", async () => {
       const bash = new Bash({ files: { "/xaa": "original" } });
@@ -44,6 +71,83 @@ describe("split", () => {
       expect(Array.from(chunks.flatMap((chunk) => Array.from(chunk)))).toEqual([
         0, 0x7f, 0x80, 0xff, 10,
       ]);
+    });
+
+    it.each([
+      ["alphabetic", "split -b 2 /input /x", "xaa", "xab"],
+      ["numeric", "split -d -b 2 /input /x", "x00", "x01"],
+      [
+        "additional suffix",
+        "split --additional-suffix=.part -b 2 /input /x",
+        "xaa.part",
+        "xab.part",
+      ],
+    ])("does not truncate a real-backed input through a %s hard-link alias", async (_mode, command, firstOutput, secondOutput) => {
+      const root = nodeFs.mkdtempSync(
+        path.join(os.tmpdir(), "split-hardlink-"),
+      );
+      temporaryRoots.push(root);
+      nodeFs.writeFileSync(path.join(root, "input"), "abcdef");
+      nodeFs.linkSync(path.join(root, "input"), path.join(root, firstOutput));
+      const bash = new Bash({
+        fs: new ReadWriteFs({ root, allowSymlinks: true }),
+      });
+
+      const result = await bash.exec(command);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("would overwrite input");
+      expect(nodeFs.readFileSync(path.join(root, "input"), "utf8")).toBe(
+        "abcdef",
+      );
+      expect(nodeFs.readFileSync(path.join(root, firstOutput), "utf8")).toBe(
+        "abcdef",
+      );
+      expect(nodeFs.existsSync(path.join(root, secondOutput))).toBe(false);
+    });
+
+    it("rolls back every visible output when a staged commit fails", async () => {
+      class FailingCommitFs extends InMemoryFs {
+        private moves = 0;
+
+        override async mv(source: string, destination: string): Promise<void> {
+          this.moves++;
+          if (this.moves === 4) throw new Error("injected rename failure");
+          return super.mv(source, destination);
+        }
+      }
+
+      const fs = new FailingCommitFs({
+        "/input": "abcd",
+        "/xaa": "old-a",
+        "/xab": "old-b",
+      });
+      const bash = new Bash({ fs });
+
+      const result = await bash.exec("split -b 2 /input /x");
+
+      expect(result.exitCode).toBe(1);
+      expect(await fs.readFile("/input")).toBe("abcd");
+      expect(await fs.readFile("/xaa")).toBe("old-a");
+      expect(await fs.readFile("/xab")).toBe("old-b");
+      expect(
+        (await fs.readdir("/")).filter((name) =>
+          name.includes(".just-bash-split-"),
+        ),
+      ).toEqual([]);
+    });
+
+    it("rejects two output names with the same stable identity", async () => {
+      const fs = new InMemoryFs({ "/xaa": "preserve" });
+      await fs.link("/xaa", "/xab");
+      const bash = new Bash({ fs });
+
+      const result = await bash.exec("printf abcd | split -b 2 - /x");
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("duplicate output file");
+      expect(await fs.readFile("/xaa")).toBe("preserve");
+      expect(await fs.readFile("/xab")).toBe("preserve");
     });
   });
 
@@ -331,6 +435,13 @@ describe("split", () => {
     it("errors on invalid suffix length", async () => {
       const bash = new Bash();
       const result = await bash.exec("echo 'test' | split -a 0");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("invalid suffix length");
+    });
+
+    it("rejects suffix lengths that would monopolize the event loop", async () => {
+      const bash = new Bash({ executionLimits: { maxArrayElements: 4 } });
+      const result = await bash.exec("echo test | split -a 5");
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("invalid suffix length");
     });

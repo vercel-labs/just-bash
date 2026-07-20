@@ -29,7 +29,10 @@ function createCommandContext(
   };
 }
 
-describe("Defense context invariant", () => {
+const describeDefense =
+  typeof nodeModule.registerHooks === "function" ? describe : describe.skip;
+
+describeDefense("Defense context invariant", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     DefenseInDepthBox.resetInstance();
@@ -194,3 +197,5 @@ describe("Defense context invariant", () => {
     );
   });
 });
+
+import * as nodeModule from "node:module";

@@ -5,7 +5,10 @@ import {
 } from "./defense-in-depth-box.js";
 import type { SecurityViolation } from "./types.js";
 
-describe("DefenseInDepthBox", () => {
+const describeDefense =
+  typeof nodeModule.registerHooks === "function" ? describe : describe.skip;
+
+describeDefense("DefenseInDepthBox", () => {
   beforeEach(() => {
     // Reset the singleton instance before each test
     DefenseInDepthBox.resetInstance();
@@ -1274,7 +1277,7 @@ describe("DefenseInDepthBox", () => {
         expect(error?.message).toContain("FinalizationRegistry");
       });
 
-      it("should freeze Reflect and expose it through a read-only proxy", async () => {
+      it("should expose Reflect through a reversible read-only proxy", async () => {
         const box = DefenseInDepthBox.getInstance(true);
         const handle = box.activate();
 
@@ -1293,7 +1296,7 @@ describe("DefenseInDepthBox", () => {
 
         expect(result).toBe(42);
         expect(mutationError).toBeInstanceOf(SecurityViolationError);
-        expect(Object.isFrozen(Reflect)).toBe(true);
+        expect(Object.isFrozen(Reflect)).toBe(false);
       });
     });
 
@@ -1918,3 +1921,5 @@ describe("DefenseInDepthBox", () => {
     });
   });
 });
+
+import * as nodeModule from "node:module";

@@ -3,8 +3,19 @@
  */
 
 import { gunzipSync } from "node:zlib";
-import { decodeBytesToUtf8, unsafeBytesFromLatin1 } from "../../encoding.js";
+import { BoundedStringBuilder } from "../../bounded-builder.js";
+import {
+  decodeBytesToUtf8,
+  latin1FromBytes,
+  readBytesFrom,
+  unsafeBytesFromLatin1,
+  utf8ByteLength,
+} from "../../encoding.js";
+import type { ResourceLease } from "../../execution-scope.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import { FileTraversalBudget } from "../../fs/traversal.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { CommandContext, ExecResult } from "../../types.js";
 import {
@@ -52,6 +63,70 @@ export interface SearchContext {
   explicitLineNumbers: boolean;
 }
 
+function reservePatternSource(
+  ctx: CommandContext,
+  bytes: number,
+): ResourceLease {
+  // The raw bytes, decoded string, and retained per-line strings can coexist
+  // until the combined regex is compiled. Reject prospectively before the
+  // filesystem allocates any of them.
+  if (
+    !Number.isSafeInteger(bytes) ||
+    bytes < 0 ||
+    bytes > ctx.limits.maxStringLength ||
+    bytes > Math.floor(ctx.limits.maxLiveBytes / 3)
+  ) {
+    throw new ExecutionLimitError(
+      bytes > ctx.limits.maxStringLength
+        ? `rg: pattern file exceeds string limit (${ctx.limits.maxStringLength} bytes)`
+        : `rg: live byte limit exceeded (${ctx.limits.maxLiveBytes} bytes)`,
+      "string_length",
+    );
+  }
+  return (
+    ctx.executionScope?.reserveBytes("rg pattern files", bytes * 3, "rg") ?? {
+      release: () => undefined,
+    }
+  );
+}
+
+function appendPatternLines(
+  patterns: string[],
+  content: string,
+  ctx: CommandContext,
+): void {
+  let lineStart = 0;
+  for (let index = 0; index <= content.length; index++) {
+    if (index < content.length && content.charCodeAt(index) !== 10) continue;
+    if (index > lineStart) {
+      if (patterns.length >= ctx.limits.maxArrayElements) {
+        throw new ExecutionLimitError(
+          `rg: pattern limit exceeded (${ctx.limits.maxArrayElements})`,
+          "iterations",
+        );
+      }
+      ctx.executionScope?.consumeWork(1, "rg pattern insertion");
+      patterns.push(content.slice(lineStart, index));
+    }
+    lineStart = index + 1;
+  }
+}
+
+function accountPatternInput(
+  ctx: CommandContext,
+  bytes: number,
+  aggregateBytes: number,
+): number {
+  if (bytes > ctx.limits.maxInputBytes - aggregateBytes) {
+    throw new ExecutionLimitError(
+      `rg: aggregate input size limit exceeded (${ctx.limits.maxInputBytes} bytes)`,
+      "string_length",
+    );
+  }
+  ctx.executionScope?.consumeInput(bytes, "rg pattern files");
+  return aggregateBytes + bytes;
+}
+
 /**
  * Execute the search with parsed options
  */
@@ -76,66 +151,116 @@ export async function executeSearch(
     return listFiles(ctx, filesPaths, options);
   }
 
-  // Combine -e patterns with patterns from files
-  const patterns = [...options.patterns];
-
-  // Read patterns from files (-f/--file). Patterns are regex source — decode
-  // bytes to UTF-8 so unicode-class patterns work.
-  for (const patternFile of options.patternFiles) {
-    try {
-      let content: string;
-      if (patternFile === "-") {
-        content = decodeBytesToUtf8(ctx.stdin);
-      } else {
-        const filePath = ctx.fs.resolvePath(ctx.cwd, patternFile);
-        content = await ctx.fs.readFile(filePath);
-      }
-      const filePatterns = content
-        .split("\n")
-        .filter((line) => line.length > 0);
-      patterns.push(...filePatterns);
-    } catch {
-      return {
-        stdout: "",
-        stderr: `rg: ${patternFile}: No such file or directory\n`,
-        exitCode: 2,
-      };
-    }
+  if (options.patterns.length > ctx.limits.maxArrayElements) {
+    throw new ExecutionLimitError(
+      `rg: pattern limit exceeded (${ctx.limits.maxArrayElements})`,
+      "iterations",
+    );
   }
 
-  if (patterns.length === 0) {
-    // If patterns came from files but all were empty, return no-match (exit 1)
-    // Otherwise return error for no pattern given (exit 2)
-    if (options.patternFiles.length > 0) {
-      return { stdout: "", stderr: "", exitCode: 1 };
-    }
-    return {
-      stdout: "",
-      stderr: "rg: no pattern given\n",
-      exitCode: 2,
-    };
-  }
-
-  // Determine case sensitivity
-  const effectiveIgnoreCase = determineIgnoreCase(options, patterns);
-
-  // Build regex
+  // Combine -e patterns with patterns from files. Pattern-file source and its
+  // decoded lines remain live until regex compilation completes, so keep a
+  // conservative lease for every source and release all of them together.
+  const patterns = options.patterns.slice();
+  const patternSourceLeases: ResourceLease[] = [];
+  let aggregatePatternInputBytes = 0;
   let regex: UserRegex;
   let kResetGroup: number | undefined;
   try {
-    const regexResult = buildSearchRegex(
-      patterns,
-      options,
-      effectiveIgnoreCase,
-    );
-    regex = regexResult.regex;
-    kResetGroup = regexResult.kResetGroup;
-  } catch {
-    return {
-      stdout: "",
-      stderr: `rg: invalid regex: ${patterns.join(", ")}\n`,
-      exitCode: 2,
-    };
+    // Read patterns from files (-f/--file). Patterns are regex source — decode
+    // bytes to UTF-8 so unicode-class patterns work. Scan incrementally instead
+    // of split/filter/spread, which would create multiple unbounded arrays and
+    // could overflow the argument stack on a large pattern file.
+    for (const patternFile of options.patternFiles) {
+      try {
+        let rawContent: Parameters<typeof decodeBytesToUtf8>[0];
+        let contentBytes: number;
+
+        if (patternFile === "-") {
+          rawContent = ctx.stdin;
+          contentBytes = latin1FromBytes(ctx.stdin).length;
+          aggregatePatternInputBytes = accountPatternInput(
+            ctx,
+            contentBytes,
+            aggregatePatternInputBytes,
+          );
+        } else {
+          const filePath = ctx.fs.resolvePath(ctx.cwd, patternFile);
+          const stat = await ctx.fs.stat(filePath);
+          contentBytes = stat.size;
+          aggregatePatternInputBytes = accountPatternInput(
+            ctx,
+            contentBytes,
+            aggregatePatternInputBytes,
+          );
+          const lease = reservePatternSource(ctx, contentBytes);
+          patternSourceLeases.push(lease);
+          rawContent = await readBytesFrom(ctx.fs, filePath);
+          const actualBytes = latin1FromBytes(rawContent).length;
+          if (actualBytes > contentBytes) {
+            throw new ExecutionLimitError(
+              "rg: pattern file grew while being read",
+              "string_length",
+            );
+          }
+          contentBytes = actualBytes;
+        }
+
+        if (patternFile === "-") {
+          patternSourceLeases.push(reservePatternSource(ctx, contentBytes));
+        }
+
+        const content = decodeBytesToUtf8(
+          rawContent,
+          ctx.limits.maxStringLength,
+        );
+        ctx.executionScope?.consumeWork(
+          content.length,
+          "rg pattern file parsing",
+        );
+        appendPatternLines(patterns, content, ctx);
+      } catch (error) {
+        rethrowFatalExecutionError(error);
+        return {
+          stdout: "",
+          stderr: `rg: ${patternFile}: No such file or directory\n`,
+          exitCode: 2,
+        };
+      }
+    }
+
+    if (patterns.length === 0) {
+      // If patterns came from files but all were empty, return no-match (exit 1)
+      // Otherwise return error for no pattern given (exit 2)
+      if (options.patternFiles.length > 0) {
+        return { stdout: "", stderr: "", exitCode: 1 };
+      }
+      return {
+        stdout: "",
+        stderr: "rg: no pattern given\n",
+        exitCode: 2,
+      };
+    }
+
+    // Determine case sensitivity and compile while pattern storage is leased.
+    const effectiveIgnoreCase = determineIgnoreCase(options, patterns);
+    try {
+      const regexResult = buildSearchRegex(
+        patterns,
+        options,
+        effectiveIgnoreCase,
+      );
+      regex = regexResult.regex;
+      kResetGroup = regexResult.kResetGroup;
+    } catch {
+      return {
+        stdout: "",
+        stderr: `rg: invalid regex: ${patterns.join(", ")}\n`,
+        exitCode: 2,
+      };
+    }
+  } finally {
+    for (const lease of patternSourceLeases) lease.release();
   }
 
   // If no paths given and stdin has content, search stdin (like real rg).
@@ -329,10 +454,17 @@ async function collectFiles(
   typeRegistry: FileTypeRegistry,
 ): Promise<CollectFilesResult> {
   const files: string[] = [];
+  const traversalBudget = new FileTraversalBudget({
+    limits: ctx.limits,
+    signal: ctx.signal,
+    executionScope: ctx.executionScope,
+    site: "rg",
+  });
   let explicitFileCount = 0;
   let directoryCount = 0;
 
   for (const path of paths) {
+    traversalBudget.checkpoint();
     const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
 
     try {
@@ -347,6 +479,12 @@ async function collectFiles(
         if (
           shouldIncludeFile(path, options, gitignore, fullPath, typeRegistry)
         ) {
+          if (files.length >= ctx.limits.maxArrayElements) {
+            throw new ExecutionLimitError(
+              `rg: file collection limit exceeded (${ctx.limits.maxArrayElements})`,
+              "array_elements",
+            );
+          }
           files.push(path);
         }
       } else if (stat.isDirectory) {
@@ -360,9 +498,12 @@ async function collectFiles(
           gitignore,
           typeRegistry,
           files,
+          traversalBudget,
+          new Set(),
         );
       }
-    } catch {
+    } catch (error) {
+      rethrowFatalExecutionError(error);
       // Path doesn't exist - skip silently
     }
   }
@@ -387,9 +528,30 @@ async function walkDirectory(
   gitignore: GitignoreManager | null,
   typeRegistry: FileTypeRegistry,
   files: string[],
+  budget: FileTraversalBudget,
+  activeDirectories: Set<string>,
 ): Promise<void> {
   if (depth >= options.maxDepth) {
     return;
+  }
+  budget.visit(depth);
+
+  let directoryIdentity: string | undefined;
+  if (options.followSymlinks) {
+    try {
+      const stat = await ctx.fs.stat(absolutePath);
+      directoryIdentity =
+        stat.identity !== undefined
+          ? `identity:${stat.identity}`
+          : stat.dev !== undefined && stat.ino !== undefined
+            ? `inode:${String(stat.dev)}:${String(stat.ino)}`
+            : `path:${await ctx.fs.realpath(absolutePath)}`;
+      if (activeDirectories.has(directoryIdentity)) return;
+      activeDirectories.add(directoryIdentity);
+    } catch (error) {
+      rethrowFatalExecutionError(error);
+      return;
+    }
   }
 
   // Load ignore files for this directory (per-directory ignore loading)
@@ -406,6 +568,7 @@ async function walkDirectory(
         }));
 
     for (const entry of entries) {
+      budget.checkpoint();
       const name = entry.name;
 
       // Skip common ignored directories (VCS, node_modules, etc.)
@@ -517,8 +680,11 @@ async function walkDirectory(
           gitignore,
           typeRegistry,
           files,
+          budget,
+          activeDirectories,
         );
       } else if (isFile) {
+        budget.visit(depth + 1);
         // Check max filesize
         if (options.maxFilesize > 0) {
           try {
@@ -539,12 +705,23 @@ async function walkDirectory(
             typeRegistry,
           )
         ) {
+          if (files.length >= ctx.limits.maxArrayElements) {
+            throw new ExecutionLimitError(
+              `rg: file collection limit exceeded (${ctx.limits.maxArrayElements})`,
+              "array_elements",
+            );
+          }
           files.push(entryRelativePath);
         }
       }
     }
-  } catch {
+  } catch (error) {
+    rethrowFatalExecutionError(error);
     // Directory read failed - skip
+  } finally {
+    if (directoryIdentity !== undefined) {
+      activeDirectories.delete(directoryIdentity);
+    }
   }
 }
 
@@ -749,7 +926,12 @@ async function listFiles(
 
   // Output file list
   const sep = options.nullSeparator ? "\0" : "\n";
-  const stdout = files.map((f) => f + sep).join("");
+  const output = new BoundedStringBuilder(
+    Math.min(ctx.limits.maxOutputSize, ctx.limits.maxStringLength),
+    "rg",
+  );
+  for (const file of files) output.append(file).append(sep);
+  const stdout = output.build();
 
   return { stdout, stderr: "", exitCode: 0 };
 }
@@ -776,7 +958,12 @@ async function readFileContent(
   filePath: string,
   file: string,
   options: RgOptions,
-): Promise<{ content: string; isBinary: boolean } | null> {
+): Promise<{
+  content: string;
+  isBinary: boolean;
+  lease?: ResourceLease;
+} | null> {
+  let lease: ResourceLease | undefined;
   try {
     // Check for preprocessing with --pre
     if (options.preprocessor && ctx.exec) {
@@ -791,11 +978,20 @@ async function readFileContent(
         if (result.exitCode === 0 && result.stdout) {
           // Preprocessor output arrives as a latin1 byte buffer in the
           // pipeline; decode for regex matching. Empty output falls through.
+          lease = ctx.executionScope?.reserveBytes(
+            "rg preprocessor text",
+            result.stdout.length,
+            "rg preprocessor",
+          );
           const content = decodeBytesToUtf8(
             unsafeBytesFromLatin1(result.stdout),
           );
+          ctx.executionScope?.consumeInput(
+            utf8ByteLength(content),
+            "rg preprocessor",
+          );
           const sample = content.slice(0, 8192);
-          return { content, isBinary: sample.includes("\0") };
+          return { content, isBinary: sample.includes("\0"), lease };
         }
         // Preprocessing failed, fall through to normal file read
       }
@@ -803,31 +999,100 @@ async function readFileContent(
 
     // For -z option, try to decompress gzip files
     if (options.searchZip && file.endsWith(".gz")) {
+      const stat = await ctx.fs.stat(filePath);
+      const inputLease = ctx.executionScope?.reserveBytes(
+        "rg compressed input",
+        stat.size,
+        "rg",
+      );
       const buffer = await ctx.fs.readFileBuffer(filePath);
+      if (buffer.byteLength > stat.size) {
+        inputLease?.release();
+        throw new ExecutionLimitError(
+          "rg: file grew while being read",
+          "string_length",
+        );
+      }
+      ctx.executionScope?.consumeInput(buffer.byteLength, "rg");
       if (isGzip(buffer)) {
+        let outputLease: ResourceLease | undefined;
         try {
-          const maxOutputLength = Math.min(
+          // The decoded string can coexist with zlib's output buffer. Reserve
+          // both before invoking the whole-buffer codec.
+          const outputCapacity = Math.min(
             ctx.limits.maxStringLength,
             ctx.limits.maxOutputSize,
+            Math.floor(
+              (ctx.executionScope?.remainingLiveBytes ??
+                ctx.limits.maxLiveBytes) / 2,
+            ),
+          );
+          outputLease = ctx.executionScope?.reserveBytes(
+            "rg decompressed text",
+            outputCapacity * 2,
+            "rg",
           );
           // @banned-pattern-ignore: zlib maxOutputLength is derived from resolved execution byte limits
-          const decompressed = gunzipSync(buffer, { maxOutputLength });
+          const decompressed = gunzipSync(buffer, {
+            maxOutputLength: outputCapacity,
+          });
           const content = new TextDecoder().decode(decompressed);
           const sample = content.slice(0, 8192);
-          return { content, isBinary: sample.includes("\0") };
-        } catch {
+          return {
+            content,
+            isBinary: sample.includes("\0"),
+            lease: compositeLease(inputLease, outputLease),
+          };
+        } catch (error) {
+          outputLease?.release();
+          inputLease?.release();
+          rethrowFatalExecutionError(error);
           return null; // Decompression failed
         }
       }
+      inputLease?.release();
     }
 
     // Regular file read
-    const content = await ctx.fs.readFile(filePath);
+    const stat = await ctx.fs.stat(filePath);
+    // A filesystem read can transiently retain its byte buffer while creating
+    // the decoded string, so account for both representations prospectively.
+    lease = ctx.executionScope?.reserveBytes(
+      "rg file text",
+      stat.size * 2,
+      "rg",
+    );
+    const rawContent = await readBytesFrom(ctx.fs, filePath);
+    const contentBytes = latin1FromBytes(rawContent).length;
+    if (contentBytes > stat.size) {
+      throw new ExecutionLimitError(
+        "rg: file grew while being read",
+        "string_length",
+      );
+    }
+    ctx.executionScope?.consumeInput(contentBytes, "rg");
+    const content = decodeBytesToUtf8(rawContent, ctx.limits.maxStringLength);
     const sample = content.slice(0, 8192);
-    return { content, isBinary: sample.includes("\0") };
-  } catch {
+    return { content, isBinary: sample.includes("\0"), lease };
+  } catch (error) {
+    lease?.release();
+    rethrowFatalExecutionError(error);
     return null;
   }
+}
+
+function compositeLease(
+  ...leases: Array<ResourceLease | undefined>
+): ResourceLease | undefined {
+  const active = leases.filter(
+    (item): item is ResourceLease => item !== undefined,
+  );
+  if (active.length === 0) return undefined;
+  return {
+    release: () => {
+      for (const item of active) item.release();
+    },
+  };
 }
 
 /**
@@ -885,48 +1150,55 @@ async function searchFiles(
 
         if (!fileData) return null;
 
-        const { content, isBinary } = fileData;
+        const { content, isBinary, lease } = fileData;
         bytesSearched += content.length;
 
-        // Skip binary files unless -a/--text is specified
+        // Skip binary files unless -a/--text is specified.
         if (isBinary && !options.searchBinary) {
+          lease?.release();
           return null;
         }
 
         const filenameForSearch = showFilename && !options.heading ? file : "";
+        try {
+          const result = searchContent(content, regex, {
+            invertMatch: options.invertMatch,
+            showLineNumbers: effectiveLineNumbers,
+            countOnly: options.count,
+            countMatches: options.countMatches,
+            filename: filenameForSearch,
+            onlyMatching: options.onlyMatching,
+            beforeContext: options.beforeContext,
+            afterContext: options.afterContext,
+            maxCount: options.maxCount,
+            contextSeparator: options.contextSeparator,
+            showColumn: options.column,
+            vimgrep: options.vimgrep,
+            showByteOffset: options.byteOffset,
+            replace:
+              options.replace !== null
+                ? convertReplacement(options.replace)
+                : null,
+            passthru: options.passthru,
+            multiline: options.multiline,
+            kResetGroup,
+            maxWork: ctx.limits.maxLoopIterations,
+            maxMatches: ctx.limits.maxArrayElements,
+            signal: ctx.signal,
+          });
 
-        const result = searchContent(content, regex, {
-          invertMatch: options.invertMatch,
-          showLineNumbers: effectiveLineNumbers,
-          countOnly: options.count,
-          countMatches: options.countMatches,
-          filename: filenameForSearch,
-          onlyMatching: options.onlyMatching,
-          beforeContext: options.beforeContext,
-          afterContext: options.afterContext,
-          maxCount: options.maxCount,
-          contextSeparator: options.contextSeparator,
-          showColumn: options.column,
-          vimgrep: options.vimgrep,
-          showByteOffset: options.byteOffset,
-          replace:
-            options.replace !== null
-              ? convertReplacement(options.replace)
-              : null,
-          passthru: options.passthru,
-          multiline: options.multiline,
-          kResetGroup,
-          maxWork: ctx.limits.maxLoopIterations,
-          maxMatches: ctx.limits.maxArrayElements,
-          signal: ctx.signal,
-        });
+          // JSON formatting below needs the source after this task ends, so
+          // transfer lease ownership with the returned batch item.
+          if (options.json && result.matched) {
+            return { file, result, content, isBinary: false, lease };
+          }
 
-        // For JSON mode, we need to track matches differently
-        if (options.json && result.matched) {
-          return { file, result, content, isBinary: false };
+          lease?.release();
+          return { file, result };
+        } catch (error) {
+          lease?.release();
+          throw error;
         }
-
-        return { file, result };
       }),
     );
 
@@ -1031,6 +1303,7 @@ async function searchFiles(
       ) {
         stdout += result.output;
       }
+      (res as { lease?: ResourceLease }).lease?.release();
     }
   }
 

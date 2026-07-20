@@ -562,21 +562,16 @@ export async function handlePositionalPatternRemoval(
   // Apply pattern removal to each param
   const strippedParams: string[] = [];
   const strippedBytes = { value: 0 };
-  let removalWork = 0;
   for (const param of params) {
-    const paramWork = operation.greedy
-      ? param.length
-      : param.length * param.length;
-    if (paramWork > ctx.limits.maxGlobOperations - removalWork) {
-      throw new ExecutionLimitError(
-        `positional pattern-removal work limit exceeded (${ctx.limits.maxGlobOperations})`,
-        "glob_operations",
-      );
-    }
-    removalWork += paramWork;
     pushBounded(
       strippedParams,
-      applyPatternRemoval(param, regexStr, operation.side, operation.greedy),
+      applyPatternRemoval(
+        ctx,
+        param,
+        regexStr,
+        operation.side,
+        operation.greedy,
+      ),
       strippedBytes,
       ctx,
     );

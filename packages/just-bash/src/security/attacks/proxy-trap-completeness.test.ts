@@ -11,7 +11,10 @@ import {
   SecurityViolationError,
 } from "../defense-in-depth-box.js";
 
-describe("Proxy trap completeness", () => {
+const describeDefense =
+  typeof nodeModule.registerHooks === "function" ? describe : describe.skip;
+
+describeDefense("Proxy trap completeness", () => {
   beforeEach(() => {
     DefenseInDepthBox.resetInstance();
   });
@@ -143,3 +146,5 @@ describe("Proxy trap completeness", () => {
     });
   });
 });
+
+import * as nodeModule from "node:module";

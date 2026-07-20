@@ -1,5 +1,5 @@
 import type { ByteString } from "./encoding.js";
-import type { ExecutionScope } from "./execution-scope.js";
+import type { CommandExecutionBudget } from "./execution-scope.js";
 import type { IFileSystem } from "./fs/interface.js";
 import type { ExecutionLimits } from "./limits.js";
 import type { SecureFetch } from "./network/index.js";
@@ -181,7 +181,7 @@ export interface CommandContext {
    */
   limits: Required<ExecutionLimits>;
   /** Shared top-level accounting, present for interpreter-dispatched commands. */
-  executionScope?: ExecutionScope;
+  executionScope?: CommandExecutionBudget;
   /**
    * Performance trace callback for profiling.
    * If provided, commands emit timing events for analysis.
@@ -273,6 +273,8 @@ export interface Command {
    * trusted wrappers only at narrow infrastructure boundaries.
    */
   trusted?: boolean;
+  /** @internal Marks host extensions that receive a least-authority budget. */
+  internalIsExtension?: boolean;
   execute(args: string[], ctx: CommandContext): Promise<ExecResult>;
 }
 

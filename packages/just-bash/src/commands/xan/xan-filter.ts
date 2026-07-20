@@ -76,7 +76,7 @@ export async function cmdFilter(
     }
   }
 
-  return { stdout: formatCsv(headers, filtered), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, filtered, ctx), stderr: "", exitCode: 0 };
 }
 
 export async function cmdSort(
@@ -126,7 +126,7 @@ export async function cmdSort(
     return reverse ? -cmp : cmp;
   });
 
-  return { stdout: formatCsv(headers, sorted), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, sorted, ctx), stderr: "", exitCode: 0 };
 }
 
 export async function cmdDedup(
@@ -156,7 +156,7 @@ export async function cmdDedup(
     return true;
   });
 
-  return { stdout: formatCsv(headers, deduped), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, deduped, ctx), stderr: "", exitCode: 0 };
 }
 
 export async function cmdTop(
@@ -203,5 +203,5 @@ export async function cmdTop(
   });
 
   const rows = sorted.slice(0, n);
-  return { stdout: formatCsv(headers, rows), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, rows, ctx), stderr: "", exitCode: 0 };
 }

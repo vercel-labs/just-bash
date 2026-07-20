@@ -8,12 +8,13 @@
  */
 
 import type { SimpleCommandNode, WordNode } from "../ast/types.js";
+import { boundedJoin } from "../bounded-builder.js";
 import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import { applyCaseTransform, isInteger } from "./builtins/index.js";
-import { ArithmeticError, ExitError } from "./errors.js";
+import { ArithmeticError, ExecutionLimitError, ExitError } from "./errors.js";
 import { applyAssignmentTildeExpansion } from "./expansion/tilde.js";
 import {
   expandWord,
@@ -23,6 +24,8 @@ import {
 } from "./expansion.js";
 import {
   clearArray,
+  cloneArray,
+  getArray,
   getArrayElement,
   parseKeyedElementFromWord,
   setArrayElement,
@@ -38,6 +41,19 @@ import { checkReadonlyError, isReadonly } from "./helpers/readonly.js";
 import { result } from "./helpers/result.js";
 import { traceAssignment } from "./helpers/xtrace.js";
 import type { InterpreterContext } from "./types.js";
+
+function appendAssignmentValue(
+  ctx: InterpreterContext,
+  existing: string,
+  value: string,
+): string {
+  return boundedJoin(
+    [existing, value],
+    "",
+    ctx.limits.maxStringLength,
+    "array assignment",
+  );
+}
 
 /**
  * Result of processing assignments in a simple command
@@ -226,6 +242,16 @@ async function processArrayAssignment(
 
   // Check if this is an associative array
   const isAssoc = ctx.state.associativeArrays?.has(name);
+  const savedArray = getArray(ctx, name);
+  const savedArraySnapshot = savedArray ? cloneArray(savedArray) : undefined;
+  const savedScalar = ctx.state.env.get(name);
+  const restoreTarget = (): void => {
+    ctx.state.arrays ??= new Map();
+    if (savedArraySnapshot) ctx.state.arrays.set(name, savedArraySnapshot);
+    else ctx.state.arrays.delete(name);
+    if (savedScalar === undefined) ctx.state.env.delete(name);
+    else ctx.state.env.set(name, savedScalar);
+  };
 
   // Check if elements use [key]=value or [key]+=value syntax
   const hasKeyedElements = checkHasKeyedElements(array);
@@ -236,34 +262,39 @@ async function processArrayAssignment(
     ctx.state.env.delete(name);
   };
 
-  if (isAssoc && hasKeyedElements) {
-    await processAssociativeArrayAssignment(
-      ctx,
-      node,
-      name,
-      array,
-      append,
-      clearExistingElements,
-      (msg) => {
-        xtraceOutput += msg;
-      },
-    );
-  } else if (hasKeyedElements) {
-    await processIndexedArrayWithKeysAssignment(
-      ctx,
-      name,
-      array,
-      append,
-      clearExistingElements,
-    );
-  } else {
-    await processSimpleArrayAssignment(
-      ctx,
-      name,
-      array,
-      append,
-      clearExistingElements,
-    );
+  try {
+    if (isAssoc && hasKeyedElements) {
+      await processAssociativeArrayAssignment(
+        ctx,
+        node,
+        name,
+        array,
+        append,
+        clearExistingElements,
+        (msg) => {
+          xtraceOutput += msg;
+        },
+      );
+    } else if (hasKeyedElements) {
+      await processIndexedArrayWithKeysAssignment(
+        ctx,
+        name,
+        array,
+        append,
+        clearExistingElements,
+      );
+    } else {
+      await processSimpleArrayAssignment(
+        ctx,
+        name,
+        array,
+        append,
+        clearExistingElements,
+      );
+    }
+  } catch (error) {
+    restoreTarget();
+    throw error;
   }
 
   // For prefix assignments with a command, bash stringifies the array syntax
@@ -338,6 +369,12 @@ async function processAssociativeArrayAssignment(
 
   // First pass: Expand all values BEFORE clearing the array
   for (const element of array) {
+    if (pendingElements.length >= ctx.limits.maxArrayElements) {
+      throw new ExecutionLimitError(
+        `array element limit exceeded (${ctx.limits.maxArrayElements})`,
+        "array_elements",
+      );
+    }
     const parsed = parseKeyedElementFromWord(element);
     if (parsed) {
       const { key, valueParts, append: elementAppend } = parsed;
@@ -368,6 +405,10 @@ async function processAssociativeArrayAssignment(
   }
 
   // Clear existing elements AFTER all expansion
+  ctx.executionScope.consumeWork(
+    pendingElements.length,
+    "associative array assignment",
+  );
   if (!append) {
     clearExistingElements();
   }
@@ -381,7 +422,7 @@ async function processAssociativeArrayAssignment(
           ctx,
           name,
           pending.key,
-          existing + pending.value,
+          appendAssignmentValue(ctx, existing, pending.value),
           "associative",
         );
       } else {
@@ -417,11 +458,18 @@ async function processIndexedArrayWithKeysAssignment(
     values: string[];
   }
   const pendingElements: (PendingElement | PendingNonKeyed)[] = [];
+  let pendingValueCount = 0;
 
   // First pass: Expand all RHS values
   for (const element of array) {
     const parsed = parseKeyedElementFromWord(element);
     if (parsed) {
+      if (pendingValueCount >= ctx.limits.maxArrayElements) {
+        throw new ExecutionLimitError(
+          `array element limit exceeded (${ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
       const { key: indexExpr, valueParts, append: elementAppend } = parsed;
       let value: string;
       if (valueParts.length > 0) {
@@ -443,13 +491,25 @@ async function processIndexedArrayWithKeysAssignment(
         value,
         append: elementAppend,
       });
+      pendingValueCount++;
     } else {
       const expanded = await expandWordWithGlob(ctx, element);
+      if (
+        expanded.values.length >
+        ctx.limits.maxArrayElements - pendingValueCount
+      ) {
+        throw new ExecutionLimitError(
+          `array element limit exceeded (${ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
       pendingElements.push({ type: "non-keyed", values: expanded.values });
+      pendingValueCount += expanded.values.length;
     }
   }
 
   // Clear existing elements AFTER all RHS expansion
+  ctx.executionScope.consumeWork(pendingValueCount, "indexed array assignment");
   if (!append) {
     clearExistingElements();
   }
@@ -474,7 +534,12 @@ async function processIndexedArrayWithKeysAssignment(
       }
       if (pending.append) {
         const existing = getArrayElement(ctx, name, index) ?? "";
-        setArrayElement(ctx, name, index, existing + pending.value);
+        setArrayElement(
+          ctx,
+          name,
+          index,
+          appendAssignmentValue(ctx, existing, pending.value),
+        );
       } else {
         setArrayElement(ctx, name, index, pending.value);
       }
@@ -500,10 +565,22 @@ async function processSimpleArrayAssignment(
   const allElements: string[] = [];
   for (const element of array) {
     const expanded = await expandWordWithGlob(ctx, element);
-    allElements.push(...expanded.values);
+    for (const value of expanded.values) {
+      if (allElements.length >= ctx.limits.maxArrayElements) {
+        throw new ExecutionLimitError(
+          `array element limit exceeded (${ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
+      allElements.push(value);
+    }
   }
 
   let startIndex = 0;
+  ctx.executionScope.consumeWork(
+    allElements.length,
+    "indexed array assignment",
+  );
   if (append) {
     const elements = getArrayElements(ctx, name);
     if (elements.length > 0) {
@@ -594,7 +671,11 @@ async function processSubscriptAssignment(
   }
 
   const finalValue = append
-    ? (getArrayElement(ctx, resolvedArrayName, elementKey) || "") + value
+    ? appendAssignmentValue(
+        ctx,
+        getArrayElement(ctx, resolvedArrayName, elementKey) || "",
+        value,
+      )
     : value;
 
   if (node.name) {
@@ -798,7 +879,9 @@ async function processScalarAssignment(
     const current = isArray(ctx, targetName)
       ? getArrayElement(ctx, targetName, 0)
       : ctx.state.env.get(targetName);
-    finalValue = append ? (current || "") + value : value;
+    finalValue = append
+      ? appendAssignmentValue(ctx, current || "", value)
+      : value;
   }
 
   finalValue = applyCaseTransform(ctx, targetName, finalValue);

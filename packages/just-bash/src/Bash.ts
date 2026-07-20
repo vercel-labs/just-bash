@@ -70,6 +70,7 @@ import {
   SecurityViolationError,
 } from "./security/defense-in-depth-box.js";
 import type { DefenseInDepthConfig } from "./security/types.js";
+import { assertSourceWithinLimit } from "./source-limit.js";
 import { serialize } from "./transform/serialize.js";
 import type {
   BashTransformResult,
@@ -221,8 +222,9 @@ export interface BashOptions {
    *
    * @example
    * ```ts
-   * // Simple enable
-   * const bash = new Bash({ defenseInDepth: true });
+   * // Capability-detect (also the default). Protection is enabled only when
+   * // the runtime has context-aware ESM loader hooks.
+   * const bash = new Bash({ defenseInDepth: { enabled: "auto" } });
    *
    * // With custom configuration
    * const bash = new Bash({
@@ -233,6 +235,9 @@ export interface BashOptions {
    *   },
    * });
    * ```
+   * Explicit `true` fails closed on Node 20/22. Those runtimes remain usable
+   * in auto mode, which reports defense as unsupported rather than silently
+   * enabling an incomplete loader boundary.
    */
   defenseInDepth?: DefenseInDepthConfig | boolean;
   /**
@@ -322,7 +327,29 @@ export class Bash {
   private state: InterpreterState;
 
   constructor(options: BashOptions = {}) {
-    const fs = options.fs ?? new InMemoryFs(options.files);
+    // Resolve limits before constructing the default filesystem so retained
+    // virtual storage follows the same host-selected policy as execution.
+    this.limits = resolveLimits(
+      {
+        ...options.executionLimits,
+        // Support deprecated individual options (they override executionLimits if set)
+        ...(options.maxCallDepth !== undefined && {
+          maxCallDepth: options.maxCallDepth,
+        }),
+        ...(options.maxCommandCount !== undefined && {
+          maxCommandCount: options.maxCommandCount,
+        }),
+        ...(options.maxLoopIterations !== undefined && {
+          maxLoopIterations: options.maxLoopIterations,
+        }),
+      },
+      options.executionLimitProfile,
+    );
+    const fs =
+      options.fs ??
+      new InMemoryFs(options.files, {
+        maxTotalBytes: this.limits.maxFileSystemBytes,
+      });
     this.fs = fs;
 
     this.useDefaultLayout = !options.cwd && !options.files;
@@ -343,24 +370,6 @@ export class Bash {
       ...Object.entries(options.env ?? {}),
     ]);
 
-    // Resolve limits: new executionLimits takes precedence, then deprecated individual options
-    this.limits = resolveLimits(
-      {
-        ...options.executionLimits,
-        // Support deprecated individual options (they override executionLimits if set)
-        ...(options.maxCallDepth !== undefined && {
-          maxCallDepth: options.maxCallDepth,
-        }),
-        ...(options.maxCommandCount !== undefined && {
-          maxCommandCount: options.maxCommandCount,
-        }),
-        ...(options.maxLoopIterations !== undefined && {
-          maxLoopIterations: options.maxLoopIterations,
-        }),
-      },
-      options.executionLimitProfile,
-    );
-
     // Create secure fetch: prefer explicit fetch, fall back to network config
     if (options.fetch) {
       this.secureFetch = options.fetch;
@@ -377,8 +386,10 @@ export class Bash {
     // Store logger if provided
     this.logger = options.logger;
 
-    // Defense-in-depth defaults to enabled
-    this.defenseInDepthConfig = options.defenseInDepth ?? true;
+    // Auto mode enables only where the complete contextual module-loader
+    // boundary is enforceable (Node 23.5+). Older supported Nodes continue to
+    // work without silently claiming that defense-in-depth is active.
+    this.defenseInDepthConfig = options.defenseInDepth ?? { enabled: "auto" };
 
     // Store coverage writer if provided (for fuzzing instrumentation)
     this.coverageWriter = options.coverage;
@@ -473,13 +484,13 @@ export class Bash {
     }
 
     for (const cmd of createLazyCommands(options.commands)) {
-      this.registerCommand(cmd);
+      this.registerBundledCommand(cmd);
     }
 
     // Register network commands when fetch or network is configured
     if (options.fetch || options.network) {
       for (const cmd of createNetworkCommands()) {
-        this.registerCommand(cmd);
+        this.registerBundledCommand(cmd);
       }
     }
 
@@ -487,7 +498,7 @@ export class Bash {
     // Python introduces additional security surface (arbitrary code execution)
     if (options.python) {
       for (const cmd of createPythonCommands()) {
-        this.registerCommand(cmd);
+        this.registerBundledCommand(cmd);
       }
     }
 
@@ -500,7 +511,7 @@ export class Bash {
     // is provided (the hook is meaningless without js-exec).
     if (options.javascript || jsConfig.invokeTool) {
       for (const cmd of createJavaScriptCommands()) {
-        this.registerCommand(cmd);
+        this.registerBundledCommand(cmd);
       }
       if (jsConfig.bootstrap) {
         this.jsBootstrapCode = jsConfig.bootstrap;
@@ -516,17 +527,30 @@ export class Bash {
         if (isLazyCommand(cmd)) {
           this.registerCommand(createLazyCustomCommand(cmd));
         } else {
-          this.registerCommand({
-            ...cmd,
-            trusted: cmd.trusted ?? true,
-          });
+          this.registerCommand(cmd);
         }
       }
     }
   }
 
   registerCommand(command: Command): void {
-    this.commands.set(command.name, command);
+    this.registerCommandInternal(command, true);
+  }
+
+  private registerBundledCommand(command: Command): void {
+    this.registerCommandInternal(command, false);
+  }
+
+  private registerCommandInternal(
+    command: Command,
+    isExtension: boolean,
+  ): void {
+    this.commands.set(command.name, {
+      name: command.name,
+      trusted: command.trusted,
+      internalIsExtension: isExtension,
+      execute: (args, context) => command.execute(args, context),
+    });
     // Create command stubs in /bin and /usr/bin for PATH-based resolution
     // Works for both InMemoryFs and OverlayFs (both have writeFileSync)
     // Commands are registered to both locations like real Linux systems
@@ -602,6 +626,11 @@ export class Bash {
 
     try {
       executionScope.assertExecDepth(execDepth);
+
+      // Reject oversized source before trim/normalization/parser copies it.
+      // Source, expanded string values, and stdin have distinct budgets so a
+      // host can constrain any one without unexpectedly disabling the others.
+      assertSourceWithinLimit(commandLine, this.limits.maxSourceBytes);
 
       if (!commandLine.trim()) {
         return {
@@ -902,6 +931,7 @@ export class Bash {
   }
 
   transform(commandLine: string): BashTransformResult {
+    assertSourceWithinLimit(commandLine, this.limits.maxSourceBytes);
     const normalized = normalizeScript(commandLine);
     let ast = parse(normalized, {
       maxHeredocSize: this.limits.maxHeredocSize,

@@ -5,7 +5,11 @@
  */
 
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
-import type { EvalContext } from "../evaluator.js";
+import {
+  assertQueryResultCapacity,
+  chargeQueryWork,
+  type EvalContext,
+} from "../evaluator.js";
 import type { AstNode } from "../parser.js";
 import { asQueryRecord } from "../safe-object.js";
 import type { QueryValue } from "../value-operations.js";
@@ -49,6 +53,7 @@ function validateBoundedPath(
     );
   }
   const maxElements = ctx.limits.maxArrayElements;
+  let prospectiveArrayElements = 0;
   for (const component of path) {
     if (typeof component === "number") {
       if (
@@ -61,11 +66,78 @@ function validateBoundedPath(
           "array_elements",
         );
       }
+      const allocation = component + 1;
+      if (prospectiveArrayElements > maxElements - allocation) {
+        throw new ExecutionLimitError(
+          `query cumulative array allocation limit exceeded (${maxElements})`,
+          "array_elements",
+        );
+      }
+      prospectiveArrayElements += allocation;
     } else if (typeof component !== "string") {
       throw new Error("path components must be strings or integers");
     }
   }
+  chargeQueryWork(ctx, prospectiveArrayElements + path.length);
   return path;
+}
+
+function collectContainerPaths(
+  value: QueryValue,
+  ctx: EvalContext,
+  leavesOnly: boolean,
+): (string | number)[][] {
+  const paths: (string | number)[][] = [];
+  const stack: Array<{
+    value: QueryValue;
+    path: (string | number)[];
+    isRoot: boolean;
+  }> = [{ value, path: [], isRoot: true }];
+  while (stack.length > 0) {
+    const entry = stack.pop();
+    if (!entry) break;
+    chargeQueryWork(ctx);
+    if (entry.path.length > ctx.limits.maxDepth) {
+      throw new ExecutionLimitError(
+        `query depth limit exceeded (${ctx.limits.maxDepth})`,
+        "recursion",
+      );
+    }
+    const isContainer = entry.value !== null && typeof entry.value === "object";
+    if (!isContainer) {
+      if (leavesOnly || !entry.isRoot) {
+        assertQueryResultCapacity(ctx, paths.length);
+        paths.push(entry.path);
+      }
+      continue;
+    }
+    if (!leavesOnly && !entry.isRoot) {
+      assertQueryResultCapacity(ctx, paths.length);
+      paths.push(entry.path);
+    }
+    const children: Array<readonly [string | number, QueryValue]> =
+      Array.isArray(entry.value)
+        ? entry.value.map((child, index) => [index, child] as const)
+        : Object.keys(entry.value as Record<string, QueryValue>).map(
+            (key) =>
+              [
+                key,
+                // @banned-pattern-ignore: Object.keys returns own properties only
+                (entry.value as Record<string, QueryValue>)[key],
+              ] as const,
+          );
+    assertQueryResultCapacity(
+      ctx,
+      paths.length,
+      stack.length + children.length,
+    );
+    for (let index = children.length - 1; index >= 0; index--) {
+      const [key, child] = children[index];
+      const childPath = [...entry.path, key];
+      stack.push({ value: child, path: childPath, isRoot: false });
+    }
+  }
+  return paths;
 }
 
 /**
@@ -195,24 +267,7 @@ export function evalPathBuiltin(
     }
 
     case "paths": {
-      const paths: (string | number)[][] = [];
-      const walk = (v: QueryValue, path: (string | number)[]) => {
-        if (v && typeof v === "object") {
-          if (Array.isArray(v)) {
-            for (let i = 0; i < v.length; i++) {
-              paths.push([...path, i]);
-              walk(v[i], [...path, i]);
-            }
-          } else {
-            for (const key of Object.keys(v)) {
-              paths.push([...path, key]);
-              // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
-              walk((v as Record<string, unknown>)[key], [...path, key]);
-            }
-          }
-        }
-      };
-      walk(value, []);
+      const paths = collectContainerPaths(value, ctx, false);
       if (args.length > 0) {
         return paths.filter((p) => {
           let v: QueryValue = value;
@@ -238,22 +293,7 @@ export function evalPathBuiltin(
     }
 
     case "leaf_paths": {
-      const paths: (string | number)[][] = [];
-      const walk = (v: QueryValue, path: (string | number)[]) => {
-        if (v === null || typeof v !== "object") {
-          paths.push(path);
-        } else if (Array.isArray(v)) {
-          for (let i = 0; i < v.length; i++) {
-            walk(v[i], [...path, i]);
-          }
-        } else {
-          // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
-          for (const key of Object.keys(v)) {
-            walk((v as Record<string, unknown>)[key], [...path, key]);
-          }
-        }
-      };
-      walk(value, []);
+      const paths = collectContainerPaths(value, ctx, true);
       // Return each path as a separate output (like paths does)
       return paths;
     }
