@@ -135,7 +135,7 @@ describe("tail", () => {
         files: { "/test.txt": "line1\nline2\n" },
       });
       const result = await env.exec("tail -n +10 /test.txt");
-      expect(result.stdout).toBe("\n");
+      expect(result.stdout).toBe("");
       expect(result.exitCode).toBe(0);
     });
 
@@ -144,5 +144,17 @@ describe("tail", () => {
       const result = await env.exec('echo -e "a\\nb\\nc\\nd\\ne" | tail -n +3');
       expect(result.stdout).toBe("c\nd\ne\n");
     });
+  });
+
+  it("preserves an unterminated final line exactly", async () => {
+    const env = new Bash({ files: { "/test.txt": "first\nlast" } });
+    const result = await env.exec("tail -n 1 /test.txt");
+    expect(result.stdout).toBe("last");
+  });
+
+  it("returns no bytes for -c 0", async () => {
+    const env = new Bash({ files: { "/test.txt": "content" } });
+    const result = await env.exec("tail -c 0 /test.txt");
+    expect(result.stdout).toBe("");
   });
 });

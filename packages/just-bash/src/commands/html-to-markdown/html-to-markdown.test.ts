@@ -2,6 +2,36 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
 describe("html-to-markdown", () => {
+  describe("execution limits", () => {
+    it("rejects oversized input before conversion", async () => {
+      const env = new Bash({
+        files: { "/large.html": `<p>${"x".repeat(40)}</p>` },
+        executionLimits: { maxStringLength: 32 },
+      });
+      const result = await env.exec("html-to-markdown /large.html");
+      expect(result.exitCode).toBe(126);
+      expect(result.stderr).toContain("input size limit exceeded");
+    });
+
+    it("bounds document complexity before invoking Turndown", async () => {
+      const env = new Bash({ executionLimits: { maxLoopIterations: 2 } });
+      const result = await env.exec(
+        'echo "<p>a</p><p>b</p>" | html-to-markdown',
+      );
+      expect(result.exitCode).toBe(126);
+      expect(result.stderr).toContain("complexity limit exceeded");
+    });
+
+    it("rejects invalid amplification options", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        'echo "<p>x</p>" | html-to-markdown --bullet=long',
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("invalid bullet marker");
+    });
+  });
+
   describe("basic conversion", () => {
     it("converts simple HTML to markdown", async () => {
       const env = new Bash();

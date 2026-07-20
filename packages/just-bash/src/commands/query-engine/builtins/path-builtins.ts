@@ -4,7 +4,12 @@
  * Handles path manipulation functions like getpath, setpath, delpaths, paths, etc.
  */
 
-import type { EvalContext } from "../evaluator.js";
+import { ExecutionLimitError } from "../../../interpreter/errors.js";
+import {
+  assertQueryResultCapacity,
+  chargeQueryWork,
+  type EvalContext,
+} from "../evaluator.js";
 import type { AstNode } from "../parser.js";
 import { asQueryRecord } from "../safe-object.js";
 import type { QueryValue } from "../value-operations.js";
@@ -34,6 +39,106 @@ type CollectPathsFn = (
   currentPath: (string | number)[],
   paths: (string | number)[][],
 ) => void;
+
+function validateBoundedPath(
+  path: unknown,
+  ctx: EvalContext,
+): (string | number)[] {
+  if (!Array.isArray(path)) throw new Error("path must be an array");
+  const maxDepth = ctx.limits.maxDepth;
+  if (path.length > maxDepth) {
+    throw new ExecutionLimitError(
+      `query depth limit exceeded (${maxDepth})`,
+      "recursion",
+    );
+  }
+  const maxElements = ctx.limits.maxArrayElements;
+  let prospectiveArrayElements = 0;
+  for (const component of path) {
+    if (typeof component === "number") {
+      if (
+        !Number.isSafeInteger(component) ||
+        component < 0 ||
+        component >= maxElements
+      ) {
+        throw new ExecutionLimitError(
+          `query array index limit exceeded (${maxElements})`,
+          "array_elements",
+        );
+      }
+      const allocation = component + 1;
+      if (prospectiveArrayElements > maxElements - allocation) {
+        throw new ExecutionLimitError(
+          `query cumulative array allocation limit exceeded (${maxElements})`,
+          "array_elements",
+        );
+      }
+      prospectiveArrayElements += allocation;
+    } else if (typeof component !== "string") {
+      throw new Error("path components must be strings or integers");
+    }
+  }
+  chargeQueryWork(ctx, prospectiveArrayElements + path.length);
+  return path;
+}
+
+function collectContainerPaths(
+  value: QueryValue,
+  ctx: EvalContext,
+  leavesOnly: boolean,
+): (string | number)[][] {
+  const paths: (string | number)[][] = [];
+  const stack: Array<{
+    value: QueryValue;
+    path: (string | number)[];
+    isRoot: boolean;
+  }> = [{ value, path: [], isRoot: true }];
+  while (stack.length > 0) {
+    const entry = stack.pop();
+    if (!entry) break;
+    chargeQueryWork(ctx);
+    if (entry.path.length > ctx.limits.maxDepth) {
+      throw new ExecutionLimitError(
+        `query depth limit exceeded (${ctx.limits.maxDepth})`,
+        "recursion",
+      );
+    }
+    const isContainer = entry.value !== null && typeof entry.value === "object";
+    if (!isContainer) {
+      if (leavesOnly || !entry.isRoot) {
+        assertQueryResultCapacity(ctx, paths.length);
+        paths.push(entry.path);
+      }
+      continue;
+    }
+    if (!leavesOnly && !entry.isRoot) {
+      assertQueryResultCapacity(ctx, paths.length);
+      paths.push(entry.path);
+    }
+    const children: Array<readonly [string | number, QueryValue]> =
+      Array.isArray(entry.value)
+        ? entry.value.map((child, index) => [index, child] as const)
+        : Object.keys(entry.value as Record<string, QueryValue>).map(
+            (key) =>
+              [
+                key,
+                // @banned-pattern-ignore: Object.keys returns own properties only
+                (entry.value as Record<string, QueryValue>)[key],
+              ] as const,
+          );
+    assertQueryResultCapacity(
+      ctx,
+      paths.length,
+      stack.length + children.length,
+    );
+    for (let index = children.length - 1; index >= 0; index--) {
+      const [key, child] = children[index];
+      const childPath = [...entry.path, key];
+      stack.push({ value: child, path: childPath, isRoot: false });
+    }
+  }
+  return paths;
+}
 
 /**
  * Handle path builtins that need evaluate function for arguments.
@@ -88,7 +193,7 @@ export function evalPathBuiltin(
     case "setpath": {
       if (args.length < 2) return [null];
       const paths = evaluate(value, args[0], ctx);
-      const path = paths[0] as (string | number)[];
+      const path = validateBoundedPath(paths[0], ctx);
       const vals = evaluate(value, args[1], ctx);
       const newVal = vals[0];
       return [setPath(value, path, newVal)];
@@ -128,12 +233,14 @@ export function evalPathBuiltin(
       // Build result object with only the picked paths
       let result: QueryValue = null;
       for (const path of allPaths) {
-        // Check for negative indices which are not allowed
+        // Preserve jq's established error for the `last` sentinel before the
+        // generic configured-index ceiling classifies all negative numbers.
         for (const key of path) {
           if (typeof key === "number" && key < 0) {
             throw new Error("Out of bounds negative array index");
           }
         }
+        validateBoundedPath(path, ctx);
         // Get the value at this path from the input
         let current: QueryValue = value;
         for (const key of path) {
@@ -160,24 +267,7 @@ export function evalPathBuiltin(
     }
 
     case "paths": {
-      const paths: (string | number)[][] = [];
-      const walk = (v: QueryValue, path: (string | number)[]) => {
-        if (v && typeof v === "object") {
-          if (Array.isArray(v)) {
-            for (let i = 0; i < v.length; i++) {
-              paths.push([...path, i]);
-              walk(v[i], [...path, i]);
-            }
-          } else {
-            for (const key of Object.keys(v)) {
-              paths.push([...path, key]);
-              // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
-              walk((v as Record<string, unknown>)[key], [...path, key]);
-            }
-          }
-        }
-      };
-      walk(value, []);
+      const paths = collectContainerPaths(value, ctx, false);
       if (args.length > 0) {
         return paths.filter((p) => {
           let v: QueryValue = value;
@@ -203,22 +293,7 @@ export function evalPathBuiltin(
     }
 
     case "leaf_paths": {
-      const paths: (string | number)[][] = [];
-      const walk = (v: QueryValue, path: (string | number)[]) => {
-        if (v === null || typeof v !== "object") {
-          paths.push(path);
-        } else if (Array.isArray(v)) {
-          for (let i = 0; i < v.length; i++) {
-            walk(v[i], [...path, i]);
-          }
-        } else {
-          // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
-          for (const key of Object.keys(v)) {
-            walk((v as Record<string, unknown>)[key], [...path, key]);
-          }
-        }
-      };
-      walk(value, []);
+      const paths = collectContainerPaths(value, ctx, true);
       // Return each path as a separate output (like paths does)
       return paths;
     }

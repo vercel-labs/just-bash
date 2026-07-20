@@ -181,24 +181,39 @@ export function evaluateExpressionWithPrune(
     case "prune":
       // -prune always returns true and sets the prune flag
       return { matches: true, pruned: true, printed: false };
-    case "print":
-      // -print always returns true and sets the print flag
-      return { matches: true, pruned: false, printed: true };
+    case "action":
+      return {
+        matches: true,
+        pruned: false,
+        printed: false,
+        actions: [expr.action],
+      };
     case "not": {
       const inner = evaluateExpressionWithPrune(expr.expr, ctx);
-      return { matches: !inner.matches, pruned: inner.pruned, printed: false };
+      return {
+        matches: !inner.matches,
+        pruned: inner.pruned,
+        printed: false,
+        actions: inner.actions,
+      };
     }
     case "and": {
       const left = evaluateExpressionWithPrune(expr.left, ctx);
       if (!left.matches) {
         // Short-circuit: if left is false, prune from left is still propagated
-        return { matches: false, pruned: left.pruned, printed: false };
+        return {
+          matches: false,
+          pruned: left.pruned,
+          printed: false,
+          actions: left.actions,
+        };
       }
       const right = evaluateExpressionWithPrune(expr.right, ctx);
       return {
         matches: right.matches,
         pruned: left.pruned || right.pruned,
         printed: left.printed || right.printed,
+        actions: [...(left.actions ?? []), ...(right.actions ?? [])],
       };
     }
     case "or": {
@@ -212,6 +227,7 @@ export function evaluateExpressionWithPrune(
         matches: right.matches,
         pruned: left.pruned || right.pruned,
         printed: right.printed, // Only use right's printed since left didn't match
+        actions: [...(left.actions ?? []), ...(right.actions ?? [])],
       };
     }
   }
@@ -231,7 +247,8 @@ export function expressionNeedsStatMetadata(expr: Expression | null): boolean {
     case "regex":
     case "type":
     case "prune":
-    case "print":
+      return false;
+    case "action":
       return false;
 
     // These need stat metadata
@@ -274,101 +291,6 @@ export function expressionNeedsEmptyCheck(expr: Expression | null): boolean {
     default:
       return false;
   }
-}
-
-/**
- * Analyze a path expression for pruning opportunities.
- * For patterns like "*\/pulls\/*.json", we can skip descending into "pulls" subdirectories
- * since files must be directly inside "pulls".
- */
-export interface PathPruningHint {
-  /** If set, when in a directory with this name, don't descend into subdirs */
-  terminalDirName: string | null;
-  /** If set, files must have this extension (e.g., ".json") */
-  requiredExtension: string | null;
-}
-
-/**
- * Extract path pruning hints from an expression tree.
- * Returns hints that can be used to skip unnecessary directory traversal.
- */
-export function extractPathPruningHints(
-  expr: Expression | null,
-): PathPruningHint {
-  const hint: PathPruningHint = {
-    terminalDirName: null,
-    requiredExtension: null,
-  };
-  if (!expr) return hint;
-
-  // Look for path expressions combined with type:f
-  // For pattern "*/X/*" (where X is literal), X is a terminal directory
-  const pathExprs = collectPathExpressions(expr);
-  const hasTypeFile = hasTypeFileFilter(expr);
-
-  if (hasTypeFile && pathExprs.length === 1) {
-    const pattern = pathExprs[0];
-    // Parse pattern: look for */literal/* or */literal/*.ext patterns
-    const parts = pattern.split("/").filter((p) => p.length > 0);
-
-    // Check if pattern is */X/* or */X/*.ext where X is literal
-    // (at least 3 parts, middle one is literal, last one is wildcard)
-    if (parts.length >= 2) {
-      // Find the last literal segment before the filename pattern
-      for (let i = parts.length - 2; i >= 0; i--) {
-        const part = parts[i];
-        if (
-          !part.includes("*") &&
-          !part.includes("?") &&
-          !part.includes("[") &&
-          part !== "." &&
-          part !== ".."
-        ) {
-          // This is a literal directory name
-          // Check if the next part (filename) is a wildcard pattern
-          const nextPart = parts[i + 1];
-          if (nextPart && (nextPart.includes("*") || nextPart.includes("?"))) {
-            hint.terminalDirName = part;
-            // Extract extension from patterns like "*.json"
-            const extMatch = nextPart.match(/^\*(\.[a-zA-Z0-9]+)$/);
-            if (extMatch) {
-              hint.requiredExtension = extMatch[1];
-            }
-          }
-          break;
-        }
-      }
-    }
-  }
-
-  return hint;
-}
-
-function collectPathExpressions(expr: Expression): string[] {
-  const paths: string[] = [];
-  const collect = (e: Expression): void => {
-    if (e.type === "path") {
-      paths.push(e.pattern);
-    } else if (e.type === "not") {
-      collect(e.expr);
-    } else if (e.type === "and" || e.type === "or") {
-      collect(e.left);
-      collect(e.right);
-    }
-  };
-  collect(expr);
-  return paths;
-}
-
-function hasTypeFileFilter(expr: Expression): boolean {
-  const check = (e: Expression): boolean => {
-    if (e.type === "type" && e.fileType === "f") return true;
-    if (e.type === "not") return check(e.expr);
-    if (e.type === "and") return check(e.left) || check(e.right);
-    if (e.type === "or") return check(e.left) || check(e.right);
-    return false;
-  };
-  return check(expr);
 }
 
 // Helper to collect and resolve -newer reference file mtimes
@@ -416,8 +338,9 @@ export function isSimpleExpression(expr: Expression | null): boolean {
     case "regex":
     case "type":
     case "prune":
-    case "print":
       return true;
+    case "action":
+      return false;
 
     // These need stat metadata or directory contents
     case "empty":
@@ -544,8 +467,13 @@ export function evaluateSimpleExpression(
       return { matches: false, pruned: false, printed: false };
     case "prune":
       return { matches: true, pruned: true, printed: false };
-    case "print":
-      return { matches: true, pruned: false, printed: true };
+    case "action":
+      return {
+        matches: true,
+        pruned: false,
+        printed: false,
+        actions: [expr.action],
+      };
     case "not": {
       const inner = evaluateSimpleExpression(
         expr.expr,
@@ -554,7 +482,12 @@ export function evaluateSimpleExpression(
         isFile,
         isDirectory,
       );
-      return { matches: !inner.matches, pruned: inner.pruned, printed: false };
+      return {
+        matches: !inner.matches,
+        pruned: inner.pruned,
+        printed: false,
+        actions: inner.actions,
+      };
     }
     case "and": {
       const left = evaluateSimpleExpression(
@@ -565,7 +498,12 @@ export function evaluateSimpleExpression(
         isDirectory,
       );
       if (!left.matches) {
-        return { matches: false, pruned: left.pruned, printed: false };
+        return {
+          matches: false,
+          pruned: left.pruned,
+          printed: false,
+          actions: left.actions,
+        };
       }
       const right = evaluateSimpleExpression(
         expr.right,
@@ -578,6 +516,7 @@ export function evaluateSimpleExpression(
         matches: right.matches,
         pruned: left.pruned || right.pruned,
         printed: left.printed || right.printed,
+        actions: [...(left.actions ?? []), ...(right.actions ?? [])],
       };
     }
     case "or": {
@@ -602,6 +541,7 @@ export function evaluateSimpleExpression(
         matches: right.matches,
         pruned: left.pruned || right.pruned,
         printed: right.printed,
+        actions: [...(left.actions ?? []), ...(right.actions ?? [])],
       };
     }
     default:
@@ -642,8 +582,9 @@ function canEvaluateExpressionEarly(expr: Expression): boolean {
     case "regex":
     case "type":
     case "prune":
-    case "print":
       return true;
+    case "action":
+      return false;
 
     // These need stat metadata or directory contents
     case "empty":

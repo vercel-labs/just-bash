@@ -6,7 +6,10 @@ import {
 } from "../defense-in-depth-box.js";
 import type { SecurityViolation } from "../types.js";
 
-describe("Defense-in-depth combined chain probes", () => {
+const describeDefense =
+  typeof nodeModule.registerHooks === "function" ? describe : describe.skip;
+
+describeDefense("Defense-in-depth combined chain probes", () => {
   beforeEach(() => {
     DefenseInDepthBox.resetInstance();
   });
@@ -169,3 +172,5 @@ describe("Defense-in-depth combined chain probes", () => {
     expect(constructorError).toBeInstanceOf(SecurityViolationError);
   });
 });
+
+import * as nodeModule from "node:module";

@@ -13,8 +13,11 @@
  *   array      Array name (default: MAPFILE)
  */
 
+import { utf8ByteLength } from "../../encoding.js";
 import type { ExecResult } from "../../types.js";
-import { clearArray } from "../helpers/array.js";
+import { ExecutionLimitError } from "../errors.js";
+import { clearArray, setArrayElement } from "../helpers/array.js";
+import { checkReadonlyError } from "../helpers/readonly.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -62,6 +65,15 @@ export function handleMapfile(
     }
   }
 
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(arrayName)) {
+    return result("", `mapfile: ${arrayName}: not a valid identifier\n`, 1);
+  }
+  if (!Number.isSafeInteger(origin) || origin < 0) {
+    return result("", "mapfile: invalid array origin\n", 1);
+  }
+  // Authorization precedes parsing/consuming potentially large input.
+  checkReadonlyError(ctx, arrayName, "mapfile");
+
   // Use stdin from parameter, or fall back to groupStdin
   let effectiveStdin = stdin;
   if (!effectiveStdin && ctx.state.groupStdin !== undefined) {
@@ -70,35 +82,46 @@ export function handleMapfile(
 
   // Split input by delimiter
   const lines: string[] = [];
-  let remaining = effectiveStdin;
+  let cursor = 0;
   let lineCount = 0;
   let skipped = 0;
-  const maxArrayElements = ctx.limits?.maxArrayElements ?? 100000;
+  const maxArrayElements = ctx.limits.maxArrayElements;
 
-  while (remaining.length > 0) {
-    const delimIndex = remaining.indexOf(delimiter);
+  const pushLine = (line: string): void => {
+    if (utf8ByteLength(line) > ctx.limits.maxStringLength) {
+      throw new ExecutionLimitError(
+        `mapfile: string length limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
+    lines.push(line);
+  };
+
+  while (cursor < effectiveStdin.length) {
+    ctx.executionScope.consumeWork(1, "mapfile input");
+    const delimIndex = effectiveStdin.indexOf(delimiter, cursor);
 
     if (delimIndex === -1) {
       // No more delimiters, add remaining content as last line (if not empty)
-      if (remaining.length > 0) {
+      if (cursor < effectiveStdin.length) {
         if (skipped < skipCount) {
           skipped++;
         } else if (maxCount === 0 || lineCount < maxCount) {
           // Check array element limit
-          if (origin + lineCount >= maxArrayElements) {
+          // Bash truncates at NUL bytes
+          let lastLine = effectiveStdin.slice(cursor);
+          const nulIdx = lastLine.indexOf("\0");
+          if (nulIdx !== -1) {
+            lastLine = lastLine.substring(0, nulIdx);
+          }
+          if (lines.length >= maxArrayElements) {
             return result(
               "",
               `mapfile: array element limit exceeded (${maxArrayElements})\n`,
               1,
             );
           }
-          // Bash truncates at NUL bytes
-          let lastLine = remaining;
-          const nulIdx = lastLine.indexOf("\0");
-          if (nulIdx !== -1) {
-            lastLine = lastLine.substring(0, nulIdx);
-          }
-          lines.push(lastLine);
+          pushLine(lastLine);
           lineCount++;
         }
       }
@@ -106,7 +129,7 @@ export function handleMapfile(
     }
 
     // Found delimiter
-    let line = remaining.substring(0, delimIndex);
+    let line = effectiveStdin.slice(cursor, delimIndex);
     // Bash truncates lines at NUL bytes (unlike 'read' which ignores them)
     const nulIndex = line.indexOf("\0");
     if (nulIndex !== -1) {
@@ -117,7 +140,7 @@ export function handleMapfile(
       line += delimiter;
     }
 
-    remaining = remaining.substring(delimIndex + delimiter.length);
+    cursor = delimIndex + delimiter.length;
 
     if (skipped < skipCount) {
       skipped++;
@@ -129,16 +152,31 @@ export function handleMapfile(
     }
 
     // Check array element limit
-    if (origin + lineCount >= maxArrayElements) {
+    if (lines.length >= maxArrayElements) {
       return result(
         "",
         `mapfile: array element limit exceeded (${maxArrayElements})\n`,
         1,
       );
     }
-
-    lines.push(line);
+    pushLine(line);
     lineCount++;
+  }
+
+  const existingKeys = new Set(
+    origin === 0
+      ? []
+      : (ctx.state.arrays?.get(arrayName)?.elements.keys() ?? []),
+  );
+  for (let j = 0; j < lines.length; j++) {
+    existingKeys.add(String(origin + j));
+    if (existingKeys.size > maxArrayElements) {
+      return result(
+        "",
+        `mapfile: array element limit exceeded (${maxArrayElements})\n`,
+        1,
+      );
+    }
   }
 
   // Clear existing array ONLY if not using -O (offset) option
@@ -148,19 +186,8 @@ export function handleMapfile(
   }
 
   for (let j = 0; j < lines.length; j++) {
-    ctx.state.env.set(`${arrayName}_${origin + j}`, lines[j]);
+    setArrayElement(ctx, arrayName, origin + j, lines[j]);
   }
-
-  // Set array length metadata to be the max of existing length and new end position
-  const existingLength = parseInt(
-    ctx.state.env.get(`${arrayName}__length`) || "0",
-    10,
-  );
-  const newEndIndex = origin + lines.length;
-  ctx.state.env.set(
-    `${arrayName}__length`,
-    String(Math.max(existingLength, newEndIndex)),
-  );
 
   // Consume from groupStdin if we used it
   if (ctx.state.groupStdin !== undefined && !stdin) {

@@ -2,6 +2,15 @@
 
 This is an interactive demo of **just-bash** running entirely in your browser, with an AI agent that can explore the source code.
 
+The paid-model `/api/agent` route is disabled by default in production. Set
+`JUST_BASH_AGENT_API_TOKEN` and have an authenticated same-origin gateway add
+`Authorization: Bearer <token>` to enable it. Never embed this server token in
+browser JavaScript. The route also bounds request history, output tokens,
+agent steps, retries, body-read and execution time, per-instance concurrency,
+and admission rate. Production deployments should also add distributed provider/edge
+per-principal rate and spend limits; an instance-local counter is not a global
+quota in a horizontally scaled deployment.
+
 ## Architecture
 
 ```

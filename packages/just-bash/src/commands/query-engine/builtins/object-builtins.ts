@@ -4,6 +4,8 @@
  * Handles object manipulation functions like keys, to_entries, from_entries, etc.
  */
 
+import { utf8ByteLength } from "../../../encoding.js";
+import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
 import {
@@ -16,6 +18,50 @@ import { getValueDepth, type QueryValue } from "../value-operations.js";
 
 // Default max depth for nested structures
 const DEFAULT_MAX_JQ_DEPTH = 2000;
+
+function maxResultElements(ctx: EvalContext): number {
+  return ctx.limits.maxArrayElements;
+}
+
+function assertResultPush(ctx: EvalContext, length: number): void {
+  const limit = maxResultElements(ctx);
+  if (length >= limit) {
+    throw new ExecutionLimitError(
+      `query result element limit exceeded (${limit})`,
+      "array_elements",
+    );
+  }
+}
+
+function validateStreamPath(
+  path: unknown[],
+  ctx: EvalContext,
+): asserts path is (string | number)[] {
+  const maxDepth = ctx.limits.maxDepth ?? DEFAULT_MAX_JQ_DEPTH;
+  if (path.length > maxDepth) {
+    throw new ExecutionLimitError(
+      `query depth limit exceeded (${maxDepth})`,
+      "recursion",
+    );
+  }
+  const maxElements = ctx.limits.maxArrayElements;
+  for (const component of path) {
+    if (typeof component === "number") {
+      if (
+        !Number.isSafeInteger(component) ||
+        component < 0 ||
+        component >= maxElements
+      ) {
+        throw new ExecutionLimitError(
+          `query array index limit exceeded (${maxElements})`,
+          "array_elements",
+        );
+      }
+    } else if (typeof component !== "string") {
+      throw new Error("stream path components must be strings or integers");
+    }
+  }
+}
 
 type EvalFn = (
   value: QueryValue,
@@ -57,8 +103,7 @@ export function evalObjectBuiltin(
       return [null];
 
     case "utf8bytelength": {
-      if (typeof value === "string")
-        return [new TextEncoder().encode(value).length];
+      if (typeof value === "string") return [utf8ByteLength(value)];
       // jq: throws error for non-strings with type info
       const typeName =
         value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
@@ -74,11 +119,20 @@ export function evalObjectBuiltin(
     case "to_entries": {
       const toEntriesObj = asQueryRecord(value);
       if (toEntriesObj) {
+        const keys = Object.keys(toEntriesObj);
+        if (keys.length > maxResultElements(ctx)) {
+          throw new ExecutionLimitError(
+            `query result element limit exceeded (${maxResultElements(ctx)})`,
+            "array_elements",
+          );
+        }
         return [
-          Object.entries(toEntriesObj).map(([key, val]) => ({
-            key,
-            value: val,
-          })),
+          keys.map((key) => {
+            const entry: Record<string, unknown> = Object.create(null);
+            safeSet(entry, "key", key);
+            safeSet(entry, "value", toEntriesObj[key]);
+            return entry;
+          }),
         ];
       }
       return [null];
@@ -111,11 +165,27 @@ export function evalObjectBuiltin(
       if (args.length === 0) return [value];
       const withEntriesObj = asQueryRecord(value);
       if (withEntriesObj) {
-        const entries = Object.entries(withEntriesObj).map(([key, val]) => ({
-          key,
-          value: val,
-        }));
-        const mapped = entries.flatMap((e) => evaluate(e, args[0], ctx));
+        const keys = Object.keys(withEntriesObj);
+        if (keys.length > maxResultElements(ctx)) {
+          throw new ExecutionLimitError(
+            `query result element limit exceeded (${maxResultElements(ctx)})`,
+            "array_elements",
+          );
+        }
+        const mapped: QueryValue[] = [];
+        for (const key of keys) {
+          const entry: Record<string, unknown> = Object.create(null);
+          safeSet(entry, "key", key);
+          safeSet(entry, "value", withEntriesObj[key]);
+          const values = evaluate(entry, args[0], ctx);
+          if (mapped.length > maxResultElements(ctx) - values.length) {
+            throw new ExecutionLimitError(
+              `query result element limit exceeded (${maxResultElements(ctx)})`,
+              "array_elements",
+            );
+          }
+          for (const mappedValue of values) mapped.push(mappedValue);
+        }
         const result: Record<string, unknown> = Object.create(null);
         for (const item of mapped) {
           const obj = asQueryRecord(item);
@@ -197,8 +267,14 @@ export function evalObjectBuiltin(
           return [Number.NEGATIVE_INFINITY];
         }
         try {
-          return [sanitizeParsedData(JSON.parse(value))];
-        } catch {
+          return [
+            sanitizeParsedData(JSON.parse(value), {
+              maxDepth: ctx.limits.maxDepth,
+              maxElements: ctx.limits.maxArrayElements,
+            }),
+          ];
+        } catch (error) {
+          if (error instanceof ExecutionLimitError) throw error;
           throw new Error(`Invalid JSON: ${value}`);
         }
       }
@@ -246,34 +322,89 @@ export function evalObjectBuiltin(
     case "tostream": {
       // tostream outputs [path, leaf_value] pairs for each leaf, plus [[]] at end
       const results: QueryValue[] = [];
-      const walk = (v: QueryValue, path: (string | number)[]) => {
+      const maxDepth = ctx.limits.maxDepth ?? DEFAULT_MAX_JQ_DEPTH;
+      const stack: Array<{
+        value: QueryValue;
+        path: (string | number)[];
+      }> = [{ value, path: [] }];
+      const seen = new WeakSet<object>();
+      let iterations = 0;
+      while (stack.length > 0) {
+        const entry = stack.pop();
+        if (!entry) break;
+        if (++iterations > ctx.limits.maxIterations) {
+          throw new ExecutionLimitError(
+            `query iteration limit exceeded (${ctx.limits.maxIterations})`,
+            "iterations",
+          );
+        }
+        if (entry.path.length > maxDepth) {
+          throw new ExecutionLimitError(
+            `query depth limit exceeded (${maxDepth})`,
+            "recursion",
+          );
+        }
+        const v = entry.value;
         if (v === null || typeof v !== "object") {
           // Leaf value - output [path, value]
-          results.push([path, v]);
+          assertResultPush(ctx, results.length);
+          results.push([entry.path, v]);
         } else if (Array.isArray(v)) {
+          if (seen.has(v)) {
+            throw new ExecutionLimitError(
+              "cyclic value cannot be converted to a stream",
+              "recursion",
+            );
+          }
+          seen.add(v);
           if (v.length === 0) {
             // Empty array - output [path, []]
-            results.push([path, []]);
+            assertResultPush(ctx, results.length);
+            results.push([entry.path, []]);
           } else {
-            for (let i = 0; i < v.length; i++) {
-              walk(v[i], [...path, i]);
+            if (stack.length > maxResultElements(ctx) - v.length) {
+              throw new ExecutionLimitError(
+                `query traversal queue limit exceeded (${maxResultElements(ctx)})`,
+                "array_elements",
+              );
+            }
+            for (let i = v.length - 1; i >= 0; i--) {
+              stack.push({ value: v[i], path: [...entry.path, i] });
             }
           }
         } else {
+          if (seen.has(v)) {
+            throw new ExecutionLimitError(
+              "cyclic value cannot be converted to a stream",
+              "recursion",
+            );
+          }
+          seen.add(v);
           const keys = Object.keys(v);
           if (keys.length === 0) {
             // Empty object - output [path, {}]
-            results.push([path, Object.create(null)]);
+            assertResultPush(ctx, results.length);
+            results.push([entry.path, Object.create(null)]);
           } else {
-            // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
-            for (const key of keys) {
-              walk((v as Record<string, unknown>)[key], [...path, key]);
+            if (stack.length > maxResultElements(ctx) - keys.length) {
+              throw new ExecutionLimitError(
+                `query traversal queue limit exceeded (${maxResultElements(ctx)})`,
+                "array_elements",
+              );
+            }
+            for (let i = keys.length - 1; i >= 0; i--) {
+              const key = keys[i];
+              // @banned-pattern-ignore: Object.keys returns own properties only
+              stack.push({
+                value: (v as Record<string, unknown>)[key],
+                path: [...entry.path, key],
+              });
             }
           }
         }
-      };
-      walk(value, []);
+      }
       // End marker: [[]] (empty path array wrapped in array)
+      assertResultPush(ctx, results.length);
       results.push([[]]);
       return results;
     }
@@ -282,7 +413,14 @@ export function evalObjectBuiltin(
       // fromstream(stream_expr) reconstructs values from stream of [path, value] pairs
       if (args.length === 0) return [value];
       const streamItems = evaluate(value, args[0], ctx);
+      if (streamItems.length > maxResultElements(ctx)) {
+        throw new ExecutionLimitError(
+          `query stream item limit exceeded (${maxResultElements(ctx)})`,
+          "array_elements",
+        );
+      }
       let result: QueryValue = null;
+      let iterations = 0;
 
       for (const item of streamItems) {
         if (!Array.isArray(item)) continue;
@@ -297,6 +435,7 @@ export function evalObjectBuiltin(
         if (item.length !== 2) continue;
         const [path, val] = item;
         if (!Array.isArray(path)) continue;
+        validateStreamPath(path, ctx);
 
         // Set value at path, creating structure as needed
         if (path.length === 0) {
@@ -316,6 +455,14 @@ export function evalObjectBuiltin(
           const nextKey = path[i + 1];
           if (Array.isArray(current) && typeof key === "number") {
             // Extend array if needed
+            const growth = key + 1 - current.length;
+            if (growth > ctx.limits.maxIterations - iterations) {
+              throw new ExecutionLimitError(
+                `query iteration limit exceeded (${ctx.limits.maxIterations})`,
+                "iterations",
+              );
+            }
+            iterations += Math.max(0, growth);
             while (current.length <= key) {
               current.push(null);
             }
@@ -345,6 +492,14 @@ export function evalObjectBuiltin(
         // Set the final value
         const lastKey = path[path.length - 1];
         if (Array.isArray(current) && typeof lastKey === "number") {
+          const growth = lastKey + 1 - current.length;
+          if (growth > ctx.limits.maxIterations - iterations) {
+            throw new ExecutionLimitError(
+              `query iteration limit exceeded (${ctx.limits.maxIterations})`,
+              "iterations",
+            );
+          }
+          iterations += Math.max(0, growth);
           while (current.length <= lastKey) {
             current.push(null);
           }

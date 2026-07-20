@@ -2,12 +2,12 @@
  * Core xan commands: headers, count, head, tail, slice, reverse
  */
 
-import type { CommandContext, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { formatCsv, readCsvInput } from "./csv.js";
 
 export async function cmdHeaders(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   const justNames = args.includes("-j") || args.includes("--just-names");
   const { headers, error } = await readCsvInput(
@@ -25,7 +25,7 @@ export async function cmdHeaders(
 
 export async function cmdCount(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   const { data, error } = await readCsvInput(args, ctx);
   if (error) return error;
@@ -34,7 +34,7 @@ export async function cmdCount(
 
 export async function cmdHead(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let n = 10;
   const filteredArgs: string[] = [];
@@ -50,12 +50,12 @@ export async function cmdHead(
   if (error) return error;
 
   const rows = data.slice(0, n);
-  return { stdout: formatCsv(headers, rows), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, rows, ctx), stderr: "", exitCode: 0 };
 }
 
 export async function cmdTail(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let n = 10;
   const filteredArgs: string[] = [];
@@ -71,12 +71,12 @@ export async function cmdTail(
   if (error) return error;
 
   const rows = data.slice(-n);
-  return { stdout: formatCsv(headers, rows), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, rows, ctx), stderr: "", exitCode: 0 };
 }
 
 export async function cmdSlice(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let start: number | undefined;
   let end: number | undefined;
@@ -110,16 +110,16 @@ export async function cmdSlice(
   }
 
   const rows = data.slice(startIdx, endIdx);
-  return { stdout: formatCsv(headers, rows), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, rows, ctx), stderr: "", exitCode: 0 };
 }
 
 export async function cmdReverse(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   const { headers, data, error } = await readCsvInput(args, ctx);
   if (error) return error;
 
   const rows = [...data].reverse();
-  return { stdout: formatCsv(headers, rows), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, rows, ctx), stderr: "", exitCode: 0 };
 }

@@ -1,4 +1,8 @@
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const basenameHelp = {
@@ -12,10 +16,13 @@ const basenameHelp = {
   ],
 };
 
-export const basenameCommand: Command = {
+export const basenameCommand: RuntimeCommand = {
   name: "basename",
 
-  async execute(args: string[], _ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    _ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(basenameHelp);
     }

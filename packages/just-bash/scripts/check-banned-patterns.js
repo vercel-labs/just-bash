@@ -13,8 +13,18 @@
  *   const COLORS: Record<string, string> = { red: "#f00" };
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+} from "node:fs";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * @typedef {Object} BannedPattern
@@ -23,7 +33,9 @@ import { join, relative } from "node:path";
  * @property {string} message - Explanation of why it's banned
  * @property {string[]} solutions - Suggested fixes
  * @property {RegExp[]} [autoSafe] - Patterns that make a line automatically safe
+ * @property {RegExp[]} [fileAutoSafe] - Patterns that make the containing file safe
  * @property {RegExp} [filePattern] - Optional file path regex to scope the rule
+ * @property {boolean} [scanSecurity] - Run this rule in audited security modules
  */
 
 /** @type {BannedPattern[]} */
@@ -520,9 +532,224 @@ const BANNED_PATTERNS = [
     ],
     autoSafe: [/wrapWasmCallback\s*\(/],
   },
+  {
+    name: "Non-portable AbortSignal composition",
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*\bAbortSignal\s*\.\s*(?:any|timeout)\s*\(/,
+    filePattern: /src\/(?!.*\.test\.ts$).*\.ts$/,
+    message:
+      "AbortSignal.any/timeout are not available in every supported runtime and\n" +
+      "make listener cleanup difficult to audit.",
+    solutions: [
+      "Use combineAbortSignals(...) from abort-signals.ts",
+      "Use an injected timer plus a finally-safe cleanup callback",
+    ],
+  },
+  {
+    name: "Stack text used as a security decision",
+    pattern:
+      /\b(?:stack|errorStack)\s*(?:\?\.)?\.\s*(?:includes|match|indexOf)\s*\(/,
+    filePattern: /src\/security\/(?!.*\.test\.ts$).*\.ts$/,
+    scanSecurity: true,
+    message:
+      "Error stacks are forgeable, runtime-dependent diagnostics and cannot be\n" +
+      "used to authorize module loading or trusted operations.",
+    solutions: [
+      "Use an unforgeable lexical or AsyncLocalStorage capability",
+      "Complete trusted bootstrap before guest execution begins",
+    ],
+  },
+  {
+    name: "Forgeable diagnostic used as a security decision",
+    pattern:
+      /\b(?:message|sourceURL|fileName|filename|functionName|constructor\s*\.\s*name)\b[^\n]*(?:\.\s*(?:includes|match|indexOf|startsWith|endsWith)\s*\(|={2,3}|!={1,2})/,
+    filePattern: /src\/security\/(?!fuzzing\/)(?!.*\.test\.ts$).*\.ts$/,
+    scanSecurity: true,
+    message:
+      "Error text, source URLs, filenames, and function names are forgeable diagnostics.\n" +
+      "They must not grant security capabilities or authorize trusted operations.",
+    solutions: [
+      "Use a private lexical capability or exact object identity",
+      "Keep diagnostics for audit output only, never authorization",
+    ],
+  },
+  {
+    name: "Optional command limit with literal fallback",
+    pattern: /\bctx\.limits\?\.\w+\s*\?\?\s*(?:\d|Number\.)/,
+    filePattern: /src\/(?:commands|interpreter)\/.*\.ts$/,
+    message:
+      "CommandContext.limits is fully resolved. Optional access plus a local literal\n" +
+      "silently forks defaults from the central limit schema.",
+    solutions: [
+      "Read ctx.limits.<field> directly",
+      "Add a named resource field to the central limit schema when needed",
+    ],
+  },
+  {
+    name: "Raw fetch in secured network path",
+    pattern: /(?<![.\w])fetch\s*\(/,
+    filePattern: /src\/network\/fetch\.ts$/,
+    message:
+      "A secured network request must use the request-owned reviewed-address\n" +
+      "connection owner whenever private-range enforcement is active.",
+    solutions: [
+      "Use the pinned connection owner's fetch method",
+      "Annotate only the audited branch where private-range enforcement is disabled",
+    ],
+  },
+  {
+    name: "Whole-buffer decompression outside codec boundary",
+    pattern:
+      /\b(?:gunzipSync|inflateSync|inflateRawSync|unzipSync|brotliDecompressSync|zstdDecompressSync)\s*\(/,
+    filePattern: /src\/(?!codecs?\/).*\.ts$/,
+    message:
+      "Whole-buffer decompression can allocate attacker-controlled output before\n" +
+      "the caller accounts for it.",
+    solutions: [
+      "Route decoding through the shared codec budget/boundary",
+      "For a proven intrinsic bound, annotate the exact call and its pre-allocation maximum",
+    ],
+  },
+  {
+    name: "Restricted Node filesystem import",
+    pattern:
+      /(?:from\s*["'](?:node:fs(?:\/promises)?|fs\/promises)["']|require\s*\(\s*["'](?:node:fs(?:\/promises)?|fs\/promises)["']\s*\))/,
+    filePattern:
+      /src\/(?!fs\/)(?!cli\/)(?!comparison-tests\/)(?!commands\/js-exec\/)(?!commands\/(?:python3\/worker|sqlite3\/sqlite3)\.ts$)(?!security\/fuzzing\/runners\/).*\.(?:ts|js)$/,
+    message:
+      "Raw host filesystem access is restricted to reviewed filesystem, CLI, and\n" +
+      "worker bootstrap gates so virtual-path and error sanitization cannot be bypassed.",
+    solutions: [
+      "Use CommandContext.fs for command I/O",
+      "Move unavoidable host access behind a reviewed filesystem/worker gate",
+    ],
+  },
+  {
+    name: "Unsafe path-prefix containment",
+    pattern: /\brelative\s*\.\s*startsWith\s*\(\s*["'`]\.\.["'`]\s*\)/,
+    filePattern: /(?:src|scripts)\/.*\.(?:ts|js)$/,
+    message:
+      "startsWith('..') confuses a legitimate '..name' segment with traversal and\n" +
+      "does not express a path-segment containment boundary.",
+    solutions: [
+      "Check rel === '..' or rel.startsWith(`..${sep}`), plus absolute paths",
+      "Use the canonical containment helper and retain its branded result",
+    ],
+  },
+  {
+    name: "Unchecked dynamic string or array amplification",
+    pattern:
+      /(?:\.(?:repeat|padStart|padEnd)\s*\(\s*[A-Za-z_$]|(?<![\w.])(?:new\s+)?Array\s*\(\s*[A-Za-z_$])/,
+    filePattern:
+      /src\/commands\/(?!awk\/)(?!printf\/)(?!sqlite3\/formatters\.ts$)(?!nl\/nl\.ts$)(?!expand\/)(?!yq\/formats\.ts$)(?!jq\/jq\.ts$)(?!query-engine\/)(?!split\/split\.ts$)(?!seq\/seq\.ts$)(?!xan\/)(?!js-exec\/)(?!tar\/bzip2-compress\.ts$)(?!wc\/wc\.ts$).*\.ts$/,
+    message:
+      "Dynamic repeat, padding, and array sizes must be checked before allocation.\n" +
+      "Post-allocation length checks are too late.",
+    solutions: [
+      "Use guardedRepeat/guardedPad or a bounded builder",
+      "Annotate a reviewed site only when a preceding arithmetic guard proves the bound",
+    ],
+  },
+  {
+    name: "Unchecked array construction followed by join",
+    pattern:
+      /(?:new\s+)?Array\s*\([^)]*\)\s*\.\s*(?:fill\s*\([^)]*\)\s*\.)?join\s*\(/,
+    filePattern:
+      /src\/(?!commands\/js-exec\/)(?:commands|interpreter)\/.*\.ts$/,
+    message:
+      "Array construction followed by join creates multiple attacker-scaled\n" +
+      "intermediates. Use a checked bounded builder.",
+    solutions: [
+      "Use BoundedStringBuilder.repeat/append",
+      "Preflight safe arithmetic before allocation",
+    ],
+  },
+  {
+    name: "Allocating UTF-8 byte-length measurement",
+    pattern:
+      /(?:new\s+TextEncoder\s*\(\s*\)\s*\.\s*encode\s*\([^)]*\)|Buffer\s*\.\s*from\s*\([^)]*\))\s*\.\s*(?:byteLength|length)\b/,
+    filePattern:
+      /src\/(?!commands\/js-exec\/)(?:commands|interpreter)\/.*\.ts$/,
+    message:
+      "Allocating an encoded copy just to measure bytes doubles peak memory and\n" +
+      "can bypass live-byte accounting.",
+    solutions: ["Use utf8ByteLength(...) from encoding.ts"],
+  },
+  {
+    name: "Unbounded interpreter output accumulation",
+    pattern: /\b(?:stdout|stderr)\s*\+=/,
+    filePattern:
+      /src\/(?:interpreter\/interpreter|commands\/(?:awk\/awk2|sed\/sed|query-engine\/evaluator))\.ts$/,
+    message:
+      "High-risk interpreter output must flow through the shared bounded output\n" +
+      "sink instead of a local string accumulator.",
+    solutions: ["Use ExecutionBudget.appendOutput or BoundedStringBuilder"],
+  },
+  {
+    name: "Fatal execution error swallowed by catch",
+    pattern:
+      /catch\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*\{\s*(?:return\b|continue\b|break\b)/,
+    filePattern:
+      /src\/(?!commands\/js-exec\/)(?:commands|interpreter)\/.*\.ts$/,
+    message:
+      "A catch that immediately returns/continues can swallow execution limits,\n" +
+      "abort, or security violations.",
+    solutions: [
+      "Call rethrowFatalExecutionError(error) before ordinary recovery",
+      "Catch a narrower typed failure that cannot contain fatal execution errors",
+    ],
+  },
+  {
+    name: "Raw filesystem error returned from adapter",
+    pattern: /\b(?:return|error\s*:)\b[^\n]*(?:err|error|e)\s*\.\s*message\b/,
+    filePattern: /src\/fs\/.*\.ts$/,
+    message:
+      "Raw host filesystem errors can expose host roots and implementation details\n" +
+      "through adapter return values.",
+    solutions: ["Normalize through the typed virtual-path error boundary"],
+    autoSafe: [/sanitizeErrorMessage\s*\(/, /sanitizeFsError\s*\(/],
+  },
+  {
+    name: "Worker created without shared request controller",
+    pattern: /new\s+Worker\s*\(/,
+    filePattern: /src\/commands\/.*\.ts$/,
+    message:
+      "Workers handling command requests must share cancellation, queue ownership,\n" +
+      "message-size validation, and termination cleanup.",
+    solutions: [
+      "Adopt WorkerRequestController in the containing command module",
+    ],
+  },
+  {
+    name: "Undocumented command-local MAX constant",
+    pattern:
+      /\bconst\s+MAX_(?!(?:SQLITE_HEAP_LIMIT|DATE_MILLISECONDS|DATE_SECONDS|GREP_DEPTH|SLEEP_MS|PRINTF_WIDTH|DU_DEPTH|ARCHIVE_SIZE|ENTRIES|DATABASE_LOCK_WAITERS|OUTPUT_FILES|ARRAY_INDEX)\b)[A-Z0-9_]+\s*(?::[^=]+)?=/,
+    filePattern: /src\/commands\/.*\.ts$/,
+    message:
+      "Command-local MAX constants can silently create incompatible ceilings that\n" +
+      "drift from the public resource-limit schema.",
+    solutions: [
+      "Add a documented field to ExecutionLimits",
+      "For a true runtime invariant, use a narrowly justified ignore annotation",
+    ],
+  },
+  {
+    name: "Execution engine constructed outside Bash",
+    pattern: /new\s+(?:Interpreter|ExecutionScope)\s*\(/,
+    filePattern: /src\/(?!Bash\.ts$)(?!.*\.test\.ts$).*\.ts$/,
+    message:
+      "Constructing an interpreter or execution scope outside Bash can mint a fresh\n" +
+      "security budget and bypass aggregate accounting.",
+    solutions: [
+      "Capture and reuse the top-level execution budget",
+      "Route nested execution through InterpreterContext.execFn",
+    ],
+  },
 ];
 
-const IGNORE_COMMENT = /@banned-pattern-ignore:/;
+// A suppression must state a concrete reason. Merely placing the token in a
+// file must not become a file-wide capability or suppress an unrelated match.
+const IGNORE_COMMENT = /@banned-pattern-ignore:\s*\S.{7,}/;
 
 // Directories to scan
 const SCAN_DIRS = ["."];
@@ -536,11 +763,18 @@ const SKIP_DIRS = new Set([
   ".pnpm-store",
   ".next",
   "coverage",
+  ".deepsec",
+  ".agents",
+  ".codex",
+  "todo",
 ]);
 
 const SKIP_PATH_PATTERNS = [
   /(^|\/)\.pnpm-store(\/|$)/,
   /(^|\/)examples\/website\/app\/api\/agent\/_agent-data(\/|$)/,
+  /(^|\/)\.deepsec(\/|$)/,
+  /(^|\/)todo(\/|$)/,
+  /(^|\/)findings?(\/|$)/,
 ];
 
 // Files/patterns to skip entirely
@@ -549,7 +783,6 @@ const SKIP_PATTERNS = [
   /\.comparison\.test\.ts$/,
   /spec-tests/,
   /prototype-pollution\.test/, // These test the protection
-  /src\/security\//, // Security module intentionally references blocked patterns
   /src\/commands\/python3\/worker\.js$/, // Generated artifact, source is worker.ts
   /src\/commands\/js-exec\/js-exec-worker\.js$/, // Generated artifact, source is js-exec-worker.ts
   /src\/commands\/sqlite3\/worker\.js$/, // Generated artifact, source is worker.ts
@@ -566,7 +799,7 @@ const SKIP_PATTERNS = [
  */
 
 /** @type {Violation[]} */
-const violations = [];
+let violations = [];
 
 /**
  * @typedef {Object} IgnoreComment
@@ -577,7 +810,7 @@ const violations = [];
  */
 
 /** @type {IgnoreComment[]} */
-const ignoreComments = [];
+let ignoreComments = [];
 
 /**
  * Check if a file should be skipped
@@ -601,6 +834,13 @@ function shouldSkipFile(filePath) {
  */
 function isLineSafe(lines, lineIndex, pattern, filePath) {
   const line = lines[lineIndex];
+
+  if (pattern.fileAutoSafe) {
+    const content = lines.join("\n");
+    if (pattern.fileAutoSafe.some((safePat) => safePat.test(content))) {
+      return { safe: true, usedIgnoreComment: null };
+    }
+  }
 
   // Check for @banned-pattern-ignore comment on current line or up to 2 lines before
   // (to allow for other ignore comments like biome-ignore between)
@@ -658,12 +898,33 @@ function scanFile(filePath) {
     return;
   }
 
-  const content = readFileSync(filePath, "utf-8");
+  let fd;
+  let content;
+  try {
+    const before = lstatSync(filePath, { bigint: true });
+    if (before.isSymbolicLink()) {
+      throw new Error("symbolic link rejected");
+    }
+    const noFollow = constants.O_NOFOLLOW ?? 0;
+    fd = openSync(filePath, constants.O_RDONLY | noFollow);
+    const opened = fstatSync(fd, { bigint: true });
+    if (before.dev !== opened.dev || before.ino !== opened.ino) {
+      throw new Error("file identity changed before read");
+    }
+    content = readFileSync(fd, "utf-8");
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
   const lines = content.split("\n");
+  const isSecurityModule = /src\/security\//.test(filePath);
 
   // First pass: collect all ignore comments in this file
   for (let i = 0; i < lines.length; i++) {
     if (IGNORE_COMMENT.test(lines[i])) {
+      // Security modules intentionally opt in to only their dedicated rules.
+      // Suppressions for the broad rules are therefore outside this scan's
+      // scope and must not be misreported as unused.
+      if (isSecurityModule) continue;
       ignoreComments.push({
         file: filePath,
         line: i + 1,
@@ -678,6 +939,9 @@ function scanFile(filePath) {
     const line = lines[i];
 
     for (const pattern of BANNED_PATTERNS) {
+      if (isSecurityModule && pattern.scanSecurity !== true) {
+        continue;
+      }
       if (pattern.filePattern && !pattern.filePattern.test(filePath)) {
         continue;
       }
@@ -725,19 +989,96 @@ function getContext(lines, lineIndex) {
   return contextLines.join("\n");
 }
 
+let rootDir = process.cwd();
+let canonicalRootDir = realpathSync(rootDir);
+/** @type {{ path: string; reason: string }[]} */
+let scanErrors = [];
+let visitedDirectories = new Set();
+
+function safeRelativePath(path) {
+  const rel = relative(rootDir, path);
+  return rel === ""
+    ? "."
+    : rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)
+      ? "<outside-root>"
+      : rel;
+}
+
+function isWithinRoot(canonicalPath) {
+  const rel = relative(canonicalRootDir, canonicalPath);
+  return (
+    rel === "" ||
+    (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+  );
+}
+
+function recordScanError(path, reason) {
+  scanErrors.push({ path: safeRelativePath(path), reason });
+}
+
 /**
  * Recursively scan directory
  * @param {string} dir
  */
 function scanDirectory(dir) {
-  const entries = readdirSync(dir);
+  let dirStat;
+  let canonicalDir;
+  try {
+    dirStat = lstatSync(dir);
+    if (dirStat.isSymbolicLink()) {
+      recordScanError(dir, "symbolic link directory rejected");
+      return;
+    }
+    canonicalDir = realpathSync(dir);
+  } catch {
+    recordScanError(dir, "directory metadata could not be read");
+    return;
+  }
+
+  if (!isWithinRoot(canonicalDir)) {
+    recordScanError(dir, "directory resolves outside scan root");
+    return;
+  }
+
+  // Canonical paths avoid truncated or zero inode collisions on platforms
+  // where number-valued fs identities are not reliable.
+  const identity = canonicalDir;
+  if (visitedDirectories.has(identity)) {
+    return;
+  }
+  visitedDirectories.add(identity);
+
+  let entries;
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    recordScanError(dir, "directory contents could not be read");
+    return;
+  }
 
   for (const entry of entries) {
     const fullPath = join(dir, entry);
     if (SKIP_PATH_PATTERNS.some((pattern) => pattern.test(fullPath))) {
       continue;
     }
-    const stat = statSync(fullPath);
+    let stat;
+    let canonicalPath;
+    try {
+      stat = lstatSync(fullPath);
+      if (stat.isSymbolicLink()) {
+        recordScanError(fullPath, "symbolic link rejected");
+        continue;
+      }
+      canonicalPath = realpathSync(fullPath);
+    } catch {
+      recordScanError(fullPath, "entry metadata could not be read");
+      continue;
+    }
+
+    if (!isWithinRoot(canonicalPath)) {
+      recordScanError(fullPath, "entry resolves outside scan root");
+      continue;
+    }
 
     if (stat.isDirectory()) {
       // Skip generated/third-party directories
@@ -750,98 +1091,139 @@ function scanDirectory(dir) {
       entry.endsWith(".mjs") ||
       entry.endsWith(".cjs")
     ) {
-      scanFile(fullPath);
+      try {
+        scanFile(fullPath);
+      } catch {
+        recordScanError(fullPath, "file contents could not be read");
+      }
     }
   }
 }
 
-// Main
-const rootDir = process.cwd();
+/**
+ * Run one isolated scan. State is reset per call so embedders and tests cannot
+ * inherit directory identities, findings, or ignore usage from a prior root.
+ *
+ * @param {string} [scanRoot]
+ * @param {{ report?: boolean }} [options]
+ */
+export function runScanner(scanRoot = process.cwd(), options = {}) {
+  rootDir = resolve(scanRoot);
+  canonicalRootDir = realpathSync(rootDir);
+  violations = [];
+  ignoreComments = [];
+  scanErrors = [];
+  visitedDirectories = new Set();
 
-for (const dir of SCAN_DIRS) {
-  const fullDir = join(rootDir, dir);
-  try {
-    scanDirectory(fullDir);
-  } catch (err) {
-    console.error(`Error scanning ${dir}: ${err.message}`);
-  }
-}
-
-// Check for unused ignore comments
-const unusedIgnores = ignoreComments.filter((c) => !c.used);
-
-let hasErrors = false;
-
-if (violations.length > 0) {
-  hasErrors = true;
-  // Group violations by pattern
-  /** @type {Map<string, Violation[]>} */
-  const byPattern = new Map();
-  for (const v of violations) {
-    const key = v.pattern.name;
-    if (!byPattern.has(key)) {
-      byPattern.set(key, []);
-    }
-    byPattern.get(key).push(v);
+  for (const dir of SCAN_DIRS) {
+    scanDirectory(join(rootDir, dir));
   }
 
-  console.error("\n\x1b[31m✖ Banned Code Patterns Detected\x1b[0m\n");
+  const unusedIgnores = ignoreComments.filter((c) => !c.used);
+  let hasErrors = scanErrors.length > 0;
+  const report = options.report !== false;
 
-  for (const [patternName, patternViolations] of byPattern) {
-    const pattern = patternViolations[0].pattern;
-
-    console.error(`\x1b[33m━━━ ${patternName} ━━━\x1b[0m\n`);
-    console.error(pattern.message);
-    console.error("");
-    console.error("\x1b[33mSolutions:\x1b[0m");
-    for (const solution of pattern.solutions) {
-      console.error(`  • ${solution}`);
+  if (report && scanErrors.length > 0) {
+    console.error("\n\x1b[31m✖ Incomplete security scan\x1b[0m\n");
+    for (const error of scanErrors) {
+      console.error(`${error.path}: ${error.reason}`);
     }
-    console.error("");
     console.error(
-      "\x1b[33mTo opt-out, add a comment explaining why it's safe:\x1b[0m",
+      `\n\x1b[31m✖ ${scanErrors.length} scan error(s); results are not complete\x1b[0m\n`,
     );
-    console.error(
-      "  // @banned-pattern-ignore: static keys only, never accessed with user input\n",
-    );
-    console.error(`\x1b[31mViolations (${patternViolations.length}):\x1b[0m\n`);
+  }
 
-    for (const v of patternViolations) {
-      const relPath = relative(rootDir, v.file);
-      console.error(`\x1b[36m${relPath}:${v.line}\x1b[0m`);
-      console.error(v.context);
+  if (violations.length > 0) {
+    hasErrors = true;
+  }
+  if (report && violations.length > 0) {
+    // Group violations by pattern
+    /** @type {Map<string, Violation[]>} */
+    const byPattern = new Map();
+    for (const v of violations) {
+      const key = v.pattern.name;
+      if (!byPattern.has(key)) {
+        byPattern.set(key, []);
+      }
+      byPattern.get(key).push(v);
+    }
+
+    console.error("\n\x1b[31m✖ Banned Code Patterns Detected\x1b[0m\n");
+
+    for (const [patternName, patternViolations] of byPattern) {
+      const pattern = patternViolations[0].pattern;
+
+      console.error(`\x1b[33m━━━ ${patternName} ━━━\x1b[0m\n`);
+      console.error(pattern.message);
+      console.error("");
+      console.error("\x1b[33mSolutions:\x1b[0m");
+      for (const solution of pattern.solutions) {
+        console.error(`  • ${solution}`);
+      }
+      console.error("");
+      console.error(
+        "\x1b[33mTo opt-out, add a comment explaining why it's safe:\x1b[0m",
+      );
+      console.error(
+        "  // @banned-pattern-ignore: static keys only, never accessed with user input\n",
+      );
+      console.error(
+        `\x1b[31mViolations (${patternViolations.length}):\x1b[0m\n`,
+      );
+
+      for (const v of patternViolations) {
+        const relPath = relative(rootDir, v.file);
+        console.error(`\x1b[36m${relPath}:${v.line}\x1b[0m`);
+        console.error(v.context);
+        console.error("");
+      }
+    }
+
+    console.error(
+      `\x1b[31m✖ ${violations.length} total violation(s) found\x1b[0m\n`,
+    );
+  }
+
+  if (unusedIgnores.length > 0) {
+    hasErrors = true;
+  }
+  if (report && unusedIgnores.length > 0) {
+    console.error(
+      "\n\x1b[31m✖ Unused @banned-pattern-ignore Comments\x1b[0m\n",
+    );
+    console.error(
+      "The following ignore comments don't suppress any banned pattern.\n" +
+        "Remove them or ensure the pattern they're meant to suppress is correct.\n",
+    );
+
+    for (const ignore of unusedIgnores) {
+      const relPath = relative(rootDir, ignore.file);
+      console.error(`\x1b[36m${relPath}:${ignore.line}\x1b[0m`);
+      console.error(`  ${ignore.content}`);
       console.error("");
     }
+
+    console.error(
+      `\x1b[31m✖ ${unusedIgnores.length} unused ignore comment(s) found\x1b[0m\n`,
+    );
   }
 
-  console.error(
-    `\x1b[31m✖ ${violations.length} total violation(s) found\x1b[0m\n`,
-  );
-}
-
-if (unusedIgnores.length > 0) {
-  hasErrors = true;
-  console.error("\n\x1b[31m✖ Unused @banned-pattern-ignore Comments\x1b[0m\n");
-  console.error(
-    "The following ignore comments don't suppress any banned pattern.\n" +
-      "Remove them or ensure the pattern they're meant to suppress is correct.\n",
-  );
-
-  for (const ignore of unusedIgnores) {
-    const relPath = relative(rootDir, ignore.file);
-    console.error(`\x1b[36m${relPath}:${ignore.line}\x1b[0m`);
-    console.error(`  ${ignore.content}`);
-    console.error("");
+  if (report && !hasErrors) {
+    console.log("\x1b[32m✓ No banned patterns detected\x1b[0m");
   }
 
-  console.error(
-    `\x1b[31m✖ ${unusedIgnores.length} unused ignore comment(s) found\x1b[0m\n`,
-  );
+  return {
+    hasErrors,
+    violations: [...violations],
+    scanErrors: [...scanErrors],
+    unusedIgnores: [...unusedIgnores],
+  };
 }
 
-if (hasErrors) {
-  process.exit(1);
-} else {
-  console.log("\x1b[32m✓ No banned patterns detected\x1b[0m");
-  process.exit(0);
+const isMain =
+  process.argv[1] !== undefined &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  const result = runScanner();
+  process.exitCode = result.hasErrors ? 1 : 0;
 }

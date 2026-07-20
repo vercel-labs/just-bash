@@ -12,9 +12,9 @@
  * ```typescript
  * import { Bash } from 'just-bash';
  *
- * // Enable defense-in-depth (recommended for production)
+ * // Capability-detect defense-in-depth (the Bash default)
  * const bash = new Bash({
- *   defenseInDepth: true,
+ *   defenseInDepth: { enabled: "auto" },
  * });
  *
  * // Or with custom configuration
@@ -45,6 +45,7 @@ export type {
   DefenseInDepthConfig,
   DefenseInDepthHandle,
   DefenseInDepthStats,
+  DefenseInDepthStatus,
   SecurityViolation,
   SecurityViolationType,
 } from "./types.js";

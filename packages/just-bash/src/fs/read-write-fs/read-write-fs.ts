@@ -71,6 +71,7 @@ export class ReadWriteFs implements IFileSystem {
   private readonly canonicalRoot: string;
   private readonly maxFileReadSize: number;
   private readonly allowSymlinks: boolean;
+  private transactionId = 0;
 
   constructor(options: ReadWriteFsOptions) {
     this.root = nodePath.resolve(options.root);
@@ -296,6 +297,9 @@ export class ReadWriteFs implements IFileSystem {
         mode: stat.mode,
         size: stat.size,
         mtime: stat.mtime,
+        dev: stat.dev,
+        ino: stat.ino,
+        identity: `real:${stat.dev}:${stat.ino}`,
       };
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
@@ -320,6 +324,9 @@ export class ReadWriteFs implements IFileSystem {
         mode: stat.mode,
         size: stat.size,
         mtime: stat.mtime,
+        dev: stat.dev,
+        ino: stat.ino,
+        identity: `real:${stat.dev}:${stat.ino}`,
       };
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
@@ -396,16 +403,24 @@ export class ReadWriteFs implements IFileSystem {
   async rm(path: string, options?: RmOptions): Promise<void> {
     validatePath(path, "rm");
     const realPath = this.toRealPath(path);
-    const canonical = this.resolveAndValidate(realPath, path);
+    // Deletion is entry-oriented: authorize the parent, but do not resolve the
+    // final component. Resolving it would turn `rm link` into `rm target` when
+    // symlinks are allowed, which can delete an unrelated file or directory.
+    const canonical = this.validateParent(realPath, path);
 
     try {
+      const stat = await fs.promises.lstat(canonical);
+      if (!this.allowSymlinks && stat.isSymbolicLink()) {
+        throw new Error(`EACCES: permission denied, '${path}' is a symlink`);
+      }
       await fs.promises.rm(canonical, {
         recursive: options?.recursive ?? false,
         force: options?.force ?? false,
       });
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
-      if (err.code === "ENOENT" && !options?.force) {
+      if (err.code === "ENOENT") {
+        if (options?.force) return;
         throw new Error(`ENOENT: no such file or directory, rm '${path}'`);
       }
       if (err.code === "ENOTEMPTY") {
@@ -422,6 +437,28 @@ export class ReadWriteFs implements IFileSystem {
     const destReal = this.toRealPath(dest);
     const srcCanonical = this.resolveAndValidate(srcReal, src);
     const destCanonical = this.resolveAndValidate(destReal, dest);
+    let srcStat: fs.Stats;
+    try {
+      srcStat = await fs.promises.lstat(srcCanonical);
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") {
+        throw new Error(`ENOENT: no such file or directory, cp '${src}'`);
+      }
+      this.sanitizeError(e, src, "cp");
+    }
+    if (
+      srcStat.isDirectory() &&
+      isPathWithinRoot(destCanonical, srcCanonical)
+    ) {
+      throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
+    }
+
+    try {
+      await this.preflightCopyTree(srcCanonical, src);
+    } catch (e) {
+      this.sanitizeError(e, src, "cp");
+    }
 
     try {
       await fs.promises.cp(srcCanonical, destCanonical, {
@@ -437,19 +474,27 @@ export class ReadWriteFs implements IFileSystem {
               const resolved = await fs.promises
                 .realpath(source)
                 .catch(() => null);
-              if (resolved === null) return false;
-              return isPathWithinRoot(resolved, this.canonicalRoot);
+              if (
+                resolved === null ||
+                !isPathWithinRoot(resolved, this.canonicalRoot)
+              ) {
+                throw new Error(
+                  `EACCES: permission denied, cp '${src}' contains an unsafe symlink`,
+                );
+              }
+              return true;
             }
             return true;
           } catch (filterErr) {
-            // ENOENT: file disappeared between readdir and filter — let cp
-            // handle the error naturally (it will throw or skip as expected).
-            if ((filterErr as NodeJS.ErrnoException).code === "ENOENT") {
-              return true;
+            if (
+              (filterErr as Error).message?.includes("EACCES") ||
+              (filterErr as Error).message?.includes("unsafe symlink")
+            ) {
+              throw filterErr;
             }
-            // Other errors (EPERM, EIO, etc.): fail-closed — skip the entry
-            // since we can't determine if it's an escaping symlink.
-            return false;
+            // Never silently omit a source entry: that would turn cp and the
+            // EXDEV mv fallback into successful-looking partial operations.
+            throw new Error(`EIO: cp '${src}' could not validate source tree`);
           }
         },
       });
@@ -465,6 +510,46 @@ export class ReadWriteFs implements IFileSystem {
     }
   }
 
+  private async preflightCopyTree(
+    source: string,
+    virtualSource: string,
+    visited = new Set<string>(),
+  ): Promise<void> {
+    const stat = await fs.promises.lstat(source);
+    const identity = `${stat.dev}:${stat.ino}`;
+    if (visited.has(identity)) {
+      throw new Error(`ELOOP: cp '${virtualSource}' contains a cycle`);
+    }
+    if (stat.isSymbolicLink()) {
+      if (!this.allowSymlinks) {
+        throw new Error(
+          `EACCES: permission denied, cp '${virtualSource}' contains a symlink`,
+        );
+      }
+      const resolved = await fs.promises.realpath(source);
+      if (!isPathWithinRoot(resolved, this.canonicalRoot)) {
+        throw new Error(
+          `EACCES: permission denied, cp '${virtualSource}' contains an unsafe symlink`,
+        );
+      }
+      return;
+    }
+    if (!stat.isDirectory()) return;
+    visited.add(identity);
+    try {
+      const entries = await fs.promises.readdir(source);
+      for (const entry of entries) {
+        await this.preflightCopyTree(
+          nodePath.join(source, entry),
+          virtualSource,
+          visited,
+        );
+      }
+    } finally {
+      visited.delete(identity);
+    }
+  }
+
   async mv(src: string, dest: string): Promise<void> {
     validatePath(src, "mv");
     validatePath(dest, "mv");
@@ -475,12 +560,27 @@ export class ReadWriteFs implements IFileSystem {
     // resolveAndValidate would resolve through symlinks, breaking symlink moves.
     const srcCanonical = this.validateParent(srcReal, src);
     const destCanonical = this.validateParent(destReal, dest);
+    let sourceStat: fs.Stats;
+    try {
+      sourceStat = await fs.promises.lstat(srcCanonical);
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") {
+        throw new Error(`ENOENT: no such file or directory, mv '${src}'`);
+      }
+      this.sanitizeError(e, src, "mv");
+    }
+    if (
+      sourceStat.isDirectory() &&
+      this.isSameOrDescendantIdentity(srcCanonical, destCanonical)
+    ) {
+      throw new Error(`EINVAL: cannot move '${src}' into itself, '${dest}'`);
+    }
 
     // Check if source is a symlink - if so, validate that its target
     // will still be valid after the move (prevents mv+symlink escape)
     try {
-      const srcStat = await fs.promises.lstat(srcCanonical);
-      if (srcStat.isSymbolicLink()) {
+      if (sourceStat.isSymbolicLink()) {
         const target = await fs.promises.readlink(srcCanonical);
         // Resolve the target relative to the destination location
         const resolvedTarget = nodePath.resolve(
@@ -527,8 +627,7 @@ export class ReadWriteFs implements IFileSystem {
       }
       // If rename fails across devices, fall back to copy + delete
       if (err.code === "EXDEV") {
-        await this.cp(src, dest, { recursive: true });
-        await this.rm(src, { recursive: true });
+        await this.moveAcrossDevices(src, dest);
         return;
       }
       this.sanitizeError(e, src, "mv");
@@ -556,7 +655,131 @@ export class ReadWriteFs implements IFileSystem {
       ) {
         throw e;
       }
-      // Ignore stat errors (e.g., dest is a file not a directory)
+      // A scan failure cannot be treated as proof that the moved tree is safe.
+      await fs.promises.rename(destCanonical, srcCanonical).catch(() => {});
+      this.sanitizeError(e, dest, "mv");
+    }
+  }
+
+  /** Compare canonical path identity, not user-visible lexical spelling. */
+  private isSameOrDescendantIdentity(
+    srcReal: string,
+    destReal: string,
+  ): boolean {
+    let canonicalSource = srcReal;
+    let canonicalDestination = destReal;
+    try {
+      canonicalSource = fs.realpathSync(srcReal);
+    } catch {
+      // The caller's lstat reports the useful virtual-path error.
+    }
+    try {
+      canonicalDestination = fs.realpathSync(destReal);
+    } catch {
+      try {
+        const canonicalParent = fs.realpathSync(nodePath.dirname(destReal));
+        canonicalDestination = nodePath.join(
+          canonicalParent,
+          nodePath.basename(destReal),
+        );
+      } catch {
+        // validateParent already supplied the best canonical destination.
+      }
+    }
+    return isPathWithinRoot(canonicalDestination, canonicalSource);
+  }
+
+  private async uniqueTransactionPath(
+    path: string,
+    purpose: "stage" | "backup" | "source",
+  ): Promise<string> {
+    const parent = nodePath.posix.dirname(path);
+    for (let attempts = 0; attempts < 100; attempts++) {
+      const id = this.transactionId++;
+      const candidate = nodePath.posix.join(
+        parent,
+        `.just-bash-mv-${purpose}-${id}`,
+      );
+      if (!(await this.exists(candidate))) return candidate;
+    }
+    throw new Error(`EEXIST: mv '${path}'`);
+  }
+
+  /**
+   * Transactional EXDEV fallback. The destination is assembled under a hidden
+   * sibling, then committed by rename. Source removal is also staged by rename,
+   * so failures can restore both visible names without claiming atomicity.
+   */
+  private async moveAcrossDevices(src: string, dest: string): Promise<void> {
+    const stage = await this.uniqueTransactionPath(dest, "stage");
+    const backup = await this.uniqueTransactionPath(dest, "backup");
+    const sourceTombstone = await this.uniqueTransactionPath(src, "source");
+    const stageReal = this.validateParent(this.toRealPath(stage), stage);
+    const backupReal = this.validateParent(this.toRealPath(backup), backup);
+    const sourceReal = this.validateParent(this.toRealPath(src), src);
+    const sourceTombstoneReal = this.validateParent(
+      this.toRealPath(sourceTombstone),
+      sourceTombstone,
+    );
+    const destReal = this.validateParent(this.toRealPath(dest), dest);
+    let destinationBackedUp = false;
+    let destinationCommitted = false;
+    let sourceStaged = false;
+
+    const rollback = async (): Promise<void> => {
+      if (sourceStaged) {
+        await fs.promises
+          .rename(sourceTombstoneReal, sourceReal)
+          .catch(() => {});
+      }
+      if (destinationCommitted) {
+        await fs.promises
+          .rm(destReal, { recursive: true, force: true })
+          .catch(() => {});
+      }
+      if (destinationBackedUp) {
+        await fs.promises.rename(backupReal, destReal).catch(() => {});
+      }
+      await fs.promises
+        .rm(stageReal, { recursive: true, force: true })
+        .catch(() => {});
+    };
+
+    try {
+      // cp performs the complete traversal and symlink policy checks before any
+      // visible destination name is changed.
+      await this.cp(src, stage, { recursive: true });
+      if (this.findEscapingSymlinks(stageReal).length > 0) {
+        throw new Error(
+          `EACCES: permission denied, mv '${src}' -> '${dest}' would create symlinks escaping sandbox`,
+        );
+      }
+      try {
+        await fs.promises.rename(destReal, backupReal);
+        destinationBackedUp = true;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+      }
+      await fs.promises.rename(stageReal, destReal);
+      destinationCommitted = true;
+      await fs.promises.rename(sourceReal, sourceTombstoneReal);
+      sourceStaged = true;
+      await fs.promises.rm(sourceTombstoneReal, {
+        recursive: true,
+        force: false,
+      });
+      sourceStaged = false;
+      if (destinationBackedUp) {
+        // The move is fully committed once the source tombstone is gone.
+        // Backup cleanup cannot be allowed to roll back the only remaining
+        // complete copy, so treat failure here as non-fatal garbage collection.
+        await fs.promises
+          .rm(backupReal, { recursive: true, force: true })
+          .catch(() => {});
+      }
+    } catch (e) {
+      await rollback();
+      this.sanitizeError(e, src, "mv");
     }
   }
 
@@ -585,33 +808,26 @@ export class ReadWriteFs implements IFileSystem {
    */
   private findEscapingSymlinks(dir: string): string[] {
     const escaping: string[] = [];
-    try {
-      const entries = fs.readdirSync(dir);
-      for (const entry of entries) {
-        const entryPath = nodePath.join(dir, entry);
+    const entries = fs.readdirSync(dir);
+    for (const entry of entries) {
+      const entryPath = nodePath.join(dir, entry);
+      const stat = fs.lstatSync(entryPath);
+      if (stat.isSymbolicLink()) {
+        const target = fs.readlinkSync(entryPath);
+        const resolvedTarget = nodePath.resolve(dir, target);
+        let canonicalTarget: string;
         try {
-          const stat = fs.lstatSync(entryPath);
-          if (stat.isSymbolicLink()) {
-            const target = fs.readlinkSync(entryPath);
-            const resolvedTarget = nodePath.resolve(dir, target);
-            let canonicalTarget: string;
-            try {
-              canonicalTarget = fs.realpathSync(resolvedTarget);
-            } catch {
-              canonicalTarget = resolvedTarget;
-            }
-            if (!isPathWithinRoot(canonicalTarget, this.canonicalRoot)) {
-              escaping.push(entryPath);
-            }
-          } else if (stat.isDirectory()) {
-            escaping.push(...this.findEscapingSymlinks(entryPath));
-          }
-        } catch {
-          // Skip entries we can't stat
+          canonicalTarget = fs.realpathSync(resolvedTarget);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          canonicalTarget = resolvedTarget;
         }
+        if (!isPathWithinRoot(canonicalTarget, this.canonicalRoot)) {
+          escaping.push(entryPath);
+        }
+      } else if (stat.isDirectory()) {
+        escaping.push(...this.findEscapingSymlinks(entryPath));
       }
-    } catch {
-      // Skip directories we can't read
     }
     return escaping;
   }

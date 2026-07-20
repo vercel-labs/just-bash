@@ -241,43 +241,55 @@ export async function evaluateBinaryFileTest(
 
   switch (operator) {
     case "-nt": {
-      // left is newer than right
-      try {
-        const leftStat = await ctx.fs.stat(leftPath);
-        const rightStat = await ctx.fs.stat(rightPath);
-        return leftStat.mtime > rightStat.mtime;
-      } catch {
-        // If either file doesn't exist, result is false
-        return false;
-      }
+      const [leftStat, rightStat] = await Promise.all([
+        ctx.fs.stat(leftPath).catch(() => null),
+        ctx.fs.stat(rightPath).catch(() => null),
+      ]);
+      return (
+        leftStat !== null &&
+        (rightStat === null || leftStat.mtime > rightStat.mtime)
+      );
     }
 
     case "-ot": {
       // left is older than right
-      try {
-        const leftStat = await ctx.fs.stat(leftPath);
-        const rightStat = await ctx.fs.stat(rightPath);
-        return leftStat.mtime < rightStat.mtime;
-      } catch {
-        return false;
-      }
+      const [leftStat, rightStat] = await Promise.all([
+        ctx.fs.stat(leftPath).catch(() => null),
+        ctx.fs.stat(rightPath).catch(() => null),
+      ]);
+      return (
+        rightStat !== null &&
+        (leftStat === null || leftStat.mtime < rightStat.mtime)
+      );
     }
 
     case "-ef": {
       // Same file (same device and inode)
-      // In virtual fs, compare resolved canonical paths
       try {
-        // Both files must exist
+        const [leftReal, rightReal] = await Promise.all([
+          ctx.fs.realpath(leftPath),
+          ctx.fs.realpath(rightPath),
+        ]);
+        if (leftReal === rightReal) return true;
+
+        const [leftStat, rightStat] = await Promise.all([
+          ctx.fs.stat(leftPath),
+          ctx.fs.stat(rightPath),
+        ]);
         if (
-          !(await ctx.fs.exists(leftPath)) ||
-          !(await ctx.fs.exists(rightPath))
+          leftStat.dev !== undefined &&
+          leftStat.ino !== undefined &&
+          rightStat.dev !== undefined &&
+          rightStat.ino !== undefined
         ) {
-          return false;
+          return (
+            leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino
+          );
         }
-        // Compare canonical paths (handles symlinks)
-        const leftReal = ctx.fs.resolvePath(ctx.state.cwd, leftPath);
-        const rightReal = ctx.fs.resolvePath(ctx.state.cwd, rightPath);
-        return leftReal === rightReal;
+        if (leftStat.identity && rightStat.identity) {
+          return leftStat.identity === rightStat.identity;
+        }
+        return false;
       } catch {
         return false;
       }

@@ -5,7 +5,13 @@
  */
 
 import { fileTypeFromBuffer } from "file-type";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { BoundedStringBuilder } from "../../bounded-builder.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const fileHelp = {
@@ -379,31 +385,33 @@ async function detectFileType(
   return detectTextType(content, filename);
 }
 
-export const fileCommand: Command = {
+export const fileCommand: RuntimeCommand = {
   name: "file",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) return showHelp(fileHelp);
 
     let brief = false;
     let mimeMode = false;
+    let dereference = false;
     const files: string[] = [];
 
     for (const arg of args) {
       if (arg.startsWith("--")) {
         if (arg === "--brief") brief = true;
         else if (arg === "--mime" || arg === "--mime-type") mimeMode = true;
-        else if (arg === "--dereference") {
-          /* no-op */
-        } else return unknownOption("file", arg);
+        else if (arg === "--dereference") dereference = true;
+        else return unknownOption("file", arg);
       } else if (arg.startsWith("-") && arg !== "-") {
         // Handle combined short flags like -bi
         for (const c of arg.slice(1)) {
           if (c === "b") brief = true;
           else if (c === "i") mimeMode = true;
-          else if (c === "L") {
-            /* no-op */
-          } else return unknownOption("file", `-${c}`);
+          else if (c === "L") dereference = true;
+          else return unknownOption("file", `-${c}`);
         }
       } else {
         files.push(arg);
@@ -418,33 +426,57 @@ export const fileCommand: Command = {
       };
     }
 
-    let output = "";
+    const output = new BoundedStringBuilder(
+      Math.min(ctx.limits.maxOutputSize, ctx.limits.maxStringLength),
+      "file",
+    );
     let exitCode = 0;
 
     for (const file of files) {
+      ctx.executionScope?.consumeLimited(
+        "file-operands",
+        1,
+        ctx.limits.maxArrayElements,
+        "file",
+      );
       try {
         const path = ctx.fs.resolvePath(ctx.cwd, file);
-        const stats = await ctx.fs.stat(path);
+        const stats = dereference
+          ? await ctx.fs.stat(path)
+          : await ctx.fs.lstat(path);
+
+        if (stats.isSymbolicLink) {
+          const target = await ctx.fs.readlink(path);
+          const result = mimeMode
+            ? "inode/symlink"
+            : `symbolic link to ${target}`;
+          output.append(brief ? `${result}\n` : `${file}: ${result}\n`);
+          continue;
+        }
 
         if (stats.isDirectory) {
           const result = mimeMode ? "inode/directory" : "directory";
-          output += brief ? `${result}\n` : `${file}: ${result}\n`;
+          output.append(brief ? `${result}\n` : `${file}: ${result}\n`);
           continue;
         }
 
         const buffer = await ctx.fs.readFileBuffer(path);
+        ctx.executionScope?.consumeInput(buffer.byteLength, "file");
         const fileType = await detectFileType(file, buffer);
         const result = mimeMode ? fileType.mime : fileType.description;
-        output += brief ? `${result}\n` : `${file}: ${result}\n`;
-      } catch {
-        output += brief
-          ? "cannot open\n"
-          : `${file}: cannot open (No such file or directory)\n`;
+        output.append(brief ? `${result}\n` : `${file}: ${result}\n`);
+      } catch (error) {
+        rethrowFatalExecutionError(error);
+        output.append(
+          brief
+            ? "cannot open\n"
+            : `${file}: cannot open (No such file or directory)\n`,
+        );
         exitCode = 1;
       }
     }
 
-    return { stdout: output, stderr: "", exitCode };
+    return { stdout: output.build(), stderr: "", exitCode };
   },
 };
 

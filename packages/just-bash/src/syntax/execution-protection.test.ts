@@ -273,7 +273,10 @@ describe("Execution Protection", () => {
     });
 
     it("should protect against recursive eval", async () => {
-      const env = new Bash({ maxCallDepth: 20 });
+      // This recursion does not create function frames, so call depth is not
+      // the relevant guard. Keep the attack fixture explicitly cheap while
+      // the normal profile remains liberal for real scripts.
+      const env = new Bash({ maxCommandCount: 100 });
       const result = await env.exec(`
         cmd='eval "$cmd"'
         eval "$cmd"
@@ -328,8 +331,10 @@ describe("Execution Protection", () => {
       const env = new Bash();
       const result = await env.exec("echo {a..z}{a..z}{a..z}{a..z}");
 
-      // 26^4 = 456,976 items - should be limited
-      expect(result.exitCode).toBe(0);
+      // 26^4 = 456,976 items: fail closed rather than returning a partial
+      // expansion after performing prohibited collection work.
+      expect(result.exitCode).toBe(126);
+      expect(result.stderr).toContain("brace expansion result limit exceeded");
     });
   });
 

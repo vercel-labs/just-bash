@@ -1,6 +1,10 @@
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 
 const argDefs = {
@@ -8,10 +12,13 @@ const argDefs = {
   verbose: { short: "v", long: "verbose", type: "boolean" as const },
 };
 
-export const mkdirCommand: Command = {
+export const mkdirCommand: RuntimeCommand = {
   name: "mkdir",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     const parsed = parseArgs("mkdir", args, argDefs);
     if (!parsed.ok) return parsed.error;
 

@@ -7,8 +7,32 @@
  * - ${!prefix*} and ${!arr[*]} expansions
  */
 
+import { ExecutionLimitError } from "../errors.js";
+
 /** Default IFS value: space, tab, newline */
 const DEFAULT_IFS = " \t\n";
+
+function assertIfsPushAllowed(length: number, maxArrayElements: number): void {
+  if (length >= maxArrayElements) {
+    throw new ExecutionLimitError(
+      `array element limit exceeded (${maxArrayElements})`,
+      "array_elements",
+    );
+  }
+}
+
+function pushReadField(
+  words: string[],
+  wordStarts: number[],
+  word: string,
+  start: number,
+  maxArrayElements: number,
+): void {
+  assertIfsPushAllowed(words.length, maxArrayElements);
+  assertIfsPushAllowed(wordStarts.length, maxArrayElements);
+  words.push(word);
+  wordStarts.push(start);
+}
 
 /**
  * Get the effective IFS value from environment.
@@ -127,6 +151,7 @@ function categorizeIfs(ifs: string): {
 export function splitByIfsForRead(
   value: string,
   ifs: string,
+  maxArrayElements: number,
   maxSplit?: number,
   raw?: boolean,
 ): { words: string[]; wordStarts: number[] } {
@@ -137,6 +162,7 @@ export function splitByIfsForRead(
     if (value === "") {
       return { words: [], wordStarts: [] };
     }
+    assertIfsPushAllowed(0, maxArrayElements);
     return { words: [value], wordStarts: [0] };
   }
 
@@ -157,8 +183,7 @@ export function splitByIfsForRead(
 
   // Check for leading non-whitespace delimiter (creates empty field)
   if (nonWhitespace.has(value[pos])) {
-    words.push("");
-    wordStarts.push(pos);
+    pushReadField(words, wordStarts, "", pos, maxArrayElements);
     pos++;
     // Skip any whitespace after the delimiter
     while (pos < value.length && whitespace.has(value[pos])) {
@@ -174,7 +199,6 @@ export function splitByIfsForRead(
     }
 
     const wordStart = pos;
-    wordStarts.push(wordStart);
 
     // Collect characters until we hit an IFS character
     // In non-raw mode, backslash escapes the next character (protects it from being IFS)
@@ -195,7 +219,13 @@ export function splitByIfsForRead(
       pos++;
     }
 
-    words.push(value.substring(wordStart, pos));
+    pushReadField(
+      words,
+      wordStarts,
+      value.substring(wordStart, pos),
+      wordStart,
+      maxArrayElements,
+    );
 
     if (pos >= value.length) {
       break;
@@ -223,8 +253,7 @@ export function splitByIfsForRead(
           break;
         }
         // Empty field for this delimiter
-        words.push("");
-        wordStarts.push(pos);
+        pushReadField(words, wordStarts, "", pos, maxArrayElements);
         pos++;
         // Skip whitespace after
         while (pos < value.length && whitespace.has(value[pos])) {
@@ -274,9 +303,11 @@ export interface IfsExpansionSplitResult {
 export function splitByIfsForExpansionEx(
   value: string,
   ifs: string,
+  maxArrayElements: number,
 ): IfsExpansionSplitResult {
   // Empty IFS means no splitting
   if (ifs === "") {
+    if (value) assertIfsPushAllowed(0, maxArrayElements);
     return {
       words: value ? [value] : [],
       hadLeadingDelimiter: false,
@@ -317,6 +348,7 @@ export function splitByIfsForExpansionEx(
 
   // Check for leading non-whitespace delimiter (creates empty field)
   if (nonWhitespace.has(value[pos])) {
+    assertIfsPushAllowed(words.length, maxArrayElements);
     words.push("");
     pos++;
     // Skip any whitespace after the delimiter
@@ -338,6 +370,7 @@ export function splitByIfsForExpansionEx(
       pos++;
     }
 
+    assertIfsPushAllowed(words.length, maxArrayElements);
     words.push(value.substring(wordStart, pos));
 
     if (pos >= value.length) {
@@ -365,6 +398,7 @@ export function splitByIfsForExpansionEx(
       // Check for more non-whitespace delimiters (creates empty fields)
       while (pos < value.length && nonWhitespace.has(value[pos])) {
         // Empty field for this delimiter
+        assertIfsPushAllowed(words.length, maxArrayElements);
         words.push("");
         pos++;
         // Skip whitespace after
@@ -383,8 +417,12 @@ export function splitByIfsForExpansionEx(
   return { words, hadLeadingDelimiter, hadTrailingDelimiter };
 }
 
-export function splitByIfsForExpansion(value: string, ifs: string): string[] {
-  return splitByIfsForExpansionEx(value, ifs).words;
+export function splitByIfsForExpansion(
+  value: string,
+  ifs: string,
+  maxArrayElements: number,
+): string[] {
+  return splitByIfsForExpansionEx(value, ifs, maxArrayElements).words;
 }
 
 /**

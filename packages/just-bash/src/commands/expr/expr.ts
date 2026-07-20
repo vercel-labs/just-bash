@@ -1,16 +1,24 @@
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { createUserRegex } from "../../regex/index.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 
 /**
  * expr - evaluate expressions
  *
  * Basic implementation supporting arithmetic operations and string operations.
  */
-export const exprCommand: Command = {
+export const exprCommand: RuntimeCommand = {
   name: "expr",
 
-  async execute(args: string[], _ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (args.length === 0) {
       return {
         stdout: "",
@@ -20,7 +28,9 @@ export const exprCommand: Command = {
     }
 
     try {
-      const result = evaluateExpr(args);
+      const result = evaluateExpr(args, (units) =>
+        ctx.executionScope?.consumeWork(units, "expr index"),
+      );
       // expr returns 1 if result is 0 or empty, 0 otherwise
       const exitCode = result === "0" || result === "" ? 1 : 0;
       return {
@@ -29,6 +39,7 @@ export const exprCommand: Command = {
         exitCode,
       };
     } catch (error) {
+      rethrowFatalExecutionError(error);
       const message = sanitizeErrorMessage((error as Error).message);
       return {
         stdout: "",
@@ -39,7 +50,10 @@ export const exprCommand: Command = {
   },
 };
 
-function evaluateExpr(args: string[]): string {
+function evaluateExpr(
+  args: string[],
+  consumeWork: (units: number) => void,
+): string {
   // Simple single operand case
   if (args.length === 1) {
     return args[0];
@@ -217,9 +231,13 @@ function evaluateExpr(args: string[]): string {
       i++;
       const str = parsePrimary();
       const chars = parsePrimary();
-      // Find first char from chars in str
+      // Build membership once. Calling chars.includes() for every input code
+      // unit is quadratic when both operands are attacker controlled.
+      consumeWork(chars.length + str.length);
+      const characterSet = new Set<string>();
+      for (let j = 0; j < chars.length; j++) characterSet.add(chars[j]);
       for (let j = 0; j < str.length; j++) {
-        if (chars.includes(str[j])) {
+        if (characterSet.has(str[j])) {
           return String(j + 1); // 1-based
         }
       }
@@ -246,7 +264,11 @@ function evaluateExpr(args: string[]): string {
     return token;
   }
 
-  return parseOr();
+  const result = parseOr();
+  if (i !== args.length) {
+    throw new Error("syntax error");
+  }
+  return result;
 }
 
 import type { CommandFuzzInfo } from "../fuzz-flags-types.js";

@@ -8,7 +8,11 @@
  */
 
 import { decodeBytesToUtf8 } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const unexpandHelp = {
@@ -179,9 +183,12 @@ function processContent(content: string, options: UnexpandOptions): string {
   return unexpandedLines.join("\n") + (hasTrailingNewline ? "\n" : "");
 }
 
-export const unexpand: Command = {
+export const unexpand: RuntimeCommand = {
   name: "unexpand",
-  execute: async (args: string[], ctx: CommandContext): Promise<ExecResult> => {
+  execute: async (
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> => {
     if (hasHelpFlag(args)) {
       return showHelp(unexpandHelp);
     }

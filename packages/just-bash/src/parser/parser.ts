@@ -43,9 +43,8 @@ import {
 } from "./parser-substitution.js";
 import {
   MAX_INPUT_SIZE,
-  MAX_PARSE_ITERATIONS,
-  MAX_PARSER_DEPTH,
   MAX_TOKENS,
+  ParseBudget,
   ParseException,
 } from "./types.js";
 
@@ -65,9 +64,14 @@ export class Parser {
     stripTabs: boolean;
     quoted: boolean;
   }[] = [];
-  private parseIterations = 0;
-  private parseDepth = 0;
+  private readonly parseBudget: ParseBudget;
+  private readonly ownsParseBudget: boolean;
   private _input = "";
+
+  constructor(parseBudget?: ParseBudget) {
+    this.parseBudget = parseBudget ?? new ParseBudget();
+    this.ownsParseBudget = parseBudget === undefined;
+  }
 
   /**
    * Get the raw input string being parsed.
@@ -81,14 +85,8 @@ export class Parser {
    * Check parse iteration limit to prevent infinite loops
    */
   checkIterationLimit(): void {
-    this.parseIterations++;
-    if (this.parseIterations > MAX_PARSE_ITERATIONS) {
-      throw new ParseException(
-        "Maximum parse iterations exceeded (possible infinite loop)",
-        this.current().line,
-        this.current().column,
-      );
-    }
+    const token = this.current();
+    this.parseBudget.chargeIteration(token?.line ?? 1, token?.column ?? 1);
   }
 
   /**
@@ -96,62 +94,72 @@ export class Parser {
    * from deeply nested constructs. Returns a function to decrement depth.
    */
   enterDepth(): () => void {
-    this.parseDepth++;
-    if (this.parseDepth > MAX_PARSER_DEPTH) {
-      throw new ParseException(
-        `Maximum parser nesting depth exceeded (${MAX_PARSER_DEPTH})`,
-        this.current().line,
-        this.current().column,
-      );
+    const token = this.current();
+    return this.parseBudget.enter(token?.line ?? 1, token?.column ?? 1);
+  }
+
+  withDepth<T>(callback: () => T): T {
+    const exitDepth = this.enterDepth();
+    try {
+      return callback();
+    } finally {
+      exitDepth();
     }
-    return () => {
-      this.parseDepth--;
-    };
   }
 
   /**
    * Parse a bash script string
    */
   parse(input: string, options?: LexerOptions): ScriptNode {
-    // Check input size limit
-    if (input.length > MAX_INPUT_SIZE) {
-      throw new ParseException(
-        `Input too large: ${input.length} bytes exceeds limit of ${MAX_INPUT_SIZE}`,
-        1,
-        1,
-      );
+    if (this.ownsParseBudget) this.parseBudget.reset();
+    const exitDepth = this.ownsParseBudget ? undefined : this.enterDepth();
+    try {
+      // Check input size limit
+      if (input.length > MAX_INPUT_SIZE) {
+        throw new ParseException(
+          `Input too large: ${input.length} bytes exceeds limit of ${MAX_INPUT_SIZE}`,
+          1,
+          1,
+        );
+      }
+
+      this._input = input;
+      const lexer = new Lexer(input, options);
+      this.tokens = lexer.tokenize();
+
+      // Check token count limit
+      if (this.tokens.length > MAX_TOKENS) {
+        throw new ParseException(
+          `Too many tokens: ${this.tokens.length} exceeds limit of ${MAX_TOKENS}`,
+          1,
+          1,
+        );
+      }
+
+      this.pos = 0;
+      this.pendingHeredocs = [];
+      this.parseBudget.chargeTokens(this.tokens.length);
+      return this.parseScript();
+    } finally {
+      exitDepth?.();
     }
-
-    this._input = input;
-    const lexer = new Lexer(input, options);
-    this.tokens = lexer.tokenize();
-
-    // Check token count limit
-    if (this.tokens.length > MAX_TOKENS) {
-      throw new ParseException(
-        `Too many tokens: ${this.tokens.length} exceeds limit of ${MAX_TOKENS}`,
-        1,
-        1,
-      );
-    }
-
-    this.pos = 0;
-    this.pendingHeredocs = [];
-    this.parseIterations = 0;
-    this.parseDepth = 0;
-    return this.parseScript();
   }
 
   /**
    * Parse from pre-tokenized input
    */
   parseTokens(tokens: Token[]): ScriptNode {
-    this.tokens = tokens;
-    this.pos = 0;
-    this.pendingHeredocs = [];
-    this.parseIterations = 0;
-    this.parseDepth = 0;
-    return this.parseScript();
+    if (this.ownsParseBudget) this.parseBudget.reset();
+    const exitDepth = this.ownsParseBudget ? undefined : this.enterDepth();
+    try {
+      this.tokens = tokens;
+      this.pos = 0;
+      this.pendingHeredocs = [];
+      this.parseBudget.chargeTokens(tokens.length);
+      return this.parseScript();
+    } finally {
+      exitDepth?.();
+    }
   }
 
   // ===========================================================================
@@ -819,7 +827,7 @@ export class Parser {
     return parseCommandSubstitutionFromString(
       value,
       start,
-      () => new Parser(),
+      () => new Parser(this.parseBudget),
       (msg) => this.error(msg),
     );
   }
@@ -834,7 +842,7 @@ export class Parser {
       value,
       start,
       inDoubleQuotes,
-      () => new Parser(),
+      () => new Parser(this.parseBudget),
       (msg) => this.error(msg),
     );
   }
@@ -1112,45 +1120,48 @@ export class Parser {
 
   parseCompoundList(): StatementNode[] {
     const exitDepth = this.enterDepth();
-    const statements: StatementNode[] = [];
+    try {
+      const statements: StatementNode[] = [];
 
-    this.skipNewlines();
+      this.skipNewlines();
 
-    while (
-      !this.check(
-        TokenType.EOF,
-        TokenType.FI,
-        TokenType.ELSE,
-        TokenType.ELIF,
-        TokenType.THEN,
-        TokenType.DO,
-        TokenType.DONE,
-        TokenType.ESAC,
-        TokenType.RPAREN,
-        TokenType.RBRACE,
-        TokenType.DSEMI,
-        TokenType.SEMI_AND,
-        TokenType.SEMI_SEMI_AND,
-      ) &&
-      this.isCommandStart()
-    ) {
-      this.checkIterationLimit();
-      const posBefore = this.pos;
+      while (
+        !this.check(
+          TokenType.EOF,
+          TokenType.FI,
+          TokenType.ELSE,
+          TokenType.ELIF,
+          TokenType.THEN,
+          TokenType.DO,
+          TokenType.DONE,
+          TokenType.ESAC,
+          TokenType.RPAREN,
+          TokenType.RBRACE,
+          TokenType.DSEMI,
+          TokenType.SEMI_AND,
+          TokenType.SEMI_SEMI_AND,
+        ) &&
+        this.isCommandStart()
+      ) {
+        this.checkIterationLimit();
+        const posBefore = this.pos;
 
-      const stmt = this.parseStatement();
-      if (stmt) {
-        statements.push(stmt);
+        const stmt = this.parseStatement();
+        if (stmt) {
+          statements.push(stmt);
+        }
+        this.skipSeparators();
+
+        // Safety: if we didn't advance and didn't get a statement, break
+        if (this.pos === posBefore && !stmt) {
+          break;
+        }
       }
-      this.skipSeparators();
 
-      // Safety: if we didn't advance and didn't get a statement, break
-      if (this.pos === posBefore && !stmt) {
-        break;
-      }
+      return statements;
+    } finally {
+      exitDepth();
     }
-
-    exitDepth();
-    return statements;
   }
 
   parseOptionalRedirections(): RedirectionNode[] {

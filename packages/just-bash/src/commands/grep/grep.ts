@@ -1,6 +1,12 @@
 import { decodeBytesToUtf8 } from "../../encoding.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { UserRegex } from "../../regex/index.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { matchGlob } from "../../utils/glob.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { buildRegex, searchContent } from "../search-engine/index.js";
@@ -9,6 +15,38 @@ import { buildRegex, searchContent } from "../search-engine/index.js";
 interface FileEntry {
   path: string;
   isFile?: boolean; // undefined means we need to stat
+}
+
+interface GrepTraversalBudget {
+  operations: number;
+  results: number;
+  maxOperations: number;
+  maxResults: number;
+}
+
+function getMatcherWorkLimit(ctx: RuntimeCommandContext): number {
+  const loopLimit = ctx.limits.maxLoopIterations;
+  const arrayLimit = ctx.limits.maxArrayElements;
+  return Math.max(loopLimit, Math.min(arrayLimit, loopLimit * 10));
+}
+
+function useTraversalOperation(budget: GrepTraversalBudget): void {
+  if (++budget.operations > budget.maxOperations) {
+    throw new ExecutionLimitError(
+      `grep: glob operation limit exceeded (${budget.maxOperations})`,
+      "glob_operations",
+    );
+  }
+}
+
+function addTraversalResult(budget: GrepTraversalBudget): void {
+  if (budget.results >= budget.maxResults) {
+    throw new ExecutionLimitError(
+      `grep: array element limit exceeded (${budget.maxResults})`,
+      "array_elements",
+    );
+  }
+  budget.results++;
 }
 
 const grepHelp = {
@@ -43,10 +81,13 @@ const grepHelp = {
   ],
 };
 
-export const grepCommand: Command = {
+export const grepCommand: RuntimeCommand = {
   name: "grep",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(grepHelp);
     }
@@ -241,6 +282,9 @@ export const grepCommand: Command = {
         maxCount,
         kResetGroup,
         preFilter,
+        maxWork: getMatcherWorkLimit(ctx),
+        maxMatches: ctx.limits.maxArrayElements,
+        signal: ctx.signal,
       });
       if (quietMode) {
         return { stdout: "", stderr: "", exitCode: result.matched ? 0 : 1 };
@@ -269,10 +313,29 @@ export const grepCommand: Command = {
     // Collect all files to search (expand globs first)
     // FileEntry includes type info when available to skip stat calls
     const filesToSearch: FileEntry[] = [];
+    const traversalBudget: GrepTraversalBudget = {
+      operations: 0,
+      results: 0,
+      maxOperations: ctx.limits.maxGlobOperations,
+      maxResults: ctx.limits.maxArrayElements,
+    };
+    const appendFiles = (entries: FileEntry[]): void => {
+      if (entries.length > traversalBudget.maxResults - filesToSearch.length) {
+        throw new ExecutionLimitError(
+          `grep: array element limit exceeded (${traversalBudget.maxResults})`,
+          "array_elements",
+        );
+      }
+      filesToSearch.push(...entries);
+    };
     for (const file of files) {
       // Check if this is a glob pattern
       if (file.includes("*") || file.includes("?") || file.includes("[")) {
-        const expanded = await expandGlobPatternWithTypes(file, ctx);
+        const expanded = await expandGlobPatternWithTypes(
+          file,
+          ctx,
+          traversalBudget,
+        );
         if (recursive) {
           for (const f of expanded) {
             const recursiveExpanded = await expandRecursiveWithTypes(
@@ -282,11 +345,12 @@ export const grepCommand: Command = {
               excludePatterns,
               excludeDirPatterns,
               f.isFile,
+              traversalBudget,
             );
-            filesToSearch.push(...recursiveExpanded);
+            appendFiles(recursiveExpanded);
           }
         } else {
-          filesToSearch.push(...expanded);
+          appendFiles(expanded);
         }
       } else if (recursive) {
         const expanded = await expandRecursiveWithTypes(
@@ -295,9 +359,17 @@ export const grepCommand: Command = {
           includePatterns,
           excludePatterns,
           excludeDirPatterns,
+          undefined,
+          traversalBudget,
         );
-        filesToSearch.push(...expanded);
+        appendFiles(expanded);
       } else {
+        if (filesToSearch.length >= traversalBudget.maxResults) {
+          throw new ExecutionLimitError(
+            `grep: array element limit exceeded (${traversalBudget.maxResults})`,
+            "array_elements",
+          );
+        }
         filesToSearch.push({ path: file });
       }
     }
@@ -395,10 +467,14 @@ export const grepCommand: Command = {
               maxCount,
               kResetGroup,
               preFilter,
+              maxWork: getMatcherWorkLimit(ctx),
+              maxMatches: ctx.limits.maxArrayElements,
+              signal: ctx.signal,
             });
 
             return { file, result };
-          } catch {
+          } catch (error) {
+            rethrowFatalExecutionError(error);
             return { error: `grep: ${file}: No such file or directory\n` };
           }
         }),
@@ -470,14 +546,16 @@ const MAX_GREP_DEPTH = 256;
 async function expandRecursiveGlob(
   baseDir: string,
   afterGlob: string,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   result: string[],
+  budget: GrepTraversalBudget,
   depth = 0,
 ): Promise<void> {
   if (depth >= MAX_GREP_DEPTH) return;
   const fullBasePath = ctx.fs.resolvePath(ctx.cwd, baseDir);
 
   try {
+    useTraversalOperation(budget);
     const stat = await ctx.fs.stat(fullBasePath);
 
     if (!stat.isDirectory) {
@@ -486,6 +564,7 @@ async function expandRecursiveGlob(
       if (afterGlob) {
         const pattern = afterGlob.replace(/^\//, "");
         if (matchGlob(filename, pattern, { stripQuotes: true })) {
+          addTraversalResult(budget);
           result.push(baseDir);
         }
       }
@@ -493,24 +572,35 @@ async function expandRecursiveGlob(
     }
 
     // Check files in current directory
+    useTraversalOperation(budget);
     const entries = await ctx.fs.readdir(fullBasePath);
     for (const entry of entries) {
       const entryPath = baseDir === "." ? entry : `${baseDir}/${entry}`;
       const fullEntryPath = ctx.fs.resolvePath(ctx.cwd, entryPath);
+      useTraversalOperation(budget);
       const entryStat = await ctx.fs.stat(fullEntryPath);
 
       if (entryStat.isDirectory) {
         // Recurse into directory
-        await expandRecursiveGlob(entryPath, afterGlob, ctx, result, depth + 1);
+        await expandRecursiveGlob(
+          entryPath,
+          afterGlob,
+          ctx,
+          result,
+          budget,
+          depth + 1,
+        );
       } else if (afterGlob) {
         // Check if file matches afterGlob pattern
         const pattern = afterGlob.replace(/^\//, "");
         if (matchGlob(entry, pattern, { stripQuotes: true })) {
+          addTraversalResult(budget);
           result.push(entryPath);
         }
       }
     }
-  } catch {
+  } catch (error) {
+    rethrowFatalExecutionError(error);
     // Ignore errors
   }
 }
@@ -521,7 +611,8 @@ async function expandRecursiveGlob(
  */
 async function expandGlobPatternWithTypes(
   pattern: string,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
+  budget: GrepTraversalBudget,
 ): Promise<FileEntry[]> {
   const result: FileEntry[] = [];
 
@@ -544,7 +635,7 @@ async function expandGlobPatternWithTypes(
     const parts = pattern.split("**");
     const baseDir = parts[0].replace(/\/$/, "") || ".";
     const afterGlob = parts[1] || "";
-    await expandRecursiveGlob(baseDir, afterGlob, ctx, oldResult);
+    await expandRecursiveGlob(baseDir, afterGlob, ctx, oldResult, budget);
     return oldResult.map((p) => ({ path: p }));
   }
 
@@ -554,11 +645,14 @@ async function expandGlobPatternWithTypes(
   try {
     // Use readdirWithFileTypes if available for better performance
     if (ctx.fs.readdirWithFileTypes) {
+      useTraversalOperation(budget);
       const entries = await ctx.fs.readdirWithFileTypes(fullDirPath);
       for (const entry of entries) {
+        useTraversalOperation(budget);
         if (matchGlob(entry.name, globPart, { stripQuotes: true })) {
           const fullPath =
             lastSlash === -1 ? entry.name : `${dirPath}/${entry.name}`;
+          addTraversalResult(budget);
           result.push({
             path: fullPath,
             isFile: entry.isFile,
@@ -567,15 +661,19 @@ async function expandGlobPatternWithTypes(
       }
     } else {
       // Fall back to regular readdir
+      useTraversalOperation(budget);
       const entries = await ctx.fs.readdir(fullDirPath);
       for (const entry of entries) {
+        useTraversalOperation(budget);
         if (matchGlob(entry, globPart, { stripQuotes: true })) {
           const fullPath = lastSlash === -1 ? entry : `${dirPath}/${entry}`;
+          addTraversalResult(budget);
           result.push({ path: fullPath });
         }
       }
     }
-  } catch {
+  } catch (error) {
+    rethrowFatalExecutionError(error);
     // Directory doesn't exist - return empty
   }
 
@@ -588,16 +686,22 @@ async function expandGlobPatternWithTypes(
  */
 async function expandRecursiveWithTypes(
   path: string,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   includePatterns: string[] = [],
   excludePatterns: string[] = [],
   excludeDirPatterns: string[] = [],
   knownIsFile?: boolean,
+  budget: GrepTraversalBudget = {
+    operations: 0,
+    results: 0,
+    maxOperations: ctx.limits.maxGlobOperations,
+    maxResults: ctx.limits.maxArrayElements,
+  },
+  result: FileEntry[] = [],
   depth = 0,
 ): Promise<FileEntry[]> {
-  if (depth >= MAX_GREP_DEPTH) return [];
+  if (depth >= MAX_GREP_DEPTH) return result;
   const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
-  const result: FileEntry[] = [];
 
   try {
     // Determine if it's a file or directory
@@ -608,6 +712,7 @@ async function expandRecursiveWithTypes(
       isFile = knownIsFile;
       isDirectory = !knownIsFile;
     } else {
+      useTraversalOperation(budget);
       const stat = await ctx.fs.stat(fullPath);
       isFile = stat.isFile;
       isDirectory = stat.isDirectory;
@@ -623,7 +728,7 @@ async function expandRecursiveWithTypes(
             matchGlob(basename, p, { stripQuotes: true }),
           )
         ) {
-          return [];
+          return result;
         }
       }
 
@@ -634,14 +739,16 @@ async function expandRecursiveWithTypes(
             matchGlob(basename, p, { stripQuotes: true }),
           )
         ) {
-          return [];
+          return result;
         }
       }
-      return [{ path, isFile: true }];
+      addTraversalResult(budget);
+      result.push({ path, isFile: true });
+      return result;
     }
 
     if (!isDirectory) {
-      return [];
+      return result;
     }
 
     // Check if directory should be excluded
@@ -652,47 +759,54 @@ async function expandRecursiveWithTypes(
           matchGlob(dirName, p, { stripQuotes: true }),
         )
       ) {
-        return [];
+        return result;
       }
     }
 
     // Use readdirWithFileTypes if available
     if (ctx.fs.readdirWithFileTypes) {
+      useTraversalOperation(budget);
       const entries = await ctx.fs.readdirWithFileTypes(fullPath);
       for (const entry of entries) {
+        useTraversalOperation(budget);
         if (entry.name.startsWith(".")) continue; // Skip hidden files
 
         const entryPath = path === "." ? entry.name : `${path}/${entry.name}`;
-        const expanded = await expandRecursiveWithTypes(
+        await expandRecursiveWithTypes(
           entryPath,
           ctx,
           includePatterns,
           excludePatterns,
           excludeDirPatterns,
           entry.isFile,
+          budget,
+          result,
           depth + 1,
         );
-        result.push(...expanded);
       }
     } else {
+      useTraversalOperation(budget);
       const entries = await ctx.fs.readdir(fullPath);
       for (const entry of entries) {
+        useTraversalOperation(budget);
         if (entry.startsWith(".")) continue; // Skip hidden files
 
         const entryPath = path === "." ? entry : `${path}/${entry}`;
-        const expanded = await expandRecursiveWithTypes(
+        await expandRecursiveWithTypes(
           entryPath,
           ctx,
           includePatterns,
           excludePatterns,
           excludeDirPatterns,
           undefined,
+          budget,
+          result,
           depth + 1,
         );
-        result.push(...expanded);
       }
     }
-  } catch {
+  } catch (error) {
+    rethrowFatalExecutionError(error);
     // Ignore errors
   }
 
@@ -700,20 +814,26 @@ async function expandRecursiveWithTypes(
 }
 
 // fgrep is equivalent to grep -F
-export const fgrepCommand: Command = {
+export const fgrepCommand: RuntimeCommand = {
   name: "fgrep",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     // Insert -F at the beginning of args
     return grepCommand.execute(["-F", ...args], ctx);
   },
 };
 
 // egrep is equivalent to grep -E
-export const egrepCommand: Command = {
+export const egrepCommand: RuntimeCommand = {
   name: "egrep",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     // Insert -E at the beginning of args
     return grepCommand.execute(["-E", ...args], ctx);
   },

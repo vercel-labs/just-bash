@@ -10,6 +10,16 @@ describe("sed lexer", () => {
     const tokenTypes = tokens.map((t) => t.type);
     expect(tokenTypes).toContain(SedTokenType.RELATIVE_OFFSET);
   });
+
+  it("rejects token amplification before filling the token array", () => {
+    const lexer = new SedLexer(";;;;;", 100, 4);
+    expect(() => lexer.tokenize()).toThrow("sed: token limit exceeded (4)");
+  });
+
+  it("rejects scripts above the configured input limit", () => {
+    const lexer = new SedLexer("12345", 4, 100);
+    expect(() => lexer.tokenize()).toThrow("sed: script size limit exceeded");
+  });
 });
 
 describe("sed parser", () => {
@@ -30,6 +40,13 @@ describe("sed command", () => {
       },
       cwd: "/test",
     });
+
+  it("enforces maxArrayElements during tokenization", async () => {
+    const env = new Bash({ executionLimits: { maxArrayElements: 4 } });
+    const result = await env.exec("sed ';;;;;'");
+    expect(result.exitCode).toBe(126);
+    expect(result.stderr).toContain("sed: token limit exceeded");
+  });
 
   it("should replace first occurrence per line", async () => {
     const env = createEnv();

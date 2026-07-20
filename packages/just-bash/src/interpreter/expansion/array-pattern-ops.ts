@@ -242,7 +242,13 @@ export async function handleArrayPatternRemoval(
   const resultValues: string[] = [];
   for (const value of values) {
     resultValues.push(
-      applyPatternRemoval(value, regexStr, operation.side, operation.greedy),
+      applyPatternRemoval(
+        ctx,
+        value,
+        regexStr,
+        operation.side,
+        operation.greedy,
+      ),
     );
   }
 

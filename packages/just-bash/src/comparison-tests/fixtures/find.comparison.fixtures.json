@@ -149,6 +149,17 @@
     "stderr": "",
     "exitCode": 0
   },
+  "ac1fd4b39e77ec26": {
+    "command": "find . -type f \\( -name keep -print -o -name remove -print \\) | sort",
+    "files": {
+      "keep": "",
+      "remove": "",
+      "other": ""
+    },
+    "stdout": "./keep\n./remove\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "ad51ad70b8844f82": {
     "command": "find . -maxdepth 1 | sort",
     "files": {
@@ -157,6 +168,16 @@
       "dir/sub/file.txt": ""
     },
     "stdout": ".\n./dir\n./file.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bbd47cdce563ae5c": {
+    "command": "find . -type f -path '*/pulls/*.json' -print | sort",
+    "files": {
+      "pulls/direct.json": "",
+      "pulls/nested/deep.json": ""
+    },
+    "stdout": "./pulls/direct.json\n./pulls/nested/deep.json\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -200,6 +221,15 @@
       "dir/sub/file.txt": ""
     },
     "stdout": "./dir\n./dir/sub\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f5f1f7c6e957fe10": {
+    "command": "find . -type f ! -print",
+    "files": {
+      "file": ""
+    },
+    "stdout": "./file\n",
     "stderr": "",
     "exitCode": 0
   },

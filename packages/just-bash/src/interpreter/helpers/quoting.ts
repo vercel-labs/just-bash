@@ -5,6 +5,8 @@
  * used by both `set` and `declare/typeset` builtins.
  */
 
+import { utf8ByteLength } from "../../encoding.js";
+
 /**
  * Check if a character needs $'...' quoting (control characters only)
  * Bash uses $'...' only for control characters (0x00-0x1F, 0x7F).
@@ -70,15 +72,29 @@ function dollarQuote(value: string): string {
  * - Single quotes for values with spaces or shell metacharacters
  * - $'...' quoting for values with control characters
  */
+export function quotedValueByteLength(value: string): number {
+  if (needsDollarQuoting(value)) return dollarQuotedByteLength(value);
+  if (value === "") return 2;
+  if (/^[a-zA-Z0-9_/.:\-@%+,=]+$/.test(value)) return utf8ByteLength(value);
+
+  let bytes = utf8ByteLength(value) + 2;
+  for (const char of value) {
+    if (char === "'") bytes += 3;
+  }
+  return bytes;
+}
+
 export function quoteValue(value: string): string {
   // If value contains control characters or non-printable, use $'...' quoting
   if (needsDollarQuoting(value)) {
     return dollarQuote(value);
   }
 
+  if (value === "") return "''";
+
   // If value contains no special chars, return as-is
   // Safe chars: alphanumerics, underscore, slash, dot, colon, hyphen, at, percent, plus, comma, equals
-  if (/^[a-zA-Z0-9_/.:\-@%+,=]*$/.test(value)) {
+  if (/^[a-zA-Z0-9_/.:\-@%+,=]+$/.test(value)) {
     return value;
   }
 
@@ -91,6 +107,18 @@ export function quoteValue(value: string): string {
  * Quote a value for array element output
  * Uses $'...' for control characters, double quotes otherwise
  */
+export function quotedArrayValueByteLength(value: string): number {
+  if (needsDollarQuoting(value)) return dollarQuotedByteLength(value);
+
+  let bytes = utf8ByteLength(value) + 2;
+  for (const char of value) {
+    if (char === "\\" || char === '"' || char === "$" || char === "`") {
+      bytes++;
+    }
+  }
+  return bytes;
+}
+
 export function quoteArrayValue(value: string): string {
   // If value needs $'...' quoting, use it
   if (needsDollarQuoting(value)) {
@@ -98,8 +126,38 @@ export function quoteArrayValue(value: string): string {
   }
   // For array elements, bash always uses double quotes
   // Escape backslashes and double quotes
-  const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const escaped = value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, "\\$")
+    .replace(/`/g, "\\`");
   return `"${escaped}"`;
+}
+
+function dollarQuotedByteLength(value: string): number {
+  let bytes = 3; // $'...'
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    if (
+      code === 0x07 ||
+      code === 0x08 ||
+      code === 0x09 ||
+      code === 0x0a ||
+      code === 0x0b ||
+      code === 0x0c ||
+      code === 0x0d ||
+      code === 0x1b ||
+      code === 0x27 ||
+      code === 0x5c
+    ) {
+      bytes += 2;
+    } else if (code < 0x20 || code === 0x7f) {
+      bytes += 4;
+    } else {
+      bytes += utf8ByteLength(char);
+    }
+  }
+  return bytes;
 }
 
 /**
@@ -112,6 +170,10 @@ export function quoteDeclareValue(value: string): string {
     return dollarQuote(value);
   }
   // Otherwise use double quotes with escaping
-  const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const escaped = value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, "\\$")
+    .replace(/`/g, "\\`");
   return `"${escaped}"`;
 }

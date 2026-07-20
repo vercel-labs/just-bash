@@ -12,7 +12,10 @@ import {
   SecurityViolationError,
 } from "./defense-in-depth-box.js";
 
-describe("DefenseInDepthBox concurrent execution", () => {
+const describeDefense =
+  typeof nodeModule.registerHooks === "function" ? describe : describe.skip;
+
+describeDefense("DefenseInDepthBox concurrent execution", () => {
   beforeEach(() => {
     DefenseInDepthBox.resetInstance();
   });
@@ -300,3 +303,5 @@ describe("DefenseInDepthBox concurrent execution", () => {
     });
   });
 });
+
+import * as nodeModule from "node:module";

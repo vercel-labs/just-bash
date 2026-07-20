@@ -8,15 +8,21 @@ import type {
   ScriptNode,
   StatementNode,
 } from "../ast/types.js";
+import type { ExecutionScope } from "../execution-scope.js";
 import type { IFileSystem } from "../fs/interface.js";
 import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
 import type {
+  CommandExecOptions,
   CommandRegistry,
   ExecResult,
   FeatureCoverageWriter,
   TraceCallback,
 } from "../types.js";
+
+export type InterpreterExecOptions = Omit<CommandExecOptions, "cwd"> & {
+  cwd?: string;
+};
 
 /**
  * Completion specification for a command, set by the `complete` builtin.
@@ -158,6 +164,8 @@ export interface VariableAttributeState {
 export interface LocalScopingState {
   /** Stack of local variable scopes (one Map per function call) */
   localScopes: Map<string, string | undefined>[];
+  /** Whole-array snapshots parallel to localScopes. */
+  localArrayScopes?: Map<string, ShellArray | undefined>[];
   /**
    * Tracks at which call depth each local variable was declared.
    * Used for bash-specific unset scoping behavior:
@@ -361,6 +369,12 @@ export interface InterpreterState
   // ---- Core Environment ----
   /** Environment variables (exported to commands) - uses Map to prevent prototype pollution */
   env: Map<string, string>;
+  /**
+   * Array values live outside the scalar environment namespace.  Shell names such
+   * as `a_0` and `a__length` are valid scalar variables and must never alias an
+   * element or interpreter metadata.
+   */
+  arrays?: Map<string, ShellArray>;
   /** Current working directory */
   cwd: string;
   /** Previous directory (for `cd -`) */
@@ -383,6 +397,10 @@ export interface InterpreterState
   // ---- Shell Features ----
   /** Completion specifications set by the `complete` builtin */
   completionSpecs?: Map<string, CompletionSpec>;
+  /** Default completion policy (-D), kept outside the user command namespace. */
+  defaultCompletionSpec?: CompletionSpec;
+  /** Empty-line completion policy (-E), kept outside the user command namespace. */
+  emptyCompletionSpec?: CompletionSpec;
   /** Directory stack for pushd/popd/dirs */
   directoryStack?: string[];
   /** Hash table for PATH command lookup caching */
@@ -405,21 +423,23 @@ export interface InterpreterState
   extraArgs?: string[];
 }
 
+export interface ShellArray {
+  kind: "indexed" | "associative";
+  elements: Map<string, string>;
+}
+
 export interface InterpreterContext {
   state: InterpreterState;
   fs: IFileSystem;
   commands: CommandRegistry;
   /** Execution limits configuration */
   limits: Required<ExecutionLimits>;
+  /** Shared security accounting for this top-level execution and descendants. */
+  executionScope: ExecutionScope;
   execFn: (
     script: string,
-    options?: {
-      env?: Record<string, string>;
-      cwd?: string;
-      replaceEnv?: boolean;
-      signal?: AbortSignal;
-      args?: string[];
-    },
+    options?: InterpreterExecOptions,
+    stdinAlreadyAccounted?: boolean,
   ) => Promise<ExecResult>;
   executeScript: (node: ScriptNode) => Promise<ExecResult>;
   executeStatement: (node: StatementNode) => Promise<ExecResult>;

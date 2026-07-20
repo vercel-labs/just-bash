@@ -2,10 +2,27 @@
  * Aggregation functions for xan command
  */
 
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { utf8ByteLength } from "../printf/escapes.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
 import { type CsvData, type CsvRow, createSafeRow, safeSetRow } from "./csv.js";
 import { parseMoonblade } from "./moonblade-parser.js";
 import { moonbladeToJq } from "./moonblade-to-jq.js";
+
+export interface AggregationLimits {
+  maxArrayElements?: number;
+  maxStringLength?: number;
+  maxIterations?: number;
+  maxDepth?: number;
+  /** Charge command-wide work before performing attacker-sized operations. */
+  consumeWork?: (units?: number) => void;
+}
+
+/** Conservative comparison work to reserve before allocating a sorted copy. */
+export function estimateSortingWork(length: number): number {
+  if (length < 2) return 0;
+  return Math.ceil(length * Math.log2(length));
+}
 
 /** Aggregation specification from parsed expression */
 export interface AggSpec {
@@ -18,11 +35,35 @@ export interface AggSpec {
  * Parse aggregation expression: "func(expr) as alias" or "func(expr)"
  * Handles nested parentheses in expressions like sum(add(a, b))
  */
-export function parseAggExpr(expr: string): AggSpec[] {
+export function parseAggExpr(
+  expr: string,
+  limits: AggregationLimits = {},
+): AggSpec[] {
+  const maxArrayElements = limits.maxArrayElements ?? 100_000;
+  const maxStringLength = limits.maxStringLength ?? 10 * 1024 * 1024;
+  const maxIterations = limits.maxIterations ?? 100_000;
+  const maxDepth = limits.maxDepth ?? 100;
+  if (utf8ByteLength(expr) > maxStringLength) {
+    throw new ExecutionLimitError(
+      `xan: aggregation expression length limit exceeded (${maxStringLength} bytes)`,
+      "string_length",
+    );
+  }
   const specs: AggSpec[] = [];
   let i = 0;
+  let operations = 0;
+  const useOperation = (): void => {
+    limits.consumeWork?.();
+    if (++operations > maxIterations) {
+      throw new ExecutionLimitError(
+        `xan: aggregation parser operation limit exceeded (${maxIterations})`,
+        "iterations",
+      );
+    }
+  };
 
   while (i < expr.length) {
+    useOperation();
     // Skip whitespace and commas
     while (i < expr.length && (expr[i] === " " || expr[i] === ",")) i++;
     if (i >= expr.length) break;
@@ -43,8 +84,15 @@ export function parseAggExpr(expr: string): AggSpec[] {
     let parenDepth = 1;
     const exprStart = i;
     while (i < expr.length && parenDepth > 0) {
+      useOperation();
       if (expr[i] === "(") parenDepth++;
       else if (expr[i] === ")") parenDepth--;
+      if (parenDepth > maxDepth) {
+        throw new ExecutionLimitError(
+          `xan: aggregation parser depth limit exceeded (${maxDepth})`,
+          "recursion",
+        );
+      }
       if (parenDepth > 0) i++;
     }
     const innerExpr = expr.slice(exprStart, i).trim();
@@ -68,6 +116,12 @@ export function parseAggExpr(expr: string): AggSpec[] {
       alias = innerExpr ? `${func}(${innerExpr})` : `${func}()`;
     }
 
+    if (specs.length >= maxArrayElements) {
+      throw new ExecutionLimitError(
+        `xan: aggregation specification limit exceeded (${maxArrayElements})`,
+        "array_elements",
+      );
+    }
     specs.push({ func, expr: innerExpr, alias });
   }
 
@@ -82,10 +136,9 @@ function isSimpleColumn(expr: string): boolean {
 /** Evaluate a moonblade expression for a row */
 function evalExpr(
   row: CsvRow,
-  expr: string,
+  ast: ReturnType<typeof moonbladeToJq>,
   evalOptions: EvaluateOptions,
 ): unknown {
-  const ast = moonbladeToJq(parseMoonblade(expr));
   const results = evaluate(row, ast, evalOptions);
   return results.length > 0 ? results[0] : null;
 }
@@ -95,66 +148,140 @@ export function computeAgg(
   data: CsvData,
   spec: AggSpec,
   evalOptions: EvaluateOptions = {},
+  limits: AggregationLimits = {},
 ): number | string | boolean | null {
   const { func, expr } = spec;
+  const maxArrayElements = limits.maxArrayElements ?? 100_000;
+  const maxStringLength = limits.maxStringLength ?? 10 * 1024 * 1024;
+  const maxIterations = limits.maxIterations ?? 100_000;
+  const parserLimits = {
+    maxSourceLength: maxStringLength,
+    maxTokens: maxArrayElements,
+    maxAstNodes: maxArrayElements,
+    maxOperations: maxIterations,
+    maxDepth: limits.maxDepth ?? 100,
+  };
+  if (data.length > maxArrayElements) {
+    throw new ExecutionLimitError(
+      `xan: aggregation input limit exceeded (${maxArrayElements})`,
+      "array_elements",
+    );
+  }
 
   // Special case: count() with no expression
   if (func === "count" && !expr) {
     return data.length;
   }
 
-  // Get values - either simple column access or expression evaluation
-  let values: unknown[];
-  if (isSimpleColumn(expr)) {
-    values = data
-      .map((r) => r[expr])
-      .filter((v) => v !== null && v !== undefined);
+  const simpleColumn = isSimpleColumn(expr);
+  const ast = simpleColumn
+    ? null
+    : moonbladeToJq(parseMoonblade(expr, parserLimits), true, parserLimits);
+  let evaluateRow: (row: CsvRow) => unknown;
+  if (simpleColumn) {
+    evaluateRow = (row) => row[expr];
   } else {
-    // Complex expression - evaluate for each row
-    values = data
-      .map((r) => evalExpr(r, expr, evalOptions))
-      .filter((v) => v !== null && v !== undefined);
+    if (ast === null) {
+      throw new Error("xan: missing compiled aggregation expression");
+    }
+    evaluateRow = (row) => evalExpr(row, ast, evalOptions);
+  }
+
+  if (func === "all" || func === "any") {
+    let iterations = 0;
+    for (const row of data) {
+      limits.consumeWork?.();
+      if (++iterations > maxIterations) {
+        throw new ExecutionLimitError(
+          `xan: aggregation iteration limit exceeded (${maxIterations})`,
+          "iterations",
+        );
+      }
+      const truthy = !!evaluateRow(row);
+      if (func === "all" && !truthy) return false;
+      if (func === "any" && truthy) return true;
+    }
+    return func === "all";
+  }
+
+  const values: unknown[] = [];
+  let iterations = 0;
+  for (const row of data) {
+    limits.consumeWork?.();
+    if (++iterations > maxIterations) {
+      throw new ExecutionLimitError(
+        `xan: aggregation iteration limit exceeded (${maxIterations})`,
+        "iterations",
+      );
+    }
+    const value = evaluateRow(row);
+    if (value !== null && value !== undefined) {
+      if (values.length >= maxArrayElements) {
+        throw new ExecutionLimitError(
+          `xan: aggregation value limit exceeded (${maxArrayElements})`,
+          "array_elements",
+        );
+      }
+      values.push(value);
+    }
   }
 
   switch (func) {
     case "count": {
       // count(expr) - count rows where expression is truthy
-      if (isSimpleColumn(expr)) {
+      if (simpleColumn) {
         return values.length;
       }
       // For expressions like count(n > 2), count truthy values
-      return values.filter((v) => !!v).length;
+      let count = 0;
+      for (const value of values) {
+        limits.consumeWork?.();
+        if (value) count++;
+      }
+      return count;
     }
 
     case "sum": {
-      const nums = values.map((v) =>
-        typeof v === "number" ? v : Number.parseFloat(String(v)),
-      );
-      return nums.reduce((a, b) => a + b, 0);
+      let sum = 0;
+      for (const value of values) {
+        limits.consumeWork?.();
+        sum +=
+          typeof value === "number" ? value : Number.parseFloat(String(value));
+      }
+      return sum;
     }
 
     case "mean":
     case "avg": {
-      const nums = values.map((v) =>
-        typeof v === "number" ? v : Number.parseFloat(String(v)),
-      );
-      return nums.length > 0
-        ? nums.reduce((a, b) => a + b, 0) / nums.length
-        : 0;
+      let sum = 0;
+      for (const value of values) {
+        limits.consumeWork?.();
+        sum +=
+          typeof value === "number" ? value : Number.parseFloat(String(value));
+      }
+      return values.length > 0 ? sum / values.length : 0;
     }
 
     case "min": {
-      const nums = values.map((v) =>
-        typeof v === "number" ? v : Number.parseFloat(String(v)),
-      );
-      return nums.length > 0 ? Math.min(...nums) : null;
+      let minimum: number | null = null;
+      for (const value of values) {
+        limits.consumeWork?.();
+        const number =
+          typeof value === "number" ? value : Number.parseFloat(String(value));
+        minimum = minimum === null ? number : Math.min(minimum, number);
+      }
+      return minimum;
     }
 
     case "max": {
-      const nums = values.map((v) =>
-        typeof v === "number" ? v : Number.parseFloat(String(v)),
-      );
-      return nums.length > 0 ? Math.max(...nums) : null;
+      let maximum: number | null = null;
+      for (const value of values) {
+        limits.consumeWork?.();
+        const number =
+          typeof value === "number" ? value : Number.parseFloat(String(value));
+        maximum = maximum === null ? number : Math.max(maximum, number);
+      }
+      return maximum;
     }
 
     case "first":
@@ -166,10 +293,15 @@ export function computeAgg(
         : null;
 
     case "median": {
-      const nums = values
-        .map((v) => (typeof v === "number" ? v : Number.parseFloat(String(v))))
-        .filter((n) => !Number.isNaN(n))
-        .sort((a, b) => a - b);
+      const nums: number[] = [];
+      for (const value of values) {
+        limits.consumeWork?.();
+        const number =
+          typeof value === "number" ? value : Number.parseFloat(String(value));
+        if (!Number.isNaN(number)) nums.push(number);
+      }
+      limits.consumeWork?.(estimateSortingWork(nums.length));
+      nums.sort((a, b) => a - b);
       if (nums.length === 0) return null;
       const mid = Math.floor(nums.length / 2);
       if (nums.length % 2 === 0) {
@@ -181,12 +313,14 @@ export function computeAgg(
     case "mode": {
       const counts = new Map<string, number>();
       for (const v of values) {
+        limits.consumeWork?.();
         const key = String(v);
         counts.set(key, (counts.get(key) || 0) + 1);
       }
       let maxCount = 0;
       let mode: string | null = null;
       for (const [val, count] of counts) {
+        limits.consumeWork?.();
         if (count > maxCount) {
           maxCount = count;
           mode = val;
@@ -196,36 +330,20 @@ export function computeAgg(
     }
 
     case "cardinality": {
-      const unique = new Set(values.map((v) => String(v)));
+      const unique = new Set<string>();
+      for (const value of values) {
+        limits.consumeWork?.();
+        unique.add(String(value));
+      }
       return unique.size;
     }
 
     case "values": {
-      return values.map((v) => String(v)).join("|");
+      return joinAggregationValues(values, false, maxStringLength, limits);
     }
 
     case "distinct_values": {
-      const unique = [...new Set(values.map((v) => String(v)))].sort();
-      return unique.join("|");
-    }
-
-    case "all": {
-      // all(expr) - check if all rows have truthy value for expression
-      if (data.length === 0) return true;
-      for (const row of data) {
-        const result = evalExpr(row, expr, evalOptions);
-        if (!result) return false;
-      }
-      return true;
-    }
-
-    case "any": {
-      // any(expr) - check if any row has truthy value for expression
-      for (const row of data) {
-        const result = evalExpr(row, expr, evalOptions);
-        if (result) return true;
-      }
-      return false;
+      return joinAggregationValues(values, true, maxStringLength, limits);
     }
 
     default:
@@ -238,10 +356,43 @@ export function buildAggRow(
   data: CsvData,
   specs: AggSpec[],
   evalOptions: EvaluateOptions = {},
+  limits: AggregationLimits = {},
 ): CsvRow {
   const row: CsvRow = createSafeRow();
   for (const spec of specs) {
-    safeSetRow(row, spec.alias, computeAgg(data, spec, evalOptions));
+    safeSetRow(row, spec.alias, computeAgg(data, spec, evalOptions, limits));
   }
   return row;
+}
+
+function joinAggregationValues(
+  values: unknown[],
+  distinct: boolean,
+  maxStringLength: number,
+  limits: AggregationLimits,
+): string {
+  const strings: string[] = [];
+  const seen = distinct ? new Set<string>() : null;
+  let outputBytes = 0;
+  for (const value of values) {
+    limits.consumeWork?.();
+    const stringValue = String(value);
+    if (seen?.has(stringValue)) continue;
+    seen?.add(stringValue);
+    const addedBytes =
+      utf8ByteLength(stringValue) + (strings.length > 0 ? 1 : 0);
+    if (addedBytes > maxStringLength - outputBytes) {
+      throw new ExecutionLimitError(
+        `xan: aggregation string limit exceeded (${maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
+    strings.push(stringValue);
+    outputBytes += addedBytes;
+  }
+  if (distinct) {
+    limits.consumeWork?.(estimateSortingWork(strings.length));
+    strings.sort();
+  }
+  return strings.join("|");
 }

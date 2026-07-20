@@ -8,4 +8,12 @@ describe("time forwards UTF-8 stdin", () => {
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toBe("한글 / café\n");
   });
+
+  it("keeps the established verbose command label", async () => {
+    const result = await new Bash().exec("command time --verbose echo ok");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("Command being timed: echo ok");
+    expect(result.stderr).not.toContain("RuntimeCommand");
+  });
 });

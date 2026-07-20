@@ -7,6 +7,10 @@
  */
 
 import type { WordNode } from "../ast/types.js";
+import { utf8ByteLength } from "../commands/printf/escapes.js";
+import { Parser } from "../parser/parser.js";
+import { ExecutionLimitError } from "./errors.js";
+import { applyAssignmentTildeExpansion } from "./expansion/tilde.js";
 import { expandWord, expandWordWithGlob } from "./expansion.js";
 import { wordToLiteralString } from "./helpers/array.js";
 import type { InterpreterContext } from "./types.js";
@@ -21,9 +25,20 @@ export async function expandLocalArrayAssignment(
   word: WordNode,
 ): Promise<string | null> {
   // First, join all parts to check if this looks like an array assignment
-  const fullLiteral = word.parts
-    .map((p) => (p.type === "Literal" ? p.value : "\x00"))
-    .join("");
+  let fullLiteral = "";
+  let fullLiteralBytes = 0;
+  for (const part of word.parts) {
+    const value = part.type === "Literal" ? part.value : "\x00";
+    const bytes = utf8ByteLength(value);
+    if (bytes > ctx.limits.maxStringLength - fullLiteralBytes) {
+      throw new ExecutionLimitError(
+        `array assignment string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
+    fullLiteral += value;
+    fullLiteralBytes += bytes;
+  }
   const arrayMatch = fullLiteral.match(/^([a-zA-Z_][a-zA-Z0-9_]*)=\(/);
   if (!arrayMatch || !fullLiteral.endsWith(")")) {
     return null;
@@ -31,11 +46,54 @@ export async function expandLocalArrayAssignment(
 
   const name = arrayMatch[1];
   const elements: string[] = [];
+  const literalElements: boolean[] = [];
   let inArrayContent = false;
   let pendingLiteral = "";
+  let pendingBytes = 0;
+  let elementBytes = 0;
   // Track whether we've seen a quoted part (SingleQuoted, DoubleQuoted) since
   // last element push. This ensures empty quoted strings like '' are preserved.
   let hasQuotedContent = false;
+  let isLiteralElement = true;
+
+  const appendPending = (value: string): void => {
+    const bytes = utf8ByteLength(value);
+    if (bytes > ctx.limits.maxStringLength - elementBytes - pendingBytes) {
+      throw new ExecutionLimitError(
+        `array assignment string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
+    pendingLiteral += value;
+    pendingBytes += bytes;
+  };
+
+  const pushElement = (value: string, literal = false): void => {
+    if (elements.length >= ctx.limits.maxArrayElements) {
+      throw new ExecutionLimitError(
+        `array assignment element limit exceeded (${ctx.limits.maxArrayElements})`,
+        "array_elements",
+      );
+    }
+    const bytes = utf8ByteLength(value);
+    if (bytes > ctx.limits.maxStringLength - elementBytes) {
+      throw new ExecutionLimitError(
+        `array assignment string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
+    elements.push(value);
+    literalElements.push(literal);
+    elementBytes += bytes;
+  };
+
+  const flushPending = (): void => {
+    pushElement(pendingLiteral, isLiteralElement);
+    pendingLiteral = "";
+    pendingBytes = 0;
+    hasQuotedContent = false;
+    isLiteralElement = true;
+  };
 
   for (const part of word.parts) {
     if (part.type === "Literal") {
@@ -57,18 +115,15 @@ export async function expandLocalArrayAssignment(
 
         // Process literal content: split by whitespace
         // But handle the case where this literal is adjacent to a quoted part
-        const tokens = value.split(/(\s+)/);
-        for (const token of tokens) {
-          if (/^\s+$/.test(token)) {
+        for (const char of value) {
+          if (/\s/.test(char)) {
             // Whitespace - push pending element if we have content OR saw quoted part
             if (pendingLiteral || hasQuotedContent) {
-              elements.push(pendingLiteral);
-              pendingLiteral = "";
-              hasQuotedContent = false;
+              flushPending();
             }
-          } else if (token) {
+          } else {
             // Non-empty token - accumulate
-            pendingLiteral += token;
+            appendPending(char);
           }
         }
       }
@@ -81,17 +136,17 @@ export async function expandLocalArrayAssignment(
         const isKeyedElement = /^\[.+\]=/.test(pendingLiteral);
         if (isKeyedElement) {
           // Inside a keyed element value - convert brace to literal, no expansion
-          pendingLiteral += wordToLiteralString({
-            type: "Word",
-            parts: [part],
-          });
+          appendPending(
+            wordToLiteralString({
+              type: "Word",
+              parts: [part],
+            }),
+          );
         } else {
           // Plain element - expand braces normally
           // Push any pending literal first
           if (pendingLiteral || hasQuotedContent) {
-            elements.push(pendingLiteral);
-            pendingLiteral = "";
-            hasQuotedContent = false;
+            flushPending();
           }
           // Use expandWordWithGlob to properly expand brace expressions
           const braceExpanded = await expandWordWithGlob(ctx, {
@@ -99,7 +154,7 @@ export async function expandLocalArrayAssignment(
             parts: [part],
           });
           // Add each expanded value as a separate element
-          elements.push(...braceExpanded.values);
+          for (const value of braceExpanded.values) pushElement(value);
         }
       } else {
         // Quoted/expansion part - expand it and accumulate as single element
@@ -111,44 +166,91 @@ export async function expandLocalArrayAssignment(
         ) {
           hasQuotedContent = true;
         }
+        isLiteralElement = false;
         const expanded = await expandWord(ctx, {
           type: "Word",
           parts: [part],
         });
-        pendingLiteral += expanded;
+        appendPending(expanded);
       }
     }
   }
 
   // Push final element if we have content OR saw quoted part
   if (pendingLiteral || hasQuotedContent) {
-    elements.push(pendingLiteral);
+    flushPending();
+  }
+
+  // Array literals are tokenized manually above because the outer parser keeps
+  // `name=(...)` together in several declaration contexts. Complete the two
+  // assignment-context expansions that therefore have not yet run: brace
+  // expansion for literal elements, and tilde expansion after keyed `=` and
+  // `:` separators. Never re-expand values produced by substitutions.
+  const originalElements = elements.splice(0);
+  const originalLiteralElements = literalElements.splice(0);
+  elementBytes = 0;
+  for (let index = 0; index < originalElements.length; index++) {
+    let element = originalElements[index];
+    if (!originalLiteralElements[index]) {
+      pushElement(element);
+      continue;
+    }
+
+    const keyedMatch = element.match(/^(\[[^\]]+\]=)(.*)$/s);
+    if (keyedMatch) {
+      const expandedValue = applyAssignmentTildeExpansion(ctx, keyedMatch[2]);
+      element = keyedMatch[1] + expandedValue;
+    }
+
+    if (element.includes("{") && element.includes("}")) {
+      const parsed = new Parser().parseWordFromString(element, false, false);
+      if (parsed.parts.some((part) => part.type === "BraceExpansion")) {
+        const expanded = await expandWordWithGlob(ctx, parsed);
+        for (const value of expanded.values) pushElement(value);
+        continue;
+      }
+    }
+    pushElement(element);
   }
 
   // Build result string with proper quoting
-  const quotedElements = elements.map((elem) => {
+  const resultChunks = [`${name}=(`];
+  let resultBytes = utf8ByteLength(resultChunks[0]);
+  for (let index = 0; index < elements.length; index++) {
+    const elem = elements[index];
     // Don't quote keyed elements like ['key']=value or [index]=value
     // These need to be parsed by the declare builtin as-is
+    let quoted: string;
     if (/^\[.+\]=/.test(elem)) {
-      return elem;
-    }
-    // Empty strings must be quoted to be preserved
-    if (elem === "") {
-      return "''";
-    }
-    // If element contains whitespace or special chars, quote it
-    if (
+      quoted = elem;
+    } else if (elem === "") {
+      // Empty strings must be quoted to be preserved
+      quoted = "''";
+    } else if (
       /[\s"'\\$`!*?[\]{}|&;<>()]/.test(elem) &&
       !elem.startsWith("'") &&
       !elem.startsWith('"')
     ) {
       // Use single quotes, escaping existing single quotes
-      return `'${elem.replace(/'/g, "'\\''")}'`;
+      quoted = `'${elem.replace(/'/g, "'\\''")}'`;
+    } else {
+      quoted = elem;
     }
-    return elem;
-  });
 
-  return `${name}=(${quotedElements.join(" ")})`;
+    const fragment = `${index > 0 ? " " : ""}${quoted}`;
+    const bytes = utf8ByteLength(fragment);
+    if (bytes + 1 > ctx.limits.maxStringLength - resultBytes) {
+      throw new ExecutionLimitError(
+        `array assignment string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
+    resultChunks.push(fragment);
+    resultBytes += bytes;
+  }
+  resultChunks.push(")");
+
+  return resultChunks.join("");
 }
 
 /**

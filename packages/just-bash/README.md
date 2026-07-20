@@ -51,7 +51,31 @@ await bash.exec("hello Alice"); // "Hello, Alice!\n"
 await bash.exec("echo 'test' | upper"); // "TEST\n"
 ```
 
-Custom commands receive a `CommandContext` with `fs`, `cwd`, `env`, `stdin`, and `exec` (for subcommands), and work with pipes, redirections, and all shell features.
+Custom command callbacks receive a `ResolvedCommandContext` with `fs`, `cwd`,
+`env`, `stdin`, resolved `limits`, and `exec` (for subcommands), and work with
+pipes, redirections, and all shell features. The legacy `CommandContext` remains
+available for standalone context inputs; use `createCommandContext({ fs })` when
+calling a command directly with a fully resolved context.
+
+Host-provided commands preserve the legacy trusted default whether supplied to
+the `Bash` constructor, declared through `defineCommand`, loaded lazily, or
+added later with `bash.registerCommand()`. Set `trusted: false` (or use
+`defineCommand(name, execute, { trusted: false })`) to select the restricted
+extension boundary. Trusted commands run in the embedding process and should
+never execute guest-provided JavaScript.
+
+Every invocation is bound by `maxExecutionTimeMs`. On cancellation, just-bash
+revokes the command context immediately; `maxExtensionCleanupTimeMs` only
+bounds how long it waits for the now-authority-free command promise to settle.
+A late continuation cannot use `ctx.fs`, `ctx.env`, `ctx.exec`, or other context
+capabilities. Cleanup work that must run at scope closure can be registered with
+`ctx.executionScope.registerCleanup()`. A cleanup failure is returned as a
+generic exit-126 shell result rather than rejecting `Bash.exec()` or exposing
+host error details. JavaScript cannot forcibly stop arbitrary host code, so
+extensions requiring a hard guarantee against external side effects must run
+in a terminable worker or process. Tests that invoke command objects directly
+can use `createCommandContext({ fs })` to get a fully resolved context without
+duplicating internal defaults.
 
 <details>
 <summary><h2>Supported Commands</h2></summary>
@@ -189,12 +213,20 @@ const env = new Bash({
 import { Bash } from "just-bash";
 import { OverlayFs } from "just-bash/fs/overlay-fs";
 
-const overlay = new OverlayFs({ root: "/path/to/project" });
+const overlay = new OverlayFs({
+  root: "/path/to/project",
+  // Copy-on-write data is bounded independently from real-file reads.
+  maxMemoryBytes: 256 * 1024 * 1024,
+});
 const env = new Bash({ fs: overlay, cwd: overlay.getMountPoint() });
 
 await env.exec("cat package.json"); // reads from disk
 await env.exec('echo "modified" > package.json'); // stays in memory
 ```
+
+`maxMemoryBytes` defaults to 1 GiB and covers aggregate files retained in the
+copy-on-write layer, including append chunks. Set it to the deployment's memory
+budget when an `OverlayFs` is reused across executions.
 
 **ReadWriteFs** - Direct read-write access to a real directory. Use this if you want the agent to be able to write to your disk:
 
@@ -368,7 +400,7 @@ await env.exec('js-exec -c "console.log(API_BASE)"');
 
 `fs.readFileSync()` returns a `Buffer` by default (matching Node.js). Pass an encoding like `'utf8'` to get a string.
 
-**Note:** The `js-exec` command only exists when `javascript` is configured. It is not available in browser environments. Execution runs in a QuickJS WASM sandbox with a 64 MB memory limit and configurable timeout (default: 10s, 60s with network).
+**Note:** The `js-exec` command only exists when `javascript` is configured. It is not available in browser environments. Execution runs in a QuickJS WASM sandbox with a 64 MB memory limit and configurable timeout (30 seconds in the default `normal` profile and 10 seconds in the opt-in `hardened` profile). Enabling network access does not extend the configured deadline.
 
 #### Tool Invocation Hook
 
@@ -433,7 +465,7 @@ await env.exec('sqlite3 :memory: "SELECT 1 + 1"');
 await env.exec('sqlite3 data.db "SELECT * FROM users"');
 ```
 
-**Note:** SQLite is not available in browser environments. Queries run in a worker thread with a configurable timeout (default: 5 seconds) to prevent runaway queries from blocking execution.
+**Note:** SQLite is not available in browser environments. Queries run in a worker thread with a configurable timeout (30 seconds in the default `normal` profile and 5 seconds in the opt-in `hardened` profile) to prevent runaway queries from blocking execution.
 
 ## AST Transform Plugins
 
@@ -571,25 +603,56 @@ Bash protects against infinite loops and deep recursion with configurable limits
 
 ```typescript
 const env = new Bash({
+  // `normal` is the liberal, compatibility-oriented default. Use `hardened`
+  // for tighter untrusted-workload policy, then override individual resources.
+  executionLimitProfile: "hardened",
   executionLimits: {
     maxCallDepth: 100, // Max function recursion depth
-    maxCommandCount: 10000, // Max total commands executed
-    maxLoopIterations: 10000, // Max iterations per loop
-    maxAwkIterations: 10000, // Max iterations in awk programs
-    maxSedIterations: 10000, // Max iterations in sed scripts
+    maxCommandCount: 20000, // Shared across nested execution
+    maxSourceBytes: 8 * 1024 * 1024, // Shell source before parsing
+    maxFileSystemBytes: 256 * 1024 * 1024, // Retained default-FS data
+    maxOutputSize: 32 * 1024 * 1024, // Aggregate stdout + stderr bytes
+    maxArchiveBytes: 256 * 1024 * 1024, // Expanded archive bytes
+    maxDatabaseBytes: 128 * 1024 * 1024, // SQLite image bytes
+    maxExecutionTimeMs: 30_000, // Whole execution wall-clock deadline
+    maxExtensionCleanupTimeMs: 25, // Cancellation acknowledgement grace
   },
 });
 ```
 
-All limits have defaults. Error messages tell you which limit was hit. Increase as needed for your workload.
+All resources remain bounded by default in both profiles. Explicit values
+override the selected profile; non-negative safe integers and the legacy
+`Infinity` spelling are accepted. Infinite deadlines omit the corresponding
+platform timer rather than overflowing it. Invalid values are rejected when
+`Bash` is constructed. Error messages identify the resource that was hit.
 
 ## Security Model
+
+The Node.js package requires Node `>=20.18.1`.
 
 - The shell only has access to the provided filesystem.
 - All execution happens without VM isolation. This does introduce additional risk. The code base was designed to be robust against prototype-pollution attacks and other break outs to the host JS engine and filesystem.
 - There is no network access by default. When enabled, requests are checked against URL prefix allow-lists and HTTP-method allow-lists.
 - Python and JavaScript execution are off by default as they represent additional security surface.
 - Execution is protected against infinite loops and deep recursion with configurable limits.
+- Host-realm defense-in-depth uses the strongest scoped controls available on
+  each supported Node runtime. Where `node:module.registerHooks()` is present,
+  builtin ESM imports can also be denied only for the untrusted async context;
+  older runtimes retain best-effort scoped protection without failing existing
+  applications. It never installs a process-global deny-all loader. Query the
+  resolved capabilities with `DefenseInDepthBox.getInstance().getStatus()`.
+  Audit mode reports `level: "none"` because it records violations without
+  enforcing them.
+- Scoped defense uses reversible proxies for `Reflect`, `JSON`, and `Math` and
+  restores their host descriptors on deactivation. This is reported as
+  `intrinsicProtection: "scoped-best-effort"`: same-realm JavaScript that
+  cached an intrinsic or a mutation function before activation cannot be fully
+  revoked (including the direct `delete` operator). The separately named
+  `processLifetimeIntrinsicHardening: true` option permanently freezes those
+  objects and locks selected well-known Symbol descriptors; use it only in a
+  disposable or process-lifetime realm. Use an isolated worker/process when
+  complete protection and reversible host state are both required.
+- Node worker `resourceLimits` do not reliably cap the WebAssembly linear memory used by CPython or sql.js. Queue, deadline, file, database, bridge, and payload limits reduce exposure, but strong memory containment for these opt-in runtimes requires process/container isolation or a WASM build with a lower hard maximum.
 - Use [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) if you need a full VM with arbitrary binary execution.
 
 ## Browser Support

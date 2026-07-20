@@ -4,6 +4,7 @@
  * Handles user variables, built-in variables, and arrays.
  */
 
+import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import type { AwkRuntimeContext } from "./context.js";
 import { setFieldSeparator } from "./fields.js";
 import { toAwkString, toNumber } from "./type-coercion.js";
@@ -153,6 +154,15 @@ export function setArrayElement(
     // Use null-prototype to prevent prototype pollution with user-controlled keys
     ctx.arrays[resolvedArray] = Object.create(null);
   }
+  if (!(key in ctx.arrays[resolvedArray])) {
+    if (ctx.arrayElementCount >= ctx.maxArrayElements) {
+      throw new ExecutionLimitError(
+        `array element limit exceeded (${ctx.maxArrayElements})`,
+        "array_elements",
+      );
+    }
+    ctx.arrayElementCount++;
+  }
   ctx.arrays[resolvedArray][key] = value;
 }
 
@@ -186,6 +196,7 @@ export function deleteArrayElement(
   // Resolve aliases for function parameter passing
   const resolvedArray = resolveArrayName(ctx, array);
   if (ctx.arrays[resolvedArray]) {
+    if (key in ctx.arrays[resolvedArray]) ctx.arrayElementCount--;
     delete ctx.arrays[resolvedArray][key];
   }
 }
@@ -196,5 +207,6 @@ export function deleteArrayElement(
 export function deleteArray(ctx: AwkRuntimeContext, array: string): void {
   // Resolve aliases for function parameter passing
   const resolvedArray = resolveArrayName(ctx, array);
+  ctx.arrayElementCount -= Object.keys(ctx.arrays[resolvedArray] ?? {}).length;
   delete ctx.arrays[resolvedArray];
 }

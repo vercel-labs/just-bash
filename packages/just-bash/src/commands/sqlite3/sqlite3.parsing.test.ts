@@ -3,6 +3,24 @@ import { Bash } from "../../Bash.js";
 
 describe("sqlite3 SQL parsing", () => {
   describe("statement splitting", () => {
+    it("lets SQLite preserve semicolons inside trigger bodies", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `sqlite3 :memory: "CREATE TABLE source(x); CREATE TABLE audit(x); CREATE TRIGGER log_insert AFTER INSERT ON source BEGIN INSERT INTO audit VALUES(new.x); INSERT INTO audit VALUES(new.x + 1); END; INSERT INTO source VALUES(4); SELECT x FROM audit ORDER BY x"`,
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("4\n5\n");
+    });
+
+    it("lets SQLite parse bracket identifiers containing semicolons", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        'sqlite3 :memory: "CREATE TABLE [a;b] ([c;d]); INSERT INTO [a;b] VALUES(9); SELECT [c;d] FROM [a;b]"',
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("9\n");
+    });
+
     it("should handle semicolon inside single-quoted string", async () => {
       const env = new Bash();
       const result = await env.exec(

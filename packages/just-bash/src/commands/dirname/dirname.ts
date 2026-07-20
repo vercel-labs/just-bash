@@ -1,4 +1,8 @@
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const dirnameHelp = {
@@ -8,10 +12,13 @@ const dirnameHelp = {
   options: ["    --help       display this help and exit"],
 };
 
-export const dirnameCommand: Command = {
+export const dirnameCommand: RuntimeCommand = {
   name: "dirname",
 
-  async execute(args: string[], _ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    _ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(dirnameHelp);
     }

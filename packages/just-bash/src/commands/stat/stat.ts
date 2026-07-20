@@ -1,4 +1,11 @@
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { utf8ByteLength } from "../../encoding.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { formatMode } from "../format-mode.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -17,10 +24,13 @@ const argDefs = {
   format: { short: "c", type: "string" as const },
 };
 
-export const statCommand: Command = {
+export const statCommand: RuntimeCommand = {
   name: "stat",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(statHelp);
     }
@@ -42,6 +52,22 @@ export const statCommand: Command = {
     let stdout = "";
     let stderr = "";
     let hasError = false;
+    let stdoutBytes = 0;
+    const maxOutputBytes = Math.min(
+      ctx.limits.maxOutputSize,
+      ctx.limits.maxStringLength,
+    );
+    const appendStdout = (value: string): void => {
+      const valueBytes = utf8ByteLength(value);
+      if (valueBytes > maxOutputBytes - stdoutBytes) {
+        throw new ExecutionLimitError(
+          `stat: output size limit exceeded (${maxOutputBytes} bytes)`,
+          "output_size",
+        );
+      }
+      stdout += value;
+      stdoutBytes += valueBytes;
+    };
 
     for (const file of files) {
       const fullPath = ctx.fs.resolvePath(ctx.cwd, file);
@@ -51,33 +77,34 @@ export const statCommand: Command = {
 
         if (format) {
           // Handle custom format
-          let output = format;
           const modeOctal = stat.mode.toString(8);
           const modeStr = formatMode(stat.mode, stat.isDirectory);
-          output = output.replace(/%n/g, file); // file name
-          output = output.replace(/%N/g, `'${file}'`); // quoted file name
-          output = output.replace(/%s/g, String(stat.size)); // size
-          output = output.replace(
-            /%F/g,
-            stat.isDirectory ? "directory" : "regular file",
-          ); // file type
-          output = output.replace(/%a/g, modeOctal); // access rights (octal)
-          output = output.replace(/%A/g, modeStr); // access rights (human readable)
-          output = output.replace(/%u/g, "1000"); // user ID
-          output = output.replace(/%U/g, "user"); // user name
-          output = output.replace(/%g/g, "1000"); // group ID
-          output = output.replace(/%G/g, "group"); // group name
-          stdout += `${output}\n`;
+          const replacements = new Map<string, string>([
+            ["%n", file],
+            ["%N", `'${file}'`],
+            ["%s", String(stat.size)],
+            ["%F", stat.isDirectory ? "directory" : "regular file"],
+            ["%a", modeOctal],
+            ["%A", modeStr],
+            ["%u", "1000"],
+            ["%U", "user"],
+            ["%g", "1000"],
+            ["%G", "group"],
+          ]);
+          const output = format.replace(/%[nNsFaAuUgG]/g, (directive) => {
+            return replacements.get(directive) ?? directive;
+          });
+          appendStdout(`${output}\n`);
         } else {
           // Default format
           const modeOctal = stat.mode.toString(8).padStart(4, "0");
           const modeStr = formatMode(stat.mode, stat.isDirectory);
-          stdout += `  File: ${file}\n`;
-          stdout += `  Size: ${stat.size}\t\tBlocks: ${Math.ceil(stat.size / 512)}\n`;
-          stdout += `Access: (${modeOctal}/${modeStr})\n`;
-          stdout += `Modify: ${stat.mtime.toISOString()}\n`;
+          appendStdout(
+            `  File: ${file}\n  Size: ${stat.size}\t\tBlocks: ${Math.ceil(stat.size / 512)}\nAccess: (${modeOctal}/${modeStr})\nModify: ${stat.mtime.toISOString()}\n`,
+          );
         }
-      } catch {
+      } catch (error) {
+        rethrowFatalExecutionError(error);
         stderr += `stat: cannot stat '${file}': No such file or directory\n`;
         hasError = true;
       }

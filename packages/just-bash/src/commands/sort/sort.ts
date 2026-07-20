@@ -1,5 +1,9 @@
 import { decodeBytesToUtf8 } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { readAndConcat } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { createComparator, filterUnique } from "./comparator.js";
@@ -40,9 +44,12 @@ Examples:
   -k2 -k1    sort by field 2, then by field 1`,
 };
 
-export const sortCommand: Command = {
+export const sortCommand: RuntimeCommand = {
   name: "sort",
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(sortHelp);
     }

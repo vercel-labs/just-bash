@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 
 describe("nl", () => {
   it("numbers lines from stdin", async () => {
@@ -180,6 +181,48 @@ describe("nl", () => {
     const result = await bash.exec("printf 'x' | nl -w abc");
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("invalid line number field width");
+  });
+
+  it("rejects a field width above the allocation limit", async () => {
+    const bash = new Bash({
+      executionLimits: { maxStringLength: 32, maxOutputSize: 64 },
+    });
+    const result = await bash.exec("printf 'x' | nl -w 33");
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("nl: invalid line number field width: '33'\n");
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("rejects non-finite field widths before padding", async () => {
+    const bash = new Bash();
+    const huge = "9".repeat(400);
+    const result = await bash.exec(`printf 'x' | nl -w ${huge}`);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      `nl: invalid line number field width: '${huge}'\n`,
+    );
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("rejects trailing width garbage before padding", async () => {
+    const bash = new Bash();
+    const result = await bash.exec("nl -w 8x");
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("nl: invalid line number field width: '8x'\n");
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("checks aggregate UTF-8 output before line concatenation", async () => {
+    const bash = new Bash({
+      files: { "/input": "é\né" },
+      executionLimits: { maxStringLength: 100, maxOutputSize: 18 },
+    });
+    const result = await bash.exec("nl /input");
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "bash: nl: output size limit exceeded (18 bytes)\n",
+    );
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
   it("handles negative start number", async () => {

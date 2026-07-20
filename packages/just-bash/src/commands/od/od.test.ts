@@ -43,6 +43,18 @@ describe("od command", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it("concatenates every file operand in order", async () => {
+    const env = new Bash({ files: { "/a": "A", "/b": "B" } });
+    const result = await env.exec("od /a /b");
+    expect(result.stdout).toBe("0000000  101 102\n0000002\n");
+  });
+
+  it("honors stdin operands between file operands", async () => {
+    const env = new Bash({ files: { "/a": "A", "/b": "B" } });
+    const result = await env.exec("echo -n X | od /a - /b");
+    expect(result.stdout).toBe("0000000  101 130 102\n0000003\n");
+  });
+
   it("should error on non-existent file", async () => {
     const env = new Bash();
     const result = await env.exec("od /nonexistent/file.txt");

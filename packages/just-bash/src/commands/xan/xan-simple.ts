@@ -2,22 +2,29 @@
  * Simple commands: behead, sample, cat, search, flatmap, fmt
  */
 
+import { checkedAdd } from "../../bounded-builder.js";
 import { decodeBytesToUtf8 } from "../../encoding.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { createUserRegex, type RegexLike } from "../../regex/index.js";
-import type { CommandContext, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { readFiles } from "../../utils/file-reader.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
 import {
   type CsvData,
   type CsvRow,
   createSafeRow,
+  DerivedCsvBudget,
   formatCsv,
+  formatCsvWithoutHeaders,
   parseCsv,
   readCsvInput,
   safeSetRow,
   toSafeRow,
 } from "./csv.js";
-import { parseNamedExpressions } from "./moonblade-parser.js";
+import {
+  getMoonbladeLimits,
+  parseNamedExpressions,
+} from "./moonblade-parser.js";
 import { moonbladeToJq } from "./moonblade-to-jq.js";
 
 /**
@@ -26,7 +33,7 @@ import { moonbladeToJq } from "./moonblade-to-jq.js";
  */
 export async function cmdBehead(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   const fileArgs = args.filter((a) => !a.startsWith("-"));
 
@@ -38,26 +45,15 @@ export async function cmdBehead(
     return { stdout: "", stderr: "", exitCode: 0 };
   }
 
-  const rows = data.map((row) => headers.map((h) => row[h]));
-  const output =
-    rows.map((row) => row.map((v) => formatValue(v)).join(",")).join("\n") +
-    "\n";
+  const budget = new DerivedCsvBudget(ctx, "xan behead");
+  budget.addRows(data.length, headers.length);
 
   // xan emits text; the pipeline handles encoding.
   return {
-    stdout: output,
+    stdout: formatCsvWithoutHeaders(headers, data, ctx),
     stderr: "",
     exitCode: 0,
   };
-}
-
-function formatValue(v: unknown): string {
-  if (v === null || v === undefined) return "";
-  const s = String(v);
-  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
 }
 
 /**
@@ -67,7 +63,7 @@ function formatValue(v: unknown): string {
  */
 export async function cmdSample(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let num: number | null = null;
   let seed: number | null = null;
@@ -102,7 +98,7 @@ export async function cmdSample(
   if (data.length <= num) {
     // xan emits text; the pipeline handles encoding.
     return {
-      stdout: formatCsv(headers, data),
+      stdout: formatCsv(headers, data, ctx),
       stderr: "",
       exitCode: 0,
     };
@@ -129,7 +125,7 @@ export async function cmdSample(
 
   // xan emits text; the pipeline handles encoding.
   return {
-    stdout: formatCsv(headers, sampled),
+    stdout: formatCsv(headers, sampled, ctx),
     stderr: "",
     exitCode: 0,
   };
@@ -142,7 +138,7 @@ export async function cmdSample(
  */
 export async function cmdCat(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let pad = false;
   const fileArgs: string[] = [];
@@ -176,14 +172,32 @@ export async function cmdCat(
   // Parse CSVs and collect headers
   const allFiles: { headers: string[]; data: CsvData }[] = [];
   let allHeaders: string[] = [];
+  const budget = new DerivedCsvBudget(ctx, "xan cat");
+  const knownHeaders = new Set<string>();
 
   for (const { content } of result.files) {
-    const { headers, data } = parseCsv(decodeBytesToUtf8(content));
+    const { headers, data } = parseCsv(decodeBytesToUtf8(content), {
+      maxStringLength: Math.min(
+        ctx.limits.maxInputBytes,
+        ctx.limits.maxStringLength,
+      ),
+      maxArrayElements: ctx.limits.maxArrayElements,
+      maxRows: ctx.limits.maxCsvRows,
+      maxCells: ctx.limits.maxCsvCells,
+    });
+    budget.addRows(data.length, headers.length);
     allFiles.push({ headers, data });
 
     // Collect all unique headers
     for (const h of headers) {
-      if (!allHeaders.includes(h)) {
+      if (!knownHeaders.has(h)) {
+        knownHeaders.add(h);
+        if (knownHeaders.size > ctx.limits.maxArrayElements) {
+          throw new ExecutionLimitError(
+            `xan cat: output column limit exceeded (${ctx.limits.maxArrayElements})`,
+            "array_elements",
+          );
+        }
         allHeaders.push(h);
       }
     }
@@ -218,7 +232,7 @@ export async function cmdCat(
 
   // xan emits text; the pipeline handles encoding.
   return {
-    stdout: formatCsv(allHeaders, allData),
+    stdout: formatCsv(allHeaders, allData, ctx),
     stderr: "",
     exitCode: 0,
   };
@@ -233,7 +247,7 @@ export async function cmdCat(
  */
 export async function cmdSearch(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let pattern = "";
   let selectCols: string[] = [];
@@ -294,7 +308,7 @@ export async function cmdSearch(
 
   // xan emits text; the pipeline handles encoding.
   return {
-    stdout: formatCsv(headers, filtered),
+    stdout: formatCsv(headers, filtered, ctx),
     stderr: "",
     exitCode: 0,
   };
@@ -307,7 +321,7 @@ export async function cmdSearch(
  */
 export async function cmdFlatmap(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let expr = "";
   const fileArgs: string[] = [];
@@ -334,21 +348,35 @@ export async function cmdFlatmap(
   if (error) return error;
 
   // Parse expression
-  const namedExprs = parseNamedExpressions(expr);
+  const moonbladeLimits = getMoonbladeLimits(ctx);
+  const namedExprs = parseNamedExpressions(expr, moonbladeLimits);
   const specs = namedExprs.map(({ expr: e, name }) => ({
     alias: typeof name === "string" ? name : name[0],
-    ast: moonbladeToJq(e),
+    ast: moonbladeToJq(e, true, moonbladeLimits),
   }));
 
   const evalOptions: EvaluateOptions = {
     limits: ctx.limits
-      ? { maxIterations: ctx.limits.maxJqIterations }
+      ? {
+          maxIterations: ctx.limits.maxJqIterations,
+          maxStringLength: ctx.limits.maxStringLength,
+        }
       : undefined,
   };
 
   // New headers include mapped columns
+  if (
+    checkedAdd(headers.length, specs.length, "xan flatmap") >
+    ctx.limits.maxArrayElements
+  ) {
+    throw new ExecutionLimitError(
+      `xan flatmap: output column limit exceeded (${ctx.limits.maxArrayElements})`,
+      "array_elements",
+    );
+  }
   const newHeaders = [...headers, ...specs.map((s) => s.alias)];
   const newData: CsvData = [];
+  const resultBudget = new DerivedCsvBudget(ctx, "xan flatmap");
 
   for (const row of data) {
     // Evaluate each spec
@@ -356,18 +384,26 @@ export async function cmdFlatmap(
     let maxLen = 1;
 
     for (const spec of specs) {
+      resultBudget.consumeWork();
       const evalResults = evaluate(row, spec.ast, evalOptions);
       // If result is array, expand it
       const expanded =
         evalResults.length > 0 && Array.isArray(evalResults[0])
           ? evalResults[0]
           : evalResults;
+      if (expanded.length > ctx.limits.maxArrayElements) {
+        throw new ExecutionLimitError(
+          `xan flatmap: expression result limit exceeded (${ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
       results.push(expanded as unknown[]);
       maxLen = Math.max(maxLen, expanded.length);
     }
 
     // Create rows for each result
     for (let i = 0; i < maxLen; i++) {
+      resultBudget.addRow(newHeaders.length);
       const newRow: CsvRow = toSafeRow(row);
       for (let j = 0; j < specs.length; j++) {
         const val = results[j][i] ?? null;
@@ -383,7 +419,7 @@ export async function cmdFlatmap(
 
   // xan emits text; the pipeline handles encoding.
   return {
-    stdout: formatCsv(newHeaders, newData),
+    stdout: formatCsv(newHeaders, newData, ctx),
     stderr: "",
     exitCode: 0,
   };
@@ -395,7 +431,7 @@ export async function cmdFlatmap(
  */
 export async function cmdFmt(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   // Fmt is essentially an alias for view
   const { cmdView } = await import("./xan-view.js");

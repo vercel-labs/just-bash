@@ -2,15 +2,16 @@
  * Filter and sort commands: filter, sort, dedup, top
  */
 
-import type { CommandContext, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { showHelp } from "../help.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
 import { parseMoonbladeExpr } from "./column-selection.js";
 import { type CsvData, formatCsv, readCsvInput } from "./csv.js";
+import { getMoonbladeLimits } from "./moonblade-parser.js";
 
 export async function cmdFilter(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let invert = false;
   let limit = 0; // 0 means no limit
@@ -57,11 +58,14 @@ export async function cmdFilter(
 
   const evalOptions: EvaluateOptions = {
     limits: ctx.limits
-      ? { maxIterations: ctx.limits.maxJqIterations }
+      ? {
+          maxIterations: ctx.limits.maxJqIterations,
+          maxStringLength: ctx.limits.maxStringLength,
+        }
       : undefined,
   };
 
-  const ast = parseMoonbladeExpr(expr);
+  const ast = parseMoonbladeExpr(expr, getMoonbladeLimits(ctx));
   const filtered: CsvData = [];
   for (const row of data) {
     if (limit > 0 && filtered.length >= limit) break;
@@ -72,12 +76,12 @@ export async function cmdFilter(
     }
   }
 
-  return { stdout: formatCsv(headers, filtered), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, filtered, ctx), stderr: "", exitCode: 0 };
 }
 
 export async function cmdSort(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let column = "";
   let numeric = false;
@@ -122,12 +126,12 @@ export async function cmdSort(
     return reverse ? -cmp : cmp;
   });
 
-  return { stdout: formatCsv(headers, sorted), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, sorted, ctx), stderr: "", exitCode: 0 };
 }
 
 export async function cmdDedup(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let column = "";
   const fileArgs: string[] = [];
@@ -152,12 +156,12 @@ export async function cmdDedup(
     return true;
   });
 
-  return { stdout: formatCsv(headers, deduped), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, deduped, ctx), stderr: "", exitCode: 0 };
 }
 
 export async function cmdTop(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let n = 10;
   let column = "";
@@ -199,5 +203,5 @@ export async function cmdTop(
   });
 
   const rows = sorted.slice(0, n);
-  return { stdout: formatCsv(headers, rows), stderr: "", exitCode: 0 };
+  return { stdout: formatCsv(headers, rows, ctx), stderr: "", exitCode: 0 };
 }

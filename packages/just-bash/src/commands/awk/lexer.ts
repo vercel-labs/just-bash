@@ -4,6 +4,8 @@
  * Tokenizes AWK source code into a stream of tokens.
  */
 
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+
 export enum TokenType {
   // Literals
   NUMBER = "NUMBER",
@@ -165,7 +167,10 @@ export class AwkLexer {
   private column = 1;
   private lastTokenType: TokenType | null = null;
 
-  constructor(input: string) {
+  constructor(
+    input: string,
+    private readonly maxTokens = 100_000,
+  ) {
     this.input = input;
   }
 
@@ -174,9 +179,21 @@ export class AwkLexer {
     while (this.pos < this.input.length) {
       const token = this.nextToken();
       if (token) {
+        if (tokens.length >= this.maxTokens) {
+          throw new ExecutionLimitError(
+            `awk: token limit exceeded (${this.maxTokens})`,
+            "array_elements",
+          );
+        }
         tokens.push(token);
         this.lastTokenType = token.type;
       }
+    }
+    if (tokens.length >= this.maxTokens) {
+      throw new ExecutionLimitError(
+        `awk: token limit exceeded (${this.maxTokens})`,
+        "array_elements",
+      );
     }
     tokens.push(this.makeToken(TokenType.EOF, ""));
     return tokens;
@@ -228,6 +245,19 @@ export class AwkLexer {
   private nextToken(): Token | null {
     this.skipWhitespace();
 
+    // A continuation may contain arbitrarily many blank lines. Consume them
+    // iteratively: recursively calling nextToken() once per newline makes a
+    // small, valid AWK program capable of exhausting the host stack before the
+    // parser's configured depth and operation limits run.
+    while (
+      this.peek() === "\n" &&
+      this.lastTokenType !== null &&
+      CONTINUES_ACROSS_NEWLINE.has(this.lastTokenType)
+    ) {
+      this.advance();
+      this.skipWhitespace();
+    }
+
     if (this.pos >= this.input.length) {
       return null;
     }
@@ -243,16 +273,10 @@ export class AwkLexer {
     // like `printf "%s=%d\n", $1, $2` written across multiple lines
     // (a comma at end-of-line followed by indented args) parses as two
     // statements with a NEWLINE in the middle, surfacing as
-    // `Unexpected token: NEWLINE`. We swallow the newline and recurse to
-    // the next real token when it follows a continuation-allowing token.
+    // `Unexpected token: NEWLINE`. Continuation newlines were swallowed by
+    // the iterative loop above.
     if (ch === "\n") {
       this.advance();
-      if (
-        this.lastTokenType !== null &&
-        CONTINUES_ACROSS_NEWLINE.has(this.lastTokenType)
-      ) {
-        return this.nextToken();
-      }
       return {
         type: TokenType.NEWLINE,
         value: "\n",

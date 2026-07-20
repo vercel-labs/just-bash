@@ -22,6 +22,43 @@ export interface FormatOptions {
   separator: string;
   nullValue: string;
   newline: string;
+  /** Maximum encoded output bytes produced by this formatting call. */
+  maxOutputSize?: number;
+}
+
+function valueInputByteLength(value: unknown, nullValue: string): number {
+  if (value === null || value === undefined)
+    return Buffer.byteLength(nullValue, "utf8");
+  if (value instanceof Uint8Array || Buffer.isBuffer(value))
+    return value.byteLength;
+  return Buffer.byteLength(String(value), "utf8");
+}
+
+function assertFormattingBudget(
+  columns: string[],
+  rows: unknown[][],
+  options: FormatOptions,
+): number {
+  const limit = options.maxOutputSize ?? Number.MAX_SAFE_INTEGER;
+  let inputBytes = Buffer.byteLength(options.separator, "utf8");
+  inputBytes += Buffer.byteLength(options.newline, "utf8");
+  for (const column of columns) inputBytes += Buffer.byteLength(column, "utf8");
+  for (const row of rows) {
+    inputBytes += row.length * 16;
+    for (const value of row)
+      inputBytes += valueInputByteLength(value, options.nullValue);
+    if (inputBytes > limit) break;
+  }
+
+  // JSON, HTML and quoting can expand every input byte. Eight times the raw
+  // payload plus structural overhead is a deliberately conservative ceiling,
+  // checked before padEnd/repeat/map/join allocate formatted copies.
+  const worstCase =
+    inputBytes * 8 + (rows.length + 3) * (columns.length + 3) * 16;
+  if (!Number.isSafeInteger(worstCase) || worstCase > limit) {
+    throw new Error(`formatted output exceeds ${limit} byte limit`);
+  }
+  return limit;
 }
 
 /**
@@ -32,32 +69,49 @@ export function formatOutput(
   rows: unknown[][],
   options: FormatOptions,
 ): string {
+  const limit = assertFormattingBudget(columns, rows, options);
+  let output: string;
   switch (options.mode) {
     case "list":
-      return formatList(columns, rows, options);
+      output = formatList(columns, rows, options);
+      break;
     case "csv":
-      return formatCsv(columns, rows, options);
+      output = formatCsv(columns, rows, options);
+      break;
     case "json":
-      return formatJson(columns, rows);
+      output = formatJson(columns, rows);
+      break;
     case "line":
-      return formatLine(columns, rows, options);
+      output = formatLine(columns, rows, options);
+      break;
     case "column":
-      return formatColumn(columns, rows, options);
+      output = formatColumn(columns, rows, options);
+      break;
     case "table":
-      return formatTable(columns, rows, options);
+      output = formatTable(columns, rows, options);
+      break;
     case "markdown":
-      return formatMarkdown(columns, rows, options);
+      output = formatMarkdown(columns, rows, options);
+      break;
     case "tabs":
-      return formatTabs(columns, rows, options);
+      output = formatTabs(columns, rows, options);
+      break;
     case "box":
-      return formatBox(columns, rows, options);
+      output = formatBox(columns, rows, options);
+      break;
     case "quote":
-      return formatQuote(columns, rows, options);
+      output = formatQuote(columns, rows, options);
+      break;
     case "html":
-      return formatHtml(columns, rows, options);
+      output = formatHtml(columns, rows, options);
+      break;
     case "ascii":
-      return formatAscii(columns, rows, options);
+      output = formatAscii(columns, rows, options);
+      break;
   }
+  if (Buffer.byteLength(output, "utf8") > limit)
+    throw new Error(`formatted output exceeds ${limit} byte limit`);
+  return output;
 }
 
 function valueToString(value: unknown, nullValue: string): string {
@@ -349,26 +403,29 @@ function formatQuote(
 ): string {
   const lines: string[] = [];
   if (options.header && columns.length > 0) {
-    lines.push(columns.map((c) => `'${c}'`).join(","));
+    lines.push(columns.map(sqlQuoteLiteral).join(","));
   }
   for (const row of rows) {
-    lines.push(
-      row
-        .map((v) => {
-          if (v === null || v === undefined) return "NULL";
-          if (typeof v === "number") {
-            // Use full precision for floats like real sqlite3
-            if (Number.isInteger(v)) return String(v);
-            return floatToFullPrecision(v);
-          }
-          return `'${String(v)}'`;
-        })
-        .join(","),
-    );
+    lines.push(row.map(sqlQuoteLiteral).join(","));
   }
   return lines.length > 0
     ? `${lines.join(options.newline)}${options.newline}`
     : "";
+}
+
+/** Serialize one SQLite value as a replay-safe SQL literal. */
+function sqlQuoteLiteral(value: unknown): string {
+  if (value === null || value === undefined) return "NULL";
+  if (value instanceof Uint8Array || Buffer.isBuffer(value)) {
+    return `X'${Buffer.from(value as Uint8Array)
+      .toString("hex")
+      .toUpperCase()}'`;
+  }
+  if (typeof value === "number") {
+    if (Number.isInteger(value)) return String(value);
+    if (Number.isFinite(value)) return floatToFullPrecision(value);
+  }
+  return `'${String(value).replace(/'/g, "''")}'`;
 }
 
 /**

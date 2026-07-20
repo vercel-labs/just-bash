@@ -8,7 +8,11 @@
 import { fromBuffer } from "../../fs/encoding.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { _Headers } from "../../security/trusted-globals.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import { encodeCurlData, generateMultipartBody } from "./form.js";
 import { curlHelp } from "./help.js";
@@ -36,7 +40,7 @@ import type { CurlOptions } from "./types.js";
  */
 async function resolveData(
   options: CurlOptions,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<string | undefined> {
   if (options.dataParts.length === 0) return undefined;
   const parts: string[] = [];
@@ -65,7 +69,7 @@ async function resolveData(
  */
 async function prepareRequestBody(
   options: CurlOptions,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   resolvedData: string | undefined,
 ): Promise<{ body?: string; contentType?: string }> {
   // Handle -T/--upload-file
@@ -158,7 +162,7 @@ function prepareHeaders(options: CurlOptions, contentType?: string): Headers {
 async function saveCookies(
   options: CurlOptions,
   headers: Record<string, string>,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<void> {
   if (!options.cookieJar) return;
 
@@ -234,10 +238,13 @@ function buildOutput(
   return output;
 }
 
-export const curlCommand: Command = {
+export const curlCommand: RuntimeCommand = {
   name: "curl",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(curlHelp);
     }
@@ -297,6 +304,8 @@ export const curlCommand: Command = {
         body,
         followRedirects: options.followRedirects,
         timeoutMs: options.timeoutMs,
+        maxRedirects: options.maxRedirects,
+        signal: ctx.signal,
       });
 
       // Save cookies if requested

@@ -1,4 +1,5 @@
 import type { ByteString } from "./encoding.js";
+import type { CommandExecutionBudget } from "./execution-scope.js";
 import type { IFileSystem } from "./fs/interface.js";
 import type { ExecutionLimits } from "./limits.js";
 import type { SecureFetch } from "./network/index.js";
@@ -39,6 +40,19 @@ export interface ExecResult {
    * `"binary"` to mark binary output. New code should prefer `stdoutKind`.
    */
   stdoutEncoding?: "binary";
+  /** @internal PIPESTATUS override used by synthesized transform builtins. */
+  internalPipeStatusOverride?: number[];
+  /**
+   * Bytes in the current result that have already been charged to the shared
+   * execution output budget. Interpreter plumbing must preserve this when it
+   * combines child results so nested shells do not refresh or double-charge
+   * the budget.
+   * @internal
+   */
+  internalOutputAccounting?: {
+    stdout: number;
+    stderr: number;
+  };
 }
 
 /** Result from BashEnv.exec() - always includes env */
@@ -127,13 +141,21 @@ export interface TraceEvent {
  */
 export type TraceCallback = (event: TraceEvent) => void;
 
-export interface CommandContext {
+export interface RuntimeCommandContext {
   /** Virtual filesystem interface for file operations */
   fs: IFileSystem;
+  /** Stable identity of the underlying filesystem across defense wrappers. */
+  fsIdentity?: object;
   /** Current working directory */
   cwd: string;
   /** Environment variables - uses Map to prevent prototype pollution */
   env: Map<string, string>;
+  /** Interpreter-owned assignment gateway for commands such as `printf -v`. */
+  assignShellVariable?: (
+    name: string,
+    value: string,
+    subscript?: string,
+  ) => void | Promise<void>;
   /**
    * Exported environment variables only.
    * Used by commands like printenv and env that should only show exported vars.
@@ -155,9 +177,11 @@ export interface CommandContext {
   stdin: ByteString;
   /**
    * Execution limits configuration.
-   * Available when running commands via BashEnv interpreter.
+   * Fully resolved by Bash before a command is invoked.
    */
-  limits?: Required<ExecutionLimits>;
+  limits: Required<ExecutionLimits>;
+  /** Shared top-level accounting, present for interpreter-dispatched commands. */
+  executionScope?: CommandExecutionBudget;
   /**
    * Performance trace callback for profiling.
    * If provided, commands emit timing events for analysis.
@@ -171,6 +195,11 @@ export interface CommandContext {
    * @param options - Required options including `cwd` to prevent directory bugs
    */
   exec?: (command: string, options: CommandExecOptions) => Promise<ExecResult>;
+  /** @internal Closed path for forwarding this command's already-accounted stdin. */
+  execWithInheritedStdin?: (
+    command: string,
+    options: Omit<CommandExecOptions, "stdin" | "stdinKind">,
+  ) => Promise<ExecResult>;
   /**
    * Secure fetch function for network requests (e.g., for `curl`).
    * Only available when `network` option is configured in BashEnv.
@@ -235,19 +264,38 @@ export interface CommandContext {
   invokeTool?: (path: string, argsJson: string) => Promise<string>;
 }
 
+/** Legacy standalone context shape used by direct command invocations. */
+export type CommandContext = Omit<
+  RuntimeCommandContext,
+  "limits" | "executionScope"
+> & {
+  /** Fully resolved when Bash dispatches the command; optional for legacy direct calls. */
+  limits?: Required<ExecutionLimits>;
+  /** Shared accounting is only available for interpreter-dispatched commands. */
+  executionScope?: CommandExecutionBudget;
+};
+
+/** Context supplied by Bash when dispatching a registered command. */
+export type ResolvedCommandContext = RuntimeCommandContext;
+
 export interface Command {
   name: string;
   /**
-   * When true, execute this command inside DefenseInDepthBox.runTrustedAsync().
-   * Use for trusted host-extension commands that need direct Node.js globals.
+   * Host-provided commands are trusted by default for compatibility. Set this
+   * to false to select the restricted extension boundary.
    * Built-in commands should generally remain untrusted and use explicit
    * trusted wrappers only at narrow infrastructure boundaries.
    */
   trusted?: boolean;
-  execute(args: string[], ctx: CommandContext): Promise<ExecResult>;
+  /** @internal Marks host extensions that receive a least-authority budget. */
+  internalIsExtension?: boolean;
+  execute(args: string[], ctx: ResolvedCommandContext): Promise<ExecResult>;
 }
 
-export type CommandRegistry = Map<string, Command>;
+export interface RuntimeCommand extends Omit<Command, "execute"> {
+  execute(args: string[], ctx: RuntimeCommandContext): Promise<ExecResult>;
+}
+export type CommandRegistry = Map<string, RuntimeCommand>;
 
 // Re-export IFileSystem for convenience
 export type { IFileSystem };

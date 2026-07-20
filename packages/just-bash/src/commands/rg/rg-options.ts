@@ -57,7 +57,7 @@ export interface RgOptions {
   noIgnoreVcs: boolean;
   ignoreFiles: string[]; // custom ignore files via --ignore-file
   maxDepth: number;
-  maxFilesize: number; // in bytes, 0 = unlimited
+  maxFilesize: number; // in bytes, 0 = explicitly unlimited
   followSymlinks: boolean;
   searchZip: boolean;
   searchBinary: boolean;
@@ -116,7 +116,9 @@ export function createDefaultOptions(): RgOptions {
     noIgnoreVcs: false,
     ignoreFiles: [],
     maxDepth: 256,
-    maxFilesize: 0,
+    // Keep the default liberal but finite so a plain recursive search cannot
+    // read an arbitrarily large single file before command budgets apply.
+    maxFilesize: 512 * 1024 * 1024,
     followSymlinks: false,
     searchZip: false,
     searchBinary: false,

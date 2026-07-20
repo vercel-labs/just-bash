@@ -8,6 +8,7 @@
  */
 
 import { lookup as dnsLookup } from "node:dns";
+import { combineAbortSignals } from "../abort-signals.js";
 import { DefenseInDepthBox } from "../security/defense-in-depth-box.js";
 import { _clearTimeout, _setTimeout } from "../timers.js";
 import {
@@ -16,7 +17,12 @@ import {
   matchesAllowListEntry,
   validateAllowList,
 } from "./allow-list.js";
-import { type PinnedAddress, pinDns } from "./dns-pin.js";
+import {
+  createPinnedConnectionOwner,
+  DnsPinningUnavailableError,
+  type PinnedAddress,
+  type PinnedConnectionOwner,
+} from "./dns-pin.js";
 import type { AllowedUrl, AllowedUrlEntry, DnsLookupResult } from "./types.js";
 import {
   type FetchResult,
@@ -54,6 +60,69 @@ const BODYLESS_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  */
 const REDIRECT_CODES = new Set([301, 302, 303, 307, 308]);
 
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException("The operation was aborted", "AbortError");
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw abortReason(signal);
+}
+
+async function awaitWithSignal<T>(
+  promise: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) {
+    // The operation may already have started before its promise reached this
+    // helper (DNS and dispatcher disposal are examples). Observe a later
+    // rejection while returning the cancellation immediately.
+    void promise.catch(() => undefined);
+    throw abortReason(signal);
+  }
+
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(abortReason(signal));
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([promise, aborted]);
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+}
+
+/**
+ * Await a request-owned transport without leaking an owner that is created
+ * after cancellation wins the race. A factory cannot always be cancelled
+ * while it imports/initializes its connector, so late fulfillment must carry
+ * its own disposal continuation.
+ */
+async function awaitConnectionOwner(
+  promise: Promise<PinnedConnectionOwner>,
+  signal: AbortSignal | undefined,
+): Promise<PinnedConnectionOwner> {
+  try {
+    return await awaitWithSignal(promise, signal);
+  } catch (error) {
+    if (signal?.aborted) {
+      void promise
+        .then((owner) => DefenseInDepthBox.runTrustedAsync(() => owner.close()))
+        .catch(() => undefined);
+    }
+    throw error;
+  }
+}
+
+async function cancelResponseBody(response: Response): Promise<void> {
+  if (response.body && !response.body.locked) {
+    await response.body.cancel();
+  }
+}
+
 export interface SecureFetchOptions {
   method?: string;
   headers?: Headers | Record<string, string>;
@@ -61,6 +130,10 @@ export interface SecureFetchOptions {
   followRedirects?: boolean;
   /** Override timeout for this request (capped at global timeout) */
   timeoutMs?: number;
+  /** Override redirects for this request (capped at the host policy). */
+  maxRedirects?: number;
+  /** Abort DNS review, redirects, transport, and response-body consumption. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -121,6 +194,12 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     return merged;
   }
 
+  if (
+    config.maxRedirects !== undefined &&
+    (!Number.isSafeInteger(config.maxRedirects) || config.maxRedirects < 0)
+  ) {
+    throw new RangeError("maxRedirects must be a non-negative safe integer");
+  }
   const maxRedirects = config.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxResponseSize = config.maxResponseSize ?? DEFAULT_MAX_RESPONSE_SIZE;
@@ -132,6 +211,44 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     config.denyPrivateRanges ??
     (typeof process !== "undefined" && process.env?.NODE_ENV === "production");
   const resolveDns = config._dnsResolve ?? dnsLookupAll;
+  const createConnectionOwner =
+    config._createConnectionOwner ?? createPinnedConnectionOwner;
+
+  function addressFamily(address: string): 4 | 6 | null {
+    const normalized =
+      address.startsWith("[") && address.endsWith("]")
+        ? address.slice(1, -1)
+        : address;
+    const validIpv4 =
+      /^(?:0|[1-9]\d{0,2})(?:\.(?:0|[1-9]\d{0,2})){3}$/.test(normalized) &&
+      normalized.split(".").every((part) => Number(part) <= 255);
+    if (validIpv4) return 4;
+
+    if (normalized.includes(":") && !normalized.includes("%")) {
+      try {
+        if (new URL(`http://[${normalized}]/`).hostname.length > 2) return 6;
+      } catch {
+        // Invalid IPv6 address.
+      }
+    }
+    return null;
+  }
+
+  function validatedPinnedAddress(
+    url: string,
+    hostname: string,
+    result: DnsLookupResult,
+  ): PinnedAddress {
+    const { address, family } = result;
+    if (addressFamily(address) !== family) {
+      throw new NetworkAccessDeniedError(
+        url,
+        "DNS returned an invalid address for private IP check",
+      );
+    }
+
+    return { hostname, address, family };
+  }
 
   /**
    * Checks if a URL is allowed by the configuration and, when
@@ -141,7 +258,11 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
    *
    * @throws NetworkAccessDeniedError if the URL is not allowed
    */
-  async function checkAllowed(url: string): Promise<PinnedAddress | null> {
+  async function checkAllowed(
+    url: string,
+    signal: AbortSignal | undefined,
+  ): Promise<PinnedAddress | null> {
+    throwIfAborted(signal);
     if (
       !config.dangerouslyAllowFullInternetAccess &&
       !isUrlAllowed(url, entries)
@@ -149,66 +270,60 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
       throw new NetworkAccessDeniedError(url);
     }
 
-    // Private IP check still runs even when full internet access is enabled
-    // so internal/loopback addresses remain unreachable.
-    if (denyPrivateRanges) {
-      try {
-        const parsed = new URL(url);
-        // Lexical check (fast path: catches IP literals and localhost)
-        if (isPrivateIp(parsed.hostname)) {
-          throw new NetworkAccessDeniedError(
-            url,
-            "private/loopback IP address blocked",
-          );
-        }
-        // DNS resolution check (catches domains resolving to private IPs).
-        // Skip for IP literals — they were already checked lexically above
-        // and dns.lookup would just return the same address.
-        const hostname = parsed.hostname;
-        const isDomainName = /[a-zA-Z]/.test(hostname);
-        if (isDomainName) {
-          try {
-            const addresses = await resolveDns(hostname);
-            // First pass: any private address rejects the whole resolution.
-            // Second pass: pick the first public address to pin the fetch to.
-            for (const { address } of addresses) {
-              if (isPrivateIp(address)) {
-                throw new NetworkAccessDeniedError(
-                  url,
-                  "hostname resolves to private/loopback IP address",
-                );
-              }
-            }
-            const first = addresses[0];
-            if (first) {
-              return {
-                hostname,
-                address: first.address,
-                family: first.family === 6 ? 6 : 4,
-              };
-            }
-          } catch (dnsErr) {
-            if (dnsErr instanceof NetworkAccessDeniedError) throw dnsErr;
-            // ENOTFOUND means the domain doesn't exist — it can't resolve
-            // to a private IP, so it's safe to let the fetch fail naturally.
-            const code = (dnsErr as NodeJS.ErrnoException)?.code;
-            if (code === "ENOTFOUND" || code === "ENODATA") {
-              // Domain doesn't exist; no rebinding risk
-            } else {
-              // Unexpected DNS error: fail closed (block)
-              throw new NetworkAccessDeniedError(
-                url,
-                "DNS resolution failed for private IP check",
-              );
-            }
-          }
-        }
-      } catch (e) {
-        if (e instanceof NetworkAccessDeniedError) throw e;
-        // Invalid URL will be caught by isUrlAllowed below
+    if (!denyPrivateRanges) return null;
+
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new NetworkAccessDeniedError(url, "invalid URL");
+    }
+
+    // Private IP check still runs when full internet access is enabled.
+    if (isPrivateIp(parsed.hostname)) {
+      throw new NetworkAccessDeniedError(
+        url,
+        "private/loopback IP address blocked",
+      );
+    }
+
+    // Public IP literals already name the exact connection address and cannot
+    // be rebound. Every domain name must resolve successfully and be pinned.
+    const hostname = parsed.hostname;
+    if (addressFamily(hostname) !== null) return null;
+
+    let addresses: DnsLookupResult[];
+    try {
+      addresses = await awaitWithSignal(resolveDns(hostname), signal);
+    } catch {
+      if (signal?.aborted) throw abortReason(signal);
+      // Negative answers are not safe: proceeding would cause a second,
+      // unrestricted lookup during connection establishment.
+      throw new NetworkAccessDeniedError(
+        url,
+        "DNS resolution failed for private IP check",
+      );
+    }
+
+    if (!Array.isArray(addresses) || addresses.length === 0) {
+      throw new NetworkAccessDeniedError(
+        url,
+        "DNS resolution returned no addresses for private IP check",
+      );
+    }
+
+    const validated = addresses.map((result) =>
+      validatedPinnedAddress(url, hostname, result),
+    );
+    for (const { address } of validated) {
+      if (isPrivateIp(address)) {
+        throw new NetworkAccessDeniedError(
+          url,
+          "hostname resolves to private/loopback IP address",
+        );
       }
     }
-    return null;
+    return validated[0];
   }
 
   /**
@@ -234,97 +349,150 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     options: SecureFetchOptions = {},
   ): Promise<FetchResult> {
     const method = options.method?.toUpperCase() ?? "GET";
-
-    // Check if URL and method are allowed
-    let pinned = await checkAllowed(url);
-    checkMethodAllowed(method);
-
-    let currentUrl = url;
-    let redirectCount = 0;
     const followRedirects = options.followRedirects ?? true;
+    if (
+      options.maxRedirects !== undefined &&
+      (!Number.isSafeInteger(options.maxRedirects) || options.maxRedirects < 0)
+    ) {
+      throw new RangeError("maxRedirects must be a non-negative safe integer");
+    }
+    const requestMaxRedirects = options.maxRedirects ?? maxRedirects;
+    const effectiveMaxRedirects = Math.min(maxRedirects, requestMaxRedirects);
 
     // Use per-request timeout if specified, but cap at global timeout
     const effectiveTimeout =
       options.timeoutMs !== undefined
         ? Math.min(options.timeoutMs, timeoutMs)
         : timeoutMs;
+    const timeoutController = new AbortController();
+    const timeoutId = _setTimeout(
+      () =>
+        timeoutController.abort(
+          new DOMException("The operation was aborted", "AbortError"),
+        ),
+      effectiveTimeout,
+    );
+    const combinedAbort = combineAbortSignals(
+      options.signal,
+      timeoutController.signal,
+    );
 
-    while (true) {
-      const controller = new AbortController();
-      const timeoutId = _setTimeout(() => controller.abort(), effectiveTimeout);
+    try {
+      // One deadline covers DNS review, all redirect hops, body consumption,
+      // and transport disposal. Redirects never receive a fresh allowance.
+      let pinned = await checkAllowed(url, combinedAbort.signal);
+      checkMethodAllowed(method);
 
-      try {
-        // Merge user headers with firewall headers (firewall overrides user).
-        // getFirewallHeaders returns a Headers object (which may trigger
-        // undici WASM init), so both header construction and fetch run
-        // inside runTrustedAsync.
-        const response = await DefenseInDepthBox.runTrustedAsync(() => {
-          const firewallHeaders = getFirewallHeaders(currentUrl);
-          const mergedHeaders = buildMergedHeaders(
-            options.headers,
-            firewallHeaders,
-          );
+      let currentUrl = url;
+      let redirectCount = 0;
 
-          const fetchOptions: RequestInit = {
-            method,
-            headers: mergedHeaders,
-            signal: controller.signal,
-            redirect: "manual", // Handle redirects manually to check allow-list
-          };
+      while (true) {
+        throwIfAborted(combinedAbort.signal);
+        let connectionOwner: PinnedConnectionOwner | undefined;
 
-          // Only include body for methods that support it
-          if (options.body && !BODYLESS_METHODS.has(method)) {
-            fetchOptions.body = options.body;
-          }
-
-          // Pin DNS resolution to the address we already validated so
-          // an attacker controlling DNS for an allow-listed hostname
-          // cannot rebind the second resolution to a private/internal IP.
-          // No-op when `pinned` is null (denyPrivateRanges off, IP literal,
-          // or hostname did not resolve).
-          if (pinned) {
-            return pinDns(pinned, () => fetch(currentUrl, fetchOptions));
-          }
-          return fetch(currentUrl, fetchOptions);
-        });
-
-        // Check for redirects
-        if (REDIRECT_CODES.has(response.status) && followRedirects) {
-          const location = response.headers.get("location");
-          if (!location) {
-            // No location header, return the response as-is
-            return await responseToResult(
-              response,
-              currentUrl,
-              maxResponseSize,
+        try {
+          // Header construction and the Node-only connector import may touch
+          // protected host intrinsics, so keep them in the trusted boundary.
+          const response = await DefenseInDepthBox.runTrustedAsync(async () => {
+            const firewallHeaders = getFirewallHeaders(currentUrl);
+            const mergedHeaders = buildMergedHeaders(
+              options.headers,
+              firewallHeaders,
             );
+            const fetchOptions: RequestInit = {
+              method,
+              headers: mergedHeaders,
+              signal: combinedAbort.signal,
+              redirect: "manual",
+            };
+
+            if (options.body && !BODYLESS_METHODS.has(method)) {
+              fetchOptions.body = options.body;
+            }
+
+            if (!pinned) {
+              // @banned-pattern-ignore: audited no-pin branch is reachable only when private-range denial is disabled
+              return await awaitWithSignal(
+                fetch(currentUrl, fetchOptions),
+                combinedAbort.signal,
+              );
+            }
+
+            try {
+              connectionOwner = await awaitConnectionOwner(
+                createConnectionOwner(pinned),
+                combinedAbort.signal,
+              );
+              return await awaitWithSignal(
+                connectionOwner.fetch(currentUrl, fetchOptions),
+                combinedAbort.signal,
+              );
+            } catch (error) {
+              if (error instanceof DnsPinningUnavailableError) {
+                throw new NetworkAccessDeniedError(
+                  currentUrl,
+                  "DNS pinning unavailable for private IP enforcement",
+                );
+              }
+              throw error;
+            }
+          });
+
+          if (REDIRECT_CODES.has(response.status) && followRedirects) {
+            const location = response.headers.get("location");
+            if (!location) {
+              return await responseToResult(
+                response,
+                currentUrl,
+                maxResponseSize,
+                combinedAbort.signal,
+              );
+            }
+
+            const redirectUrl = new URL(location, currentUrl).href;
+            // Do not leave a redirect body or connection live while reviewing
+            // the next address.
+            await awaitWithSignal(
+              cancelResponseBody(response),
+              combinedAbort.signal,
+            );
+            try {
+              pinned = await checkAllowed(redirectUrl, combinedAbort.signal);
+            } catch {
+              if (combinedAbort.signal?.aborted) {
+                throw abortReason(combinedAbort.signal);
+              }
+              throw new RedirectNotAllowedError(redirectUrl);
+            }
+
+            redirectCount++;
+            if (redirectCount > effectiveMaxRedirects) {
+              throw new TooManyRedirectsError(effectiveMaxRedirects);
+            }
+
+            currentUrl = redirectUrl;
+            continue;
           }
 
-          // Resolve relative URLs
-          const redirectUrl = new URL(location, currentUrl).href;
-
-          // Check redirect target against allow-list and private IP ranges.
-          // Re-pin DNS for the redirect target — the validated address
-          // is per-host, so each new hop needs its own resolution.
-          try {
-            pinned = await checkAllowed(redirectUrl);
-          } catch {
-            throw new RedirectNotAllowedError(redirectUrl);
+          return await responseToResult(
+            response,
+            currentUrl,
+            maxResponseSize,
+            combinedAbort.signal,
+          );
+        } finally {
+          if (connectionOwner) {
+            const owner = connectionOwner;
+            const closePromise = DefenseInDepthBox.runTrustedAsync(() =>
+              owner.close(),
+            );
+            await awaitWithSignal(closePromise, combinedAbort.signal);
           }
-
-          redirectCount++;
-          if (redirectCount > maxRedirects) {
-            throw new TooManyRedirectsError(maxRedirects);
-          }
-
-          currentUrl = redirectUrl;
-          continue;
         }
-
-        return await responseToResult(response, currentUrl, maxResponseSize);
-      } finally {
-        _clearTimeout(timeoutId);
       }
+    } finally {
+      _clearTimeout(timeoutId);
+      combinedAbort.cleanup();
     }
   }
 
@@ -367,6 +535,7 @@ async function responseToResult(
   response: Response,
   url: string,
   maxResponseSize: number,
+  signal?: AbortSignal,
 ): Promise<FetchResult> {
   // Use null-prototype to prevent prototype pollution via malicious response headers
   const headers: Record<string, string> = Object.create(null);
@@ -392,16 +561,23 @@ async function responseToResult(
     const chunks: Uint8Array[] = [];
     let totalSize = 0;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      totalSize += value.byteLength;
-      if (totalSize > maxResponseSize) {
-        reader.cancel();
-        throw new ResponseTooLargeError(maxResponseSize);
+    try {
+      while (true) {
+        const { done, value } = await awaitWithSignal(reader.read(), signal);
+        if (done) break;
+        if (!value) continue;
+        totalSize += value.byteLength;
+        if (totalSize > maxResponseSize) {
+          await reader.cancel();
+          throw new ResponseTooLargeError(maxResponseSize);
+        }
+        chunks.push(value);
       }
-      chunks.push(value);
+    } catch (error) {
+      if (signal?.aborted) {
+        await reader.cancel(abortReason(signal)).catch(() => undefined);
+      }
+      throw error;
     }
     body = new Uint8Array(totalSize);
     let offset = 0;
@@ -410,7 +586,7 @@ async function responseToResult(
       offset += chunk.byteLength;
     }
   } else {
-    const ab = await response.arrayBuffer();
+    const ab = await awaitWithSignal(response.arrayBuffer(), signal);
     if (maxResponseSize > 0 && ab.byteLength > maxResponseSize) {
       throw new ResponseTooLargeError(maxResponseSize);
     }

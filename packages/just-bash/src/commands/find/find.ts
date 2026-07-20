@@ -1,9 +1,14 @@
+import { utf8ByteLength } from "../../encoding.js";
+import { ExecutionOutputAccumulator } from "../../execution-output.js";
+import type { ExecutionScope } from "../../execution-scope.js";
 import type { DirentEntry } from "../../fs/interface.js";
+import { FileTraversalBudget } from "../../fs/traversal.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type {
-  Command,
-  CommandContext,
   ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
   TraceCallback,
 } from "../../types.js";
 import { formatMode } from "../format-mode.js";
@@ -84,11 +89,15 @@ import {
   expressionHasPrune,
   expressionNeedsEmptyCheck,
   expressionNeedsStatMetadata,
-  extractPathPruningHints,
   isSimpleExpression,
 } from "./matcher.js";
 import { parseExpressions } from "./parser.js";
-import type { EvalContext, EvalResult } from "./types.js";
+import type {
+  EvalContext,
+  EvalResult,
+  Expression,
+  FindAction,
+} from "./types.js";
 
 const findHelp = {
   name: "find",
@@ -126,26 +135,12 @@ const findHelp = {
   ],
 };
 
-// Predicates that take arguments
-const PREDICATES_WITH_ARGS_SET = new Set([
-  "-name",
-  "-iname",
-  "-path",
-  "-ipath",
-  "-regex",
-  "-iregex",
-  "-type",
-  "-maxdepth",
-  "-mindepth",
-  "-mtime",
-  "-newer",
-  "-size",
-  "-perm",
-]);
-
-export const findCommand: Command = {
+export const findCommand: RuntimeCommand = {
   name: "find",
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(findHelp);
     }
@@ -155,54 +150,23 @@ export const findCommand: Command = {
     let minDepth: number | null = null;
     let depthFirst = false;
 
-    // Find all path arguments and parse -maxdepth/-mindepth/-depth
-    // Paths come before any predicates (arguments starting with -)
-    let expressionsStarted = false;
+    // Starting points must precede the expression. Separating them first keeps
+    // predicate operands and -exec command arguments from being mistaken for paths.
+    let expressionStart = args.length;
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
-      if (arg === "-maxdepth" && i + 1 < args.length) {
-        expressionsStarted = true;
-        maxDepth = parseInt(args[++i], 10);
-      } else if (arg === "-mindepth" && i + 1 < args.length) {
-        expressionsStarted = true;
-        minDepth = parseInt(args[++i], 10);
-      } else if (arg === "-depth") {
-        expressionsStarted = true;
-        depthFirst = true;
-      } else if (arg === "-exec") {
-        expressionsStarted = true;
-        // Skip -exec and all arguments until terminator (; or +)
-        i++;
-        while (i < args.length && args[i] !== ";" && args[i] !== "+") {
-          i++;
-        }
-        // i now points to the terminator, loop will increment past it
-      } else if (
-        !arg.startsWith("-") &&
-        arg !== ";" &&
-        arg !== "+" &&
-        arg !== "(" &&
-        arg !== ")" &&
-        arg !== "\\(" &&
-        arg !== "\\)" &&
-        arg !== "!"
-      ) {
-        // This is a path if we haven't started expressions yet
-        if (!expressionsStarted) {
-          searchPaths.push(arg);
-        }
-      } else if (PREDICATES_WITH_ARGS_SET.has(arg)) {
-        expressionsStarted = true;
-        // Skip value arguments for predicates that take arguments
-        i++;
-      } else if (
+      if (
         arg.startsWith("-") ||
         arg === "(" ||
         arg === "\\(" ||
+        arg === ")" ||
+        arg === "\\)" ||
         arg === "!"
       ) {
-        expressionsStarted = true;
+        expressionStart = i;
+        break;
       }
+      searchPaths.push(arg);
     }
 
     // Default to current directory if no paths specified
@@ -210,19 +174,51 @@ export const findCommand: Command = {
       searchPaths.push(".");
     }
 
-    // Parse expressions
-    const { expr, error, actions } = parseExpressions(args, 0);
+    // Validate traversal options before parsing or touching the filesystem.
+    for (let i = expressionStart; i < args.length; i++) {
+      const arg = args[i];
+      if (arg === "-exec") {
+        i++;
+        while (i < args.length && args[i] !== ";" && args[i] !== "+") i++;
+      } else if (arg === "-maxdepth" || arg === "-mindepth") {
+        const value = args[i + 1];
+        if (value === undefined || !/^\d+$/.test(value)) {
+          return {
+            stdout: "",
+            stderr:
+              value === undefined
+                ? `find: missing argument to \`${arg}'\n`
+                : `find: invalid argument \`${value}' to \`${arg}'\n`,
+            exitCode: 1,
+          };
+        }
+        const depth = Number(value);
+        if (!Number.isSafeInteger(depth)) {
+          return {
+            stdout: "",
+            stderr: `find: invalid argument \`${value}' to \`${arg}'\n`,
+            exitCode: 1,
+          };
+        }
+        if (arg === "-maxdepth") maxDepth = depth;
+        else minDepth = depth;
+        i++;
+      } else if (arg === "-depth") {
+        depthFirst = true;
+      }
+    }
+
+    // Parse the complete expression before any filesystem access or action.
+    const { expr, error } = parseExpressions(args, expressionStart);
 
     // Return error for unknown predicates
     if (error) {
       return { stdout: "", stderr: error, exitCode: 1 };
     }
 
-    // Check if there's an explicit -print in the expression
-    const hasExplicitPrint = actions.some((a) => a.type === "print");
-
-    // Determine if we should use default printing (when no actions at all)
-    const useDefaultPrint = actions.length === 0;
+    const expressionActions = collectActions(expr);
+    const hasAnyAction = expressionActions.length > 0;
+    if (expressionActions.some((a) => a.type === "delete")) depthFirst = true;
 
     // Result type for find entries
     interface FindResult {
@@ -236,12 +232,56 @@ export const findCommand: Command = {
       startingPoint: string;
     }
 
-    const results: string[] = [];
-    // Extended results for -printf (stores metadata for each result)
-    const hasPrintfAction = actions.some((a) => a.type === "printf");
-    const printfResults: FindResult[] = [];
-    let stderr = "";
+    interface EvaluatedEffect {
+      action: FindAction;
+      path: string;
+      printfData: FindResult;
+    }
+    const effects: EvaluatedEffect[] = [];
     let exitCode = 0;
+    const output = ctx.executionScope
+      ? new ExecutionOutputAccumulator(
+          ctx.executionScope as ExecutionScope,
+          "find",
+        )
+      : undefined;
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+    let fallbackOutputBytes = 0;
+    const traversalBudget = new FileTraversalBudget({
+      limits: ctx.limits,
+      signal: ctx.signal,
+      executionScope: ctx.executionScope,
+      site: "find",
+    });
+    const appendStdout = (value: string): void => {
+      if (output) output.append("stdout", value);
+      else {
+        const bytes = utf8ByteLength(value);
+        if (bytes > ctx.limits.maxOutputSize - fallbackOutputBytes) {
+          throw new ExecutionLimitError(
+            `find: output size limit exceeded (${ctx.limits.maxOutputSize} bytes)`,
+            "output_size",
+          );
+        }
+        if (value) stdoutChunks.push(value);
+        fallbackOutputBytes += bytes;
+      }
+    };
+    const appendStderr = (value: string): void => {
+      if (output) output.append("stderr", value);
+      else {
+        const bytes = utf8ByteLength(value);
+        if (bytes > ctx.limits.maxOutputSize - fallbackOutputBytes) {
+          throw new ExecutionLimitError(
+            `find: output size limit exceeded (${ctx.limits.maxOutputSize} bytes)`,
+            "output_size",
+          );
+        }
+        if (value) stderrChunks.push(value);
+        fallbackOutputBytes += bytes;
+      }
+    };
 
     // Collect and resolve -newer reference file mtimes
     const newerRefPaths = collectNewerRefs(expr);
@@ -260,7 +300,7 @@ export const findCommand: Command = {
     // Check if printf format needs stat metadata
     // Simple directives: %f %h %p %P %d %% don't need stat
     // Stat-dependent: %s %m %M %t %T need stat
-    const printfNeedsStat = actions.some((a) => {
+    const printfNeedsStat = expressionActions.some((a) => {
       if (a.type !== "printf") return false;
       // Check for stat-dependent directives: %s %m %M %t %T
       // But skip escaped %% and handle width/precision modifiers like %10s or %-5.2s
@@ -274,9 +314,6 @@ export const findCommand: Command = {
 
     // Check if expression uses -empty (needs to read directories to count entries)
     const needsEmptyCheck = expressionNeedsEmptyCheck(expr);
-
-    // Extract path pattern pruning hints (for patterns like "*/pulls/*.json")
-    const pathPruningHints = extractPathPruningHints(expr);
 
     // Check if expression has -prune (for early prune optimization)
     const hasPruneExpr = expressionHasPrune(expr);
@@ -301,7 +338,7 @@ export const findCommand: Command = {
       try {
         await ctx.fs.stat(basePath);
       } catch {
-        stderr += `find: ${searchPath}: No such file or directory\n`;
+        appendStderr(`find: ${searchPath}: No such file or directory\n`);
         exitCode = 1;
         continue;
       }
@@ -337,10 +374,11 @@ export const findCommand: Command = {
         item: WorkItem,
       ): Promise<ProcessedNode | null> {
         const { path: currentPath, depth, typeInfo } = item;
+        traversalBudget.visit(depth);
         traceCounters.nodeCount++;
 
-        // Check maxdepth (default safety limit of 256 if not specified)
-        if (depth > (maxDepth ?? 256)) {
+        // The shared traversal limit remains in force even without -maxdepth.
+        if (depth > (maxDepth ?? ctx.limits.maxTraversalDepth)) {
           return null;
         }
 
@@ -355,7 +393,9 @@ export const findCommand: Command = {
         } else {
           try {
             const statStart = Date.now();
-            stat = await ctx.fs.stat(currentPath);
+            // find defaults to the POSIX -P policy: inspect symlinks, never
+            // follow them while deciding whether to descend.
+            stat = await ctx.fs.lstat(currentPath);
             traceCounters.statCalls++;
             traceCounters.statTime += Date.now() - statStart;
           } catch {
@@ -382,7 +422,7 @@ export const findCommand: Command = {
               : searchPath + currentPath.slice(basePath.length);
 
         // Get children for directories
-        let children: WorkItem[] = [];
+        const children: WorkItem[] = [];
         let entriesWithTypes: DirentEntry[] | null = null;
         let entries: string[] | null = null;
 
@@ -404,52 +444,28 @@ export const findCommand: Command = {
 
         // Optimization: skip reading directory contents if we're at maxdepth
         // Exception: if -empty is used, we need to read to check if directory is empty
-        const atMaxDepth = depth >= (maxDepth ?? 256);
-        // Path pattern pruning: for patterns like "*/pulls/*.json", don't descend into "pulls" subdirs
-        // But we still need to read the directory to check its direct children (files)
-        const inTerminalDir =
-          pathPruningHints.terminalDirName !== null &&
-          name === pathPruningHints.terminalDirName;
-        const shouldDescendIntoSubdirs =
-          !atMaxDepth && !inTerminalDir && !earlyPruned;
+        const atMaxDepth = depth >= (maxDepth ?? ctx.limits.maxTraversalDepth);
+        const shouldDescendIntoSubdirs = !atMaxDepth && !earlyPruned;
         const shouldReadDir =
-          (shouldDescendIntoSubdirs || needsEmptyCheck || inTerminalDir) &&
-          !earlyPruned;
+          (shouldDescendIntoSubdirs || needsEmptyCheck) && !earlyPruned;
 
         if (isDirectory && shouldReadDir) {
           const readdirStart = Date.now();
           if (hasReaddirWithFileTypes && ctx.fs.readdirWithFileTypes) {
             entriesWithTypes = await ctx.fs.readdirWithFileTypes(currentPath);
-            entries = entriesWithTypes.map((e) => e.name);
+            traversalBudget.checkpoint();
+            traversalBudget.discover(entriesWithTypes.length);
+            entries = [];
+            for (const entry of entriesWithTypes) entries.push(entry.name);
             traceCounters.readdirCalls++;
             traceCounters.readdirTime += Date.now() - readdirStart;
             // Create children work items
             // In terminal directory (e.g., "pulls" for pattern "*/pulls/*.json"),
             // only process files, not subdirectories
             if (shouldDescendIntoSubdirs) {
-              children = entriesWithTypes.map((entry, idx) => ({
-                path:
-                  currentPath === "/"
-                    ? `/${entry.name}`
-                    : `${currentPath}/${entry.name}`,
-                depth: depth + 1,
-                typeInfo: {
-                  isFile: entry.isFile,
-                  isDirectory: entry.isDirectory,
-                },
-                resultIndex: idx,
-              }));
-            } else if (inTerminalDir) {
-              // Only include files (not subdirectories) as children
-              // Also filter by extension if we have that hint
-              const extFilter = pathPruningHints.requiredExtension;
-              children = entriesWithTypes
-                .filter(
-                  (entry) =>
-                    entry.isFile &&
-                    (!extFilter || entry.name.endsWith(extFilter)),
-                )
-                .map((entry, idx) => ({
+              for (let idx = 0; idx < entriesWithTypes.length; idx++) {
+                const entry = entriesWithTypes[idx];
+                children.push({
                   path:
                     currentPath === "/"
                       ? `/${entry.name}`
@@ -460,24 +476,29 @@ export const findCommand: Command = {
                     isDirectory: entry.isDirectory,
                   },
                   resultIndex: idx,
-                }));
+                });
+              }
             }
           } else {
             entries = await ctx.fs.readdir(currentPath);
+            traversalBudget.checkpoint();
+            traversalBudget.discover(entries.length);
             traceCounters.readdirCalls++;
             traceCounters.readdirTime += Date.now() - readdirStart;
             // Create children work items
             if (shouldDescendIntoSubdirs) {
-              children = entries.map((entry, idx) => ({
-                path:
-                  currentPath === "/" ? `/${entry}` : `${currentPath}/${entry}`,
-                depth: depth + 1,
-                resultIndex: idx,
-              }));
+              for (let idx = 0; idx < entries.length; idx++) {
+                const entry = entries[idx];
+                children.push({
+                  path:
+                    currentPath === "/"
+                      ? `/${entry}`
+                      : `${currentPath}/${entry}`,
+                  depth: depth + 1,
+                  resultIndex: idx,
+                });
+              }
             }
-            // Note: when inTerminalDir and no readdirWithFileTypes,
-            // we can't filter by type, so we process all children
-            // (they'll be filtered during evaluation anyway)
           }
         }
 
@@ -521,16 +542,16 @@ export const findCommand: Command = {
         };
       }
 
-      // Check if node matches and should be printed
-      function shouldPrintNode(node: ProcessedNode): {
-        print: boolean;
-        printfData: FindResult | null;
-      } {
+      // Evaluate once in traversal order and retain only actions whose branch was
+      // actually reached. Side effects themselves run after traversal is complete.
+      function evaluateNode(node: ProcessedNode): EvaluatedEffect[] {
         const atOrBeyondMinDepth = minDepth === null || node.depth >= minDepth;
-        let matches = atOrBeyondMinDepth;
-        let shouldPrint = false;
+        if (!atOrBeyondMinDepth) return [];
 
-        if (matches && expr !== null) {
+        let matches = true;
+        let reachedActions: FindAction[] = [];
+
+        if (expr !== null) {
           const evalStart = Date.now();
           let evalResult: EvalResult;
 
@@ -559,43 +580,47 @@ export const findCommand: Command = {
           }
 
           matches = evalResult.matches;
-          shouldPrint = hasExplicitPrint ? evalResult.printed : matches;
+          reachedActions = evalResult.actions ?? [];
           traceCounters.evalCalls++;
           traceCounters.evalTime += Date.now() - evalStart;
-        } else if (matches) {
-          shouldPrint = true;
         }
 
-        if (!shouldPrint) {
-          return { print: false, printfData: null };
+        if (!hasAnyAction && matches) {
+          reachedActions = [{ type: "print" }];
         }
+        if (reachedActions.length === 0) return [];
 
-        const printfData = hasPrintfAction
-          ? {
-              path: node.relativePath,
-              name: node.name,
-              size: node.stat?.size ?? 0,
-              mtime: node.stat?.mtime?.getTime() ?? Date.now(),
-              mode: node.stat?.mode ?? 0o644,
-              isDirectory: node.isDirectory,
-              depth: node.depth,
-              startingPoint: searchPath,
-            }
-          : null;
-
-        return { print: true, printfData };
+        const printfData: FindResult = {
+          path: node.relativePath,
+          name: node.name,
+          size: node.stat?.size ?? 0,
+          mtime: node.stat?.mtime?.getTime() ?? Date.now(),
+          mode: node.stat?.mode ?? 0o644,
+          isDirectory: node.isDirectory,
+          depth: node.depth,
+          startingPoint: searchPath,
+        };
+        traversalBudget.checkpoint(reachedActions.length);
+        const evaluated: EvaluatedEffect[] = [];
+        for (const action of reachedActions) {
+          evaluated.push({
+            action,
+            path: node.relativePath,
+            printfData,
+          });
+        }
+        return evaluated;
       }
 
       // Result collection for ordered results
       interface NodeResult {
-        paths: string[];
-        printfData: FindResult[];
+        effects: EvaluatedEffect[];
       }
 
       // Iterative depth-first traversal with parallel processing
       // Uses work array with slot-based result collection for ordering
       async function findIterative(): Promise<NodeResult> {
-        const finalResult: NodeResult = { paths: [], printfData: [] };
+        const finalResult: NodeResult = { effects: [] };
 
         // For depth-first (post-order), we use a different strategy:
         // 1. Discover all nodes level by level (BFS with parallel batches)
@@ -631,9 +656,15 @@ export const findCommand: Command = {
           const parentChildMap = new Map<number, number[]>(); // parentIdx -> [childIdx in order]
 
           // BFS to discover all nodes with parallel processing
-          while (workQueue.length > 0) {
+          let workCursor = 0;
+          while (workCursor < workQueue.length) {
             const batchStart = Date.now();
-            const batch = workQueue.splice(0, FIND_BATCH_SIZE);
+            const batchEnd = Math.min(
+              workQueue.length,
+              workCursor + FIND_BATCH_SIZE,
+            );
+            const batch = workQueue.slice(workCursor, batchEnd);
+            workCursor = batchEnd;
             const nodes = await Promise.all(
               batch.map((q) => processNode(q.item)),
             );
@@ -679,37 +710,30 @@ export const findCommand: Command = {
             }
           }
 
-          // Phase 2: Build result in post-order using recursive collection
-          // This ensures children come before parent in the correct sibling order
-          function collectPostOrder(index: number): NodeResult {
-            const result: NodeResult = { paths: [], printfData: [] };
-            const entry = discovered[index];
-            if (!entry) return result;
-
-            // First, collect all children's results (in order)
-            for (const childIndex of entry.childIndices) {
-              const childResult = collectPostOrder(childIndex);
-              result.paths.push(...childResult.paths);
-              result.printfData.push(...childResult.printfData);
-            }
-
-            // Then, add this node's result
-            const { print, printfData } = shouldPrintNode(entry.node);
-            if (print) {
-              result.paths.push(entry.node.relativePath);
-              if (printfData) {
-                result.printfData.push(printfData);
+          // Phase 2: Build post-order iteratively. Recursive reconstruction can
+          // overflow the host stack at traversal depths that are deliberately
+          // valid under a liberal normal profile.
+          if (discovered.length > 0) {
+            const stack: Array<{ index: number; visited: boolean }> = [
+              { index: 0, visited: false },
+            ];
+            while (stack.length > 0) {
+              traversalBudget.checkpoint();
+              const current = stack.pop();
+              if (!current) break;
+              const entry = discovered[current.index];
+              if (!entry) continue;
+              if (current.visited) {
+                for (const effect of evaluateNode(entry.node)) {
+                  finalResult.effects.push(effect);
+                }
+                continue;
+              }
+              stack.push({ index: current.index, visited: true });
+              for (let i = entry.childIndices.length - 1; i >= 0; i--) {
+                stack.push({ index: entry.childIndices[i], visited: false });
               }
             }
-
-            return result;
-          }
-
-          // Start from root (index 0)
-          if (discovered.length > 0) {
-            const rootResult = collectPostOrder(0);
-            finalResult.paths.push(...rootResult.paths);
-            finalResult.printfData.push(...rootResult.printfData);
           }
         } else {
           // Pre-order traversal using BFS with batched processing
@@ -720,10 +744,7 @@ export const findCommand: Command = {
             orderIndex: number;
           }
 
-          const nodeResults: Map<
-            number,
-            { path: string; printfData: FindResult | null }
-          > = new Map();
+          const nodeResults: Map<number, EvaluatedEffect[]> = new Map();
           let orderCounter = 0;
 
           // BFS queue with order tracking
@@ -737,10 +758,16 @@ export const findCommand: Command = {
           // Track child order indices for each parent
           const childOrders: Map<number, number[]> = new Map();
 
-          while (workQueue.length > 0) {
+          let workCursor = 0;
+          while (workCursor < workQueue.length) {
             // Process all items in the queue in parallel batches
             const batchStart = Date.now();
-            const batch = workQueue.splice(0, FIND_BATCH_SIZE);
+            const batchEnd = Math.min(
+              workQueue.length,
+              workCursor + FIND_BATCH_SIZE,
+            );
+            const batch = workQueue.slice(workCursor, batchEnd);
+            workCursor = batchEnd;
             const processed: Array<NodeWithOrder | null> = await Promise.all(
               batch.map(async ({ item, orderIndex }) => {
                 const node = await processNode(item);
@@ -754,14 +781,9 @@ export const findCommand: Command = {
               if (!result) continue;
               const { node, orderIndex } = result;
 
-              // Check if this node should be printed
-              const { print, printfData } = shouldPrintNode(node);
-              if (print) {
-                nodeResults.set(orderIndex, {
-                  path: node.relativePath,
-                  printfData,
-                });
-              }
+              const nodeEffects = evaluateNode(node);
+              if (nodeEffects.length > 0)
+                nodeResults.set(orderIndex, nodeEffects);
 
               // Add children to work queue with consecutive order indices
               if (node.children.length > 0) {
@@ -776,32 +798,32 @@ export const findCommand: Command = {
             }
           }
 
-          // Build result in pre-order by walking the tree structure
-          function collectPreOrder(orderIndex: number): void {
+          // Build result in pre-order with an explicit stack.
+          const collectionStack = [0];
+          while (collectionStack.length > 0) {
+            traversalBudget.checkpoint();
+            const orderIndex = collectionStack.pop();
+            if (orderIndex === undefined) break;
             const nodeResult = nodeResults.get(orderIndex);
             if (nodeResult) {
-              finalResult.paths.push(nodeResult.path);
-              if (nodeResult.printfData) {
-                finalResult.printfData.push(nodeResult.printfData);
+              for (const effect of nodeResult) {
+                finalResult.effects.push(effect);
               }
             }
             const children = childOrders.get(orderIndex);
             if (children) {
-              for (const childIndex of children) {
-                collectPreOrder(childIndex);
+              for (let i = children.length - 1; i >= 0; i--) {
+                collectionStack.push(children[i]);
               }
             }
           }
-
-          collectPreOrder(0);
         }
 
         return finalResult;
       }
 
       const searchResult = await findIterative();
-      results.push(...searchResult.paths);
-      printfResults.push(...searchResult.printfData);
+      for (const effect of searchResult.effects) effects.push(effect);
 
       // Emit trace summary for this search path
       if (ctx.trace) {
@@ -813,110 +835,110 @@ export const findCommand: Command = {
           durationMs: totalMs,
           details: {
             path: searchPath,
-            resultsFound: searchResult.paths.length,
+            resultsFound: searchResult.effects.length,
           },
         });
       }
     }
 
-    let stdout = "";
-
-    // Execute actions if any
-    if (actions.length > 0) {
-      for (const action of actions) {
-        switch (action.type) {
-          case "print":
-            // When -print is in the expression (hasExplicitPrint), results are already
-            // populated based on when -print was triggered during evaluation.
-            // Just output them here.
-            stdout += results.length > 0 ? `${results.join("\n")}\n` : "";
-            break;
-
-          case "print0":
-            stdout += results.length > 0 ? `${results.join("\0")}\0` : "";
-            break;
-
-          case "delete": {
-            // Delete files in reverse order (depth-first) to handle directories
-            const sortedForDelete = [...results].sort(
-              (a, b) => b.length - a.length,
-            );
-            for (const file of sortedForDelete) {
-              const fullPath = ctx.fs.resolvePath(ctx.cwd, file);
-              try {
-                await ctx.fs.rm(fullPath, { recursive: false });
-              } catch (e) {
-                const msg = e instanceof Error ? e.message : String(e);
-                stderr += `find: cannot delete '${file}': ${msg}\n`;
-                exitCode = 1;
-              }
-            }
+    // Batch -exec nodes collect only paths for which that exact expression node
+    // was reached. All other effects retain entry and expression order.
+    const batchExecPaths = new Map<FindAction, string[]>();
+    for (const effect of effects) {
+      const { action, path: file } = effect;
+      switch (action.type) {
+        case "print":
+          appendStdout(`${file}\n`);
+          break;
+        case "print0":
+          appendStdout(`${file}\0`);
+          break;
+        case "printf":
+          appendStdout(formatFindPrintf(action.format, effect.printfData));
+          break;
+        case "delete": {
+          const fullPath = ctx.fs.resolvePath(ctx.cwd, file);
+          try {
+            await ctx.fs.rm(fullPath, { recursive: false });
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            appendStderr(`find: cannot delete '${file}': ${msg}\n`);
+            exitCode = 1;
+          }
+          break;
+        }
+        case "exec": {
+          if (!ctx.exec) {
+            return {
+              stdout: "",
+              stderr: "find: -exec not supported in this context\n",
+              exitCode: 1,
+            };
+          }
+          if (action.batchMode) {
+            const paths = batchExecPaths.get(action) ?? [];
+            paths.push(file);
+            batchExecPaths.set(action, paths);
             break;
           }
-
-          case "printf":
-            for (const r of printfResults) {
-              stdout += formatFindPrintf(action.format, r);
-            }
-            break;
-
-          case "exec":
-            if (!ctx.exec) {
-              return {
-                stdout: "",
-                stderr: "find: -exec not supported in this context\n",
-                exitCode: 1,
-              };
-            }
-            if (action.batchMode) {
-              // -exec ... + : execute command once with all files
-              const cmdWithFiles: string[] = [];
-              for (const part of action.command) {
-                if (part === "{}") {
-                  cmdWithFiles.push(...results);
-                } else {
-                  cmdWithFiles.push(part);
-                }
-              }
-              const result = await ctx.exec(shellJoinArgs([cmdWithFiles[0]]), {
-                cwd: ctx.cwd,
-                signal: ctx.signal,
-                args: cmdWithFiles.slice(1),
-              });
-              stdout += result.stdout;
-              stderr += result.stderr;
-              if (result.exitCode !== 0) {
-                exitCode = result.exitCode;
-              }
-            } else {
-              // -exec ... ; : execute command for each file
-              for (const file of results) {
-                const cmdWithFile = action.command.map((part) =>
-                  part === "{}" ? file : part,
-                );
-                const result = await ctx.exec(shellJoinArgs([cmdWithFile[0]]), {
-                  cwd: ctx.cwd,
-                  signal: ctx.signal,
-                  args: cmdWithFile.slice(1),
-                });
-                stdout += result.stdout;
-                stderr += result.stderr;
-                if (result.exitCode !== 0) {
-                  exitCode = result.exitCode;
-                }
-              }
-            }
-            break;
+          const cmdWithFile = action.command.map((part) =>
+            part === "{}" ? file : part,
+          );
+          const result = await ctx.exec(shellJoinArgs([cmdWithFile[0]]), {
+            cwd: ctx.cwd,
+            signal: ctx.signal,
+            args: cmdWithFile.slice(1),
+          });
+          if (output) output.appendResult(result);
+          else {
+            appendStdout(result.stdout);
+            appendStderr(result.stderr);
+          }
+          if (result.exitCode !== 0) exitCode = result.exitCode;
+          break;
         }
       }
-    } else if (useDefaultPrint) {
-      // Default: print with newline separator
-      stdout = results.length > 0 ? `${results.join("\n")}\n` : "";
     }
 
-    return { stdout, stderr, exitCode };
+    for (const [action, paths] of batchExecPaths) {
+      if (action.type !== "exec" || !ctx.exec || paths.length === 0) continue;
+      const cmdWithFiles: string[] = [];
+      for (const part of action.command) {
+        if (part === "{}") cmdWithFiles.push(...paths);
+        else cmdWithFiles.push(part);
+      }
+      const result = await ctx.exec(shellJoinArgs([cmdWithFiles[0]]), {
+        cwd: ctx.cwd,
+        signal: ctx.signal,
+        args: cmdWithFiles.slice(1),
+      });
+      if (output) output.appendResult(result);
+      else {
+        appendStdout(result.stdout);
+        appendStderr(result.stderr);
+      }
+      if (result.exitCode !== 0) exitCode = result.exitCode;
+    }
+
+    return (
+      output?.build(exitCode) ?? {
+        stdout: stdoutChunks.join(""),
+        stderr: stderrChunks.join(""),
+        exitCode,
+      }
+    );
   },
 };
+
+function collectActions(expr: Expression | null): FindAction[] {
+  if (!expr) return [];
+  if (expr.type === "action") return [expr.action];
+  if (expr.type === "not") return collectActions(expr.expr);
+  if (expr.type === "and" || expr.type === "or") {
+    return [...collectActions(expr.left), ...collectActions(expr.right)];
+  }
+  return [];
+}
 
 /**
  * Format a find -printf format string

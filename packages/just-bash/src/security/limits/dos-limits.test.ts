@@ -416,10 +416,10 @@ describe("DoS Prevention - Execution Limits", () => {
   });
 
   describe("Default Limits", () => {
-    it("should have reasonable defaults that prevent runaway scripts", async () => {
-      // Default limits should prevent infinite loops
-      // Both loop iteration (10000) and command count (10000) limits apply
-      const defaultBash = new Bash();
+    it("should have reasonable hardened defaults that prevent runaway scripts", async () => {
+      // The hardened profile bounds untrusted loops more tightly than the
+      // compatibility-oriented normal profile.
+      const defaultBash = new Bash({ executionLimitProfile: "hardened" });
 
       const result = await defaultBash.exec(`
         i=0

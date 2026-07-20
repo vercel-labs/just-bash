@@ -56,4 +56,28 @@ describe("sanitizeParsedData", () => {
     expect(result.left).toBe(result.right);
     expect(Object.getPrototypeOf(result.left)).toBe(null);
   });
+
+  it("iteratively rejects malicious pre-parsed data above the depth limit", () => {
+    const root: unknown[] = [];
+    let cursor = root;
+    for (let depth = 0; depth < 20; depth++) {
+      const child: unknown[] = [];
+      cursor.push(child);
+      cursor = child;
+    }
+
+    expect(() => sanitizeParsedData(root, { maxDepth: 19 })).toThrow(
+      "query depth limit exceeded (19)",
+    );
+    expect(() => sanitizeParsedData(root, { maxDepth: 20 })).not.toThrow();
+  });
+
+  it("charges aggregate array and object members before cloning", () => {
+    expect(() =>
+      sanitizeParsedData({ a: [1, 2, 3] }, { maxElements: 3 }),
+    ).toThrow("query input element limit exceeded (3)");
+    expect(() =>
+      sanitizeParsedData({ a: [1, 2, 3] }, { maxElements: 4 }),
+    ).not.toThrow();
+  });
 });

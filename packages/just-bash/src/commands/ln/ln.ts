@@ -1,5 +1,9 @@
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const lnHelp = {
@@ -15,10 +19,13 @@ const lnHelp = {
   ],
 };
 
-export const lnCommand: Command = {
+export const lnCommand: RuntimeCommand = {
   name: "ln",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(lnHelp);
     }
@@ -62,6 +69,13 @@ export const lnCommand: Command = {
 
     if (remaining.length < 2) {
       return { stdout: "", stderr: "ln: missing file operand\n", exitCode: 1 };
+    }
+    if (remaining.length > 2) {
+      return {
+        stdout: "",
+        stderr: `ln: extra operand '${remaining[2]}'\n`,
+        exitCode: 1,
+      };
     }
 
     const target = remaining[0];

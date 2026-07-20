@@ -80,6 +80,16 @@ describe("readlink", () => {
       expect(result.stdout).toBe("/tmp/nonexistent\n");
       expect(result.exitCode).toBe(0);
     });
+
+    it("bounds aggregate symlink traversal", async () => {
+      const env = new Bash({ executionLimits: { maxTraversalWork: 2 } });
+      await env.exec("ln -s /tmp/two /tmp/one");
+      await env.exec("ln -s /tmp/three /tmp/two");
+      await env.exec("ln -s /tmp/four /tmp/three");
+      const result = await env.exec("readlink -f /tmp/one");
+      expect(result.exitCode).toBe(126);
+      expect(result.stderr).toContain("symlink traversal limit exceeded");
+    });
   });
 
   describe("error handling", () => {

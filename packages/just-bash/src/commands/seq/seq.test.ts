@@ -116,6 +116,27 @@ describe("seq", () => {
   });
 
   describe("error cases", () => {
+    it("rejects separator-amplified output before joining", async () => {
+      const env = new Bash({ executionLimits: { maxOutputSize: 16 } });
+      const result = await env.exec("seq -s 12345678 3");
+      expect(result.exitCode).toBe(126);
+      expect(result.stderr).toContain("output size limit exceeded");
+    });
+
+    it("enforces the configured iteration limit", async () => {
+      const env = new Bash({ executionLimits: { maxLoopIterations: 2 } });
+      const result = await env.exec("seq 3");
+      expect(result.exitCode).toBe(126);
+      expect(result.stderr).toContain("iteration limit exceeded");
+    });
+
+    it("rejects non-finite operands", async () => {
+      const env = new Bash();
+      const result = await env.exec("seq Infinity");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("invalid floating point argument");
+    });
+
     it("should error on missing operand", async () => {
       const env = new Bash();
       const result = await env.exec("seq");

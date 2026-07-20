@@ -27,6 +27,7 @@ import { resolve } from "node:path";
 import { Bash } from "../Bash.js";
 import { OverlayFs } from "../fs/overlay-fs/index.js";
 import { parse } from "../parser/parser.js";
+import { getDevExecutionLimits } from "./exec-limits.js";
 
 const showAst = process.argv.includes("--print-ast");
 const runRealBash = process.argv.includes("--real-bash");
@@ -80,15 +81,7 @@ if (showAst) {
 
 // Create Bash environment with optional OverlayFS
 // Use high limits for dev:exec (typical use is exploration of large filesystems)
-const executionLimits = noLimit
-  ? {
-      maxCommandCount: Number.MAX_SAFE_INTEGER,
-      maxLoopIterations: Number.MAX_SAFE_INTEGER,
-    }
-  : {
-      maxCommandCount: 100000, // Higher default for dev:exec
-      maxLoopIterations: 100000,
-    };
+const executionLimits = getDevExecutionLimits(noLimit);
 
 let env: Bash;
 if (rootPath) {

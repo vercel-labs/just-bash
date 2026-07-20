@@ -261,10 +261,33 @@ export function parseOptions(args: string[]): CurlOptions | ExecResult {
     } else if (arg === "-L" || arg === "--location") {
       options.followRedirects = true;
     } else if (arg === "--max-redirs") {
-      // Handled by the network config, skip the value
-      i++;
+      const value = args[++i];
+      if (value === undefined || !/^\d+$/.test(value)) {
+        return {
+          stdout: "",
+          stderr: `curl: option --max-redirs: expected a non-negative integer\n`,
+          exitCode: 2,
+        };
+      }
+      const parsed = Number(value);
+      if (!Number.isSafeInteger(parsed)) {
+        return {
+          stdout: "",
+          stderr: `curl: option --max-redirs: value is out of range\n`,
+          exitCode: 2,
+        };
+      }
+      options.maxRedirects = parsed;
     } else if (arg.startsWith("--max-redirs=")) {
-      // Handled by the network config
+      const value = arg.slice(13);
+      if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
+        return {
+          stdout: "",
+          stderr: `curl: option --max-redirs: expected a non-negative integer\n`,
+          exitCode: 2,
+        };
+      }
+      options.maxRedirects = Number(value);
     } else if (arg === "-w" || arg === "--write-out") {
       options.writeOut = args[++i];
     } else if (arg.startsWith("--write-out=")) {

@@ -4,10 +4,41 @@
  * Handles parsing of array literal syntax for the declare builtin.
  */
 
+import { utf8ByteLength } from "../../encoding.js";
+import { ExecutionLimitError } from "../errors.js";
+
+export interface ArrayParseLimits {
+  maxElements: number;
+  maxStringBytes: number;
+}
+
+function pushParsed<T>(
+  values: T[],
+  value: T,
+  limits: ArrayParseLimits | undefined,
+): void {
+  if (limits && values.length >= limits.maxElements) {
+    throw new ExecutionLimitError(
+      `array element limit exceeded (${limits.maxElements})`,
+      "array_elements",
+    );
+  }
+  values.push(value);
+}
+
 /**
  * Parse array elements from content like "1 2 3" or "'a b' c d"
  */
-export function parseArrayElements(content: string): string[] {
+export function parseArrayElements(
+  content: string,
+  limits?: ArrayParseLimits,
+): string[] {
+  if (limits && utf8ByteLength(content) > limits.maxStringBytes) {
+    throw new ExecutionLimitError(
+      `array assignment string limit exceeded (${limits.maxStringBytes} bytes)`,
+      "string_length",
+    );
+  }
   const elements: string[] = [];
   let current = "";
   let inSingleQuote = false;
@@ -52,7 +83,7 @@ export function parseArrayElements(content: string): string[] {
       !inDoubleQuote
     ) {
       if (hasContent) {
-        elements.push(current);
+        pushParsed(elements, current, limits);
         current = "";
         hasContent = false;
       }
@@ -62,7 +93,7 @@ export function parseArrayElements(content: string): string[] {
     hasContent = true;
   }
   if (hasContent) {
-    elements.push(current);
+    pushParsed(elements, current, limits);
   }
   return elements;
 }
@@ -71,7 +102,16 @@ export function parseArrayElements(content: string): string[] {
  * Parse associative array literal content like "['foo']=bar ['spam']=42"
  * Returns array of [key, value] pairs
  */
-export function parseAssocArrayLiteral(content: string): [string, string][] {
+export function parseAssocArrayLiteral(
+  content: string,
+  limits?: ArrayParseLimits,
+): [string, string][] {
+  if (limits && utf8ByteLength(content) > limits.maxStringBytes) {
+    throw new ExecutionLimitError(
+      `array assignment string limit exceeded (${limits.maxStringBytes} bytes)`,
+      "string_length",
+    );
+  }
   const entries: [string, string][] = [];
   let pos = 0;
 
@@ -143,7 +183,7 @@ export function parseAssocArrayLiteral(content: string): [string, string][] {
       }
     }
 
-    entries.push([key, value]);
+    pushParsed(entries, [key, value], limits);
   }
 
   return entries;

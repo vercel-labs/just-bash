@@ -6,6 +6,12 @@ import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { evaluateArithmetic } from "../arithmetic.js";
+import {
+  clearArray,
+  cloneArray,
+  getArray,
+  setArrayElement,
+} from "../helpers/array.js";
 import { checkReadonlyError, markReadonly } from "../helpers/readonly.js";
 import type { InterpreterContext } from "../types.js";
 import { parseArrayElements } from "./declare-array-parsing.js";
@@ -25,14 +31,17 @@ export interface ParsedAssignment {
 /**
  * Parse an assignment argument like "name=value", "name=(a b c)", or "name[index]=value".
  */
-export function parseAssignment(arg: string): ParsedAssignment {
+export function parseAssignment(
+  arg: string,
+  limits?: { maxElements: number; maxStringBytes: number },
+): ParsedAssignment {
   // Check for array assignment: name=(...)
   const arrayMatch = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)=\((.*)\)$/s);
   if (arrayMatch) {
     return {
       name: arrayMatch[1],
       isArray: true,
-      arrayElements: parseArrayElements(arrayMatch[2]),
+      arrayElements: parseArrayElements(arrayMatch[2], limits),
     };
   }
 
@@ -110,23 +119,28 @@ export async function setVariable(
   }
 
   if (isArray && arrayElements) {
-    // Set array elements
-    for (let i = 0; i < arrayElements.length; i++) {
-      ctx.state.env.set(`${name}_${i}`, arrayElements[i]);
+    ctx.executionScope.consumeWork(arrayElements.length, "array assignment");
+    const priorArray = getArray(ctx, name);
+    const priorArraySnapshot = priorArray ? cloneArray(priorArray) : undefined;
+    const priorScalar = ctx.state.env.get(name);
+    try {
+      clearArray(ctx, name);
+      for (let i = 0; i < arrayElements.length; i++) {
+        setArrayElement(ctx, name, i, arrayElements[i]);
+      }
+      ctx.state.env.delete(name);
+    } catch (error) {
+      ctx.state.arrays ??= new Map();
+      if (priorArraySnapshot) ctx.state.arrays.set(name, priorArraySnapshot);
+      else ctx.state.arrays.delete(name);
+      if (priorScalar === undefined) ctx.state.env.delete(name);
+      else ctx.state.env.set(name, priorScalar);
+      throw error;
     }
-    ctx.state.env.set(`${name}__length`, String(arrayElements.length));
   } else if (arrayIndex !== undefined && value !== undefined) {
     // Array index assignment: a[index]=value
     const index = await evaluateArrayIndex(ctx, arrayIndex);
-    ctx.state.env.set(`${name}_${index}`, value);
-    // Update array length if needed (sparse arrays may have gaps)
-    const currentLength = parseInt(
-      ctx.state.env.get(`${name}__length`) ?? "0",
-      10,
-    );
-    if (index >= currentLength) {
-      ctx.state.env.set(`${name}__length`, String(index + 1));
-    }
+    setArrayElement(ctx, name, index, value);
   } else if (value !== undefined) {
     // Set scalar value
     ctx.state.env.set(name, value);

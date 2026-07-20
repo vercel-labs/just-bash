@@ -23,7 +23,7 @@ type EvalWithPartialFn = (
 type IsTruthyFn = (v: QueryValue) => boolean;
 type ExecutionLimitErrorClass = new (
   message: string,
-  kind: "recursion" | "commands" | "iterations",
+  kind: "recursion" | "commands" | "iterations" | "array_elements",
 ) => Error;
 
 /**
@@ -109,8 +109,16 @@ export function evalControlBuiltin(
       // so we use a higher limit than while/until/repeat loops.  Prevents
       // memory exhaustion from range(1e15) while allowing legitimate use
       // cases like date arithmetic (range(365*67) = 24455 elements).
-      const maxRange = Math.max(ctx.limits.maxIterations * 100, 1_000_000);
-      const rangeExceeded = (result: number[]) => result.length >= maxRange;
+      const maxRange = ctx.limits.maxArrayElements;
+      const appendRangeValue = (result: number[], item: number): void => {
+        if (result.length >= maxRange) {
+          throw new ExecutionLimitError(
+            `query result element limit exceeded (${maxRange})`,
+            "array_elements",
+          );
+        }
+        result.push(item);
+      };
       const startsVals = evaluate(value, args[0], ctx);
       if (args.length === 1) {
         // range(n) - single arg, range from 0 to n
@@ -119,8 +127,7 @@ export function evalControlBuiltin(
         for (const n of startsVals) {
           const num = n as number;
           for (let i = 0; i < num; i++) {
-            result.push(i);
-            if (rangeExceeded(result)) return result;
+            appendRangeValue(result, i);
           }
         }
         return result;
@@ -135,8 +142,7 @@ export function evalControlBuiltin(
             const start = s as number;
             const end = e as number;
             for (let i = start; i < end; i++) {
-              result.push(i);
-              if (rangeExceeded(result)) return result;
+              appendRangeValue(result, i);
             }
           }
         }
@@ -154,13 +160,11 @@ export function evalControlBuiltin(
             if (step === 0) continue; // Avoid infinite loop
             if (step > 0) {
               for (let i = start; i < end; i += step) {
-                result.push(i);
-                if (rangeExceeded(result)) return result;
+                appendRangeValue(result, i);
               }
             } else {
               for (let i = start; i > end; i += step) {
-                result.push(i);
-                if (rangeExceeded(result)) return result;
+                appendRangeValue(result, i);
               }
             }
           }

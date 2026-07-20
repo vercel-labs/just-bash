@@ -103,6 +103,14 @@ describe("ln command", () => {
       expect(result.stderr).toContain("missing file operand");
     });
 
+    it("rejects extra operands without creating a partial link", async () => {
+      const env = new Bash({ files: { "/target.txt": "hello\n" } });
+      const result = await env.exec("ln /target.txt /link.txt ignored");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("extra operand 'ignored'");
+      expect((await env.exec("test -e /link.txt")).exitCode).toBe(1);
+    });
+
     it("should show help with --help", async () => {
       const env = new Bash();
       const result = await env.exec("ln --help");

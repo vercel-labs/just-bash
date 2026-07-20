@@ -9,7 +9,11 @@
  */
 
 import { decodeBytesToUtf8 } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const revHelp = {
@@ -32,9 +36,12 @@ function reverseString(str: string): string {
   return Array.from(str).reverse().join("");
 }
 
-export const rev: Command = {
+export const rev: RuntimeCommand = {
   name: "rev",
-  execute: async (args: string[], ctx: CommandContext): Promise<ExecResult> => {
+  execute: async (
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> => {
     if (hasHelpFlag(args)) {
       return showHelp(revHelp);
     }

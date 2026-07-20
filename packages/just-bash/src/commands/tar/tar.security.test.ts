@@ -70,53 +70,38 @@ describe("tar security hardening", () => {
     expect(await env.fs.exists("/safe/link.txt")).toBe(false);
   });
 
-  it("blocks xz encode and decode by default (native codec risk)", async () => {
-    const env = new Bash({
-      files: {
-        "/payload.bin": new Uint8Array([
-          0x00, 0x01, 0x02, 0x03, 0x7f, 0x80, 0xff, 0xfe,
-        ]),
-      },
+  // Direct unit tests for the archive-level native codec opt-out.
+  it("createXzCompressedArchive honors an explicit opt-out", async () => {
+    const entries = [{ name: "test.txt", content: "data" }];
+    await expect(
+      createXzCompressedArchive(entries, { allowNativeCodecs: false }),
+    ).rejects.toThrow("xz compression is disabled by configuration");
+  });
+
+  it("createZstdCompressedArchive honors an explicit opt-out", async () => {
+    const entries = [{ name: "test.txt", content: "data" }];
+    await expect(
+      createZstdCompressedArchive(entries, { allowNativeCodecs: false }),
+    ).rejects.toThrow("zstd compression is disabled by configuration");
+  });
+
+  it("parseXzCompressedArchive honors an explicit opt-out", async () => {
+    const result = await parseXzCompressedArchive(new Uint8Array([1, 2, 3]), {
+      allowNativeCodecs: false,
     });
-
-    // Encode (create) should be blocked
-    const createResult = await env.exec(
-      "tar -cJf /payload.tar.xz /payload.bin",
-    );
-    expect(createResult.stderr).toContain(
-      "xz compression is disabled by default (native codec risk)",
-    );
-    expect(createResult.exitCode).toBe(2);
-  });
-
-  // Direct unit tests for archive-level native codec gates
-  it("createXzCompressedArchive rejects by default", async () => {
-    const entries = [{ name: "test.txt", content: "data" }];
-    await expect(createXzCompressedArchive(entries)).rejects.toThrow(
-      "xz compression is disabled by default",
-    );
-  });
-
-  it("createZstdCompressedArchive rejects by default", async () => {
-    const entries = [{ name: "test.txt", content: "data" }];
-    await expect(createZstdCompressedArchive(entries)).rejects.toThrow(
-      "zstd compression is disabled by default",
-    );
-  });
-
-  it("parseXzCompressedArchive rejects by default", async () => {
-    const result = await parseXzCompressedArchive(new Uint8Array([1, 2, 3]));
     expect(result.entries).toEqual([]);
     expect(result.error).toContain(
-      "xz decompression is disabled by default (native codec risk)",
+      "xz decompression is disabled by configuration",
     );
   });
 
-  it("parseZstdCompressedArchive rejects by default", async () => {
-    const result = await parseZstdCompressedArchive(new Uint8Array([1, 2, 3]));
+  it("parseZstdCompressedArchive honors an explicit opt-out", async () => {
+    const result = await parseZstdCompressedArchive(new Uint8Array([1, 2, 3]), {
+      allowNativeCodecs: false,
+    });
     expect(result.entries).toEqual([]);
     expect(result.error).toContain(
-      "zstd decompression is disabled by default (native codec risk)",
+      "zstd decompression is disabled by configuration",
     );
   });
 });

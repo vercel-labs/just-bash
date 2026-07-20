@@ -669,10 +669,12 @@ export function tryParseBraceExpansion(
     // Split by comma at top level (handling nested braces)
     const rawItems = splitBraceItems(inner);
     // Parse each item as a word with full expansion support
-    const items = rawItems.map((s) => ({
-      type: "Word" as const,
-      word: AST.word(parseWordPartsFn(p, s, false, false, false)),
-    }));
+    const items = rawItems.map((s) =>
+      p.withDepth(() => ({
+        type: "Word" as const,
+        word: AST.word(parseWordPartsFn(p, s, false, false, false)),
+      })),
+    );
     return {
       part: { type: "BraceExpansion", items },
       endIndex: closeIdx + 1,

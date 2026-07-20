@@ -14,16 +14,20 @@
  */
 
 import { parentPort, workerData } from "node:worker_threads";
-import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
+import initSqlJs, {
+  type Database,
+  type SqlJsStatic,
+  type Statement,
+} from "sql.js";
 import { sanitizeHostErrorMessage } from "../../fs/sanitize-error.js";
 import {
   WorkerDefenseInDepth,
   type WorkerDefenseStats,
 } from "../../security/index.js";
-import {
-  sanitizeUnknownError,
-  wrapWasmCallback,
-} from "../../security/wasm-callback.js";
+import { sanitizeUnknownError } from "../../security/wasm-callback.js";
+
+const MIN_SQLITE_HEAP_LIMIT = 32 * 1024 * 1024;
+const MAX_SQLITE_HEAP_LIMIT = 128 * 1024 * 1024;
 
 // Cached SQL.js module (initialized once)
 let cachedSQL: SqlJsStatic | null = null;
@@ -68,31 +72,26 @@ function postWorkerMessage(protocolToken: string, message: unknown): void {
  * Initialize sql.js and activate defense-in-depth.
  * Called once per worker lifetime.
  */
-async function initializeWithDefense(
-  protocolToken: string,
-): Promise<SqlJsStatic> {
+async function initializeSqlJs(): Promise<SqlJsStatic> {
   if (cachedSQL) {
     return cachedSQL;
   }
 
-  // Initialize sql.js WASM first (needs unrestricted JS features)
+  // Initialize sql.js WASM first (needs unrestricted JS features). Database
+  // construction is also prewarmed before defense activation below because
+  // sql.js performs some Node module loading lazily on first use.
   cachedSQL = await initSqlJs();
 
-  // Activate defense after sql.js is loaded (no exclusions needed)
-  const onViolation = wrapWasmCallback(
-    "sqlite3-worker",
-    "onViolation",
-    (v: unknown) => {
-      postWorkerMessage(protocolToken, {
-        type: "security-violation",
-        violation: v,
-      });
-    },
-  );
-
-  defense = new WorkerDefenseInDepth({ onViolation });
-
   return cachedSQL;
+}
+
+function activateDefense(): void {
+  if (defense) return;
+  // Violations throw synchronously and are returned through the authenticated
+  // final response. Calling parentPort.postMessage from inside the loader trap
+  // can itself lazily load Node internals and recursively trigger the trap.
+  // @banned-pattern-ignore: constructor receives a static options bag, never dynamic keys
+  defense = new WorkerDefenseInDepth({});
 }
 
 export interface WorkerInput {
@@ -102,6 +101,11 @@ export interface WorkerInput {
   options: {
     bail: boolean;
     echo: boolean;
+  };
+  limits: {
+    maxResultRows: number;
+    maxResultBytes: number;
+    maxDatabaseBytes: number;
   };
 }
 
@@ -163,77 +167,135 @@ function isReadOnlyStatement(sql: string): boolean {
   if (s.startsWith("SELECT")) return true;
   if (s.startsWith("EXPLAIN")) return true;
   if (s.startsWith("VALUES")) return true;
-  if (s.startsWith("PRAGMA")) {
-    // `PRAGMA name` is a read; `PRAGMA name = value` and
-    // `PRAGMA name(value)` mutate state.
-    const rest = s.slice("PRAGMA".length);
-    return !/[=(]/.test(rest);
-  }
+  // PRAGMAs are intentionally never allowlisted here. Several argumentless
+  // forms mutate persistent state (for example incremental_vacuum), and an
+  // extra writeback is safer than silently discarding a mutation.
   return false;
 }
 
-function isWriteStatement(sql: string): boolean {
-  const trimmed = stripLeadingNoise(sql).toUpperCase();
-  return (
-    trimmed.startsWith("INSERT") ||
-    trimmed.startsWith("UPDATE") ||
-    trimmed.startsWith("DELETE") ||
-    trimmed.startsWith("CREATE") ||
-    trimmed.startsWith("DROP") ||
-    trimmed.startsWith("ALTER") ||
-    trimmed.startsWith("REPLACE") ||
-    trimmed.startsWith("VACUUM")
-  );
-}
-
-function splitStatements(sql: string): string[] {
-  const statements: string[] = [];
-  let current = "";
-  let inString = false;
-  let stringChar = "";
-
+/**
+ * Recover SQLite's remaining tail after prepare() fails. sql.js does not
+ * expose sqlite3_prepare_v2's tail pointer on an error, so enumerate only
+ * lexically possible top-level terminators and ask SQLite whether each
+ * prefix is complete. The scanner never declares a boundary by itself.
+ */
+function tailAfterFailedPrepare(db: Database, sql: string): string | null {
+  let quote: "'" | '"' | "`" | "]" | null = null;
+  let lineComment = false;
+  let blockComment = false;
   for (let i = 0; i < sql.length; i++) {
     const char = sql[i];
-
-    if (inString) {
-      current += char;
-      if (char === stringChar) {
-        if (sql[i + 1] === stringChar) {
-          current += sql[++i];
-        } else {
-          inString = false;
-        }
+    const next = sql[i + 1];
+    if (lineComment) {
+      if (char === "\n") lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (char === "*" && next === "/") {
+        blockComment = false;
+        i++;
       }
-    } else if (char === "'" || char === '"') {
-      current += char;
-      inString = true;
-      stringChar = char;
-    } else if (char === ";") {
-      const stmt = current.trim();
-      if (stmt) statements.push(stmt);
-      current = "";
-    } else {
-      current += char;
+      continue;
+    }
+    if (quote !== null) {
+      const closes = quote === "]" ? char === "]" : char === quote;
+      if (closes) {
+        if (quote !== "]" && next === quote) i++;
+        else quote = null;
+      }
+      continue;
+    }
+    if (char === "-" && next === "-") {
+      lineComment = true;
+      i++;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      blockComment = true;
+      i++;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "[") {
+      quote = "]";
+      continue;
+    }
+    if (char !== ";") continue;
+
+    const prefix = sql.slice(0, i + 1);
+    try {
+      const statement = db.prepare(prefix);
+      statement.free();
+      return sql.slice(i + 1);
+    } catch (error) {
+      if (!/incomplete input/i.test((error as Error).message))
+        return sql.slice(i + 1);
     }
   }
+  return null;
+}
 
-  const stmt = current.trim();
-  if (stmt) statements.push(stmt);
+function valueByteLength(value: unknown): number {
+  if (value === null || value === undefined) return 4;
+  if (value instanceof Uint8Array) return value.byteLength;
+  if (typeof value === "string") return Buffer.byteLength(value, "utf8");
+  return Buffer.byteLength(String(value), "utf8");
+}
 
-  return statements;
+function databaseByteLength(db: Database): number {
+  const pageCount = db.exec("PRAGMA page_count")[0]?.values[0]?.[0];
+  const pageSize = db.exec("PRAGMA page_size")[0]?.values[0]?.[0];
+  if (typeof pageCount !== "number" || typeof pageSize !== "number") return 0;
+  return pageCount * pageSize;
 }
 
 async function executeQuery(data: WorkerInput): Promise<WorkerOutput> {
   let db: Database;
 
   try {
-    const SQL = await initializeWithDefense(data.protocolToken);
+    if (
+      data.dbBuffer &&
+      data.dbBuffer.byteLength > data.limits.maxDatabaseBytes
+    ) {
+      throw new Error(
+        `database exceeds ${data.limits.maxDatabaseBytes} byte limit`,
+      );
+    }
+    const SQL = await initializeSqlJs();
 
     if (data.dbBuffer) {
       db = new SQL.Database(data.dbBuffer);
     } else {
       db = new SQL.Database();
     }
+    // V8 worker resourceLimits do not cover WebAssembly linear memory. SQLite's
+    // own hard heap limit stops randomblob/zeroblob and query intermediates
+    // before they can grow the WASM allocator without bound. SQLite only lets
+    // later PRAGMAs lower (not raise) an established hard limit.
+    const sqliteHeapLimit = Math.min(
+      MAX_SQLITE_HEAP_LIMIT,
+      Math.max(
+        MIN_SQLITE_HEAP_LIMIT,
+        (data.dbBuffer?.byteLength ?? 0) + data.limits.maxResultBytes * 2,
+      ),
+    );
+    db.run(`PRAGMA hard_heap_limit = ${sqliteHeapLimit}`);
+    // Exercise the exact prepare/step/iterator paths used below while no guest
+    // SQL is present. sql.js lazily resolves a small amount of Node glue on
+    // first use even after initSqlJs() and Database construction complete.
+    const bootstrapIterator = db.iterateStatements("SELECT 1");
+    const bootstrapStatement = bootstrapIterator.next();
+    if (!bootstrapStatement.done) {
+      bootstrapStatement.value.step();
+      bootstrapStatement.value.free();
+    }
+    // All sql.js/Database bootstrap operations are complete. No guest SQL has
+    // run yet, so loader denial can now be activated without a guest callback
+    // ever executing inside a trusted bootstrap window.
+    activateDefense();
   } catch (e) {
     const message = sanitizeHostErrorMessage((e as Error).message);
     return {
@@ -245,48 +307,87 @@ async function executeQuery(data: WorkerInput): Promise<WorkerOutput> {
 
   const results: StatementResult[] = [];
   let hasModifications = false;
+  let resultRows = 0;
+  let resultBytes = 0;
 
   try {
-    const statements = splitStatements(data.sql);
-
-    for (const stmt of statements) {
+    // Delegate statement boundary detection to SQLite itself. This correctly
+    // preserves trigger bodies, comments, quoted identifiers, and every other
+    // grammar construct in which a semicolon is not a statement terminator.
+    let remainingSql = data.sql;
+    while (remainingSql.trim().length > 0) {
+      let prepared: Statement;
+      const iterator = db.iterateStatements(remainingSql);
       try {
-        if (isWriteStatement(stmt)) {
-          db.run(stmt);
-          hasModifications = true;
-          results.push({ type: "data", columns: [], rows: [] });
-        } else {
-          // Use prepared statement to get column names even for empty result sets
-          const prepared = db.prepare(stmt);
-          const columns = prepared.getColumnNames();
-          const rows: unknown[][] = [];
-
-          while (prepared.step()) {
-            rows.push(prepared.get());
-          }
-
-          prepared.free();
-          results.push({ type: "data", columns, rows });
-
-          // Anything that is not provably read-only must trigger writeback.
-          // Catches CTE-prefixed writes (WITH ... INSERT), mutating PRAGMAs
-          // (PRAGMA user_version=N), and comment-led writes that the
-          // startsWith allowlist in isWriteStatement misses.
-          if (!isReadOnlyStatement(stmt)) {
-            hasModifications = true;
-          }
-        }
+        const next = iterator.next();
+        if (next.done) break;
+        prepared = next.value;
+        // Capture SQLite's exact unprepared tail before stepping. A runtime
+        // error invalidates sql.js's iterator, but this tail remains safe to
+        // prepare independently when non-bail mode continues.
+        remainingSql = iterator.getRemainingSQL();
       } catch (e) {
-        const error = (e as Error).message;
-        results.push({ type: "error", error });
+        // SQLite could not prepare the next statement. In non-bail mode the
+        // recovery helper asks SQLite to validate the next possible tail.
+        const message = sanitizeHostErrorMessage((e as Error).message);
+        results.push({
+          type: "error",
+          error: message,
+        });
+        if (data.options.bail) break;
+        let tail = iterator.getRemainingSQL();
+        if (tail === remainingSql)
+          tail = tailAfterFailedPrepare(db, remainingSql) ?? remainingSql;
+        if (tail === remainingSql) break;
+        remainingSql = tail;
+        continue;
+      }
+      const stmt = prepared.getSQL();
+      try {
+        const columns = prepared.getColumnNames();
+        for (const column of columns) {
+          resultBytes += Buffer.byteLength(column, "utf8");
+        }
+        const rows: unknown[][] = [];
+        while (prepared.step()) {
+          if (resultRows >= data.limits.maxResultRows) {
+            throw new Error(
+              `query result exceeds ${data.limits.maxResultRows} row limit`,
+            );
+          }
+          const row = prepared.get();
+          let rowBytes = row.length * 8;
+          for (const value of row) rowBytes += valueByteLength(value);
+          if (resultBytes + rowBytes > data.limits.maxResultBytes) {
+            throw new Error(
+              `query result exceeds ${data.limits.maxResultBytes} byte limit`,
+            );
+          }
+          resultBytes += rowBytes;
+          resultRows++;
+          rows.push(row);
+        }
+        results.push({ type: "data", columns, rows });
+        if (!isReadOnlyStatement(stmt)) hasModifications = true;
+      } catch (e) {
+        const message = sanitizeHostErrorMessage((e as Error).message);
+        results.push({ type: "error", error: message });
         if (data.options.bail) {
           break;
         }
+      } finally {
+        prepared.free();
       }
     }
 
     let resultBuffer: Uint8Array | null = null;
     if (hasModifications) {
+      const databaseBytes = databaseByteLength(db);
+      if (databaseBytes > data.limits.maxDatabaseBytes) {
+        throw new Error(
+          `database exceeds ${data.limits.maxDatabaseBytes} byte limit`,
+        );
+      }
       resultBuffer = db.export();
     }
 

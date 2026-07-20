@@ -28,7 +28,17 @@ import {
 import { Parser } from "../parser/parser.js";
 import { ArithmeticError, NounsetError } from "./errors.js";
 import { getArrayElements, getVariable } from "./expansion.js";
+import { getArrayElement, hasArray, setArrayElement } from "./helpers/array.js";
 import type { InterpreterContext } from "./types.js";
+
+interface ArithmeticResolutionContext {
+  readonly visited: Set<string>;
+  depth: number;
+}
+
+function createArithmeticResolutionContext(): ArithmeticResolutionContext {
+  return { visited: new Set(), depth: 0 };
+}
 
 /**
  * Pure binary operator evaluation - no async, no side effects.
@@ -159,76 +169,12 @@ async function getArithVariable(
     return directValue;
   }
   // Array decay: if varName_0 exists, the variable is an array and we use element 0
-  const arrayZeroValue = ctx.state.env.get(`${name}_0`);
+  const arrayZeroValue = getArrayElement(ctx, name, 0);
   if (arrayZeroValue !== undefined) {
     return arrayZeroValue;
   }
   // Fall back to getVariable for special variables
   return await getVariable(ctx, name);
-}
-
-/**
- * Parse a string value as an arithmetic expression.
- * Unlike resolveArithVariable, this throws on parse errors (e.g., "12 34" is invalid).
- * Used for array element access where the value must be valid arithmetic.
- */
-/**
- * Parse and evaluate a string value as an arithmetic expression.
- * Used for array element access where the value may be an arithmetic expression.
- * e.g., a=([0]=1+2+3 [a[0]]=10) - when evaluating a[0], we get "1+2+3" which
- * needs to be evaluated to 6.
- *
- * NOTE: This is a static version that doesn't have context. For proper evaluation
- * of expressions containing variables, use evaluateArithValue with context.
- */
-function parseArithValue(value: string): number {
-  if (!value) {
-    return 0;
-  }
-
-  // Try to parse as a simple number
-  const num = Number.parseInt(value, 10);
-  if (!Number.isNaN(num) && /^-?\d+$/.test(value.trim())) {
-    return num;
-  }
-
-  const trimmed = value.trim();
-
-  // If it's empty, return 0
-  if (!trimmed) {
-    return 0;
-  }
-
-  // If it contains spaces and isn't a valid arithmetic expression, it's an error
-  // Parse it to validate - if parsing fails, throw
-  try {
-    const parser = new Parser();
-    const { expr, pos } = parseArithExpr(parser, trimmed, 0);
-    // Check if we parsed the whole string (pos should be at the end)
-    if (pos < trimmed.length) {
-      // There's unparsed content - find the error token
-      const errorToken = trimmed.slice(pos).trim().split(/\s+/)[0];
-      throw new ArithmeticError(
-        `${trimmed}: syntax error in expression (error token is "${errorToken}")`,
-      );
-    }
-    if (expr.type === "ArithNumber") {
-      return expr.value;
-    }
-    // For other expression types, we need full evaluation but we don't have context.
-    // This is only used for simple cases. For complex expressions with variables,
-    // callers should use evaluateArithValue instead.
-    return num || 0;
-  } catch (error) {
-    if (error instanceof ArithmeticError) {
-      throw error;
-    }
-    // Parse failed - find the error token
-    const errorToken = trimmed.split(/\s+/).slice(1)[0] || trimmed;
-    throw new ArithmeticError(
-      `${trimmed}: syntax error in expression (error token is "${errorToken}")`,
-    );
-  }
 }
 
 /**
@@ -238,6 +184,7 @@ function parseArithValue(value: string): number {
 async function evaluateArithValue(
   ctx: InterpreterContext,
   value: string,
+  resolution: ArithmeticResolutionContext,
 ): Promise<number> {
   if (!value) {
     return 0;
@@ -268,7 +215,30 @@ async function evaluateArithValue(
       "",
     );
   }
-  return await evaluateArithmetic(ctx, expr);
+  return await evaluateArithmeticInternal(ctx, expr, false, resolution);
+}
+
+async function evaluateResolvedArithValue(
+  ctx: InterpreterContext,
+  key: string,
+  value: string,
+  resolution: ArithmeticResolutionContext,
+): Promise<number> {
+  if (resolution.depth > 100) {
+    throw new ArithmeticError("maximum variable indirection depth exceeded");
+  }
+  if (resolution.visited.has(key)) {
+    throw new ArithmeticError(`arithmetic variable cycle detected at ${key}`);
+  }
+
+  resolution.visited.add(key);
+  resolution.depth++;
+  try {
+    return await evaluateArithValue(ctx, value, resolution);
+  } finally {
+    resolution.depth--;
+    resolution.visited.delete(key);
+  }
 }
 
 /**
@@ -281,57 +251,62 @@ async function evaluateArithValue(
 async function resolveArithVariable(
   ctx: InterpreterContext,
   name: string,
-  visited: Set<string> = new Set(),
-  depth = 0,
+  resolution: ArithmeticResolutionContext,
 ): Promise<number> {
   // Prevent excessively long non-repeating chains
-  if (depth > 100) {
+  if (resolution.depth > 100) {
     throw new ArithmeticError("maximum variable indirection depth exceeded");
   }
   // Prevent infinite recursion
-  if (visited.has(name)) {
-    return 0;
+  if (resolution.visited.has(name)) {
+    throw new ArithmeticError(`arithmetic variable cycle detected at ${name}`);
   }
-  visited.add(name);
+  resolution.visited.add(name);
+  resolution.depth++;
 
-  const value = await getArithVariable(ctx, name);
+  try {
+    const value = await getArithVariable(ctx, name);
 
-  // If value is empty or undefined, return 0
-  if (!value) {
-    return 0;
+    // If value is empty or undefined, return 0
+    if (!value) {
+      return 0;
+    }
+
+    // Try to parse as a number
+    const num = Number.parseInt(value, 10);
+    if (!Number.isNaN(num) && /^-?\d+$/.test(value.trim())) {
+      return num;
+    }
+
+    const trimmed = value.trim();
+
+    // If it's not a number, check if it's a variable name
+    // In bash, arithmetic context recursively evaluates variable names
+    if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(trimmed)) {
+      return await resolveArithVariable(ctx, trimmed, resolution);
+    }
+
+    // Dynamic arithmetic: If the value contains arithmetic operators, parse and evaluate it
+    // This handles cases like e=1+2; $((e + 3)) => 6
+    const parser = new Parser();
+    const { expr, pos } = parseArithExpr(parser, trimmed, 0);
+
+    // Check if we parsed the entire string - if not, it's a syntax error
+    // This handles cases like array element "1 3" which parses as "1" leaving " 3" unparsed
+    if (pos < trimmed.length) {
+      const unparsed = trimmed.slice(pos).trim();
+      const errorToken = unparsed.split(/\s+/)[0] || unparsed;
+      throw new ArithmeticError(
+        `${trimmed}: syntax error in expression (error token is "${errorToken}")`,
+      );
+    }
+
+    // Evaluate the parsed expression
+    return await evaluateArithmeticInternal(ctx, expr, false, resolution);
+  } finally {
+    resolution.depth--;
+    resolution.visited.delete(name);
   }
-
-  // Try to parse as a number
-  const num = Number.parseInt(value, 10);
-  if (!Number.isNaN(num) && /^-?\d+$/.test(value.trim())) {
-    return num;
-  }
-
-  const trimmed = value.trim();
-
-  // If it's not a number, check if it's a variable name
-  // In bash, arithmetic context recursively evaluates variable names
-  if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(trimmed)) {
-    return await resolveArithVariable(ctx, trimmed, visited, depth + 1);
-  }
-
-  // Dynamic arithmetic: If the value contains arithmetic operators, parse and evaluate it
-  // This handles cases like e=1+2; $((e + 3)) => 6
-  const parser = new Parser();
-  const { expr, pos } = parseArithExpr(parser, trimmed, 0);
-
-  // Check if we parsed the entire string - if not, it's a syntax error
-  // This handles cases like array element "1 3" which parses as "1" leaving " 3" unparsed
-  if (pos < trimmed.length) {
-    const unparsed = trimmed.slice(pos).trim();
-    const errorToken = unparsed.split(/\s+/)[0] || unparsed;
-    throw new ArithmeticError(
-      `${trimmed}: syntax error in expression (error token is "${errorToken}")`,
-    );
-  }
-
-  // Evaluate the parsed expression
-  return await evaluateArithmetic(ctx, expr);
 }
 
 /**
@@ -428,6 +403,23 @@ export async function evaluateArithmetic(
   expr: ArithExpr,
   isExpansionContext = false,
 ): Promise<number> {
+  return evaluateArithmeticInternal(
+    ctx,
+    expr,
+    isExpansionContext,
+    createArithmeticResolutionContext(),
+  );
+}
+
+async function evaluateArithmeticInternal(
+  ctx: InterpreterContext,
+  expr: ArithExpr,
+  isExpansionContext: boolean,
+  resolution: ArithmeticResolutionContext,
+): Promise<number> {
+  const evaluate = (nestedExpr: ArithExpr, expansion = isExpansionContext) =>
+    evaluateArithmeticInternal(ctx, nestedExpr, expansion, resolution);
+
   switch (expr.type) {
     case "ArithNumber":
       if (Number.isNaN(expr.value)) {
@@ -437,7 +429,7 @@ export async function evaluateArithmetic(
 
     case "ArithVariable": {
       // Use recursive resolution - bash evaluates variable names recursively
-      return await resolveArithVariable(ctx, expr.name);
+      return await resolveArithVariable(ctx, expr.name, resolution);
     }
 
     case "ArithSpecialVar": {
@@ -451,11 +443,11 @@ export async function evaluateArithmetic(
       // If not a simple number, evaluate as arithmetic expression
       const parser = new Parser();
       const { expr: parsed } = parseArithExpr(parser, trimmed, 0);
-      return await evaluateArithmetic(ctx, parsed);
+      return await evaluate(parsed);
     }
 
     case "ArithNested":
-      return await evaluateArithmetic(ctx, expr.expression);
+      return await evaluate(expr.expression);
 
     case "ArithCommandSubst": {
       // Execute the command and parse the result as a number
@@ -499,17 +491,24 @@ export async function evaluateArithmetic(
       const isAssoc = ctx.state.associativeArrays?.has(expr.array);
 
       // Helper function to lookup and evaluate array value
-      const lookupArrayValue = async (envKey: string): Promise<number> => {
-        const arrayValue = ctx.state.env.get(envKey);
+      const lookupArrayValue = async (
+        key: string | number,
+      ): Promise<number> => {
+        const arrayValue = getArrayElement(ctx, expr.array, key);
         if (arrayValue !== undefined) {
-          return await evaluateArithValue(ctx, arrayValue);
+          return await evaluateResolvedArithValue(
+            ctx,
+            `${expr.array}[${key}]`,
+            arrayValue,
+            resolution,
+          );
         }
         return 0;
       };
 
       // Case 1: Literal string key - A['key']
       if (expr.stringKey !== undefined) {
-        return await lookupArrayValue(`${expr.array}_${expr.stringKey}`);
+        return await lookupArrayValue(expr.stringKey);
       }
 
       // Case 2: Associative array with variable name (no $ prefix) - A[K]
@@ -518,7 +517,7 @@ export async function evaluateArithmetic(
         expr.index?.type === "ArithVariable" &&
         !expr.index.hasDollarPrefix
       ) {
-        return await lookupArrayValue(`${expr.array}_${expr.index.name}`);
+        return await lookupArrayValue(expr.index.name);
       }
 
       // Case 3: Associative array with $ prefix - A[$key]
@@ -528,16 +527,12 @@ export async function evaluateArithmetic(
         expr.index.hasDollarPrefix
       ) {
         const expandedKey = await getVariable(ctx, expr.index.name);
-        return await lookupArrayValue(`${expr.array}_${expandedKey}`);
+        return await lookupArrayValue(expandedKey);
       }
 
       // Case 4: Indexed array - A[expr]
       if (expr.index) {
-        let index = await evaluateArithmetic(
-          ctx,
-          expr.index,
-          isExpansionContext,
-        );
+        let index = await evaluate(expr.index);
 
         // Handle negative indices - bash counts from max_index + 1
         if (index < 0) {
@@ -562,23 +557,32 @@ export async function evaluateArithmetic(
           index = actualIdx;
         }
 
-        const envKey = `${expr.array}_${index}`;
-        const arrayValue = ctx.state.env.get(envKey);
+        const envKey = `${expr.array}[${index}]`;
+        const arrayValue = getArrayElement(ctx, expr.array, index);
         if (arrayValue !== undefined) {
-          return evaluateArithValue(ctx, arrayValue);
+          return evaluateResolvedArithValue(
+            ctx,
+            envKey,
+            arrayValue,
+            resolution,
+          );
         }
         // Scalar decay: s[0] returns scalar value s
         if (index === 0) {
           const scalarValue = ctx.state.env.get(expr.array);
           if (scalarValue !== undefined) {
-            return evaluateArithValue(ctx, scalarValue);
+            return evaluateResolvedArithValue(
+              ctx,
+              expr.array,
+              scalarValue,
+              resolution,
+            );
           }
         }
         // Check nounset
         if (ctx.state.options.nounset) {
-          const hasAnyElement = Array.from(ctx.state.env.keys()).some(
-            (key) => key === expr.array || key.startsWith(`${expr.array}_`),
-          );
+          const hasAnyElement =
+            ctx.state.env.has(expr.array) || hasArray(ctx, expr.array);
           if (!hasAnyElement) {
             throw new NounsetError(`${expr.array}[${index}]`);
           }
@@ -624,43 +628,23 @@ export async function evaluateArithmetic(
     case "ArithBinary": {
       // Short-circuit evaluation for logical operators
       if (expr.operator === "||") {
-        const left = await evaluateArithmetic(
-          ctx,
-          expr.left,
-          isExpansionContext,
-        );
+        const left = await evaluate(expr.left);
         if (left) return 1;
-        return (await evaluateArithmetic(ctx, expr.right, isExpansionContext))
-          ? 1
-          : 0;
+        return (await evaluate(expr.right)) ? 1 : 0;
       }
       if (expr.operator === "&&") {
-        const left = await evaluateArithmetic(
-          ctx,
-          expr.left,
-          isExpansionContext,
-        );
+        const left = await evaluate(expr.left);
         if (!left) return 0;
-        return (await evaluateArithmetic(ctx, expr.right, isExpansionContext))
-          ? 1
-          : 0;
+        return (await evaluate(expr.right)) ? 1 : 0;
       }
 
-      const left = await evaluateArithmetic(ctx, expr.left, isExpansionContext);
-      const right = await evaluateArithmetic(
-        ctx,
-        expr.right,
-        isExpansionContext,
-      );
+      const left = await evaluate(expr.left);
+      const right = await evaluate(expr.right);
       return applyBinaryOp(left, right, expr.operator);
     }
 
     case "ArithUnary": {
-      const operand = await evaluateArithmetic(
-        ctx,
-        expr.operand,
-        isExpansionContext,
-      );
+      const operand = await evaluate(expr.operand);
       // Handle ++/-- with side effects separately
       if (expr.operator === "++" || expr.operator === "--") {
         if (expr.operand.type === "ArithVariable") {
@@ -675,17 +659,17 @@ export async function evaluateArithmetic(
           // Handle array element increment/decrement: a[0]++, ++a[0], etc.
           const arrayName = expr.operand.array;
           const isAssoc = ctx.state.associativeArrays?.has(arrayName);
-          let envKey: string;
+          let elementKey: string;
 
           if (expr.operand.stringKey !== undefined) {
-            envKey = `${arrayName}_${expr.operand.stringKey}`;
+            elementKey = expr.operand.stringKey;
           } else if (
             isAssoc &&
             expr.operand.index?.type === "ArithVariable" &&
             !expr.operand.index.hasDollarPrefix
           ) {
             // A[K]++ where K is without $ -> use "K" as literal key
-            envKey = `${arrayName}_${expr.operand.index.name}`;
+            elementKey = expr.operand.index.name;
           } else if (
             isAssoc &&
             expr.operand.index?.type === "ArithVariable" &&
@@ -693,22 +677,27 @@ export async function evaluateArithmetic(
           ) {
             // A[$key]++ where key has $ -> expand $key to get the actual key
             const expandedKey = await getVariable(ctx, expr.operand.index.name);
-            envKey = `${arrayName}_${expandedKey}`;
+            elementKey = expandedKey;
           } else if (expr.operand.index) {
-            const index = await evaluateArithmetic(
-              ctx,
-              expr.operand.index,
-              isExpansionContext,
-            );
-            envKey = `${arrayName}_${index}`;
+            const index = await evaluate(expr.operand.index);
+            elementKey = String(index);
           } else {
             return operand;
           }
 
           const current =
-            Number.parseInt(ctx.state.env.get(envKey) || "0", 10) || 0;
+            Number.parseInt(
+              getArrayElement(ctx, arrayName, elementKey) || "0",
+              10,
+            ) || 0;
           const newValue = expr.operator === "++" ? current + 1 : current - 1;
-          ctx.state.env.set(envKey, String(newValue));
+          setArrayElement(
+            ctx,
+            arrayName,
+            elementKey,
+            String(newValue),
+            isAssoc ? "associative" : "indexed",
+          );
           return expr.prefix ? newValue : current;
         }
         if (expr.operand.type === "ArithConcat") {
@@ -719,6 +708,7 @@ export async function evaluateArithmetic(
               ctx,
               part,
               isExpansionContext,
+              resolution,
             );
           }
           if (varName && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
@@ -738,6 +728,7 @@ export async function evaluateArithmetic(
                 ctx,
                 part,
                 isExpansionContext,
+                resolution,
               );
             }
           } else if (expr.operand.nameExpr.type === "ArithVariable") {
@@ -746,16 +737,14 @@ export async function evaluateArithmetic(
               : expr.operand.nameExpr.name;
           }
           if (varName && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
-            const index = await evaluateArithmetic(
-              ctx,
-              expr.operand.subscript,
-              isExpansionContext,
-            );
-            const envKey = `${varName}_${index}`;
+            const index = await evaluate(expr.operand.subscript);
             const current =
-              Number.parseInt(ctx.state.env.get(envKey) || "0", 10) || 0;
+              Number.parseInt(
+                getArrayElement(ctx, varName, index) || "0",
+                10,
+              ) || 0;
             const newValue = expr.operator === "++" ? current + 1 : current - 1;
-            ctx.state.env.set(envKey, String(newValue));
+            setArrayElement(ctx, varName, index, String(newValue));
             return expr.prefix ? newValue : current;
           }
         }
@@ -765,24 +754,21 @@ export async function evaluateArithmetic(
     }
 
     case "ArithTernary": {
-      const condition = await evaluateArithmetic(
-        ctx,
-        expr.condition,
-        isExpansionContext,
-      );
+      const condition = await evaluate(expr.condition);
       return condition
-        ? await evaluateArithmetic(ctx, expr.consequent, isExpansionContext)
-        : await evaluateArithmetic(ctx, expr.alternate, isExpansionContext);
+        ? await evaluate(expr.consequent)
+        : await evaluate(expr.alternate);
     }
 
     case "ArithAssignment": {
       const name = expr.variable;
-      let envKey = name;
+      const envKey = name;
+      let arrayKey: string | undefined;
 
       // Handle array element assignment
       if (expr.stringKey !== undefined) {
         // Literal string key: A['key'] = V
-        envKey = `${name}_${expr.stringKey}`;
+        arrayKey = expr.stringKey;
       } else if (expr.subscript) {
         const isAssoc = ctx.state.associativeArrays?.has(name);
         if (
@@ -792,7 +778,7 @@ export async function evaluateArithmetic(
         ) {
           // For associative arrays, variable names without $ prefix are used as literal keys
           // A[K] = V where K is a variable name without $ -> use "K" as the key
-          envKey = `${name}_${expr.subscript.name}`;
+          arrayKey = expr.subscript.name;
         } else if (
           isAssoc &&
           expr.subscript.type === "ArithVariable" &&
@@ -803,22 +789,14 @@ export async function evaluateArithmetic(
           // use backslash as key. This matches spec test "bash bug: (( A["$key"] = 1 ))"
           const expandedKey = await getVariable(ctx, expr.subscript.name);
           // When variable expands to empty, use backslash as the key (OSH behavior)
-          envKey = `${name}_${expandedKey || "\\"}`;
+          arrayKey = expandedKey || "\\";
         } else if (isAssoc) {
           // For non-variable subscripts on associative arrays, evaluate and convert to string
-          const index = await evaluateArithmetic(
-            ctx,
-            expr.subscript,
-            isExpansionContext,
-          );
-          envKey = `${name}_${index}`;
+          const index = await evaluate(expr.subscript);
+          arrayKey = String(index);
         } else {
           // For indexed arrays, evaluate the subscript as arithmetic
-          let index = await evaluateArithmetic(
-            ctx,
-            expr.subscript,
-            isExpansionContext,
-          );
+          let index = await evaluate(expr.subscript);
           // Handle negative indices
           if (index < 0) {
             const elements = getArrayElements(ctx, name);
@@ -829,24 +807,32 @@ export async function evaluateArithmetic(
               index = maxIndex + 1 + index;
             }
           }
-          envKey = `${name}_${index}`;
+          arrayKey = String(index);
         }
       }
 
-      const current =
-        Number.parseInt(ctx.state.env.get(envKey) || "0", 10) || 0;
-      const value = await evaluateArithmetic(
-        ctx,
-        expr.value,
-        isExpansionContext,
-      );
+      const currentValue =
+        arrayKey === undefined
+          ? ctx.state.env.get(envKey)
+          : getArrayElement(ctx, name, arrayKey);
+      const current = Number.parseInt(currentValue || "0", 10) || 0;
+      const value = await evaluate(expr.value);
       const newValue = applyAssignmentOp(current, value, expr.operator);
-      ctx.state.env.set(envKey, String(newValue));
+      if (arrayKey === undefined) ctx.state.env.set(envKey, String(newValue));
+      else {
+        setArrayElement(
+          ctx,
+          name,
+          arrayKey,
+          String(newValue),
+          ctx.state.associativeArrays?.has(name) ? "associative" : "indexed",
+        );
+      }
       return newValue;
     }
 
     case "ArithGroup":
-      return await evaluateArithmetic(ctx, expr.expression, isExpansionContext);
+      return await evaluate(expr.expression);
 
     case "ArithConcat": {
       // Concatenate all parts to form a dynamic variable name or number
@@ -857,11 +843,12 @@ export async function evaluateArithmetic(
           ctx,
           part,
           isExpansionContext,
+          resolution,
         );
       }
       // If the result is a valid identifier, look it up as a variable
       if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(concatenated)) {
-        return await resolveArithVariable(ctx, concatenated);
+        return await resolveArithVariable(ctx, concatenated, resolution);
       }
       // Otherwise parse as a number
       return Number.parseInt(concatenated, 10) || 0;
@@ -877,6 +864,7 @@ export async function evaluateArithmetic(
             ctx,
             part,
             isExpansionContext,
+            resolution,
           );
         }
       } else if (expr.target.type === "ArithVariable") {
@@ -890,20 +878,12 @@ export async function evaluateArithmetic(
       // Build the env key - include subscript for array assignment
       let envKey = varName;
       if (expr.subscript) {
-        const index = await evaluateArithmetic(
-          ctx,
-          expr.subscript,
-          isExpansionContext,
-        );
+        const index = await evaluate(expr.subscript);
         envKey = `${varName}_${index}`;
       }
       const current =
         Number.parseInt(ctx.state.env.get(envKey) || "0", 10) || 0;
-      const value = await evaluateArithmetic(
-        ctx,
-        expr.value,
-        isExpansionContext,
-      );
+      const value = await evaluate(expr.value);
       const newValue = applyAssignmentOp(current, value, expr.operator);
       ctx.state.env.set(envKey, String(newValue));
       return newValue;
@@ -918,6 +898,7 @@ export async function evaluateArithmetic(
             ctx,
             part,
             isExpansionContext,
+            resolution,
           );
         }
       } else if (expr.nameExpr.type === "ArithVariable") {
@@ -928,15 +909,11 @@ export async function evaluateArithmetic(
       if (!varName || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(varName)) {
         return 0; // Invalid variable name
       }
-      const index = await evaluateArithmetic(
-        ctx,
-        expr.subscript,
-        isExpansionContext,
-      );
+      const index = await evaluate(expr.subscript);
       const envKey = `${varName}_${index}`;
       const value = ctx.state.env.get(envKey);
       if (value !== undefined) {
-        return parseArithValue(value);
+        return evaluateResolvedArithValue(ctx, envKey, value, resolution);
       }
       return 0;
     }
@@ -955,6 +932,7 @@ async function evalConcatPartToStringAsync(
   ctx: InterpreterContext,
   expr: ArithExpr,
   isExpansionContext = false,
+  resolution = createArithmeticResolutionContext(),
 ): Promise<string> {
   switch (expr.type) {
     case "ArithNumber":
@@ -962,7 +940,14 @@ async function evalConcatPartToStringAsync(
     case "ArithSingleQuote":
       // For single quotes in concatenation context, evaluate through main evaluator
       // which will handle the expansion vs command context distinction
-      return String(await evaluateArithmetic(ctx, expr, isExpansionContext));
+      return String(
+        await evaluateArithmeticInternal(
+          ctx,
+          expr,
+          isExpansionContext,
+          resolution,
+        ),
+      );
     case "ArithVariable":
       // If no $ prefix, use the literal name for building dynamic var names
       // If has $ prefix, expand to the variable's value
@@ -990,11 +975,19 @@ async function evalConcatPartToStringAsync(
           ctx,
           part,
           isExpansionContext,
+          resolution,
         );
       }
       return result;
     }
     default:
-      return String(await evaluateArithmetic(ctx, expr, isExpansionContext));
+      return String(
+        await evaluateArithmeticInternal(
+          ctx,
+          expr,
+          isExpansionContext,
+          resolution,
+        ),
+      );
   }
 }

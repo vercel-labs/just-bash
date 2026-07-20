@@ -9,6 +9,7 @@ import {
   assertDefenseContext,
   awaitWithDefenseContext,
 } from "../../../security/defense-context.js";
+import { utf8ByteLength } from "../../printf/escapes.js";
 import type { AwkArrayAccess, AwkExpr, AwkStmt, AwkVariable } from "../ast.js";
 import { formatPrintf } from "../builtins.js";
 import type { AwkRuntimeContext } from "./context.js";
@@ -214,7 +215,9 @@ async function executePrint(
       if (Number.isInteger(val) && Math.abs(val) < Number.MAX_SAFE_INTEGER) {
         values.push(String(val));
       } else {
-        values.push(formatPrintf(ctx.OFMT, [val]));
+        values.push(
+          formatPrintf(ctx.OFMT, [val], ctx.maxOutputSize || undefined),
+        );
       }
     } else {
       values.push(toAwkString(val));
@@ -256,7 +259,11 @@ async function executePrintf(
     );
   }
   // DEBUG: console.log("printf DEBUG:", JSON.stringify({formatStr, values}));
-  const text = formatPrintf(formatStr, values);
+  const remainingOutput =
+    ctx.maxOutputSize > 0
+      ? Math.max(0, ctx.maxOutputSize - utf8ByteLength(ctx.output))
+      : undefined;
+  const text = formatPrintf(formatStr, values, remainingOutput);
 
   if (output) {
     await withDefenseContext(ctx, "printf redirection write", () =>

@@ -375,6 +375,7 @@ function runAllowListTests(name: string, createAdapter: AdapterFactory) {
           network: {
             dangerouslyAllowFullInternetAccess: true,
             denyPrivateRanges: true,
+            _dnsResolve: async () => [{ address: "93.184.216.34", family: 4 }],
           },
         });
 

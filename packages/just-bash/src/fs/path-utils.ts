@@ -46,6 +46,20 @@ export function normalizePath(path: string): string {
   return `/${resolved.join("/")}` || "/";
 }
 
+/** True when candidate is the same virtual path as parent or below it. */
+export function isSameOrDescendantPath(
+  parent: string,
+  candidate: string,
+): boolean {
+  const normalizedParent = normalizePath(parent);
+  const normalizedCandidate = normalizePath(candidate);
+  return (
+    normalizedCandidate === normalizedParent ||
+    normalizedParent === "/" ||
+    normalizedCandidate.startsWith(`${normalizedParent}/`)
+  );
+}
+
 /**
  * Validate that a path does not contain null bytes.
  * Null bytes in paths can be used to truncate filenames or bypass security

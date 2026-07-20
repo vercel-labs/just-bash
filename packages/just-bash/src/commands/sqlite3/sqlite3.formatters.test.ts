@@ -2,6 +2,30 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
 describe("sqlite3 formatters", () => {
+  describe("quote mode replay safety", () => {
+    it("serializes apostrophes, blobs, NULL, integers, and floats as SQL literals", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `sqlite3 -quote :memory: "SELECT 'O''Brien', X'00ABFF', NULL, 42, 3.5"`,
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("'O''Brien',X'00ABFF',NULL,42,3.5\n");
+    });
+
+    it("round-trips quote output as an INSERT value list", async () => {
+      const source = new Bash();
+      const quoted = await source.exec(
+        `sqlite3 -quote :memory: "SELECT 'a''b', X'0001FE', NULL, -7, 0.125"`,
+      );
+      const replay = new Bash();
+      const result = await replay.exec(
+        `sqlite3 -quote :memory: "CREATE TABLE t(a,b,c,d,e); INSERT INTO t VALUES(${quoted.stdout.trim()}); SELECT a,b,c,d,e FROM t"`,
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe(quoted.stdout);
+    });
+  });
+
   describe("list mode (default)", () => {
     it("should output pipe-separated by default", async () => {
       const env = new Bash();

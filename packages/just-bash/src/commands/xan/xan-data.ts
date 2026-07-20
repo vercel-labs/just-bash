@@ -3,14 +3,22 @@
  * Commands that exist in real xan
  */
 
-import Papa from "papaparse";
-import { decodeBytesToUtf8 } from "../../encoding.js";
-import type { CommandContext, ExecResult } from "../../types.js";
+import { BoundedStringBuilder } from "../../bounded-builder.js";
+import { decodeBytesToUtf8, utf8ByteLength } from "../../encoding.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
+import { formatJsonValue } from "../query-engine/json-output.js";
+import { sanitizeParsedData } from "../query-engine/safe-object.js";
+import type { QueryValue } from "../query-engine/value-operations.js";
 import {
   type CsvData,
   type CsvRow,
   createSafeRow,
+  DerivedCsvBudget,
   formatCsv,
+  formatCsvRows,
+  parseCsvRows,
   readCsvInput,
   safeSetRow,
 } from "./csv.js";
@@ -22,7 +30,7 @@ import {
  */
 export async function cmdTranspose(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   const fileArgs = args.filter((a) => !a.startsWith("-"));
 
@@ -35,7 +43,7 @@ export async function cmdTranspose(
     const newData: CsvData = headers.map((h) => ({ column: h }));
     // xan emits text; the pipeline handles encoding.
     return {
-      stdout: formatCsv(newHeaders, newData),
+      stdout: formatCsv(newHeaders, newData, ctx),
       stderr: "",
       exitCode: 0,
     };
@@ -47,6 +55,13 @@ export async function cmdTranspose(
     firstCol,
     ...data.map((row, i) => String(row[firstCol] ?? `row_${i}`)),
   ];
+  if (new Set(newHeaders).size !== newHeaders.length) {
+    return {
+      stdout: "",
+      stderr: "xan transpose: duplicate output headers\n",
+      exitCode: 1,
+    };
+  }
 
   // Each remaining column becomes a row
   const newData: CsvData = [];
@@ -62,7 +77,7 @@ export async function cmdTranspose(
 
   // xan emits text; the pipeline handles encoding.
   return {
-    stdout: formatCsv(newHeaders, newData),
+    stdout: formatCsv(newHeaders, newData, ctx),
     stderr: "",
     exitCode: 0,
   };
@@ -75,7 +90,7 @@ export async function cmdTranspose(
  */
 export async function cmdShuffle(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let seed: number | null = null;
   const fileArgs: string[] = [];
@@ -108,7 +123,7 @@ export async function cmdShuffle(
 
   // xan emits text; the pipeline handles encoding.
   return {
-    stdout: formatCsv(headers, shuffled),
+    stdout: formatCsv(headers, shuffled, ctx),
     stderr: "",
     exitCode: 0,
   };
@@ -122,7 +137,7 @@ export async function cmdShuffle(
  */
 export async function cmdFixlengths(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let targetLen: number | null = null;
   let defaultValue = "";
@@ -131,7 +146,24 @@ export async function cmdFixlengths(
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if ((arg === "-l" || arg === "--length") && i + 1 < args.length) {
-      targetLen = Number.parseInt(args[++i], 10);
+      const rawLength = args[++i];
+      if (!/^[1-9]\d*$/.test(rawLength)) {
+        return {
+          stdout: "",
+          stderr: "xan fixlengths: length must be a positive safe integer\n",
+          exitCode: 1,
+        };
+      }
+      targetLen = Number(rawLength);
+      if (
+        !Number.isSafeInteger(targetLen) ||
+        targetLen > ctx.limits.maxArrayElements
+      ) {
+        throw new ExecutionLimitError(
+          `xan fixlengths: column limit exceeded (${ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
     } else if ((arg === "-d" || arg === "--default") && i + 1 < args.length) {
       defaultValue = args[++i];
     } else if (!arg.startsWith("-")) {
@@ -149,7 +181,8 @@ export async function cmdFixlengths(
     try {
       const path = ctx.fs.resolvePath(ctx.cwd, file);
       input = await ctx.fs.readFile(path);
-    } catch {
+    } catch (error) {
+      rethrowFatalExecutionError(error);
       return {
         stdout: "",
         stderr: `xan fixlengths: ${file}: No such file or directory\n`,
@@ -158,35 +191,36 @@ export async function cmdFixlengths(
     }
   }
 
-  // Parse without headers to get raw rows
-  const result = Papa.parse<string[]>(input.trim(), {
-    header: false,
-    skipEmptyLines: true,
+  const rows = parseCsvRows(input, {
+    maxStringLength: Math.min(
+      ctx.limits.maxInputBytes,
+      ctx.limits.maxStringLength,
+    ),
+    maxArrayElements: ctx.limits.maxArrayElements,
+    maxRows: ctx.limits.maxCsvRows,
+    maxCells: ctx.limits.maxCsvCells,
   });
-  const rows = result.data;
 
   if (rows.length === 0) {
     return { stdout: "", stderr: "", exitCode: 0 };
   }
 
   // Determine target length
-  const maxLen = Math.max(...rows.map((r) => r.length));
+  let maxLen = 0;
+  for (const row of rows) maxLen = Math.max(maxLen, row.length);
   const len = targetLen ?? maxLen;
+  const budget = new DerivedCsvBudget(ctx, "xan fixlengths");
+  budget.addRows(rows.length, len);
 
   // Fix each row
-  const fixed = rows.map((row) => {
-    if (row.length === len) return row;
-    if (row.length < len) {
-      return [...row, ...Array(len - row.length).fill(defaultValue)];
-    }
-    return row.slice(0, len);
-  });
+  for (const row of rows) {
+    if (row.length > len) row.length = len;
+    while (row.length < len) row.push(defaultValue);
+  }
 
-  // Output as CSV
-  const output = Papa.unparse(fixed);
   // xan emits text; the pipeline handles encoding.
   return {
-    stdout: `${output.replace(/\r\n/g, "\n")}\n`,
+    stdout: formatCsvRows(rows, ctx),
     stderr: "",
     exitCode: 0,
   };
@@ -203,19 +237,39 @@ export async function cmdFixlengths(
  */
 export async function cmdSplit(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let numParts: number | null = null;
   let partSize: number | null = null;
   let outputDir = ".";
   const fileArgs: string[] = [];
 
+  const parsePositiveInteger = (value: string): number | null => {
+    if (!/^[1-9]\d*$/.test(value)) return null;
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) ? parsed : null;
+  };
+
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if ((arg === "-c" || arg === "--chunks") && i + 1 < args.length) {
-      numParts = Number.parseInt(args[++i], 10);
+      numParts = parsePositiveInteger(args[++i]);
+      if (numParts === null) {
+        return {
+          stdout: "",
+          stderr: "xan split: chunk count must be a positive safe integer\n",
+          exitCode: 1,
+        };
+      }
     } else if ((arg === "-S" || arg === "--size") && i + 1 < args.length) {
-      partSize = Number.parseInt(args[++i], 10);
+      partSize = parsePositiveInteger(args[++i]);
+      if (partSize === null) {
+        return {
+          stdout: "",
+          stderr: "xan split: chunk size must be a positive safe integer\n",
+          exitCode: 1,
+        };
+      }
     } else if ((arg === "-o" || arg === "--output") && i + 1 < args.length) {
       outputDir = args[++i];
     } else if (!arg.startsWith("-")) {
@@ -234,21 +288,16 @@ export async function cmdSplit(
   const { headers, data, error } = await readCsvInput(fileArgs, ctx);
   if (error) return error;
 
-  // Calculate splits
-  const parts: CsvData[] = [];
-  if (numParts) {
-    const size = Math.ceil(data.length / numParts);
-    for (let i = 0; i < numParts; i++) {
-      parts.push(data.slice(i * size, (i + 1) * size));
-    }
-  } else if (partSize) {
-    for (let i = 0; i < data.length; i += partSize) {
-      parts.push(data.slice(i, i + partSize));
-    }
+  const chunkSize = numParts
+    ? Math.ceil(data.length / numParts)
+    : (partSize as number);
+  const partCount = chunkSize === 0 ? 0 : Math.ceil(data.length / chunkSize);
+  if (partCount > ctx.limits.maxArrayElements) {
+    throw new ExecutionLimitError(
+      `xan split: output part limit exceeded (${ctx.limits.maxArrayElements})`,
+      "array_elements",
+    );
   }
-
-  // Filter out empty parts
-  const nonEmptyParts = parts.filter((p) => p.length > 0);
 
   // In sandbox, we can't write multiple files, so output as concatenated CSV with markers
   // or write to virtual filesystem
@@ -256,25 +305,38 @@ export async function cmdSplit(
 
   try {
     const outPath = ctx.fs.resolvePath(ctx.cwd, outputDir);
-    for (let i = 0; i < nonEmptyParts.length; i++) {
+    for (let i = 0; i < partCount; i++) {
+      const start = i * chunkSize;
+      const end = Math.min(start + chunkSize, data.length);
+      ctx.executionScope?.consumeWork(end - start, "xan split rows");
       const fileName = `${baseName}_${String(i + 1).padStart(3, "0")}.csv`;
       const filePath = ctx.fs.resolvePath(outPath, fileName);
-      await ctx.fs.writeFile(filePath, formatCsv(headers, nonEmptyParts[i]));
+      await ctx.fs.writeFile(
+        filePath,
+        formatCsv(headers, data.slice(start, end), ctx),
+      );
     }
     // xan emits text; the pipeline handles encoding.
     return {
-      stdout: `Split into ${nonEmptyParts.length} parts\n`,
+      stdout: `Split into ${partCount} parts\n`,
       stderr: "",
       exitCode: 0,
     };
-  } catch {
+  } catch (error) {
+    rethrowFatalExecutionError(error);
     // If we can't write files, output info about what would be created
-    const output = nonEmptyParts
-      .map((p, i) => `Part ${i + 1}: ${p.length} rows`)
-      .join("\n");
+    const output = new BoundedStringBuilder(
+      ctx.limits.maxOutputSize,
+      "xan split",
+    );
+    for (let i = 0; i < partCount; i++) {
+      const start = i * chunkSize;
+      const end = Math.min(start + chunkSize, data.length);
+      output.append(`Part ${i + 1}: ${end - start} rows\n`);
+    }
     // xan emits text; the pipeline handles encoding.
     return {
-      stdout: `${output}\n`,
+      stdout: output.build(),
       stderr: "",
       exitCode: 0,
     };
@@ -303,7 +365,7 @@ function shortHash(s: string): string {
  */
 export async function cmdPartition(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let column = "";
   let outputDir = ".";
@@ -343,7 +405,9 @@ export async function cmdPartition(
 
   // Group by column value
   const groups = new Map<string, CsvData>();
+  const budget = new DerivedCsvBudget(ctx, "xan partition");
   for (const row of data) {
+    budget.addRow(headers.length);
     const val = String(row[column] ?? "");
     if (!groups.has(val)) {
       groups.set(val, []);
@@ -388,7 +452,7 @@ export async function cmdPartition(
       const fileName = finalName.get(val);
       if (!fileName) continue;
       const filePath = ctx.fs.resolvePath(outPath, fileName);
-      await ctx.fs.writeFile(filePath, formatCsv(headers, rows));
+      await ctx.fs.writeFile(filePath, formatCsv(headers, rows, ctx));
     }
     // xan emits text; the pipeline handles encoding.
     return {
@@ -396,14 +460,19 @@ export async function cmdPartition(
       stderr: "",
       exitCode: 0,
     };
-  } catch {
+  } catch (error) {
+    rethrowFatalExecutionError(error);
     // Output summary if can't write
-    const output = Array.from(groups.entries())
-      .map(([val, rows]) => `${val}: ${rows.length} rows`)
-      .join("\n");
+    const output = new BoundedStringBuilder(
+      ctx.limits.maxOutputSize,
+      "xan partition",
+    );
+    for (const [val, rows] of groups) {
+      output.append(`${val}: ${rows.length} rows\n`);
+    }
     // xan emits text; the pipeline handles encoding.
     return {
-      stdout: `${output}\n`,
+      stdout: output.build(),
       stderr: "",
       exitCode: 0,
     };
@@ -417,7 +486,7 @@ export async function cmdPartition(
  */
 export async function cmdTo(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   if (args.length === 0) {
     return {
@@ -447,18 +516,29 @@ export async function cmdTo(
  */
 async function cmdToJson(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   const fileArgs = args.filter((a) => !a.startsWith("-"));
 
   const { data, error } = await readCsvInput(fileArgs, ctx);
   if (error) return error;
 
-  // Real xan always pretty prints
-  const json = JSON.stringify(data, null, 2);
+  const budget = new DerivedCsvBudget(ctx, "xan to json");
+  budget.addRows(
+    data.length,
+    data.length > 0 ? Object.keys(data[0]).length : 0,
+  );
+  if (ctx.limits.maxOutputSize < 1) {
+    throw new ExecutionLimitError(
+      "xan to json: output size limit exceeded (0 bytes)",
+      "output_size",
+    );
+  }
+  const maxBytes = ctx.limits.maxOutputSize - 1;
+  const output = formatJsonValue(data as QueryValue, maxBytes);
   // xan emits text; the pipeline handles encoding.
   return {
-    stdout: `${json}\n`,
+    stdout: `${output}\n`,
     stderr: "",
     exitCode: 0,
   };
@@ -471,7 +551,7 @@ async function cmdToJson(
  */
 export async function cmdFrom(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let format = "";
   const fileArgs: string[] = [];
@@ -510,7 +590,7 @@ export async function cmdFrom(
  */
 async function cmdFromJson(
   fileArgs: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   const file = fileArgs[0];
   let input: string;
@@ -521,7 +601,8 @@ async function cmdFromJson(
     try {
       const path = ctx.fs.resolvePath(ctx.cwd, file);
       input = await ctx.fs.readFile(path);
-    } catch {
+    } catch (error) {
+      rethrowFatalExecutionError(error);
       return {
         stdout: "",
         stderr: `xan from: ${file}: No such file or directory\n`,
@@ -531,7 +612,20 @@ async function cmdFromJson(
   }
 
   try {
-    const data = JSON.parse(input.trim());
+    const maxInputBytes = Math.min(
+      ctx.limits.maxInputBytes,
+      ctx.limits.maxStringLength,
+    );
+    if (utf8ByteLength(input) > maxInputBytes) {
+      throw new ExecutionLimitError(
+        `xan from: input size limit exceeded (${maxInputBytes} bytes)`,
+        "string_length",
+      );
+    }
+    const data = sanitizeParsedData(JSON.parse(input.trim()), {
+      maxDepth: ctx.limits.maxQueryDepth,
+      maxElements: ctx.limits.maxQueryElements,
+    });
     if (!Array.isArray(data)) {
       return {
         stdout: "",
@@ -552,35 +646,74 @@ async function cmdFromJson(
     // Check if array of arrays or array of objects
     if (Array.isArray(data[0])) {
       // Array of arrays - first row is headers
-      const [headers, ...rows] = data as unknown[][];
-      const csvData: CsvData = rows.map((row) => {
+      const arrays = data as unknown[][];
+      const headers = arrays[0];
+      if (headers.length > ctx.limits.maxArrayElements) {
+        throw new ExecutionLimitError(
+          `xan from: column limit exceeded (${ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
+      const headerNames = headers.map(String);
+      const budget = new DerivedCsvBudget(ctx, "xan from json");
+      budget.addRows(arrays.length - 1, headerNames.length);
+      const csvData: CsvData = [];
+      for (let rowIndex = 1; rowIndex < arrays.length; rowIndex++) {
+        const row = arrays[rowIndex];
+        if (!Array.isArray(row)) {
+          return {
+            stdout: "",
+            stderr: "xan from: JSON rows must all have the same shape\n",
+            exitCode: 1,
+          };
+        }
         const obj: CsvRow = createSafeRow();
-        for (let i = 0; i < (headers as string[]).length; i++) {
+        for (let i = 0; i < headerNames.length; i++) {
           safeSetRow(
             obj,
-            (headers as string[])[i],
+            headerNames[i],
             row[i] as string | number | boolean | null,
           );
         }
-        return obj;
-      });
+        csvData.push(obj);
+      }
       // xan emits text; the pipeline handles encoding.
       return {
-        stdout: formatCsv(headers as string[], csvData),
+        stdout: formatCsv(headerNames, csvData, ctx),
         stderr: "",
         exitCode: 0,
       };
     }
 
     // Array of objects - real xan outputs columns in alphabetical order
-    const headers = Object.keys(data[0] as object).sort();
+    const first = data[0];
+    if (!first || typeof first !== "object" || Array.isArray(first)) {
+      return {
+        stdout: "",
+        stderr: "xan from: JSON rows must be arrays or objects\n",
+        exitCode: 1,
+      };
+    }
+    const headers = Object.keys(first).sort();
+    const budget = new DerivedCsvBudget(ctx, "xan from json");
+    budget.addRows(data.length, headers.length);
+    for (const row of data) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) {
+        return {
+          stdout: "",
+          stderr: "xan from: JSON rows must all have the same shape\n",
+          exitCode: 1,
+        };
+      }
+    }
     // xan emits text; the pipeline handles encoding.
     return {
-      stdout: formatCsv(headers, data as CsvData),
+      stdout: formatCsv(headers, data as CsvData, ctx),
       stderr: "",
       exitCode: 0,
     };
-  } catch {
+  } catch (error) {
+    rethrowFatalExecutionError(error);
     return {
       stdout: "",
       stderr: "xan from: invalid JSON input\n",

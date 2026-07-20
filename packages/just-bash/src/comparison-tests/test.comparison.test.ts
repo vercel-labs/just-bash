@@ -18,6 +18,22 @@ describe("test command - Real Bash Comparison", () => {
   });
 
   describe("file tests", () => {
+    it("matches identity and one-sided missing-file semantics", async () => {
+      const env = await setupFiles(testDir, { "target.txt": "content" });
+      await compareOutputs(
+        env,
+        testDir,
+        [
+          "ln -s target.txt symlink.txt",
+          "ln target.txt hardlink.txt",
+          "test target.txt -ef symlink.txt; echo $?",
+          "test target.txt -ef hardlink.txt; echo $?",
+          "test target.txt -nt missing.txt; echo $?",
+          "test missing.txt -ot target.txt; echo $?",
+        ].join("; "),
+      );
+    });
+
     it("-e returns 0 for existing file", async () => {
       const env = await setupFiles(testDir, { "file.txt": "content" });
       await compareOutputs(env, testDir, "test -e file.txt && echo exists");

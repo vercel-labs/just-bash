@@ -9,8 +9,15 @@ import * as ini from "ini";
 import Papa from "papaparse";
 import * as TOML from "smol-toml";
 import YAML from "yaml";
+import { BoundedStringBuilder } from "../../bounded-builder.js";
+import { utf8ByteLength } from "../../encoding.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { QueryValue } from "../query-engine/index.js";
-import { sanitizeParsedData } from "../query-engine/safe-object.js";
+import { formatJsonValue } from "../query-engine/json-output.js";
+import {
+  type SanitizeParsedDataLimits,
+  sanitizeParsedData,
+} from "../query-engine/safe-object.js";
 
 export type InputFormat = "yaml" | "xml" | "json" | "ini" | "csv" | "toml";
 export type OutputFormat = "yaml" | "json" | "xml" | "ini" | "csv" | "toml";
@@ -159,21 +166,27 @@ function formatCsv(value: unknown, delimiter: string): string {
 /**
  * Parse input data from the given format into a QueryValue
  */
-export function parseInput(input: string, options: FormatOptions): QueryValue {
+export function parseInput(
+  input: string,
+  options: FormatOptions,
+  limits: SanitizeParsedDataLimits = {},
+): QueryValue {
   const trimmed = input.trim();
   if (!trimmed) return null;
+  const sanitize = (value: unknown): QueryValue =>
+    sanitizeParsedData(value, limits);
 
   switch (options.inputFormat) {
     case "yaml":
       // SECURITY: maxAliasCount limits YAML alias expansion (billion-laughs defense).
       // Default schema is 'core' which does NOT resolve !!js/function or other
       // code-execution tags (those are only in 'yaml-1.1' schema).
-      return sanitizeParsedData(YAML.parse(trimmed, { maxAliasCount: 100 }));
+      return sanitize(YAML.parse(trimmed, { maxAliasCount: 100 }));
 
     case "json":
       // SECURITY: JSON.parse returns plain objects — sanitizeParsedData converts
       // them to null-prototype objects at the boundary.
-      return sanitizeParsedData(JSON.parse(trimmed));
+      return sanitize(JSON.parse(trimmed));
 
     case "xml": {
       const parser = new XMLParser({
@@ -190,22 +203,22 @@ export function parseInput(input: string, options: FormatOptions): QueryValue {
         // Transform empty tags to null to match real yq
         tagValueProcessor: (_name, val) => (val === "" ? null : val),
       });
-      return sanitizeParsedData(parser.parse(trimmed));
+      return sanitize(parser.parse(trimmed));
     }
 
     case "ini":
       // SECURITY: sanitizeParsedData converts to null-prototype objects at boundary.
-      return sanitizeParsedData(ini.parse(trimmed));
+      return sanitize(ini.parse(trimmed));
 
     case "csv":
       // SECURITY: sanitizeParsedData converts to null-prototype objects at boundary.
-      return sanitizeParsedData(
+      return sanitize(
         parseCsv(trimmed, options.csvDelimiter, options.csvHeader),
       );
 
     case "toml":
       // SECURITY: sanitizeParsedData converts to null-prototype objects at boundary.
-      return sanitizeParsedData(TOML.parse(trimmed)) as QueryValue;
+      return sanitize(TOML.parse(trimmed));
 
     default: {
       const _exhaustive: never = options.inputFormat;
@@ -217,11 +230,56 @@ export function parseInput(input: string, options: FormatOptions): QueryValue {
 /**
  * Parse all YAML documents from input (for slurp mode)
  */
-export function parseAllYamlDocuments(input: string): QueryValue[] {
+export function parseAllYamlDocuments(
+  input: string,
+  limits: SanitizeParsedDataLimits = {},
+): QueryValue[] {
+  const maxDocuments = limits.maxElements ?? 1_000_000;
+  let documents = input.trim() ? 1 : 0;
+  let lineStart = 0;
+  while (lineStart < input.length) {
+    const lineEnd = input.indexOf("\n", lineStart);
+    const markerEnd = lineStart + 3;
+    const next = input[markerEnd];
+    if (
+      lineStart > 0 &&
+      input.startsWith("---", lineStart) &&
+      (next === undefined ||
+        next === "\n" ||
+        next === "\r" ||
+        next === " " ||
+        next === "\t" ||
+        next === "#")
+    ) {
+      documents++;
+      if (documents > maxDocuments) {
+        throw new ExecutionLimitError(
+          `query input document limit exceeded (${maxDocuments})`,
+          "array_elements",
+        );
+      }
+    }
+    if (lineEnd === -1) break;
+    lineStart = lineEnd + 1;
+  }
   const docs = YAML.parseAllDocuments(input);
-  return docs.map((doc) =>
-    sanitizeParsedData(doc.toJS({ maxAliasCount: 100 })),
-  );
+  if (docs.length > maxDocuments) {
+    throw new ExecutionLimitError(
+      `query input document limit exceeded (${maxDocuments})`,
+      "array_elements",
+    );
+  }
+  const elementBudget = { used: docs.length };
+  const values: QueryValue[] = [];
+  for (const doc of docs) {
+    values.push(
+      sanitizeParsedData(doc.toJS({ maxAliasCount: 100 }), {
+        ...limits,
+        elementBudget,
+      }) as QueryValue,
+    );
+  }
+  return values;
 }
 
 /**
@@ -231,6 +289,7 @@ export function parseAllYamlDocuments(input: string): QueryValue[] {
  */
 export function extractFrontMatter(
   input: string,
+  limits: SanitizeParsedDataLimits = {},
 ): { frontMatter: QueryValue; content: string } | null {
   const trimmed = input.trimStart();
 
@@ -243,6 +302,7 @@ export function extractFrontMatter(
       return {
         frontMatter: sanitizeParsedData(
           YAML.parse(yamlContent, { maxAliasCount: 100 }),
+          limits,
         ),
         content: remaining,
       };
@@ -256,7 +316,10 @@ export function extractFrontMatter(
       const tomlContent = trimmed.slice(3, endMatch.index + 3);
       const remaining = trimmed.slice(endMatch.index + 3 + endMatch[0].length);
       return {
-        frontMatter: sanitizeParsedData(TOML.parse(tomlContent)) as QueryValue,
+        frontMatter: sanitizeParsedData(
+          TOML.parse(tomlContent),
+          limits,
+        ) as QueryValue,
         content: remaining,
       };
     }
@@ -269,7 +332,7 @@ export function extractFrontMatter(
       const jsonContent = trimmed.slice(3, endMatch.index + 3);
       const remaining = trimmed.slice(endMatch.index + 3 + endMatch[0].length);
       return {
-        frontMatter: sanitizeParsedData(JSON.parse(jsonContent)),
+        frontMatter: sanitizeParsedData(JSON.parse(jsonContent), limits),
         content: remaining,
       };
     }
@@ -284,23 +347,27 @@ export function extractFrontMatter(
 export function formatOutput(
   value: QueryValue,
   options: FormatOptions,
+  maxBytes: number = Number.MAX_SAFE_INTEGER,
 ): string {
   if (value === undefined) return "";
 
+  if (options.outputFormat !== "json") {
+    assertExternalSerializationFits(value, options, maxBytes);
+  }
+  let serialized: string;
   switch (options.outputFormat) {
     case "yaml":
-      return YAML.stringify(value, {
+      serialized = YAML.stringify(value, {
         indent: options.indent,
       }).trimEnd();
+      break;
 
     case "json": {
-      if (options.raw && typeof value === "string") {
-        return value;
-      }
-      if (options.compact) {
-        return JSON.stringify(value);
-      }
-      return JSON.stringify(value, null, options.indent);
+      return formatJsonValue(value, maxBytes, {
+        compact: options.compact,
+        raw: options.raw,
+        indent: options.indent,
+      });
     }
 
     case "xml": {
@@ -311,27 +378,131 @@ export function formatOutput(
         format: options.prettyPrint || !options.compact,
         indentBy: " ".repeat(options.indent),
       });
-      return builder.build(value);
+      serialized = builder.build(value);
+      break;
     }
 
     case "ini": {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
-        return "";
+        serialized = "";
+        break;
       }
-      return ini.stringify(value as Record<string, unknown>);
+      serialized = ini.stringify(value as Record<string, unknown>);
+      break;
     }
 
     case "csv":
-      return formatCsv(value, options.csvDelimiter);
+      serialized = formatCsv(value, options.csvDelimiter);
+      break;
 
     case "toml": {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
-        return "";
+        serialized = "";
+        break;
       }
-      return TOML.stringify(value as Record<string, unknown>);
+      serialized = TOML.stringify(value as Record<string, unknown>);
+      break;
     }
 
     default:
       throw new Error(`Unknown output format: ${options.outputFormat}`);
+  }
+  const bounded = new BoundedStringBuilder(
+    maxBytes,
+    "yq output",
+    () =>
+      new ExecutionLimitError(
+        `output size limit exceeded (${maxBytes} bytes)`,
+        "output_size",
+      ),
+  );
+  return bounded.append(serialized).build();
+}
+
+/**
+ * External format libraries construct their result eagerly. Prove a deliberately
+ * conservative expansion bound before invoking them so a tiny configured output
+ * limit cannot still permit a large temporary serialization.
+ */
+function assertExternalSerializationFits(
+  value: QueryValue,
+  options: FormatOptions,
+  maxBytes: number,
+): void {
+  const escapeFactor =
+    options.outputFormat === "yaml" || options.outputFormat === "toml" ? 6 : 2;
+  const active = new WeakSet<object>();
+  type Frame =
+    | { kind: "exit"; value: object }
+    | { kind: "value"; value: unknown; depth: number; labelBytes: number };
+  const pending: Frame[] = [{ kind: "value", value, depth: 0, labelBytes: 0 }];
+  let estimated = 0;
+  const add = (bytes: number): void => {
+    if (
+      !Number.isSafeInteger(bytes) ||
+      bytes < 0 ||
+      bytes > maxBytes - estimated
+    ) {
+      throw new ExecutionLimitError(
+        `output size limit exceeded (${maxBytes} bytes)`,
+        "output_size",
+      );
+    }
+    estimated += bytes;
+  };
+
+  while (pending.length > 0) {
+    const frame = pending.pop();
+    if (!frame) break;
+    if (frame.kind === "exit") {
+      active.delete(frame.value);
+      continue;
+    }
+    const { value: current, depth, labelBytes } = frame;
+    if (typeof current === "string") {
+      add(labelBytes + depth * options.indent);
+      add(utf8ByteLength(current) * (depth === 0 ? 1 : escapeFactor));
+      continue;
+    }
+    if (current === null || typeof current !== "object") {
+      add(
+        labelBytes + depth * options.indent + utf8ByteLength(String(current)),
+      );
+      continue;
+    }
+    add(32 + labelBytes + depth * options.indent);
+    if (current instanceof Date) {
+      add(utf8ByteLength(current.toISOString()) * escapeFactor);
+      continue;
+    }
+    if (active.has(current)) {
+      throw new Error("cyclic value cannot be formatted");
+    }
+    active.add(current);
+    pending.push({ kind: "exit", value: current });
+    if (Array.isArray(current)) {
+      for (let index = current.length - 1; index >= 0; index--) {
+        pending.push({
+          kind: "value",
+          value: current[index],
+          depth: depth + 1,
+          labelBytes,
+        });
+      }
+      continue;
+    }
+    const record = current as Record<string, unknown>;
+    const keys = Object.keys(record);
+    for (let index = keys.length - 1; index >= 0; index--) {
+      const key = keys[index];
+      const keyBytes = utf8ByteLength(key);
+      add(keyBytes * escapeFactor);
+      pending.push({
+        kind: "value",
+        value: record[key],
+        depth: depth + 1,
+        labelBytes: keyBytes,
+      });
+    }
   }
 }

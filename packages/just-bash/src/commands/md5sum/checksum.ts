@@ -4,7 +4,11 @@
  */
 
 import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 export type HashAlgorithm = "md5" | "sha1" | "sha256";
@@ -131,7 +135,7 @@ export function createChecksumCommand(
   name: string,
   algorithm: HashAlgorithm,
   summary: string,
-): Command {
+): RuntimeCommand {
   const help = {
     name,
     summary,
@@ -144,7 +148,10 @@ export function createChecksumCommand(
 
   return {
     name,
-    async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+    async execute(
+      args: string[],
+      ctx: RuntimeCommandContext,
+    ): Promise<ExecResult> {
       if (hasHelpFlag(args)) return showHelp(help);
 
       let check = false;

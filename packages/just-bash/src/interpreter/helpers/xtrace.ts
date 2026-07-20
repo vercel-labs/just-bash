@@ -7,6 +7,7 @@
  */
 
 import { Parser } from "../../parser/parser.js";
+import { ArithmeticError, ControlFlowError } from "../errors.js";
 import { expandWord } from "../expansion.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -34,6 +35,8 @@ async function getXtracePrefix(ctx: InterpreterContext): Promise<string> {
     return "";
   }
 
+  const xtraceWasEnabled = ctx.state.options.xtrace;
+  ctx.state.options.xtrace = false;
   try {
     // Parse PS4 as a word to handle variable expansion
     const parser = new Parser();
@@ -43,11 +46,26 @@ async function getXtracePrefix(ctx: InterpreterContext): Promise<string> {
     const expanded = await expandWord(ctx, wordNode);
 
     return expanded;
-  } catch {
+  } catch (error) {
+    // A runtime arithmetic error in PS4 affects the prompt only. Bash reports
+    // it but still executes the command; keeping the literal prompt preserves
+    // that non-fatal behavior without allowing execution/security errors to be
+    // swallowed by tracing.
+    if (error instanceof ArithmeticError && !error.fatal) {
+      return ps4;
+    }
+    if (
+      error instanceof ControlFlowError ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
+      throw error;
+    }
     // If expansion fails, print error to stderr (like bash does) and return literal PS4
     // Bash continues execution but reports the error
     ctx.state.expansionStderr = `${ctx.state.expansionStderr || ""}bash: ${ps4}: bad substitution\n`;
     return ps4 || DEFAULT_PS4;
+  } finally {
+    ctx.state.options.xtrace = xtraceWasEnabled;
   }
 }
 

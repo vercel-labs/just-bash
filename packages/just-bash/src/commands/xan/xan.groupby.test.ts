@@ -7,6 +7,18 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
 describe("xan groupby", () => {
+  it("does not collide tuples containing NUL characters", async () => {
+    const bash = new Bash({
+      files: { "/data.csv": "a,b,n\nx\u0000y,z,1\nx,y\u0000z,2\n" },
+    });
+    const result = await bash.exec(
+      "xan groupby a,b 'count() as count' /data.csv",
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.split("\n").filter(Boolean)).toHaveLength(3);
+    expect(result.stdout.match(/,1\n/g)).toHaveLength(2);
+  });
+
   const DATA =
     "id,value_A,value_B,value_C\nx,1,2,3\ny,2,3,4\nz,3,4,5\ny,1,2,3\nz,2,3,5\nz,3,6,7\n";
 

@@ -1,5 +1,7 @@
 // Parser for sed scripts using lexer-based tokenization
 
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { utf8ByteLength } from "../printf/escapes.js";
 import { SedLexer, type SedToken, SedTokenType } from "./lexer.js";
 import type { AddressRange, SedAddress, SedCommand } from "./types.js";
 
@@ -16,6 +18,10 @@ class SedParser {
   constructor(
     private scripts: string[],
     extendedRegex = false,
+    private readonly limits?: {
+      maxStringLength: number;
+      maxArrayElements: number;
+    },
   ) {
     this.extendedRegex = extendedRegex;
   }
@@ -24,7 +30,11 @@ class SedParser {
     const allCommands: SedCommand[] = [];
 
     for (const script of this.scripts) {
-      const lexer = new SedLexer(script);
+      const lexer = new SedLexer(
+        script,
+        this.limits?.maxStringLength,
+        this.limits?.maxArrayElements,
+      );
       this.tokens = lexer.tokenize();
       this.pos = 0;
 
@@ -491,12 +501,31 @@ class SedParser {
 export function parseMultipleScripts(
   scripts: string[],
   extendedRegex = false,
+  limits?: { maxStringLength: number; maxArrayElements: number },
 ): {
   commands: SedCommand[];
   error?: string;
   silentMode?: boolean;
   extendedRegexMode?: boolean;
 } {
+  if (limits) {
+    if (scripts.length > limits.maxArrayElements) {
+      throw new ExecutionLimitError(
+        `sed: script count limit exceeded (${limits.maxArrayElements})`,
+        "array_elements",
+      );
+    }
+    let combinedBytes = Math.max(0, scripts.length - 1);
+    for (const script of scripts) {
+      combinedBytes += utf8ByteLength(script);
+      if (combinedBytes > limits.maxStringLength) {
+        throw new ExecutionLimitError(
+          `sed: script size limit exceeded (${limits.maxStringLength} bytes)`,
+          "string_length",
+        );
+      }
+    }
+  }
   // Check for #n or #r special comments at the start of the first script
   let silentMode = false;
   let extendedRegexFromComment = false;
@@ -544,6 +573,7 @@ export function parseMultipleScripts(
   const parser = new SedParser(
     [combinedScript],
     extendedRegex || extendedRegexFromComment,
+    limits,
   );
   const result = parser.parse();
 

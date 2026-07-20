@@ -14,6 +14,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { quoteValue } from "../helpers/quoting.js";
 import { failure, result, success } from "../helpers/result.js";
 import type { CompletionSpec, InterpreterContext } from "../types.js";
 
@@ -142,6 +143,8 @@ export function handleComplete(
     if (commands.length === 0) {
       // Remove all completion specs
       ctx.state.completionSpecs.clear();
+      ctx.state.defaultCompletionSpec = undefined;
+      ctx.state.emptyCompletionSpec = undefined;
       return success("");
     }
     // Remove specific completion specs
@@ -195,7 +198,7 @@ export function handleComplete(
     if (commandStr !== undefined) spec.command = commandStr;
     if (options.length > 0) spec.options = options;
     if (actions.length > 0) spec.actions = actions;
-    ctx.state.completionSpecs.set("__default__", spec);
+    ctx.state.defaultCompletionSpec = spec;
     return success("");
   }
 
@@ -219,8 +222,8 @@ function printCompletionSpecs(
   ctx: InterpreterContext,
   commands?: string[],
 ): ExecResult {
-  const specs = ctx.state.completionSpecs;
-  if (!specs || specs.size === 0) {
+  const specs = ctx.state.completionSpecs ?? new Map<string, CompletionSpec>();
+  if (specs.size === 0 && !ctx.state.defaultCompletionSpec) {
     if (commands && commands.length > 0) {
       // Requested specific commands but no specs exist
       let stderr = "";
@@ -236,8 +239,6 @@ function printCompletionSpecs(
   const targetCommands = commands || Array.from(specs.keys());
 
   for (const cmd of targetCommands) {
-    if (cmd === "__default__") continue; // Skip internal default key when listing all
-
     const spec = specs.get(cmd);
     if (!spec) {
       if (commands) {
@@ -256,14 +257,14 @@ function printCompletionSpecs(
     // Add options
     if (spec.options) {
       for (const opt of spec.options) {
-        line += ` -o ${opt}`;
+        line += ` -o ${quoteValue(opt)}`;
       }
     }
 
     // Add actions
     if (spec.actions) {
       for (const action of spec.actions) {
-        line += ` -A ${action}`;
+        line += ` -A ${quoteValue(action)}`;
       }
     }
 
@@ -271,15 +272,19 @@ function printCompletionSpecs(
     if (spec.wordlist !== undefined) {
       // Quote the wordlist if it contains spaces
       if (spec.wordlist.includes(" ") || spec.wordlist.includes("'")) {
-        line += ` -W '${spec.wordlist}'`;
+        line += ` -W ${quoteValue(spec.wordlist)}`;
       } else {
-        line += ` -W ${spec.wordlist}`;
+        line += ` -W ${quoteValue(spec.wordlist)}`;
       }
     }
 
     // Add function
     if (spec.function !== undefined) {
-      line += ` -F ${spec.function}`;
+      line += ` -F ${quoteValue(spec.function)}`;
+    }
+
+    if (spec.command !== undefined) {
+      line += ` -C ${quoteValue(spec.command)}`;
     }
 
     // Add default flag
@@ -288,8 +293,21 @@ function printCompletionSpecs(
     }
 
     // Add command name
-    line += ` ${cmd}`;
+    line += `${cmd.startsWith("-") ? " -- " : " "}${quoteValue(cmd)}`;
 
+    output.push(line);
+  }
+
+  if (!commands && ctx.state.defaultCompletionSpec) {
+    const spec = ctx.state.defaultCompletionSpec;
+    let line = "complete";
+    for (const opt of spec.options ?? []) line += ` -o ${quoteValue(opt)}`;
+    for (const action of spec.actions ?? [])
+      line += ` -A ${quoteValue(action)}`;
+    if (spec.wordlist !== undefined) line += ` -W ${quoteValue(spec.wordlist)}`;
+    if (spec.function !== undefined) line += ` -F ${quoteValue(spec.function)}`;
+    if (spec.command !== undefined) line += ` -C ${quoteValue(spec.command)}`;
+    line += " -D";
     output.push(line);
   }
 

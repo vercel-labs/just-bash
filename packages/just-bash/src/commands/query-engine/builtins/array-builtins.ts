@@ -5,9 +5,10 @@
  */
 
 import { mergeToNullPrototype } from "../../../helpers/env.js";
+import { ExecutionLimitError as QueryExecutionLimitError } from "../../../interpreter/errors.js";
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
-import { isSafeKey, safeHasOwn, safeSet } from "../safe-object.js";
+import { isSafeKey, safeSet } from "../safe-object.js";
 import type { QueryValue } from "../value-operations.js";
 
 type EvalFn = (
@@ -29,6 +30,20 @@ type ExecutionLimitErrorClass = new (
   message: string,
   kind: "recursion" | "commands" | "iterations",
 ) => Error;
+
+function assertResultCapacity(
+  ctx: EvalContext,
+  current: number,
+  additional = 1,
+): void {
+  const maxElements = ctx.limits.maxArrayElements;
+  if (additional < 0 || current > maxElements - additional) {
+    throw new QueryExecutionLimitError(
+      `query result element limit exceeded (${maxElements})`,
+      "array_elements",
+    );
+  }
+}
 
 /**
  * Handle array builtins that need evaluate function for arguments.
@@ -263,21 +278,38 @@ export function evalArrayBuiltin(
 
     case "map": {
       if (args.length === 0 || !Array.isArray(value)) return [null];
-      const results = value.flatMap((item) => evaluate(item, args[0], ctx));
+      assertResultCapacity(ctx, 0, value.length);
+      const results: QueryValue[] = [];
+      for (const item of value) {
+        const mapped = evaluate(item, args[0], ctx);
+        assertResultCapacity(ctx, results.length, mapped.length);
+        for (const mappedValue of mapped) results.push(mappedValue);
+      }
       return [results];
     }
 
     case "map_values": {
       if (args.length === 0) return [null];
       if (Array.isArray(value)) {
-        return [value.flatMap((item) => evaluate(item, args[0], ctx))];
+        assertResultCapacity(ctx, 0, value.length);
+        const result: QueryValue[] = [];
+        for (const item of value) {
+          const mapped = evaluate(item, args[0], ctx);
+          assertResultCapacity(ctx, result.length, mapped.length);
+          for (const mappedValue of mapped) result.push(mappedValue);
+        }
+        return [result];
       }
       if (value && typeof value === "object") {
         // Use null-prototype for additional safety
         const result: Record<string, unknown> = Object.create(null);
-        for (const [k, v] of Object.entries(value)) {
+        const keys = Object.keys(value);
+        assertResultCapacity(ctx, 0, keys.length);
+        for (const k of keys) {
           // Defense against prototype pollution
           if (!isSafeKey(k)) continue;
+          // @banned-pattern-ignore: Object.keys returns own properties only
+          const v = (value as Record<string, unknown>)[k];
           const mapped = evaluate(v, args[0], ctx);
           if (mapped.length > 0) safeSet(result, k, mapped[0]);
         }
@@ -294,8 +326,7 @@ export function evalArrayBuiltin(
         return [key >= 0 && key < value.length];
       }
       if (value && typeof value === "object" && typeof key === "string") {
-        // Use safeHasOwn to check own properties only (not inherited like __proto__)
-        return [safeHasOwn(value, key)];
+        return [Object.hasOwn(value, key)];
       }
       return [false];
     }
@@ -308,8 +339,7 @@ export function evalArrayBuiltin(
         return [value >= 0 && value < obj.length];
       }
       if (obj && typeof obj === "object" && typeof value === "string") {
-        // Use safeHasOwn to check own properties only (not inherited like __proto__)
-        return [safeHasOwn(obj, value)];
+        return [Object.hasOwn(obj, value)];
       }
       return [false];
     }

