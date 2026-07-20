@@ -1,7 +1,11 @@
 import { utf8ByteLength } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { formatMode } from "../format-mode.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -20,10 +24,13 @@ const argDefs = {
   format: { short: "c", type: "string" as const },
 };
 
-export const statCommand: Command = {
+export const statCommand: RuntimeCommand = {
   name: "stat",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(statHelp);
     }

@@ -1,5 +1,5 @@
 /**
- * yq - Command-line YAML/XML/INI/CSV/TOML processor
+ * yq - RuntimeCommand-line YAML/XML/INI/CSV/TOML processor
  *
  * Uses jq-style query expressions to process YAML, XML, INI, CSV, and TOML files.
  * Shares the query engine with jq for consistent filtering behavior.
@@ -17,7 +17,11 @@ import {
   awaitWithDefenseContext,
 } from "../../security/defense-context.js";
 import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import {
   type EvaluateOptions,
@@ -270,10 +274,13 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
   return { options, filter, files, inputFormatExplicit };
 }
 
-export const yqCommand: Command = {
+export const yqCommand: RuntimeCommand = {
   name: "yq",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     assertDefenseContext(ctx.requireDefenseContext, "yq", "execution entry");
     const withDefenseContext = <T>(
       phase: string,

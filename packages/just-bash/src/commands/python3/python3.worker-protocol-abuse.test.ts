@@ -3,7 +3,7 @@ import { EMPTY_BYTES } from "../../encoding.js";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
 import { resolveLimits } from "../../limits.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
-import type { CommandContext } from "../../types.js";
+import type { RuntimeCommandContext } from "../../types.js";
 
 type WorkerScript = (worker: {
   emit: (event: string, payload?: unknown) => void;
@@ -99,8 +99,8 @@ vi.mock("../worker-bridge/protocol.js", () => {
 import { _resetExecutionQueue, python3Command } from "./python3.js";
 
 function createContext(
-  overrides: Partial<CommandContext> = {},
-): CommandContext {
+  overrides: Partial<RuntimeCommandContext> = {},
+): RuntimeCommandContext {
   return {
     fs: new InMemoryFs(),
     cwd: "/home/user",

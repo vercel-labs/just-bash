@@ -4,7 +4,7 @@
 
 import { boundedJoin, checkedAdd } from "../../bounded-builder.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { CommandContext, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import {
   type CsvData,
   type CsvRow,
@@ -25,7 +25,7 @@ import {
  */
 export async function cmdExplode(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let column = "";
   let separator = "|";
@@ -127,7 +127,7 @@ export async function cmdExplode(
  */
 export async function cmdImplode(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let column = "";
   let separator = "|";
@@ -256,7 +256,7 @@ export async function cmdImplode(
  */
 export async function cmdJoin(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let key1 = "";
   let file1 = "";
@@ -437,7 +437,7 @@ export async function cmdJoin(
  */
 export async function cmdPivot(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let pivotCol = "";
   let aggExpr = "";
@@ -642,7 +642,7 @@ function computeSimpleAgg(
  */
 export async function cmdMerge(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let sortCol = "";
   const fileArgs: string[] = [];

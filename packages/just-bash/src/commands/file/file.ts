@@ -7,7 +7,11 @@
 import { fileTypeFromBuffer } from "file-type";
 import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const fileHelp = {
@@ -381,10 +385,13 @@ async function detectFileType(
   return detectTextType(content, filename);
 }
 
-export const fileCommand: Command = {
+export const fileCommand: RuntimeCommand = {
   name: "file",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) return showHelp(fileHelp);
 
     let brief = false;

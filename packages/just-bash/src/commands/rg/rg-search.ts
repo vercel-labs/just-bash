@@ -17,7 +17,7 @@ import { FileTraversalBudget } from "../../fs/traversal.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
-import type { CommandContext, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import {
   buildRegex,
   convertReplacement,
@@ -57,14 +57,14 @@ function validateGlob(glob: string): string | null {
 }
 
 export interface SearchContext {
-  ctx: CommandContext;
+  ctx: RuntimeCommandContext;
   options: RgOptions;
   paths: string[];
   explicitLineNumbers: boolean;
 }
 
 function reservePatternSource(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   bytes: number,
 ): ResourceLease {
   // The raw bytes, decoded string, and retained per-line strings can coexist
@@ -93,7 +93,7 @@ function reservePatternSource(
 function appendPatternLines(
   patterns: string[],
   content: string,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): void {
   let lineStart = 0;
   for (let index = 0; index <= content.length; index++) {
@@ -113,7 +113,7 @@ function appendPatternLines(
 }
 
 function accountPatternInput(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   bytes: number,
   aggregateBytes: number,
 ): number {
@@ -447,7 +447,7 @@ interface CollectFilesResult {
  * Collect files to search based on paths and options
  */
 async function collectFiles(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   paths: string[],
   options: RgOptions,
   gitignore: GitignoreManager | null,
@@ -520,7 +520,7 @@ async function collectFiles(
  * Recursively walk a directory and collect matching files
  */
 async function walkDirectory(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   relativePath: string,
   absolutePath: string,
   depth: number,
@@ -878,7 +878,7 @@ function matchGlob(str: string, pattern: string, ignoreCase = false): boolean {
  * List files that would be searched (--files mode)
  */
 async function listFiles(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   inputPaths: string[],
   options: RgOptions,
 ): Promise<ExecResult> {
@@ -954,7 +954,7 @@ function matchesPreGlob(filename: string, preGlobs: string[]): boolean {
  * Read file content, handling preprocessing and gzip decompression if needed
  */
 async function readFileContent(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   filePath: string,
   file: string,
   options: RgOptions,
@@ -1120,7 +1120,7 @@ interface JsonMatch {
  * Search files and produce output
  */
 async function searchFiles(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   files: string[],
   regex: UserRegex,
   options: RgOptions,

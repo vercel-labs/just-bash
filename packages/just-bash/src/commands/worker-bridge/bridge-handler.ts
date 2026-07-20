@@ -14,7 +14,7 @@ import {
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import type { SecureFetch } from "../../network/fetch.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
-import { _clearTimeout, _setTimeout } from "../../timers.js";
+import { _clearFiniteTimeout, _setTimeoutIfFinite } from "../../timers.js";
 import type { CommandExecOptions, ExecResult } from "../../types.js";
 import {
   ErrorCode,
@@ -80,8 +80,9 @@ export class BridgeHandler {
       return Promise.reject(new Error("Operation timed out"));
     }
     const promise = fn();
+    if (remaining === Number.POSITIVE_INFINITY) return promise;
     return new Promise<T>((resolve, reject) => {
-      const timer = _setTimeout(() => {
+      const timer = _setTimeoutIfFinite(() => {
         this.running = false;
         this.output.exitCode = 124;
         this.output.stderr += `\n${this.commandName}: execution timeout exceeded\n`;
@@ -89,11 +90,11 @@ export class BridgeHandler {
       }, remaining);
       promise.then(
         (v) => {
-          _clearTimeout(timer);
+          _clearFiniteTimeout(timer);
           resolve(v);
         },
         (e) => {
-          _clearTimeout(timer);
+          _clearFiniteTimeout(timer);
           reject(e);
         },
       );

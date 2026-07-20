@@ -8,7 +8,11 @@
  */
 
 import { decodeBytesToUtf8, utf8ByteLength } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const foldHelp = {
@@ -134,9 +138,12 @@ function processContent(content: string, options: FoldOptions): string {
   return foldedLines.join("\n") + (hasTrailingNewline ? "\n" : "");
 }
 
-export const fold: Command = {
+export const fold: RuntimeCommand = {
   name: "fold",
-  execute: async (args: string[], ctx: CommandContext): Promise<ExecResult> => {
+  execute: async (
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> => {
     if (hasHelpFlag(args)) {
       return showHelp(foldHelp);
     }

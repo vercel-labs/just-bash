@@ -481,16 +481,17 @@ describe("tar", () => {
   });
 
   describe("xz compression (-J)", () => {
-    it("should reject xz compression by default", async () => {
+    it("should preserve xz compression by default", async () => {
       const env = new Bash({
         files: {
           "/test.txt": "Hello, xz compressed World!",
         },
       });
       const result = await env.exec("tar -cJvf /archive.tar.xz /test.txt");
-      expect(result.exitCode).toBe(2);
-      expect(result.stderr).toContain("disabled by default");
-      expect(result.stderr).toContain("native codec");
+      expect(result.exitCode).toBe(0);
+      expect((await env.exec("tar -tJf /archive.tar.xz")).stdout).toContain(
+        "test.txt",
+      );
     });
   });
 
@@ -1078,7 +1079,7 @@ describe("tar", () => {
       expect(list.stdout).toContain("test.txt");
     });
 
-    it("should auto-detect xz from .tar.xz extension and block (native codec)", async () => {
+    it("should auto-detect xz from .tar.xz extension", async () => {
       const env = new Bash({
         files: {
           "/test.txt": "Hello World",
@@ -1086,11 +1087,13 @@ describe("tar", () => {
       });
 
       const result = await env.exec("tar -caf /archive.tar.xz /test.txt");
-      expect(result.exitCode).toBe(2);
-      expect(result.stderr).toContain("disabled by default");
+      expect(result.exitCode).toBe(0);
+      expect((await env.exec("tar -tf /archive.tar.xz")).stdout).toContain(
+        "test.txt",
+      );
     });
 
-    it("should auto-detect zstd from .tar.zst extension and block (native codec)", async () => {
+    it("should auto-detect zstd from .tar.zst extension", async () => {
       const env = new Bash({
         files: {
           "/test.txt": "Hello World",
@@ -1098,8 +1101,10 @@ describe("tar", () => {
       });
 
       const result = await env.exec("tar -caf /archive.tar.zst /test.txt");
-      expect(result.exitCode).toBe(2);
-      expect(result.stderr).toContain("disabled by default");
+      expect(result.exitCode).toBe(0);
+      expect((await env.exec("tar -tf /archive.tar.zst")).stdout).toContain(
+        "test.txt",
+      );
     });
 
     it("should create plain tar for .tar extension", async () => {
@@ -1248,7 +1253,7 @@ describe("tar", () => {
   });
 
   describe("zstd compression (--zstd)", () => {
-    it("should reject zstd compression by default", async () => {
+    it("should preserve zstd compression by default", async () => {
       const env = new Bash({
         files: {
           "/test.txt": "Hello World",
@@ -1258,9 +1263,10 @@ describe("tar", () => {
       const result = await env.exec(
         "tar --zstd -cf /archive.tar.zst /test.txt",
       );
-      expect(result.exitCode).toBe(2);
-      expect(result.stderr).toContain("disabled by default");
-      expect(result.stderr).toContain("native codec");
+      expect(result.exitCode).toBe(0);
+      expect(
+        (await env.exec("tar --zstd -tf /archive.tar.zst")).stdout,
+      ).toContain("test.txt");
     });
   });
 

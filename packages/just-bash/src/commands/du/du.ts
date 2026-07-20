@@ -3,7 +3,11 @@ import {
   ExecutionAbortedError,
   ExecutionLimitError,
 } from "../../interpreter/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
@@ -37,10 +41,13 @@ interface DuOptions {
   maxDepth: number | null;
 }
 
-export const duCommand: Command = {
+export const duCommand: RuntimeCommand = {
   name: "du",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(duHelp);
     }
@@ -103,7 +110,7 @@ interface SizeResult {
 }
 
 async function calculateSize(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   fullPath: string,
   displayPath: string,
   options: DuOptions,

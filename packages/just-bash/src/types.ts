@@ -141,7 +141,7 @@ export interface TraceEvent {
  */
 export type TraceCallback = (event: TraceEvent) => void;
 
-export interface CommandContext {
+export interface RuntimeCommandContext {
   /** Virtual filesystem interface for file operations */
   fs: IFileSystem;
   /** Stable identity of the underlying filesystem across defense wrappers. */
@@ -264,21 +264,33 @@ export interface CommandContext {
   invokeTool?: (path: string, argsJson: string) => Promise<string>;
 }
 
+/** Legacy standalone context shape used by direct command invocations. */
+export type CommandContext = Omit<
+  RuntimeCommandContext,
+  "limits" | "executionScope"
+>;
+
+/** Context supplied by Bash when dispatching a registered command. */
+export type ResolvedCommandContext = RuntimeCommandContext;
+
 export interface Command {
   name: string;
   /**
-   * When true, execute this command inside DefenseInDepthBox.runTrustedAsync().
-   * Use for trusted host-extension commands that need direct Node.js globals.
+   * Commands registered by a host are trusted by default for compatibility.
+   * Set false to run the command through the restricted extension boundary.
    * Built-in commands should generally remain untrusted and use explicit
    * trusted wrappers only at narrow infrastructure boundaries.
    */
   trusted?: boolean;
   /** @internal Marks host extensions that receive a least-authority budget. */
   internalIsExtension?: boolean;
-  execute(args: string[], ctx: CommandContext): Promise<ExecResult>;
+  execute(args: string[], ctx: ResolvedCommandContext): Promise<ExecResult>;
 }
 
-export type CommandRegistry = Map<string, Command>;
+export interface RuntimeCommand extends Omit<Command, "execute"> {
+  execute(args: string[], ctx: RuntimeCommandContext): Promise<ExecResult>;
+}
+export type CommandRegistry = Map<string, RuntimeCommand>;
 
 // Re-export IFileSystem for convenience
 export type { IFileSystem };

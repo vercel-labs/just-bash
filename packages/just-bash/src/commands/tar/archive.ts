@@ -88,7 +88,7 @@ export interface ArchiveCreationLimits {
   signal?: AbortSignal;
   /** Shared live-memory owner supplied by the tar command integration. */
   executionScope?: CommandExecutionBudget;
-  /** Explicit trust boundary for native whole-buffer codecs. */
+  /** Set false to disable native whole-buffer codecs. */
   allowTrustedWholeBufferCodecs?: boolean;
 }
 
@@ -128,7 +128,7 @@ function resolveCreationLimits(
     signal: options?.signal,
     executionScope: options?.executionScope,
     allowTrustedWholeBufferCodecs:
-      options?.allowTrustedWholeBufferCodecs ?? false,
+      options?.allowTrustedWholeBufferCodecs ?? true,
   };
 }
 
@@ -725,7 +725,7 @@ export async function createBzip2CompressedArchive(
  *
  * @param entries - Archive entries to include
  * @param options - Options controlling compression behavior
- * @param options.allowNativeCodecs - When false (default), rejects xz compression
+ * @param options.allowNativeCodecs - Set false to reject xz compression
  *   to avoid passing attacker-controlled bytes to native addons (node-liblzma).
  */
 export async function createXzCompressedArchive(
@@ -733,10 +733,12 @@ export async function createXzCompressedArchive(
   options?: ArchiveCreationLimits & { allowNativeCodecs?: boolean },
 ): Promise<Uint8Array> {
   const limits = resolveCreationLimits(options);
-  if (!options?.allowNativeCodecs || !limits.allowTrustedWholeBufferCodecs) {
+  if (
+    options?.allowNativeCodecs === false ||
+    !limits.allowTrustedWholeBufferCodecs
+  ) {
     throw new Error(
-      "xz compression is disabled by default (native codec risk). The whole-buffer codec must be explicitly trusted. " +
-        "Pass both { allowNativeCodecs: true, allowTrustedWholeBufferCodecs: true } to opt in.",
+      "xz compression is disabled by configuration. Enable native and trusted whole-buffer codecs to use it.",
     );
   }
   const tarBuffer = await createArchive(entries, limits);
@@ -791,7 +793,7 @@ export async function parseBzip2CompressedArchive(
  *
  * @param data - Raw archive bytes
  * @param options - Options controlling decompression behavior
- * @param options.allowNativeCodecs - When false (default), rejects xz decompression
+ * @param options.allowNativeCodecs - Set false to reject xz decompression
  *   to avoid passing untrusted bytes to native addons (node-liblzma).
  */
 export async function parseXzCompressedArchive(
@@ -799,12 +801,14 @@ export async function parseXzCompressedArchive(
   options?: ArchiveCreationLimits & { allowNativeCodecs?: boolean },
 ): Promise<{ entries: ParsedEntry[]; error?: string }> {
   const limits = resolveCreationLimits(options);
-  if (!options?.allowNativeCodecs || !limits.allowTrustedWholeBufferCodecs) {
+  if (
+    options?.allowNativeCodecs === false ||
+    !limits.allowTrustedWholeBufferCodecs
+  ) {
     return {
       entries: [],
       error:
-        "xz decompression is disabled by default (native codec risk). The whole-buffer codec must be explicitly trusted. " +
-        "Pass both { allowNativeCodecs: true, allowTrustedWholeBufferCodecs: true } to opt in, or decompress the archive externally before extraction.",
+        "xz decompression is disabled by configuration. Enable native and trusted whole-buffer codecs, or decompress the archive externally before extraction.",
     };
   }
 
@@ -867,7 +871,7 @@ async function decompressZstd(data: Uint8Array): Promise<Uint8Array> {
  *
  * @param entries - Archive entries to include
  * @param options - Options controlling compression behavior
- * @param options.allowNativeCodecs - When false (default), rejects zstd compression
+ * @param options.allowNativeCodecs - Set false to reject zstd compression
  *   to avoid passing attacker-controlled bytes to native addons (@mongodb-js/zstd).
  */
 export async function createZstdCompressedArchive(
@@ -875,10 +879,12 @@ export async function createZstdCompressedArchive(
   options?: ArchiveCreationLimits & { allowNativeCodecs?: boolean },
 ): Promise<Uint8Array> {
   const limits = resolveCreationLimits(options);
-  if (!options?.allowNativeCodecs || !limits.allowTrustedWholeBufferCodecs) {
+  if (
+    options?.allowNativeCodecs === false ||
+    !limits.allowTrustedWholeBufferCodecs
+  ) {
     throw new Error(
-      "zstd compression is disabled by default (native codec risk). The whole-buffer codec must be explicitly trusted. " +
-        "Pass both { allowNativeCodecs: true, allowTrustedWholeBufferCodecs: true } to opt in.",
+      "zstd compression is disabled by configuration. Enable native and trusted whole-buffer codecs to use it.",
     );
   }
   const tarBuffer = await createArchive(entries, limits);
@@ -897,7 +903,7 @@ export async function createZstdCompressedArchive(
  *
  * @param data - Raw archive bytes
  * @param options - Options controlling decompression behavior
- * @param options.allowNativeCodecs - When false (default), rejects zstd decompression
+ * @param options.allowNativeCodecs - Set false to reject zstd decompression
  *   to avoid passing untrusted bytes to native addons (@mongodb-js/zstd).
  */
 export async function parseZstdCompressedArchive(
@@ -905,12 +911,14 @@ export async function parseZstdCompressedArchive(
   options?: ArchiveCreationLimits & { allowNativeCodecs?: boolean },
 ): Promise<{ entries: ParsedEntry[]; error?: string }> {
   const limits = resolveCreationLimits(options);
-  if (!options?.allowNativeCodecs || !limits.allowTrustedWholeBufferCodecs) {
+  if (
+    options?.allowNativeCodecs === false ||
+    !limits.allowTrustedWholeBufferCodecs
+  ) {
     return {
       entries: [],
       error:
-        "zstd decompression is disabled by default (native codec risk). The whole-buffer codec must be explicitly trusted. " +
-        "Pass both { allowNativeCodecs: true, allowTrustedWholeBufferCodecs: true } to opt in, or decompress the archive externally before extraction.",
+        "zstd decompression is disabled by configuration. Enable native and trusted whole-buffer codecs, or decompress the archive externally before extraction.",
     };
   }
 

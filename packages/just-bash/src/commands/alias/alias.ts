@@ -1,4 +1,8 @@
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const aliasHelp = {
@@ -12,10 +16,13 @@ const aliasHelp = {
 // Format: BASH_ALIASES_<name>=<value>
 const ALIAS_PREFIX = "BASH_ALIAS_";
 
-export const aliasCommand: Command = {
+export const aliasCommand: RuntimeCommand = {
   name: "alias",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(aliasHelp);
     }
@@ -72,10 +79,13 @@ export const aliasCommand: Command = {
   },
 };
 
-export const unaliasCommand: Command = {
+export const unaliasCommand: RuntimeCommand = {
   name: "unalias",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp({
         name: "unalias",

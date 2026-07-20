@@ -2,7 +2,11 @@
  * date - Display the current date and time
  */
 
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { formatStrftime } from "../printf/strftime.js";
 
@@ -125,9 +129,12 @@ function parseDate(s: string, tz?: string): Date | null {
   return null;
 }
 
-export const dateCommand: Command = {
+export const dateCommand: RuntimeCommand = {
   name: "date",
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) return showHelp(dateHelp);
 
     let utc = false,

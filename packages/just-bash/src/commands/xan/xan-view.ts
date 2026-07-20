@@ -2,11 +2,11 @@
  * View commands: pretty print CSV as table or flattened records
  */
 
-import type { CommandContext, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { XanOutputBuilder } from "./bounded-output.js";
 import { readCsvInput } from "./csv.js";
 
-function outputLimit(ctx: CommandContext): number {
+function outputLimit(ctx: RuntimeCommandContext): number {
   return Math.min(ctx.limits.maxStringLength, ctx.limits.maxOutputSize);
 }
 
@@ -18,7 +18,7 @@ function outputLimit(ctx: CommandContext): number {
  */
 export async function cmdFlatten(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let limit = 0; // 0 means all rows
   let selectCols: string[] = [];
@@ -77,7 +77,7 @@ export async function cmdFlatten(
 
 export async function cmdView(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let n = 0; // 0 means all rows
   const fileArgs: string[] = [];

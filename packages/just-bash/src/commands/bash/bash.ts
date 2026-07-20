@@ -1,6 +1,10 @@
 import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
 import { mergeToNullPrototype } from "../../helpers/env.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const bashHelp = {
@@ -18,10 +22,13 @@ const bashHelp = {
   ],
 };
 
-export const bashCommand: Command = {
+export const bashCommand: RuntimeCommand = {
   name: "bash",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(bashHelp);
     }
@@ -66,10 +73,13 @@ export const bashCommand: Command = {
 };
 
 // sh is an alias for bash
-export const shCommand: Command = {
+export const shCommand: RuntimeCommand = {
   name: "sh",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp({
         ...bashHelp,
@@ -120,7 +130,7 @@ async function executeScript(
   script: string,
   scriptName: string,
   scriptArgs: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   if (!ctx.exec) {
     return {

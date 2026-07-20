@@ -12,7 +12,11 @@ import {
 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const htmlToMarkdownHelp = {
@@ -55,10 +59,13 @@ const htmlToMarkdownHelp = {
   ],
 };
 
-export const htmlToMarkdownCommand: Command = {
+export const htmlToMarkdownCommand: RuntimeCommand = {
   name: "html-to-markdown",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(htmlToMarkdownHelp);
     }

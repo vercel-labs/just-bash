@@ -15,7 +15,11 @@ import {
   resolveFileIdentity,
 } from "../../fs/traversal.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const splitHelp = {
@@ -216,7 +220,7 @@ function identityUnchanged(
 }
 
 async function uniqueSiblingPath(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   outputPath: string,
   purpose: "stage" | "backup",
 ): Promise<string> {
@@ -236,9 +240,12 @@ async function uniqueSiblingPath(
   throw new Error("unable to allocate transaction path");
 }
 
-export const split: Command = {
+export const split: RuntimeCommand = {
   name: "split",
-  execute: async (args: string[], ctx: CommandContext): Promise<ExecResult> => {
+  execute: async (
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> => {
     if (hasHelpFlag(args)) {
       return showHelp(splitHelp);
     }

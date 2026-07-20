@@ -4,7 +4,7 @@
 
 import { checkedAdd } from "../../bounded-builder.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { CommandContext, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
 import { nullPrototypeCopy } from "../query-engine/safe-object.js";
 import {
@@ -25,7 +25,7 @@ import { moonbladeToJq } from "./moonblade-to-jq.js";
 
 export async function cmdMap(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let mapExpr = "";
   let overwrite = false;
@@ -151,7 +151,7 @@ export async function cmdMap(
  */
 export async function cmdTransform(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let targetCol = "";
   let transformExpr = "";

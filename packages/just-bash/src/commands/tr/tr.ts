@@ -6,7 +6,11 @@ import {
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
@@ -159,9 +163,12 @@ const argDefs = {
   squeeze: { short: "s", long: "squeeze-repeats", type: "boolean" as const },
 };
 
-export const trCommand: Command = {
+export const trCommand: RuntimeCommand = {
   name: "tr",
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(trHelp);
     }

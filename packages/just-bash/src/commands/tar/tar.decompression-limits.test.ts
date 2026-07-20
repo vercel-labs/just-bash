@@ -82,12 +82,13 @@ describe("tar decompression limits", () => {
   it("does not invoke XZ when native code alone is opted in", async () => {
     const result = await parseXzCompressedArchive(
       new Uint8Array([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0]),
-      { allowNativeCodecs: true },
+      {
+        allowNativeCodecs: true,
+        allowTrustedWholeBufferCodecs: false,
+      },
     );
 
     expect(result.entries).toEqual([]);
-    expect(result.error).toContain(
-      "whole-buffer codec must be explicitly trusted",
-    );
+    expect(result.error).toContain("disabled by configuration");
   });
 });

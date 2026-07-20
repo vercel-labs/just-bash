@@ -2,7 +2,7 @@
  * Filter and sort commands: filter, sort, dedup, top
  */
 
-import type { CommandContext, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { showHelp } from "../help.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
 import { parseMoonbladeExpr } from "./column-selection.js";
@@ -11,7 +11,7 @@ import { getMoonbladeLimits } from "./moonblade-parser.js";
 
 export async function cmdFilter(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let invert = false;
   let limit = 0; // 0 means no limit
@@ -81,7 +81,7 @@ export async function cmdFilter(
 
 export async function cmdSort(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let column = "";
   let numeric = false;
@@ -131,7 +131,7 @@ export async function cmdSort(
 
 export async function cmdDedup(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let column = "";
   const fileArgs: string[] = [];
@@ -161,7 +161,7 @@ export async function cmdDedup(
 
 export async function cmdTop(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let n = 10;
   let column = "";

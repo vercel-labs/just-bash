@@ -7,13 +7,17 @@ import {
   ExecutionAbortedError,
   ExecutionLimitError,
 } from "../../interpreter/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 function appendLsOutput(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   current: string,
   next: string,
 ): string {
@@ -29,7 +33,10 @@ function appendLsOutput(
   return current + next;
 }
 
-function joinLsLines(ctx: CommandContext, lines: readonly string[]): string {
+function joinLsLines(
+  ctx: RuntimeCommandContext,
+  lines: readonly string[],
+): string {
   const output = new BoundedStringBuilder(ctx.limits.maxOutputSize, "ls");
   for (let index = 0; index < lines.length; index++) {
     if (index > 0) output.append("\n");
@@ -131,10 +138,13 @@ const argDefs = {
   onePerLine: { short: "1", type: "boolean" as const },
 };
 
-export const lsCommand: Command = {
+export const lsCommand: RuntimeCommand = {
   name: "ls",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(lsHelp);
     }
@@ -266,7 +276,7 @@ export const lsCommand: Command = {
 
 async function listGlob(
   pattern: string,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   showAll: boolean,
   showAlmostAll: boolean,
   longFormat: boolean,
@@ -388,7 +398,7 @@ async function listGlob(
 
 async function listPath(
   path: string,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   showAll: boolean,
   showAlmostAll: boolean,
   longFormat: boolean,

@@ -7,7 +7,7 @@ import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { decodeBytesToUtf8, utf8ByteLength } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { CommandContext, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { formatJsonValue } from "../query-engine/json-output.js";
 import { sanitizeParsedData } from "../query-engine/safe-object.js";
 import type { QueryValue } from "../query-engine/value-operations.js";
@@ -30,7 +30,7 @@ import {
  */
 export async function cmdTranspose(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   const fileArgs = args.filter((a) => !a.startsWith("-"));
 
@@ -90,7 +90,7 @@ export async function cmdTranspose(
  */
 export async function cmdShuffle(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let seed: number | null = null;
   const fileArgs: string[] = [];
@@ -137,7 +137,7 @@ export async function cmdShuffle(
  */
 export async function cmdFixlengths(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let targetLen: number | null = null;
   let defaultValue = "";
@@ -237,7 +237,7 @@ export async function cmdFixlengths(
  */
 export async function cmdSplit(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let numParts: number | null = null;
   let partSize: number | null = null;
@@ -365,7 +365,7 @@ function shortHash(s: string): string {
  */
 export async function cmdPartition(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let column = "";
   let outputDir = ".";
@@ -486,7 +486,7 @@ export async function cmdPartition(
  */
 export async function cmdTo(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   if (args.length === 0) {
     return {
@@ -516,7 +516,7 @@ export async function cmdTo(
  */
 async function cmdToJson(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   const fileArgs = args.filter((a) => !a.startsWith("-"));
 
@@ -551,7 +551,7 @@ async function cmdToJson(
  */
 export async function cmdFrom(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let format = "";
   const fileArgs: string[] = [];
@@ -590,7 +590,7 @@ export async function cmdFrom(
  */
 async function cmdFromJson(
   fileArgs: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   const file = fileArgs[0];
   let input: string;

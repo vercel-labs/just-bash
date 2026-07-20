@@ -10,7 +10,7 @@ import {
 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { CommandContext, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { unknownOption } from "../help.js";
 
 export interface HeadTailOptions {
@@ -117,7 +117,7 @@ export function parseHeadTailArgs(
  * Handles stdin, multiple files, headers, and error handling.
  */
 export async function processHeadTailFiles(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   options: HeadTailOptions,
   cmdName: "head" | "tail",
   contentProcessor: (content: string) => string,

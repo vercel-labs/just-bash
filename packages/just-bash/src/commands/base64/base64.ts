@@ -5,7 +5,11 @@
 import { latin1FromBytes } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
@@ -58,7 +62,7 @@ function decodedLengthUpperBound(input: string): number {
 
 // Helper to read file as binary
 async function readBinary(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   files: string[],
   cmdName: string,
 ): Promise<{ ok: true; data: Uint8Array } | { ok: false; error: ExecResult }> {
@@ -140,10 +144,13 @@ async function readBinary(
   return { ok: true, data: result };
 }
 
-export const base64Command: Command = {
+export const base64Command: RuntimeCommand = {
   name: "base64",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(base64Help);
     }

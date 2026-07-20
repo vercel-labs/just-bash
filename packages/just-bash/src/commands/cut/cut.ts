@@ -1,7 +1,11 @@
 import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { readAndConcat } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -79,9 +83,12 @@ function extractByRanges(items: string[], ranges: CutRange[]): string[] {
   return result;
 }
 
-export const cutCommand: Command = {
+export const cutCommand: RuntimeCommand = {
   name: "cut",
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(cutHelp);
     }

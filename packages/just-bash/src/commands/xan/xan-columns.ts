@@ -2,7 +2,7 @@
  * Column operation commands: select, drop, rename, enum
  */
 
-import type { CommandContext, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { parseColumnSpec } from "./column-selection.js";
 import {
   type CsvRow,
@@ -14,7 +14,7 @@ import {
 
 export async function cmdSelect(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   // First positional arg is column spec, rest are files
   let colSpec = "";
@@ -59,7 +59,7 @@ export async function cmdSelect(
 
 export async function cmdDrop(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   // First positional arg is column spec, rest are files
   let colSpec = "";
@@ -105,7 +105,7 @@ export async function cmdDrop(
 
 export async function cmdRename(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   // xan rename NEW_NAMES [-s cols] FILE
   // If -s is provided, rename specific columns
@@ -173,7 +173,7 @@ export async function cmdRename(
 
 export async function cmdEnum(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let colName = "index";
   const filteredArgs: string[] = [];

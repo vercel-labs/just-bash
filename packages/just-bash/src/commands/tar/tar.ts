@@ -7,7 +7,11 @@
 
 import { latin1FromBytes } from "../../encoding.js";
 import { createUserRegex } from "../../regex/index.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { formatMode } from "../format-mode.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import {
@@ -32,7 +36,7 @@ import { parseOptions, type TarOptions } from "./tar-options.js";
 
 const BATCH_SIZE = 100;
 
-function archiveLimits(ctx: CommandContext) {
+function archiveLimits(ctx: RuntimeCommandContext) {
   return {
     maxArchiveSize: ctx.limits.maxArchiveBytes,
     maxCompressedSize: ctx.limits.maxArchiveCompressedBytes,
@@ -43,7 +47,7 @@ function archiveLimits(ctx: CommandContext) {
   };
 }
 
-function isAborted(ctx: CommandContext): boolean {
+function isAborted(ctx: RuntimeCommandContext): boolean {
   return ctx.signal?.aborted === true;
 }
 
@@ -226,7 +230,7 @@ function formatDate(date: Date): string {
  * Collect all files from a directory recursively
  */
 async function collectFiles(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   basePath: string,
   relativePath: string,
   exclude: string[],
@@ -317,7 +321,7 @@ async function collectFiles(
  * Create a tar archive
  */
 async function createTarArchive(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   options: TarOptions,
   files: string[],
 ): Promise<ExecResult> {
@@ -439,7 +443,7 @@ async function createTarArchive(
  * Append files to an existing tar archive (-r)
  */
 async function appendTarArchive(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   options: TarOptions,
   files: string[],
 ): Promise<ExecResult> {
@@ -561,7 +565,7 @@ async function appendTarArchive(
  * Update archive with newer files (-u)
  */
 async function updateTarArchive(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   options: TarOptions,
   files: string[],
 ): Promise<ExecResult> {
@@ -708,7 +712,7 @@ async function updateTarArchive(
  * Extract a tar archive
  */
 async function extractTarArchive(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   options: TarOptions,
   specificFiles: string[],
 ): Promise<ExecResult> {
@@ -963,7 +967,7 @@ async function extractTarArchive(
  * List contents of a tar archive
  */
 async function listTarArchive(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   options: TarOptions,
   specificFiles: string[],
 ): Promise<ExecResult> {
@@ -1076,9 +1080,12 @@ async function listTarArchive(
   return { stdout, stderr: "", exitCode: 0 };
 }
 
-export const tarCommand: Command = {
+export const tarCommand: RuntimeCommand = {
   name: "tar",
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (isAborted(ctx)) return abortedResult();
     if (hasHelpFlag(args)) {
       return showHelp(tarHelp);

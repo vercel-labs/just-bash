@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Worker } from "node:worker_threads";
-import { _clearTimeout, _setTimeout } from "../timers.js";
+import { _clearFiniteTimeout, _setTimeoutIfFinite } from "../timers.js";
 
 type CancelReason = "abort" | "timeout";
 
@@ -42,11 +42,13 @@ export class WorkerRequestController {
     }
 
     if (!this.canceledReason) {
-      const timer = _setTimeout(
+      const timer = _setTimeoutIfFinite(
         () => this.cancel("timeout"),
         Math.max(0, this.options.timeoutMs),
       );
-      this.cleanups.push(() => _clearTimeout(timer));
+      if (timer !== undefined) {
+        this.cleanups.push(() => _clearFiniteTimeout(timer));
+      }
     }
   }
 

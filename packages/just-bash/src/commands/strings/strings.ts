@@ -11,7 +11,11 @@ import {
   ExecutionAbortedError,
   ExecutionLimitError,
 } from "../../interpreter/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const stringsHelp = {
@@ -172,9 +176,12 @@ function extractStrings(
   return results;
 }
 
-export const strings: Command = {
+export const strings: RuntimeCommand = {
   name: "strings",
-  execute: async (args: string[], ctx: CommandContext): Promise<ExecResult> => {
+  execute: async (
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> => {
     if (hasHelpFlag(args)) {
       return showHelp(stringsHelp);
     }

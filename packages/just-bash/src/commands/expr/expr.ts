@@ -1,17 +1,24 @@
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { createUserRegex } from "../../regex/index.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 
 /**
  * expr - evaluate expressions
  *
  * Basic implementation supporting arithmetic operations and string operations.
  */
-export const exprCommand: Command = {
+export const exprCommand: RuntimeCommand = {
   name: "expr",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (args.length === 0) {
       return {
         stdout: "",

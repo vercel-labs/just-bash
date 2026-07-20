@@ -6,9 +6,9 @@ import { FileTraversalBudget } from "../../fs/traversal.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type {
-  Command,
-  CommandContext,
   ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
   TraceCallback,
 } from "../../types.js";
 import { formatMode } from "../format-mode.js";
@@ -135,9 +135,12 @@ const findHelp = {
   ],
 };
 
-export const findCommand: Command = {
+export const findCommand: RuntimeCommand = {
   name: "find",
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(findHelp);
     }

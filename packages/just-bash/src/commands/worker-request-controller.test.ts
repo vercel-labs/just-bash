@@ -39,6 +39,22 @@ describe("WorkerRequestController", () => {
     vi.useRealTimers();
   });
 
+  it("does not schedule a platform-overflowing timer for Infinity", () => {
+    vi.useFakeTimers();
+    const cancel = vi.fn();
+    const request = new WorkerRequestController({
+      commandName: "test",
+      timeoutMs: Number.POSITIVE_INFINITY,
+      maxMessageBytes: 100,
+    });
+    request.arm(cancel);
+    vi.advanceTimersByTime(10_000);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(request.remainingTimeMs()).toBe(Number.POSITIVE_INFINITY);
+    request.close();
+    vi.useRealTimers();
+  });
+
   it("bounds nested and cyclic structured-clone payloads", () => {
     const value: Record<string, unknown> = { text: "😀" };
     value.self = value;

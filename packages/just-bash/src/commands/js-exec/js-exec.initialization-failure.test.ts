@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EMPTY_BYTES } from "../../encoding.js";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
 import { resolveLimits } from "../../limits.js";
-import type { CommandContext } from "../../types.js";
+import type { RuntimeCommandContext } from "../../types.js";
 import type { JsExecWorkerInput } from "./js-exec-worker.js";
 
 type MockWorkerController = {
@@ -100,7 +100,7 @@ vi.mock("../worker-bridge/protocol.js", () => ({
 
 import { _resetJsExecWorkerForTests, jsExecCommand } from "./js-exec.js";
 
-function context(signal?: AbortSignal): CommandContext {
+function context(signal?: AbortSignal): RuntimeCommandContext {
   return {
     fs: new InMemoryFs(),
     cwd: "/home/user",

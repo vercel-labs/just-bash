@@ -243,28 +243,35 @@ describe("just-bash CLI", () => {
       expect(result.exitCode).toBe(1);
     });
 
-    it("requires --root rather than a positional root", () => {
-      const result = runCli([
-        "-c",
-        "'echo unsafe'",
-        tempDir,
-        "--root",
-        tempDir,
-      ]);
+    it("preserves the legacy script-file positional root", () => {
+      fs.writeFileSync(path.join(tempDir, "legacy.sh"), "printf compatible");
+      const result = runCli(["legacy.sh", tempDir]);
 
-      expect(result.stdout).toBe("");
-      expect(result.stderr).toBe(
-        "Error: script file cannot be combined with -c\n",
-      );
-      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("compatible");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
     });
 
-    it("rejects extra positional arguments", () => {
-      const result = runCli(["-c", "'echo unsafe'", tempDir, tempDir]);
+    it("accepts matching positional and explicit roots", () => {
+      fs.writeFileSync(path.join(tempDir, "legacy.sh"), "printf compatible");
+      const result = runCli(["legacy.sh", tempDir, "--root", tempDir]);
+
+      expect(result.stdout).toBe("compatible");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("rejects conflicting positional and explicit roots", () => {
+      const otherRoot = fs.mkdtempSync(
+        path.join(os.tmpdir(), "just-bash-root-"),
+      );
+      fs.writeFileSync(path.join(tempDir, "legacy.sh"), "printf compatible");
+      const result = runCli(["legacy.sh", tempDir, "--root", otherRoot]);
+      fs.rmSync(otherRoot, { recursive: true, force: true });
 
       expect(result.stdout).toBe("");
       expect(result.stderr).toBe(
-        "Error: script file cannot be combined with -c\n",
+        "Error: conflicting positional root and --root\n",
       );
       expect(result.exitCode).toBe(1);
     });

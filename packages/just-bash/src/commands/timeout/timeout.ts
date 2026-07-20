@@ -2,7 +2,11 @@ import { combineAbortSignals } from "../../abort-signals.js";
 import { latin1FromBytes } from "../../encoding.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { _clearTimeout, _setTimeout } from "../../timers.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseDuration } from "../duration.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -26,10 +30,13 @@ DURATION is a number with optional suffix:
   ],
 };
 
-export const timeoutCommand: Command = {
+export const timeoutCommand: RuntimeCommand = {
   name: "timeout",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(timeoutHelp);
     }

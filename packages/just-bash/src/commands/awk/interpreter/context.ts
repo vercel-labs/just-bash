@@ -98,7 +98,7 @@ export interface AwkRuntimeContext {
   // Feature coverage writer for fuzzing instrumentation
   coverage?: FeatureCoverageWriter;
 
-  // Defense context invariant flag propagated from CommandContext
+  // Defense context invariant flag propagated from RuntimeCommandContext
   requireDefenseContext?: boolean;
 }
 

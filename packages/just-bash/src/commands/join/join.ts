@@ -13,7 +13,11 @@ import {
   latin1FromBytes,
 } from "../../encoding.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { utf8ByteLength } from "../printf/escapes.js";
 
@@ -167,9 +171,12 @@ function parseOutputFormat(
   return result;
 }
 
-export const join: Command = {
+export const join: RuntimeCommand = {
   name: "join",
-  execute: async (args: string[], ctx: CommandContext): Promise<ExecResult> => {
+  execute: async (
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> => {
     if (hasHelpFlag(args)) {
       return showHelp(joinHelp);
     }

@@ -26,7 +26,11 @@ import { resolveFileIdentity } from "../../fs/traversal.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { bindDefenseContextCallback } from "../../security/defense-context.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import { WorkerRequestController } from "../worker-request-controller.js";
 
@@ -721,10 +725,13 @@ async function executeInWorker(
   }
 }
 
-export const sqlite3Command: Command = {
+export const sqlite3Command: RuntimeCommand = {
   name: "sqlite3",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     // Real sqlite3 accepts both -help and --help
     if (hasHelpFlag(args) || args.includes("-help"))
       return showHelp(sqlite3Help);

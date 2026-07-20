@@ -23,7 +23,11 @@ import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 
 import { bindDefenseContextCallback } from "../../security/defense-context.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import { BridgeHandler } from "../worker-bridge/bridge-handler.js";
 import { createSharedBuffer } from "../worker-bridge/protocol.js";
@@ -469,7 +473,7 @@ function processNextExecution(queueState: QueueState): void {
  */
 async function executePython(
   pythonCode: string,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   scriptPath?: string,
   scriptArgs: string[] = [],
 ): Promise<ExecResult> {
@@ -623,10 +627,13 @@ async function executePython(
   };
 }
 
-export const python3Command: Command = {
+export const python3Command: RuntimeCommand = {
   name: "python3",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(python3Help);
     }
@@ -705,10 +712,13 @@ export const python3Command: Command = {
   },
 };
 
-export const pythonCommand: Command = {
+export const pythonCommand: RuntimeCommand = {
   name: "python",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     return python3Command.execute(args, ctx);
   },
 };

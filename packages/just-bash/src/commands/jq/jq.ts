@@ -1,5 +1,5 @@
 /**
- * jq - Command-line JSON processor
+ * jq - RuntimeCommand-line JSON processor
  *
  * Full jq implementation with proper parser and evaluator.
  */
@@ -12,7 +12,11 @@ import {
   awaitWithDefenseContext,
 } from "../../security/defense-context.js";
 import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { readFiles } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { utf8ByteLength } from "../printf/escapes.js";
@@ -229,10 +233,13 @@ const jqHelp = {
   ],
 };
 
-export const jqCommand: Command = {
+export const jqCommand: RuntimeCommand = {
   name: "jq",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     assertDefenseContext(ctx.requireDefenseContext, "jq", "execution entry");
     const withDefenseContext = <T>(
       phase: string,

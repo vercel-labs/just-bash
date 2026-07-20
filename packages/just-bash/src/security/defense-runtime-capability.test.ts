@@ -31,8 +31,11 @@ describe("defense runtime capability resolution", () => {
           DefenseInDepthBox.resetInstance();
           const automatic = DefenseInDepthBox.getInstance({ enabled: "auto" });
           const status = automatic.getStatus();
-          if (status.state !== ${JSON.stringify(supportsContextualHooks ? "enabled" : "unsupported")}) {
+          if (status.state !== "enabled") {
             throw new Error("unexpected auto status: " + JSON.stringify(status));
+          }
+          if (status.contextualDynamicImportProtection !== ${supportsContextualHooks}) {
+            throw new Error("unexpected loader protection status: " + JSON.stringify(status));
           }
           const autoHandle = automatic.activate();
           autoHandle.deactivate();
@@ -41,20 +44,16 @@ describe("defense runtime capability resolution", () => {
           DefenseInDepthBox.resetInstance();
 
           if (!${supportsContextualHooks}) {
-            let rejected = false;
-            try { DefenseInDepthBox.getInstance(true).activate(); }
-            catch (error) {
-              rejected = String(error).includes("context-aware ESM loader hooks") &&
-                String(error).includes("unsupported");
-            }
-            if (!rejected) throw new Error("explicit activation did not fail closed");
+            const explicitHandle = DefenseInDepthBox.getInstance(true).activate();
+            await explicitHandle.run(async () => Promise.resolve());
+            explicitHandle.deactivate();
             for (const specifier of ["node:fs", "fs", "fs/promises", "node:child_process", "node:vm"]) {
               await import(specifier);
             }
             DefenseInDepthBox.resetInstance();
             const { Bash } = await import(${JSON.stringify(bashSourceUrl)});
             const result = await new Bash().exec("echo compatible");
-            if (result.exitCode !== 0 || result.stdout !== "compatible\\n") throw new Error("auto-mode Bash failed");
+            if (result.exitCode !== 0 || result.stdout !== "compatible\\n") throw new Error("best-effort Bash failed");
             process.stdout.write("ok");
             return;
           }

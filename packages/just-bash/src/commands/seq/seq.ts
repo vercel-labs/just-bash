@@ -5,7 +5,11 @@ import {
 } from "../../bounded-builder.js";
 import { utf8ByteLength } from "../../encoding.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 
 /**
  * seq - print a sequence of numbers
@@ -19,10 +23,13 @@ import type { Command, CommandContext, ExecResult } from "../../types.js";
  *   -s STRING  use STRING to separate numbers (default: newline)
  *   -w         equalize width by padding with leading zeros
  */
-export const seqCommand: Command = {
+export const seqCommand: RuntimeCommand = {
   name: "seq",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     let separator = "\n";
     let equalizeWidth = false;
     const nums: string[] = [];

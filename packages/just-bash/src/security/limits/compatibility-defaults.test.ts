@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
+import { defineCommand } from "../../custom-commands.js";
 import { resolveLimits } from "../../limits.js";
 
 describe("compatibility-safe execution limit configuration", () => {
@@ -59,10 +60,41 @@ describe("compatibility-safe execution limit configuration", () => {
     expect(limits.maxOutputSize).toBe(configured);
   });
 
-  it("still rejects byte budgets beyond the documented runtime ceiling", () => {
-    expect(() =>
-      resolveLimits({ maxStringLength: 4 * 1024 * 1024 * 1024 + 1 }),
-    ).toThrow(RangeError);
+  it("preserves large and infinite legacy overrides without unsafe arithmetic", () => {
+    const configured = 5 * 1024 * 1024 * 1024;
+    expect(resolveLimits({ maxStringLength: configured }).maxStringLength).toBe(
+      configured,
+    );
+    expect(
+      resolveLimits({ maxStringLength: Number.POSITIVE_INFINITY })
+        .maxStringLength,
+    ).toBe(Number.POSITIVE_INFINITY);
+    for (const invalid of [Number.NaN, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => resolveLimits({ maxStringLength: invalid })).toThrow(
+        RangeError,
+      );
+    }
+  });
+
+  it("does not arm overflowing timers for infinite execution deadlines", async () => {
+    const bash = new Bash({
+      executionLimits: {
+        maxExecutionTimeMs: Number.POSITIVE_INFINITY,
+        maxExtensionCleanupTimeMs: Number.POSITIVE_INFINITY,
+      },
+      customCommands: [
+        defineCommand("infinite-wait", async () => {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return { stdout: "completed\n", stderr: "", exitCode: 0 };
+        }),
+      ],
+    });
+
+    expect(await bash.exec("infinite-wait")).toMatchObject({
+      stdout: "completed\n",
+      stderr: "",
+      exitCode: 0,
+    });
   });
 
   it("runs a bounded 10k+ operation workload under the normal profile", async () => {

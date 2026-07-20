@@ -98,22 +98,24 @@ cat /tmp/bz2out/file.txt
     expect(result.exitCode).toBe(0);
   });
 
-  it("should reject xz native codec by default", async () => {
+  it("should preserve xz codec behavior by default", async () => {
     const result = await runBin([
       "-c",
-      `tar -cJf /tmp/test.tar.xz -C /tmp file.txt 2>&1 || echo "XZ_REJECTED"`,
+      `echo xz > /tmp/file.txt; tar -cJf /tmp/test.tar.xz -C /tmp file.txt; tar -tJf /tmp/test.tar.xz`,
       "--allow-write",
     ]);
-    expect(result.stdout).toContain("XZ_REJECTED");
+    expect(result.stdout).toContain("file.txt");
+    expect(result.exitCode).toBe(0);
   });
 
-  it("should reject zstd native codec by default", async () => {
+  it("should preserve zstd codec behavior by default", async () => {
     const result = await runBin([
       "-c",
-      `tar --zstd -cf /tmp/test.tar.zst -C /tmp file.txt 2>&1 || echo "ZSTD_REJECTED"`,
+      `echo zstd > /tmp/file.txt; tar --zstd -cf /tmp/test.tar.zst -C /tmp file.txt; tar --zstd -tf /tmp/test.tar.zst`,
       "--allow-write",
     ]);
-    expect(result.stdout).toContain("ZSTD_REJECTED");
+    expect(result.stdout).toContain("file.txt");
+    expect(result.exitCode).toBe(0);
   });
 
   it("should auto-detect compression from filename (-a)", async () => {

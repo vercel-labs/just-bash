@@ -1,7 +1,11 @@
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 
-// Command categories for organized display
+// RuntimeCommand categories for organized display
 const CATEGORIES = new Map<string, string[]>([
   [
     "File operations",
@@ -84,9 +88,12 @@ function formatHelp(commands: string[]): string {
   return `${lines.join("\n")}\n`;
 }
 
-export const helpCommand: Command = {
+export const helpCommand: RuntimeCommand = {
   name: "help",
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     // Handle --help
     if (args.includes("--help") || args.includes("-h")) {
       return {

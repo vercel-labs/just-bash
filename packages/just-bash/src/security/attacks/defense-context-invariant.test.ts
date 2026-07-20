@@ -8,7 +8,7 @@ import { EMPTY_BYTES, unsafeBytesFromLatin1 } from "../../encoding.js";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
 import { createDefenseAwareCommandContext } from "../../interpreter/defense-aware-command-context.js";
 import { resolveLimits } from "../../limits.js";
-import type { CommandContext } from "../../types.js";
+import type { RuntimeCommandContext } from "../../types.js";
 import { awaitWithDefenseContext } from "../defense-context.js";
 import {
   DefenseInDepthBox,
@@ -16,8 +16,8 @@ import {
 } from "../defense-in-depth-box.js";
 
 function createCommandContext(
-  overrides: Partial<CommandContext> = {},
-): CommandContext {
+  overrides: Partial<RuntimeCommandContext> = {},
+): RuntimeCommandContext {
   return {
     fs: new InMemoryFs(),
     cwd: "/",

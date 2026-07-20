@@ -8,10 +8,10 @@ import {
 } from "../../security/defense-context.js";
 import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
 import type {
-  Command,
-  CommandContext,
   ExecResult,
   FeatureCoverageWriter,
+  RuntimeCommand,
+  RuntimeCommandContext,
 } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import {
@@ -74,7 +74,7 @@ Addresses:
 interface ProcessContentOptions {
   limits?: Required<ExecutionLimits>;
   filename?: string;
-  fs?: CommandContext["fs"];
+  fs?: RuntimeCommandContext["fs"];
   cwd?: string;
   coverage?: FeatureCoverageWriter;
   requireDefenseContext?: boolean;
@@ -340,9 +340,12 @@ async function processContent(
   return { output, exitCode };
 }
 
-export const sedCommand: Command = {
+export const sedCommand: RuntimeCommand = {
   name: "sed",
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     assertDefenseContext(ctx.requireDefenseContext, "sed", "execution entry");
     const withDefenseContext = <T>(
       phase: string,

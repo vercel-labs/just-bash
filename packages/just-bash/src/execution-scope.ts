@@ -4,7 +4,7 @@ import {
   ExecutionLimitError,
 } from "./interpreter/errors.js";
 import type { ExecutionLimits } from "./limits.js";
-import { _clearTimeout, _setTimeout } from "./timers.js";
+import { _clearFiniteTimeout, _setTimeoutIfFinite } from "./timers.js";
 import type { ExecResult } from "./types.js";
 
 export interface ResourceLease {
@@ -406,7 +406,7 @@ export class ExecutionScope {
           errors.push(new Error("execution cleanup grace period exceeded"));
           break;
         }
-        let timer: ReturnType<typeof _setTimeout> | undefined;
+        let timer: ReturnType<typeof _setTimeoutIfFinite>;
         const outcome = await Promise.race([
           Promise.resolve()
             .then(this.cleanupCallbacks[index])
@@ -415,7 +415,7 @@ export class ExecutionScope {
               (error: unknown) => ({ ok: false as const, error }),
             ),
           new Promise<{ ok: false; error: Error }>((resolve) => {
-            timer = _setTimeout(
+            timer = _setTimeoutIfFinite(
               () =>
                 resolve({
                   ok: false,
@@ -425,7 +425,7 @@ export class ExecutionScope {
             );
           }),
         ]);
-        if (timer !== undefined) _clearTimeout(timer);
+        _clearFiniteTimeout(timer);
         if (!outcome.ok) {
           errors.push(outcome.error);
           if (Date.now() >= cleanupDeadline) break;

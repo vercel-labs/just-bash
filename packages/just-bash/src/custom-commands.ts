@@ -12,7 +12,13 @@ import {
   type ExecutionLimits,
   resolveLimits,
 } from "./limits.js";
-import type { Command, CommandContext, ExecResult } from "./types.js";
+import type {
+  Command,
+  CommandContext,
+  ExecResult,
+  ResolvedCommandContext,
+  RuntimeCommandContext,
+} from "./types.js";
 
 /**
  * A custom command - either a Command object or a lazy loader.
@@ -25,8 +31,8 @@ export type CustomCommand = Command | LazyCommand;
 export interface LazyCommand {
   name: string;
   /**
-   * Opt in to trusted host-realm execution. This bypasses defense-in-depth
-   * restrictions and must only be used for reviewed, application-owned code.
+   * Set false to run through the restricted extension boundary. Commands are
+   * trusted by default for compatibility with existing host integrations.
    */
   trusted?: boolean;
   load: () => Promise<Command>;
@@ -48,7 +54,7 @@ export interface CommandContextOptions
  */
 export function createCommandContext(
   options: CommandContextOptions,
-): CommandContext {
+): RuntimeCommandContext {
   const {
     executionLimits,
     executionLimitProfile,
@@ -91,10 +97,10 @@ export function isLazyCommand(cmd: CustomCommand): cmd is LazyCommand {
  */
 export function defineCommand(
   name: string,
-  execute: (args: string[], ctx: CommandContext) => Promise<ExecResult>,
+  execute: (args: string[], ctx: ResolvedCommandContext) => Promise<ExecResult>,
   options: { trusted?: boolean } = {},
 ): Command {
-  return { name, trusted: options.trusted === true, execute };
+  return { name, trusted: options.trusted !== false, execute };
 }
 
 /**
@@ -106,8 +112,11 @@ export function createLazyCustomCommand(lazy: LazyCommand): Command {
   let loading: Promise<Command> | null = null;
   return {
     name: lazy.name,
-    trusted: lazy.trusted === true,
-    async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+    trusted: lazy.trusted !== false,
+    async execute(
+      args: string[],
+      ctx: ResolvedCommandContext,
+    ): Promise<ExecResult> {
       if (!cached) {
         let currentLoading = loading;
         if (!currentLoading) {

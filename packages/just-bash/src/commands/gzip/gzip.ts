@@ -11,7 +11,11 @@ import type { ResourceLease } from "../../execution-scope.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { traverseFileTree } from "../../fs/traversal.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { CodecBudget } from "../compression/codec-budget.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -267,7 +271,7 @@ function toBinaryString(data: Uint8Array): string {
   return Buffer.from(data).toString("latin1");
 }
 
-function getMaxDecompressedSize(ctx: CommandContext): number {
+function getMaxDecompressedSize(ctx: RuntimeCommandContext): number {
   return ctx.limits.maxOutputSize;
 }
 
@@ -276,7 +280,7 @@ function gunzipWithLimit(
   maxDecompressedSize: number,
   maxCompressedSize: number,
   signal?: AbortSignal,
-  ctx?: CommandContext,
+  ctx?: RuntimeCommandContext,
 ): { data: Uint8Array; lease?: ResourceLease } {
   if (maxDecompressedSize <= 0) {
     throw new Error("decompressed data exceeds limit (0 bytes)");
@@ -331,7 +335,7 @@ function gunzipWithLimit(
 function gzipWithLimit(
   inputData: Uint8Array,
   level: number,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): { data: Uint8Array; lease?: ResourceLease } {
   const budget = new CodecBudget({
     maxInputBytes: ctx.limits.maxInputBytes,
@@ -370,7 +374,7 @@ function gzipWithLimit(
 }
 
 async function readReservedFile(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   path: string,
   site: string,
 ): Promise<{ data: Uint8Array; lease?: ResourceLease }> {
@@ -399,7 +403,7 @@ async function readReservedFile(
 }
 
 async function readReservedOperand(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   file: string,
   site: string,
 ): Promise<{ data: Uint8Array; lease?: ResourceLease }> {
@@ -430,7 +434,7 @@ interface GzipResult {
 }
 
 async function processFile(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   file: string,
   flags: GzipFlags,
   cmdName: string,
@@ -754,7 +758,7 @@ async function processFile(
 }
 
 async function processDirectory(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   dirPath: string,
   flags: GzipFlags,
   cmdName: string,
@@ -810,7 +814,7 @@ async function processDirectory(
 }
 
 async function listFile(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   file: string,
   flags: GzipFlags,
   cmdName: string,
@@ -864,7 +868,7 @@ async function listFile(
 }
 
 async function testFile(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   file: string,
   flags: GzipFlags,
   cmdName: string,
@@ -926,7 +930,7 @@ async function testFile(
 
 async function executeGzip(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   cmdName: "gzip" | "gunzip" | "zcat",
 ): Promise<ExecResult> {
   // Determine help based on command name
@@ -1023,25 +1027,34 @@ async function executeGzip(
   return { stdout, stderr, exitCode };
 }
 
-export const gzipCommand: Command = {
+export const gzipCommand: RuntimeCommand = {
   name: "gzip",
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     const result = await executeGzip(args, ctx, "gzip");
     return { ...result, stdoutEncoding: "binary" };
   },
 };
 
-export const gunzipCommand: Command = {
+export const gunzipCommand: RuntimeCommand = {
   name: "gunzip",
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     const result = await executeGzip(args, ctx, "gunzip");
     return { ...result, stdoutEncoding: "binary" };
   },
 };
 
-export const zcatCommand: Command = {
+export const zcatCommand: RuntimeCommand = {
   name: "zcat",
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     const result = await executeGzip(args, ctx, "zcat");
     return { ...result, stdoutEncoding: "binary" };
   },

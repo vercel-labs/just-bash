@@ -10,7 +10,11 @@ import {
   ExecutionLimitError,
 } from "../../interpreter/errors.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
@@ -32,10 +36,13 @@ const argDefs = {
   verbose: { short: "v", long: "verbose", type: "boolean" as const },
 };
 
-export const mvCommand: Command = {
+export const mvCommand: RuntimeCommand = {
   name: "mv",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(mvHelp);
     }

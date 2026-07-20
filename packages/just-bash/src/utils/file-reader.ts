@@ -6,7 +6,7 @@
  */
 
 import { type ByteString, EMPTY_BYTES, readBytesFrom } from "../encoding.js";
-import type { CommandContext, ExecResult } from "../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../types.js";
 import { DEFAULT_BATCH_SIZE } from "./constants.js";
 
 export interface ReadFilesOptions {
@@ -56,7 +56,7 @@ export interface ReadFilesResult {
  * }
  */
 export async function readFiles(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   files: string[],
   options: ReadFilesOptions,
 ): Promise<ReadFilesResult> {
@@ -140,7 +140,7 @@ export async function readFiles(
  * const lines = decodeBytesToUtf8(result.content).split("\n");
  */
 export async function readAndConcat(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   files: string[],
   options: { cmdName: string; allowStdinMarker?: boolean },
 ): Promise<

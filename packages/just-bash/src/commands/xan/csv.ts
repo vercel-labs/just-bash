@@ -11,7 +11,7 @@ import {
 import { decodeBytesToUtf8, utf8ByteLength } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { CommandContext, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 
 export interface CsvRow {
   [key: string]: string | number | boolean | null;
@@ -27,13 +27,13 @@ export interface CsvParseLimits {
   maxCells?: number;
 }
 
-/** Command-wide prospective accounting for attacker-amplified CSV results. */
+/** RuntimeCommand-wide prospective accounting for attacker-amplified CSV results. */
 export class DerivedCsvBudget {
   private rows = 0;
   private cells = 0;
 
   constructor(
-    private readonly ctx: CommandContext,
+    private readonly ctx: RuntimeCommandContext,
     private readonly site: string,
   ) {}
 
@@ -232,7 +232,7 @@ export function parseCsvRows(
 export function formatCsv(
   headers: string[],
   data: CsvData,
-  ctx?: CommandContext,
+  ctx?: RuntimeCommandContext,
 ): string {
   return formatCsvValues(
     data.length,
@@ -247,7 +247,7 @@ export function formatCsv(
 export function formatCsvWithoutHeaders(
   headers: string[],
   data: CsvData,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): string {
   return formatCsvValues(
     data.length,
@@ -260,7 +260,7 @@ export function formatCsvWithoutHeaders(
 /** Format already-materialized cells without Papa.unparse's unbounded copy. */
 export function formatCsvRows(
   data: readonly (readonly unknown[])[],
-  ctx?: CommandContext,
+  ctx?: RuntimeCommandContext,
   headers?: readonly unknown[],
 ): string {
   return formatCsvValues(
@@ -277,7 +277,7 @@ function formatCsvValues(
   rowCount: number,
   columnCount: number | undefined,
   valueAt: (row: number, column: number) => unknown,
-  ctx?: CommandContext,
+  ctx?: RuntimeCommandContext,
   headers?: readonly unknown[],
   columnsAt: (row: number) => number = () => columnCount ?? 0,
 ): string {
@@ -344,7 +344,7 @@ function formatCsvValues(
 /** Read CSV input from file or stdin */
 export async function readCsvInput(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<{ headers: string[]; data: CsvData; error?: ExecResult }> {
   const file = args.find((a) => !a.startsWith("-"));
   let input: string;

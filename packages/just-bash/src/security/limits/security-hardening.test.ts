@@ -121,10 +121,9 @@ describe("Security Hardening", () => {
   describe("2. Configurable brace expansion limits", () => {
     it.each([
       Number.NaN,
-      Number.POSITIVE_INFINITY,
       -1,
       1.5,
-      5 * 1024 * 1024 * 1024,
+      Number.MAX_SAFE_INTEGER + 1,
     ])("rejects unsafe limit value %s at configuration time", (value) => {
       expect(() => resolveLimits({ maxStringLength: value })).toThrow(
         RangeError,

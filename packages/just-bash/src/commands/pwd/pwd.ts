@@ -1,9 +1,16 @@
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 
-export const pwdCommand: Command = {
+export const pwdCommand: RuntimeCommand = {
   name: "pwd",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     // Parse options
     let usePhysical = false;
 

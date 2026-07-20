@@ -51,13 +51,17 @@ await bash.exec("hello Alice"); // "Hello, Alice!\n"
 await bash.exec("echo 'test' | upper"); // "TEST\n"
 ```
 
-Custom commands receive a `CommandContext` with `fs`, `cwd`, `env`, `stdin`, and `exec` (for subcommands), and work with pipes, redirections, and all shell features.
+Custom command callbacks receive a `ResolvedCommandContext` with `fs`, `cwd`,
+`env`, `stdin`, resolved `limits`, and `exec` (for subcommands), and work with
+pipes, redirections, and all shell features. The legacy `CommandContext` remains
+available for standalone context inputs; use `createCommandContext({ fs })` when
+calling a command directly with a fully resolved context.
 
-Custom commands are untrusted by default, whether registered directly, through
-`defineCommand`, or through a lazy loader. A reviewed host extension that needs
-unrestricted Node.js globals must opt in explicitly with `trusted: true` (or
-`defineCommand(name, execute, { trusted: true })`). Trusted commands run in the
-embedding process and should never execute guest-provided JavaScript.
+Custom commands preserve the legacy trusted default whether registered
+directly, through `defineCommand`, or through a lazy loader. Set
+`trusted: false` (or use `defineCommand(name, execute, { trusted: false })`) to
+select the restricted extension boundary. Trusted commands run in the embedding
+process and should never execute guest-provided JavaScript.
 
 Every invocation is bound by `maxExecutionTimeMs`. On cancellation, just-bash
 allows at most `maxExtensionCleanupTimeMs` for cooperative cleanup and then
@@ -611,9 +615,11 @@ const env = new Bash({
 });
 ```
 
-All resources remain bounded in both profiles. Explicit values override the
-selected profile, and invalid or policy-ceiling-exceeding values are rejected
-when `Bash` is constructed. Error messages identify the resource that was hit.
+All resources remain bounded by default in both profiles. Explicit values
+override the selected profile; non-negative safe integers and the legacy
+`Infinity` spelling are accepted. Infinite deadlines omit the corresponding
+platform timer rather than overflowing it. Invalid values are rejected when
+`Bash` is constructed. Error messages identify the resource that was hit.
 
 ## Security Model
 
@@ -622,13 +628,12 @@ when `Bash` is constructed. Error messages identify the resource that was hit.
 - There is no network access by default. When enabled, requests are checked against URL prefix allow-lists and HTTP-method allow-lists.
 - Python and JavaScript execution are off by default as they represent additional security surface.
 - Execution is protected against infinite loops and deep recursion with configurable limits.
-- Host-realm defense-in-depth uses `node:module.registerHooks()` so builtin ESM
-  imports can be denied only for the untrusted async context. Its default
-  `enabled: "auto"` mode is active on runtimes that expose that API (including
-  Node 22.18 and Node 24.12) and reports `unsupported` without changing host
-  behavior on Node 20. Explicit `enabled: true` fails closed when the API is
-  unavailable; it never installs a process-global deny-all loader. Query the
-  resolved result with `DefenseInDepthBox.getInstance({ enabled: "auto" }).getStatus()`.
+- Host-realm defense-in-depth uses the strongest scoped controls available on
+  each supported Node runtime. Where `node:module.registerHooks()` is present,
+  builtin ESM imports can also be denied only for the untrusted async context;
+  older runtimes retain best-effort scoped protection without failing existing
+  applications. It never installs a process-global deny-all loader. Query the
+  resolved capabilities with `DefenseInDepthBox.getInstance().getStatus()`.
 - Scoped defense uses reversible proxies for `Reflect`, `JSON`, and `Math` and
   restores their host descriptors on deactivation. This is reported as
   `intrinsicProtection: "scoped-best-effort"`: same-realm JavaScript that

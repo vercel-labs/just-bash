@@ -11,13 +11,17 @@ import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { latin1FromBytes, readBytesFrom } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 
 type OutputFormat = "octal" | "hex" | "char";
 
 async function odExecute(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   // Parse options
   let addressMode: "octal" | "none" = "octal";
@@ -189,7 +193,7 @@ async function odExecute(
   };
 }
 
-export const od: Command = {
+export const od: RuntimeCommand = {
   name: "od",
   execute: odExecute,
 };

@@ -3,7 +3,7 @@ import { EMPTY_BYTES } from "../../encoding.js";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
 import { resolveLimits } from "../../limits.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
-import type { CommandContext } from "../../types.js";
+import type { RuntimeCommandContext } from "../../types.js";
 import { _internals, sqlite3Command } from "./sqlite3.js";
 
 type WorkerScript = (worker: {
@@ -57,8 +57,8 @@ function createMockWorker(
 }
 
 function createContext(
-  overrides: Partial<CommandContext> = {},
-): CommandContext {
+  overrides: Partial<RuntimeCommandContext> = {},
+): RuntimeCommandContext {
   return {
     fs: new InMemoryFs(),
     cwd: "/",

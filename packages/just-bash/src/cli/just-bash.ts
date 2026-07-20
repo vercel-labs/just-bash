@@ -5,7 +5,7 @@
  * Reads from the real filesystem, but writes stay in memory.
  *
  * Usage:
- *   just-bash [options] [script-file]
+ *   just-bash [options] [script-file] [root]
  *   just-bash -c 'script' [options]
  *   echo 'script' | just-bash [options]
  *
@@ -20,6 +20,7 @@
  *
  * Arguments:
  *   script.sh         Script file to execute (reads from OverlayFS)
+ *   root              Legacy positional root (prefer --root)
  *
  * Examples:
  *   # Execute inline script in current directory
@@ -59,7 +60,7 @@ function printHelp(): void {
   console.log(`just-bash - A secure bash environment for AI agents
 
 Usage:
-  just-bash [options] [script-file]
+  just-bash [options] [script-file] [root]
   just-bash -c 'script' [options]
   echo 'script' | just-bash [options]
 
@@ -74,6 +75,10 @@ Options:
   --json            Output results as JSON (stdout, stderr, exitCode)
   -h, --help        Show this help message
   -v, --version     Show version
+
+Arguments:
+  script-file       Script file to execute from the mounted root
+  root              Legacy positional root (prefer --root)
 
 Security:
   - Reads from the real filesystem (read-only via OverlayFS)
@@ -126,6 +131,7 @@ function parseArgs(args: string[]): CliOptions {
 
   let i = 0;
   const positionals: string[] = [];
+  let rootOverridden = false;
   while (i < args.length) {
     const arg = args[i];
 
@@ -154,6 +160,7 @@ function parseArgs(args: string[]): CliOptions {
         process.exit(1);
       }
       options.root = resolve(args[i + 1]);
+      rootOverridden = true;
       i += 2;
     } else if (arg === "--cwd") {
       if (i + 1 >= args.length) {
@@ -219,11 +226,18 @@ function parseArgs(args: string[]): CliOptions {
   if (options.script && positionals.length > 0) {
     rejectPositionals("script file cannot be combined with -c");
   }
-  if (positionals.length > 1) {
+  if (positionals.length > 2) {
     rejectPositionals("unexpected extra positional argument");
   }
-  if (positionals.length === 1) {
+  if (positionals.length >= 1) {
     options.scriptFile = positionals[0];
+  }
+  if (positionals.length === 2) {
+    const positionalRoot = resolve(positionals[1]);
+    if (rootOverridden && positionalRoot !== options.root) {
+      rejectPositionals("conflicting positional root and --root");
+    }
+    options.root = positionalRoot;
   }
 
   return options;

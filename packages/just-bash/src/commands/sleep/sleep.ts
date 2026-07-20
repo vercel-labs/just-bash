@@ -1,5 +1,9 @@
 import { _clearTimeout, _setTimeout } from "../../timers.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseDuration } from "../duration.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
@@ -20,10 +24,13 @@ NUMBER may be a decimal number.`,
 /** Maximum sleep duration: 1 hour (prevents DoS via indefinite blocking) */
 const MAX_SLEEP_MS = 3_600_000;
 
-export const sleepCommand: Command = {
+export const sleepCommand: RuntimeCommand = {
   name: "sleep",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(sleepHelp);
     }

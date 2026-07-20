@@ -112,7 +112,7 @@ describe("tar with binary data", () => {
       expect(result.stdout).toBe("bzip2 content");
     });
 
-    it("should reject xz compression by default", async () => {
+    it("should preserve xz compression by default", async () => {
       const env = new Bash({
         files: {
           "/src/file.txt": "xz content",
@@ -122,11 +122,14 @@ describe("tar with binary data", () => {
       const result = await env.exec(
         "tar -cJf /archive.tar.xz -C /src file.txt",
       );
-      expect(result.exitCode).toBe(2);
-      expect(result.stderr).toContain("disabled by default");
+      expect(result.exitCode).toBe(0);
+      const extract = await env.exec(
+        "mkdir /xz-out && tar -xJf /archive.tar.xz -C /xz-out && cat /xz-out/file.txt",
+      );
+      expect(extract.stdout).toBe("xz content");
     });
 
-    it("should reject zstd compression by default", async () => {
+    it("should preserve zstd compression by default", async () => {
       const env = new Bash({
         files: {
           "/src/file.txt": "zstd content",
@@ -136,8 +139,11 @@ describe("tar with binary data", () => {
       const result = await env.exec(
         "tar --zstd -cf /archive.tar.zst -C /src file.txt",
       );
-      expect(result.exitCode).toBe(2);
-      expect(result.stderr).toContain("disabled by default");
+      expect(result.exitCode).toBe(0);
+      const extract = await env.exec(
+        "mkdir /zstd-out && tar --zstd -xf /archive.tar.zst -C /zstd-out && cat /zstd-out/file.txt",
+      );
+      expect(extract.stdout).toBe("zstd content");
     });
   });
 

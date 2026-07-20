@@ -9,7 +9,11 @@
  * - Smart case sensitivity (case-insensitive unless pattern has uppercase)
  */
 
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import { formatTypeList } from "./file-types.js";
 import { parseArgs } from "./rg-parser.js";
@@ -83,10 +87,13 @@ EXAMPLES:
   ],
 };
 
-export const rgCommand: Command = {
+export const rgCommand: RuntimeCommand = {
   name: "rg",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(rgHelp);
     }

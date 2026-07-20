@@ -8,7 +8,7 @@
  */
 
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import type { CommandContext } from "../../types.js";
+import type { RuntimeCommandContext } from "../../types.js";
 import {
   type Token,
   Tokenizer,
@@ -23,7 +23,9 @@ export interface MoonbladeLimits {
   maxAstNodes?: number;
 }
 
-export function getMoonbladeLimits(ctx: CommandContext): MoonbladeLimits {
+export function getMoonbladeLimits(
+  ctx: RuntimeCommandContext,
+): MoonbladeLimits {
   return {
     maxSourceLength: ctx.limits.maxStringLength,
     maxTokens: ctx.limits.maxQueryTokens,

@@ -1,5 +1,5 @@
 /**
- * AWK Command - New AST-based Implementation
+ * AWK RuntimeCommand - New AST-based Implementation
  *
  * This is the new implementation using proper lexer/parser/interpreter architecture.
  */
@@ -14,7 +14,11 @@ import {
   awaitWithDefenseContext,
 } from "../../security/defense-context.js";
 import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { utf8ByteLength } from "../printf/escapes.js";
 import type { AwkProgram } from "./ast.js";
@@ -36,10 +40,13 @@ const awkHelp = {
   ],
 };
 
-export const awkCommand2: Command = {
+export const awkCommand2: RuntimeCommand = {
   name: "awk",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     assertDefenseContext(ctx.requireDefenseContext, "awk", "execution entry");
     const withDefenseContext = <T>(
       phase: string,

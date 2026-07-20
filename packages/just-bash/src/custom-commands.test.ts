@@ -10,7 +10,7 @@ import {
 } from "./custom-commands.js";
 import { decodeBytesToUtf8, EMPTY_BYTES } from "./encoding.js";
 import { resolveLimits } from "./limits.js";
-import type { Command } from "./types.js";
+import type { Command, ResolvedCommandContext } from "./types.js";
 
 describe("custom-commands", () => {
   it("creates a fully resolved standalone command context", () => {
@@ -34,13 +34,16 @@ describe("custom-commands", () => {
       }));
 
       expect(cmd.name).toBe("test");
-      expect(cmd.trusted).toBe(false);
+      expect(cmd.trusted).toBe(true);
       expect(typeof cmd.execute).toBe("function");
     });
 
-    it("requires an explicit trusted opt-in", () => {
+    it("preserves trusted defaults and supports explicit untrusted commands", () => {
       const execute = async () => ({ stdout: "", stderr: "", exitCode: 0 });
-      expect(defineCommand("safe", execute).trusted).toBe(false);
+      expect(defineCommand("compatible", execute).trusted).toBe(true);
+      expect(defineCommand("safe", execute, { trusted: false }).trusted).toBe(
+        false,
+      );
       expect(defineCommand("trusted", execute, { trusted: true }).trusted).toBe(
         true,
       );
@@ -200,21 +203,70 @@ describe("custom-commands", () => {
   });
 
   describe("Bash with customCommands", () => {
+    it("preserves prototype methods on class-based commands", async () => {
+      class ClassCommand implements Command {
+        readonly name = "class-command";
+
+        async execute(
+          _args: string[],
+          ctx: ResolvedCommandContext,
+        ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          return { stdout: `${ctx.cwd}\n`, stderr: "", exitCode: 0 };
+        }
+      }
+
+      const command = new ClassCommand();
+      expect(Object.hasOwn(command, "execute")).toBe(false);
+      expect(
+        (await new Bash({ customCommands: [command] }).exec(command.name))
+          .stdout,
+      ).toBe("/home/user\n");
+    });
+
     it.each([
       "direct",
       "helper",
       "lazy",
-    ] as const)("uses the same untrusted default for %s commands", async (kind) => {
+    ] as const)("preserves trusted execution by default for %s commands", async (kind) => {
       const execute = async () => {
-        setTimeout(() => {}, 1);
-        return { stdout: "unexpected\n", stderr: "", exitCode: 0 };
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return { stdout: "ok\n", stderr: "", exitCode: 0 };
       };
       const command: CustomCommand =
         kind === "direct"
           ? { name: kind, execute }
           : kind === "helper"
             ? defineCommand(kind, execute)
-            : { name: kind, load: async () => ({ name: kind, execute }) };
+            : {
+                name: kind,
+                load: async () => ({ name: kind, execute }),
+              };
+
+      expect(
+        (await new Bash({ customCommands: [command] }).exec(kind)).stdout,
+      ).toBe("ok\n");
+    });
+
+    it.each([
+      "direct",
+      "helper",
+      "lazy",
+    ] as const)("supports explicit untrusted execution for %s commands", async (kind) => {
+      const execute = async () => {
+        setTimeout(() => {}, 1);
+        return { stdout: "unexpected\n", stderr: "", exitCode: 0 };
+      };
+      const command: CustomCommand =
+        kind === "direct"
+          ? { name: kind, trusted: false, execute }
+          : kind === "helper"
+            ? defineCommand(kind, execute, { trusted: false })
+            : {
+                name: kind,
+                trusted: false,
+                load: async () => ({ name: kind, execute }),
+              };
       const bash = new Bash({ customCommands: [command] });
 
       const result = await bash.exec(kind);

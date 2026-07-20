@@ -6,7 +6,7 @@ import { checkedAdd } from "../../bounded-builder.js";
 import { decodeBytesToUtf8 } from "../../encoding.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { createUserRegex, type RegexLike } from "../../regex/index.js";
-import type { CommandContext, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { readFiles } from "../../utils/file-reader.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
 import {
@@ -33,7 +33,7 @@ import { moonbladeToJq } from "./moonblade-to-jq.js";
  */
 export async function cmdBehead(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   const fileArgs = args.filter((a) => !a.startsWith("-"));
 
@@ -63,7 +63,7 @@ export async function cmdBehead(
  */
 export async function cmdSample(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let num: number | null = null;
   let seed: number | null = null;
@@ -138,7 +138,7 @@ export async function cmdSample(
  */
 export async function cmdCat(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let pad = false;
   const fileArgs: string[] = [];
@@ -247,7 +247,7 @@ export async function cmdCat(
  */
 export async function cmdSearch(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let pattern = "";
   let selectCols: string[] = [];
@@ -321,7 +321,7 @@ export async function cmdSearch(
  */
 export async function cmdFlatmap(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let expr = "";
   const fileArgs: string[] = [];
@@ -431,7 +431,7 @@ export async function cmdFlatmap(
  */
 export async function cmdFmt(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   // Fmt is essentially an alias for view
   const { cmdView } = await import("./xan-view.js");

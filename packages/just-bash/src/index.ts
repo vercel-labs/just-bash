@@ -139,4 +139,5 @@ export type {
   CommandContext,
   ExecResult,
   IFileSystem,
+  ResolvedCommandContext,
 } from "./types.js";

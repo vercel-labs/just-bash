@@ -19,8 +19,8 @@ import {
   SecurityViolationError,
 } from "../security/defense-in-depth-box.js";
 import { _Proxy } from "../security/trusted-globals.js";
-import { _clearTimeout, _setTimeout } from "../timers.js";
-import type { CommandContext, ExecResult } from "../types.js";
+import { _clearFiniteTimeout, _setTimeoutIfFinite } from "../timers.js";
+import type { ExecResult, RuntimeCommandContext } from "../types.js";
 import {
   handleBreak,
   handleCd,
@@ -90,7 +90,7 @@ export type RunCommandFn = (
 ) => Promise<ExecResult>;
 
 interface RevocableCommandContext {
-  context: CommandContext;
+  context: RuntimeCommandContext;
   revoke(): void;
 }
 
@@ -101,7 +101,7 @@ interface RevocableCommandContext {
  * callback after its result has been abandoned.
  */
 function createRevocableCommandContext(
-  context: CommandContext,
+  context: RuntimeCommandContext,
   commandName: string,
 ): RevocableCommandContext {
   let active = true;
@@ -119,7 +119,7 @@ function createRevocableCommandContext(
   /**
    * Apply one revocation membrane to every capability that crosses from the
    * interpreter into an extension. In particular, wrapping only the methods
-   * on CommandContext is insufficient: methods such as registerCleanup() and
+   * on RuntimeCommandContext is insufficient: methods such as registerCleanup() and
    * enterDepth() return new callable capabilities which would otherwise remain
    * usable after the invocation has been cancelled.
    */
@@ -312,7 +312,7 @@ function createRevocableCommandContext(
 
 async function runWithExecutionDeadline(
   run: () => Promise<ExecResult>,
-  context: CommandContext,
+  context: RuntimeCommandContext,
   revoke: () => void,
   commandName: string,
   rawScope: ExecutionScope,
@@ -321,9 +321,9 @@ async function runWithExecutionDeadline(
   const remainingMs =
     rawScope.remainingTimeMs() ?? context.limits.maxExecutionTimeMs;
   const graceMs = context.limits.maxExtensionCleanupTimeMs;
-  let deadlineTimer: ReturnType<typeof _setTimeout> | undefined;
+  let deadlineTimer: ReturnType<typeof _setTimeoutIfFinite>;
   let abortListener: (() => void) | undefined;
-  let graceTimer: ReturnType<typeof _setTimeout> | undefined;
+  let graceTimer: ReturnType<typeof _setTimeoutIfFinite>;
 
   const commandPromise = Promise.resolve().then(run);
   const settled = commandPromise.then(
@@ -339,7 +339,7 @@ async function runWithExecutionDeadline(
       abortListener = finishAbort;
       rawSignal?.addEventListener("abort", finishAbort, { once: true });
       if (rawSignal?.aborted) finishAbort();
-      deadlineTimer = _setTimeout(() => {
+      deadlineTimer = _setTimeoutIfFinite(() => {
         revoke();
         resolve({ kind: "deadline" });
       }, remainingMs);
@@ -358,7 +358,7 @@ async function runWithExecutionDeadline(
     const acknowledged = await Promise.race([
       settled.then(() => true),
       new Promise<false>((resolve) => {
-        graceTimer = _setTimeout(() => resolve(false), graceMs);
+        graceTimer = _setTimeoutIfFinite(() => resolve(false), graceMs);
       }),
     ]);
     const error =
@@ -372,8 +372,8 @@ async function runWithExecutionDeadline(
     throw error;
   } finally {
     revoke();
-    if (deadlineTimer !== undefined) _clearTimeout(deadlineTimer);
-    if (graceTimer !== undefined) _clearTimeout(graceTimer);
+    _clearFiniteTimeout(deadlineTimer);
+    _clearFiniteTimeout(graceTimer);
     if (abortListener) {
       rawSignal?.removeEventListener("abort", abortListener);
     }
@@ -764,7 +764,7 @@ export async function executeExternalCommand(
   // Give extensions one stable, revocable descriptor capability even when
   // this invocation has not created any extra descriptors yet.
   ctx.state.fileDescriptors ??= new Map();
-  const cmdCtx: CommandContext = {
+  const cmdCtx: RuntimeCommandContext = {
     fs: ctx.fs,
     fsIdentity: getFileSystemIdentity(ctx.fs),
     cwd: ctx.state.cwd,

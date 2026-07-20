@@ -174,7 +174,7 @@ function runInContext(
  * Default configuration for the defense-in-depth box.
  */
 const DEFAULT_CONFIG: DefenseInDepthConfig = {
-  enabled: "auto",
+  enabled: true,
   auditMode: false,
   processLifetimeIntrinsicHardening: false,
 };
@@ -208,9 +208,7 @@ function resolveConfig(
         : "disabled";
   const resolved: ResolvedDefenseConfig = {
     ...merged,
-    enabled:
-      requested === "enabled" ||
-      (requested === "auto" && hasContextualDynamicImportProtection()),
+    enabled: requested !== "disabled",
     requested,
   };
   if (resolved.excludeViolationTypes) {
@@ -456,7 +454,7 @@ export class DefenseInDepthBox {
           : "scoped-best-effort",
       };
     }
-    if (!contextualDynamicImportProtection || !executionContext || IS_BROWSER) {
+    if (!executionContext || IS_BROWSER) {
       return {
         requested: this.config.requested,
         state: "unsupported",
@@ -473,12 +471,15 @@ export class DefenseInDepthBox {
     return {
       requested: this.config.requested,
       state: "enabled",
-      contextualDynamicImportProtection: true,
+      contextualDynamicImportProtection,
       processLifetimeIntrinsicHardening:
         this.config.processLifetimeIntrinsicHardening === true,
       intrinsicProtection: this.config.processLifetimeIntrinsicHardening
         ? "process-lifetime"
         : "scoped-best-effort",
+      reason: contextualDynamicImportProtection
+        ? undefined
+        : "best-effort protection; context-aware ESM loader hooks are unavailable",
     };
   }
 
@@ -512,14 +513,6 @@ export class DefenseInDepthBox {
   activate(): DefenseInDepthHandle {
     // In browser environments, defense-in-depth is disabled (no AsyncLocalStorage)
     // Also disabled when config.enabled is false
-    if (this.config.requested === "enabled") {
-      const status = this.getStatus();
-      if (status.state === "unsupported") {
-        throw new Error(
-          `DefenseInDepthBox: enabled protection is unsupported: ${status.reason}`,
-        );
-      }
-    }
     if (!IS_BROWSER && this.config.enabled && !executionContext) {
       throw new Error(
         "DefenseInDepthBox: enabled protection requires node:async_hooks and node:module",
@@ -1069,10 +1062,14 @@ export class DefenseInDepthBox {
     // callbacks cannot outlive handle deactivation.
     this.protectPromiseThen();
 
-    // Block dynamic import() of data:/blob: URLs via ESM loader hooks.
+    // Block dynamic import() of data:/blob: URLs when contextual ESM loader
+    // hooks are available. Older supported Nodes retain the remaining scoped
+    // protections without installing a process-global loader.
     // Must run BEFORE protectModuleLoad() because it uses require('node:module')
     // which goes through Module._load internally.
-    this.protectDynamicImport();
+    if (hasContextualDynamicImportProtection()) {
+      this.protectDynamicImport();
+    }
 
     // Protect Module._load and Module._resolveFilename BEFORE process.mainModule,
     // since these methods need to read process.mainModule to find the Module class.

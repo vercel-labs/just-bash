@@ -255,53 +255,6 @@ const HARDENED_LIMITS: Required<ExecutionLimits> = {
   maxExecutionTimeMs: 30_000,
 };
 
-const HARD_LIMITS: Required<ExecutionLimits> = {
-  maxSourceBytes: 4 * 1024 * 1024 * 1024,
-  maxExecDepth: 10_000,
-  maxCallDepth: 10_000,
-  maxCommandCount: 10_000_000,
-  maxLoopIterations: 10_000_000,
-  maxAwkIterations: 10_000_000,
-  maxSedIterations: 10_000_000,
-  maxJqIterations: 10_000_000,
-  maxQueryTokens: 100_000_000,
-  maxQueryDepth: 100_000,
-  maxQueryElements: 100_000_000,
-  maxAwkParserTokens: 100_000_000,
-  maxAwkParserDepth: 100_000,
-  maxAwkParserOperations: 100_000_000,
-  maxCsvRows: 100_000_000,
-  maxCsvCells: 1_000_000_000,
-  maxWorkUnits: 1_000_000_000,
-  maxTraversalEntries: 100_000_000,
-  maxTraversalDepth: 100_000,
-  maxTraversalWork: 1_000_000_000,
-  maxLiveBytes: 4 * 1024 * 1024 * 1024,
-  maxInputBytes: 4 * 1024 * 1024 * 1024,
-  maxFileSystemBytes: 4 * 1024 * 1024 * 1024,
-  maxDatabaseBytes: 4 * 1024 * 1024 * 1024,
-  maxDatabaseResultBytes: 4 * 1024 * 1024 * 1024,
-  maxArchiveBytes: 4 * 1024 * 1024 * 1024,
-  maxArchiveCompressedBytes: 4 * 1024 * 1024 * 1024,
-  maxArchiveEntryBytes: 4 * 1024 * 1024 * 1024,
-  maxArchiveEntries: 100_000_000,
-  maxWorkerMessageBytes: 1024 * 1024 * 1024,
-  maxExecutionTimeMs: 24 * 60 * 60 * 1000,
-  maxExtensionCleanupTimeMs: 60_000,
-  maxSqliteTimeoutMs: 3_600_000,
-  maxPythonTimeoutMs: 3_600_000,
-  maxJsTimeoutMs: 3_600_000,
-  maxGlobOperations: 10_000_000,
-  maxStringLength: 4 * 1024 * 1024 * 1024,
-  maxArrayElements: 10_000_000,
-  maxHeredocSize: 4 * 1024 * 1024 * 1024,
-  maxSubstitutionDepth: 10_000,
-  maxBraceExpansionResults: 10_000_000,
-  maxOutputSize: 4 * 1024 * 1024 * 1024,
-  maxFileDescriptors: 65_536,
-  maxSourceDepth: 10_000,
-};
-
 /**
  * Resolve execution limits by merging user-provided limits with defaults.
  */
@@ -395,10 +348,12 @@ export function resolveLimits(
 
   for (const key of Object.keys(resolved) as (keyof ExecutionLimits)[]) {
     const value = resolved[key];
-    const hardLimit = HARD_LIMITS[key];
-    if (!Number.isSafeInteger(value) || value < 0 || value > hardLimit) {
+    if (value === Number.POSITIVE_INFINITY) {
+      continue;
+    }
+    if (!Number.isSafeInteger(value) || value < 0) {
       throw new RangeError(
-        `${key} must be a non-negative safe integer no greater than ${hardLimit}`,
+        `${key} must be a non-negative safe integer or positive Infinity`,
       );
     }
   }

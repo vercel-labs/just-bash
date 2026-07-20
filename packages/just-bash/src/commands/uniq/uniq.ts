@@ -1,5 +1,9 @@
 import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { readAndConcat } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -24,9 +28,12 @@ const argDefs = {
   ignoreCase: { short: "i", long: "ignore-case", type: "boolean" as const },
 };
 
-export const uniqCommand: Command = {
+export const uniqCommand: RuntimeCommand = {
   name: "uniq",
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(uniqHelp);
     }

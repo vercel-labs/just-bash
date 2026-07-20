@@ -1,6 +1,10 @@
 import { FileTraversalBudget } from "../../fs/traversal.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 
 const USAGE = `Usage: rmdir [-pv] DIRECTORY...
@@ -16,10 +20,13 @@ const argDefs = {
   help: { long: "help", type: "boolean" as const },
 };
 
-export const rmdirCommand: Command = {
+export const rmdirCommand: RuntimeCommand = {
   name: "rmdir",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     const parsed = parseArgs("rmdir", args, argDefs);
     if (!parsed.ok) return parsed.error;
 
@@ -64,7 +71,7 @@ export const rmdirCommand: Command = {
 };
 
 async function removeDir(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   dir: string,
   parents: boolean,
   verbose: boolean,
@@ -131,7 +138,7 @@ async function removeDir(
 }
 
 async function removeSingleDir(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   fullPath: string,
   displayPath: string,
   verbose: boolean,

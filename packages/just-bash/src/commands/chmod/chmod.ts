@@ -1,7 +1,11 @@
 import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { FileTraversalBudget, traverseFileTree } from "../../fs/traversal.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const chmodHelp = {
@@ -15,10 +19,13 @@ const chmodHelp = {
   ],
 };
 
-export const chmodCommand: Command = {
+export const chmodCommand: RuntimeCommand = {
   name: "chmod",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(chmodHelp);
     }
@@ -139,7 +146,7 @@ export const chmodCommand: Command = {
 };
 
 async function chmodRecursive(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   dir: string,
   numericMode: number | undefined,
   symbolicMode: string | undefined,

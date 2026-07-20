@@ -222,8 +222,7 @@ export interface BashOptions {
    *
    * @example
    * ```ts
-   * // Capability-detect (also the default). Protection is enabled only when
-   * // the runtime has context-aware ESM loader hooks.
+   * // Capability-detect the strongest available protection.
    * const bash = new Bash({ defenseInDepth: { enabled: "auto" } });
    *
    * // With custom configuration
@@ -235,9 +234,9 @@ export interface BashOptions {
    *   },
    * });
    * ```
-   * Explicit `true` fails closed on Node 20/22. Those runtimes remain usable
-   * in auto mode, which reports defense as unsupported rather than silently
-   * enabling an incomplete loader boundary.
+   * Node versions without context-aware ESM loader hooks retain the scoped
+   * best-effort controls and report the unavailable loader capability in
+   * DefenseInDepthStatus.
    */
   defenseInDepth?: DefenseInDepthConfig | boolean;
   /**
@@ -386,10 +385,9 @@ export class Bash {
     // Store logger if provided
     this.logger = options.logger;
 
-    // Auto mode enables only where the complete contextual module-loader
-    // boundary is enforceable (Node 23.5+). Older supported Nodes continue to
-    // work without silently claiming that defense-in-depth is active.
-    this.defenseInDepthConfig = options.defenseInDepth ?? { enabled: "auto" };
+    // Preserve the historical enabled default. Older supported Nodes use the
+    // strongest scoped controls they expose and report loader-hook capability.
+    this.defenseInDepthConfig = options.defenseInDepth ?? true;
 
     // Store coverage writer if provided (for fuzzing instrumentation)
     this.coverageWriter = options.coverage;
@@ -534,7 +532,7 @@ export class Bash {
   }
 
   registerCommand(command: Command): void {
-    this.registerCommandInternal(command, true);
+    this.registerCommandInternal(command, true, command.trusted !== false);
   }
 
   private registerBundledCommand(command: Command): void {
@@ -544,10 +542,11 @@ export class Bash {
   private registerCommandInternal(
     command: Command,
     isExtension: boolean,
+    trusted = command.trusted,
   ): void {
     this.commands.set(command.name, {
       name: command.name,
-      trusted: command.trusted,
+      trusted,
       internalIsExtension: isExtension,
       execute: (args, context) => command.execute(args, context),
     });

@@ -2,7 +2,11 @@ import { decodeBytesToUtf8 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { UserRegex } from "../../regex/index.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { matchGlob } from "../../utils/glob.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { buildRegex, searchContent } from "../search-engine/index.js";
@@ -20,7 +24,7 @@ interface GrepTraversalBudget {
   maxResults: number;
 }
 
-function getMatcherWorkLimit(ctx: CommandContext): number {
+function getMatcherWorkLimit(ctx: RuntimeCommandContext): number {
   const loopLimit = ctx.limits.maxLoopIterations;
   const arrayLimit = ctx.limits.maxArrayElements;
   return Math.max(loopLimit, Math.min(arrayLimit, loopLimit * 10));
@@ -77,10 +81,13 @@ const grepHelp = {
   ],
 };
 
-export const grepCommand: Command = {
+export const grepCommand: RuntimeCommand = {
   name: "grep",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(grepHelp);
     }
@@ -539,7 +546,7 @@ const MAX_GREP_DEPTH = 256;
 async function expandRecursiveGlob(
   baseDir: string,
   afterGlob: string,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   result: string[],
   budget: GrepTraversalBudget,
   depth = 0,
@@ -604,7 +611,7 @@ async function expandRecursiveGlob(
  */
 async function expandGlobPatternWithTypes(
   pattern: string,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   budget: GrepTraversalBudget,
 ): Promise<FileEntry[]> {
   const result: FileEntry[] = [];
@@ -679,7 +686,7 @@ async function expandGlobPatternWithTypes(
  */
 async function expandRecursiveWithTypes(
   path: string,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   includePatterns: string[] = [],
   excludePatterns: string[] = [],
   excludeDirPatterns: string[] = [],
@@ -807,20 +814,26 @@ async function expandRecursiveWithTypes(
 }
 
 // fgrep is equivalent to grep -F
-export const fgrepCommand: Command = {
+export const fgrepCommand: RuntimeCommand = {
   name: "fgrep",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     // Insert -F at the beginning of args
     return grepCommand.execute(["-F", ...args], ctx);
   },
 };
 
 // egrep is equivalent to grep -E
-export const egrepCommand: Command = {
+export const egrepCommand: RuntimeCommand = {
   name: "egrep",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     // Insert -E at the beginning of args
     return grepCommand.execute(["-E", ...args], ctx);
   },

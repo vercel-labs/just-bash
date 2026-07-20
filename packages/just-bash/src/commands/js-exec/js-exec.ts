@@ -20,10 +20,10 @@ import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import { _clearTimeout, _setTimeout } from "../../timers.js";
 import type {
-  Command,
-  CommandContext,
   CommandExecOptions,
   ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
 } from "../../types.js";
 import { hasHelpFlag } from "../help.js";
 import { BridgeHandler } from "../worker-bridge/bridge-handler.js";
@@ -500,7 +500,7 @@ function scheduleWorkerTermination(): void {
  */
 async function executeJS(
   jsCode: string,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   scriptPath?: string,
   scriptArgs: string[] = [],
   bootstrapCode?: string,
@@ -612,13 +612,13 @@ async function queueAndRun(
 }
 
 /** Resolve the effective timeout for a js-exec execution. */
-function resolveTimeout(ctx: CommandContext): number {
+function resolveTimeout(ctx: RuntimeCommandContext): number {
   return ctx.limits.maxJsTimeoutMs;
 }
 
 async function executeJSInner(
   jsCode: string,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   scriptPath?: string,
   scriptArgs: string[] = [],
   bootstrapCode?: string,
@@ -701,10 +701,13 @@ async function executeJSInner(
   };
 }
 
-export const jsExecCommand: Command = {
+export const jsExecCommand: RuntimeCommand = {
   name: "js-exec",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return { stdout: JS_EXEC_HELP, stderr: "", exitCode: 0 };
     }
@@ -784,7 +787,7 @@ export const jsExecCommand: Command = {
       isModule = true;
     }
 
-    // Get bootstrap code from context (threaded via CommandContext, not env)
+    // Get bootstrap code from context (threaded via RuntimeCommandContext, not env)
     const bootstrapCode = ctx.jsBootstrapCode;
 
     return executeJS(
@@ -799,7 +802,7 @@ export const jsExecCommand: Command = {
   },
 };
 
-export const nodeStubCommand: Command = {
+export const nodeStubCommand: RuntimeCommand = {
   name: "node",
   async execute(): Promise<ExecResult> {
     return {

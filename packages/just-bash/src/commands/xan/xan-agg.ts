@@ -2,7 +2,7 @@
  * Aggregation commands: agg, groupby, frequency, stats
  */
 
-import type { CommandContext, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import type { EvaluateOptions } from "../query-engine/index.js";
 import {
   type AggregationLimits,
@@ -22,7 +22,7 @@ import {
 } from "./csv.js";
 
 function getAggregationLimits(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   budget: DerivedCsvBudget,
 ): AggregationLimits {
   return {
@@ -45,7 +45,7 @@ function frequencyResultCount(
 
 export async function cmdAgg(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let expr = "";
   const fileArgs: string[] = [];
@@ -92,7 +92,7 @@ export async function cmdAgg(
 
 export async function cmdGroupby(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let groupCols = "";
   let aggExpr = "";
@@ -180,7 +180,7 @@ export async function cmdGroupby(
 
 export async function cmdFrequency(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let selectCols: string[] = [];
   let groupCol = "";
@@ -323,7 +323,7 @@ export async function cmdFrequency(
 
 export async function cmdStats(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let columns: string[] = [];
   const fileArgs: string[] = [];
