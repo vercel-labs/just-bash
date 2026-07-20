@@ -29,6 +29,9 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: "pnpm"
 
+      - name: Install XZ build dependency
+        run: sudo apt-get update && sudo apt-get install --yes liblzma-dev
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

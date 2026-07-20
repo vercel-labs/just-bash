@@ -9,10 +9,11 @@ const sourceUrl = pathToFileURL(
 const bashSourceUrl = pathToFileURL(
   new URL("../Bash.ts", import.meta.url).pathname,
 ).href;
+const tsxLoaderUrl = import.meta.resolve("tsx");
 function run(node: string, inputType: "module" | "commonjs", body: string) {
   return execFileSync(
     node,
-    ["--import", "tsx", `--input-type=${inputType}`, "--eval", body],
+    ["--import", tsxLoaderUrl, `--input-type=${inputType}`, "--eval", body],
     { cwd: process.cwd(), encoding: "utf8" },
   ).trim();
 }

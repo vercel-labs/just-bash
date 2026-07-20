@@ -87,8 +87,8 @@
     "test:coverage:unit": "vitest run --config vitest.unit.config.ts --coverage",
     "test:fuzz": "vitest run src/security/fuzzing/",
     "test:fuzz:long": "FUZZ_RUNS=10000 vitest run src/security/fuzzing/",
-    "shell": "npx tsx src/cli/shell.ts",
-    "dev:exec": "npx tsx src/cli/exec.ts"
+    "shell": "tsx src/cli/shell.ts",
+    "dev:exec": "tsx src/cli/exec.ts"
   },
   "keywords": [],
   "author": "Malte and Claude",
@@ -104,6 +104,7 @@
     "esbuild": "^0.27.2",
     "fast-check": "^3.23.2",
     "knip": "^5.41.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16"
   },

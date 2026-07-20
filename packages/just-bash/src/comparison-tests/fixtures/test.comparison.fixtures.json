@@ -1,13 +1,4 @@
 {
-  "7a8e450961caecd3": {
-    "command": "ln -s target.txt symlink.txt; ln target.txt hardlink.txt; test target.txt -ef symlink.txt; echo $?; test target.txt -ef hardlink.txt; echo $?; test target.txt -nt missing.txt; echo $?; test missing.txt -ot target.txt; echo $?",
-    "files": {
-      "target.txt": "content"
-    },
-    "stdout": "0\n0\n0\n0\n",
-    "stderr": "",
-    "exitCode": 0
-  },
   "07ecf5d06aae1d01": {
     "command": "test \"abc\" != \"abc\" && echo notequal || echo equal",
     "files": {},
@@ -151,6 +142,15 @@
     "command": "NUM=10; test $NUM -gt 5 && echo greater || echo notgreater",
     "files": {},
     "stdout": "greater\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7a8e450961caecd3": {
+    "command": "ln -s target.txt symlink.txt; ln target.txt hardlink.txt; test target.txt -ef symlink.txt; echo $?; test target.txt -ef hardlink.txt; echo $?; test target.txt -nt missing.txt; echo $?; test missing.txt -ot target.txt; echo $?",
+    "files": {
+      "target.txt": "content"
+    },
+    "stdout": "0\n0\n0\n0\n",
     "stderr": "",
     "exitCode": 0
   },

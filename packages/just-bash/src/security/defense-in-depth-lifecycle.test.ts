@@ -7,6 +7,8 @@ import {
   SecurityViolationError,
 } from "./defense-in-depth-box.js";
 
+const tsxLoaderUrl = import.meta.resolve("tsx");
+
 const processListenerMethods = [
   "on",
   "once",
@@ -82,7 +84,7 @@ describe.runIf(typeof nodeModule.registerHooks === "function")(
     function runSubprocess(inputType: "module" | "commonjs", body: string) {
       return execFileSync(
         process.execPath,
-        ["--import", "tsx", `--input-type=${inputType}`, "--eval", body],
+        ["--import", tsxLoaderUrl, `--input-type=${inputType}`, "--eval", body],
         { encoding: "utf8" },
       ).trim();
     }

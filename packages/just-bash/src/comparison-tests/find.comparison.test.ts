@@ -249,7 +249,7 @@ describe("find command - Real Bash Comparison", () => {
       await compareOutputs(
         env,
         testDir,
-        "find . -type f \\( -name keep -print -o -name remove -print \\)",
+        "find . -type f \\( -name keep -print -o -name remove -print \\) | sort",
       );
     });
 
