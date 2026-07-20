@@ -1,5 +1,13 @@
 # executor-tools-example
 
+## 1.0.7
+
+### Patch Changes
+
+- Updated dependencies [[`3d39a71`](https://github.com/vercel-labs/just-bash/commit/3d39a714b3751cedc173dffae27933dfe7b8b3b5), [`7c4caed`](https://github.com/vercel-labs/just-bash/commit/7c4caedf02599628f19b243f960d480760f5e476)]:
+  - just-bash@3.2.0
+  - @just-bash/executor@3.0.0
+
 ## 1.0.6
 
 ### Patch Changes
