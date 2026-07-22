@@ -398,6 +398,21 @@ describe("control flow execution", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it("should treat an unmatched outer POSIX class bracket literally", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        for x in B '[a' '[x'; do
+          case "$x" in
+            [[:alpha:]) echo "$x:match" ;;
+            *) echo "$x:no" ;;
+          esac
+        done
+      `);
+      expect(result.stdout).toBe("B:no\n[a:match\n[x:no\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should match with multiple patterns", async () => {
       const env = new Bash();
       const result = await env.exec(`
