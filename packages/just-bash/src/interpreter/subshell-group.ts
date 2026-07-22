@@ -410,9 +410,10 @@ export async function executeUserScript(
   } catch (error) {
     cleanup();
 
-    // ExitError propagates up (but with output from this script)
+    // Executable scripts run in a subshell-like environment, so exit only
+    // ends the script and returns its status to the surrounding command list.
     if (error instanceof ExitError) {
-      throw error;
+      return result(error.stdout, error.stderr, error.exitCode);
     }
 
     // ExecutionLimitError must always propagate
