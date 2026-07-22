@@ -11,3 +11,5 @@ onlyBuiltDependencies:
   - node-liblzma
   - sharp
   - unrs-resolver
+
+minimumReleaseAge: 2880
