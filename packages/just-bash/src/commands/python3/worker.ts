@@ -830,9 +830,18 @@ def _redir_scandir(path='.'):
     return _orig_scandir(path)
 os.scandir = _redir_scandir
 
-# io.open
+# io.open and io.open_code
 import io as _io_module
 _io_module.open = builtins.open
+
+# runpy uses io.open_code rather than builtins.open/io.open. Redirect it
+# separately so code loading keeps the logical path in __file__ and argv.
+_orig_open_code = _io_module.open_code
+def _redir_open_code(path):
+    if _should_redirect(path):
+        path = '/host' + path
+    return _orig_open_code(path)
+_io_module.open_code = _redir_open_code
 
 # shutil
 import shutil as _shutil_module

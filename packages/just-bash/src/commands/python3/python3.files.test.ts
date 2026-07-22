@@ -133,6 +133,31 @@ describe("python3 file I/O", () => {
       expect(result.stdout).toBe("line1\nline2\n");
       expect(result.exitCode).toBe(0);
     });
+
+    it("should execute a file with runpy.run_path", async () => {
+      const env = new Bash({ python: true });
+      await env.exec(`cat > /tmp/runpy_target.py << 'EOF'
+print(f"executed: {__file__}")
+value = 42
+EOF`);
+      const result = await env.exec(
+        `python3 -c "import runpy; result = runpy.run_path('/tmp/runpy_target.py'); print(result['value'])"`,
+      );
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toBe("executed: /tmp/runpy_target.py\n42\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should accept a Path in runpy.run_path", async () => {
+      const env = new Bash({ python: true });
+      await env.exec("echo 'value = 42' > /tmp/runpy_path.py");
+      const result = await env.exec(
+        `python3 -c "import runpy; from pathlib import Path; print(runpy.run_path(Path('/tmp/runpy_path.py'))['value'])"`,
+      );
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toBe("42\n");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("directory operations", () => {
