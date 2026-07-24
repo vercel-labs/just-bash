@@ -216,7 +216,7 @@ export function buildRegex(
     regexPattern = `\\b(?:${regexPattern})\\b`;
   }
   if (options.lineRegexp) {
-    regexPattern = `^${regexPattern}$`;
+    regexPattern = `^(?:${regexPattern})$`;
   }
 
   // Build flags:
