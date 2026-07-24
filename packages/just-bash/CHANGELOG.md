@@ -1,5 +1,24 @@
 # just-bash
 
+## 3.2.0
+
+### Minor Changes
+
+- [#304](https://github.com/vercel-labs/just-bash/pull/304) [`3d39a71`](https://github.com/vercel-labs/just-bash/commit/3d39a714b3751cedc173dffae27933dfe7b8b3b5) Thanks [@subsetpark](https://github.com/subsetpark)! - Add curl `-G`/`--get` query-string data handling and preserve command-line order when repeated `-d`, `--data-raw`, `--data-binary`, and `--data-urlencode` options are mixed, including `@file` forms. Data requests now also set curl's standard `application/x-www-form-urlencoded` content type unless the caller supplies one.
+
+- [#307](https://github.com/vercel-labs/just-bash/pull/307) [`7c4caed`](https://github.com/vercel-labs/just-bash/commit/7c4caedf02599628f19b243f960d480760f5e476) Thanks [@cramforce](https://github.com/cramforce)! - Harden untrusted execution with shared aggregate budgets, liberal normal and
+  opt-in hardened limit profiles, request-bound network validation, bounded
+  archive and worker processing, transactional filesystem and shell state, and
+  expanded adversarial regression checks.
+
+  Established command declarations and host-extension defaults remain source
+  compatible. Dispatched callbacks receive a `ResolvedCommandContext` with
+  required limits; applications can use `createCommandContext({ fs })` for direct
+  invocation, opt into restricted custom-command execution with `trusted: false`,
+  and select tighter resource policy with the `hardened` profile. All
+  host-registration paths keep their established trusted default. The supported
+  Node.js floor is now declared as `>=20.18.1`.
+
 ## 3.1.0
 
 ### Minor Changes
