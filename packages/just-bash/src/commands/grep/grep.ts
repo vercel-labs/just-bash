@@ -8,7 +8,7 @@ import type {
   RuntimeCommandContext,
 } from "../../types.js";
 import { matchGlob } from "../../utils/glob.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { showHelp, unknownOption } from "../help.js";
 import { buildRegex, searchContent } from "../search-engine/index.js";
 
 /** File entry with optional type info from glob expansion */
@@ -88,10 +88,6 @@ export const grepCommand: RuntimeCommand = {
     args: string[],
     ctx: RuntimeCommandContext,
   ): Promise<ExecResult> {
-    if (hasHelpFlag(args)) {
-      return showHelp(grepHelp);
-    }
-
     let ignoreCase = false;
     let showLineNumbers = false;
     let invertMatch = false;
@@ -115,12 +111,22 @@ export const grepCommand: RuntimeCommand = {
     const excludeDirPatterns: string[] = [];
     let pattern: string | null = null;
     const files: string[] = [];
+    let parseOptions = true;
 
     // Parse arguments
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
 
-      if (arg.startsWith("-") && arg !== "-") {
+      if (parseOptions && arg === "--") {
+        parseOptions = false;
+        continue;
+      }
+
+      if (parseOptions && arg === "--help") {
+        return showHelp(grepHelp);
+      }
+
+      if (parseOptions && arg.startsWith("-") && arg !== "-") {
         if (arg === "-e" && i + 1 < args.length) {
           pattern = args[++i];
           continue;
