@@ -124,18 +124,10 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   ["busybox-grep.tests:grep handles NUL in files", "-a option / NUL handling"],
   ["busybox-grep.tests:grep handles NUL on stdin", "-a option / NUL handling"],
 
-  // Multiple -e patterns
+  // -f option (read patterns from file)
   [
-    "busybox-grep.tests:grep handles multiple regexps",
-    "multiple -e patterns not supported",
-  ],
-  [
-    "busybox-grep.tests:grep -F handles multiple expessions",
-    "multiple -e patterns not supported",
-  ],
-  [
-    "busybox-grep.tests:grep -x -v -e EXP1 -e EXP2 finds nothing if either EXP matches",
-    "multiple -e patterns not supported",
+    "busybox-grep.tests:grep can read regexps from stdin",
+    "-f option not supported",
   ],
 
   // -L option (print files without matches)

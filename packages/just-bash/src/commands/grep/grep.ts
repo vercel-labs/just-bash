@@ -14,7 +14,6 @@ import {
   type RegexMode,
   searchContent,
 } from "../search-engine/index.js";
-
 /**
  * The name GNU grep prints for the `-` operand. It appears wherever a real
  * file name would: the multi-file `file:line` prefix, `-l`/`-L` listings and
@@ -197,7 +196,7 @@ export const grepCommand: RuntimeCommand = {
     const includePatterns: string[] = [];
     const excludePatterns: string[] = [];
     const excludeDirPatterns: string[] = [];
-    let pattern: string | null = null;
+    const patterns: string[] = [];
     /** Paths given to -f/--file, in argument order. "-" means stdin. */
     const patternFiles: string[] = [];
     const operands: string[] = [];
@@ -218,7 +217,7 @@ export const grepCommand: RuntimeCommand = {
 
       if (parseOptions && arg.startsWith("-") && arg !== "-") {
         if (arg === "-e" && i + 1 < args.length) {
-          pattern = args[++i];
+          patterns.push(args[++i]);
           continue;
         }
 
@@ -351,17 +350,19 @@ export const grepCommand: RuntimeCommand = {
     }
 
     // The first operand is the pattern only when no -e/-f pattern was given.
-    if (pattern === null && patternFiles.length === 0) {
-      pattern = operands.shift() ?? null;
-      if (pattern === null) {
+    if (patterns.length === 0 && patternFiles.length === 0) {
+      const positionalPattern = operands.shift();
+      if (positionalPattern === undefined) {
         return {
           stdout: "",
           stderr: "grep: missing pattern\n",
           exitCode: 2,
         };
       }
+      patterns.push(...splitPatternOperand(positionalPattern));
+    } else {
+      patterns.splice(0, patterns.length, ...patterns.flatMap(splitPatternOperand));
     }
-    const files = operands;
 
     // Collect patterns: -e/positional first, then each -f file in order.
     // All of them OR-combine, exactly like GNU grep.
@@ -424,6 +425,7 @@ export const grepCommand: RuntimeCommand = {
     if (patterns.length === 0 && !invertMatch && !filesWithoutMatch) {
       return { stdout: "", stderr: "", exitCode: 1 };
     }
+    const files = operands;
 
     // Build regex using shared search-engine
     const regexMode: RegexMode = fixedStrings
