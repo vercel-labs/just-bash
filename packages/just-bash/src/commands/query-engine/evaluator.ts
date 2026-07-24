@@ -122,6 +122,10 @@ export interface EvalContext {
   vars: Map<string, QueryValue>;
   limits: ResolvedQueryExecutionLimits;
   env?: Map<string, string>;
+  /** Named arguments (bare names) exposed via $ARGS.named */
+  namedArgs?: Map<string, QueryValue>;
+  /** Positional arguments (in order) exposed via $ARGS.positional */
+  positionalArgs?: QueryValue[];
   requireDefenseContext?: boolean;
   defenseContextChecked?: boolean;
   /** Original document root for parent/root navigation */
@@ -209,8 +213,15 @@ function boundedFlatMap(
 }
 
 function createContext(options?: EvaluateOptions): EvalContext {
+  const vars = new Map<string, QueryValue>();
+  if (options?.namedArgs) {
+    // Seed $NAME variables; jq stores variable references with the $ prefix.
+    for (const [name, value] of options.namedArgs) {
+      vars.set(`$${name}`, value);
+    }
+  }
   return {
-    vars: new Map(),
+    vars,
     limits: {
       maxIterations:
         options?.limits?.maxIterations ?? DEFAULT_MAX_JQ_ITERATIONS,
@@ -222,6 +233,8 @@ function createContext(options?: EvaluateOptions): EvalContext {
       maxArrayElements: options?.limits?.maxArrayElements ?? 100_000,
     },
     env: options?.env,
+    namedArgs: options?.namedArgs,
+    positionalArgs: options?.positionalArgs,
     coverage: options?.coverage,
     requireDefenseContext: options?.requireDefenseContext,
     defenseContextChecked: false,
@@ -240,6 +253,8 @@ function withVar(
     vars: newVars,
     limits: ctx.limits,
     env: ctx.env,
+    namedArgs: ctx.namedArgs,
+    positionalArgs: ctx.positionalArgs,
     requireDefenseContext: ctx.requireDefenseContext,
     defenseContextChecked: ctx.defenseContextChecked,
     root: ctx.root,
@@ -443,6 +458,10 @@ function applyPathTransform(
 export interface EvaluateOptions {
   limits?: QueryExecutionLimits;
   env?: Map<string, string>;
+  /** Named arguments (bare names) bound to $NAME and exposed via $ARGS.named */
+  namedArgs?: Map<string, QueryValue>;
+  /** Positional arguments (in order) exposed via $ARGS.positional */
+  positionalArgs?: QueryValue[];
   coverage?: FeatureCoverageWriter;
   requireDefenseContext?: boolean;
   /** Reuse across multiple input documents to enforce one command budget. */
@@ -839,6 +858,31 @@ function evaluateNode(
       if (ast.name === "$ENV") {
         // Convert Map to object for jq's internal representation (null-prototype prevents prototype pollution)
         return [ctx.env ? mapToRecord(ctx.env) : Object.create(null)];
+      }
+      // $ARGS exposes named/positional external arguments. jq orders the keys
+      // as { positional, named }.
+      if (ast.name === "$ARGS") {
+        // Faithful to real jq: every named arg is kept as an ordinary data key
+        // in insertion order, including prototype-sensitive names like
+        // "__proto__". The null-prototype object makes this safe (no pollution).
+        const named: Record<string, QueryValue> = Object.create(null);
+        if (ctx.namedArgs) {
+          for (const [name, value] of ctx.namedArgs) {
+            // defineProperty (vs `named[name] = value`) stores a "__proto__" key
+            // as a plain own data property instead of hitting the accessor.
+            // @banned-pattern-ignore: null-prototype target; keys are inert data.
+            Object.defineProperty(named, name, {
+              value,
+              enumerable: true,
+              writable: true,
+              configurable: true,
+            });
+          }
+        }
+        const argsObj: Record<string, QueryValue> = Object.create(null);
+        argsObj.positional = ctx.positionalArgs ? [...ctx.positionalArgs] : [];
+        argsObj.named = named;
+        return [argsObj];
       }
       const v = ctx.vars.get(ast.name);
       return v !== undefined ? [v] : [null];

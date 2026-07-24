@@ -1,0 +1,65 @@
+{
+  "143150510be68407": {
+    "command": "jq -cn '$ARGS.positional' --jsonargs '{\"a\":1}' '[1,2]'",
+    "files": {},
+    "stdout": "[{\"a\":1},[1,2]]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "59124fd44c118019": {
+    "command": "jq -n '$ARGS.positional' --jsonargs 1 notjson",
+    "files": {},
+    "stdout": "",
+    "stderr": "jq: invalid JSON text passed to --jsonargs\nUse jq --help for help with command-line options,\nor see the jq manpage, or online docs  at https://jqlang.github.io/jq\n",
+    "exitCode": 2
+  },
+  "5b80bd165b8916e2": {
+    "command": "jq -cn '$ARGS.positional' --args 1 2 3",
+    "files": {},
+    "stdout": "[\"1\",\"2\",\"3\"]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9f19c4556d509872": {
+    "command": "echo '{\"v\":1}' | jq -c '.v' --args a b",
+    "files": {},
+    "stdout": "1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "aa05fb4471725b42": {
+    "command": "jq -cn '$ARGS.positional' --args a b c",
+    "files": {},
+    "stdout": "[\"a\",\"b\",\"c\"]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b1416dd1cdf19b4e": {
+    "command": "jq -cn '$ARGS.positional' --jsonargs 1 '\"x\"' true",
+    "files": {},
+    "stdout": "[1,\"x\",true]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b93b31cdcff8ce3e": {
+    "command": "jq -cn '$ARGS.positional' --args a --jsonargs 1",
+    "files": {},
+    "stdout": "[\"a\",1]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c8f827cdc2badaa1": {
+    "command": "jq -cn '$ARGS' --arg k v --args a b",
+    "files": {},
+    "stdout": "{\"positional\":[\"a\",\"b\"],\"named\":{\"k\":\"v\"}}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "dfea11a2859fd9e2": {
+    "command": "jq -cn --args '$ARGS.positional' a b c",
+    "files": {},
+    "stdout": "[\"a\",\"b\",\"c\"]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
