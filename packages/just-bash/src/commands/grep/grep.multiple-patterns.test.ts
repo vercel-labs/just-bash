@@ -26,6 +26,18 @@ describe("grep with multiple -e patterns", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it("anchors every pattern with -x", async () => {
+    const env = new Bash({
+      files: { "/test.txt": "foo\nbar\nfoobar\nfoo suffix\nprefix bar\n" },
+    });
+
+    const result = await env.exec("grep -x -e foo -e bar /test.txt");
+
+    expect(result.stdout).toBe("foo\nbar\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
   it("treats non-option operands as files when -e is present", async () => {
     const env = new Bash({
       files: {
