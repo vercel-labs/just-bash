@@ -9,7 +9,11 @@ import type {
 } from "../../types.js";
 import { matchGlob } from "../../utils/glob.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
-import { buildRegex, searchContent } from "../search-engine/index.js";
+import {
+  buildRegex,
+  type RegexMode,
+  searchContent,
+} from "../search-engine/index.js";
 
 /** File entry with optional type info from glob expansion */
 interface FileEntry {
@@ -47,6 +51,29 @@ function addTraversalResult(budget: GrepTraversalBudget): void {
     );
   }
   budget.results++;
+}
+
+function combinePatterns(
+  patterns: string[],
+  mode: RegexMode,
+): { pattern: string; mode: RegexMode } {
+  if (patterns.length === 1) {
+    return { pattern: patterns[0], mode };
+  }
+
+  if (mode === "fixed") {
+    const pattern = patterns
+      .map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .map((value) => `(?:${value})`)
+      .join("|");
+    return { pattern, mode: "extended" };
+  }
+
+  const pattern =
+    mode === "basic"
+      ? patterns.join("\\|")
+      : patterns.map((value) => `(?:${value})`).join("|");
+  return { pattern, mode };
 }
 
 const grepHelp = {
@@ -113,8 +140,8 @@ export const grepCommand: RuntimeCommand = {
     const includePatterns: string[] = [];
     const excludePatterns: string[] = [];
     const excludeDirPatterns: string[] = [];
-    let pattern: string | null = null;
-    const files: string[] = [];
+    const patterns: string[] = [];
+    const operands: string[] = [];
 
     // Parse arguments
     for (let i = 0; i < args.length; i++) {
@@ -122,7 +149,7 @@ export const grepCommand: RuntimeCommand = {
 
       if (arg.startsWith("-") && arg !== "-") {
         if (arg === "-e" && i + 1 < args.length) {
-          pattern = args[++i];
+          patterns.push(args[++i]);
           continue;
         }
 
@@ -222,20 +249,23 @@ export const grepCommand: RuntimeCommand = {
             return unknownOption("grep", `-${flag}`);
           }
         }
-      } else if (pattern === null) {
-        pattern = arg;
       } else {
-        files.push(arg);
+        operands.push(arg);
       }
     }
 
-    if (pattern === null) {
-      return {
-        stdout: "",
-        stderr: "grep: missing pattern\n",
-        exitCode: 2,
-      };
+    if (patterns.length === 0) {
+      const positionalPattern = operands.shift();
+      if (positionalPattern === undefined) {
+        return {
+          stdout: "",
+          stderr: "grep: missing pattern\n",
+          exitCode: 2,
+        };
+      }
+      patterns.push(positionalPattern);
     }
+    const files = operands;
 
     // Build regex using shared search-engine
     const regexMode = fixedStrings
@@ -245,13 +275,14 @@ export const grepCommand: RuntimeCommand = {
         : perlRegex
           ? "perl"
           : "basic";
+    const combined = combinePatterns(patterns, regexMode);
 
     let regex: UserRegex;
     let kResetGroup: number | undefined;
     let preFilter: import("../search-engine/regex.js").PreFilter | undefined;
     try {
-      const regexResult = buildRegex(pattern, {
-        mode: regexMode,
+      const regexResult = buildRegex(combined.pattern, {
+        mode: combined.mode,
         ignoreCase,
         wholeWord,
         lineRegexp,
@@ -262,7 +293,7 @@ export const grepCommand: RuntimeCommand = {
     } catch {
       return {
         stdout: "",
-        stderr: `grep: invalid regular expression: ${pattern}\n`,
+        stderr: `grep: invalid regular expression: ${patterns.join("\\n")}\n`,
         exitCode: 2,
       };
     }
