@@ -1,7 +1,7 @@
 import { utf8ByteLength } from "./encoding.js";
 import type { ExecutionScope } from "./execution-scope.js";
 import { ControlFlowError } from "./interpreter/errors.js";
-import type { ExecResult } from "./types.js";
+import type { ExecResult, OutputChunk } from "./types.js";
 
 /**
  * Chunked interpreter-output sink backed by the one top-level execution
@@ -11,6 +11,9 @@ import type { ExecResult } from "./types.js";
 export class ExecutionOutputAccumulator {
   private readonly stdoutChunks: string[] = [];
   private readonly stderrChunks: string[] = [];
+  // The same pieces in arrival order, which is the order the shell produced
+  // them. Splitting them across the two arrays above is what discards it.
+  private readonly orderedChunks: OutputChunk[] = [];
   private stdoutBytes = 0;
   private stderrBytes = 0;
   private readonly attachedErrors = new WeakSet<ControlFlowError>();
@@ -41,6 +44,7 @@ export class ExecutionOutputAccumulator {
     }
     if (chunk) {
       (stream === "stdout" ? this.stdoutChunks : this.stderrChunks).push(chunk);
+      this.orderedChunks.push({ stream, text: chunk });
     }
     if (stream === "stdout") this.stdoutBytes += bytes;
     else this.stderrBytes += bytes;
@@ -65,6 +69,7 @@ export class ExecutionOutputAccumulator {
         : "text";
     const stdoutBytes =
       stdoutKind === "bytes" ? stdout.length : utf8ByteLength(stdout);
+    const orderMark = this.orderedChunks.length;
     this.append(
       "stdout",
       stdout,
@@ -76,6 +81,21 @@ export class ExecutionOutputAccumulator {
       result.stderr,
       result.internalOutputAccounting?.stderr ?? 0,
     );
+    // A child that recorded its own ordering knows better than the two entries
+    // just appended, which say stdout-then-stderr for the whole child. Swap
+    // them for the finer sequence so nesting does not flatten it a level at a
+    // time. Skipped when the caller overrode stdout, since the child's chunks
+    // then describe content this result no longer carries. Byte accounting is
+    // untouched either way: it was charged by the appends above.
+    const childChunks =
+      stdout === result.stdout ? result.outputChunks : undefined;
+    if (childChunks?.length) {
+      this.orderedChunks.splice(
+        orderMark,
+        this.orderedChunks.length - orderMark,
+        ...childChunks,
+      );
+    }
   }
 
   build(exitCode: number, extra?: Partial<ExecResult>): ExecResult {
@@ -84,6 +104,9 @@ export class ExecutionOutputAccumulator {
       stderr: this.stderrChunks.join(""),
       exitCode,
       ...extra,
+      ...(this.orderedChunks.length > 0 && {
+        outputChunks: this.orderedChunks,
+      }),
       internalOutputAccounting: {
         stdout: this.stdoutBytes,
         stderr: this.stderrBytes,

@@ -12,6 +12,12 @@ export interface FeatureCoverageWriter {
   hit(feature: string): void;
 }
 
+/** One stream's worth of output, tagged with which stream produced it. */
+export interface OutputChunk {
+  stream: "stdout" | "stderr";
+  text: string;
+}
+
 export interface ExecResult {
   stdout: string;
   stderr: string;
@@ -42,6 +48,18 @@ export interface ExecResult {
   stdoutEncoding?: "binary";
   /** @internal PIPESTATUS override used by synthesized transform builtins. */
   internalPipeStatusOverride?: number[];
+  /**
+   * The stdout and stderr pieces of this result in the order they were
+   * produced, when the interpreter observed that order. `stdout` and `stderr`
+   * remain authoritative -- they are these pieces filtered by stream -- so this
+   * only adds back the relative ordering that keeping two strings discards.
+   *
+   * Set for a result the interpreter assembled from more than one statement: a
+   * group, a subshell, a function body. Absent for a single command, whose two
+   * streams arrive already separated, so consumers fall back to
+   * stdout-then-stderr there.
+   */
+  outputChunks?: OutputChunk[];
   /**
    * Bytes in the current result that have already been charged to the shared
    * execution output budget. Interpreter plumbing must preserve this when it
