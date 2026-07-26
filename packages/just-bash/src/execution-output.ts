@@ -90,11 +90,13 @@ export class ExecutionOutputAccumulator {
     const childChunks =
       stdout === result.stdout ? result.outputChunks : undefined;
     if (childChunks?.length) {
-      this.orderedChunks.splice(
-        orderMark,
-        this.orderedChunks.length - orderMark,
-        ...childChunks,
-      );
+      // Truncate and push rather than splicing the child's chunks in: a spread
+      // passes them as arguments, which overflows the stack once the array is
+      // long enough. Nothing bounds its length, so it must not be spread.
+      this.orderedChunks.length = orderMark;
+      for (const chunk of childChunks) {
+        this.orderedChunks.push(chunk);
+      }
     }
   }
 
