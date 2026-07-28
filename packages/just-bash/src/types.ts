@@ -201,6 +201,11 @@ export interface RuntimeCommandContext {
    * @param options - Required options including `cwd` to prevent directory bugs
    */
   exec?: (command: string, options: CommandExecOptions) => Promise<ExecResult>;
+  /**
+   * Invoke the bundled command shadowed by the current custom command.
+   * Available only when a custom command overrides a bundled command.
+   */
+  origCommand?: (args: string[]) => Promise<ExecResult>;
   /** @internal Closed path for forwarding this command's already-accounted stdin. */
   execWithInheritedStdin?: (
     command: string,
@@ -299,6 +304,8 @@ export interface Command {
 }
 
 export interface RuntimeCommand extends Omit<Command, "execute"> {
+  /** @internal Bundled command shadowed by this host extension. */
+  internalOriginalCommand?: RuntimeCommand;
   execute(args: string[], ctx: RuntimeCommandContext): Promise<ExecResult>;
 }
 export type CommandRegistry = Map<string, RuntimeCommand>;
