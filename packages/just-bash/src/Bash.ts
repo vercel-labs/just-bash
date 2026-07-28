@@ -81,6 +81,7 @@ import type {
   Command,
   CommandRegistry,
   FeatureCoverageWriter,
+  RuntimeCommand,
   TraceCallback,
 } from "./types.js";
 
@@ -545,12 +546,21 @@ export class Bash {
     isExtension: boolean,
     trusted = isExtension ? (command.trusted ?? true) : command.trusted,
   ): void {
-    this.commands.set(command.name, {
+    const registeredCommand = this.commands.get(command.name);
+    const originalCommand = isExtension
+      ? (registeredCommand?.internalOriginalCommand ??
+        (registeredCommand && !registeredCommand.internalIsExtension
+          ? registeredCommand
+          : undefined))
+      : undefined;
+    const runtimeCommand: RuntimeCommand = {
       name: command.name,
       trusted,
       internalIsExtension: isExtension,
+      internalOriginalCommand: originalCommand,
       execute: (args, context) => command.execute(args, context),
-    });
+    };
+    this.commands.set(command.name, runtimeCommand);
     // Create command stubs in /bin and /usr/bin for PATH-based resolution
     // Works for both InMemoryFs and OverlayFs (both have writeFileSync)
     // Commands are registered to both locations like real Linux systems
