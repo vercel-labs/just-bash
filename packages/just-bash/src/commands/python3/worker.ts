@@ -28,6 +28,7 @@ export interface WorkerInput {
   protocolToken: string;
   sharedBuffer: SharedArrayBuffer;
   pythonCode: string;
+  stdin: string;
   cwd: string;
   env: Record<string, string>;
   args: string[];
@@ -277,6 +278,7 @@ interface EmscriptenFS {
     dev?: number,
   ) => EmscriptenNode;
   ErrnoError: new (errno: number) => Error;
+  init: (input?: () => number | null) => void;
   mkdir: (path: string) => void;
   unmount: (path: string) => void;
   mount: (
@@ -1303,10 +1305,17 @@ async function runPython(input: WorkerInput): Promise<WorkerOutput> {
 
   let Module: EmscriptenModule;
   try {
+    let stdinOffset = 0;
+    const readStdin = wrapWasmCallback("python3-worker", "stdin", () =>
+      stdinOffset < input.stdin.length
+        ? input.stdin.charCodeAt(stdinOffset++)
+        : null,
+    );
     const onPreRun = wrapWasmCallback(
       "python3-worker",
       "preRun",
       (mod: EmscriptenModule) => {
+        mod.FS.init(readStdin);
         // Write stdlib zip into MEMFS (no real FS access from WASM).
         // Python's zipimport can import directly from zip files.
         mod.FS.mkdirTree("/lib");

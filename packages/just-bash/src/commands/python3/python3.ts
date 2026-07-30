@@ -12,7 +12,7 @@
 
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
-import { decodeBytesToUtf8 } from "../../encoding.js";
+import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
 import type { IFileSystem } from "../../fs/interface.js";
 import {
   sanitizeErrorMessage,
@@ -473,6 +473,7 @@ function processNextExecution(queueState: QueueState): void {
  */
 async function executePython(
   pythonCode: string,
+  stdin: string,
   ctx: RuntimeCommandContext,
   scriptPath?: string,
   scriptArgs: string[] = [],
@@ -508,6 +509,7 @@ async function executePython(
     protocolToken: controller.protocolToken,
     sharedBuffer,
     pythonCode,
+    stdin,
     cwd: ctx.cwd,
     // Convert Map to null-prototype object for worker transfer
     // (Maps can't be postMessage'd, and null-prototype prevents prototype pollution)
@@ -651,6 +653,7 @@ export const python3Command: RuntimeCommand = {
 
     let pythonCode: string;
     let scriptPath: string | undefined;
+    let stdin = latin1FromBytes(ctx.stdin);
 
     if (parsed.code !== null) {
       pythonCode = parsed.code;
@@ -673,6 +676,7 @@ export const python3Command: RuntimeCommand = {
       // behavior in non-interactive contexts where no program is provided.
       // Decode bytes — Python source can hold unicode string literals.
       pythonCode = decodeBytesToUtf8(ctx.stdin);
+      stdin = "";
       scriptPath = "-";
     } else if (parsed.scriptFile !== null) {
       const filePath = ctx.fs.resolvePath(ctx.cwd, parsed.scriptFile);
@@ -698,6 +702,7 @@ export const python3Command: RuntimeCommand = {
       }
     } else if (decodeBytesToUtf8(ctx.stdin).trim()) {
       pythonCode = decodeBytesToUtf8(ctx.stdin);
+      stdin = "";
       scriptPath = "<stdin>";
     } else {
       return {
@@ -708,7 +713,7 @@ export const python3Command: RuntimeCommand = {
       };
     }
 
-    return executePython(pythonCode, ctx, scriptPath, parsed.scriptArgs);
+    return executePython(pythonCode, stdin, ctx, scriptPath, parsed.scriptArgs);
   },
 };
 

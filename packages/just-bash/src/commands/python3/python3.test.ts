@@ -75,6 +75,29 @@ describe("python3", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it("should make a redirected file available to Python at runtime", async () => {
+      const env = new Bash({
+        python: true,
+        files: { "/input.txt": "hello from stdin\nsecond line\n" },
+      });
+      const result = await env.exec(
+        'python3 -c "import sys; sys.stdout.write(sys.stdin.read().upper())" < /input.txt',
+      );
+      expect(result.stdout).toBe("HELLO FROM STDIN\nSECOND LINE\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should redirect Python stdout to a file", async () => {
+      const env = new Bash({ python: true });
+      const result = await env.exec(
+        'python3 -c "print(123)" > /output.txt && cat /output.txt',
+      );
+      expect(result.stdout).toBe("123\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should read Python code from stdin when invoked as `python3 -`", async () => {
       const env = new Bash({ python: true });
       const result = await env.exec('echo "print(456)" | python3 -');
