@@ -1,0 +1,298 @@
+{
+  "02ab7b8a04b9d1cc": {
+    "command": "grep -f pat.txt -e cherry hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n"
+    },
+    "stdout": "apple pie\ncherry\nbanana split\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "083a6b8c5a151939": {
+    "command": "grep -f meta.txt metahay.txt",
+    "files": {
+      "meta.txt": "a.b\nx*y\n",
+      "metahay.txt": "a.b\naxb\nx*y\nxy\n"
+    },
+    "stdout": "a.b\naxb\nx*y\nxy\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "1af9140fefba5844": {
+    "command": "grep -r -f p1.txt sub",
+    "files": {
+      "p1.txt": "apple\n",
+      "sub/f1.txt": "apple tree\nnope\n"
+    },
+    "stdout": "sub/f1.txt:apple tree\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "30333687b2079d2f": {
+    "command": "grep -F -f meta.txt metahay.txt",
+    "files": {
+      "meta.txt": "a.b\nx*y\n",
+      "metahay.txt": "a.b\naxb\nx*y\nxy\n"
+    },
+    "stdout": "a.b\nx*y\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "31c875d8a7151e99": {
+    "command": "grep -o -f pat.txt hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n"
+    },
+    "stdout": "apple\nbanana\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "3735a32e68779137": {
+    "command": "grep -f notrail.txt hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n",
+      "notrail.txt": "apple\nbanana"
+    },
+    "stdout": "apple pie\nbanana split\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "387fabc29d0f152d": {
+    "command": "grep -F -x -c -f keep.txt list.txt",
+    "files": {
+      "list.txt": "apple\nbanana\ncherry\n",
+      "keep.txt": "banana\ndate\napple\n"
+    },
+    "stdout": "2\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "4ba957bc991cf9b4": {
+    "command": "grep -f sub hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n",
+      "sub/f1.txt": "x\n"
+    },
+    "stdout": "",
+    "stderr": "grep: sub: Is a directory\n",
+    "exitCode": 2,
+    "locked": true
+  },
+  "716efe6511b3bf4a": {
+    "command": "grep -c -f empty.txt hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n",
+      "empty.txt": ""
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 1,
+    "locked": true
+  },
+  "81de23591d36efdc": {
+    "command": "grep -i -f p1.txt caps.txt",
+    "files": {
+      "p1.txt": "apple\n",
+      "caps.txt": "APPLE PIE\nApple\nnope\n"
+    },
+    "stdout": "APPLE PIE\nApple\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "90056beab043627f": {
+    "command": "grep -v -f empty.txt hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n",
+      "empty.txt": ""
+    },
+    "stdout": "apple pie\ncherry\nbanana split\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "90f3bff5ab88721e": {
+    "command": "grep --file=pat.txt hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n"
+    },
+    "stdout": "apple pie\nbanana split\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "9e04005fae32344c": {
+    "command": "grep -f mixed.txt hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n",
+      "mixed.txt": "foo\n\nbar\n"
+    },
+    "stdout": "apple pie\ncherry\nbanana split\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b372b1c75e1a8b15": {
+    "command": "grep -F -x -v -f keep.txt list.txt",
+    "files": {
+      "list.txt": "apple\nbanana\ncherry\n",
+      "keep.txt": "banana\ndate\napple\n"
+    },
+    "stdout": "cherry\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b9f787fdd0d38b43": {
+    "command": "grep -n -f pat.txt hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n"
+    },
+    "stdout": "1:apple pie\n3:banana split\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "c18843025d4e14f8": {
+    "command": "grep -f blank.txt hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n",
+      "blank.txt": "\n"
+    },
+    "stdout": "apple pie\ncherry\nbanana split\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "c1ec7e1966c89bff": {
+    "command": "grep -f p1.txt -f p2.txt hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n",
+      "p1.txt": "apple\n",
+      "p2.txt": "banana\n"
+    },
+    "stdout": "apple pie\nbanana split\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d30a75ceaa8276f2": {
+    "command": "grep -f /dev/null hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 1,
+    "locked": true
+  },
+  "d8448ec6e4604615": {
+    "command": "grep -f missing.txt hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n"
+    },
+    "stdout": "",
+    "stderr": "grep: missing.txt: No such file or directory\n",
+    "exitCode": 2,
+    "locked": true
+  },
+  "e1ec2a2e0083b764": {
+    "command": "grep -E -f ere.txt list.txt",
+    "files": {
+      "list.txt": "apple\nbanana\ncherry\n",
+      "keep.txt": "banana\ndate\napple\n",
+      "ere.txt": "^a.+e$\nch.rry\n"
+    },
+    "stdout": "apple\ncherry\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "eaf9b761b9e7820f": {
+    "command": "grep -f pat.txt hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n"
+    },
+    "stdout": "apple pie\nbanana split\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "f0c6b6610cd45ef7": {
+    "command": "grep -f empty.txt hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n",
+      "empty.txt": ""
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 1,
+    "locked": true
+  },
+  "f55c6321fc7176ab": {
+    "command": "grep -F -x -f keep.txt list.txt",
+    "files": {
+      "list.txt": "apple\nbanana\ncherry\n",
+      "keep.txt": "banana\ndate\napple\n"
+    },
+    "stdout": "apple\nbanana\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "f69efafbc45e0b0b": {
+    "command": "printf 'app\\nban\\n' | grep -f - hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n"
+    },
+    "stdout": "apple pie\nbanana split\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "f88dd7befbf52987": {
+    "command": "grep -v -f pat.txt hay.txt",
+    "files": {
+      "pat.txt": "apple\nbanana\n",
+      "hay.txt": "apple pie\ncherry\nbanana split\n"
+    },
+    "stdout": "cherry\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "fde4d326ea986149": {
+    "command": "grep -w -f p1.txt words.txt",
+    "files": {
+      "p1.txt": "apple\n",
+      "words.txt": "apple\npineapple\napple pie\n"
+    },
+    "stdout": "apple\napple pie\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}

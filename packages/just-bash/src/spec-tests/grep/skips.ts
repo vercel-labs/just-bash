@@ -134,26 +134,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   ["busybox-grep.tests:grep handles NUL in files", "-a option / NUL handling"],
   ["busybox-grep.tests:grep handles NUL on stdin", "-a option / NUL handling"],
 
-  // Multiple -e patterns
-  [
-    "busybox-grep.tests:grep handles multiple regexps",
-    "multiple -e patterns not supported",
-  ],
-  [
-    "busybox-grep.tests:grep -F handles multiple expessions",
-    "multiple -e patterns not supported",
-  ],
-  [
-    "busybox-grep.tests:grep -x -v -e EXP1 -e EXP2 finds nothing if either EXP matches",
-    "multiple -e patterns not supported",
-  ],
-
-  // -f option (read patterns from file)
-  [
-    "busybox-grep.tests:grep can read regexps from stdin",
-    "-f option not supported",
-  ],
-
   // -L option (print files without matches)
   ["busybox-grep.tests:grep -L exitcode 0", "-L option not implemented"],
 
@@ -161,20 +141,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   [
     "busybox-grep.tests:grep -o does not loop forever",
     "-o option not implemented",
-  ],
-
-  // -v with -f on empty file
-  ["busybox-grep.tests:grep -v -f EMPTY_FILE", "-f option not supported"],
-  ["busybox-grep.tests:grep -vxf EMPTY_FILE", "-f option not supported"],
-
-  // Newline-delimited patterns via command substitution
-  [
-    "busybox-grep.tests:grep PATTERN can be a newline-delimited list",
-    "newline-delimited patterns not supported",
-  ],
-  [
-    "busybox-grep.tests:grep -e PATTERN can be a newline-delimited list",
-    "newline-delimited patterns not supported",
   ],
 
   // Recursive grep with symlinks (requires mkdir/symlink setup)

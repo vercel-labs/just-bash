@@ -216,7 +216,10 @@ export function buildRegex(
     regexPattern = `\\b(?:${regexPattern})\\b`;
   }
   if (options.lineRegexp) {
-    regexPattern = `^${regexPattern}$`;
+    // Wrap in a non-capturing group so alternation binds inside the anchors:
+    // a|b must become ^(?:a|b)$, not ^a|b$ (which anchors only the outer
+    // alternatives). Matters for multi-pattern grep (-e/-f) with -x.
+    regexPattern = `^(?:${regexPattern})$`;
   }
 
   // Build flags:

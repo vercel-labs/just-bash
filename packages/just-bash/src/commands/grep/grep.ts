@@ -9,7 +9,11 @@ import type {
 } from "../../types.js";
 import { matchGlob } from "../../utils/glob.js";
 import { showHelp, unknownOption } from "../help.js";
-import { buildRegex, searchContent } from "../search-engine/index.js";
+import {
+  buildRegex,
+  type RegexMode,
+  searchContent,
+} from "../search-engine/index.js";
 
 /** File entry with optional type info from glob expansion */
 interface FileEntry {
@@ -49,6 +53,71 @@ function addTraversalResult(budget: GrepTraversalBudget): void {
   budget.results++;
 }
 
+/**
+ * A regex that can never match anything, used when the pattern list is empty
+ * (e.g. `grep -f /dev/null`). `[^\s\S]` is the empty character class: no
+ * codepoint is both non-whitespace and non-non-whitespace. Wrapping it for
+ * -w (`\b(?:...)\b`) or -x (`^(?:...)$`) keeps it unmatchable.
+ */
+const NEVER_MATCHES = "[^\\s\\S]";
+
+/**
+ * Split a `-e`/positional PATTERNS operand into individual patterns.
+ *
+ * GNU grep documents PATTERNS as "one or more patterns separated by newline
+ * characters", so a trailing newline yields a trailing empty pattern (which
+ * matches every line). Verified against GNU grep 3.12:
+ *   grep -e $'cherry\n' FILE   # prints every line
+ */
+function splitPatternOperand(value: string): string[] {
+  return value.split("\n");
+}
+
+/**
+ * Split the contents of a `-f FILE` pattern file into individual patterns.
+ *
+ * Unlike `-e`, the final newline of a pattern file is a terminator rather than
+ * a separator, so it does not produce a trailing empty pattern. An empty file
+ * contributes no patterns at all. Interior empty lines are kept: an empty
+ * pattern matches every line. Verified against GNU grep 3.12.
+ */
+function splitPatternFile(content: string): string[] {
+  if (content === "") return [];
+  const lines = content.split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
+  return lines;
+}
+
+/**
+ * OR-combine several patterns into one regex source.
+ *
+ * A single pattern is returned untouched so the common case keeps its original
+ * mode (and the literal pre-filter fast path). Multiple fixed strings are
+ * escaped and lifted into an extended regex, since POSIX BRE/ERE have no way to
+ * express "any of these literals" without escaping first.
+ */
+function combinePatterns(
+  patterns: string[],
+  mode: RegexMode,
+): { pattern: string; mode: RegexMode } {
+  if (patterns.length === 1) {
+    return { pattern: patterns[0], mode };
+  }
+  if (mode === "fixed") {
+    return {
+      pattern: patterns
+        .map((p) => `(?:${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`)
+        .join("|"),
+      mode: "extended",
+    };
+  }
+  if (mode === "basic") {
+    // BRE spells alternation `\|`; escapeRegexForBasicGrep turns it into `|`.
+    return { pattern: patterns.join("\\|"), mode };
+  }
+  return { pattern: patterns.map((p) => `(?:${p})`).join("|"), mode };
+}
+
 const grepHelp = {
   name: "grep",
   summary: "print lines that match patterns",
@@ -74,6 +143,7 @@ const grepHelp = {
     "-B NUM                   print NUM lines of leading context",
     "-C NUM                   print NUM lines of context",
     "-e PATTERN               use PATTERN for matching",
+    "-f FILE, --file=FILE     obtain patterns from FILE, one per line",
     "    --include=GLOB       search only files matching GLOB",
     "    --exclude=GLOB       skip files matching GLOB",
     "    --exclude-dir=DIR    skip directories matching DIR",
@@ -109,8 +179,15 @@ export const grepCommand: RuntimeCommand = {
     const includePatterns: string[] = [];
     const excludePatterns: string[] = [];
     const excludeDirPatterns: string[] = [];
-    let pattern: string | null = null;
-    const files: string[] = [];
+    /**
+     * PATTERNS operands given via -e, in argument order. GNU grep accumulates
+     * repeated -e rather than letting the last one win, and each operand may
+     * itself be a newline-separated list.
+     */
+    const exprPatterns: string[] = [];
+    /** Paths given to -f/--file, in argument order. "-" means stdin. */
+    const patternFiles: string[] = [];
+    const operands: string[] = [];
     let parseOptions = true;
 
     // Parse arguments
@@ -128,7 +205,13 @@ export const grepCommand: RuntimeCommand = {
 
       if (parseOptions && arg.startsWith("-") && arg !== "-") {
         if (arg === "-e" && i + 1 < args.length) {
-          pattern = args[++i];
+          exprPatterns.push(args[++i]);
+          continue;
+        }
+
+        // Handle --file=FILE (can be specified multiple times)
+        if (arg.startsWith("--file=")) {
+          patternFiles.push(arg.slice("--file=".length));
           continue;
         }
 
@@ -197,7 +280,28 @@ export const grepCommand: RuntimeCommand = {
 
         const flags = arg.startsWith("--") ? [arg] : arg.slice(1).split("");
 
-        for (const flag of flags) {
+        for (let f = 0; f < flags.length; f++) {
+          const flag = flags[f];
+          if (flag === "f" || flag === "--file") {
+            // `-fFILE` and `-vxfFILE` attach the value to the same argument;
+            // `-f FILE`, `-vxf FILE` and `--file FILE` take the next one.
+            const attached = flag === "f" ? flags.slice(f + 1).join("") : "";
+            if (attached.length > 0) {
+              patternFiles.push(attached);
+            } else if (i + 1 < args.length) {
+              patternFiles.push(args[++i]);
+            } else {
+              return {
+                stdout: "",
+                stderr:
+                  flag === "f"
+                    ? "grep: option requires an argument -- 'f'\n"
+                    : "grep: option '--file' requires an argument\n",
+                exitCode: 2,
+              };
+            }
+            break;
+          }
           if (flag === "i" || flag === "--ignore-case") ignoreCase = true;
           else if (flag === "n" || flag === "--line-number")
             showLineNumbers = true;
@@ -228,36 +332,145 @@ export const grepCommand: RuntimeCommand = {
             return unknownOption("grep", `-${flag}`);
           }
         }
-      } else if (pattern === null) {
-        pattern = arg;
       } else {
-        files.push(arg);
+        operands.push(arg);
       }
     }
 
-    if (pattern === null) {
-      return {
-        stdout: "",
-        stderr: "grep: missing pattern\n",
-        exitCode: 2,
-      };
+    // The first operand is the pattern only when no -e/-f pattern was given.
+    if (exprPatterns.length === 0 && patternFiles.length === 0) {
+      const positionalPattern = operands.shift();
+      if (positionalPattern === undefined) {
+        return {
+          stdout: "",
+          stderr: "grep: missing pattern\n",
+          exitCode: 2,
+        };
+      }
+      exprPatterns.push(positionalPattern);
+    }
+    const files = operands;
+
+    // Collect patterns: every -e (and the positional operand) in argument
+    // order, then each -f file in order. All of them OR-combine, exactly like
+    // GNU grep.
+    const patterns: string[] = [];
+    for (const operand of exprPatterns) {
+      patterns.push(...splitPatternOperand(operand));
+    }
+    if (patterns.length > ctx.limits.maxArrayElements) {
+      throw new ExecutionLimitError(
+        `grep: array element limit exceeded (${ctx.limits.maxArrayElements})`,
+        "array_elements",
+      );
+    }
+    /** True once `-f -` has drained stdin, so it can't also be searched. */
+    let stdinUsedForPatterns = false;
+    for (const patternFile of patternFiles) {
+      let content: string;
+      if (patternFile === "") {
+        // `-f ""` / `--file=` never names a file; GNU reports the empty name
+        // rather than resolving it relative to the working directory.
+        return {
+          stdout: "",
+          stderr: "grep: : No such file or directory\n",
+          exitCode: 2,
+        };
+      }
+      if (patternFile === "-") {
+        // stdin is a stream: the first `-f -` drains it, any later one reads
+        // EOF and contributes nothing.
+        content = stdinUsedForPatterns ? "" : decodeBytesToUtf8(ctx.stdin);
+        stdinUsedForPatterns = true;
+      } else {
+        try {
+          const path = ctx.fs.resolvePath(ctx.cwd, patternFile);
+          const stat = await ctx.fs.stat(path);
+          if (stat.isDirectory) {
+            return {
+              stdout: "",
+              stderr: `grep: ${patternFile}: Is a directory\n`,
+              exitCode: 2,
+            };
+          }
+          content = await ctx.fs.readFile(path);
+        } catch (error) {
+          rethrowFatalExecutionError(error);
+          return {
+            stdout: "",
+            stderr: `grep: ${patternFile}: No such file or directory\n`,
+            exitCode: 2,
+          };
+        }
+      }
+      const filePatterns = splitPatternFile(content);
+      if (patterns.length + filePatterns.length > ctx.limits.maxArrayElements) {
+        throw new ExecutionLimitError(
+          `grep: array element limit exceeded (${ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
+      patterns.push(...filePatterns);
+    }
+
+    // An empty pattern list (e.g. `grep -f /dev/null`) selects no lines at all.
+    // GNU grep short-circuits: no output, no per-file counts, no "no such file"
+    // diagnostics, exit 1. With -v every line is selected instead, and -L still
+    // has to visit the files, so both keep the normal path with a regex that
+    // can never match.
+    if (patterns.length === 0 && !invertMatch && !filesWithoutMatch) {
+      return { stdout: "", stderr: "", exitCode: 1 };
     }
 
     // Build regex using shared search-engine
-    const regexMode = fixedStrings
+    const regexMode: RegexMode = fixedStrings
       ? "fixed"
       : extendedRegex
         ? "extended"
         : perlRegex
           ? "perl"
           : "basic";
+    // GNU's PCRE backend cannot express an alternation of independent
+    // patterns, so it refuses more than one under -P. Duplicates are folded
+    // first, matching GNU: `-P -e apple -e apple` is accepted.
+    if (regexMode === "perl" && new Set(patterns).size > 1) {
+      return {
+        stdout: "",
+        stderr: "grep: the -P option only supports a single pattern\n",
+        exitCode: 2,
+      };
+    }
+
+    // Alternatives are concatenated textually, so a malformed pattern could
+    // otherwise swallow the separator and silently absorb its neighbour
+    // (`a\` + `banana` becoming the literal `a|banana`). Compile each pattern
+    // on its own first so a syntax error is reported instead. Fixed strings
+    // are escaped before joining and can never be malformed.
+    if (patterns.length > 1 && regexMode !== "fixed") {
+      for (const p of patterns) {
+        try {
+          buildRegex(p, { mode: regexMode });
+        } catch {
+          return {
+            stdout: "",
+            stderr: `grep: invalid regular expression: ${p}\n`,
+            exitCode: 2,
+          };
+        }
+      }
+    }
+
+    const combined =
+      patterns.length === 0
+        ? { pattern: NEVER_MATCHES, mode: "extended" as RegexMode }
+        : combinePatterns(patterns, regexMode);
 
     let regex: UserRegex;
     let kResetGroup: number | undefined;
     let preFilter: import("../search-engine/regex.js").PreFilter | undefined;
     try {
-      const regexResult = buildRegex(pattern, {
-        mode: regexMode,
+      const regexResult = buildRegex(combined.pattern, {
+        mode: combined.mode,
         ignoreCase,
         wholeWord,
         lineRegexp,
@@ -268,7 +481,7 @@ export const grepCommand: RuntimeCommand = {
     } catch {
       return {
         stdout: "",
-        stderr: `grep: invalid regular expression: ${pattern}\n`,
+        stderr: `grep: invalid regular expression: ${patterns.join("\n")}\n`,
         exitCode: 2,
       };
     }
@@ -277,7 +490,8 @@ export const grepCommand: RuntimeCommand = {
     // stdin. grep runs regex over text — decode bytes to UTF-8 so multibyte
     // codepoints match `.` / character classes correctly.
     if (files.length === 0 && ctx.stdin !== undefined) {
-      const result = searchContent(decodeBytesToUtf8(ctx.stdin), regex, {
+      const input = stdinUsedForPatterns ? "" : decodeBytesToUtf8(ctx.stdin);
+      const result = searchContent(input, regex, {
         invertMatch,
         showLineNumbers,
         countOnly,
@@ -870,6 +1084,7 @@ export const flagsForFuzzing: CommandFuzzInfo = {
     { flag: "-B", type: "value", valueHint: "number" },
     { flag: "-C", type: "value", valueHint: "number" },
     { flag: "-e", type: "value", valueHint: "pattern" },
+    { flag: "-f", type: "value", valueHint: "path" },
   ],
   stdinType: "text",
   needsArgs: true,
